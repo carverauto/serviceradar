@@ -83,7 +83,7 @@ func TestEdgeOnboardingCreatePackageSuccess(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(context.Background(), cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
@@ -145,7 +145,7 @@ func TestEdgeOnboardingCreatePackagePollerConflict(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(context.Background(), cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
@@ -188,7 +188,7 @@ func TestEdgeOnboardingDeliverPackageSuccess(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(context.Background(), cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
@@ -226,7 +226,7 @@ func TestEdgeOnboardingDeliverPackageSuccess(t *testing.T) {
 		assert.Equal(t, models.EdgeOnboardingStatusDelivered, stored.Status)
 		assert.NotNil(t, stored.DeliveredAt)
 		assert.Equal(t, now, stored.DeliveredAt.UTC())
-		assert.Equal(t, "", stored.DownloadTokenHash)
+		assert.Empty(t, stored.DownloadTokenHash)
 		assert.Equal(t, now, stored.DownloadTokenExpiresAt)
 		assert.Equal(t, now, stored.UpdatedAt)
 		return nil
@@ -276,7 +276,7 @@ func TestEdgeOnboardingDeliverPackageInvalidToken(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(context.Background(), cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
@@ -343,7 +343,7 @@ func TestEdgeOnboardingRevokePackageSuccess(t *testing.T) {
 	).Return([]string{}, nil).AnyTimes()
 	gomock.InOrder(firstCall, secondCall)
 
-	svc, err := newEdgeOnboardingService(context.Background(), cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
@@ -371,7 +371,7 @@ func TestEdgeOnboardingRevokePackageSuccess(t *testing.T) {
 		assert.Equal(t, models.EdgeOnboardingStatusRevoked, stored.Status)
 		assert.NotNil(t, stored.RevokedAt)
 		assert.Equal(t, now, stored.RevokedAt.UTC())
-		assert.Equal(t, "", stored.DownloadTokenHash)
+		assert.Empty(t, stored.DownloadTokenHash)
 		assert.Equal(t, now, stored.DownloadTokenExpiresAt)
 		assert.Equal(t, now, stored.JoinTokenExpiresAt)
 		return nil
@@ -419,7 +419,7 @@ func TestEdgeOnboardingRevokePackageAlreadyRevoked(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(context.Background(), cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
