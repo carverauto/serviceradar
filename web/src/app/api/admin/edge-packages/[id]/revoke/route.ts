@@ -1,5 +1,3 @@
-"use server";
-
 import { NextRequest, NextResponse } from "next/server";
 import {
   buildAuthHeaders,
@@ -8,16 +6,19 @@ import {
   resolveAuthHeader,
 } from "../../helpers";
 
+type ParamsPromise = Promise<{ id: string }>;
+
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: ParamsPromise }
 ) {
   const authHeader = resolveAuthHeader(req);
   if (!authHeader) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const packageId = params.id?.trim();
+  const { id } = await context.params;
+  const packageId = id?.trim();
   if (!packageId) {
     return NextResponse.json({ error: "Package ID is required" }, { status: 400 });
   }

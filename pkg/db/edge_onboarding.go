@@ -103,7 +103,7 @@ func (db *DB) GetEdgeOnboardingPackage(ctx context.Context, packageID string) (*
 			revoked_at,
 			metadata_json,
 			notes
-		FROM edge_onboarding_packages FINAL
+		FROM edge_onboarding_packages
 		WHERE package_id = $1
 		LIMIT 1`,
 		packageID)
@@ -146,7 +146,7 @@ func (db *DB) ListEdgeOnboardingPackages(ctx context.Context, filter *models.Edg
 			revoked_at,
 			metadata_json,
 			notes
-		FROM edge_onboarding_packages FINAL`
+		FROM edge_onboarding_packages`
 
 	var (
 		args       []interface{}
