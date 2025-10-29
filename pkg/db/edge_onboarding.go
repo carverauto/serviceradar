@@ -103,7 +103,7 @@ func (db *DB) GetEdgeOnboardingPackage(ctx context.Context, packageID string) (*
 			revoked_at,
 			metadata_json,
 			notes
-		FROM edge_onboarding_packages
+		FROM table(edge_onboarding_packages) FINAL
 		WHERE package_id = $1
 		LIMIT 1`,
 		packageID)
@@ -146,7 +146,7 @@ func (db *DB) ListEdgeOnboardingPackages(ctx context.Context, filter *models.Edg
 			revoked_at,
 			metadata_json,
 			notes
-		FROM edge_onboarding_packages`
+		FROM table(edge_onboarding_packages) FINAL`
 
 	var (
 		args       []interface{}
@@ -212,28 +212,23 @@ func (db *DB) ListEdgeOnboardingPollerIDs(ctx context.Context, statuses ...model
 	}
 
 	query := `
-		SELECT DISTINCT poller_id
-		FROM edge_onboarding_packages FINAL`
+		SELECT poller_id, _tp_delta
+		FROM table(edge_onboarding_packages) FINAL`
 
-	var (
-		args       []interface{}
-		conditions []string
-	)
-
-	param := func(value interface{}) string {
-		args = append(args, value)
-		return fmt.Sprintf("$%d", len(args))
-	}
-
+	var conditions []string
 	if len(statusStrings) > 0 {
-		conditions = append(conditions, fmt.Sprintf("status IN %s", param(statusStrings)))
+		literals := make([]string, 0, len(statusStrings))
+		for _, st := range statusStrings {
+			literals = append(literals, fmt.Sprintf("'%s'", st))
+		}
+		conditions = append(conditions, fmt.Sprintf("status IN (%s)", strings.Join(literals, ", ")))
 	}
 
 	if len(conditions) > 0 {
 		query += "\nWHERE " + strings.Join(conditions, " AND ")
 	}
 
-	rows, err := db.Conn.Query(ctx, query, args...)
+	rows, err := db.Conn.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("%w edge onboarding pollers: %w", ErrFailedToQuery, err)
 	}
@@ -241,9 +236,15 @@ func (db *DB) ListEdgeOnboardingPollerIDs(ctx context.Context, statuses ...model
 
 	var pollerIDs []string
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var (
+			id    string
+			delta int8
+		)
+		if err := rows.Scan(&id, &delta); err != nil {
 			return nil, fmt.Errorf("%w edge onboarding poller id: %w", ErrFailedToScan, err)
+		}
+		if delta <= 0 {
+			continue
 		}
 		pollerIDs = append(pollerIDs, id)
 	}
@@ -290,7 +291,7 @@ func (db *DB) ListEdgeOnboardingEvents(ctx context.Context, packageID string, li
 			actor,
 			source_ip,
 			details_json
-		FROM edge_onboarding_events
+		FROM table(edge_onboarding_events) FINAL
 		WHERE package_id = $1
 		ORDER BY event_time DESC
 		LIMIT $2`,

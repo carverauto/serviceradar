@@ -34,11 +34,13 @@ var onboardingAllowedStatuses = []models.EdgeOnboardingStatus{
 }
 
 const (
-	defaultJoinTokenTTL     = 15 * time.Minute
-	defaultDownloadTokenTTL = 24 * time.Hour
-	downstreamX509TTL       = 4 * time.Hour
-	downstreamJWTTTL        = 30 * time.Minute
-	downloadTokenBytes      = 24
+	defaultJoinTokenTTL          = 15 * time.Minute
+	defaultDownloadTokenTTL      = 24 * time.Hour
+	downstreamX509TTL            = 4 * time.Hour
+	downstreamJWTTTL             = 30 * time.Minute
+	downloadTokenBytes           = 24
+	defaultPollerRefreshInterval = 5 * time.Minute
+	defaultPollerRefreshTimeout  = 5 * time.Second
 )
 
 var (
@@ -57,6 +59,17 @@ type edgeOnboardingService struct {
 	trustDomain string
 	mu          sync.RWMutex
 	allowed     map[string]struct{}
+
+	refreshInterval time.Duration
+	refreshTimeout  time.Duration
+
+	runMu     sync.Mutex
+	running   bool
+	cancel    context.CancelFunc
+	refreshWg sync.WaitGroup
+
+	callbackMu      sync.RWMutex
+	allowedCallback func([]string)
 }
 
 func newEdgeOnboardingService(ctx context.Context, cfg *models.EdgeOnboardingConfig, spireCfg *models.SpireAdminConfig, spireClient spireadmin.Client, database db.Service, log logger.Logger) (*edgeOnboardingService, error) {
@@ -84,6 +97,9 @@ func newEdgeOnboardingService(ctx context.Context, cfg *models.EdgeOnboardingCon
 		now:      time.Now,
 		rand:     rand.Reader,
 		allowed:  make(map[string]struct{}),
+
+		refreshInterval: defaultPollerRefreshInterval,
+		refreshTimeout:  defaultPollerRefreshTimeout,
 	}
 
 	if spireCfg != nil && spireCfg.ServerSPIFFEID != "" {
@@ -94,11 +110,95 @@ func newEdgeOnboardingService(ctx context.Context, cfg *models.EdgeOnboardingCon
 		}
 	}
 
-	if err := service.refreshAllowedPollers(ctx); err != nil {
-		return nil, err
+	return service, nil
+}
+
+func (s *edgeOnboardingService) Start(ctx context.Context) error {
+	if s == nil {
+		return nil
 	}
 
-	return service, nil
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
+
+	if s.running {
+		return nil
+	}
+
+	parent := ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+
+	if err := s.refreshAllowedPollers(parent); err != nil {
+		s.logger.Warn().Err(err).Msg("edge onboarding: initial poller refresh failed")
+	}
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	s.running = true
+
+	s.refreshWg.Add(1)
+	go s.refreshLoop(runCtx, parent)
+
+	return nil
+}
+
+func (s *edgeOnboardingService) Stop(context.Context) error {
+	if s == nil {
+		return nil
+	}
+
+	s.runMu.Lock()
+	if !s.running {
+		s.runMu.Unlock()
+		return nil
+	}
+	s.running = false
+	cancel := s.cancel
+	s.cancel = nil
+	s.runMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+
+	s.refreshWg.Wait()
+
+	return nil
+}
+
+func (s *edgeOnboardingService) refreshLoop(runCtx context.Context, parent context.Context) {
+	defer s.refreshWg.Done()
+
+	if parent == nil {
+		parent = context.Background()
+	}
+
+	interval := s.refreshInterval
+	if interval <= 0 {
+		select {
+		case <-runCtx.Done():
+		case <-parent.Done():
+		}
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-runCtx.Done():
+			return
+		case <-parent.Done():
+			return
+		case <-ticker.C:
+			if err := s.refreshAllowedPollers(parent); err != nil {
+				s.logger.Warn().Err(err).Msg("edge onboarding: periodic poller refresh failed")
+			}
+		}
+	}
 }
 
 func (s *edgeOnboardingService) refreshAllowedPollers(ctx context.Context) error {
@@ -106,19 +206,30 @@ func (s *edgeOnboardingService) refreshAllowedPollers(ctx context.Context) error
 		return nil
 	}
 
-	ids, err := s.db.ListEdgeOnboardingPollerIDs(ctx, onboardingAllowedStatuses...)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	refreshCtx, cancel := context.WithTimeout(ctx, s.refreshTimeout)
+	defer cancel()
+
+	ids, err := s.db.ListEdgeOnboardingPollerIDs(refreshCtx, onboardingAllowedStatuses...)
 	if err != nil {
 		return fmt.Errorf("edge onboarding: list poller ids: %w", err)
 	}
 
 	next := make(map[string]struct{}, len(ids))
+	pollers := make([]string, 0, len(ids))
 	for _, id := range ids {
 		next[id] = struct{}{}
+		pollers = append(pollers, id)
 	}
 
 	s.mu.Lock()
 	s.allowed = next
 	s.mu.Unlock()
+
+	s.notifyAllowedPollers(pollers)
 
 	return nil
 }
@@ -137,6 +248,36 @@ func (s *edgeOnboardingService) allowedPollersSnapshot() []string {
 	}
 
 	return pollers
+}
+
+func (s *edgeOnboardingService) notifyAllowedPollers(pollerIDs []string) {
+	s.callbackMu.RLock()
+	cb := s.allowedCallback
+	s.callbackMu.RUnlock()
+	if cb != nil {
+		cb(pollerIDs)
+	}
+}
+
+func (s *edgeOnboardingService) SetAllowedPollerCallback(cb func([]string)) {
+	if s == nil {
+		return
+	}
+
+	s.callbackMu.Lock()
+	s.allowedCallback = cb
+	s.callbackMu.Unlock()
+
+	if cb != nil {
+		cb(s.allowedPollersSnapshot())
+	}
+}
+
+func (s *edgeOnboardingService) broadcastAllowedSnapshot() {
+	if s == nil {
+		return
+	}
+	s.notifyAllowedPollers(s.allowedPollersSnapshot())
 }
 
 func (s *edgeOnboardingService) isPollerAllowed(ctx context.Context, pollerID string) bool {
@@ -337,6 +478,7 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 	s.mu.Lock()
 	s.allowed[pollerID] = struct{}{}
 	s.mu.Unlock()
+	s.broadcastAllowedSnapshot()
 
 	cleanupNeeded = false
 
@@ -526,6 +668,7 @@ func (s *edgeOnboardingService) RevokePackage(ctx context.Context, req *models.E
 	s.mu.Lock()
 	delete(s.allowed, pkg.PollerID)
 	s.mu.Unlock()
+	s.broadcastAllowedSnapshot()
 
 	return &models.EdgeOnboardingRevokeResult{Package: pkg}, nil
 }

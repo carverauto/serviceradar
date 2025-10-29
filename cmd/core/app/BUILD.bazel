@@ -1,0 +1,20 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "app",
+    srcs = ["app.go"],
+    importpath = "github.com/carverauto/serviceradar/cmd/core/app",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//alias:api",
+        "//alias:core",
+        "//alias:core-bootstrap",
+        "//alias:lifecycle",
+        "//alias:logger",
+        "//alias:swagger",
+        "//proto",
+        "//pkg/spireadmin",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//stats",
+    ],
+)

@@ -18,26 +18,26 @@
 package core
 
 import (
-    "context"
-    "fmt"
-    "os"
-    "time"
+	"context"
+	"fmt"
+	"os"
+	"time"
 
-    "go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel"
 
-    cfgutil "github.com/carverauto/serviceradar/pkg/config"
-    "github.com/carverauto/serviceradar/pkg/core/alerts"
-    "github.com/carverauto/serviceradar/pkg/core/api"
-    "github.com/carverauto/serviceradar/pkg/core/auth"
-    "github.com/carverauto/serviceradar/pkg/db"
-    "github.com/carverauto/serviceradar/pkg/identitymap"
-    "github.com/carverauto/serviceradar/pkg/lifecycle"
-    "github.com/carverauto/serviceradar/pkg/metrics"
-    "github.com/carverauto/serviceradar/pkg/metricstore"
-    "github.com/carverauto/serviceradar/pkg/models"
-    "github.com/carverauto/serviceradar/pkg/registry"
-    "github.com/carverauto/serviceradar/pkg/spireadmin"
-    "github.com/carverauto/serviceradar/proto"
+	cfgutil "github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/core/alerts"
+	"github.com/carverauto/serviceradar/pkg/core/api"
+	"github.com/carverauto/serviceradar/pkg/core/auth"
+	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/identitymap"
+	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/metrics"
+	"github.com/carverauto/serviceradar/pkg/metricstore"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/registry"
+	"github.com/carverauto/serviceradar/pkg/spireadmin"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
@@ -147,7 +147,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		canonicalCache:      newCanonicalCache(10 * time.Minute),
 	}
 
-    edgeSvc, err := newEdgeOnboardingService(ctx, normalizedConfig.EdgeOnboarding, normalizedConfig.SpireAdmin, spireClient, database, log)
+	edgeSvc, err := newEdgeOnboardingService(ctx, normalizedConfig.EdgeOnboarding, normalizedConfig.SpireAdmin, spireClient, database, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize edge onboarding service: %w", err)
 	}
@@ -180,6 +180,12 @@ func (s *Server) Start(ctx context.Context) error {
 		s.logger.Warn().Err(err).Msg("Failed to clean up unknown pollers")
 	}
 
+	if s.edgeOnboarding != nil {
+		if err := s.edgeOnboarding.Start(ctx); err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to start edge onboarding service")
+		}
+	}
+
 	if s.grpcServer != nil {
 		errCh := make(chan error, 1)
 
@@ -210,6 +216,12 @@ func (s *Server) Stop(ctx context.Context) error {
 
 	if err := s.sendShutdownNotification(ctx); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to send shutdown notification")
+	}
+
+	if s.edgeOnboarding != nil {
+		if err := s.edgeOnboarding.Stop(ctx); err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to stop edge onboarding service")
+		}
 	}
 
 	if s.grpcServer != nil {
@@ -341,6 +353,7 @@ func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 	apiServer.SetKnownPollers(s.config.KnownPollers)
 	if s.edgeOnboarding != nil {
 		apiServer.SetDynamicPollers(s.edgeOnboarding.allowedPollersSnapshot())
+		s.edgeOnboarding.SetAllowedPollerCallback(apiServer.SetDynamicPollers)
 	}
 
 	// MCP initialization removed; SRQL/MCP is now external
