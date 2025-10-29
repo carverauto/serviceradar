@@ -3,7 +3,8 @@
 This runbook explains how to issue ServiceRadar onboarding packages for hosts that
 run outside the Kubernetes demo cluster. It captures the current poller flow and
 lays out the forthcoming agent/checker enhancements so operators know what to
-gather before a rollout.
+gather before a rollout. See `docs/docs/edge-agent-onboarding.md` for the
+component-by-component breakdown and KV automation model.
 
 > **Status overview**
 >
@@ -11,6 +12,25 @@ gather before a rollout.
 > - **Agent and checker onboarding** leverage the same package machinery but
 >   still require manual KV updates. The backend/API work (GH-1904 /
 >   serviceradar-54) will automate those steps in an upcoming release.
+> - **Next milestone (GH-1909)** tracks the multi-component UI/API so operators
+>   can issue packages for pollers, agents, and checkers from one flow.
+
+---
+
+## Component scope and relationships
+
+| Component | Parent association | Package artefacts | KV path updated on create | Notes |
+|-----------|-------------------|-------------------|---------------------------|-------|
+| Poller    | None              | `edge-poller.env`, SPIRE join token + bundle | `config/pollers/<poller-id>` | Establishes the edge site and acts as the control plane for downstream agents. |
+| Agent     | Poller            | `edge-agent.env`, SPIRE join token + bundle | `config/pollers/<poller-id>/agents/<agent-id>` | Agents inherit connectivity details from their parent poller and surface checker slots. |
+| Checker   | Agent             | `edge-checker.env` (planned), SPIRE assets when needed | `config/agents/<agent-id>/checkers/<checker-id>` | Checkers depend on an agent for dispatch and credential management. |
+
+When the new onboarding UI lands, the operator must declare the component type
+up front. Selecting *Agent* requires choosing a poller parent; selecting
+*Checker* requires choosing an agent parent (which implicitly ties it to that
+agent’s poller). During package creation Core will update the parent KV
+document, marking the new child as `pending` so it activates automatically once
+the installer reports back.
 
 ---
 
@@ -63,6 +83,10 @@ load balancers change:
 
 1. Log into the web UI as an admin and open **Admin → Edge Onboarding**.
 2. Click **Issue new installer** and provide:
+   - **Component type**: Set to *Poller*. (The multi-component selector ships
+     with GH-1909; until then the form defaults to pollers.)
+   - **Component ID**: Leave blank to auto-generate a slug from the label, or
+     provide a custom lowercase identifier (hyphen-separated).
    - **Label** (required): Friendly name; also seeds the poller ID.
    - **Poller ID** (optional): Override the generated slug.
    - **Site** (optional): Free-form location tag.
@@ -162,13 +186,20 @@ package *Revoked*.
 
 ### Target flow
 
-1. Operator selects **Agent** in the onboarding form and chooses the poller the
-   agent will register with.
-2. Core issues a package containing:
+1. Operator selects **Component type → Agent** in the onboarding form.
+2. UI prompts for **Associated poller** and surfaces pollers that are active or
+   have pending packages.
+3. Optional presets let the operator choose common agent roles (SNMP gateway,
+   sysmon collector, etc.) to scaffold metadata.
+4. Core issues a package containing:
    - SPIRE join token/bundle for the agent workload entry.
-   - `edge-agent.env` with Core/KV endpoints and the associated poller ID.
-3. After download, the installer updates the poller’s KV config so it starts
-   streaming tasks to the new agent.
+   - `edge-agent.env` with Core/KV endpoints, the parent poller ID, and any
+     metadata captured in the form.
+5. Core immediately updates the poller’s KV document at
+   `config/pollers/<poller-id>/agents/<agent-id>` with `status: "pending"` so
+   the poller starts streaming tasks to the agent on activation.
+6. Activation events flip the KV entry to `active` and add an audit record that
+   references the parent poller.
 
 ### Interim workaround (manual)
 
@@ -179,9 +210,9 @@ Until the automation lands:
 2. Extract `edge-poller.env`, rename to `edge-agent.env`, and tailor the env for
    the agent container.
 3. Update KV manually:
-   - `serviceradar-cli kv get --key config/pollers/<poller-id>/agent.json`
+   - `serviceradar-cli kv get --key config/pollers/<poller-id>/agents/<agent-id>.json`
    - Merge the new agent definition, set `status: "pending"`.
-   - `serviceradar-cli kv put --key ... --file updated.json`
+   - `serviceradar-cli kv put --key config/pollers/<poller-id>/agents/<agent-id>.json --file updated.json`
 
 ---
 
@@ -196,8 +227,13 @@ UX will prompt for:
 
 Core will then:
 
-1. Issue SPIRE credentials for the checker workload (if needed).
-2. Update the agent’s KV entry so it schedules the new checker once activated.
+1. Require **Component type → Checker** and selection of the parent agent (with
+   an inline reminder of the agent’s parent poller).
+2. Issue SPIRE credentials for the checker workload (if needed).
+3. Update the agent’s KV entry at
+   `config/agents/<agent-id>/checkers/<checker-id>` with `status: "pending"`,
+   checker kind, and metadata (targets, credentials). The agent promotes the
+   checker to `active` once it reports back.
 
 ### Manual procedure today
 
@@ -222,8 +258,17 @@ Core will then:
 ## 7. Next Steps
 
 - Finish the API/UI work for agent and checker packages so metadata + KV updates
-  are produced automatically (serviceradar-54 / GH-1904).
+  are produced automatically (serviceradar-54 / GH-1904, successor GH-1909).
 - Add UI presets so operators can choose “Edge poller” / “Edge agent” /
   “Edge checker” without pasting JSON.
 - Extend the restart script to install agents/checkers once the new packages are
   available.
+
+---
+
+## Tracking
+
+- **GitHub:** [GH-1909](https://github.com/carverauto/serviceradar/issues/1909)
+  “Edge onboarding: support agents and checkers”.
+- **Beads:** New follow-up issue to succeed `serviceradar-54` once the docs are
+  updated (see repo `.beads` index).

@@ -35,9 +35,15 @@ import {
 
 import RoleGuard from '@/components/Auth/RoleGuard';
 
+type EdgeComponentType = 'poller' | 'agent' | 'checker' | '';
+
 type EdgePackage = {
   package_id: string;
   label: string;
+  component_id: string;
+  component_type: EdgeComponentType;
+  parent_type?: EdgeComponentType;
+  parent_id?: string;
   poller_id: string;
   site?: string;
   status: string;
@@ -54,6 +60,9 @@ type EdgePackage = {
   last_seen_spiffe_id?: string;
   revoked_at?: string;
   metadata_json?: string;
+  checker_kind?: string;
+  checker_config_json?: string;
+  kv_revision?: number;
   notes?: string;
 };
 
@@ -72,6 +81,9 @@ type EdgePackageSecrets = {
 };
 
 type CreateFormState = {
+  componentType: EdgeComponentType;
+  componentId: string;
+  parentId: string;
   label: string;
   pollerId: string;
   site: string;
@@ -84,6 +96,9 @@ type CreateFormState = {
 };
 
 const defaultFormState: CreateFormState = {
+  componentType: 'poller',
+  componentId: '',
+  parentId: '',
   label: '',
   pollerId: '',
   site: '',
@@ -204,6 +219,39 @@ export default function EdgePackagesPage() {
     [packages, selectedId],
   );
 
+  const pollerIds = useMemo(() => {
+    const seen = new Set<string>();
+    return packages
+      .filter((pkg) => (pkg.component_type ?? '') === 'poller')
+      .map((pkg) => pkg.component_id || pkg.poller_id)
+      .filter((id) => {
+        const trimmed = id?.trim();
+        if (!trimmed || seen.has(trimmed)) {
+          return false;
+        }
+        seen.add(trimmed);
+        return true;
+      });
+  }, [packages]);
+
+  const agentIds = useMemo(() => {
+    const seen = new Set<string>();
+    return packages
+      .filter((pkg) => (pkg.component_type ?? '') === 'agent')
+      .map((pkg) => pkg.component_id || pkg.parent_id || pkg.package_id)
+      .filter((id) => {
+        const trimmed = id?.trim();
+        if (!trimmed || seen.has(trimmed)) {
+          return false;
+        }
+        seen.add(trimmed);
+        return true;
+      });
+  }, [packages]);
+
+  const parentPollerListId = 'edge-parent-poller-options';
+  const parentAgentListId = 'edge-parent-agent-options';
+
   const loadPackages = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -273,14 +321,42 @@ export default function EdgePackagesPage() {
     setFormState((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleComponentTypeChange = (value: EdgeComponentType) => {
+    const nextType: EdgeComponentType =
+      value === 'poller' || value === 'agent' || value === 'checker' ? value : 'poller';
+    setFormState((prev) => ({
+      ...prev,
+      componentType: nextType,
+      parentId: '',
+      pollerId: nextType === 'poller' ? prev.pollerId : '',
+    }));
+  };
+
   const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setFormError(null);
     setActionMessage(null);
     setActionError(null);
 
-    if (!formState.label.trim()) {
+    const trimmedLabel = formState.label.trim();
+    if (!trimmedLabel) {
       setFormError('Label is required');
+      return;
+    }
+
+    const componentType: EdgeComponentType =
+      formState.componentType === 'agent' || formState.componentType === 'checker'
+        ? formState.componentType
+        : 'poller';
+    const componentId = formState.componentId.trim();
+    const parentId = formState.parentId.trim();
+
+    if (componentType === 'agent' && !parentId) {
+      setFormError('Parent poller is required for agent packages');
+      return;
+    }
+    if (componentType === 'checker' && !parentId) {
+      setFormError('Parent agent is required for checker packages');
       return;
     }
 
@@ -293,10 +369,34 @@ export default function EdgePackagesPage() {
 
       const joinMinutes = formState.joinTTLMinutes.trim();
       const downloadMinutes = formState.downloadTTLMinutes.trim();
+      const pollerOverride = formState.pollerId.trim();
+      const pollerIdForPayload =
+        componentType === 'poller'
+          ? pollerOverride || undefined
+          : componentType === 'checker' && pollerOverride
+            ? pollerOverride
+            : undefined;
 
-      const payload = {
-        label: formState.label.trim(),
-        poller_id: formState.pollerId.trim() || undefined,
+      const payload: {
+        label: string;
+        component_type: EdgeComponentType;
+        component_id?: string;
+        parent_type?: EdgeComponentType;
+        parent_id?: string;
+        poller_id?: string;
+        site?: string;
+        selectors?: string[];
+        metadata_json?: string;
+        notes?: string;
+        downstream_spiffe_id?: string;
+        join_token_ttl_seconds?: number;
+        download_token_ttl_seconds?: number;
+      } = {
+        label: trimmedLabel,
+        component_type: componentType,
+        component_id: componentId || undefined,
+        parent_id: parentId || undefined,
+        poller_id: pollerIdForPayload,
         site: formState.site.trim() || undefined,
         selectors: selectors.length > 0 ? selectors : undefined,
         metadata_json: formState.metadataJSON.trim() || undefined,
@@ -305,6 +405,12 @@ export default function EdgePackagesPage() {
         join_token_ttl_seconds: joinMinutes ? Math.max(0, Math.round(Number(joinMinutes) * 60)) : undefined,
         download_token_ttl_seconds: downloadMinutes ? Math.max(0, Math.round(Number(downloadMinutes) * 60)) : undefined,
       };
+
+      if (componentType === 'agent') {
+        payload.parent_type = 'poller';
+      } else if (componentType === 'checker') {
+        payload.parent_type = 'agent';
+      }
 
       const response = await fetch('/api/admin/edge-packages', {
         method: 'POST',
@@ -478,7 +584,7 @@ export default function EdgePackagesPage() {
             <div>
               <h1 className="text-2xl font-semibold">Edge Onboarding Packages</h1>
               <p className="text-sm text-muted-foreground">
-                Issue, download, and revoke edge poller installer bundles backed by nested SPIRE.
+                Issue, download, and revoke poller, agent, and checker installers backed by nested SPIRE.
               </p>
             </div>
           </div>
@@ -535,20 +641,103 @@ export default function EdgePackagesPage() {
                     className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                     value={formState.label}
                     onChange={(event) => handleFormChange('label', event.target.value)}
-                    placeholder="Edge poller name"
+                    placeholder="Edge component label"
                   />
                 </label>
 
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="font-medium">Poller ID (optional)</span>
+                  <span className="font-medium">
+                    Component type <span className="text-red-500">*</span>
+                  </span>
+                  <select
+                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                    value={formState.componentType || 'poller'}
+                    onChange={(event) => handleComponentTypeChange(event.target.value as EdgeComponentType)}
+                  >
+                    <option value="poller">Poller</option>
+                    <option value="agent">Agent</option>
+                    <option value="checker">Checker</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Component ID (optional)</span>
                   <input
                     className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
-                    value={formState.pollerId}
-                    onChange={(event) => handleFormChange('pollerId', event.target.value)}
-                    placeholder="Will be generated if omitted"
+                    value={formState.componentId}
+                    onChange={(event) => handleFormChange('componentId', event.target.value)}
+                    placeholder="Auto-generated from label if omitted"
                   />
                 </label>
 
+                {formState.componentType === 'agent' ? (
+                  <div className="flex flex-col gap-1 text-sm">
+                    <span className="font-medium">Poller ID</span>
+                    <p className="rounded border border-dashed border-gray-300 px-3 py-2 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-300">
+                      Derived from the selected parent poller.
+                    </p>
+                  </div>
+                ) : (
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="font-medium">
+                      Poller ID {formState.componentType === 'checker' ? '(optional override)' : '(optional)'}
+                    </span>
+                    <input
+                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                      value={formState.pollerId}
+                      onChange={(event) => handleFormChange('pollerId', event.target.value)}
+                      placeholder="Will be generated if omitted"
+                    />
+                  </label>
+                )}
+              </div>
+
+              {formState.componentType !== 'poller' && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="font-medium">
+                      {formState.componentType === 'checker' ? 'Parent agent ID' : 'Parent poller ID'}{' '}
+                      <span className="text-red-500">*</span>
+                    </span>
+                    <input
+                      required
+                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                      value={formState.parentId}
+                      onChange={(event) => handleFormChange('parentId', event.target.value)}
+                      placeholder={
+                        formState.componentType === 'checker'
+                          ? 'Select or enter the agent that will own this checker'
+                          : 'Select or enter the poller this agent belongs to'
+                      }
+                      list={formState.componentType === 'checker' ? parentAgentListId : parentPollerListId}
+                    />
+                    {formState.componentType === 'checker' ? (
+                      <datalist id={parentAgentListId}>
+                        {agentIds.map((id) => (
+                          <option value={id} key={`parent-agent-${id}`} />
+                        ))}
+                      </datalist>
+                    ) : (
+                      <datalist id={parentPollerListId}>
+                        {pollerIds.map((id) => (
+                          <option value={id} key={`parent-poller-${id}`} />
+                        ))}
+                      </datalist>
+                    )}
+                  </label>
+                  <div className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-300">
+                    <span className="font-medium">Parent lookup</span>
+                    <p>
+                      Start typing to search existing {formState.componentType === 'checker' ? 'agents' : 'pollers'} or
+                      paste an identifier to reference a component that has not been onboarded yet.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid gap-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">Site (optional)</span>
                   <input
@@ -568,7 +757,9 @@ export default function EdgePackagesPage() {
                     placeholder="Override default template"
                   />
                 </label>
+              </div>
 
+              <div className="grid gap-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">Join token TTL (minutes)</span>
                   <input
@@ -672,6 +863,9 @@ export default function EdgePackagesPage() {
                       Label
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                      Component
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                       Poller ID
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -691,8 +885,8 @@ export default function EdgePackagesPage() {
                 <tbody className="divide-y divide-gray-200 bg-white dark:divide-gray-800 dark:bg-gray-900">
                   {!loading && packages.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-                        No edge packages yet. Issue one to bootstrap an edge poller.
+                      <td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                        No edge packages yet. Issue one to bootstrap your first edge component.
                       </td>
                     </tr>
                   )}
@@ -710,6 +904,24 @@ export default function EdgePackagesPage() {
                       >
                         <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">
                           {pkg.label}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+                              {titleCase(pkg.component_type || 'poller')}
+                            </span>
+                            <code className="inline-flex w-fit items-center rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                              {pkg.component_id || '—'}
+                            </code>
+                            {pkg.parent_id ? (
+                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                                Parent:{' '}
+                                <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                  {pkg.parent_id}
+                                </code>
+                              </span>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                           <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
@@ -773,7 +985,7 @@ export default function EdgePackagesPage() {
 
                   {loading && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                      <td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           Loading packages…
@@ -812,6 +1024,33 @@ export default function EdgePackagesPage() {
                     </div>
 
                     <dl className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Component type</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                          {titleCase(selectedPackage.component_type || 'poller')}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Component ID</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                          <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                            {selectedPackage.component_id}
+                          </code>
+                        </dd>
+                      </div>
+                      {selectedPackage.parent_id ? (
+                        <div>
+                          <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Parent component</dt>
+                          <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                            <div className="flex flex-col gap-1">
+                              <span>{titleCase(selectedPackage.parent_type || '') || 'Unknown'}</span>
+                              <code className="w-fit rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                {selectedPackage.parent_id}
+                              </code>
+                            </div>
+                          </dd>
+                        </div>
+                      ) : null}
                       <div>
                         <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Poller ID</dt>
                         <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
