@@ -16,8 +16,9 @@
 
 'use client';
 
+import Link from 'next/link';
 import React, { useState, useEffect } from 'react';
-import { Database, Settings2, RefreshCw } from 'lucide-react';
+import { Database, Settings2, RefreshCw, ShieldPlus } from 'lucide-react';
 import ConfigEditor from '@/components/Admin/ConfigEditor';
 import ServicesTreeNavigation, { SelectedServiceInfo } from '@/components/Admin/ServicesTreeNavigation';
 import RoleGuard from '@/components/Auth/RoleGuard';
@@ -80,10 +81,19 @@ export default function AdminPage() {
       <div className="flex h-full">
         <div className="w-80 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-y-auto">
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold flex items-center gap-2 mb-3">
-              <Database className="h-5 w-5" />
-              Configuration Management
-            </h2>
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Configuration Management
+              </h2>
+              <Link
+                href="/admin/edge-packages"
+                className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-100"
+              >
+                <ShieldPlus className="h-3.5 w-3.5" />
+                Edge onboarding
+              </Link>
+            </div>
             <div className="flex gap-2">
               <input
                 placeholder="Filter poller…"

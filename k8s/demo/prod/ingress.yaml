@@ -64,6 +64,13 @@ spec:
             name: serviceradar-web
             port:
               number: 3000
+      - path: /api/admin
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
       - path: /api/pollers
         pathType: Prefix
         backend:

@@ -184,7 +184,7 @@ func (s *syncIngestStats) primarySource() string {
 	}
 
 	if topSource == "" {
-		return "unknown"
+		return statusUnknown
 	}
 
 	return topSource

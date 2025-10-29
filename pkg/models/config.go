@@ -17,6 +17,7 @@
 package models
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -117,6 +118,10 @@ var (
 	errSpireAdminServerAddressRequired  = fmt.Errorf("spire_admin.server_address is required when enabled")
 	errSpireAdminServerSPIFFEIDRequired = fmt.Errorf("spire_admin.server_spiffe_id is required when enabled")
 	errSpireAdminJoinTokenTTLInvalid    = fmt.Errorf("spire_admin.join_token_ttl must be non-negative")
+	errEdgeOnboardingKeyRequired        = fmt.Errorf("edge_onboarding.encryption_key is required when enabled")
+	errEdgeOnboardingKeyLength          = fmt.Errorf("edge_onboarding.encryption_key must decode to 32 bytes")
+	errEdgeOnboardingJoinTokenTTL       = fmt.Errorf("edge_onboarding.join_token_ttl must be non-negative")
+	errEdgeOnboardingDownloadTokenTTL   = fmt.Errorf("edge_onboarding.download_token_ttl must be non-negative")
 )
 
 // MCPConfigRef represents MCP configuration to avoid circular imports
@@ -151,8 +156,9 @@ type CoreServiceConfig struct {
 	Logging        *logger.Config         `json:"logging,omitempty"`
 	MCP            *MCPConfigRef          `json:"mcp,omitempty"`
 	// KV endpoints for admin config operations (hub/leaf mappings)
-	KVEndpoints []KVEndpoint      `json:"kv_endpoints,omitempty"`
-	SpireAdmin  *SpireAdminConfig `json:"spire_admin,omitempty"`
+	KVEndpoints    []KVEndpoint          `json:"kv_endpoints,omitempty"`
+	SpireAdmin     *SpireAdminConfig     `json:"spire_admin,omitempty"`
+	EdgeOnboarding *EdgeOnboardingConfig `json:"edge_onboarding,omitempty"`
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint and its JetStream domain.
@@ -173,6 +179,17 @@ type SpireAdminConfig struct {
 	WorkloadSocket string   `json:"workload_socket,omitempty"`
 	BundlePath     string   `json:"bundle_path,omitempty"`
 	JoinTokenTTL   Duration `json:"join_token_ttl,omitempty"`
+}
+
+// EdgeOnboardingConfig configures secure edge poller enrollment.
+type EdgeOnboardingConfig struct {
+	Enabled                bool     `json:"enabled"`
+	EncryptionKey          string   `json:"encryption_key"`
+	DefaultSelectors       []string `json:"default_selectors,omitempty"`
+	DownstreamPathTemplate string   `json:"downstream_path_template,omitempty"`
+	JoinTokenTTL           Duration `json:"join_token_ttl,omitempty"`
+	DownloadTokenTTL       Duration `json:"download_token_ttl,omitempty"`
+	PollerIDPrefix         string   `json:"poller_id_prefix,omitempty"`
 }
 
 func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
@@ -324,6 +341,22 @@ func (c *CoreServiceConfig) Validate() error {
 		}
 		if c.SpireAdmin.JoinTokenTTL < 0 {
 			return errSpireAdminJoinTokenTTLInvalid
+		}
+	}
+
+	if c.EdgeOnboarding != nil && c.EdgeOnboarding.Enabled {
+		if c.EdgeOnboarding.EncryptionKey == "" {
+			return errEdgeOnboardingKeyRequired
+		}
+		keyBytes, err := base64.StdEncoding.DecodeString(c.EdgeOnboarding.EncryptionKey)
+		if err != nil || len(keyBytes) != 32 {
+			return errEdgeOnboardingKeyLength
+		}
+		if c.EdgeOnboarding.JoinTokenTTL < 0 {
+			return errEdgeOnboardingJoinTokenTTL
+		}
+		if c.EdgeOnboarding.DownloadTokenTTL < 0 {
+			return errEdgeOnboardingDownloadTokenTTL
 		}
 	}
 

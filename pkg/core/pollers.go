@@ -698,9 +698,15 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 		}
 	}
 }
-func (s *Server) isKnownPoller(pollerID string) bool {
+func (s *Server) isKnownPoller(ctx context.Context, pollerID string) bool {
 	for _, known := range s.config.KnownPollers {
 		if known == pollerID {
+			return true
+		}
+	}
+
+	if s.edgeOnboarding != nil {
+		if s.edgeOnboarding.isPollerAllowed(ctx, pollerID) {
 			return true
 		}
 	}
@@ -852,7 +858,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 			Msg("CRITICAL: Status report missing required location data, device registration will be skipped")
 	}
 
-	if !s.isKnownPoller(req.PollerId) {
+	if !s.isKnownPoller(ctx, req.PollerId) {
 		s.logger.Warn().
 			Str("poller_id", req.PollerId).
 			Msg("Ignoring status report from unknown poller")
@@ -1096,7 +1102,7 @@ func (s *Server) processStreamedStatus(
 
 	s.validateLocationData(metadata)
 
-	if !s.isKnownPoller(metadata.pollerID) {
+	if !s.isKnownPoller(ctx, metadata.pollerID) {
 		s.logger.Warn().
 			Str("poller_id", metadata.pollerID).
 			Msg("Ignoring streaming status report from unknown poller")

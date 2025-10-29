@@ -62,10 +62,12 @@ var (
 // NewAPIServer creates a new API server instance with the given configuration
 func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) *APIServer {
 	s := &APIServer{
-		pollers:     make(map[string]*PollerStatus),
-		router:      mux.NewRouter(),
-		corsConfig:  config,
-		kvEndpoints: make(map[string]*KVEndpoint),
+		pollers:        make(map[string]*PollerStatus),
+		router:         mux.NewRouter(),
+		corsConfig:     config,
+		kvEndpoints:    make(map[string]*KVEndpoint),
+		knownPollerSet: make(map[string]struct{}),
+		dynamicPollers: make(map[string]struct{}),
 	}
 
 	// Default kvPutFn dials KV and performs a Put
@@ -202,6 +204,11 @@ func WithKVEndpoint(id, name, address, domain, typ string, sec *models.SecurityC
 // WithKVEndpoints sets the full KV endpoints map.
 func WithKVEndpoints(eps map[string]*KVEndpoint) func(server *APIServer) {
 	return func(server *APIServer) { server.kvEndpoints = eps }
+}
+
+// WithEdgeOnboarding registers the edge onboarding service with the API server.
+func WithEdgeOnboarding(service EdgeOnboardingService) func(server *APIServer) {
+	return func(server *APIServer) { server.edgeOnboarding = service }
 }
 
 // getKVClient dials a KV gRPC endpoint by ID; falls back to default kvAddress.
@@ -753,6 +760,12 @@ func (s *APIServer) setupProtectedRoutes() {
 	adminRoutes.HandleFunc("/config/{service}", s.handleGetConfig).Methods("GET")
 	adminRoutes.HandleFunc("/config/{service}", s.handleUpdateConfig).Methods("PUT")
 	adminRoutes.HandleFunc("/spire/join-tokens", s.handleCreateSpireJoinToken).Methods("POST")
+	adminRoutes.HandleFunc("/edge-packages", s.handleListEdgePackages).Methods("GET")
+	adminRoutes.HandleFunc("/edge-packages", s.handleCreateEdgePackage).Methods("POST")
+	adminRoutes.HandleFunc("/edge-packages/{id}", s.handleGetEdgePackage).Methods("GET")
+	adminRoutes.HandleFunc("/edge-packages/{id}/events", s.handleListEdgePackageEvents).Methods("GET")
+	adminRoutes.HandleFunc("/edge-packages/{id}/download", s.handleDownloadEdgePackage).Methods("POST")
+	adminRoutes.HandleFunc("/edge-packages/{id}/revoke", s.handleRevokeEdgePackage).Methods("POST")
 
 	// KV endpoints enumeration (optional, for Admin UI)
 	protected.HandleFunc("/kv/endpoints", s.handleListKVEndpoints).Methods("GET")
@@ -1311,13 +1324,8 @@ func (s *APIServer) getPollers(w http.ResponseWriter, _ *http.Request) {
 
 	// Append all map values to the slice
 	for id, poller := range s.pollers {
-		// Only include known pollers
-		for _, known := range s.knownPollers {
-			if id == known {
-				pollers = append(pollers, poller)
-
-				break
-			}
+		if s.isAllowedPollerLocked(id) {
+			pollers = append(pollers, poller)
 		}
 	}
 
@@ -1333,6 +1341,51 @@ func (s *APIServer) SetKnownPollers(knownPollers []string) {
 	defer s.mu.Unlock()
 
 	s.knownPollers = knownPollers
+	s.knownPollerSet = make(map[string]struct{}, len(knownPollers))
+	for _, id := range knownPollers {
+		if id == "" {
+			continue
+		}
+		s.knownPollerSet[id] = struct{}{}
+	}
+}
+
+// SetDynamicPollers updates the runtime-managed poller allow list.
+func (s *APIServer) SetDynamicPollers(pollerIDs []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(pollerIDs) == 0 {
+		s.dynamicPollers = make(map[string]struct{})
+		return
+	}
+
+	next := make(map[string]struct{}, len(pollerIDs))
+	for _, id := range pollerIDs {
+		if id == "" {
+			continue
+		}
+		next[id] = struct{}{}
+	}
+
+	s.dynamicPollers = next
+}
+
+func (s *APIServer) isAllowedPoller(pollerID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.isAllowedPollerLocked(pollerID)
+}
+
+func (s *APIServer) isAllowedPollerLocked(pollerID string) bool {
+	if _, ok := s.knownPollerSet[pollerID]; ok {
+		return true
+	}
+	if _, ok := s.dynamicPollers[pollerID]; ok {
+		return true
+	}
+	return false
 }
 
 // getPollerByID retrieves a poller by its ID
@@ -1371,17 +1424,7 @@ func (s *APIServer) getPoller(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	pollerID := vars["id"]
 
-	// Check if it's a known poller
-	isKnown := false
-
-	for _, known := range s.knownPollers {
-		if pollerID == known {
-			isKnown = true
-			break
-		}
-	}
-
-	if !isKnown {
+	if !s.isAllowedPoller(pollerID) {
 		http.Error(w, "Poller not found", http.StatusNotFound)
 		return
 	}

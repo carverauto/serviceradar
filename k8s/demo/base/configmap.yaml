@@ -22,7 +22,7 @@ data:
       }
 
       # Next.js API routes (keep hitting web)
-      location ~ ^/api/(auth|nodes|status|pollers|devices|mcp) {
+      location ~ ^/api/(auth|nodes|status|pollers|devices|mcp|admin) {
         proxy_pass http://serviceradar-web:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -140,6 +140,19 @@ data:
       "server_spiffe_id": "spiffe://carverauto.dev/spire/server",
       "workload_socket": "unix:/run/spire/sockets/agent.sock",
       "join_token_ttl": "15m"
+    },
+    "edge_onboarding": {
+      "enabled": true,
+      "encryption_key": "",
+      "default_selectors": [
+        "unix:uid:0",
+        "unix:gid:0",
+        "unix:user:root",
+        "unix:group:root"
+      ],
+      "join_token_ttl": "15m",
+      "download_token_ttl": "10m",
+      "poller_id_prefix": "edge"
     },
         "cors": {
           "allowed_origins": [
@@ -1073,6 +1086,13 @@ data:
     else
         echo "Warning: PROTON_PASSWORD environment variable not found"
     fi
+
+    if [ -z "$EDGE_ONBOARDING_ENCRYPTION_KEY" ]; then
+        echo "ERROR: EDGE_ONBOARDING_ENCRYPTION_KEY environment variable not found" >&2
+        exit 1
+    else
+        echo "Using edge onboarding encryption key from Kubernetes secret"
+    fi
     
     # Update the config file with secrets using jq for in-place editing
     if [ -f "$CONFIG_PATH" ]; then
@@ -1092,7 +1112,13 @@ data:
            --arg jwt "$JWT_SECRET" \
            --arg api_key "$API_KEY" \
            --arg bcrypt "$ADMIN_BCRYPT_HASH" \
-           '.database.password = $pwd | .auth.jwt_secret = $jwt | .auth.jwt_expiration = "24h" | .auth.local_users.admin = $bcrypt | .api_key = $api_key' \
+           --arg edge_key "$EDGE_ONBOARDING_ENCRYPTION_KEY" \
+           '.database.password = $pwd
+            | .auth.jwt_secret = $jwt
+            | .auth.jwt_expiration = "24h"
+            | .auth.local_users.admin = $bcrypt
+            | .api_key = $api_key
+            | .edge_onboarding.encryption_key = $edge_key' \
            "$CONFIG_PATH" > "$TMP_CONFIG"
         mv "$TMP_CONFIG" "$CONFIG_PATH"
         echo "Configuration updated with secrets at $CONFIG_PATH"
