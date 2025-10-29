@@ -20,7 +20,7 @@ gather before a rollout.
 |-------------|-------|
 | Demo cluster access | You need `kubectl` + admin access to the `demo` namespace. |
 | Admin credentials | API key (`serviceradar-secrets`), and an admin JWT (login to the web app or call `/auth/login`). |
-| External endpoints | From the edge host, Core/SPIRE/KV must be reachable:<br>- Core gRPC: `23.138.124.18:50052`<br>- Core SPIFFE ID: `spiffe://carverauto.dev/ns/demo/sa/serviceradar-core`<br>- KV gRPC: `23.138.124.23:50057`<br>- KV SPIFFE ID: `spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc`<br>- SPIRE server gRPC: `23.138.124.18:18081` |
+| External endpoints | From the edge host, Core/SPIRE/KV must be reachable:<br />- Core gRPC: `23.138.124.18:50052`<br />- Core SPIFFE ID: `spiffe://carverauto.dev/ns/demo/sa/serviceradar-core`<br />- KV gRPC: `23.138.124.23:50057`<br />- KV SPIFFE ID: `spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc`<br />- SPIRE server gRPC: `23.138.124.18:18081` |
 | CLI tools | `serviceradar-cli`, `docker`, `docker compose`, `tar`, `jq`, `kubectl`. |
 | Repo | Clone `github.com/carverauto/serviceradar` on the edge host. |
 
