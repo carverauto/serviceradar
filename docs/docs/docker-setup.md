@@ -267,7 +267,8 @@ When you need to run the poller away from the cluster (for example on an edge ho
 Edge installers no longer need direct cluster access once an operator mints an
 onboarding package through Core:
 
-- **Create** packages with the existing admin endpoint `POST /api/admin/edge-packages`.
+- **Create** packages from the admin UI at `/admin/edge-packages` or via the API
+  (`POST /api/admin/edge-packages`).
 - **Download** bundles securely:
   `serviceradar-cli edge-package-download --core-url https://core.example.org --id <package> --download-token <token> --output edge-package.tar.gz`
   writes a tarball containing `edge-poller.env`, the SPIRE artefacts, and a README. Extract it on the edge host and run
@@ -276,9 +277,8 @@ onboarding package through Core:
   `serviceradar-cli edge-package-revoke --core-url https://core.example.org --id <package> --reason "Rotated edge host"`
   deletes the downstream SPIRE entry and blocks future agent attestations.
 
-All `/api/admin/edge-packages` routes are RBAC-protected (admin role). A
-placeholder admin view is available at `/admin/edge-packages`, with the full UI
-workflow tracked in GH-1903.
+All `/api/admin/edge-packages` routes and the `/admin/edge-packages` UI are
+RBAC-protected (admin role).
 
 All generated nested SPIRE configuration lives under `generated-config/poller-spire/`. Re-run the `config-updater` container whenever you change trust domains or upstream addresses so the HCL files stay in sync.
 
