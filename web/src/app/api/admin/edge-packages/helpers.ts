@@ -27,7 +27,13 @@ export async function proxyJson(
   init: RequestInit
 ): Promise<NextResponse> {
   try {
+    console.log(
+      `[edge-packages] proxyJson ${init.method ?? "GET"} ${targetUrl}`
+    );
     const resp = await fetch(targetUrl, init);
+    console.log(
+      `[edge-packages] proxyJson response ${init.method ?? "GET"} ${targetUrl} -> ${resp.status}`
+    );
     const body = await resp.text();
     const contentType =
       resp.headers.get("Content-Type") ?? "application/json; charset=utf-8";
@@ -38,6 +44,10 @@ export async function proxyJson(
       },
     });
   } catch (error) {
+    console.error(
+      `[edge-packages] proxyJson error for ${init.method ?? "GET"} ${targetUrl}`,
+      error
+    );
     const message =
       error instanceof Error ? error.message : "Failed to contact Core API";
     return NextResponse.json(
@@ -52,8 +62,14 @@ export async function proxyBinary(
   init: RequestInit
 ): Promise<NextResponse> {
   try {
+    console.log(
+      `[edge-packages] proxyBinary ${init.method ?? "GET"} ${targetUrl}`
+    );
     const resp = await fetch(targetUrl, init);
     const buffer = await resp.arrayBuffer();
+    console.log(
+      `[edge-packages] proxyBinary response ${init.method ?? "GET"} ${targetUrl} -> ${resp.status}`
+    );
     const response = new NextResponse(Buffer.from(buffer), {
       status: resp.status,
     });
@@ -79,6 +95,10 @@ export async function proxyBinary(
 
     return response;
   } catch (error) {
+    console.error(
+      `[edge-packages] proxyBinary error for ${init.method ?? "GET"} ${targetUrl}`,
+      error
+    );
     const message =
       error instanceof Error ? error.message : "Failed to contact Core API";
     return NextResponse.json(

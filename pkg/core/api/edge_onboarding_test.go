@@ -58,6 +58,8 @@ func (s *stubEdgeOnboardingService) RevokePackage(_ context.Context, req *models
 	return s.revokeResult, s.revokeErr
 }
 
+func (s *stubEdgeOnboardingService) SetAllowedPollerCallback(func([]string)) {}
+
 func TestHandleCreateEdgePackageSuccess(t *testing.T) {
 	service := &stubEdgeOnboardingService{
 		createResult: &models.EdgeOnboardingCreateResult{

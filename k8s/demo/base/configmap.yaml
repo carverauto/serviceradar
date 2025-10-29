@@ -22,7 +22,7 @@ data:
       }
 
       # Next.js API routes (keep hitting web)
-      location ~ ^/api/(auth|nodes|status|pollers|devices|mcp) {
+      location ~ ^/api/(auth|nodes|status|pollers|devices|mcp|admin) {
         proxy_pass http://serviceradar-web:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -140,6 +140,19 @@ data:
       "server_spiffe_id": "spiffe://carverauto.dev/spire/server",
       "workload_socket": "unix:/run/spire/sockets/agent.sock",
       "join_token_ttl": "15m"
+    },
+    "edge_onboarding": {
+      "enabled": true,
+      "encryption_key": "5jt8zZbRIhDoX2l9kCskXZVR+pH5fRVlPHps7zjLY6s=",
+      "default_selectors": [
+        "unix:uid:0",
+        "unix:gid:0",
+        "unix:user:root",
+        "unix:group:root"
+      ],
+      "join_token_ttl": "15m",
+      "download_token_ttl": "10m",
+      "poller_id_prefix": "edge"
     },
         "cors": {
           "allowed_origins": [

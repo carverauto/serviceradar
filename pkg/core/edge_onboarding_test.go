@@ -81,11 +81,16 @@ func TestEdgeOnboardingCreatePackageSuccess(t *testing.T) {
 		models.EdgeOnboardingStatusIssued,
 		models.EdgeOnboardingStatusDelivered,
 		models.EdgeOnboardingStatusActivated,
-	).Return([]string{}, nil)
+	).Return([]string{}, nil).AnyTimes()
 
 	svc, err := newEdgeOnboardingService(context.Background(), cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
 	require.NoError(t, err)
 	require.NotNil(t, svc)
+
+	svc.refreshInterval = 0
+	svc.SetAllowedPollerCallback(func([]string) {})
+	require.NoError(t, svc.Start(context.Background()))
+	defer func() { assert.NoError(t, svc.Stop(context.Background())) }()
 
 	svc.now = func() time.Time { return time.Unix(1700000000, 0).UTC() }
 	svc.rand = bytes.NewReader(bytes.Repeat([]byte{0x01}, 64))
@@ -138,10 +143,15 @@ func TestEdgeOnboardingCreatePackagePollerConflict(t *testing.T) {
 		models.EdgeOnboardingStatusIssued,
 		models.EdgeOnboardingStatusDelivered,
 		models.EdgeOnboardingStatusActivated,
-	).Return([]string{}, nil)
+	).Return([]string{}, nil).AnyTimes()
 
 	svc, err := newEdgeOnboardingService(context.Background(), cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
 	require.NoError(t, err)
+
+	svc.refreshInterval = 0
+	svc.SetAllowedPollerCallback(func([]string) {})
+	require.NoError(t, svc.Start(context.Background()))
+	defer func() { assert.NoError(t, svc.Stop(context.Background())) }()
 
 	svc.rand = bytes.NewReader(bytes.Repeat([]byte{0xFF}, 64))
 
@@ -176,10 +186,15 @@ func TestEdgeOnboardingDeliverPackageSuccess(t *testing.T) {
 		models.EdgeOnboardingStatusIssued,
 		models.EdgeOnboardingStatusDelivered,
 		models.EdgeOnboardingStatusActivated,
-	).Return([]string{}, nil)
+	).Return([]string{}, nil).AnyTimes()
 
 	svc, err := newEdgeOnboardingService(context.Background(), cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
 	require.NoError(t, err)
+
+	svc.refreshInterval = 0
+	svc.SetAllowedPollerCallback(func([]string) {})
+	require.NoError(t, svc.Start(context.Background()))
+	defer func() { assert.NoError(t, svc.Stop(context.Background())) }()
 
 	now := time.Unix(1710000000, 0).UTC()
 	svc.now = func() time.Time { return now }
@@ -259,10 +274,15 @@ func TestEdgeOnboardingDeliverPackageInvalidToken(t *testing.T) {
 		models.EdgeOnboardingStatusIssued,
 		models.EdgeOnboardingStatusDelivered,
 		models.EdgeOnboardingStatusActivated,
-	).Return([]string{}, nil)
+	).Return([]string{}, nil).AnyTimes()
 
 	svc, err := newEdgeOnboardingService(context.Background(), cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
 	require.NoError(t, err)
+
+	svc.refreshInterval = 0
+	svc.SetAllowedPollerCallback(func([]string) {})
+	require.NoError(t, svc.Start(context.Background()))
+	defer func() { assert.NoError(t, svc.Stop(context.Background())) }()
 
 	now := time.Unix(1710000000, 0).UTC()
 	svc.now = func() time.Time { return now }
@@ -320,11 +340,16 @@ func TestEdgeOnboardingRevokePackageSuccess(t *testing.T) {
 		models.EdgeOnboardingStatusIssued,
 		models.EdgeOnboardingStatusDelivered,
 		models.EdgeOnboardingStatusActivated,
-	).Return([]string{}, nil)
+	).Return([]string{}, nil).AnyTimes()
 	gomock.InOrder(firstCall, secondCall)
 
 	svc, err := newEdgeOnboardingService(context.Background(), cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
 	require.NoError(t, err)
+
+	svc.refreshInterval = 0
+	svc.SetAllowedPollerCallback(func([]string) {})
+	require.NoError(t, svc.Start(context.Background()))
+	defer func() { assert.NoError(t, svc.Stop(context.Background())) }()
 
 	now := time.Unix(1710000000, 0).UTC()
 	svc.now = func() time.Time { return now }
@@ -392,10 +417,15 @@ func TestEdgeOnboardingRevokePackageAlreadyRevoked(t *testing.T) {
 		models.EdgeOnboardingStatusIssued,
 		models.EdgeOnboardingStatusDelivered,
 		models.EdgeOnboardingStatusActivated,
-	).Return([]string{}, nil)
+	).Return([]string{}, nil).AnyTimes()
 
 	svc, err := newEdgeOnboardingService(context.Background(), cfg, spireCfg, fakeSpire, mockDB, logger.NewTestLogger())
 	require.NoError(t, err)
+
+	svc.refreshInterval = 0
+	svc.SetAllowedPollerCallback(func([]string) {})
+	require.NoError(t, svc.Start(context.Background()))
+	defer func() { assert.NoError(t, svc.Stop(context.Background())) }()
 
 	pkg := &models.EdgeOnboardingPackage{
 		PackageID:         "pkg-3",

@@ -84,6 +84,7 @@ type EdgeOnboardingService interface {
 	CreatePackage(ctx context.Context, req *models.EdgeOnboardingCreateRequest) (*models.EdgeOnboardingCreateResult, error)
 	DeliverPackage(ctx context.Context, req *models.EdgeOnboardingDeliverRequest) (*models.EdgeOnboardingDeliverResult, error)
 	RevokePackage(ctx context.Context, req *models.EdgeOnboardingRevokeRequest) (*models.EdgeOnboardingRevokeResult, error)
+	SetAllowedPollerCallback(cb func([]string))
 }
 
 type APIServer struct {

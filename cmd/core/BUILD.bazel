@@ -6,17 +6,7 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/cmd/core",
     visibility = ["//visibility:private"],
     deps = [
-        "//alias:core",
-        "//alias:core-bootstrap",
-        "//alias:api",
-        "//alias:lifecycle",
-        "//alias:logger",
-        "//alias:models",
-        "//alias:swagger",
-        "//proto",
-        "//pkg/spireadmin",
-        "@org_golang_google_grpc//:grpc",
-        "@org_golang_google_grpc//stats",
+        "//cmd/core/app:app",
     ],
 )
 
