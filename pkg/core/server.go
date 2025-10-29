@@ -147,7 +147,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		canonicalCache:      newCanonicalCache(10 * time.Minute),
 	}
 
-	edgeSvc, err := newEdgeOnboardingService(ctx, normalizedConfig.EdgeOnboarding, normalizedConfig.SpireAdmin, spireClient, database, log)
+	edgeSvc, err := newEdgeOnboardingService(normalizedConfig.EdgeOnboarding, normalizedConfig.SpireAdmin, spireClient, database, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize edge onboarding service: %w", err)
 	}

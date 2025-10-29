@@ -72,7 +72,7 @@ type edgeOnboardingService struct {
 	allowedCallback func([]string)
 }
 
-func newEdgeOnboardingService(ctx context.Context, cfg *models.EdgeOnboardingConfig, spireCfg *models.SpireAdminConfig, spireClient spireadmin.Client, database db.Service, log logger.Logger) (*edgeOnboardingService, error) {
+func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models.SpireAdminConfig, spireClient spireadmin.Client, database db.Service, log logger.Logger) (*edgeOnboardingService, error) {
 	if cfg == nil || !cfg.Enabled {
 		return nil, nil
 	}
@@ -352,7 +352,7 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 
 	createdBy := strings.TrimSpace(req.CreatedBy)
 	if createdBy == "" {
-		createdBy = "unknown"
+		createdBy = statusUnknown
 	}
 
 	metadata := strings.TrimSpace(req.MetadataJSON)
@@ -517,10 +517,14 @@ func (s *edgeOnboardingService) DeliverPackage(ctx context.Context, req *models.
 	now := s.now().UTC()
 
 	switch pkg.Status {
+	case models.EdgeOnboardingStatusIssued:
+		// proceed with delivery
 	case models.EdgeOnboardingStatusRevoked:
 		return nil, models.ErrEdgeOnboardingPackageRevoked
 	case models.EdgeOnboardingStatusDelivered, models.EdgeOnboardingStatusActivated:
 		return nil, models.ErrEdgeOnboardingPackageDelivered
+	case models.EdgeOnboardingStatusExpired:
+		return nil, models.ErrEdgeOnboardingDownloadExpired
 	}
 
 	if pkg.DownloadTokenHash == "" {

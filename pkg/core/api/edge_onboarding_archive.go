@@ -19,7 +19,14 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-var errEdgePackageArchive = errors.New("edge onboarding: archive build failed")
+const edgePackageDefaultFilename = "edge-package.tar.gz"
+
+var (
+	errEdgePackageArchive      = errors.New("edge onboarding: archive build failed")
+	errEdgePackageMissing      = errors.New("edge onboarding: package missing from deliver result")
+	errEdgeMetadataMissingKey  = errors.New("edge onboarding: missing metadata key")
+	errEdgeTrustDomainMetadata = errors.New("edge onboarding: missing trust domain metadata and unable to derive")
+)
 
 // buildEdgePackageArchive packages the sensitive onboarding artefacts into a tar.gz bundle.
 // It returns the archive bytes and the suggested filename.
@@ -126,7 +133,7 @@ func ensureTrailingNewline(data []byte) []byte {
 
 func sanitizeArchiveName(raw string) string {
 	if raw == "" {
-		return "edge-package.tar.gz"
+		return edgePackageDefaultFilename
 	}
 	base, params, err := mime.ParseMediaType(fmt.Sprintf("attachment; filename=%q", raw))
 	if err == nil {
@@ -138,7 +145,7 @@ func sanitizeArchiveName(raw string) string {
 	raw = strings.ReplaceAll(raw, "..", "")
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "edge-package.tar.gz"
+		return edgePackageDefaultFilename
 	}
 	return raw
 }
@@ -182,7 +189,7 @@ func parseEdgeMetadata(raw string) map[string]string {
 func renderEdgeEnvFile(result *models.EdgeOnboardingDeliverResult, meta map[string]string) ([]byte, error) {
 	cfg := result.Package
 	if cfg == nil {
-		return nil, fmt.Errorf("package missing from deliver result")
+		return nil, errEdgePackageMissing
 	}
 
 	get := func(keys ...string) string {
@@ -203,17 +210,17 @@ func renderEdgeEnvFile(result *models.EdgeOnboardingDeliverResult, meta map[stri
 
 	coreAddress := get("core_address")
 	if coreAddress == "" {
-		return nil, fmt.Errorf("missing metadata key %q", "core_address")
+		return nil, fmt.Errorf("%w: %q", errEdgeMetadataMissingKey, "core_address")
 	}
 
 	coreSPIFFE := get("core_spiffe_id")
 	if coreSPIFFE == "" {
-		return nil, fmt.Errorf("missing metadata key %q", "core_spiffe_id")
+		return nil, fmt.Errorf("%w: %q", errEdgeMetadataMissingKey, "core_spiffe_id")
 	}
 
 	upstreamAddress := get("spire_upstream_address", "upstream_address")
 	if upstreamAddress == "" {
-		return nil, fmt.Errorf("missing metadata key %q", "spire_upstream_address")
+		return nil, fmt.Errorf("%w: %q", errEdgeMetadataMissingKey, "spire_upstream_address")
 	}
 
 	upstreamPort := get("spire_upstream_port", "upstream_port")
@@ -223,7 +230,7 @@ func renderEdgeEnvFile(result *models.EdgeOnboardingDeliverResult, meta map[stri
 
 	parentID := get("spire_parent_id", "parent_spiffe_id")
 	if parentID == "" {
-		return nil, fmt.Errorf("missing metadata key %q", "spire_parent_id")
+		return nil, fmt.Errorf("%w: %q", errEdgeMetadataMissingKey, "spire_parent_id")
 	}
 
 	agentAddress := get("agent_address")
@@ -233,7 +240,7 @@ func renderEdgeEnvFile(result *models.EdgeOnboardingDeliverResult, meta map[stri
 
 	agentSPIFFE := get("agent_spiffe_id")
 	if agentSPIFFE == "" {
-		return nil, fmt.Errorf("missing metadata key %q", "agent_spiffe_id")
+		return nil, fmt.Errorf("%w: %q", errEdgeMetadataMissingKey, "agent_spiffe_id")
 	}
 
 	waitAttempts := get("nested_spire_wait_attempts")
@@ -267,7 +274,7 @@ func renderEdgeEnvFile(result *models.EdgeOnboardingDeliverResult, meta map[stri
 	}
 
 	if trustDomain == "" {
-		return nil, fmt.Errorf("missing trust domain metadata and unable to derive")
+		return nil, errEdgeTrustDomainMetadata
 	}
 
 	env := map[string]string{
@@ -340,7 +347,7 @@ func renderEdgeReadme(result *models.EdgeOnboardingDeliverResult, meta map[strin
 	builder.WriteString("\nNext steps:\n")
 	builder.WriteString("  1. Copy this archive to the edge poller host.\n")
 	builder.WriteString("  2. Extract it in the ServiceRadar repository directory:\n")
-	builder.WriteString("       tar -xzvf edge-package.tar.gz\n")
+	builder.WriteString(fmt.Sprintf("       tar -xzvf %s\n", edgePackageDefaultFilename))
 	builder.WriteString("  3. Run docker/compose/edge-poller-restart.sh with the generated env file:\n")
 	builder.WriteString("       docker/compose/edge-poller-restart.sh --env-file edge-poller.env\n")
 	builder.WriteString("  4. Monitor the poller container logs for successful SPIRE bootstrap.\n\n")
@@ -404,32 +411,9 @@ func renderEdgeMetadataJSON(pkg *models.EdgeOnboardingPackage, meta map[string]s
 	return json.MarshalIndent(payload, "", "  ")
 }
 
-func parseContentDispositionFilename(header string) string {
-	if header == "" {
-		return ""
-	}
-	_, params, err := mime.ParseMediaType(header)
-	if err != nil {
-		// Attempt to normalise mis-cased header entries
-		if strings.Contains(header, "filename=") {
-			if idx := strings.Index(header, "filename="); idx >= 0 {
-				candidate := strings.Trim(header[idx+len("filename="):], "\"'")
-				return candidate
-			}
-		}
-		return ""
-	}
-	for key, value := range params {
-		if strings.EqualFold(key, "filename") {
-			return value
-		}
-	}
-	return ""
-}
-
 func buildContentDisposition(filename string) string {
 	if filename == "" {
-		filename = "edge-package.tar.gz"
+		filename = edgePackageDefaultFilename
 	}
 	return fmt.Sprintf("attachment; filename=%q", filename)
 }

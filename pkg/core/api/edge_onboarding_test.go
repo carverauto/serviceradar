@@ -6,10 +6,10 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -193,7 +193,7 @@ func TestHandleDownloadEdgePackageSuccess(t *testing.T) {
 
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		require.NoError(t, err)
@@ -224,7 +224,7 @@ func TestHandleDownloadEdgePackageSuccess(t *testing.T) {
 	assert.Equal(t, "edge-poller", metaPayload["poller_id"])
 
 	readme := string(files["README.txt"])
-	assert.True(t, strings.Contains(readme, "Package ID: pkg-1"))
+	assert.Contains(t, readme, "Package ID: pkg-1")
 
 	require.NotNil(t, service.lastDeliverReq)
 	assert.Equal(t, "pkg-1", service.lastDeliverReq.PackageID)
