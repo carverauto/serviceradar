@@ -67,6 +67,11 @@ alias(
 )
 
 alias(
+    name = "core-bootstrap",
+    actual = "//pkg/core/bootstrap:bootstrap",
+)
+
+alias(
     name = "auth",
     actual = "//pkg/core/auth:auth",
 )

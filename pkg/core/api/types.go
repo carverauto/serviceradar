@@ -76,6 +76,17 @@ type DeviceMetricsStatusResponse struct {
 	DeviceIDs []string `json:"device_ids"`
 }
 
+// EdgeOnboardingService provides read access to onboarding packages.
+type EdgeOnboardingService interface {
+	ListPackages(ctx context.Context, filter *models.EdgeOnboardingListFilter) ([]*models.EdgeOnboardingPackage, error)
+	GetPackage(ctx context.Context, packageID string) (*models.EdgeOnboardingPackage, error)
+	ListEvents(ctx context.Context, packageID string, limit int) ([]*models.EdgeOnboardingEvent, error)
+	CreatePackage(ctx context.Context, req *models.EdgeOnboardingCreateRequest) (*models.EdgeOnboardingCreateResult, error)
+	DeliverPackage(ctx context.Context, req *models.EdgeOnboardingDeliverRequest) (*models.EdgeOnboardingDeliverResult, error)
+	RevokePackage(ctx context.Context, req *models.EdgeOnboardingRevokeRequest) (*models.EdgeOnboardingRevokeResult, error)
+	SetAllowedPollerCallback(cb func([]string))
+}
+
 type APIServer struct {
 	mu                   sync.RWMutex
 	pollers              map[string]*PollerStatus
@@ -89,6 +100,8 @@ type APIServer struct {
 	dbService            db.Service
 	deviceRegistry       DeviceRegistryService
 	knownPollers         []string
+	knownPollerSet       map[string]struct{}
+	dynamicPollers       map[string]struct{}
 	authService          auth.AuthService
 	corsConfig           models.CORSConfig
 	logger               logger.Logger
@@ -100,6 +113,7 @@ type APIServer struct {
 	rbacConfig           *models.RBACConfig
 	spireAdminClient     spireadmin.Client
 	spireAdminConfig     *models.SpireAdminConfig
+	edgeOnboarding       EdgeOnboardingService
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint that fronts a specific JetStream domain.

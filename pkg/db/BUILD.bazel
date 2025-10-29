@@ -7,6 +7,7 @@ go_library(
         "db.go",
         "devices.go",
         "discovery.go",
+        "edge_onboarding.go",
         "errors.go",
         "interfaces.go",
         "json_helper.go",

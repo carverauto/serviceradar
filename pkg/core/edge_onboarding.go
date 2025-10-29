@@ -1,0 +1,884 @@
+package core
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/spiffe/go-spiffe/v2/spiffeid"
+	types "github.com/spiffe/spire-api-sdk/proto/spire/api/types"
+
+	"github.com/carverauto/serviceradar/pkg/crypto/secrets"
+	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/spireadmin"
+)
+
+//nolint:gochecknoglobals // cached set of statuses for allowed pollers.
+var onboardingAllowedStatuses = []models.EdgeOnboardingStatus{
+	models.EdgeOnboardingStatusIssued,
+	models.EdgeOnboardingStatusDelivered,
+	models.EdgeOnboardingStatusActivated,
+}
+
+const (
+	defaultJoinTokenTTL          = 15 * time.Minute
+	defaultDownloadTokenTTL      = 24 * time.Hour
+	downstreamX509TTL            = 4 * time.Hour
+	downstreamJWTTTL             = 30 * time.Minute
+	downloadTokenBytes           = 24
+	defaultPollerRefreshInterval = 5 * time.Minute
+	defaultPollerRefreshTimeout  = 5 * time.Second
+)
+
+var (
+	pollerSlugRegex = regexp.MustCompile(`[^a-z0-9]+`)
+)
+
+type edgeOnboardingService struct {
+	cfg         *models.EdgeOnboardingConfig
+	spireCfg    *models.SpireAdminConfig
+	spire       spireadmin.Client
+	db          db.Service
+	logger      logger.Logger
+	cipher      *secrets.Cipher
+	now         func() time.Time
+	rand        io.Reader
+	trustDomain string
+	mu          sync.RWMutex
+	allowed     map[string]struct{}
+
+	refreshInterval time.Duration
+	refreshTimeout  time.Duration
+
+	runMu     sync.Mutex
+	running   bool
+	cancel    context.CancelFunc
+	refreshWg sync.WaitGroup
+
+	callbackMu      sync.RWMutex
+	allowedCallback func([]string)
+}
+
+func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models.SpireAdminConfig, spireClient spireadmin.Client, database db.Service, log logger.Logger) (*edgeOnboardingService, error) {
+	if cfg == nil || !cfg.Enabled {
+		return nil, nil
+	}
+
+	keyBytes, err := base64.StdEncoding.DecodeString(cfg.EncryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("edge onboarding: decode encryption key: %w", err)
+	}
+
+	cipher, err := secrets.NewCipher(keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("edge onboarding: init cipher: %w", err)
+	}
+
+	service := &edgeOnboardingService{
+		cfg:      cfg,
+		spireCfg: spireCfg,
+		spire:    spireClient,
+		db:       database,
+		logger:   log,
+		cipher:   cipher,
+		now:      time.Now,
+		rand:     rand.Reader,
+		allowed:  make(map[string]struct{}),
+
+		refreshInterval: defaultPollerRefreshInterval,
+		refreshTimeout:  defaultPollerRefreshTimeout,
+	}
+
+	if spireCfg != nil && spireCfg.ServerSPIFFEID != "" {
+		if id, parseErr := spiffeid.FromString(spireCfg.ServerSPIFFEID); parseErr == nil {
+			service.trustDomain = id.TrustDomain().Name()
+		} else {
+			log.Warn().Err(parseErr).Msg("edge onboarding: failed to parse SPIRE server SPIFFE ID for trust domain")
+		}
+	}
+
+	return service, nil
+}
+
+func (s *edgeOnboardingService) Start(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
+
+	if s.running {
+		return nil
+	}
+
+	parent := ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+
+	if err := s.refreshAllowedPollers(parent); err != nil {
+		s.logger.Warn().Err(err).Msg("edge onboarding: initial poller refresh failed")
+	}
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	s.running = true
+
+	s.refreshWg.Add(1)
+	go s.refreshLoop(runCtx, parent)
+
+	return nil
+}
+
+func (s *edgeOnboardingService) Stop(context.Context) error {
+	if s == nil {
+		return nil
+	}
+
+	s.runMu.Lock()
+	if !s.running {
+		s.runMu.Unlock()
+		return nil
+	}
+	s.running = false
+	cancel := s.cancel
+	s.cancel = nil
+	s.runMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+
+	s.refreshWg.Wait()
+
+	return nil
+}
+
+func (s *edgeOnboardingService) refreshLoop(runCtx context.Context, parent context.Context) {
+	defer s.refreshWg.Done()
+
+	if parent == nil {
+		parent = context.Background()
+	}
+
+	interval := s.refreshInterval
+	if interval <= 0 {
+		select {
+		case <-runCtx.Done():
+		case <-parent.Done():
+		}
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-runCtx.Done():
+			return
+		case <-parent.Done():
+			return
+		case <-ticker.C:
+			if err := s.refreshAllowedPollers(parent); err != nil {
+				s.logger.Warn().Err(err).Msg("edge onboarding: periodic poller refresh failed")
+			}
+		}
+	}
+}
+
+func (s *edgeOnboardingService) refreshAllowedPollers(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	refreshCtx, cancel := context.WithTimeout(ctx, s.refreshTimeout)
+	defer cancel()
+
+	ids, err := s.db.ListEdgeOnboardingPollerIDs(refreshCtx, onboardingAllowedStatuses...)
+	if err != nil {
+		return fmt.Errorf("edge onboarding: list poller ids: %w", err)
+	}
+
+	next := make(map[string]struct{}, len(ids))
+	pollers := make([]string, 0, len(ids))
+	for _, id := range ids {
+		next[id] = struct{}{}
+		pollers = append(pollers, id)
+	}
+
+	s.mu.Lock()
+	s.allowed = next
+	s.mu.Unlock()
+
+	s.notifyAllowedPollers(pollers)
+
+	return nil
+}
+
+func (s *edgeOnboardingService) allowedPollersSnapshot() []string {
+	if s == nil {
+		return nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	pollers := make([]string, 0, len(s.allowed))
+	for id := range s.allowed {
+		pollers = append(pollers, id)
+	}
+
+	return pollers
+}
+
+func (s *edgeOnboardingService) notifyAllowedPollers(pollerIDs []string) {
+	s.callbackMu.RLock()
+	cb := s.allowedCallback
+	s.callbackMu.RUnlock()
+	if cb != nil {
+		cb(pollerIDs)
+	}
+}
+
+func (s *edgeOnboardingService) SetAllowedPollerCallback(cb func([]string)) {
+	if s == nil {
+		return
+	}
+
+	s.callbackMu.Lock()
+	s.allowedCallback = cb
+	s.callbackMu.Unlock()
+
+	if cb != nil {
+		cb(s.allowedPollersSnapshot())
+	}
+}
+
+func (s *edgeOnboardingService) broadcastAllowedSnapshot() {
+	if s == nil {
+		return
+	}
+	s.notifyAllowedPollers(s.allowedPollersSnapshot())
+}
+
+func (s *edgeOnboardingService) isPollerAllowed(ctx context.Context, pollerID string) bool {
+	if s == nil {
+		return false
+	}
+
+	s.mu.RLock()
+	_, ok := s.allowed[pollerID]
+	s.mu.RUnlock()
+	if ok {
+		return true
+	}
+
+	if err := s.refreshAllowedPollers(ctx); err != nil {
+		s.logger.Warn().
+			Err(err).
+			Msg("edge onboarding: failed to refresh poller cache during lookup")
+
+		return false
+	}
+
+	s.mu.RLock()
+	_, ok = s.allowed[pollerID]
+	s.mu.RUnlock()
+	return ok
+}
+
+func (s *edgeOnboardingService) ListPackages(ctx context.Context, filter *models.EdgeOnboardingListFilter) ([]*models.EdgeOnboardingPackage, error) {
+	if s == nil {
+		return nil, models.ErrEdgeOnboardingDisabled
+	}
+	if filter == nil {
+		filter = &models.EdgeOnboardingListFilter{}
+	}
+	packages, err := s.db.ListEdgeOnboardingPackages(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	return packages, nil
+}
+
+func (s *edgeOnboardingService) GetPackage(ctx context.Context, packageID string) (*models.EdgeOnboardingPackage, error) {
+	if s == nil {
+		return nil, models.ErrEdgeOnboardingDisabled
+	}
+	return s.db.GetEdgeOnboardingPackage(ctx, packageID)
+}
+
+func (s *edgeOnboardingService) ListEvents(ctx context.Context, packageID string, limit int) ([]*models.EdgeOnboardingEvent, error) {
+	if s == nil {
+		return nil, models.ErrEdgeOnboardingDisabled
+	}
+	return s.db.ListEdgeOnboardingEvents(ctx, packageID, limit)
+}
+
+func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.EdgeOnboardingCreateRequest) (*models.EdgeOnboardingCreateResult, error) {
+	if s == nil {
+		return nil, models.ErrEdgeOnboardingDisabled
+	}
+	if s.spire == nil {
+		return nil, models.ErrEdgeOnboardingSpireUnavailable
+	}
+	if req == nil {
+		return nil, models.ErrEdgeOnboardingInvalidRequest
+	}
+
+	label := strings.TrimSpace(req.Label)
+	if label == "" {
+		return nil, fmt.Errorf("%w: label is required", models.ErrEdgeOnboardingInvalidRequest)
+	}
+
+	createdBy := strings.TrimSpace(req.CreatedBy)
+	if createdBy == "" {
+		createdBy = statusUnknown
+	}
+
+	metadata := strings.TrimSpace(req.MetadataJSON)
+	if metadata != "" && !json.Valid([]byte(metadata)) {
+		return nil, fmt.Errorf("%w: metadata_json must be valid JSON", models.ErrEdgeOnboardingInvalidRequest)
+	}
+
+	now := s.now().UTC()
+
+	pollerID, err := s.resolvePollerID(ctx, label, req.PollerID)
+	if err != nil {
+		if errors.Is(err, models.ErrEdgeOnboardingPollerConflict) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("edge onboarding: resolve poller id: %w", err)
+	}
+
+	downstreamID, err := s.deriveDownstreamSPIFFEID(pollerID, strings.TrimSpace(req.DownstreamSPIFFEID))
+	if err != nil {
+		return nil, fmt.Errorf("edge onboarding: derive downstream spiffe id: %w", err)
+	}
+
+	selectors := s.mergeSelectors(req.Selectors)
+	protoSelectors, err := s.toProtoSelectors(selectors)
+	if err != nil {
+		return nil, err
+	}
+
+	joinTTL := s.effectiveJoinTokenTTL(req.JoinTokenTTL)
+	joinResult, err := s.spire.CreateJoinToken(ctx, spireadmin.JoinTokenParams{
+		AgentID: downstreamID,
+		TTL:     joinTTL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("edge onboarding: create join token: %w", err)
+	}
+
+	joinExpires := joinResult.Expires
+	if joinExpires.IsZero() {
+		joinExpires = now.Add(joinTTL)
+	}
+
+	entryResult, err := s.spire.CreateDownstreamEntry(ctx, spireadmin.DownstreamEntryParams{
+		ParentID:    joinResult.ParentID,
+		SpiffeID:    downstreamID,
+		Selectors:   protoSelectors,
+		X509SVIDTTL: downstreamX509TTL,
+		JWTSVIDTTL:  downstreamJWTTTL,
+		Admin:       true,
+		StoreSVID:   true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("edge onboarding: create downstream entry: %w", err)
+	}
+
+	entryID := entryResult.EntryID
+	cleanupNeeded := true
+	defer func() {
+		if cleanupNeeded && entryID != "" {
+			if err := s.deleteDownstreamEntry(ctx, entryID); err != nil {
+				s.logger.Warn().Str("entry_id", entryID).Err(err).Msg("edge onboarding: failed to clean up downstream entry after error")
+			}
+		}
+	}()
+
+	bundlePEM, err := s.spire.FetchBundle(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("edge onboarding: fetch bundle: %w", err)
+	}
+
+	downloadTTL := s.effectiveDownloadTokenTTL(req.DownloadTokenTTL)
+	downloadToken, err := s.generateDownloadToken()
+	if err != nil {
+		return nil, fmt.Errorf("edge onboarding: generate download token: %w", err)
+	}
+	downloadExpires := now.Add(downloadTTL)
+
+	joinCiphertext, err := s.cipher.Encrypt([]byte(joinResult.Token))
+	if err != nil {
+		return nil, fmt.Errorf("edge onboarding: encrypt join token: %w", err)
+	}
+	bundleCiphertext, err := s.cipher.Encrypt(bundlePEM)
+	if err != nil {
+		return nil, fmt.Errorf("edge onboarding: encrypt bundle: %w", err)
+	}
+
+	pkgModel := &models.EdgeOnboardingPackage{
+		PackageID:              uuid.NewString(),
+		Label:                  label,
+		PollerID:               pollerID,
+		Site:                   strings.TrimSpace(req.Site),
+		Status:                 models.EdgeOnboardingStatusIssued,
+		DownstreamEntryID:      entryID,
+		DownstreamSPIFFEID:     downstreamID,
+		Selectors:              selectors,
+		JoinTokenCiphertext:    joinCiphertext,
+		JoinTokenExpiresAt:     joinExpires,
+		BundleCiphertext:       bundleCiphertext,
+		DownloadTokenHash:      hashDownloadToken(downloadToken),
+		DownloadTokenExpiresAt: downloadExpires,
+		CreatedBy:              createdBy,
+		CreatedAt:              now,
+		UpdatedAt:              now,
+		MetadataJSON:           metadata,
+		Notes:                  strings.TrimSpace(req.Notes),
+	}
+
+	if err := s.db.UpsertEdgeOnboardingPackage(ctx, pkgModel); err != nil {
+		return nil, fmt.Errorf("edge onboarding: persist package: %w", err)
+	}
+
+	detailsJSON := s.packageIssuedDetails(entryID, downstreamID)
+	if err := s.db.InsertEdgeOnboardingEvent(ctx, &models.EdgeOnboardingEvent{
+		PackageID:   pkgModel.PackageID,
+		EventTime:   now,
+		EventType:   "issued",
+		Actor:       createdBy,
+		DetailsJSON: detailsJSON,
+	}); err != nil {
+		return nil, fmt.Errorf("edge onboarding: record issued event: %w", err)
+	}
+
+	s.mu.Lock()
+	s.allowed[pollerID] = struct{}{}
+	s.mu.Unlock()
+	s.broadcastAllowedSnapshot()
+
+	cleanupNeeded = false
+
+	return &models.EdgeOnboardingCreateResult{
+		Package:           pkgModel,
+		JoinToken:         joinResult.Token,
+		DownloadToken:     downloadToken,
+		BundlePEM:         bundlePEM,
+		DownstreamEntryID: entryID,
+	}, nil
+}
+
+func (s *edgeOnboardingService) DeliverPackage(ctx context.Context, req *models.EdgeOnboardingDeliverRequest) (*models.EdgeOnboardingDeliverResult, error) {
+	if s == nil {
+		return nil, models.ErrEdgeOnboardingDisabled
+	}
+	if req == nil {
+		return nil, models.ErrEdgeOnboardingInvalidRequest
+	}
+
+	packageID := strings.TrimSpace(req.PackageID)
+	if packageID == "" {
+		return nil, fmt.Errorf("%w: package_id is required", models.ErrEdgeOnboardingInvalidRequest)
+	}
+
+	token := strings.TrimSpace(req.DownloadToken)
+	if token == "" {
+		return nil, models.ErrEdgeOnboardingDownloadRequired
+	}
+
+	pkg, err := s.db.GetEdgeOnboardingPackage(ctx, packageID)
+	if err != nil {
+		return nil, err
+	}
+
+	now := s.now().UTC()
+
+	switch pkg.Status {
+	case models.EdgeOnboardingStatusIssued:
+		// proceed with delivery
+	case models.EdgeOnboardingStatusRevoked:
+		return nil, models.ErrEdgeOnboardingPackageRevoked
+	case models.EdgeOnboardingStatusDelivered, models.EdgeOnboardingStatusActivated:
+		return nil, models.ErrEdgeOnboardingPackageDelivered
+	case models.EdgeOnboardingStatusExpired:
+		return nil, models.ErrEdgeOnboardingDownloadExpired
+	}
+
+	if pkg.DownloadTokenHash == "" {
+		return nil, models.ErrEdgeOnboardingDownloadInvalid
+	}
+
+	tokenHash := hashDownloadToken(token)
+	if tokenHash != pkg.DownloadTokenHash {
+		return nil, models.ErrEdgeOnboardingDownloadInvalid
+	}
+
+	if now.After(pkg.DownloadTokenExpiresAt) {
+		return nil, models.ErrEdgeOnboardingDownloadExpired
+	}
+
+	joinTokenPlain, err := s.cipher.Decrypt(pkg.JoinTokenCiphertext)
+	if err != nil {
+		return nil, fmt.Errorf("edge onboarding: decrypt join token: %w", err)
+	}
+	bundlePlain, err := s.cipher.Decrypt(pkg.BundleCiphertext)
+	if err != nil {
+		return nil, fmt.Errorf("edge onboarding: decrypt bundle: %w", err)
+	}
+
+	deliveredAt := now
+	pkg.Status = models.EdgeOnboardingStatusDelivered
+	pkg.DeliveredAt = &deliveredAt
+	pkg.DownloadTokenHash = ""
+	pkg.DownloadTokenExpiresAt = now
+	pkg.UpdatedAt = now
+
+	if err := s.db.UpsertEdgeOnboardingPackage(ctx, pkg); err != nil {
+		return nil, fmt.Errorf("edge onboarding: persist delivered package: %w", err)
+	}
+
+	actor := strings.TrimSpace(req.Actor)
+	if actor == "" {
+		actor = "unknown"
+	}
+
+	details := map[string]string{
+		"download_token_hash": tokenHash,
+	}
+
+	detailsJSON := ""
+	if data, err := json.Marshal(details); err == nil {
+		detailsJSON = string(data)
+	} else {
+		s.logger.Debug().
+			Err(err).
+			Str("package_id", pkg.PackageID).
+			Msg("edge onboarding: failed to marshal delivered event details")
+	}
+
+	if err := s.db.InsertEdgeOnboardingEvent(ctx, &models.EdgeOnboardingEvent{
+		PackageID:   pkg.PackageID,
+		EventTime:   now,
+		EventType:   "delivered",
+		Actor:       actor,
+		SourceIP:    strings.TrimSpace(req.SourceIP),
+		DetailsJSON: detailsJSON,
+	}); err != nil {
+		return nil, fmt.Errorf("edge onboarding: record delivered event: %w", err)
+	}
+
+	return &models.EdgeOnboardingDeliverResult{
+		Package:   pkg,
+		JoinToken: string(joinTokenPlain),
+		BundlePEM: bundlePlain,
+	}, nil
+}
+
+func (s *edgeOnboardingService) RevokePackage(ctx context.Context, req *models.EdgeOnboardingRevokeRequest) (*models.EdgeOnboardingRevokeResult, error) {
+	if s == nil {
+		return nil, models.ErrEdgeOnboardingDisabled
+	}
+	if req == nil {
+		return nil, models.ErrEdgeOnboardingInvalidRequest
+	}
+
+	packageID := strings.TrimSpace(req.PackageID)
+	if packageID == "" {
+		return nil, fmt.Errorf("%w: package_id is required", models.ErrEdgeOnboardingInvalidRequest)
+	}
+
+	if s.spire == nil {
+		return nil, models.ErrEdgeOnboardingSpireUnavailable
+	}
+
+	pkg, err := s.db.GetEdgeOnboardingPackage(ctx, packageID)
+	if err != nil {
+		return nil, err
+	}
+
+	if pkg.Status == models.EdgeOnboardingStatusRevoked {
+		return nil, models.ErrEdgeOnboardingPackageRevoked
+	}
+
+	if err := s.deleteDownstreamEntry(ctx, pkg.DownstreamEntryID); err != nil {
+		return nil, fmt.Errorf("edge onboarding: delete downstream entry: %w", err)
+	}
+
+	now := s.now().UTC()
+	pkg.Status = models.EdgeOnboardingStatusRevoked
+	pkg.RevokedAt = &now
+	pkg.DownloadTokenHash = ""
+	pkg.DownloadTokenExpiresAt = now
+	pkg.JoinTokenExpiresAt = now
+	pkg.UpdatedAt = now
+
+	if err := s.db.UpsertEdgeOnboardingPackage(ctx, pkg); err != nil {
+		return nil, fmt.Errorf("edge onboarding: persist revoked package: %w", err)
+	}
+
+	actor := strings.TrimSpace(req.Actor)
+	if actor == "" {
+		actor = "unknown"
+	}
+
+	sourceIP := strings.TrimSpace(req.SourceIP)
+
+	var detailsJSON string
+	if reason := strings.TrimSpace(req.Reason); reason != "" {
+		if data, err := json.Marshal(map[string]string{"reason": reason}); err == nil {
+			detailsJSON = string(data)
+		} else {
+			s.logger.Debug().
+				Err(err).
+				Str("package_id", pkg.PackageID).
+				Msg("edge onboarding: failed to marshal revoked event details")
+		}
+	}
+
+	if err := s.db.InsertEdgeOnboardingEvent(ctx, &models.EdgeOnboardingEvent{
+		PackageID:   pkg.PackageID,
+		EventTime:   now,
+		EventType:   "revoked",
+		Actor:       actor,
+		SourceIP:    sourceIP,
+		DetailsJSON: detailsJSON,
+	}); err != nil {
+		return nil, fmt.Errorf("edge onboarding: record revoked event: %w", err)
+	}
+
+	s.mu.Lock()
+	delete(s.allowed, pkg.PollerID)
+	s.mu.Unlock()
+	s.broadcastAllowedSnapshot()
+
+	return &models.EdgeOnboardingRevokeResult{Package: pkg}, nil
+}
+
+func (s *edgeOnboardingService) resolvePollerID(ctx context.Context, label, override string) (string, error) {
+	candidate := strings.TrimSpace(strings.ToLower(override))
+	if candidate != "" {
+		candidate = sanitizePollerID(candidate)
+		if candidate == "" {
+			return "", fmt.Errorf("%w: poller_id contains no valid characters", models.ErrEdgeOnboardingInvalidRequest)
+		}
+		if err := s.ensurePollerIDAvailable(ctx, candidate); err != nil {
+			return "", err
+		}
+		return candidate, nil
+	}
+
+	base := sanitizePollerID(label)
+	if base == "" {
+		base = "edge-poller"
+	}
+	if s.cfg.PollerIDPrefix != "" {
+		base = sanitizePollerID(strings.ToLower(s.cfg.PollerIDPrefix) + "-" + base)
+	}
+
+	candidate = base
+	if err := s.ensurePollerIDAvailable(ctx, candidate); err == nil {
+		return candidate, nil
+	} else if !errors.Is(err, models.ErrEdgeOnboardingPollerConflict) {
+		return "", err
+	}
+
+	for i := 0; i < 8; i++ {
+		suffix, err := s.randomSuffix(4)
+		if err != nil {
+			return "", err
+		}
+		candidate = fmt.Sprintf("%s-%s", base, suffix)
+		if err := s.ensurePollerIDAvailable(ctx, candidate); err == nil {
+			return candidate, nil
+		} else if !errors.Is(err, models.ErrEdgeOnboardingPollerConflict) {
+			return "", err
+		}
+	}
+
+	return "", fmt.Errorf("%w: unable to generate unique poller_id", models.ErrEdgeOnboardingPollerConflict)
+}
+
+func (s *edgeOnboardingService) ensurePollerIDAvailable(ctx context.Context, pollerID string) error {
+	filter := &models.EdgeOnboardingListFilter{
+		PollerID: pollerID,
+		Statuses: onboardingAllowedStatuses,
+		Limit:    1,
+	}
+	pkgs, err := s.db.ListEdgeOnboardingPackages(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("edge onboarding: check poller id: %w", err)
+	}
+	if len(pkgs) > 0 {
+		return models.ErrEdgeOnboardingPollerConflict
+	}
+	return nil
+}
+
+func (s *edgeOnboardingService) deriveDownstreamSPIFFEID(pollerID, override string) (string, error) {
+	if override != "" {
+		if _, err := spiffeid.FromString(override); err != nil {
+			return "", fmt.Errorf("%w: downstream_spiffe_id invalid: %w", models.ErrEdgeOnboardingInvalidRequest, err)
+		}
+		return override, nil
+	}
+
+	template := s.cfg.DownstreamPathTemplate
+	if template == "" {
+		if s.trustDomain == "" {
+			return "", fmt.Errorf("%w: downstream path template empty and trust domain unknown", models.ErrEdgeOnboardingInvalidRequest)
+		}
+		template = fmt.Sprintf("spiffe://%s/ns/edge/%s", s.trustDomain, pollerID)
+		if _, err := spiffeid.FromString(template); err != nil {
+			return "", fmt.Errorf("edge onboarding: build downstream spiffe id: %w", err)
+		}
+		return template, nil
+	}
+
+	slug := sanitizePollerID(pollerID)
+	result := strings.ReplaceAll(template, "{poller_id}", pollerID)
+	result = strings.ReplaceAll(result, "{poller_id_slug}", slug)
+	if strings.Contains(result, "{trust_domain}") {
+		if s.trustDomain == "" {
+			return "", fmt.Errorf("%w: downstream template requires trust_domain but none configured", models.ErrEdgeOnboardingInvalidRequest)
+		}
+		result = strings.ReplaceAll(result, "{trust_domain}", s.trustDomain)
+	}
+
+	if _, err := spiffeid.FromString(result); err != nil {
+		return "", fmt.Errorf("edge onboarding: downstream spiffe id invalid: %w", err)
+	}
+	return result, nil
+}
+
+func (s *edgeOnboardingService) mergeSelectors(extra []string) []string {
+	selectorSet := make(map[string]struct{})
+	merged := make([]string, 0)
+
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		if _, ok := selectorSet[raw]; ok {
+			return
+		}
+		selectorSet[raw] = struct{}{}
+		merged = append(merged, raw)
+	}
+
+	for _, sel := range s.cfg.DefaultSelectors {
+		add(sel)
+	}
+	for _, sel := range extra {
+		add(sel)
+	}
+
+	return merged
+}
+
+func (s *edgeOnboardingService) toProtoSelectors(selectors []string) ([]*types.Selector, error) {
+	protos := make([]*types.Selector, 0, len(selectors))
+	for _, raw := range selectors {
+		selector, err := spireadmin.ToProtoSelector(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%w: selector %q invalid: %w", models.ErrEdgeOnboardingInvalidRequest, raw, err)
+		}
+		protos = append(protos, selector)
+	}
+	return protos, nil
+}
+
+func (s *edgeOnboardingService) effectiveJoinTokenTTL(override time.Duration) time.Duration {
+	if override > 0 {
+		return override
+	}
+	if s.cfg.JoinTokenTTL > 0 {
+		return time.Duration(s.cfg.JoinTokenTTL)
+	}
+	return defaultJoinTokenTTL
+}
+
+func (s *edgeOnboardingService) effectiveDownloadTokenTTL(override time.Duration) time.Duration {
+	if override > 0 {
+		return override
+	}
+	if s.cfg.DownloadTokenTTL > 0 {
+		return time.Duration(s.cfg.DownloadTokenTTL)
+	}
+	return defaultDownloadTokenTTL
+}
+
+func (s *edgeOnboardingService) generateDownloadToken() (string, error) {
+	buf := make([]byte, downloadTokenBytes)
+	if _, err := io.ReadFull(s.rand, buf); err != nil {
+		return "", fmt.Errorf("edge onboarding: read random bytes: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+func (s *edgeOnboardingService) randomSuffix(length int) (string, error) {
+	buf := make([]byte, length)
+	if _, err := io.ReadFull(s.rand, buf); err != nil {
+		return "", fmt.Errorf("edge onboarding: generate random suffix: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(buf)[:length], nil
+}
+
+func (s *edgeOnboardingService) deleteDownstreamEntry(ctx context.Context, entryID string) error {
+	if s.spire == nil || entryID == "" {
+		return nil
+	}
+	return s.spire.DeleteEntry(ctx, entryID)
+}
+
+func (s *edgeOnboardingService) packageIssuedDetails(entryID, downstreamID string) string {
+	payload := map[string]string{
+		"downstream_entry_id":  entryID,
+		"downstream_spiffe_id": downstreamID,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		s.logger.Debug().Err(err).Msg("edge onboarding: failed to marshal issued event details")
+		return ""
+	}
+	return string(data)
+}
+
+func hashDownloadToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+func sanitizePollerID(raw string) string {
+	lowered := strings.ToLower(strings.TrimSpace(raw))
+	sanitized := pollerSlugRegex.ReplaceAllString(lowered, "-")
+	sanitized = strings.Trim(sanitized, "-")
+	if len(sanitized) > 63 {
+		sanitized = sanitized[:63]
+		sanitized = strings.Trim(sanitized, "-")
+	}
+	return sanitized
+}

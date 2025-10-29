@@ -121,6 +121,11 @@ spec:
             secretKeyRef:
               name: serviceradar-secrets
               key: jwt-secret
+        - name: EDGE_ONBOARDING_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: edge-onboarding-key
         - name: AUTH_PROVIDER
           value: "local"
         - name: OAUTH_ENABLED

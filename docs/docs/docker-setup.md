@@ -152,6 +152,9 @@ docker-compose up -d mapper
 
 ServiceRadar ships with optional SPIFFE support for the poller when you deploy via Docker Compose. The poller container can launch its own nested SPIRE server and agent pair and forward workloads through the upstream SPIRE control plane. To enable this mode:
 
+> Need the full edge onboarding workflow (poller package issuance, Docker restart scripts, and the upcoming agent/checker flows)? See the dedicated
+> [Secure Edge Onboarding](./edge-onboarding.md) runbook.
+
 1. **Prepare upstream credentials.**
    - Ensure the upstream SPIRE server is reachable from the poller host (default gRPC port `8081`).
    - Request a join token (and downstream registration) from Core using the CLI. The example below stores the full response as JSON and extracts the token for the poller init container:
@@ -261,6 +264,24 @@ When you need to run the poller away from the cluster (for example on an edge ho
    docker compose --env-file edge-poller.env \
      -f docker/compose/poller-stack.compose.yml up -d --no-deps poller agent
    ```
+
+### Provisioning Packages from the Core API
+
+Edge installers no longer need direct cluster access once an operator mints an
+onboarding package through Core:
+
+- **Create** packages from the admin UI at `/admin/edge-packages` or via the API
+  (`POST /api/admin/edge-packages`).
+- **Download** bundles securely:
+  `serviceradar-cli edge-package-download --core-url https://core.example.org --id <package> --download-token <token> --output edge-package.tar.gz`
+  writes a tarball containing `edge-poller.env`, the SPIRE artefacts, and a README. Extract it on the edge host and run
+  `docker/compose/edge-poller-restart.sh --env-file edge-poller.env` to apply the configuration.
+- **Revoke** compromised or unused packages:  
+  `serviceradar-cli edge-package-revoke --core-url https://core.example.org --id <package> --reason "Rotated edge host"`
+  deletes the downstream SPIRE entry and blocks future agent attestations.
+
+All `/api/admin/edge-packages` routes and the `/admin/edge-packages` UI are
+RBAC-protected (admin role).
 
 All generated nested SPIRE configuration lives under `generated-config/poller-spire/`. Re-run the `config-updater` container whenever you change trust domains or upstream addresses so the HCL files stay in sync.
 
