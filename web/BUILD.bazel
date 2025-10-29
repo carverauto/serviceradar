@@ -1,6 +1,6 @@
 load("@npm//:defs.bzl", "npm_link_all_packages")
 load(
-    "@npm__next__16.0.0_821344105__links//:defs.bzl",
+    "@npm__next__16.0.1_821344105__links//:defs.bzl",
     npm_link_next_store = "npm_link_imported_package_store",
 )
 load(
@@ -44,7 +44,7 @@ load(
     npm_link_lodash_set_store = "npm_link_imported_package_store",
 )
 load(
-    "@npm__next-runtime-env__3.3.0_392642428__links//:defs.bzl",
+    "@npm__next-runtime-env__3.3.0_390736547__links//:defs.bzl",
     npm_link_next_runtime_env_store = "npm_link_imported_package_store",
 )
 load(

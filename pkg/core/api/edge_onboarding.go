@@ -459,7 +459,7 @@ func (s *APIServer) handleDownloadEdgePackage(w http.ResponseWriter, r *http.Req
 		if errors.Is(err, errEdgePackageArchive) {
 			writeError(w, err.Error(), http.StatusInternalServerError)
 		} else {
-			writeError(w, "failed to render edge package artefacts", http.StatusInternalServerError)
+			writeError(w, "failed to render edge package artifacts", http.StatusInternalServerError)
 		}
 		return
 	}
@@ -529,6 +529,35 @@ func (s *APIServer) handleRevokeEdgePackage(w http.ResponseWriter, r *http.Reque
 	}
 
 	s.writeJSON(w, http.StatusOK, toEdgePackageView(result.Package))
+}
+
+func (s *APIServer) handleDeleteEdgePackage(w http.ResponseWriter, r *http.Request) {
+	if s.edgeOnboarding == nil {
+		writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := strings.TrimSpace(mux.Vars(r)["id"])
+	if id == "" {
+		writeError(w, "package id is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.edgeOnboarding.DeletePackage(r.Context(), id); err != nil {
+		switch {
+		case errors.Is(err, models.ErrEdgeOnboardingInvalidRequest):
+			writeError(w, err.Error(), http.StatusBadRequest)
+		case errors.Is(err, db.ErrEdgePackageNotFound):
+			writeError(w, "package not found", http.StatusNotFound)
+		case errors.Is(err, models.ErrEdgeOnboardingDisabled):
+			writeError(w, err.Error(), http.StatusServiceUnavailable)
+		default:
+			writeError(w, "failed to delete edge package", http.StatusBadGateway)
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func toEdgePackageView(pkg *models.EdgeOnboardingPackage) edgePackageView {

@@ -60,7 +60,7 @@ updates.
 |------|------------------|-------------|--------------------|
 | Poller | `edge-poller.env`, SPIRE join token, bundle | `config/pollers/<id>` → create/refresh with metadata (`status: pending`) | `issued → delivered → activated → revoked/expired` |
 | Agent | `edge-agent.env`, SPIRE join token, bundle | `config/pollers/<poller-id>/agents/<agent-id>` (`status: pending`) | Same as poller; activation tied to agent status reports |
-| Checker | `edge-checker.env`, optional SPIRE artefacts, checker metadata | `config/agents/<agent-id>/checkers/<checker-id>` (`status: pending`) | Same as poller; activation triggered by agent heartbeat |
+| Checker | `edge-checker.env`, optional SPIRE artifacts, checker metadata | `config/agents/<agent-id>/checkers/<checker-id>` (`status: pending`) | Same as poller; activation triggered by agent heartbeat |
 
 On activation, Core updates the relevant KV node to `status: "active"` and
 emits an audit event capturing the parent association.
@@ -155,7 +155,7 @@ Until GH-1909 lands, operators can emulate the flow:
 2. For agents:
    - Duplicate the poller metadata, update addresses, and save as
      `agent-metadata.json`.
-   - Issue another poller package solely to obtain SPIRE artefacts.
+   - Issue another poller package solely to obtain SPIRE artifacts.
    - Rename `edge-poller.env` to `edge-agent.env` and adjust variables.
    - `serviceradar-cli kv get --key config/pollers/<poller-id>/agents/<agent-id>.json`
      → merge the new agent definition and `kv put` it back with `status: "pending"`.

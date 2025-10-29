@@ -274,7 +274,7 @@ onboarding package through Core:
   (`POST /api/admin/edge-packages`).
 - **Download** bundles securely:
   `serviceradar-cli edge-package-download --core-url https://core.example.org --id <package> --download-token <token> --output edge-package.tar.gz`
-  writes a tarball containing `edge-poller.env`, the SPIRE artefacts, and a README. Extract it on the edge host and run
+  writes a tarball containing `edge-poller.env`, the SPIRE artifacts, and a README. Extract it on the edge host and run
   `docker/compose/edge-poller-restart.sh --env-file edge-poller.env` to apply the configuration.
 - **Revoke** compromised or unused packages:  
   `serviceradar-cli edge-package-revoke --core-url https://core.example.org --id <package> --reason "Rotated edge host"`

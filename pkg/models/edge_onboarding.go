@@ -130,7 +130,7 @@ type EdgeOnboardingDeliverRequest struct {
 	SourceIP      string
 }
 
-// EdgeOnboardingDeliverResult contains decrypted artefacts for installers.
+// EdgeOnboardingDeliverResult contains decrypted artifacts for installers.
 type EdgeOnboardingDeliverResult struct {
 	Package   *EdgeOnboardingPackage
 	JoinToken string

@@ -783,6 +783,39 @@ func (s *edgeOnboardingService) RevokePackage(ctx context.Context, req *models.E
 	return &models.EdgeOnboardingRevokeResult{Package: pkg}, nil
 }
 
+func (s *edgeOnboardingService) DeletePackage(ctx context.Context, packageID string) error {
+	if s == nil {
+		return models.ErrEdgeOnboardingDisabled
+	}
+
+	id := strings.TrimSpace(packageID)
+	if id == "" {
+		return fmt.Errorf("%w: package_id is required", models.ErrEdgeOnboardingInvalidRequest)
+	}
+
+	pkg, err := s.db.GetEdgeOnboardingPackage(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if pkg.Status != models.EdgeOnboardingStatusRevoked {
+		return fmt.Errorf("%w: package must be revoked before deletion", models.ErrEdgeOnboardingInvalidRequest)
+	}
+
+	if err := s.db.DeleteEdgeOnboardingPackage(ctx, id); err != nil {
+		return fmt.Errorf("edge onboarding: delete package: %w", err)
+	}
+
+	if pkg.ComponentType == models.EdgeOnboardingComponentTypePoller || pkg.ComponentType == models.EdgeOnboardingComponentTypeNone {
+		s.mu.Lock()
+		delete(s.allowed, pkg.PollerID)
+		s.mu.Unlock()
+		s.broadcastAllowedSnapshot()
+	}
+
+	return nil
+}
+
 func (s *edgeOnboardingService) resolvePollerID(ctx context.Context, label, override string) (string, error) {
 	candidate := strings.TrimSpace(strings.ToLower(override))
 	if candidate != "" {
