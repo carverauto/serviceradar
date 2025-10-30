@@ -38,7 +38,7 @@
     "postcss": "8.5.6",
     "tailwindcss": "^3.4.1",
     "typescript": "5.8.3",
-    "vitest": "^2.1.5"
+    "vitest": "^4.0.1"
   },
   "pnpm": {
     "ignoredBuiltDependencies": [
