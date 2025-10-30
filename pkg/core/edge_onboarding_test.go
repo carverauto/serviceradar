@@ -178,7 +178,7 @@ func TestEdgeOnboardingCreatePackageMissingMetadata(t *testing.T) {
 		CreatedBy: "admin@example.com",
 	})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, models.ErrEdgeOnboardingInvalidRequest)
+	require.ErrorIs(t, err, models.ErrEdgeOnboardingInvalidRequest)
 	assert.Contains(t, err.Error(), "metadata_json missing required key")
 }
 
@@ -638,8 +638,8 @@ func TestEdgeOnboardingDeletePackageSuccess(t *testing.T) {
 			require.NotNil(t, updated.DeletedAt)
 			assert.Equal(t, deleteTime, updated.UpdatedAt)
 			assert.WithinDuration(t, deleteTime, *updated.DeletedAt, time.Second)
-			assert.Equal(t, "unknown", updated.DeletedBy)
-			assert.Equal(t, "", updated.DeletedReason)
+			assert.Equal(t, statusUnknown, updated.DeletedBy)
+			assert.Empty(t, updated.DeletedReason)
 			return nil
 		})
 
@@ -704,8 +704,8 @@ func TestEdgeOnboardingDeletePackageBumpsTimestamp(t *testing.T) {
 			require.NotNil(t, updated.DeletedAt)
 			assert.True(t, updated.UpdatedAt.After(prior))
 			assert.WithinDuration(t, updated.UpdatedAt, *updated.DeletedAt, time.Millisecond)
-			assert.Equal(t, "unknown", updated.DeletedBy)
-			assert.Equal(t, "", updated.DeletedReason)
+			assert.Equal(t, statusUnknown, updated.DeletedBy)
+			assert.Empty(t, updated.DeletedReason)
 			return nil
 		})
 

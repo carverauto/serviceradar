@@ -78,6 +78,7 @@ type edgeOnboardingService struct {
 	allowedCallback func([]string)
 }
 
+//nolint:unparam // kvCloser is reserved for future KV client integrations.
 func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models.SpireAdminConfig, spireClient spireadmin.Client, database db.Service, kvClient proto.KVServiceClient, kvCloser func() error, log logger.Logger) (*edgeOnboardingService, error) {
 	if cfg == nil || !cfg.Enabled {
 		if kvCloser != nil {
@@ -445,6 +446,7 @@ func (s *edgeOnboardingService) ListEvents(ctx context.Context, packageID string
 	return s.db.ListEdgeOnboardingEvents(ctx, packageID, limit)
 }
 
+//nolint:gocyclo // CreatePackage coordinates validation, SPIRE calls, and persistence.
 func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.EdgeOnboardingCreateRequest) (*models.EdgeOnboardingCreateResult, error) {
 	if s == nil {
 		return nil, models.ErrEdgeOnboardingDisabled
@@ -475,12 +477,12 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 
 	normalizedMetadata, err := s.mergeMetadataDefaults(componentType, metadataJSON)
 	if err != nil {
-		return nil, fmt.Errorf("%w: metadata_json must be valid JSON: %v", models.ErrEdgeOnboardingInvalidRequest, err)
+		return nil, fmt.Errorf("%w: metadata_json must be valid JSON: %w", models.ErrEdgeOnboardingInvalidRequest, err)
 	}
 
 	metadataMap, err := parseEdgeMetadataMap(normalizedMetadata)
 	if err != nil {
-		return nil, fmt.Errorf("%w: metadata_json must be valid JSON: %v", models.ErrEdgeOnboardingInvalidRequest, err)
+		return nil, fmt.Errorf("%w: metadata_json must be valid JSON: %w", models.ErrEdgeOnboardingInvalidRequest, err)
 	}
 
 	if componentType == models.EdgeOnboardingComponentTypePoller {
@@ -491,11 +493,8 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 
 	metadata := normalizedMetadata
 
-	parentType := req.ParentType
 	parentID := strings.TrimSpace(req.ParentID)
-	if parentID == "" {
-		parentType = models.EdgeOnboardingComponentTypeNone
-	}
+	var parentType models.EdgeOnboardingComponentType
 
 	componentID := strings.TrimSpace(req.ComponentID)
 	if componentID == "" {
@@ -552,6 +551,8 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 			}
 			pollerID = resolvedPoller
 		}
+	case models.EdgeOnboardingComponentTypeNone:
+		return nil, fmt.Errorf("%w: component_type is required", models.ErrEdgeOnboardingInvalidRequest)
 	default:
 		return nil, fmt.Errorf("%w: unsupported component_type %q", models.ErrEdgeOnboardingInvalidRequest, componentType)
 	}
@@ -725,6 +726,8 @@ func (s *edgeOnboardingService) DeliverPackage(ctx context.Context, req *models.
 		// proceed with delivery
 	case models.EdgeOnboardingStatusRevoked:
 		return nil, models.ErrEdgeOnboardingPackageRevoked
+	case models.EdgeOnboardingStatusDeleted:
+		return nil, models.ErrEdgeOnboardingPackageRevoked
 	case models.EdgeOnboardingStatusDelivered, models.EdgeOnboardingStatusActivated:
 		return nil, models.ErrEdgeOnboardingPackageDelivered
 	case models.EdgeOnboardingStatusExpired:
@@ -766,7 +769,7 @@ func (s *edgeOnboardingService) DeliverPackage(ctx context.Context, req *models.
 
 	actor := strings.TrimSpace(req.Actor)
 	if actor == "" {
-		actor = "unknown"
+		actor = statusUnknown
 	}
 
 	details := map[string]string{
