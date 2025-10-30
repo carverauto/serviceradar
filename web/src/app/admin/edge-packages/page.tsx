@@ -31,13 +31,20 @@ import {
   Plus,
   RefreshCw,
   ShieldPlus,
+  Trash2,
 } from 'lucide-react';
 
 import RoleGuard from '@/components/Auth/RoleGuard';
 
+type EdgeComponentType = 'poller' | 'agent' | 'checker' | '';
+
 type EdgePackage = {
   package_id: string;
   label: string;
+  component_id: string;
+  component_type: EdgeComponentType;
+  parent_type?: EdgeComponentType;
+  parent_id?: string;
   poller_id: string;
   site?: string;
   status: string;
@@ -53,7 +60,11 @@ type EdgePackage = {
   activated_from_ip?: string;
   last_seen_spiffe_id?: string;
   revoked_at?: string;
+  deleted_at?: string;
   metadata_json?: string;
+  checker_kind?: string;
+  checker_config_json?: string;
+  kv_revision?: number;
   notes?: string;
 };
 
@@ -71,7 +82,15 @@ type EdgePackageSecrets = {
   bundlePEM: string;
 };
 
+type EdgePackageDefaults = {
+  selectors?: string[];
+  metadata?: Record<string, Record<string, string>>;
+};
+
 type CreateFormState = {
+  componentType: EdgeComponentType;
+  componentId: string;
+  parentId: string;
   label: string;
   pollerId: string;
   site: string;
@@ -84,6 +103,9 @@ type CreateFormState = {
 };
 
 const defaultFormState: CreateFormState = {
+  componentType: 'poller',
+  componentId: '',
+  parentId: '',
   label: '',
   pollerId: '',
   site: '',
@@ -101,6 +123,7 @@ const statusStyles: Record<string, string> = {
   activated: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200',
   revoked: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200',
   expired: 'bg-slate-200 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300',
+  deleted: 'bg-zinc-200 text-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200',
 };
 
 function formatDate(value?: string | null): string {
@@ -112,6 +135,32 @@ function formatDate(value?: string | null): string {
     return value;
   }
   return date.toLocaleString();
+}
+
+function formatMetadata(metadata?: Record<string, string> | null): string {
+  if (!metadata) {
+    return '';
+  }
+  const entries = Object.entries(metadata)
+    .map<[string, string]>(([key, value]) => [key.trim(), typeof value === 'string' ? value.trim() : String(value ?? '')])
+    .filter(([key, value]) => key.length > 0 && value.length > 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) {
+    return '';
+  }
+  const ordered: Record<string, string> = {};
+  for (const [key, value] of entries) {
+    ordered[key] = value;
+  }
+  return JSON.stringify(ordered, null, 2);
+}
+
+function getMetadataDefaults(defaults: EdgePackageDefaults | null, componentType: EdgeComponentType): Record<string, string> | undefined {
+  if (!defaults?.metadata) {
+    return undefined;
+  }
+  const key = componentType && componentType.length > 0 ? componentType : 'poller';
+  return defaults.metadata[key] ?? defaults.metadata[componentType] ?? defaults.metadata['poller'];
 }
 
 function getStatusBadgeClass(status: string): string {
@@ -198,11 +247,47 @@ export default function EdgePackagesPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
   const [secrets, setSecrets] = useState<Record<string, EdgePackageSecrets>>({});
+  const [defaults, setDefaults] = useState<EdgePackageDefaults | null>(null);
+  const [metadataTouched, setMetadataTouched] = useState<boolean>(false);
+  const [selectorsTouched, setSelectorsTouched] = useState<boolean>(false);
 
   const selectedPackage = useMemo(
     () => packages.find((pkg) => pkg.package_id === selectedId) ?? null,
     [packages, selectedId],
   );
+
+  const pollerIds = useMemo(() => {
+    const seen = new Set<string>();
+    return packages
+      .filter((pkg) => (pkg.component_type ?? '') === 'poller')
+      .map((pkg) => pkg.component_id || pkg.poller_id)
+      .filter((id) => {
+        const trimmed = id?.trim();
+        if (!trimmed || seen.has(trimmed)) {
+          return false;
+        }
+        seen.add(trimmed);
+        return true;
+      });
+  }, [packages]);
+
+  const agentIds = useMemo(() => {
+    const seen = new Set<string>();
+    return packages
+      .filter((pkg) => (pkg.component_type ?? '') === 'agent')
+      .map((pkg) => pkg.component_id || pkg.parent_id || pkg.package_id)
+      .filter((id) => {
+        const trimmed = id?.trim();
+        if (!trimmed || seen.has(trimmed)) {
+          return false;
+        }
+        seen.add(trimmed);
+        return true;
+      });
+  }, [packages]);
+
+  const parentPollerListId = 'edge-parent-poller-options';
+  const parentAgentListId = 'edge-parent-agent-options';
 
   const loadPackages = useCallback(async () => {
     setLoading(true);
@@ -217,9 +302,12 @@ export default function EdgePackagesPage() {
       }
       const data: EdgePackage[] = await response.json();
       setPackages(data);
-      if (data.length > 0 && !selectedId) {
-        setSelectedId(data[0].package_id);
-      }
+      setSelectedId((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        return data.some((pkg) => pkg.package_id === prev) ? prev : null;
+      });
     } catch (err) {
       console.error('Error loading edge packages', err);
       setPackages([]);
@@ -227,7 +315,7 @@ export default function EdgePackagesPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedId]);
+  }, []);
 
   const loadEvents = useCallback(async (packageId: string) => {
     setEventsLoading(true);
@@ -256,6 +344,34 @@ export default function EdgePackagesPage() {
   }, [loadPackages]);
 
   useEffect(() => {
+    let cancelled = false;
+    const fetchDefaults = async () => {
+      try {
+        const response = await fetch('/api/admin/edge-packages/defaults', {
+          headers: buildHeaders(),
+          cache: 'no-store',
+        });
+        if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Failed to load defaults');
+        }
+        const data: EdgePackageDefaults = await response.json();
+        if (!cancelled) {
+          setDefaults(data);
+        }
+      } catch (err) {
+        console.error('Failed to load edge onboarding defaults', err);
+      }
+    };
+
+    void fetchDefaults();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (selectedId) {
       void loadEvents(selectedId);
     } else {
@@ -263,14 +379,85 @@ export default function EdgePackagesPage() {
     }
   }, [selectedId, loadEvents]);
 
+  useEffect(() => {
+    if (!defaults) {
+      return;
+    }
+    setFormState((prev) => {
+      let next = prev;
+      let changed = false;
+
+      if (!selectorsTouched && (!prev.selectors || prev.selectors.trim().length === 0)) {
+        const defaultSelectors = defaults.selectors ?? [];
+        if (defaultSelectors.length > 0) {
+          next = changed ? next : { ...prev };
+          next.selectors = defaultSelectors.join('\n');
+          changed = true;
+        }
+      }
+
+      if (!metadataTouched && (!prev.metadataJSON || prev.metadataJSON.trim().length === 0)) {
+        const metaDefaults = getMetadataDefaults(defaults, prev.componentType);
+        const formatted = formatMetadata(metaDefaults);
+        if (formatted) {
+          next = changed ? next : { ...prev };
+          next.metadataJSON = formatted;
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [defaults, metadataTouched, selectorsTouched, formState.componentType]);
+
   const resetForm = useCallback(() => {
     setFormState(defaultFormState);
     setFormError(null);
     setFormSubmitting(false);
+    setMetadataTouched(false);
+    setSelectorsTouched(false);
   }, []);
 
+  const openFormFor = useCallback(
+    (type: EdgeComponentType) => {
+      setFormState({
+        ...defaultFormState,
+        componentType: type === 'agent' || type === 'checker' ? type : 'poller',
+        pollerId: type === 'poller' ? '' : '',
+        parentId: '',
+        componentId: '',
+      });
+      setFormError(null);
+      setFormSubmitting(false);
+       setMetadataTouched(false);
+       setSelectorsTouched(false);
+      setFormOpen(true);
+    },
+    [],
+  );
+
   const handleFormChange = (field: keyof CreateFormState, value: string) => {
+    if (field === 'metadataJSON') {
+      setMetadataTouched(true);
+    } else if (field === 'selectors') {
+      setSelectorsTouched(true);
+    }
     setFormState((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleComponentTypeChange = (value: EdgeComponentType) => {
+    const nextType: EdgeComponentType =
+      value === 'poller' || value === 'agent' || value === 'checker' ? value : 'poller';
+    setFormState((prev) => ({
+      ...prev,
+      componentType: nextType,
+      parentId: '',
+      pollerId: nextType === 'poller' ? prev.pollerId : '',
+      metadataJSON: !metadataTouched ? '' : prev.metadataJSON,
+    }));
+    if (!metadataTouched) {
+      setMetadataTouched(false);
+    }
   };
 
   const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -279,8 +466,25 @@ export default function EdgePackagesPage() {
     setActionMessage(null);
     setActionError(null);
 
-    if (!formState.label.trim()) {
+    const trimmedLabel = formState.label.trim();
+    if (!trimmedLabel) {
       setFormError('Label is required');
+      return;
+    }
+
+    const componentType: EdgeComponentType =
+      formState.componentType === 'agent' || formState.componentType === 'checker'
+        ? formState.componentType
+        : 'poller';
+    const componentId = formState.componentId.trim();
+    const parentId = formState.parentId.trim();
+
+    if (componentType === 'agent' && !parentId) {
+      setFormError('Parent poller is required for agent packages');
+      return;
+    }
+    if (componentType === 'checker' && !parentId) {
+      setFormError('Parent agent is required for checker packages');
       return;
     }
 
@@ -293,10 +497,34 @@ export default function EdgePackagesPage() {
 
       const joinMinutes = formState.joinTTLMinutes.trim();
       const downloadMinutes = formState.downloadTTLMinutes.trim();
+      const pollerOverride = formState.pollerId.trim();
+      const pollerIdForPayload =
+        componentType === 'poller'
+          ? pollerOverride || undefined
+          : componentType === 'checker' && pollerOverride
+            ? pollerOverride
+            : undefined;
 
-      const payload = {
-        label: formState.label.trim(),
-        poller_id: formState.pollerId.trim() || undefined,
+      const payload: {
+        label: string;
+        component_type: EdgeComponentType;
+        component_id?: string;
+        parent_type?: EdgeComponentType;
+        parent_id?: string;
+        poller_id?: string;
+        site?: string;
+        selectors?: string[];
+        metadata_json?: string;
+        notes?: string;
+        downstream_spiffe_id?: string;
+        join_token_ttl_seconds?: number;
+        download_token_ttl_seconds?: number;
+      } = {
+        label: trimmedLabel,
+        component_type: componentType,
+        component_id: componentId || undefined,
+        parent_id: parentId || undefined,
+        poller_id: pollerIdForPayload,
         site: formState.site.trim() || undefined,
         selectors: selectors.length > 0 ? selectors : undefined,
         metadata_json: formState.metadataJSON.trim() || undefined,
@@ -305,6 +533,12 @@ export default function EdgePackagesPage() {
         join_token_ttl_seconds: joinMinutes ? Math.max(0, Math.round(Number(joinMinutes) * 60)) : undefined,
         download_token_ttl_seconds: downloadMinutes ? Math.max(0, Math.round(Number(downloadMinutes) * 60)) : undefined,
       };
+
+      if (componentType === 'agent') {
+        payload.parent_type = 'poller';
+      } else if (componentType === 'checker') {
+        payload.parent_type = 'agent';
+      }
 
       const response = await fetch('/api/admin/edge-packages', {
         method: 'POST',
@@ -421,7 +655,7 @@ export default function EdgePackagesPage() {
     setActionMessage(null);
 
     const confirmed = window.confirm(
-      `Revoke package "${pkg.label}"? This deletes the downstream SPIRE entry and invalidates outstanding artefacts.`,
+      `Revoke package "${pkg.label}"? This deletes the downstream SPIRE entry and invalidates outstanding artifacts.`,
     );
     if (!confirmed) {
       return;
@@ -429,6 +663,7 @@ export default function EdgePackagesPage() {
 
     setActionLoading(true);
     try {
+      const wasSelected = pkg.package_id === selectedId;
       const response = await fetch(`/api/admin/edge-packages/${pkg.package_id}/revoke`, {
         method: 'POST',
         headers: buildHeaders('application/json', 'application/json'),
@@ -441,15 +676,71 @@ export default function EdgePackagesPage() {
 
       const updated: EdgePackage = await response.json();
       updatePackageInState(updated);
+      setSecrets((prev) => {
+        const next = { ...prev };
+        if (next[updated.package_id]) {
+          delete next[updated.package_id];
+        }
+        return next;
+      });
       setActionMessage(`Package ${updated.label} revoked.`);
 
-      if (pkg.package_id === selectedId) {
+      if (wasSelected) {
         setSelectedId(updated.package_id);
+      }
+
+      await loadPackages();
+
+      if (wasSelected) {
         await loadEvents(updated.package_id);
       }
     } catch (err) {
       console.error('Failed to revoke package', err);
       setActionError(err instanceof Error ? err.message : 'Failed to revoke package');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDelete = async (pkg: EdgePackage) => {
+    setActionError(null);
+    setActionMessage(null);
+
+    const confirmed = window.confirm(
+      `Permanently delete package "${pkg.label}"? This removes its audit history and cannot be undone.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const response = await fetch(`/api/admin/edge-packages/${pkg.package_id}`, {
+        method: 'DELETE',
+        headers: buildHeaders(),
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || 'Failed to delete package');
+      }
+
+      setPackages((prev) => prev.filter((item) => item.package_id !== pkg.package_id));
+      setSecrets((prev) => {
+        const next = { ...prev };
+        delete next[pkg.package_id];
+        return next;
+      });
+
+      if (selectedId === pkg.package_id) {
+        setSelectedId(null);
+        setEvents([]);
+      }
+
+      setActionMessage(`Package ${pkg.label} deleted.`);
+      await loadPackages();
+    } catch (err) {
+      console.error('Failed to delete edge package', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to delete package');
     } finally {
       setActionLoading(false);
     }
@@ -478,18 +769,18 @@ export default function EdgePackagesPage() {
             <div>
               <h1 className="text-2xl font-semibold">Edge Onboarding Packages</h1>
               <p className="text-sm text-muted-foreground">
-                Issue, download, and revoke edge poller installer bundles backed by nested SPIRE.
+                Issue, download, and revoke poller, agent, and checker installers backed by nested SPIRE.
               </p>
             </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={() => setFormOpen((open) => !open)}
+              onClick={() => openFormFor(formState.componentType || 'poller')}
               className="inline-flex items-center gap-2 rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
               <Plus className="h-4 w-4" />
-              New package
+              Issue edge package
             </button>
             <button
               type="button"
@@ -499,6 +790,7 @@ export default function EdgePackagesPage() {
                 void loadPackages();
               }}
               className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-gray-900 dark:text-gray-200 dark:border-gray-700 dark:hover:bg-gray-800"
+              disabled={loading}
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Refresh
@@ -520,9 +812,19 @@ export default function EdgePackagesPage() {
         {formOpen && (
           <div className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
             <form onSubmit={handleCreate} className="space-y-6 p-6">
-              <div className="flex items-center gap-2">
-                <PackageIcon className="h-5 w-5 text-blue-500" />
-                <h2 className="text-lg font-semibold">Issue new installer</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2">
+                  <PackageIcon className="h-5 w-5 text-blue-500" />
+                  <h2 className="text-lg font-semibold">Issue new installer</h2>
+                </div>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-2 self-start rounded-md border border-transparent bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-70 sm:self-auto"
+                  disabled={formSubmitting}
+                >
+                  {formSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  Issue package
+                </button>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
@@ -535,20 +837,104 @@ export default function EdgePackagesPage() {
                     className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                     value={formState.label}
                     onChange={(event) => handleFormChange('label', event.target.value)}
-                    placeholder="Edge poller name"
+                    placeholder="Edge component label"
                   />
                 </label>
 
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="font-medium">Poller ID (optional)</span>
+                  <span className="font-medium">
+                    Component type <span className="text-red-500">*</span>
+                  </span>
+                  <select
+                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                    value={formState.componentType || 'poller'}
+                    onChange={(event) => handleComponentTypeChange(event.target.value as EdgeComponentType)}
+                  >
+                    <option value="poller">Poller</option>
+                    <option value="agent">Agent</option>
+                    <option value="checker">Checker</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">Component ID (optional)</span>
                   <input
                     className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
-                    value={formState.pollerId}
-                    onChange={(event) => handleFormChange('pollerId', event.target.value)}
-                    placeholder="Will be generated if omitted"
+                    value={formState.componentId}
+                    onChange={(event) => handleFormChange('componentId', event.target.value)}
+                    placeholder="Auto-generated from label if omitted"
                   />
                 </label>
 
+                {formState.componentType === 'agent' ? (
+                  <div className="flex flex-col gap-1 text-sm">
+                    <span className="font-medium">Parent poller</span>
+                    <p className="rounded border border-dashed border-gray-300 px-3 py-2 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-300">
+                      Select or enter the poller identifier this agent will attach to.
+                    </p>
+                  </div>
+                ) : (
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="font-medium">
+                      Poller ID {formState.componentType === 'checker' ? '(optional override)' : '(optional)'}
+                    </span>
+                    <input
+                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                      value={formState.pollerId}
+                      onChange={(event) => handleFormChange('pollerId', event.target.value)}
+                      placeholder="Will be generated if omitted"
+                    />
+                  </label>
+                )}
+              </div>
+
+              {formState.componentType !== 'poller' && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="font-medium">
+                      {formState.componentType === 'checker' ? 'Parent agent ID' : 'Parent poller ID'}{' '}
+                      <span className="text-red-500">*</span>
+                    </span>
+                    <input
+                      required
+                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                      value={formState.parentId}
+                      onChange={(event) => handleFormChange('parentId', event.target.value)}
+                      placeholder={
+                        formState.componentType === 'checker'
+                          ? 'Select or enter the agent that will own this checker'
+                          : 'Select or enter the poller this agent belongs to'
+                      }
+                      list={formState.componentType === 'checker' ? parentAgentListId : parentPollerListId}
+                    />
+                    {formState.componentType === 'checker' && (
+                      <datalist id={parentAgentListId}>
+                        {agentIds.map((id) => (
+                          <option value={id} key={`parent-agent-${id}`} />
+                        ))}
+                      </datalist>
+                    )}
+                    {formState.componentType === 'agent' && (
+                      <datalist id={parentPollerListId}>
+                        {pollerIds.map((id) => (
+                          <option value={id} key={`parent-poller-${id}`} />
+                        ))}
+                      </datalist>
+                    )}
+                  </label>
+                  <div className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-300">
+                    <span className="font-medium">Parent lookup</span>
+                    <p>
+                      Start typing to search existing {formState.componentType === 'checker' ? 'agents' : 'pollers'} or
+                      paste an identifier to reference a component that has not been onboarded yet.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid gap-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">Site (optional)</span>
                   <input
@@ -568,7 +954,9 @@ export default function EdgePackagesPage() {
                     placeholder="Override default template"
                   />
                 </label>
+              </div>
 
+              <div className="grid gap-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">Join token TTL (minutes)</span>
                   <input
@@ -672,6 +1060,9 @@ export default function EdgePackagesPage() {
                       Label
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                      Component
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                       Poller ID
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -691,8 +1082,8 @@ export default function EdgePackagesPage() {
                 <tbody className="divide-y divide-gray-200 bg-white dark:divide-gray-800 dark:bg-gray-900">
                   {!loading && packages.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-                        No edge packages yet. Issue one to bootstrap an edge poller.
+                      <td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                        No edge packages yet. Issue one to bootstrap your first edge component.
                       </td>
                     </tr>
                   )}
@@ -700,6 +1091,18 @@ export default function EdgePackagesPage() {
                   {packages.map((pkg) => {
                     const statusClass = getStatusBadgeClass(pkg.status);
                     const isSelected = selectedId === pkg.package_id;
+                    const parentLabel =
+                      pkg.component_type === 'checker'
+                        ? 'Parent agent'
+                        : pkg.component_type === 'agent'
+                        ? 'Parent poller'
+                        : '';
+                    const relationship =
+                      pkg.component_type === 'checker'
+                        ? `Poller: ${pkg.poller_id || '—'}`
+                        : pkg.component_type === 'agent'
+                        ? `Poller: ${pkg.parent_id || pkg.poller_id || '—'}`
+                        : '';
                     return (
                       <tr
                         key={pkg.package_id}
@@ -710,6 +1113,27 @@ export default function EdgePackagesPage() {
                       >
                         <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">
                           {pkg.label}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+                              {titleCase(pkg.component_type || 'poller')}
+                            </span>
+                            <code className="inline-flex w-fit items-center rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                              {pkg.component_id || '—'}
+                            </code>
+                            {pkg.parent_id && parentLabel ? (
+                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                                {parentLabel}:{' '}
+                                <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                  {pkg.parent_id}
+                                </code>
+                              </span>
+                            ) : null}
+                            {relationship && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400">{relationship}</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                           <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
@@ -765,6 +1189,21 @@ export default function EdgePackagesPage() {
                               <Ban className="h-3.5 w-3.5" />
                               Revoke
                             </button>
+                            {pkg.status === 'revoked' && (
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-900/10"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleDelete(pkg);
+                                }}
+                                disabled={actionLoading}
+                                title="Delete package"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Delete
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -773,7 +1212,7 @@ export default function EdgePackagesPage() {
 
                   {loading && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                      <td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           Loading packages…
@@ -792,7 +1231,7 @@ export default function EdgePackagesPage() {
                 {!selectedPackage ? (
                   <div className="flex flex-col items-center justify-center gap-3 py-10 text-center text-gray-500 dark:text-gray-400">
                     <Network className="h-8 w-8" />
-                    <p>Select a package to view details, download artefacts, and inspect the audit log.</p>
+                    <p>Select a package to view details, download artifacts, and inspect the audit log.</p>
                   </div>
                 ) : (
                   <div className="space-y-5">
@@ -811,7 +1250,67 @@ export default function EdgePackagesPage() {
                       </span>
                     </div>
 
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                        onClick={() => setSelectedId(null)}
+                      >
+                        Back to list
+                      </button>
+                      {selectedPackage.status === 'revoked' && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-2 rounded border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-900/10"
+                          onClick={() => void handleDelete(selectedPackage)}
+                          disabled={actionLoading}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete package
+                        </button>
+                      )}
+                    </div>
+
                     <dl className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Component type</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                          {titleCase(selectedPackage.component_type || 'poller')}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Component ID</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                          <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                            {selectedPackage.component_id}
+                          </code>
+                        </dd>
+                      </div>
+                      {selectedPackage.parent_id ? (
+                        <div>
+                          <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Parent component</dt>
+                          <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                            <div className="flex flex-col gap-1">
+                              <span>{titleCase(selectedPackage.parent_type || '') || 'Unknown'}</span>
+                              <code className="w-fit rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                {selectedPackage.parent_id}
+                              </code>
+                            </div>
+                          </dd>
+                        </div>
+                      ) : null}
+                      <div className="sm:col-span-2">
+                        <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Relationship</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                          {selectedPackage.component_type === 'checker'
+                            ? `Checker → Agent (${selectedPackage.parent_id || '—'}) → Poller (${
+                                selectedPackage.poller_id || '—'
+                              })`
+                            : selectedPackage.component_type === 'agent'
+                            ? `Agent → Poller (${selectedPackage.parent_id || selectedPackage.poller_id || '—'})`
+                            : 'Poller (no parent component)'}
+                        </dd>
+                      </div>
                       <div>
                         <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Poller ID</dt>
                         <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
@@ -847,6 +1346,14 @@ export default function EdgePackagesPage() {
                       <div>
                         <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Activated at</dt>
                         <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">{formatDate(selectedPackage.activated_at)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Revoked at</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">{formatDate(selectedPackage.revoked_at)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Deleted at</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">{formatDate(selectedPackage.deleted_at)}</dd>
                       </div>
                       <div>
                         <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Activated from IP</dt>
@@ -955,7 +1462,7 @@ export default function EdgePackagesPage() {
               <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
                 <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
                   <Link2 className="h-4 w-4" />
-                  Installer artefacts
+                  Installer artifacts
                 </h3>
 
                 {!selectedPackage ? (

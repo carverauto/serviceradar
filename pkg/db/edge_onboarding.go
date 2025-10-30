@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -17,19 +18,71 @@ func (db *DB) UpsertEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeO
 		return fmt.Errorf("%w: edge onboarding package is nil", ErrEdgePackageInvalid)
 	}
 
+	packageUUID, err := uuid.Parse(pkg.PackageID)
+	if err != nil {
+		return fmt.Errorf("%w: invalid package_id %q: %w", ErrEdgePackageInvalid, pkg.PackageID, err)
+	}
+
 	selectors := pkg.Selectors
 	if selectors == nil {
 		selectors = []string{}
 	}
 
+	values := []any{
+		packageUUID,
+		pkg.Label,
+		pkg.ComponentID,
+		string(pkg.ComponentType),
+		string(pkg.ParentType),
+		pkg.ParentID,
+		pkg.CheckerKind,
+		pkg.CheckerConfigJSON,
+		pkg.PollerID,
+		pkg.Site,
+		string(pkg.Status),
+		pkg.DownstreamSPIFFEID,
+		selectors,
+		pkg.JoinTokenCiphertext,
+		pkg.JoinTokenExpiresAt,
+		pkg.BundleCiphertext,
+		pkg.DownloadTokenHash,
+		pkg.DownloadTokenExpiresAt,
+		pkg.CreatedBy,
+		pkg.CreatedAt,
+		pkg.UpdatedAt,
+		optionalTime(pkg.DeliveredAt),
+		optionalTime(pkg.ActivatedAt),
+		optionalString(pkg.ActivatedFromIP),
+		optionalString(pkg.LastSeenSPIFFEID),
+		optionalTime(pkg.RevokedAt),
+		optionalTime(pkg.DeletedAt),
+		strings.TrimSpace(pkg.DeletedBy),
+		strings.TrimSpace(pkg.DeletedReason),
+		pkg.MetadataJSON,
+		pkg.KVRevision,
+		pkg.Notes,
+		pkg.DownstreamEntryID,
+	}
+
+	db.logger.Info().
+		Str("package_id", pkg.PackageID).
+		Int("column_count", len(values)).
+		Str("component_type", string(pkg.ComponentType)).
+		Msg("Upserting edge onboarding package row")
+
 	return db.executeBatch(ctx, `
 		INSERT INTO edge_onboarding_packages (
 			package_id,
 			label,
+			component_id,
+			component_type,
+			parent_type,
+			parent_id,
+			checker_kind,
+			checker_config_json,
 			poller_id,
 			site,
 			status,
-			downstream_entry_id,
 			downstream_spiffe_id,
 			selectors,
 			join_token_ciphertext,
@@ -45,43 +98,72 @@ func (db *DB) UpsertEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeO
 			activated_from_ip,
 			last_seen_spiffe_id,
 			revoked_at,
+			deleted_at,
+			deleted_by,
+			deleted_reason,
 			metadata_json,
-			notes
+			kv_revision,
+			notes,
+			downstream_entry_id
 		) VALUES`, func(batch driver.Batch) error {
-		return batch.Append(
-			pkg.PackageID,
-			pkg.Label,
-			pkg.PollerID,
-			pkg.Site,
-			string(pkg.Status),
-			pkg.DownstreamEntryID,
-			pkg.DownstreamSPIFFEID,
-			selectors,
-			pkg.JoinTokenCiphertext,
-			pkg.JoinTokenExpiresAt,
-			pkg.BundleCiphertext,
-			pkg.DownloadTokenHash,
-			pkg.DownloadTokenExpiresAt,
-			pkg.CreatedBy,
-			pkg.CreatedAt,
-			pkg.UpdatedAt,
-			optionalTime(pkg.DeliveredAt),
-			optionalTime(pkg.ActivatedAt),
-			optionalString(pkg.ActivatedFromIP),
-			optionalString(pkg.LastSeenSPIFFEID),
-			optionalTime(pkg.RevokedAt),
-			pkg.MetadataJSON,
-			pkg.Notes,
-		)
+		return batch.Append(values...)
 	})
 }
 
 // GetEdgeOnboardingPackage fetches a single onboarding package by ID.
 func (db *DB) GetEdgeOnboardingPackage(ctx context.Context, packageID string) (*models.EdgeOnboardingPackage, error) {
+	packageUUID, err := uuid.Parse(packageID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid package_id %q: %w", ErrEdgePackageInvalid, packageID, err)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
+		WITH ranked AS (
+			SELECT
+				package_id,
+				label,
+				component_id,
+				component_type,
+				parent_type,
+				parent_id,
+				poller_id,
+				site,
+				status,
+				downstream_entry_id,
+				downstream_spiffe_id,
+				selectors,
+				join_token_ciphertext,
+				join_token_expires_at,
+				bundle_ciphertext,
+				download_token_hash,
+				download_token_expires_at,
+				created_by,
+				created_at,
+				updated_at,
+				delivered_at,
+				activated_at,
+				activated_from_ip,
+				last_seen_spiffe_id,
+				revoked_at,
+				deleted_at,
+				deleted_by,
+				deleted_reason,
+				metadata_json,
+				checker_kind,
+				checker_config_json,
+				kv_revision,
+				notes,
+				row_number() OVER (PARTITION BY package_id ORDER BY updated_at DESC) AS row_num
+			FROM table(edge_onboarding_packages)
+			WHERE package_id = $1
+		)
 		SELECT
 			package_id,
 			label,
+			component_id,
+			component_type,
+			parent_type,
+			parent_id,
 			poller_id,
 			site,
 			status,
@@ -101,12 +183,18 @@ func (db *DB) GetEdgeOnboardingPackage(ctx context.Context, packageID string) (*
 			activated_from_ip,
 			last_seen_spiffe_id,
 			revoked_at,
+			deleted_at,
+			deleted_by,
+			deleted_reason,
 			metadata_json,
+			checker_kind,
+			checker_config_json,
+			kv_revision,
 			notes
-		FROM table(edge_onboarding_packages) FINAL
-		WHERE package_id = $1
+		FROM ranked
+		WHERE row_num = 1
 		LIMIT 1`,
-		packageID)
+		packageUUID)
 	if err != nil {
 		return nil, fmt.Errorf("%w edge onboarding package: %w", ErrFailedToQuery, err)
 	}
@@ -122,9 +210,51 @@ func (db *DB) GetEdgeOnboardingPackage(ctx context.Context, packageID string) (*
 // ListEdgeOnboardingPackages returns packages filtered by optional criteria.
 func (db *DB) ListEdgeOnboardingPackages(ctx context.Context, filter *models.EdgeOnboardingListFilter) ([]*models.EdgeOnboardingPackage, error) {
 	query := `
+		WITH ranked AS (
+			SELECT
+				package_id,
+				label,
+				component_id,
+				component_type,
+				parent_type,
+				parent_id,
+				poller_id,
+				site,
+				status,
+				downstream_entry_id,
+				downstream_spiffe_id,
+				selectors,
+				join_token_ciphertext,
+				join_token_expires_at,
+				bundle_ciphertext,
+				download_token_hash,
+				download_token_expires_at,
+				created_by,
+				created_at,
+				updated_at,
+				delivered_at,
+				activated_at,
+				activated_from_ip,
+				last_seen_spiffe_id,
+				revoked_at,
+				deleted_at,
+				deleted_by,
+				deleted_reason,
+				metadata_json,
+				checker_kind,
+				checker_config_json,
+				kv_revision,
+				notes,
+				row_number() OVER (PARTITION BY package_id ORDER BY updated_at DESC) AS row_num
+			FROM table(edge_onboarding_packages)
+		)
 		SELECT
 			package_id,
 			label,
+			component_id,
+			component_type,
+			parent_type,
+			parent_id,
 			poller_id,
 			site,
 			status,
@@ -144,13 +274,19 @@ func (db *DB) ListEdgeOnboardingPackages(ctx context.Context, filter *models.Edg
 			activated_from_ip,
 			last_seen_spiffe_id,
 			revoked_at,
+			deleted_at,
+			deleted_by,
+			deleted_reason,
 			metadata_json,
+			checker_kind,
+			checker_config_json,
+			kv_revision,
 			notes
-		FROM table(edge_onboarding_packages) FINAL`
+		FROM ranked`
 
 	var (
 		args       []interface{}
-		conditions []string
+		conditions = []string{"row_num = 1"}
 	)
 
 	param := func(value interface{}) string {
@@ -163,18 +299,32 @@ func (db *DB) ListEdgeOnboardingPackages(ctx context.Context, filter *models.Edg
 			conditions = append(conditions, fmt.Sprintf("poller_id = %s", param(filter.PollerID)))
 		}
 
-		if len(filter.Statuses) > 0 {
-			statuses := make([]string, 0, len(filter.Statuses))
-			for _, st := range filter.Statuses {
-				statuses = append(statuses, string(st))
+		if filter.ComponentID != "" {
+			conditions = append(conditions, fmt.Sprintf("component_id = %s", param(filter.ComponentID)))
+		}
+
+		if filter.ParentID != "" {
+			conditions = append(conditions, fmt.Sprintf("parent_id = %s", param(filter.ParentID)))
+		}
+
+		if len(filter.Types) > 0 {
+			typeLiterals := make([]string, 0, len(filter.Types))
+			for _, typ := range filter.Types {
+				typeLiterals = append(typeLiterals, fmt.Sprintf("'%s'", string(typ)))
 			}
-			conditions = append(conditions, fmt.Sprintf("status IN %s", param(statuses)))
+			conditions = append(conditions, fmt.Sprintf("component_type IN (%s)", strings.Join(typeLiterals, ", ")))
+		}
+
+		if len(filter.Statuses) > 0 {
+			statusLiterals := make([]string, 0, len(filter.Statuses))
+			for _, st := range filter.Statuses {
+				statusLiterals = append(statusLiterals, fmt.Sprintf("'%s'", string(st)))
+			}
+			conditions = append(conditions, fmt.Sprintf("status IN (%s)", strings.Join(statusLiterals, ", ")))
 		}
 	}
 
-	if len(conditions) > 0 {
-		query += "\nWHERE " + strings.Join(conditions, " AND ")
-	}
+	query += "\nWHERE " + strings.Join(conditions, " AND ")
 
 	query += "\nORDER BY updated_at DESC"
 
@@ -224,6 +374,8 @@ func (db *DB) ListEdgeOnboardingPollerIDs(ctx context.Context, statuses ...model
 		conditions = append(conditions, fmt.Sprintf("status IN (%s)", strings.Join(literals, ", ")))
 	}
 
+	conditions = append(conditions, "component_type = 'poller'")
+
 	if len(conditions) > 0 {
 		query += "\nWHERE " + strings.Join(conditions, " AND ")
 	}
@@ -258,6 +410,11 @@ func (db *DB) InsertEdgeOnboardingEvent(ctx context.Context, event *models.EdgeO
 		return fmt.Errorf("%w: edge onboarding event is nil", ErrEdgePackageInvalid)
 	}
 
+	packageUUID, err := uuid.Parse(event.PackageID)
+	if err != nil {
+		return fmt.Errorf("%w: invalid package_id %q: %w", ErrEdgePackageInvalid, event.PackageID, err)
+	}
+
 	return db.executeBatch(ctx, `
 		INSERT INTO edge_onboarding_events (
 			event_time,
@@ -269,7 +426,7 @@ func (db *DB) InsertEdgeOnboardingEvent(ctx context.Context, event *models.EdgeO
 		) VALUES`, func(batch driver.Batch) error {
 		return batch.Append(
 			event.EventTime,
-			event.PackageID,
+			packageUUID,
 			event.EventType,
 			event.Actor,
 			event.SourceIP,
@@ -284,6 +441,11 @@ func (db *DB) ListEdgeOnboardingEvents(ctx context.Context, packageID string, li
 		limit = 100
 	}
 
+	packageUUID, err := uuid.Parse(packageID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid package_id %q: %w", ErrEdgePackageInvalid, packageID, err)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
 		SELECT
 			event_time,
@@ -291,11 +453,11 @@ func (db *DB) ListEdgeOnboardingEvents(ctx context.Context, packageID string, li
 			actor,
 			source_ip,
 			details_json
-		FROM table(edge_onboarding_events) FINAL
+		FROM table(edge_onboarding_events)
 		WHERE package_id = $1
 		ORDER BY event_time DESC
 		LIMIT $2`,
-		packageID, limit)
+		packageUUID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%w edge onboarding events: %w", ErrFailedToQuery, err)
 	}
@@ -320,23 +482,56 @@ func (db *DB) ListEdgeOnboardingEvents(ctx context.Context, packageID string, li
 	return events, nil
 }
 
+// DeleteEdgeOnboardingPackage records a tombstone row for the supplied package.
+func (db *DB) DeleteEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeOnboardingPackage) error {
+	if pkg == nil {
+		return fmt.Errorf("%w: edge onboarding package is nil", ErrEdgePackageInvalid)
+	}
+
+	if strings.TrimSpace(pkg.PackageID) == "" {
+		return fmt.Errorf("%w: package_id is required", ErrEdgePackageInvalid)
+	}
+
+	if pkg.Status != models.EdgeOnboardingStatusDeleted {
+		pkg.Status = models.EdgeOnboardingStatusDeleted
+	}
+
+	return db.UpsertEdgeOnboardingPackage(ctx, pkg)
+}
+
 func scanEdgeOnboardingPackage(rows Rows) (*models.EdgeOnboardingPackage, error) {
 	var pkg models.EdgeOnboardingPackage
 
 	var (
+		packageUUID      uuid.UUID
+		componentID      string
+		componentType    string
+		parentType       string
+		parentID         string
 		deliveredAt      *time.Time
 		activatedAt      *time.Time
 		revokedAt        *time.Time
+		deletedAt        *time.Time
+		deletedBy        string
+		deletedReason    string
 		activatedFromIP  *string
 		lastSeenSPIFFEID *string
+		checkerKind      string
+		checkerConfig    string
+		kvRevision       uint64
+		status           string
 	)
 
 	err := rows.Scan(
-		&pkg.PackageID,
+		&packageUUID,
 		&pkg.Label,
+		&componentID,
+		&componentType,
+		&parentType,
+		&parentID,
 		&pkg.PollerID,
 		&pkg.Site,
-		&pkg.Status,
+		&status,
 		&pkg.DownstreamEntryID,
 		&pkg.DownstreamSPIFFEID,
 		&pkg.Selectors,
@@ -353,18 +548,36 @@ func scanEdgeOnboardingPackage(rows Rows) (*models.EdgeOnboardingPackage, error)
 		&activatedFromIP,
 		&lastSeenSPIFFEID,
 		&revokedAt,
+		&deletedAt,
+		&deletedBy,
+		&deletedReason,
 		&pkg.MetadataJSON,
+		&checkerKind,
+		&checkerConfig,
+		&kvRevision,
 		&pkg.Notes,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("%w edge onboarding package row: %w", ErrFailedToScan, err)
 	}
 
+	pkg.PackageID = packageUUID.String()
+	pkg.ComponentID = componentID
+	pkg.ComponentType = models.EdgeOnboardingComponentType(componentType)
+	pkg.ParentType = models.EdgeOnboardingComponentType(parentType)
+	pkg.ParentID = parentID
+	pkg.Status = models.EdgeOnboardingStatus(status)
 	pkg.DeliveredAt = deliveredAt
 	pkg.ActivatedAt = activatedAt
 	pkg.RevokedAt = revokedAt
+	pkg.DeletedAt = deletedAt
+	pkg.DeletedBy = deletedBy
+	pkg.DeletedReason = deletedReason
 	pkg.ActivatedFromIP = activatedFromIP
 	pkg.LastSeenSPIFFEID = lastSeenSPIFFEID
+	pkg.CheckerKind = checkerKind
+	pkg.CheckerConfigJSON = checkerConfig
+	pkg.KVRevision = kvRevision
 
 	return &pkg, nil
 }

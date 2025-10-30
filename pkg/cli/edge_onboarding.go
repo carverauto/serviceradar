@@ -24,7 +24,7 @@ type edgePackageRevokeAPIResponse struct {
 	RevokedAt time.Time `json:"revoked_at"`
 }
 
-// RunEdgePackageDownload calls the admin API to retrieve onboarding artefacts.
+// RunEdgePackageDownload calls the admin API to retrieve onboarding artifacts.
 func RunEdgePackageDownload(cfg *CmdConfig) error {
 	if cfg.CoreAPIURL == "" {
 		return errCoreURLRequired
