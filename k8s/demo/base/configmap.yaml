@@ -150,6 +150,22 @@ data:
         "unix:user:root",
         "unix:group:root"
       ],
+      "default_metadata": {
+        "poller": {
+          "core_address": "serviceradar-core:50052",
+          "core_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core",
+          "kv_address": "serviceradar-datasvc:50057",
+          "kv_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc",
+          "spire_upstream_address": "spire-server.demo.svc.cluster.local",
+          "spire_upstream_port": "8081",
+          "spire_parent_id": "spiffe://carverauto.dev/ns/edge/poller-nested-spire",
+          "agent_address": "agent:50051",
+          "agent_spiffe_id": "spiffe://carverauto.dev/services/agent",
+          "nested_spire_wait_attempts": "120",
+          "log_level": "info",
+          "logs_dir": "./logs"
+        }
+      },
       "join_token_ttl": "15m",
       "download_token_ttl": "10m",
       "poller_id_prefix": "edge"

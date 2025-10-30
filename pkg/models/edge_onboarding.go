@@ -14,6 +14,7 @@ const (
 	EdgeOnboardingStatusActivated EdgeOnboardingStatus = "activated"
 	EdgeOnboardingStatusRevoked   EdgeOnboardingStatus = "revoked"
 	EdgeOnboardingStatusExpired   EdgeOnboardingStatus = "expired"
+	EdgeOnboardingStatusDeleted   EdgeOnboardingStatus = "deleted"
 )
 
 // EdgeOnboardingComponentType identifies the resource represented by a package.
@@ -66,6 +67,9 @@ type EdgeOnboardingPackage struct {
 	ActivatedFromIP        *string                     `json:"activated_from_ip,omitempty"`
 	LastSeenSPIFFEID       *string                     `json:"last_seen_spiffe_id,omitempty"`
 	RevokedAt              *time.Time                  `json:"revoked_at,omitempty"`
+	DeletedAt              *time.Time                  `json:"deleted_at,omitempty"`
+	DeletedBy              string                      `json:"deleted_by,omitempty"`
+	DeletedReason          string                      `json:"deleted_reason,omitempty"`
 	MetadataJSON           string                      `json:"metadata_json,omitempty"`
 	CheckerKind            string                      `json:"checker_kind,omitempty"`
 	CheckerConfigJSON      string                      `json:"checker_config_json,omitempty"`
