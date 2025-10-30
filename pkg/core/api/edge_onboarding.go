@@ -296,6 +296,7 @@ func (s *APIServer) handleListEdgePackageEvents(w http.ResponseWriter, r *http.R
 	s.writeJSON(w, http.StatusOK, views)
 }
 
+//nolint:gocyclo // comprehensive validation requires multiple branches.
 func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Request) {
 	if s.edgeOnboarding == nil {
 		writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
@@ -321,11 +322,11 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 	componentType := models.EdgeOnboardingComponentTypePoller
 	if rawType := strings.TrimSpace(strings.ToLower(req.ComponentType)); rawType != "" {
 		switch rawType {
-		case "poller":
+		case string(models.EdgeOnboardingComponentTypePoller):
 			componentType = models.EdgeOnboardingComponentTypePoller
-		case "agent":
+		case string(models.EdgeOnboardingComponentTypeAgent):
 			componentType = models.EdgeOnboardingComponentTypeAgent
-		case "checker":
+		case string(models.EdgeOnboardingComponentTypeChecker):
 			componentType = models.EdgeOnboardingComponentTypeChecker
 		default:
 			writeError(w, "component_type must be poller, agent, or checker", http.StatusBadRequest)
@@ -336,11 +337,11 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 	parentType := models.EdgeOnboardingComponentTypeNone
 	if rawParent := strings.TrimSpace(strings.ToLower(req.ParentType)); rawParent != "" {
 		switch rawParent {
-		case "poller":
+		case string(models.EdgeOnboardingComponentTypePoller):
 			parentType = models.EdgeOnboardingComponentTypePoller
-		case "agent":
+		case string(models.EdgeOnboardingComponentTypeAgent):
 			parentType = models.EdgeOnboardingComponentTypeAgent
-		case "checker":
+		case string(models.EdgeOnboardingComponentTypeChecker):
 			parentType = models.EdgeOnboardingComponentTypeChecker
 		default:
 			writeError(w, "parent_type must be poller, agent, or checker", http.StatusBadRequest)
@@ -360,6 +361,8 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 			parentType = models.EdgeOnboardingComponentTypePoller
 		case models.EdgeOnboardingComponentTypeChecker:
 			parentType = models.EdgeOnboardingComponentTypeAgent
+		case models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeNone:
+			// no parent inference required
 		}
 	}
 

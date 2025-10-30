@@ -114,7 +114,7 @@ func (db *DB) UpsertEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeO
 func (db *DB) GetEdgeOnboardingPackage(ctx context.Context, packageID string) (*models.EdgeOnboardingPackage, error) {
 	packageUUID, err := uuid.Parse(packageID)
 	if err != nil {
-		return nil, fmt.Errorf("%w edge onboarding package: invalid package_id %q: %v", ErrEdgePackageInvalid, packageID, err)
+		return nil, fmt.Errorf("%w: invalid package_id %q: %w", ErrEdgePackageInvalid, packageID, err)
 	}
 
 	rows, err := db.Conn.Query(ctx, `
@@ -443,7 +443,7 @@ func (db *DB) ListEdgeOnboardingEvents(ctx context.Context, packageID string, li
 
 	packageUUID, err := uuid.Parse(packageID)
 	if err != nil {
-		return nil, fmt.Errorf("%w edge onboarding events: invalid package_id %q: %v", ErrEdgePackageInvalid, packageID, err)
+		return nil, fmt.Errorf("%w: invalid package_id %q: %w", ErrEdgePackageInvalid, packageID, err)
 	}
 
 	rows, err := db.Conn.Query(ctx, `
