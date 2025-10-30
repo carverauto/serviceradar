@@ -183,13 +183,14 @@ type SpireAdminConfig struct {
 
 // EdgeOnboardingConfig configures secure edge poller enrollment.
 type EdgeOnboardingConfig struct {
-	Enabled                bool     `json:"enabled"`
-	EncryptionKey          string   `json:"encryption_key"`
-	DefaultSelectors       []string `json:"default_selectors,omitempty"`
-	DownstreamPathTemplate string   `json:"downstream_path_template,omitempty"`
-	JoinTokenTTL           Duration `json:"join_token_ttl,omitempty"`
-	DownloadTokenTTL       Duration `json:"download_token_ttl,omitempty"`
-	PollerIDPrefix         string   `json:"poller_id_prefix,omitempty"`
+	Enabled                bool                         `json:"enabled"`
+	EncryptionKey          string                       `json:"encryption_key"`
+	DefaultSelectors       []string                     `json:"default_selectors,omitempty"`
+	DefaultMetadata        map[string]map[string]string `json:"default_metadata,omitempty"`
+	DownstreamPathTemplate string                       `json:"downstream_path_template,omitempty"`
+	JoinTokenTTL           Duration                     `json:"join_token_ttl,omitempty"`
+	DownloadTokenTTL       Duration                     `json:"download_token_ttl,omitempty"`
+	PollerIDPrefix         string                       `json:"poller_id_prefix,omitempty"`
 }
 
 func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {

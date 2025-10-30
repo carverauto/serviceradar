@@ -41,6 +41,9 @@ type edgePackageView struct {
 	ActivatedFromIP    *string    `json:"activated_from_ip,omitempty"`
 	LastSeenSPIFFEID   *string    `json:"last_seen_spiffe_id,omitempty"`
 	RevokedAt          *time.Time `json:"revoked_at,omitempty"`
+	DeletedAt          *time.Time `json:"deleted_at,omitempty"`
+	DeletedBy          string     `json:"deleted_by,omitempty"`
+	DeletedReason      string     `json:"deleted_reason,omitempty"`
 	MetadataJSON       string     `json:"metadata_json,omitempty"`
 	CheckerKind        string     `json:"checker_kind,omitempty"`
 	CheckerConfigJSON  string     `json:"checker_config_json,omitempty"`
@@ -89,6 +92,11 @@ type edgePackageRevokeRequest struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+type edgePackageDefaultsResponse struct {
+	Selectors []string                     `json:"selectors,omitempty"`
+	Metadata  map[string]map[string]string `json:"metadata,omitempty"`
+}
+
 func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Request) {
 	if s.edgeOnboarding == nil {
 		writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
@@ -131,7 +139,8 @@ func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Reques
 					models.EdgeOnboardingStatusDelivered,
 					models.EdgeOnboardingStatusActivated,
 					models.EdgeOnboardingStatusRevoked,
-					models.EdgeOnboardingStatusExpired:
+					models.EdgeOnboardingStatusExpired,
+					models.EdgeOnboardingStatusDeleted:
 					statuses = append(statuses, status)
 				default:
 					writeError(w, "unknown status "+trimmed, http.StatusBadRequest)
@@ -179,6 +188,41 @@ func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Reques
 	}
 
 	s.writeJSON(w, http.StatusOK, views)
+}
+
+func (s *APIServer) handleGetEdgePackageDefaults(w http.ResponseWriter, r *http.Request) {
+	if s.edgeOnboarding == nil {
+		writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	selectors := s.edgeOnboarding.DefaultSelectors()
+	rawMetadata := s.edgeOnboarding.MetadataDefaults()
+
+	metadata := make(map[string]map[string]string, len(rawMetadata))
+	for componentType, values := range rawMetadata {
+		if componentType == models.EdgeOnboardingComponentTypeNone || len(values) == 0 {
+			continue
+		}
+		clone := make(map[string]string, len(values))
+		for key, value := range values {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				clone[key] = trimmed
+			}
+		}
+		if len(clone) > 0 {
+			metadata[string(componentType)] = clone
+		}
+	}
+
+	response := edgePackageDefaultsResponse{
+		Selectors: selectors,
+	}
+	if len(metadata) > 0 {
+		response.Metadata = metadata
+	}
+
+	s.writeJSON(w, http.StatusOK, response)
 }
 
 func (s *APIServer) handleGetEdgePackage(w http.ResponseWriter, r *http.Request) {
@@ -552,6 +596,10 @@ func (s *APIServer) handleDeleteEdgePackage(w http.ResponseWriter, r *http.Reque
 		case errors.Is(err, models.ErrEdgeOnboardingDisabled):
 			writeError(w, err.Error(), http.StatusServiceUnavailable)
 		default:
+			s.logger.Error().
+				Err(err).
+				Str("package_id", id).
+				Msg("edge onboarding: delete package failed")
 			writeError(w, "failed to delete edge package", http.StatusBadGateway)
 		}
 		return
@@ -578,6 +626,8 @@ func toEdgePackageView(pkg *models.EdgeOnboardingPackage) edgePackageView {
 		CreatedBy:          pkg.CreatedBy,
 		CreatedAt:          pkg.CreatedAt,
 		UpdatedAt:          pkg.UpdatedAt,
+		DeletedBy:          pkg.DeletedBy,
+		DeletedReason:      pkg.DeletedReason,
 		MetadataJSON:       pkg.MetadataJSON,
 		CheckerKind:        pkg.CheckerKind,
 		CheckerConfigJSON:  pkg.CheckerConfigJSON,
@@ -593,6 +643,9 @@ func toEdgePackageView(pkg *models.EdgeOnboardingPackage) edgePackageView {
 	}
 	if pkg.RevokedAt != nil {
 		view.RevokedAt = pkg.RevokedAt
+	}
+	if pkg.DeletedAt != nil {
+		view.DeletedAt = pkg.DeletedAt
 	}
 	if pkg.ActivatedFromIP != nil {
 		view.ActivatedFromIP = pkg.ActivatedFromIP

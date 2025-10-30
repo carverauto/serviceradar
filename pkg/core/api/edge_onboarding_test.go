@@ -33,6 +33,8 @@ type stubEdgeOnboardingService struct {
 	lastRevokeReq  *models.EdgeOnboardingRevokeRequest
 	deleteErr      error
 	lastDeleteID   string
+	selectors      []string
+	metadata       map[models.EdgeOnboardingComponentType]map[string]string
 }
 
 func (s *stubEdgeOnboardingService) ListPackages(context.Context, *models.EdgeOnboardingListFilter) ([]*models.EdgeOnboardingPackage, error) {
@@ -66,7 +68,79 @@ func (s *stubEdgeOnboardingService) DeletePackage(_ context.Context, packageID s
 	return s.deleteErr
 }
 
+func (s *stubEdgeOnboardingService) DefaultSelectors() []string {
+	if len(s.selectors) == 0 {
+		return nil
+	}
+	out := make([]string, len(s.selectors))
+	copy(out, s.selectors)
+	return out
+}
+
+func (s *stubEdgeOnboardingService) MetadataDefaults() map[models.EdgeOnboardingComponentType]map[string]string {
+	if len(s.metadata) == 0 {
+		return nil
+	}
+	result := make(map[models.EdgeOnboardingComponentType]map[string]string, len(s.metadata))
+	for componentType, values := range s.metadata {
+		clone := make(map[string]string, len(values))
+		for key, value := range values {
+			clone[key] = value
+		}
+		result[componentType] = clone
+	}
+	return result
+}
+
 func (s *stubEdgeOnboardingService) SetAllowedPollerCallback(func([]string)) {}
+
+func TestHandleGetEdgePackageDefaultsSuccess(t *testing.T) {
+	service := &stubEdgeOnboardingService{
+		selectors: []string{"unix:uid:0", "unix:user:root"},
+		metadata: map[models.EdgeOnboardingComponentType]map[string]string{
+			models.EdgeOnboardingComponentTypePoller: {
+				"core_address":   "core:50052",
+				"core_spiffe_id": "spiffe://example.org/ns/demo/sa/serviceradar-core",
+			},
+		},
+	}
+
+	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/edge-packages/defaults", nil)
+	rec := httptest.NewRecorder()
+
+	server.handleGetEdgePackageDefaults(rec, req)
+
+	resp := rec.Result()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var payload edgePackageDefaultsResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&payload))
+	assert.ElementsMatch(t, []string{"unix:uid:0", "unix:user:root"}, payload.Selectors)
+	require.Contains(t, payload.Metadata, "poller")
+	assert.Equal(t, "core:50052", payload.Metadata["poller"]["core_address"])
+}
+
+func TestHandleGetEdgePackageDefaultsDisabled(t *testing.T) {
+	server := NewAPIServer(models.CORSConfig{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/edge-packages/defaults", nil)
+	rec := httptest.NewRecorder()
+
+	server.handleGetEdgePackageDefaults(rec, req)
+
+	resp := rec.Result()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+}
 
 func TestHandleCreateEdgePackageSuccess(t *testing.T) {
 	service := &stubEdgeOnboardingService{

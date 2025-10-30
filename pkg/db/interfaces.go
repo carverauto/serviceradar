@@ -144,7 +144,7 @@ type Service interface {
 	ListEdgeOnboardingPollerIDs(ctx context.Context, statuses ...models.EdgeOnboardingStatus) ([]string, error)
 	InsertEdgeOnboardingEvent(ctx context.Context, event *models.EdgeOnboardingEvent) error
 	ListEdgeOnboardingEvents(ctx context.Context, packageID string, limit int) ([]*models.EdgeOnboardingEvent, error)
-	DeleteEdgeOnboardingPackage(ctx context.Context, packageID string) error
+	DeleteEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeOnboardingPackage) error
 
 	// Device-centric metric operations.
 

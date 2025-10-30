@@ -60,6 +60,7 @@ type EdgePackage = {
   activated_from_ip?: string;
   last_seen_spiffe_id?: string;
   revoked_at?: string;
+  deleted_at?: string;
   metadata_json?: string;
   checker_kind?: string;
   checker_config_json?: string;
@@ -79,6 +80,11 @@ type EdgePackageSecrets = {
   joinToken: string;
   downloadToken: string;
   bundlePEM: string;
+};
+
+type EdgePackageDefaults = {
+  selectors?: string[];
+  metadata?: Record<string, Record<string, string>>;
 };
 
 type CreateFormState = {
@@ -117,6 +123,7 @@ const statusStyles: Record<string, string> = {
   activated: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200',
   revoked: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200',
   expired: 'bg-slate-200 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300',
+  deleted: 'bg-zinc-200 text-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200',
 };
 
 function formatDate(value?: string | null): string {
@@ -128,6 +135,32 @@ function formatDate(value?: string | null): string {
     return value;
   }
   return date.toLocaleString();
+}
+
+function formatMetadata(metadata?: Record<string, string> | null): string {
+  if (!metadata) {
+    return '';
+  }
+  const entries = Object.entries(metadata)
+    .map<[string, string]>(([key, value]) => [key.trim(), typeof value === 'string' ? value.trim() : String(value ?? '')])
+    .filter(([key, value]) => key.length > 0 && value.length > 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) {
+    return '';
+  }
+  const ordered: Record<string, string> = {};
+  for (const [key, value] of entries) {
+    ordered[key] = value;
+  }
+  return JSON.stringify(ordered, null, 2);
+}
+
+function getMetadataDefaults(defaults: EdgePackageDefaults | null, componentType: EdgeComponentType): Record<string, string> | undefined {
+  if (!defaults?.metadata) {
+    return undefined;
+  }
+  const key = componentType && componentType.length > 0 ? componentType : 'poller';
+  return defaults.metadata[key] ?? defaults.metadata[componentType] ?? defaults.metadata['poller'];
 }
 
 function getStatusBadgeClass(status: string): string {
@@ -214,6 +247,9 @@ export default function EdgePackagesPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
   const [secrets, setSecrets] = useState<Record<string, EdgePackageSecrets>>({});
+  const [defaults, setDefaults] = useState<EdgePackageDefaults | null>(null);
+  const [metadataTouched, setMetadataTouched] = useState<boolean>(false);
+  const [selectorsTouched, setSelectorsTouched] = useState<boolean>(false);
 
   const selectedPackage = useMemo(
     () => packages.find((pkg) => pkg.package_id === selectedId) ?? null,
@@ -308,6 +344,34 @@ export default function EdgePackagesPage() {
   }, [loadPackages]);
 
   useEffect(() => {
+    let cancelled = false;
+    const fetchDefaults = async () => {
+      try {
+        const response = await fetch('/api/admin/edge-packages/defaults', {
+          headers: buildHeaders(),
+          cache: 'no-store',
+        });
+        if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Failed to load defaults');
+        }
+        const data: EdgePackageDefaults = await response.json();
+        if (!cancelled) {
+          setDefaults(data);
+        }
+      } catch (err) {
+        console.error('Failed to load edge onboarding defaults', err);
+      }
+    };
+
+    void fetchDefaults();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (selectedId) {
       void loadEvents(selectedId);
     } else {
@@ -315,10 +379,43 @@ export default function EdgePackagesPage() {
     }
   }, [selectedId, loadEvents]);
 
+  useEffect(() => {
+    if (!defaults) {
+      return;
+    }
+    setFormState((prev) => {
+      let next = prev;
+      let changed = false;
+
+      if (!selectorsTouched && (!prev.selectors || prev.selectors.trim().length === 0)) {
+        const defaultSelectors = defaults.selectors ?? [];
+        if (defaultSelectors.length > 0) {
+          next = changed ? next : { ...prev };
+          next.selectors = defaultSelectors.join('\n');
+          changed = true;
+        }
+      }
+
+      if (!metadataTouched && (!prev.metadataJSON || prev.metadataJSON.trim().length === 0)) {
+        const metaDefaults = getMetadataDefaults(defaults, prev.componentType);
+        const formatted = formatMetadata(metaDefaults);
+        if (formatted) {
+          next = changed ? next : { ...prev };
+          next.metadataJSON = formatted;
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [defaults, metadataTouched, selectorsTouched, formState.componentType]);
+
   const resetForm = useCallback(() => {
     setFormState(defaultFormState);
     setFormError(null);
     setFormSubmitting(false);
+    setMetadataTouched(false);
+    setSelectorsTouched(false);
   }, []);
 
   const openFormFor = useCallback(
@@ -332,12 +429,19 @@ export default function EdgePackagesPage() {
       });
       setFormError(null);
       setFormSubmitting(false);
+       setMetadataTouched(false);
+       setSelectorsTouched(false);
       setFormOpen(true);
     },
     [],
   );
 
   const handleFormChange = (field: keyof CreateFormState, value: string) => {
+    if (field === 'metadataJSON') {
+      setMetadataTouched(true);
+    } else if (field === 'selectors') {
+      setSelectorsTouched(true);
+    }
     setFormState((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -349,7 +453,11 @@ export default function EdgePackagesPage() {
       componentType: nextType,
       parentId: '',
       pollerId: nextType === 'poller' ? prev.pollerId : '',
+      metadataJSON: !metadataTouched ? '' : prev.metadataJSON,
     }));
+    if (!metadataTouched) {
+      setMetadataTouched(false);
+    }
   };
 
   const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -1238,6 +1346,14 @@ export default function EdgePackagesPage() {
                       <div>
                         <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Activated at</dt>
                         <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">{formatDate(selectedPackage.activated_at)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Revoked at</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">{formatDate(selectedPackage.revoked_at)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Deleted at</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">{formatDate(selectedPackage.deleted_at)}</dd>
                       </div>
                       <div>
                         <dt className="text-xs uppercase text-gray-500 dark:text-gray-400">Activated from IP</dt>
