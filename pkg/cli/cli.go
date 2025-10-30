@@ -473,7 +473,7 @@ func (SpireJoinTokenHandler) Parse(args []string, cfg *CmdConfig) error {
 	return nil
 }
 
-// EdgePackageDownloadHandler handles flags for downloading onboarding artefacts.
+// EdgePackageDownloadHandler handles flags for downloading onboarding artifacts.
 type EdgePackageDownloadHandler struct{}
 
 // Parse reads flags for the edge-package-download subcommand.
@@ -485,7 +485,7 @@ func (EdgePackageDownloadHandler) Parse(args []string, cfg *CmdConfig) error {
 	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	packageID := fs.String("id", "", "Edge package identifier")
 	downloadToken := fs.String("download-token", "", "Edge package download token")
-	output := fs.String("output", "", "Optional file path for writing onboarding artefacts (JSON)")
+	output := fs.String("output", "", "Optional file path for writing onboarding artifacts (JSON)")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parsing edge-package-download flags: %w", err)

@@ -28,7 +28,7 @@ var (
 	errEdgeTrustDomainMetadata = errors.New("edge onboarding: missing trust domain metadata and unable to derive")
 )
 
-// buildEdgePackageArchive packages the sensitive onboarding artefacts into a tar.gz bundle.
+// buildEdgePackageArchive packages the sensitive onboarding artifacts into a tar.gz bundle.
 // It returns the archive bytes and the suggested filename.
 func buildEdgePackageArchive(result *models.EdgeOnboardingDeliverResult, now time.Time) ([]byte, string, error) {
 	if result == nil || result.Package == nil {

@@ -34,11 +34,20 @@ export async function proxyJson(
     console.log(
       `[edge-packages] proxyJson response ${init.method ?? "GET"} ${targetUrl} -> ${resp.status}`
     );
-    const body = await resp.text();
+    const status = resp.status;
+    const isNoContent = status === 204 || status === 205 || status === 304;
     const contentType =
       resp.headers.get("Content-Type") ?? "application/json; charset=utf-8";
+
+    if (isNoContent) {
+      return new NextResponse(null, {
+        status,
+      });
+    }
+
+    const body = await resp.text();
     return new NextResponse(body, {
-      status: resp.status,
+      status,
       headers: {
         "Content-Type": contentType,
       },

@@ -22,6 +22,10 @@ const defaultEdgePackageLimit = 100
 type edgePackageView struct {
 	PackageID          string     `json:"package_id"`
 	Label              string     `json:"label"`
+	ComponentID        string     `json:"component_id"`
+	ComponentType      string     `json:"component_type"`
+	ParentType         string     `json:"parent_type,omitempty"`
+	ParentID           string     `json:"parent_id,omitempty"`
 	PollerID           string     `json:"poller_id"`
 	Site               string     `json:"site,omitempty"`
 	Status             string     `json:"status"`
@@ -37,7 +41,13 @@ type edgePackageView struct {
 	ActivatedFromIP    *string    `json:"activated_from_ip,omitempty"`
 	LastSeenSPIFFEID   *string    `json:"last_seen_spiffe_id,omitempty"`
 	RevokedAt          *time.Time `json:"revoked_at,omitempty"`
+	DeletedAt          *time.Time `json:"deleted_at,omitempty"`
+	DeletedBy          string     `json:"deleted_by,omitempty"`
+	DeletedReason      string     `json:"deleted_reason,omitempty"`
 	MetadataJSON       string     `json:"metadata_json,omitempty"`
+	CheckerKind        string     `json:"checker_kind,omitempty"`
+	CheckerConfigJSON  string     `json:"checker_config_json,omitempty"`
+	KVRevision         uint64     `json:"kv_revision,omitempty"`
 	Notes              string     `json:"notes,omitempty"`
 }
 
@@ -51,10 +61,16 @@ type edgeEventView struct {
 
 type edgePackageCreateRequest struct {
 	Label                   string   `json:"label"`
+	ComponentID             string   `json:"component_id,omitempty"`
+	ComponentType           string   `json:"component_type,omitempty"`
+	ParentType              string   `json:"parent_type,omitempty"`
+	ParentID                string   `json:"parent_id,omitempty"`
 	PollerID                string   `json:"poller_id,omitempty"`
 	Site                    string   `json:"site,omitempty"`
 	Selectors               []string `json:"selectors,omitempty"`
 	MetadataJSON            string   `json:"metadata_json,omitempty"`
+	CheckerKind             string   `json:"checker_kind,omitempty"`
+	CheckerConfigJSON       string   `json:"checker_config_json,omitempty"`
 	Notes                   string   `json:"notes,omitempty"`
 	JoinTokenTTLSeconds     int64    `json:"join_token_ttl_seconds,omitempty"`
 	DownloadTokenTTLSeconds int64    `json:"download_token_ttl_seconds,omitempty"`
@@ -76,6 +92,11 @@ type edgePackageRevokeRequest struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+type edgePackageDefaultsResponse struct {
+	Selectors []string                     `json:"selectors,omitempty"`
+	Metadata  map[string]map[string]string `json:"metadata,omitempty"`
+}
+
 func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Request) {
 	if s.edgeOnboarding == nil {
 		writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
@@ -85,7 +106,9 @@ func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Reques
 	query := r.URL.Query()
 
 	filter := &models.EdgeOnboardingListFilter{
-		PollerID: query.Get("poller_id"),
+		PollerID:    strings.TrimSpace(query.Get("poller_id")),
+		ComponentID: strings.TrimSpace(query.Get("component_id")),
+		ParentID:    strings.TrimSpace(query.Get("parent_id")),
 	}
 
 	if limitRaw := query.Get("limit"); limitRaw != "" {
@@ -116,7 +139,8 @@ func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Reques
 					models.EdgeOnboardingStatusDelivered,
 					models.EdgeOnboardingStatusActivated,
 					models.EdgeOnboardingStatusRevoked,
-					models.EdgeOnboardingStatusExpired:
+					models.EdgeOnboardingStatusExpired,
+					models.EdgeOnboardingStatusDeleted:
 					statuses = append(statuses, status)
 				default:
 					writeError(w, "unknown status "+trimmed, http.StatusBadRequest)
@@ -125,6 +149,31 @@ func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Reques
 			}
 		}
 		filter.Statuses = statuses
+	}
+
+	typeParams := query["component_type"]
+	if len(typeParams) > 0 {
+		var types []models.EdgeOnboardingComponentType
+		for _, raw := range typeParams {
+			for _, token := range strings.Split(raw, ",") {
+				trimmed := strings.TrimSpace(strings.ToLower(token))
+				if trimmed == "" {
+					continue
+				}
+				switch trimmed {
+				case "poller":
+					types = append(types, models.EdgeOnboardingComponentTypePoller)
+				case "agent":
+					types = append(types, models.EdgeOnboardingComponentTypeAgent)
+				case "checker":
+					types = append(types, models.EdgeOnboardingComponentTypeChecker)
+				default:
+					writeError(w, "component_type must be poller, agent, or checker", http.StatusBadRequest)
+					return
+				}
+			}
+		}
+		filter.Types = types
 	}
 
 	packages, err := s.edgeOnboarding.ListPackages(r.Context(), filter)
@@ -139,6 +188,41 @@ func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Reques
 	}
 
 	s.writeJSON(w, http.StatusOK, views)
+}
+
+func (s *APIServer) handleGetEdgePackageDefaults(w http.ResponseWriter, r *http.Request) {
+	if s.edgeOnboarding == nil {
+		writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	selectors := s.edgeOnboarding.DefaultSelectors()
+	rawMetadata := s.edgeOnboarding.MetadataDefaults()
+
+	metadata := make(map[string]map[string]string, len(rawMetadata))
+	for componentType, values := range rawMetadata {
+		if componentType == models.EdgeOnboardingComponentTypeNone || len(values) == 0 {
+			continue
+		}
+		clone := make(map[string]string, len(values))
+		for key, value := range values {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				clone[key] = trimmed
+			}
+		}
+		if len(clone) > 0 {
+			metadata[string(componentType)] = clone
+		}
+	}
+
+	response := edgePackageDefaultsResponse{
+		Selectors: selectors,
+	}
+	if len(metadata) > 0 {
+		response.Metadata = metadata
+	}
+
+	s.writeJSON(w, http.StatusOK, response)
 }
 
 func (s *APIServer) handleGetEdgePackage(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +296,7 @@ func (s *APIServer) handleListEdgePackageEvents(w http.ResponseWriter, r *http.R
 	s.writeJSON(w, http.StatusOK, views)
 }
 
+//nolint:gocyclo // comprehensive validation requires multiple branches.
 func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Request) {
 	if s.edgeOnboarding == nil {
 		writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
@@ -234,6 +319,62 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	componentType := models.EdgeOnboardingComponentTypePoller
+	if rawType := strings.TrimSpace(strings.ToLower(req.ComponentType)); rawType != "" {
+		switch rawType {
+		case string(models.EdgeOnboardingComponentTypePoller):
+			componentType = models.EdgeOnboardingComponentTypePoller
+		case string(models.EdgeOnboardingComponentTypeAgent):
+			componentType = models.EdgeOnboardingComponentTypeAgent
+		case string(models.EdgeOnboardingComponentTypeChecker):
+			componentType = models.EdgeOnboardingComponentTypeChecker
+		default:
+			writeError(w, "component_type must be poller, agent, or checker", http.StatusBadRequest)
+			return
+		}
+	}
+
+	parentType := models.EdgeOnboardingComponentTypeNone
+	if rawParent := strings.TrimSpace(strings.ToLower(req.ParentType)); rawParent != "" {
+		switch rawParent {
+		case string(models.EdgeOnboardingComponentTypePoller):
+			parentType = models.EdgeOnboardingComponentTypePoller
+		case string(models.EdgeOnboardingComponentTypeAgent):
+			parentType = models.EdgeOnboardingComponentTypeAgent
+		case string(models.EdgeOnboardingComponentTypeChecker):
+			parentType = models.EdgeOnboardingComponentTypeChecker
+		default:
+			writeError(w, "parent_type must be poller, agent, or checker", http.StatusBadRequest)
+			return
+		}
+	}
+
+	parentID := strings.TrimSpace(req.ParentID)
+	if componentType == models.EdgeOnboardingComponentTypePoller && parentID != "" {
+		writeError(w, "parent_id is not allowed for poller packages", http.StatusBadRequest)
+		return
+	}
+
+	if parentType == models.EdgeOnboardingComponentTypeNone && parentID != "" {
+		switch componentType {
+		case models.EdgeOnboardingComponentTypeAgent:
+			parentType = models.EdgeOnboardingComponentTypePoller
+		case models.EdgeOnboardingComponentTypeChecker:
+			parentType = models.EdgeOnboardingComponentTypeAgent
+		case models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeNone:
+			// no parent inference required
+		}
+	}
+
+	if parentID == "" {
+		parentType = models.EdgeOnboardingComponentTypeNone
+	}
+
+	componentID := strings.TrimSpace(req.ComponentID)
+	if componentID == "" {
+		componentID = strings.TrimSpace(req.PollerID)
+	}
+
 	var joinTTL, downloadTTL time.Duration
 	if req.JoinTokenTTLSeconds > 0 {
 		joinTTL = time.Duration(req.JoinTokenTTLSeconds) * time.Second
@@ -249,10 +390,16 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 
 	createReq := &models.EdgeOnboardingCreateRequest{
 		Label:              req.Label,
-		PollerID:           req.PollerID,
+		ComponentID:        componentID,
+		ComponentType:      componentType,
+		ParentType:         parentType,
+		ParentID:           parentID,
+		PollerID:           strings.TrimSpace(req.PollerID),
 		Site:               req.Site,
 		Selectors:          req.Selectors,
 		MetadataJSON:       req.MetadataJSON,
+		CheckerKind:        strings.TrimSpace(req.CheckerKind),
+		CheckerConfigJSON:  req.CheckerConfigJSON,
 		Notes:              req.Notes,
 		CreatedBy:          createdBy,
 		JoinTokenTTL:       joinTTL,
@@ -267,11 +414,21 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 			writeError(w, err.Error(), http.StatusBadRequest)
 		case errors.Is(err, models.ErrEdgeOnboardingPollerConflict):
 			writeError(w, err.Error(), http.StatusConflict)
+		case errors.Is(err, models.ErrEdgeOnboardingComponentConflict):
+			writeError(w, err.Error(), http.StatusConflict)
 		case errors.Is(err, models.ErrEdgeOnboardingSpireUnavailable):
 			writeError(w, "SPIRE admin integration unavailable", http.StatusServiceUnavailable)
 		case errors.Is(err, models.ErrEdgeOnboardingDisabled):
 			writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
 		default:
+			s.logger.Error().
+				Err(err).
+				Str("label", req.Label).
+				Str("component_type", string(componentType)).
+				Str("component_id", componentID).
+				Str("parent_type", string(parentType)).
+				Str("parent_id", parentID).
+				Msg("edge onboarding: create package failed")
 			writeError(w, "failed to create edge package", http.StatusBadGateway)
 		}
 		return
@@ -349,7 +506,7 @@ func (s *APIServer) handleDownloadEdgePackage(w http.ResponseWriter, r *http.Req
 		if errors.Is(err, errEdgePackageArchive) {
 			writeError(w, err.Error(), http.StatusInternalServerError)
 		} else {
-			writeError(w, "failed to render edge package artefacts", http.StatusInternalServerError)
+			writeError(w, "failed to render edge package artifacts", http.StatusInternalServerError)
 		}
 		return
 	}
@@ -421,10 +578,47 @@ func (s *APIServer) handleRevokeEdgePackage(w http.ResponseWriter, r *http.Reque
 	s.writeJSON(w, http.StatusOK, toEdgePackageView(result.Package))
 }
 
+func (s *APIServer) handleDeleteEdgePackage(w http.ResponseWriter, r *http.Request) {
+	if s.edgeOnboarding == nil {
+		writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := strings.TrimSpace(mux.Vars(r)["id"])
+	if id == "" {
+		writeError(w, "package id is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.edgeOnboarding.DeletePackage(r.Context(), id); err != nil {
+		switch {
+		case errors.Is(err, models.ErrEdgeOnboardingInvalidRequest):
+			writeError(w, err.Error(), http.StatusBadRequest)
+		case errors.Is(err, db.ErrEdgePackageNotFound):
+			writeError(w, "package not found", http.StatusNotFound)
+		case errors.Is(err, models.ErrEdgeOnboardingDisabled):
+			writeError(w, err.Error(), http.StatusServiceUnavailable)
+		default:
+			s.logger.Error().
+				Err(err).
+				Str("package_id", id).
+				Msg("edge onboarding: delete package failed")
+			writeError(w, "failed to delete edge package", http.StatusBadGateway)
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func toEdgePackageView(pkg *models.EdgeOnboardingPackage) edgePackageView {
 	view := edgePackageView{
 		PackageID:          pkg.PackageID,
 		Label:              pkg.Label,
+		ComponentID:        pkg.ComponentID,
+		ComponentType:      string(pkg.ComponentType),
+		ParentType:         string(pkg.ParentType),
+		ParentID:           pkg.ParentID,
 		PollerID:           pkg.PollerID,
 		Site:               pkg.Site,
 		Status:             string(pkg.Status),
@@ -435,7 +629,12 @@ func toEdgePackageView(pkg *models.EdgeOnboardingPackage) edgePackageView {
 		CreatedBy:          pkg.CreatedBy,
 		CreatedAt:          pkg.CreatedAt,
 		UpdatedAt:          pkg.UpdatedAt,
+		DeletedBy:          pkg.DeletedBy,
+		DeletedReason:      pkg.DeletedReason,
 		MetadataJSON:       pkg.MetadataJSON,
+		CheckerKind:        pkg.CheckerKind,
+		CheckerConfigJSON:  pkg.CheckerConfigJSON,
+		KVRevision:         pkg.KVRevision,
 		Notes:              pkg.Notes,
 	}
 
@@ -447,6 +646,9 @@ func toEdgePackageView(pkg *models.EdgeOnboardingPackage) edgePackageView {
 	}
 	if pkg.RevokedAt != nil {
 		view.RevokedAt = pkg.RevokedAt
+	}
+	if pkg.DeletedAt != nil {
+		view.DeletedAt = pkg.DeletedAt
 	}
 	if pkg.ActivatedFromIP != nil {
 		view.ActivatedFromIP = pkg.ActivatedFromIP

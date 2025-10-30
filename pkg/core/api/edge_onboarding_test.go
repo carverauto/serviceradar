@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/carverauto/serviceradar/pkg/core/auth"
+	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -30,6 +31,10 @@ type stubEdgeOnboardingService struct {
 	revokeErr      error
 	lastDeliverReq *models.EdgeOnboardingDeliverRequest
 	lastRevokeReq  *models.EdgeOnboardingRevokeRequest
+	deleteErr      error
+	lastDeleteID   string
+	selectors      []string
+	metadata       map[models.EdgeOnboardingComponentType]map[string]string
 }
 
 func (s *stubEdgeOnboardingService) ListPackages(context.Context, *models.EdgeOnboardingListFilter) ([]*models.EdgeOnboardingPackage, error) {
@@ -58,7 +63,84 @@ func (s *stubEdgeOnboardingService) RevokePackage(_ context.Context, req *models
 	return s.revokeResult, s.revokeErr
 }
 
+func (s *stubEdgeOnboardingService) DeletePackage(_ context.Context, packageID string) error {
+	s.lastDeleteID = packageID
+	return s.deleteErr
+}
+
+func (s *stubEdgeOnboardingService) DefaultSelectors() []string {
+	if len(s.selectors) == 0 {
+		return nil
+	}
+	out := make([]string, len(s.selectors))
+	copy(out, s.selectors)
+	return out
+}
+
+func (s *stubEdgeOnboardingService) MetadataDefaults() map[models.EdgeOnboardingComponentType]map[string]string {
+	if len(s.metadata) == 0 {
+		return nil
+	}
+	result := make(map[models.EdgeOnboardingComponentType]map[string]string, len(s.metadata))
+	for componentType, values := range s.metadata {
+		clone := make(map[string]string, len(values))
+		for key, value := range values {
+			clone[key] = value
+		}
+		result[componentType] = clone
+	}
+	return result
+}
+
 func (s *stubEdgeOnboardingService) SetAllowedPollerCallback(func([]string)) {}
+
+func TestHandleGetEdgePackageDefaultsSuccess(t *testing.T) {
+	service := &stubEdgeOnboardingService{
+		selectors: []string{"unix:uid:0", "unix:user:root"},
+		metadata: map[models.EdgeOnboardingComponentType]map[string]string{
+			models.EdgeOnboardingComponentTypePoller: {
+				"core_address":   "core:50052",
+				"core_spiffe_id": "spiffe://example.org/ns/demo/sa/serviceradar-core",
+			},
+		},
+	}
+
+	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/edge-packages/defaults", nil)
+	rec := httptest.NewRecorder()
+
+	server.handleGetEdgePackageDefaults(rec, req)
+
+	resp := rec.Result()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var payload edgePackageDefaultsResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&payload))
+	assert.ElementsMatch(t, []string{"unix:uid:0", "unix:user:root"}, payload.Selectors)
+	require.Contains(t, payload.Metadata, "poller")
+	assert.Equal(t, "core:50052", payload.Metadata["poller"]["core_address"])
+}
+
+func TestHandleGetEdgePackageDefaultsDisabled(t *testing.T) {
+	server := NewAPIServer(models.CORSConfig{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/edge-packages/defaults", nil)
+	rec := httptest.NewRecorder()
+
+	server.handleGetEdgePackageDefaults(rec, req)
+
+	resp := rec.Result()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+}
 
 func TestHandleCreateEdgePackageSuccess(t *testing.T) {
 	service := &stubEdgeOnboardingService{
@@ -66,6 +148,10 @@ func TestHandleCreateEdgePackageSuccess(t *testing.T) {
 			Package: &models.EdgeOnboardingPackage{
 				PackageID:              "pkg-1",
 				Label:                  "Edge Poller",
+				ComponentID:            "edge-poller",
+				ComponentType:          models.EdgeOnboardingComponentTypePoller,
+				ParentType:             models.EdgeOnboardingComponentTypeNone,
+				ParentID:               "",
 				PollerID:               "edge-poller",
 				Status:                 models.EdgeOnboardingStatusIssued,
 				DownstreamSPIFFEID:     "spiffe://example.org/ns/edge/edge-poller",
@@ -102,6 +188,7 @@ func TestHandleCreateEdgePackageSuccess(t *testing.T) {
 	assert.Equal(t, "download-token", payload.DownloadToken)
 	assert.Equal(t, "PEM", payload.BundlePEM)
 	assert.Equal(t, "Edge Poller", payload.Package.Label)
+	assert.Equal(t, "edge-poller", payload.Package.ComponentID)
 }
 
 func TestHandleCreateEdgePackageInvalid(t *testing.T) {
@@ -149,6 +236,10 @@ func TestHandleDownloadEdgePackageSuccess(t *testing.T) {
 			Package: &models.EdgeOnboardingPackage{
 				PackageID:              "pkg-1",
 				Label:                  "Edge Poller",
+				ComponentID:            "edge-poller",
+				ComponentType:          models.EdgeOnboardingComponentTypePoller,
+				ParentType:             models.EdgeOnboardingComponentTypeNone,
+				ParentID:               "",
 				PollerID:               "edge-poller",
 				Status:                 models.EdgeOnboardingStatusIssued,
 				DownstreamSPIFFEID:     "spiffe://example.org/ns/edge/edge-poller",
@@ -269,6 +360,8 @@ func TestHandleRevokeEdgePackageSuccess(t *testing.T) {
 			Package: &models.EdgeOnboardingPackage{
 				PackageID:          "pkg-2",
 				Label:              "Edge Poller",
+				ComponentID:        "edge-poller",
+				ComponentType:      models.EdgeOnboardingComponentTypePoller,
 				PollerID:           "edge-poller",
 				Status:             models.EdgeOnboardingStatusRevoked,
 				DownstreamSPIFFEID: "spiffe://example.org/ns/edge/edge-poller",
@@ -318,4 +411,48 @@ func TestHandleRevokeEdgePackageConflict(t *testing.T) {
 	server.handleRevokeEdgePackage(rec, req)
 
 	assert.Equal(t, http.StatusConflict, rec.Code)
+}
+
+func TestHandleDeleteEdgePackageSuccess(t *testing.T) {
+	service := &stubEdgeOnboardingService{}
+	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service))
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/edge-packages/pkg-9", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": "pkg-9"})
+
+	rec := httptest.NewRecorder()
+	server.handleDeleteEdgePackage(rec, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, "pkg-9", service.lastDeleteID)
+}
+
+func TestHandleDeleteEdgePackageInvalid(t *testing.T) {
+	service := &stubEdgeOnboardingService{
+		deleteErr: models.ErrEdgeOnboardingInvalidRequest,
+	}
+	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service))
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/edge-packages/pkg-2", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": "pkg-2"})
+
+	rec := httptest.NewRecorder()
+	server.handleDeleteEdgePackage(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandleDeleteEdgePackageNotFound(t *testing.T) {
+	service := &stubEdgeOnboardingService{
+		deleteErr: db.ErrEdgePackageNotFound,
+	}
+	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service))
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/edge-packages/pkg-404", nil)
+	req = mux.SetURLVars(req, map[string]string{"id": "pkg-404"})
+
+	rec := httptest.NewRecorder()
+	server.handleDeleteEdgePackage(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
