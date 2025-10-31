@@ -192,16 +192,9 @@ func (db *DB) ListPollers(ctx context.Context) ([]string, error) {
 
 // DeletePoller deletes a poller by ID.
 func (db *DB) DeletePoller(ctx context.Context, pollerID string) error {
-	batch, err := db.Conn.PrepareBatch(ctx, "DELETE FROM table(pollers) WHERE poller_id = $1")
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
-	}
+	query := "ALTER TABLE pollers DELETE WHERE poller_id = $1"
 
-	if err := batch.Append(pollerID); err != nil {
-		return fmt.Errorf("failed to append poller ID: %w", err)
-	}
-
-	if err := batch.Send(); err != nil {
+	if err := db.Conn.Exec(ctx, query, pollerID); err != nil {
 		return fmt.Errorf("%w: failed to delete poller: %w", ErrFailedToInsert, err)
 	}
 
