@@ -181,6 +181,12 @@ func setupDataStores(ctx context.Context, cfgLoader *config.Config, cfg *ServerC
 		return nil, nil, errNoSecurityConfigKV
 	}
 
+	log.Info().
+		Str("kv_address", cfg.KVAddress).
+		Str("kv_server_spiffe_id", securityConfig.ServerSPIFFEID).
+		Str("kv_trust_domain", securityConfig.TrustDomain).
+		Msg("Initializing KV security provider")
+
 	provider, err := grpc.NewSecurityProvider(ctx, securityConfig, log)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create KV security provider: %w", err)

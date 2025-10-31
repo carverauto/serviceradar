@@ -405,7 +405,11 @@ func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig, log l
 func normalizeServerSPIFFEID(raw string, trustDomain spiffeid.TrustDomain, hasTrustDomain bool, log logger.Logger) (spiffeid.ID, error) {
 	trimmed := strings.TrimSpace(raw)
 	if strings.Contains(trimmed, "://") {
-		return spiffeid.FromString(trimmed)
+		parts := strings.SplitN(trimmed, "://", 2)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "spiffe") {
+			return spiffeid.ID{}, fmt.Errorf("%w: %q", errMissingServerSPIFFEScheme, trimmed)
+		}
+		return spiffeid.FromString("spiffe://" + parts[1])
 	}
 
 	if !hasTrustDomain {

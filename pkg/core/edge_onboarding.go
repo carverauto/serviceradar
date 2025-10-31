@@ -964,6 +964,145 @@ func (s *edgeOnboardingService) DeletePackage(ctx context.Context, packageID str
 	return nil
 }
 
+func (s *edgeOnboardingService) RecordActivation(ctx context.Context, componentType models.EdgeOnboardingComponentType, componentID, pollerID, sourceIP, spiffeID string, seenAt time.Time) error {
+	if s == nil {
+		return nil
+	}
+
+	componentID = strings.TrimSpace(componentID)
+	if componentID == "" {
+		return nil
+	}
+
+	filter := &models.EdgeOnboardingListFilter{
+		Limit: 1,
+		Statuses: []models.EdgeOnboardingStatus{
+			models.EdgeOnboardingStatusIssued,
+			models.EdgeOnboardingStatusDelivered,
+			models.EdgeOnboardingStatusActivated,
+		},
+		Types: []models.EdgeOnboardingComponentType{componentType},
+	}
+
+	switch componentType {
+	case models.EdgeOnboardingComponentTypePoller:
+		filter.PollerID = componentID
+	case models.EdgeOnboardingComponentTypeAgent:
+		filter.ComponentID = componentID
+	default:
+		return nil
+	}
+
+	packages, err := s.db.ListEdgeOnboardingPackages(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("edge onboarding: lookup %s activation: %w", componentType, err)
+	}
+	if len(packages) == 0 || packages[0] == nil {
+		return nil
+	}
+
+	pkg := packages[0]
+	if pkg.Status == models.EdgeOnboardingStatusRevoked ||
+		pkg.Status == models.EdgeOnboardingStatusDeleted ||
+		pkg.Status == models.EdgeOnboardingStatusExpired {
+		return nil
+	}
+
+	now := seenAt
+	if now.IsZero() {
+		now = s.now().UTC()
+	} else {
+		now = seenAt.UTC()
+	}
+
+	sourceIP = strings.TrimSpace(sourceIP)
+	spiffeID = strings.TrimSpace(spiffeID)
+
+	statusChanged := false
+	updated := false
+
+	switch pkg.Status {
+	case models.EdgeOnboardingStatusIssued, models.EdgeOnboardingStatusDelivered:
+		pkg.Status = models.EdgeOnboardingStatusActivated
+		pkg.ActivatedAt = &now
+		statusChanged = true
+		updated = true
+	case models.EdgeOnboardingStatusActivated:
+		if pkg.ActivatedAt == nil {
+			pkg.ActivatedAt = &now
+			updated = true
+		}
+	default:
+		return nil
+	}
+
+	if sourceIP != "" {
+		if pkg.ActivatedFromIP == nil || *pkg.ActivatedFromIP != sourceIP {
+			pkg.ActivatedFromIP = &sourceIP
+			updated = true
+		}
+	}
+
+	if spiffeID != "" {
+		if pkg.LastSeenSPIFFEID == nil || *pkg.LastSeenSPIFFEID != spiffeID {
+			pkg.LastSeenSPIFFEID = &spiffeID
+			updated = true
+		}
+	}
+
+	if pollerID = strings.TrimSpace(pollerID); pollerID != "" && pkg.PollerID == "" {
+		pkg.PollerID = pollerID
+		updated = true
+	}
+
+	if !updated {
+		return nil
+	}
+
+	pkg.UpdatedAt = now
+
+	if err := s.db.UpsertEdgeOnboardingPackage(ctx, pkg); err != nil {
+		return fmt.Errorf("edge onboarding: persist activated package: %w", err)
+	}
+
+	if statusChanged {
+		details := map[string]string{
+			"component_type": string(componentType),
+		}
+		if pollerID != "" {
+			details["poller_id"] = pollerID
+		}
+		if spiffeID != "" {
+			details["spiffe_id"] = spiffeID
+		}
+
+		detailsJSON := ""
+		if len(details) > 0 {
+			if payload, marshalErr := json.Marshal(details); marshalErr == nil {
+				detailsJSON = string(payload)
+			} else {
+				s.logger.Debug().
+					Err(marshalErr).
+					Str("package_id", pkg.PackageID).
+					Msg("edge onboarding: failed to marshal activated event details")
+			}
+		}
+
+		if err := s.db.InsertEdgeOnboardingEvent(ctx, &models.EdgeOnboardingEvent{
+			PackageID:   pkg.PackageID,
+			EventTime:   now,
+			EventType:   "activated",
+			Actor:       "core",
+			SourceIP:    sourceIP,
+			DetailsJSON: detailsJSON,
+		}); err != nil {
+			return fmt.Errorf("edge onboarding: record activated event: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func (s *edgeOnboardingService) resolvePollerID(ctx context.Context, label, override string) (string, error) {
 	candidate := strings.TrimSpace(strings.ToLower(override))
 	if candidate != "" {
