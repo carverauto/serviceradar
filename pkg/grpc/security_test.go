@@ -171,6 +171,13 @@ func TestNormalizeServerSPIFFEID(t *testing.T) {
 		assert.Equal(t, raw, id.String())
 	})
 
+	t.Run("alreadyQualifiedUppercaseScheme", func(t *testing.T) {
+		raw := "SPIFFE://carverauto.dev/ns/demo/sa/serviceradar-datasvc"
+		id, err := normalizeServerSPIFFEID(raw, trustDomain, true, log)
+		require.NoError(t, err)
+		assert.Equal(t, "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc", id.String())
+	})
+
 	t.Run("missingSchemeWithLeadingSlash", func(t *testing.T) {
 		raw := "/ns/demo/sa/serviceradar-datasvc"
 		id, err := normalizeServerSPIFFEID(raw, trustDomain, true, log)
