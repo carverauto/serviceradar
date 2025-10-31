@@ -71,6 +71,7 @@ services:
   agent:
     image: ghcr.io/carverauto/serviceradar-agent:latest
     container_name: serviceradar-agent
+    network_mode: "service:poller"
     pid: "service:poller"
     depends_on:
       config-updater:

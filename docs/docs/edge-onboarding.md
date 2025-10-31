@@ -140,7 +140,16 @@ spire/upstream-bundle.pem
 
 1. Copy the archive onto the edge host (repo root).
 2. Extract it: `tar -xzvf edge-package.tar.gz`.
-3. Run the automated restart:
+3. **IMPORTANT**: Update the env file for Docker environments:
+   ```bash
+   # The agent address must be localhost:50051 for shared PID namespace
+   sed -i 's/POLLERS_AGENT_ADDRESS=agent:50051/POLLERS_AGENT_ADDRESS=localhost:50051/' edge-poller.env
+
+   # SPIRE upstream must use LoadBalancer IP, not k8s DNS
+   sed -i 's/POLLERS_SPIRE_UPSTREAM_ADDRESS=spire-server.demo.svc.cluster.local/POLLERS_SPIRE_UPSTREAM_ADDRESS=23.138.124.18/' edge-poller.env
+   sed -i 's/POLLERS_SPIRE_UPSTREAM_PORT=8081/POLLERS_SPIRE_UPSTREAM_PORT=18081/' edge-poller.env
+   ```
+4. Run the automated restart:
    ```bash
    docker/compose/edge-poller-restart.sh \
      --env-file edge-poller.env \
@@ -148,11 +157,11 @@ spire/upstream-bundle.pem
    ```
    This script wipes stale volumes, regenerates configs, injects the metadata,
    and brings `serviceradar-poller` + `serviceradar-agent` online in SPIFFE mode.
-4. Verify:
+5. Verify:
    ```bash
    docker compose --env-file edge-poller.env -f docker/compose/poller-stack.compose.yml ps
-   docker logs serviceradar-poller | grep -i spire
-   docker logs serviceradar-agent | head
+   docker logs serviceradar-poller | grep -i "Node attestation was successful"
+   docker logs serviceradar-agent | grep -E "(Starting|KV)"
    ```
 
 ### 3.4 Activation check
@@ -252,6 +261,10 @@ Core will then:
 | `/api/admin/edge-packages` download returns 409 | The download token was already used—issue a new package. |
 | Agent never appears under the poller | Verify KV config for the poller lists the agent; if not, reapply the edits (manual step until agent onboarding is automated). |
 | Nested SPIRE server loops | Clear `compose_poller-spire-runtime` (`docker volume rm`) before running the restart script to avoid stale sockets. |
+| `produced zero addresses` in SPIRE upstream agent | The upstream address is using k8s DNS which doesn't resolve from Docker. Update `POLLERS_SPIRE_UPSTREAM_ADDRESS` to use the LoadBalancer IP (e.g., `23.138.124.18`). |
+| `join token was not provided` in downstream agent | Known limitation: The downstream nested agent requires manual join token generation. This will be automated in a future release. |
+| Agent hangs on "Initializing SPIFFE security provider" | The agent must share PID namespace with poller for SPIRE workload API attestation. The `poller-stack.compose.yml` already configures this with `pid: "service:poller"`. |
+| Poller health checks fail for agent | If using shared network namespace, ensure `POLLERS_AGENT_ADDRESS=localhost:50051` (not `agent:50051`) in the env file. |
 
 ---
 
