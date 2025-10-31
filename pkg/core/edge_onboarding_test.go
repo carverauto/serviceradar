@@ -715,6 +715,135 @@ func TestEdgeOnboardingDeletePackageBumpsTimestamp(t *testing.T) {
 	require.NoError(t, svc.DeletePackage(context.Background(), "pkg-del"))
 }
 
+func TestEdgeOnboardingRecordActivationPromotesStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0x99}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	spireCfg := &models.SpireAdminConfig{ServerSPIFFEID: "spiffe://example.org/spire/server"}
+	fakeSpire := newFakeSpireClient()
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	seenAt := time.Date(2025, time.October, 31, 2, 30, 0, 0, time.UTC)
+
+	pkg := &models.EdgeOnboardingPackage{
+		PackageID:     "pkg-activate",
+		ComponentID:   "edge-poller",
+		ComponentType: models.EdgeOnboardingComponentTypePoller,
+		PollerID:      "edge-poller",
+		Status:        models.EdgeOnboardingStatusDelivered,
+		UpdatedAt:     seenAt.Add(-time.Minute),
+	}
+
+	mockDB.EXPECT().ListEdgeOnboardingPackages(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, filter *models.EdgeOnboardingListFilter) ([]*models.EdgeOnboardingPackage, error) {
+			require.NotNil(t, filter)
+			assert.Equal(t, "edge-poller", filter.PollerID)
+			assert.Equal(t, 1, filter.Limit)
+			assert.ElementsMatch(t, []models.EdgeOnboardingComponentType{models.EdgeOnboardingComponentTypePoller}, filter.Types)
+			assert.ElementsMatch(t, []models.EdgeOnboardingStatus{
+				models.EdgeOnboardingStatusIssued,
+				models.EdgeOnboardingStatusDelivered,
+				models.EdgeOnboardingStatusActivated,
+			}, filter.Statuses)
+			return []*models.EdgeOnboardingPackage{pkg}, nil
+		})
+
+	mockDB.EXPECT().UpsertEdgeOnboardingPackage(gomock.Any(), gomock.AssignableToTypeOf(&models.EdgeOnboardingPackage{})).
+		DoAndReturn(func(_ context.Context, updated *models.EdgeOnboardingPackage) error {
+			assert.Equal(t, models.EdgeOnboardingStatusActivated, updated.Status)
+			require.NotNil(t, updated.ActivatedAt)
+			assert.WithinDuration(t, seenAt, *updated.ActivatedAt, time.Second)
+			require.NotNil(t, updated.ActivatedFromIP)
+			assert.Equal(t, "203.0.113.7", *updated.ActivatedFromIP)
+			assert.Equal(t, seenAt, updated.UpdatedAt)
+			return nil
+		})
+
+	mockDB.EXPECT().InsertEdgeOnboardingEvent(gomock.Any(), gomock.AssignableToTypeOf(&models.EdgeOnboardingEvent{})).
+		DoAndReturn(func(_ context.Context, evt *models.EdgeOnboardingEvent) error {
+			assert.Equal(t, "pkg-activate", evt.PackageID)
+			assert.Equal(t, "activated", evt.EventType)
+			assert.Equal(t, "core", evt.Actor)
+			assert.Equal(t, "203.0.113.7", evt.SourceIP)
+			assert.WithinDuration(t, seenAt, evt.EventTime, time.Second)
+			return nil
+		})
+
+	err = svc.RecordActivation(context.Background(), models.EdgeOnboardingComponentTypePoller, "edge-poller", "edge-poller", "203.0.113.7", "", seenAt)
+	require.NoError(t, err)
+}
+
+func TestEdgeOnboardingRecordActivationNoopForActivatedAgent(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0x5a}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	spireCfg := &models.SpireAdminConfig{ServerSPIFFEID: "spiffe://example.org/spire/server"}
+	fakeSpire := newFakeSpireClient()
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	activatedAt := time.Date(2025, time.October, 31, 2, 15, 0, 0, time.UTC)
+	pkg := &models.EdgeOnboardingPackage{
+		PackageID:         "pkg-agent",
+		ComponentID:       "edge-agent",
+		ComponentType:     models.EdgeOnboardingComponentTypeAgent,
+		PollerID:          "edge-poller",
+		Status:            models.EdgeOnboardingStatusActivated,
+		ActivatedAt:       &activatedAt,
+		ActivatedFromIP:   strPtr("203.0.113.7"),
+		LastSeenSPIFFEID:  strPtr("spiffe://example.org/ns/edge/edge-agent"),
+		UpdatedAt:         activatedAt,
+		DownstreamEntryID: "entry-agent",
+	}
+
+	mockDB.EXPECT().ListEdgeOnboardingPackages(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, filter *models.EdgeOnboardingListFilter) ([]*models.EdgeOnboardingPackage, error) {
+			require.NotNil(t, filter)
+			assert.Equal(t, "edge-agent", filter.ComponentID)
+			assert.Equal(t, 1, filter.Limit)
+			assert.ElementsMatch(t, []models.EdgeOnboardingComponentType{models.EdgeOnboardingComponentTypeAgent}, filter.Types)
+			return []*models.EdgeOnboardingPackage{pkg}, nil
+		})
+
+	err = svc.RecordActivation(context.Background(), models.EdgeOnboardingComponentTypeAgent, "edge-agent", "edge-poller", "203.0.113.7", "spiffe://example.org/ns/edge/edge-agent", activatedAt.Add(10*time.Minute))
+	require.NoError(t, err)
+}
+
 func TestEdgeOnboardingListPackagesTombstoneFiltering(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -867,4 +996,8 @@ func TestEdgeOnboardingDeletePackageRequiresRevoked(t *testing.T) {
 	err = svc.DeletePackage(context.Background(), "pkg-pending")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, models.ErrEdgeOnboardingInvalidRequest)
+}
+
+func strPtr(value string) *string {
+	return &value
 }

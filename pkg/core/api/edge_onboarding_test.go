@@ -305,6 +305,9 @@ func TestHandleDownloadEdgePackageSuccess(t *testing.T) {
 	envContent := string(files["edge-poller.env"])
 	assert.Contains(t, envContent, "CORE_ADDRESS=core:50052")
 	assert.Contains(t, envContent, "POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID=spiffe://example.org/ns/edge/edge-poller")
+	assert.Contains(t, envContent, "NESTED_SPIRE_PARENT_ID=spiffe://example.org/spire/agent/upstream")
+	assert.Contains(t, envContent, "NESTED_SPIRE_AGENT_SPIFFE_ID=spiffe://example.org/services/agent")
+	assert.Contains(t, envContent, "NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID=spiffe://example.org/ns/edge/edge-poller")
 
 	assert.Equal(t, "join-token\n", string(files["spire/upstream-join-token"]))
 	assert.Equal(t, "bundle\n", string(files["spire/upstream-bundle.pem"]))
