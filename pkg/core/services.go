@@ -864,6 +864,26 @@ func (s *Server) registerServiceDevice(
 		Str("poller_id", pollerID).
 		Msg("Successfully registered host device")
 
+	if s.edgeOnboarding != nil {
+		if pollerID != "" {
+			if err := s.edgeOnboarding.RecordActivation(ctx, models.EdgeOnboardingComponentTypePoller, pollerID, pollerID, sourceIP, "", timestamp); err != nil {
+				s.logger.Debug().
+					Err(err).
+					Str("poller_id", pollerID).
+					Msg("edge onboarding: poller activation update failed")
+			}
+		}
+		if agentID != "" && agentID != pollerID {
+			if err := s.edgeOnboarding.RecordActivation(ctx, models.EdgeOnboardingComponentTypeAgent, agentID, pollerID, sourceIP, "", timestamp); err != nil {
+				s.logger.Debug().
+					Err(err).
+					Str("poller_id", pollerID).
+					Str("agent_id", agentID).
+					Msg("edge onboarding: agent activation update failed")
+			}
+		}
+	}
+
 	return nil
 }
 

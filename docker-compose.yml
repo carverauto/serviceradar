@@ -39,7 +39,7 @@ services:
       - POLLERS_SPIRE_UPSTREAM_ADDRESS=${POLLERS_SPIRE_UPSTREAM_ADDRESS:-spire-server}
       - POLLERS_SPIRE_UPSTREAM_PORT=${POLLERS_SPIRE_UPSTREAM_PORT:-8081}
       - POLLERS_SPIRE_INSECURE_BOOTSTRAP=${POLLERS_SPIRE_INSECURE_BOOTSTRAP:-true}
-      - POLLERS_SPIRE_PARENT_ID=${POLLERS_SPIRE_PARENT_ID:-spiffe://carverauto.dev/ns/serviceradar/poller-nested-spire}
+      - POLLERS_SPIRE_PARENT_ID=${POLLERS_SPIRE_PARENT_ID:-spiffe://carverauto.dev/ns/edge/poller-nested-spire}
       - POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID=${POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID:-spiffe://carverauto.dev/services/poller}
     depends_on:
       cert-generator:
@@ -370,8 +370,9 @@ services:
       - MANAGE_NESTED_SPIRE=${MANAGE_NESTED_SPIRE:-disabled}
       - POLLERS_TRUST_DOMAIN=${POLLERS_TRUST_DOMAIN:-carverauto.dev}
       - NESTED_SPIRE_CONFIG_DIR=/etc/serviceradar/config/poller-spire
-      - NESTED_SPIRE_PARENT_ID=${NESTED_SPIRE_PARENT_ID:-spiffe://carverauto.dev/ns/serviceradar/poller-nested-spire}
+      - NESTED_SPIRE_PARENT_ID=${NESTED_SPIRE_PARENT_ID:-spiffe://carverauto.dev/ns/edge/poller-nested-spire}
       - NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID=${NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID:-spiffe://carverauto.dev/services/poller}
+      - NESTED_SPIRE_AGENT_SPIFFE_ID=${NESTED_SPIRE_AGENT_SPIFFE_ID:-spiffe://carverauto.dev/services/agent}
       - NESTED_SPIRE_UPSTREAM_JOIN_TOKEN=${NESTED_SPIRE_UPSTREAM_JOIN_TOKEN:-}
       - NESTED_SPIRE_UPSTREAM_JOIN_TOKEN_FILE=${NESTED_SPIRE_UPSTREAM_JOIN_TOKEN_FILE:-}
       - NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE=${NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE:-}
