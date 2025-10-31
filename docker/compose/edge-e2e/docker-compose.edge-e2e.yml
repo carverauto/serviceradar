@@ -1,0 +1,24 @@
+# Docker Compose override for edge E2E testing with SPIFFE
+# Usage: docker compose -f docker-compose.yml -f docker-compose.spiffe.yml -f docker-compose.edge-e2e.yml up -d
+#
+# This override configures the agent to connect to the k8s demo namespace KV service
+# using SPIFFE authentication via the nested SPIRE workload socket from the poller.
+
+services:
+  agent:
+    volumes:
+      # Override agent config to use SPIFFE mode with k8s KV
+      - ./tmp_agent_config.json:/etc/serviceradar/agent.json:ro
+      # Share the nested SPIRE runtime from poller
+      - poller-spire-runtime:/run/spire/nested:ro
+    environment:
+      - CONFIG_PATH=/etc/serviceradar/agent.json
+      - LOG_LEVEL=debug
+    depends_on:
+      poller:
+        condition: service_healthy
+
+volumes:
+  poller-spire-runtime:
+    external: true
+    name: compose_poller-spire-runtime
