@@ -61,7 +61,7 @@ func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponen
 	}
 
 	if log == nil {
-		log = logger.New("edge-onboarding")
+		log = logger.NewTestLogger()
 	}
 
 	log.Info().

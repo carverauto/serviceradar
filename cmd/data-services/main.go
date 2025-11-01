@@ -25,15 +25,32 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/datasvc"
+	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
 
 func main() {
 	configPath := flag.String("config", "/etc/serviceradar/datasvc.json", "Path to config file")
+	_ = flag.String("onboarding-token", "", "Edge onboarding token (if provided, triggers edge onboarding)")
+	_ = flag.String("kv-endpoint", "", "KV service endpoint (required for edge onboarding)")
 	flag.Parse()
 
 	ctx := context.Background()
+
+	// Try edge onboarding first (checks env vars if flags not set)
+	onboardingResult, err := edgeonboarding.TryOnboard(ctx, models.EdgeOnboardingComponentTypeAgent, nil)
+	if err != nil {
+		log.Fatalf("Edge onboarding failed: %v", err)
+	}
+
+	// If onboarding was performed, use the generated config
+	if onboardingResult != nil {
+		*configPath = onboardingResult.ConfigPath
+		log.Printf("Using edge-onboarded configuration from: %s", *configPath)
+		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
+	}
 
 	cfgLoader := config.NewConfig(nil)
 
