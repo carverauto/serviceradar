@@ -769,6 +769,9 @@ func (s *APIServer) setupProtectedRoutes() {
 	adminRoutes.HandleFunc("/edge-packages/{id}/download", s.handleDownloadEdgePackage).Methods("POST")
 	adminRoutes.HandleFunc("/edge-packages/{id}/revoke", s.handleRevokeEdgePackage).Methods("POST")
 
+	// DataSvc registry endpoints
+	adminRoutes.HandleFunc("/datasvc-instances", s.handleListDataSvcInstances).Methods("GET")
+
 	// KV endpoints enumeration (optional, for Admin UI)
 	protected.HandleFunc("/kv/endpoints", s.handleListKVEndpoints).Methods("GET")
 	// KV info for selected kv_store_id (endpoint ID or domain)
