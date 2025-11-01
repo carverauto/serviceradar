@@ -98,7 +98,7 @@ func NewBootstrapper(cfg *Config) (*Bootstrapper, error) {
 
 	log := cfg.Logger
 	if log == nil {
-		log = logger.New("edge-onboarding")
+		log = logger.NewTestLogger()
 	}
 
 	// Set defaults
@@ -208,7 +208,7 @@ func (b *Bootstrapper) GetJoinToken() string {
 // This should be called periodically (e.g., via cron or goroutine).
 func Rotate(ctx context.Context, storagePath string, log logger.Logger) error {
 	if log == nil {
-		log = logger.New("edge-onboarding-rotate")
+		log = logger.NewTestLogger()
 	}
 
 	log.Info().

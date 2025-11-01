@@ -52,8 +52,8 @@ func run() error {
 
 	// Parse command line flags
 	configPath := flag.String("config", "/etc/serviceradar/checkers/snmp.json", "Path to config file")
-	onboardingToken := flag.String("onboarding-token", "", "Edge onboarding token (if provided, triggers edge onboarding)")
-	kvEndpoint := flag.String("kv-endpoint", "", "KV service endpoint (required for edge onboarding)")
+	_ = flag.String("onboarding-token", "", "Edge onboarding token (if provided, triggers edge onboarding)")
+	_ = flag.String("kv-endpoint", "", "KV service endpoint (required for edge onboarding)")
 	flag.Parse()
 
 	// Setup a context we can use for loading the config and running the server

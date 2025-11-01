@@ -25,8 +25,10 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/mapper"
+	"github.com/carverauto/serviceradar/pkg/models"
 	monitoringpb "github.com/carverauto/serviceradar/proto"
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
@@ -47,11 +49,26 @@ func run() error {
 	// Parse command line flags
 	configFile := flag.String("config", "/etc/serviceradar/mapper.json", "Path to mapper config file")
 	listenAddr := flag.String("listen", ":50056", "Address for mapper to listen on")
+	_ = flag.String("onboarding-token", "", "Edge onboarding token (if provided, triggers edge onboarding)")
+	_ = flag.String("kv-endpoint", "", "KV service endpoint (required for edge onboarding)")
 
 	flag.Parse()
 
 	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()
+
+	// Try edge onboarding first (checks env vars if flags not set)
+	onboardingResult, err := edgeonboarding.TryOnboard(ctx, models.EdgeOnboardingComponentTypeAgent, nil)
+	if err != nil {
+		return fmt.Errorf("edge onboarding failed: %w", err)
+	}
+
+	// If onboarding was performed, use the generated config
+	if onboardingResult != nil {
+		*configFile = onboardingResult.ConfigPath
+		log.Printf("Using edge-onboarded configuration from: %s", *configFile)
+		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
+	}
 
 	// Initialize configuration loader
 	cfgLoader := config.NewConfig(nil)

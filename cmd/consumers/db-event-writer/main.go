@@ -2,6 +2,7 @@ package main
 
 import (
     "context"
+    "flag"
     "log"
 
     "google.golang.org/grpc"
@@ -9,6 +10,7 @@ import (
     "github.com/carverauto/serviceradar/pkg/config"
 	dbeventwriter "github.com/carverauto/serviceradar/pkg/consumers/db-event-writer"
     "github.com/carverauto/serviceradar/pkg/db"
+    "github.com/carverauto/serviceradar/pkg/edgeonboarding"
     "github.com/carverauto/serviceradar/pkg/lifecycle"
     "github.com/carverauto/serviceradar/pkg/logger"
     "github.com/carverauto/serviceradar/pkg/models"
@@ -16,11 +18,29 @@ import (
 )
 
 func main() {
+	configPath := flag.String("config", "/etc/serviceradar/consumers/db-event-writer.json", "Path to config file")
+	_ = flag.String("onboarding-token", "", "Edge onboarding token (if provided, triggers edge onboarding)")
+	_ = flag.String("kv-endpoint", "", "KV service endpoint (required for edge onboarding)")
+	flag.Parse()
+
 	ctx := context.Background()
-	
+
+	// Try edge onboarding first (checks env vars if flags not set)
+	onboardingResult, err := edgeonboarding.TryOnboard(ctx, models.EdgeOnboardingComponentTypeAgent, nil)
+	if err != nil {
+		log.Fatalf("Edge onboarding failed: %v", err)
+	}
+
+	// If onboarding was performed, use the generated config
+	if onboardingResult != nil {
+		*configPath = onboardingResult.ConfigPath
+		log.Printf("Using edge-onboarded configuration from: %s", *configPath)
+		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
+	}
+
 	// Step 1: Load config with KV support
 	kvMgr := config.NewKVManagerFromEnv(ctx, models.RoleCore)
-	
+
 	cleanup := func() {
 		if kvMgr != nil {
 			_ = kvMgr.Close()
@@ -32,10 +52,9 @@ func main() {
 		kvMgr.SetupConfigLoader(cfgLoader)
 	}
 
-	configPath := "/etc/serviceradar/consumers/db-event-writer.json"
 	var cfg dbeventwriter.DBEventWriterConfig
 
-	config.LoadAndOverlayOrExit(ctx, kvMgr, cfgLoader, configPath, &cfg, "Failed to load configuration")
+	config.LoadAndOverlayOrExit(ctx, kvMgr, cfgLoader, *configPath, &cfg, "Failed to load configuration")
 
 	// Bootstrap service-level default into KV if missing
 	if kvMgr != nil {
