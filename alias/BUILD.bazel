@@ -88,6 +88,12 @@ alias(
     actual = "//pkg/db:db",
 )
 
+# pkg/edgeonboarding
+alias(
+    name = "edgeonboarding",
+    actual = "//pkg/edgeonboarding:edgeonboarding",
+)
+
 # pkg/deviceupdate
 alias(
     name = "deviceupdate",
