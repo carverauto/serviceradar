@@ -26,8 +26,10 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -50,10 +52,27 @@ func run() error {
 
 	// Parse command line flags
 	configPath := flag.String("config", "/etc/serviceradar/checkers/snmp.json", "Path to config file")
+	onboardingToken := flag.String("onboarding-token", "", "Edge onboarding token (if provided, triggers edge onboarding)")
+	kvEndpoint := flag.String("kv-endpoint", "", "KV service endpoint (required for edge onboarding)")
 	flag.Parse()
 
 	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()
+
+	// Try edge onboarding first (checks env vars if flags not set)
+	onboardingResult, err := edgeonboarding.TryOnboard(ctx, models.EdgeOnboardingComponentTypeChecker, nil)
+	if err != nil {
+		return fmt.Errorf("edge onboarding failed: %w", err)
+	}
+
+	// If onboarding was performed, use the generated config
+	if onboardingResult != nil {
+		*configPath = onboardingResult.ConfigPath
+		logger.Info().
+			Str("config_path", *configPath).
+			Str("spiffe_id", onboardingResult.SPIFFEID).
+			Msg("Using edge-onboarded configuration")
+	}
 
 	// Initialize configuration loader
 	cfgLoader := config.NewConfig(nil)
