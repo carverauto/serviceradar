@@ -23,11 +23,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"time"
 
+	"github.com/rs/zerolog"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -37,6 +40,7 @@ type Server struct {
 	proto.UnimplementedDataServiceServer
 	config *Config
 	store  KVStore
+	logger logger.Logger
 }
 
 func NewServer(ctx context.Context, cfg *Config) (*Server, error) {
@@ -49,18 +53,56 @@ func NewServer(ctx context.Context, cfg *Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create NATS store: %w", err)
 	}
 
+	// Create logger for datasvc
+	zlog := zerolog.New(os.Stderr).With().Timestamp().Str("service", "datasvc").Logger()
+	dsLogger := &datasvcLogger{logger: zlog}
+
 	return &Server{
 		config: cfg,
 		store:  store,
+		logger: dsLogger,
 	}, nil
+}
+
+// datasvcLogger wraps zerolog to implement logger.Logger interface
+type datasvcLogger struct {
+	logger zerolog.Logger
+}
+
+func (l *datasvcLogger) Trace() *zerolog.Event                                { return l.logger.Trace() }
+func (l *datasvcLogger) Debug() *zerolog.Event                                { return l.logger.Debug() }
+func (l *datasvcLogger) Info() *zerolog.Event                                 { return l.logger.Info() }
+func (l *datasvcLogger) Warn() *zerolog.Event                                 { return l.logger.Warn() }
+func (l *datasvcLogger) Error() *zerolog.Event                                { return l.logger.Error() }
+func (l *datasvcLogger) Fatal() *zerolog.Event                                { return l.logger.Fatal() }
+func (l *datasvcLogger) Panic() *zerolog.Event                                { return l.logger.Panic() }
+func (l *datasvcLogger) With() zerolog.Context                                { return l.logger.With() }
+func (l *datasvcLogger) WithComponent(component string) zerolog.Logger        { return l.logger.With().Str("component", component).Logger() }
+func (l *datasvcLogger) WithFields(fields map[string]interface{}) zerolog.Logger {
+	ctx := l.logger.With()
+	for k, v := range fields {
+		ctx = ctx.Interface(k, v)
+	}
+	return ctx.Logger()
+}
+func (l *datasvcLogger) SetLevel(level zerolog.Level) { l.logger = l.logger.Level(level) }
+func (l *datasvcLogger) SetDebug(debug bool) {
+	if debug {
+		l.logger = l.logger.Level(zerolog.DebugLevel)
+	}
 }
 
 func (s *Server) Store() KVStore {
 	return s.store
 }
 
-func (*Server) Start(_ context.Context) error {
+func (s *Server) Start(ctx context.Context) error {
 	log.Printf("KV service initialized (gRPC managed by lifecycle)")
+
+	// Start Core registration if configured
+	if s.config.CoreRegistration != nil {
+		s.StartCoreRegistration(ctx, s.config.CoreRegistration, s.config.ListenAddr, s.config.Security)
+	}
 
 	return nil
 }

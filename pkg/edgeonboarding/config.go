@@ -100,7 +100,13 @@ func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[st
 
 	// Get deployment-specific addresses
 	coreAddr := b.getAddressForDeployment("core", coreAddress)
-	kvAddr := b.getAddressForDeployment("kv", b.cfg.KVEndpoint)
+
+	// Get KV address from metadata (datasvc_endpoint) or fall back to bootstrap config
+	kvEndpoint := b.cfg.KVEndpoint
+	if datasvcEndpoint, ok := metadata["datasvc_endpoint"].(string); ok && datasvcEndpoint != "" {
+		kvEndpoint = datasvcEndpoint
+	}
+	kvAddr := b.getAddressForDeployment("kv", kvEndpoint)
 
 	// Generate poller config JSON
 	config := map[string]interface{}{
@@ -162,8 +168,12 @@ func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[st
 func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[string]interface{}) error {
 	b.logger.Debug().Msg("Generating agent configuration")
 
-	// Get KV address for fetching checker configs
-	kvAddr := b.getAddressForDeployment("kv", b.cfg.KVEndpoint)
+	// Get KV address from metadata (datasvc_endpoint) or fall back to bootstrap config
+	kvEndpoint := b.cfg.KVEndpoint
+	if datasvcEndpoint, ok := metadata["datasvc_endpoint"].(string); ok && datasvcEndpoint != "" {
+		kvEndpoint = datasvcEndpoint
+	}
+	kvAddr := b.getAddressForDeployment("kv", kvEndpoint)
 
 	// Generate agent config JSON
 	config := map[string]interface{}{

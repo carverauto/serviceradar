@@ -115,6 +115,7 @@ type EdgeOnboardingCreateRequest struct {
 	JoinTokenTTL       time.Duration
 	DownloadTokenTTL   time.Duration
 	DownstreamSPIFFEID string
+	DataSvcEndpoint    string // DataSvc gRPC endpoint (e.g., "23.138.124.23:50057")
 }
 
 // EdgeOnboardingCreateResult bundles the stored package and sensitive artifacts.

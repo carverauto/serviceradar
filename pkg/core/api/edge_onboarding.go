@@ -75,6 +75,7 @@ type edgePackageCreateRequest struct {
 	JoinTokenTTLSeconds     int64    `json:"join_token_ttl_seconds,omitempty"`
 	DownloadTokenTTLSeconds int64    `json:"download_token_ttl_seconds,omitempty"`
 	DownstreamSPIFFEID      string   `json:"downstream_spiffe_id,omitempty"`
+	DataSvcEndpoint         string   `json:"datasvc_endpoint,omitempty"` // DataSvc gRPC endpoint
 }
 
 type edgePackageCreateResponse struct {
@@ -405,6 +406,7 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 		JoinTokenTTL:       joinTTL,
 		DownloadTokenTTL:   downloadTTL,
 		DownstreamSPIFFEID: req.DownstreamSPIFFEID,
+		DataSvcEndpoint:    strings.TrimSpace(req.DataSvcEndpoint),
 	}
 
 	result, err := s.edgeOnboarding.CreatePackage(r.Context(), createReq)

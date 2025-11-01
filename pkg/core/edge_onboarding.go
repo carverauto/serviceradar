@@ -485,13 +485,23 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		return nil, fmt.Errorf("%w: metadata_json must be valid JSON: %w", models.ErrEdgeOnboardingInvalidRequest, err)
 	}
 
+	// Inject datasvc_endpoint into metadata if provided
+	if req.DataSvcEndpoint != "" {
+		metadataMap["datasvc_endpoint"] = req.DataSvcEndpoint
+	}
+
 	if componentType == models.EdgeOnboardingComponentTypePoller {
 		if err := validatePollerMetadata(metadataMap); err != nil {
 			return nil, err
 		}
 	}
 
-	metadata := normalizedMetadata
+	// Re-serialize metadata with datasvc_endpoint injected
+	metadataBytes, err := json.Marshal(metadataMap)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to serialize metadata: %w", models.ErrEdgeOnboardingInvalidRequest, err)
+	}
+	metadata := string(metadataBytes)
 
 	parentID := strings.TrimSpace(req.ParentID)
 	var parentType models.EdgeOnboardingComponentType
@@ -1454,6 +1464,34 @@ func (s *edgeOnboardingService) applyComponentKVUpdates(ctx context.Context, pkg
 		return err
 	}
 
+	componentType := pkg.ComponentType
+	if componentType == models.EdgeOnboardingComponentTypeNone {
+		componentType = models.EdgeOnboardingComponentTypePoller
+	}
+
+	// For checkers, write the checker config directly to KV
+	// The agent expects the checker config JSON at agents/{agent_id}/checkers/{checker_kind}.json
+	if componentType == models.EdgeOnboardingComponentTypeChecker {
+		if pkg.CheckerConfigJSON == "" {
+			return fmt.Errorf("%w: checker_config_json is required for checker packages", models.ErrEdgeOnboardingInvalidRequest)
+		}
+
+		// Validate that it's valid JSON
+		if !json.Valid([]byte(pkg.CheckerConfigJSON)) {
+			return fmt.Errorf("%w: checker_config_json must be valid JSON", models.ErrEdgeOnboardingInvalidRequest)
+		}
+
+		// Write the checker config directly
+		revision, err := s.upsertKVDocument(ctx, key, []byte(pkg.CheckerConfigJSON))
+		if err != nil {
+			return err
+		}
+
+		pkg.KVRevision = revision
+		return nil
+	}
+
+	// For pollers and agents, write the full metadata document
 	metadata := json.RawMessage(nil)
 	if strings.TrimSpace(pkg.MetadataJSON) != "" {
 		metadata = json.RawMessage(pkg.MetadataJSON)
@@ -1462,11 +1500,6 @@ func (s *edgeOnboardingService) applyComponentKVUpdates(ctx context.Context, pkg
 	checkerConfig := json.RawMessage(nil)
 	if strings.TrimSpace(pkg.CheckerConfigJSON) != "" {
 		checkerConfig = json.RawMessage(pkg.CheckerConfigJSON)
-	}
-
-	componentType := pkg.ComponentType
-	if componentType == models.EdgeOnboardingComponentTypeNone {
-		componentType = models.EdgeOnboardingComponentTypePoller
 	}
 
 	doc := map[string]interface{}{
@@ -1542,7 +1575,11 @@ func (s *edgeOnboardingService) kvKeyForPackage(pkg *models.EdgeOnboardingPackag
 		if agentID == "" {
 			return "", fmt.Errorf("%w: parent_id is required for checker packages", models.ErrEdgeOnboardingInvalidRequest)
 		}
-		return fmt.Sprintf("config/agents/%s/checkers/%s.json", agentID, componentID), nil
+		checkerKind := sanitizePollerID(pkg.CheckerKind)
+		if checkerKind == "" {
+			return "", fmt.Errorf("%w: checker_kind is required for checker packages", models.ErrEdgeOnboardingInvalidRequest)
+		}
+		return fmt.Sprintf("agents/%s/checkers/%s.json", agentID, checkerKind), nil
 	default:
 		return "", fmt.Errorf("%w: unsupported component_type %q", models.ErrEdgeOnboardingInvalidRequest, pkg.ComponentType)
 	}

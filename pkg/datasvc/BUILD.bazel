@@ -4,6 +4,7 @@ go_library(
     name = "datasvc",
     srcs = [
         "config.go",
+        "core_registration.go",
         "errors.go",
         "interfaces.go",
         "mock_datasvc.go",
@@ -16,10 +17,13 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/config/kv",
+        "//pkg/grpc",
+        "//pkg/logger",
         "//pkg/models",
         "//proto",
         "@com_github_nats_io_nats_go//:nats_go",
         "@com_github_nats_io_nats_go//jetstream",
+        "@com_github_rs_zerolog//:zerolog",
         "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//credentials",
