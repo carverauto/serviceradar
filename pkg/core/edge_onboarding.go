@@ -76,6 +76,8 @@ type edgeOnboardingService struct {
 
 	callbackMu      sync.RWMutex
 	allowedCallback func([]string)
+
+	deviceRegistryCallback func(context.Context, []*models.DeviceUpdate) error
 }
 
 //nolint:unparam // kvCloser is reserved for future KV client integrations.
@@ -325,6 +327,16 @@ func (s *edgeOnboardingService) SetAllowedPollerCallback(cb func([]string)) {
 	if cb != nil {
 		cb(s.allowedPollersSnapshot())
 	}
+}
+
+func (s *edgeOnboardingService) SetDeviceRegistryCallback(cb func(context.Context, []*models.DeviceUpdate) error) {
+	if s == nil {
+		return
+	}
+
+	s.callbackMu.Lock()
+	s.deviceRegistryCallback = cb
+	s.callbackMu.Unlock()
 }
 
 func (s *edgeOnboardingService) broadcastAllowedSnapshot() {
@@ -890,6 +902,15 @@ func (s *edgeOnboardingService) RevokePackage(ctx context.Context, req *models.E
 	delete(s.allowed, pkg.PollerID)
 	s.mu.Unlock()
 	s.broadcastAllowedSnapshot()
+
+	// Mark the service device as unavailable in the device registry
+	if err := s.markServiceDeviceUnavailable(ctx, pkg); err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("package_id", pkg.PackageID).
+			Str("poller_id", pkg.PollerID).
+			Msg("edge onboarding: failed to mark service device as unavailable")
+	}
 
 	return &models.EdgeOnboardingRevokeResult{Package: pkg}, nil
 }
@@ -1821,6 +1842,56 @@ func (s *edgeOnboardingService) deleteDownstreamEntry(ctx context.Context, entry
 		return nil
 	}
 	return s.spire.DeleteEntry(ctx, entryID)
+}
+
+func (s *edgeOnboardingService) markServiceDeviceUnavailable(ctx context.Context, pkg *models.EdgeOnboardingPackage) error {
+	if s == nil || pkg == nil {
+		return nil
+	}
+
+	s.callbackMu.RLock()
+	cb := s.deviceRegistryCallback
+	s.callbackMu.RUnlock()
+
+	if cb == nil {
+		s.logger.Debug().
+			Str("package_id", pkg.PackageID).
+			Str("poller_id", pkg.PollerID).
+			Msg("edge onboarding: device registry callback not set, skipping device cleanup")
+		return nil
+	}
+
+	// Create tombstone update for the poller
+	serviceType := models.ServiceTypePoller
+	tombstone := &models.DeviceUpdate{
+		DeviceID:    models.GenerateServiceDeviceID(serviceType, pkg.PollerID),
+		ServiceType: &serviceType,
+		ServiceID:   pkg.PollerID,
+		PollerID:    pkg.PollerID,
+		Partition:   models.ServiceDevicePartition,
+		Source:      models.DiscoverySourceServiceRadar,
+		Timestamp:   s.now(),
+		IsAvailable: false, // Mark as unavailable
+		Confidence:  models.ConfidenceHighSelfReported,
+		Metadata: map[string]string{
+			"component_type": "poller",
+			"poller_id":      pkg.PollerID,
+			"revoked":        "true",
+			"revoked_at":     pkg.RevokedAt.Format(time.RFC3339),
+		},
+	}
+
+	if err := cb(ctx, []*models.DeviceUpdate{tombstone}); err != nil {
+		return fmt.Errorf("emit tombstone device update: %w", err)
+	}
+
+	s.logger.Info().
+		Str("package_id", pkg.PackageID).
+		Str("poller_id", pkg.PollerID).
+		Str("device_id", tombstone.DeviceID).
+		Msg("edge onboarding: marked service device as unavailable")
+
+	return nil
 }
 
 func (s *edgeOnboardingService) packageIssuedDetails(entryID, downstreamID string) string {

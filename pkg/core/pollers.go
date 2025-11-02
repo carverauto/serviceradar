@@ -394,6 +394,15 @@ func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealt
 		return fmt.Errorf("failed to store poller status: %w", err)
 	}
 
+	// Register poller as a device for inventory tracking
+	if err := s.registerPollerAsDevice(ctx, pollerID); err != nil {
+		// Log but don't fail - device registration is best-effort
+		s.logger.Warn().
+			Err(err).
+			Str("poller_id", pollerID).
+			Msg("Failed to register poller as device")
+	}
+
 	return nil
 }
 
@@ -417,6 +426,15 @@ func (s *Server) updatePollerStatus(ctx context.Context, pollerID string, isHeal
 
 	if err := s.DB.UpdatePollerStatus(ctx, pollerStatus); err != nil {
 		return fmt.Errorf("failed to update poller status: %w", err)
+	}
+
+	// Register poller as a device for inventory tracking
+	if err := s.registerPollerAsDevice(ctx, pollerID); err != nil {
+		// Log but don't fail - device registration is best-effort
+		s.logger.Warn().
+			Err(err).
+			Str("poller_id", pollerID).
+			Msg("Failed to register poller as device")
 	}
 
 	return nil
@@ -557,6 +575,15 @@ func (s *Server) processStatusReport(
 				Msg("Failed to store poller status")
 
 			return nil, fmt.Errorf("failed to store poller status: %w", err)
+		}
+
+		// Register poller as a device for inventory tracking
+		if err := s.registerPollerAsDevice(ctx, req.PollerId); err != nil {
+			// Log but don't fail - device registration is best-effort
+			s.logger.Warn().
+				Err(err).
+				Str("poller_id", req.PollerId).
+				Msg("Failed to register poller as device")
 		}
 
 		apiStatus := s.createPollerStatus(req, now)
@@ -1218,4 +1245,77 @@ func (s *Server) copyPollerStatusCache() map[string]*models.PollerStatus {
 	}
 
 	return result
+}
+
+// registerPollerAsDevice registers a poller as a device in the inventory
+func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID string) error {
+	if s.DeviceRegistry == nil {
+		s.logger.Debug().
+			Str("poller_id", pollerID).
+			Msg("DeviceRegistry is nil, skipping poller device registration")
+		return nil // Registry not available
+	}
+
+	// Get host IP - in Kubernetes this will be the pod IP
+	hostIP := s.getHostIP()
+
+	metadata := map[string]string{
+		"last_heartbeat": time.Now().Format(time.RFC3339),
+	}
+
+	deviceUpdate := models.CreatePollerDeviceUpdate(pollerID, hostIP, metadata)
+
+	s.logger.Info().
+		Str("poller_id", pollerID).
+		Str("device_id", deviceUpdate.DeviceID).
+		Str("host_ip", hostIP).
+		Msg("Registering poller as device")
+
+	if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate}); err != nil {
+		return err
+	}
+
+	s.logger.Info().
+		Str("poller_id", pollerID).
+		Str("device_id", deviceUpdate.DeviceID).
+		Msg("Successfully registered poller as device")
+
+	return nil
+}
+
+// registerAgentAsDevice registers an agent as a device in the inventory
+func (s *Server) registerAgentAsDevice(ctx context.Context, agentID, pollerID, hostIP string) error {
+	if s.DeviceRegistry == nil {
+		return nil // Registry not available
+	}
+
+	metadata := map[string]string{
+		"last_heartbeat": time.Now().Format(time.RFC3339),
+	}
+
+	deviceUpdate := models.CreateAgentDeviceUpdate(agentID, pollerID, hostIP, metadata)
+
+	return s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate})
+}
+
+// registerCheckerAsDevice registers a checker as a device in the inventory
+func (s *Server) registerCheckerAsDevice(ctx context.Context, checkerID, checkerKind, agentID, pollerID, hostIP string) error {
+	if s.DeviceRegistry == nil {
+		return nil // Registry not available
+	}
+
+	metadata := map[string]string{
+		"last_heartbeat": time.Now().Format(time.RFC3339),
+	}
+
+	deviceUpdate := models.CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP, metadata)
+
+	return s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate})
+}
+
+// getHostIP returns the host IP address for this service
+func (s *Server) getHostIP() string {
+	// In Kubernetes, this will typically be the pod IP
+	// For now, return empty string and let the device registry handle it
+	return ""
 }

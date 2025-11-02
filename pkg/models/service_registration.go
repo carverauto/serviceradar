@@ -16,7 +16,11 @@ func CreatePollerDeviceUpdate(pollerID, hostIP string, metadata map[string]strin
 	metadata["component_type"] = "poller"
 	metadata["poller_id"] = pollerID
 
+	// Generate service-aware device ID
+	deviceID := GenerateServiceDeviceID(serviceType, pollerID)
+
 	return &DeviceUpdate{
+		DeviceID:    deviceID,
 		ServiceType: &serviceType,
 		ServiceID:   pollerID,
 		IP:          hostIP,
@@ -43,7 +47,11 @@ func CreateAgentDeviceUpdate(agentID, pollerID, hostIP string, metadata map[stri
 	metadata["agent_id"] = agentID
 	metadata["poller_id"] = pollerID
 
+	// Generate service-aware device ID
+	deviceID := GenerateServiceDeviceID(serviceType, agentID)
+
 	return &DeviceUpdate{
+		DeviceID:    deviceID,
 		ServiceType: &serviceType,
 		ServiceID:   agentID,
 		IP:          hostIP,
@@ -73,7 +81,11 @@ func CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP
 	metadata["agent_id"] = agentID
 	metadata["poller_id"] = pollerID
 
+	// Generate service-aware device ID
+	deviceID := GenerateServiceDeviceID(serviceType, checkerID)
+
 	return &DeviceUpdate{
+		DeviceID:    deviceID,
 		ServiceType: &serviceType,
 		ServiceID:   checkerID,
 		IP:          hostIP,

@@ -110,7 +110,9 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	for _, u := range updates {
 		r.normalizeUpdate(u)
 		deviceupdate.SanitizeMetadata(u)
-		if u.IP == "" {
+		// Allow empty IPs for service components (pollers, agents, checkers)
+		// since they're identified by service-aware device IDs
+		if u.IP == "" && u.ServiceType == nil {
 			r.logger.Warn().Str("device_id", u.DeviceID).Msg("Dropping update with empty IP")
 			droppedEmptyIP++
 			continue

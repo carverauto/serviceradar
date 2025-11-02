@@ -354,6 +354,10 @@ func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 	if s.edgeOnboarding != nil {
 		apiServer.SetDynamicPollers(s.edgeOnboarding.allowedPollersSnapshot())
 		s.edgeOnboarding.SetAllowedPollerCallback(apiServer.SetDynamicPollers)
+		// Set device registry callback for service cleanup on revocation
+		if s.DeviceRegistry != nil {
+			s.edgeOnboarding.SetDeviceRegistryCallback(s.DeviceRegistry.ProcessBatchDeviceUpdates)
+		}
 	}
 
 	// MCP initialization removed; SRQL/MCP is now external
