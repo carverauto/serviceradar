@@ -232,7 +232,9 @@ func (r *ServiceRegistry) ListPollers(ctx context.Context, filter *ServiceFilter
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pollers: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var pollers []*RegisteredPoller
 
@@ -300,7 +302,9 @@ func (r *ServiceRegistry) ListAgentsByPoller(ctx context.Context, pollerID strin
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agents: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var agents []*RegisteredAgent
 
@@ -368,7 +372,9 @@ func (r *ServiceRegistry) ListCheckersByAgent(ctx context.Context, agentID strin
 	if err != nil {
 		return nil, fmt.Errorf("failed to list checkers: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var checkers []*RegisteredChecker
 
@@ -590,7 +596,9 @@ func (r *ServiceRegistry) refreshPollerCache(ctx context.Context) {
 		r.logger.Warn().Err(err).Msg("Failed to refresh poller cache")
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	newCache := make(map[string]bool)
 	for rows.Next() {
@@ -609,14 +617,19 @@ func (r *ServiceRegistry) refreshPollerCache(ctx context.Context) {
 		Msg("Refreshed poller cache")
 }
 
-// MarkInactive marks services as inactive if they haven't reported within threshold.
-func (r *ServiceRegistry) MarkInactive(ctx context.Context, threshold time.Duration) (int, error) {
+// updatePollerStatusByLastSeen is a helper function that updates poller statuses based on last seen time.
+func (r *ServiceRegistry) updatePollerStatusByLastSeen(
+	ctx context.Context,
+	threshold time.Duration,
+	filterStatus ServiceStatus,
+	targetStatus ServiceStatus,
+	successMsg, errorMsg string,
+) (int, error) {
 	cutoff := time.Now().UTC().Add(-threshold)
 	count := 0
 
-	// Mark inactive pollers
 	pollers, err := r.ListPollers(ctx, &ServiceFilter{
-		Statuses: []ServiceStatus{ServiceStatusActive},
+		Statuses: []ServiceStatus{filterStatus},
 	})
 	if err != nil {
 		return 0, err
@@ -624,14 +637,14 @@ func (r *ServiceRegistry) MarkInactive(ctx context.Context, threshold time.Durat
 
 	for _, poller := range pollers {
 		if poller.LastSeen != nil && poller.LastSeen.Before(cutoff) {
-			if err := r.UpdateServiceStatus(ctx, "poller", poller.PollerID, ServiceStatusInactive); err != nil {
-				r.logger.Warn().Err(err).Str("poller_id", poller.PollerID).Msg("Failed to mark poller inactive")
+			if err := r.UpdateServiceStatus(ctx, "poller", poller.PollerID, targetStatus); err != nil {
+				r.logger.Warn().Err(err).Str("poller_id", poller.PollerID).Msg(errorMsg)
 			} else {
 				count++
 				r.logger.Info().
 					Str("poller_id", poller.PollerID).
 					Time("last_seen", *poller.LastSeen).
-					Msg("Marked poller inactive")
+					Msg(successMsg)
 			}
 		}
 	}
@@ -639,34 +652,28 @@ func (r *ServiceRegistry) MarkInactive(ctx context.Context, threshold time.Durat
 	return count, nil
 }
 
+// MarkInactive marks services as inactive if they haven't reported within threshold.
+func (r *ServiceRegistry) MarkInactive(ctx context.Context, threshold time.Duration) (int, error) {
+	return r.updatePollerStatusByLastSeen(
+		ctx,
+		threshold,
+		ServiceStatusActive,
+		ServiceStatusInactive,
+		"Marked poller inactive",
+		"Failed to mark poller inactive",
+	)
+}
+
 // ArchiveInactive archives services that have been inactive for longer than retention period.
 func (r *ServiceRegistry) ArchiveInactive(ctx context.Context, retentionPeriod time.Duration) (int, error) {
-	cutoff := time.Now().UTC().Add(-retentionPeriod)
-	count := 0
-
 	// For now, we'll just mark them as revoked rather than deleting
 	// In the future, could move to separate archive table
-
-	pollers, err := r.ListPollers(ctx, &ServiceFilter{
-		Statuses: []ServiceStatus{ServiceStatusInactive},
-	})
-	if err != nil {
-		return 0, err
-	}
-
-	for _, poller := range pollers {
-		if poller.LastSeen != nil && poller.LastSeen.Before(cutoff) {
-			if err := r.UpdateServiceStatus(ctx, "poller", poller.PollerID, ServiceStatusRevoked); err != nil {
-				r.logger.Warn().Err(err).Str("poller_id", poller.PollerID).Msg("Failed to archive poller")
-			} else {
-				count++
-				r.logger.Info().
-					Str("poller_id", poller.PollerID).
-					Time("last_seen", *poller.LastSeen).
-					Msg("Archived poller")
-			}
-		}
-	}
-
-	return count, nil
+	return r.updatePollerStatusByLastSeen(
+		ctx,
+		retentionPeriod,
+		ServiceStatusInactive,
+		ServiceStatusRevoked,
+		"Archived poller",
+		"Failed to archive poller",
+	)
 }

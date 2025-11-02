@@ -18,11 +18,25 @@ package edgeonboarding
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+)
+
+var (
+	// ErrConfigRequired is returned when no config is provided.
+	ErrConfigRequired = errors.New("config is required")
+	// ErrTokenRequired is returned when no onboarding token is provided.
+	ErrTokenRequired = errors.New("onboarding token is required")
+	// ErrKVEndpointRequired is returned when no KV endpoint is provided (bootstrap config or integration).
+	ErrKVEndpointRequired = errors.New("KV endpoint is required")
+	// ErrCredentialRotationNotImplemented is returned when credential rotation is attempted.
+	ErrCredentialRotationNotImplemented = errors.New("not implemented: credential rotation")
+	// ErrRotationInfoNotImplemented is returned when rotation info is requested.
+	ErrRotationInfoNotImplemented = errors.New("not implemented: rotation info")
 )
 
 // Config contains all parameters needed for edge service onboarding.
@@ -85,15 +99,15 @@ type Bootstrapper struct {
 // NewBootstrapper creates a new bootstrapper instance.
 func NewBootstrapper(cfg *Config) (*Bootstrapper, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("config is required")
+		return nil, ErrConfigRequired
 	}
 
 	if cfg.Token == "" {
-		return nil, fmt.Errorf("onboarding token is required")
+		return nil, ErrTokenRequired
 	}
 
 	if cfg.KVEndpoint == "" {
-		return nil, fmt.Errorf("KV endpoint is required (bootstrap config)")
+		return nil, ErrKVEndpointRequired
 	}
 
 	log := cfg.Logger
@@ -223,7 +237,7 @@ func Rotate(ctx context.Context, storagePath string, log logger.Logger) error {
 	// 4. Updating local SPIRE configuration
 	// 5. Restarting/reloading SPIRE agent/server
 
-	return fmt.Errorf("not implemented: credential rotation")
+	return ErrCredentialRotationNotImplemented
 }
 
 // detectDefaultStoragePath determines the best storage path based on permissions.
@@ -270,5 +284,5 @@ type RotationInfo struct {
 func GetRotationInfo(storagePath string) (*RotationInfo, error) {
 	// TODO: Implement rotation info retrieval
 	// This will read rotation state from storage
-	return nil, fmt.Errorf("not implemented: rotation info")
+	return nil, ErrRotationInfoNotImplemented
 }

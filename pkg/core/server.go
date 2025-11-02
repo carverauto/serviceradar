@@ -19,6 +19,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -39,6 +40,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
 	"github.com/carverauto/serviceradar/proto"
+)
+
+var (
+	// ErrDatabaseTypeAssertion is returned when database type assertion fails.
+	ErrDatabaseTypeAssertion = errors.New("failed to type assert database to *db.DB")
 )
 
 const (
@@ -123,7 +129,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 	// Type assert to get underlying *db.DB for registry operations
 	dbConn, ok := database.(*db.DB)
 	if !ok {
-		return nil, fmt.Errorf("failed to type assert database to *db.DB")
+		return nil, ErrDatabaseTypeAssertion
 	}
 	serviceRegistry := registry.NewServiceRegistry(dbConn, log)
 

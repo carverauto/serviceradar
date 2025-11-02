@@ -90,6 +90,9 @@ const (
 
 var (
 	pollerSlugRegex = regexp.MustCompile(`[^a-z0-9]+`)
+
+	// ErrUnsupportedComponentType is returned when an unknown component type is encountered during onboarding.
+	ErrUnsupportedComponentType = errors.New("unsupported component type")
 )
 
 type edgeOnboardingService struct {
@@ -2019,6 +2022,6 @@ func (s *edgeOnboardingService) registerServiceComponent(ctx context.Context, co
 		})
 
 	default:
-		return fmt.Errorf("unsupported component type: %s", componentType)
+		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, componentType)
 	}
 }

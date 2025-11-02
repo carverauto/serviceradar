@@ -18,6 +18,7 @@ package datasvc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -27,6 +28,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+)
+
+var (
+	// ErrStatusNotReceivedByCore is returned when Core does not acknowledge status receipt.
+	ErrStatusNotReceivedByCore = errors.New("status not received by Core")
 )
 
 const (
@@ -180,7 +186,7 @@ func (s *Server) registerWithCore(ctx context.Context, client proto.PollerServic
 	}
 
 	if !resp.Received {
-		return fmt.Errorf("status not received by Core")
+		return ErrStatusNotReceivedByCore
 	}
 
 	return nil
