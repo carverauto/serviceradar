@@ -4,29 +4,34 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
+func quoteLiteral(value string) string {
+	return fmt.Sprintf("'%s'", strings.ReplaceAll(value, "'", "''"))
+}
+
 // GetPoller retrieves a poller by ID.
 func (r *ServiceRegistry) GetPoller(ctx context.Context, pollerID string) (*RegisteredPoller, error) {
-	query := `SELECT
+	query := fmt.Sprintf(`SELECT
 		poller_id, component_id, status, registration_source,
 		first_registered, first_seen, last_seen, metadata,
 		spiffe_identity, created_by, agent_count, checker_count
 	FROM table(pollers)
-	WHERE poller_id = ?
+	WHERE poller_id = %s
 	ORDER BY _tp_time DESC
-	LIMIT 1`
+	LIMIT 1`, quoteLiteral(pollerID))
 
-	row := r.db.Conn.QueryRow(ctx, query, pollerID)
+	row := r.db.Conn.QueryRow(ctx, query)
 
 	var (
-		poller        RegisteredPoller
-		metadataJSON  string
-		firstSeenPtr  *time.Time
-		lastSeenPtr   *time.Time
-		statusStr     string
-		sourceStr     string
+		poller       RegisteredPoller
+		metadataJSON string
+		firstSeenPtr *time.Time
+		lastSeenPtr  *time.Time
+		statusStr    string
+		sourceStr    string
 	)
 
 	err := row.Scan(
@@ -66,16 +71,16 @@ func (r *ServiceRegistry) GetPoller(ctx context.Context, pollerID string) (*Regi
 
 // GetAgent retrieves an agent by ID.
 func (r *ServiceRegistry) GetAgent(ctx context.Context, agentID string) (*RegisteredAgent, error) {
-	query := `SELECT
+	query := fmt.Sprintf(`SELECT
 		agent_id, poller_id, component_id, status, registration_source,
 		first_registered, first_seen, last_seen, metadata,
 		spiffe_identity, created_by, checker_count
 	FROM table(agents)
-	WHERE agent_id = ?
+	WHERE agent_id = %s
 	ORDER BY _tp_time DESC
-	LIMIT 1`
+	LIMIT 1`, quoteLiteral(agentID))
 
-	row := r.db.Conn.QueryRow(ctx, query, agentID)
+	row := r.db.Conn.QueryRow(ctx, query)
 
 	var (
 		agent        RegisteredAgent
@@ -123,16 +128,16 @@ func (r *ServiceRegistry) GetAgent(ctx context.Context, agentID string) (*Regist
 
 // GetChecker retrieves a checker by ID.
 func (r *ServiceRegistry) GetChecker(ctx context.Context, checkerID string) (*RegisteredChecker, error) {
-	query := `SELECT
+	query := fmt.Sprintf(`SELECT
 		checker_id, agent_id, poller_id, checker_kind, component_id,
 		status, registration_source, first_registered, first_seen, last_seen,
 		metadata, spiffe_identity, created_by
 	FROM table(checkers)
-	WHERE checker_id = ?
+	WHERE checker_id = %s
 	ORDER BY _tp_time DESC
-	LIMIT 1`
+	LIMIT 1`, quoteLiteral(checkerID))
 
-	row := r.db.Conn.QueryRow(ctx, query, checkerID)
+	row := r.db.Conn.QueryRow(ctx, query)
 
 	var (
 		checker      RegisteredChecker

@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -33,6 +34,7 @@ func (RenderKongHandler) Parse(args []string, cfg *CmdConfig) error {
 	jwks := fs.String("jwks", "http://core:8090/auth/jwks.json", "JWKS URL")
 	service := fs.String("service", "http://core:8090", "Upstream service URL")
 	path := fs.String("path", "/api", "Route path prefix")
+	webService := fs.String("web-service", "", "Optional Web service URL for /api/devices routes")
 	out := fs.String("out", "/etc/kong/kong.yml", "Output DB-less YAML path")
 	keyClaim := fs.String("key-claim", "kid", "JWT key claim name to map keys")
 	srqlService := fs.String("srql-service", "", "Optional SRQL upstream service URL")
@@ -43,6 +45,7 @@ func (RenderKongHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.JWKSURL = *jwks
 	cfg.KongServiceURL = *service
 	cfg.KongRoutePath = *path
+	cfg.KongWebURL = *webService
 	cfg.OutputPath = *out
 	cfg.JWTKeyClaim = *keyClaim
 	cfg.SRQLServiceURL = *srqlService
@@ -63,7 +66,13 @@ func RunRenderKong(cfg *CmdConfig) error {
 	if len(pemKeys) == 0 {
 		return errNoRSAKeysInJWKS
 	}
-	content := renderKongDBLess(cfg.KongServiceURL, cfg.KongRoutePath, cfg.SRQLServiceURL, cfg.SRQLRoutePath, cfg.JWTKeyClaim, pemKeys)
+	content := renderKongDBLess(cfg.KongServiceURL, cfg.KongRoutePath, cfg.KongWebURL, cfg.SRQLServiceURL, cfg.SRQLRoutePath, cfg.JWTKeyClaim, pemKeys)
+	dir := filepath.Dir(cfg.OutputPath)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("ensuring output directory %s: %w", dir, err)
+		}
+	}
 	if err := os.WriteFile(cfg.OutputPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("writing %s: %w", cfg.OutputPath, err)
 	}
@@ -162,11 +171,21 @@ func rsaJWKToPEM(nB64, eB64 string) (string, error) {
 	return string(pem.EncodeToMemory(blk)), nil
 }
 
-func renderKongDBLess(serviceURL, routePath, srqlService, srqlPath, keyClaim string, keys []pemKey) string {
+func renderKongDBLess(serviceURL, routePath, webServiceURL, srqlService, srqlPath, keyClaim string, keys []pemKey) string {
 	var b strings.Builder
 	b.WriteString("_format_version: \"3.0\"\n")
 	b.WriteString("_transform: true\n\n")
 	b.WriteString("services:\n")
+	if webServiceURL != "" {
+		b.WriteString("  - name: web-api\n")
+		b.WriteString("    url: " + webServiceURL + "\n")
+		b.WriteString("    routes:\n")
+		b.WriteString("      - name: web-api-routes\n")
+		b.WriteString("        paths:\n")
+		b.WriteString("          - " + routePath + "/devices" + "\n")
+		b.WriteString("          - " + routePath + "/devices/" + "\n")
+		b.WriteString("        strip_path: false\n\n")
+	}
 	b.WriteString("  - name: core-api\n")
 	b.WriteString("    url: " + serviceURL + "\n")
 	b.WriteString("    routes:\n")
@@ -200,6 +219,16 @@ func renderKongDBLess(serviceURL, routePath, srqlService, srqlPath, keyClaim str
 	b.WriteString("consumers:\n")
 	b.WriteString("  - username: jwks-consumer\n\n")
 	b.WriteString("plugins:\n")
+	if webServiceURL != "" {
+		b.WriteString("  - name: jwt\n")
+		b.WriteString("    route: web-api-routes\n")
+		b.WriteString("    enabled: true\n")
+		b.WriteString("    config:\n")
+		b.WriteString("      key_claim_name: " + keyClaim + "\n")
+		b.WriteString("      claims_to_verify:\n")
+		b.WriteString("        - exp\n")
+		b.WriteString("      run_on_preflight: true\n\n")
+	}
 	b.WriteString("  - name: jwt\n")
 	b.WriteString("    route: core-api-routes\n")
 	b.WriteString("    enabled: true\n")

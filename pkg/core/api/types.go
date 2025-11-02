@@ -30,6 +30,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
 )
 
@@ -119,6 +120,7 @@ type APIServer struct {
 	spireAdminClient     spireadmin.Client
 	spireAdminConfig     *models.SpireAdminConfig
 	edgeOnboarding       EdgeOnboardingService
+	eventPublisher       *natsutil.EventPublisher
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint that fronts a specific JetStream domain.

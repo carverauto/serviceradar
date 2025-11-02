@@ -1710,7 +1710,6 @@ FROM (
         ) AS first_seen_candidate
     FROM device_updates
     WHERE coalesce(metadata['_merged_into'], '') = ''
-      AND lower(coalesce(metadata['_deleted'], 'false')) != 'true'
       AND (
             coalesce(metadata['armis_device_id'], '') != ''
          OR coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') != ''
@@ -1779,7 +1778,6 @@ FROM (
         ) AS first_seen_candidate
     FROM device_updates
     WHERE coalesce(metadata['_merged_into'], '') = ''
-      AND lower(coalesce(metadata['_deleted'], 'false')) != 'true'
       AND (
             coalesce(metadata['armis_device_id'], '') != ''
          OR coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') != ''

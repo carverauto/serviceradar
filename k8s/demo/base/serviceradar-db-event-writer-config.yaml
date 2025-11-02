@@ -26,6 +26,10 @@ data:
           "table": "events" 
         },
         {
+          "subject": "events.devices.lifecycle",
+          "table": "events"
+        },
+        {
           "subject": "events.otel.logs",
           "table": "logs"
         },

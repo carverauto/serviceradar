@@ -35,6 +35,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
 	"github.com/carverauto/serviceradar/proto"
@@ -414,6 +415,14 @@ func (s *Server) GetRperfManager() metricstore.RperfManager {
 
 func (s *Server) GetAuth() *auth.Auth {
 	return s.authService
+}
+
+// EventPublisher returns the event publisher instance, if configured.
+func (s *Server) EventPublisher() *natsutil.EventPublisher {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.eventPublisher
 }
 
 // MCP initialization removed

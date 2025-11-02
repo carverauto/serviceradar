@@ -20,6 +20,8 @@ import React, { useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Trash2, AlertTriangle, Loader } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useSrqlQuery } from '@/contexts/SrqlQueryContext';
+import selectDevicesQuery from './deviceQueryUtils';
 
 interface DeleteDeviceButtonProps {
     deviceId: string;
@@ -34,6 +36,12 @@ const DeleteDeviceButton: React.FC<DeleteDeviceButtonProps> = ({
 }) => {
     const { token } = useAuth();
     const router = useRouter();
+    const {
+        query: activeSrqlQuery,
+        viewPath: activeViewPath,
+        viewId: activeViewId,
+        setQuery: setSrqlQuery,
+    } = useSrqlQuery();
     const [showConfirm, setShowConfirm] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -55,9 +63,27 @@ const DeleteDeviceButton: React.FC<DeleteDeviceButtonProps> = ({
                 // Call onDelete callback if provided
                 if (onDelete) {
                     onDelete();
+                    router.refresh();
                 } else {
                     // Default behavior: redirect to devices list
-                    router.push('/service/devices');
+                    const fallbackInventoryQuery = 'in:devices time:last_7d sort:last_seen:desc limit:20';
+                    const nextQuery =
+                        activeViewId === 'devices:inventory'
+                            ? selectDevicesQuery(activeSrqlQuery, fallbackInventoryQuery)
+                            : fallbackInventoryQuery;
+                    const targetViewPath =
+                        activeViewId === 'devices:inventory' &&
+                        activeViewPath &&
+                        activeViewPath.startsWith('/devices')
+                            ? activeViewPath
+                            : '/devices';
+
+                    setSrqlQuery(nextQuery, {
+                        origin: 'view',
+                        viewPath: targetViewPath,
+                        viewId: 'devices:inventory',
+                    });
+                    router.push(targetViewPath);
                 }
             } else {
                 const data = await response.json();

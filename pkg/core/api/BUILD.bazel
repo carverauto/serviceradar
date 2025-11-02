@@ -29,6 +29,7 @@ go_library(
         "//pkg/metrics",
         "//pkg/metricstore",
         "//pkg/models",
+        "//pkg/natsutil",
         "//pkg/registry",
         "//pkg/spireadmin",
         "//pkg/swagger",
