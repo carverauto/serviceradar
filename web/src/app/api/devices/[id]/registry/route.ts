@@ -61,6 +61,12 @@ export async function GET(req: NextRequest, props: RouteProps) {
     // Check for and handle errors
     if (!response.ok) {
       const status = response.status;
+
+      if (status === 404) {
+        // Device is not a service component; return null so the UI can hide the panel quietly.
+        return NextResponse.json(null, { status: 200 });
+      }
+
       let errorMessage: string;
 
       try {

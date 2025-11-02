@@ -49,33 +49,7 @@ func (p *EventPublisher) PublishPollerHealthEvent(
 		Data:            data,
 	}
 
-	eventBytes, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("failed to marshal poller health event: %w", err)
-	}
-
-	// Publish to NATS with the event subject
-	ack, err := p.js.Publish(ctx, event.Subject, eventBytes)
-	if err != nil && isStreamMissingErr(err) {
-		if ensureErr := p.ensureStream(ctx, event.Subject); ensureErr != nil {
-			return fmt.Errorf("failed to ensure stream for poller health event: %w", ensureErr)
-		}
-
-		ack, err = p.js.Publish(ctx, event.Subject, eventBytes)
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to publish poller health event: %w", err)
-	}
-
-	// Log the sequence number for debugging
-	p.logger.Debug().
-		Str("event_id", event.ID).
-		Str("subject", event.Subject).
-		Uint64("sequence", ack.Sequence).
-		Msg("Published event")
-
-	return nil
+	return p.publishEvent(ctx, &event)
 }
 
 // PublishPollerRecoveryEvent publishes a poller recovery event.
@@ -128,6 +102,70 @@ func (p *EventPublisher) PublishPollerFirstSeenEvent(
 	}
 
 	return p.PublishPollerHealthEvent(ctx, pollerID, "unknown", "healthy", data)
+}
+
+// PublishDeviceLifecycleEvent publishes lifecycle changes (delete, restore, etc.) for a device.
+func (p *EventPublisher) PublishDeviceLifecycleEvent(ctx context.Context, data *models.DeviceLifecycleEventData) error {
+	if data == nil {
+		return errors.New("device lifecycle event data is nil")
+	}
+
+	if data.Timestamp.IsZero() {
+		data.Timestamp = time.Now().UTC()
+	}
+
+	if data.Severity == "" {
+		data.Severity = "Medium"
+	}
+
+	if data.Level == 0 {
+		data.Level = 5
+	}
+
+	event := models.CloudEvent{
+		SpecVersion:     "1.0",
+		ID:              uuid.New().String(),
+		Source:          "serviceradar/core",
+		Type:            "com.carverauto.serviceradar.device.lifecycle",
+		DataContentType: "application/json",
+		Subject:         "events.devices.lifecycle",
+		Time:            &data.Timestamp,
+		Data:            data,
+	}
+
+	return p.publishEvent(ctx, &event)
+}
+
+func (p *EventPublisher) publishEvent(ctx context.Context, event *models.CloudEvent) error {
+	if event == nil {
+		return errors.New("event payload is nil")
+	}
+
+	eventBytes, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event %s: %w", event.Type, err)
+	}
+
+	ack, err := p.js.Publish(ctx, event.Subject, eventBytes)
+	if err != nil && isStreamMissingErr(err) {
+		if ensureErr := p.ensureStream(ctx, event.Subject); ensureErr != nil {
+			return fmt.Errorf("failed to ensure stream for %s: %w", event.Subject, ensureErr)
+		}
+
+		ack, err = p.js.Publish(ctx, event.Subject, eventBytes)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to publish event %s: %w", event.Type, err)
+	}
+
+	p.logger.Debug().
+		Str("event_id", event.ID).
+		Str("subject", event.Subject).
+		Uint64("sequence", ack.Sequence).
+		Msg("Published event")
+
+	return nil
 }
 
 // ConnectWithEventPublisher creates a NATS connection with JetStream and returns an EventPublisher.

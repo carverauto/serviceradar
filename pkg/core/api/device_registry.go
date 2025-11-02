@@ -23,6 +23,9 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+
+	"github.com/carverauto/serviceradar/pkg/core/auth"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // DeviceRegistryInfo represents service registry information for a device.
@@ -159,11 +162,118 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Tombstone the device by creating a device update with is_available = false
-	// and adding deleted metadata
-	// For now, just mark the operation as successful
-	// The actual tombstoning will happen through the device registry in future work
-	s.logger.Info().Str("device_id", deviceID).Msg("Device delete requested - tombstone will be applied")
+	if s.dbService == nil {
+		writeError(w, "Database not configured", http.StatusInternalServerError)
+		return
+	}
+
+	now := time.Now().UTC()
+	ctx := r.Context()
+	partition := partitionFromDeviceID(deviceID)
+
+	update := &models.DeviceUpdate{
+		DeviceID:    deviceID,
+		Partition:   partition,
+		IsAvailable: false,
+		Timestamp:   now,
+		Source:      models.DiscoverySourceManual,
+		Confidence:  models.ConfidenceHighestManual,
+		Metadata: map[string]string{
+			"_deleted":     "true",
+			"_deleted_at":  now.Format(time.RFC3339Nano),
+			"deleted":      "true",
+			"deleted_at":   now.Format(time.RFC3339Nano),
+			"deleted_with": "api",
+		},
+	}
+
+	deletedBy := ""
+	if user, ok := auth.GetUserFromContext(ctx); ok && user != nil {
+		update.Metadata["_deleted_by"] = user.Email
+		update.Metadata["deleted_by"] = user.Email
+		deletedBy = user.Email
+	}
+
+	if existing, err := s.dbService.GetUnifiedDevice(ctx, deviceID); err == nil {
+		update.IP = existing.IP
+		if partition == "" {
+			partition = partitionFromDeviceID(existing.DeviceID)
+		}
+
+		if existing.Hostname != nil && existing.Hostname.Value != "" {
+			host := existing.Hostname.Value
+			update.Hostname = &host
+		}
+		if existing.MAC != nil && existing.MAC.Value != "" {
+			mac := strings.ToUpper(existing.MAC.Value)
+			update.MAC = &mac
+		}
+		if existing.Metadata != nil && existing.Metadata.Value != nil {
+			if part, ok := existing.Metadata.Value["canonical_partition"]; ok && part != "" {
+				update.Partition = part
+				update.Metadata["canonical_partition"] = part
+			}
+			if canonicalID, ok := existing.Metadata.Value["canonical_device_id"]; ok && canonicalID != "" {
+				update.Metadata["canonical_device_id"] = canonicalID
+			}
+			if revision, ok := existing.Metadata.Value["canonical_revision"]; ok {
+				update.Metadata["_previous_revision"] = revision
+			}
+			for _, key := range []string{"armis_device_id", "integration_id", "integration_type", "netbox_device_id"} {
+				if val := existing.Metadata.Value[key]; val != "" {
+					update.Metadata[key] = val
+				}
+			}
+		}
+	} else {
+		s.logger.Warn().Err(err).Str("device_id", deviceID).Msg("Failed to fetch existing device before tombstone")
+	}
+
+	if err := s.dbService.PublishDeviceUpdate(ctx, update); err != nil {
+		s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Failed to publish device tombstone")
+		writeError(w, "Failed to delete device", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Info().
+		Str("device_id", deviceID).
+		Time("deleted_at", now).
+		Msg("Device delete tombstone published")
+
+	if s.eventPublisher != nil {
+		metadata := map[string]string{
+			"partition": update.Partition,
+		}
+		if update.IP != "" {
+			metadata["ip"] = update.IP
+		}
+		if update.Hostname != nil && *update.Hostname != "" {
+			metadata["hostname"] = *update.Hostname
+		}
+		if update.MAC != nil && *update.MAC != "" {
+			metadata["mac"] = *update.MAC
+		}
+		if deletedBy != "" {
+			metadata["actor"] = deletedBy
+		}
+
+		eventData := &models.DeviceLifecycleEventData{
+			DeviceID:   deviceID,
+			Partition:  update.Partition,
+			Action:     "deleted",
+			Actor:      deletedBy,
+			Reason:     "manual_delete",
+			Timestamp:  now,
+			Severity:   "Medium",
+			Level:      5,
+			RemoteAddr: r.RemoteAddr,
+			Metadata:   metadata,
+		}
+
+		if err := s.eventPublisher.PublishDeviceLifecycleEvent(ctx, eventData); err != nil {
+			s.logger.Warn().Err(err).Str("device_id", deviceID).Msg("Failed to publish device lifecycle event")
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	response := map[string]string{
@@ -187,4 +297,14 @@ func getDeviceType(deviceID string) string {
 		return "checker"
 	}
 	return "" // Not a service component
+}
+
+func partitionFromDeviceID(deviceID string) string {
+	if deviceID == "" {
+		return "default"
+	}
+	if idx := strings.Index(deviceID, ":"); idx > 0 {
+		return deviceID[:idx]
+	}
+	return "default"
 }
