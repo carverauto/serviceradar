@@ -197,7 +197,7 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 	if existing, err := s.dbService.GetUnifiedDevice(ctx, deviceID); err == nil {
 		update.IP = existing.IP
 		if partition == "" {
-			partition = partitionFromDeviceID(existing.DeviceID)
+			_ = partitionFromDeviceID(existing.DeviceID)
 		}
 
 		if existing.Hostname != nil && existing.Hostname.Value != "" {

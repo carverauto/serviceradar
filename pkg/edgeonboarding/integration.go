@@ -19,12 +19,20 @@ package edgeonboarding
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+)
+
+var (
+	// ErrGeneratedConfigNotFound is returned when a requested generated config is not found.
+	ErrGeneratedConfigNotFound = errors.New("generated config not found")
+	// ErrIntegrationResultNil is returned when integration result is nil.
+	ErrIntegrationResultNil = errors.New("integration result is nil")
 )
 
 // IntegrationResult contains the results of onboarding that services need to start.
@@ -70,7 +78,7 @@ func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponen
 
 	// Validate required bootstrap config
 	if kvEndpoint == "" {
-		return nil, fmt.Errorf("KV_ENDPOINT is required when using ONBOARDING_TOKEN")
+		return nil, ErrKVEndpointRequired
 	}
 
 	// Create bootstrapper
@@ -99,7 +107,7 @@ func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponen
 	configKey := getConfigKeyForComponent(componentType)
 	configData, ok := b.GetConfig(configKey)
 	if !ok {
-		return nil, fmt.Errorf("generated config %q not found", configKey)
+		return nil, fmt.Errorf("%w: %q", ErrGeneratedConfigNotFound, configKey)
 	}
 
 	// Write config to a temporary file (services expect file paths)
@@ -172,7 +180,7 @@ func writeGeneratedConfig(componentType models.EdgeOnboardingComponentType, data
 // This is a helper for services that need to unmarshal the config.
 func LoadConfigFromOnboarding(result *IntegrationResult, target interface{}) error {
 	if result == nil {
-		return fmt.Errorf("integration result is nil")
+		return ErrIntegrationResultNil
 	}
 
 	if err := json.Unmarshal(result.ConfigData, target); err != nil {

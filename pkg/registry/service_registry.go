@@ -16,12 +16,6 @@ import (
 const (
 	// pollerCacheTTL defines how long to cache IsKnownPoller results
 	pollerCacheTTL = 5 * time.Minute
-
-	// defaultInactiveThreshold is the default time before marking a service inactive
-	defaultInactiveThreshold = 24 * time.Hour
-
-	// defaultArchiveRetention is the default time before archiving inactive services
-	defaultArchiveRetention = 90 * 24 * time.Hour
 )
 
 // ServiceRegistry implements the ServiceManager interface.
@@ -721,7 +715,9 @@ func (r *ServiceRegistry) PurgeInactive(ctx context.Context, retentionPeriod tim
 	if err != nil {
 		return 0, fmt.Errorf("failed to query stale services: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	count := 0
 	for rows.Next() {

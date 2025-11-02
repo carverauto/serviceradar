@@ -18,9 +18,36 @@ package edgeonboarding
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/carverauto/serviceradar/pkg/models"
+)
+
+var (
+	// ErrPackageDownloadNotImplemented is returned when package download is attempted.
+	ErrPackageDownloadNotImplemented = errors.New("not implemented: package download")
+	// ErrPackageNotDownloaded is returned when package validation is attempted before download.
+	ErrPackageNotDownloaded = errors.New("package not downloaded")
+	// ErrDownloadResultNotAvailable is returned when download result is missing.
+	ErrDownloadResultNotAvailable = errors.New("download result not available")
+	// ErrPackageIDEmpty is returned when package_id is empty.
+	ErrPackageIDEmpty = errors.New("package_id is empty")
+	// ErrComponentIDEmpty is returned when component_id is empty.
+	ErrComponentIDEmpty = errors.New("component_id is empty")
+	// ErrComponentTypeNotSet is returned when component_type is not set.
+	ErrComponentTypeNotSet = errors.New("component_type is not set")
+	// ErrDownstreamSPIFFEIDEmpty is returned when downstream_spiffe_id is empty.
+	ErrDownstreamSPIFFEIDEmpty = errors.New("downstream_spiffe_id is empty")
+	// ErrJoinTokenEmpty is returned when join token is empty.
+	ErrJoinTokenEmpty = errors.New("join token is empty")
+	// ErrBundlePEMEmpty is returned when bundle PEM is empty.
+	ErrBundlePEMEmpty = errors.New("bundle PEM is empty")
+	// ErrPackageRevoked is returned when package has been revoked.
+	ErrPackageRevoked = errors.New("package has been revoked")
+	// ErrPackageExpired is returned when package has expired.
+	ErrPackageExpired = errors.New("package has expired")
+	// ErrPackageDeleted is returned when package has been deleted.
+	ErrPackageDeleted = errors.New("package has been deleted")
 )
 
 // downloadPackage downloads the onboarding package from Core using the token.
@@ -39,43 +66,43 @@ func (b *Bootstrapper) downloadPackage(ctx context.Context) error {
 	// 4. Receiving the package with decrypted join token and bundle
 
 	// For now, return an error to indicate not implemented
-	return fmt.Errorf("not implemented: package download")
+	return ErrPackageDownloadNotImplemented
 }
 
 // validatePackage validates the downloaded package contents.
 func (b *Bootstrapper) validatePackage(ctx context.Context) error {
 	if b.pkg == nil {
-		return fmt.Errorf("package not downloaded")
+		return ErrPackageNotDownloaded
 	}
 
 	if b.downloadResult == nil {
-		return fmt.Errorf("download result not available")
+		return ErrDownloadResultNotAvailable
 	}
 
 	// Validate package fields
 	if b.pkg.PackageID == "" {
-		return fmt.Errorf("package_id is empty")
+		return ErrPackageIDEmpty
 	}
 
 	if b.pkg.ComponentID == "" {
-		return fmt.Errorf("component_id is empty")
+		return ErrComponentIDEmpty
 	}
 
 	if b.pkg.ComponentType == models.EdgeOnboardingComponentTypeNone {
-		return fmt.Errorf("component_type is not set")
+		return ErrComponentTypeNotSet
 	}
 
 	if b.pkg.DownstreamSPIFFEID == "" {
-		return fmt.Errorf("downstream_spiffe_id is empty")
+		return ErrDownstreamSPIFFEIDEmpty
 	}
 
 	// Validate SPIRE credentials
 	if b.downloadResult.JoinToken == "" {
-		return fmt.Errorf("join token is empty")
+		return ErrJoinTokenEmpty
 	}
 
 	if len(b.downloadResult.BundlePEM) == 0 {
-		return fmt.Errorf("bundle PEM is empty")
+		return ErrBundlePEMEmpty
 	}
 
 	// Validate package status
@@ -83,11 +110,11 @@ func (b *Bootstrapper) validatePackage(ctx context.Context) error {
 	case models.EdgeOnboardingStatusDelivered, models.EdgeOnboardingStatusActivated:
 		// Valid statuses for onboarding
 	case models.EdgeOnboardingStatusRevoked:
-		return fmt.Errorf("package has been revoked")
+		return ErrPackageRevoked
 	case models.EdgeOnboardingStatusExpired:
-		return fmt.Errorf("package has expired")
+		return ErrPackageExpired
 	case models.EdgeOnboardingStatusDeleted:
-		return fmt.Errorf("package has been deleted")
+		return ErrPackageDeleted
 	default:
 		b.logger.Warn().
 			Str("status", string(b.pkg.Status)).

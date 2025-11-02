@@ -74,7 +74,9 @@ func (s *APIServer) handleListDataSvcInstances(w http.ResponseWriter, r *http.Re
 		writeError(w, "failed to list datasvc instances", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var instances []dataSvcInstanceView
 

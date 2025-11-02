@@ -59,7 +59,7 @@ func (b *Bootstrapper) configureSPIRE(ctx context.Context) error {
 	case models.EdgeOnboardingComponentTypeChecker:
 		return b.configureCheckerSPIRE(ctx, spireDir)
 	default:
-		return fmt.Errorf("unsupported component type: %s", b.pkg.ComponentType)
+		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, b.pkg.ComponentType)
 	}
 }
 

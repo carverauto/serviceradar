@@ -18,9 +18,14 @@ package edgeonboarding
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"strings"
+)
+
+var (
+	// ErrSPIREAddressResolutionNotImplemented is returned when SPIRE address resolution is attempted.
+	ErrSPIREAddressResolutionNotImplemented = errors.New("not implemented: SPIRE address resolution")
 )
 
 // detectDeploymentType determines the deployment environment.
@@ -143,5 +148,5 @@ func (b *Bootstrapper) getSPIREAddressesForDeployment() (address string, port st
 	// For Bare-metal: Use configured address
 
 	// For now, return placeholder
-	return "", "", fmt.Errorf("not implemented: SPIRE address resolution")
+	return "", "", ErrSPIREAddressResolutionNotImplemented
 }

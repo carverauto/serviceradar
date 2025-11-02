@@ -19,10 +19,36 @@ package edgeonboarding
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 
 	"github.com/carverauto/serviceradar/pkg/models"
+)
+
+var (
+	// ErrUnsupportedComponentType is returned when an unknown component type is encountered.
+	ErrUnsupportedComponentType = errors.New("unsupported component type")
+	// ErrCoreAddressNotFound is returned when core_address is missing from metadata.
+	ErrCoreAddressNotFound = errors.New("core_address not found in metadata")
+	// ErrCoreSPIFFEIDNotFound is returned when core_spiffe_id is missing from metadata.
+	ErrCoreSPIFFEIDNotFound = errors.New("core_spiffe_id not found in metadata")
+	// ErrSPIREUpstreamAddressNotFound is returned when spire_upstream_address is missing from metadata.
+	ErrSPIREUpstreamAddressNotFound = errors.New("spire_upstream_address not found in metadata")
+	// ErrSPIREParentIDNotFound is returned when spire_parent_id is missing from metadata.
+	ErrSPIREParentIDNotFound = errors.New("spire_parent_id not found in metadata")
+	// ErrAgentSPIFFEIDNotFound is returned when agent_spiffe_id is missing from metadata.
+	ErrAgentSPIFFEIDNotFound = errors.New("agent_spiffe_id not found in metadata")
+	// ErrSPIREUpstreamPortNotFound is returned when spire_upstream_port is missing from metadata.
+	ErrSPIREUpstreamPortNotFound = errors.New("spire_upstream_port not found in metadata")
+	// ErrPollerIDNotFound is returned when poller_id is missing from metadata.
+	ErrPollerIDNotFound = errors.New("poller_id not found in metadata")
+	// ErrKVAddressNotFound is returned when kv_address is missing from metadata.
+	ErrKVAddressNotFound = errors.New("kv_address not found in metadata")
+	// ErrKVSPIFFEIDNotFound is returned when kv_spiffe_id is missing from metadata.
+	ErrKVSPIFFEIDNotFound = errors.New("kv_spiffe_id not found in metadata")
+	// ErrAgentIDNotFound is returned when agent_id is missing from metadata.
+	ErrAgentIDNotFound = errors.New("agent_id not found in metadata")
 )
 
 // generateServiceConfig generates configuration files for the service based on:
@@ -50,7 +76,7 @@ func (b *Bootstrapper) generateServiceConfig(ctx context.Context) error {
 	case models.EdgeOnboardingComponentTypeChecker:
 		return b.generateCheckerConfig(ctx, metadata)
 	default:
-		return fmt.Errorf("unsupported component type: %s", b.pkg.ComponentType)
+		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, b.pkg.ComponentType)
 	}
 }
 
@@ -75,27 +101,27 @@ func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[st
 	// Extract required metadata fields
 	coreAddress, ok := metadata["core_address"].(string)
 	if !ok || coreAddress == "" {
-		return fmt.Errorf("core_address not found in metadata")
+		return ErrCoreAddressNotFound
 	}
 
 	coreSPIFFEID, ok := metadata["core_spiffe_id"].(string)
 	if !ok || coreSPIFFEID == "" {
-		return fmt.Errorf("core_spiffe_id not found in metadata")
+		return ErrCoreSPIFFEIDNotFound
 	}
 
 	spireUpstreamAddr, ok := metadata["spire_upstream_address"].(string)
 	if !ok || spireUpstreamAddr == "" {
-		return fmt.Errorf("spire_upstream_address not found in metadata")
+		return ErrSPIREUpstreamAddressNotFound
 	}
 
 	spireParentID, ok := metadata["spire_parent_id"].(string)
 	if !ok || spireParentID == "" {
-		return fmt.Errorf("spire_parent_id not found in metadata")
+		return ErrSPIREParentIDNotFound
 	}
 
 	agentSPIFFEID, ok := metadata["agent_spiffe_id"].(string)
 	if !ok || agentSPIFFEID == "" {
-		return fmt.Errorf("agent_spiffe_id not found in metadata")
+		return ErrAgentSPIFFEIDNotFound
 	}
 
 	// Get deployment-specific addresses
