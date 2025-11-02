@@ -263,6 +263,13 @@ func WithDeviceRegistry(dr DeviceRegistryService) func(server *APIServer) {
 	}
 }
 
+// WithServiceRegistry adds a service registry to the API server
+func WithServiceRegistry(sr ServiceRegistryService) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.serviceRegistry = sr
+	}
+}
+
 func WithLogger(log logger.Logger) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.logger = log
@@ -740,6 +747,8 @@ func (s *APIServer) setupProtectedRoutes() {
 	// Device-centric endpoints
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
 	protected.HandleFunc("/devices/{id}", s.getDevice).Methods("GET")
+	protected.HandleFunc("/devices/{id}", s.deleteDevice).Methods("DELETE")
+	protected.HandleFunc("/devices/{id}/registry", s.getDeviceRegistryInfo).Methods("GET")
 	protected.HandleFunc("/devices/{id}/metrics", s.getDeviceMetrics).Methods("GET")
 	protected.HandleFunc("/devices/metrics/status", s.getDeviceMetricsStatus).Methods("GET")
 	protected.HandleFunc("/devices/snmp/status", s.getDeviceSNMPStatus).Methods("POST")

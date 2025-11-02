@@ -42,6 +42,8 @@ import { fetchAPI } from '@/lib/client-api';
 import { escapeSrqlValue } from '@/lib/srql';
 import { formatTimestampForDisplay } from '@/utils/traceTimestamp';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import ServiceRegistryPanel from './ServiceRegistryPanel';
+import DeleteDeviceButton from './DeleteDeviceButton';
 
 interface SrqlResponse<T> {
     results?: T[];
@@ -406,7 +408,7 @@ interface DeviceDetailProps {
 }
 
 const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
-    useAuth();
+    const { token } = useAuth();
 
     const [device, setDevice] = useState<DeviceRecord | null>(null);
     const [loading, setLoading] = useState(true);
@@ -447,10 +449,11 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                ...(token && { Authorization: `Bearer ${token}` }),
             },
             body: JSON.stringify(body),
         });
-    }, []);
+    }, [token]);
 
     const normalizeDevice = (record: DeviceRecord): DeviceRecord => {
         const normalized: DeviceRecord = {
@@ -917,6 +920,15 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
                     </div>
                 )}
             </div>
+
+            {/* Service Registry Panel - only shows for pollers, agents, and checkers */}
+            <ServiceRegistryPanel deviceId={deviceId} />
+
+            {/* Delete Device Button */}
+            <DeleteDeviceButton
+                deviceId={deviceId}
+                deviceName={device.hostname || device.ip}
+            />
 
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
                 <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

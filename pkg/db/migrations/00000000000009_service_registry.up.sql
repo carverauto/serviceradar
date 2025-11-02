@@ -23,7 +23,7 @@ CREATE STREAM IF NOT EXISTS pollers (
     -- Onboarding/registration metadata
     component_id string DEFAULT '',
     registration_source string DEFAULT 'implicit',  -- 'edge_onboarding', 'k8s_spiffe', 'config', 'implicit'
-    status string DEFAULT 'active',  -- 'pending', 'active', 'inactive', 'revoked'
+    status string DEFAULT 'active',  -- 'pending', 'active', 'inactive', 'revoked', 'deleted'
 
     -- SPIFFE identity
     spiffe_identity string DEFAULT '',
@@ -61,7 +61,7 @@ CREATE STREAM IF NOT EXISTS agents (
     -- Onboarding/registration metadata
     component_id string DEFAULT '',
     registration_source string DEFAULT 'implicit',
-    status string DEFAULT 'active',
+    status string DEFAULT 'active',  -- 'pending', 'active', 'inactive', 'revoked', 'deleted'
 
     -- SPIFFE identity
     spiffe_identity string DEFAULT '',
@@ -97,7 +97,7 @@ CREATE STREAM IF NOT EXISTS checkers (
     -- Onboarding/registration metadata
     component_id string DEFAULT '',
     registration_source string DEFAULT 'implicit',
-    status string DEFAULT 'active',
+    status string DEFAULT 'active',  -- 'pending', 'active', 'inactive', 'revoked', 'deleted'
 
     -- SPIFFE identity
     spiffe_identity string DEFAULT '',
@@ -122,7 +122,7 @@ CREATE STREAM IF NOT EXISTS checkers (
 
 CREATE STREAM IF NOT EXISTS service_registration_events (
     event_id string,
-    event_type string,  -- 'registered', 'activated', 'deactivated', 'revoked'
+    event_type string,  -- 'registered', 'activated', 'deactivated', 'revoked', 'deleted'
     service_id string,
     service_type string,  -- 'poller', 'agent', 'checker'
     parent_id string DEFAULT '',
@@ -163,7 +163,22 @@ SETTINGS index_granularity = 8192;
 --
 -- TTL STRATEGY:
 -- - Registry streams (pollers/agents/checkers): NO TTL
---   Growth controlled by lifecycle status + archiving jobs
+--   Growth controlled by lifecycle status + manual deletion + purge jobs
 -- - Audit events: 90-day TTL (compliance requirement)
 -- - Existing services/service_status streams: Keep 3-day TTL (unchanged)
+--
+-- DELETION STRATEGY:
+-- - Soft delete: Set status='deleted' (retains record for audit)
+-- - Hard delete: Use DELETE FROM pollers WHERE poller_id = ? (permanent removal)
+-- - Automated purge: Background job deletes services with status IN ('inactive', 'revoked', 'deleted')
+--   that haven't updated in > retention_period (default: 90 days)
+-- - Active/pending services cannot be deleted (must mark inactive/revoked first)
+-- - All deletions emit audit events before removal (90-day retention)
+--
+-- RETENTION RECOMMENDATIONS:
+-- - Active services: Never auto-deleted
+-- - Pending services: 30 days (if never activated)
+-- - Inactive services: 90 days after last heartbeat
+-- - Revoked services: 90 days after revocation
+-- - Deleted services: 7 days grace period before hard delete
 --

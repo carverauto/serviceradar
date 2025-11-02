@@ -13,9 +13,9 @@ func (r *ServiceRegistry) GetPoller(ctx context.Context, pollerID string) (*Regi
 		poller_id, component_id, status, registration_source,
 		first_registered, first_seen, last_seen, metadata,
 		spiffe_identity, created_by, agent_count, checker_count
-	FROM pollers
-	FINAL
+	FROM table(pollers)
 	WHERE poller_id = ?
+	ORDER BY _tp_time DESC
 	LIMIT 1`
 
 	row := r.db.Conn.QueryRow(ctx, query, pollerID)
@@ -70,9 +70,9 @@ func (r *ServiceRegistry) GetAgent(ctx context.Context, agentID string) (*Regist
 		agent_id, poller_id, component_id, status, registration_source,
 		first_registered, first_seen, last_seen, metadata,
 		spiffe_identity, created_by, checker_count
-	FROM agents
-	FINAL
+	FROM table(agents)
 	WHERE agent_id = ?
+	ORDER BY _tp_time DESC
 	LIMIT 1`
 
 	row := r.db.Conn.QueryRow(ctx, query, agentID)
@@ -127,9 +127,9 @@ func (r *ServiceRegistry) GetChecker(ctx context.Context, checkerID string) (*Re
 		checker_id, agent_id, poller_id, checker_kind, component_id,
 		status, registration_source, first_registered, first_seen, last_seen,
 		metadata, spiffe_identity, created_by
-	FROM checkers
-	FINAL
+	FROM table(checkers)
 	WHERE checker_id = ?
+	ORDER BY _tp_time DESC
 	LIMIT 1`
 
 	row := r.db.Conn.QueryRow(ctx, query, checkerID)

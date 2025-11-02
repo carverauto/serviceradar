@@ -36,6 +36,48 @@ var onboardingAllowedStatuses = []models.EdgeOnboardingStatus{
 	models.EdgeOnboardingStatusActivated,
 }
 
+// ServiceManager provides service registration operations for edge onboarding.
+// Defined here to avoid import cycles with pkg/registry.
+type ServiceManager interface {
+	RegisterPoller(ctx context.Context, reg *PollerRegistration) error
+	RegisterAgent(ctx context.Context, reg *AgentRegistration) error
+	RegisterChecker(ctx context.Context, reg *CheckerRegistration) error
+}
+
+// Service registration types - mirror registry package to avoid import cycle
+type (
+	PollerRegistration struct {
+		PollerID           string
+		ComponentID        string
+		RegistrationSource string
+		Metadata           map[string]string
+		SPIFFEIdentity     string
+		CreatedBy          string
+	}
+
+	AgentRegistration struct {
+		AgentID            string
+		PollerID           string
+		ComponentID        string
+		RegistrationSource string
+		Metadata           map[string]string
+		SPIFFEIdentity     string
+		CreatedBy          string
+	}
+
+	CheckerRegistration struct {
+		CheckerID          string
+		AgentID            string
+		PollerID           string
+		CheckerKind        string
+		ComponentID        string
+		RegistrationSource string
+		Metadata           map[string]string
+		SPIFFEIdentity     string
+		CreatedBy          string
+	}
+)
+
 const (
 	defaultJoinTokenTTL          = 15 * time.Minute
 	defaultDownloadTokenTTL      = 24 * time.Hour
@@ -78,10 +120,11 @@ type edgeOnboardingService struct {
 	allowedCallback func([]string)
 
 	deviceRegistryCallback func(context.Context, []*models.DeviceUpdate) error
+	serviceRegistry        ServiceManager
 }
 
 //nolint:unparam // kvCloser is reserved for future KV client integrations.
-func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models.SpireAdminConfig, spireClient spireadmin.Client, database db.Service, kvClient proto.KVServiceClient, kvCloser func() error, log logger.Logger) (*edgeOnboardingService, error) {
+func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models.SpireAdminConfig, spireClient spireadmin.Client, database db.Service, kvClient proto.KVServiceClient, kvCloser func() error, serviceRegistry ServiceManager, log logger.Logger) (*edgeOnboardingService, error) {
 	if cfg == nil || !cfg.Enabled {
 		if kvCloser != nil {
 			_ = kvCloser()
@@ -115,6 +158,7 @@ func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models
 		rand:             rand.Reader,
 		allowed:          make(map[string]struct{}),
 		metadataDefaults: make(map[models.EdgeOnboardingComponentType]map[string]string),
+		serviceRegistry:  serviceRegistry,
 
 		refreshInterval: defaultPollerRefreshInterval,
 		refreshTimeout:  defaultPollerRefreshTimeout,
@@ -700,6 +744,16 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		DetailsJSON: detailsJSON,
 	}); err != nil {
 		return nil, fmt.Errorf("edge onboarding: record issued event: %w", err)
+	}
+
+	// Register service in service registry
+	if s.serviceRegistry != nil {
+		if err := s.registerServiceComponent(ctx, componentType, componentID, pollerID, parentID, checkerKind, downstreamID, metadataMap, createdBy); err != nil {
+			s.logger.Warn().Err(err).
+				Str("component_type", string(componentType)).
+				Str("component_id", componentID).
+				Msg("Failed to register service in service registry")
+		}
 	}
 
 	s.mu.Lock()
@@ -1921,4 +1975,50 @@ func sanitizePollerID(raw string) string {
 		sanitized = strings.Trim(sanitized, "-")
 	}
 	return sanitized
+}
+
+// registerServiceComponent registers a service component in the service registry based on its type.
+func (s *edgeOnboardingService) registerServiceComponent(ctx context.Context, componentType models.EdgeOnboardingComponentType, componentID, pollerID, parentID, checkerKind, spiffeID string, metadata map[string]string, createdBy string) error {
+	if s.serviceRegistry == nil {
+		return nil
+	}
+
+	switch componentType {
+	case models.EdgeOnboardingComponentTypePoller:
+		return s.serviceRegistry.RegisterPoller(ctx, &PollerRegistration{
+			PollerID:           componentID,
+			ComponentID:        componentID,
+			RegistrationSource: "edge_onboarding",
+			Metadata:           metadata,
+			SPIFFEIdentity:     spiffeID,
+			CreatedBy:          createdBy,
+		})
+
+	case models.EdgeOnboardingComponentTypeAgent:
+		return s.serviceRegistry.RegisterAgent(ctx, &AgentRegistration{
+			AgentID:            componentID,
+			PollerID:           pollerID,
+			ComponentID:        componentID,
+			RegistrationSource: "edge_onboarding",
+			Metadata:           metadata,
+			SPIFFEIdentity:     spiffeID,
+			CreatedBy:          createdBy,
+		})
+
+	case models.EdgeOnboardingComponentTypeChecker:
+		return s.serviceRegistry.RegisterChecker(ctx, &CheckerRegistration{
+			CheckerID:          componentID,
+			AgentID:            parentID,
+			PollerID:           pollerID,
+			CheckerKind:        checkerKind,
+			ComponentID:        componentID,
+			RegistrationSource: "edge_onboarding",
+			Metadata:           metadata,
+			SPIFFEIdentity:     spiffeID,
+			CreatedBy:          createdBy,
+		})
+
+	default:
+		return fmt.Errorf("unsupported component type: %s", componentType)
+	}
 }

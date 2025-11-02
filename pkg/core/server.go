@@ -118,12 +118,21 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 
 	deviceRegistry := registry.NewDeviceRegistry(database, log, registryOpts...)
 
+	// Initialize the Service Registry for pollers, agents, and checkers
+	// Type assert to get underlying *db.DB for registry operations
+	dbConn, ok := database.(*db.DB)
+	if !ok {
+		return nil, fmt.Errorf("failed to type assert database to *db.DB")
+	}
+	serviceRegistry := registry.NewServiceRegistry(dbConn, log)
+
 	// Initialize the DiscoveryService
 	discoveryService := NewDiscoveryService(database, deviceRegistry, log)
 
 	server := &Server{
 		DB:                  database,
 		DeviceRegistry:      deviceRegistry,
+		ServiceRegistry:     serviceRegistry,
 		discoveryService:    discoveryService,
 		alertThreshold:      normalizedConfig.AlertThreshold,
 		webhooks:            make([]alerts.AlertService, 0),
@@ -147,7 +156,10 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		canonicalCache:      newCanonicalCache(10 * time.Minute),
 	}
 
-	edgeSvc, err := newEdgeOnboardingService(normalizedConfig.EdgeOnboarding, normalizedConfig.SpireAdmin, spireClient, database, kvClient, nil, log)
+	// Create adapter to avoid import cycles
+	serviceRegistryAdapter := newServiceRegistryAdapter(serviceRegistry)
+
+	edgeSvc, err := newEdgeOnboardingService(normalizedConfig.EdgeOnboarding, normalizedConfig.SpireAdmin, spireClient, database, kvClient, nil, serviceRegistryAdapter, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize edge onboarding service: %w", err)
 	}

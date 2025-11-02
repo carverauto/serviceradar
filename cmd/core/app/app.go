@@ -125,6 +125,7 @@ func Run(ctx context.Context, opts Options) error {
 		api.WithQueryExecutor(server.DB),
 		api.WithDBService(server.DB),
 		api.WithDeviceRegistry(server.DeviceRegistry),
+		api.WithServiceRegistry(server.ServiceRegistry),
 		api.WithLogger(mainLogger),
 	}
 	if cfg.Auth != nil {
