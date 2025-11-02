@@ -391,10 +391,19 @@ func (db *DB) preserveFirstSeen(ctx context.Context, status *models.PollerStatus
 func (db *DB) insertPollerStatus(ctx context.Context, status *models.PollerStatus) error {
 	return db.executeBatch(ctx, "INSERT INTO pollers (* except _tp_time)", func(batch driver.Batch) error {
 		return batch.Append(
-			status.PollerID,
-			status.FirstSeen,
-			status.LastSeen,
-			status.IsHealthy,
+			status.PollerID,      // poller_id
+			"",                   // component_id (empty for implicit registration)
+			"implicit",           // registration_source
+			"active",             // status
+			"",                   // spiffe_identity (empty for now)
+			status.FirstSeen,     // first_registered
+			&status.FirstSeen,    // first_seen (nullable)
+			status.LastSeen,      // last_seen
+			"{}",                 // metadata (empty JSON object)
+			"system",             // created_by
+			status.IsHealthy,     // is_healthy
+			uint32(0),            // agent_count
+			uint32(0),            // checker_count
 		)
 	})
 }
@@ -408,4 +417,101 @@ func (db *DB) insertPollerHistory(ctx context.Context, status *models.PollerStat
 			status.IsHealthy,
 		)
 	})
+}
+
+// AgentInfo represents an agent and its associated poller information.
+type AgentInfo struct {
+	AgentID      string    `json:"agent_id"`
+	PollerID     string    `json:"poller_id"`
+	LastSeen     time.Time `json:"last_seen"`
+	ServiceTypes []string  `json:"service_types,omitempty"`
+}
+
+// ListAgentsWithPollers retrieves all agents with their associated poller information.
+// This queries the services table to find unique agent_id and poller_id pairs.
+func (db *DB) ListAgentsWithPollers(ctx context.Context) ([]AgentInfo, error) {
+	query := `
+		SELECT
+			agent_id,
+			poller_id,
+			MAX(timestamp) as last_seen,
+			array_distinct(group_array(service_type)) as service_types
+		FROM table(services)
+		WHERE agent_id != ''
+		GROUP BY agent_id, poller_id
+		ORDER BY last_seen DESC
+	`
+
+	rows, err := db.Conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to query agents: %w", ErrFailedToQuery, err)
+	}
+	defer db.CloseRows(rows)
+
+	var agents []AgentInfo
+
+	for rows.Next() {
+		var agent AgentInfo
+		var serviceTypes []string
+
+		if err := rows.Scan(&agent.AgentID, &agent.PollerID, &agent.LastSeen, &serviceTypes); err != nil {
+			db.logger.Error().Err(err).Msg("Error scanning agent info")
+			continue
+		}
+
+		agent.ServiceTypes = serviceTypes
+		agents = append(agents, agent)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%w: error iterating rows: %w", ErrFailedToQuery, err)
+	}
+
+	db.logger.Debug().
+		Int("agent_count", len(agents)).
+		Msg("Listed agents with pollers")
+
+	return agents, nil
+}
+
+// ListAgentsByPoller retrieves all agents associated with a specific poller.
+func (db *DB) ListAgentsByPoller(ctx context.Context, pollerID string) ([]AgentInfo, error) {
+	query := `
+		SELECT
+			agent_id,
+			poller_id,
+			MAX(timestamp) as last_seen,
+			array_distinct(group_array(service_type)) as service_types
+		FROM table(services)
+		WHERE agent_id != '' AND poller_id = $1
+		GROUP BY agent_id, poller_id
+		ORDER BY last_seen DESC
+	`
+
+	rows, err := db.Conn.Query(ctx, query, pollerID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to query agents for poller: %w", ErrFailedToQuery, err)
+	}
+	defer db.CloseRows(rows)
+
+	var agents []AgentInfo
+
+	for rows.Next() {
+		var agent AgentInfo
+		var serviceTypes []string
+
+		if err := rows.Scan(&agent.AgentID, &agent.PollerID, &agent.LastSeen, &serviceTypes); err != nil {
+			db.logger.Error().Err(err).Msg("Error scanning agent info")
+			continue
+		}
+
+		agent.ServiceTypes = serviceTypes
+		agents = append(agents, agent)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%w: error iterating rows: %w", ErrFailedToQuery, err)
+	}
+
+	return agents, nil
 }

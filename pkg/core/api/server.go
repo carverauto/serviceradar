@@ -772,6 +772,10 @@ func (s *APIServer) setupProtectedRoutes() {
 	// DataSvc registry endpoints
 	adminRoutes.HandleFunc("/datasvc-instances", s.handleListDataSvcInstances).Methods("GET")
 
+	// Agent registry endpoints
+	adminRoutes.HandleFunc("/agents", s.handleListAgents).Methods("GET")
+	adminRoutes.HandleFunc("/pollers/{poller_id}/agents", s.handleListAgentsByPoller).Methods("GET")
+
 	// KV endpoints enumeration (optional, for Admin UI)
 	protected.HandleFunc("/kv/endpoints", s.handleListKVEndpoints).Methods("GET")
 	// KV info for selected kv_store_id (endpoint ID or domain)

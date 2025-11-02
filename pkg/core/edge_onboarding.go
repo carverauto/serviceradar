@@ -1472,17 +1472,58 @@ func (s *edgeOnboardingService) applyComponentKVUpdates(ctx context.Context, pkg
 	// For checkers, write the checker config directly to KV
 	// The agent expects the checker config JSON at agents/{agent_id}/checkers/{checker_kind}.json
 	if componentType == models.EdgeOnboardingComponentTypeChecker {
-		if pkg.CheckerConfigJSON == "" {
-			return fmt.Errorf("%w: checker_config_json is required for checker packages", models.ErrEdgeOnboardingInvalidRequest)
+		// Check if instance config already exists to prevent overwriting user modifications
+		existing, err := s.kvClient.Get(ctx, &proto.GetRequest{Key: key})
+		if err != nil {
+			return fmt.Errorf("edge onboarding: failed to check existing config: %w", err)
+		}
+
+		if existing.GetFound() {
+			// Config already exists, don't overwrite it
+			// Just store the revision and return
+			pkg.KVRevision = existing.GetRevision()
+			s.logger.Info().
+				Str("key", key).
+				Str("checker_kind", pkg.CheckerKind).
+				Uint64("revision", existing.GetRevision()).
+				Msg("Checker config already exists in KV, skipping write to preserve user modifications")
+			return nil
+		}
+
+		// Get the checker config - either from request or from template
+		checkerConfigJSON := pkg.CheckerConfigJSON
+		if checkerConfigJSON == "" {
+			// Fetch template from KV
+			templateKey := fmt.Sprintf("templates/checkers/%s.json", pkg.CheckerKind)
+			template, err := s.kvClient.Get(ctx, &proto.GetRequest{Key: templateKey})
+			if err != nil {
+				return fmt.Errorf("edge onboarding: failed to fetch template from %s: %w", templateKey, err)
+			}
+
+			if !template.GetFound() {
+				return fmt.Errorf("%w: no template found at %s and no checker_config_json provided", models.ErrEdgeOnboardingInvalidRequest, templateKey)
+			}
+
+			// Apply variable substitution to the template
+			checkerConfigJSON, err = s.substituteTemplateVariables(string(template.GetValue()), pkg)
+			if err != nil {
+				return fmt.Errorf("edge onboarding: failed to substitute template variables: %w", err)
+			}
+
+			s.logger.Info().
+				Str("template_key", templateKey).
+				Str("checker_kind", pkg.CheckerKind).
+				Str("downstream_spiffe_id", pkg.DownstreamSPIFFEID).
+				Msg("Using checker template from KV")
 		}
 
 		// Validate that it's valid JSON
-		if !json.Valid([]byte(pkg.CheckerConfigJSON)) {
+		if !json.Valid([]byte(checkerConfigJSON)) {
 			return fmt.Errorf("%w: checker_config_json must be valid JSON", models.ErrEdgeOnboardingInvalidRequest)
 		}
 
-		// Write the checker config directly
-		revision, err := s.upsertKVDocument(ctx, key, []byte(pkg.CheckerConfigJSON))
+		// Write the checker config directly (only if it didn't exist)
+		revision, err := s.putKVDocument(ctx, key, []byte(checkerConfigJSON))
 		if err != nil {
 			return err
 		}
@@ -1611,6 +1652,94 @@ func (s *edgeOnboardingService) upsertKVDocument(ctx context.Context, key string
 		return confirm.GetRevision(), nil
 	}
 	return 0, nil
+}
+
+// putKVDocument writes a document to KV without checking if it exists first.
+// This is used for initial writes where we've already checked existence.
+func (s *edgeOnboardingService) putKVDocument(ctx context.Context, key string, value []byte) (uint64, error) {
+	if _, err := s.kvClient.Put(ctx, &proto.PutRequest{Key: key, Value: value}); err != nil {
+		return 0, fmt.Errorf("edge onboarding: kv put %s: %w", key, err)
+	}
+
+	confirm, err := s.kvClient.Get(ctx, &proto.GetRequest{Key: key})
+	if err != nil {
+		return 0, fmt.Errorf("edge onboarding: kv confirm %s: %w", key, err)
+	}
+	if confirm.GetFound() {
+		return confirm.GetRevision(), nil
+	}
+	return 0, nil
+}
+
+// substituteTemplateVariables replaces placeholder values in a checker template
+// with instance-specific values from the edge onboarding package.
+func (s *edgeOnboardingService) substituteTemplateVariables(templateJSON string, pkg *models.EdgeOnboardingPackage) (string, error) {
+	// Parse the template as a generic map
+	var template map[string]interface{}
+	if err := json.Unmarshal([]byte(templateJSON), &template); err != nil {
+		return "", fmt.Errorf("failed to parse template JSON: %w", err)
+	}
+
+	// Parse metadata to get addresses and other values
+	metadata := make(map[string]string)
+	if pkg.MetadataJSON != "" {
+		if err := json.Unmarshal([]byte(pkg.MetadataJSON), &metadata); err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to parse metadata for template substitution")
+		}
+	}
+
+	// Recursively substitute variables in the template
+	substituted := s.substituteInMap(template, map[string]string{
+		"DOWNSTREAM_SPIFFE_ID": pkg.DownstreamSPIFFEID,
+		"AGENT_ADDRESS":        metadata["agent_address"],
+		"CORE_ADDRESS":         metadata["core_address"],
+		"CORE_SPIFFE_ID":       metadata["core_spiffe_id"],
+		"KV_ADDRESS":           metadata["kv_address"],
+		"KV_SPIFFE_ID":         metadata["kv_spiffe_id"],
+		"TRUST_DOMAIN":         metadata["trust_domain"],
+		"LOG_LEVEL":            metadata["log_level"],
+		"COMPONENT_ID":         pkg.ComponentID,
+		"CHECKER_KIND":         pkg.CheckerKind,
+		"AGENT_ID":             pkg.ParentID,
+	})
+
+	// Marshal back to JSON
+	result, err := json.Marshal(substituted)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal substituted template: %w", err)
+	}
+
+	return string(result), nil
+}
+
+// substituteInMap recursively replaces placeholder values in a map structure.
+func (s *edgeOnboardingService) substituteInMap(data interface{}, vars map[string]string) interface{} {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		result := make(map[string]interface{})
+		for key, val := range v {
+			result[key] = s.substituteInMap(val, vars)
+		}
+		return result
+	case []interface{}:
+		result := make([]interface{}, len(v))
+		for i, val := range v {
+			result[i] = s.substituteInMap(val, vars)
+		}
+		return result
+	case string:
+		// Replace any placeholder variables in the string
+		result := v
+		for placeholder, value := range vars {
+			if value != "" {
+				result = strings.ReplaceAll(result, "{{"+placeholder+"}}", value)
+				result = strings.ReplaceAll(result, "${"+placeholder+"}", value)
+			}
+		}
+		return result
+	default:
+		return v
+	}
 }
 
 func (s *edgeOnboardingService) mergeSelectors(extra []string) []string {
