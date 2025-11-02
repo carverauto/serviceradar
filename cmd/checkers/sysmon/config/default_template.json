@@ -1,0 +1,24 @@
+{
+  "listen_addr": "0.0.0.0:50083",
+  "security": {
+    "mode": "spiffe",
+    "cert_dir": "/etc/serviceradar/certs",
+    "trust_domain": "{{TRUST_DOMAIN}}",
+    "workload_socket": "unix:/run/spire/sockets/agent.sock",
+    "server_spiffe_id": "{{DOWNSTREAM_SPIFFE_ID}}"
+  },
+  "poll_interval": 30,
+  "zfs": {
+    "enabled": false,
+    "pools": [""],
+    "include_datasets": false,
+    "use_libzetta": false
+  },
+  "filesystems": [
+    {
+      "name": "/",
+      "type": "ext4",
+      "monitor": true
+    }
+  ]
+}

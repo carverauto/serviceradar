@@ -9,6 +9,7 @@ go_library(
         "//alias:config",
         "//alias:db-event-writer",
         "//alias:db",
+        "//alias:edgeonboarding",
         "//alias:lifecycle",
         "//alias:logger",
         "//alias:models",

@@ -806,17 +806,32 @@ func (r *DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 		return // Or handle error
 	}
 
-	// If DeviceID is completely empty, generate one from Partition and IP
+	// If DeviceID is completely empty, generate one
 	if update.DeviceID == "" {
-		if update.Partition == "" {
-			update.Partition = defaultPartition
+		// Check if this is a service component (poller/agent/checker)
+		if update.ServiceType != nil && update.ServiceID != "" {
+			// Generate service-aware device ID: serviceradar:type:id
+			update.DeviceID = models.GenerateServiceDeviceID(*update.ServiceType, update.ServiceID)
+			update.Partition = models.ServiceDevicePartition
+			update.Source = models.DiscoverySourceServiceRadar
+
+			r.logger.Debug().
+				Str("device_id", update.DeviceID).
+				Str("service_type", string(*update.ServiceType)).
+				Str("service_id", update.ServiceID).
+				Msg("Generated service device ID")
+		} else {
+			// Generate network device ID: partition:ip
+			if update.Partition == "" {
+				update.Partition = defaultPartition
+			}
+
+			update.DeviceID = models.GenerateNetworkDeviceID(update.Partition, update.IP)
+
+			r.logger.Debug().
+				Str("device_id", update.DeviceID).
+				Msg("Generated network device ID")
 		}
-
-		update.DeviceID = fmt.Sprintf("%s:%s", update.Partition, update.IP)
-
-		r.logger.Debug().
-			Str("device_id", update.DeviceID).
-			Msg("Generated DeviceID for update with empty DeviceID")
 	} else {
 		// Extract partition from DeviceID if possible
 		partition := extractPartitionFromDeviceID(update.DeviceID)
@@ -836,8 +851,8 @@ func (r *DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 		update.Source = "unknown"
 	}
 
-	// Self-reported devices are always available by definition
-	if update.Source == models.DiscoverySourceSelfReported {
+	// Self-reported devices and ServiceRadar components are always available by definition
+	if update.Source == models.DiscoverySourceSelfReported || update.Source == models.DiscoverySourceServiceRadar {
 		update.IsAvailable = true
 	}
 

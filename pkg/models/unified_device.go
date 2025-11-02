@@ -24,16 +24,17 @@ import (
 type DiscoverySource string
 
 const (
-	DiscoverySourceSNMP         DiscoverySource = "snmp"
-	DiscoverySourceMapper       DiscoverySource = "mapper"
-	DiscoverySourceIntegration  DiscoverySource = "integration"
-	DiscoverySourceNetFlow      DiscoverySource = "netflow"
-	DiscoverySourceManual       DiscoverySource = "manual"
-	DiscoverySourceSweep        DiscoverySource = "sweep"
-	DiscoverySourceSelfReported DiscoverySource = "self-reported"
-	DiscoverySourceArmis        DiscoverySource = "armis"
-	DiscoverySourceNetbox       DiscoverySource = "netbox"
-	DiscoverySourceSysmon       DiscoverySource = "sysmon"
+	DiscoverySourceSNMP           DiscoverySource = "snmp"
+	DiscoverySourceMapper         DiscoverySource = "mapper"
+	DiscoverySourceIntegration    DiscoverySource = "integration"
+	DiscoverySourceNetFlow        DiscoverySource = "netflow"
+	DiscoverySourceManual         DiscoverySource = "manual"
+	DiscoverySourceSweep          DiscoverySource = "sweep"
+	DiscoverySourceSelfReported   DiscoverySource = "self-reported"
+	DiscoverySourceArmis          DiscoverySource = "armis"
+	DiscoverySourceNetbox         DiscoverySource = "netbox"
+	DiscoverySourceSysmon         DiscoverySource = "sysmon"
+	DiscoverySourceServiceRadar   DiscoverySource = "serviceradar" // ServiceRadar infrastructure components
 
 	// Confidence levels for discovery sources (1-10 scale)
 	ConfidenceLowUnknown         = 1  // Low confidence - unknown source
@@ -103,7 +104,9 @@ type DeviceUpdate struct {
 	Source      DiscoverySource   `json:"source"`
 	AgentID     string            `json:"agent_id"`
 	PollerID    string            `json:"poller_id"`
-	Partition   string            `json:"partition,omitempty"` // Optional partition for multi-tenant systems
+	Partition   string            `json:"partition,omitempty"`   // Optional partition for multi-tenant systems
+	ServiceType *ServiceType      `json:"service_type,omitempty"` // Type of service component (poller/agent/checker)
+	ServiceID   string            `json:"service_id,omitempty"`  // ID of the service component
 	Timestamp   time.Time         `json:"timestamp"`
 	Hostname    *string           `json:"hostname,omitempty"`
 	MAC         *string           `json:"mac,omitempty"`
@@ -135,6 +138,8 @@ func GetSourceConfidence(source DiscoverySource) int {
 		return ConfidenceGoodDocumentation // Good confidence - network documentation system
 	case DiscoverySourceSysmon:
 		return ConfidenceMediumMonitoring // Medium confidence - system monitoring
+	case DiscoverySourceServiceRadar:
+		return ConfidenceHighSelfReported // High confidence - ServiceRadar infrastructure component
 	default:
 		return ConfidenceLowUnknown // Low confidence - unknown source
 	}
