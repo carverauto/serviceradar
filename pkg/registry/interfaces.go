@@ -88,8 +88,13 @@ type ServiceManager interface {
 	// Replaces the logic currently in pkg/core/pollers.go:701
 	IsKnownPoller(ctx context.Context, pollerID string) (bool, error)
 
-	// ArchiveInactive archives services that have been inactive for longer than retention period.
-	// This helps control table growth by moving truly dead services to archive.
-	// Returns the number of services archived.
-	ArchiveInactive(ctx context.Context, retentionPeriod time.Duration) (int, error)
+	// DeleteService permanently deletes a service from the registry.
+	// This should only be called for services that are no longer needed (status: revoked, inactive, or deleted).
+	// Returns error if service is still active or pending.
+	DeleteService(ctx context.Context, serviceType, serviceID string) error
+
+	// PurgeInactive permanently deletes services that have been inactive, revoked, or deleted
+	// for longer than the retention period. This is typically called by a background job.
+	// Returns the number of services deleted.
+	PurgeInactive(ctx context.Context, retentionPeriod time.Duration) (int, error)
 }

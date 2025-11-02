@@ -103,6 +103,7 @@ type APIServer struct {
 	queryExecutor        db.QueryExecutor
 	dbService            db.Service
 	deviceRegistry       DeviceRegistryService
+	serviceRegistry      ServiceRegistryService // Service registry for pollers/agents/checkers
 	knownPollers         []string
 	knownPollerSet       map[string]struct{}
 	dynamicPollers       map[string]struct{}

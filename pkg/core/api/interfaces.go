@@ -20,6 +20,7 @@ package api
 import (
 	"context"
 
+	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/gorilla/mux"
 )
 
@@ -38,4 +39,14 @@ type Service interface {
 type MCPRouteRegistrar interface {
 	RegisterRoutes(router *mux.Router)
 	Stop() error
+}
+
+// ServiceRegistryService represents the service registry interface for managing pollers, agents, and checkers
+type ServiceRegistryService interface {
+	// GetPoller retrieves a registered poller by ID
+	GetPoller(ctx context.Context, pollerID string) (*registry.RegisteredPoller, error)
+	// GetAgent retrieves a registered agent by ID
+	GetAgent(ctx context.Context, agentID string) (*registry.RegisteredAgent, error)
+	// GetChecker retrieves a registered checker by ID
+	GetChecker(ctx context.Context, checkerID string) (*registry.RegisteredChecker, error)
 }

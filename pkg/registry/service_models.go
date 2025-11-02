@@ -12,6 +12,7 @@ const (
 	ServiceStatusActive   ServiceStatus = "active"   // Currently reporting
 	ServiceStatusInactive ServiceStatus = "inactive" // Stopped reporting
 	ServiceStatusRevoked  ServiceStatus = "revoked"  // Registration revoked
+	ServiceStatusDeleted  ServiceStatus = "deleted"  // Marked for deletion (soft delete)
 )
 
 // RegistrationSource indicates how a service was registered.
@@ -135,7 +136,7 @@ type ServiceFilter struct {
 // RegistrationEvent represents an audit event for service registration.
 type RegistrationEvent struct {
 	EventID            string
-	EventType          string // 'registered', 'activated', 'deactivated', 'revoked'
+	EventType          string // 'registered', 'activated', 'deactivated', 'revoked', 'deleted'
 	ServiceID          string
 	ServiceType        string // 'poller', 'agent', 'checker'
 	ParentID           string

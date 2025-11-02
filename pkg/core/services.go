@@ -538,6 +538,12 @@ func (s *Server) processIndividualServices(
 					Str("poller_id", pollerID).
 					Msg("Failed to register agent as device")
 			}
+			// Auto-register agent in service registry
+			if err := s.ensureAgentRegistered(serviceCtx, svc.AgentId, pollerID, sourceIP); err != nil {
+				s.logger.Warn().Err(err).
+					Str("agent_id", svc.AgentId).
+					Msg("Failed to auto-register agent in service registry")
+			}
 		}
 
 		// Register checker as a device if this is a checker service
@@ -552,6 +558,12 @@ func (s *Server) processIndividualServices(
 					Str("checker_kind", svc.ServiceType).
 					Str("agent_id", svc.AgentId).
 					Msg("Failed to register checker as device")
+			}
+			// Auto-register checker in service registry
+			if err := s.ensureCheckerRegistered(serviceCtx, checkerID, svc.AgentId, pollerID, svc.ServiceType, sourceIP); err != nil {
+				s.logger.Warn().Err(err).
+					Str("checker_id", checkerID).
+					Msg("Failed to auto-register checker in service registry")
 			}
 		}
 

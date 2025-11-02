@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -36,10 +37,10 @@ type ServiceRegistry struct {
 }
 
 // NewServiceRegistry creates a new ServiceRegistry instance.
-func NewServiceRegistry(database *db.DB, logger zerolog.Logger) *ServiceRegistry {
+func NewServiceRegistry(database *db.DB, log logger.Logger) *ServiceRegistry {
 	return &ServiceRegistry{
 		db:          database,
-		logger:      logger.With().Str("component", "service-registry").Logger(),
+		logger:      log.WithComponent("service-registry"),
 		pollerCache: make(map[string]bool),
 	}
 }
@@ -64,24 +65,37 @@ func (r *ServiceRegistry) RegisterPoller(ctx context.Context, reg *PollerRegistr
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
-	// Insert into pollers stream (versioned_kv)
+	// Insert into pollers stream (versioned_kv) using PrepareBatch/Append/Send
 	// Note: versioned_kv automatically manages _tp_time for versioning
-	query := `INSERT INTO pollers (
-		poller_id, component_id, status, registration_source,
-		first_registered, metadata, spiffe_identity, created_by
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	batch, err := r.db.Conn.PrepareBatch(ctx,
+		`INSERT INTO pollers (
+			poller_id, component_id, status, registration_source,
+			first_registered, first_seen, last_seen, metadata,
+			spiffe_identity, created_by, agent_count, checker_count
+		)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch for poller registration: %w", err)
+	}
 
-	err = r.db.Conn.Exec(ctx, query,
+	err = batch.Append(
 		reg.PollerID,
 		reg.ComponentID,
 		string(ServiceStatusPending),
 		string(reg.RegistrationSource),
 		now,
+		now, // first_seen
+		now, // last_seen
 		string(metadataJSON),
 		reg.SPIFFEIdentity,
 		reg.CreatedBy,
+		uint32(0), // agent_count
+		uint32(0), // checker_count
 	)
+	if err != nil {
+		return fmt.Errorf("failed to append poller to batch: %w", err)
+	}
 
+	err = batch.Send()
 	if err != nil {
 		return fmt.Errorf("failed to register poller: %w", err)
 	}
@@ -107,10 +121,14 @@ func (r *ServiceRegistry) RegisterPoller(ctx context.Context, reg *PollerRegistr
 func (r *ServiceRegistry) RegisterAgent(ctx context.Context, reg *AgentRegistration) error {
 	now := time.Now().UTC()
 
-	// Verify parent poller exists
-	poller, err := r.GetPoller(ctx, reg.PollerID)
-	if err != nil || poller == nil {
-		return fmt.Errorf("parent poller %s not found", reg.PollerID)
+	// Skip parent validation for implicit (auto-registration) to avoid timing issues
+	// with versioned_kv materialization - we know the poller just heartbeated
+	if reg.RegistrationSource != RegistrationSourceImplicit {
+		// Verify parent poller exists for explicit registrations
+		poller, err := r.GetPoller(ctx, reg.PollerID)
+		if err != nil || poller == nil {
+			return fmt.Errorf("parent poller %s not found", reg.PollerID)
+		}
 	}
 
 	// Check if already exists
@@ -129,24 +147,36 @@ func (r *ServiceRegistry) RegisterAgent(ctx context.Context, reg *AgentRegistrat
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
-	// Insert into agents stream (versioned_kv)
-	query := `INSERT INTO agents (
-		agent_id, poller_id, component_id, status, registration_source,
-		first_registered, metadata, spiffe_identity, created_by
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	// Insert into agents stream (versioned_kv) using PrepareBatch/Append/Send
+	batch, err := r.db.Conn.PrepareBatch(ctx,
+		`INSERT INTO agents (
+			agent_id, poller_id, component_id, status, registration_source,
+			first_registered, first_seen, last_seen, metadata,
+			spiffe_identity, created_by, checker_count
+		)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch for agent registration: %w", err)
+	}
 
-	err = r.db.Conn.Exec(ctx, query,
+	err = batch.Append(
 		reg.AgentID,
 		reg.PollerID,
 		reg.ComponentID,
 		string(ServiceStatusPending),
 		string(reg.RegistrationSource),
 		now,
+		now, // first_seen
+		now, // last_seen
 		string(metadataJSON),
 		reg.SPIFFEIdentity,
 		reg.CreatedBy,
+		uint32(0), // checker_count
 	)
+	if err != nil {
+		return fmt.Errorf("failed to append agent to batch: %w", err)
+	}
 
+	err = batch.Send()
 	if err != nil {
 		return fmt.Errorf("failed to register agent: %w", err)
 	}
@@ -170,10 +200,14 @@ func (r *ServiceRegistry) RegisterAgent(ctx context.Context, reg *AgentRegistrat
 func (r *ServiceRegistry) RegisterChecker(ctx context.Context, reg *CheckerRegistration) error {
 	now := time.Now().UTC()
 
-	// Verify parent agent exists
-	agent, err := r.GetAgent(ctx, reg.AgentID)
-	if err != nil || agent == nil {
-		return fmt.Errorf("parent agent %s not found", reg.AgentID)
+	// Skip parent validation for implicit (auto-registration) to avoid timing issues
+	// with versioned_kv materialization - we know the agent just reported
+	if reg.RegistrationSource != RegistrationSourceImplicit {
+		// Verify parent agent exists for explicit registrations
+		agent, err := r.GetAgent(ctx, reg.AgentID)
+		if err != nil || agent == nil {
+			return fmt.Errorf("parent agent %s not found", reg.AgentID)
+		}
 	}
 
 	// Check if already exists
@@ -192,14 +226,18 @@ func (r *ServiceRegistry) RegisterChecker(ctx context.Context, reg *CheckerRegis
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
-	// Insert into checkers stream (versioned_kv)
-	query := `INSERT INTO checkers (
-		checker_id, agent_id, poller_id, checker_kind, component_id,
-		status, registration_source, first_registered, metadata,
-		spiffe_identity, created_by
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	// Insert into checkers stream (versioned_kv) using PrepareBatch/Append/Send
+	batch, err := r.db.Conn.PrepareBatch(ctx,
+		`INSERT INTO checkers (
+			checker_id, agent_id, poller_id, checker_kind, component_id,
+			status, registration_source, first_registered, first_seen, last_seen,
+			metadata, spiffe_identity, created_by
+		)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch for checker registration: %w", err)
+	}
 
-	err = r.db.Conn.Exec(ctx, query,
+	err = batch.Append(
 		reg.CheckerID,
 		reg.AgentID,
 		reg.PollerID,
@@ -208,11 +246,17 @@ func (r *ServiceRegistry) RegisterChecker(ctx context.Context, reg *CheckerRegis
 		string(ServiceStatusPending),
 		string(reg.RegistrationSource),
 		now,
+		now, // first_seen
+		now, // last_seen
 		string(metadataJSON),
 		reg.SPIFFEIdentity,
 		reg.CreatedBy,
 	)
+	if err != nil {
+		return fmt.Errorf("failed to append checker to batch: %w", err)
+	}
 
+	err = batch.Send()
 	if err != nil {
 		return fmt.Errorf("failed to register checker: %w", err)
 	}
@@ -299,13 +343,20 @@ func (r *ServiceRegistry) recordPollerHeartbeat(ctx context.Context, pollerID st
 	}
 
 	// Insert updated row (versioned_kv will keep latest version)
-	query := `INSERT INTO pollers (
-		poller_id, component_id, status, registration_source,
-		first_registered, first_seen, last_seen, metadata,
-		spiffe_identity, created_by
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	// Use PrepareBatch/Append/Send pattern for Proton/ClickHouse streams
+	metadataJSON, _ := json.Marshal(poller.Metadata)
 
-	err = r.db.Conn.Exec(ctx, query,
+	batch, err := r.db.Conn.PrepareBatch(ctx,
+		`INSERT INTO pollers (
+			poller_id, component_id, status, registration_source,
+			first_registered, first_seen, last_seen, metadata,
+			spiffe_identity, created_by
+		)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch for poller heartbeat: %w", err)
+	}
+
+	err = batch.Append(
 		poller.PollerID,
 		poller.ComponentID,
 		string(newStatus),
@@ -313,13 +364,15 @@ func (r *ServiceRegistry) recordPollerHeartbeat(ctx context.Context, pollerID st
 		poller.FirstRegistered,
 		firstSeen,
 		timestamp,
-		func() string {
-			b, _ := json.Marshal(poller.Metadata)
-			return string(b)
-		}(),
+		string(metadataJSON),
 		poller.SPIFFEIdentity,
 		poller.CreatedBy,
 	)
+	if err != nil {
+		return fmt.Errorf("failed to append poller heartbeat to batch: %w", err)
+	}
+
+	err = batch.Send()
 
 	if err != nil {
 		return fmt.Errorf("failed to record poller heartbeat: %w", err)
@@ -369,13 +422,20 @@ func (r *ServiceRegistry) recordAgentHeartbeat(ctx context.Context, agentID, pol
 	}
 
 	// Insert updated row (versioned_kv will keep latest version)
-	query := `INSERT INTO agents (
-		agent_id, poller_id, component_id, status, registration_source,
-		first_registered, first_seen, last_seen, metadata,
-		spiffe_identity, created_by
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	// Use PrepareBatch/Append/Send pattern for Proton/ClickHouse streams
+	metadataJSON, _ := json.Marshal(agent.Metadata)
 
-	err = r.db.Conn.Exec(ctx, query,
+	batch, err := r.db.Conn.PrepareBatch(ctx,
+		`INSERT INTO agents (
+			agent_id, poller_id, component_id, status, registration_source,
+			first_registered, first_seen, last_seen, metadata,
+			spiffe_identity, created_by
+		)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch for agent heartbeat: %w", err)
+	}
+
+	err = batch.Append(
 		agent.AgentID,
 		agent.PollerID,
 		agent.ComponentID,
@@ -384,13 +444,15 @@ func (r *ServiceRegistry) recordAgentHeartbeat(ctx context.Context, agentID, pol
 		agent.FirstRegistered,
 		firstSeen,
 		timestamp,
-		func() string {
-			b, _ := json.Marshal(agent.Metadata)
-			return string(b)
-		}(),
+		string(metadataJSON),
 		agent.SPIFFEIdentity,
 		agent.CreatedBy,
 	)
+	if err != nil {
+		return fmt.Errorf("failed to append agent heartbeat to batch: %w", err)
+	}
+
+	err = batch.Send()
 
 	if err != nil {
 		return fmt.Errorf("failed to record agent heartbeat: %w", err)
@@ -436,13 +498,20 @@ func (r *ServiceRegistry) recordCheckerHeartbeat(ctx context.Context, checkerID,
 	}
 
 	// Insert updated row (versioned_kv will keep latest version)
-	query := `INSERT INTO checkers (
-		checker_id, agent_id, poller_id, checker_kind, component_id,
-		status, registration_source, first_registered, first_seen, last_seen,
-		metadata, spiffe_identity, created_by
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	// Use PrepareBatch/Append/Send pattern for Proton/ClickHouse streams
+	metadataJSON, _ := json.Marshal(checker.Metadata)
 
-	err = r.db.Conn.Exec(ctx, query,
+	batch, err := r.db.Conn.PrepareBatch(ctx,
+		`INSERT INTO checkers (
+			checker_id, agent_id, poller_id, checker_kind, component_id,
+			status, registration_source, first_registered, first_seen, last_seen,
+			metadata, spiffe_identity, created_by
+		)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch for checker heartbeat: %w", err)
+	}
+
+	err = batch.Append(
 		checker.CheckerID,
 		checker.AgentID,
 		checker.PollerID,
@@ -453,13 +522,15 @@ func (r *ServiceRegistry) recordCheckerHeartbeat(ctx context.Context, checkerID,
 		checker.FirstRegistered,
 		firstSeen,
 		timestamp,
-		func() string {
-			b, _ := json.Marshal(checker.Metadata)
-			return string(b)
-		}(),
+		string(metadataJSON),
 		checker.SPIFFEIdentity,
 		checker.CreatedBy,
 	)
+	if err != nil {
+		return fmt.Errorf("failed to append checker heartbeat to batch: %w", err)
+	}
+
+	err = batch.Send()
 
 	if err != nil {
 		return fmt.Errorf("failed to record checker heartbeat: %w", err)
@@ -486,12 +557,17 @@ func (r *ServiceRegistry) emitRegistrationEvent(ctx context.Context, eventType, 
 
 	metadataJSON, _ := json.Marshal(metadata)
 
-	query := `INSERT INTO service_registration_events (
-		event_id, event_type, service_id, service_type, parent_id,
-		registration_source, actor, timestamp, metadata
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	// Use PrepareBatch/Append/Send pattern for Proton/ClickHouse streams
+	batch, err := r.db.Conn.PrepareBatch(ctx,
+		`INSERT INTO service_registration_events (
+			event_id, event_type, service_id, service_type, parent_id,
+			registration_source, actor, timestamp, metadata
+		)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch for registration event: %w", err)
+	}
 
-	return r.db.Conn.Exec(ctx, query,
+	err = batch.Append(
 		eventID,
 		eventType,
 		serviceID,
@@ -502,6 +578,11 @@ func (r *ServiceRegistry) emitRegistrationEvent(ctx context.Context, eventType, 
 		now,
 		string(metadataJSON),
 	)
+	if err != nil {
+		return fmt.Errorf("failed to append registration event to batch: %w", err)
+	}
+
+	return batch.Send()
 }
 
 // invalidatePollerCache clears the poller cache.
@@ -511,4 +592,165 @@ func (r *ServiceRegistry) invalidatePollerCache() {
 
 	r.pollerCache = make(map[string]bool)
 	r.cacheExpiry = time.Time{} // Zero time = expired
+}
+
+// DeleteService permanently deletes a service from the registry.
+// This should only be called for services that are no longer needed (status: revoked, inactive, or deleted).
+// Returns error if service is still active or pending.
+func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, serviceID string) error {
+	// Verify service is not active or pending
+	var status string
+	var query string
+	var source string
+
+	switch serviceType {
+	case "poller":
+		query = `SELECT status, registration_source FROM pollers WHERE poller_id = ? LIMIT 1`
+	case "agent":
+		query = `SELECT status, registration_source FROM agents WHERE agent_id = ? LIMIT 1`
+	case "checker":
+		query = `SELECT status, registration_source FROM checkers WHERE checker_id = ? LIMIT 1`
+	default:
+		return fmt.Errorf("unknown service type: %s", serviceType)
+	}
+
+	row := r.db.Conn.QueryRow(ctx, query, serviceID)
+	if err := row.Scan(&status, &source); err != nil {
+		return fmt.Errorf("service not found: %w", err)
+	}
+
+	if status == string(ServiceStatusActive) || status == string(ServiceStatusPending) {
+		return fmt.Errorf("cannot delete service %s with status %s: mark inactive/revoked/deleted first", serviceID, status)
+	}
+
+	// Emit deletion event BEFORE deleting
+	if err := r.emitRegistrationEvent(ctx, "deleted", serviceType, serviceID, "", RegistrationSource(source), "system", nil); err != nil {
+		r.logger.Warn().Err(err).Msg("Failed to emit deletion event")
+	}
+
+	// Hard delete from stream
+	// Note: For versioned_kv streams in Timeplus/ClickHouse, we use DELETE FROM
+	var deleteQuery string
+	switch serviceType {
+	case "poller":
+		deleteQuery = `DELETE FROM pollers WHERE poller_id = ?`
+	case "agent":
+		deleteQuery = `DELETE FROM agents WHERE agent_id = ?`
+	case "checker":
+		deleteQuery = `DELETE FROM checkers WHERE checker_id = ?`
+	}
+
+	if err := r.db.Conn.Exec(ctx, deleteQuery, serviceID); err != nil {
+		return fmt.Errorf("failed to delete service: %w", err)
+	}
+
+	// Invalidate cache if it's a poller
+	if serviceType == "poller" {
+		r.invalidatePollerCache()
+	}
+
+	r.logger.Info().
+		Str("service_type", serviceType).
+		Str("service_id", serviceID).
+		Str("status", status).
+		Msg("Service permanently deleted from registry")
+
+	return nil
+}
+
+// PurgeInactive permanently deletes services that have been inactive, revoked, or deleted
+// for longer than the retention period. This is typically called by a background job.
+// Returns the number of services deleted.
+func (r *ServiceRegistry) PurgeInactive(ctx context.Context, retentionPeriod time.Duration) (int, error) {
+	cutoff := time.Now().UTC().Add(-retentionPeriod)
+
+	r.logger.Info().
+		Dur("retention_period", retentionPeriod).
+		Time("cutoff", cutoff).
+		Msg("Starting purge of inactive services")
+
+	// Find services to purge: inactive/revoked/deleted for > retention period
+	// Note: Using last_seen for inactive, first_registered for pending that never activated
+	query := `SELECT service_type, service_id
+              FROM (
+                  SELECT 'poller' AS service_type, poller_id AS service_id, last_seen, status
+                  FROM pollers
+                  WHERE status IN ('inactive', 'revoked', 'deleted')
+                  AND last_seen < ?
+
+                  UNION ALL
+
+                  SELECT 'poller', poller_id, first_registered AS last_seen, status
+                  FROM pollers
+                  WHERE status = 'pending'
+                  AND first_seen IS NULL
+                  AND first_registered < ?
+
+                  UNION ALL
+
+                  SELECT 'agent', agent_id, last_seen, status
+                  FROM agents
+                  WHERE status IN ('inactive', 'revoked', 'deleted')
+                  AND last_seen < ?
+
+                  UNION ALL
+
+                  SELECT 'agent', agent_id, first_registered AS last_seen, status
+                  FROM agents
+                  WHERE status = 'pending'
+                  AND first_seen IS NULL
+                  AND first_registered < ?
+
+                  UNION ALL
+
+                  SELECT 'checker', checker_id, last_seen, status
+                  FROM checkers
+                  WHERE status IN ('inactive', 'revoked', 'deleted')
+                  AND last_seen < ?
+
+                  UNION ALL
+
+                  SELECT 'checker', checker_id, first_registered AS last_seen, status
+                  FROM checkers
+                  WHERE status = 'pending'
+                  AND first_seen IS NULL
+                  AND first_registered < ?
+              )`
+
+	rows, err := r.db.Conn.Query(ctx, query, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query stale services: %w", err)
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		var serviceType, serviceID string
+		if err := rows.Scan(&serviceType, &serviceID); err != nil {
+			r.logger.Warn().Err(err).Msg("Failed to scan service row")
+			continue
+		}
+
+		if err := r.DeleteService(ctx, serviceType, serviceID); err != nil {
+			r.logger.Warn().
+				Err(err).
+				Str("service_type", serviceType).
+				Str("service_id", serviceID).
+				Msg("Failed to purge service")
+			continue
+		}
+
+		count++
+		r.logger.Debug().
+			Str("service_type", serviceType).
+			Str("service_id", serviceID).
+			Msg("Purged service")
+	}
+
+	r.logger.Info().
+		Int("purged_count", count).
+		Dur("retention_period", retentionPeriod).
+		Msg("Completed purge of inactive services")
+
+	return count, nil
 }

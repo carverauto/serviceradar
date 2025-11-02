@@ -117,6 +117,15 @@ type ServiceManager interface {
     // This is typically called by a background job.
     MarkInactive(ctx context.Context, threshold time.Duration) (int, error)
 
+    // DeleteService permanently deletes a service from the registry.
+    // This should only be called for services that are no longer needed (status: revoked or inactive).
+    // Returns error if service is still active.
+    DeleteService(ctx context.Context, serviceType, serviceID string) error
+
+    // PurgeInactive permanently deletes services that have been inactive or revoked
+    // for longer than the retention period. This is typically called by a background job.
+    PurgeInactive(ctx context.Context, retentionPeriod time.Duration) (int, error)
+
     // IsKnownPoller checks if a poller is registered and active.
     // Replaces the logic currently in pkg/core/pollers.go:701
     IsKnownPoller(ctx context.Context, pollerID string) (bool, error)
@@ -146,6 +155,7 @@ const (
     ServiceStatusActive   ServiceStatus = "active"   // Currently reporting
     ServiceStatusInactive ServiceStatus = "inactive" // Stopped reporting
     ServiceStatusRevoked  ServiceStatus = "revoked"  // Registration revoked
+    ServiceStatusDeleted  ServiceStatus = "deleted"  // Marked for deletion (soft delete)
 )
 
 // RegistrationSource indicates how a service was registered.
@@ -352,10 +362,201 @@ SETTINGS index_granularity = 8192;
 
 **Design Notes:**
 - **ReplacingMergeTree** for registry tables - supports updates via inserts with `updated_at`
-- **No TTL on registry tables** - persistent historical record
+- **No automatic TTL on registry tables** - persistent record, but manual deletion supported
 - **Nullable first_seen/last_seen** - distinguish "never reported" from "reported once"
 - **Denormalized poller_id in checkers** - easier queries, acceptable redundancy
 - **Audit stream** - 90-day retention for compliance/debugging
+- **Deletion Strategy** - See "Deletion and Retention Policy" section below
+
+---
+
+## Deletion and Retention Policy
+
+### Problem: Unbounded Growth
+
+Without a deletion mechanism, the registry tables will grow indefinitely. Even with status-based filtering (e.g., only querying 'active' services), the underlying tables continue to accumulate records.
+
+### Solution: Multi-Tier Deletion Strategy
+
+#### 1. Soft Delete (Status: deleted)
+
+When a service is no longer needed but you want to retain audit trail:
+
+```go
+// Mark service as deleted (soft delete)
+err := serviceRegistry.UpdateServiceStatus(ctx, serviceID, registry.ServiceStatusDeleted)
+```
+
+- Service moves to `deleted` status
+- No longer appears in active queries
+- Still in database for audit/historical purposes
+- Can be hard deleted later by background job
+
+#### 2. Hard Delete (Permanent Removal)
+
+For immediate permanent deletion:
+
+```go
+// Permanently delete a service
+err := serviceRegistry.DeleteService(ctx, "poller", pollerID)
+```
+
+**Implementation**:
+```go
+func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, serviceID string) error {
+    // Verify service is not active
+    var status string
+    query := `SELECT status FROM pollers_registry WHERE poller_id = ? LIMIT 1`
+    if err := r.db.QueryRow(ctx, query, serviceID).Scan(&status); err != nil {
+        return fmt.Errorf("service not found: %w", err)
+    }
+
+    if status == string(ServiceStatusActive) || status == string(ServiceStatusPending) {
+        return fmt.Errorf("cannot delete active or pending service: %s", serviceID)
+    }
+
+    // Emit deletion event BEFORE deleting
+    r.emitRegistrationEvent(ctx, "deleted", serviceType, serviceID, "", "manual", getUserFromContext(ctx))
+
+    // Hard delete from table using ALTER TABLE DELETE
+    // Note: In ClickHouse/Timeplus, deletes are asynchronous and may take time
+    deleteQuery := `ALTER TABLE pollers_registry DELETE WHERE poller_id = ?`
+    if err := r.db.Exec(ctx, deleteQuery, serviceID); err != nil {
+        return fmt.Errorf("failed to delete service: %w", err)
+    }
+
+    // Invalidate cache
+    r.invalidatePollerCache()
+
+    return nil
+}
+```
+
+**Important**: In ClickHouse/Timeplus Proton:
+- `ALTER TABLE DELETE` is asynchronous - rows marked for deletion but not immediately removed
+- Deleted rows still counted in table size until merge happens
+- Use `OPTIMIZE TABLE FINAL` to force merge (expensive operation)
+
+#### 3. Automated Purge (Background Job)
+
+For automatic cleanup of old inactive/revoked/deleted services:
+
+```go
+// Background job runs daily
+func (r *ServiceRegistry) PurgeInactive(ctx context.Context, retentionPeriod time.Duration) (int, error) {
+    cutoff := time.Now().UTC().Add(-retentionPeriod)
+
+    // Find services to purge: inactive/revoked/deleted for > retention period
+    query := `SELECT service_type, service_id
+              FROM (
+                  SELECT 'poller' AS service_type, poller_id AS service_id, updated_at, status
+                  FROM pollers_registry
+                  WHERE status IN ('inactive', 'revoked', 'deleted')
+                  AND updated_at < ?
+
+                  UNION ALL
+
+                  SELECT 'agent', agent_id, updated_at, status
+                  FROM agents_registry
+                  WHERE status IN ('inactive', 'revoked', 'deleted')
+                  AND updated_at < ?
+
+                  UNION ALL
+
+                  SELECT 'checker', checker_id, updated_at, status
+                  FROM checkers_registry
+                  WHERE status IN ('inactive', 'revoked', 'deleted')
+                  AND updated_at < ?
+              )`
+
+    rows, err := r.db.Query(ctx, query, cutoff, cutoff, cutoff)
+    if err != nil {
+        return 0, fmt.Errorf("failed to query stale services: %w", err)
+    }
+    defer rows.Close()
+
+    count := 0
+    for rows.Next() {
+        var serviceType, serviceID string
+        if err := rows.Scan(&serviceType, &serviceID); err != nil {
+            continue
+        }
+
+        if err := r.DeleteService(ctx, serviceType, serviceID); err != nil {
+            r.logger.Warn().Err(err).Str("service_id", serviceID).Msg("Failed to purge service")
+            continue
+        }
+        count++
+    }
+
+    return count, nil
+}
+```
+
+### Retention Recommendations
+
+**Default Retention Periods**:
+- **Active services**: Never deleted automatically
+- **Pending services**: 30 days (if never activated)
+- **Inactive services**: 90 days after last heartbeat
+- **Revoked services**: 90 days after revocation
+- **Deleted services**: 7 days (grace period for recovery)
+
+**Configuration**:
+```yaml
+service_registry:
+  retention:
+    pending_days: 30      # Delete pending services that never activated
+    inactive_days: 90     # Delete inactive services after this period
+    revoked_days: 90      # Delete revoked services after this period
+    deleted_days: 7       # Hard delete soft-deleted services after grace period
+  purge_schedule: "0 2 * * *"  # Daily at 2 AM
+```
+
+### Service Lifecycle with Deletion
+
+```
+pending → active → inactive → [soft delete] → [hard delete]
+   ↓                  ↓            ↓               ↓
+revoked → [soft delete] → [hard delete]
+
+States:
+- pending: Registered but never reported (auto-purge after 30 days)
+- active: Currently reporting (never auto-deleted)
+- inactive: Stopped reporting (auto-purge after 90 days)
+- revoked: Admin revoked (auto-purge after 90 days)
+- deleted: Soft deleted (auto-purge after 7 days)
+- [removed]: Hard deleted via ALTER TABLE DELETE
+```
+
+### API Endpoints for Deletion
+
+```go
+// Admin endpoints
+DELETE /api/admin/services/pollers/{id}      // Hard delete
+DELETE /api/admin/services/agents/{id}
+DELETE /api/admin/services/checkers/{id}
+
+PUT /api/admin/services/{id}/status          // Soft delete (status: deleted)
+{
+  "status": "deleted"
+}
+
+POST /api/admin/services/purge               // Manual purge trigger
+{
+  "retention_days": 90,
+  "dry_run": true  // Preview what would be deleted
+}
+```
+
+### Audit Trail Preservation
+
+Even after hard deletion from registry tables, the audit stream retains events for 90 days:
+
+- `service_registration_events` stream has 90-day TTL
+- All deletion events (`event_type: 'deleted'`) logged
+- Provides historical record of what was deleted and when
+- Enables forensics and compliance reporting
 
 ---
 
@@ -748,10 +949,13 @@ func (r *ClusterSPIFFEIDReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 - [ ] Register K8s services automatically on `ClusterSPIFFEID` creation
 - [ ] Test with demo namespace
 
-### Phase 5: Background Jobs (Week 3)
+### Phase 5: Background Jobs & Deletion (Week 3)
 - [ ] Implement `MarkInactive()` background job
+- [ ] Implement `PurgeInactive()` background job with configurable retention
+- [ ] Implement `DeleteService()` for manual hard deletion
+- [ ] Add DELETE API endpoints for service removal
 - [ ] Add alerting for services stuck in 'pending' state
-- [ ] Add metrics collection
+- [ ] Add metrics collection (including purge stats)
 
 ### Phase 6: Migration & Cleanup (Week 4)
 - [ ] Backfill existing services from `services` stream
