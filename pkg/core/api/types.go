@@ -88,6 +88,7 @@ type EdgeOnboardingService interface {
 	DefaultSelectors() []string
 	MetadataDefaults() map[models.EdgeOnboardingComponentType]map[string]string
 	SetAllowedPollerCallback(cb func([]string))
+	SetDeviceRegistryCallback(cb func(context.Context, []*models.DeviceUpdate) error)
 }
 
 type APIServer struct {
