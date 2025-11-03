@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -549,8 +550,17 @@ func (s *Server) processICMPMetrics(
 		deviceID = models.GenerateNetworkDeviceID(partition, sourceIP)
 	}
 
-	if canonical := s.resolveCanonicalDeviceID(ctx, sourceIP, deviceID); canonical != "" {
-		deviceID = canonical
+	resolution := s.resolveCanonicalDevice(ctx, sourceIP, deviceID)
+	if strings.TrimSpace(resolution.DeviceID) != "" {
+		deviceID = strings.TrimSpace(resolution.DeviceID)
+	}
+
+	updateIP := strings.TrimSpace(resolution.IP)
+	if updateIP == "" {
+		updateIP = ipFromDeviceID(deviceID)
+	}
+	if updateIP == "" {
+		updateIP = sourceIP
 	}
 
 	// Create metadata map
@@ -637,7 +647,7 @@ func (s *Server) processICMPMetrics(
 
 		update := &models.DeviceUpdate{
 			DeviceID:    deviceID,
-			IP:          sourceIP,
+			IP:          updateIP,
 			Source:      models.DiscoverySourceServiceRadar,
 			AgentID:     agentID,
 			PollerID:    pollerID,
@@ -690,41 +700,47 @@ func (s *Server) processSysmonMetrics(
 	return nil
 }
 
-func (s *Server) resolveCanonicalDeviceID(ctx context.Context, ip, fallback string) string {
+func (s *Server) resolveCanonicalDevice(ctx context.Context, ip, fallback string) canonicalSnapshot {
 	ip = strings.TrimSpace(ip)
+	fallback = strings.TrimSpace(fallback)
+
+	result := canonicalSnapshot{
+		DeviceID: fallback,
+	}
+
 	if ip == "" {
-		return fallback
+		return result
 	}
 
 	if s.canonicalCache != nil {
 		if hits, misses := s.canonicalCache.getBatch([]string{ip}); len(misses) == 0 {
-			if snap, ok := hits[ip]; ok && strings.TrimSpace(snap.DeviceID) != "" {
-				return strings.TrimSpace(snap.DeviceID)
+			if snap, ok := hits[ip]; ok {
+				return ensureSnapshotDeviceID(snap, fallback)
 			}
 		} else {
 			if snap, ok := s.fetchCanonicalSnapshot(ctx, ip); ok {
-				return snap
+				return ensureSnapshotDeviceID(snap, fallback)
 			}
-			return fallback
+			return result
 		}
 	}
 
-	if canonical, ok := s.fetchCanonicalSnapshot(ctx, ip); ok {
-		return canonical
+	if snap, ok := s.fetchCanonicalSnapshot(ctx, ip); ok {
+		return ensureSnapshotDeviceID(snap, fallback)
 	}
 
-	return fallback
+	return result
 }
 
-func (s *Server) fetchCanonicalSnapshot(ctx context.Context, ip string) (string, bool) {
+func (s *Server) fetchCanonicalSnapshot(ctx context.Context, ip string) (canonicalSnapshot, bool) {
 	if s.DB == nil {
-		return "", false
+		return canonicalSnapshot{}, false
 	}
 
 	devices, err := s.DB.GetUnifiedDevicesByIPsOrIDs(ctx, []string{ip}, nil)
 	if err != nil {
 		s.logger.Warn().Err(err).Str("ip", ip).Msg("Failed to fetch canonical device by IP")
-		return "", false
+		return canonicalSnapshot{}, false
 	}
 
 	for _, device := range devices {
@@ -733,6 +749,7 @@ func (s *Server) fetchCanonicalSnapshot(ctx context.Context, ip string) (string,
 		}
 		snapshot := canonicalSnapshot{
 			DeviceID: strings.TrimSpace(device.DeviceID),
+			IP:       strings.TrimSpace(device.IP),
 		}
 		if device.MAC != nil {
 			snapshot.MAC = strings.TrimSpace(device.MAC.Value)
@@ -749,10 +766,38 @@ func (s *Server) fetchCanonicalSnapshot(ctx context.Context, ip string) (string,
 			s.canonicalCache.store(ip, snapshot)
 		}
 
-		return snapshot.DeviceID, true
+		return snapshot, true
 	}
 
-	return "", false
+	return canonicalSnapshot{}, false
+}
+
+func ensureSnapshotDeviceID(snapshot canonicalSnapshot, fallback string) canonicalSnapshot {
+	fallback = strings.TrimSpace(fallback)
+	if strings.TrimSpace(snapshot.DeviceID) == "" {
+		snapshot.DeviceID = fallback
+	}
+	snapshot.IP = strings.TrimSpace(snapshot.IP)
+	return snapshot
+}
+
+func ipFromDeviceID(deviceID string) string {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return ""
+	}
+	parts := strings.SplitN(deviceID, ":", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	ip := strings.TrimSpace(parts[1])
+	if ip == "" {
+		return ""
+	}
+	if net.ParseIP(ip) == nil {
+		return ""
+	}
+	return ip
 }
 
 type sysmonPayload struct {

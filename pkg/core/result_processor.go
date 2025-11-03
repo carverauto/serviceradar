@@ -240,6 +240,7 @@ func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []mod
 
 			snapshot := canonicalSnapshot{
 				DeviceID: strings.TrimSpace(device.DeviceID),
+				IP:       strings.TrimSpace(device.IP),
 			}
 
 			if device.MAC != nil {
