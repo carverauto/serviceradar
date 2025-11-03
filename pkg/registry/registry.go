@@ -110,7 +110,9 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	for _, u := range updates {
 		r.normalizeUpdate(u)
 		deviceupdate.SanitizeMetadata(u)
-		if u.IP == "" {
+		// Allow empty IPs for service components (pollers, agents, checkers)
+		// since they're identified by service-aware device IDs
+		if u.IP == "" && u.ServiceType == nil {
 			r.logger.Warn().Str("device_id", u.DeviceID).Msg("Dropping update with empty IP")
 			droppedEmptyIP++
 			continue
@@ -197,6 +199,14 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		r.logger.Warn().Err(err).Msg("Failed to annotate _first_seen metadata")
 	}
 
+	droppedStale := 0
+	if filtered, dropped, err := r.filterObsoleteUpdates(ctx, canonicalized); err != nil {
+		r.logger.Warn().Err(err).Msg("Failed to filter updates against tombstones")
+	} else {
+		canonicalized = filtered
+		droppedStale = dropped
+	}
+
 	batch := canonicalized
 	if len(tombstones) > 0 {
 		batch = append(batch, tombstones...)
@@ -207,7 +217,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		return fmt.Errorf("failed to publish device updates: %w", err)
 	}
 
-	r.logger.Info().
+	r.logger.Debug().
 		Int("incoming_updates", len(updates)).
 		Int("valid_updates", len(valid)).
 		Int("published_updates", len(batch)).
@@ -216,6 +226,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		Int("canonicalized_by_netbox_id", canonByNetboxID).
 		Int("canonicalized_by_mac", canonByMAC).
 		Int("tombstones_emitted", tombstoneCount).
+		Int("dropped_stale_after_delete", droppedStale).
 		Int("sweeps_without_identity", sweepNoIdentity).
 		Msg("Registry batch processed")
 
@@ -799,6 +810,131 @@ func allDigits(s string) bool {
 	return true
 }
 
+func (r *DeviceRegistry) filterObsoleteUpdates(ctx context.Context, updates []*models.DeviceUpdate) ([]*models.DeviceUpdate, int, error) {
+	if len(updates) == 0 {
+		return updates, 0, nil
+	}
+
+	deviceIDs := collectDeviceIDs(updates)
+	if len(deviceIDs) == 0 {
+		return updates, 0, nil
+	}
+
+	devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, deviceIDs)
+	if err != nil {
+		return updates, 0, fmt.Errorf("lookup tombstoned devices: %w", err)
+	}
+
+	lastDeleted := make(map[string]time.Time, len(devices))
+	for _, device := range devices {
+		if device == nil || device.DeviceID == "" {
+			continue
+		}
+		if device.Metadata == nil || device.Metadata.Value == nil {
+			continue
+		}
+		if deletedAt := extractDeletionTimestamp(device.Metadata.Value); !deletedAt.IsZero() {
+			lastDeleted[device.DeviceID] = deletedAt
+		}
+	}
+
+	if len(lastDeleted) == 0 {
+		return updates, 0, nil
+	}
+
+	filtered := make([]*models.DeviceUpdate, 0, len(updates))
+	var dropped int
+
+	for _, update := range updates {
+		if update == nil || update.DeviceID == "" {
+			continue
+		}
+		if shouldBypassDeletionFilter(update) {
+			filtered = append(filtered, update)
+			continue
+		}
+
+		deletedAt, ok := lastDeleted[update.DeviceID]
+		if !ok || deletedAt.IsZero() {
+			filtered = append(filtered, update)
+			continue
+		}
+
+		if update.Source == models.DiscoverySourceSelfReported || update.Source == models.DiscoverySourceServiceRadar {
+			// Block self-reported updates for tombstoned devices unless the update is fresh,
+			// which can happen during re-onboarding when a device comes back online.
+			if !update.Timestamp.After(deletedAt) {
+				dropped++
+				r.logger.Info().
+					Str("device_id", update.DeviceID).
+					Str("source", string(update.Source)).
+					Time("deleted_at", deletedAt).
+					Time("update_ts", update.Timestamp).
+					Msg("Blocking self-reported update for tombstoned device")
+				continue
+			}
+			// Update is newer than deletion - allow re-onboarding
+			r.logger.Info().
+				Str("device_id", update.DeviceID).
+				Str("source", string(update.Source)).
+				Time("deleted_at", deletedAt).
+				Time("update_ts", update.Timestamp).
+				Msg("Allowing self-reported update for re-onboarding (update is newer than deletion)")
+		}
+
+		updateTimestamp := update.Timestamp
+		if updateTimestamp.IsZero() {
+			updateTimestamp = time.Time{}
+		}
+
+		if !updateTimestamp.After(deletedAt) {
+			dropped++
+			r.logger.Debug().
+				Str("device_id", update.DeviceID).
+				Time("deleted_at", deletedAt).
+				Time("update_ts", updateTimestamp).
+				Str("source", string(update.Source)).
+				Msg("Dropping stale update for tombstoned device")
+			continue
+		}
+
+		filtered = append(filtered, update)
+	}
+
+	return filtered, dropped, nil
+}
+
+func extractDeletionTimestamp(metadata map[string]string) time.Time {
+	for _, key := range []string{"_deleted_at", "deleted_at"} {
+		val := strings.TrimSpace(metadata[key])
+		if val == "" {
+			continue
+		}
+		if ts, ok := parseFirstSeenTimestamp(val); ok {
+			return ts
+		}
+	}
+	return time.Time{}
+}
+
+func shouldBypassDeletionFilter(update *models.DeviceUpdate) bool {
+	if update == nil || update.Metadata == nil {
+		return false
+	}
+
+	for _, key := range []string{"_deleted", "deleted"} {
+		if val, ok := update.Metadata[key]; ok && strings.EqualFold(val, "true") {
+			return true
+		}
+	}
+
+	if _, ok := update.Metadata["_merged_into"]; ok {
+		return true
+	}
+
+	return false
+}
+
 // normalizeUpdate ensures a DeviceUpdate has the minimum required information.
 func (r *DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 	if update.IP == "" {
@@ -806,17 +942,32 @@ func (r *DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 		return // Or handle error
 	}
 
-	// If DeviceID is completely empty, generate one from Partition and IP
+	// If DeviceID is completely empty, generate one
 	if update.DeviceID == "" {
-		if update.Partition == "" {
-			update.Partition = defaultPartition
+		// Check if this is a service component (poller/agent/checker)
+		if update.ServiceType != nil && update.ServiceID != "" {
+			// Generate service-aware device ID: serviceradar:type:id
+			update.DeviceID = models.GenerateServiceDeviceID(*update.ServiceType, update.ServiceID)
+			update.Partition = models.ServiceDevicePartition
+			update.Source = models.DiscoverySourceServiceRadar
+
+			r.logger.Debug().
+				Str("device_id", update.DeviceID).
+				Str("service_type", string(*update.ServiceType)).
+				Str("service_id", update.ServiceID).
+				Msg("Generated service device ID")
+		} else {
+			// Generate network device ID: partition:ip
+			if update.Partition == "" {
+				update.Partition = defaultPartition
+			}
+
+			update.DeviceID = models.GenerateNetworkDeviceID(update.Partition, update.IP)
+
+			r.logger.Debug().
+				Str("device_id", update.DeviceID).
+				Msg("Generated network device ID")
 		}
-
-		update.DeviceID = fmt.Sprintf("%s:%s", update.Partition, update.IP)
-
-		r.logger.Debug().
-			Str("device_id", update.DeviceID).
-			Msg("Generated DeviceID for update with empty DeviceID")
 	} else {
 		// Extract partition from DeviceID if possible
 		partition := extractPartitionFromDeviceID(update.DeviceID)
@@ -836,8 +987,8 @@ func (r *DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 		update.Source = "unknown"
 	}
 
-	// Self-reported devices are always available by definition
-	if update.Source == models.DiscoverySourceSelfReported {
+	// Self-reported devices and ServiceRadar components are always available by definition
+	if update.Source == models.DiscoverySourceSelfReported || update.Source == models.DiscoverySourceServiceRadar {
 		update.IsAvailable = true
 	}
 

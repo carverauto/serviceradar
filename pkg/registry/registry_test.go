@@ -31,6 +31,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+const testDeviceID = "default:172.18.0.2"
+
 func allowCanonicalizationQueries(mockDB *db.MockService) {
 	mockDB.EXPECT().
 		ExecuteQuery(gomock.Any(), gomock.Any()).
@@ -667,5 +669,192 @@ func TestProcessBatchPublishesSweepWithoutIdentity(t *testing.T) {
 	}
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
+	require.NoError(t, err)
+}
+
+func TestProcessBatchDeviceUpdates_DropsSelfReportedAfterDelete(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any()).
+		Return([]map[string]any{}, nil).
+		AnyTimes()
+
+	deviceID := testDeviceID
+	deletedAt := time.Date(2025, 11, 2, 18, 45, 0, 0, time.UTC)
+
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf([]string{})).
+		DoAndReturn(func(_ context.Context, _ []string, ids []string) ([]*models.UnifiedDevice, error) {
+			if len(ids) == 1 && ids[0] == deviceID {
+				return []*models.UnifiedDevice{
+					{
+						DeviceID: deviceID,
+						Metadata: &models.DiscoveredField[map[string]string]{
+							Value: map[string]string{
+								"_deleted":    "true",
+								"_deleted_at": deletedAt.Format(time.RFC3339Nano),
+							},
+						},
+					},
+				}, nil
+			}
+			return []*models.UnifiedDevice{}, nil
+		}).
+		AnyTimes()
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			require.Empty(t, updates, "stale updates should be dropped before publishing")
+			return nil
+		})
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
+
+	// Update with timestamp BEFORE deletion should be dropped
+	staleUpdate := &models.DeviceUpdate{
+		DeviceID:    deviceID,
+		Partition:   "default",
+		IP:          "172.18.0.2",
+		Source:      models.DiscoverySourceSelfReported,
+		Timestamp:   deletedAt.Add(-10 * time.Minute), // Before deletion
+		IsAvailable: true,
+		Metadata: map[string]string{
+			"last_update": deletedAt.Add(-5 * time.Minute).Format(time.RFC3339Nano),
+		},
+	}
+
+	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{staleUpdate})
+	require.NoError(t, err)
+}
+
+func TestProcessBatchDeviceUpdates_AllowsSelfReportedReOnboarding(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any()).
+		Return([]map[string]any{}, nil).
+		AnyTimes()
+
+	deviceID := testDeviceID
+	deletedAt := time.Date(2025, 11, 2, 18, 45, 0, 0, time.UTC)
+
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf([]string{})).
+		DoAndReturn(func(_ context.Context, _ []string, ids []string) ([]*models.UnifiedDevice, error) {
+			if len(ids) == 1 && ids[0] == deviceID {
+				return []*models.UnifiedDevice{
+					{
+						DeviceID: deviceID,
+						Metadata: &models.DiscoveredField[map[string]string]{
+							Value: map[string]string{
+								"_deleted":    "true",
+								"_deleted_at": deletedAt.Format(time.RFC3339Nano),
+							},
+						},
+					},
+				}, nil
+			}
+			return []*models.UnifiedDevice{}, nil
+		}).
+		AnyTimes()
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			require.Len(t, updates, 1, "fresh self-reported update should be allowed for re-onboarding")
+			require.Equal(t, deviceID, updates[0].DeviceID)
+			return nil
+		})
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
+
+	// Update with timestamp AFTER deletion should be allowed (re-onboarding)
+	freshUpdate := &models.DeviceUpdate{
+		DeviceID:    deviceID,
+		Partition:   "default",
+		IP:          "172.18.0.2",
+		Source:      models.DiscoverySourceSelfReported,
+		Timestamp:   deletedAt.Add(10 * time.Minute), // After deletion
+		IsAvailable: true,
+		Metadata: map[string]string{
+			"last_update": deletedAt.Add(5 * time.Minute).Format(time.RFC3339Nano),
+		},
+	}
+
+	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{freshUpdate})
+	require.NoError(t, err)
+}
+
+func TestProcessBatchDeviceUpdates_AllowsFreshNonSelfReportedAfterDelete(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any()).
+		Return([]map[string]any{}, nil).
+		AnyTimes()
+
+	deviceID := testDeviceID
+	deletedAt := time.Date(2025, 11, 2, 18, 45, 0, 0, time.UTC)
+
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf([]string{})).
+		DoAndReturn(func(_ context.Context, _ []string, ids []string) ([]*models.UnifiedDevice, error) {
+			if len(ids) == 1 && ids[0] == deviceID {
+				return []*models.UnifiedDevice{
+					{
+						DeviceID: deviceID,
+						Metadata: &models.DiscoveredField[map[string]string]{
+							Value: map[string]string{
+								"_deleted":    "true",
+								"_deleted_at": deletedAt.Format(time.RFC3339Nano),
+							},
+						},
+					},
+				}, nil
+			}
+			return []*models.UnifiedDevice{}, nil
+		}).
+		AnyTimes()
+
+	allowCanonicalizationQueries(mockDB)
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			require.Len(t, updates, 1, "fresh updates should bypass the tombstone filter")
+			require.Equal(t, deviceID, updates[0].DeviceID)
+			require.Equal(t, models.DiscoverySourceSNMP, updates[0].Source)
+			return nil
+		})
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
+
+	freshUpdate := &models.DeviceUpdate{
+		DeviceID:    deviceID,
+		Partition:   "default",
+		IP:          "172.18.0.2",
+		Source:      models.DiscoverySourceSNMP,
+		Timestamp:   deletedAt.Add(10 * time.Minute),
+		IsAvailable: true,
+		Metadata: map[string]string{
+			"last_update": deletedAt.Add(10 * time.Minute).Format(time.RFC3339Nano),
+		},
+	}
+
+	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{freshUpdate})
 	require.NoError(t, err)
 }

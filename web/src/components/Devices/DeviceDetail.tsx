@@ -42,6 +42,8 @@ import { fetchAPI } from '@/lib/client-api';
 import { escapeSrqlValue } from '@/lib/srql';
 import { formatTimestampForDisplay } from '@/utils/traceTimestamp';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import ServiceRegistryPanel from './ServiceRegistryPanel';
+import DeleteDeviceButton from './DeleteDeviceButton';
 
 interface SrqlResponse<T> {
     results?: T[];
@@ -406,7 +408,7 @@ interface DeviceDetailProps {
 }
 
 const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
-    useAuth();
+    const { token } = useAuth();
 
     const [device, setDevice] = useState<DeviceRecord | null>(null);
     const [loading, setLoading] = useState(true);
@@ -447,10 +449,11 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                ...(token && { Authorization: `Bearer ${token}` }),
             },
             body: JSON.stringify(body),
         });
-    }, []);
+    }, [token]);
 
     const normalizeDevice = (record: DeviceRecord): DeviceRecord => {
         const normalized: DeviceRecord = {
@@ -817,9 +820,39 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
         );
     }
 
+    const metadata =
+        device.metadata && typeof device.metadata === 'object'
+            ? (device.metadata as Record<string, unknown>)
+            : {};
+
+    const metadataFlag = (keys: string[]): boolean =>
+        keys.some((key) => {
+            const value = metadata[key];
+            if (typeof value === 'string') {
+                return value.toLowerCase() === 'true';
+            }
+            if (typeof value === 'boolean') {
+                return value;
+            }
+            return false;
+        });
+
+    const metadataValue = (keys: string[]): string | undefined => {
+        for (const key of keys) {
+            const value = metadata[key];
+            if (typeof value === 'string' && value.trim() !== '') {
+                return value;
+            }
+        }
+        return undefined;
+    };
+
+    const isDeleted = metadataFlag(['_deleted', 'deleted']);
+    const deletedAtRaw = metadataValue(['_deleted_at', 'deleted_at']);
+    const deletedBy = metadataValue(['_deleted_by', 'deleted_by']);
     const discoverySources = ensureArray(device.discovery_sources);
 
-    const deviceAttributes: Array<{ label: string; value: string | null }> = [
+    let deviceAttributes: Array<{ label: string; value: string | null }> = [
         { label: 'IP Address', value: device.ip ?? null },
         { label: 'MAC Address', value: device.mac ?? null },
         { label: 'Device Type', value: device.device_type ?? null },
@@ -836,7 +869,23 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
         },
         { label: 'OS Info', value: device.os_info ?? null },
         { label: 'Version', value: device.version_info ?? null },
-    ].filter((item) => item.value);
+    ];
+
+    if (isDeleted) {
+        if (deletedBy) {
+            deviceAttributes.unshift({
+                label: 'Deleted By',
+                value: deletedBy,
+            });
+        }
+        deviceAttributes.unshift({
+            label: 'Deleted At',
+            value: deletedAtRaw ? formatTimestampForDisplay(deletedAtRaw) : 'Marked as deleted',
+        });
+    }
+
+    deviceAttributes = deviceAttributes.filter((item) => item.value);
+    const isDeviceOnline = !isDeleted && !!device.is_available;
 
     return (
         <div className="space-y-6">
@@ -876,7 +925,12 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        {device.is_available ? (
+                        {isDeleted ? (
+                            <span className="inline-flex items-center rounded-full bg-rose-100 dark:bg-rose-900/30 px-3 py-1 text-sm font-medium text-rose-700 dark:text-rose-300">
+                                <AlertTriangle className="mr-2 h-4 w-4" />
+                                Deleted
+                            </span>
+                        ) : isDeviceOnline ? (
                             <span className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-3 py-1 text-sm font-medium text-emerald-700 dark:text-emerald-300">
                                 <CheckCircle className="mr-2 h-4 w-4" />
                                 Online
@@ -889,6 +943,21 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
                         )}
                     </div>
                 </div>
+
+                {isDeleted && (
+                    <div className="mt-4 rounded-lg border border-rose-200 dark:border-rose-800 bg-rose-50/70 dark:bg-rose-900/20 p-4 text-sm text-rose-700 dark:text-rose-200">
+                        <div className="flex items-start gap-3">
+                            <AlertTriangle className="h-5 w-5 mt-0.5" />
+                            <div>
+                                <p className="font-medium">Device marked as deleted</p>
+                                <p className="mt-1">
+                                    New telemetry for this device ID will re-activate it automatically. Use this badge to
+                                    confirm whether subsequent updates have resurrected the device.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {discoverySources.length > 0 && (
                     <div className="mt-4">
@@ -917,6 +986,15 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
                     </div>
                 )}
             </div>
+
+            {/* Service Registry Panel - only shows for pollers, agents, and checkers */}
+            <ServiceRegistryPanel deviceId={deviceId} />
+
+            {/* Delete Device Button */}
+            <DeleteDeviceButton
+                deviceId={deviceId}
+                deviceName={device.hostname || device.ip}
+            />
 
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
                 <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

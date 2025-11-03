@@ -18,11 +18,13 @@
 
 import React, { useState, Fragment, useEffect, useMemo } from 'react';
 import { CheckCircle, XCircle, ChevronDown, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
+import Link from 'next/link';
 import ReactJson from '@/components/Common/DynamicReactJson';
 import { Device } from '@/types/devices';
 import SysmonStatusIndicator from './SysmonStatusIndicator';
 import SNMPStatusIndicator from './SNMPStatusIndicator';
 import ICMPSparkline from './ICMPSparkline';
+import DeviceTypeIndicator from './DeviceTypeIndicator';
 import { formatTimestampForDisplay } from '@/utils/traceTimestamp';
 import { useAuth } from '@/components/AuthProvider';
 
@@ -296,20 +298,25 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                             <CheckCircle className="h-5 w-5 text-green-500" /> :
                                             <XCircle className="h-5 w-5 text-red-500" />
                                         }
+                                        <DeviceTypeIndicator
+                                            deviceId={device.device_id}
+                                            compact={true}
+                                            discoverySource={Array.isArray(device.discovery_sources) ? device.discovery_sources.join(',') : undefined}
+                                        />
                                         <SysmonStatusIndicator
-                                            deviceId={device.device_id} 
+                                            deviceId={device.device_id}
                                             compact={true}
                                             hasMetrics={sysmonStatusesLoading ? undefined : sysmonStatuses[device.device_id]?.hasMetrics}
                                             serviceHint={sysmonServiceHint}
                                         />
-                                        <SNMPStatusIndicator 
-                                            deviceId={device.device_id} 
+                                        <SNMPStatusIndicator
+                                            deviceId={device.device_id}
                                             compact={true}
                                             hasMetrics={snmpStatusesLoading ? undefined : snmpStatuses[device.device_id]?.hasMetrics}
                                             hasSnmpSource={Array.isArray(device.discovery_sources) && (device.discovery_sources.includes('snmp') || device.discovery_sources.includes('mapper'))}
                                         />
-                                        <ICMPSparkline 
-                                            deviceId={device.device_id} 
+                                        <ICMPSparkline
+                                            deviceId={device.device_id}
                                             compact={false}
                                             hasMetrics={
                                                 metricsStatusesLoading
@@ -322,12 +329,17 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                        {device.hostname || device.ip}
-                                    </div>
-                                    <div className="text-sm text-gray-500 dark:text-gray-400">
-                                        {device.hostname ? device.ip : device.mac}
-                                    </div>
+                                    <Link
+                                        href={`/devices/${encodeURIComponent(device.device_id)}`}
+                                        className="block hover:bg-gray-50 dark:hover:bg-gray-700/50 -m-4 p-4 rounded transition-colors"
+                                    >
+                                        <div className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300">
+                                            {device.hostname || device.ip}
+                                        </div>
+                                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                                            {device.hostname ? device.ip : device.mac}
+                                        </div>
+                                    </Link>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="flex flex-wrap gap-1">

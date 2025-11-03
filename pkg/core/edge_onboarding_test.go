@@ -93,7 +93,7 @@ func TestEdgeOnboardingCreatePackageSuccess(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
@@ -164,7 +164,7 @@ func TestEdgeOnboardingCreatePackageMissingMetadata(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
@@ -215,7 +215,7 @@ func TestEdgeOnboardingCreatePackagePollerUsesMetadataDefaults(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
@@ -275,7 +275,7 @@ func TestEdgeOnboardingCreatePackagePollerConflict(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
@@ -322,7 +322,7 @@ func TestEdgeOnboardingDeliverPackageSuccess(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
@@ -414,7 +414,7 @@ func TestEdgeOnboardingDeliverPackageInvalidToken(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
@@ -485,7 +485,7 @@ func TestEdgeOnboardingRevokePackageSuccess(t *testing.T) {
 	).Return([]string{}, nil).AnyTimes()
 	gomock.InOrder(firstCall, secondCall)
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
@@ -565,7 +565,7 @@ func TestEdgeOnboardingRevokePackageAlreadyRevoked(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.refreshInterval = 0
@@ -613,7 +613,7 @@ func TestEdgeOnboardingDeletePackageSuccess(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.SetAllowedPollerCallback(func([]string) {})
@@ -677,7 +677,7 @@ func TestEdgeOnboardingDeletePackageBumpsTimestamp(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.SetAllowedPollerCallback(func([]string) {})
@@ -738,7 +738,7 @@ func TestEdgeOnboardingRecordActivationPromotesStatus(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	seenAt := time.Date(2025, time.October, 31, 2, 30, 0, 0, time.UTC)
@@ -814,7 +814,7 @@ func TestEdgeOnboardingRecordActivationNoopForActivatedAgent(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	activatedAt := time.Date(2025, time.October, 31, 2, 15, 0, 0, time.UTC)
@@ -867,7 +867,7 @@ func TestEdgeOnboardingListPackagesTombstoneFiltering(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 	svc.SetAllowedPollerCallback(func([]string) {})
 
@@ -928,7 +928,7 @@ func TestEdgeOnboardingGetPackageTombstone(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 	svc.SetAllowedPollerCallback(func([]string) {})
 
@@ -979,7 +979,7 @@ func TestEdgeOnboardingDeletePackageRequiresRevoked(t *testing.T) {
 		models.EdgeOnboardingStatusActivated,
 	).Return([]string{}, nil).AnyTimes()
 
-	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, logger.NewTestLogger())
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 
 	svc.SetAllowedPollerCallback(func([]string) {})

@@ -1,6 +1,6 @@
 load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
-load("@rust_crates_sysmon//:defs.bzl", "all_crate_deps", "crate_deps")
+load("@rust_crates//:defs.bzl", "all_crate_deps", "crate_deps")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -25,7 +25,13 @@ rust_library(
     crate_root = "src/lib.rs",
     crate_name = "serviceradar_sysmon_checker",
     edition = "2021",
-    deps = all_crate_deps(normal = True) + [":build_script"],
+    compile_data = [
+        "config/default_template.json",
+    ],
+    deps = all_crate_deps(normal = True) + [
+        ":build_script",
+        "//rust/kvutil",
+    ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
 

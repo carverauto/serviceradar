@@ -25,6 +25,7 @@ import (
     "google.golang.org/grpc"
 
     "github.com/carverauto/serviceradar/pkg/config"
+    "github.com/carverauto/serviceradar/pkg/edgeonboarding"
     "github.com/carverauto/serviceradar/pkg/lifecycle"
     "github.com/carverauto/serviceradar/pkg/logger"
     "github.com/carverauto/serviceradar/pkg/models"
@@ -44,10 +45,25 @@ func main() {
 func run() error {
 	// Parse command line flags
 	configPath := flag.String("config", "/etc/serviceradar/poller.json", "Path to poller config file")
+	_ = flag.String("onboarding-token", "", "Edge onboarding token (if provided, triggers edge onboarding)")
+	_ = flag.String("kv-endpoint", "", "KV service endpoint (required for edge onboarding)")
 	flag.Parse()
 
 	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()
+
+	// Try edge onboarding first (checks env vars if flags not set)
+	onboardingResult, err := edgeonboarding.TryOnboard(ctx, models.EdgeOnboardingComponentTypePoller, nil)
+	if err != nil {
+		return fmt.Errorf("edge onboarding failed: %w", err)
+	}
+
+	// If onboarding was performed, use the generated config
+	if onboardingResult != nil {
+		*configPath = onboardingResult.ConfigPath
+		log.Printf("Using edge-onboarded configuration from: %s", *configPath)
+		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
+	}
 
 	// Step 1: Load configuration with KV support
 	kvMgr := config.NewKVManagerFromEnv(ctx, models.RolePoller)

@@ -125,7 +125,9 @@ func Run(ctx context.Context, opts Options) error {
 		api.WithQueryExecutor(server.DB),
 		api.WithDBService(server.DB),
 		api.WithDeviceRegistry(server.DeviceRegistry),
+		api.WithServiceRegistry(server.ServiceRegistry),
 		api.WithLogger(mainLogger),
+		api.WithEventPublisher(server.EventPublisher()),
 	}
 	if cfg.Auth != nil {
 		allOptions = append(allOptions, api.WithRBACConfig(&cfg.Auth.RBAC))

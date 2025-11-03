@@ -529,6 +529,44 @@ func (s *Server) processIndividualServices(
 		bufferedServiceStatuses = append(bufferedServiceStatuses, serviceStatus)
 		bufferedServiceList = append(bufferedServiceList, serviceRecord)
 
+		// Register agent as a device if AgentId is present
+		if svc.AgentId != "" {
+			if err := s.registerAgentAsDevice(serviceCtx, svc.AgentId, pollerID, sourceIP); err != nil {
+				s.logger.Warn().
+					Err(err).
+					Str("agent_id", svc.AgentId).
+					Str("poller_id", pollerID).
+					Msg("Failed to register agent as device")
+			}
+			// Auto-register agent in service registry
+			if err := s.ensureAgentRegistered(serviceCtx, svc.AgentId, pollerID, sourceIP); err != nil {
+				s.logger.Warn().Err(err).
+					Str("agent_id", svc.AgentId).
+					Msg("Failed to auto-register agent in service registry")
+			}
+		}
+
+		// Register checker as a device if this is a checker service
+		// Checkers have service_type like "snmp", "sysmon", "rperf", etc.
+		if s.isCheckerService(svc.ServiceType) && svc.AgentId != "" {
+			// Generate checker ID from service name or use a combination
+			checkerID := s.generateCheckerID(svc.ServiceName, svc.AgentId)
+			if err := s.registerCheckerAsDevice(serviceCtx, checkerID, svc.ServiceType, svc.AgentId, pollerID, sourceIP); err != nil {
+				s.logger.Warn().
+					Err(err).
+					Str("checker_id", checkerID).
+					Str("checker_kind", svc.ServiceType).
+					Str("agent_id", svc.AgentId).
+					Msg("Failed to register checker as device")
+			}
+			// Auto-register checker in service registry
+			if err := s.ensureCheckerRegistered(serviceCtx, checkerID, svc.AgentId, pollerID, svc.ServiceType, sourceIP); err != nil {
+				s.logger.Warn().Err(err).
+					Str("checker_id", checkerID).
+					Msg("Failed to auto-register checker in service registry")
+			}
+		}
+
 		apiStatus.Services = append(apiStatus.Services, apiService)
 
 		serviceSpan.End()
@@ -893,4 +931,25 @@ func (*Server) getServiceHostname(serviceID, hostIP string) string {
 	}
 
 	return hostIP
+}
+
+// isCheckerService determines if a service type represents a checker
+func (*Server) isCheckerService(serviceType string) bool {
+	// Checker types are typically: snmp, sysmon, rperf, mapper, etc.
+	// Exclude meta service types like "sweep", "status", etc.
+	checkerTypes := map[string]bool{
+		"snmp":   true,
+		"sysmon": true,
+		"rperf":  true,
+		"mapper": true,
+	}
+
+	return checkerTypes[serviceType]
+}
+
+// generateCheckerID generates a unique checker ID from service name and agent ID
+func (*Server) generateCheckerID(serviceName, agentID string) string {
+	// Create a stable checker ID that combines service name and agent
+	// This ensures the same checker always has the same ID
+	return fmt.Sprintf("%s@%s", serviceName, agentID)
 }

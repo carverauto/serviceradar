@@ -19,6 +19,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -35,9 +36,15 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
 	"github.com/carverauto/serviceradar/proto"
+)
+
+var (
+	// ErrDatabaseTypeAssertion is returned when database type assertion fails.
+	ErrDatabaseTypeAssertion = errors.New("failed to type assert database to *db.DB")
 )
 
 const (
@@ -61,6 +68,14 @@ const (
 	snmpDiscoveryResultsServiceType = "snmp-discovery-results"
 	mapperDiscoveryServiceType      = "mapper_discovery"
 )
+
+func (s *Server) pollerStatusIntervalOrDefault() time.Duration {
+	if s == nil || s.pollerStatusInterval <= 0 {
+		return defaultPollerStatusUpdateInterval
+	}
+
+	return s.pollerStatusInterval
+}
 
 func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClient spireadmin.Client) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
@@ -118,12 +133,21 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 
 	deviceRegistry := registry.NewDeviceRegistry(database, log, registryOpts...)
 
+	// Initialize the Service Registry for pollers, agents, and checkers
+	// Type assert to get underlying *db.DB for registry operations
+	dbConn, ok := database.(*db.DB)
+	if !ok {
+		return nil, ErrDatabaseTypeAssertion
+	}
+	serviceRegistry := registry.NewServiceRegistry(dbConn, log)
+
 	// Initialize the DiscoveryService
 	discoveryService := NewDiscoveryService(database, deviceRegistry, log)
 
 	server := &Server{
 		DB:                  database,
 		DeviceRegistry:      deviceRegistry,
+		ServiceRegistry:     serviceRegistry,
 		discoveryService:    discoveryService,
 		alertThreshold:      normalizedConfig.AlertThreshold,
 		webhooks:            make([]alerts.AlertService, 0),
@@ -147,7 +171,10 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		canonicalCache:      newCanonicalCache(10 * time.Minute),
 	}
 
-	edgeSvc, err := newEdgeOnboardingService(normalizedConfig.EdgeOnboarding, normalizedConfig.SpireAdmin, spireClient, database, kvClient, nil, log)
+	// Create adapter to avoid import cycles
+	serviceRegistryAdapter := newServiceRegistryAdapter(serviceRegistry)
+
+	edgeSvc, err := newEdgeOnboardingService(normalizedConfig.EdgeOnboarding, normalizedConfig.SpireAdmin, spireClient, database, kvClient, nil, serviceRegistryAdapter, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize edge onboarding service: %w", err)
 	}
@@ -354,6 +381,10 @@ func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 	if s.edgeOnboarding != nil {
 		apiServer.SetDynamicPollers(s.edgeOnboarding.allowedPollersSnapshot())
 		s.edgeOnboarding.SetAllowedPollerCallback(apiServer.SetDynamicPollers)
+		// Set device registry callback for service cleanup on revocation
+		if s.DeviceRegistry != nil {
+			s.edgeOnboarding.SetDeviceRegistryCallback(s.DeviceRegistry.ProcessBatchDeviceUpdates)
+		}
 	}
 
 	// MCP initialization removed; SRQL/MCP is now external
@@ -398,6 +429,14 @@ func (s *Server) GetRperfManager() metricstore.RperfManager {
 
 func (s *Server) GetAuth() *auth.Auth {
 	return s.authService
+}
+
+// EventPublisher returns the event publisher instance, if configured.
+func (s *Server) EventPublisher() *natsutil.EventPublisher {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.eventPublisher
 }
 
 // MCP initialization removed

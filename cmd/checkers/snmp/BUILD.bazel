@@ -8,8 +8,10 @@ go_library(
     deps = [
         "//alias:snmp",
         "//alias:config",
+        "//alias:edgeonboarding",
         "//alias:lifecycle",
         "//alias:logger",
+        "//alias:models",
         "//proto",
         "@org_golang_google_grpc//:grpc",
     ],

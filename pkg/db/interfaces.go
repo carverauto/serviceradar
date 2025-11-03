@@ -49,6 +49,8 @@ type Service interface {
 	DeletePoller(ctx context.Context, pollerID string) error
 	ListPollerStatuses(ctx context.Context, patterns []string) ([]models.PollerStatus, error)
 	ListNeverReportedPollers(ctx context.Context, patterns []string) ([]string, error)
+	ListAgentsWithPollers(ctx context.Context) ([]AgentInfo, error)
+	ListAgentsByPoller(ctx context.Context, pollerID string) ([]AgentInfo, error)
 
 	// Service operations.
 

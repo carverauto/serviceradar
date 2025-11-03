@@ -213,6 +213,9 @@ func TestArmisNetBoxStreamResults(t *testing.T) {
 		case models.DiscoverySourceSelfReported:
 			// Not expected in this test
 		case models.DiscoverySourceSysmon:
+			// Not expected in this test
+		case models.DiscoverySourceServiceRadar:
+			// Not expected in this test
 		}
 	}
 

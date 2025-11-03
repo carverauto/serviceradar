@@ -87,6 +87,13 @@ type EdgePackageDefaults = {
   metadata?: Record<string, Record<string, string>>;
 };
 
+type AgentInfo = {
+  agent_id: string;
+  poller_id: string;
+  last_seen: string;
+  service_types?: string[];
+};
+
 type CreateFormState = {
   componentType: EdgeComponentType;
   componentId: string;
@@ -250,6 +257,7 @@ export default function EdgePackagesPage() {
   const [defaults, setDefaults] = useState<EdgePackageDefaults | null>(null);
   const [metadataTouched, setMetadataTouched] = useState<boolean>(false);
   const [selectorsTouched, setSelectorsTouched] = useState<boolean>(false);
+  const [registeredAgents, setRegisteredAgents] = useState<AgentInfo[]>([]);
 
   const selectedPackage = useMemo(
     () => packages.find((pkg) => pkg.package_id === selectedId) ?? null,
@@ -273,9 +281,13 @@ export default function EdgePackagesPage() {
 
   const agentIds = useMemo(() => {
     const seen = new Set<string>();
-    return packages
+    // Combine registered agents with agents from packages
+    const fromRegistered = registeredAgents.map((a) => a.agent_id);
+    const fromPackages = packages
       .filter((pkg) => (pkg.component_type ?? '') === 'agent')
-      .map((pkg) => pkg.component_id || pkg.parent_id || pkg.package_id)
+      .map((pkg) => pkg.component_id || pkg.parent_id || pkg.package_id);
+
+    return [...fromRegistered, ...fromPackages]
       .filter((id) => {
         const trimmed = id?.trim();
         if (!trimmed || seen.has(trimmed)) {
@@ -284,7 +296,7 @@ export default function EdgePackagesPage() {
         seen.add(trimmed);
         return true;
       });
-  }, [packages]);
+  }, [packages, registeredAgents]);
 
   const parentPollerListId = 'edge-parent-poller-options';
   const parentAgentListId = 'edge-parent-agent-options';
@@ -339,9 +351,27 @@ export default function EdgePackagesPage() {
     }
   }, []);
 
+  const loadAgents = useCallback(async () => {
+    try {
+      const response = await fetch('/api/admin/agents', {
+        headers: buildHeaders(),
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        console.error('Failed to load registered agents');
+        return;
+      }
+      const data: AgentInfo[] = await response.json();
+      setRegisteredAgents(data ?? []);
+    } catch (err) {
+      console.error('Error loading registered agents', err);
+    }
+  }, []);
+
   useEffect(() => {
     void loadPackages();
-  }, [loadPackages]);
+    void loadAgents();
+  }, [loadPackages, loadAgents]);
 
   useEffect(() => {
     let cancelled = false;

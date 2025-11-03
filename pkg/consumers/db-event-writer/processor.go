@@ -348,6 +348,11 @@ func processEventData(row *models.EventRow, ce *models.CloudEvent) {
 		return
 	}
 
+	// Try to handle as device lifecycle event
+	if tryDeviceLifecycleEvent(row, ce, dataBytes) {
+		return
+	}
+
 	// Fall back to GELF format (for syslog and other events)
 	tryGELFFormat(row, dataBytes)
 }
@@ -372,6 +377,53 @@ func tryPollerHealthEvent(row *models.EventRow, ce *models.CloudEvent, dataBytes
 	row.Level = getLogLevelForState(pollerData.CurrentState)
 	row.Severity = getSeverityForState(pollerData.CurrentState)
 	row.EventTimestamp = pollerData.Timestamp
+	row.Version = "1.1"
+
+	return true
+}
+
+func tryDeviceLifecycleEvent(row *models.EventRow, ce *models.CloudEvent, dataBytes []byte) bool {
+	if ce.Type != "com.carverauto.serviceradar.device.lifecycle" &&
+		ce.Subject != "events.devices.lifecycle" {
+		return false
+	}
+
+	var deviceData models.DeviceLifecycleEventData
+
+	if err := json.Unmarshal(dataBytes, &deviceData); err != nil {
+		return false
+	}
+
+	row.Host = deviceData.DeviceID
+	row.RemoteAddr = deviceData.RemoteAddr
+
+	action := strings.ToLower(deviceData.Action)
+	if action == "" {
+		action = "updated"
+	}
+
+	row.ShortMessage = fmt.Sprintf("Device %s %s", deviceData.DeviceID, action)
+
+	if deviceData.Actor != "" {
+		row.ShortMessage = fmt.Sprintf("%s by %s", row.ShortMessage, deviceData.Actor)
+	}
+
+	if deviceData.Level != 0 {
+		row.Level = deviceData.Level
+	} else {
+		row.Level = 5
+	}
+
+	if deviceData.Severity != "" {
+		row.Severity = deviceData.Severity
+	} else {
+		row.Severity = "Medium"
+	}
+
+	if !deviceData.Timestamp.IsZero() {
+		row.EventTimestamp = deviceData.Timestamp
+	}
+
 	row.Version = "1.1"
 
 	return true

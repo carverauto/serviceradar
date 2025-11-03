@@ -32,6 +32,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -147,7 +148,8 @@ func (s *Server) handlePoller(batchCtx context.Context, ps *models.PollerStatus,
 }
 
 func (s *Server) flushPollerStatusUpdates(ctx context.Context) {
-	ticker := time.NewTicker(defaultPollerStatusUpdateInterval)
+	interval := s.pollerStatusIntervalOrDefault()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -394,6 +396,15 @@ func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealt
 		return fmt.Errorf("failed to store poller status: %w", err)
 	}
 
+	// Register poller as a device for inventory tracking
+	if err := s.registerPollerAsDevice(ctx, pollerID); err != nil {
+		// Log but don't fail - device registration is best-effort
+		s.logger.Warn().
+			Err(err).
+			Str("poller_id", pollerID).
+			Msg("Failed to register poller as device")
+	}
+
 	return nil
 }
 
@@ -417,6 +428,15 @@ func (s *Server) updatePollerStatus(ctx context.Context, pollerID string, isHeal
 
 	if err := s.DB.UpdatePollerStatus(ctx, pollerStatus); err != nil {
 		return fmt.Errorf("failed to update poller status: %w", err)
+	}
+
+	// Register poller as a device for inventory tracking
+	if err := s.registerPollerAsDevice(ctx, pollerID); err != nil {
+		// Log but don't fail - device registration is best-effort
+		s.logger.Warn().
+			Err(err).
+			Str("poller_id", pollerID).
+			Msg("Failed to register poller as device")
 	}
 
 	return nil
@@ -559,6 +579,15 @@ func (s *Server) processStatusReport(
 			return nil, fmt.Errorf("failed to store poller status: %w", err)
 		}
 
+		// Register poller as a device for inventory tracking
+		if err := s.registerPollerAsDevice(ctx, req.PollerId); err != nil {
+			// Log but don't fail - device registration is best-effort
+			s.logger.Warn().
+				Err(err).
+				Str("poller_id", req.PollerId).
+				Msg("Failed to register poller as device")
+		}
+
 		apiStatus := s.createPollerStatus(req, now)
 		s.processServices(ctx, req.PollerId, req.Partition, req.SourceIp, apiStatus, req.Services, now)
 
@@ -699,12 +728,25 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 	}
 }
 func (s *Server) isKnownPoller(ctx context.Context, pollerID string) bool {
+	// Backwards compatibility: check static config first
 	for _, known := range s.config.KnownPollers {
 		if known == pollerID {
 			return true
 		}
 	}
 
+	// Primary path: check service registry for registered pollers
+	if s.ServiceRegistry != nil {
+		known, err := s.ServiceRegistry.IsKnownPoller(ctx, pollerID)
+		if err != nil {
+			s.logger.Warn().Err(err).Str("poller_id", pollerID).Msg("Failed to check service registry")
+		}
+		if known {
+			return true
+		}
+	}
+
+	// Legacy fallback: check edge onboarding allowed pollers
 	if s.edgeOnboarding != nil {
 		if s.edgeOnboarding.isPollerAllowed(ctx, pollerID) {
 			return true
@@ -864,6 +906,13 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 			Msg("Ignoring status report from unknown poller")
 
 		return &proto.PollerStatusResponse{Received: true}, nil
+	}
+
+	// Auto-register poller if not already in service registry
+	if err := s.ensurePollerRegistered(ctx, req.PollerId, req.SourceIp); err != nil {
+		s.logger.Warn().Err(err).
+			Str("poller_id", req.PollerId).
+			Msg("Failed to auto-register poller in service registry")
 	}
 
 	now := time.Unix(req.Timestamp, 0)
@@ -1102,6 +1151,13 @@ func (s *Server) processStreamedStatus(
 
 	s.validateLocationData(metadata)
 
+	// Auto-register poller if not already in service registry
+	if err := s.ensurePollerRegistered(ctx, metadata.pollerID, metadata.sourceIP); err != nil {
+		s.logger.Warn().Err(err).
+			Str("poller_id", metadata.pollerID).
+			Msg("Failed to auto-register poller in service registry")
+	}
+
 	if !s.isKnownPoller(ctx, metadata.pollerID) {
 		s.logger.Warn().
 			Str("poller_id", metadata.pollerID).
@@ -1218,4 +1274,208 @@ func (s *Server) copyPollerStatusCache() map[string]*models.PollerStatus {
 	}
 
 	return result
+}
+
+// registerPollerAsDevice registers a poller as a device in the inventory
+func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID string) error {
+	if s.DeviceRegistry == nil {
+		s.logger.Debug().
+			Str("poller_id", pollerID).
+			Msg("DeviceRegistry is nil, skipping poller device registration")
+		return nil // Registry not available
+	}
+
+	// Get host IP - in Kubernetes this will be the pod IP
+	hostIP := s.getHostIP()
+
+	metadata := map[string]string{
+		"last_heartbeat": time.Now().Format(time.RFC3339),
+	}
+
+	deviceUpdate := models.CreatePollerDeviceUpdate(pollerID, hostIP, metadata)
+
+	s.logger.Info().
+		Str("poller_id", pollerID).
+		Str("device_id", deviceUpdate.DeviceID).
+		Str("host_ip", hostIP).
+		Msg("Registering poller as device")
+
+	if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate}); err != nil {
+		return err
+	}
+
+	s.logger.Info().
+		Str("poller_id", pollerID).
+		Str("device_id", deviceUpdate.DeviceID).
+		Msg("Successfully registered poller as device")
+
+	return nil
+}
+
+// registerAgentAsDevice registers an agent as a device in the inventory
+func (s *Server) registerAgentAsDevice(ctx context.Context, agentID, pollerID, hostIP string) error {
+	if s.DeviceRegistry == nil {
+		return nil // Registry not available
+	}
+
+	metadata := map[string]string{
+		"last_heartbeat": time.Now().Format(time.RFC3339),
+	}
+
+	deviceUpdate := models.CreateAgentDeviceUpdate(agentID, pollerID, hostIP, metadata)
+
+	return s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate})
+}
+
+// registerCheckerAsDevice registers a checker as a device in the inventory
+func (s *Server) registerCheckerAsDevice(ctx context.Context, checkerID, checkerKind, agentID, pollerID, hostIP string) error {
+	if s.DeviceRegistry == nil {
+		return nil // Registry not available
+	}
+
+	metadata := map[string]string{
+		"last_heartbeat": time.Now().Format(time.RFC3339),
+	}
+
+	deviceUpdate := models.CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP, metadata)
+
+	return s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate})
+}
+
+// getHostIP returns the host IP address for this service
+func (s *Server) getHostIP() string {
+	// In Kubernetes, this will typically be the pod IP
+	// For now, return empty string and let the device registry handle it
+	return ""
+}
+
+// ensurePollerRegistered ensures a poller is registered in the service registry.
+// This is called on first heartbeat to auto-register pollers that are configured
+// but not yet in the registry (e.g., k8s, docker-compose services).
+func (s *Server) ensurePollerRegistered(ctx context.Context, pollerID, sourceIP string) error {
+	if s.ServiceRegistry == nil {
+		return nil // Service registry not enabled
+	}
+
+	// Check if already registered
+	existing, err := s.ServiceRegistry.GetPoller(ctx, pollerID)
+	if err == nil && existing != nil {
+		// Already registered, just record heartbeat
+		return s.ServiceRegistry.RecordHeartbeat(ctx, &registry.ServiceHeartbeat{
+			ServiceID:   pollerID,
+			ServiceType: "poller",
+			PollerID:    pollerID,
+			Timestamp:   time.Now().UTC(),
+			SourceIP:    sourceIP,
+			Healthy:     true,
+		})
+	}
+
+	// Not registered yet - auto-register with implicit source
+	s.logger.Info().
+		Str("poller_id", pollerID).
+		Str("source_ip", sourceIP).
+		Msg("Auto-registering poller from heartbeat")
+
+	return s.ServiceRegistry.RegisterPoller(ctx, &registry.PollerRegistration{
+		PollerID:           pollerID,
+		ComponentID:        pollerID,
+		RegistrationSource: registry.RegistrationSourceImplicit,
+		Metadata: map[string]string{
+			"source_ip":         sourceIP,
+			"auto_registered":   "true",
+			"registration_time": time.Now().UTC().Format(time.RFC3339),
+		},
+		SPIFFEIdentity: "", // Will be filled in if SPIFFE is detected later
+		CreatedBy:      "system",
+	})
+}
+
+// ensureAgentRegistered ensures an agent is registered in the service registry.
+func (s *Server) ensureAgentRegistered(ctx context.Context, agentID, pollerID, sourceIP string) error {
+	if s.ServiceRegistry == nil {
+		return nil
+	}
+
+	// Check if already registered
+	existing, err := s.ServiceRegistry.GetAgent(ctx, agentID)
+	if err == nil && existing != nil {
+		// Already registered, just record heartbeat
+		return s.ServiceRegistry.RecordHeartbeat(ctx, &registry.ServiceHeartbeat{
+			ServiceID:   agentID,
+			ServiceType: "agent",
+			PollerID:    pollerID,
+			AgentID:     agentID,
+			Timestamp:   time.Now().UTC(),
+			SourceIP:    sourceIP,
+			Healthy:     true,
+		})
+	}
+
+	// Auto-register
+	s.logger.Info().
+		Str("agent_id", agentID).
+		Str("poller_id", pollerID).
+		Msg("Auto-registering agent from heartbeat")
+
+	return s.ServiceRegistry.RegisterAgent(ctx, &registry.AgentRegistration{
+		AgentID:            agentID,
+		PollerID:           pollerID,
+		ComponentID:        agentID,
+		RegistrationSource: registry.RegistrationSourceImplicit,
+		Metadata: map[string]string{
+			"source_ip":         sourceIP,
+			"auto_registered":   "true",
+			"registration_time": time.Now().UTC().Format(time.RFC3339),
+		},
+		SPIFFEIdentity: "",
+		CreatedBy:      "system",
+	})
+}
+
+// ensureCheckerRegistered ensures a checker is registered in the service registry.
+func (s *Server) ensureCheckerRegistered(ctx context.Context, checkerID, agentID, pollerID, checkerKind, sourceIP string) error {
+	if s.ServiceRegistry == nil {
+		return nil
+	}
+
+	// Check if already registered
+	existing, err := s.ServiceRegistry.GetChecker(ctx, checkerID)
+	if err == nil && existing != nil {
+		// Already registered, just record heartbeat
+		return s.ServiceRegistry.RecordHeartbeat(ctx, &registry.ServiceHeartbeat{
+			ServiceID:   checkerID,
+			ServiceType: "checker",
+			PollerID:    pollerID,
+			AgentID:     agentID,
+			CheckerID:   checkerID,
+			Timestamp:   time.Now().UTC(),
+			SourceIP:    sourceIP,
+			Healthy:     true,
+		})
+	}
+
+	// Auto-register
+	s.logger.Info().
+		Str("checker_id", checkerID).
+		Str("agent_id", agentID).
+		Str("poller_id", pollerID).
+		Str("checker_kind", checkerKind).
+		Msg("Auto-registering checker from heartbeat")
+
+	return s.ServiceRegistry.RegisterChecker(ctx, &registry.CheckerRegistration{
+		CheckerID:          checkerID,
+		AgentID:            agentID,
+		PollerID:           pollerID,
+		CheckerKind:        checkerKind,
+		ComponentID:        checkerID,
+		RegistrationSource: registry.RegistrationSourceImplicit,
+		Metadata: map[string]string{
+			"source_ip":         sourceIP,
+			"auto_registered":   "true",
+			"registration_time": time.Now().UTC().Format(time.RFC3339),
+		},
+		SPIFFEIdentity: "",
+		CreatedBy:      "system",
+	})
 }

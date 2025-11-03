@@ -237,6 +237,19 @@ const Dashboard = () => {
 
     useEffect(() => {
         if (activeViewId === 'devices:inventory') {
+            const normalizedIncoming = normalizeQuery(activeSrqlQuery);
+            const normalizedStateQuery = normalizeQuery(buildQueryFromState());
+
+            if (
+                normalizedIncoming &&
+                normalizedIncoming !== normalizedStateQuery &&
+                pendingFilterRef.current === null
+            ) {
+                suppressStateSyncRef.current = true;
+                void runDevicesQuery(normalizedIncoming, { syncContext: false });
+                return;
+            }
+
             fetchDevicesFromState();
             return;
         }
@@ -393,7 +406,11 @@ const Dashboard = () => {
                         <select
                             id="statusFilter"
                             value={filterStatus}
-                            onChange={(e) => setFilterStatus(e.target.value as 'all' | 'online' | 'offline')}
+                            onChange={(e) => {
+                                const nextStatus = e.target.value as 'all' | 'online' | 'offline';
+                                pendingFilterRef.current = nextStatus;
+                                setFilterStatus(nextStatus);
+                            }}
                             className="border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
                         >
                             <option value="all">All</option>

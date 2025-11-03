@@ -45,6 +45,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
 	"github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/carverauto/serviceradar/proto"
@@ -211,6 +212,11 @@ func WithEdgeOnboarding(service EdgeOnboardingService) func(server *APIServer) {
 	return func(server *APIServer) { server.edgeOnboarding = service }
 }
 
+// WithEventPublisher attaches an event publisher to the API server for emitting lifecycle events.
+func WithEventPublisher(publisher *natsutil.EventPublisher) func(server *APIServer) {
+	return func(server *APIServer) { server.eventPublisher = publisher }
+}
+
 // getKVClient dials a KV gRPC endpoint by ID; falls back to default kvAddress.
 func (s *APIServer) getKVClient(ctx context.Context, id string) (proto.KVServiceClient, func(), error) {
 	// choose endpoint
@@ -260,6 +266,13 @@ func WithDBService(dbSvc db.Service) func(server *APIServer) {
 func WithDeviceRegistry(dr DeviceRegistryService) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.deviceRegistry = dr
+	}
+}
+
+// WithServiceRegistry adds a service registry to the API server
+func WithServiceRegistry(sr ServiceRegistryService) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.serviceRegistry = sr
 	}
 }
 
@@ -739,7 +752,8 @@ func (s *APIServer) setupProtectedRoutes() {
 
 	// Device-centric endpoints
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
-	protected.HandleFunc("/devices/{id}", s.getDevice).Methods("GET")
+	protected.HandleFunc("/devices/{id}", s.handleDeviceByID).Methods("GET", "DELETE")
+	protected.HandleFunc("/devices/{id}/registry", s.getDeviceRegistryInfo).Methods("GET")
 	protected.HandleFunc("/devices/{id}/metrics", s.getDeviceMetrics).Methods("GET")
 	protected.HandleFunc("/devices/metrics/status", s.getDeviceMetricsStatus).Methods("GET")
 	protected.HandleFunc("/devices/snmp/status", s.getDeviceSNMPStatus).Methods("POST")
@@ -768,6 +782,13 @@ func (s *APIServer) setupProtectedRoutes() {
 	adminRoutes.HandleFunc("/edge-packages/{id}/events", s.handleListEdgePackageEvents).Methods("GET")
 	adminRoutes.HandleFunc("/edge-packages/{id}/download", s.handleDownloadEdgePackage).Methods("POST")
 	adminRoutes.HandleFunc("/edge-packages/{id}/revoke", s.handleRevokeEdgePackage).Methods("POST")
+
+	// DataSvc registry endpoints
+	adminRoutes.HandleFunc("/datasvc-instances", s.handleListDataSvcInstances).Methods("GET")
+
+	// Agent registry endpoints
+	adminRoutes.HandleFunc("/agents", s.handleListAgents).Methods("GET")
+	adminRoutes.HandleFunc("/pollers/{poller_id}/agents", s.handleListAgentsByPoller).Methods("GET")
 
 	// KV endpoints enumeration (optional, for Admin UI)
 	protected.HandleFunc("/kv/endpoints", s.handleListKVEndpoints).Methods("GET")
@@ -1779,6 +1800,19 @@ func (s *APIServer) fallbackToDBDeviceList(ctx context.Context, w http.ResponseW
 
 // fallbackToSRQLQuery handles the SRQL query fallback path for device listing
 
+// handleDeviceByID routes device requests to the appropriate handler based on HTTP method.
+func (s *APIServer) handleDeviceByID(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.getDevice(w, r)
+	case http.MethodDelete:
+		s.deleteDevice(w, r)
+	default:
+		w.Header().Set("Allow", "GET, DELETE")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 // @Summary Get specific device
 // @Description Retrieves details for a specific device by device ID
 // @Tags Devices
@@ -1994,6 +2028,14 @@ func filterDevices(devices []*models.UnifiedDevice, searchTerm, status string, l
 	for _, device := range devices {
 		// Filter out merged devices (safety net) - ALWAYS apply this filter
 		if device.Metadata != nil && device.Metadata.Value != nil {
+			if deleted, ok := device.Metadata.Value["_deleted"]; ok && strings.EqualFold(deleted, "true") {
+				logger.Debug().Str("device_id", device.DeviceID).Msg("Filtering out deleted device")
+				continue
+			}
+			if deleted, ok := device.Metadata.Value["deleted"]; ok && strings.EqualFold(deleted, "true") {
+				logger.Debug().Str("device_id", device.DeviceID).Msg("Filtering out deleted device")
+				continue
+			}
 			if mergedInto, hasMerged := device.Metadata.Value["_merged_into"]; hasMerged {
 				logger.Debug().Str("device_id", device.DeviceID).Str("merged_into", mergedInto).Msg("Filtering out merged device")
 

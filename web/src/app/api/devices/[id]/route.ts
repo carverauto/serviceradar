@@ -81,3 +81,62 @@ export async function GET(req: NextRequest, props: RouteProps) {
     );
   }
 }
+
+export async function DELETE(req: NextRequest, props: RouteProps) {
+  const params = await props.params;
+  const deviceId = decodeURIComponent(params.id);
+  const apiKey = getApiKey();
+  const apiUrl = getInternalApiUrl();
+
+  try {
+    // Get authorization header from incoming request
+    const authHeader = req.headers.get("authorization");
+
+    // Create headers for backend request
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
+      "X-API-Key": apiKey,
+    };
+
+    // Add Authorization header if it exists
+    if (authHeader) {
+      headers["Authorization"] = authHeader;
+    }
+
+    // Forward delete request to Go API
+    const response = await fetch(`${apiUrl}/api/devices/${encodeURIComponent(deviceId)}`, {
+      method: "DELETE",
+      headers,
+      cache: "no-store",
+    });
+
+    // Check for and handle errors
+    if (!response.ok) {
+      const status = response.status;
+      let errorMessage: string;
+
+      try {
+        errorMessage = await response.text();
+      } catch {
+        errorMessage = `Status code: ${status}`;
+      }
+
+      // Return error response
+      return NextResponse.json(
+          { error: "Failed to delete device", details: errorMessage },
+          { status },
+      );
+    }
+
+    // Return successful response
+    const data = await response.json();
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error(`Error deleting device ${deviceId}:`, error);
+
+    return NextResponse.json(
+        { error: "Internal server error while deleting device" },
+        { status: 500 },
+    );
+  }
+}

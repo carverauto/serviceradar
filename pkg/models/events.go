@@ -110,3 +110,17 @@ type PollerHealthEventData struct {
 	AlertSent      bool      `json:"alert_sent"`
 	RecoveryReason string    `json:"recovery_reason,omitempty"`
 }
+
+// DeviceLifecycleEventData represents lifecycle changes for a device (manual delete, restore, etc).
+type DeviceLifecycleEventData struct {
+	DeviceID   string            `json:"device_id"`
+	Partition  string            `json:"partition,omitempty"`
+	Action     string            `json:"action"` // e.g. deleted, restored
+	Actor      string            `json:"actor,omitempty"`
+	Reason     string            `json:"reason,omitempty"`
+	Timestamp  time.Time         `json:"timestamp"`
+	Severity   string            `json:"severity,omitempty"`
+	Level      int32             `json:"level,omitempty"`
+	RemoteAddr string            `json:"remote_addr,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+}
