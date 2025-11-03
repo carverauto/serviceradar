@@ -861,13 +861,25 @@ func (r *DeviceRegistry) filterObsoleteUpdates(ctx context.Context, updates []*m
 		}
 
 		if update.Source == models.DiscoverySourceSelfReported || update.Source == models.DiscoverySourceServiceRadar {
-			dropped++
+			// Block self-reported updates for tombstoned devices unless the update is fresh,
+			// which can happen during re-onboarding when a device comes back online.
+			if !update.Timestamp.After(deletedAt) {
+				dropped++
+				r.logger.Info().
+					Str("device_id", update.DeviceID).
+					Str("source", string(update.Source)).
+					Time("deleted_at", deletedAt).
+					Time("update_ts", update.Timestamp).
+					Msg("Blocking self-reported update for tombstoned device")
+				continue
+			}
+			// Update is newer than deletion - allow re-onboarding
 			r.logger.Info().
 				Str("device_id", update.DeviceID).
 				Str("source", string(update.Source)).
 				Time("deleted_at", deletedAt).
-				Msg("Blocking self-reported update for tombstoned device")
-			continue
+				Time("update_ts", update.Timestamp).
+				Msg("Allowing self-reported update for re-onboarding (update is newer than deletion)")
 		}
 
 		updateTimestamp := update.Timestamp

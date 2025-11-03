@@ -35,6 +35,8 @@ var (
 	ErrIntegrationResultNil = errors.New("integration result is nil")
 )
 
+const defaultServiceConfigFile = "service.json"
+
 // IntegrationResult contains the results of onboarding that services need to start.
 type IntegrationResult struct {
 	// ConfigPath is the path to the generated configuration file
@@ -140,8 +142,10 @@ func getConfigKeyForComponent(componentType models.EdgeOnboardingComponentType) 
 		return "agent.json"
 	case models.EdgeOnboardingComponentTypeChecker:
 		return "checker.json"
+	case models.EdgeOnboardingComponentTypeNone:
+		return defaultServiceConfigFile
 	default:
-		return "service.json"
+		return defaultServiceConfigFile
 	}
 }
 
@@ -162,8 +166,10 @@ func writeGeneratedConfig(componentType models.EdgeOnboardingComponentType, data
 		filename = "agent.json"
 	case models.EdgeOnboardingComponentTypeChecker:
 		filename = "checker.json"
+	case models.EdgeOnboardingComponentTypeNone:
+		filename = defaultServiceConfigFile
 	default:
-		filename = "service.json"
+		filename = defaultServiceConfigFile
 	}
 
 	configPath := filepath.Join(configDir, filename)

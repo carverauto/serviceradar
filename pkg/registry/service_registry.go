@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -11,6 +12,23 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+)
+
+var (
+	// ErrPollerAlreadyRegistered is returned when a poller is already registered.
+	ErrPollerAlreadyRegistered = errors.New("poller already registered")
+	// ErrParentPollerNotFound is returned when a parent poller is not found.
+	ErrParentPollerNotFound = errors.New("parent poller not found")
+	// ErrAgentAlreadyRegistered is returned when an agent is already registered.
+	ErrAgentAlreadyRegistered = errors.New("agent already registered")
+	// ErrParentAgentNotFound is returned when a parent agent is not found.
+	ErrParentAgentNotFound = errors.New("parent agent not found")
+	// ErrCheckerAlreadyRegistered is returned when a checker is already registered.
+	ErrCheckerAlreadyRegistered = errors.New("checker already registered")
+	// ErrUnknownServiceType is returned when an unknown service type is encountered.
+	ErrUnknownServiceType = errors.New("unknown service type")
+	// ErrCannotDeleteActiveService is returned when trying to delete an active service.
+	ErrCannotDeleteActiveService = errors.New("cannot delete service: mark inactive/revoked/deleted first")
 )
 
 const (
@@ -50,7 +68,7 @@ func (r *ServiceRegistry) RegisterPoller(ctx context.Context, reg *PollerRegistr
 			Str("poller_id", reg.PollerID).
 			Str("status", string(existing.Status)).
 			Msg("Poller already registered")
-		return fmt.Errorf("poller %s already registered with status %s", reg.PollerID, existing.Status)
+		return fmt.Errorf("%w: %s with status %s", ErrPollerAlreadyRegistered, reg.PollerID, existing.Status)
 	}
 
 	// Marshal metadata to JSON
@@ -95,7 +113,13 @@ func (r *ServiceRegistry) RegisterPoller(ctx context.Context, reg *PollerRegistr
 	}
 
 	// Emit registration event
-	if err := r.emitRegistrationEvent(ctx, "registered", "poller", reg.PollerID, "", reg.RegistrationSource, reg.CreatedBy, nil); err != nil {
+	eventMetadata := map[string]string{
+		"component_id": reg.ComponentID,
+	}
+	if reg.SPIFFEIdentity != "" {
+		eventMetadata["spiffe_id"] = reg.SPIFFEIdentity
+	}
+	if err := r.emitRegistrationEvent(ctx, "registered", serviceTypePoller, reg.PollerID, "", reg.RegistrationSource, reg.CreatedBy, eventMetadata); err != nil {
 		r.logger.Warn().Err(err).Msg("Failed to emit registration event")
 	}
 
@@ -121,7 +145,7 @@ func (r *ServiceRegistry) RegisterAgent(ctx context.Context, reg *AgentRegistrat
 		// Verify parent poller exists for explicit registrations
 		poller, err := r.GetPoller(ctx, reg.PollerID)
 		if err != nil || poller == nil {
-			return fmt.Errorf("parent poller %s not found", reg.PollerID)
+			return fmt.Errorf("%w: %s", ErrParentPollerNotFound, reg.PollerID)
 		}
 	}
 
@@ -132,7 +156,7 @@ func (r *ServiceRegistry) RegisterAgent(ctx context.Context, reg *AgentRegistrat
 			Str("agent_id", reg.AgentID).
 			Str("status", string(existing.Status)).
 			Msg("Agent already registered")
-		return fmt.Errorf("agent %s already registered with status %s", reg.AgentID, existing.Status)
+		return fmt.Errorf("%w: %s with status %s", ErrAgentAlreadyRegistered, reg.AgentID, existing.Status)
 	}
 
 	// Marshal metadata to JSON
@@ -176,7 +200,14 @@ func (r *ServiceRegistry) RegisterAgent(ctx context.Context, reg *AgentRegistrat
 	}
 
 	// Emit registration event
-	if err := r.emitRegistrationEvent(ctx, "registered", "agent", reg.AgentID, reg.PollerID, reg.RegistrationSource, reg.CreatedBy, nil); err != nil {
+	eventMetadata := map[string]string{
+		"component_id": reg.ComponentID,
+		"poller_id":    reg.PollerID,
+	}
+	if reg.SPIFFEIdentity != "" {
+		eventMetadata["spiffe_id"] = reg.SPIFFEIdentity
+	}
+	if err := r.emitRegistrationEvent(ctx, "registered", serviceTypeAgent, reg.AgentID, reg.PollerID, reg.RegistrationSource, reg.CreatedBy, eventMetadata); err != nil {
 		r.logger.Warn().Err(err).Msg("Failed to emit registration event")
 	}
 
@@ -200,7 +231,7 @@ func (r *ServiceRegistry) RegisterChecker(ctx context.Context, reg *CheckerRegis
 		// Verify parent agent exists for explicit registrations
 		agent, err := r.GetAgent(ctx, reg.AgentID)
 		if err != nil || agent == nil {
-			return fmt.Errorf("parent agent %s not found", reg.AgentID)
+			return fmt.Errorf("%w: %s", ErrParentAgentNotFound, reg.AgentID)
 		}
 	}
 
@@ -211,7 +242,7 @@ func (r *ServiceRegistry) RegisterChecker(ctx context.Context, reg *CheckerRegis
 			Str("checker_id", reg.CheckerID).
 			Str("status", string(existing.Status)).
 			Msg("Checker already registered")
-		return fmt.Errorf("checker %s already registered with status %s", reg.CheckerID, existing.Status)
+		return fmt.Errorf("%w: %s with status %s", ErrCheckerAlreadyRegistered, reg.CheckerID, existing.Status)
 	}
 
 	// Marshal metadata to JSON
@@ -256,7 +287,16 @@ func (r *ServiceRegistry) RegisterChecker(ctx context.Context, reg *CheckerRegis
 	}
 
 	// Emit registration event
-	if err := r.emitRegistrationEvent(ctx, "registered", "checker", reg.CheckerID, reg.AgentID, reg.RegistrationSource, reg.CreatedBy, nil); err != nil {
+	eventMetadata := map[string]string{
+		"component_id": reg.ComponentID,
+		"agent_id":     reg.AgentID,
+		"poller_id":    reg.PollerID,
+		"checker_kind": reg.CheckerKind,
+	}
+	if reg.SPIFFEIdentity != "" {
+		eventMetadata["spiffe_id"] = reg.SPIFFEIdentity
+	}
+	if err := r.emitRegistrationEvent(ctx, "registered", serviceTypeChecker, reg.CheckerID, reg.AgentID, reg.RegistrationSource, reg.CreatedBy, eventMetadata); err != nil {
 		r.logger.Warn().Err(err).Msg("Failed to emit registration event")
 	}
 
@@ -279,14 +319,14 @@ func (r *ServiceRegistry) RecordHeartbeat(ctx context.Context, heartbeat *Servic
 	}
 
 	switch heartbeat.ServiceType {
-	case "poller":
+	case serviceTypePoller:
 		return r.recordPollerHeartbeat(ctx, heartbeat.PollerID, now, heartbeat.SourceIP)
-	case "agent":
+	case serviceTypeAgent:
 		return r.recordAgentHeartbeat(ctx, heartbeat.AgentID, heartbeat.PollerID, now, heartbeat.SourceIP)
-	case "checker":
+	case serviceTypeChecker:
 		return r.recordCheckerHeartbeat(ctx, heartbeat.CheckerID, heartbeat.AgentID, heartbeat.PollerID, now)
 	default:
-		return fmt.Errorf("unknown service type: %s", heartbeat.ServiceType)
+		return fmt.Errorf("%w: %s", ErrUnknownServiceType, heartbeat.ServiceType)
 	}
 }
 
@@ -374,7 +414,13 @@ func (r *ServiceRegistry) recordPollerHeartbeat(ctx context.Context, pollerID st
 
 	// Emit activation event if transitioned to active
 	if poller.Status == ServiceStatusPending && newStatus == ServiceStatusActive {
-		if err := r.emitRegistrationEvent(ctx, "activated", "poller", pollerID, "", poller.RegistrationSource, "system", nil); err != nil {
+		eventMetadata := map[string]string{
+			"component_id": poller.ComponentID,
+		}
+		if sourceIP != "" {
+			eventMetadata["source_ip"] = sourceIP
+		}
+		if err := r.emitRegistrationEvent(ctx, "activated", serviceTypePoller, pollerID, "", poller.RegistrationSource, "system", eventMetadata); err != nil {
 			r.logger.Warn().Err(err).Msg("Failed to emit activation event")
 		}
 		r.logger.Info().
@@ -454,7 +500,14 @@ func (r *ServiceRegistry) recordAgentHeartbeat(ctx context.Context, agentID, pol
 
 	// Emit activation event if transitioned to active
 	if agent.Status == ServiceStatusPending && newStatus == ServiceStatusActive {
-		if err := r.emitRegistrationEvent(ctx, "activated", "agent", agentID, pollerID, agent.RegistrationSource, "system", nil); err != nil {
+		eventMetadata := map[string]string{
+			"component_id": agent.ComponentID,
+			"poller_id":    pollerID,
+		}
+		if sourceIP != "" {
+			eventMetadata["source_ip"] = sourceIP
+		}
+		if err := r.emitRegistrationEvent(ctx, "activated", serviceTypeAgent, agentID, pollerID, agent.RegistrationSource, "system", eventMetadata); err != nil {
 			r.logger.Warn().Err(err).Msg("Failed to emit activation event")
 		}
 		r.logger.Info().
@@ -475,6 +528,7 @@ func (r *ServiceRegistry) recordCheckerHeartbeat(ctx context.Context, checkerID,
 		r.logger.Warn().
 			Str("checker_id", checkerID).
 			Str("agent_id", agentID).
+			Str("poller_id", pollerID).
 			Msg("Received heartbeat from unregistered checker")
 		return nil
 	}
@@ -532,12 +586,19 @@ func (r *ServiceRegistry) recordCheckerHeartbeat(ctx context.Context, checkerID,
 
 	// Emit activation event if transitioned to active
 	if checker.Status == ServiceStatusPending && newStatus == ServiceStatusActive {
-		if err := r.emitRegistrationEvent(ctx, "activated", "checker", checkerID, agentID, checker.RegistrationSource, "system", nil); err != nil {
+		eventMetadata := map[string]string{
+			"component_id": checker.ComponentID,
+			"agent_id":     agentID,
+			"poller_id":    pollerID,
+			"checker_kind": checker.CheckerKind,
+		}
+		if err := r.emitRegistrationEvent(ctx, "activated", serviceTypeChecker, checkerID, agentID, checker.RegistrationSource, "system", eventMetadata); err != nil {
 			r.logger.Warn().Err(err).Msg("Failed to emit activation event")
 		}
 		r.logger.Info().
 			Str("checker_id", checkerID).
 			Str("agent_id", agentID).
+			Str("poller_id", pollerID).
 			Msg("Checker activated on first heartbeat")
 	}
 
@@ -546,6 +607,9 @@ func (r *ServiceRegistry) recordCheckerHeartbeat(ctx context.Context, checkerID,
 
 // emitRegistrationEvent emits an audit event to the service_registration_events stream.
 func (r *ServiceRegistry) emitRegistrationEvent(ctx context.Context, eventType, serviceType, serviceID, parentID string, source RegistrationSource, actor string, metadata map[string]string) error {
+	if metadata == nil {
+		metadata = map[string]string{}
+	}
 	eventID := uuid.New().String()
 	now := time.Now().UTC()
 
@@ -598,14 +662,14 @@ func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, servic
 	var source string
 
 	switch serviceType {
-	case "poller":
+	case serviceTypePoller:
 		query = `SELECT status, registration_source FROM pollers WHERE poller_id = ? LIMIT 1`
-	case "agent":
+	case serviceTypeAgent:
 		query = `SELECT status, registration_source FROM agents WHERE agent_id = ? LIMIT 1`
-	case "checker":
+	case serviceTypeChecker:
 		query = `SELECT status, registration_source FROM checkers WHERE checker_id = ? LIMIT 1`
 	default:
-		return fmt.Errorf("unknown service type: %s", serviceType)
+		return fmt.Errorf("%w: %s", ErrUnknownServiceType, serviceType)
 	}
 
 	row := r.db.Conn.QueryRow(ctx, query, serviceID)
@@ -614,11 +678,14 @@ func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, servic
 	}
 
 	if status == string(ServiceStatusActive) || status == string(ServiceStatusPending) {
-		return fmt.Errorf("cannot delete service %s with status %s: mark inactive/revoked/deleted first", serviceID, status)
+		return fmt.Errorf("%w: %s with status %s", ErrCannotDeleteActiveService, serviceID, status)
 	}
 
 	// Emit deletion event BEFORE deleting
-	if err := r.emitRegistrationEvent(ctx, "deleted", serviceType, serviceID, "", RegistrationSource(source), "system", nil); err != nil {
+	metadata := map[string]string{
+		"service_id": serviceID,
+	}
+	if err := r.emitRegistrationEvent(ctx, "deleted", serviceType, serviceID, "", RegistrationSource(source), "system", metadata); err != nil {
 		r.logger.Warn().Err(err).Msg("Failed to emit deletion event")
 	}
 
@@ -626,11 +693,11 @@ func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, servic
 	// Note: For versioned_kv streams in Timeplus/ClickHouse, we use DELETE FROM
 	var deleteQuery string
 	switch serviceType {
-	case "poller":
+	case serviceTypePoller:
 		deleteQuery = `DELETE FROM pollers WHERE poller_id = ?`
-	case "agent":
+	case serviceTypeAgent:
 		deleteQuery = `DELETE FROM agents WHERE agent_id = ?`
-	case "checker":
+	case serviceTypeChecker:
 		deleteQuery = `DELETE FROM checkers WHERE checker_id = ?`
 	}
 
@@ -639,7 +706,7 @@ func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, servic
 	}
 
 	// Invalidate cache if it's a poller
-	if serviceType == "poller" {
+	if serviceType == serviceTypePoller {
 		r.invalidatePollerCache()
 	}
 

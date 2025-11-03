@@ -708,7 +708,7 @@ func TestProcessBatchDeviceUpdates_DropsSelfReportedAfterDelete(t *testing.T) {
 	mockDB.EXPECT().
 		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
 		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
-			require.Len(t, updates, 0, "stale updates should be dropped before publishing")
+			require.Empty(t, updates, "stale updates should be dropped before publishing")
 			return nil
 		})
 

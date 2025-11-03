@@ -18,12 +18,15 @@ package edgeonboarding
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
+
+var errBootstrapperPackageNotInitialized = errors.New("bootstrapper package is not initialized")
 
 // configureSPIRE sets up SPIRE credentials for the service.
 // For pollers: Configures nested SPIRE server
@@ -58,6 +61,8 @@ func (b *Bootstrapper) configureSPIRE(ctx context.Context) error {
 		return b.configureAgentSPIRE(ctx, spireDir)
 	case models.EdgeOnboardingComponentTypeChecker:
 		return b.configureCheckerSPIRE(ctx, spireDir)
+	case models.EdgeOnboardingComponentTypeNone:
+		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, b.pkg.ComponentType)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, b.pkg.ComponentType)
 	}
@@ -66,6 +71,8 @@ func (b *Bootstrapper) configureSPIRE(ctx context.Context) error {
 // configurePollerSPIRE configures nested SPIRE server for edge pollers.
 // Pollers run their own SPIRE server that attests to the upstream (k8s) SPIRE server.
 func (b *Bootstrapper) configurePollerSPIRE(ctx context.Context, spireDir string) error {
+	_ = ctx
+
 	b.logger.Debug().Msg("Configuring nested SPIRE server for poller")
 
 	// Write join token (one-time use for initial attestation)
@@ -114,13 +121,15 @@ func (b *Bootstrapper) configurePollerSPIRE(ctx context.Context, spireDir string
 // configureAgentSPIRE configures SPIRE agent workload API access for agents.
 // Agents connect to their parent poller's nested SPIRE server.
 func (b *Bootstrapper) configureAgentSPIRE(ctx context.Context, spireDir string) error {
+	_ = ctx
+
 	b.logger.Debug().Msg("Configuring SPIRE agent workload API access")
 
 	// For agents, we expect to be running in the same network namespace as the poller
 	// So we access the poller's SPIRE agent socket directly
 
 	// Store workload API socket path in config
-	workloadAPIPath := "/run/spire/nested/workload/agent.sock"
+	workloadAPIPath := filepath.Join(spireDir, "nested", "workload", "agent.sock")
 	b.generatedConfigs["spire-workload-api-socket"] = []byte(workloadAPIPath)
 
 	b.logger.Debug().
@@ -133,11 +142,13 @@ func (b *Bootstrapper) configureAgentSPIRE(ctx context.Context, spireDir string)
 // configureCheckerSPIRE configures SPIRE access for checkers.
 // Checkers also use the workload API, either from local agent or shared poller.
 func (b *Bootstrapper) configureCheckerSPIRE(ctx context.Context, spireDir string) error {
+	_ = ctx
+
 	b.logger.Debug().Msg("Configuring SPIRE access for checker")
 
 	// Similar to agents, checkers use workload API
 	// TODO: Determine if checker has dedicated SPIRE agent or shares with agent/poller
-	workloadAPIPath := "/run/spire/workload/agent.sock"
+	workloadAPIPath := filepath.Join(spireDir, "workload", "agent.sock")
 	b.generatedConfigs["spire-workload-api-socket"] = []byte(workloadAPIPath)
 
 	b.logger.Debug().
@@ -149,6 +160,12 @@ func (b *Bootstrapper) configureCheckerSPIRE(ctx context.Context, spireDir strin
 
 // generateNestedSPIREServerConfig generates the SPIRE server configuration for nested server.
 func (b *Bootstrapper) generateNestedSPIREServerConfig(spireDir, upstreamAddr, upstreamPort string) ([]byte, error) {
+	if upstreamAddr == "" {
+		return nil, ErrSPIREUpstreamAddressNotFound
+	}
+	if upstreamPort == "" {
+		return nil, ErrSPIREUpstreamPortNotFound
+	}
 	// TODO: Generate actual SPIRE server config
 	// This will be a HCL configuration file for SPIRE server
 	// Key settings:
@@ -169,6 +186,8 @@ server {
 	trust_domain = "%s"
 	data_dir = "%s"
 	socket_path = "%s"
+	upstream_address = "%s"
+	upstream_port = "%s"
 }
 
 # TODO: Add plugins configuration
@@ -182,6 +201,8 @@ server {
 		extractTrustDomain(b.pkg.DownstreamSPIFFEID),
 		filepath.Join(spireDir, "server-data"),
 		filepath.Join(spireDir, "server.sock"),
+		upstreamAddr,
+		upstreamPort,
 	)
 
 	return []byte(config), nil
@@ -189,6 +210,13 @@ server {
 
 // generateNestedSPIREAgentConfig generates the SPIRE agent configuration.
 func (b *Bootstrapper) generateNestedSPIREAgentConfig(spireDir string) ([]byte, error) {
+	if b.pkg == nil {
+		return nil, errBootstrapperPackageNotInitialized
+	}
+	if b.pkg.DownstreamSPIFFEID == "" {
+		return nil, ErrDownstreamSPIFFEIDEmpty
+	}
+
 	// TODO: Generate actual SPIRE agent config
 	// This will be a HCL configuration file for SPIRE agent
 	// Key settings:

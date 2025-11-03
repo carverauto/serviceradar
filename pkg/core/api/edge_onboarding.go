@@ -98,6 +98,12 @@ type edgePackageDefaultsResponse struct {
 	Metadata  map[string]map[string]string `json:"metadata,omitempty"`
 }
 
+const (
+	componentTypePoller  = "poller"
+	componentTypeChecker = "checker"
+	componentTypeAgent   = serviceAgent
+)
+
 func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Request) {
 	if s.edgeOnboarding == nil {
 		writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
@@ -162,11 +168,11 @@ func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Reques
 					continue
 				}
 				switch trimmed {
-				case "poller":
+				case componentTypePoller:
 					types = append(types, models.EdgeOnboardingComponentTypePoller)
-				case "agent":
+				case componentTypeAgent:
 					types = append(types, models.EdgeOnboardingComponentTypeAgent)
-				case "checker":
+				case componentTypeChecker:
 					types = append(types, models.EdgeOnboardingComponentTypeChecker)
 				default:
 					writeError(w, "component_type must be poller, agent, or checker", http.StatusBadRequest)

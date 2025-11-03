@@ -16,7 +16,7 @@
 
 // template.rs - Checker template registration
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use log::{info, warn};
 
 const DEFAULT_TEMPLATE: &str = include_str!("../config/default_template.json");
@@ -40,7 +40,7 @@ pub async fn register_template() -> Result<()> {
     };
 
     // Validate the template is valid JSON
-    if !serde_json::from_str::<serde_json::Value>(DEFAULT_TEMPLATE).is_ok() {
+    if serde_json::from_str::<serde_json::Value>(DEFAULT_TEMPLATE).is_err() {
         anyhow::bail!("Embedded default template is not valid JSON");
     }
 

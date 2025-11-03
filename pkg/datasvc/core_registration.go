@@ -194,6 +194,8 @@ func (s *Server) registerWithCore(ctx context.Context, client proto.PollerServic
 
 // getSPIFFEID attempts to get the SPIFFE ID from the workload API.
 func (s *Server) getSPIFFEID(ctx context.Context) string {
+	_ = ctx
+
 	// Try to get SPIFFE ID from environment or workload API
 	// For now, return empty - this can be enhanced later
 	spiffeID := os.Getenv("SPIFFE_ID")

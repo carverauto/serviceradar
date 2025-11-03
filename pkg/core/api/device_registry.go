@@ -74,7 +74,7 @@ func (s *APIServer) getDeviceRegistryInfo(w http.ResponseWriter, r *http.Request
 	// If it's a service component (poller, agent, checker), query service registry
 	if s.serviceRegistry != nil && deviceType != "" {
 		switch deviceType {
-		case "poller":
+		case componentTypePoller:
 			poller, err := s.serviceRegistry.GetPoller(ctx, deviceID)
 			if err != nil {
 				s.logger.Debug().Err(err).Str("device_id", deviceID).Msg("Poller not found in service registry")
@@ -91,7 +91,7 @@ func (s *APIServer) getDeviceRegistryInfo(w http.ResponseWriter, r *http.Request
 			info.Metadata = poller.Metadata
 			info.ComponentID = poller.ComponentID
 
-		case "agent":
+		case componentTypeAgent:
 			agent, err := s.serviceRegistry.GetAgent(ctx, deviceID)
 			if err != nil {
 				s.logger.Debug().Err(err).Str("device_id", deviceID).Msg("Agent not found in service registry")
@@ -109,7 +109,7 @@ func (s *APIServer) getDeviceRegistryInfo(w http.ResponseWriter, r *http.Request
 			info.ParentID = agent.PollerID
 			info.ComponentID = agent.ComponentID
 
-		case "checker":
+		case componentTypeChecker:
 			checker, err := s.serviceRegistry.GetChecker(ctx, deviceID)
 			if err != nil {
 				s.logger.Debug().Err(err).Str("device_id", deviceID).Msg("Checker not found in service registry")
@@ -197,7 +197,8 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 	if existing, err := s.dbService.GetUnifiedDevice(ctx, deviceID); err == nil {
 		update.IP = existing.IP
 		if partition == "" {
-			_ = partitionFromDeviceID(existing.DeviceID)
+			partition = partitionFromDeviceID(existing.DeviceID)
+			update.Partition = partition
 		}
 
 		if existing.Hostname != nil && existing.Hostname.Value != "" {
