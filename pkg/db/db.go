@@ -205,9 +205,9 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 			"max_rows_to_read":           0,       // Disable read limit
 			"stream_flush_interval_ms":   100,     // Flush streaming results frequently
 		},
-		DialTimeout:     5 * time.Second,
-		MaxOpenConns:    10,
-		MaxIdleConns:    5,
+		DialTimeout:     10 * time.Second,
+		MaxOpenConns:    30,
+		MaxIdleConns:    15,
 		ConnMaxLifetime: time.Hour,
 	})
 	if err != nil {
