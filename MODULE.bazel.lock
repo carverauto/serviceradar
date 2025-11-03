@@ -1860,11 +1860,11 @@
         "bzlTransitiveDigest": "qATCXoRXiE4t2IhaFrGaKqtvL9i+mgfVSeAFstpB2/Q=",
         "usagesDigest": "s8mA6R/8ugeT9X/3Y/6fZUIVgYGAKHBd0oh6fSV/5Aw=",
         "recordedFileInputs": {
-          "@@//Cargo.lock": "a4b55a29e2c97842aa6ded5046634cdea8bf4bff7e1c934eefed49b269648ab6",
+          "@@//Cargo.lock": "ea34124c1ca6baa4a02323022efac67035ba68cf7a36e3e7dc33046b0f30b826",
           "@@//Cargo.toml": "df2e3672ce207382fbef9d63f06fc1792425df4be115171a8a22d9369d9805d5",
           "@@//cmd/checkers/rperf-client/Cargo.lock": "45ddfb3a4dce3a0412c3b79d947a113f57f49e0a94e3487ebd226b9b20af9ef4",
           "@@//cmd/checkers/rperf-client/Cargo.toml": "378d4aece11e202974e3a8c972be6f4bd74bfcb819680340b81a68b808c9c4af",
-          "@@//cmd/checkers/sysmon/Cargo.toml": "a9e1c6add15fe50af3db33574a84231b0a95ae22b647fb49af7f9041ceeee447",
+          "@@//cmd/checkers/sysmon/Cargo.toml": "d9da989cabebee7d27578e1fa0aa4c7af2af36db36a13659ead8a1d11065d966",
           "@@//cmd/consumers/zen/Cargo.toml": "299e916f59d16d2da15e1b748324b77b9bc791adf68abdb18a6e1b73adb5d1f2",
           "@@//cmd/ebpf/profiler/Cargo.toml": "3b193b21b1a099d2eb15f4e86c48dfd538699a698a16c5b28ff566f2a40efcfc",
           "@@//cmd/ebpf/profiler/profiler-common/Cargo.toml": "643780fdf6a1ad59d4b29977dadd9bcd068ae44a3e1fef5f489f64aa5847966a",
