@@ -237,6 +237,19 @@ const Dashboard = () => {
 
     useEffect(() => {
         if (activeViewId === 'devices:inventory') {
+            const normalizedIncoming = normalizeQuery(activeSrqlQuery);
+            const normalizedStateQuery = normalizeQuery(buildQueryFromState());
+
+            if (
+                normalizedIncoming &&
+                normalizedIncoming !== normalizedStateQuery &&
+                pendingFilterRef.current === null
+            ) {
+                suppressStateSyncRef.current = true;
+                void runDevicesQuery(normalizedIncoming, { syncContext: false });
+                return;
+            }
+
             fetchDevicesFromState();
             return;
         }
