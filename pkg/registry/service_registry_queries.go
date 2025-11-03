@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -15,16 +16,16 @@ const (
 
 // GetPoller retrieves a poller by ID.
 func (r *ServiceRegistry) GetPoller(ctx context.Context, pollerID string) (*RegisteredPoller, error) {
-	query := `SELECT
+	query := fmt.Sprintf(`SELECT
 		poller_id, component_id, status, registration_source,
 		first_registered, first_seen, last_seen, metadata,
 		spiffe_identity, created_by, agent_count, checker_count
 	FROM table(pollers)
-	WHERE poller_id = ?
+	WHERE poller_id = '%s'
 	ORDER BY _tp_time DESC
-	LIMIT 1`
+	LIMIT 1`, escapeLiteral(pollerID))
 
-	row := r.db.Conn.QueryRow(ctx, query, pollerID)
+	row := r.db.Conn.QueryRow(ctx, query)
 
 	var (
 		poller       RegisteredPoller
@@ -72,16 +73,16 @@ func (r *ServiceRegistry) GetPoller(ctx context.Context, pollerID string) (*Regi
 
 // GetAgent retrieves an agent by ID.
 func (r *ServiceRegistry) GetAgent(ctx context.Context, agentID string) (*RegisteredAgent, error) {
-	query := `SELECT
+	query := fmt.Sprintf(`SELECT
 		agent_id, poller_id, component_id, status, registration_source,
 		first_registered, first_seen, last_seen, metadata,
 		spiffe_identity, created_by, checker_count
 	FROM table(agents)
-	WHERE agent_id = ?
+	WHERE agent_id = '%s'
 	ORDER BY _tp_time DESC
-	LIMIT 1`
+	LIMIT 1`, escapeLiteral(agentID))
 
-	row := r.db.Conn.QueryRow(ctx, query, agentID)
+	row := r.db.Conn.QueryRow(ctx, query)
 
 	var (
 		agent        RegisteredAgent
@@ -129,16 +130,16 @@ func (r *ServiceRegistry) GetAgent(ctx context.Context, agentID string) (*Regist
 
 // GetChecker retrieves a checker by ID.
 func (r *ServiceRegistry) GetChecker(ctx context.Context, checkerID string) (*RegisteredChecker, error) {
-	query := `SELECT
+	query := fmt.Sprintf(`SELECT
 		checker_id, agent_id, poller_id, checker_kind, component_id,
 		status, registration_source, first_registered, first_seen, last_seen,
 		metadata, spiffe_identity, created_by
 	FROM table(checkers)
-	WHERE checker_id = ?
+	WHERE checker_id = '%s'
 	ORDER BY _tp_time DESC
-	LIMIT 1`
+	LIMIT 1`, escapeLiteral(checkerID))
 
-	row := r.db.Conn.QueryRow(ctx, query, checkerID)
+	row := r.db.Conn.QueryRow(ctx, query)
 
 	var (
 		checker      RegisteredChecker
@@ -195,16 +196,13 @@ func (r *ServiceRegistry) ListPollers(ctx context.Context, filter *ServiceFilter
 	FINAL
 	WHERE 1=1`
 
-	args := []interface{}{}
-
 	// Apply status filter
 	if len(filter.Statuses) > 0 {
 		statusList := make([]string, len(filter.Statuses))
 		for i, s := range filter.Statuses {
 			statusList[i] = string(s)
 		}
-		query += ` AND status IN (?)`
-		args = append(args, statusList)
+		query += fmt.Sprintf(` AND status IN (%s)`, quoteStringSlice(statusList))
 	}
 
 	// Apply source filter
@@ -213,23 +211,20 @@ func (r *ServiceRegistry) ListPollers(ctx context.Context, filter *ServiceFilter
 		for i, s := range filter.Sources {
 			sourceList[i] = string(s)
 		}
-		query += ` AND registration_source IN (?)`
-		args = append(args, sourceList)
+		query += fmt.Sprintf(` AND registration_source IN (%s)`, quoteStringSlice(sourceList))
 	}
 
 	query += ` ORDER BY first_registered DESC`
 
 	if filter.Limit > 0 {
-		query += ` LIMIT ?`
-		args = append(args, filter.Limit)
+		query += fmt.Sprintf(` LIMIT %d`, filter.Limit)
 	}
 
 	if filter.Offset > 0 {
-		query += ` OFFSET ?`
-		args = append(args, filter.Offset)
+		query += fmt.Sprintf(` OFFSET %d`, filter.Offset)
 	}
 
-	rows, err := r.db.Conn.Query(ctx, query, args...)
+	rows, err := r.db.Conn.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pollers: %w", err)
 	}
@@ -290,16 +285,16 @@ func (r *ServiceRegistry) ListPollers(ctx context.Context, filter *ServiceFilter
 
 // ListAgentsByPoller retrieves all agents under a poller.
 func (r *ServiceRegistry) ListAgentsByPoller(ctx context.Context, pollerID string) ([]*RegisteredAgent, error) {
-	query := `SELECT
+	query := fmt.Sprintf(`SELECT
 		agent_id, poller_id, component_id, status, registration_source,
 		first_registered, first_seen, last_seen, metadata,
 		spiffe_identity, created_by, checker_count
 	FROM agents
 	FINAL
-	WHERE poller_id = ?
-	ORDER BY first_registered DESC`
+	WHERE poller_id = '%s'
+	ORDER BY first_registered DESC`, escapeLiteral(pollerID))
 
-	rows, err := r.db.Conn.Query(ctx, query, pollerID)
+	rows, err := r.db.Conn.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agents: %w", err)
 	}
@@ -360,16 +355,16 @@ func (r *ServiceRegistry) ListAgentsByPoller(ctx context.Context, pollerID strin
 
 // ListCheckersByAgent retrieves all checkers under an agent.
 func (r *ServiceRegistry) ListCheckersByAgent(ctx context.Context, agentID string) ([]*RegisteredChecker, error) {
-	query := `SELECT
+	query := fmt.Sprintf(`SELECT
 		checker_id, agent_id, poller_id, checker_kind, component_id,
 		status, registration_source, first_registered, first_seen, last_seen,
 		metadata, spiffe_identity, created_by
 	FROM checkers
 	FINAL
-	WHERE agent_id = ?
-	ORDER BY first_registered DESC`
+	WHERE agent_id = '%s'
+	ORDER BY first_registered DESC`, escapeLiteral(agentID))
 
-	rows, err := r.db.Conn.Query(ctx, query, agentID)
+	rows, err := r.db.Conn.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list checkers: %w", err)
 	}
@@ -560,12 +555,12 @@ func (r *ServiceRegistry) IsKnownPoller(ctx context.Context, pollerID string) (b
 	r.pollerCacheMu.RUnlock()
 
 	// Query database
-	query := `SELECT COUNT(*) FROM pollers
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM pollers
 			  FINAL
-			  WHERE poller_id = ? AND status IN ('pending', 'active')`
+			  WHERE poller_id = '%s' AND status IN ('pending', 'active')`, escapeLiteral(pollerID))
 
 	var count int
-	row := r.db.Conn.QueryRow(ctx, query, pollerID)
+	row := r.db.Conn.QueryRow(ctx, query)
 	if err := row.Scan(&count); err != nil {
 		return false, fmt.Errorf("failed to check poller: %w", err)
 	}
@@ -677,4 +672,24 @@ func (r *ServiceRegistry) ArchiveInactive(ctx context.Context, retentionPeriod t
 		"Archived poller",
 		"Failed to archive poller",
 	)
+}
+
+func escapeLiteral(value string) string {
+	return strings.ReplaceAll(value, "'", "''")
+}
+
+func quoteStringSlice(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+
+	quoted := make([]string, 0, len(values))
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		quoted = append(quoted, fmt.Sprintf("'%s'", escapeLiteral(v)))
+	}
+
+	return strings.Join(quoted, ", ")
 }
