@@ -44,7 +44,7 @@ func (db *DB) GetUnifiedDevice(ctx context.Context, deviceID string) (*models.Un
         service_type, service_status, last_heartbeat, os_info, version_info
     FROM table(unified_devices)
     WHERE device_id = $1
-    ORDER BY _tp_time DESC
+    ORDER BY _tp_time DESC NULLS LAST
     LIMIT 1`
 
 	// This function has special handling for the case where no rows are returned,
@@ -302,7 +302,7 @@ func (db *DB) queryUnifiedDeviceBatch(ctx context.Context, deviceIDs, ips []stri
 	}
 
 	if len(conditions) == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("no deviceIDs or ips provided")
 	}
 
 	query := fmt.Sprintf(`%sSELECT
