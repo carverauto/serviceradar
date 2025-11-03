@@ -8,7 +8,9 @@ go_library(
     deps = [
         "//alias:dusk",
         "//alias:config",
+        "//alias:edgeonboarding",
         "//alias:lifecycle",
+        "//alias:models",
         "//proto",
         "@org_golang_google_grpc//:grpc",
     ],

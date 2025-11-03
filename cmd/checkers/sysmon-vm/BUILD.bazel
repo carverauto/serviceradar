@@ -10,8 +10,10 @@ go_library(
     deps = [
         "//alias:sysmonvm",
         "//alias:config",
+        "//alias:edgeonboarding",
         "//alias:lifecycle",
         "//alias:logger",
+        "//alias:models",
         "//pkg/cpufreq:cpufreq",
         "//proto",
         "@org_golang_google_grpc//:grpc",

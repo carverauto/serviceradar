@@ -5,6 +5,10 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/carverauto/serviceradar/cmd/faker",
     visibility = ["//visibility:private"],
+    deps = [
+        "//pkg/edgeonboarding:edgeonboarding",
+        "//pkg/models:models",
+    ],
 )
 
 go_binary(
