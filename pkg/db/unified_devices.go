@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,6 +32,8 @@ var (
 	errUnifiedDeviceNotFound        = errors.New("unified device not found")
 	errFailedToQueryUnifiedDevice   = errors.New("failed to query unified device")
 )
+
+const unifiedDeviceBatchLimit = 200
 
 // GetUnifiedDevice retrieves a unified device by its ID (latest version)
 // Uses materialized view approach - reads from unified_devices stream
@@ -93,7 +96,7 @@ func (db *DB) queryUnifiedDevicesWithArgs(ctx context.Context, query string, arg
 // GetUnifiedDevicesByIP retrieves unified devices with a specific IP address
 // Searches both primary IP field and alternate IPs in metadata using materialized view approach
 func (db *DB) GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error) {
-    query := `SELECT
+	query := `SELECT
         device_id, ip, poller_id, hostname, mac, discovery_sources,
         is_available, first_seen, last_seen, metadata, agent_id, device_type, 
         service_type, service_status, last_heartbeat, os_info, version_info
@@ -101,7 +104,7 @@ func (db *DB) GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.U
     WHERE ip = $1
     ORDER BY _tp_time DESC`
 
-    return db.queryUnifiedDevicesWithArgs(ctx, query, ip)
+	return db.queryUnifiedDevicesWithArgs(ctx, query, ip)
 }
 
 // ListUnifiedDevices returns a list of unified devices with pagination using materialized view approach
@@ -213,47 +216,95 @@ func (*DB) scanUnifiedDeviceSimple(rows Rows) (*models.UnifiedDevice, error) {
 // GetUnifiedDevicesByIPsOrIDs fetches all potential candidate devices for a batch of IPs and Device IDs.
 // Uses materialized view approach for efficient batch lookups
 func (db *DB) GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips, deviceIDs []string) ([]*models.UnifiedDevice, error) {
+	ips = dedupeStrings(ips)
+	deviceIDs = dedupeStrings(deviceIDs)
+
 	if len(ips) == 0 && len(deviceIDs) == 0 {
 		return nil, nil
 	}
 
-	// Build the WHERE clause dynamically
+	resultByID := make(map[string]*models.UnifiedDevice)
+
+	collect := func(batch []*models.UnifiedDevice) {
+		for _, device := range batch {
+			if device == nil {
+				continue
+			}
+			resultByID[device.DeviceID] = device
+		}
+	}
+
+	queryBatch := func(ids, address []string) error {
+		if len(ids) == 0 && len(address) == 0 {
+			return nil
+		}
+
+		devices, err := db.queryUnifiedDeviceBatch(ctx, ids, address)
+		if err != nil {
+			return err
+		}
+
+		collect(devices)
+
+		return nil
+	}
+
+	for _, chunk := range chunkStrings(deviceIDs, unifiedDeviceBatchLimit) {
+		if err := queryBatch(chunk, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, chunk := range chunkStrings(ips, unifiedDeviceBatchLimit) {
+		if err := queryBatch(nil, chunk); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(resultByID) == 0 {
+		return nil, nil
+	}
+
+	results := make([]*models.UnifiedDevice, 0, len(resultByID))
+	for _, device := range resultByID {
+		results = append(results, device)
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].LastSeen.After(results[j].LastSeen)
+	})
+
+	return results, nil
+}
+
+func (db *DB) queryUnifiedDeviceBatch(ctx context.Context, deviceIDs, ips []string) ([]*models.UnifiedDevice, error) {
 	var conditions []string
+	var withClauses []string
 
-	// Add device ID conditions
 	if len(deviceIDs) > 0 {
-		deviceIDList := make([]string, len(deviceIDs))
-
-		for i, id := range deviceIDs {
-			deviceIDList[i] = fmt.Sprintf("'%s'", id)
-		}
-
-		conditions = append(conditions, fmt.Sprintf("device_id IN (%s)", strings.Join(deviceIDList, ",")))
+		withClauses = append(withClauses, fmt.Sprintf(`device_candidates AS (
+        SELECT device_id
+        FROM VALUES('device_id string', %s)
+    )`, joinValueTuples(deviceIDs)))
+		conditions = append(conditions, "device_id IN (SELECT device_id FROM device_candidates)")
 	}
 
-	// Add IP conditions (both primary IP and alternate IPs)
 	if len(ips) > 0 {
-		ipList := make([]string, len(ips))
-
-		for i, ip := range ips {
-			ipList[i] = fmt.Sprintf("'%s'", ip)
-		}
-
-		conditions = append(conditions, fmt.Sprintf("ip IN (%s)", strings.Join(ipList, ",")))
-
-        // Note: We intentionally do not include metadata alt_ip:* matches here
-        // to avoid conflating historical/alternate IPs with primary identity.
+		withClauses = append(withClauses, fmt.Sprintf(`ip_candidates AS (
+        SELECT ip
+        FROM VALUES('ip string', %s)
+    )`, joinValueTuples(ips)))
+		conditions = append(conditions, "ip IN (SELECT ip FROM ip_candidates)")
 	}
 
-	query := fmt.Sprintf(`SELECT
+	query := fmt.Sprintf(`%sSELECT
         device_id, ip, poller_id, hostname, mac, discovery_sources,
         is_available, first_seen, last_seen, metadata, agent_id, device_type, 
         service_type, service_status, last_heartbeat, os_info, version_info
     FROM table(unified_devices)
     WHERE %s
-    ORDER BY _tp_time DESC`, strings.Join(conditions, " OR "))
+    ORDER BY _tp_time DESC`, buildWithClause(withClauses), strings.Join(conditions, " OR "))
 
-	// Special handling for batch queries - we want to log warnings but continue if a single row fails
 	rows, err := db.Conn.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to batch query unified devices: %w", err)
@@ -277,4 +328,66 @@ func (db *DB) GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips, deviceIDs []
 	}
 
 	return devices, nil
+}
+
+func chunkStrings(values []string, limit int) [][]string {
+	if len(values) == 0 || limit <= 0 {
+		return nil
+	}
+
+	var chunks [][]string
+	for start := 0; start < len(values); start += limit {
+		end := start + limit
+		if end > len(values) {
+			end = len(values)
+		}
+		chunk := values[start:end]
+		if len(chunk) > 0 {
+			chunks = append(chunks, chunk)
+		}
+	}
+
+	return chunks
+}
+
+func dedupeStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+
+	return result
+}
+
+func buildWithClause(clauses []string) string {
+	if len(clauses) == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf("WITH %s ", strings.Join(clauses, ", "))
+}
+
+func joinValueTuples(values []string) string {
+	escaped := make([]string, len(values))
+	for i, v := range values {
+		escaped[i] = fmt.Sprintf("('%s')", escapeLiteral(v))
+	}
+
+	return strings.Join(escaped, ", ")
+}
+
+func escapeLiteral(value string) string {
+	return strings.ReplaceAll(value, "'", "''")
 }
