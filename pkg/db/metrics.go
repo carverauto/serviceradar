@@ -1135,6 +1135,59 @@ func (db *DB) GetMetricsForDeviceByType(
 	return db.getTimeseriesMetricsByFilters(ctx, filters, start, end)
 }
 
+// GetICMPMetricsForDevice retrieves ICMP metrics for a device, including those where the device acted as the collector.
+func (db *DB) GetICMPMetricsForDevice(
+	ctx context.Context, deviceID, deviceIP string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	query := `
+		SELECT metric_name, metric_type, value, metadata, timestamp, target_device_ip,
+		       ifIndex, device_id, partition, poller_id
+		FROM table(timeseries_metrics)
+		WHERE metric_type = 'icmp'
+		  AND timestamp BETWEEN $3 AND $4
+		  AND (
+		        device_id = $1
+		     OR JSONExtractString(metadata, 'device_id') = $1
+		     OR (target_device_ip = $2 AND $2 != '')
+		     OR (JSONExtractString(metadata, 'collector_ip') = $2 AND $2 != '')
+		      )
+		ORDER BY timestamp DESC`
+
+	rows, err := db.Conn.Query(ctx, query, deviceID, deviceIP, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query ICMP metrics for device %s: %w", deviceID, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var metrics []models.TimeseriesMetric
+
+	for rows.Next() {
+		var m models.TimeseriesMetric
+		var valueFloat float64
+		var metadataStr string
+
+		if err := rows.Scan(
+			&m.Name,
+			&m.Type,
+			&valueFloat,
+			&metadataStr,
+			&m.Timestamp,
+			&m.TargetDeviceIP,
+			&m.IfIndex,
+			&m.DeviceID,
+			&m.Partition,
+			&m.PollerID,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan ICMP metric for device %s: %w", deviceID, err)
+		}
+
+		m.Value = fmt.Sprintf("%g", valueFloat)
+		m.Metadata = metadataStr
+		metrics = append(metrics, m)
+	}
+
+	return metrics, nil
+}
+
 // GetMetricsForPartition retrieves all metrics for devices within a specific partition.
 func (db *DB) GetMetricsForPartition(
 	ctx context.Context, partition string, start, end time.Time) ([]models.TimeseriesMetric, error) {

@@ -17,7 +17,6 @@
 package core
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -29,7 +28,6 @@ import (
 )
 
 func (s *Server) ensureServiceDevice(
-	ctx context.Context,
 	agentID, pollerID, partition string,
 	svc *proto.ServiceStatus,
 	serviceData json.RawMessage,
@@ -104,13 +102,7 @@ func (s *Server) ensureServiceDevice(
 	}
 
 	if s.DeviceRegistry != nil {
-		if err := s.DeviceRegistry.ProcessDeviceUpdate(ctx, deviceUpdate); err != nil {
-			s.logger.Warn().
-				Err(err).
-				Str("device_id", deviceID).
-				Str("service_name", svc.ServiceName).
-				Msg("Failed to process checker device through device registry")
-		}
+		s.enqueueServiceDeviceUpdate(deviceUpdate)
 	} else {
 		s.logger.Warn().
 			Str("device_id", deviceID).
@@ -242,6 +234,56 @@ func normalizeHostIdentifier(value string) string {
 	}
 
 	return value
+}
+
+func (s *Server) enqueueServiceDeviceUpdate(update *models.DeviceUpdate) {
+	if update == nil {
+		return
+	}
+
+	cloned := cloneDeviceUpdate(update)
+
+	s.serviceDeviceMu.Lock()
+	defer s.serviceDeviceMu.Unlock()
+
+	if s.serviceDeviceBuffer == nil {
+		s.serviceDeviceBuffer = make(map[string]*models.DeviceUpdate)
+	}
+
+	if existing, ok := s.serviceDeviceBuffer[cloned.DeviceID]; ok {
+		if existing.Timestamp.After(cloned.Timestamp) {
+			return
+		}
+	}
+
+	s.serviceDeviceBuffer[cloned.DeviceID] = cloned
+}
+
+func cloneDeviceUpdate(update *models.DeviceUpdate) *models.DeviceUpdate {
+	if update == nil {
+		return nil
+	}
+
+	cloned := *update
+
+	if update.Hostname != nil {
+		hostname := *update.Hostname
+		cloned.Hostname = &hostname
+	}
+
+	if update.MAC != nil {
+		mac := *update.MAC
+		cloned.MAC = &mac
+	}
+
+	if update.Metadata != nil {
+		cloned.Metadata = make(map[string]string, len(update.Metadata))
+		for k, v := range update.Metadata {
+			cloned.Metadata[k] = v
+		}
+	}
+
+	return &cloned
 }
 
 // createSNMPTargetDeviceUpdate creates a DeviceUpdate for an SNMP target device.

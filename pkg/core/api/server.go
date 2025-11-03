@@ -1902,6 +1902,13 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	deviceID := vars["id"]
 
+	var deviceIP string
+	if s.deviceRegistry != nil {
+		if unifiedDevice, err := s.deviceRegistry.GetDevice(r.Context(), deviceID); err == nil && unifiedDevice != nil {
+			deviceIP = unifiedDevice.IP
+		}
+	}
+
 	// Set a timeout for the request
 	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
 	defer cancel()
@@ -1953,6 +1960,18 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 			Int("metric_count", len(timeseriesMetrics)).
 			Str("device_id", deviceID).
 			Msg("Found ICMP metrics in ring buffer")
+
+		if len(timeseriesMetrics) == 0 {
+			dbMetrics, dbErr := s.dbService.GetICMPMetricsForDevice(ctx, deviceID, deviceIP, startTime, endTime)
+			if dbErr != nil {
+				s.logger.Warn().
+					Err(dbErr).
+					Str("device_id", deviceID).
+					Msg("Failed to fetch ICMP metrics from database fallback")
+			} else {
+				timeseriesMetrics = append(timeseriesMetrics, dbMetrics...)
+			}
+		}
 	} else {
 		// Use database for non-ICMP timeseriesMetrics or when ring buffer not available
 		if metricType != "" {

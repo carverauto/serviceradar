@@ -17,14 +17,14 @@
 package core
 
 import (
-    "context"
-    "encoding/json"
-    "fmt"
-    "strings"
-    "sync"
-    "time"
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
 
-    "github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // Cap for individual service status Details payload stored in DB
@@ -51,7 +51,7 @@ func (s *Server) flushBuffers(ctx context.Context) {
 func (s *Server) flushAllBuffers(ctx context.Context) {
 	var wg sync.WaitGroup
 
-	const numBufferTypes = 4 // metrics, service statuses, availability metrics, and trace data
+	const numBufferTypes = 5 // metrics, service statuses, service device updates, availability metrics, and trace data
 	wg.Add(numBufferTypes)
 
 	go func() {
@@ -70,6 +70,12 @@ func (s *Server) flushAllBuffers(ctx context.Context) {
 		defer wg.Done()
 
 		s.flushServices(ctx)
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		s.flushServiceDeviceUpdates(ctx)
 	}()
 
 	go func() {
@@ -130,9 +136,9 @@ func (s *Server) flushServiceStatuses(ctx context.Context) {
 
 // flushServiceStatusBatch processes a single poller's service status batch
 func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, statuses []*models.ServiceStatus) {
-    // With sync services now chunked at the streaming level, we should not have oversized records
-    const maxBatchSizeBytes = 5 * 1024 * 1024 // 5MB batch limit
-    const maxRecordSizeBytes = 9 * 1024 * 1024 // cap individual record size below 10MB shard limit
+	// With sync services now chunked at the streaming level, we should not have oversized records
+	const maxBatchSizeBytes = 5 * 1024 * 1024  // 5MB batch limit
+	const maxRecordSizeBytes = 9 * 1024 * 1024 // cap individual record size below 10MB shard limit
 
 	totalSize := s.calculateBatchSize(statuses)
 
@@ -162,25 +168,25 @@ func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, s
 	}
 
 	// Handle sync services individually to avoid batch size issues
-    for _, status := range syncServices {
-        detailsSize := len(status.Details)
-        s.logger.Debug().
-            Str("service_name", status.ServiceName).
-            Int("details_size", detailsSize).
-            Msg("FLUSH DEBUG: Flushing large sync service individually")
+	for _, status := range syncServices {
+		detailsSize := len(status.Details)
+		s.logger.Debug().
+			Str("service_name", status.ServiceName).
+			Int("details_size", detailsSize).
+			Msg("FLUSH DEBUG: Flushing large sync service individually")
 
-        // Ensure single record does not exceed shard limits
-        s.truncateStatusDetailsIfTooLarge(status, maxRecordSizeBytes)
+		// Ensure single record does not exceed shard limits
+		s.truncateStatusDetailsIfTooLarge(status, maxRecordSizeBytes)
 
-        if err := s.DB.UpdateServiceStatuses(ctx, []*models.ServiceStatus{status}); err != nil {
-            s.logger.Error().
-                Err(err).
-                Str("service_name", status.ServiceName).
-                Str("poller_id", pollerID).
-                Int("details_size", detailsSize).
-                Msg("Failed to flush sync service")
-        }
-    }
+		if err := s.DB.UpdateServiceStatuses(ctx, []*models.ServiceStatus{status}); err != nil {
+			s.logger.Error().
+				Err(err).
+				Str("service_name", status.ServiceName).
+				Str("poller_id", pollerID).
+				Int("details_size", detailsSize).
+				Msg("Failed to flush sync service")
+		}
+	}
 
 	// Handle non-sync services with normal batching
 	if len(nonSyncServices) == 0 {
@@ -265,12 +271,12 @@ func (s *Server) flushInSimpleBatches(
 	for _, status := range statuses {
 		statusSize := len(status.Details) + len(status.Message) + 200 // Estimate overhead
 
-        // Cap any oversized record before batching
-        s.truncateStatusDetailsIfTooLarge(status, maxRecordSizeBytes)
+		// Cap any oversized record before batching
+		s.truncateStatusDetailsIfTooLarge(status, maxRecordSizeBytes)
 
-        // If adding this status would exceed the limit, flush current batch
-        if len(batch) > 0 && (batchSize+statusSize > maxBatchSizeBytes) {
-            s.flushSingleBatch(ctx, pollerID, batch, batchSize)
+		// If adding this status would exceed the limit, flush current batch
+		if len(batch) > 0 && (batchSize+statusSize > maxBatchSizeBytes) {
+			s.flushSingleBatch(ctx, pollerID, batch, batchSize)
 
 			batch = []*models.ServiceStatus{}
 			batchSize = 0
@@ -286,33 +292,68 @@ func (s *Server) flushInSimpleBatches(
 	}
 }
 
+func (s *Server) flushServiceDeviceUpdates(ctx context.Context) {
+	if s.DeviceRegistry == nil {
+		return
+	}
+
+	s.serviceDeviceMu.Lock()
+	if len(s.serviceDeviceBuffer) == 0 {
+		s.serviceDeviceMu.Unlock()
+		return
+	}
+
+	updates := make([]*models.DeviceUpdate, 0, len(s.serviceDeviceBuffer))
+	for _, update := range s.serviceDeviceBuffer {
+		updates = append(updates, update)
+	}
+	s.serviceDeviceBuffer = make(map[string]*models.DeviceUpdate)
+	s.serviceDeviceMu.Unlock()
+
+	if len(updates) == 0 {
+		return
+	}
+
+	if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, updates); err != nil {
+		s.logger.Warn().
+			Err(err).
+			Int("update_count", len(updates)).
+			Msg("Failed to flush service device updates")
+		return
+	}
+
+	s.logger.Debug().
+		Int("update_count", len(updates)).
+		Msg("Flushed service device updates")
+}
+
 // truncateStatusDetailsIfTooLarge ensures a single service status record stays under the shard limit
 func (*Server) truncateStatusDetailsIfTooLarge(status *models.ServiceStatus, maxBytes int) {
-    if status == nil || len(status.Details) <= maxBytes {
-        return
-    }
-    // Prepare a compact summary JSON with sizes and a short preview
-    orig := status.Details
-    previewLen := 256
-    if len(orig) < previewLen {
-        previewLen = len(orig)
-    }
-    summary := fmt.Sprintf(`{"truncated":true,"original_size":%d,"stored_size":%d,"preview":"%s"}`,
-        len(orig),
-        previewLen,
-        escapeForJSON(string(orig[:previewLen])),
-    )
-    status.Details = json.RawMessage(summary)
+	if status == nil || len(status.Details) <= maxBytes {
+		return
+	}
+	// Prepare a compact summary JSON with sizes and a short preview
+	orig := status.Details
+	previewLen := 256
+	if len(orig) < previewLen {
+		previewLen = len(orig)
+	}
+	summary := fmt.Sprintf(`{"truncated":true,"original_size":%d,"stored_size":%d,"preview":"%s"}`,
+		len(orig),
+		previewLen,
+		escapeForJSON(string(orig[:previewLen])),
+	)
+	status.Details = json.RawMessage(summary)
 }
 
 // escapeForJSON escapes backslashes and quotes for embedding in JSON
 func escapeForJSON(s string) string {
-    s = strings.ReplaceAll(s, `\\`, `\\\\`)
-    s = strings.ReplaceAll(s, `"`, `\\"`)
-    s = strings.ReplaceAll(s, "\n", `\n`)
-    s = strings.ReplaceAll(s, "\r", `\r`)
-    s = strings.ReplaceAll(s, "\t", `\t`)
-    return s
+	s = strings.ReplaceAll(s, `\\`, `\\\\`)
+	s = strings.ReplaceAll(s, `"`, `\\"`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\r", `\r`)
+	s = strings.ReplaceAll(s, "\t", `\t`)
+	return s
 }
 
 // flushServices flushes service inventory data to the database.
@@ -329,7 +370,7 @@ func (s *Server) flushServices(ctx context.Context) {
 			Int("buffer_size", len(services)).
 			Msg("DEBUG: Service buffer status")
 	}
-	
+
 	s.logger.Debug().
 		Int("total_pollers", len(s.serviceListBuffers)).
 		Int("total_services", totalServices).

@@ -152,6 +152,7 @@ type Service interface {
 
 	GetMetricsForDevice(ctx context.Context, deviceID string, start, end time.Time) ([]models.TimeseriesMetric, error)
 	GetMetricsForDeviceByType(ctx context.Context, deviceID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error)
+	GetICMPMetricsForDevice(ctx context.Context, deviceID, deviceIP string, start, end time.Time) ([]models.TimeseriesMetric, error)
 	GetMetricsForPartition(ctx context.Context, partition string, start, end time.Time) ([]models.TimeseriesMetric, error)
 }
 
