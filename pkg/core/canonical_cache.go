@@ -9,6 +9,7 @@ import (
 type canonicalSnapshot struct {
 	DeviceID string
 	MAC      string
+	IP       string
 	Metadata map[string]string
 }
 
@@ -82,6 +83,7 @@ func (c *canonicalCache) store(ip string, snapshot canonicalSnapshot) {
 	}
 	snapshot.DeviceID = strings.TrimSpace(snapshot.DeviceID)
 	snapshot.MAC = strings.ToUpper(strings.TrimSpace(snapshot.MAC))
+	snapshot.IP = strings.TrimSpace(snapshot.IP)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -97,6 +99,7 @@ func cloneSnapshot(src canonicalSnapshot) canonicalSnapshot {
 	dst := canonicalSnapshot{
 		DeviceID: src.DeviceID,
 		MAC:      src.MAC,
+		IP:       src.IP,
 	}
 	if len(src.Metadata) > 0 {
 		dst.Metadata = make(map[string]string, len(src.Metadata))

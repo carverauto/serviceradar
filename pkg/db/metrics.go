@@ -1146,9 +1146,9 @@ func (db *DB) GetICMPMetricsForDevice(
 		  AND timestamp BETWEEN $3 AND $4
 		  AND (
 		        device_id = $1
-		     OR JSONExtractString(metadata, 'device_id') = $1
+		     OR json_extract_string(metadata, 'device_id') = $1
 		     OR (target_device_ip = $2 AND $2 != '')
-		     OR (JSONExtractString(metadata, 'collector_ip') = $2 AND $2 != '')
+		     OR (json_extract_string(metadata, 'collector_ip') = $2 AND $2 != '')
 		      )
 		ORDER BY timestamp DESC`
 
