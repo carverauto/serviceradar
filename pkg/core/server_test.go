@@ -544,12 +544,6 @@ func TestHandlePollerDown(t *testing.T) {
 		t.Skip("Skipping poller down test in short mode")
 	}
 
-	originalInterval := pollerStatusUpdateInterval
-	pollerStatusUpdateInterval = 10 * time.Millisecond
-	defer func() {
-		pollerStatusUpdateInterval = originalInterval
-	}()
-
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -567,6 +561,7 @@ func TestHandlePollerDown(t *testing.T) {
 		logger:                  logger.NewTestLogger(),
 		tracer:                  otel.Tracer("serviceradar-core-test"),
 	}
+	server.pollerStatusInterval = 10 * time.Millisecond
 
 	pollerID := testPollerID
 	lastSeen := time.Now().Add(-10 * time.Minute)
@@ -597,7 +592,7 @@ func TestHandlePollerDown(t *testing.T) {
 	}
 
 	// Wait for the flush to complete (give it some time to process)
-	time.Sleep(5 * pollerStatusUpdateInterval)
+	time.Sleep(5 * server.pollerStatusIntervalOrDefault())
 }
 
 func TestEvaluatePollerHealth(t *testing.T) {

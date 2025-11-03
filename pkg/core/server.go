@@ -45,9 +45,6 @@ import (
 var (
 	// ErrDatabaseTypeAssertion is returned when database type assertion fails.
 	ErrDatabaseTypeAssertion = errors.New("failed to type assert database to *db.DB")
-
-	// pollerStatusUpdateInterval allows tests to shrink the flush cadence.
-	pollerStatusUpdateInterval = defaultPollerStatusUpdateInterval
 )
 
 const (
@@ -71,6 +68,14 @@ const (
 	snmpDiscoveryResultsServiceType = "snmp-discovery-results"
 	mapperDiscoveryServiceType      = "mapper_discovery"
 )
+
+func (s *Server) pollerStatusIntervalOrDefault() time.Duration {
+	if s == nil || s.pollerStatusInterval <= 0 {
+		return defaultPollerStatusUpdateInterval
+	}
+
+	return s.pollerStatusInterval
+}
 
 func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClient spireadmin.Client) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
