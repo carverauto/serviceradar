@@ -148,7 +148,8 @@ func (s *Server) handlePoller(batchCtx context.Context, ps *models.PollerStatus,
 }
 
 func (s *Server) flushPollerStatusUpdates(ctx context.Context) {
-	ticker := time.NewTicker(pollerStatusUpdateInterval)
+	interval := s.pollerStatusIntervalOrDefault()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
