@@ -30,3 +30,11 @@ func TestDedupeStringsSkipsEmptyAndDuplicates(t *testing.T) {
 
 	require.Equal(t, []string{"default:10.0.0.1", "default:10.0.0.2"}, result)
 }
+
+func TestJoinValueTuplesSkipsEmptyValues(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "", joinValueTuples([]string{""}))
+	require.Equal(t, "", joinValueTuples([]string{"   ", ""}))
+	require.Equal(t, "('a')", joinValueTuples([]string{"", "a", ""}))
+}
