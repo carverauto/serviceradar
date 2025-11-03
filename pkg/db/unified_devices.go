@@ -45,7 +45,7 @@ func (db *DB) GetUnifiedDevice(ctx context.Context, deviceID string) (*models.Un
     FROM table(unified_devices)
     WHERE device_id = '%s'
     ORDER BY _tp_time DESC
-    LIMIT 1`, deviceID)
+    LIMIT 1`, escapeLiteral(deviceID))
 
 	// This function has special handling for the case where no rows are returned,
 	// so we can't use the queryUnifiedDevices helper
@@ -380,12 +380,23 @@ func buildWithClause(clauses []string) string {
 }
 
 func joinValueTuples(values []string) string {
-	escaped := make([]string, len(values))
-	for i, v := range values {
-		escaped[i] = fmt.Sprintf("('%s')", escapeLiteral(v))
+	if len(values) == 0 {
+		return "('')"
 	}
 
-	return strings.Join(escaped, ", ")
+	literals := make([]string, 0, len(values))
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		literals = append(literals, fmt.Sprintf("('%s')", escapeLiteral(v)))
+	}
+
+	if len(literals) == 0 {
+		return "('')"
+	}
+
+	return strings.Join(literals, ", ")
 }
 
 func escapeLiteral(value string) string {
