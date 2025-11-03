@@ -4,26 +4,27 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 )
 
-func quoteLiteral(value string) string {
-	return fmt.Sprintf("'%s'", strings.ReplaceAll(value, "'", "''"))
-}
+const (
+	serviceTypePoller  = "poller"
+	serviceTypeAgent   = "agent"
+	serviceTypeChecker = "checker"
+)
 
 // GetPoller retrieves a poller by ID.
 func (r *ServiceRegistry) GetPoller(ctx context.Context, pollerID string) (*RegisteredPoller, error) {
-	query := fmt.Sprintf(`SELECT
+	query := `SELECT
 		poller_id, component_id, status, registration_source,
 		first_registered, first_seen, last_seen, metadata,
 		spiffe_identity, created_by, agent_count, checker_count
 	FROM table(pollers)
-	WHERE poller_id = %s
+	WHERE poller_id = ?
 	ORDER BY _tp_time DESC
-	LIMIT 1`, quoteLiteral(pollerID))
+	LIMIT 1`
 
-	row := r.db.Conn.QueryRow(ctx, query)
+	row := r.db.Conn.QueryRow(ctx, query, pollerID)
 
 	var (
 		poller       RegisteredPoller
@@ -71,16 +72,16 @@ func (r *ServiceRegistry) GetPoller(ctx context.Context, pollerID string) (*Regi
 
 // GetAgent retrieves an agent by ID.
 func (r *ServiceRegistry) GetAgent(ctx context.Context, agentID string) (*RegisteredAgent, error) {
-	query := fmt.Sprintf(`SELECT
+	query := `SELECT
 		agent_id, poller_id, component_id, status, registration_source,
 		first_registered, first_seen, last_seen, metadata,
 		spiffe_identity, created_by, checker_count
 	FROM table(agents)
-	WHERE agent_id = %s
+	WHERE agent_id = ?
 	ORDER BY _tp_time DESC
-	LIMIT 1`, quoteLiteral(agentID))
+	LIMIT 1`
 
-	row := r.db.Conn.QueryRow(ctx, query)
+	row := r.db.Conn.QueryRow(ctx, query, agentID)
 
 	var (
 		agent        RegisteredAgent
@@ -128,16 +129,16 @@ func (r *ServiceRegistry) GetAgent(ctx context.Context, agentID string) (*Regist
 
 // GetChecker retrieves a checker by ID.
 func (r *ServiceRegistry) GetChecker(ctx context.Context, checkerID string) (*RegisteredChecker, error) {
-	query := fmt.Sprintf(`SELECT
+	query := `SELECT
 		checker_id, agent_id, poller_id, checker_kind, component_id,
 		status, registration_source, first_registered, first_seen, last_seen,
 		metadata, spiffe_identity, created_by
 	FROM table(checkers)
-	WHERE checker_id = %s
+	WHERE checker_id = ?
 	ORDER BY _tp_time DESC
-	LIMIT 1`, quoteLiteral(checkerID))
+	LIMIT 1`
 
-	row := r.db.Conn.QueryRow(ctx, query)
+	row := r.db.Conn.QueryRow(ctx, query, checkerID)
 
 	var (
 		checker      RegisteredChecker
@@ -436,7 +437,7 @@ func (r *ServiceRegistry) UpdateServiceStatus(ctx context.Context, serviceType s
 
 	// Get current service
 	switch serviceType {
-	case "poller":
+	case serviceTypePoller:
 		service, err = r.GetPoller(ctx, serviceID)
 		if err != nil {
 			return err
@@ -466,7 +467,7 @@ func (r *ServiceRegistry) UpdateServiceStatus(ctx context.Context, serviceType s
 			poller.CheckerCount,
 		)
 
-	case "agent":
+	case serviceTypeAgent:
 		service, err = r.GetAgent(ctx, serviceID)
 		if err != nil {
 			return err
@@ -496,7 +497,7 @@ func (r *ServiceRegistry) UpdateServiceStatus(ctx context.Context, serviceType s
 			agent.CheckerCount,
 		)
 
-	case "checker":
+	case serviceTypeChecker:
 		service, err = r.GetChecker(ctx, serviceID)
 		if err != nil {
 			return err
@@ -528,7 +529,7 @@ func (r *ServiceRegistry) UpdateServiceStatus(ctx context.Context, serviceType s
 		)
 
 	default:
-		return fmt.Errorf("unknown service type: %s", serviceType)
+		return fmt.Errorf("%w: %s", ErrUnknownServiceType, serviceType)
 	}
 
 	if err != nil {
@@ -637,7 +638,7 @@ func (r *ServiceRegistry) updatePollerStatusByLastSeen(
 
 	for _, poller := range pollers {
 		if poller.LastSeen != nil && poller.LastSeen.Before(cutoff) {
-			if err := r.UpdateServiceStatus(ctx, "poller", poller.PollerID, targetStatus); err != nil {
+			if err := r.UpdateServiceStatus(ctx, serviceTypePoller, poller.PollerID, targetStatus); err != nil {
 				r.logger.Warn().Err(err).Str("poller_id", poller.PollerID).Msg(errorMsg)
 			} else {
 				count++

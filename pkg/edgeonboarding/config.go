@@ -75,6 +75,8 @@ func (b *Bootstrapper) generateServiceConfig(ctx context.Context) error {
 		return b.generateAgentConfig(ctx, metadata)
 	case models.EdgeOnboardingComponentTypeChecker:
 		return b.generateCheckerConfig(ctx, metadata)
+	case models.EdgeOnboardingComponentTypeNone:
+		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, b.pkg.ComponentType)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, b.pkg.ComponentType)
 	}
@@ -96,6 +98,8 @@ func (b *Bootstrapper) parseMetadata() (map[string]interface{}, error) {
 
 // generatePollerConfig generates configuration for a poller service.
 func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[string]interface{}) error {
+	_ = ctx // future enhancement: use context for cancellation when fetching remote metadata
+
 	b.logger.Debug().Msg("Generating poller configuration")
 
 	// Extract required metadata fields
@@ -136,8 +140,8 @@ func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[st
 
 	// Generate poller config JSON
 	config := map[string]interface{}{
-		"poller_id":   b.pkg.ComponentID,
-		"label":       b.pkg.Label,
+		"poller_id":    b.pkg.ComponentID,
+		"label":        b.pkg.Label,
 		"component_id": b.pkg.ComponentID,
 
 		// Service endpoints
@@ -192,6 +196,8 @@ func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[st
 
 // generateAgentConfig generates configuration for an agent service.
 func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[string]interface{}) error {
+	_ = ctx
+
 	b.logger.Debug().Msg("Generating agent configuration")
 
 	// Get KV address from metadata (datasvc_endpoint) or fall back to bootstrap config
@@ -252,6 +258,8 @@ func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[str
 
 // generateCheckerConfig generates configuration for a checker service.
 func (b *Bootstrapper) generateCheckerConfig(ctx context.Context, metadata map[string]interface{}) error {
+	_ = ctx
+
 	b.logger.Debug().Msg("Generating checker configuration")
 
 	// Parse checker-specific config from package

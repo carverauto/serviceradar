@@ -1762,24 +1762,49 @@ func (s *edgeOnboardingService) substituteTemplateVariables(templateJSON string,
 	metadata := make(map[string]string)
 	if pkg.MetadataJSON != "" {
 		if err := json.Unmarshal([]byte(pkg.MetadataJSON), &metadata); err != nil {
-			s.logger.Warn().Err(err).Msg("Failed to parse metadata for template substitution")
+			return "", fmt.Errorf("failed to parse metadata for template substitution: %w", err)
+		}
+	}
+
+	// Whitelist of allowed metadata keys to prevent injection
+	allowedMetadataKeys := map[string]bool{
+		"agent_address":  true,
+		"core_address":   true,
+		"core_spiffe_id": true,
+		"kv_address":     true,
+		"kv_spiffe_id":   true,
+		"trust_domain":   true,
+		"log_level":      true,
+	}
+
+	// Sanitize and validate metadata values before substitution
+	sanitizedVars := make(map[string]string)
+
+	// Add package fields (already validated during package creation)
+	sanitizedVars["DOWNSTREAM_SPIFFE_ID"] = pkg.DownstreamSPIFFEID
+	sanitizedVars["COMPONENT_ID"] = pkg.ComponentID
+	sanitizedVars["CHECKER_KIND"] = pkg.CheckerKind
+	sanitizedVars["AGENT_ID"] = pkg.ParentID
+
+	// Add only whitelisted metadata fields
+	for key, allowed := range allowedMetadataKeys {
+		if allowed {
+			if val, ok := metadata[key]; ok {
+				// Validate the value doesn't contain injection patterns
+				if s.isValidMetadataValue(val) {
+					sanitizedVars[strings.ToUpper(key)] = val
+				} else {
+					s.logger.Warn().
+						Str("key", key).
+						Str("value", val).
+						Msg("Skipping metadata value with potential injection pattern")
+				}
+			}
 		}
 	}
 
 	// Recursively substitute variables in the template
-	substituted := s.substituteInMap(template, map[string]string{
-		"DOWNSTREAM_SPIFFE_ID": pkg.DownstreamSPIFFEID,
-		"AGENT_ADDRESS":        metadata["agent_address"],
-		"CORE_ADDRESS":         metadata["core_address"],
-		"CORE_SPIFFE_ID":       metadata["core_spiffe_id"],
-		"KV_ADDRESS":           metadata["kv_address"],
-		"KV_SPIFFE_ID":         metadata["kv_spiffe_id"],
-		"TRUST_DOMAIN":         metadata["trust_domain"],
-		"LOG_LEVEL":            metadata["log_level"],
-		"COMPONENT_ID":         pkg.ComponentID,
-		"CHECKER_KIND":         pkg.CheckerKind,
-		"AGENT_ID":             pkg.ParentID,
-	})
+	substituted := s.substituteInMap(template, sanitizedVars)
 
 	// Marshal back to JSON
 	result, err := json.Marshal(substituted)
@@ -1788,6 +1813,37 @@ func (s *edgeOnboardingService) substituteTemplateVariables(templateJSON string,
 	}
 
 	return string(result), nil
+}
+
+// isValidMetadataValue validates that a metadata value doesn't contain potential injection patterns.
+func (s *edgeOnboardingService) isValidMetadataValue(value string) bool {
+	// Check for common injection patterns
+	dangerousPatterns := []string{
+		"{{",     // Template injection
+		"${",     // Variable expansion injection
+		"../",    // Path traversal
+		"..\\",   // Path traversal (Windows)
+		"\x00",   // Null byte injection
+		"\n",     // Newline injection (for log/config files)
+		"\r",     // Carriage return injection
+		"${jndi", // Log4Shell-style injection
+		"${env",  // Environment variable injection
+	}
+
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(value, pattern) {
+			return false
+		}
+	}
+
+	// Additional validation: ensure the value is printable ASCII or valid UTF-8
+	for _, r := range value {
+		if r < 32 && r != 9 { // Allow tab (9), reject other control characters
+			return false
+		}
+	}
+
+	return true
 }
 
 // substituteInMap recursively replaces placeholder values in a map structure.
@@ -2021,6 +2077,8 @@ func (s *edgeOnboardingService) registerServiceComponent(ctx context.Context, co
 			CreatedBy:          createdBy,
 		})
 
+	case models.EdgeOnboardingComponentTypeNone:
+		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, componentType)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, componentType)
 	}

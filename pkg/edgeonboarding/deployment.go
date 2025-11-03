@@ -35,6 +35,10 @@ var (
 // 3. Docker environment (/.dockerenv file or cgroup)
 // 4. Falls back to bare-metal
 func (b *Bootstrapper) detectDeploymentType(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// If already specified in config, use that
 	if b.cfg.DeploymentType != "" {
 		b.deploymentType = b.cfg.DeploymentType

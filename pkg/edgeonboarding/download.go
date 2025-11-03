@@ -19,6 +19,7 @@ package edgeonboarding
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -48,12 +49,16 @@ var (
 	ErrPackageExpired = errors.New("package has expired")
 	// ErrPackageDeleted is returned when package has been deleted.
 	ErrPackageDeleted = errors.New("package has been deleted")
+	// ErrPackageNotDelivered is returned when package is still in issued state.
+	ErrPackageNotDelivered = errors.New("package has not been delivered yet")
 )
 
 // downloadPackage downloads the onboarding package from Core using the token.
 // This contacts the Core API to deliver the package, which validates the token
 // and marks the package as delivered.
 func (b *Bootstrapper) downloadPackage(ctx context.Context) error {
+	_ = ctx
+
 	b.logger.Debug().
 		Str("token_prefix", b.cfg.Token[:min(8, len(b.cfg.Token))]).
 		Msg("Downloading onboarding package from Core")
@@ -71,6 +76,8 @@ func (b *Bootstrapper) downloadPackage(ctx context.Context) error {
 
 // validatePackage validates the downloaded package contents.
 func (b *Bootstrapper) validatePackage(ctx context.Context) error {
+	_ = ctx
+
 	if b.pkg == nil {
 		return ErrPackageNotDownloaded
 	}
@@ -109,6 +116,8 @@ func (b *Bootstrapper) validatePackage(ctx context.Context) error {
 	switch b.pkg.Status {
 	case models.EdgeOnboardingStatusDelivered, models.EdgeOnboardingStatusActivated:
 		// Valid statuses for onboarding
+	case models.EdgeOnboardingStatusIssued:
+		return fmt.Errorf("%w: id %s", ErrPackageNotDelivered, b.pkg.PackageID)
 	case models.EdgeOnboardingStatusRevoked:
 		return ErrPackageRevoked
 	case models.EdgeOnboardingStatusExpired:
@@ -133,6 +142,10 @@ func (b *Bootstrapper) validatePackage(ctx context.Context) error {
 // markActivated notifies Core that the package has been activated.
 // This is done by the service when it successfully starts up with the credentials.
 func (b *Bootstrapper) markActivated(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// TODO: Implement activation notification
 	// This could be done via:
 	// 1. Direct gRPC call to Core (requires Core to expose this endpoint)

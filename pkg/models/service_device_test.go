@@ -25,6 +25,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testPollerID     = "test-poller"
+	testAgentID      = "test-agent"
+	testPollerHostIP = "192.168.1.100"
+	testAgentHostIP  = "192.168.1.101"
+)
+
 func TestGenerateServiceDeviceID(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -170,8 +177,8 @@ func TestIsServiceDevice(t *testing.T) {
 }
 
 func TestCreatePollerDeviceUpdate(t *testing.T) {
-	pollerID := "test-poller"
-	hostIP := "192.168.1.100"
+	pollerID := testPollerID
+	hostIP := testPollerHostIP
 	metadata := map[string]string{
 		"region": "us-west",
 		"env":    "production",
@@ -180,7 +187,7 @@ func TestCreatePollerDeviceUpdate(t *testing.T) {
 	result := CreatePollerDeviceUpdate(pollerID, hostIP, metadata)
 
 	require.NotNil(t, result)
-	assert.Equal(t, "serviceradar:poller:test-poller", result.DeviceID)
+	assert.Equal(t, "serviceradar:poller:"+testPollerID, result.DeviceID)
 	assert.NotNil(t, result.ServiceType)
 	assert.Equal(t, ServiceTypePoller, *result.ServiceType)
 	assert.Equal(t, pollerID, result.ServiceID)
@@ -202,8 +209,8 @@ func TestCreatePollerDeviceUpdate(t *testing.T) {
 }
 
 func TestCreatePollerDeviceUpdate_NilMetadata(t *testing.T) {
-	pollerID := "test-poller"
-	hostIP := "192.168.1.100"
+	pollerID := testPollerID
+	hostIP := testPollerHostIP
 
 	result := CreatePollerDeviceUpdate(pollerID, hostIP, nil)
 
@@ -214,9 +221,9 @@ func TestCreatePollerDeviceUpdate_NilMetadata(t *testing.T) {
 }
 
 func TestCreateAgentDeviceUpdate(t *testing.T) {
-	agentID := "test-agent"
-	pollerID := "test-poller"
-	hostIP := "192.168.1.101"
+	agentID := testAgentID
+	pollerID := testPollerID
+	hostIP := testAgentHostIP
 	metadata := map[string]string{
 		"version": "1.0.0",
 	}
@@ -224,7 +231,7 @@ func TestCreateAgentDeviceUpdate(t *testing.T) {
 	result := CreateAgentDeviceUpdate(agentID, pollerID, hostIP, metadata)
 
 	require.NotNil(t, result)
-	assert.Equal(t, "serviceradar:agent:test-agent", result.DeviceID)
+	assert.Equal(t, "serviceradar:agent:"+testAgentID, result.DeviceID)
 	assert.NotNil(t, result.ServiceType)
 	assert.Equal(t, ServiceTypeAgent, *result.ServiceType)
 	assert.Equal(t, agentID, result.ServiceID)
@@ -244,9 +251,9 @@ func TestCreateAgentDeviceUpdate(t *testing.T) {
 }
 
 func TestCreateAgentDeviceUpdate_NilMetadata(t *testing.T) {
-	agentID := "test-agent"
-	pollerID := "test-poller"
-	hostIP := "192.168.1.101"
+	agentID := testAgentID
+	pollerID := testPollerID
+	hostIP := testAgentHostIP
 
 	result := CreateAgentDeviceUpdate(agentID, pollerID, hostIP, nil)
 
@@ -260,8 +267,8 @@ func TestCreateAgentDeviceUpdate_NilMetadata(t *testing.T) {
 func TestCreateCheckerDeviceUpdate(t *testing.T) {
 	checkerID := "sysmon@test-agent"
 	checkerKind := "sysmon"
-	agentID := "test-agent"
-	pollerID := "test-poller"
+	agentID := testAgentID
+	pollerID := testPollerID
 	hostIP := "192.168.1.102"
 	metadata := map[string]string{
 		"check_interval": "30s",
@@ -294,8 +301,8 @@ func TestCreateCheckerDeviceUpdate(t *testing.T) {
 func TestCreateCheckerDeviceUpdate_NilMetadata(t *testing.T) {
 	checkerID := "sysmon@test-agent"
 	checkerKind := "sysmon"
-	agentID := "test-agent"
-	pollerID := "test-poller"
+	agentID := testAgentID
+	pollerID := testPollerID
 	hostIP := "192.168.1.102"
 
 	result := CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP, nil)
@@ -329,7 +336,7 @@ func TestServiceDeviceIDUniqueness(t *testing.T) {
 
 func TestServiceVsNetworkDeviceIDs(t *testing.T) {
 	// Test that service devices and network devices have distinct ID formats
-	serviceID := GenerateServiceDeviceID(ServiceTypePoller, "test-poller")
+	serviceID := GenerateServiceDeviceID(ServiceTypePoller, testPollerID)
 	networkID := GenerateNetworkDeviceID("network", "192.168.1.1")
 
 	assert.NotEqual(t, serviceID, networkID)
@@ -339,10 +346,10 @@ func TestServiceVsNetworkDeviceIDs(t *testing.T) {
 
 func TestServiceTypesConstants(t *testing.T) {
 	// Verify ServiceType constants are correctly defined
-	assert.Equal(t, ServiceType("poller"), ServiceTypePoller)
-	assert.Equal(t, ServiceType("agent"), ServiceTypeAgent)
-	assert.Equal(t, ServiceType("checker"), ServiceTypeChecker)
-	assert.Equal(t, ServiceType("network"), ServiceTypeNetworkDevice)
+	assert.Equal(t, ServiceTypePoller, ServiceType("poller"))
+	assert.Equal(t, ServiceTypeAgent, ServiceType("agent"))
+	assert.Equal(t, ServiceTypeChecker, ServiceType("checker"))
+	assert.Equal(t, ServiceTypeNetworkDevice, ServiceType("network"))
 }
 
 func TestServiceDevicePartitionConstant(t *testing.T) {
@@ -353,7 +360,7 @@ func TestServiceDevicePartitionConstant(t *testing.T) {
 func TestHighCardinalityCheckerIDs(t *testing.T) {
 	// Test that we can create many unique checker IDs without collision
 	pollerID := "poller-1"
-	hostIP := "192.168.1.100"
+	hostIP := testPollerHostIP
 
 	checkerTypes := []string{"sysmon", "rperf", "snmp", "mapper"}
 	deviceIDs := make(map[string]bool)
@@ -372,12 +379,12 @@ func TestHighCardinalityCheckerIDs(t *testing.T) {
 	}
 
 	// Should have created 100 unique device IDs
-	assert.Equal(t, 100, len(deviceIDs))
+	assert.Len(t, deviceIDs, 100)
 }
 
 func TestMultipleServicesOnSameIP(t *testing.T) {
 	// Test that multiple services on the same IP get unique device IDs
-	hostIP := "192.168.1.100"
+	hostIP := testPollerHostIP
 
 	pollerUpdate := CreatePollerDeviceUpdate("poller-1", hostIP, nil)
 	agentUpdate := CreateAgentDeviceUpdate("agent-1", "poller-1", hostIP, nil)

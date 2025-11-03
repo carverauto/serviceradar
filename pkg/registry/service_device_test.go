@@ -195,10 +195,10 @@ func TestServiceDeviceRegistration_MultipleServicesOnSameIP(t *testing.T) {
 
 	// Verify expected device IDs
 	expectedDeviceIDs := map[string]bool{
-		"serviceradar:poller:poller-1":         false,
-		"serviceradar:agent:agent-1":           false,
-		"serviceradar:checker:sysmon@agent-1":  false,
-		"serviceradar:checker:rperf@agent-1":   false,
+		"serviceradar:poller:poller-1":        false,
+		"serviceradar:agent:agent-1":          false,
+		"serviceradar:checker:sysmon@agent-1": false,
+		"serviceradar:checker:rperf@agent-1":  false,
 	}
 
 	for _, update := range publishedUpdates {
@@ -239,7 +239,7 @@ func TestServiceDeviceRegistration_EmptyIPAllowed(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, publishedUpdates, 1, "Service device with empty IP should be published")
-	assert.Equal(t, "", publishedUpdates[0].IP)
+	assert.Empty(t, publishedUpdates[0].IP)
 	assert.Equal(t, "serviceradar:poller:k8s-poller", publishedUpdates[0].DeviceID)
 }
 
@@ -276,7 +276,7 @@ func TestServiceDeviceRegistration_NetworkDeviceEmptyIPDropped(t *testing.T) {
 	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{networkUpdate})
 	require.NoError(t, err)
 
-	assert.Len(t, publishedUpdates, 0, "Network device with empty IP should be dropped")
+	assert.Empty(t, publishedUpdates, "Network device with empty IP should be dropped")
 }
 
 func TestServiceDeviceRegistration_DeviceIDGeneration(t *testing.T) {
@@ -299,8 +299,8 @@ func TestServiceDeviceRegistration_DeviceIDGeneration(t *testing.T) {
 		AnyTimes()
 
 	tests := []struct {
-		name            string
-		update          *models.DeviceUpdate
+		name             string
+		update           *models.DeviceUpdate
 		expectedDeviceID string
 	}{
 		{

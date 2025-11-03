@@ -17,6 +17,13 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+var (
+	// ErrDeviceLifecycleEventDataNil is returned when device lifecycle event data is nil.
+	ErrDeviceLifecycleEventDataNil = errors.New("device lifecycle event data is nil")
+	// ErrEventPayloadNil is returned when event payload is nil.
+	ErrEventPayloadNil = errors.New("event payload is nil")
+)
+
 // EventPublisher provides methods for publishing CloudEvents to NATS JetStream.
 type EventPublisher struct {
 	js       jetstream.JetStream
@@ -107,7 +114,7 @@ func (p *EventPublisher) PublishPollerFirstSeenEvent(
 // PublishDeviceLifecycleEvent publishes lifecycle changes (delete, restore, etc.) for a device.
 func (p *EventPublisher) PublishDeviceLifecycleEvent(ctx context.Context, data *models.DeviceLifecycleEventData) error {
 	if data == nil {
-		return errors.New("device lifecycle event data is nil")
+		return ErrDeviceLifecycleEventDataNil
 	}
 
 	if data.Timestamp.IsZero() {
@@ -138,7 +145,7 @@ func (p *EventPublisher) PublishDeviceLifecycleEvent(ctx context.Context, data *
 
 func (p *EventPublisher) publishEvent(ctx context.Context, event *models.CloudEvent) error {
 	if event == nil {
-		return errors.New("event payload is nil")
+		return ErrEventPayloadNil
 	}
 
 	eventBytes, err := json.Marshal(event)
