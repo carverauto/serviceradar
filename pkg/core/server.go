@@ -45,6 +45,9 @@ import (
 var (
 	// ErrDatabaseTypeAssertion is returned when database type assertion fails.
 	ErrDatabaseTypeAssertion = errors.New("failed to type assert database to *db.DB")
+
+	// pollerStatusUpdateInterval allows tests to shrink the flush cadence.
+	pollerStatusUpdateInterval = defaultPollerStatusUpdateInterval
 )
 
 const (

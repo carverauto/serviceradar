@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -256,18 +257,14 @@ agent {
 // Example: spiffe://carverauto.dev/ns/edge/poller-1 -> carverauto.dev
 func extractTrustDomain(spiffeID string) string {
 	// Remove spiffe:// prefix
-	id := spiffeID
-	if len(id) > 9 {
-		id = id[9:] // Remove "spiffe://"
-	}
+	id := strings.TrimPrefix(spiffeID, "spiffe://")
 
 	// Find first / and return everything before it
-	if idx := len(id); idx > 0 {
-		for i, c := range id {
-			if c == '/' {
-				return id[:i]
-			}
-		}
+	if slashIdx := strings.Index(id, "/"); slashIdx != -1 {
+		return id[:slashIdx]
+	}
+
+	if id != "" {
 		return id
 	}
 

@@ -544,6 +544,12 @@ func TestHandlePollerDown(t *testing.T) {
 		t.Skip("Skipping poller down test in short mode")
 	}
 
+	originalInterval := pollerStatusUpdateInterval
+	pollerStatusUpdateInterval = 10 * time.Millisecond
+	defer func() {
+		pollerStatusUpdateInterval = originalInterval
+	}()
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -591,7 +597,7 @@ func TestHandlePollerDown(t *testing.T) {
 	}
 
 	// Wait for the flush to complete (give it some time to process)
-	time.Sleep(6 * time.Second) // Slightly longer than defaultPollerStatusUpdateInterval
+	time.Sleep(5 * pollerStatusUpdateInterval)
 }
 
 func TestEvaluatePollerHealth(t *testing.T) {
