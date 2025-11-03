@@ -45,7 +45,7 @@ func (s *Server) ensureServiceDevice(
 	}
 
 	// Ignore result streams such as sync/multi-part responses; they set Source to "results".
-	if svc.Source != "" && !strings.EqualFold(svc.Source, "getstatus") {
+	if strings.EqualFold(svc.Source, "results") {
 		return
 	}
 
