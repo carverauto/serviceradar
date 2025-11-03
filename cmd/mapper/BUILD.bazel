@@ -7,8 +7,10 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//alias:config",
+        "//alias:edgeonboarding",
         "//alias:lifecycle",
         "//alias:mapper",
+        "//alias:models",
         "//proto",
         "//proto/discovery",
         "@org_golang_google_grpc//:grpc",

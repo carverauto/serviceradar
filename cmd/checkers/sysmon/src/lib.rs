@@ -21,6 +21,7 @@ pub mod config;
 pub mod poller;
 pub mod server;
 pub mod spiffe;
+pub mod template;
 
 pub use config::Config;
 pub use poller::{MetricSample, MetricsCollector};

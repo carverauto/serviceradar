@@ -18,6 +18,7 @@
 package main
 
 import (
+	"context"
 	cryptoRand "crypto/rand"
 	"encoding/json"
 	"flag"
@@ -30,6 +31,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 const (
@@ -362,11 +366,26 @@ func main() {
 	var configPath string
 
 	flag.StringVar(&configPath, "config", "/etc/serviceradar/faker.json", "Path to configuration file")
+	_ = flag.String("onboarding-token", "", "Edge onboarding token (if provided, triggers edge onboarding)")
+	_ = flag.String("kv-endpoint", "", "KV service endpoint (required for edge onboarding)")
 	flag.Parse()
 
-	// Load configuration
-	var err error
+	ctx := context.Background()
 
+	// Try edge onboarding first (checks env vars if flags not set)
+	onboardingResult, err := edgeonboarding.TryOnboard(ctx, models.EdgeOnboardingComponentTypeAgent, nil)
+	if err != nil {
+		log.Fatalf("Edge onboarding failed: %v", err)
+	}
+
+	// If onboarding was performed, use the generated config
+	if onboardingResult != nil {
+		configPath = onboardingResult.ConfigPath
+		log.Printf("Using edge-onboarded configuration from: %s", configPath)
+		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
+	}
+
+	// Load configuration
 	config, err = loadConfig(configPath)
 	if err != nil {
 		log.Printf("Warning: Could not load config file: %v. Using defaults.", err)

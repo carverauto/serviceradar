@@ -94,6 +94,8 @@ func (s *stubEdgeOnboardingService) MetadataDefaults() map[models.EdgeOnboarding
 
 func (s *stubEdgeOnboardingService) SetAllowedPollerCallback(func([]string)) {}
 
+func (s *stubEdgeOnboardingService) SetDeviceRegistryCallback(func(context.Context, []*models.DeviceUpdate) error) {}
+
 func TestHandleGetEdgePackageDefaultsSuccess(t *testing.T) {
 	service := &stubEdgeOnboardingService{
 		selectors: []string{"unix:uid:0", "unix:user:root"},

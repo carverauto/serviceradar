@@ -561,6 +561,7 @@ func TestHandlePollerDown(t *testing.T) {
 		logger:                  logger.NewTestLogger(),
 		tracer:                  otel.Tracer("serviceradar-core-test"),
 	}
+	server.pollerStatusInterval = 10 * time.Millisecond
 
 	pollerID := testPollerID
 	lastSeen := time.Now().Add(-10 * time.Minute)
@@ -591,7 +592,7 @@ func TestHandlePollerDown(t *testing.T) {
 	}
 
 	// Wait for the flush to complete (give it some time to process)
-	time.Sleep(6 * time.Second) // Slightly longer than defaultPollerStatusUpdateInterval
+	time.Sleep(5 * server.pollerStatusIntervalOrDefault())
 }
 
 func TestEvaluatePollerHealth(t *testing.T) {

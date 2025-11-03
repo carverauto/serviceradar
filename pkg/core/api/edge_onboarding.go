@@ -75,6 +75,7 @@ type edgePackageCreateRequest struct {
 	JoinTokenTTLSeconds     int64    `json:"join_token_ttl_seconds,omitempty"`
 	DownloadTokenTTLSeconds int64    `json:"download_token_ttl_seconds,omitempty"`
 	DownstreamSPIFFEID      string   `json:"downstream_spiffe_id,omitempty"`
+	DataSvcEndpoint         string   `json:"datasvc_endpoint,omitempty"` // DataSvc gRPC endpoint
 }
 
 type edgePackageCreateResponse struct {
@@ -96,6 +97,12 @@ type edgePackageDefaultsResponse struct {
 	Selectors []string                     `json:"selectors,omitempty"`
 	Metadata  map[string]map[string]string `json:"metadata,omitempty"`
 }
+
+const (
+	componentTypePoller  = "poller"
+	componentTypeChecker = "checker"
+	componentTypeAgent   = serviceAgent
+)
 
 func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Request) {
 	if s.edgeOnboarding == nil {
@@ -161,11 +168,11 @@ func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Reques
 					continue
 				}
 				switch trimmed {
-				case "poller":
+				case componentTypePoller:
 					types = append(types, models.EdgeOnboardingComponentTypePoller)
-				case "agent":
+				case componentTypeAgent:
 					types = append(types, models.EdgeOnboardingComponentTypeAgent)
-				case "checker":
+				case componentTypeChecker:
 					types = append(types, models.EdgeOnboardingComponentTypeChecker)
 				default:
 					writeError(w, "component_type must be poller, agent, or checker", http.StatusBadRequest)
@@ -405,6 +412,7 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 		JoinTokenTTL:       joinTTL,
 		DownloadTokenTTL:   downloadTTL,
 		DownstreamSPIFFEID: req.DownstreamSPIFFEID,
+		DataSvcEndpoint:    strings.TrimSpace(req.DataSvcEndpoint),
 	}
 
 	result, err := s.edgeOnboarding.CreatePackage(r.Context(), createReq)

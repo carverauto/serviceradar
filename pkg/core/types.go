@@ -62,6 +62,7 @@ type Server struct {
 	config              *models.CoreServiceConfig
 	authService         *auth.Auth
 	DeviceRegistry      registry.Manager
+	ServiceRegistry     registry.ServiceManager
 	identityKVClient    identityKVClient
 	identityKVCloser    func() error
 	eventPublisher      *natsutil.EventPublisher
@@ -82,6 +83,7 @@ type Server struct {
 	pollerStatusCache       map[string]*models.PollerStatus
 	pollerStatusUpdates     map[string]*models.PollerStatus
 	pollerStatusUpdateMutex sync.Mutex
+	pollerStatusInterval    time.Duration
 	cacheLastUpdated        time.Time
 	cacheMutex              sync.RWMutex
 	logger                  logger.Logger

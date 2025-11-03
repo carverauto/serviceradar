@@ -32,6 +32,7 @@ type CmdConfig struct {
 	// Kong/JWKS rendering
 	JWKSURL        string
 	KongServiceURL string
+	KongWebURL     string
 	KongRoutePath  string
 	OutputPath     string
 	JWTKeyClaim    string

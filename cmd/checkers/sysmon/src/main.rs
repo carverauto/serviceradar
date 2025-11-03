@@ -38,6 +38,12 @@ async fn main() -> Result<()> {
         env!("CARGO_PKG_VERSION")
     );
 
+    // Register checker template with KV (non-fatal if it fails)
+    debug!("Attempting to register checker template with KV");
+    if let Err(e) = serviceradar_sysmon_checker::template::register_template().await {
+        warn!("Template registration failed: {}", e);
+    }
+
     let matches = App::new("serviceradar-sysmon-checker")
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))

@@ -36,6 +36,48 @@ var onboardingAllowedStatuses = []models.EdgeOnboardingStatus{
 	models.EdgeOnboardingStatusActivated,
 }
 
+// ServiceManager provides service registration operations for edge onboarding.
+// Defined here to avoid import cycles with pkg/registry.
+type ServiceManager interface {
+	RegisterPoller(ctx context.Context, reg *PollerRegistration) error
+	RegisterAgent(ctx context.Context, reg *AgentRegistration) error
+	RegisterChecker(ctx context.Context, reg *CheckerRegistration) error
+}
+
+// Service registration types - mirror registry package to avoid import cycle
+type (
+	PollerRegistration struct {
+		PollerID           string
+		ComponentID        string
+		RegistrationSource string
+		Metadata           map[string]string
+		SPIFFEIdentity     string
+		CreatedBy          string
+	}
+
+	AgentRegistration struct {
+		AgentID            string
+		PollerID           string
+		ComponentID        string
+		RegistrationSource string
+		Metadata           map[string]string
+		SPIFFEIdentity     string
+		CreatedBy          string
+	}
+
+	CheckerRegistration struct {
+		CheckerID          string
+		AgentID            string
+		PollerID           string
+		CheckerKind        string
+		ComponentID        string
+		RegistrationSource string
+		Metadata           map[string]string
+		SPIFFEIdentity     string
+		CreatedBy          string
+	}
+)
+
 const (
 	defaultJoinTokenTTL          = 15 * time.Minute
 	defaultDownloadTokenTTL      = 24 * time.Hour
@@ -48,6 +90,9 @@ const (
 
 var (
 	pollerSlugRegex = regexp.MustCompile(`[^a-z0-9]+`)
+
+	// ErrUnsupportedComponentType is returned when an unknown component type is encountered during onboarding.
+	ErrUnsupportedComponentType = errors.New("unsupported component type")
 )
 
 type edgeOnboardingService struct {
@@ -76,10 +121,13 @@ type edgeOnboardingService struct {
 
 	callbackMu      sync.RWMutex
 	allowedCallback func([]string)
+
+	deviceRegistryCallback func(context.Context, []*models.DeviceUpdate) error
+	serviceRegistry        ServiceManager
 }
 
 //nolint:unparam // kvCloser is reserved for future KV client integrations.
-func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models.SpireAdminConfig, spireClient spireadmin.Client, database db.Service, kvClient proto.KVServiceClient, kvCloser func() error, log logger.Logger) (*edgeOnboardingService, error) {
+func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models.SpireAdminConfig, spireClient spireadmin.Client, database db.Service, kvClient proto.KVServiceClient, kvCloser func() error, serviceRegistry ServiceManager, log logger.Logger) (*edgeOnboardingService, error) {
 	if cfg == nil || !cfg.Enabled {
 		if kvCloser != nil {
 			_ = kvCloser()
@@ -113,6 +161,7 @@ func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models
 		rand:             rand.Reader,
 		allowed:          make(map[string]struct{}),
 		metadataDefaults: make(map[models.EdgeOnboardingComponentType]map[string]string),
+		serviceRegistry:  serviceRegistry,
 
 		refreshInterval: defaultPollerRefreshInterval,
 		refreshTimeout:  defaultPollerRefreshTimeout,
@@ -327,6 +376,16 @@ func (s *edgeOnboardingService) SetAllowedPollerCallback(cb func([]string)) {
 	}
 }
 
+func (s *edgeOnboardingService) SetDeviceRegistryCallback(cb func(context.Context, []*models.DeviceUpdate) error) {
+	if s == nil {
+		return
+	}
+
+	s.callbackMu.Lock()
+	s.deviceRegistryCallback = cb
+	s.callbackMu.Unlock()
+}
+
 func (s *edgeOnboardingService) broadcastAllowedSnapshot() {
 	if s == nil {
 		return
@@ -485,13 +544,23 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		return nil, fmt.Errorf("%w: metadata_json must be valid JSON: %w", models.ErrEdgeOnboardingInvalidRequest, err)
 	}
 
+	// Inject datasvc_endpoint into metadata if provided
+	if req.DataSvcEndpoint != "" {
+		metadataMap["datasvc_endpoint"] = req.DataSvcEndpoint
+	}
+
 	if componentType == models.EdgeOnboardingComponentTypePoller {
 		if err := validatePollerMetadata(metadataMap); err != nil {
 			return nil, err
 		}
 	}
 
-	metadata := normalizedMetadata
+	// Re-serialize metadata with datasvc_endpoint injected
+	metadataBytes, err := json.Marshal(metadataMap)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to serialize metadata: %w", models.ErrEdgeOnboardingInvalidRequest, err)
+	}
+	metadata := string(metadataBytes)
 
 	parentID := strings.TrimSpace(req.ParentID)
 	var parentType models.EdgeOnboardingComponentType
@@ -678,6 +747,16 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		DetailsJSON: detailsJSON,
 	}); err != nil {
 		return nil, fmt.Errorf("edge onboarding: record issued event: %w", err)
+	}
+
+	// Register service in service registry
+	if s.serviceRegistry != nil {
+		if err := s.registerServiceComponent(ctx, componentType, componentID, pollerID, parentID, checkerKind, downstreamID, metadataMap, createdBy); err != nil {
+			s.logger.Warn().Err(err).
+				Str("component_type", string(componentType)).
+				Str("component_id", componentID).
+				Msg("Failed to register service in service registry")
+		}
 	}
 
 	s.mu.Lock()
@@ -880,6 +959,15 @@ func (s *edgeOnboardingService) RevokePackage(ctx context.Context, req *models.E
 	delete(s.allowed, pkg.PollerID)
 	s.mu.Unlock()
 	s.broadcastAllowedSnapshot()
+
+	// Mark the service device as unavailable in the device registry
+	if err := s.markServiceDeviceUnavailable(ctx, pkg); err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("package_id", pkg.PackageID).
+			Str("poller_id", pkg.PollerID).
+			Msg("edge onboarding: failed to mark service device as unavailable")
+	}
 
 	return &models.EdgeOnboardingRevokeResult{Package: pkg}, nil
 }
@@ -1454,6 +1542,75 @@ func (s *edgeOnboardingService) applyComponentKVUpdates(ctx context.Context, pkg
 		return err
 	}
 
+	componentType := pkg.ComponentType
+	if componentType == models.EdgeOnboardingComponentTypeNone {
+		componentType = models.EdgeOnboardingComponentTypePoller
+	}
+
+	// For checkers, write the checker config directly to KV
+	// The agent expects the checker config JSON at agents/{agent_id}/checkers/{checker_kind}.json
+	if componentType == models.EdgeOnboardingComponentTypeChecker {
+		// Check if instance config already exists to prevent overwriting user modifications
+		existing, err := s.kvClient.Get(ctx, &proto.GetRequest{Key: key})
+		if err != nil {
+			return fmt.Errorf("edge onboarding: failed to check existing config: %w", err)
+		}
+
+		if existing.GetFound() {
+			// Config already exists, don't overwrite it
+			// Just store the revision and return
+			pkg.KVRevision = existing.GetRevision()
+			s.logger.Info().
+				Str("key", key).
+				Str("checker_kind", pkg.CheckerKind).
+				Uint64("revision", existing.GetRevision()).
+				Msg("Checker config already exists in KV, skipping write to preserve user modifications")
+			return nil
+		}
+
+		// Get the checker config - either from request or from template
+		checkerConfigJSON := pkg.CheckerConfigJSON
+		if checkerConfigJSON == "" {
+			// Fetch template from KV
+			templateKey := fmt.Sprintf("templates/checkers/%s.json", pkg.CheckerKind)
+			template, err := s.kvClient.Get(ctx, &proto.GetRequest{Key: templateKey})
+			if err != nil {
+				return fmt.Errorf("edge onboarding: failed to fetch template from %s: %w", templateKey, err)
+			}
+
+			if !template.GetFound() {
+				return fmt.Errorf("%w: no template found at %s and no checker_config_json provided", models.ErrEdgeOnboardingInvalidRequest, templateKey)
+			}
+
+			// Apply variable substitution to the template
+			checkerConfigJSON, err = s.substituteTemplateVariables(string(template.GetValue()), pkg)
+			if err != nil {
+				return fmt.Errorf("edge onboarding: failed to substitute template variables: %w", err)
+			}
+
+			s.logger.Info().
+				Str("template_key", templateKey).
+				Str("checker_kind", pkg.CheckerKind).
+				Str("downstream_spiffe_id", pkg.DownstreamSPIFFEID).
+				Msg("Using checker template from KV")
+		}
+
+		// Validate that it's valid JSON
+		if !json.Valid([]byte(checkerConfigJSON)) {
+			return fmt.Errorf("%w: checker_config_json must be valid JSON", models.ErrEdgeOnboardingInvalidRequest)
+		}
+
+		// Write the checker config directly (only if it didn't exist)
+		revision, err := s.putKVDocument(ctx, key, []byte(checkerConfigJSON))
+		if err != nil {
+			return err
+		}
+
+		pkg.KVRevision = revision
+		return nil
+	}
+
+	// For pollers and agents, write the full metadata document
 	metadata := json.RawMessage(nil)
 	if strings.TrimSpace(pkg.MetadataJSON) != "" {
 		metadata = json.RawMessage(pkg.MetadataJSON)
@@ -1462,11 +1619,6 @@ func (s *edgeOnboardingService) applyComponentKVUpdates(ctx context.Context, pkg
 	checkerConfig := json.RawMessage(nil)
 	if strings.TrimSpace(pkg.CheckerConfigJSON) != "" {
 		checkerConfig = json.RawMessage(pkg.CheckerConfigJSON)
-	}
-
-	componentType := pkg.ComponentType
-	if componentType == models.EdgeOnboardingComponentTypeNone {
-		componentType = models.EdgeOnboardingComponentTypePoller
 	}
 
 	doc := map[string]interface{}{
@@ -1542,7 +1694,11 @@ func (s *edgeOnboardingService) kvKeyForPackage(pkg *models.EdgeOnboardingPackag
 		if agentID == "" {
 			return "", fmt.Errorf("%w: parent_id is required for checker packages", models.ErrEdgeOnboardingInvalidRequest)
 		}
-		return fmt.Sprintf("config/agents/%s/checkers/%s.json", agentID, componentID), nil
+		checkerKind := sanitizePollerID(pkg.CheckerKind)
+		if checkerKind == "" {
+			return "", fmt.Errorf("%w: checker_kind is required for checker packages", models.ErrEdgeOnboardingInvalidRequest)
+		}
+		return fmt.Sprintf("agents/%s/checkers/%s.json", agentID, checkerKind), nil
 	default:
 		return "", fmt.Errorf("%w: unsupported component_type %q", models.ErrEdgeOnboardingInvalidRequest, pkg.ComponentType)
 	}
@@ -1574,6 +1730,150 @@ func (s *edgeOnboardingService) upsertKVDocument(ctx context.Context, key string
 		return confirm.GetRevision(), nil
 	}
 	return 0, nil
+}
+
+// putKVDocument writes a document to KV without checking if it exists first.
+// This is used for initial writes where we've already checked existence.
+func (s *edgeOnboardingService) putKVDocument(ctx context.Context, key string, value []byte) (uint64, error) {
+	if _, err := s.kvClient.Put(ctx, &proto.PutRequest{Key: key, Value: value}); err != nil {
+		return 0, fmt.Errorf("edge onboarding: kv put %s: %w", key, err)
+	}
+
+	confirm, err := s.kvClient.Get(ctx, &proto.GetRequest{Key: key})
+	if err != nil {
+		return 0, fmt.Errorf("edge onboarding: kv confirm %s: %w", key, err)
+	}
+	if confirm.GetFound() {
+		return confirm.GetRevision(), nil
+	}
+	return 0, nil
+}
+
+// substituteTemplateVariables replaces placeholder values in a checker template
+// with instance-specific values from the edge onboarding package.
+func (s *edgeOnboardingService) substituteTemplateVariables(templateJSON string, pkg *models.EdgeOnboardingPackage) (string, error) {
+	// Parse the template as a generic map
+	var template map[string]interface{}
+	if err := json.Unmarshal([]byte(templateJSON), &template); err != nil {
+		return "", fmt.Errorf("failed to parse template JSON: %w", err)
+	}
+
+	// Parse metadata to get addresses and other values
+	metadata := make(map[string]string)
+	if pkg.MetadataJSON != "" {
+		if err := json.Unmarshal([]byte(pkg.MetadataJSON), &metadata); err != nil {
+			return "", fmt.Errorf("failed to parse metadata for template substitution: %w", err)
+		}
+	}
+
+	// Whitelist of allowed metadata keys to prevent injection
+	allowedMetadataKeys := map[string]bool{
+		"agent_address":  true,
+		"core_address":   true,
+		"core_spiffe_id": true,
+		"kv_address":     true,
+		"kv_spiffe_id":   true,
+		"trust_domain":   true,
+		"log_level":      true,
+	}
+
+	// Sanitize and validate metadata values before substitution
+	sanitizedVars := make(map[string]string)
+
+	// Add package fields (already validated during package creation)
+	sanitizedVars["DOWNSTREAM_SPIFFE_ID"] = pkg.DownstreamSPIFFEID
+	sanitizedVars["COMPONENT_ID"] = pkg.ComponentID
+	sanitizedVars["CHECKER_KIND"] = pkg.CheckerKind
+	sanitizedVars["AGENT_ID"] = pkg.ParentID
+
+	// Add only whitelisted metadata fields
+	for key, allowed := range allowedMetadataKeys {
+		if allowed {
+			if val, ok := metadata[key]; ok {
+				// Validate the value doesn't contain injection patterns
+				if s.isValidMetadataValue(val) {
+					sanitizedVars[strings.ToUpper(key)] = val
+				} else {
+					s.logger.Warn().
+						Str("key", key).
+						Str("value", val).
+						Msg("Skipping metadata value with potential injection pattern")
+				}
+			}
+		}
+	}
+
+	// Recursively substitute variables in the template
+	substituted := s.substituteInMap(template, sanitizedVars)
+
+	// Marshal back to JSON
+	result, err := json.Marshal(substituted)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal substituted template: %w", err)
+	}
+
+	return string(result), nil
+}
+
+// isValidMetadataValue validates that a metadata value doesn't contain potential injection patterns.
+func (s *edgeOnboardingService) isValidMetadataValue(value string) bool {
+	// Check for common injection patterns
+	dangerousPatterns := []string{
+		"{{",     // Template injection
+		"${",     // Variable expansion injection
+		"../",    // Path traversal
+		"..\\",   // Path traversal (Windows)
+		"\x00",   // Null byte injection
+		"\n",     // Newline injection (for log/config files)
+		"\r",     // Carriage return injection
+		"${jndi", // Log4Shell-style injection
+		"${env",  // Environment variable injection
+	}
+
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(value, pattern) {
+			return false
+		}
+	}
+
+	// Additional validation: ensure the value is printable ASCII or valid UTF-8
+	for _, r := range value {
+		if r < 32 && r != 9 { // Allow tab (9), reject other control characters
+			return false
+		}
+	}
+
+	return true
+}
+
+// substituteInMap recursively replaces placeholder values in a map structure.
+func (s *edgeOnboardingService) substituteInMap(data interface{}, vars map[string]string) interface{} {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		result := make(map[string]interface{})
+		for key, val := range v {
+			result[key] = s.substituteInMap(val, vars)
+		}
+		return result
+	case []interface{}:
+		result := make([]interface{}, len(v))
+		for i, val := range v {
+			result[i] = s.substituteInMap(val, vars)
+		}
+		return result
+	case string:
+		// Replace any placeholder variables in the string
+		result := v
+		for placeholder, value := range vars {
+			if value != "" {
+				result = strings.ReplaceAll(result, "{{"+placeholder+"}}", value)
+				result = strings.ReplaceAll(result, "${"+placeholder+"}", value)
+			}
+		}
+		return result
+	default:
+		return v
+	}
 }
 
 func (s *edgeOnboardingService) mergeSelectors(extra []string) []string {
@@ -1657,6 +1957,56 @@ func (s *edgeOnboardingService) deleteDownstreamEntry(ctx context.Context, entry
 	return s.spire.DeleteEntry(ctx, entryID)
 }
 
+func (s *edgeOnboardingService) markServiceDeviceUnavailable(ctx context.Context, pkg *models.EdgeOnboardingPackage) error {
+	if s == nil || pkg == nil {
+		return nil
+	}
+
+	s.callbackMu.RLock()
+	cb := s.deviceRegistryCallback
+	s.callbackMu.RUnlock()
+
+	if cb == nil {
+		s.logger.Debug().
+			Str("package_id", pkg.PackageID).
+			Str("poller_id", pkg.PollerID).
+			Msg("edge onboarding: device registry callback not set, skipping device cleanup")
+		return nil
+	}
+
+	// Create tombstone update for the poller
+	serviceType := models.ServiceTypePoller
+	tombstone := &models.DeviceUpdate{
+		DeviceID:    models.GenerateServiceDeviceID(serviceType, pkg.PollerID),
+		ServiceType: &serviceType,
+		ServiceID:   pkg.PollerID,
+		PollerID:    pkg.PollerID,
+		Partition:   models.ServiceDevicePartition,
+		Source:      models.DiscoverySourceServiceRadar,
+		Timestamp:   s.now(),
+		IsAvailable: false, // Mark as unavailable
+		Confidence:  models.ConfidenceHighSelfReported,
+		Metadata: map[string]string{
+			"component_type": "poller",
+			"poller_id":      pkg.PollerID,
+			"revoked":        "true",
+			"revoked_at":     pkg.RevokedAt.Format(time.RFC3339),
+		},
+	}
+
+	if err := cb(ctx, []*models.DeviceUpdate{tombstone}); err != nil {
+		return fmt.Errorf("emit tombstone device update: %w", err)
+	}
+
+	s.logger.Info().
+		Str("package_id", pkg.PackageID).
+		Str("poller_id", pkg.PollerID).
+		Str("device_id", tombstone.DeviceID).
+		Msg("edge onboarding: marked service device as unavailable")
+
+	return nil
+}
+
 func (s *edgeOnboardingService) packageIssuedDetails(entryID, downstreamID string) string {
 	payload := map[string]string{
 		"downstream_entry_id":  entryID,
@@ -1684,4 +2034,52 @@ func sanitizePollerID(raw string) string {
 		sanitized = strings.Trim(sanitized, "-")
 	}
 	return sanitized
+}
+
+// registerServiceComponent registers a service component in the service registry based on its type.
+func (s *edgeOnboardingService) registerServiceComponent(ctx context.Context, componentType models.EdgeOnboardingComponentType, componentID, pollerID, parentID, checkerKind, spiffeID string, metadata map[string]string, createdBy string) error {
+	if s.serviceRegistry == nil {
+		return nil
+	}
+
+	switch componentType {
+	case models.EdgeOnboardingComponentTypePoller:
+		return s.serviceRegistry.RegisterPoller(ctx, &PollerRegistration{
+			PollerID:           componentID,
+			ComponentID:        componentID,
+			RegistrationSource: "edge_onboarding",
+			Metadata:           metadata,
+			SPIFFEIdentity:     spiffeID,
+			CreatedBy:          createdBy,
+		})
+
+	case models.EdgeOnboardingComponentTypeAgent:
+		return s.serviceRegistry.RegisterAgent(ctx, &AgentRegistration{
+			AgentID:            componentID,
+			PollerID:           pollerID,
+			ComponentID:        componentID,
+			RegistrationSource: "edge_onboarding",
+			Metadata:           metadata,
+			SPIFFEIdentity:     spiffeID,
+			CreatedBy:          createdBy,
+		})
+
+	case models.EdgeOnboardingComponentTypeChecker:
+		return s.serviceRegistry.RegisterChecker(ctx, &CheckerRegistration{
+			CheckerID:          componentID,
+			AgentID:            parentID,
+			PollerID:           pollerID,
+			CheckerKind:        checkerKind,
+			ComponentID:        componentID,
+			RegistrationSource: "edge_onboarding",
+			Metadata:           metadata,
+			SPIFFEIdentity:     spiffeID,
+			CreatedBy:          createdBy,
+		})
+
+	case models.EdgeOnboardingComponentTypeNone:
+		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, componentType)
+	default:
+		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, componentType)
+	}
 }

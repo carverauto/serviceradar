@@ -70,10 +70,7 @@ impl KvClient {
         }
     }
 
-    pub async fn put_if_absent(&mut self, key: &str, value: Vec<u8>) -> Result<()> {
-        if self.get(key).await?.is_some() {
-            return Ok(());
-        }
+    pub async fn put(&mut self, key: &str, value: Vec<u8>) -> Result<()> {
         self.inner
             .put(kvproto::PutRequest {
                 key: key.to_string(),
@@ -83,6 +80,13 @@ impl KvClient {
             .await
             .map_err(|e| KvError::Other(e.into()))?;
         Ok(())
+    }
+
+    pub async fn put_if_absent(&mut self, key: &str, value: Vec<u8>) -> Result<()> {
+        if self.get(key).await?.is_some() {
+            return Ok(());
+        }
+        self.put(key, value).await
     }
 
     pub async fn watch_apply<F>(&mut self, key: &str, mut apply: F) -> Result<()>

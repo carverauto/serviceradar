@@ -631,11 +631,6 @@ crates.from_cargo(
     manifests = ["//cmd/checkers/rperf-client:Cargo.toml"],
 )
 crates.from_cargo(
-    name = "rust_crates_sysmon",
-    cargo_lockfile = "//cmd/checkers/sysmon:Cargo.lock",
-    manifests = ["//cmd/checkers/sysmon:Cargo.toml"],
-)
-crates.from_cargo(
     name = "rust_crates_profiler",
     cargo_lockfile = "//cmd/ebpf/profiler/profiler:Cargo.lock",
     manifests = ["//cmd/ebpf/profiler:Cargo.toml"],
@@ -644,7 +639,6 @@ use_repo(
     crates,
     "rust_crates_profiler",
     "rust_crates_rperf_checker",
-    "rust_crates_sysmon",
 )
 
 # --- Node.js toolchain -------------------------------------------------------

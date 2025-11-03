@@ -28,13 +28,7 @@ spec:
           mkdir -p /opt/kong
           wait-for-port --host serviceradar-core --port 8090 --attempts 60 --interval 5s --quiet
           wait-for-port --host serviceradar-srql --port 8080 --attempts 60 --interval 5s --quiet
-          /usr/local/bin/serviceradar-cli render-kong \
-            --jwks http://serviceradar-core:8090/auth/jwks.json \
-            --service http://serviceradar-core:8090 \
-            --path /api \
-            --srql-service http://serviceradar-srql:8080 \
-            --srql-path /api/query \
-            --out /opt/kong/kong.yml
+          /usr/local/bin/serviceradar-cli render-kong --jwks http://serviceradar-core:8090/auth/jwks.json --service http://serviceradar-core:8090 --path /api --web-service http://serviceradar-web:3000 --srql-service http://serviceradar-srql:8080 --srql-path /api/query --out /opt/kong/kong.yml
           chmod 0644 /opt/kong/kong.yml
         volumeMounts:
         - name: kong-config
@@ -101,13 +95,7 @@ spec:
           set -euo pipefail
 
           render() {
-            /usr/local/bin/serviceradar-cli render-kong \
-              --jwks http://serviceradar-core:8090/auth/jwks.json \
-              --service http://serviceradar-core:8090 \
-              --path /api \
-              --srql-service http://serviceradar-srql:8080 \
-              --srql-path /api/query \
-              --out "$1"
+            /usr/local/bin/serviceradar-cli render-kong --jwks http://serviceradar-core:8090/auth/jwks.json --service http://serviceradar-core:8090 --path /api --web-service http://serviceradar-web:3000 --srql-service http://serviceradar-srql:8080 --srql-path /api/query --out "$1"
           }
 
           wait-for-port --host serviceradar-core --port 8090 --attempts 60 --interval 5s --quiet

@@ -611,11 +611,18 @@ func (db *DB) processBatch(ctx context.Context, updates []*models.DeviceUpdate, 
 func (*DB) appendUpdateToBatch(batch driver.Batch, update *models.DeviceUpdate) error {
 	// Ensure required fields
 	if update.DeviceID == "" {
-		if update.Partition == "" {
-			update.Partition = "default"
+		// Check if this is a service component (poller/agent/checker)
+		if update.ServiceType != nil && update.ServiceID != "" {
+			// Generate service-aware device ID: serviceradar:type:id
+			update.DeviceID = models.GenerateServiceDeviceID(*update.ServiceType, update.ServiceID)
+			update.Partition = models.ServiceDevicePartition
+		} else {
+			// Generate network device ID: partition:ip
+			if update.Partition == "" {
+				update.Partition = "default"
+			}
+			update.DeviceID = models.GenerateNetworkDeviceID(update.Partition, update.IP)
 		}
-
-		update.DeviceID = fmt.Sprintf("%s:%s", update.Partition, update.IP)
 	}
 
 	if update.Metadata == nil {

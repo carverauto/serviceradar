@@ -30,6 +30,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
 )
 
@@ -88,6 +89,7 @@ type EdgeOnboardingService interface {
 	DefaultSelectors() []string
 	MetadataDefaults() map[models.EdgeOnboardingComponentType]map[string]string
 	SetAllowedPollerCallback(cb func([]string))
+	SetDeviceRegistryCallback(cb func(context.Context, []*models.DeviceUpdate) error)
 }
 
 type APIServer struct {
@@ -102,6 +104,7 @@ type APIServer struct {
 	queryExecutor        db.QueryExecutor
 	dbService            db.Service
 	deviceRegistry       DeviceRegistryService
+	serviceRegistry      ServiceRegistryService // Service registry for pollers/agents/checkers
 	knownPollers         []string
 	knownPollerSet       map[string]struct{}
 	dynamicPollers       map[string]struct{}
@@ -117,6 +120,7 @@ type APIServer struct {
 	spireAdminClient     spireadmin.Client
 	spireAdminConfig     *models.SpireAdminConfig
 	edgeOnboarding       EdgeOnboardingService
+	eventPublisher       *natsutil.EventPublisher
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint that fronts a specific JetStream domain.

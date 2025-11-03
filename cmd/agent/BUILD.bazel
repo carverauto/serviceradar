@@ -8,6 +8,7 @@ go_library(
     deps = [
         "//alias:agent",
         "//alias:config",
+        "//alias:edgeonboarding",
         "//alias:lifecycle",
         "//alias:logger",
         "//alias:models",
