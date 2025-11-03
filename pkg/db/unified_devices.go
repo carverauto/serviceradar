@@ -31,6 +31,7 @@ var (
 	errFailedToScanUnifiedDeviceRow = errors.New("failed to scan unified device row")
 	errUnifiedDeviceNotFound        = errors.New("unified device not found")
 	errFailedToQueryUnifiedDevice   = errors.New("failed to query unified device")
+	errNoDeviceFilters              = errors.New("no deviceIDs or ips provided")
 )
 
 const unifiedDeviceBatchLimit = 200
@@ -302,7 +303,7 @@ func (db *DB) queryUnifiedDeviceBatch(ctx context.Context, deviceIDs, ips []stri
 	}
 
 	if len(conditions) == 0 {
-		return nil, fmt.Errorf("no deviceIDs or ips provided")
+		return nil, errNoDeviceFilters
 	}
 
 	query := fmt.Sprintf(`%sSELECT
