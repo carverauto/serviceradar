@@ -31,6 +31,7 @@ var (
 	errFailedToScanUnifiedDeviceRow = errors.New("failed to scan unified device row")
 	errUnifiedDeviceNotFound        = errors.New("unified device not found")
 	errFailedToQueryUnifiedDevice   = errors.New("failed to query unified device")
+	errNoDeviceFilters              = errors.New("no deviceIDs or ips provided")
 )
 
 const unifiedDeviceBatchLimit = 200
@@ -38,18 +39,18 @@ const unifiedDeviceBatchLimit = 200
 // GetUnifiedDevice retrieves a unified device by its ID (latest version)
 // Uses materialized view approach - reads from unified_devices stream
 func (db *DB) GetUnifiedDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
-	query := fmt.Sprintf(`SELECT
+	query := `SELECT
         device_id, ip, poller_id, hostname, mac, discovery_sources,
         is_available, first_seen, last_seen, metadata, agent_id, device_type, 
         service_type, service_status, last_heartbeat, os_info, version_info
     FROM table(unified_devices)
-    WHERE device_id = '%s'
-    ORDER BY _tp_time DESC
-    LIMIT 1`, deviceID)
+    WHERE device_id = $1
+    ORDER BY _tp_time DESC NULLS LAST
+    LIMIT 1`
 
 	// This function has special handling for the case where no rows are returned,
 	// so we can't use the queryUnifiedDevices helper
-	rows, err := db.Conn.Query(ctx, query)
+	rows, err := db.Conn.Query(ctx, query, deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToQueryUnifiedDevice, err)
 	}
@@ -282,19 +283,27 @@ func (db *DB) queryUnifiedDeviceBatch(ctx context.Context, deviceIDs, ips []stri
 	var withClauses []string
 
 	if len(deviceIDs) > 0 {
-		withClauses = append(withClauses, fmt.Sprintf(`device_candidates AS (
+		if tuples := joinValueTuples(deviceIDs); tuples != "" {
+			withClauses = append(withClauses, fmt.Sprintf(`device_candidates AS (
         SELECT device_id
         FROM VALUES('device_id string', %s)
-    )`, joinValueTuples(deviceIDs)))
-		conditions = append(conditions, "device_id IN (SELECT device_id FROM device_candidates)")
+    )`, tuples))
+			conditions = append(conditions, "device_id IN (SELECT device_id FROM device_candidates)")
+		}
 	}
 
 	if len(ips) > 0 {
-		withClauses = append(withClauses, fmt.Sprintf(`ip_candidates AS (
+		if tuples := joinValueTuples(ips); tuples != "" {
+			withClauses = append(withClauses, fmt.Sprintf(`ip_candidates AS (
         SELECT ip
         FROM VALUES('ip string', %s)
-    )`, joinValueTuples(ips)))
-		conditions = append(conditions, "ip IN (SELECT ip FROM ip_candidates)")
+    )`, tuples))
+			conditions = append(conditions, "ip IN (SELECT ip FROM ip_candidates)")
+		}
+	}
+
+	if len(conditions) == 0 {
+		return nil, errNoDeviceFilters
 	}
 
 	query := fmt.Sprintf(`%sSELECT
@@ -380,12 +389,15 @@ func buildWithClause(clauses []string) string {
 }
 
 func joinValueTuples(values []string) string {
-	escaped := make([]string, len(values))
-	for i, v := range values {
-		escaped[i] = fmt.Sprintf("('%s')", escapeLiteral(v))
+	literals := make([]string, 0, len(values))
+	for _, v := range values {
+		if v = strings.TrimSpace(v); v == "" {
+			continue
+		}
+		literals = append(literals, fmt.Sprintf("('%s')", escapeLiteral(v)))
 	}
 
-	return strings.Join(escaped, ", ")
+	return strings.Join(literals, ", ")
 }
 
 func escapeLiteral(value string) string {
