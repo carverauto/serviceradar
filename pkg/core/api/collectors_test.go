@@ -64,6 +64,25 @@ func TestDeriveCollectorCapabilitiesNonCollector(t *testing.T) {
 	}
 }
 
+func TestDeriveCollectorCapabilitiesIgnoresAliasOnly(t *testing.T) {
+	device := &models.UnifiedDevice{
+		DeviceID: "default:alias-only",
+		Metadata: &models.DiscoveredField[map[string]string]{
+			Value: map[string]string{
+				"_alias_last_seen_service_id": "serviceradar:agent:k8s-agent",
+			},
+		},
+	}
+
+	caps, ok := deriveCollectorCapabilities(device)
+	if !ok {
+		t.Fatalf("expected capabilities to be derived")
+	}
+	if caps.hasCollector {
+		t.Fatalf("alias-only metadata should not flag device as collector")
+	}
+}
+
 func TestGetDeviceMetricsSkipsICMPFallbackForNonCollector(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)

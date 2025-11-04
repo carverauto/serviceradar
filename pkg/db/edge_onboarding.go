@@ -18,39 +18,40 @@ const (
 	edgeOnboardingPackagesSelectClause = `
 SELECT
 	package_id,
-		arg_max(label, updated_at) AS label,
-		arg_max(component_id, updated_at) AS component_id,
-		arg_max(component_type, updated_at) AS component_type,
-		arg_max(parent_type, updated_at) AS parent_type,
-		arg_max(parent_id, updated_at) AS parent_id,
-		arg_max(poller_id, updated_at) AS poller_id,
-		arg_max(site, updated_at) AS site,
-		arg_max(status, updated_at) AS status,
-		arg_max(downstream_entry_id, updated_at) AS downstream_entry_id,
-		arg_max(downstream_spiffe_id, updated_at) AS downstream_spiffe_id,
-		arg_max(selectors, updated_at) AS selectors,
-		arg_max(join_token_ciphertext, updated_at) AS join_token_ciphertext,
-		arg_max(join_token_expires_at, updated_at) AS join_token_expires_at,
-		arg_max(bundle_ciphertext, updated_at) AS bundle_ciphertext,
-		arg_max(download_token_hash, updated_at) AS download_token_hash,
-		arg_max(download_token_expires_at, updated_at) AS download_token_expires_at,
-		arg_max(created_by, updated_at) AS created_by,
-		arg_max(created_at, updated_at) AS created_at,
-		max(updated_at) AS latest_updated_at,
-		arg_max(delivered_at, updated_at) AS delivered_at,
-		arg_max(activated_at, updated_at) AS activated_at,
-		arg_max(activated_from_ip, updated_at) AS activated_from_ip,
-		arg_max(last_seen_spiffe_id, updated_at) AS last_seen_spiffe_id,
-		arg_max(revoked_at, updated_at) AS revoked_at,
-		arg_max(deleted_at, updated_at) AS deleted_at,
-		arg_max(deleted_by, updated_at) AS deleted_by,
-		arg_max(deleted_reason, updated_at) AS deleted_reason,
-		arg_max(metadata_json, updated_at) AS metadata_json,
-		arg_max(checker_kind, updated_at) AS checker_kind,
-		arg_max(checker_config_json, updated_at) AS checker_config_json,
-		arg_max(kv_revision, updated_at) AS kv_revision,
-		arg_max(notes, updated_at) AS notes
-FROM filtered`
+	arg_max(label, updated_at) AS label,
+	arg_max(component_id, updated_at) AS component_id,
+	arg_max(component_type, updated_at) AS component_type,
+	arg_max(parent_type, updated_at) AS parent_type,
+	arg_max(parent_id, updated_at) AS parent_id,
+	arg_max(poller_id, updated_at) AS poller_id,
+	arg_max(site, updated_at) AS site,
+	arg_max(status, updated_at) AS status,
+	arg_max(downstream_entry_id, updated_at) AS downstream_entry_id,
+	arg_max(downstream_spiffe_id, updated_at) AS downstream_spiffe_id,
+	arg_max(selectors, updated_at) AS selectors,
+	arg_max(join_token_ciphertext, updated_at) AS join_token_ciphertext,
+	arg_max(join_token_expires_at, updated_at) AS join_token_expires_at,
+	arg_max(bundle_ciphertext, updated_at) AS bundle_ciphertext,
+	arg_max(download_token_hash, updated_at) AS download_token_hash,
+	arg_max(download_token_expires_at, updated_at) AS download_token_expires_at,
+	arg_max(created_by, updated_at) AS created_by,
+	arg_max(created_at, updated_at) AS created_at,
+	max(updated_at) AS latest_updated_at,
+	arg_max(delivered_at, updated_at) AS delivered_at,
+	arg_max(activated_at, updated_at) AS activated_at,
+	arg_max(activated_from_ip, updated_at) AS activated_from_ip,
+	arg_max(last_seen_spiffe_id, updated_at) AS last_seen_spiffe_id,
+	arg_max(revoked_at, updated_at) AS revoked_at,
+	arg_max(deleted_at, updated_at) AS deleted_at,
+	arg_max(deleted_by, updated_at) AS deleted_by,
+	arg_max(deleted_reason, updated_at) AS deleted_reason,
+	arg_max(metadata_json, updated_at) AS metadata_json,
+	arg_max(checker_kind, updated_at) AS checker_kind,
+	arg_max(checker_config_json, updated_at) AS checker_config_json,
+	arg_max(kv_revision, updated_at) AS kv_revision,
+	arg_max(notes, updated_at) AS notes
+FROM filtered
+GROUP BY package_id`
 )
 
 // UpsertEdgeOnboardingPackage inserts or replaces an onboarding package row.
@@ -271,7 +272,6 @@ func buildEdgeOnboardingPackagesQuery(opts edgeOnboardingQueryOptions) (string, 
 	}
 	query += "\n)"
 	query += edgeOnboardingPackagesSelectClause
-	query += "\nGROUP BY package_id"
 	query += "\nORDER BY latest_updated_at DESC"
 	query += fmt.Sprintf("\nLIMIT %s", builder.param(limit))
 

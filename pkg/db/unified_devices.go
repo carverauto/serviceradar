@@ -102,8 +102,7 @@ func (db *DB) GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.U
         is_available, first_seen, last_seen, metadata, agent_id, device_type, 
         service_type, service_status, last_heartbeat, os_info, version_info
     FROM table(unified_devices)
-    WHERE ip = $1
-    ORDER BY _tp_time DESC`
+    WHERE ip = $1`
 
 	return db.queryUnifiedDevicesWithArgs(ctx, query, ip)
 }
@@ -279,41 +278,54 @@ func (db *DB) GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips, deviceIDs []
 }
 
 func (db *DB) queryUnifiedDeviceBatch(ctx context.Context, deviceIDs, ips []string) ([]*models.UnifiedDevice, error) {
-	var conditions []string
-	var withClauses []string
+	var whereClauses []string
+	var args []interface{}
 
 	if len(deviceIDs) > 0 {
-		if tuples := joinValueTuples(deviceIDs); tuples != "" {
-			withClauses = append(withClauses, fmt.Sprintf(`device_candidates AS (
-        SELECT device_id
-        FROM VALUES('device_id string', %s)
-    )`, tuples))
-			conditions = append(conditions, "device_id IN (SELECT device_id FROM device_candidates)")
+		placeholders := make([]string, len(deviceIDs))
+		for i := range deviceIDs {
+			placeholders[i] = fmt.Sprintf("$%d", len(args)+1)
+			args = append(args, deviceIDs[i])
 		}
+		whereClauses = append(whereClauses, fmt.Sprintf("device_id IN (%s)", strings.Join(placeholders, ",")))
 	}
 
 	if len(ips) > 0 {
-		if tuples := joinValueTuples(ips); tuples != "" {
-			withClauses = append(withClauses, fmt.Sprintf(`ip_candidates AS (
-        SELECT ip
-        FROM VALUES('ip string', %s)
-    )`, tuples))
-			conditions = append(conditions, "ip IN (SELECT ip FROM ip_candidates)")
+		placeholders := make([]string, len(ips))
+		for i := range ips {
+			placeholders[i] = fmt.Sprintf("$%d", len(args)+1)
+			args = append(args, ips[i])
 		}
+		whereClauses = append(whereClauses, fmt.Sprintf("ip IN (%s)", strings.Join(placeholders, ",")))
 	}
 
-	if len(conditions) == 0 {
+	if len(whereClauses) == 0 {
 		return nil, errNoDeviceFilters
 	}
 
-	query := fmt.Sprintf(`%sSELECT
-        device_id, ip, poller_id, hostname, mac, discovery_sources,
-        is_available, first_seen, last_seen, metadata, agent_id, device_type, 
-        service_type, service_status, last_heartbeat, os_info, version_info
+	query := fmt.Sprintf(`SELECT
+        device_id,
+        arg_max(ip, _tp_time) AS ip,
+        arg_max(poller_id, _tp_time) AS poller_id,
+        arg_max(hostname, _tp_time) AS hostname,
+        arg_max(mac, _tp_time) AS mac,
+        arg_max(discovery_sources, _tp_time) AS discovery_sources,
+        arg_max(is_available, _tp_time) AS is_available,
+        arg_max(first_seen, _tp_time) AS first_seen,
+        arg_max(last_seen, _tp_time) AS last_seen,
+        arg_max(metadata, _tp_time) AS metadata,
+        arg_max(agent_id, _tp_time) AS agent_id,
+        arg_max(device_type, _tp_time) AS device_type,
+        arg_max(service_type, _tp_time) AS service_type,
+        arg_max(service_status, _tp_time) AS service_status,
+        arg_max(last_heartbeat, _tp_time) AS last_heartbeat,
+        arg_max(os_info, _tp_time) AS os_info,
+        arg_max(version_info, _tp_time) AS version_info
     FROM table(unified_devices)
-    WHERE %s`, buildWithClause(withClauses), strings.Join(conditions, " OR "))
+    WHERE %s
+    GROUP BY device_id`, strings.Join(whereClauses, " OR "))
 
-	rows, err := db.Conn.Query(ctx, query)
+	rows, err := db.Conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to batch query unified devices: %w", err)
 	}
@@ -337,7 +349,6 @@ func (db *DB) queryUnifiedDeviceBatch(ctx context.Context, deviceIDs, ips []stri
 
 	return devices, nil
 }
-
 func chunkStrings(values []string, limit int) [][]string {
 	if len(values) == 0 || limit <= 0 {
 		return nil
