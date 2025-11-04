@@ -490,7 +490,7 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 	buildQuery := func(list string) string {
 		return fmt.Sprintf(`SELECT
                 arg_max(device_id, _tp_time) AS device_id,
-                anyLast(ip) AS ip,
+                ip,
                 max(_tp_time) AS _tp_time
               FROM table(unified_devices)
               WHERE ip IN (%s)
