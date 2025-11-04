@@ -151,6 +151,7 @@ const Dashboard = () => {
         queryParts.push(`search:"${escapedTerm}"`);
       }
 
+      console.log("Building query:", queryParts.join(" "));
       return queryParts.join(" ");
     },
     [],

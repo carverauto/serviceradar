@@ -281,6 +281,11 @@ let condition_of_filter ~entity ~timestamp_field = function
               mk_cond start_opt end_opt
           | _ -> None)
       | _ -> Some (Condition (k, op, v)))
+  | HasAttribute k ->
+      let parts = String.split_on_char '.' k in
+      (match parts with
+      | [map_name; key_name] -> Some (HasKey (map_name, key_name))
+      | _ -> None)
   | AttributeListFilter (k, vs) -> Some (InList (k, vs))
   | AttributeListFilterNot (k, vs) -> Some (Not (InList (k, vs)))
   | ObservableFilter (_k, _v) -> None (* not handled here yet *)

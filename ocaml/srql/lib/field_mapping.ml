@@ -54,6 +54,8 @@ let map_field_name ~entity (field : string) : string =
                 "device_os_" ^ String.sub lf 3 (String.length lf - 3)
               else if String.length lf > 12 && String.sub lf 0 12 = "observables." then
                 "observables_" ^ String.sub lf 12 (String.length lf - 12)
+              else if String.length lf > 9 && String.sub lf 0 9 = "metadata." then
+                "metadata['" ^ String.sub lf 9 (String.length lf - 9) ^ "']"
               else String.map (fun c -> if c = '.' then '_' else c) f
           | _ -> f)
       | "logs" -> (
