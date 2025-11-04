@@ -1151,8 +1151,8 @@ func (db *DB) GetICMPMetricsForDevice(
 			     OR (target_device_ip = $2 AND $2 != '')
 			     OR (json_extract_string(metadata, 'collector_ip') = $2 AND $2 != '')
 			      )
-			ORDER BY timestamp DESC
-			LIMIT $5`
+        LIMIT 1000
+    `
 
 	rows, err := db.Conn.Query(ctx, query, deviceID, deviceIP, start, end, defaultTimeseriesLimit)
 	if err != nil {

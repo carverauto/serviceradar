@@ -210,28 +210,17 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     }
 
     if (metricsSummaryRaw !== undefined) {
-      if (!metricsSummary.icmp) {
-        supports.icmp = false;
+      if (!supports.icmp && metricsSummary.icmp === true) {
+        supports.icmp = true;
       }
-      if (!metricsSummary.sysmon) {
-        supports.sysmon = false;
+      if (!supports.sysmon && metricsSummary.sysmon === true) {
+        supports.sysmon = true;
       }
-      if (!metricsSummary.snmp) {
-        supports.snmp = false;
+      if (!supports.snmp && metricsSummary.snmp === true) {
+        supports.snmp = true;
       }
-
       if (!hasCollector) {
         hasCollector = Object.values(metricsSummary).some(Boolean);
-      }
-    } else {
-      if (!metricsSummary.icmp) {
-        supports.icmp = false;
-      }
-      if (!metricsSummary.sysmon) {
-        supports.sysmon = false;
-      }
-      if (!metricsSummary.snmp) {
-        supports.snmp = false;
       }
     }
 

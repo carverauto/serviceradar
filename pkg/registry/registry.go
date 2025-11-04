@@ -488,12 +488,16 @@ func (r *DeviceRegistry) resolveMACs(ctx context.Context, macs []string, out map
 // resolveIPsToCanonical maps IPs to canonical device_ids where the device has a strong identity
 func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string, out map[string]string) error {
 	buildQuery := func(list string) string {
-		return fmt.Sprintf(`SELECT device_id, ip, _tp_time
+		return fmt.Sprintf(`SELECT
+                arg_max(device_id, _tp_time) AS device_id,
+                anyLast(ip) AS ip,
+                max(_tp_time) AS _tp_time
               FROM table(unified_devices)
               WHERE ip IN (%s)
                 AND (has(map_keys(metadata),'armis_device_id')
                      OR (has(map_keys(metadata),'integration_type') AND metadata['integration_type']='%s')
                      OR (mac IS NOT NULL AND mac != ''))
+              GROUP BY ip
               ORDER BY _tp_time DESC`, list, integrationTypeNetbox)
 	}
 	extract := func(row map[string]any) (string, string) {

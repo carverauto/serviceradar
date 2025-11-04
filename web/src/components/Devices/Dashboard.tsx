@@ -150,8 +150,6 @@ const Dashboard = () => {
         const escapedTerm = escapeSrqlValue(trimmedSearch);
         queryParts.push(`search:"${escapedTerm}"`);
       }
-
-      console.log("Building query:", queryParts.join(" "));
       return queryParts.join(" ");
     },
     [],
@@ -212,14 +210,9 @@ const Dashboard = () => {
         runCount(`${baseQuery} is_available:false`),
       ]);
 
-      let collectors = await runCount(
-        `${baseQuery} metadata._alias_last_seen_service_id:*`,
+      const collectors = await runCount(
+        `${baseQuery} collector_capabilities.has_collector:true`,
       );
-      if (collectors === 0) {
-        collectors = await runCount(
-          `${baseQuery} collector_capabilities.has_collector:true`,
-        );
-      }
 
       setStats({
         total,

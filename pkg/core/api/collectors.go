@@ -44,13 +44,21 @@ func deriveCollectorCapabilities(device *models.UnifiedDevice) (collectorCapabil
 
 	record := devicealias.FromMetadata(metadata)
 	signals := extractCollectorSignals(metadata, record)
-	serviceTypes := extractServiceTypes(metadata, record, device.DiscoverySources, signals.serviceID)
+	serviceTypes := extractServiceTypes(metadata, record, device.DiscoverySources, signals.serviceID, device.DeviceID)
 
-	hasCollector := signals.serviceID != "" ||
-		signals.collectorIP != "" ||
-		signals.collectorAgent != "" ||
-		signals.collectorPoller != "" ||
-		len(serviceTypes) > 0
+	hasCollector := false
+
+	if len(serviceTypes) > 0 {
+		hasCollector = true
+	}
+
+	if serviceIDIndicatesCollector(signals.serviceID) {
+		hasCollector = true
+	}
+
+	if signals.collectorAgent != "" || signals.collectorPoller != "" {
+		hasCollector = true
+	}
 
 	caps := collectorCapabilities{
 		hasCollector: hasCollector,
@@ -63,12 +71,6 @@ func deriveCollectorCapabilities(device *models.UnifiedDevice) (collectorCapabil
 		caps.supportsSNMP = true
 	}
 	if containsServiceType(serviceTypes, "sysmon") {
-		caps.supportsSysmon = true
-	}
-
-	if len(serviceTypes) == 0 && hasCollector {
-		caps.supportsICMP = true
-		caps.supportsSNMP = true
 		caps.supportsSysmon = true
 	}
 
@@ -110,10 +112,13 @@ func extractServiceTypes(
 	record *devicealias.Record,
 	sources []models.DiscoverySourceInfo,
 	primaryServiceID string,
+	deviceID string,
 ) map[string]struct{} {
 	serviceTypes := make(map[string]struct{})
 
-	registerServiceType(primaryServiceID, serviceTypes)
+	if serviceIDMatchesDevice(primaryServiceID, deviceID) || serviceIDIndicatesCollector(primaryServiceID) {
+		registerServiceType(primaryServiceID, serviceTypes)
+	}
 
 	if value := strings.TrimSpace(metadata["checker_service_type"]); value != "" {
 		registerServiceType(value, serviceTypes)
@@ -137,13 +142,18 @@ func extractServiceTypes(
 
 	for key := range metadata {
 		if strings.HasPrefix(key, "service_alias:") {
-			registerServiceType(strings.TrimPrefix(key, "service_alias:"), serviceTypes)
+			id := strings.TrimSpace(strings.TrimPrefix(key, "service_alias:"))
+			if serviceIDMatchesDevice(id, deviceID) || serviceIDIndicatesCollector(id) {
+				registerServiceType(id, serviceTypes)
+			}
 		}
 	}
 
 	if record != nil {
 		for id := range record.Services {
-			registerServiceType(id, serviceTypes)
+			if serviceIDMatchesDevice(id, deviceID) || serviceIDIndicatesCollector(id) {
+				registerServiceType(id, serviceTypes)
+			}
 		}
 	}
 
@@ -173,4 +183,16 @@ func registerServiceType(value string, into map[string]struct{}) {
 func containsServiceType(values map[string]struct{}, key string) bool {
 	_, ok := values[key]
 	return ok
+}
+
+func serviceIDMatchesDevice(serviceID, deviceID string) bool {
+	return strings.EqualFold(strings.TrimSpace(serviceID), strings.TrimSpace(deviceID))
+}
+
+func serviceIDIndicatesCollector(serviceID string) bool {
+	id := strings.ToLower(strings.TrimSpace(serviceID))
+	if id == "" {
+		return false
+	}
+	return strings.Contains(id, ":collector:") || strings.Contains(id, ":checker:")
 }

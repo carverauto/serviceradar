@@ -290,7 +290,49 @@ let condition_of_filter ~entity ~timestamp_field = function
   | AttributeListFilterNot (k, vs) -> Some (Not (InList (k, vs)))
   | ObservableFilter (_k, _v) -> None (* not handled here yet *)
   | TimeFilter _ -> None
-  | TextSearch _ -> None
+  | TextSearch raw_term ->
+      let term = String.trim raw_term in
+      if term = "" then None
+      else
+        let wildcard = Printf.sprintf "%%%s%%" term in
+        let is_ipv4 s =
+          let parts = String.split_on_char '.' s in
+          let is_digit c = match c with '0' .. '9' -> true | _ -> false in
+          let valid_octet part =
+            let p = String.trim part in
+            if p = "" then false
+            else if not (String.for_all is_digit p) then false
+            else
+              match int_of_string_opt p with
+              | Some v when v >= 0 && v <= 255 -> true
+              | _ -> false
+          in
+          match parts with
+          | [ _; _; _; _ ] -> List.for_all valid_octet parts
+          | _ -> false
+        in
+        let fields =
+          match String.lowercase_ascii entity with
+          | "devices" -> [ "hostname"; "device_id"; "poller_id"; "mac"; "ip" ]
+          | _ -> [ "device_id" ]
+        in
+        let like_conditions =
+          fields
+          |> List.map (fun field -> Condition (field, Like, String wildcard))
+        in
+        let conditions =
+          if is_ipv4 term then Condition ("ip", Eq, String term) :: like_conditions
+          else like_conditions
+        in
+        (match conditions with
+        | [] -> None
+        | first :: rest ->
+            let combined =
+              List.fold_left
+                (fun acc cond -> Or (acc, cond))
+                first rest
+            in
+            Some combined)
 
 let plan_to_srql (q : query_spec) : Sql_ir.query option =
   (* Support: in:<single entity> + attribute filters + optional limit + sort -> SRQL SELECT *)
