@@ -844,6 +844,126 @@ func TestEdgeOnboardingRecordActivationNoopForActivatedAgent(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestEdgeOnboardingRecordActivationUsesCache(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0x21}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	spireCfg := &models.SpireAdminConfig{ServerSPIFFEID: "spiffe://example.org/spire/server"}
+	fakeSpire := newFakeSpireClient()
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	baseTime := time.Date(2025, time.November, 4, 5, 0, 0, 0, time.UTC)
+	svc.activationCacheTTL = time.Hour
+	svc.now = func() time.Time { return baseTime }
+
+	pkg := &models.EdgeOnboardingPackage{
+		PackageID:     "pkg-cache",
+		ComponentID:   "edge-poller",
+		ComponentType: models.EdgeOnboardingComponentTypePoller,
+		PollerID:      "edge-poller",
+		Status:        models.EdgeOnboardingStatusDelivered,
+		UpdatedAt:     baseTime.Add(-time.Minute),
+	}
+
+	mockDB.EXPECT().ListEdgeOnboardingPackages(gomock.Any(), gomock.Any()).
+		Return([]*models.EdgeOnboardingPackage{pkg}, nil).Times(1)
+
+	mockDB.EXPECT().UpsertEdgeOnboardingPackage(gomock.Any(), gomock.AssignableToTypeOf(&models.EdgeOnboardingPackage{})).
+		DoAndReturn(func(_ context.Context, updated *models.EdgeOnboardingPackage) error {
+			assert.Equal(t, "pkg-cache", updated.PackageID)
+			assert.Equal(t, models.EdgeOnboardingStatusActivated, updated.Status)
+			require.NotNil(t, updated.ActivatedAt)
+			assert.WithinDuration(t, baseTime, *updated.ActivatedAt, time.Second)
+			require.NotNil(t, updated.ActivatedFromIP)
+			assert.Equal(t, "198.51.100.5", *updated.ActivatedFromIP)
+			return nil
+		}).Times(1)
+
+	mockDB.EXPECT().InsertEdgeOnboardingEvent(gomock.Any(), gomock.AssignableToTypeOf(&models.EdgeOnboardingEvent{})).
+		Return(nil).Times(1)
+
+	require.NoError(t, svc.RecordActivation(context.Background(), models.EdgeOnboardingComponentTypePoller, "edge-poller", "edge-poller", "198.51.100.5", "", baseTime))
+
+	// Second activation should be satisfied entirely from cache – no additional DB expectations needed.
+	err = svc.RecordActivation(context.Background(), models.EdgeOnboardingComponentTypePoller, "edge-poller", "edge-poller", "198.51.100.5", "", baseTime.Add(30*time.Second))
+	require.NoError(t, err)
+
+	stats := svc.ActivationCacheStats()
+	assert.Equal(t, 1, stats.Size)
+	assert.EqualValues(t, 2, stats.Lookups)
+	assert.EqualValues(t, 1, stats.Hits)
+	assert.EqualValues(t, 0, stats.NegativeHits)
+	assert.EqualValues(t, 1, stats.Misses)
+	assert.EqualValues(t, 0, stats.StaleEvicted)
+}
+
+func TestEdgeOnboardingRecordActivationCachesMisses(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0x2A}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	spireCfg := &models.SpireAdminConfig{ServerSPIFFEID: "spiffe://example.org/spire/server"}
+	fakeSpire := newFakeSpireClient()
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	baseTime := time.Date(2025, time.November, 4, 6, 0, 0, 0, time.UTC)
+	svc.activationCacheTTL = time.Hour
+	svc.now = func() time.Time { return baseTime }
+
+	mockDB.EXPECT().ListEdgeOnboardingPackages(gomock.Any(), gomock.Any()).
+		Return(nil, nil).Times(1)
+
+	err = svc.RecordActivation(context.Background(), models.EdgeOnboardingComponentTypeAgent, "missing-agent", "edge-poller", "198.51.100.6", "", baseTime)
+	require.NoError(t, err)
+
+	// Second call should reuse the cached miss and avoid additional database lookups.
+	err = svc.RecordActivation(context.Background(), models.EdgeOnboardingComponentTypeAgent, "missing-agent", "edge-poller", "198.51.100.6", "", baseTime.Add(10*time.Second))
+	require.NoError(t, err)
+
+	stats := svc.ActivationCacheStats()
+	assert.Equal(t, 1, stats.Size)
+	assert.EqualValues(t, 2, stats.Lookups)
+	assert.EqualValues(t, 0, stats.Hits)
+	assert.EqualValues(t, 1, stats.NegativeHits)
+	assert.EqualValues(t, 1, stats.Misses)
+	assert.EqualValues(t, 0, stats.StaleEvicted)
+}
+
 func TestEdgeOnboardingListPackagesTombstoneFiltering(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

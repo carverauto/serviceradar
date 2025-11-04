@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +40,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/devicealias"
 	coregrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -59,6 +61,28 @@ var (
 	// ErrKVAddressNotConfigured indicates that the KV address is not configured.
 	ErrKVAddressNotConfigured = errors.New("KV address not configured")
 )
+
+type DeviceAliasHistory struct {
+	LastSeenAt       string              `json:"last_seen_at,omitempty"`
+	CollectorIP      string              `json:"collector_ip,omitempty"`
+	CurrentServiceID string              `json:"current_service_id,omitempty"`
+	CurrentIP        string              `json:"current_ip,omitempty"`
+	Services         []DeviceAliasRecord `json:"services,omitempty"`
+	IPs              []DeviceAliasRecord `json:"ips,omitempty"`
+}
+
+type DeviceAliasRecord struct {
+	ID         string `json:"id,omitempty"`
+	IP         string `json:"ip,omitempty"`
+	LastSeenAt string `json:"last_seen_at,omitempty"`
+}
+
+type deviceResponse struct {
+	*models.Device
+	AliasHistory          *DeviceAliasHistory          `json:"alias_history,omitempty"`
+	CollectorCapabilities *CollectorCapabilityResponse `json:"collector_capabilities,omitempty"`
+	MetricsSummary        map[string]bool              `json:"metrics_summary,omitempty"`
+}
 
 // NewAPIServer creates a new API server instance with the given configuration
 func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) *APIServer {
@@ -1542,10 +1566,11 @@ func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 }
 
 const (
-	defaultReadTimeout  = 10 * time.Second
-	defaultWriteTimeout = 10 * time.Second
-	defaultTimeout      = 10 * time.Second
-	defaultIdleTimeout  = 60 * time.Second
+	defaultReadTimeout           = 10 * time.Second
+	defaultWriteTimeout          = 10 * time.Second
+	defaultTimeout               = 10 * time.Second
+	defaultIdleTimeout           = 60 * time.Second
+	deviceMetricsSummaryLookback = 6 * time.Hour
 )
 
 // Start starts the API server on the specified address
@@ -1746,18 +1771,23 @@ func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWr
 	}
 
 	// Format and send the response
-	s.sendDeviceRegistryResponse(w, filteredDevices)
+	metricSummary := s.fetchDeviceMetricSummary(ctx, filteredDevices)
+	s.sendDeviceRegistryResponse(w, filteredDevices, metricSummary)
 
 	return true
 }
 
 // sendDeviceRegistryResponse formats and sends the response for device registry path
-func (s *APIServer) sendDeviceRegistryResponse(w http.ResponseWriter, devices []*models.UnifiedDevice) {
+func (s *APIServer) sendDeviceRegistryResponse(
+	w http.ResponseWriter,
+	devices []*models.UnifiedDevice,
+	metricSummary map[string]map[string]bool,
+) {
 	// Convert to response format with discovery information
 	response := make([]map[string]interface{}, len(devices))
 
 	for i, device := range devices {
-		response[i] = map[string]interface{}{
+		entry := map[string]interface{}{
 			"device_id":         device.DeviceID,
 			"ip":                device.IP,
 			"hostname":          getFieldValue(device.Hostname),
@@ -1769,6 +1799,20 @@ func (s *APIServer) sendDeviceRegistryResponse(w http.ResponseWriter, devices []
 			"discovery_sources": device.DiscoverySources,
 			"metadata":          getFieldValue(device.Metadata),
 		}
+
+		if history := buildAliasHistory(device); history != nil {
+			entry["alias_history"] = history
+		}
+
+		if caps, ok := deriveCollectorCapabilities(device); ok {
+			entry["collector_capabilities"] = toCollectorCapabilityResponse(caps)
+		}
+
+		if summary := metricSummary[device.DeviceID]; len(summary) > 0 {
+			entry["metrics_summary"] = summary
+		}
+
+		response[i] = entry
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1795,7 +1839,61 @@ func (s *APIServer) fallbackToDBDeviceList(ctx context.Context, w http.ResponseW
 
 	// Filter based on search/status to match registry path behavior
 	filtered := filterDevices(devices, params["searchTerm"].(string), params["status"].(string), s.logger)
-	s.sendDeviceRegistryResponse(w, filtered)
+	metricSummary := s.fetchDeviceMetricSummary(ctx, filtered)
+	s.sendDeviceRegistryResponse(w, filtered, metricSummary)
+}
+
+func (s *APIServer) fetchDeviceMetricSummary(ctx context.Context, devices []*models.UnifiedDevice) map[string]map[string]bool {
+	if s.dbService == nil || len(devices) == 0 {
+		return nil
+	}
+
+	deviceIDs := make([]string, 0, len(devices))
+	for _, device := range devices {
+		if device == nil {
+			continue
+		}
+		if device.DeviceID == "" {
+			continue
+		}
+		deviceIDs = append(deviceIDs, device.DeviceID)
+	}
+
+	if len(deviceIDs) == 0 {
+		return nil
+	}
+
+	since := time.Now().Add(-deviceMetricsSummaryLookback)
+	availability, err := s.dbService.GetDeviceMetricTypes(ctx, deviceIDs, since)
+	if err != nil {
+		s.logger.Warn().
+			Err(err).
+			Int("device_count", len(deviceIDs)).
+			Msg("Failed to load device metric availability")
+		return nil
+	}
+
+	results := make(map[string]map[string]bool, len(availability))
+	for deviceID, types := range availability {
+		if len(types) == 0 {
+			continue
+		}
+
+		summary := make(map[string]bool, len(types))
+		for _, metricType := range types {
+			metricType = strings.TrimSpace(strings.ToLower(metricType))
+			if metricType == "" {
+				continue
+			}
+			summary[metricType] = true
+		}
+
+		if len(summary) > 0 {
+			results[deviceID] = summary
+		}
+	}
+
+	return results
 }
 
 // fallbackToSRQLQuery handles the SRQL query fallback path for device listing
@@ -1838,18 +1936,31 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 	if s.deviceRegistry != nil {
 		unifiedDevice, err := s.deviceRegistry.GetMergedDevice(ctx, deviceID)
 		if err == nil {
-			// Convert to legacy device format and add discovery source information
-			response := struct {
-				*models.Device
+			legacy := unifiedDevice.ToLegacyDevice()
+			resp := deviceResponse{
+				Device:       legacy,
+				AliasHistory: buildAliasHistory(unifiedDevice),
+			}
+			if caps, ok := deriveCollectorCapabilities(unifiedDevice); ok {
+				resp.CollectorCapabilities = toCollectorCapabilityResponse(caps)
+			}
+			if summary := s.fetchDeviceMetricSummary(ctx, []*models.UnifiedDevice{unifiedDevice}); summary != nil {
+				if metrics := summary[unifiedDevice.DeviceID]; len(metrics) > 0 {
+					resp.MetricsSummary = metrics
+				}
+			}
+
+			payload := struct {
+				*deviceResponse
 				DiscoveryInfo *models.UnifiedDevice `json:"discovery_info,omitempty"`
 			}{
-				Device:        unifiedDevice.ToLegacyDevice(),
-				DiscoveryInfo: unifiedDevice, // Include enhanced discovery information
+				deviceResponse: &resp,
+				DiscoveryInfo:  unifiedDevice,
 			}
 
 			w.Header().Set("Content-Type", "application/json")
 
-			if err = json.NewEncoder(w).Encode(response); err != nil {
+			if err = json.NewEncoder(w).Encode(payload); err != nil {
 				s.logger.Error().Err(err).Msg("Error encoding enhanced device response")
 
 				writeError(w, "Failed to encode response", http.StatusInternalServerError)
@@ -1877,7 +1988,34 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
-	if err := json.NewEncoder(w).Encode(device); err != nil {
+	var (
+		aliasHistory          *DeviceAliasHistory
+		collectorCapabilities *CollectorCapabilityResponse
+	)
+	if s.deviceRegistry != nil {
+		if unified, err := s.deviceRegistry.GetDevice(ctx, deviceID); err == nil && unified != nil {
+			aliasHistory = buildAliasHistory(unified)
+			if caps, ok := deriveCollectorCapabilities(unified); ok {
+				collectorCapabilities = toCollectorCapabilityResponse(caps)
+			}
+		}
+	}
+
+	response := deviceResponse{
+		Device:                device,
+		AliasHistory:          aliasHistory,
+		CollectorCapabilities: collectorCapabilities,
+	}
+
+	if summary := s.fetchDeviceMetricSummary(ctx, []*models.UnifiedDevice{{
+		DeviceID: deviceID,
+	}}); summary != nil {
+		if metrics := summary[deviceID]; len(metrics) > 0 {
+			response.MetricsSummary = metrics
+		}
+	}
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		s.logger.Error().Err(err).Msg("Error encoding device response")
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
 	}
@@ -1902,10 +2040,24 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	deviceID := vars["id"]
 
-	var deviceIP string
+	var (
+		deviceIP           string
+		collectorCaps      collectorCapabilities
+		collectorCapsKnown bool
+	)
 	if s.deviceRegistry != nil {
-		if unifiedDevice, err := s.deviceRegistry.GetDevice(r.Context(), deviceID); err == nil && unifiedDevice != nil {
-			deviceIP = unifiedDevice.IP
+		if ud, err := s.deviceRegistry.GetDevice(r.Context(), deviceID); err == nil && ud != nil {
+			deviceIP = ud.IP
+
+			if caps, ok := deriveCollectorCapabilities(ud); ok {
+				collectorCaps = caps
+				collectorCapsKnown = true
+			}
+		} else if err != nil {
+			s.logger.Debug().
+				Err(err).
+				Str("device_id", deviceID).
+				Msg("Device registry lookup failed while inferring collector capabilities")
 		}
 	}
 
@@ -1931,45 +2083,58 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 
 	var timeseriesMetrics []models.TimeseriesMetric
 
-	// For ICMP timeseriesMetrics, use the in-memory ring buffer instead of database
-	if metricType == "icmp" && s.metricsManager != nil {
-		s.logger.Debug().Str("device_id", deviceID).Msg("Fetching ICMP metrics from ring buffer")
+	// For ICMP metrics prefer the in-memory ring buffer, with database fallback even when the
+	// collector is not running on this core instance (metricsManager == nil).
+	if metricType == "icmp" {
+		if s.metricsManager != nil {
+			s.logger.Debug().Str("device_id", deviceID).Msg("Fetching ICMP metrics from ring buffer")
 
-		// Get timeseriesMetrics from ring buffer
-		ringBufferMetrics := s.metricsManager.GetMetricsByDevice(deviceID)
+			// Get timeseriesMetrics from ring buffer
+			ringBufferMetrics := s.metricsManager.GetMetricsByDevice(deviceID)
 
-		// Convert MetricPoint to TimeseriesMetric and filter by time range
-		for _, mp := range ringBufferMetrics {
-			// Filter by time range
-			if mp.Timestamp.After(startTime) && mp.Timestamp.Before(endTime) {
-				// Convert from MetricPoint to TimeseriesMetric
-				timeseriesMetrics = append(timeseriesMetrics, models.TimeseriesMetric{
-					PollerID:  mp.PollerID,
-					DeviceID:  mp.DeviceID,
-					Partition: mp.Partition,
-					Name:      fmt.Sprintf("icmp_%s_response_time_ms", mp.ServiceName),
-					Value:     fmt.Sprintf("%d", mp.ResponseTime),
-					Type:      "icmp",
-					Timestamp: mp.Timestamp,
-					Metadata:  fmt.Sprintf(`{"host":"unknown","response_time":"%d","available":"true"}`, mp.ResponseTime),
-				})
+			// Convert MetricPoint to TimeseriesMetric and filter by time range
+			for _, mp := range ringBufferMetrics {
+				// Filter by time range
+				if mp.Timestamp.After(startTime) && mp.Timestamp.Before(endTime) {
+					// Convert from MetricPoint to TimeseriesMetric
+					timeseriesMetrics = append(timeseriesMetrics, models.TimeseriesMetric{
+						PollerID:  mp.PollerID,
+						DeviceID:  mp.DeviceID,
+						Partition: mp.Partition,
+						Name:      fmt.Sprintf("icmp_%s_response_time_ms", mp.ServiceName),
+						Value:     fmt.Sprintf("%d", mp.ResponseTime),
+						Type:      "icmp",
+						Timestamp: mp.Timestamp,
+						Metadata:  fmt.Sprintf(`{"host":"unknown","response_time":"%d","available":"true"}`, mp.ResponseTime),
+					})
+				}
 			}
+
+			s.logger.Debug().
+				Int("metric_count", len(timeseriesMetrics)).
+				Str("device_id", deviceID).
+				Msg("Found ICMP metrics in ring buffer")
 		}
 
-		s.logger.Debug().
-			Int("metric_count", len(timeseriesMetrics)).
-			Str("device_id", deviceID).
-			Msg("Found ICMP metrics in ring buffer")
-
 		if len(timeseriesMetrics) == 0 {
-			dbMetrics, dbErr := s.dbService.GetICMPMetricsForDevice(ctx, deviceID, deviceIP, startTime, endTime)
-			if dbErr != nil {
-				s.logger.Warn().
-					Err(dbErr).
+			shouldFallback := true
+			if collectorCapsKnown && (!collectorCaps.hasCollector || !collectorCaps.supportsICMP) {
+				shouldFallback = false
+				s.logger.Debug().
 					Str("device_id", deviceID).
-					Msg("Failed to fetch ICMP metrics from database fallback")
-			} else {
-				timeseriesMetrics = append(timeseriesMetrics, dbMetrics...)
+					Msg("Skipping ICMP database fallback for non-collector device")
+			}
+
+			if shouldFallback {
+				dbMetrics, dbErr := s.dbService.GetICMPMetricsForDevice(ctx, deviceID, deviceIP, startTime, endTime)
+				if dbErr != nil {
+					s.logger.Warn().
+						Err(dbErr).
+						Str("device_id", deviceID).
+						Msg("Failed to fetch ICMP metrics from database fallback")
+				} else {
+					timeseriesMetrics = append(timeseriesMetrics, dbMetrics...)
+				}
 			}
 		}
 	} else {
@@ -2030,6 +2195,59 @@ func (s *APIServer) getDeviceMetricsStatus(w http.ResponseWriter, _ *http.Reques
 }
 
 // Helper functions for device registry integration
+
+func buildAliasHistory(device *models.UnifiedDevice) *DeviceAliasHistory {
+	if device == nil || device.Metadata == nil || device.Metadata.Value == nil {
+		return nil
+	}
+
+	record := devicealias.FromMetadata(device.Metadata.Value)
+	if record == nil {
+		return nil
+	}
+
+	history := DeviceAliasHistory{
+		LastSeenAt:       record.LastSeenAt,
+		CollectorIP:      record.CollectorIP,
+		CurrentServiceID: record.CurrentServiceID,
+		CurrentIP:        record.CurrentIP,
+	}
+
+	if len(record.Services) > 0 {
+		ids := make([]string, 0, len(record.Services))
+		for id := range record.Services {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			history.Services = append(history.Services, DeviceAliasRecord{
+				ID:         id,
+				LastSeenAt: strings.TrimSpace(record.Services[id]),
+			})
+		}
+	}
+
+	if len(record.IPs) > 0 {
+		ips := make([]string, 0, len(record.IPs))
+		for ip := range record.IPs {
+			ips = append(ips, ip)
+		}
+		sort.Strings(ips)
+		for _, ip := range ips {
+			history.IPs = append(history.IPs, DeviceAliasRecord{
+				IP:         ip,
+				LastSeenAt: strings.TrimSpace(record.IPs[ip]),
+			})
+		}
+	}
+
+	if history.CollectorIP == "" && len(history.Services) == 0 && len(history.IPs) == 0 &&
+		history.LastSeenAt == "" && history.CurrentServiceID == "" && history.CurrentIP == "" {
+		return nil
+	}
+
+	return &history
+}
 
 // getFieldValue extracts the value from a DiscoveredField, returning nil if the field is nil
 func getFieldValue[T any](field *models.DiscoveredField[T]) interface{} {

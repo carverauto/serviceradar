@@ -563,6 +563,11 @@ func (s *Server) processICMPMetrics(
 		updateIP = sourceIP
 	}
 
+	hostDeviceID := strings.TrimSpace(resolution.DeviceID)
+	if hostDeviceID == "" {
+		hostDeviceID = deviceID
+	}
+
 	// Create metadata map
 	metadata := map[string]string{
 		"device_id":         deviceID,
@@ -571,6 +576,9 @@ func (s *Server) processICMPMetrics(
 		"packet_loss":       fmt.Sprintf("%f", pingResult.PacketLoss),
 		"available":         fmt.Sprintf("%t", pingResult.Available),
 		"icmp_service_name": svc.ServiceName,
+		"host_device_id":    hostDeviceID,
+		"host_last_seen_ip": updateIP,
+		"host_last_seen_at": now.Format(time.RFC3339Nano),
 	}
 	if targetHost != "" {
 		metadata["target_host"] = targetHost
@@ -659,6 +667,22 @@ func (s *Server) processICMPMetrics(
 		}
 
 		s.enqueueServiceDeviceUpdate(update)
+
+		if hostDeviceID != "" && hostDeviceID != deviceID {
+			if hostUpdate := buildHostAliasUpdate(
+				hostDeviceID,
+				updateIP,
+				partition,
+				deviceID,
+				agentID,
+				pollerID,
+				sourceIP,
+				pingResult.Available,
+				now,
+			); hostUpdate != nil {
+				s.enqueueServiceDeviceUpdate(hostUpdate)
+			}
+		}
 	}
 
 	return nil
@@ -721,12 +745,19 @@ func (s *Server) resolveCanonicalDevice(ctx context.Context, ip, fallback string
 			if snap, ok := s.fetchCanonicalSnapshot(ctx, ip); ok {
 				return ensureSnapshotDeviceID(snap, fallback)
 			}
+			if result.DeviceID != "" || result.IP != "" {
+				s.canonicalCache.storeWeak(ip, result)
+			}
 			return result
 		}
 	}
 
 	if snap, ok := s.fetchCanonicalSnapshot(ctx, ip); ok {
 		return ensureSnapshotDeviceID(snap, fallback)
+	}
+
+	if s.canonicalCache != nil && (result.DeviceID != "" || result.IP != "") {
+		s.canonicalCache.storeWeak(ip, result)
 	}
 
 	return result
@@ -762,14 +793,72 @@ func (s *Server) fetchCanonicalSnapshot(ctx context.Context, ip string) (canonic
 			continue
 		}
 
-		if s.canonicalCache != nil && snapshotHasStrongIdentity(snapshot) {
-			s.canonicalCache.store(ip, snapshot)
+		if s.canonicalCache != nil {
+			if snapshotHasStrongIdentity(snapshot) {
+				s.canonicalCache.store(ip, snapshot)
+			} else {
+				s.canonicalCache.storeWeak(ip, snapshot)
+			}
 		}
 
 		return snapshot, true
 	}
 
 	return canonicalSnapshot{}, false
+}
+
+func buildHostAliasUpdate(
+	hostDeviceID, hostIP, partition, serviceDeviceID, agentID, pollerID, collectorIP string,
+	available bool,
+	when time.Time,
+) *models.DeviceUpdate {
+	hostDeviceID = strings.TrimSpace(hostDeviceID)
+	if hostDeviceID == "" {
+		return nil
+	}
+
+	partitionFromID := partitionFromDeviceIDLocal(hostDeviceID)
+	if partitionFromID != "" {
+		partition = partitionFromID
+	}
+
+	hostIP = strings.TrimSpace(hostIP)
+	if hostIP == "" {
+		hostIP = strings.TrimSpace(collectorIP)
+	}
+
+	metadata := map[string]string{
+		"_alias_last_seen_at": when.Format(time.RFC3339Nano),
+	}
+
+	if cleanedService := strings.TrimSpace(serviceDeviceID); cleanedService != "" {
+		metadata["_alias_last_seen_service_id"] = cleanedService
+		metadata[fmt.Sprintf("service_alias:%s", cleanedService)] = when.Format(time.RFC3339Nano)
+	}
+
+	if hostIP != "" {
+		metadata["_alias_last_seen_ip"] = hostIP
+		metadata[fmt.Sprintf("ip_alias:%s", hostIP)] = when.Format(time.RFC3339Nano)
+	}
+
+	if collector := strings.TrimSpace(collectorIP); collector != "" {
+		metadata["_alias_collector_ip"] = collector
+	}
+
+	metadata["canonical_device_id"] = hostDeviceID
+
+	return &models.DeviceUpdate{
+		DeviceID:    hostDeviceID,
+		IP:          hostIP,
+		Source:      models.DiscoverySourceServiceRadar,
+		AgentID:     agentID,
+		PollerID:    pollerID,
+		Partition:   partition,
+		Timestamp:   when,
+		IsAvailable: available,
+		Metadata:    metadata,
+		Confidence:  models.GetSourceConfidence(models.DiscoverySourceServiceRadar),
+	}
 }
 
 func ensureSnapshotDeviceID(snapshot canonicalSnapshot, fallback string) canonicalSnapshot {
@@ -798,6 +887,18 @@ func ipFromDeviceID(deviceID string) string {
 		return ""
 	}
 	return ip
+}
+
+func partitionFromDeviceIDLocal(deviceID string) string {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return ""
+	}
+	parts := strings.SplitN(deviceID, ":", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	return strings.TrimSpace(parts[0])
 }
 
 type sysmonPayload struct {

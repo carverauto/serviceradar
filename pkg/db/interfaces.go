@@ -154,6 +154,7 @@ type Service interface {
 	GetMetricsForDeviceByType(ctx context.Context, deviceID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error)
 	GetICMPMetricsForDevice(ctx context.Context, deviceID, deviceIP string, start, end time.Time) ([]models.TimeseriesMetric, error)
 	GetMetricsForPartition(ctx context.Context, partition string, start, end time.Time) ([]models.TimeseriesMetric, error)
+	GetDeviceMetricTypes(ctx context.Context, deviceIDs []string, since time.Time) (map[string][]string, error)
 }
 
 // SysmonMetricsProvider interface defines operations for system monitoring metrics.

@@ -33,6 +33,7 @@ import (
 
 const (
 	rperfBitsPerSecondDivisor = 1e6 // To convert bps to Mbps
+	defaultTimeseriesLimit    = 2000
 )
 
 var (
@@ -1139,20 +1140,21 @@ func (db *DB) GetMetricsForDeviceByType(
 func (db *DB) GetICMPMetricsForDevice(
 	ctx context.Context, deviceID, deviceIP string, start, end time.Time) ([]models.TimeseriesMetric, error) {
 	query := `
-		SELECT metric_name, metric_type, value, metadata, timestamp, target_device_ip,
-		       ifIndex, device_id, partition, poller_id
-		FROM table(timeseries_metrics)
-		WHERE metric_type = 'icmp'
-		  AND timestamp BETWEEN $3 AND $4
-		  AND (
-		        device_id = $1
-		     OR json_extract_string(metadata, 'device_id') = $1
-		     OR (target_device_ip = $2 AND $2 != '')
-		     OR (json_extract_string(metadata, 'collector_ip') = $2 AND $2 != '')
-		      )
-		ORDER BY timestamp DESC`
+			SELECT metric_name, metric_type, value, metadata, timestamp, target_device_ip,
+			       ifIndex, device_id, partition, poller_id
+			FROM table(timeseries_metrics)
+			WHERE metric_type = 'icmp'
+			  AND timestamp BETWEEN $3 AND $4
+			  AND (
+			        device_id = $1
+			     OR json_extract_string(metadata, 'device_id') = $1
+			     OR (target_device_ip = $2 AND $2 != '')
+			     OR (json_extract_string(metadata, 'collector_ip') = $2 AND $2 != '')
+			      )
+			ORDER BY timestamp DESC
+			LIMIT $5`
 
-	rows, err := db.Conn.Query(ctx, query, deviceID, deviceIP, start, end)
+	rows, err := db.Conn.Query(ctx, query, deviceID, deviceIP, start, end, defaultTimeseriesLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query ICMP metrics for device %s: %w", deviceID, err)
 	}
@@ -1192,6 +1194,72 @@ func (db *DB) GetICMPMetricsForDevice(
 func (db *DB) GetMetricsForPartition(
 	ctx context.Context, partition string, start, end time.Time) ([]models.TimeseriesMetric, error) {
 	return db.getTimeseriesMetricsByFilter(ctx, "partition", partition, start, end)
+}
+
+const deviceMetricsAvailabilityChunkSize = 200
+
+// GetDeviceMetricTypes returns the distinct metric types observed for each device since the provided timestamp.
+func (db *DB) GetDeviceMetricTypes(
+	ctx context.Context, deviceIDs []string, since time.Time) (map[string][]string, error) {
+	result := make(map[string][]string, len(deviceIDs))
+
+	if len(deviceIDs) == 0 {
+		return result, nil
+	}
+
+	windowStart := since.UTC()
+
+	for start := 0; start < len(deviceIDs); start += deviceMetricsAvailabilityChunkSize {
+		end := start + deviceMetricsAvailabilityChunkSize
+		if end > len(deviceIDs) {
+			end = len(deviceIDs)
+		}
+
+		chunk := deviceIDs[start:end]
+		placeholders := make([]string, len(chunk))
+		args := make([]interface{}, 0, len(chunk)+1)
+
+		for i, id := range chunk {
+			placeholders[i] = fmt.Sprintf("$%d", i+1)
+			args = append(args, id)
+		}
+
+		args = append(args, windowStart)
+
+		query := fmt.Sprintf(`
+			SELECT device_id, array_distinct(group_array(metric_type)) AS metric_types
+			FROM table(timeseries_metrics)
+			WHERE device_id IN (%s)
+			  AND timestamp >= $%d
+			GROUP BY device_id
+		`, strings.Join(placeholders, ", "), len(chunk)+1)
+
+		rows, err := db.Conn.Query(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query device metric availability: %w", err)
+		}
+
+		for rows.Next() {
+			var deviceID string
+			var metricTypes []string
+
+			if err := rows.Scan(&deviceID, &metricTypes); err != nil {
+				db.CloseRows(rows)
+				return nil, fmt.Errorf("failed to scan device metric availability: %w", err)
+			}
+
+			result[deviceID] = metricTypes
+		}
+
+		if err := rows.Err(); err != nil {
+			db.CloseRows(rows)
+			return nil, fmt.Errorf("error iterating device metric availability rows: %w", err)
+		}
+
+		db.CloseRows(rows)
+	}
+
+	return result, nil
 }
 
 // getTimeseriesMetricsByFilter is a helper function to query timeseries metrics by a single filter criteria

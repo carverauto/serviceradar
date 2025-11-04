@@ -1,0 +1,17 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "devicealias",
+    srcs = ["alias.go"],
+    importpath = "github.com/carverauto/serviceradar/pkg/devicealias",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "devicealias_test",
+    srcs = ["alias_test.go"],
+    embed = [":devicealias"],
+    deps = [
+        "@com_github_stretchr_testify//assert",
+    ],
+)

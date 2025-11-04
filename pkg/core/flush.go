@@ -314,6 +314,22 @@ func (s *Server) flushServiceDeviceUpdates(ctx context.Context) {
 		return
 	}
 
+	if events, err := s.buildAliasLifecycleEvents(ctx, updates); err != nil {
+		s.logger.Warn().
+			Err(err).
+			Int("update_count", len(updates)).
+			Msg("Failed to build alias lifecycle events")
+	} else if len(events) > 0 && s.eventPublisher != nil {
+		for _, event := range events {
+			if err := s.eventPublisher.PublishDeviceLifecycleEvent(ctx, event); err != nil {
+				s.logger.Warn().
+					Err(err).
+					Str("device_id", event.DeviceID).
+					Msg("Failed to publish alias lifecycle event")
+			}
+		}
+	}
+
 	if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, updates); err != nil {
 		s.logger.Warn().
 			Err(err).

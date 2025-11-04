@@ -9,6 +9,7 @@ go_library(
         "device_registry.go",
         "edge_onboarding.go",
         "edge_onboarding_archive.go",
+        "collectors.go",
         "interfaces.go",
         "mock_api_server.go",
         "rperf.go",
@@ -22,6 +23,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/core/auth",
+        "//pkg/devicealias",
         "//pkg/db",
         "//pkg/grpc",
         "//pkg/http",
@@ -50,11 +52,18 @@ go_library(
 
 go_test(
     name = "api_test",
-    srcs = ["edge_onboarding_test.go"],
+    srcs = [
+        "collectors_test.go",
+        "edge_onboarding_test.go",
+    ],
     embed = [":api"],
     deps = [
+        "//pkg/db",
+        "//pkg/logger",
         "//pkg/models",
+        "@com_github_gorilla_mux//:mux",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
+        "@org_uber_go_mock//gomock",
     ],
 )

@@ -41,6 +41,7 @@ const (
 	identitySourceArmis             = "armis_id"
 	identitySourceNetbox            = "netbox_id"
 	identitySourceMAC               = "mac"
+	identitySourceDeviceID          = "device_id"
 	integrationTypeNetbox           = "netbox"
 	defaultFirstSeenLookupChunkSize = 512
 )
@@ -143,6 +144,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	var canonByArmisID int
 	var canonByNetboxID int
 	var canonByMAC int
+	var canonByDeviceID int
 	var tombstoneCount int
 	var sweepNoIdentity int
 
@@ -166,6 +168,8 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 				canonByNetboxID++
 			case identitySourceMAC:
 				canonByMAC++
+			case identitySourceDeviceID:
+				canonByDeviceID++
 			}
 			// Track current IP as alt for searchability
 			if u.Metadata == nil {
@@ -225,6 +229,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		Int("canonicalized_by_armis_id", canonByArmisID).
 		Int("canonicalized_by_netbox_id", canonByNetboxID).
 		Int("canonicalized_by_mac", canonByMAC).
+		Int("canonicalized_by_device_id", canonByDeviceID).
 		Int("tombstones_emitted", tombstoneCount).
 		Int("dropped_stale_after_delete", droppedStale).
 		Int("sweeps_without_identity", sweepNoIdentity).
@@ -235,20 +240,28 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 
 // identityMaps holds batch-resolved mappings from identity → canonical device_id
 type identityMaps struct {
-	armis map[string]string
-	netbx map[string]string
-	mac   map[string]string
-	ip    map[string]string
+	armis  map[string]string
+	netbx  map[string]string
+	mac    map[string]string
+	ip     map[string]string
+	device map[string]string
 }
 
 func (r *DeviceRegistry) buildIdentityMaps(ctx context.Context, updates []*models.DeviceUpdate) (*identityMaps, error) {
-	m := &identityMaps{armis: map[string]string{}, netbx: map[string]string{}, mac: map[string]string{}, ip: map[string]string{}}
+	m := &identityMaps{
+		armis:  map[string]string{},
+		netbx:  map[string]string{},
+		mac:    map[string]string{},
+		ip:     map[string]string{},
+		device: map[string]string{},
+	}
 
 	// Collect unique identities
 	armisSet := make(map[string]struct{})
 	netboxSet := make(map[string]struct{})
 	macSet := make(map[string]struct{})
 	ipSet := make(map[string]struct{})
+	deviceSet := make(map[string]struct{})
 
 	for _, u := range updates {
 		if u.Metadata != nil {
@@ -269,6 +282,16 @@ func (r *DeviceRegistry) buildIdentityMaps(ctx context.Context, updates []*model
 					netboxSet[id] = struct{}{}
 				}
 			}
+			if alias := strings.TrimSpace(u.Metadata["_alias_last_seen_service_id"]); alias != "" {
+				deviceSet[alias] = struct{}{}
+			}
+			for key := range u.Metadata {
+				if strings.HasPrefix(key, "service_alias:") {
+					if alias := strings.TrimSpace(strings.TrimPrefix(key, "service_alias:")); alias != "" {
+						deviceSet[alias] = struct{}{}
+					}
+				}
+			}
 		}
 		if u.MAC != nil && *u.MAC != "" {
 			for _, mac := range parseMACList(*u.MAC) {
@@ -277,6 +300,9 @@ func (r *DeviceRegistry) buildIdentityMaps(ctx context.Context, updates []*model
 		}
 		if u.IP != "" {
 			ipSet[u.IP] = struct{}{}
+		}
+		if trimmed := strings.TrimSpace(u.DeviceID); trimmed != "" {
+			deviceSet[trimmed] = struct{}{}
 		}
 	}
 
@@ -302,6 +328,9 @@ func (r *DeviceRegistry) buildIdentityMaps(ctx context.Context, updates []*model
 	if err := r.resolveIPsToCanonical(ctx, toList(ipSet), m.ip); err != nil {
 		return m, err
 	}
+	for _, id := range toList(deviceSet) {
+		setIfMissing(m.device, id, id)
+	}
 	seedIdentityMapsFromBatch(updates, m)
 	return m, nil
 }
@@ -321,6 +350,8 @@ func seedIdentityMapsFromBatch(updates []*models.DeviceUpdate, m *identityMaps) 
 		strongIdentity := hasStrongIdentity(update)
 		for _, key := range identitymap.BuildKeys(update) {
 			switch key.Kind {
+			case identitymap.KindDeviceID:
+				setIfMissing(m.device, key.Value, canonical)
 			case identitymap.KindArmisID:
 				setIfMissing(m.armis, key.Value, canonical)
 			case identitymap.KindNetboxID:
@@ -476,6 +507,13 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 func (r *DeviceRegistry) lookupCanonicalFromMaps(u *models.DeviceUpdate, maps *identityMaps) (string, string) {
 	if maps == nil {
 		return "", ""
+	}
+	if trimmedID := strings.TrimSpace(u.DeviceID); trimmedID != "" {
+		if dev, ok := maps.device[trimmedID]; ok {
+			if canonical := strings.TrimSpace(dev); canonical != "" && canonical != trimmedID {
+				return canonical, identitySourceDeviceID
+			}
+		}
 	}
 	if u.Metadata != nil {
 		if del, ok := u.Metadata["_deleted"]; ok && strings.EqualFold(del, "true") {

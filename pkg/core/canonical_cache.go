@@ -14,10 +14,11 @@ type canonicalSnapshot struct {
 }
 
 type canonicalCache struct {
-	mu    sync.RWMutex
-	ttl   time.Duration
-	byIP  map[string]cacheEntry
-	nowFn func() time.Time
+	mu      sync.RWMutex
+	ttl     time.Duration
+	weakTTL time.Duration
+	byIP    map[string]cacheEntry
+	nowFn   func() time.Time
 }
 
 type cacheEntry struct {
@@ -30,9 +31,10 @@ func newCanonicalCache(ttl time.Duration) *canonicalCache {
 		ttl = 5 * time.Minute
 	}
 	return &canonicalCache{
-		ttl:   ttl,
-		byIP:  make(map[string]cacheEntry),
-		nowFn: time.Now,
+		ttl:     ttl,
+		weakTTL: time.Minute,
+		byIP:    make(map[string]cacheEntry),
+		nowFn:   time.Now,
 	}
 }
 
@@ -77,6 +79,18 @@ func (c *canonicalCache) getBatch(ips []string) (map[string]canonicalSnapshot, [
 }
 
 func (c *canonicalCache) store(ip string, snapshot canonicalSnapshot) {
+	c.storeWithTTL(ip, snapshot, c.ttl)
+}
+
+func (c *canonicalCache) storeWeak(ip string, snapshot canonicalSnapshot) {
+	ttl := c.weakTTL
+	if ttl <= 0 {
+		ttl = time.Minute
+	}
+	c.storeWithTTL(ip, snapshot, ttl)
+}
+
+func (c *canonicalCache) storeWithTTL(ip string, snapshot canonicalSnapshot, ttl time.Duration) {
 	ip = strings.TrimSpace(ip)
 	if ip == "" {
 		return
@@ -88,7 +102,14 @@ func (c *canonicalCache) store(ip string, snapshot canonicalSnapshot) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	expiry := c.nowFn().Add(c.ttl)
+	if ttl <= 0 {
+		ttl = c.ttl
+		if ttl <= 0 {
+			ttl = 5 * time.Minute
+		}
+	}
+
+	expiry := c.nowFn().Add(ttl)
 	c.byIP[ip] = cacheEntry{
 		snapshot:  cloneSnapshot(snapshot),
 		expiresAt: expiry,
