@@ -93,6 +93,30 @@ func BuildKeys(update *models.DeviceUpdate) []Key {
 				add(KindNetboxID, id)
 			}
 		}
+
+		if aliasService := strings.TrimSpace(update.Metadata["_alias_last_seen_service_id"]); aliasService != "" {
+			add(KindDeviceID, aliasService)
+		}
+		if aliasIP := strings.TrimSpace(update.Metadata["_alias_last_seen_ip"]); aliasIP != "" {
+			add(KindIP, aliasIP)
+			add(KindPartitionIP, partitionIPValue(update.Partition, aliasIP))
+		}
+
+		for key := range update.Metadata {
+			switch {
+			case strings.HasPrefix(key, "service_alias:"):
+				aliasID := strings.TrimSpace(strings.TrimPrefix(key, "service_alias:"))
+				if aliasID != "" {
+					add(KindDeviceID, aliasID)
+				}
+			case strings.HasPrefix(key, "ip_alias:"):
+				aliasIP := strings.TrimSpace(strings.TrimPrefix(key, "ip_alias:"))
+				if aliasIP != "" {
+					add(KindIP, aliasIP)
+					add(KindPartitionIP, partitionIPValue(update.Partition, aliasIP))
+				}
+			}
+		}
 	}
 
 	if update.MAC != nil {

@@ -19,6 +19,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -211,6 +212,34 @@ func TestProcessServicePayload_SyncService_WithEnhancedPayload(t *testing.T) {
 
 	err = server.processServicePayload(ctx, "original-poller", "original-partition", "192.168.1.100", svc, enhancedMessage, timestamp)
 	require.NoError(t, err)
+}
+
+func TestBuildHostAliasUpdate(t *testing.T) {
+	now := time.Now()
+	hostID := "default:10.0.0.8"
+	serviceID := "serviceradar:agent:k8s-agent"
+	update := buildHostAliasUpdate(
+		hostID,
+		"",
+		"ignored",
+		serviceID,
+		"agent-1",
+		"poller-1",
+		"10.0.0.8",
+		true,
+		now,
+	)
+
+	require.NotNil(t, update)
+	assert.Equal(t, hostID, update.DeviceID)
+	assert.Equal(t, "default", update.Partition)
+	assert.Equal(t, models.DiscoverySourceServiceRadar, update.Source)
+	assert.True(t, update.IsAvailable)
+	assert.Equal(t, "10.0.0.8", update.IP)
+	assert.Equal(t, serviceID, update.Metadata["_alias_last_seen_service_id"])
+	assert.Equal(t, hostID, update.Metadata["canonical_device_id"])
+	assert.Contains(t, update.Metadata, fmt.Sprintf("service_alias:%s", serviceID))
+	assert.Contains(t, update.Metadata, fmt.Sprintf("ip_alias:%s", "10.0.0.8"))
 }
 
 func TestProcessServicePayload_SyncService_HealthCheckNotProcessed(t *testing.T) {

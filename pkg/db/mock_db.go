@@ -403,6 +403,21 @@ func (mr *MockServiceMockRecorder) GetMetricsForPartition(arg0, arg1, arg2, arg3
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetricsForPartition", reflect.TypeOf((*MockService)(nil).GetMetricsForPartition), arg0, arg1, arg2, arg3)
 }
 
+// GetDeviceMetricTypes mocks base method.
+func (m *MockService) GetDeviceMetricTypes(arg0 context.Context, arg1 []string, arg2 time.Time) (map[string][]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceMetricTypes", arg0, arg1, arg2)
+	ret0, _ := ret[0].(map[string][]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceMetricTypes indicates an expected call of GetDeviceMetricTypes.
+func (mr *MockServiceMockRecorder) GetDeviceMetricTypes(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceMetricTypes", reflect.TypeOf((*MockService)(nil).GetDeviceMetricTypes), arg0, arg1, arg2)
+}
+
 // GetPollerHistory mocks base method.
 func (m *MockService) GetPollerHistory(arg0 context.Context, arg1 string) ([]models.PollerStatus, error) {
 	m.ctrl.T.Helper()

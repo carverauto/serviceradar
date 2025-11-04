@@ -398,15 +398,7 @@ func tryDeviceLifecycleEvent(row *models.EventRow, ce *models.CloudEvent, dataBy
 	row.RemoteAddr = deviceData.RemoteAddr
 
 	action := strings.ToLower(deviceData.Action)
-	if action == "" {
-		action = "updated"
-	}
-
-	row.ShortMessage = fmt.Sprintf("Device %s %s", deviceData.DeviceID, action)
-
-	if deviceData.Actor != "" {
-		row.ShortMessage = fmt.Sprintf("%s by %s", row.ShortMessage, deviceData.Actor)
-	}
+	row.ShortMessage = buildDeviceLifecycleSummary(deviceData.DeviceID, action, deviceData.Metadata, deviceData.Actor)
 
 	if deviceData.Level != 0 {
 		row.Level = deviceData.Level
@@ -427,6 +419,68 @@ func tryDeviceLifecycleEvent(row *models.EventRow, ce *models.CloudEvent, dataBy
 	row.Version = "1.1"
 
 	return true
+}
+
+func buildDeviceLifecycleSummary(deviceID, action string, metadata map[string]string, actor string) string {
+	if action == "" {
+		action = "updated"
+	}
+
+	if action == "alias_updated" {
+		if summary := summarizeAliasChange(metadata); summary != "" {
+			return fmt.Sprintf("Device %s alias updated (%s)", deviceID, summary)
+		}
+		return fmt.Sprintf("Device %s alias updated", deviceID)
+	}
+
+	message := fmt.Sprintf("Device %s %s", deviceID, action)
+	if strings.TrimSpace(actor) != "" {
+		message = fmt.Sprintf("%s by %s", message, actor)
+	}
+
+	return message
+}
+
+func summarizeAliasChange(metadata map[string]string) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+
+	get := func(key string) string {
+		return strings.TrimSpace(metadata[key])
+	}
+
+	parts := make([]string, 0, 3)
+
+	if serviceChange := formatAliasChange("service", get("previous_service_id"), get("alias_current_service_id")); serviceChange != "" {
+		parts = append(parts, serviceChange)
+	}
+
+	if ipChange := formatAliasChange("ip", get("previous_ip"), get("alias_current_ip")); ipChange != "" {
+		parts = append(parts, ipChange)
+	}
+
+	if collectorChange := formatAliasChange("collector", get("previous_collector_ip"), get("alias_collector_ip")); collectorChange != "" {
+		parts = append(parts, collectorChange)
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+func formatAliasChange(label, previous, current string) string {
+	prev := strings.TrimSpace(previous)
+	curr := strings.TrimSpace(current)
+
+	switch {
+	case prev != "" && curr != "" && prev != curr:
+		return fmt.Sprintf("%s %s→%s", label, prev, curr)
+	case prev == "" && curr != "":
+		return fmt.Sprintf("%s %s", label, curr)
+	case prev != "" && curr == "":
+		return fmt.Sprintf("%s removed (was %s)", label, prev)
+	default:
+		return ""
+	}
 }
 
 // tryGELFFormat attempts to parse data as GELF format
