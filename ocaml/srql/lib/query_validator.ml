@@ -60,6 +60,7 @@ let validate_having ~(having : condition) ~(select_fields : string list) ~(group
     | IsNull lhs -> lhs
     | IsNotNull lhs -> lhs
     | InList (lhs, _) -> lhs
+    | HasKey (map_name, key_name) -> Printf.sprintf "%s.%s" map_name key_name
   in
   let lhs = lhs_of having |> trim in
   let lclhs = lc lhs in

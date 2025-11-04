@@ -11,6 +11,7 @@ type condition =
   | IsNull of string
   | IsNotNull of string
   | InList of string * value list
+  | HasKey of string * string
 
 type order_dir = Asc | Desc
 

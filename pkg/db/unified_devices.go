@@ -311,8 +311,7 @@ func (db *DB) queryUnifiedDeviceBatch(ctx context.Context, deviceIDs, ips []stri
         is_available, first_seen, last_seen, metadata, agent_id, device_type, 
         service_type, service_status, last_heartbeat, os_info, version_info
     FROM table(unified_devices)
-    WHERE %s
-    ORDER BY _tp_time DESC`, buildWithClause(withClauses), strings.Join(conditions, " OR "))
+    WHERE %s`, buildWithClause(withClauses), strings.Join(conditions, " OR "))
 
 	rows, err := db.Conn.Query(ctx, query)
 	if err != nil {
