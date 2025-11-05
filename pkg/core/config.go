@@ -102,6 +102,10 @@ func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig
 		}
 	}
 
+	if normalized.Features.UseLogDigest == nil {
+		normalized.Features.UseLogDigest = boolPtr(true)
+	}
+
 	return &normalized
 }
 
@@ -179,6 +183,10 @@ func applyAuthOverrides(authConfig, configAuth *models.AuthConfig) {
 		authConfig.RBAC = configAuth.RBAC
 		fmt.Printf("DEBUG: Copied RBAC config anyway. UserRoles: %+v\n", authConfig.RBAC.UserRoles)
 	}
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }
 
 func applyDefaultAdminUser(authConfig *models.AuthConfig) {

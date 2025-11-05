@@ -380,6 +380,53 @@ func (h *Handler) GetDeviceStats() *StatsSnapshot {
 
 ---
 
+### Phase 3b: Critical Log Rollups (Dashboard Observability)
+
+**Goal:** Remove Proton hot-path dependency for fatal/error log widgets.
+
+#### 3b.1 Build Log Digest Aggregator
+```go
+// pkg/core/log_digest.go
+type LogDigestAggregator struct {
+    mu        sync.RWMutex
+    critical  []models.LogSummary  // capped ring buffer of latest fatal/error logs
+    counters  *models.LogCounters  // rolling 1h/24h stats
+}
+
+func (a *LogDigestAggregator) Run(ctx context.Context, tailer LogTailer) {
+    for entry := range tailer.Stream(ctx, SeverityFatal, SeverityError) {
+        a.append(entry)
+    }
+}
+```
+
+- [x] Tail Proton `logs` data via unbounded stream cursor into the aggregator
+- [x] Maintain capped ring buffer (e.g. last 200 fatal/error events) plus rolling counters
+- [x] Persist digests in registry cache with optional durable spill (BoltDB) for warm restarts
+- [x] Investigate readiness regressions when enabling `UseLogDigest` (root cause: synchronous Proton bootstrap blocked HTTP startup; fixed by moving hydration to a timed background task so readiness succeeds before streaming starts)
+- [x] Fix Proton streaming syntax error (switched tailer to native streaming `SELECT ... FROM logs`, confirmed steady feed and `/api/logs/critical` returns injected fatal records without touching Proton)
+- [x] Resolve poller registry cast error (scan `COUNT(*)` into `uint64`, rolled new core image, warning gone; Proton pool tuned for higher concurrency to stop acquire timeouts)
+
+#### 3b.2 Expose Critical Log API
+```go
+// pkg/core/api/logs.go
+func (h *Handler) GetCriticalLogs(limit int) ([]models.LogSummary, *models.LogCounters) {
+    return h.logDigest.Latest(limit), h.logDigest.Counters()
+}
+```
+
+- [x] Implement `/api/logs/critical` and `/api/logs/critical/counters`
+- [x] Add feature flag `UseLogDigest` defaulting to true once validated
+
+#### 3b.3 Remove SRQL Fatal/Error Queries
+- [x] Update `web/src/services/dataService.ts` `fetchAllAnalyticsData` to call new API
+- [x] Refactor `CriticalLogsWidget` and Observability dashboards to consume API results
+- [x] Delete or guard the legacy SRQL `in:logs severity_text:(fatal,error)` calls
+
+**Success:** No UI component issues `SELECT * FROM table(logs)`; Proton log workload handled by single aggregator stream.
+
+---
+
 ### Phase 4: Search Index (Inventory Performance)
 
 **Goal:** Stop scanning `table(unified_devices)` for inventory search.
@@ -689,6 +736,7 @@ func (db *DB) GetICMPMetrics(deviceID string, start, end time.Time) ([]*Metric, 
 - [ ] Audit all `db.*` calls in `pkg/core/api`
 - [ ] Replace device state queries with registry lookups
 - [ ] Add middleware to block non-analytics Proton queries
+- [ ] Update SRQL translator/HTTP handlers to route device lookups and searches through registry/search index
 - [ ] Document "when to use Proton vs registry" guidelines
 - [ ] Final performance validation
 

@@ -121,6 +121,7 @@ type APIServer struct {
 	spireAdminConfig     *models.SpireAdminConfig
 	edgeOnboarding       EdgeOnboardingService
 	eventPublisher       *natsutil.EventPublisher
+	logDigest            LogDigestService
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint that fronts a specific JetStream domain.
@@ -141,4 +142,10 @@ type DeviceRegistryService interface {
 	GetMergedDevice(ctx context.Context, deviceIDOrIP string) (*models.UnifiedDevice, error)
 	FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error)
 	GetCollectorCapabilities(ctx context.Context, deviceID string) (*models.CollectorCapability, bool)
+}
+
+// LogDigestService exposes cached critical log data for the API layer.
+type LogDigestService interface {
+	Latest(limit int) []models.LogSummary
+	Counters() *models.LogCounters
 }
