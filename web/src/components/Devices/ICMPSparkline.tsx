@@ -111,7 +111,7 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [deviceId, hasMetrics, token]);
+  }, [deviceId, deviceIp, hasCollector, hasMetrics, supportsICMP, token]);
 
   useEffect(() => {
     if (hasMetrics === false) {
