@@ -132,10 +132,10 @@ let test_devices_collector_capabilities () =
   in
   let sql = translation.sql in
   contains "collector has_collector expression" sql
-    "array_exists(k -> starts_with(k, 'collector_'), map_keys(metadata))";
+    "has(map_keys(metadata), 'collector_agent_id')";
   contains "collector supports_icmp expression" sql
-    "array_exists(k -> starts_with(k, 'icmp_'), map_keys(metadata))";
-  contains "has_collector predicate uses placeholder" sql "if(array_exists(k -> starts_with(k, 'collector_')";
+    "has(map_keys(metadata), '_last_icmp_update_at')";
+  contains "has_collector predicate uses placeholder" sql "if(has(map_keys(metadata), 'collector_agent_id')";
   contains "stats included" sql "count() AS total";
   check bool "boolean parameters mapped to 1" true
     (List.exists

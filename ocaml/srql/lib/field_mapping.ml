@@ -37,56 +37,60 @@ let map_field_name ~entity (field : string) : string =
       with _ -> s'
     in
     let map_keys_expr = "map_keys(metadata)" in
-    let array_exists_prefix prefix =
-      Printf.sprintf "array_exists(k -> starts_with(k, '%s'), %s)" prefix map_keys_expr
-    in
     let array_exists_like pattern =
       Printf.sprintf "array_exists(k -> like(k, '%s'), %s)" pattern map_keys_expr
     in
     let wrap_bool cond = "(if(" ^ cond ^ ", 1, 0))" in
+    let has_any keys =
+      keys
+      |> List.map (fun key -> "has(" ^ map_keys_expr ^ ", '" ^ key ^ "')")
+      |> String.concat " OR "
+    in
     let collector_capability_expr suffix =
       match suffix with
       | "has_collector" ->
+          let explicit_keys =
+            has_any
+              [
+                "collector_agent_id";
+                "collector_poller_id";
+                "_alias_last_seen_service_id";
+                "_alias_collector_ip";
+                "checker_service";
+                "checker_service_type";
+                "checker_service_id";
+                "_last_icmp_update_at";
+                "snmp_monitoring";
+              ]
+          in
           let collector_signals =
             [
-              array_exists_prefix "collector_";
-              array_exists_prefix "checker_";
+              explicit_keys;
               array_exists_like "service_alias:%collector%";
               array_exists_like "service_alias:%checker%";
-              array_exists_prefix "icmp_";
-              array_exists_prefix "snmp";
-              array_exists_prefix "sysmon";
-              "has(" ^ map_keys_expr ^ ", 'snmp_monitoring')";
-              "has(" ^ map_keys_expr ^ ", '_last_icmp_update_at')";
             ]
+            in
+          let condition =
+            collector_signals
+            |> List.filter (fun part -> String.trim part <> "")
+            |> String.concat " OR "
           in
-          let condition = String.concat " OR " collector_signals in
           wrap_bool condition
       | "supports_icmp" ->
           let condition =
-            String.concat " OR "
-              [
-                array_exists_prefix "icmp_";
-                "has(" ^ map_keys_expr ^ ", '_last_icmp_update_at')";
-              ]
+            has_any [ "icmp_service_name"; "icmp_target"; "_last_icmp_update_at" ]
           in
           wrap_bool condition
       | "supports_snmp" ->
-          let condition =
-            String.concat " OR "
-              [
-                array_exists_prefix "snmp";
-                "has(" ^ map_keys_expr ^ ", 'snmp_monitoring')";
-              ]
-          in
-          wrap_bool condition
+          wrap_bool (has_any [ "snmp_monitoring" ])
       | "supports_sysmon" ->
           let condition =
-            String.concat " OR "
-              [
-                array_exists_prefix "sysmon";
-                array_exists_like "service_alias:%sysmon%";
-              ]
+            [
+              has_any [ "sysmon_monitoring"; "sysmon_service"; "sysmon_metric_source" ];
+              array_exists_like "service_alias:%sysmon%";
+            ]
+            |> List.filter (fun part -> String.trim part <> "")
+            |> String.concat " OR "
           in
           wrap_bool condition
       | _ -> String.map (fun c -> if c = '.' then '_' else c) suffix
