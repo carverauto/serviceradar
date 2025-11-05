@@ -131,11 +131,11 @@ let test_devices_collector_capabilities () =
        stats:\"count() as total\""
   in
   let sql = translation.sql in
-  contains "collector has_collector cast" sql
-    "CAST((has(map_keys(metadata), 'collector_agent_id') OR has(map_keys(metadata), 'collector_poller_id')";
-  contains "collector supports_icmp cast" sql
-    "CAST((has(map_keys(metadata), 'icmp_service_name') OR has(map_keys(metadata), 'icmp_target')";
-  contains "has_collector predicate uses placeholder" sql "CAST((has(map_keys(metadata), 'collector_agent_id')";
+  contains "collector has_collector expression" sql
+    "array_exists(k -> starts_with(k, 'collector_'), map_keys(metadata))";
+  contains "collector supports_icmp expression" sql
+    "array_exists(k -> starts_with(k, 'icmp_'), map_keys(metadata))";
+  contains "has_collector predicate uses placeholder" sql "if(array_exists(k -> starts_with(k, 'collector_')";
   contains "stats included" sql "count() AS total";
   check bool "boolean parameters mapped to 1" true
     (List.exists

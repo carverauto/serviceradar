@@ -19,12 +19,15 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
@@ -206,6 +209,20 @@ func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []mod
 		cacheMisses = uniqueIPs
 	}
 
+	if len(cacheMisses) == 0 {
+		return result
+	}
+
+	if kvHits, kvMisses := s.fetchCanonicalSnapshotsFromKV(ctx, cacheMisses); len(kvHits) > 0 {
+		for ip, snapshot := range kvHits {
+			result[ip] = snapshot
+			if s.canonicalCache != nil {
+				s.canonicalCache.store(ip, snapshot)
+			}
+		}
+		cacheMisses = kvMisses
+	}
+
 	if len(cacheMisses) == 0 || s.DB == nil {
 		return result
 	}
@@ -259,6 +276,7 @@ func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []mod
 			if s.canonicalCache != nil {
 				s.canonicalCache.store(ip, snapshot)
 			}
+			s.persistIdentityForSnapshot(ctx, snapshot, device)
 		}
 	}
 
@@ -266,6 +284,9 @@ func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []mod
 }
 
 func snapshotHasStrongIdentity(snapshot canonicalSnapshot) bool {
+	if strings.TrimSpace(snapshot.DeviceID) != "" {
+		return true
+	}
 	if strings.TrimSpace(snapshot.MAC) != "" {
 		return true
 	}
@@ -336,4 +357,131 @@ func (s *Server) applyCanonicalSnapshotToSweep(update *models.DeviceUpdate, snap
 	copyIfEmpty("canonical_partition")
 	copyIfEmpty("canonical_metadata_hash")
 	copyIfEmpty("canonical_hostname")
+}
+
+func (s *Server) fetchCanonicalSnapshotsFromKV(ctx context.Context, ips []string) (map[string]canonicalSnapshot, []string) {
+	if s.identityKVClient == nil || len(ips) == 0 {
+		return nil, ips
+	}
+
+	namespace := identitymap.DefaultNamespace
+	hits := make(map[string]canonicalSnapshot, len(ips))
+	misses := make([]string, 0, len(ips))
+	seen := make(map[string]struct{}, len(ips))
+
+	for _, rawIP := range ips {
+		ip := strings.TrimSpace(rawIP)
+		if ip == "" {
+			continue
+		}
+		if _, ok := seen[ip]; ok {
+			continue
+		}
+		seen[ip] = struct{}{}
+
+		key := identitymap.Key{Kind: identitymap.KindIP, Value: ip}
+		record := s.loadIdentityRecord(ctx, namespace, key)
+		if record == nil {
+			misses = append(misses, ip)
+			continue
+		}
+
+		snapshot := snapshotFromIdentityRecord(record, ip)
+		if !snapshotHasStrongIdentity(snapshot) {
+			misses = append(misses, ip)
+			continue
+		}
+
+		hits[ip] = snapshot
+	}
+
+	return hits, misses
+}
+
+func (s *Server) loadIdentityRecord(ctx context.Context, namespace string, key identitymap.Key) *identitymap.Record {
+	if s.identityKVClient == nil {
+		return nil
+	}
+
+	for _, path := range key.KeyPathVariants(namespace) {
+		resp, err := s.identityKVClient.Get(ctx, &proto.GetRequest{Key: path})
+		if err != nil {
+			if s.logger != nil {
+				s.logger.Debug().Err(err).Str("key", path).Msg("identity KV lookup failed")
+			}
+			continue
+		}
+		if !resp.GetFound() || len(resp.GetValue()) == 0 {
+			continue
+		}
+		record, err := identitymap.UnmarshalRecord(resp.GetValue())
+		if err != nil {
+			if errors.Is(err, identitymap.ErrCorruptRecord) {
+				if s.logger != nil {
+					s.logger.Warn().Err(err).Str("key", path).Msg("Skipping corrupt canonical identity record during KV lookup")
+				}
+				continue
+			}
+			if s.logger != nil {
+				s.logger.Warn().Err(err).Str("key", path).Msg("Failed to decode canonical identity record")
+			}
+			continue
+		}
+		return record
+	}
+
+	return nil
+}
+
+func snapshotFromIdentityRecord(record *identitymap.Record, fallbackIP string) canonicalSnapshot {
+	if record == nil {
+		return canonicalSnapshot{}
+	}
+
+	snapshot := canonicalSnapshot{
+		DeviceID: strings.TrimSpace(record.CanonicalDeviceID),
+		IP:       strings.TrimSpace(fallbackIP),
+	}
+
+	if record.Attributes != nil {
+		if ip := strings.TrimSpace(record.Attributes["ip"]); ip != "" {
+			snapshot.IP = ip
+		}
+		if mac := strings.TrimSpace(record.Attributes["mac"]); mac != "" {
+			snapshot.MAC = mac
+		}
+	}
+
+	return snapshot
+}
+
+func (s *Server) persistIdentityForSnapshot(ctx context.Context, snapshot canonicalSnapshot, device *models.UnifiedDevice) {
+	if s.identityKVClient == nil || device == nil {
+		return
+	}
+
+	record := buildRecordFromUnifiedDevice(device)
+	if record == nil {
+		return
+	}
+
+	keys := []identitymap.Key{
+		{Kind: identitymap.KindIP, Value: snapshot.IP},
+	}
+
+	if partition := strings.TrimSpace(record.Partition); partition != "" && snapshot.IP != "" {
+		keys = append(keys, identitymap.Key{
+			Kind:  identitymap.KindPartitionIP,
+			Value: fmt.Sprintf("%s:%s", partition, snapshot.IP),
+		})
+	}
+
+	for _, key := range keys {
+		if strings.TrimSpace(key.Value) == "" {
+			continue
+		}
+		if _, err := s.hydrateIdentityKV(ctx, identitymap.DefaultNamespace, key, record); err != nil && s.logger != nil {
+			s.logger.Debug().Err(err).Str("key", key.Value).Msg("Failed to hydrate identity map during sweep lookup")
+		}
+	}
 }
