@@ -286,8 +286,7 @@ let parse (input : string) : query_spec =
                 let key_lc = lower key' in
                 if String.length key_lc > 9 && String.sub key_lc 0 9 = "metadata." then
                   filters := !filters @ [ HasAttribute key' ]
-                else
-                  filters := !filters @ [ AttributeFilter (key', Eq, parse_value vstr) ]
+                else filters := !filters @ [ AttributeFilter (key', Eq, parse_value vstr) ]
               else
                 filters :=
                   !filters

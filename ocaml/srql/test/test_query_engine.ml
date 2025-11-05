@@ -127,15 +127,15 @@ let test_devices_search_numeric_literal () =
 let test_devices_collector_capabilities () =
   let translation =
     translation_of
-      "in:devices collector_capabilities.has_collector:true collector_capabilities.supports_icmp:true \
-       stats:\"count() as total\""
+      "in:devices collector_capabilities.has_collector:true \
+       collector_capabilities.supports_icmp:true stats:\"count() as total\""
   in
   let sql = translation.sql in
-  contains "collector has_collector expression" sql
-    "has(map_keys(metadata), 'collector_agent_id')";
+  contains "collector has_collector expression" sql "has(map_keys(metadata), 'collector_agent_id')";
   contains "collector supports_icmp expression" sql
     "has(map_keys(metadata), '_last_icmp_update_at')";
-  contains "has_collector predicate uses placeholder" sql "if(has(map_keys(metadata), 'collector_agent_id')";
+  contains "has_collector predicate uses placeholder" sql
+    "if(has(map_keys(metadata), 'collector_agent_id')";
   contains "stats included" sql "count() AS total";
   check bool "boolean parameters mapped to 1" true
     (List.exists

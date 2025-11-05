@@ -281,16 +281,14 @@ let condition_of_filter ~entity ~timestamp_field = function
               mk_cond start_opt end_opt
           | _ -> None)
       | _ -> Some (Condition (k, op, v)))
-  | HasAttribute k ->
+  | HasAttribute k -> (
       let parts = String.split_on_char '.' k in
-      (match parts with
-      | [map_name; key_name] -> Some (HasKey (map_name, key_name))
-      | _ -> None)
+      match parts with [ map_name; key_name ] -> Some (HasKey (map_name, key_name)) | _ -> None)
   | AttributeListFilter (k, vs) -> Some (InList (k, vs))
   | AttributeListFilterNot (k, vs) -> Some (Not (InList (k, vs)))
   | ObservableFilter (_k, _v) -> None (* not handled here yet *)
   | TimeFilter _ -> None
-  | TextSearch raw_term ->
+  | TextSearch raw_term -> (
       let term = String.trim raw_term in
       if term = "" then None
       else
@@ -303,13 +301,9 @@ let condition_of_filter ~entity ~timestamp_field = function
             if p = "" then false
             else if not (String.for_all is_digit p) then false
             else
-              match int_of_string_opt p with
-              | Some v when v >= 0 && v <= 255 -> true
-              | _ -> false
+              match int_of_string_opt p with Some v when v >= 0 && v <= 255 -> true | _ -> false
           in
-          match parts with
-          | [ _; _; _; _ ] -> List.for_all valid_octet parts
-          | _ -> false
+          match parts with [ _; _; _; _ ] -> List.for_all valid_octet parts | _ -> false
         in
         let fields =
           match String.lowercase_ascii entity with
@@ -317,21 +311,16 @@ let condition_of_filter ~entity ~timestamp_field = function
           | _ -> [ "device_id" ]
         in
         let like_conditions =
-          fields
-          |> List.map (fun field -> Condition (field, Like, String wildcard))
+          fields |> List.map (fun field -> Condition (field, Like, String wildcard))
         in
         let conditions =
           if is_ipv4 term then Condition ("ip", Eq, String term) :: like_conditions
           else like_conditions
         in
-        (match conditions with
+        match conditions with
         | [] -> None
         | first :: rest ->
-            let combined =
-              List.fold_left
-                (fun acc cond -> Or (acc, cond))
-                first rest
-            in
+            let combined = List.fold_left (fun acc cond -> Or (acc, cond)) first rest in
             Some combined)
 
 let plan_to_srql (q : query_spec) : Sql_ir.query option =
