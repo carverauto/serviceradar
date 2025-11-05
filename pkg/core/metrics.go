@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
@@ -519,6 +521,7 @@ func (s *Server) processSweepService(
 }
 
 func (s *Server) processICMPMetrics(
+	ctx context.Context,
 	pollerID string, partition string, sourceIP string, agentID string,
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
@@ -540,16 +543,45 @@ func (s *Server) processICMPMetrics(
 		return fmt.Errorf("failed to parse ICMP data: %w", err)
 	}
 
-	// build deviceId based on "partition:sourceIP"
-	deviceID := fmt.Sprintf("%s:%s", partition, sourceIP)
+	targetHost := strings.TrimSpace(pingResult.Host)
+	deviceID := strings.TrimSpace(pingResult.DeviceID)
+
+	if deviceID == "" {
+		deviceID = models.GenerateNetworkDeviceID(partition, sourceIP)
+	}
+
+	resolution := s.resolveCanonicalDevice(ctx, sourceIP, deviceID)
+	if strings.TrimSpace(resolution.DeviceID) != "" {
+		deviceID = strings.TrimSpace(resolution.DeviceID)
+	}
+
+	updateIP := strings.TrimSpace(resolution.IP)
+	if updateIP == "" {
+		updateIP = ipFromDeviceID(deviceID)
+	}
+	if updateIP == "" {
+		updateIP = sourceIP
+	}
+
+	hostDeviceID := strings.TrimSpace(resolution.DeviceID)
+	if hostDeviceID == "" {
+		hostDeviceID = deviceID
+	}
 
 	// Create metadata map
 	metadata := map[string]string{
-		"device_id":     deviceID,
-		"host":          pingResult.Host,
-		"response_time": fmt.Sprintf("%d", pingResult.ResponseTime),
-		"packet_loss":   fmt.Sprintf("%f", pingResult.PacketLoss),
-		"available":     fmt.Sprintf("%t", pingResult.Available),
+		"device_id":         deviceID,
+		"collector_ip":      sourceIP,
+		"response_time":     fmt.Sprintf("%d", pingResult.ResponseTime),
+		"packet_loss":       fmt.Sprintf("%f", pingResult.PacketLoss),
+		"available":         fmt.Sprintf("%t", pingResult.Available),
+		"icmp_service_name": svc.ServiceName,
+		"host_device_id":    hostDeviceID,
+		"host_last_seen_ip": updateIP,
+		"host_last_seen_at": now.Format(time.RFC3339Nano),
+	}
+	if targetHost != "" {
+		metadata["target_host"] = targetHost
 	}
 
 	// Marshal metadata to JSON string
@@ -572,7 +604,7 @@ func (s *Server) processICMPMetrics(
 		Type:           "icmp",
 		Timestamp:      now,
 		Metadata:       metadataStr, // Use JSON string
-		TargetDeviceIP: pingResult.Host,
+		TargetDeviceIP: targetHost,
 		DeviceID:       deviceID,
 		Partition:      partition,
 		IfIndex:        0,
@@ -604,6 +636,53 @@ func (s *Server) processICMPMetrics(
 		s.logger.Error().
 			Str("poller_id", pollerID).
 			Msg("Metrics manager is nil in processICMPMetrics")
+	}
+
+	if s.DeviceRegistry != nil {
+		deviceMetadata := map[string]string{
+			"icmp_available":       fmt.Sprintf("%t", pingResult.Available),
+			"icmp_packet_loss":     fmt.Sprintf("%f", pingResult.PacketLoss),
+			"icmp_round_trip_ns":   fmt.Sprintf("%d", pingResult.ResponseTime),
+			"collector_agent_id":   agentID,
+			"collector_poller_id":  pollerID,
+			"collector_ip":         sourceIP,
+			"icmp_service_name":    svc.ServiceName,
+			"_last_icmp_update_at": now.Format(time.RFC3339Nano),
+		}
+		if targetHost != "" {
+			deviceMetadata["icmp_target"] = targetHost
+		}
+
+		update := &models.DeviceUpdate{
+			DeviceID:    deviceID,
+			IP:          updateIP,
+			Source:      models.DiscoverySourceServiceRadar,
+			AgentID:     agentID,
+			PollerID:    pollerID,
+			Partition:   partition,
+			Timestamp:   now,
+			IsAvailable: pingResult.Available,
+			Metadata:    deviceMetadata,
+			Confidence:  models.GetSourceConfidence(models.DiscoverySourceServiceRadar),
+		}
+
+		s.enqueueServiceDeviceUpdate(update)
+
+		if hostDeviceID != "" && hostDeviceID != deviceID {
+			if hostUpdate := buildHostAliasUpdate(
+				hostDeviceID,
+				updateIP,
+				partition,
+				deviceID,
+				agentID,
+				pollerID,
+				sourceIP,
+				pingResult.Available,
+				now,
+			); hostUpdate != nil {
+				s.enqueueServiceDeviceUpdate(hostUpdate)
+			}
+		}
 	}
 
 	return nil
@@ -643,6 +722,183 @@ func (s *Server) processSysmonMetrics(
 		Msg("Parsed sysmon metrics")
 
 	return nil
+}
+
+func (s *Server) resolveCanonicalDevice(ctx context.Context, ip, fallback string) canonicalSnapshot {
+	ip = strings.TrimSpace(ip)
+	fallback = strings.TrimSpace(fallback)
+
+	result := canonicalSnapshot{
+		DeviceID: fallback,
+	}
+
+	if ip == "" {
+		return result
+	}
+
+	if s.canonicalCache != nil {
+		if hits, misses := s.canonicalCache.getBatch([]string{ip}); len(misses) == 0 {
+			if snap, ok := hits[ip]; ok {
+				return ensureSnapshotDeviceID(snap, fallback)
+			}
+		} else {
+			if snap, ok := s.fetchCanonicalSnapshot(ctx, ip); ok {
+				return ensureSnapshotDeviceID(snap, fallback)
+			}
+			if result.DeviceID != "" || result.IP != "" {
+				s.canonicalCache.storeWeak(ip, result)
+			}
+			return result
+		}
+	}
+
+	if snap, ok := s.fetchCanonicalSnapshot(ctx, ip); ok {
+		return ensureSnapshotDeviceID(snap, fallback)
+	}
+
+	if s.canonicalCache != nil && (result.DeviceID != "" || result.IP != "") {
+		s.canonicalCache.storeWeak(ip, result)
+	}
+
+	return result
+}
+
+func (s *Server) fetchCanonicalSnapshot(ctx context.Context, ip string) (canonicalSnapshot, bool) {
+	if s.DB == nil {
+		return canonicalSnapshot{}, false
+	}
+
+	devices, err := s.DB.GetUnifiedDevicesByIPsOrIDs(ctx, []string{ip}, nil)
+	if err != nil {
+		s.logger.Warn().Err(err).Str("ip", ip).Msg("Failed to fetch canonical device by IP")
+		return canonicalSnapshot{}, false
+	}
+
+	for _, device := range devices {
+		if device == nil {
+			continue
+		}
+		snapshot := canonicalSnapshot{
+			DeviceID: strings.TrimSpace(device.DeviceID),
+			IP:       strings.TrimSpace(device.IP),
+		}
+		if device.MAC != nil {
+			snapshot.MAC = strings.TrimSpace(device.MAC.Value)
+		}
+		if device.Metadata != nil && device.Metadata.Value != nil {
+			snapshot.Metadata = device.Metadata.Value
+		}
+
+		if strings.TrimSpace(snapshot.DeviceID) == "" {
+			continue
+		}
+
+		if s.canonicalCache != nil {
+			if snapshotHasStrongIdentity(snapshot) {
+				s.canonicalCache.store(ip, snapshot)
+			} else {
+				s.canonicalCache.storeWeak(ip, snapshot)
+			}
+		}
+
+		return snapshot, true
+	}
+
+	return canonicalSnapshot{}, false
+}
+
+func buildHostAliasUpdate(
+	hostDeviceID, hostIP, partition, serviceDeviceID, agentID, pollerID, collectorIP string,
+	available bool,
+	when time.Time,
+) *models.DeviceUpdate {
+	hostDeviceID = strings.TrimSpace(hostDeviceID)
+	if hostDeviceID == "" {
+		return nil
+	}
+
+	partitionFromID := partitionFromDeviceIDLocal(hostDeviceID)
+	if partitionFromID != "" {
+		partition = partitionFromID
+	}
+
+	hostIP = strings.TrimSpace(hostIP)
+	if hostIP == "" {
+		hostIP = strings.TrimSpace(collectorIP)
+	}
+
+	metadata := map[string]string{
+		"_alias_last_seen_at": when.Format(time.RFC3339Nano),
+	}
+
+	if cleanedService := strings.TrimSpace(serviceDeviceID); cleanedService != "" {
+		metadata["_alias_last_seen_service_id"] = cleanedService
+		metadata[fmt.Sprintf("service_alias:%s", cleanedService)] = when.Format(time.RFC3339Nano)
+	}
+
+	if hostIP != "" {
+		metadata["_alias_last_seen_ip"] = hostIP
+		metadata[fmt.Sprintf("ip_alias:%s", hostIP)] = when.Format(time.RFC3339Nano)
+	}
+
+	if collector := strings.TrimSpace(collectorIP); collector != "" {
+		metadata["_alias_collector_ip"] = collector
+	}
+
+	metadata["canonical_device_id"] = hostDeviceID
+
+	return &models.DeviceUpdate{
+		DeviceID:    hostDeviceID,
+		IP:          hostIP,
+		Source:      models.DiscoverySourceServiceRadar,
+		AgentID:     agentID,
+		PollerID:    pollerID,
+		Partition:   partition,
+		Timestamp:   when,
+		IsAvailable: available,
+		Metadata:    metadata,
+		Confidence:  models.GetSourceConfidence(models.DiscoverySourceServiceRadar),
+	}
+}
+
+func ensureSnapshotDeviceID(snapshot canonicalSnapshot, fallback string) canonicalSnapshot {
+	fallback = strings.TrimSpace(fallback)
+	if strings.TrimSpace(snapshot.DeviceID) == "" {
+		snapshot.DeviceID = fallback
+	}
+	snapshot.IP = strings.TrimSpace(snapshot.IP)
+	return snapshot
+}
+
+func ipFromDeviceID(deviceID string) string {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return ""
+	}
+	parts := strings.SplitN(deviceID, ":", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	ip := strings.TrimSpace(parts[1])
+	if ip == "" {
+		return ""
+	}
+	if net.ParseIP(ip) == nil {
+		return ""
+	}
+	return ip
+}
+
+func partitionFromDeviceIDLocal(deviceID string) string {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return ""
+	}
+	parts := strings.SplitN(deviceID, ":", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	return strings.TrimSpace(parts[0])
 }
 
 type sysmonPayload struct {
@@ -850,7 +1106,7 @@ func (s *Server) processServicePayload(
 		contextAgentID = enhancedPayload.AgentID
 	}
 
-	s.ensureServiceDevice(ctx, contextAgentID, contextPollerID, contextPartition, svc, serviceData, now)
+	s.ensureServiceDevice(contextAgentID, contextPollerID, contextPartition, svc, serviceData, now)
 
 	switch svc.ServiceType {
 	case snmpServiceType:
@@ -858,7 +1114,7 @@ func (s *Server) processServicePayload(
 	case grpcServiceType:
 		return s.processGRPCService(ctx, contextPollerID, contextPartition, sourceIP, contextAgentID, svc, serviceData, now)
 	case icmpServiceType:
-		return s.processICMPMetrics(contextPollerID, contextPartition, sourceIP, contextAgentID, svc, serviceData, now)
+		return s.processICMPMetrics(ctx, contextPollerID, contextPartition, sourceIP, contextAgentID, svc, serviceData, now)
 	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
 		return s.discoveryService.ProcessSNMPDiscoveryResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
 	case sweepService:

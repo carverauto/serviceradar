@@ -75,3 +75,41 @@ func TestTryDeviceLifecycleEvent(t *testing.T) {
 		t.Fatalf("expected timestamp %v, got %v", now, row.EventTimestamp)
 	}
 }
+
+func TestTryDeviceLifecycleEventAliasSummary(t *testing.T) {
+	now := time.Now().UTC()
+	data := models.DeviceLifecycleEventData{
+		DeviceID:  "default:10.0.0.1",
+		Action:    "alias_updated",
+		Timestamp: now,
+		Metadata: map[string]string{
+			"previous_service_id":      "serviceradar:agent:old",
+			"alias_current_service_id": "serviceradar:agent:new",
+			"previous_ip":              "10.0.0.5",
+			"alias_current_ip":         "10.0.0.6",
+			"alias_collector_ip":       "10.0.0.99",
+		},
+	}
+
+	payload, err := json.Marshal(data)
+	if err != nil {
+		t.Fatalf("failed to marshal alias payload: %v", err)
+	}
+
+	event := &models.CloudEvent{
+		Type:    "com.carverauto.serviceradar.device.lifecycle",
+		Subject: "events.devices.lifecycle",
+		Data:    data,
+	}
+
+	row := &models.EventRow{}
+
+	if !tryDeviceLifecycleEvent(row, event, payload) {
+		t.Fatalf("expected device lifecycle alias event to be handled")
+	}
+
+	expected := "Device default:10.0.0.1 alias updated (service serviceradar:agent:old→serviceradar:agent:new, ip 10.0.0.5→10.0.0.6, collector 10.0.0.99)"
+	if row.ShortMessage != expected {
+		t.Fatalf("unexpected alias short message: %s", row.ShortMessage)
+	}
+}

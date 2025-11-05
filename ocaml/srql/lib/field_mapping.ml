@@ -36,6 +36,62 @@ let map_field_name ~entity (field : string) : string =
         String.sub s' (i + 1) (j - i - 1) |> trim
       with _ -> s'
     in
+    let map_keys_expr = "map_keys(metadata)" in
+    let array_exists_like pattern =
+      Printf.sprintf "array_exists(k -> like(k, '%s'), %s)" pattern map_keys_expr
+    in
+    let wrap_bool cond = "(if(" ^ cond ^ ", 1, 0))" in
+    let has_any keys =
+      keys
+      |> List.map (fun key -> "has(" ^ map_keys_expr ^ ", '" ^ key ^ "')")
+      |> String.concat " OR "
+    in
+    let collector_capability_expr suffix =
+      match suffix with
+      | "has_collector" ->
+          let explicit_keys =
+            has_any
+              [
+                "collector_agent_id";
+                "collector_poller_id";
+                "_alias_last_seen_service_id";
+                "_alias_collector_ip";
+                "checker_service";
+                "checker_service_type";
+                "checker_service_id";
+                "_last_icmp_update_at";
+                "snmp_monitoring";
+              ]
+          in
+          let collector_signals =
+            [
+              explicit_keys;
+              array_exists_like "service_alias:%collector%";
+              array_exists_like "service_alias:%checker%";
+            ]
+          in
+          let condition =
+            collector_signals
+            |> List.filter (fun part -> String.trim part <> "")
+            |> String.concat " OR "
+          in
+          wrap_bool condition
+      | "supports_icmp" ->
+          let condition = has_any [ "icmp_service_name"; "icmp_target"; "_last_icmp_update_at" ] in
+          wrap_bool condition
+      | "supports_snmp" -> wrap_bool (has_any [ "snmp_monitoring" ])
+      | "supports_sysmon" ->
+          let condition =
+            [
+              has_any [ "sysmon_monitoring"; "sysmon_service"; "sysmon_metric_source" ];
+              array_exists_like "service_alias:%sysmon%";
+            ]
+            |> List.filter (fun part -> String.trim part <> "")
+            |> String.concat " OR "
+          in
+          wrap_bool condition
+      | _ -> String.map (fun c -> if c = '.' then '_' else c) suffix
+    in
     let apply_entity_mapping f =
       match entity_lc with
       | "devices" -> (
@@ -54,7 +110,20 @@ let map_field_name ~entity (field : string) : string =
                 "device_os_" ^ String.sub lf 3 (String.length lf - 3)
               else if String.length lf > 12 && String.sub lf 0 12 = "observables." then
                 "observables_" ^ String.sub lf 12 (String.length lf - 12)
-              else String.map (fun c -> if c = '.' then '_' else c) f
+              else
+                let collector_prefix = "collector_capabilities." in
+                let collector_prefix_len = String.length collector_prefix in
+                if
+                  String.length lf >= collector_prefix_len
+                  && String.sub lf 0 collector_prefix_len = collector_prefix
+                then
+                  let suffix =
+                    String.sub lf collector_prefix_len (String.length lf - collector_prefix_len)
+                  in
+                  collector_capability_expr suffix
+                else if String.length lf > 9 && String.sub lf 0 9 = "metadata." then
+                  "metadata['" ^ String.sub lf 9 (String.length lf - 9) ^ "']"
+                else String.map (fun c -> if c = '.' then '_' else c) f
           | _ -> f)
       | "logs" -> (
           match f with

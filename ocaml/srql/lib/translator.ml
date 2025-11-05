@@ -45,6 +45,7 @@ let sanitize_projection ~entity field =
   else map_field_name ~entity field_trimmed
 
 let rec translate_condition builder ~entity = function
+  | HasKey (map_name, key_name) -> Printf.sprintf "has(map_keys(%s), '%s')" map_name key_name
   | Condition (field, op, value) -> (
       let field = map_field_name ~entity field in
       match op with
@@ -158,6 +159,7 @@ let rec smart_condition_conversion ~entity = function
   | IsNull f -> IsNull f
   | IsNotNull f -> IsNotNull f
   | InList (f, vs) -> InList (f, vs)
+  | HasKey (map_name, key_name) -> HasKey (map_name, key_name)
 
 let translate_query (q : query) : query_with_params =
   let builder = create_builder () in

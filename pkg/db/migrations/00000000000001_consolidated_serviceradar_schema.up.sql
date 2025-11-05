@@ -496,12 +496,12 @@ SELECT
     any(m.total_bytes)              AS total_memory_bytes,
     any(m.used_bytes)               AS used_memory_bytes,
     count(*)                        AS metric_count
-FROM hop(cpu_metrics, timestamp, 10s, 60s) AS c
-         LEFT JOIN hop(disk_metrics, timestamp, 10s, 60s) AS d
+FROM hop(cpu_metrics, timestamp, 10s, 300s) AS c
+         LEFT JOIN hop(disk_metrics, timestamp, 10s, 300s) AS d
                    ON c.window_start = d.window_start
                        AND c.device_id = d.device_id
                        AND c.poller_id = d.poller_id
-         LEFT JOIN hop(memory_metrics, timestamp, 10s, 60s) AS m
+         LEFT JOIN hop(memory_metrics, timestamp, 10s, 300s) AS m
                    ON c.window_start = m.window_start
                        AND c.device_id = m.device_id
                        AND c.poller_id = m.poller_id

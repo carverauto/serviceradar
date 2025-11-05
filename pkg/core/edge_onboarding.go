@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -124,6 +125,207 @@ type edgeOnboardingService struct {
 
 	deviceRegistryCallback func(context.Context, []*models.DeviceUpdate) error
 	serviceRegistry        ServiceManager
+
+	activationCacheMu  sync.RWMutex
+	activationCache    map[string]activationCacheEntry
+	activationCacheTTL time.Duration
+
+	activationCacheLookups      atomic.Int64
+	activationCacheHits         atomic.Int64
+	activationCacheNegativeHits atomic.Int64
+	activationCacheMisses       atomic.Int64
+	activationCacheStale        atomic.Int64
+}
+
+type activationCacheEntry struct {
+	pkg       *models.EdgeOnboardingPackage
+	expiresAt time.Time
+	found     bool
+}
+
+// ActivationCacheStats captures a snapshot of activation cache behaviour for diagnostics.
+type ActivationCacheStats struct {
+	Size         int
+	Lookups      int64
+	Hits         int64
+	NegativeHits int64
+	Misses       int64
+	StaleEvicted int64
+	TTL          time.Duration
+}
+
+func cloneEdgeOnboardingPackage(src *models.EdgeOnboardingPackage) *models.EdgeOnboardingPackage {
+	if src == nil {
+		return nil
+	}
+
+	dst := *src
+
+	if len(src.Selectors) > 0 {
+		dst.Selectors = append([]string(nil), src.Selectors...)
+	}
+
+	if src.DeliveredAt != nil {
+		t := *src.DeliveredAt
+		dst.DeliveredAt = &t
+	}
+
+	if src.ActivatedAt != nil {
+		t := *src.ActivatedAt
+		dst.ActivatedAt = &t
+	}
+
+	if src.ActivatedFromIP != nil {
+		v := *src.ActivatedFromIP
+		dst.ActivatedFromIP = &v
+	}
+
+	if src.LastSeenSPIFFEID != nil {
+		v := *src.LastSeenSPIFFEID
+		dst.LastSeenSPIFFEID = &v
+	}
+
+	if src.RevokedAt != nil {
+		t := *src.RevokedAt
+		dst.RevokedAt = &t
+	}
+
+	if src.DeletedAt != nil {
+		t := *src.DeletedAt
+		dst.DeletedAt = &t
+	}
+
+	return &dst
+}
+
+func activationCacheKey(componentType models.EdgeOnboardingComponentType, componentID string) string {
+	componentID = strings.ToLower(strings.TrimSpace(componentID))
+	if componentID == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s:%s", strings.ToLower(string(componentType)), componentID)
+}
+
+func (s *edgeOnboardingService) activationCacheGet(componentType models.EdgeOnboardingComponentType, componentID string) (*models.EdgeOnboardingPackage, bool, bool) {
+	if s == nil {
+		return nil, false, false
+	}
+
+	key := activationCacheKey(componentType, componentID)
+	if key == "" {
+		return nil, false, false
+	}
+
+	s.activationCacheLookups.Add(1)
+
+	now := s.now()
+
+	s.activationCacheMu.RLock()
+	entry, ok := s.activationCache[key]
+	s.activationCacheMu.RUnlock()
+	if !ok {
+		s.activationCacheMisses.Add(1)
+		return nil, false, false
+	}
+
+	if entry.expiresAt.Before(now) {
+		s.activationCacheStale.Add(1)
+		s.activationCacheMisses.Add(1)
+		s.activationCacheMu.Lock()
+		delete(s.activationCache, key)
+		s.activationCacheMu.Unlock()
+		return nil, false, false
+	}
+
+	if !entry.found {
+		s.activationCacheNegativeHits.Add(1)
+		return nil, false, true
+	}
+
+	s.activationCacheHits.Add(1)
+
+	return cloneEdgeOnboardingPackage(entry.pkg), true, true
+}
+
+func (s *edgeOnboardingService) activationCacheStore(componentType models.EdgeOnboardingComponentType, componentID string, pkg *models.EdgeOnboardingPackage, found bool) {
+	if s == nil {
+		return
+	}
+
+	key := activationCacheKey(componentType, componentID)
+	if key == "" {
+		return
+	}
+
+	ttl := s.activationCacheTTL
+	if ttl <= 0 {
+		ttl = time.Minute
+	}
+
+	entry := activationCacheEntry{
+		found:     found,
+		expiresAt: s.now().Add(ttl),
+	}
+	if found && pkg != nil {
+		entry.pkg = cloneEdgeOnboardingPackage(pkg)
+	}
+
+	s.activationCacheMu.Lock()
+	if s.activationCache == nil {
+		s.activationCache = make(map[string]activationCacheEntry)
+	}
+	s.activationCache[key] = entry
+	s.activationCacheMu.Unlock()
+}
+
+func (s *edgeOnboardingService) activationCacheStorePackage(pkg *models.EdgeOnboardingPackage) {
+	if s == nil || pkg == nil {
+		return
+	}
+
+	s.activationCacheStore(pkg.ComponentType, pkg.ComponentID, pkg, true)
+	if pkg.ComponentType == models.EdgeOnboardingComponentTypePoller {
+		s.activationCacheStore(models.EdgeOnboardingComponentTypePoller, pkg.PollerID, pkg, true)
+	}
+}
+
+func (s *edgeOnboardingService) activationCacheStoreMiss(componentType models.EdgeOnboardingComponentType, componentID string) {
+	s.activationCacheStore(componentType, componentID, nil, false)
+}
+
+func (s *edgeOnboardingService) ActivationCacheStats() ActivationCacheStats {
+	if s == nil {
+		return ActivationCacheStats{}
+	}
+
+	s.activationCacheMu.RLock()
+	size := len(s.activationCache)
+	s.activationCacheMu.RUnlock()
+
+	return ActivationCacheStats{
+		Size:         size,
+		Lookups:      s.activationCacheLookups.Load(),
+		Hits:         s.activationCacheHits.Load(),
+		NegativeHits: s.activationCacheNegativeHits.Load(),
+		Misses:       s.activationCacheMisses.Load(),
+		StaleEvicted: s.activationCacheStale.Load(),
+		TTL:          s.activationCacheTTL,
+	}
+}
+
+func isActivationEligibleStatus(status models.EdgeOnboardingStatus) bool {
+	switch status {
+	case models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated:
+		return true
+	case models.EdgeOnboardingStatusRevoked,
+		models.EdgeOnboardingStatusExpired,
+		models.EdgeOnboardingStatusDeleted:
+		return false
+	default:
+		return false
+	}
 }
 
 //nolint:unparam // kvCloser is reserved for future KV client integrations.
@@ -149,19 +351,21 @@ func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models
 	}
 
 	service := &edgeOnboardingService{
-		cfg:              cfg,
-		spireCfg:         spireCfg,
-		spire:            spireClient,
-		db:               database,
-		logger:           log,
-		cipher:           cipher,
-		kvClient:         kvClient,
-		kvCloser:         kvCloser,
-		now:              time.Now,
-		rand:             rand.Reader,
-		allowed:          make(map[string]struct{}),
-		metadataDefaults: make(map[models.EdgeOnboardingComponentType]map[string]string),
-		serviceRegistry:  serviceRegistry,
+		cfg:                cfg,
+		spireCfg:           spireCfg,
+		spire:              spireClient,
+		db:                 database,
+		logger:             log,
+		cipher:             cipher,
+		kvClient:           kvClient,
+		kvCloser:           kvCloser,
+		now:                time.Now,
+		rand:               rand.Reader,
+		allowed:            make(map[string]struct{}),
+		metadataDefaults:   make(map[models.EdgeOnboardingComponentType]map[string]string),
+		serviceRegistry:    serviceRegistry,
+		activationCache:    make(map[string]activationCacheEntry),
+		activationCacheTTL: time.Minute,
 
 		refreshInterval: defaultPollerRefreshInterval,
 		refreshTimeout:  defaultPollerRefreshTimeout,
@@ -738,6 +942,8 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		return nil, fmt.Errorf("edge onboarding: persist package: %w", err)
 	}
 
+	s.activationCacheStorePackage(pkgModel)
+
 	detailsJSON := s.packageIssuedDetails(entryID, downstreamID)
 	if err := s.db.InsertEdgeOnboardingEvent(ctx, &models.EdgeOnboardingEvent{
 		PackageID:   pkgModel.PackageID,
@@ -845,6 +1051,8 @@ func (s *edgeOnboardingService) DeliverPackage(ctx context.Context, req *models.
 	if err := s.db.UpsertEdgeOnboardingPackage(ctx, pkg); err != nil {
 		return nil, fmt.Errorf("edge onboarding: persist delivered package: %w", err)
 	}
+
+	s.activationCacheStorePackage(pkg)
 
 	actor := strings.TrimSpace(req.Actor)
 	if actor == "" {
@@ -1032,6 +1240,10 @@ func (s *edgeOnboardingService) DeletePackage(ctx context.Context, packageID str
 	if err := s.db.DeleteEdgeOnboardingPackage(ctx, pkg); err != nil {
 		return fmt.Errorf("edge onboarding: delete package: %w", err)
 	}
+	s.activationCacheStoreMiss(pkg.ComponentType, pkg.ComponentID)
+	if pkg.ComponentType == models.EdgeOnboardingComponentTypePoller && pkg.PollerID != "" {
+		s.activationCacheStoreMiss(models.EdgeOnboardingComponentTypePoller, pkg.PollerID)
+	}
 
 	if err := s.db.InsertEdgeOnboardingEvent(ctx, &models.EdgeOnboardingEvent{
 		PackageID: pkg.PackageID,
@@ -1091,6 +1303,7 @@ func (s *edgeOnboardingService) RecordActivation(ctx context.Context, componentT
 	if err := s.db.UpsertEdgeOnboardingPackage(ctx, pkg); err != nil {
 		return fmt.Errorf("edge onboarding: persist activated package: %w", err)
 	}
+	s.activationCacheStorePackage(pkg)
 
 	if statusChanged {
 		if err := s.recordActivationEvent(ctx, pkg, componentType, pollerID, sourceIP, spiffeID, now); err != nil {
@@ -1102,6 +1315,22 @@ func (s *edgeOnboardingService) RecordActivation(ctx context.Context, componentT
 }
 
 func (s *edgeOnboardingService) findPackageForActivation(ctx context.Context, componentType models.EdgeOnboardingComponentType, componentID string) (*models.EdgeOnboardingPackage, error) {
+	if pkg, found, cached := s.activationCacheGet(componentType, componentID); cached {
+		if !found || pkg == nil {
+			return nil, nil
+		}
+		if !isActivationEligibleStatus(pkg.Status) {
+			s.activationCacheStoreMiss(componentType, componentID)
+			s.logger.Debug().
+				Str("component_type", string(componentType)).
+				Str("component_id", componentID).
+				Str("status", string(pkg.Status)).
+				Msg("edge onboarding: activation cache entry skipped due to ineligible status")
+			return nil, nil
+		}
+		return pkg, nil
+	}
+
 	filter := &models.EdgeOnboardingListFilter{
 		Limit: 1,
 		Statuses: []models.EdgeOnboardingStatus{
@@ -1130,6 +1359,11 @@ func (s *edgeOnboardingService) findPackageForActivation(ctx context.Context, co
 		return nil, fmt.Errorf("edge onboarding: lookup %s activation: %w", componentType, err)
 	}
 	if len(packages) == 0 || packages[0] == nil {
+		s.activationCacheStoreMiss(componentType, componentID)
+		s.logger.Debug().
+			Str("component_type", string(componentType)).
+			Str("component_id", componentID).
+			Msg("edge onboarding: activation cache miss persisted (no package)")
 		return nil, nil
 	}
 
@@ -1137,8 +1371,21 @@ func (s *edgeOnboardingService) findPackageForActivation(ctx context.Context, co
 	if pkg.Status == models.EdgeOnboardingStatusRevoked ||
 		pkg.Status == models.EdgeOnboardingStatusDeleted ||
 		pkg.Status == models.EdgeOnboardingStatusExpired {
+		s.activationCacheStoreMiss(componentType, componentID)
+		s.logger.Debug().
+			Str("component_type", string(componentType)).
+			Str("component_id", componentID).
+			Str("status", string(pkg.Status)).
+			Msg("edge onboarding: activation cache miss persisted (terminal status)")
 		return nil, nil
 	}
+
+	s.activationCacheStorePackage(pkg)
+	s.logger.Debug().
+		Str("component_type", string(componentType)).
+		Str("component_id", componentID).
+		Str("package_id", pkg.PackageID).
+		Msg("edge onboarding: activation cache refreshed from database")
 
 	return pkg, nil
 }

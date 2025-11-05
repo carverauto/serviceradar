@@ -9,14 +9,16 @@ import (
 type canonicalSnapshot struct {
 	DeviceID string
 	MAC      string
+	IP       string
 	Metadata map[string]string
 }
 
 type canonicalCache struct {
-	mu    sync.RWMutex
-	ttl   time.Duration
-	byIP  map[string]cacheEntry
-	nowFn func() time.Time
+	mu      sync.RWMutex
+	ttl     time.Duration
+	weakTTL time.Duration
+	byIP    map[string]cacheEntry
+	nowFn   func() time.Time
 }
 
 type cacheEntry struct {
@@ -29,9 +31,10 @@ func newCanonicalCache(ttl time.Duration) *canonicalCache {
 		ttl = 5 * time.Minute
 	}
 	return &canonicalCache{
-		ttl:   ttl,
-		byIP:  make(map[string]cacheEntry),
-		nowFn: time.Now,
+		ttl:     ttl,
+		weakTTL: time.Minute,
+		byIP:    make(map[string]cacheEntry),
+		nowFn:   time.Now,
 	}
 }
 
@@ -76,17 +79,37 @@ func (c *canonicalCache) getBatch(ips []string) (map[string]canonicalSnapshot, [
 }
 
 func (c *canonicalCache) store(ip string, snapshot canonicalSnapshot) {
+	c.storeWithTTL(ip, snapshot, c.ttl)
+}
+
+func (c *canonicalCache) storeWeak(ip string, snapshot canonicalSnapshot) {
+	ttl := c.weakTTL
+	if ttl <= 0 {
+		ttl = time.Minute
+	}
+	c.storeWithTTL(ip, snapshot, ttl)
+}
+
+func (c *canonicalCache) storeWithTTL(ip string, snapshot canonicalSnapshot, ttl time.Duration) {
 	ip = strings.TrimSpace(ip)
 	if ip == "" {
 		return
 	}
 	snapshot.DeviceID = strings.TrimSpace(snapshot.DeviceID)
 	snapshot.MAC = strings.ToUpper(strings.TrimSpace(snapshot.MAC))
+	snapshot.IP = strings.TrimSpace(snapshot.IP)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	expiry := c.nowFn().Add(c.ttl)
+	if ttl <= 0 {
+		ttl = c.ttl
+		if ttl <= 0 {
+			ttl = 5 * time.Minute
+		}
+	}
+
+	expiry := c.nowFn().Add(ttl)
 	c.byIP[ip] = cacheEntry{
 		snapshot:  cloneSnapshot(snapshot),
 		expiresAt: expiry,
@@ -97,6 +120,7 @@ func cloneSnapshot(src canonicalSnapshot) canonicalSnapshot {
 	dst := canonicalSnapshot{
 		DeviceID: src.DeviceID,
 		MAC:      src.MAC,
+		IP:       src.IP,
 	}
 	if len(src.Metadata) > 0 {
 		dst.Metadata = make(map[string]string, len(src.Metadata))

@@ -373,6 +373,21 @@ func (mr *MockServiceMockRecorder) GetMetricsForDeviceByType(arg0, arg1, arg2, a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetricsForDeviceByType", reflect.TypeOf((*MockService)(nil).GetMetricsForDeviceByType), arg0, arg1, arg2, arg3, arg4)
 }
 
+// GetICMPMetricsForDevice mocks base method.
+func (m *MockService) GetICMPMetricsForDevice(arg0 context.Context, arg1, arg2 string, arg3, arg4 time.Time) ([]models.TimeseriesMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetICMPMetricsForDevice", arg0, arg1, arg2, arg3, arg4)
+	ret0, _ := ret[0].([]models.TimeseriesMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetICMPMetricsForDevice indicates an expected call of GetICMPMetricsForDevice.
+func (mr *MockServiceMockRecorder) GetICMPMetricsForDevice(arg0, arg1, arg2, arg3, arg4 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetICMPMetricsForDevice", reflect.TypeOf((*MockService)(nil).GetICMPMetricsForDevice), arg0, arg1, arg2, arg3, arg4)
+}
+
 // GetMetricsForPartition mocks base method.
 func (m *MockService) GetMetricsForPartition(arg0 context.Context, arg1 string, arg2, arg3 time.Time) ([]models.TimeseriesMetric, error) {
 	m.ctrl.T.Helper()
@@ -386,6 +401,21 @@ func (m *MockService) GetMetricsForPartition(arg0 context.Context, arg1 string, 
 func (mr *MockServiceMockRecorder) GetMetricsForPartition(arg0, arg1, arg2, arg3 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetricsForPartition", reflect.TypeOf((*MockService)(nil).GetMetricsForPartition), arg0, arg1, arg2, arg3)
+}
+
+// GetDeviceMetricTypes mocks base method.
+func (m *MockService) GetDeviceMetricTypes(arg0 context.Context, arg1 []string, arg2 time.Time) (map[string][]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceMetricTypes", arg0, arg1, arg2)
+	ret0, _ := ret[0].(map[string][]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceMetricTypes indicates an expected call of GetDeviceMetricTypes.
+func (mr *MockServiceMockRecorder) GetDeviceMetricTypes(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceMetricTypes", reflect.TypeOf((*MockService)(nil).GetDeviceMetricTypes), arg0, arg1, arg2)
 }
 
 // GetPollerHistory mocks base method.
