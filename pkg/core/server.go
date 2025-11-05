@@ -162,6 +162,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		serviceBuffers:      make(map[string][]*models.ServiceStatus),
 		serviceListBuffers:  make(map[string][]*models.Service),
 		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
+		serviceDeviceBuffer: make(map[string]*models.DeviceUpdate),
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 		logger:              log,

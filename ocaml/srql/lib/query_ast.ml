@@ -3,6 +3,7 @@ type time_range = string
 
 type search_filter =
   | AttributeFilter of string * Sql_ir.operator * Sql_ir.value
+  | HasAttribute of string
   | AttributeListFilter of string * Sql_ir.value list
   | AttributeListFilterNot of string * Sql_ir.value list
   | ObservableFilter of string * Sql_ir.value

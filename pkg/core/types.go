@@ -80,6 +80,8 @@ type Server struct {
 	serviceBufferMu         sync.RWMutex
 	serviceListBufferMu     sync.RWMutex
 	sysmonBufferMu          sync.RWMutex
+	serviceDeviceMu         sync.Mutex
+	serviceDeviceBuffer     map[string]*models.DeviceUpdate
 	pollerStatusCache       map[string]*models.PollerStatus
 	pollerStatusUpdates     map[string]*models.PollerStatus
 	pollerStatusUpdateMutex sync.Mutex

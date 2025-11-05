@@ -56,6 +56,12 @@ export async function GET(req: NextRequest, props: RouteProps) {
     if (searchParams.get('end')) params2.set('end', searchParams.get('end')!);
     if (searchParams.get('type')) params2.set('type', searchParams.get('type')!);
     if (searchParams.get('limit')) params2.set('limit', searchParams.get('limit')!);
+    if (searchParams.get('has_collector'))
+      params2.set('has_collector', searchParams.get('has_collector')!);
+    if (searchParams.get('supports_icmp'))
+      params2.set('supports_icmp', searchParams.get('supports_icmp')!);
+    if (searchParams.get('device_ip'))
+      params2.set('device_ip', searchParams.get('device_ip')!);
 
     // Forward request to Go API
     const queryString = params2.toString();

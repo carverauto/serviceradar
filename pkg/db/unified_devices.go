@@ -102,8 +102,7 @@ func (db *DB) GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.U
         is_available, first_seen, last_seen, metadata, agent_id, device_type, 
         service_type, service_status, last_heartbeat, os_info, version_info
     FROM table(unified_devices)
-    WHERE ip = $1
-    ORDER BY _tp_time DESC`
+    WHERE ip = $1`
 
 	return db.queryUnifiedDevicesWithArgs(ctx, query, ip)
 }
@@ -279,66 +278,108 @@ func (db *DB) GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips, deviceIDs []
 }
 
 func (db *DB) queryUnifiedDeviceBatch(ctx context.Context, deviceIDs, ips []string) ([]*models.UnifiedDevice, error) {
-	var conditions []string
-	var withClauses []string
-
-	if len(deviceIDs) > 0 {
-		if tuples := joinValueTuples(deviceIDs); tuples != "" {
-			withClauses = append(withClauses, fmt.Sprintf(`device_candidates AS (
-        SELECT device_id
-        FROM VALUES('device_id string', %s)
-    )`, tuples))
-			conditions = append(conditions, "device_id IN (SELECT device_id FROM device_candidates)")
-		}
-	}
-
-	if len(ips) > 0 {
-		if tuples := joinValueTuples(ips); tuples != "" {
-			withClauses = append(withClauses, fmt.Sprintf(`ip_candidates AS (
-        SELECT ip
-        FROM VALUES('ip string', %s)
-    )`, tuples))
-			conditions = append(conditions, "ip IN (SELECT ip FROM ip_candidates)")
-		}
-	}
-
-	if len(conditions) == 0 {
+	if len(deviceIDs) == 0 && len(ips) == 0 {
 		return nil, errNoDeviceFilters
 	}
 
-	query := fmt.Sprintf(`%sSELECT
-        device_id, ip, poller_id, hostname, mac, discovery_sources,
-        is_available, first_seen, last_seen, metadata, agent_id, device_type, 
-        service_type, service_status, last_heartbeat, os_info, version_info
-    FROM table(unified_devices)
-    WHERE %s
-    ORDER BY _tp_time DESC`, buildWithClause(withClauses), strings.Join(conditions, " OR "))
+	buildQuery := func(column string, values []string) string {
+		placeholders := make([]string, len(values))
+		for i, value := range values {
+			placeholders[i] = fmt.Sprintf("'%s'", escapeLiteral(value))
+		}
 
-	rows, err := db.Conn.Query(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to batch query unified devices: %w", err)
+		// Use CTE to filter first, then aggregate to avoid "aggregate in WHERE" error
+		// Using literal strings instead of parameterized queries to work around Proton limitations
+		query := fmt.Sprintf(`
+WITH filtered AS (
+    SELECT
+        device_id,
+        ip,
+        poller_id,
+        hostname,
+        mac,
+        discovery_sources,
+        is_available,
+        first_seen,
+        last_seen,
+        metadata,
+        agent_id,
+        device_type,
+        service_type,
+        service_status,
+        last_heartbeat,
+        os_info,
+        version_info,
+        _tp_time
+    FROM table(unified_devices)
+    WHERE %s IN (%s)
+)
+SELECT
+    device_id,
+    ip,
+    poller_id,
+    hostname,
+    mac,
+    discovery_sources,
+    is_available,
+    first_seen,
+    last_seen,
+    metadata,
+    agent_id,
+    device_type,
+    service_type,
+    service_status,
+    last_heartbeat,
+    os_info,
+    version_info
+FROM filtered
+ORDER BY device_id, _tp_time DESC
+LIMIT 1 BY device_id`, column, strings.Join(placeholders, ","))
+
+		return query
 	}
-	defer func() { _ = rows.Close() }()
 
 	var devices []*models.UnifiedDevice
 
-	for rows.Next() {
-		device, err := db.scanUnifiedDeviceSimple(rows)
-		if err != nil {
-			db.logger.Warn().Err(err).Msg("Failed to scan unified device in batch fetch")
-			continue
+	execute := func(column string, values []string) error {
+		if len(values) == 0 {
+			return nil
 		}
 
-		devices = append(devices, device)
+		query := buildQuery(column, values)
+
+		rows, err := db.Conn.Query(ctx, query)
+		if err != nil {
+			return fmt.Errorf("failed to query unified devices by %s: %w", column, err)
+		}
+		defer func() { _ = rows.Close() }()
+
+		for rows.Next() {
+			device, err := db.scanUnifiedDeviceSimple(rows)
+			if err != nil {
+				db.logger.Warn().Err(err).Msg("Failed to scan unified device in batch fetch")
+				continue
+			}
+			devices = append(devices, device)
+		}
+
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("%w: %w", errIterRows, err)
+		}
+
+		return nil
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%w: %w", errIterRows, err)
+	if err := execute("device_id", deviceIDs); err != nil {
+		return nil, err
+	}
+
+	if err := execute("ip", ips); err != nil {
+		return nil, err
 	}
 
 	return devices, nil
 }
-
 func chunkStrings(values []string, limit int) [][]string {
 	if len(values) == 0 || limit <= 0 {
 		return nil
@@ -378,14 +419,6 @@ func dedupeStrings(values []string) []string {
 	}
 
 	return result
-}
-
-func buildWithClause(clauses []string) string {
-	if len(clauses) == 0 {
-		return ""
-	}
-
-	return fmt.Sprintf("WITH %s ", strings.Join(clauses, ", "))
 }
 
 func joinValueTuples(values []string) string {

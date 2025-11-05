@@ -19,7 +19,10 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-const edgePackageDefaultFilename = "edge-package.tar.gz"
+const (
+	edgePackageDefaultFilename = "edge-package.tar.gz"
+	defaultInsecureBootstrap   = "false"
+)
 
 var (
 	errEdgePackageArchive      = errors.New("edge onboarding: archive build failed")
@@ -270,7 +273,7 @@ func renderEdgeEnvFile(result *models.EdgeOnboardingDeliverResult, meta map[stri
 
 	insecureBootstrap := get("spire_insecure_bootstrap")
 	if insecureBootstrap == "" {
-		insecureBootstrap = "false"
+		insecureBootstrap = defaultInsecureBootstrap
 	}
 
 	if trustDomain == "" {

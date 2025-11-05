@@ -33,6 +33,7 @@ import (
 
 const (
 	rperfBitsPerSecondDivisor = 1e6 // To convert bps to Mbps
+	defaultTimeseriesLimit    = 2000
 )
 
 var (
@@ -1135,10 +1136,130 @@ func (db *DB) GetMetricsForDeviceByType(
 	return db.getTimeseriesMetricsByFilters(ctx, filters, start, end)
 }
 
+// GetICMPMetricsForDevice retrieves ICMP metrics for a device, including those where the device acted as the collector.
+func (db *DB) GetICMPMetricsForDevice(
+	ctx context.Context, deviceID, deviceIP string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	query := `
+			SELECT metric_name, metric_type, value, metadata, timestamp, target_device_ip,
+			       ifIndex, device_id, partition, poller_id
+			FROM table(timeseries_metrics)
+			WHERE metric_type = 'icmp'
+			  AND timestamp BETWEEN $3 AND $4
+			  AND (
+			        device_id = $1
+			     OR json_extract_string(metadata, 'device_id') = $1
+			     OR (target_device_ip = $2 AND $2 != '')
+			     OR (json_extract_string(metadata, 'collector_ip') = $2 AND $2 != '')
+			      )
+        LIMIT 1000
+    `
+
+	rows, err := db.Conn.Query(ctx, query, deviceID, deviceIP, start, end, defaultTimeseriesLimit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query ICMP metrics for device %s: %w", deviceID, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var metrics []models.TimeseriesMetric
+
+	for rows.Next() {
+		var m models.TimeseriesMetric
+		var valueFloat float64
+		var metadataStr string
+
+		if err := rows.Scan(
+			&m.Name,
+			&m.Type,
+			&valueFloat,
+			&metadataStr,
+			&m.Timestamp,
+			&m.TargetDeviceIP,
+			&m.IfIndex,
+			&m.DeviceID,
+			&m.Partition,
+			&m.PollerID,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan ICMP metric for device %s: %w", deviceID, err)
+		}
+
+		m.Value = fmt.Sprintf("%g", valueFloat)
+		m.Metadata = metadataStr
+		metrics = append(metrics, m)
+	}
+
+	return metrics, nil
+}
+
 // GetMetricsForPartition retrieves all metrics for devices within a specific partition.
 func (db *DB) GetMetricsForPartition(
 	ctx context.Context, partition string, start, end time.Time) ([]models.TimeseriesMetric, error) {
 	return db.getTimeseriesMetricsByFilter(ctx, "partition", partition, start, end)
+}
+
+const deviceMetricsAvailabilityChunkSize = 200
+
+// GetDeviceMetricTypes returns the distinct metric types observed for each device since the provided timestamp.
+func (db *DB) GetDeviceMetricTypes(
+	ctx context.Context, deviceIDs []string, since time.Time) (map[string][]string, error) {
+	result := make(map[string][]string, len(deviceIDs))
+
+	if len(deviceIDs) == 0 {
+		return result, nil
+	}
+
+	windowStart := since.UTC()
+
+	for start := 0; start < len(deviceIDs); start += deviceMetricsAvailabilityChunkSize {
+		end := start + deviceMetricsAvailabilityChunkSize
+		if end > len(deviceIDs) {
+			end = len(deviceIDs)
+		}
+
+		chunk := deviceIDs[start:end]
+		placeholders := make([]string, len(chunk))
+		args := make([]interface{}, 0, len(chunk)+1)
+
+		for i, id := range chunk {
+			placeholders[i] = fmt.Sprintf("$%d", i+1)
+			args = append(args, id)
+		}
+
+		args = append(args, windowStart)
+
+		query := fmt.Sprintf(`
+			SELECT device_id, array_distinct(group_array(metric_type)) AS metric_types
+			FROM table(timeseries_metrics)
+			WHERE device_id IN (%s)
+			  AND timestamp >= $%d
+			GROUP BY device_id
+		`, strings.Join(placeholders, ", "), len(chunk)+1)
+
+		rows, err := db.Conn.Query(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query device metric availability: %w", err)
+		}
+
+		for rows.Next() {
+			var deviceID string
+			var metricTypes []string
+
+			if err := rows.Scan(&deviceID, &metricTypes); err != nil {
+				db.CloseRows(rows)
+				return nil, fmt.Errorf("failed to scan device metric availability: %w", err)
+			}
+
+			result[deviceID] = metricTypes
+		}
+
+		if err := rows.Err(); err != nil {
+			db.CloseRows(rows)
+			return nil, fmt.Errorf("error iterating device metric availability rows: %w", err)
+		}
+
+		db.CloseRows(rows)
+	}
+
+	return result, nil
 }
 
 // getTimeseriesMetricsByFilter is a helper function to query timeseries metrics by a single filter criteria

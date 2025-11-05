@@ -27,8 +27,10 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const testDeviceID = "default:172.18.0.2"
@@ -793,6 +795,40 @@ func TestProcessBatchDeviceUpdates_AllowsSelfReportedReOnboarding(t *testing.T) 
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{freshUpdate})
 	require.NoError(t, err)
+}
+
+func TestResolveIPsToCanonicalUsesIdentityResolverBeforeDB(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+
+	record := &identitymap.Record{
+		CanonicalDeviceID: "default:canonical-ip",
+	}
+	payload, err := identitymap.MarshalRecord(record)
+	require.NoError(t, err)
+
+	key := identitymap.Key{Kind: identitymap.KindIP, Value: "10.0.0.42"}.KeyPath(identitymap.DefaultNamespace)
+	kv := &fakeBatchGetter{
+		results: map[string]*proto.BatchGetEntry{
+			key: {
+				Key:   key,
+				Found: true,
+				Value: payload,
+			},
+		},
+	}
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithIdentityResolver(kv, identitymap.DefaultNamespace))
+
+	maps, err := registry.buildIdentityMaps(ctx, []*models.DeviceUpdate{
+		{IP: "10.0.0.42"},
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, "default:canonical-ip", maps.ip["10.0.0.42"])
 }
 
 func TestProcessBatchDeviceUpdates_AllowsFreshNonSelfReportedAfterDelete(t *testing.T) {

@@ -12,6 +12,48 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+const (
+	defaultEdgeOnboardingPackageLimit = 100
+
+	edgeOnboardingPackagesSelectClause = `
+SELECT
+	package_id,
+	arg_max(label, updated_at) AS label,
+	arg_max(component_id, updated_at) AS component_id,
+	arg_max(component_type, updated_at) AS component_type,
+	arg_max(parent_type, updated_at) AS parent_type,
+	arg_max(parent_id, updated_at) AS parent_id,
+	arg_max(poller_id, updated_at) AS poller_id,
+	arg_max(site, updated_at) AS site,
+	arg_max(status, updated_at) AS status,
+	arg_max(downstream_entry_id, updated_at) AS downstream_entry_id,
+	arg_max(downstream_spiffe_id, updated_at) AS downstream_spiffe_id,
+	arg_max(selectors, updated_at) AS selectors,
+	arg_max(join_token_ciphertext, updated_at) AS join_token_ciphertext,
+	arg_max(join_token_expires_at, updated_at) AS join_token_expires_at,
+	arg_max(bundle_ciphertext, updated_at) AS bundle_ciphertext,
+	arg_max(download_token_hash, updated_at) AS download_token_hash,
+	arg_max(download_token_expires_at, updated_at) AS download_token_expires_at,
+	arg_max(created_by, updated_at) AS created_by,
+	arg_max(created_at, updated_at) AS created_at,
+	max(updated_at) AS latest_updated_at,
+	arg_max(delivered_at, updated_at) AS delivered_at,
+	arg_max(activated_at, updated_at) AS activated_at,
+	arg_max(activated_from_ip, updated_at) AS activated_from_ip,
+	arg_max(last_seen_spiffe_id, updated_at) AS last_seen_spiffe_id,
+	arg_max(revoked_at, updated_at) AS revoked_at,
+	arg_max(deleted_at, updated_at) AS deleted_at,
+	arg_max(deleted_by, updated_at) AS deleted_by,
+	arg_max(deleted_reason, updated_at) AS deleted_reason,
+	arg_max(metadata_json, updated_at) AS metadata_json,
+	arg_max(checker_kind, updated_at) AS checker_kind,
+	arg_max(checker_config_json, updated_at) AS checker_config_json,
+	arg_max(kv_revision, updated_at) AS kv_revision,
+	arg_max(notes, updated_at) AS notes
+FROM filtered
+GROUP BY package_id`
+)
+
 // UpsertEdgeOnboardingPackage inserts or replaces an onboarding package row.
 func (db *DB) UpsertEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeOnboardingPackage) error {
 	if pkg == nil {
@@ -117,84 +159,12 @@ func (db *DB) GetEdgeOnboardingPackage(ctx context.Context, packageID string) (*
 		return nil, fmt.Errorf("%w: invalid package_id %q: %w", ErrEdgePackageInvalid, packageID, err)
 	}
 
-	rows, err := db.Conn.Query(ctx, `
-		WITH ranked AS (
-			SELECT
-				package_id,
-				label,
-				component_id,
-				component_type,
-				parent_type,
-				parent_id,
-				poller_id,
-				site,
-				status,
-				downstream_entry_id,
-				downstream_spiffe_id,
-				selectors,
-				join_token_ciphertext,
-				join_token_expires_at,
-				bundle_ciphertext,
-				download_token_hash,
-				download_token_expires_at,
-				created_by,
-				created_at,
-				updated_at,
-				delivered_at,
-				activated_at,
-				activated_from_ip,
-				last_seen_spiffe_id,
-				revoked_at,
-				deleted_at,
-				deleted_by,
-				deleted_reason,
-				metadata_json,
-				checker_kind,
-				checker_config_json,
-				kv_revision,
-				notes,
-				row_number() OVER (PARTITION BY package_id ORDER BY updated_at DESC) AS row_num
-			FROM table(edge_onboarding_packages)
-			WHERE package_id = $1
-		)
-		SELECT
-			package_id,
-			label,
-			component_id,
-			component_type,
-			parent_type,
-			parent_id,
-			poller_id,
-			site,
-			status,
-			downstream_entry_id,
-			downstream_spiffe_id,
-			selectors,
-			join_token_ciphertext,
-			join_token_expires_at,
-			bundle_ciphertext,
-			download_token_hash,
-			download_token_expires_at,
-			created_by,
-			created_at,
-			updated_at,
-			delivered_at,
-			activated_at,
-			activated_from_ip,
-			last_seen_spiffe_id,
-			revoked_at,
-			deleted_at,
-			deleted_by,
-			deleted_reason,
-			metadata_json,
-			checker_kind,
-			checker_config_json,
-			kv_revision,
-			notes
-		FROM ranked
-		WHERE row_num = 1
-		LIMIT 1`,
-		packageUUID)
+	query, args := buildEdgeOnboardingPackagesQuery(edgeOnboardingQueryOptions{
+		PackageID: &packageUUID,
+		Limit:     1,
+	})
+
+	rows, err := db.Conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%w edge onboarding package: %w", ErrFailedToQuery, err)
 	}
@@ -209,131 +179,9 @@ func (db *DB) GetEdgeOnboardingPackage(ctx context.Context, packageID string) (*
 
 // ListEdgeOnboardingPackages returns packages filtered by optional criteria.
 func (db *DB) ListEdgeOnboardingPackages(ctx context.Context, filter *models.EdgeOnboardingListFilter) ([]*models.EdgeOnboardingPackage, error) {
-	query := `
-		WITH ranked AS (
-			SELECT
-				package_id,
-				label,
-				component_id,
-				component_type,
-				parent_type,
-				parent_id,
-				poller_id,
-				site,
-				status,
-				downstream_entry_id,
-				downstream_spiffe_id,
-				selectors,
-				join_token_ciphertext,
-				join_token_expires_at,
-				bundle_ciphertext,
-				download_token_hash,
-				download_token_expires_at,
-				created_by,
-				created_at,
-				updated_at,
-				delivered_at,
-				activated_at,
-				activated_from_ip,
-				last_seen_spiffe_id,
-				revoked_at,
-				deleted_at,
-				deleted_by,
-				deleted_reason,
-				metadata_json,
-				checker_kind,
-				checker_config_json,
-				kv_revision,
-				notes,
-				row_number() OVER (PARTITION BY package_id ORDER BY updated_at DESC) AS row_num
-			FROM table(edge_onboarding_packages)
-		)
-		SELECT
-			package_id,
-			label,
-			component_id,
-			component_type,
-			parent_type,
-			parent_id,
-			poller_id,
-			site,
-			status,
-			downstream_entry_id,
-			downstream_spiffe_id,
-			selectors,
-			join_token_ciphertext,
-			join_token_expires_at,
-			bundle_ciphertext,
-			download_token_hash,
-			download_token_expires_at,
-			created_by,
-			created_at,
-			updated_at,
-			delivered_at,
-			activated_at,
-			activated_from_ip,
-			last_seen_spiffe_id,
-			revoked_at,
-			deleted_at,
-			deleted_by,
-			deleted_reason,
-			metadata_json,
-			checker_kind,
-			checker_config_json,
-			kv_revision,
-			notes
-		FROM ranked`
-
-	var (
-		args       []interface{}
-		conditions = []string{"row_num = 1"}
-	)
-
-	param := func(value interface{}) string {
-		args = append(args, value)
-		return fmt.Sprintf("$%d", len(args))
-	}
-
-	if filter != nil {
-		if filter.PollerID != "" {
-			conditions = append(conditions, fmt.Sprintf("poller_id = %s", param(filter.PollerID)))
-		}
-
-		if filter.ComponentID != "" {
-			conditions = append(conditions, fmt.Sprintf("component_id = %s", param(filter.ComponentID)))
-		}
-
-		if filter.ParentID != "" {
-			conditions = append(conditions, fmt.Sprintf("parent_id = %s", param(filter.ParentID)))
-		}
-
-		if len(filter.Types) > 0 {
-			typeLiterals := make([]string, 0, len(filter.Types))
-			for _, typ := range filter.Types {
-				typeLiterals = append(typeLiterals, fmt.Sprintf("'%s'", string(typ)))
-			}
-			conditions = append(conditions, fmt.Sprintf("component_type IN (%s)", strings.Join(typeLiterals, ", ")))
-		}
-
-		if len(filter.Statuses) > 0 {
-			statusLiterals := make([]string, 0, len(filter.Statuses))
-			for _, st := range filter.Statuses {
-				statusLiterals = append(statusLiterals, fmt.Sprintf("'%s'", string(st)))
-			}
-			conditions = append(conditions, fmt.Sprintf("status IN (%s)", strings.Join(statusLiterals, ", ")))
-		}
-	}
-
-	query += "\nWHERE " + strings.Join(conditions, " AND ")
-
-	query += "\nORDER BY updated_at DESC"
-
-	limit := 100
-	if filter != nil && filter.Limit > 0 {
-		limit = filter.Limit
-	}
-
-	query += fmt.Sprintf("\nLIMIT %s", param(limit))
+	query, args := buildEdgeOnboardingPackagesQuery(edgeOnboardingQueryOptions{
+		Filter: filter,
+	})
 
 	rows, err := db.Conn.Query(ctx, query, args...)
 	if err != nil {
@@ -352,6 +200,82 @@ func (db *DB) ListEdgeOnboardingPackages(ctx context.Context, filter *models.Edg
 	}
 
 	return packages, nil
+}
+
+type edgeOnboardingQueryOptions struct {
+	PackageID *uuid.UUID
+	Filter    *models.EdgeOnboardingListFilter
+	Limit     int
+}
+
+type edgeOnboardingQueryBuilder struct {
+	args       []interface{}
+	conditions []string
+}
+
+func (b *edgeOnboardingQueryBuilder) param(value interface{}) string {
+	b.args = append(b.args, value)
+	return fmt.Sprintf("$%d", len(b.args))
+}
+
+func buildEdgeOnboardingPackagesQuery(opts edgeOnboardingQueryOptions) (string, []interface{}) {
+	builder := &edgeOnboardingQueryBuilder{
+		args:       make([]interface{}, 0, 8),
+		conditions: make([]string, 0, 6),
+	}
+
+	if opts.PackageID != nil {
+		builder.conditions = append(builder.conditions, fmt.Sprintf("package_id = %s", builder.param(*opts.PackageID)))
+	}
+
+	if filter := opts.Filter; filter != nil {
+		if filter.PollerID != "" {
+			builder.conditions = append(builder.conditions, fmt.Sprintf("poller_id = %s", builder.param(filter.PollerID)))
+		}
+		if filter.ComponentID != "" {
+			builder.conditions = append(builder.conditions, fmt.Sprintf("component_id = %s", builder.param(filter.ComponentID)))
+		}
+		if filter.ParentID != "" {
+			builder.conditions = append(builder.conditions, fmt.Sprintf("parent_id = %s", builder.param(filter.ParentID)))
+		}
+
+		if len(filter.Types) > 0 {
+			typePlaceholders := make([]string, 0, len(filter.Types))
+			for _, typ := range filter.Types {
+				typePlaceholders = append(typePlaceholders, builder.param(string(typ)))
+			}
+			builder.conditions = append(builder.conditions, fmt.Sprintf("component_type IN (%s)", strings.Join(typePlaceholders, ", ")))
+		}
+
+		if len(filter.Statuses) > 0 {
+			statusPlaceholders := make([]string, 0, len(filter.Statuses))
+			for _, st := range filter.Statuses {
+				statusPlaceholders = append(statusPlaceholders, builder.param(string(st)))
+			}
+			builder.conditions = append(builder.conditions, fmt.Sprintf("status IN (%s)", strings.Join(statusPlaceholders, ", ")))
+		}
+	}
+
+	limit := opts.Limit
+	if limit <= 0 {
+		if filter := opts.Filter; filter != nil && filter.Limit > 0 {
+			limit = filter.Limit
+		}
+	}
+	if limit <= 0 {
+		limit = defaultEdgeOnboardingPackageLimit
+	}
+
+	query := "WITH filtered AS (\n\tSELECT *\n\tFROM table(edge_onboarding_packages)"
+	if len(builder.conditions) > 0 {
+		query += "\n\tWHERE " + strings.Join(builder.conditions, " AND ")
+	}
+	query += "\n)"
+	query += edgeOnboardingPackagesSelectClause
+	query += "\nORDER BY latest_updated_at DESC"
+	query += fmt.Sprintf("\nLIMIT %s", builder.param(limit))
+
+	return query, builder.args
 }
 
 // ListEdgeOnboardingPollerIDs returns poller IDs with packages in the supplied statuses.
