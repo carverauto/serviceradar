@@ -36,6 +36,61 @@ let map_field_name ~entity (field : string) : string =
         String.sub s' (i + 1) (j - i - 1) |> trim
       with _ -> s'
     in
+    let map_keys_expr = "map_keys(metadata)" in
+    let array_exists_prefix prefix =
+      Printf.sprintf "array_exists(k -> starts_with(k, '%s'), %s)" prefix map_keys_expr
+    in
+    let array_exists_like pattern =
+      Printf.sprintf "array_exists(k -> like(k, '%s'), %s)" pattern map_keys_expr
+    in
+    let wrap_bool cond = "(if(" ^ cond ^ ", 1, 0))" in
+    let collector_capability_expr suffix =
+      match suffix with
+      | "has_collector" ->
+          let collector_signals =
+            [
+              array_exists_prefix "collector_";
+              array_exists_prefix "checker_";
+              array_exists_like "service_alias:%collector%";
+              array_exists_like "service_alias:%checker%";
+              array_exists_prefix "icmp_";
+              array_exists_prefix "snmp";
+              array_exists_prefix "sysmon";
+              "has(" ^ map_keys_expr ^ ", 'snmp_monitoring')";
+              "has(" ^ map_keys_expr ^ ", '_last_icmp_update_at')";
+            ]
+          in
+          let condition = String.concat " OR " collector_signals in
+          wrap_bool condition
+      | "supports_icmp" ->
+          let condition =
+            String.concat " OR "
+              [
+                array_exists_prefix "icmp_";
+                "has(" ^ map_keys_expr ^ ", '_last_icmp_update_at')";
+              ]
+          in
+          wrap_bool condition
+      | "supports_snmp" ->
+          let condition =
+            String.concat " OR "
+              [
+                array_exists_prefix "snmp";
+                "has(" ^ map_keys_expr ^ ", 'snmp_monitoring')";
+              ]
+          in
+          wrap_bool condition
+      | "supports_sysmon" ->
+          let condition =
+            String.concat " OR "
+              [
+                array_exists_prefix "sysmon";
+                array_exists_like "service_alias:%sysmon%";
+              ]
+          in
+          wrap_bool condition
+      | _ -> String.map (fun c -> if c = '.' then '_' else c) suffix
+    in
     let apply_entity_mapping f =
       match entity_lc with
       | "devices" -> (
@@ -62,16 +117,7 @@ let map_field_name ~entity (field : string) : string =
                   && String.sub lf 0 collector_prefix_len = collector_prefix
                 then
                   let suffix = String.sub lf collector_prefix_len (String.length lf - collector_prefix_len) in
-                  (match suffix with
-                  | "has_collector" ->
-                      "(CAST((has(map_keys(metadata), 'collector_agent_id') OR has(map_keys(metadata), 'collector_poller_id') OR has(map_keys(metadata), '_alias_last_seen_service_id') OR has(map_keys(metadata), '_alias_collector_ip') OR has(map_keys(metadata), 'checker_service') OR has(map_keys(metadata), 'checker_service_type') OR has(map_keys(metadata), 'checker_service_id') OR has(map_keys(metadata), 'icmp_service_name') OR has(map_keys(metadata), 'icmp_target') OR has(map_keys(metadata), '_last_icmp_update_at') OR has(map_keys(metadata), 'snmp_monitoring'))) AS uint8)"
-                  | "supports_icmp" ->
-                      "(CAST((has(map_keys(metadata), 'icmp_service_name') OR has(map_keys(metadata), 'icmp_target') OR has(map_keys(metadata), '_last_icmp_update_at'))) AS uint8)"
-                | "supports_snmp" ->
-                    "(CAST(has(map_keys(metadata), 'snmp_monitoring') AS uint8))"
-                  | "supports_sysmon" ->
-                      "(CAST((has(map_keys(metadata), 'sysmon_monitoring') OR has(map_keys(metadata), 'sysmon_service') OR has(map_keys(metadata), 'service_alias:sysmon') OR has(map_keys(metadata), 'sysmon_metric_source'))) AS uint8)"
-                  | _ -> String.map (fun c -> if c = '.' then '_' else c) f)
+                  collector_capability_expr suffix
                 else if String.length lf > 9 && String.sub lf 0 9 = "metadata." then
                   "metadata['" ^ String.sub lf 9 (String.length lf - 9) ^ "']"
                 else String.map (fun c -> if c = '.' then '_' else c) f
