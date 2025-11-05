@@ -133,6 +133,14 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 
 	deviceRegistry := registry.NewDeviceRegistry(database, log, registryOpts...)
 
+	if count, err := deviceRegistry.HydrateFromStore(ctx); err != nil {
+		log.Warn().Err(err).Msg("Failed to hydrate device registry from Proton; continuing with cold cache")
+	} else {
+		log.Info().
+			Int("device_count", count).
+			Msg("Device registry hydrated from Proton")
+	}
+
 	// Initialize the Service Registry for pollers, agents, and checkers
 	// Type assert to get underlying *db.DB for registry operations
 	dbConn, ok := database.(*db.DB)

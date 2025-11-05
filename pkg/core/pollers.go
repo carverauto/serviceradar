@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -1309,6 +1310,8 @@ func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID string) er
 		Str("device_id", deviceUpdate.DeviceID).
 		Msg("Successfully registered poller as device")
 
+	s.upsertCollectorCapabilities(ctx, deviceUpdate.DeviceID, []string{"poller"}, "", pollerID, pollerID, deviceUpdate.Timestamp)
+
 	return nil
 }
 
@@ -1324,7 +1327,13 @@ func (s *Server) registerAgentAsDevice(ctx context.Context, agentID, pollerID, h
 
 	deviceUpdate := models.CreateAgentDeviceUpdate(agentID, pollerID, hostIP, metadata)
 
-	return s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate})
+	if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate}); err != nil {
+		return err
+	}
+
+	s.upsertCollectorCapabilities(ctx, deviceUpdate.DeviceID, []string{"agent"}, agentID, pollerID, agentID, deviceUpdate.Timestamp)
+
+	return nil
 }
 
 // registerCheckerAsDevice registers a checker as a device in the inventory
@@ -1339,7 +1348,21 @@ func (s *Server) registerCheckerAsDevice(ctx context.Context, checkerID, checker
 
 	deviceUpdate := models.CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP, metadata)
 
-	return s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate})
+	if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate}); err != nil {
+		return err
+	}
+
+	capabilities := make([]string, 0, 1)
+	if trimmed := strings.ToLower(strings.TrimSpace(checkerKind)); trimmed != "" {
+		capabilities = append(capabilities, trimmed)
+	}
+	if len(capabilities) == 0 {
+		capabilities = append(capabilities, "checker")
+	}
+
+	s.upsertCollectorCapabilities(ctx, deviceUpdate.DeviceID, capabilities, agentID, pollerID, checkerID, deviceUpdate.Timestamp)
+
+	return nil
 }
 
 // getHostIP returns the host IP address for this service

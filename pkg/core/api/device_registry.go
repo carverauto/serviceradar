@@ -109,11 +109,11 @@ func (s *APIServer) getDeviceRegistryInfo(w http.ResponseWriter, r *http.Request
 			info.ParentID = agent.PollerID
 			info.ComponentID = agent.ComponentID
 
-		case componentTypeChecker:
-			checker, err := s.serviceRegistry.GetChecker(ctx, deviceID)
-			if err != nil {
-				s.logger.Debug().Err(err).Str("device_id", deviceID).Msg("Checker not found in service registry")
-				writeError(w, "Checker not found in service registry", http.StatusNotFound)
+	case componentTypeChecker:
+		checker, err := s.serviceRegistry.GetChecker(ctx, deviceID)
+		if err != nil {
+			s.logger.Debug().Err(err).Str("device_id", deviceID).Msg("Checker not found in service registry")
+			writeError(w, "Checker not found in service registry", http.StatusNotFound)
 				return
 			}
 
@@ -235,6 +235,14 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "Failed to delete device", http.StatusInternalServerError)
 		return
 	}
+
+	type localRegistryDeleter interface {
+		DeleteDeviceRecord(deviceID string)
+	}
+	if dr, ok := s.deviceRegistry.(localRegistryDeleter); ok {
+		dr.DeleteDeviceRecord(deviceID)
+	}
+
 
 	s.logger.Info().
 		Str("device_id", deviceID).

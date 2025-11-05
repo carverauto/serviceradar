@@ -17,6 +17,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -109,6 +110,9 @@ func (s *Server) ensureServiceDevice(
 			Str("service_name", svc.ServiceName).
 			Msg("DeviceRegistry not available for checker device registration")
 	}
+
+	capabilities := normalizeCapabilities([]string{svc.ServiceType, svc.ServiceName})
+	s.upsertCollectorCapabilities(context.Background(), deviceID, capabilities, agentID, pollerID, svc.ServiceName, timestamp)
 }
 
 func extractCheckerHostIdentity(serviceData json.RawMessage) (hostIP, hostname, hostID string) {

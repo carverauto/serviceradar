@@ -140,4 +140,5 @@ type DeviceRegistryService interface {
 	ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
 	GetMergedDevice(ctx context.Context, deviceIDOrIP string) (*models.UnifiedDevice, error)
 	FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error)
+	GetCollectorCapabilities(ctx context.Context, deviceID string) (*models.CollectorCapability, bool)
 }

@@ -240,6 +240,13 @@ func (s *Server) processSNMPDeviceUpdates(
 			return fmt.Errorf("failed to process batch SNMP target devices: %w", err)
 		}
 
+		for _, update := range deviceUpdates {
+			if update == nil || strings.TrimSpace(update.DeviceID) == "" {
+				continue
+			}
+			s.upsertCollectorCapabilities(ctx, update.DeviceID, []string{"snmp"}, agentID, pollerID, "snmp", timestamp)
+		}
+
 		s.logger.Info().
 			Int("device_count", len(deviceUpdates)).
 			Msg("Successfully processed SNMP target device updates in batch")
@@ -668,6 +675,8 @@ func (s *Server) processICMPMetrics(
 
 		s.enqueueServiceDeviceUpdate(update)
 
+		s.upsertCollectorCapabilities(ctx, deviceID, []string{"icmp"}, agentID, pollerID, svc.ServiceName, now)
+
 		if hostDeviceID != "" && hostDeviceID != deviceID {
 			if hostUpdate := buildHostAliasUpdate(
 				hostDeviceID,
@@ -720,6 +729,8 @@ func (s *Server) processSysmonMetrics(
 		Str("partition", partition).
 		Str("timestamp", sysmonPayload.Status.Timestamp).
 		Msg("Parsed sysmon metrics")
+
+	s.upsertCollectorCapabilities(context.Background(), deviceID, []string{"sysmon"}, agentID, pollerID, "sysmon", pollerTimestamp)
 
 	return nil
 }
