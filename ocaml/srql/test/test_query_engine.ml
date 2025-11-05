@@ -124,6 +124,27 @@ let test_devices_search_numeric_literal () =
        (function _, Column.String value -> String.equal value "%10%" | _ -> false)
        translation.params)
 
+let test_devices_collector_capabilities () =
+  let translation =
+    translation_of
+      "in:devices collector_capabilities.has_collector:true collector_capabilities.supports_icmp:true \
+       stats:\"count() as total\""
+  in
+  let sql = translation.sql in
+  contains "collector has_collector cast" sql
+    "CAST((has(map_keys(metadata), 'collector_agent_id') OR has(map_keys(metadata), 'collector_poller_id')";
+  contains "collector supports_icmp cast" sql
+    "CAST((has(map_keys(metadata), 'icmp_service_name') OR has(map_keys(metadata), 'icmp_target')";
+  contains "has_collector predicate uses placeholder" sql "CAST((has(map_keys(metadata), 'collector_agent_id')";
+  contains "stats included" sql "count() AS total";
+  check bool "boolean parameters mapped to 1" true
+    (List.exists
+       (function
+         | _, Column.Int32 v when v = 1l -> true
+         | _, Column.Int64 v when v = 1L -> true
+         | _ -> false)
+       translation.params)
+
 let test_sysmon_stats_argmax () =
   let translation =
     translation_of
@@ -155,6 +176,7 @@ let suite =
     ("devices search wildcard fanout", `Quick, test_devices_search_router);
     ("devices search ipv4 equality", `Quick, test_devices_search_ipv4);
     ("devices search numeric literal", `Quick, test_devices_search_numeric_literal);
+    ("devices collector capabilities mapping", `Quick, test_devices_collector_capabilities);
     ("sysmon stats argmax", `Quick, test_sysmon_stats_argmax);
     ("rperf metrics mapping", `Quick, test_rperf_metrics_mapping);
   ]

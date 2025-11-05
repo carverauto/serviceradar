@@ -674,9 +674,18 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                         ?.shouldRender && (
                         <ICMPSparkline
                           deviceId={device.device_id}
+                          deviceIp={device.ip}
                           compact={false}
                           hasMetrics={
                             icmpCollectorInfo.get(device.device_id)?.hasMetrics
+                          }
+                          hasCollector={
+                            collectorInfoByDevice.get(device.device_id)
+                              ?.hasCollector
+                          }
+                          supportsICMP={
+                            collectorInfoByDevice.get(device.device_id)
+                              ?.supports.icmp
                           }
                         />
                       )}

@@ -87,6 +87,63 @@ func (r *identityResolver) hydrateCanonical(ctx context.Context, updates []*mode
 	return fetchErr
 }
 
+func (r *identityResolver) resolveCanonicalIPs(ctx context.Context, ips []string) (map[string]string, error) {
+	if r == nil || r.kv == nil || len(ips) == 0 {
+		return nil, nil
+	}
+
+	pathToIP := make(map[string]string, len(ips))
+	paths := make([]string, 0, len(ips))
+
+	for _, raw := range ips {
+		ip := strings.TrimSpace(raw)
+		if ip == "" {
+			continue
+		}
+		key := identitymap.Key{Kind: identitymap.KindIP, Value: ip}
+		for _, variant := range key.KeyPathVariants(r.namespace) {
+			sanitized := identitymap.SanitizeKeyPath(variant)
+			if sanitized == "" {
+				continue
+			}
+			if _, exists := pathToIP[sanitized]; exists {
+				continue
+			}
+			pathToIP[sanitized] = ip
+			paths = append(paths, sanitized)
+		}
+	}
+
+	if len(paths) == 0 {
+		return nil, nil
+	}
+
+	entries, err := r.fetchCanonicalEntries(ctx, paths)
+	if len(entries) == 0 {
+		return nil, err
+	}
+
+	resolved := make(map[string]string, len(entries))
+	for path, entry := range entries {
+		if entry.record == nil {
+			continue
+		}
+		ip := pathToIP[path]
+		if ip == "" {
+			continue
+		}
+		deviceID := strings.TrimSpace(entry.record.CanonicalDeviceID)
+		if deviceID == "" {
+			continue
+		}
+		if _, exists := resolved[ip]; !exists {
+			resolved[ip] = deviceID
+		}
+	}
+
+	return resolved, err
+}
+
 func (r *identityResolver) fetchCanonicalEntries(ctx context.Context, paths []string) (map[string]canonicalEntry, error) {
 	entries := make(map[string]canonicalEntry, len(paths))
 	var joinErr error

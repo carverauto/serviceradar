@@ -27,8 +27,11 @@ const REFRESH_INTERVAL = 10000; // 10 seconds
 
 interface ICMPSparklineProps {
   deviceId: string;
+  deviceIp?: string;
   compact?: boolean;
   hasMetrics?: boolean;
+  hasCollector?: boolean;
+  supportsICMP?: boolean;
 }
 
 interface ICMPMetric {
@@ -44,8 +47,11 @@ interface ICMPMetric {
 
 const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
   deviceId,
+  deviceIp,
   compact = false,
   hasMetrics,
+  hasCollector,
+  supportsICMP,
 }) => {
   const { token } = useAuth();
   const [metrics, setMetrics] = useState<ICMPMetric[]>([]);
@@ -68,6 +74,16 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
         start: startTime.toISOString(),
         end: endTime.toISOString(),
       });
+
+      if (typeof hasCollector === "boolean") {
+        queryParams.set("has_collector", String(hasCollector));
+      }
+      if (typeof supportsICMP === "boolean") {
+        queryParams.set("supports_icmp", String(supportsICMP));
+      }
+      if (deviceIp) {
+        queryParams.set("device_ip", deviceIp);
+      }
 
       const response = await fetch(
         `/api/devices/${encodeURIComponent(deviceId)}/metrics?${queryParams}`,

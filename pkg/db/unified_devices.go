@@ -278,73 +278,81 @@ func (db *DB) GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips, deviceIDs []
 }
 
 func (db *DB) queryUnifiedDeviceBatch(ctx context.Context, deviceIDs, ips []string) ([]*models.UnifiedDevice, error) {
-	var whereClauses []string
-	var args []interface{}
-
-	if len(deviceIDs) > 0 {
-		placeholders := make([]string, len(deviceIDs))
-		for i := range deviceIDs {
-			placeholders[i] = fmt.Sprintf("$%d", len(args)+1)
-			args = append(args, deviceIDs[i])
-		}
-		whereClauses = append(whereClauses, fmt.Sprintf("device_id IN (%s)", strings.Join(placeholders, ",")))
-	}
-
-	if len(ips) > 0 {
-		placeholders := make([]string, len(ips))
-		for i := range ips {
-			placeholders[i] = fmt.Sprintf("$%d", len(args)+1)
-			args = append(args, ips[i])
-		}
-		whereClauses = append(whereClauses, fmt.Sprintf("ip IN (%s)", strings.Join(placeholders, ",")))
-	}
-
-	if len(whereClauses) == 0 {
+	if len(deviceIDs) == 0 && len(ips) == 0 {
 		return nil, errNoDeviceFilters
 	}
 
-	query := fmt.Sprintf(`SELECT
-        device_id,
-        arg_max(ip, _tp_time) AS ip,
-        arg_max(poller_id, _tp_time) AS poller_id,
-        arg_max(hostname, _tp_time) AS hostname,
-        arg_max(mac, _tp_time) AS mac,
-        arg_max(discovery_sources, _tp_time) AS discovery_sources,
-        arg_max(is_available, _tp_time) AS is_available,
-        arg_max(first_seen, _tp_time) AS first_seen,
-        arg_max(last_seen, _tp_time) AS last_seen,
-        arg_max(metadata, _tp_time) AS metadata,
-        arg_max(agent_id, _tp_time) AS agent_id,
-        arg_max(device_type, _tp_time) AS device_type,
-        arg_max(service_type, _tp_time) AS service_type,
-        arg_max(service_status, _tp_time) AS service_status,
-        arg_max(last_heartbeat, _tp_time) AS last_heartbeat,
-        arg_max(os_info, _tp_time) AS os_info,
-        arg_max(version_info, _tp_time) AS version_info
-    FROM table(unified_devices)
-    WHERE %s
-    GROUP BY device_id`, strings.Join(whereClauses, " OR "))
+	buildQuery := func(column string, values []string) (string, []interface{}) {
+		placeholders := make([]string, len(values))
+		args := make([]interface{}, len(values))
+		for i, value := range values {
+			placeholders[i] = fmt.Sprintf("$%d", i+1)
+			args[i] = value
+		}
 
-	rows, err := db.Conn.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to batch query unified devices: %w", err)
+		query := fmt.Sprintf(`SELECT
+        device_id,
+        ip,
+        poller_id,
+        hostname,
+        mac,
+        discovery_sources,
+        is_available,
+        first_seen,
+        last_seen,
+        metadata,
+        agent_id,
+        device_type,
+        service_type,
+        service_status,
+        last_heartbeat,
+        os_info,
+        version_info
+    FROM table(unified_devices)
+    WHERE %s IN (%s)
+    ORDER BY device_id, _tp_time DESC
+    LIMIT 1 BY device_id`, column, strings.Join(placeholders, ","))
+
+		return query, args
 	}
-	defer func() { _ = rows.Close() }()
 
 	var devices []*models.UnifiedDevice
 
-	for rows.Next() {
-		device, err := db.scanUnifiedDeviceSimple(rows)
-		if err != nil {
-			db.logger.Warn().Err(err).Msg("Failed to scan unified device in batch fetch")
-			continue
+	execute := func(column string, values []string) error {
+		if len(values) == 0 {
+			return nil
 		}
 
-		devices = append(devices, device)
+		query, args := buildQuery(column, values)
+
+		rows, err := db.Conn.Query(ctx, query, args...)
+		if err != nil {
+			return fmt.Errorf("failed to query unified devices by %s: %w", column, err)
+		}
+		defer func() { _ = rows.Close() }()
+
+		for rows.Next() {
+			device, err := db.scanUnifiedDeviceSimple(rows)
+			if err != nil {
+				db.logger.Warn().Err(err).Msg("Failed to scan unified device in batch fetch")
+				continue
+			}
+			devices = append(devices, device)
+		}
+
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("%w: %w", errIterRows, err)
+		}
+
+		return nil
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%w: %w", errIterRows, err)
+	if err := execute("device_id", deviceIDs); err != nil {
+		return nil, err
+	}
+
+	if err := execute("ip", ips); err != nil {
+		return nil, err
 	}
 
 	return devices, nil

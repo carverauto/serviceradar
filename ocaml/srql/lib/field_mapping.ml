@@ -54,9 +54,27 @@ let map_field_name ~entity (field : string) : string =
                 "device_os_" ^ String.sub lf 3 (String.length lf - 3)
               else if String.length lf > 12 && String.sub lf 0 12 = "observables." then
                 "observables_" ^ String.sub lf 12 (String.length lf - 12)
-              else if String.length lf > 9 && String.sub lf 0 9 = "metadata." then
-                "metadata['" ^ String.sub lf 9 (String.length lf - 9) ^ "']"
-              else String.map (fun c -> if c = '.' then '_' else c) f
+              else
+                let collector_prefix = "collector_capabilities." in
+                let collector_prefix_len = String.length collector_prefix in
+                if
+                  String.length lf >= collector_prefix_len
+                  && String.sub lf 0 collector_prefix_len = collector_prefix
+                then
+                  let suffix = String.sub lf collector_prefix_len (String.length lf - collector_prefix_len) in
+                  (match suffix with
+                  | "has_collector" ->
+                      "(CAST((has(map_keys(metadata), 'collector_agent_id') OR has(map_keys(metadata), 'collector_poller_id') OR has(map_keys(metadata), '_alias_last_seen_service_id') OR has(map_keys(metadata), '_alias_collector_ip') OR has(map_keys(metadata), 'checker_service') OR has(map_keys(metadata), 'checker_service_type') OR has(map_keys(metadata), 'checker_service_id') OR has(map_keys(metadata), 'icmp_service_name') OR has(map_keys(metadata), 'icmp_target') OR has(map_keys(metadata), '_last_icmp_update_at') OR has(map_keys(metadata), 'snmp_monitoring'))) AS uint8)"
+                  | "supports_icmp" ->
+                      "(CAST((has(map_keys(metadata), 'icmp_service_name') OR has(map_keys(metadata), 'icmp_target') OR has(map_keys(metadata), '_last_icmp_update_at'))) AS uint8)"
+                | "supports_snmp" ->
+                    "(CAST(has(map_keys(metadata), 'snmp_monitoring') AS uint8))"
+                  | "supports_sysmon" ->
+                      "(CAST((has(map_keys(metadata), 'sysmon_monitoring') OR has(map_keys(metadata), 'sysmon_service') OR has(map_keys(metadata), 'service_alias:sysmon') OR has(map_keys(metadata), 'sysmon_metric_source'))) AS uint8)"
+                  | _ -> String.map (fun c -> if c = '.' then '_' else c) f)
+                else if String.length lf > 9 && String.sub lf 0 9 = "metadata." then
+                  "metadata['" ^ String.sub lf 9 (String.length lf - 9) ^ "']"
+                else String.map (fun c -> if c = '.' then '_' else c) f
           | _ -> f)
       | "logs" -> (
           match f with

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -91,21 +90,10 @@ func TestGetDeviceMetricsSkipsICMPFallbackForNonCollector(t *testing.T) {
 	server := &APIServer{
 		metricsManager: &fakeMetricCollector{},
 		dbService:      dbService,
-		deviceRegistry: &fakeDeviceRegistry{
-			device: &models.UnifiedDevice{
-				DeviceID: "default:noncollector",
-				IP:       "10.0.0.10",
-				Metadata: &models.DiscoveredField[map[string]string]{
-					Value: map[string]string{
-						"unrelated": "metadata",
-					},
-				},
-			},
-		},
-		logger: logger.NewTestLogger(),
+		logger:         logger.NewTestLogger(),
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/devices/default:noncollector/metrics?type=icmp", nil)
+	req := httptest.NewRequest(http.MethodGet, "/devices/default:noncollector/metrics?type=icmp&has_collector=false&supports_icmp=false&device_ip=10.0.0.10", nil)
 	req = mux.SetURLVars(req, map[string]string{"id": "default:noncollector"})
 
 	rr := httptest.NewRecorder()
@@ -151,13 +139,10 @@ func TestGetDeviceMetricsFallsBackForCollector(t *testing.T) {
 	server := &APIServer{
 		metricsManager: &fakeMetricCollector{},
 		dbService:      dbService,
-		deviceRegistry: &fakeDeviceRegistry{
-			device: device,
-		},
-		logger: logger.NewTestLogger(),
+		logger:         logger.NewTestLogger(),
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/devices/default:collector/metrics?type=icmp", nil)
+	req := httptest.NewRequest(http.MethodGet, "/devices/default:collector/metrics?type=icmp&has_collector=true&supports_icmp=true&device_ip=10.0.0.20", nil)
 	req = mux.SetURLVars(req, map[string]string{"id": device.DeviceID})
 
 	rr := httptest.NewRecorder()
@@ -207,13 +192,10 @@ func TestGetDeviceMetricsFallsBackWhenRingBufferMissing(t *testing.T) {
 
 	server := &APIServer{
 		dbService: dbService,
-		deviceRegistry: &fakeDeviceRegistry{
-			device: device,
-		},
-		logger: logger.NewTestLogger(),
+		logger:    logger.NewTestLogger(),
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/devices/default:collector/metrics?type=icmp", nil)
+	req := httptest.NewRequest(http.MethodGet, "/devices/default:collector/metrics?type=icmp&has_collector=true&supports_icmp=true&device_ip=10.0.0.30", nil)
 	req = mux.SetURLVars(req, map[string]string{"id": device.DeviceID})
 
 	rr := httptest.NewRecorder()
@@ -268,27 +250,3 @@ func (f *fakeMetricCollector) GetDevicesWithActiveMetrics() []string {
 }
 
 func (f *fakeMetricCollector) CleanupStalePollers(time.Duration) {}
-
-type fakeDeviceRegistry struct {
-	device *models.UnifiedDevice
-}
-
-func (f *fakeDeviceRegistry) GetDevice(_ context.Context, _ string) (*models.UnifiedDevice, error) {
-	return f.device, nil
-}
-
-func (f *fakeDeviceRegistry) GetDevicesByIP(context.Context, string) ([]*models.UnifiedDevice, error) {
-	return nil, nil
-}
-
-func (f *fakeDeviceRegistry) ListDevices(context.Context, int, int) ([]*models.UnifiedDevice, error) {
-	return nil, nil
-}
-
-func (f *fakeDeviceRegistry) GetMergedDevice(context.Context, string) (*models.UnifiedDevice, error) {
-	return f.device, nil
-}
-
-func (f *fakeDeviceRegistry) FindRelatedDevices(context.Context, string) ([]*models.UnifiedDevice, error) {
-	return nil, nil
-}
