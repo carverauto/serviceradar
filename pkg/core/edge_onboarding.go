@@ -319,6 +319,10 @@ func isActivationEligibleStatus(status models.EdgeOnboardingStatus) bool {
 		models.EdgeOnboardingStatusDelivered,
 		models.EdgeOnboardingStatusActivated:
 		return true
+	case models.EdgeOnboardingStatusRevoked,
+		models.EdgeOnboardingStatusExpired,
+		models.EdgeOnboardingStatusDeleted:
+		return false
 	default:
 		return false
 	}

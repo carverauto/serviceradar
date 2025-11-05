@@ -46,19 +46,10 @@ func deriveCollectorCapabilities(device *models.UnifiedDevice) (collectorCapabil
 	signals := extractCollectorSignals(metadata, record)
 	serviceTypes := extractServiceTypes(metadata, record, device.DiscoverySources, signals.serviceID, device.DeviceID)
 
-	hasCollector := false
-
-	if len(serviceTypes) > 0 {
-		hasCollector = true
-	}
-
-	if serviceIDIndicatesCollector(signals.serviceID) {
-		hasCollector = true
-	}
-
-	if signals.collectorAgent != "" || signals.collectorPoller != "" {
-		hasCollector = true
-	}
+	hasCollector := len(serviceTypes) > 0 ||
+		serviceIDIndicatesCollector(signals.serviceID) ||
+		signals.collectorAgent != "" ||
+		signals.collectorPoller != ""
 
 	caps := collectorCapabilities{
 		hasCollector: hasCollector,

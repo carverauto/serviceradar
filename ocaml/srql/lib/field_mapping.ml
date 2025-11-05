@@ -69,7 +69,7 @@ let map_field_name ~entity (field : string) : string =
               array_exists_like "service_alias:%collector%";
               array_exists_like "service_alias:%checker%";
             ]
-            in
+          in
           let condition =
             collector_signals
             |> List.filter (fun part -> String.trim part <> "")
@@ -77,12 +77,9 @@ let map_field_name ~entity (field : string) : string =
           in
           wrap_bool condition
       | "supports_icmp" ->
-          let condition =
-            has_any [ "icmp_service_name"; "icmp_target"; "_last_icmp_update_at" ]
-          in
+          let condition = has_any [ "icmp_service_name"; "icmp_target"; "_last_icmp_update_at" ] in
           wrap_bool condition
-      | "supports_snmp" ->
-          wrap_bool (has_any [ "snmp_monitoring" ])
+      | "supports_snmp" -> wrap_bool (has_any [ "snmp_monitoring" ])
       | "supports_sysmon" ->
           let condition =
             [
@@ -120,7 +117,9 @@ let map_field_name ~entity (field : string) : string =
                   String.length lf >= collector_prefix_len
                   && String.sub lf 0 collector_prefix_len = collector_prefix
                 then
-                  let suffix = String.sub lf collector_prefix_len (String.length lf - collector_prefix_len) in
+                  let suffix =
+                    String.sub lf collector_prefix_len (String.length lf - collector_prefix_len)
+                  in
                   collector_capability_expr suffix
                 else if String.length lf > 9 && String.sub lf 0 9 = "metadata." then
                   "metadata['" ^ String.sub lf 9 (String.length lf - 9) ^ "']"
