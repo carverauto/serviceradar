@@ -7,6 +7,7 @@ go_library(
         "canonical_cache.go",
         "config.go",
         "alias_events.go",
+        "capabilities.go",
         "devices.go",
         "discovery.go",
         "edge_onboarding.go",
@@ -70,6 +71,7 @@ go_library(
 go_test(
     name = "core_test",
     srcs = [
+        "devices_test.go",
         "discovery_test.go",
         "identity_lookup_test.go",
         "kv_metadata_test.go",

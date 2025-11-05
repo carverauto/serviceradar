@@ -67,6 +67,10 @@ type CollectorInfo = {
   aliasIp: string;
   hasCollector: boolean;
   supports: CollectorFlags;
+  capabilities: string[];
+  agentId?: string;
+  pollerId?: string;
+  lastSeen?: string;
 };
 
 const METRICS_STATUS_REFRESH_INTERVAL_MS = 30_000;
@@ -90,147 +94,70 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
 
   const extractCollectorInfo = useCallback((device: Device): CollectorInfo => {
     const aliasHistory = device.alias_history;
-    const metadata = (device.metadata ?? {}) as Record<string, unknown>;
     const capabilityHints = device.collector_capabilities;
-    const metricsSummaryRaw = device.metrics_summary;
-    const metricsSummary = (metricsSummaryRaw ?? {}) as Record<string, boolean>;
+    const metricsSummary = (device.metrics_summary ?? {}) as Record<string, boolean>;
 
-    const getMetadataString = (key: string): string => {
-      const value = metadata[key];
-      return typeof value === "string" ? value.trim() : "";
-    };
-
-    const registerServiceType = (raw: string, bucket: Set<string>) => {
-      const value = raw.trim().toLowerCase();
-      if (!value) {
-        return;
-      }
-
-      if (value.includes("icmp") || value.includes("ping")) {
-        bucket.add("icmp");
-      }
-      if (value.includes("sysmon")) {
-        bucket.add("sysmon");
-      }
-      if (value.includes("snmp")) {
-        bucket.add("snmp");
-      }
-    };
-
-    const serviceTypes = new Set<string>();
-
-    const serviceId = (
-      aliasHistory?.current_service_id ||
-      getMetadataString("_alias_last_seen_service_id") ||
-      getMetadataString("collector_agent_id")
-    ).trim();
-    const collectorIp = (
-      aliasHistory?.collector_ip || getMetadataString("_alias_collector_ip")
-    ).trim();
-    const aliasIp = (
-      aliasHistory?.current_ip || getMetadataString("_alias_last_seen_ip")
-    ).trim();
-
-    if (typeof metadata.checker_service_type === "string") {
-      registerServiceType(metadata.checker_service_type, serviceTypes);
-    }
-    if (typeof metadata.checker_service === "string") {
-      registerServiceType(metadata.checker_service, serviceTypes);
-    }
-    if (
-      typeof metadata.icmp_service_name === "string" ||
-      "icmp_target" in metadata ||
-      "_last_icmp_update_at" in metadata
-    ) {
-      serviceTypes.add("icmp");
-    }
-    if ("snmp_monitoring" in metadata) {
-      serviceTypes.add("snmp");
-    }
-
-    Object.keys(metadata).forEach((key) => {
-      if (key.startsWith("service_alias:")) {
-        registerServiceType(
-          key.substring("service_alias:".length),
-          serviceTypes,
-        );
-      }
-    });
-
-    aliasHistory?.services?.forEach((svc) => {
-      if (svc?.id) {
-        registerServiceType(svc.id, serviceTypes);
-      }
-    });
-
-    device.discovery_sources?.forEach((source) => {
-      if (typeof source === "string") {
-        registerServiceType(source, serviceTypes);
-      }
-    });
-
-    const collectorAgent = getMetadataString("collector_agent_id");
-    const collectorPoller = getMetadataString("collector_poller_id");
-
-    let hasCollector = Boolean(
-      serviceId ||
-        collectorIp ||
-        collectorAgent ||
-        collectorPoller ||
-        serviceTypes.size > 0,
+    const rawCapabilities = Array.isArray(capabilityHints?.capabilities)
+      ? capabilityHints!.capabilities
+      : [];
+    const capabilitySet = new Set(
+      rawCapabilities
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean),
     );
 
-    let supports: CollectorFlags = {
-      icmp: serviceTypes.has("icmp"),
-      sysmon: serviceTypes.has("sysmon"),
-      snmp: serviceTypes.has("snmp"),
+    const supports: CollectorFlags = {
+      icmp: capabilityHints?.supports_icmp ?? capabilitySet.has("icmp"),
+      sysmon: capabilityHints?.supports_sysmon ?? capabilitySet.has("sysmon"),
+      snmp: capabilityHints?.supports_snmp ?? capabilitySet.has("snmp"),
     };
 
-    if (capabilityHints) {
-      hasCollector = capabilityHints.has_collector ?? hasCollector;
-      supports = {
-        icmp: capabilityHints.supports_icmp ?? supports.icmp,
-        sysmon: capabilityHints.supports_sysmon ?? supports.sysmon,
-        snmp: capabilityHints.supports_snmp ?? supports.snmp,
-      };
+    let hasCollector = capabilityHints?.has_collector ?? capabilitySet.size > 0;
 
-      if (!supports.icmp && serviceTypes.has("icmp")) {
-        supports.icmp = true;
-      }
-      if (!supports.sysmon && serviceTypes.has("sysmon")) {
-        supports.sysmon = true;
-      }
-      if (!supports.snmp && serviceTypes.has("snmp")) {
-        supports.snmp = true;
-      }
-    } else if (serviceTypes.size === 0 && hasCollector) {
+    if (!hasCollector && (supports.icmp || supports.sysmon || supports.snmp)) {
+      hasCollector = true;
+    }
+
+    if (metricsSummary.icmp === true) {
       supports.icmp = true;
+      hasCollector = true;
+    }
+    if (metricsSummary.sysmon === true) {
       supports.sysmon = true;
+      hasCollector = true;
+    }
+    if (metricsSummary.snmp === true) {
       supports.snmp = true;
+      hasCollector = true;
     }
 
-    if (metricsSummaryRaw !== undefined) {
-      if (!supports.icmp && metricsSummary.icmp === true) {
-        supports.icmp = true;
-      }
-      if (!supports.sysmon && metricsSummary.sysmon === true) {
-        supports.sysmon = true;
-      }
-      if (!supports.snmp && metricsSummary.snmp === true) {
-        supports.snmp = true;
-      }
-      if (!hasCollector) {
-        hasCollector = Object.values(metricsSummary).some(Boolean);
-      }
-    }
+    const serviceId = (
+      capabilityHints?.service_name ?? aliasHistory?.current_service_id ?? ""
+    ).trim();
+    const collectorIp = (aliasHistory?.collector_ip ?? "").trim();
+    const aliasIp = (aliasHistory?.current_ip ?? "").trim();
 
-    return {
+    const info: CollectorInfo = {
       serviceId,
       collectorIp,
       aliasIp,
       hasCollector,
       supports,
+      capabilities: Array.from(capabilitySet),
+      agentId: capabilityHints?.agent_id,
+      pollerId: capabilityHints?.poller_id,
+      lastSeen: capabilityHints?.last_seen,
     };
+
+    if (
+      !info.hasCollector &&
+      Object.values(metricsSummary).some((value) => value === true)
+    ) {
+      info.hasCollector = true;
+    }
+
+    return info;
   }, []);
 
   const collectorInfoByDevice = useMemo(() => {
@@ -265,9 +192,9 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
         | undefined;
 
       const hasSummaryMetrics = summary?.icmp === true;
-      const hasExplicitCollector = Boolean(
-        info.serviceId || info.collectorIp || info.aliasIp,
-      );
+      const hasExplicitCollector =
+        info.capabilities.length > 0 ||
+        Boolean(info.serviceId || info.collectorIp || info.aliasIp);
 
       if (hasExplicitCollector || hasSummaryMetrics) {
         collectors.set(device.device_id, {

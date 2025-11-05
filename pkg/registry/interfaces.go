@@ -36,6 +36,18 @@ type Manager interface {
 
 	// FindRelatedDevices finds all devices that are related to the given device ID.
 	FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error)
+
+	// SetCollectorCapabilities stores explicit collector capability information for a device.
+	SetCollectorCapabilities(ctx context.Context, capability *models.CollectorCapability)
+
+	// GetCollectorCapabilities returns the capability record for a device, if present.
+	GetCollectorCapabilities(ctx context.Context, deviceID string) (*models.CollectorCapability, bool)
+
+	// HasDeviceCapability reports whether a device currently exposes the provided capability.
+	HasDeviceCapability(ctx context.Context, deviceID, capability string) bool
+
+	// ListDevicesWithCapability returns the device IDs that currently expose the provided capability.
+	ListDevicesWithCapability(ctx context.Context, capability string) []string
 }
 
 // ServiceManager manages the lifecycle and registration of all services

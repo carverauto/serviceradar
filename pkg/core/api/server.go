@@ -1763,7 +1763,19 @@ func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWr
 	}
 
 	// Filter devices based on search and status parameters
-	filteredDevices := filterDevices(devices, params["searchTerm"].(string), params["status"].(string), s.logger)
+	filteredDevices := devices
+	if searchTerm := strings.TrimSpace(params["searchTerm"].(string)); searchTerm != "" {
+		if searcher, ok := s.deviceRegistry.(interface {
+			SearchDevices(query string, limit int) []*models.UnifiedDevice
+		}); ok {
+			if searched := searcher.SearchDevices(searchTerm, params["limit"].(int)); len(searched) > 0 {
+				filteredDevices = searched
+			} else {
+				filteredDevices = nil
+			}
+		}
+	}
+	filteredDevices = filterDevices(filteredDevices, "", params["status"].(string), s.logger)
 
 	// Apply device merging if requested
 	if params["mergedStr"].(string) == "true" {
@@ -1772,13 +1784,14 @@ func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWr
 
 	// Format and send the response
 	metricSummary := s.fetchDeviceMetricSummary(ctx, filteredDevices)
-	s.sendDeviceRegistryResponse(w, filteredDevices, metricSummary)
+	s.sendDeviceRegistryResponse(ctx, w, filteredDevices, metricSummary)
 
 	return true
 }
 
 // sendDeviceRegistryResponse formats and sends the response for device registry path
 func (s *APIServer) sendDeviceRegistryResponse(
+	ctx context.Context,
 	w http.ResponseWriter,
 	devices []*models.UnifiedDevice,
 	metricSummary map[string]map[string]bool,
@@ -1804,8 +1817,12 @@ func (s *APIServer) sendDeviceRegistryResponse(
 			entry["alias_history"] = history
 		}
 
-		if caps, ok := deriveCollectorCapabilities(device); ok {
-			entry["collector_capabilities"] = toCollectorCapabilityResponse(caps)
+		if s.deviceRegistry != nil {
+			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, device.DeviceID); ok {
+				if resp := toCollectorCapabilityResponse(record); resp != nil {
+					entry["collector_capabilities"] = resp
+				}
+			}
 		}
 
 		if summary := metricSummary[device.DeviceID]; len(summary) > 0 {
@@ -1840,7 +1857,7 @@ func (s *APIServer) fallbackToDBDeviceList(ctx context.Context, w http.ResponseW
 	// Filter based on search/status to match registry path behavior
 	filtered := filterDevices(devices, params["searchTerm"].(string), params["status"].(string), s.logger)
 	metricSummary := s.fetchDeviceMetricSummary(ctx, filtered)
-	s.sendDeviceRegistryResponse(w, filtered, metricSummary)
+	s.sendDeviceRegistryResponse(ctx, w, filtered, metricSummary)
 }
 
 func (s *APIServer) fetchDeviceMetricSummary(ctx context.Context, devices []*models.UnifiedDevice) map[string]map[string]bool {
@@ -1941,8 +1958,8 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 				Device:       legacy,
 				AliasHistory: buildAliasHistory(unifiedDevice),
 			}
-			if caps, ok := deriveCollectorCapabilities(unifiedDevice); ok {
-				resp.CollectorCapabilities = toCollectorCapabilityResponse(caps)
+			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, unifiedDevice.DeviceID); ok {
+				resp.CollectorCapabilities = toCollectorCapabilityResponse(record)
 			}
 			if summary := s.fetchDeviceMetricSummary(ctx, []*models.UnifiedDevice{unifiedDevice}); summary != nil {
 				if metrics := summary[unifiedDevice.DeviceID]; len(metrics) > 0 {
@@ -1978,31 +1995,36 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	device, err := s.dbService.GetDeviceByID(ctx, deviceID)
-	if err != nil {
-		s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error fetching device")
-		writeError(w, "Device not found", http.StatusNotFound)
-
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-
 	var (
+		legacyDevice          *models.Device
 		aliasHistory          *DeviceAliasHistory
 		collectorCapabilities *CollectorCapabilityResponse
 	)
+
 	if s.deviceRegistry != nil {
 		if unified, err := s.deviceRegistry.GetDevice(ctx, deviceID); err == nil && unified != nil {
+			legacyDevice = unified.ToLegacyDevice()
 			aliasHistory = buildAliasHistory(unified)
-			if caps, ok := deriveCollectorCapabilities(unified); ok {
-				collectorCapabilities = toCollectorCapabilityResponse(caps)
+			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, unified.DeviceID); ok {
+				collectorCapabilities = toCollectorCapabilityResponse(record)
 			}
 		}
 	}
 
+	if legacyDevice == nil {
+		device, err := s.dbService.GetDeviceByID(ctx, deviceID)
+		if err != nil {
+			s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error fetching device")
+			writeError(w, "Device not found", http.StatusNotFound)
+			return
+		}
+		legacyDevice = device
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
 	response := deviceResponse{
-		Device:                device,
+		Device:                legacyDevice,
 		AliasHistory:          aliasHistory,
 		CollectorCapabilities: collectorCapabilities,
 	}
@@ -2041,9 +2063,11 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 	deviceID := vars["id"]
 
 	var (
-		deviceIP           string
-		collectorCaps      collectorCapabilities
-		collectorCapsKnown bool
+		deviceIP          string
+		hasCollectorHint  bool
+		hasCollectorKnown bool
+		supportsICMPHint  bool
+		supportsICMPKnown bool
 	)
 
 	queryValues := r.URL.Query()
@@ -2056,12 +2080,12 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if hasCollector, ok := parseBoolQuery(queryValues, "has_collector"); ok {
-		collectorCaps.hasCollector = hasCollector
-		collectorCapsKnown = true
+		hasCollectorHint = hasCollector
+		hasCollectorKnown = true
 	}
 	if supportsICMP, ok := parseBoolQuery(queryValues, "supports_icmp"); ok {
-		collectorCaps.supportsICMP = supportsICMP
-		collectorCapsKnown = true
+		supportsICMPHint = supportsICMP
+		supportsICMPKnown = true
 	}
 
 	// Set a timeout for the request
@@ -2073,6 +2097,21 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	if s.deviceRegistry != nil && (!hasCollectorKnown || !supportsICMPKnown) {
+		if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, deviceID); ok {
+			if !hasCollectorKnown {
+				hasCollectorHint = record != nil && len(record.Capabilities) > 0
+				hasCollectorKnown = true
+			}
+			if !supportsICMPKnown {
+				if resp := toCollectorCapabilityResponse(record); resp != nil {
+					supportsICMPHint = resp.SupportsICMP
+					supportsICMPKnown = true
+				}
+			}
+		}
 	}
 
 	// Check if database is configured
@@ -2121,7 +2160,7 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 
 		if len(timeseriesMetrics) == 0 {
 			shouldFallback := true
-			if collectorCapsKnown && (!collectorCaps.hasCollector || !collectorCaps.supportsICMP) {
+			if (hasCollectorKnown && !hasCollectorHint) || (supportsICMPKnown && !supportsICMPHint) {
 				shouldFallback = false
 				s.logger.Debug().
 					Str("device_id", deviceID).

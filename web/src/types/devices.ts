@@ -19,6 +19,11 @@ export interface CollectorCapabilities {
     supports_icmp?: boolean;
     supports_snmp?: boolean;
     supports_sysmon?: boolean;
+    capabilities?: string[];
+    agent_id?: string;
+    poller_id?: string;
+    service_name?: string;
+    last_seen?: string;
 }
 
 export interface Device {

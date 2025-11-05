@@ -46,6 +46,162 @@ func allowCanonicalizationQueries(mockDB *db.MockService) {
 		AnyTimes()
 }
 
+func strPtr(v string) *string {
+	return &v
+}
+
+func TestProcessBatchDeviceUpdatesUpdatesStore(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		Return(nil)
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
+
+	hostname := "device-one"
+	ts := time.Now().UTC()
+
+	update := &models.DeviceUpdate{
+		DeviceID:    "default:10.1.0.1",
+		IP:          "10.1.0.1",
+		PollerID:    "poller-1",
+		AgentID:     "agent-1",
+		Source:      models.DiscoverySourceSNMP,
+		Timestamp:   ts,
+		IsAvailable: true,
+		Hostname:    &hostname,
+		Metadata: map[string]string{
+			"device_type":        "router",
+			"integration_id":     "armis-42",
+			"collector_agent_id": "agent-collector",
+		},
+	}
+
+	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
+	require.NoError(t, err)
+
+	record, ok := registry.GetDeviceRecord("default:10.1.0.1")
+	require.True(t, ok)
+	require.NotNil(t, record)
+
+	assert.Equal(t, "10.1.0.1", record.IP)
+	assert.Equal(t, "poller-1", record.PollerID)
+	assert.Equal(t, "agent-1", record.AgentID)
+	assert.Equal(t, []string{"snmp"}, record.DiscoverySources)
+	assert.Equal(t, "router", record.DeviceType)
+	require.NotNil(t, record.Hostname)
+	assert.Equal(t, "device-one", *record.Hostname)
+	require.NotNil(t, record.IntegrationID)
+	assert.Equal(t, "armis-42", *record.IntegrationID)
+	require.NotNil(t, record.CollectorAgentID)
+	assert.Equal(t, "agent-collector", *record.CollectorAgentID)
+	assert.WithinDuration(t, ts, record.LastSeen, time.Second)
+}
+
+func TestProcessBatchDeviceUpdatesRemovesDeletedRecords(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		Return(nil).
+		Times(2)
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
+
+	initial := &DeviceRecord{
+		DeviceID: "default:10.1.0.2",
+		IP:       "10.1.0.2",
+	}
+	registry.UpsertDeviceRecord(initial)
+
+	update := &models.DeviceUpdate{
+		DeviceID:    "default:10.1.0.2",
+		IP:          "10.1.0.2",
+		Source:      models.DiscoverySourceMapper,
+		Timestamp:   time.Now().UTC(),
+		IsAvailable: false,
+	}
+	require.NoError(t, registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update}))
+
+	deleteUpdate := &models.DeviceUpdate{
+		DeviceID:  "default:10.1.0.2",
+		IP:        "10.1.0.2",
+		Timestamp: time.Now().UTC(),
+		Metadata: map[string]string{
+			"_deleted": "true",
+		},
+	}
+
+	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deleteUpdate})
+	require.NoError(t, err)
+
+	_, ok := registry.GetDeviceRecord("default:10.1.0.2")
+	assert.False(t, ok, "device should be removed from store after deletion update")
+}
+
+func TestSearchDevices(t *testing.T) {
+	reg := newTestDeviceRegistry()
+
+	now := time.Now().UTC()
+
+	reg.UpsertDeviceRecord(&DeviceRecord{
+		DeviceID:         "default:10.3.0.1",
+		IP:               "10.3.0.1",
+		Hostname:         strPtr("edge-gateway"),
+		DiscoverySources: []string{"snmp"},
+		LastSeen:         now,
+		FirstSeen:        now.Add(-10 * time.Minute),
+		Metadata: map[string]string{
+			"owner": "ops",
+		},
+	})
+
+	reg.UpsertDeviceRecord(&DeviceRecord{
+		DeviceID:         "default:10.3.0.2",
+		IP:               "10.3.0.2",
+		Hostname:         strPtr("core-router"),
+		DiscoverySources: []string{"mapper"},
+		LastSeen:         now.Add(-30 * time.Second),
+		FirstSeen:        now.Add(-1 * time.Hour),
+	})
+
+	reg.UpsertDeviceRecord(&DeviceRecord{
+		DeviceID:         "default:10.3.0.3",
+		IP:               "10.3.0.3",
+		Hostname:         strPtr("edge-switch"),
+		DiscoverySources: []string{"mapper"},
+		LastSeen:         now.Add(-10 * time.Second),
+		FirstSeen:        now.Add(-2 * time.Hour),
+	})
+
+ results := reg.SearchDevices("edge", 10)
+ require.Len(t, results, 2)
+ assert.Equal(t, "default:10.3.0.1", results[0].DeviceID)
+
+	results = reg.SearchDevices("10.3.0.", 1)
+	require.Len(t, results, 1)
+	assert.Equal(t, "default:10.3.0.1", results[0].DeviceID)
+
+	results = reg.SearchDevices("default:10.3.0.2", 5)
+	require.NotEmpty(t, results)
+	assert.Equal(t, "default:10.3.0.2", results[0].DeviceID, "exact device_id match should rank highest")
+
+	results = reg.SearchDevices("10.3.0.2", 5)
+	require.NotEmpty(t, results)
+	assert.Equal(t, "default:10.3.0.2", results[0].DeviceID, "exact IP match should outrank others")
+}
+
 func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
