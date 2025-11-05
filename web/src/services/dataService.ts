@@ -22,6 +22,32 @@ export interface ServiceLatencyBucket {
   responseTimeMs: number;
 }
 
+export interface CriticalLogSummary {
+  timestamp: string;
+  severity: string;
+  severity_text?: string;
+  service_name?: string;
+  body?: string;
+  trace_id?: string;
+  span_id?: string;
+}
+
+export interface SeverityWindowCounts {
+  total?: number;
+  fatal?: number;
+  error?: number;
+  warning?: number;
+  info?: number;
+  debug?: number;
+  other?: number;
+}
+
+export interface CriticalLogCounters {
+  updated_at?: string;
+  window_1h?: SeverityWindowCounts;
+  window_24h?: SeverityWindowCounts;
+}
+
 export interface AnalyticsData {
   // Device stats
   totalDevices: number;
@@ -43,7 +69,8 @@ export interface AnalyticsData {
   warningLogs: number;
   infoLogs: number;
   debugLogs: number;
-  recentErrorLogs: unknown[];
+  recentErrorLogs: CriticalLogSummary[];
+  criticalLogCounters: CriticalLogCounters | null;
 
   // Observability stats
   totalMetrics: number;
@@ -381,12 +408,63 @@ export class DataService {
     }
   }
 
+  private async requestJson<T>(path: string, token?: string): Promise<T> {
+    const response = await fetch(path, {
+      method: 'GET',
+      headers: this.buildHeaders(token),
+      cache: 'no-store'
+    });
+
+    if (!response.ok) {
+      let errorDetails = response.statusText;
+      try {
+        errorDetails = await response.text();
+      } catch {
+        // Ignore text parsing issues.
+      }
+      throw new Error(`Request failed (${response.status}): ${errorDetails}`);
+    }
+
+    try {
+      return (await response.json()) as T;
+    } catch (err) {
+      console.warn(`Failed to parse JSON response from ${path}`, err);
+      return {} as T;
+    }
+  }
+
   private async executeSrqlQuery<T>(query: string, token?: string): Promise<T[]> {
     const response = await this.requestSrql<T>(query, token);
     if (!Array.isArray(response.results)) {
       return [];
     }
     return response.results as T[];
+  }
+
+  private async fetchCriticalLogsDigest(
+    token?: string
+  ): Promise<{ logs: CriticalLogSummary[]; counters: CriticalLogCounters | null }> {
+    try {
+      const [logsRes, countersRes] = await Promise.all([
+        this.requestJson<{ logs?: CriticalLogSummary[] }>('/api/logs/critical?limit=50', token),
+        this.requestJson<{ counters?: CriticalLogCounters | null }>(
+          '/api/logs/critical/counters',
+          token
+        )
+      ]);
+
+      const rawLogs = Array.isArray(logsRes?.logs) ? logsRes.logs : [];
+      const logs = rawLogs.map((log) => ({
+        ...log,
+        severity_text: log.severity_text ?? log.severity
+      }));
+      const counters = countersRes?.counters ?? null;
+
+      return { logs, counters };
+    } catch (error) {
+      console.warn('Failed to fetch critical logs digest', error);
+      return { logs: [], counters: null };
+    }
   }
 
   private async fetchAllAnalyticsData(token?: string): Promise<AnalyticsData> {
@@ -415,19 +493,6 @@ export class DataService {
         query: `in:events severity:(Critical,High) time:[${last24HoursIso},] sort:event_timestamp:desc limit:50`,
         limit: 50
       },
-      { query: 'in:logs stats:"count() as total" sort:total:desc time:last_24h' },
-      { query: 'in:logs severity_text:fatal stats:"count() as total" sort:total:desc time:last_24h' },
-      { query: 'in:logs severity_text:error stats:"count() as total" sort:total:desc time:last_24h' },
-      {
-        query:
-          'in:logs severity_text:(warning,warn) stats:"count() as total" sort:total:desc time:last_24h'
-      },
-      { query: 'in:logs severity_text:info stats:"count() as total" sort:total:desc time:last_24h' },
-      { query: 'in:logs severity_text:debug stats:"count() as total" sort:total:desc time:last_24h' },
-      {
-        query: 'in:logs severity_text:(fatal,error) time:last_24h sort:timestamp:desc limit:50',
-        limit: 50
-      },
       { query: 'in:otel_metrics stats:"count() as total" sort:total:desc time:last_24h' },
       {
         query:
@@ -436,6 +501,8 @@ export class DataService {
       { query: `in:devices time:[${last7DaysIso},] sort:last_seen:desc limit:120`, limit: 120 },
       { query: 'in:services sort:timestamp:desc limit:150', limit: 150 }
     ];
+
+    const criticalLogsPromise = this.fetchCriticalLogsDigest(token);
 
     const results = await Promise.all(
       queryConfigs.map(({ query, limit }) =>
@@ -456,18 +523,20 @@ export class DataService {
       mediumEventsRes,
       lowEventsRes,
       recentCriticalEventsRes,
-      totalLogsRes,
-      fatalLogsRes,
-      errorLogsRes,
-      warningLogsRes,
-      infoLogsRes,
-      debugLogsRes,
-      recentErrorLogsRes,
       totalMetricsRes,
       traceAggregatesRes,
       devicesLatestRes,
       servicesLatestRes
     ] = results;
+
+    const { logs: criticalLogs, counters: criticalCounters } = await criticalLogsPromise;
+    const window24h = criticalCounters?.window_24h ?? {};
+    const totalLogs = window24h.total ?? 0;
+    const fatalLogs = window24h.fatal ?? 0;
+    const errorLogs = window24h.error ?? 0;
+    const warningLogs = window24h.warning ?? 0;
+    const infoLogs = window24h.info ?? 0;
+    const debugLogs = window24h.debug ?? 0;
 
     const servicesLatest = Array.isArray(servicesLatestRes?.results) ? servicesLatestRes.results : [];
     const {
@@ -483,12 +552,6 @@ export class DataService {
     const highEvents = this.extractTotal(highEventsRes);
     const mediumEvents = this.extractTotal(mediumEventsRes);
     const lowEvents = this.extractTotal(lowEventsRes);
-    const totalLogs = this.extractTotal(totalLogsRes);
-    const fatalLogs = this.extractTotal(fatalLogsRes);
-    const errorLogs = this.extractTotal(errorLogsRes);
-    const warningLogs = this.extractTotal(warningLogsRes);
-    const infoLogs = this.extractTotal(infoLogsRes);
-    const debugLogs = this.extractTotal(debugLogsRes);
     const totalMetrics = this.extractTotal(totalMetricsRes);
     const totalTraces = this.extractField(traceAggregatesRes, 'total');
     const slowTraces = this.extractField(traceAggregatesRes, 'slow_traces');
@@ -513,7 +576,8 @@ export class DataService {
       warningLogs,
       infoLogs,
       debugLogs,
-      recentErrorLogs: this.sliceResults(recentErrorLogsRes, 5),
+      recentErrorLogs: criticalLogs,
+      criticalLogCounters: criticalCounters ?? null,
       totalMetrics,
       totalTraces,
       slowTraces,
@@ -577,6 +641,7 @@ export class DataService {
       infoLogs: 0,
       debugLogs: 0,
       recentErrorLogs: [],
+      criticalLogCounters: null,
       totalMetrics: 0,
       totalTraces: 0,
       slowTraces: 0,

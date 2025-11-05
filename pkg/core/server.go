@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -64,6 +65,8 @@ const (
 	defaultSkipInterval               = 5 * time.Minute
 	defaultTimeout                    = 30 * time.Second
 	defaultFlushInterval              = 30 * time.Second
+	logDigestMaxEntries               = 100
+	logDigestBootstrapTimeout         = 30 * time.Second
 
 	snmpDiscoveryResultsServiceType = "snmp-discovery-results"
 	mapperDiscoveryServiceType      = "mapper_discovery"
@@ -204,9 +207,83 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 
 	server.initializeWebhooks(normalizedConfig.Webhooks)
 
+	useLogDigest := normalizedConfig.Features.UseLogDigest == nil || *normalizedConfig.Features.UseLogDigest
+	if useLogDigest {
+		digestStorePath := resolveLogDigestStorePath(normalizedConfig)
+		var digestStore LogDigestStore
+		if store, err := NewFileLogDigestStore(digestStorePath, log); err != nil {
+			log.Warn().Err(err).Str("path", digestStorePath).Msg("failed to initialize log digest store; attempting temp fallback")
+			fallbackPath := filepath.Join(os.TempDir(), "serviceradar", "log_digest_snapshot.json")
+			if fallbackStore, fallbackErr := NewFileLogDigestStore(fallbackPath, log); fallbackErr != nil {
+				log.Warn().Err(fallbackErr).Str("path", fallbackPath).Msg("failed to initialize fallback log digest store; persistence disabled")
+			} else {
+				digestStore = fallbackStore
+				digestStorePath = fallbackPath
+			}
+		} else {
+			digestStore = store
+		}
+
+		logDigest := NewLogDigestAggregator(logDigestMaxEntries, digestStore, log)
+		server.logDigest = logDigest
+
+		if restored, err := logDigest.RestoreFromStore(); err != nil {
+			log.Warn().Err(err).Msg("failed to restore critical log digest from disk")
+		} else if restored {
+			log.Info().Msg("critical log digest restored from persisted snapshot")
+		}
+
+		digestCtx, cancel := context.WithCancel(ctx)
+		server.logDigestCancel = cancel
+
+		go logDigest.RunStream(digestCtx, NewDBLogTailer(database, log))
+
+		source := NewDBLogDigestSource(database, log)
+		bootstrapCtx, bootstrapCancel := context.WithTimeout(digestCtx, logDigestBootstrapTimeout)
+		go func() {
+			defer bootstrapCancel()
+			if err := logDigest.HydrateFromSource(bootstrapCtx, source); err != nil {
+				switch {
+				case errors.Is(err, context.Canceled):
+					log.Debug().Msg("critical log digest bootstrap cancelled")
+				case errors.Is(err, context.DeadlineExceeded):
+					log.Info().Msg("critical log digest bootstrap from Proton timed out; continuing with streaming updates")
+				default:
+					log.Warn().Err(err).Msg("failed to hydrate critical log digest from Proton")
+					return
+				}
+			} else {
+				log.Info().Msg("critical log digest hydrated from Proton snapshot")
+			}
+		}()
+
+		if digestStore != nil {
+			go logDigest.StartPersistence(digestCtx, defaultLogDigestPersistenceInterval)
+		}
+	} else {
+		log.Info().Msg("critical log digest disabled via feature flag")
+	}
+
 	// MCP integration removed
 
 	return server, nil
+}
+
+func resolveLogDigestStorePath(cfg *models.CoreServiceConfig) string {
+	if stateDir := os.Getenv("SERVICERADAR_STATE_DIR"); stateDir != "" {
+		return filepath.Join(stateDir, "log_digest_snapshot.json")
+	}
+
+	if cfg != nil {
+		if cfg.DBPath != "" {
+			dir := filepath.Dir(getDBPath(cfg.DBPath))
+			if dir != "" && dir != "." {
+				return filepath.Join(dir, "log_digest_snapshot.json")
+			}
+		}
+	}
+
+	return filepath.Join(os.TempDir(), "serviceradar", "log_digest_snapshot.json")
 }
 
 func (s *Server) Start(ctx context.Context) error {
@@ -249,6 +326,10 @@ func (s *Server) Start(ctx context.Context) error {
 func (s *Server) Stop(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, shutdownTimeout)
 	defer cancel()
+
+	if s.logDigestCancel != nil {
+		s.logDigestCancel()
+	}
 
 	if err := s.sendShutdownNotification(ctx); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to send shutdown notification")
@@ -313,6 +394,15 @@ func (s *Server) GetSNMPManager() metricstore.SNMPManager {
 // GetDeviceRegistry returns the device registry manager.
 func (s *Server) GetDeviceRegistry() registry.Manager {
 	return s.DeviceRegistry
+}
+
+// LogDigest returns the critical log digest aggregator.
+func (s *Server) LogDigest() *LogDigestAggregator {
+	if s == nil {
+		return nil
+	}
+
+	return s.logDigest
 }
 
 // EdgeOnboardingService exposes the onboarding helper to other layers.

@@ -559,7 +559,7 @@ func (r *ServiceRegistry) IsKnownPoller(ctx context.Context, pollerID string) (b
 			  FINAL
 			  WHERE poller_id = '%s' AND status IN ('pending', 'active')`, escapeLiteral(pollerID))
 
-	var count int
+	var count uint64
 	row := r.db.Conn.QueryRow(ctx, query)
 	if err := row.Scan(&count); err != nil {
 		return false, fmt.Errorf("failed to check poller: %w", err)

@@ -50,6 +50,7 @@ type DB struct {
 	maxBufferSize int
 	flushInterval time.Duration
 	logger        logger.Logger
+	config        *models.CoreServiceConfig
 }
 
 // GetStreamingConnection returns the underlying proton connection for streaming queries
@@ -59,6 +60,50 @@ func (db *DB) GetStreamingConnection() (interface{}, error) {
 	}
 
 	return db.Conn, nil
+}
+
+// NewStreamingConn opens a dedicated Proton connection for streaming workloads.
+func (db *DB) NewStreamingConn() (proton.Conn, error) {
+	if db.config == nil {
+		return nil, ErrFailedOpenDB
+	}
+
+	tlsConfig, err := createDatabaseTLSConfig(db.config)
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := proton.Open(&proton.Options{
+		Addr: []string{db.config.DBAddr},
+		TLS:  tlsConfig,
+		Auth: proton.Auth{
+			Database: db.config.DBName,
+			Username: db.config.DBUser,
+			Password: db.config.DBPass,
+		},
+		Compression: &proton.Compression{
+			Method: proton.CompressionLZ4,
+		},
+		Settings: proton.Settings{
+			"max_execution_time":         0,
+			"max_memory_usage":           2000000000,
+			"max_insert_block_size":      100000,
+			"min_insert_block_size_rows": 1000,
+			"max_result_rows":            0,
+			"result_overflow_mode":       "break",
+			"max_rows_to_read":           0,
+			"stream_flush_interval_ms":   100,
+		},
+		DialTimeout:     10 * time.Second,
+		MaxOpenConns:    10,
+		MaxIdleConns:    2,
+		ConnMaxLifetime: 30 * time.Minute,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrFailedOpenDB, err)
+	}
+
+	return conn, nil
 }
 
 // createTLSConfig builds TLS configuration from security settings
@@ -205,9 +250,9 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 			"max_rows_to_read":           0,       // Disable read limit
 			"stream_flush_interval_ms":   100,     // Flush streaming results frequently
 		},
-		DialTimeout:     10 * time.Second,
-		MaxOpenConns:    30,
-		MaxIdleConns:    15,
+		DialTimeout:     20 * time.Second,
+		MaxOpenConns:    60,
+		MaxIdleConns:    30,
 		ConnMaxLifetime: time.Hour,
 	})
 	if err != nil {
@@ -264,6 +309,7 @@ func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.Co
 		maxBufferSize: maxBufferSize,
 		flushInterval: flushInterval,
 		logger:        log,
+		config:        config,
 	}
 
 	return db

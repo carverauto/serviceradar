@@ -159,6 +159,7 @@ type CoreServiceConfig struct {
 	KVEndpoints    []KVEndpoint          `json:"kv_endpoints,omitempty"`
 	SpireAdmin     *SpireAdminConfig     `json:"spire_admin,omitempty"`
 	EdgeOnboarding *EdgeOnboardingConfig `json:"edge_onboarding,omitempty"`
+	Features       FeatureFlags          `json:"features,omitempty"`
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint and its JetStream domain.
@@ -191,6 +192,11 @@ type EdgeOnboardingConfig struct {
 	JoinTokenTTL           Duration                     `json:"join_token_ttl,omitempty"`
 	DownloadTokenTTL       Duration                     `json:"download_token_ttl,omitempty"`
 	PollerIDPrefix         string                       `json:"poller_id_prefix,omitempty"`
+}
+
+// FeatureFlags captures optional feature toggles for the core service.
+type FeatureFlags struct {
+	UseLogDigest *bool `json:"use_log_digest,omitempty"`
 }
 
 func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {

@@ -300,6 +300,13 @@ func WithServiceRegistry(sr ServiceRegistryService) func(server *APIServer) {
 	}
 }
 
+// WithLogDigest wires the log digest cache into the API server.
+func WithLogDigest(ld LogDigestService) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.logDigest = ld
+	}
+}
+
 func WithLogger(log logger.Logger) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.logger = log
@@ -781,6 +788,8 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/devices/{id}/metrics", s.getDeviceMetrics).Methods("GET")
 	protected.HandleFunc("/devices/metrics/status", s.getDeviceMetricsStatus).Methods("GET")
 	protected.HandleFunc("/devices/snmp/status", s.getDeviceSNMPStatus).Methods("POST")
+	protected.HandleFunc("/logs/critical", s.handleCriticalLogs).Methods("GET")
+	protected.HandleFunc("/logs/critical/counters", s.handleCriticalLogCounters).Methods("GET")
 
 	// Store reference to protected router for MCP routes
 	s.protectedRouter = protected
@@ -1563,6 +1572,43 @@ func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "Service not found", http.StatusNotFound)
+}
+
+func (s *APIServer) handleCriticalLogs(w http.ResponseWriter, r *http.Request) {
+	if s.logDigest == nil {
+		writeError(w, "critical log digest unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	response := struct {
+		Logs []models.LogSummary `json:"logs"`
+	}{
+		Logs: s.logDigest.Latest(limit),
+	}
+
+	s.writeJSON(w, http.StatusOK, response)
+}
+
+func (s *APIServer) handleCriticalLogCounters(w http.ResponseWriter, r *http.Request) {
+	if s.logDigest == nil {
+		writeError(w, "critical log digest unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	response := struct {
+		Counters *models.LogCounters `json:"counters"`
+	}{
+		Counters: s.logDigest.Counters(),
+	}
+
+	s.writeJSON(w, http.StatusOK, response)
 }
 
 const (

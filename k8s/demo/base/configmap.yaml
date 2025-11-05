@@ -105,6 +105,9 @@ data:
         "retention": 100,
         "max_nodes": 10000
       },
+      "features": {
+        "use_log_digest": true
+      },
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",

@@ -18,6 +18,7 @@
 package core
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -91,6 +92,8 @@ type Server struct {
 	logger                  logger.Logger
 	tracer                  trace.Tracer
 	canonicalCache          *canonicalCache
+	logDigest               *LogDigestAggregator
+	logDigestCancel         context.CancelFunc
 }
 
 // OIDStatusData represents the structure of OID status data.

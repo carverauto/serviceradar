@@ -107,7 +107,34 @@ async function fetchDeviceServiceData(
             };
         }
         
-        return { 
+        if (serviceName.toLowerCase() === "registry") {
+            const registryInfo = await fetchFromAPI(
+                `/devices/${deviceId}/registry`,
+                token
+            );
+
+            if (!registryInfo) {
+                return {
+                    deviceId,
+                    serviceName,
+                    timeRange,
+                    data: null,
+                    error: "Registry information is not available for this device",
+                    type: "registry",
+                };
+            }
+
+            return {
+                deviceId,
+                serviceName,
+                timeRange,
+                data: registryInfo,
+                error: null,
+                type: "registry",
+            };
+        }
+
+        return {
             deviceId, 
             serviceName, 
             timeRange,
@@ -176,7 +203,7 @@ export default async function Page(props: PageProps) {
                     <DeviceServiceDashboard
                         deviceId={deviceid}
                         serviceName={servicename}
-                        initialData={Array.isArray(initialData.data) ? initialData.data : []}
+                        initialData={initialData.data}
                         initialError={initialData.error}
                         initialTimeRange={initialData.timeRange}
                     />

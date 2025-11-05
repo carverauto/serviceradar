@@ -129,6 +129,9 @@ func Run(ctx context.Context, opts Options) error {
 		api.WithLogger(mainLogger),
 		api.WithEventPublisher(server.EventPublisher()),
 	}
+	if digest := server.LogDigest(); digest != nil {
+		allOptions = append(allOptions, api.WithLogDigest(digest))
+	}
 	if cfg.Auth != nil {
 		allOptions = append(allOptions, api.WithRBACConfig(&cfg.Auth.RBAC))
 	}
