@@ -487,25 +487,82 @@ func (r *DeviceRegistry) resolveMACs(ctx context.Context, macs []string, out map
 
 // resolveIPsToCanonical maps IPs to canonical device_ids where the device has a strong identity
 func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string, out map[string]string) error {
+	if len(ips) == 0 {
+		return nil
+	}
+
+	unresolved := make(map[string]struct{}, len(ips))
+	for _, raw := range ips {
+		ip := strings.TrimSpace(raw)
+		if ip == "" {
+			continue
+		}
+		if out != nil {
+			if _, exists := out[ip]; exists {
+				continue
+			}
+		}
+		unresolved[ip] = struct{}{}
+	}
+
+	if len(unresolved) == 0 {
+		return nil
+	}
+
+	var kvErr error
+	if r.identityResolver != nil {
+		candidates := make([]string, 0, len(unresolved))
+		for ip := range unresolved {
+			candidates = append(candidates, ip)
+		}
+
+		resolved, err := r.identityResolver.resolveCanonicalIPs(ctx, candidates)
+		if err != nil {
+			kvErr = err
+		}
+		for ip, deviceID := range resolved {
+			ip = strings.TrimSpace(ip)
+			deviceID = strings.TrimSpace(deviceID)
+			if ip == "" || deviceID == "" {
+				continue
+			}
+			if out != nil {
+				if _, exists := out[ip]; !exists {
+					out[ip] = deviceID
+				}
+			}
+			delete(unresolved, ip)
+		}
+	}
+
+	if len(unresolved) == 0 {
+		return kvErr
+	}
+
+	fallbackIPs := make([]string, 0, len(unresolved))
+	for ip := range unresolved {
+		fallbackIPs = append(fallbackIPs, ip)
+	}
+
 	buildQuery := func(list string) string {
 		return fmt.Sprintf(`SELECT
-                arg_max(device_id, _tp_time) AS device_id,
                 ip,
-                max(_tp_time) AS _tp_time
+                arg_max(device_id, _tp_time) AS device_id
               FROM table(unified_devices)
               WHERE ip IN (%s)
                 AND (has(map_keys(metadata),'armis_device_id')
                      OR (has(map_keys(metadata),'integration_type') AND metadata['integration_type']='%s')
                      OR (mac IS NOT NULL AND mac != ''))
-              GROUP BY ip
-              ORDER BY _tp_time DESC`, list, integrationTypeNetbox)
+              GROUP BY ip`, list, integrationTypeNetbox)
 	}
 	extract := func(row map[string]any) (string, string) {
 		ip, _ := row["ip"].(string)
 		dev, _ := row["device_id"].(string)
 		return ip, dev
 	}
-	return r.resolveIdentifiers(ctx, ips, out, buildQuery, extract)
+
+	fallbackErr := r.resolveIdentifiers(ctx, fallbackIPs, out, buildQuery, extract)
+	return errors.Join(kvErr, fallbackErr)
 }
 
 func (r *DeviceRegistry) lookupCanonicalFromMaps(u *models.DeviceUpdate, maps *identityMaps) (string, string) {

@@ -84,3 +84,32 @@ func TestIdentityResolverHydratesCanonicalDeviceID(t *testing.T) {
 	require.NotNil(t, update.MAC)
 	require.Equal(t, "AA:BB:CC:DD:EE:FF", *update.MAC)
 }
+
+func TestIdentityResolverResolveCanonicalIPs(t *testing.T) {
+	record := &identitymap.Record{
+		CanonicalDeviceID: "default:canonical-ip",
+	}
+	payload, err := identitymap.MarshalRecord(record)
+	require.NoError(t, err)
+
+	key := identitymap.Key{Kind: identitymap.KindIP, Value: "10.0.0.10"}.KeyPath(identitymap.DefaultNamespace)
+	kv := &fakeBatchGetter{
+		results: map[string]*proto.BatchGetEntry{
+			key: {
+				Key:   key,
+				Found: true,
+				Value: payload,
+			},
+		},
+	}
+
+	resolver := &identityResolver{
+		kv:        kv,
+		namespace: identitymap.DefaultNamespace,
+		logger:    logger.NewTestLogger(),
+	}
+
+	resolved, err := resolver.resolveCanonicalIPs(context.Background(), []string{" 10.0.0.10 ", "10.0.0.10"})
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"10.0.0.10": "default:canonical-ip"}, resolved)
+}

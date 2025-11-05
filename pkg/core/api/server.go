@@ -2045,20 +2045,23 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 		collectorCaps      collectorCapabilities
 		collectorCapsKnown bool
 	)
-	if s.deviceRegistry != nil {
-		if ud, err := s.deviceRegistry.GetDevice(r.Context(), deviceID); err == nil && ud != nil {
-			deviceIP = ud.IP
 
-			if caps, ok := deriveCollectorCapabilities(ud); ok {
-				collectorCaps = caps
-				collectorCapsKnown = true
-			}
-		} else if err != nil {
-			s.logger.Debug().
-				Err(err).
-				Str("device_id", deviceID).
-				Msg("Device registry lookup failed while inferring collector capabilities")
+	queryValues := r.URL.Query()
+	if ipParam := strings.TrimSpace(queryValues.Get("device_ip")); ipParam != "" {
+		deviceIP = ipParam
+	} else {
+		if _, ip := splitDeviceID(deviceID); ip != "" {
+			deviceIP = ip
 		}
+	}
+
+	if hasCollector, ok := parseBoolQuery(queryValues, "has_collector"); ok {
+		collectorCaps.hasCollector = hasCollector
+		collectorCapsKnown = true
+	}
+	if supportsICMP, ok := parseBoolQuery(queryValues, "supports_icmp"); ok {
+		collectorCaps.supportsICMP = supportsICMP
+		collectorCapsKnown = true
 	}
 
 	// Set a timeout for the request
@@ -2247,6 +2250,42 @@ func buildAliasHistory(device *models.UnifiedDevice) *DeviceAliasHistory {
 	}
 
 	return &history
+}
+
+func parseBoolQuery(values url.Values, key string) (bool, bool) {
+	raw := strings.TrimSpace(values.Get(key))
+	if raw == "" {
+		return false, false
+	}
+
+	switch strings.ToLower(raw) {
+	case "1", "true", "t", "yes", "y":
+		return true, true
+	case "0", "false", "f", "no", "n":
+		return false, true
+	default:
+		return false, true
+	}
+}
+
+func splitDeviceID(deviceID string) (string, string) {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return "", ""
+	}
+
+	parts := strings.SplitN(deviceID, ":", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+
+	partition := strings.TrimSpace(parts[0])
+	ip := strings.TrimSpace(parts[1])
+	if ip == "" || net.ParseIP(ip) == nil {
+		ip = ""
+	}
+
+	return partition, ip
 }
 
 // getFieldValue extracts the value from a DiscoveredField, returning nil if the field is nil
