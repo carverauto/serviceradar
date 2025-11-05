@@ -282,15 +282,17 @@ func (db *DB) queryUnifiedDeviceBatch(ctx context.Context, deviceIDs, ips []stri
 		return nil, errNoDeviceFilters
 	}
 
-	buildQuery := func(column string, values []string) (string, []interface{}) {
+	buildQuery := func(column string, values []string) string {
 		placeholders := make([]string, len(values))
-		args := make([]interface{}, len(values))
 		for i, value := range values {
-			placeholders[i] = fmt.Sprintf("$%d", i+1)
-			args[i] = value
+			placeholders[i] = fmt.Sprintf("'%s'", escapeLiteral(value))
 		}
 
-		query := fmt.Sprintf(`SELECT
+		// Use CTE to filter first, then aggregate to avoid "aggregate in WHERE" error
+		// Using literal strings instead of parameterized queries to work around Proton limitations
+		query := fmt.Sprintf(`
+WITH filtered AS (
+    SELECT
         device_id,
         ip,
         poller_id,
@@ -307,13 +309,34 @@ func (db *DB) queryUnifiedDeviceBatch(ctx context.Context, deviceIDs, ips []stri
         service_status,
         last_heartbeat,
         os_info,
-        version_info
+        version_info,
+        _tp_time
     FROM table(unified_devices)
     WHERE %s IN (%s)
-    ORDER BY device_id, _tp_time DESC
-    LIMIT 1 BY device_id`, column, strings.Join(placeholders, ","))
+)
+SELECT
+    device_id,
+    ip,
+    poller_id,
+    hostname,
+    mac,
+    discovery_sources,
+    is_available,
+    first_seen,
+    last_seen,
+    metadata,
+    agent_id,
+    device_type,
+    service_type,
+    service_status,
+    last_heartbeat,
+    os_info,
+    version_info
+FROM filtered
+ORDER BY device_id, _tp_time DESC
+LIMIT 1 BY device_id`, column, strings.Join(placeholders, ","))
 
-		return query, args
+		return query
 	}
 
 	var devices []*models.UnifiedDevice
@@ -323,9 +346,9 @@ func (db *DB) queryUnifiedDeviceBatch(ctx context.Context, deviceIDs, ips []stri
 			return nil
 		}
 
-		query, args := buildQuery(column, values)
+		query := buildQuery(column, values)
 
-		rows, err := db.Conn.Query(ctx, query, args...)
+		rows, err := db.Conn.Query(ctx, query)
 		if err != nil {
 			return fmt.Errorf("failed to query unified devices by %s: %w", column, err)
 		}
@@ -396,14 +419,6 @@ func dedupeStrings(values []string) []string {
 	}
 
 	return result
-}
-
-func buildWithClause(clauses []string) string {
-	if len(clauses) == 0 {
-		return ""
-	}
-
-	return fmt.Sprintf("WITH %s ", strings.Join(clauses, ", "))
 }
 
 func joinValueTuples(values []string) string {
