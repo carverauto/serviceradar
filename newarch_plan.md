@@ -1,5 +1,8 @@
 # ServiceRadar Architecture Refactor Plan
 
+**Tracking Issue:** [#1924](https://github.com/carverauto/serviceradar/issues/1924)
+**Related:** [#1921](https://github.com/carverauto/serviceradar/issues/1921) (Tactical CTE query fix)
+
 ## Executive Summary
 
 ServiceRadar's current architecture treats Proton (a stream processing database) as the primary source of truth for device state, causing severe performance issues. This document outlines a comprehensive refactor to establish a proper layered architecture where Proton serves as an OLAP warehouse for time-series analytics, while device state lives in purpose-built caches and indexes.
