@@ -133,6 +133,21 @@ Run these checks after flipping `require_device_registry` or deploying new core 
    ```
    Expect `engine":"registry"` / `engine_reason":"query_supported"` and latency in the low ms.
 
+### Proton vs Registry Query Guidance
+
+- Treat `/api/devices/search` as the front door for inventory queries. The planner decides whether the in-memory registry or SRQL should execute the request and always includes `engine` + `engine_reason` diagnostics so you can verify the path that ran.
+- The web proxy at `/api/query` now runs the same planner first. Registry-capable queries (for example `in:devices status:online search:"core"`) return cached registry results; analytics-grade SRQL still flows through when the planner reports `engine:"srql"`.
+- Prefer the registry for hot-path lookups. Use the quick-reference table below when choosing a data source.
+
+| Question | Endpoint / Engine |
+|----------|-------------------|
+| Does device `X` exist? | `/api/devices/search` → `engine:"registry"` |
+| How many devices have ICMP today? | `/api/stats` (registry snapshot) |
+| Search devices matching `foo` | `/api/devices/search` with `filters.search=foo` |
+| ICMP RTT for last 7d / historical analytics | Direct SRQL (`/api/query` with `mode:"srql_only"` if needed) |
+- Force SRQL only when you truly need OLAP features: pass `"mode":"srql_only"` in the planner request or visit the SRQL service directly. Registry fallbacks (`engine_reason:"query_not_supported"`) usually mean the query contains aggregates, joins, or metadata fan-out that we have not cached yet.
+- When debugging unexpected SRQL load, inspect `/api/devices/search` diagnostics (`engine_reason`, `unsupported_tokens`) and confirm feature flags stay enabled (`features.use_device_search_planner` server side, `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER` in the web deployment).
+
 ## Proton Reset (PVC Rotation)
 
 If the telemetry tables balloon again, it is faster to rotate Proton’s volume than to hand-truncate every dependent stream. The helper script below scales Proton down, recreates the PVC, brings Proton back online, and restarts core so it can rebuild the schema from scratch:
