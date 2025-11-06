@@ -62,6 +62,10 @@ func TestHydrateFromStoreLoadsDevices(t *testing.T) {
 		Return(batch, nil)
 
 	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any()).
+		Return([]map[string]any{}, nil)
+
+	mockDB.EXPECT().
 		CountUnifiedDevices(gomock.Any()).
 		Return(int64(len(batch)), nil)
 

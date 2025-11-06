@@ -26,6 +26,20 @@ export interface CollectorCapabilities {
     last_seen?: string;
 }
 
+export interface CapabilitySnapshot {
+    capability: string;
+    service_id?: string;
+    service_type?: string;
+    state?: string;
+    enabled?: boolean;
+    last_checked?: string;
+    last_success?: string;
+    last_failure?: string;
+    failure_reason?: string;
+    metadata?: Record<string, unknown>;
+    recorded_by?: string;
+}
+
 export interface Device {
     _tp_time: string;
     agent_id: string;
@@ -43,6 +57,7 @@ export interface Device {
     alias_history?: DeviceAliasHistory;
     collector_capabilities?: CollectorCapabilities;
     metrics_summary?: Record<string, boolean>;
+    capability_snapshots?: CapabilitySnapshot[];
 }
 export interface Pagination {
     next_cursor?: string;

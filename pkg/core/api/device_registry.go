@@ -18,6 +18,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/registry"
 )
 
 // DeviceRegistryInfo represents service registry information for a device.
@@ -109,11 +111,11 @@ func (s *APIServer) getDeviceRegistryInfo(w http.ResponseWriter, r *http.Request
 			info.ParentID = agent.PollerID
 			info.ComponentID = agent.ComponentID
 
-	case componentTypeChecker:
-		checker, err := s.serviceRegistry.GetChecker(ctx, deviceID)
-		if err != nil {
-			s.logger.Debug().Err(err).Str("device_id", deviceID).Msg("Checker not found in service registry")
-			writeError(w, "Checker not found in service registry", http.StatusNotFound)
+		case componentTypeChecker:
+			checker, err := s.serviceRegistry.GetChecker(ctx, deviceID)
+			if err != nil {
+				s.logger.Debug().Err(err).Str("device_id", deviceID).Msg("Checker not found in service registry")
+				writeError(w, "Checker not found in service registry", http.StatusNotFound)
 				return
 			}
 
@@ -167,6 +169,12 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.requireDeviceRegistry && s.deviceRegistry == nil {
+		s.logger.Error().Str("device_id", deviceID).Msg("Device registry enforcement enabled but registry service not configured")
+		writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
 	now := time.Now().UTC()
 	ctx := r.Context()
 	partition := partitionFromDeviceID(deviceID)
@@ -194,7 +202,11 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 		deletedBy = user.Email
 	}
 
-	if existing, err := s.dbService.GetUnifiedDevice(ctx, deviceID); err == nil {
+	populateFromUnified := func(existing *models.UnifiedDevice) {
+		if existing == nil {
+			return
+		}
+
 		update.IP = existing.IP
 		if partition == "" {
 			partition = partitionFromDeviceID(existing.DeviceID)
@@ -217,7 +229,7 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 			if canonicalID, ok := existing.Metadata.Value["canonical_device_id"]; ok && canonicalID != "" {
 				update.Metadata["canonical_device_id"] = canonicalID
 			}
-			if revision, ok := existing.Metadata.Value["canonical_revision"]; ok {
+			if revision, ok := existing.Metadata.Value["canonical_revision"]; ok && revision != "" {
 				update.Metadata["_previous_revision"] = revision
 			}
 			for _, key := range []string{"armis_device_id", "integration_id", "integration_type", "netbox_device_id"} {
@@ -226,6 +238,33 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+	}
+
+	var unified *models.UnifiedDevice
+	if s.deviceRegistry != nil {
+		device, err := s.deviceRegistry.GetDevice(ctx, deviceID)
+		if err == nil {
+			unified = device
+		} else if errors.Is(err, registry.ErrDeviceNotFound) {
+			writeError(w, "Device not found", http.StatusNotFound)
+			return
+		} else {
+			if s.requireDeviceRegistry {
+				s.logger.Error().
+					Err(err).
+					Str("device_id", deviceID).
+					Msg("Device registry lookup failed and Proton fallback disabled; aborting delete")
+				writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			s.logger.Warn().Err(err).Str("device_id", deviceID).Msg("Failed to load device from registry before tombstone; falling back to Proton")
+		}
+	}
+
+	if unified != nil {
+		populateFromUnified(unified)
+	} else if existing, err := s.dbService.GetUnifiedDevice(ctx, deviceID); err == nil {
+		populateFromUnified(existing)
 	} else {
 		s.logger.Warn().Err(err).Str("device_id", deviceID).Msg("Failed to fetch existing device before tombstone")
 	}
@@ -242,7 +281,6 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 	if dr, ok := s.deviceRegistry.(localRegistryDeleter); ok {
 		dr.DeleteDeviceRecord(deviceID)
 	}
-
 
 	s.logger.Info().
 		Str("device_id", deviceID).

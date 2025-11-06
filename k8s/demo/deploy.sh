@@ -201,7 +201,8 @@ data:
       },
       "features": {
         "use_log_digest": true,
-        "use_device_search_planner": true
+        "use_device_search_planner": true,
+        "require_device_registry": true
       },
       "security": {
         "mode": "mtls",

@@ -43,6 +43,12 @@ type Manager interface {
 	// GetCollectorCapabilities returns the capability record for a device, if present.
 	GetCollectorCapabilities(ctx context.Context, deviceID string) (*models.CollectorCapability, bool)
 
+	// SetDeviceCapabilitySnapshot records a capability snapshot in the capability matrix.
+	SetDeviceCapabilitySnapshot(ctx context.Context, snapshot *models.DeviceCapabilitySnapshot)
+
+	// ListDeviceCapabilitySnapshots returns all capability snapshots tracked for the device.
+	ListDeviceCapabilitySnapshots(ctx context.Context, deviceID string) []*models.DeviceCapabilitySnapshot
+
 	// HasDeviceCapability reports whether a device currently exposes the provided capability.
 	HasDeviceCapability(ctx context.Context, deviceID, capability string) bool
 

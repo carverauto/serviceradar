@@ -48,6 +48,11 @@ func TestNewDiscoveryService(t *testing.T) {
 
 	mockDB := db.NewMockService(ctrl)
 	mockRegistry := registry.NewMockManager(ctrl)
+
+	mockRegistry.EXPECT().
+		SetDeviceCapabilitySnapshot(gomock.Any(), gomock.AssignableToTypeOf(&models.DeviceCapabilitySnapshot{})).
+		AnyTimes()
+
 	testLogger := logger.NewTestLogger()
 
 	svc := NewDiscoveryService(mockDB, mockRegistry, testLogger)
@@ -145,6 +150,10 @@ func TestProcessSyncResults(t *testing.T) {
 			mockRegistry := registry.NewMockManager(ctrl)
 			testLogger := logger.NewTestLogger()
 
+			mockRegistry.EXPECT().
+				SetDeviceCapabilitySnapshot(gomock.Any(), gomock.AssignableToTypeOf(&models.DeviceCapabilitySnapshot{})).
+				AnyTimes()
+
 			if tt.setupMocks != nil {
 				tt.setupMocks(mockDB, mockRegistry)
 			}
@@ -221,6 +230,10 @@ func TestProcessSyncResults_StreamChunking(t *testing.T) {
 	mockDB := db.NewMockService(ctrl)
 	mockRegistry := registry.NewMockManager(ctrl)
 	testLogger := logger.NewTestLogger()
+
+	mockRegistry.EXPECT().
+		SetDeviceCapabilitySnapshot(gomock.Any(), gomock.AssignableToTypeOf(&models.DeviceCapabilitySnapshot{})).
+		AnyTimes()
 
 	total := syncDeviceChunkSize*2 + 123
 	details := getSyncTestPayload(t, total)
@@ -416,6 +429,10 @@ func TestProcessSNMPDiscoveryResults(t *testing.T) {
 			mockDB := db.NewMockService(ctrl)
 			mockRegistry := registry.NewMockManager(ctrl)
 			testLogger := logger.NewTestLogger()
+
+			mockRegistry.EXPECT().
+				SetDeviceCapabilitySnapshot(gomock.Any(), gomock.AssignableToTypeOf(&models.DeviceCapabilitySnapshot{})).
+				AnyTimes()
 
 			if tt.setupMocks != nil {
 				tt.setupMocks(mockDB, mockRegistry)

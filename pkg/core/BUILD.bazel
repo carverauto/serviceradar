@@ -8,6 +8,7 @@ go_library(
         "config.go",
         "alias_events.go",
         "capabilities.go",
+        "capability_metrics.go",
         "devices.go",
         "discovery.go",
         "edge_onboarding.go",

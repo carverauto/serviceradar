@@ -70,9 +70,68 @@ Once the sync pod reports “Completed streaming results”, the canonical table
 ## Monitoring Non-Canonical Sweep Data
 
 - The core stats aggregator now publishes OTEL gauges under `serviceradar.core.device_stats` (`core_device_stats_skipped_non_canonical`, `core_device_stats_raw_records`, etc.). Point your collector at those gauges to alert when `skipped_non_canonical` climbs above zero.
+- Collector capability writes now increment the OTEL counter `serviceradar_core_capability_events_total`. Alert on drops in `sum(rate(serviceradar_core_capability_events_total[5m]))` to make sure pollers continue reporting, and break the series down by the `capability`, `service_type`, and `recorded_by` labels when investigating gaps.
 - Webhook integrations receive a `Non-canonical devices filtered from stats` warning the moment the skip counter increases. The payload includes `raw_records`, `processed_records`, the total filtered count, and the timestamp of the snapshot that triggered the alert.
 - The analytics dashboard’s “Total Devices” card now shows the raw/processed breakdown plus a yellow callout whenever any skips occur. When investigating, open the browser console and inspect `window.__SERVICERADAR_DEVICE_COUNTER_DEBUG__` to review the last 25 `/api/stats` samples and headers.
 - For ad-hoc validation, hit `/api/stats` directly; the `X-Serviceradar-Stats-*` headers mirror the numbers the alert uses (`X-Serviceradar-Stats-Skipped-Non-Canonical`, `X-Serviceradar-Stats-Skipped-Service-Components`, etc.).
+
+## Device Registry Feature Flags
+
+- Set `features.require_device_registry` (in `serviceradar-config` → `core.json`) to `true` once the registry/search stack is stable. It blocks `/api/devices` and `/api/devices/{id}` from falling back to Proton so hot-path reads stay in-memory. Flip it back to `false` only if you need the legacy Proton endpoints during an incident.
+- Keep `features.use_device_search_planner` enabled alongside the web flag `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER` so inventory traffic routes through the planner instead of hitting Proton directly.
+
+### Post-Rollout Verification (demo)
+
+Run these checks after flipping `require_device_registry` or deploying new core images:
+
+1. **Registry hydration**  
+   ```bash
+   kubectl logs deployment/serviceradar-core -n demo --tail=100 | \
+     rg "Device registry hydrated"
+   ```
+   Expect a log line with `device_count` matching Proton (`~50k` in demo).
+
+2. **Auth + API sanity**  
+   ```bash
+   API_KEY=$(kubectl get secret serviceradar-secrets -n demo \
+     -o jsonpath='{.data.api-key}' | base64 -d)
+   ADMIN_PW=$(kubectl get secret serviceradar-secrets -n demo \
+     -o jsonpath='{.data.admin-password}' | base64 -d)
+
+   # login to obtain a token
+   TOKEN=$(kubectl run login-smoke --rm -i --restart=Never -n demo \
+     --image=curlimages/curl:8.9.1 -- \
+     curl -sS -H "Content-Type: application/json" \
+       -H "X-API-Key: ${API_KEY}" \
+       -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PW}\"}" \
+       http://serviceradar-core:8090/auth/login | jq -r '.access_token')
+
+   # fetch a device (should succeed with registry data)
+   kubectl run devices-smoke --rm -i --restart=Never -n demo \
+     --image=curlimages/curl:8.9.1 -- \
+     curl -sS -H "Authorization: Bearer ${TOKEN}" \
+       "http://serviceradar-core:8090/api/devices?limit=1"
+   ```
+
+3. **Stats headers**  
+   ```bash
+   kubectl run stats-smoke --rm -i --restart=Never -n demo \
+     --image=curlimages/curl:8.9.1 -- \
+     curl -sS -D - -H "Authorization: Bearer ${TOKEN}" \
+       http://serviceradar-core:8090/api/stats | head
+   ```
+   Confirm `X-Serviceradar-Stats-Skipped-Non-Canonical: 0` and processed/raw counts are ~50k.
+
+4. **Planner diagnostics**  
+   ```bash
+   kubectl run planner-smoke --rm -i --restart=Never -n demo \
+     --image=curlimages/curl:8.9.1 -- \
+     curl -sS -H "Authorization: Bearer ${TOKEN}" \
+       -H "Content-Type: application/json" \
+       -d '{"query":"in:devices","filters":{"search":"k8s"},"pagination":{"limit":5}}' \
+       http://serviceradar-core:8090/api/devices/search | jq '.diagnostics'
+   ```
+   Expect `engine":"registry"` / `engine_reason":"query_supported"` and latency in the low ms.
 
 ## Proton Reset (PVC Rotation)
 

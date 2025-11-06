@@ -212,6 +212,7 @@ func (s *Server) processSNMPDeviceUpdates(
 	agentID, pollerID, partition string,
 	timestamp time.Time) error {
 	var deviceUpdates []*models.DeviceUpdate
+	statusByDeviceID := make(map[string]*snmp.TargetStatus, len(targetStatusMap))
 
 	for targetName, targetData := range targetStatusMap {
 		deviceIP := targetData.HostIP
@@ -232,6 +233,7 @@ func (s *Server) processSNMPDeviceUpdates(
 			agentID, pollerID, partition, deviceIP, deviceHostname, timestamp, targetData.Available)
 		if deviceUpdate != nil {
 			deviceUpdates = append(deviceUpdates, deviceUpdate)
+			statusByDeviceID[deviceUpdate.DeviceID] = targetData
 		}
 	}
 
@@ -245,6 +247,49 @@ func (s *Server) processSNMPDeviceUpdates(
 				continue
 			}
 			s.upsertCollectorCapabilities(ctx, update.DeviceID, []string{"snmp"}, agentID, pollerID, "snmp", timestamp)
+
+			status := statusByDeviceID[update.DeviceID]
+			metadata := map[string]any{
+				"agent_id":  agentID,
+				"poller_id": pollerID,
+				"partition": partition,
+			}
+			if update.IP != "" {
+				metadata["target_ip"] = update.IP
+			}
+			if update.Hostname != nil && *update.Hostname != "" {
+				metadata["target_hostname"] = *update.Hostname
+			}
+			if status != nil {
+				if !status.LastPoll.IsZero() {
+					metadata["last_poll"] = status.LastPoll.UTC()
+				}
+				if status.Error != "" {
+					metadata["error"] = status.Error
+				}
+			}
+
+			failureReason := ""
+			if !update.IsAvailable {
+				if status != nil && status.Error != "" {
+					failureReason = status.Error
+				} else {
+					failureReason = "snmp target unavailable"
+				}
+			}
+
+			s.recordCapabilityEvent(ctx, &capabilityEventInput{
+				DeviceID:      update.DeviceID,
+				Capability:    "snmp",
+				ServiceID:     agentID,
+				ServiceType:   "snmp",
+				RecordedBy:    pollerID,
+				Enabled:       true,
+				Success:       update.IsAvailable,
+				CheckedAt:     update.Timestamp,
+				FailureReason: failureReason,
+				Metadata:      metadata,
+			})
 		}
 
 		s.logger.Info().
@@ -677,6 +722,50 @@ func (s *Server) processICMPMetrics(
 
 		s.upsertCollectorCapabilities(ctx, deviceID, []string{"icmp"}, agentID, pollerID, svc.ServiceName, now)
 
+		eventMetadata := map[string]any{
+			"collector_ip":      sourceIP,
+			"response_time_ms":  pingResult.ResponseTime,
+			"packet_loss":       pingResult.PacketLoss,
+			"available":         pingResult.Available,
+			"partition":         partition,
+			"host_device_id":    hostDeviceID,
+			"host_last_seen_ip": updateIP,
+		}
+		if agentID != "" {
+			eventMetadata["agent_id"] = agentID
+		}
+		if pollerID != "" {
+			eventMetadata["poller_id"] = pollerID
+		}
+		if targetHost != "" {
+			eventMetadata["target_host"] = targetHost
+		}
+		if svc != nil && svc.ServiceName != "" {
+			eventMetadata["service_name"] = svc.ServiceName
+		}
+
+		var failureReason string
+		if !pingResult.Available {
+			if svc != nil && svc.ServiceName != "" {
+				failureReason = fmt.Sprintf("icmp check %s reported target unavailable", svc.ServiceName)
+			} else {
+				failureReason = "icmp check reported target unavailable"
+			}
+		}
+
+		s.recordCapabilityEvent(ctx, &capabilityEventInput{
+			DeviceID:      deviceID,
+			Capability:    "icmp",
+			ServiceID:     svc.ServiceName,
+			ServiceType:   svc.ServiceType,
+			RecordedBy:    pollerID,
+			Enabled:       true,
+			Success:       pingResult.Available,
+			CheckedAt:     now,
+			FailureReason: failureReason,
+			Metadata:      eventMetadata,
+		})
+
 		if hostDeviceID != "" && hostDeviceID != deviceID {
 			if hostUpdate := buildHostAliasUpdate(
 				hostDeviceID,
@@ -731,6 +820,34 @@ func (s *Server) processSysmonMetrics(
 		Msg("Parsed sysmon metrics")
 
 	s.upsertCollectorCapabilities(context.Background(), deviceID, []string{"sysmon"}, agentID, pollerID, "sysmon", pollerTimestamp)
+
+	eventMetadata := map[string]any{
+		"agent_id":         agentID,
+		"poller_id":        pollerID,
+		"partition":        partition,
+		"host_ip":          sysmonPayload.Status.HostIP,
+		"host_id":          sysmonPayload.Status.HostID,
+		"cpu_count":        len(sysmonPayload.Status.CPUs),
+		"disk_count":       len(sysmonPayload.Status.Disks),
+		"process_count":    len(sysmonPayload.Status.Processes),
+		"reported_at":      sysmonPayload.Status.Timestamp,
+		"memory_total":     sysmonPayload.Status.Memory.TotalBytes,
+		"memory_used":      sysmonPayload.Status.Memory.UsedBytes,
+		"sysmon_available": true,
+	}
+
+	s.recordCapabilityEvent(context.Background(), &capabilityEventInput{
+		DeviceID:      deviceID,
+		Capability:    "sysmon",
+		ServiceID:     agentID,
+		ServiceType:   "sysmon",
+		RecordedBy:    pollerID,
+		Enabled:       true,
+		Success:       true,
+		CheckedAt:     pollerTimestamp,
+		FailureReason: "",
+		Metadata:      eventMetadata,
+	})
 
 	return nil
 }

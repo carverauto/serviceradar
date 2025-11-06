@@ -9,6 +9,8 @@ Planner usage can be toggled independently in the core service and the web UI:
 - **Core**: `features.use_device_search_planner` in the `serviceradar-config` ConfigMap (`core.json`, default `true`).  
   Edit the config map (`kubectl edit configmap serviceradar-config -n demo`) or update `k8s/demo/base/configmap.yaml` before redeploying. After changing the flag, restart the core deployment:  
   `kubectl rollout restart deployment/serviceradar-core -n demo`.
+- **Core enforcement**: `features.require_device_registry` (default `false`).  
+  When set to `true`, the API refuses to fall back to Proton for `/api/devices` list/detail routes. Leave it disabled if you need the legacy Proton-backed endpoints during incident response.
 - **Web UI**: `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER` (default `true`).  
   Update the ConfigMap before rollout (`deploy.sh` generates it) or patch the deployment in place:
   ```bash

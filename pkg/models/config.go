@@ -211,6 +211,7 @@ type FeatureFlags struct {
 	UseLogDigest           *bool `json:"use_log_digest,omitempty"`
 	UseStatsCache          *bool `json:"use_stats_cache,omitempty"`
 	UseDeviceSearchPlanner *bool `json:"use_device_search_planner,omitempty"`
+	RequireDeviceRegistry  *bool `json:"require_device_registry,omitempty"`
 }
 
 func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
