@@ -359,6 +359,11 @@ func TestProcessSweepData(t *testing.T) {
 
 	mockDB := db.NewMockService(ctrl)
 	mockDeviceRegistry := registry.NewMockManager(ctrl)
+
+	mockDeviceRegistry.EXPECT().
+		SetDeviceCapabilitySnapshot(gomock.Any(), gomock.AssignableToTypeOf(&models.DeviceCapabilitySnapshot{})).
+		AnyTimes()
+
 	server := &Server{
 		DB:             mockDB,
 		DeviceRegistry: mockDeviceRegistry,

@@ -114,6 +114,10 @@ func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig
 		normalized.Features.UseDeviceSearchPlanner = boolPtr(true)
 	}
 
+	if normalized.Features.RequireDeviceRegistry == nil {
+		normalized.Features.RequireDeviceRegistry = boolPtr(false)
+	}
+
 	return &normalized
 }
 

@@ -267,9 +267,11 @@ Feature flags (including the device search planner) are sourced from the `servic
    ```json
    "features": {
      "use_log_digest": true,
-     "use_device_search_planner": true
+     "use_device_search_planner": true,
+     "require_device_registry": true
    }
    ```
+   Setting `require_device_registry` to `true` prevents the API from falling back to Proton for device lists or detail lookups; flip it to `false` if you need the legacy behavior for debugging.
 3. Restart the component that reads the config:
    ```bash
    kubectl rollout restart deployment/serviceradar-core -n serviceradar-staging

@@ -65,6 +65,7 @@ type DeviceRegistry struct {
 	devicesByMAC map[string]map[string]*DeviceRecord
 	searchIndex  *TrigramIndex
 	capabilities *CapabilityIndex
+	matrix       *CapabilityMatrix
 }
 
 // NewDeviceRegistry creates a new, authoritative device registry.
@@ -78,6 +79,7 @@ func NewDeviceRegistry(database db.Service, log logger.Logger, opts ...Option) *
 		devicesByMAC:             make(map[string]map[string]*DeviceRecord),
 		searchIndex:              NewTrigramIndex(log),
 		capabilities:             NewCapabilityIndex(),
+		matrix:                   NewCapabilityMatrix(),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -287,6 +289,25 @@ func (r *DeviceRegistry) ListDevicesWithCapability(_ context.Context, capability
 		return nil
 	}
 	return r.capabilities.ListDevicesWithCapability(capability)
+}
+
+// SetDeviceCapabilitySnapshot records the latest snapshot for a device capability tuple.
+func (r *DeviceRegistry) SetDeviceCapabilitySnapshot(_ context.Context, snapshot *models.DeviceCapabilitySnapshot) {
+	if snapshot == nil {
+		return
+	}
+	if r.matrix == nil {
+		r.matrix = NewCapabilityMatrix()
+	}
+	r.matrix.Set(snapshot)
+}
+
+// ListDeviceCapabilitySnapshots returns the capability snapshots tracked for a device.
+func (r *DeviceRegistry) ListDeviceCapabilitySnapshots(_ context.Context, deviceID string) []*models.DeviceCapabilitySnapshot {
+	if r.matrix == nil {
+		return nil
+	}
+	return r.matrix.ListForDevice(deviceID)
 }
 
 // identityMaps holds batch-resolved mappings from identity → canonical device_id

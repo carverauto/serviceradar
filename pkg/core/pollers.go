@@ -1312,6 +1312,25 @@ func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID string) er
 
 	s.upsertCollectorCapabilities(ctx, deviceUpdate.DeviceID, []string{"poller"}, "", pollerID, pollerID, deviceUpdate.Timestamp)
 
+	eventMetadata := map[string]any{
+		"poller_id": pollerID,
+	}
+	if hostIP != "" {
+		eventMetadata["host_ip"] = hostIP
+	}
+
+	s.recordCapabilityEvent(ctx, &capabilityEventInput{
+		DeviceID:    deviceUpdate.DeviceID,
+		Capability:  "poller",
+		ServiceID:   pollerID,
+		ServiceType: "poller",
+		RecordedBy:  pollerID,
+		Enabled:     true,
+		Success:     true,
+		CheckedAt:   deviceUpdate.Timestamp,
+		Metadata:    eventMetadata,
+	})
+
 	return nil
 }
 
@@ -1332,6 +1351,26 @@ func (s *Server) registerAgentAsDevice(ctx context.Context, agentID, pollerID, h
 	}
 
 	s.upsertCollectorCapabilities(ctx, deviceUpdate.DeviceID, []string{"agent"}, agentID, pollerID, agentID, deviceUpdate.Timestamp)
+
+	eventMetadata := map[string]any{
+		"agent_id":  agentID,
+		"poller_id": pollerID,
+	}
+	if hostIP != "" {
+		eventMetadata["host_ip"] = hostIP
+	}
+
+	s.recordCapabilityEvent(ctx, &capabilityEventInput{
+		DeviceID:    deviceUpdate.DeviceID,
+		Capability:  "agent",
+		ServiceID:   agentID,
+		ServiceType: "agent",
+		RecordedBy:  pollerID,
+		Enabled:     true,
+		Success:     true,
+		CheckedAt:   deviceUpdate.Timestamp,
+		Metadata:    eventMetadata,
+	})
 
 	return nil
 }
@@ -1361,6 +1400,29 @@ func (s *Server) registerCheckerAsDevice(ctx context.Context, checkerID, checker
 	}
 
 	s.upsertCollectorCapabilities(ctx, deviceUpdate.DeviceID, capabilities, agentID, pollerID, checkerID, deviceUpdate.Timestamp)
+
+	eventMetadata := map[string]any{
+		"checker_id": checkerID,
+		"agent_id":   agentID,
+		"poller_id":  pollerID,
+	}
+	if hostIP != "" {
+		eventMetadata["host_ip"] = hostIP
+	}
+
+	for _, capability := range capabilities {
+		s.recordCapabilityEvent(ctx, &capabilityEventInput{
+			DeviceID:    deviceUpdate.DeviceID,
+			Capability:  capability,
+			ServiceID:   checkerID,
+			ServiceType: checkerKind,
+			RecordedBy:  pollerID,
+			Enabled:     true,
+			Success:     true,
+			CheckedAt:   deviceUpdate.Timestamp,
+			Metadata:    eventMetadata,
+		})
+	}
 
 	return nil
 }

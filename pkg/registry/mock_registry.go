@@ -156,6 +156,32 @@ func (mr *MockManagerMockRecorder) SetCollectorCapabilities(ctx, capability any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCollectorCapabilities", reflect.TypeOf((*MockManager)(nil).SetCollectorCapabilities), ctx, capability)
 }
 
+// SetDeviceCapabilitySnapshot mocks base method.
+func (m *MockManager) SetDeviceCapabilitySnapshot(ctx context.Context, snapshot *models.DeviceCapabilitySnapshot) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetDeviceCapabilitySnapshot", ctx, snapshot)
+}
+
+// SetDeviceCapabilitySnapshot indicates an expected call of SetDeviceCapabilitySnapshot.
+func (mr *MockManagerMockRecorder) SetDeviceCapabilitySnapshot(ctx, snapshot any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDeviceCapabilitySnapshot", reflect.TypeOf((*MockManager)(nil).SetDeviceCapabilitySnapshot), ctx, snapshot)
+}
+
+// ListDeviceCapabilitySnapshots mocks base method.
+func (m *MockManager) ListDeviceCapabilitySnapshots(ctx context.Context, deviceID string) []*models.DeviceCapabilitySnapshot {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDeviceCapabilitySnapshots", ctx, deviceID)
+	ret0, _ := ret[0].([]*models.DeviceCapabilitySnapshot)
+	return ret0
+}
+
+// ListDeviceCapabilitySnapshots indicates an expected call of ListDeviceCapabilitySnapshots.
+func (mr *MockManagerMockRecorder) ListDeviceCapabilitySnapshots(ctx, deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDeviceCapabilitySnapshots", reflect.TypeOf((*MockManager)(nil).ListDeviceCapabilitySnapshots), ctx, deviceID)
+}
+
 // GetCollectorCapabilities mocks base method.
 func (m *MockManager) GetCollectorCapabilities(ctx context.Context, deviceID string) (*models.CollectorCapability, bool) {
 	m.ctrl.T.Helper()

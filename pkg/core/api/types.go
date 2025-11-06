@@ -31,8 +31,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/natsutil"
-	"github.com/carverauto/serviceradar/pkg/spireadmin"
 	"github.com/carverauto/serviceradar/pkg/search"
+	"github.com/carverauto/serviceradar/pkg/spireadmin"
 )
 
 type ServiceStatus struct {
@@ -94,37 +94,38 @@ type EdgeOnboardingService interface {
 }
 
 type APIServer struct {
-	mu                   sync.RWMutex
-	pollers              map[string]*PollerStatus
-	router               *mux.Router
-	protectedRouter      *mux.Router
-	pollerHistoryHandler func(pollerID string) ([]PollerHistoryPoint, error)
-	metricsManager       metrics.MetricCollector
-	snmpManager          metricstore.SNMPManager
-	rperfManager         metricstore.RperfManager
-	queryExecutor        db.QueryExecutor
-	dbService            db.Service
-	deviceRegistry       DeviceRegistryService
-	serviceRegistry      ServiceRegistryService // Service registry for pollers/agents/checkers
-	knownPollers         []string
-	knownPollerSet       map[string]struct{}
-	dynamicPollers       map[string]struct{}
-	authService          auth.AuthService
-	corsConfig           models.CORSConfig
-	logger               logger.Logger
-	kvAddress            string
-	kvSecurity           *models.SecurityConfig
-	kvPutFn              func(ctx context.Context, key string, value []byte, ttl int64) error
-	kvGetFn              func(ctx context.Context, key string) ([]byte, bool, error)
-	kvEndpoints          map[string]*KVEndpoint
-	rbacConfig           *models.RBACConfig
-	spireAdminClient     spireadmin.Client
-	spireAdminConfig     *models.SpireAdminConfig
-	edgeOnboarding       EdgeOnboardingService
-	eventPublisher       *natsutil.EventPublisher
-	logDigest            LogDigestService
-	statsService         StatsService
-	searchPlanner        *search.Planner
+	mu                    sync.RWMutex
+	pollers               map[string]*PollerStatus
+	router                *mux.Router
+	protectedRouter       *mux.Router
+	pollerHistoryHandler  func(pollerID string) ([]PollerHistoryPoint, error)
+	metricsManager        metrics.MetricCollector
+	snmpManager           metricstore.SNMPManager
+	rperfManager          metricstore.RperfManager
+	queryExecutor         db.QueryExecutor
+	dbService             db.Service
+	deviceRegistry        DeviceRegistryService
+	serviceRegistry       ServiceRegistryService // Service registry for pollers/agents/checkers
+	knownPollers          []string
+	knownPollerSet        map[string]struct{}
+	dynamicPollers        map[string]struct{}
+	authService           auth.AuthService
+	corsConfig            models.CORSConfig
+	logger                logger.Logger
+	kvAddress             string
+	kvSecurity            *models.SecurityConfig
+	kvPutFn               func(ctx context.Context, key string, value []byte, ttl int64) error
+	kvGetFn               func(ctx context.Context, key string) ([]byte, bool, error)
+	kvEndpoints           map[string]*KVEndpoint
+	rbacConfig            *models.RBACConfig
+	spireAdminClient      spireadmin.Client
+	spireAdminConfig      *models.SpireAdminConfig
+	edgeOnboarding        EdgeOnboardingService
+	eventPublisher        *natsutil.EventPublisher
+	logDigest             LogDigestService
+	statsService          StatsService
+	searchPlanner         *search.Planner
+	requireDeviceRegistry bool
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint that fronts a specific JetStream domain.
@@ -145,6 +146,7 @@ type DeviceRegistryService interface {
 	GetMergedDevice(ctx context.Context, deviceIDOrIP string) (*models.UnifiedDevice, error)
 	FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error)
 	GetCollectorCapabilities(ctx context.Context, deviceID string) (*models.CollectorCapability, bool)
+	ListDeviceCapabilitySnapshots(ctx context.Context, deviceID string) []*models.DeviceCapabilitySnapshot
 }
 
 // LogDigestService exposes cached critical log data for the API layer.

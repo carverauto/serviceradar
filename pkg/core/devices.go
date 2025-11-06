@@ -113,6 +113,35 @@ func (s *Server) ensureServiceDevice(
 
 	capabilities := normalizeCapabilities([]string{svc.ServiceType, svc.ServiceName})
 	s.upsertCollectorCapabilities(context.Background(), deviceID, capabilities, agentID, pollerID, svc.ServiceName, timestamp)
+
+	eventMetadata := map[string]any{
+		"agent_id":             agentID,
+		"poller_id":            pollerID,
+		"partition":            partition,
+		"checker_service":      svc.ServiceName,
+		"checker_service_type": svc.ServiceType,
+		"checker_host_ip":      hostIP,
+	}
+	if hostID != "" {
+		eventMetadata["checker_host_id"] = hostID
+	}
+	if hostname != "" {
+		eventMetadata["checker_hostname"] = hostname
+	}
+
+	for _, capability := range capabilities {
+		s.recordCapabilityEvent(context.Background(), &capabilityEventInput{
+			DeviceID:    deviceID,
+			Capability:  capability,
+			ServiceID:   svc.ServiceName,
+			ServiceType: svc.ServiceType,
+			RecordedBy:  pollerID,
+			Enabled:     true,
+			Success:     true,
+			CheckedAt:   timestamp,
+			Metadata:    eventMetadata,
+		})
+	}
 }
 
 func extractCheckerHostIdentity(serviceData json.RawMessage) (hostIP, hostname, hostID string) {

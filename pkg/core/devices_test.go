@@ -35,6 +35,10 @@ func TestEnsureServiceDeviceRegistersOnStatusSource(t *testing.T) {
 
 	now := time.Now()
 
+	mockRegistry.EXPECT().
+		SetDeviceCapabilitySnapshot(gomock.Any(), gomock.AssignableToTypeOf(&models.DeviceCapabilitySnapshot{})).
+		AnyTimes()
+
 	gomock.InOrder(
 		mockRegistry.EXPECT().
 			GetCollectorCapabilities(gomock.Any(), "default:10.0.0.5").

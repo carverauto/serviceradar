@@ -48,6 +48,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/natsutil"
+	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/pkg/search"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
 	"github.com/carverauto/serviceradar/pkg/swagger"
@@ -80,9 +81,10 @@ type DeviceAliasRecord struct {
 
 type deviceResponse struct {
 	*models.Device
-	AliasHistory          *DeviceAliasHistory          `json:"alias_history,omitempty"`
-	CollectorCapabilities *CollectorCapabilityResponse `json:"collector_capabilities,omitempty"`
-	MetricsSummary        map[string]bool              `json:"metrics_summary,omitempty"`
+	AliasHistory          *DeviceAliasHistory           `json:"alias_history,omitempty"`
+	CollectorCapabilities *CollectorCapabilityResponse  `json:"collector_capabilities,omitempty"`
+	CapabilitySnapshots   []*CapabilitySnapshotResponse `json:"capability_snapshots,omitempty"`
+	MetricsSummary        map[string]bool               `json:"metrics_summary,omitempty"`
 }
 
 type deviceSearchRequest struct {
@@ -318,6 +320,14 @@ func WithDBService(dbSvc db.Service) func(server *APIServer) {
 func WithDeviceRegistry(dr DeviceRegistryService) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.deviceRegistry = dr
+	}
+}
+
+// WithDeviceRegistryEnforcement controls whether the API should refuse Proton-based
+// fallbacks when the device registry is unavailable.
+func WithDeviceRegistryEnforcement(require bool) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.requireDeviceRegistry = require
 	}
 }
 
@@ -1910,12 +1920,26 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
 	defer cancel()
 
+	if s.requireDeviceRegistry && s.deviceRegistry == nil {
+		s.logger.Error().Msg("Device registry enforcement enabled but registry service not configured")
+		writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
 	// Parse query parameters
 	params := parseDeviceQueryParams(r)
 
 	// Try device registry first (enhanced device data with discovery sources)
 	if s.deviceRegistry != nil {
 		if s.tryDeviceRegistryPath(ctx, w, params) {
+			return
+		}
+
+		if s.requireDeviceRegistry {
+			s.logger.Error().
+				Str("search_term", params["searchTerm"].(string)).
+				Msg("Device registry lookup failed and Proton fallback disabled")
+			writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
 			return
 		}
 	}
@@ -2049,6 +2073,12 @@ func (s *APIServer) buildDeviceRecords(
 			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, device.DeviceID); ok {
 				if resp := toCollectorCapabilityResponse(record); resp != nil {
 					entry["collector_capabilities"] = resp
+				}
+			}
+
+			if snapshots := s.deviceRegistry.ListDeviceCapabilitySnapshots(ctx, device.DeviceID); len(snapshots) > 0 {
+				if resp := toCapabilitySnapshotResponses(snapshots); len(resp) > 0 {
+					entry["capability_snapshots"] = resp
 				}
 			}
 		}
@@ -2230,6 +2260,12 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
 	defer cancel()
 
+	if s.requireDeviceRegistry && s.deviceRegistry == nil {
+		s.logger.Error().Str("device_id", deviceID).Msg("Device registry enforcement enabled but registry service not configured")
+		writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
 	// Try device registry first (enhanced device data with discovery sources)
 	if s.deviceRegistry != nil {
 		unifiedDevice, err := s.deviceRegistry.GetMergedDevice(ctx, deviceID)
@@ -2241,6 +2277,9 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 			}
 			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, unifiedDevice.DeviceID); ok {
 				resp.CollectorCapabilities = toCollectorCapabilityResponse(record)
+			}
+			if snapshots := s.deviceRegistry.ListDeviceCapabilitySnapshots(ctx, unifiedDevice.DeviceID); len(snapshots) > 0 {
+				resp.CapabilitySnapshots = toCapabilitySnapshotResponses(snapshots)
 			}
 			if summary := s.fetchDeviceMetricSummary(ctx, []*models.UnifiedDevice{unifiedDevice}); summary != nil {
 				if metrics := summary[unifiedDevice.DeviceID]; len(metrics) > 0 {
@@ -2267,6 +2306,20 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if errors.Is(err, registry.ErrDeviceNotFound) {
+			writeError(w, "Device not found", http.StatusNotFound)
+			return
+		}
+
+		if s.requireDeviceRegistry {
+			s.logger.Error().
+				Err(err).
+				Str("device_id", deviceID).
+				Msg("Device registry lookup failed and Proton fallback disabled")
+			writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
 		s.logger.Warn().Err(err).Str("device_id", deviceID).Msg("Device registry lookup failed, falling back to legacy")
 	}
 
@@ -2280,6 +2333,7 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 		legacyDevice          *models.Device
 		aliasHistory          *DeviceAliasHistory
 		collectorCapabilities *CollectorCapabilityResponse
+		capabilitySnapshots   []*CapabilitySnapshotResponse
 	)
 
 	if s.deviceRegistry != nil {
@@ -2288,6 +2342,9 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 			aliasHistory = buildAliasHistory(unified)
 			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, unified.DeviceID); ok {
 				collectorCapabilities = toCollectorCapabilityResponse(record)
+			}
+			if snapshots := s.deviceRegistry.ListDeviceCapabilitySnapshots(ctx, unified.DeviceID); len(snapshots) > 0 {
+				capabilitySnapshots = toCapabilitySnapshotResponses(snapshots)
 			}
 		}
 	}
@@ -2308,6 +2365,7 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 		Device:                legacyDevice,
 		AliasHistory:          aliasHistory,
 		CollectorCapabilities: collectorCapabilities,
+		CapabilitySnapshots:   capabilitySnapshots,
 	}
 
 	if summary := s.fetchDeviceMetricSummary(ctx, []*models.UnifiedDevice{{

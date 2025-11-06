@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import ReactJson from "@/components/Common/DynamicReactJson";
-import { Device } from "@/types/devices";
+import { Device, CapabilitySnapshot } from "@/types/devices";
 import SysmonStatusIndicator from "./SysmonStatusIndicator";
 import SNMPStatusIndicator from "./SNMPStatusIndicator";
 import ICMPSparkline from "./ICMPSparkline";
@@ -71,6 +71,67 @@ type CollectorInfo = {
   agentId?: string;
   pollerId?: string;
   lastSeen?: string;
+};
+
+const CAPABILITY_STATE_CLASS_MAP: Record<string, string> = {
+  ok: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200",
+  healthy: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200",
+  failed: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+  error: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+  degraded: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+  warning: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+  unknown: "bg-gray-200 text-gray-800 dark:bg-gray-700/60 dark:text-gray-200",
+};
+
+const CAPABILITY_STATE_DISABLED_CLASS =
+  "bg-gray-300 text-gray-700 dark:bg-gray-600/60 dark:text-gray-200";
+
+const formatCapabilityTimestamp = (timestamp?: string): string =>
+  timestamp ? formatTimestampForDisplay(timestamp, undefined, undefined, "—") : "—";
+
+const getCapabilityStateBadge = (snapshot: CapabilitySnapshot) => {
+  if (!snapshot.enabled) {
+    return {
+      label: "disabled",
+      classes: CAPABILITY_STATE_DISABLED_CLASS,
+    };
+  }
+
+  const normalized = (snapshot.state ?? "unknown").toLowerCase();
+  const classes =
+    CAPABILITY_STATE_CLASS_MAP[normalized] ?? CAPABILITY_STATE_CLASS_MAP.unknown;
+
+  return {
+    label: normalized || "unknown",
+    classes,
+  };
+};
+
+const describeService = (snapshot: CapabilitySnapshot): string => {
+  const serviceId = snapshot.service_id?.trim();
+  const serviceType = snapshot.service_type?.trim();
+  if (serviceId && serviceType) {
+    return `${serviceType} · ${serviceId}`;
+  }
+  if (serviceId) {
+    return serviceId;
+  }
+  if (serviceType) {
+    return serviceType;
+  }
+  return "—";
+};
+
+const summarizeMetadata = (metadata?: Record<string, unknown>): string => {
+  if (!metadata) {
+    return "—";
+  }
+  const entries = Object.entries(metadata);
+  if (entries.length === 0) {
+    return "—";
+  }
+  const json = JSON.stringify(metadata);
+  return json.length > 120 ? `${json.slice(0, 117)}…` : json;
 };
 
 const METRICS_STATUS_REFRESH_INTERVAL_MS = 30_000;
@@ -666,22 +727,122 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                 {expandedRow === device.device_id && (
                   <tr className="bg-gray-50 dark:bg-gray-800/50">
                     <td colSpan={6} className="p-0">
-                      <div className="p-4">
-                        <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-2">
-                          Metadata
-                        </h4>
-                        <ReactJson
-                          src={device.metadata}
-                          theme="pop"
-                          collapsed={false}
-                          displayDataTypes={false}
-                          enableClipboard={true}
-                          style={{
-                            padding: "1rem",
-                            borderRadius: "0.375rem",
-                            backgroundColor: "#1C1B22",
-                          }}
-                        />
+                      <div className="p-4 space-y-4">
+                        {Array.isArray(device.capability_snapshots) &&
+                          device.capability_snapshots.length > 0 && (
+                            <div>
+                              <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-2">
+                                Capability Status
+                              </h4>
+                              <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                                  <thead className="bg-gray-100 dark:bg-gray-700/60">
+                                    <tr>
+                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
+                                        Capability
+                                      </th>
+                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
+                                        Service
+                                      </th>
+                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
+                                        Status
+                                      </th>
+                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
+                                        Last Success
+                                      </th>
+                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
+                                        Last Failure
+                                      </th>
+                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
+                                        Last Checked
+                                      </th>
+                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
+                                        Recorded By
+                                      </th>
+                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
+                                        Failure Reason
+                                      </th>
+                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
+                                        Metadata
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900/30">
+                                    {device.capability_snapshots.map((snapshot) => {
+                                      const { label, classes } =
+                                        getCapabilityStateBadge(snapshot);
+                                      const serviceLabel = describeService(snapshot);
+                                      const rowKey = `${snapshot.capability}-${snapshot.service_id ?? "global"}-${
+                                        snapshot.recorded_by ?? "system"
+                                      }-${snapshot.last_checked ?? "na"}`;
+                                      const metadataSummary = summarizeMetadata(
+                                        snapshot.metadata,
+                                      );
+
+                                      return (
+                                        <tr key={rowKey}>
+                                          <td className="px-4 py-2 font-mono text-xs uppercase tracking-wide text-gray-800 dark:text-gray-100">
+                                            {snapshot.capability || "unknown"}
+                                          </td>
+                                          <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-200">
+                                            {serviceLabel}
+                                          </td>
+                                          <td className="px-4 py-2">
+                                            <span
+                                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${classes}`}
+                                            >
+                                              {label}
+                                            </span>
+                                          </td>
+                                          <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-200">
+                                            {formatCapabilityTimestamp(snapshot.last_success)}
+                                          </td>
+                                          <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-200">
+                                            {formatCapabilityTimestamp(snapshot.last_failure)}
+                                          </td>
+                                          <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-200">
+                                            {formatCapabilityTimestamp(snapshot.last_checked)}
+                                          </td>
+                                          <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-200">
+                                            {snapshot.recorded_by ?? "—"}
+                                          </td>
+                                          <td className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300">
+                                            {snapshot.failure_reason ?? "—"}
+                                          </td>
+                                          <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300">
+                                            {metadataSummary === "—" ? (
+                                              "—"
+                                            ) : (
+                                              <span title={JSON.stringify(snapshot.metadata, null, 2)}>
+                                                {metadataSummary}
+                                              </span>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+                        <div>
+                          <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-2">
+                            Metadata
+                          </h4>
+                          <ReactJson
+                            src={device.metadata}
+                            theme="pop"
+                            collapsed={false}
+                            displayDataTypes={false}
+                            enableClipboard={true}
+                            style={{
+                              padding: "1rem",
+                              borderRadius: "0.375rem",
+                              backgroundColor: "#1C1B22",
+                            }}
+                          />
+                        </div>
                       </div>
                     </td>
                   </tr>
