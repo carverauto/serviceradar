@@ -110,6 +110,10 @@ func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig
 		normalized.Features.UseStatsCache = boolPtr(true)
 	}
 
+	if normalized.Features.UseDeviceSearchPlanner == nil {
+		normalized.Features.UseDeviceSearchPlanner = boolPtr(true)
+	}
+
 	return &normalized
 }
 

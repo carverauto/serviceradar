@@ -48,6 +48,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/natsutil"
+	"github.com/carverauto/serviceradar/pkg/search"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
 	"github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/carverauto/serviceradar/proto"
@@ -82,6 +83,26 @@ type deviceResponse struct {
 	AliasHistory          *DeviceAliasHistory          `json:"alias_history,omitempty"`
 	CollectorCapabilities *CollectorCapabilityResponse `json:"collector_capabilities,omitempty"`
 	MetricsSummary        map[string]bool              `json:"metrics_summary,omitempty"`
+}
+
+type deviceSearchRequest struct {
+	Query      string            `json:"query"`
+	Mode       string            `json:"mode"`
+	Filters    map[string]string `json:"filters"`
+	Pagination struct {
+		Limit     int    `json:"limit"`
+		Offset    int    `json:"offset"`
+		Cursor    string `json:"cursor"`
+		Direction string `json:"direction"`
+	} `json:"pagination"`
+}
+
+type deviceSearchResponse struct {
+	Engine      string                   `json:"engine"`
+	Results     []map[string]interface{} `json:"results"`
+	Pagination  search.Pagination        `json:"pagination"`
+	Diagnostics map[string]any           `json:"diagnostics,omitempty"`
+	RawResults  []map[string]interface{} `json:"raw_results,omitempty"`
 }
 
 // NewAPIServer creates a new API server instance with the given configuration
@@ -196,6 +217,13 @@ func WithMetricsManager(m metrics.MetricCollector) func(server *APIServer) {
 func WithSNMPManager(m metricstore.SNMPManager) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.snmpManager = m
+	}
+}
+
+// WithDeviceSearchPlanner attaches the device search planner to the API server.
+func WithDeviceSearchPlanner(planner *search.Planner) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.searchPlanner = planner
 	}
 }
 
@@ -789,6 +817,9 @@ func (s *APIServer) setupProtectedRoutes() {
 	// SRQL HTTP endpoint removed; SRQL moves to OCaml service
 
 	// Device-centric endpoints
+	if s.searchPlanner != nil {
+		protected.HandleFunc("/devices/search", s.handleDeviceSearch).Methods("POST")
+	}
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
 	protected.HandleFunc("/devices/{id}", s.handleDeviceByID).Methods("GET", "DELETE")
 	protected.HandleFunc("/devices/{id}/registry", s.getDeviceRegistryInfo).Methods("GET")
@@ -1780,6 +1811,86 @@ func writeError(w http.ResponseWriter, message string, statusCode int) {
 	}
 }
 
+func (s *APIServer) handleDeviceSearch(w http.ResponseWriter, r *http.Request) {
+	if s.searchPlanner == nil {
+		writeError(w, "device search planner unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	var request deviceSearchRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, "invalid search request payload", http.StatusBadRequest)
+		return
+	}
+
+	if request.Filters == nil {
+		request.Filters = make(map[string]string)
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
+	defer cancel()
+
+	plannerReq := &search.Request{
+		Query:   request.Query,
+		Mode:    search.Mode(request.Mode),
+		Filters: request.Filters,
+		Pagination: search.Pagination{
+			Limit:     request.Pagination.Limit,
+			Offset:    request.Pagination.Offset,
+			Cursor:    request.Pagination.Cursor,
+			Direction: request.Pagination.Direction,
+		},
+	}
+
+	result, err := s.searchPlanner.Search(ctx, plannerReq)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Device search planner failed")
+		writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	diagnostics := make(map[string]any, len(result.Diagnostics)+2)
+	for k, v := range result.Diagnostics {
+		diagnostics[k] = v
+	}
+	diagnostics["engine"] = result.Engine
+	diagnostics["duration_ms"] = float64(result.Duration) / float64(time.Millisecond)
+
+	response := deviceSearchResponse{
+		Engine:      string(result.Engine),
+		Pagination:  result.Pagination,
+		Diagnostics: diagnostics,
+	}
+
+	switch result.Engine {
+	case search.EngineRegistry:
+		metricSummary := s.fetchDeviceMetricSummary(ctx, result.Devices)
+		response.Results = s.buildDeviceRecords(ctx, result.Devices, metricSummary)
+		if len(response.Results) == 0 {
+			response.Results = make([]map[string]interface{}, 0)
+		}
+	case search.EngineSRQL:
+		converted := s.convertSRQLRowsToDevices(ctx, result.Rows)
+		if len(converted) > 0 {
+			metricSummary := s.fetchDeviceMetricSummary(ctx, converted)
+			response.Results = s.buildDeviceRecords(ctx, converted, metricSummary)
+			if len(result.Rows) > 0 {
+				response.RawResults = result.Rows
+			}
+		} else if len(result.Rows) > 0 {
+			// Return raw SRQL rows if we cannot hydrate registry records.
+			response.Results = result.Rows
+		}
+		if response.Results == nil {
+			response.Results = make([]map[string]interface{}, 0)
+		}
+	default:
+		response.Results = make([]map[string]interface{}, 0)
+	}
+
+	s.writeJSON(w, http.StatusOK, response)
+}
+
 // @Summary Get all devices
 // @Description Retrieves a list of all devices in the network
 // @Tags Devices
@@ -1893,10 +2004,30 @@ func (s *APIServer) sendDeviceRegistryResponse(
 	devices []*models.UnifiedDevice,
 	metricSummary map[string]map[string]bool,
 ) {
-	// Convert to response format with discovery information
-	response := make([]map[string]interface{}, len(devices))
+	payload := s.buildDeviceRecords(ctx, devices, metricSummary)
+	if payload == nil {
+		payload = make([]map[string]interface{}, 0)
+	}
 
-	for i, device := range devices {
+	s.writeJSON(w, http.StatusOK, payload)
+}
+
+func (s *APIServer) buildDeviceRecords(
+	ctx context.Context,
+	devices []*models.UnifiedDevice,
+	metricSummary map[string]map[string]bool,
+) []map[string]interface{} {
+	if len(devices) == 0 {
+		return nil
+	}
+
+	response := make([]map[string]interface{}, 0, len(devices))
+
+	for _, device := range devices {
+		if device == nil {
+			continue
+		}
+
 		entry := map[string]interface{}{
 			"device_id":         device.DeviceID,
 			"ip":                device.IP,
@@ -1914,7 +2045,7 @@ func (s *APIServer) sendDeviceRegistryResponse(
 			entry["alias_history"] = history
 		}
 
-		if s.deviceRegistry != nil {
+		if s.deviceRegistry != nil && device.DeviceID != "" {
 			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, device.DeviceID); ok {
 				if resp := toCollectorCapabilityResponse(record); resp != nil {
 					entry["collector_capabilities"] = resp
@@ -1922,19 +2053,72 @@ func (s *APIServer) sendDeviceRegistryResponse(
 			}
 		}
 
-		if summary := metricSummary[device.DeviceID]; len(summary) > 0 {
-			entry["metrics_summary"] = summary
+		if metricSummary != nil {
+			if summary := metricSummary[device.DeviceID]; len(summary) > 0 {
+				entry["metrics_summary"] = summary
+			}
 		}
 
-		response[i] = entry
+		response = append(response, entry)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	return response
+}
 
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error().Err(err).Msg("Error encoding enhanced devices response")
-		writeError(w, "Failed to encode response", http.StatusInternalServerError)
+func (s *APIServer) convertSRQLRowsToDevices(ctx context.Context, rows []map[string]interface{}) []*models.UnifiedDevice {
+	if s.deviceRegistry == nil || len(rows) == 0 {
+		return nil
 	}
+
+	seen := make(map[string]struct{}, len(rows))
+	devices := make([]*models.UnifiedDevice, 0, len(rows))
+
+	for _, row := range rows {
+		deviceID := extractDeviceID(row)
+		if deviceID == "" {
+			continue
+		}
+
+		if _, exists := seen[deviceID]; exists {
+			continue
+		}
+
+		device, err := s.deviceRegistry.GetDevice(ctx, deviceID)
+		if err != nil {
+			s.logger.Debug().
+				Err(err).
+				Str("device_id", deviceID).
+				Msg("Failed to hydrate device from registry for SRQL row")
+			continue
+		}
+
+		if device != nil {
+			devices = append(devices, device)
+			seen[deviceID] = struct{}{}
+		}
+	}
+
+	return devices
+}
+
+func extractDeviceID(row map[string]interface{}) string {
+	if row == nil {
+		return ""
+	}
+
+	if v, ok := row["device_id"].(string); ok && v != "" {
+		return v
+	}
+
+	if v, ok := row["device.device_id"].(string); ok && v != "" {
+		return v
+	}
+
+	if v, ok := row["id"].(string); ok && strings.Contains(v, ":") {
+		return v
+	}
+
+	return ""
 }
 
 // fallbackToDBDeviceList lists devices via the database service without SRQL

@@ -388,10 +388,16 @@ func (h *Handler) GetDeviceStats() *StatsSnapshot {
 - [x] `/api/stats` returns snapshot bookkeeping headers (age, raw vs processed records, filtered device counts) so the frontend can capture metadata when tiles drift (`pkg/core/api/server.go`, `web/src/services/dataService.ts`)
 - [x] Registry-only sweep echoes are filtered from the stats snapshot so totals reflect canonical devices only (`pkg/core/stats_aggregator.go`, `pkg/models/stats.go`)
 - [x] Stats aggregator filters ServiceRadar component device IDs (pollers/agents/checkers) so totals match Proton (`pkg/core/stats_aggregator.go`)
+- [x] Stats aggregator logs meta deltas and raises a warning when non-canonical skips increase (`pkg/core/stats_aggregator.go`)
+- [x] Analytics dashboard shows stats-header diagnostics and callouts when skips appear (`web/src/services/dataService.ts`, `web/src/components/Analytics/Dashboard.tsx`)
+- [x] Device stats expose OTEL gauges + webhook alerts when non-canonical skips grow (`pkg/core/stats_metrics.go`, `pkg/core/stats_alerts.go`, `pkg/core/server.go`)
+- [x] Proton count diagnostics use `uint64` so stats cache no longer flaps on large totals (`pkg/db/unified_devices.go`)
+- [x] Canonical fallback groups alias + canonical records so the identity backfill no longer turns 7 mismatches into 37k skipped devices; the aggregator prefers the canonical row when present and falls back to the freshest alias when it is not (`pkg/core/stats_aggregator.go`, `pkg/core/stats_aggregator_test.go`)
+- [x] Analytics UI now treats stale snapshots as a warning banner and renders cached totals instead of hard failing, which keeps the dashboard usable during brief cache gaps (`web/src/services/dataService.ts`)
 
 **Open follow-ups:**
 - Investigate why `serviceradar-kong:8000/api/query` returns 401 for internal SRQL requests (currently blocking an apples-to-apples comparison between SRQL and cached stats in the analytics view)
-- Track down why the analytics “Total Devices” tile drifts upward again (72k reported vs ~50k actual). Hypotheses: (a) stale `/api/stats` snapshots leak through when the aggregator misses a refresh; (b) registry snapshot still contains duplicate aliases we are missing; (c) stats cache is racing with hydration and briefly returning default zeros. Next steps: capture `/api/stats` output when the tile jumps, correlate with the new aggregator refresh logs, and verify the registry snapshot size (`/api/devices?limit=1&page=1` response metadata) before touching Proton again.
+- Monitor post-backfill behavior now that the canonical fallback is live: watch `skipped_non_canonical` and `inferred_canonical_records` in `/api/stats` headers and capture `__SERVICERADAR_DEVICE_COUNTER_DEBUG__` samples if they spike.
 
 ---
 
@@ -528,7 +534,55 @@ func (h *Handler) SearchDevices(query string, limit int) ([]*DeviceRecord, error
 }
 ```
 
-**Remove:** All `SELECT * FROM table(unified_devices) WHERE ... LIKE ...` queries.
+**Advanced SRQL Support:** Keep ServiceRadar Query Language available for complex analytics and ad-hoc workflows by routing unsupported queries to the SRQL microservice instead of forcing them through the registry index.
+
+#### 4.5 Hybrid Search Planner
+**Goal:** Provide a single inventory/search surface that speaks SRQL semantics while deterministically dispatching to the right execution engine (registry cache vs SRQL microservice).
+
+```go
+// pkg/search/planner.go
+type Planner struct {
+    Index    *TrigramIndex
+    Registry RegistryReader   // narrowed interface: Get(id), List(limit, offset)
+    SRQL     SRQLClient       // thin HTTP client that talks to srql-service
+    Logger   logger.Logger
+    Clock    func() time.Time
+    Parser   srql.Parser      // shared SRQL parser to build AST
+}
+
+type Request struct {
+    Query       string            // SRQL string from UI
+    Filters     map[string]string // optional structured filters (status, capability, etc.)
+    Mode        SearchMode        // Auto, RegistryOnly, SRQLOnly
+    Pagination  Pagination        // limit, cursor/page tokens
+}
+
+type Response struct {
+    Engine      SearchEngine      // Registry or SRQL
+    Devices     []*models.UnifiedDevice
+    Pagination  Pagination
+    Duration    time.Duration
+    Diagnostics map[string]any    // planner details, rejected clauses, etc.
+}
+```
+
+- `Planner.Plan()` builds an SRQL AST, validates it against our device schema, and produces an execution plan.  
+  - Device-centric queries (`show devices`, `in:devices`, filter expressions on indexed fields) execute against the registry cache via trigram/secondary indexes.  
+  - Queries that require Proton-specific constructs (aggregations, window functions, joins, non-device datasets) return an explicit “requires SRQL engine” decision so the caller can run it via the SRQL microservice.  
+  - `Mode == SRQLOnly` short-circuits to the SRQL engine; `Mode == RegistryOnly` returns a structured error if the query cannot be satisfied from the registry.
+- Responses include the selected engine so the UI can show context (“Served from registry” vs “Served by SRQL”) and record telemetry.
+- The planner emits histograms for registry vs SRQL latency (`search_registry_duration_seconds`, `search_srql_duration_seconds`) and counters for “registry incapable” decisions (so we know what users still need from SRQL).
+
+#### 4.6 API Contract
+- Add `POST /api/devices/search` (or extend existing `/api/devices`) to accept a request body containing `srql_query`, optional filters, mode, and pagination tokens.  
+- Wire the handler to the planner; default mode is `Auto`, which produces a deterministic engine decision rather than a fallback.  
+- Maintain the existing `/api/query` proxy untouched for direct SRQL clients, but document that device inventory queries should use the planner-backed endpoint.
+
+#### 4.7 UI Flow
+- Inventory view continues to expose a single SRQL input + structured filters; it submits to the planner endpoint and renders whichever engine serviced the request.  
+- For registry-served plans, we enrich results with capability/metric summaries already in cache.  
+- When the planner determines SRQL execution is required, the UI shows that context but still uses the planner endpoint for pagination so users never have to switch APIs manually.  
+- Dedicated “Advanced SRQL” tooling can still talk to `/api/query` directly, but the default inventory experience remains unified.
 
 ---
 
@@ -703,9 +757,20 @@ func (db *DB) GetICMPMetrics(deviceID string, start, end time.Time) ([]*Metric, 
 - ✅ **Phase 1 (Registry hot tier)** – DeviceRecord schema, in-memory cache, Proton hydration, and dual-write paths are all in place (`pkg/registry/device.go`, `device_store.go`, `hydrate.go`, `pkg/core/server.go`, `pkg/core/pollers.go`).
 - ✅ **Phase 2 (Collector capabilities)** – Capability index + API/UI wiring landed; collector metadata now comes from explicit `CollectorCapability` records, not `_alias_*` scraping (`pkg/registry/capabilities.go`, `pkg/core/capabilities.go`, `web/src/components/Devices/DeviceTable.tsx`).
 - ✅ **Phase 3 / 3b (Stats + log caches)** – `/api/stats` backs analytics tiles, log digest feeds critical-log widgets, and the stats aggregator now skips ServiceRadar component device IDs so counts align with Proton (`pkg/core/stats_aggregator.go`, `web/src/services/dataService.ts`).
-- ⚙️ **Phase 4 (Search index)** – Trigram index + registry integration and `/api/devices` search path are live, but the inventory UI still posts SRQL queries through `/api/query` (`web/src/components/Devices/Dashboard.tsx:242`), and we still need telemetry + feature-flag plumbing for the new search path.
+- ⚙️ **Phase 4 (Search index)** – Trigram index + registry integration and `/api/devices` search path are live. The SRQL-aware planner now fronts `/api/devices/search`, and the inventory UI routes through it by default; remaining work covers rollout controls and telemetry polish.
+- ✅ **Identity backfill** – Ran the Proton identity/IP alias backfill (2025‑11‑06) so legacy rows pick up `canonical_device_id`; the stats aggregator now exposes `inferred_canonical_records` while the data finishes propagating.
+- ✅ **Core redeploy (2025‑11‑06)** – Added Go/Bazel deps for the search planner, shipped the canonical stats fallback + UI warning flow, built `ghcr.io/carverauto/serviceradar-core:sha-616606a524aa68bb8106f91ca71266b6764eb0ad`, and rolled the demo `serviceradar-core` deployment onto it.
+- ✅ **Stats reconciliation (2025‑11‑06)** – Stats aggregator now reconciles the registry snapshot against Proton, pruning inferred sweep echoes and reporting Proton’s device count as the raw record total (`pkg/core/stats_aggregator.go`, `pkg/core/stats_aggregator_test.go`). Deployed `ghcr.io/carverauto/serviceradar-core@sha256:4975908b82df0985ba1af9dcddb1fb9df828d23b25d4248f8070639ecbf1e2d0` with the fix.
 
-Next focus: finish Phase 4 by moving the devices dashboard to the registry-backed `/api/devices` endpoint, expose trigram scores in the API response, add basic latency telemetry, and gate rollout behind a config flag.
+Next focus:
+- Coordinate staged rollout using the new feature flag (core `features.use_device_search_planner`, web `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER`).
+- Emit registry vs SRQL latency histograms and fallback counters to observability dashboards.
+- Capture operator docs for interpreting planner diagnostics (engine reason, latency) and troubleshooting search decisions.
+- Track `core_device_stats_inferred_canonical` after the completed identity backfill; once it trends to zero, remove the temporary stats fallback and tighten canonical checks.
+- Investigate upstream causes of high inferred-record churn so registry writes fewer fallback rows:
+  - Ensure every faker DHCP churn update carries a canonical identifier (armis ID / `canonical_device_id`) so `ProcessBatchDeviceUpdates` rewrites straight to the canonical record.
+  - Confirm identity resolver hydration runs before churn events land (pre-fill KV maps for faker devices to avoid transient fallback rows).
+  - Add short-term instrumentation around churn updates to catch missing canonical metadata and keep `core_device_stats_inferred_canonical` near zero.
 
 ## Implementation Plan
 
@@ -742,10 +807,11 @@ Next focus: finish Phase 4 by moving the devices dashboard to the registry-backe
 - [x] Implement `pkg/registry/trigram_index.go` in-memory index
 - [x] Integrate with `DeviceRegistry.Upsert()` (`pkg/registry/device_store.go`)
 - [x] Add registry-backed `/api/devices` search path (search params handled in `pkg/core/api/server.go`, proxied via `web/src/app/api/devices/route.ts`)
-- [ ] Update inventory UI to use search API (still uses SRQL via `web/src/components/Devices/Dashboard.tsx`)
-- [ ] Remove `SELECT ... LIKE ...` queries / SRQL fallbacks for inventory
+- [x] Implement SRQL-aware search planner with deterministic engine selection, telemetry, and diagnostics
+- [x] Update inventory UI to submit SRQL queries to the planner endpoint and display execution engine context
+- [x] Add feature flag + staged rollout plan so we can enable planner-backed search gradually (`features.use_device_search_planner` + `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER`)
 
-**Success Criteria:** Inventory search returns in <50ms for any query.
+**Success Criteria:** Inventory search returns in <50ms for registry-backed queries while seamlessly delegating analytics-grade SRQL to Proton, with planner telemetry/feature flag ready for rollout.
 
 ### Sprint 5: Capability Matrix (Week 8-9)
 - [ ] Define `device_capabilities` stream in Proton
@@ -760,7 +826,7 @@ Next focus: finish Phase 4 by moving the devices dashboard to the registry-backe
 - [ ] Audit all `db.*` calls in `pkg/core/api`
 - [ ] Replace device state queries with registry lookups
 - [ ] Add middleware to block non-analytics Proton queries
-- [ ] Update SRQL translator/HTTP handlers to route device lookups and searches through registry/search index
+- [ ] Update SRQL translator/HTTP handlers to delegate supported filters to the coordinator while keeping pass-through mode for advanced SRQL
 - [ ] Document "when to use Proton vs registry" guidelines
 - [ ] Final performance validation
 

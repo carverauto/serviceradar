@@ -53,6 +53,7 @@ export interface AnalyticsData {
   totalDevices: number;
   offlineDevices: number;
   onlineDevices: number;
+  deviceStatsDiagnostics: DeviceStatsDiagnostics;
 
   // Event stats
   totalEvents: number;
@@ -123,6 +124,13 @@ interface DeviceStatsHeaderSummary {
   skippedTombstonedRecords?: number;
   skippedServiceComponents?: number;
   skippedNonCanonicalRecords?: number;
+}
+
+interface DeviceStatsDiagnostics {
+  summary: DeviceStatsHeaderSummary | null;
+  recordedAt: string;
+  warnings: string[];
+  details: string[];
 }
 
 interface DeviceStatsFetchResult {
@@ -681,6 +689,8 @@ export class DataService {
     const statsHeaders = statsResult?.headers ?? null;
     const statsErrorMessage = statsResult?.errorMessage ?? null;
     const statsFresh = this.isStatsSnapshotFresh(stats);
+    let statsIsStale = false;
+    let statsSampleRecorded = false;
 
     if (!stats) {
       const reason = statsErrorMessage ?? 'missing_device_stats_snapshot';
@@ -703,7 +713,8 @@ export class DataService {
         error: reason,
         apiHeaders: statsHeaders
       });
-      throw new Error('Analytics requires fresh device stats snapshot (stale)');
+      statsIsStale = true;
+      statsSampleRecorded = true;
     }
 
     const totalDevices = stats.total_devices;
@@ -714,13 +725,33 @@ export class DataService {
       stats.unavailable_devices ??
       Math.max(totalDevices - availableDevices, 0);
 
-    this.recordDeviceCounterSample({
-      recordedAt: new Date().toISOString(),
-      apiSnapshot: this.summarizeDeviceStats(stats),
-      statsFresh: true,
-      error: totalDevices === 0 ? 'fresh_snapshot_zero_totals' : undefined,
-      apiHeaders: statsHeaders
-    });
+    const statsDiagnostics = this.buildDeviceStatsDiagnostics(statsHeaders, stats);
+    if (statsIsStale) {
+      if (!statsDiagnostics.warnings.includes('stale_snapshot')) {
+        statsDiagnostics.warnings.push('stale_snapshot');
+      }
+      const ageSeconds =
+        typeof statsHeaders?.ageMs === 'number'
+          ? Math.max(Math.floor(statsHeaders.ageMs / 1000), 0)
+          : null;
+      const ageHint =
+        ageSeconds !== null
+          ? `Snapshot age ${ageSeconds}s exceeds freshness threshold.`
+          : 'Snapshot age exceeds freshness threshold.';
+      statsDiagnostics.details.push(
+        `${ageHint} Displaying cached device totals until the next refresh completes.`
+      );
+    }
+
+    if (!statsSampleRecorded) {
+      this.recordDeviceCounterSample({
+        recordedAt: new Date().toISOString(),
+        apiSnapshot: this.summarizeDeviceStats(stats),
+        statsFresh: !statsIsStale,
+        error: !statsIsStale && totalDevices === 0 ? 'fresh_snapshot_zero_totals' : undefined,
+        apiHeaders: statsHeaders
+      });
+    }
 
     const onlineDevices = availableDevices;
     const offlineDevices = unavailableDevices;
@@ -758,6 +789,7 @@ export class DataService {
       totalDevices,
       offlineDevices,
       onlineDevices,
+      deviceStatsDiagnostics: statsDiagnostics,
       totalEvents,
       criticalEvents,
       highEvents,
@@ -822,6 +854,12 @@ export class DataService {
       totalDevices: 0,
       offlineDevices: 0,
       onlineDevices: 0,
+      deviceStatsDiagnostics: {
+        summary: null,
+        recordedAt: new Date(0).toISOString(),
+        warnings: [],
+        details: []
+      },
       totalEvents: 0,
       criticalEvents: 0,
       highEvents: 0,
@@ -905,6 +943,61 @@ export class DataService {
     const history = debugWindow.__SERVICERADAR_DEVICE_COUNTER_DEBUG__ ?? [];
     const nextHistory = history.concat(sample).slice(-25);
     debugWindow.__SERVICERADAR_DEVICE_COUNTER_DEBUG__ = nextHistory;
+  }
+
+  private buildDeviceStatsDiagnostics(
+    headers: DeviceStatsHeaderSummary | null,
+    stats: DeviceStatsSnapshot | null
+  ): DeviceStatsDiagnostics {
+    const recordedAt = new Date().toISOString();
+
+    if (!headers) {
+      return {
+        summary: null,
+        recordedAt,
+        warnings: ['missing_headers'],
+        details: ['Device stats response did not include diagnostic headers.']
+      };
+    }
+
+    const warnings: string[] = [];
+    const details: string[] = [];
+
+    const raw = headers.rawRecords ?? 0;
+    const processed = headers.processedRecords ?? 0;
+    const skippedNonCanonical = headers.skippedNonCanonicalRecords ?? 0;
+    const skippedComponents = headers.skippedServiceComponents ?? 0;
+    const skippedTombstoned = headers.skippedTombstonedRecords ?? 0;
+
+    if (skippedNonCanonical > 0) {
+      warnings.push('skipped_non_canonical');
+      details.push(`Filtered ${skippedNonCanonical.toLocaleString()} non-canonical registry records during aggregation.`);
+    }
+
+    if (raw > processed) {
+      const difference = raw - processed;
+      warnings.push('raw_processed_mismatch');
+      details.push(`Registry snapshot contains ${difference.toLocaleString()} records that were excluded from the canonical stats total.`);
+    }
+
+    if (skippedComponents > 0) {
+      details.push(`Excluded ${skippedComponents.toLocaleString()} ServiceRadar component device records (pollers/agents/checkers).`);
+    }
+
+    if (skippedTombstoned > 0) {
+      details.push(`Filtered ${skippedTombstoned.toLocaleString()} tombstoned or merged device aliases.`);
+    }
+
+    if (stats?.timestamp) {
+      details.push(`Snapshot timestamp ${stats.timestamp}`);
+    }
+
+    return {
+      summary: headers,
+      recordedAt,
+      warnings,
+      details
+    };
   }
 
   private computeServiceStats(

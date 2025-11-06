@@ -106,14 +106,15 @@ data:
         "max_nodes": 10000
       },
       "features": {
-        "use_log_digest": true
+        "use_log_digest": true,
+        "use_device_search_planner": true
       },
-        "security": {
-          "mode": "spiffe",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "core",
-          "server_name": "",
-          "trust_domain": "carverauto.dev",
+      "security": {
+        "mode": "spiffe",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "core",
+        "server_name": "",
+        "trust_domain": "carverauto.dev",
       "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core",
       "workload_socket": "unix:/run/spire/sockets/agent.sock",
       "tls": {

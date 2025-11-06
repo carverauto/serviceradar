@@ -129,6 +129,9 @@ func Run(ctx context.Context, opts Options) error {
 		api.WithLogger(mainLogger),
 		api.WithEventPublisher(server.EventPublisher()),
 	}
+	if planner := server.DeviceSearchPlanner(); planner != nil {
+		allOptions = append(allOptions, api.WithDeviceSearchPlanner(planner))
+	}
 	if digest := server.LogDigest(); digest != nil {
 		allOptions = append(allOptions, api.WithLogDigest(digest))
 	}

@@ -39,6 +39,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/carverauto/serviceradar/pkg/registry"
+	"github.com/carverauto/serviceradar/pkg/search"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -144,6 +145,38 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 			Msg("Device registry hydrated from Proton")
 	}
 
+	useSearchPlanner := normalizedConfig.Features.UseDeviceSearchPlanner == nil || *normalizedConfig.Features.UseDeviceSearchPlanner
+
+	var deviceSearchPlanner *search.Planner
+	if useSearchPlanner {
+		var srqlClient search.SRQLClient
+		if normalizedConfig.SRQL != nil && normalizedConfig.SRQL.Enabled {
+			httpCfg := search.HTTPClientConfig{
+				BaseURL: normalizedConfig.SRQL.BaseURL,
+				APIKey:  normalizedConfig.SRQL.APIKey,
+				Logger:  log,
+			}
+
+			if normalizedConfig.SRQL.Timeout > 0 {
+				httpCfg.Timeout = time.Duration(normalizedConfig.SRQL.Timeout)
+			}
+			if normalizedConfig.SRQL.Path != "" {
+				httpCfg.Path = normalizedConfig.SRQL.Path
+			}
+
+			client, err := search.NewHTTPClient(httpCfg)
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to initialize SRQL client; planner will operate in registry-only mode")
+			} else {
+				srqlClient = client
+			}
+		}
+
+		deviceSearchPlanner = search.NewPlanner(deviceRegistry, srqlClient, log)
+	} else {
+		log.Info().Msg("device search planner disabled via feature flag")
+	}
+
 	// Initialize the Service Registry for pollers, agents, and checkers
 	// Type assert to get underlying *db.DB for registry operations
 	dbConn, ok := database.(*db.DB)
@@ -181,6 +214,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		identityKVClient:    kvClient,
 		identityKVCloser:    identityKVCloser,
 		canonicalCache:      newCanonicalCache(10 * time.Minute),
+		deviceSearchPlanner: deviceSearchPlanner,
 	}
 
 	// Create adapter to avoid import cycles
@@ -267,7 +301,12 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 	useStatsCache := normalizedConfig.Features.UseStatsCache == nil || *normalizedConfig.Features.UseStatsCache
 	if useStatsCache {
 		if deviceRegistry != nil {
-			statsAggregator := NewStatsAggregator(deviceRegistry, log, WithStatsDB(database))
+			statsAggregator := NewStatsAggregator(
+				deviceRegistry,
+				log,
+				WithStatsDB(database),
+				WithStatsAlertHandler(server.handleStatsAnomaly),
+			)
 			server.statsAggregator = statsAggregator
 
 			statsCtx, cancel := context.WithCancel(ctx)
