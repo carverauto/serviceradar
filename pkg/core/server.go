@@ -264,6 +264,22 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		log.Info().Msg("critical log digest disabled via feature flag")
 	}
 
+	useStatsCache := normalizedConfig.Features.UseStatsCache == nil || *normalizedConfig.Features.UseStatsCache
+	if useStatsCache {
+		if deviceRegistry != nil {
+			statsAggregator := NewStatsAggregator(deviceRegistry, log, WithStatsDB(database))
+			server.statsAggregator = statsAggregator
+
+			statsCtx, cancel := context.WithCancel(ctx)
+			server.statsCancel = cancel
+			go statsAggregator.Run(statsCtx)
+		} else {
+			log.Warn().Msg("stats cache requires device registry; disabled")
+		}
+	} else {
+		log.Info().Msg("device stats cache disabled via feature flag")
+	}
+
 	// MCP integration removed
 
 	return server, nil
@@ -329,6 +345,10 @@ func (s *Server) Stop(ctx context.Context) error {
 
 	if s.logDigestCancel != nil {
 		s.logDigestCancel()
+	}
+
+	if s.statsCancel != nil {
+		s.statsCancel()
 	}
 
 	if err := s.sendShutdownNotification(ctx); err != nil {
@@ -403,6 +423,15 @@ func (s *Server) LogDigest() *LogDigestAggregator {
 	}
 
 	return s.logDigest
+}
+
+// DeviceStats returns the device stats aggregator if enabled.
+func (s *Server) DeviceStats() *StatsAggregator {
+	if s == nil {
+		return nil
+	}
+
+	return s.statsAggregator
 }
 
 // EdgeOnboardingService exposes the onboarding helper to other layers.

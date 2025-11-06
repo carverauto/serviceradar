@@ -307,6 +307,13 @@ func WithLogDigest(ld LogDigestService) func(server *APIServer) {
 	}
 }
 
+// WithDeviceStats wires the device stats cache into the API server.
+func WithDeviceStats(stats StatsService) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.statsService = stats
+	}
+}
+
 func WithLogger(log logger.Logger) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.logger = log
@@ -788,6 +795,7 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/devices/{id}/metrics", s.getDeviceMetrics).Methods("GET")
 	protected.HandleFunc("/devices/metrics/status", s.getDeviceMetricsStatus).Methods("GET")
 	protected.HandleFunc("/devices/snmp/status", s.getDeviceSNMPStatus).Methods("POST")
+	protected.HandleFunc("/stats", s.handleDeviceStats).Methods("GET")
 	protected.HandleFunc("/logs/critical", s.handleCriticalLogs).Methods("GET")
 	protected.HandleFunc("/logs/critical/counters", s.handleCriticalLogCounters).Methods("GET")
 
@@ -1572,6 +1580,49 @@ func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "Service not found", http.StatusNotFound)
+}
+
+func (s *APIServer) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
+	if s.statsService == nil {
+		writeError(w, "device stats cache unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	snapshot := s.statsService.Snapshot()
+	if snapshot == nil {
+		snapshot = &models.DeviceStatsSnapshot{
+			Timestamp: time.Now().UTC(),
+		}
+	}
+
+	meta := s.statsService.Meta()
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Serviceradar-Stats-Raw-Records", strconv.Itoa(meta.RawRecords))
+	w.Header().Set("X-Serviceradar-Stats-Processed-Records", strconv.Itoa(meta.ProcessedRecords))
+	w.Header().Set("X-Serviceradar-Stats-Skipped-Nil", strconv.Itoa(meta.SkippedNilRecords))
+	w.Header().Set(
+		"X-Serviceradar-Stats-Skipped-Tombstoned",
+		strconv.Itoa(meta.SkippedTombstonedRecords),
+	)
+	w.Header().Set(
+		"X-Serviceradar-Stats-Skipped-Service-Components",
+		strconv.Itoa(meta.SkippedServiceComponents),
+	)
+	w.Header().Set(
+		"X-Serviceradar-Stats-Skipped-Non-Canonical",
+		strconv.Itoa(meta.SkippedNonCanonical),
+	)
+
+	if !snapshot.Timestamp.IsZero() {
+		age := time.Since(snapshot.Timestamp)
+		if age < 0 {
+			age = 0
+		}
+		w.Header().Set("X-Serviceradar-Stats-Timestamp", snapshot.Timestamp.Format(time.RFC3339Nano))
+		w.Header().Set("X-Serviceradar-Stats-Age-Ms", strconv.FormatInt(age.Milliseconds(), 10))
+	}
+
+	s.writeJSON(w, http.StatusOK, snapshot)
 }
 
 func (s *APIServer) handleCriticalLogs(w http.ResponseWriter, r *http.Request) {

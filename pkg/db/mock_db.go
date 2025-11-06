@@ -737,6 +737,21 @@ func (mr *MockServiceMockRecorder) ListPollers(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPollers", reflect.TypeOf((*MockService)(nil).ListPollers), arg0)
 }
 
+// CountUnifiedDevices mocks base method.
+func (m *MockService) CountUnifiedDevices(arg0 context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountUnifiedDevices", arg0)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountUnifiedDevices indicates an expected call of CountUnifiedDevices.
+func (mr *MockServiceMockRecorder) CountUnifiedDevices(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountUnifiedDevices", reflect.TypeOf((*MockService)(nil).CountUnifiedDevices), arg0)
+}
+
 // ListUnifiedDevices mocks base method.
 func (m *MockService) ListUnifiedDevices(arg0 context.Context, arg1, arg2 int) ([]*models.UnifiedDevice, error) {
 	m.ctrl.T.Helper()

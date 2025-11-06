@@ -114,11 +114,27 @@ func (db *DB) ListUnifiedDevices(ctx context.Context, limit, offset int) ([]*mod
         is_available, first_seen, last_seen, metadata, agent_id, device_type, 
         service_type, service_status, last_heartbeat, os_info, version_info
     FROM table(unified_devices)
-    WHERE NOT has(map_keys(metadata), '_merged_into')
-    ORDER BY last_seen DESC
+    WHERE metadata['_merged_into'] IS NULL
+       OR metadata['_merged_into'] = ''
+       OR metadata['_merged_into'] = device_id
+    ORDER BY device_id ASC
     LIMIT $1 OFFSET $2`
 
 	return db.queryUnifiedDevicesWithArgs(ctx, query, limit, offset)
+}
+
+// CountUnifiedDevices returns the total number of unified devices materialized in Proton.
+func (db *DB) CountUnifiedDevices(ctx context.Context) (int64, error) {
+	const query = `SELECT count() AS total FROM table(unified_devices)`
+
+	row := db.Conn.QueryRow(ctx, query)
+
+	var total int64
+	if err := row.Scan(&total); err != nil {
+		return 0, fmt.Errorf("%w: %w", errFailedToQueryUnifiedDevice, err)
+	}
+
+	return total, nil
 }
 
 // scanUnifiedDeviceSimple scans a database row from the new unified_devices stream into a UnifiedDevice struct

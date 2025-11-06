@@ -71,7 +71,7 @@ func (s *DBLogDigestSource) fetchRecentEntries(ctx context.Context, limit int) (
             trace_id,
             span_id,
             body
-        FROM logs
+        FROM table(logs)
         WHERE timestamp >= now() - INTERVAL 24 HOUR
           AND lower(severity_text) IN ('fatal', 'error')
         ORDER BY timestamp DESC
@@ -105,7 +105,7 @@ func (s *DBLogDigestSource) fetchWindowCounts(ctx context.Context, window time.D
         SELECT
             severity_text,
             count() AS total
-        FROM logs
+        FROM table(logs)
         WHERE timestamp >= now() - INTERVAL %d HOUR
         GROUP BY severity_text`, hours)
 

@@ -106,6 +106,10 @@ func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig
 		normalized.Features.UseLogDigest = boolPtr(true)
 	}
 
+	if normalized.Features.UseStatsCache == nil {
+		normalized.Features.UseStatsCache = boolPtr(true)
+	}
+
 	return &normalized
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 const hydrateBatchSize = 512
@@ -49,6 +50,8 @@ func (r *DeviceRegistry) HydrateFromStore(ctx context.Context) (int, error) {
 
 	r.replaceAll(records)
 
+	r.reportHydrationDiscrepancy(ctx, records)
+
 	return len(records), nil
 }
 
@@ -73,4 +76,46 @@ func (r *DeviceRegistry) replaceAll(records []*DeviceRecord) {
 		r.indexRecordLocked(clone)
 		r.addToSearchIndex(clone)
 	}
+}
+
+func (r *DeviceRegistry) reportHydrationDiscrepancy(ctx context.Context, records []*DeviceRecord) {
+	if r.db == nil || r.logger == nil {
+		return
+	}
+
+	protonCount, err := r.db.CountUnifiedDevices(ctx)
+	if err != nil {
+		r.logger.Warn().Err(err).Msg("Failed to count Proton devices during registry hydration diagnostics")
+		return
+	}
+
+	registryCount := len(records)
+	if int64(registryCount) == protonCount {
+		return
+	}
+
+	known := make(map[string]struct{}, registryCount)
+	for _, record := range records {
+		if record == nil {
+			continue
+		}
+		if id := strings.TrimSpace(record.DeviceID); id != "" {
+			known[id] = struct{}{}
+		}
+	}
+
+	missingIDs, sampleErr := r.SampleMissingDeviceIDs(ctx, known, 20)
+
+	event := r.logger.Warn().
+		Int("registry_devices", registryCount).
+		Int64("proton_devices", protonCount)
+
+	if len(missingIDs) > 0 {
+		event = event.Strs("missing_device_ids", missingIDs)
+	}
+	if sampleErr != nil {
+		event = event.Err(sampleErr)
+	}
+
+	event.Msg("Device registry hydration mismatch detected")
 }

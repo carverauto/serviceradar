@@ -247,6 +247,11 @@ func (r *DeviceRegistry) snapshotRecords() []*DeviceRecord {
 	return out
 }
 
+// SnapshotRecords returns a defensive copy of all device records currently held in memory.
+func (r *DeviceRegistry) SnapshotRecords() []*DeviceRecord {
+	return r.snapshotRecords()
+}
+
 func searchTextForRecord(record *DeviceRecord) string {
 	if record == nil {
 		return ""

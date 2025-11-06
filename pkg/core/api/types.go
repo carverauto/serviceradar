@@ -122,6 +122,7 @@ type APIServer struct {
 	edgeOnboarding       EdgeOnboardingService
 	eventPublisher       *natsutil.EventPublisher
 	logDigest            LogDigestService
+	statsService         StatsService
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint that fronts a specific JetStream domain.
@@ -148,4 +149,10 @@ type DeviceRegistryService interface {
 type LogDigestService interface {
 	Latest(limit int) []models.LogSummary
 	Counters() *models.LogCounters
+}
+
+// StatsService exposes cached device statistics.
+type StatsService interface {
+	Snapshot() *models.DeviceStatsSnapshot
+	Meta() models.DeviceStatsMeta
 }

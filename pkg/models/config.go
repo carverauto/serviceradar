@@ -196,7 +196,8 @@ type EdgeOnboardingConfig struct {
 
 // FeatureFlags captures optional feature toggles for the core service.
 type FeatureFlags struct {
-	UseLogDigest *bool `json:"use_log_digest,omitempty"`
+	UseLogDigest  *bool `json:"use_log_digest,omitempty"`
+	UseStatsCache *bool `json:"use_stats_cache,omitempty"`
 }
 
 func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
