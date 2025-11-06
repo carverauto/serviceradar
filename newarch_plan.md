@@ -762,10 +762,10 @@ func (db *DB) GetICMPMetrics(deviceID string, start, end time.Time) ([]*Metric, 
 - ✅ **Core redeploy (2025‑11‑06)** – Added Go/Bazel deps for the search planner, shipped the canonical stats fallback + UI warning flow, built `ghcr.io/carverauto/serviceradar-core:sha-616606a524aa68bb8106f91ca71266b6764eb0ad`, and rolled the demo `serviceradar-core` deployment onto it.
 - ✅ **Stats reconciliation (2025‑11‑06)** – Stats aggregator now reconciles the registry snapshot against Proton, pruning inferred sweep echoes and reporting Proton’s device count as the raw record total (`pkg/core/stats_aggregator.go`, `pkg/core/stats_aggregator_test.go`). Deployed `ghcr.io/carverauto/serviceradar-core@sha256:4975908b82df0985ba1af9dcddb1fb9df828d23b25d4248f8070639ecbf1e2d0` with the fix.
 
-Next focus:
-- Coordinate staged rollout using the new feature flag (core `features.use_device_search_planner`, web `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER`).
-- Emit registry vs SRQL latency histograms and fallback counters to observability dashboards.
-- Capture operator docs for interpreting planner diagnostics (engine reason, latency) and troubleshooting search decisions.
+ Next focus:
+- Coordinate staged rollout using the new feature flag (core `features.use_device_search_planner`, web `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER`) via the documented ConfigMap workflow.
+- ✅ Emit registry vs SRQL latency histograms and fallback counters to observability dashboards (`pkg/search/metrics.go`, `pkg/search/planner.go`).
+- ✅ Capture operator docs for interpreting planner diagnostics (engine reason, latency) and troubleshooting search decisions (`docs/docs/search-planner-operations.md`).
 - Track `core_device_stats_inferred_canonical` after the completed identity backfill; once it trends to zero, remove the temporary stats fallback and tighten canonical checks.
 - Investigate upstream causes of high inferred-record churn so registry writes fewer fallback rows:
   - Ensure every faker DHCP churn update carries a canonical identifier (armis ID / `canonical_device_id`) so `ProcessBatchDeviceUpdates` rewrites straight to the canonical record.

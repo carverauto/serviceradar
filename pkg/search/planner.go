@@ -120,23 +120,36 @@ func (p *Planner) Search(ctx context.Context, req *Request) (*Result, error) {
 		diagnostics[k] = v
 	}
 
+	if engine == EngineSRQL {
+		if reasonCode, ok := reason["engine_reason"].(string); ok {
+			switch reasonCode {
+			case "query_not_supported", "registry_constraints":
+				recordPlannerFallback(ctx, reasonCode, mode)
+			}
+		}
+	}
+
 	start := time.Now()
 
 	switch engine {
 	case EngineRegistry:
 		devices, pagination, err := p.executeRegistry(ctx, req)
+		duration := time.Since(start)
 		if err != nil {
+			recordRegistryLatency(ctx, duration, mode, "error", 0)
 			return nil, err
 		}
+		recordRegistryLatency(ctx, duration, mode, "success", len(devices))
 		return &Result{
 			Engine:      EngineRegistry,
 			Devices:     devices,
 			Pagination:  pagination,
 			Diagnostics: diagnostics,
-			Duration:    time.Since(start),
+			Duration:    duration,
 		}, nil
 	case EngineSRQL:
 		if p.srql == nil {
+			recordSRQLLatency(ctx, time.Since(start), mode, "error", 0)
 			return nil, fmt.Errorf("srql engine is required for this query")
 		}
 
@@ -148,23 +161,33 @@ func (p *Planner) Search(ctx context.Context, req *Request) (*Result, error) {
 		}
 
 		resp, err := p.srql.Query(ctx, srqlReq)
+		duration := time.Since(start)
 		if err != nil {
+			recordSRQLLatency(ctx, duration, mode, "error", 0)
 			return nil, err
 		}
+		rowCount := 0
+		if resp != nil {
+			rowCount = len(resp.Rows)
+		}
+		recordSRQLLatency(ctx, duration, mode, "success", rowCount)
 
 		result := &Result{
 			Engine:      EngineSRQL,
-			Rows:        resp.Rows,
-			Pagination:  resp.Pagination,
 			Diagnostics: diagnostics,
-			Duration:    time.Since(start),
+			Duration:    duration,
 		}
 
-		if len(resp.UnsupportedTokens) > 0 {
-			if result.Diagnostics == nil {
-				result.Diagnostics = make(map[string]any)
+		if resp != nil {
+			result.Rows = resp.Rows
+			result.Pagination = resp.Pagination
+
+			if len(resp.UnsupportedTokens) > 0 {
+				if result.Diagnostics == nil {
+					result.Diagnostics = make(map[string]any)
+				}
+				result.Diagnostics["unsupported_tokens"] = resp.UnsupportedTokens
 			}
-			result.Diagnostics["unsupported_tokens"] = resp.UnsupportedTokens
 		}
 
 		return result, nil

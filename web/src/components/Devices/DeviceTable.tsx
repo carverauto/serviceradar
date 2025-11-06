@@ -640,6 +640,10 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                     <div className="flex flex-wrap gap-1">
                       {Array.isArray(device.discovery_sources)
                         ? device.discovery_sources
+                            .filter(
+                              (source): source is string =>
+                                typeof source === "string" && source.length > 0,
+                            )
                             .sort((a, b) => a.localeCompare(b))
                             .map((source) => (
                               <span

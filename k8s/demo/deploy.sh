@@ -199,6 +199,10 @@ data:
         "retention": 100,
         "max_nodes": 10000
       },
+      "features": {
+        "use_log_digest": true,
+        "use_device_search_planner": true
+      },
       "security": {
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
