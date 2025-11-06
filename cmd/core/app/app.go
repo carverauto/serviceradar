@@ -132,6 +132,9 @@ func Run(ctx context.Context, opts Options) error {
 	if digest := server.LogDigest(); digest != nil {
 		allOptions = append(allOptions, api.WithLogDigest(digest))
 	}
+	if stats := server.DeviceStats(); stats != nil {
+		allOptions = append(allOptions, api.WithDeviceStats(stats))
+	}
 	if cfg.Auth != nil {
 		allOptions = append(allOptions, api.WithRBACConfig(&cfg.Auth.RBAC))
 	}

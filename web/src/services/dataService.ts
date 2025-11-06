@@ -87,6 +87,62 @@ export interface AnalyticsData {
   serviceLatencyBuckets: ServiceLatencyBucket[];
 }
 
+interface DevicePartitionStats {
+  partition_id: string;
+  device_count: number;
+  active_count: number;
+  available_count: number;
+}
+
+interface DeviceStatsSnapshot {
+  timestamp: string;
+  total_devices: number;
+  available_devices: number;
+  unavailable_devices: number;
+  active_devices: number;
+  devices_with_icmp: number;
+  devices_with_snmp: number;
+  devices_with_sysmon: number;
+  partitions: DevicePartitionStats[];
+}
+
+interface DeviceCounterSnapshotSummary {
+  timestamp?: string;
+  total_devices?: number;
+  available_devices?: number;
+  unavailable_devices?: number;
+  active_devices?: number;
+}
+
+interface DeviceStatsHeaderSummary {
+  timestamp?: string;
+  ageMs?: number;
+  rawRecords?: number;
+  processedRecords?: number;
+  skippedNilRecords?: number;
+  skippedTombstonedRecords?: number;
+  skippedServiceComponents?: number;
+  skippedNonCanonicalRecords?: number;
+}
+
+interface DeviceStatsFetchResult {
+  snapshot: DeviceStatsSnapshot | null;
+  headers: DeviceStatsHeaderSummary | null;
+  errorMessage?: string;
+}
+
+interface DeviceCounterSample {
+  recordedAt: string;
+  apiSnapshot: DeviceCounterSnapshotSummary | null;
+  statsFresh: boolean;
+  error?: string;
+  apiHeaders?: DeviceStatsHeaderSummary | null;
+}
+
+interface DeviceCounterDebugWindow extends Window {
+  __SERVICERADAR_DEVICE_COUNTER_DEBUG__?: DeviceCounterSample[];
+}
+
 export interface RecentSlowSpan {
   trace_id: string;
   service_name: string;
@@ -228,6 +284,7 @@ export class DataService {
   private readonly subscribers = new Map<DataKey, Set<() => void>>();
   private readonly CACHE_DURATION = 30_000; // 30 seconds
   private readonly LATENCY_THRESHOLD_NS = 100 * 1_000_000; // 100ms
+  private readonly STATS_STALE_THRESHOLD_MS = 60_000; // 60 seconds
 
   async getAnalyticsData(token?: string): Promise<AnalyticsData> {
     return this.fetchAndCache(
@@ -433,6 +490,91 @@ export class DataService {
     }
   }
 
+  private async fetchDeviceStatsSnapshot(
+    token?: string
+  ): Promise<DeviceStatsFetchResult> {
+    const response = await fetch('/api/stats', {
+      method: 'GET',
+      headers: this.buildHeaders(token),
+      cache: 'no-store'
+    });
+
+    const headers = this.extractDeviceStatsHeaders(response.headers);
+
+    if (!response.ok) {
+      let errorDetails = response.statusText;
+      try {
+        errorDetails = await response.text();
+      } catch {
+        // Ignore failures when reading response body.
+      }
+      const message = `request_failed:${response.status}:${errorDetails}`;
+      return {
+        snapshot: null,
+        headers,
+        errorMessage: message
+      };
+    }
+
+    try {
+      const snapshot = (await response.json()) as DeviceStatsSnapshot;
+      return { snapshot, headers };
+    } catch (err) {
+      console.warn('Failed to parse JSON response from /api/stats', err);
+      return {
+        snapshot: null,
+        headers,
+        errorMessage: 'invalid_json'
+      };
+    }
+  }
+
+  private extractDeviceStatsHeaders(headers: Headers): DeviceStatsHeaderSummary | null {
+    if (!headers) {
+      return null;
+    }
+
+    const parseIntHeader = (name: string): number | undefined => {
+      const value = headers.get(name);
+      if (!value) {
+        return undefined;
+      }
+      const parsed = Number.parseInt(value, 10);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+
+    const summary: DeviceStatsHeaderSummary = {};
+    const timestamp = headers.get('X-Serviceradar-Stats-Timestamp');
+    if (timestamp && timestamp.trim()) {
+      summary.timestamp = timestamp;
+    }
+
+    summary.ageMs = parseIntHeader('X-Serviceradar-Stats-Age-Ms');
+    summary.rawRecords = parseIntHeader('X-Serviceradar-Stats-Raw-Records');
+    summary.processedRecords = parseIntHeader('X-Serviceradar-Stats-Processed-Records');
+    summary.skippedNilRecords = parseIntHeader('X-Serviceradar-Stats-Skipped-Nil');
+    summary.skippedTombstonedRecords = parseIntHeader('X-Serviceradar-Stats-Skipped-Tombstoned');
+    summary.skippedServiceComponents = parseIntHeader('X-Serviceradar-Stats-Skipped-Service-Components');
+    summary.skippedNonCanonicalRecords = parseIntHeader(
+      'X-Serviceradar-Stats-Skipped-Non-Canonical',
+    );
+
+    if (
+      summary.timestamp === undefined &&
+      summary.ageMs === undefined &&
+      summary.rawRecords === undefined &&
+      summary.processedRecords === undefined &&
+      summary.skippedNilRecords === undefined &&
+      summary.skippedTombstonedRecords === undefined &&
+      summary.skippedServiceComponents === undefined &&
+      summary.skippedNonCanonicalRecords === undefined
+    ) {
+      return null;
+    }
+
+    return summary;
+  }
+
   private async executeSrqlQuery<T>(query: string, token?: string): Promise<T[]> {
     const response = await this.requestSrql<T>(query, token);
     if (!Array.isArray(response.results)) {
@@ -474,8 +616,6 @@ export class DataService {
 
     const slowTraceListQuery = 'in:otel_trace_summaries time:last_24h sort:duration_ms:desc limit:25';
     const queryConfigs: Array<{ query: string; limit?: number }> = [
-      { query: 'in:devices stats:"count() as total" sort:total:desc' },
-      { query: 'in:devices is_available:false stats:"count() as total" sort:total:desc' },
       { query: `in:events time:[${last24HoursIso},] stats:"count() as total" sort:total:desc` },
       {
         query: `in:events severity:Critical time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`
@@ -502,6 +642,15 @@ export class DataService {
       { query: 'in:services sort:timestamp:desc limit:150', limit: 150 }
     ];
 
+    const statsPromise = this.fetchDeviceStatsSnapshot(token).catch((error) => {
+      console.warn('Failed to fetch device stats snapshot', error);
+      return {
+        snapshot: null,
+        headers: null,
+        errorMessage: error instanceof Error ? error.message : 'fetch_failed'
+      } satisfies DeviceStatsFetchResult;
+    });
+
     const criticalLogsPromise = this.fetchCriticalLogsDigest(token);
 
     const results = await Promise.all(
@@ -515,8 +664,6 @@ export class DataService {
     );
 
     const [
-      totalDevicesRes,
-      offlineDevicesRes,
       totalEventsRes,
       criticalEventsRes,
       highEventsRes,
@@ -528,6 +675,55 @@ export class DataService {
       devicesLatestRes,
       servicesLatestRes
     ] = results;
+
+    const statsResult = await statsPromise;
+    const stats = statsResult?.snapshot ?? null;
+    const statsHeaders = statsResult?.headers ?? null;
+    const statsErrorMessage = statsResult?.errorMessage ?? null;
+    const statsFresh = this.isStatsSnapshotFresh(stats);
+
+    if (!stats) {
+      const reason = statsErrorMessage ?? 'missing_device_stats_snapshot';
+      this.recordDeviceCounterSample({
+        recordedAt: new Date().toISOString(),
+        apiSnapshot: null,
+        statsFresh: false,
+        error: reason,
+        apiHeaders: statsHeaders
+      });
+      throw new Error(`Analytics requires device stats snapshot (${reason})`);
+    }
+
+    if (!statsFresh) {
+      const reason = `stale_device_stats_snapshot:${stats.timestamp ?? 'unknown'}`;
+      this.recordDeviceCounterSample({
+        recordedAt: new Date().toISOString(),
+        apiSnapshot: this.summarizeDeviceStats(stats),
+        statsFresh: false,
+        error: reason,
+        apiHeaders: statsHeaders
+      });
+      throw new Error('Analytics requires fresh device stats snapshot (stale)');
+    }
+
+    const totalDevices = stats.total_devices;
+    const availableDevices =
+      stats.available_devices ??
+      Math.max(totalDevices - (stats.unavailable_devices ?? 0), 0);
+    const unavailableDevices =
+      stats.unavailable_devices ??
+      Math.max(totalDevices - availableDevices, 0);
+
+    this.recordDeviceCounterSample({
+      recordedAt: new Date().toISOString(),
+      apiSnapshot: this.summarizeDeviceStats(stats),
+      statsFresh: true,
+      error: totalDevices === 0 ? 'fresh_snapshot_zero_totals' : undefined,
+      apiHeaders: statsHeaders
+    });
+
+    const onlineDevices = availableDevices;
+    const offlineDevices = unavailableDevices;
 
     const { logs: criticalLogs, counters: criticalCounters } = await criticalLogsPromise;
     const window24h = criticalCounters?.window_24h ?? {};
@@ -545,8 +741,6 @@ export class DataService {
       latencyBuckets
     } = this.computeServiceStats(servicesLatest);
 
-    const totalDevices = this.extractTotal(totalDevicesRes);
-    const offlineDevices = this.extractTotal(offlineDevicesRes);
     const totalEvents = this.extractTotal(totalEventsRes);
     const criticalEvents = this.extractTotal(criticalEventsRes);
     const highEvents = this.extractTotal(highEventsRes);
@@ -563,7 +757,7 @@ export class DataService {
     const data: AnalyticsData = {
       totalDevices,
       offlineDevices,
-      onlineDevices: Math.max(totalDevices - offlineDevices, 0),
+      onlineDevices,
       totalEvents,
       criticalEvents,
       highEvents,
@@ -653,6 +847,64 @@ export class DataService {
       highLatencyServiceCount: 0,
       serviceLatencyBuckets: []
     };
+  }
+
+  private isStatsSnapshotFresh(
+    stats?: DeviceStatsSnapshot | null
+  ): boolean {
+    if (!stats || !stats.timestamp) {
+      return false;
+    }
+
+    const parsed = Date.parse(stats.timestamp);
+    if (!Number.isFinite(parsed)) {
+      return false;
+    }
+
+    return Date.now() - parsed <= this.STATS_STALE_THRESHOLD_MS;
+  }
+
+  private summarizeDeviceStats(
+    stats?: DeviceStatsSnapshot | null
+  ): DeviceCounterSnapshotSummary | null {
+    if (!stats) {
+      return null;
+    }
+
+    return {
+      timestamp: stats.timestamp,
+      total_devices: stats.total_devices,
+      available_devices: stats.available_devices,
+      unavailable_devices: stats.unavailable_devices,
+      active_devices: stats.active_devices
+    };
+  }
+
+  private recordDeviceCounterSample(sample: DeviceCounterSample): void {
+    const source = sample.error ? 'device_stats_error' : 'device_stats';
+    const payload = {
+      source,
+      recordedAt: sample.recordedAt,
+      statsFresh: sample.statsFresh,
+      error: sample.error ?? null,
+      api: sample.apiSnapshot,
+      apiHeaders: sample.apiHeaders ?? null
+    };
+
+    if (sample.error) {
+      console.warn('[Analytics] Device counter sample (error)', payload);
+    } else {
+      console.info('[Analytics] Device counter sample', payload);
+    }
+
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const debugWindow = window as unknown as DeviceCounterDebugWindow;
+    const history = debugWindow.__SERVICERADAR_DEVICE_COUNTER_DEBUG__ ?? [];
+    const nextHistory = history.concat(sample).slice(-25);
+    debugWindow.__SERVICERADAR_DEVICE_COUNTER_DEBUG__ = nextHistory;
   }
 
   private computeServiceStats(

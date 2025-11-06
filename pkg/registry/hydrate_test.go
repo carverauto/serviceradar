@@ -61,6 +61,10 @@ func TestHydrateFromStoreLoadsDevices(t *testing.T) {
 		ListUnifiedDevices(gomock.Any(), hydrateBatchSize, 0).
 		Return(batch, nil)
 
+	mockDB.EXPECT().
+		CountUnifiedDevices(gomock.Any()).
+		Return(int64(len(batch)), nil)
+
 	count, err := reg.HydrateFromStore(context.Background())
 	if err != nil {
 		t.Fatalf("hydrate returned error: %v", err)

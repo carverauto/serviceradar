@@ -94,6 +94,8 @@ type Server struct {
 	canonicalCache          *canonicalCache
 	logDigest               *LogDigestAggregator
 	logDigestCancel         context.CancelFunc
+	statsAggregator         *StatsAggregator
+	statsCancel             context.CancelFunc
 }
 
 // OIDStatusData represents the structure of OID status data.

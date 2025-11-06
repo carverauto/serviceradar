@@ -378,6 +378,21 @@ func (h *Handler) GetDeviceStats() *StatsSnapshot {
 
 **Result:** Dashboard stats load in <1ms from memory, not 500ms+ from Proton.
 
+**Status:**
+- [x] Stats aggregator runs every 10s with in-memory snapshot (`pkg/core/stats_aggregator.go`)
+- [x] `/api/stats` serves cached device metrics for the dashboard
+- [x] Web dashboard device counters default to the stats API (`web/src/services/dataService.ts`)
+- [x] Added Proton vs. registry diagnostics so hydration logs canonical mismatch details (`pkg/registry/hydrate.go`, `pkg/registry/diagnostics.go`)
+- [x] Stats aggregator cross-checks every refresh and emits missing device IDs when registry totals diverge (`pkg/core/stats_aggregator.go`)
+- [x] Removed SRQL fallback; analytics now fail fast when the cached snapshot is missing or stale (new logging shows timestamp, totals, and deltas)
+- [x] `/api/stats` returns snapshot bookkeeping headers (age, raw vs processed records, filtered device counts) so the frontend can capture metadata when tiles drift (`pkg/core/api/server.go`, `web/src/services/dataService.ts`)
+- [x] Registry-only sweep echoes are filtered from the stats snapshot so totals reflect canonical devices only (`pkg/core/stats_aggregator.go`, `pkg/models/stats.go`)
+- [x] Stats aggregator filters ServiceRadar component device IDs (pollers/agents/checkers) so totals match Proton (`pkg/core/stats_aggregator.go`)
+
+**Open follow-ups:**
+- Investigate why `serviceradar-kong:8000/api/query` returns 401 for internal SRQL requests (currently blocking an apples-to-apples comparison between SRQL and cached stats in the analytics view)
+- Track down why the analytics “Total Devices” tile drifts upward again (72k reported vs ~50k actual). Hypotheses: (a) stale `/api/stats` snapshots leak through when the aggregator misses a refresh; (b) registry snapshot still contains duplicate aliases we are missing; (c) stats cache is racing with hydration and briefly returning default zeros. Next steps: capture `/api/stats` output when the tile jumps, correlate with the new aggregator refresh logs, and verify the registry snapshot size (`/api/devices?limit=1&page=1` response metadata) before touching Proton again.
+
 ---
 
 ### Phase 3b: Critical Log Rollups (Dashboard Observability)
@@ -683,43 +698,52 @@ func (db *DB) GetICMPMetrics(deviceID string, start, end time.Time) ([]*Metric, 
 
 ---
 
+## Status Check (2025-11-05)
+
+- ✅ **Phase 1 (Registry hot tier)** – DeviceRecord schema, in-memory cache, Proton hydration, and dual-write paths are all in place (`pkg/registry/device.go`, `device_store.go`, `hydrate.go`, `pkg/core/server.go`, `pkg/core/pollers.go`).
+- ✅ **Phase 2 (Collector capabilities)** – Capability index + API/UI wiring landed; collector metadata now comes from explicit `CollectorCapability` records, not `_alias_*` scraping (`pkg/registry/capabilities.go`, `pkg/core/capabilities.go`, `web/src/components/Devices/DeviceTable.tsx`).
+- ✅ **Phase 3 / 3b (Stats + log caches)** – `/api/stats` backs analytics tiles, log digest feeds critical-log widgets, and the stats aggregator now skips ServiceRadar component device IDs so counts align with Proton (`pkg/core/stats_aggregator.go`, `web/src/services/dataService.ts`).
+- ⚙️ **Phase 4 (Search index)** – Trigram index + registry integration and `/api/devices` search path are live, but the inventory UI still posts SRQL queries through `/api/query` (`web/src/components/Devices/Dashboard.tsx:242`), and we still need telemetry + feature-flag plumbing for the new search path.
+
+Next focus: finish Phase 4 by moving the devices dashboard to the registry-backed `/api/devices` endpoint, expose trigram scores in the API response, add basic latency telemetry, and gate rollout behind a config flag.
+
 ## Implementation Plan
 
 ### Sprint 1: Foundation (Week 1-2)
-- [ ] Implement `pkg/registry/device.go` schema
-- [ ] Implement `pkg/registry/cache.go` with in-memory map
-- [ ] Implement `pkg/core/registry_loader.go` to hydrate from Proton
-- [ ] Update `DeviceManager.UpsertDevice()` to write to both Proton + Registry
-- [ ] Add registry to Core service initialization
-- [ ] Unit tests for registry operations
+- [x] Implement `pkg/registry/device.go` schema
+- [x] Implement registry cache with in-memory indexes (`pkg/registry/device_store.go`)
+- [x] Hydrate registry from Proton snapshot on startup (`pkg/registry/hydrate.go`)
+- [x] Update device ingestion to write to both Proton + Registry (`pkg/registry/registry.go`)
+- [x] Add registry to Core service initialization (`cmd/core/app/app.go`, `pkg/core/server.go`)
+- [x] Unit tests for registry operations (`pkg/registry/*.go`)
 
 **Success Criteria:** Registry hydrates from Proton, stays in sync with new updates.
 
 ### Sprint 2: Collector Capabilities (Week 3-4)
-- [ ] Define `CollectorCapability` schema
-- [ ] Implement `pkg/registry/capabilities.go` index
-- [ ] Update agent/poller registration to emit capabilities
-- [ ] Update API collectors endpoint to use registry
-- [ ] Remove all metadata scraping (grep for `_alias_last_seen_service_id`)
-- [ ] Update UI to use new capabilities API
+- [x] Define `CollectorCapability` schema (`pkg/models/collector.go`)
+- [x] Implement capability index (`pkg/registry/capabilities.go`)
+- [x] Update agent/poller onboarding & metric paths to emit capabilities (`pkg/core/pollers.go`, `pkg/core/metrics.go`)
+- [x] Update API collectors endpoint to use registry (`pkg/core/api/server.go`, `pkg/core/capabilities.go`)
+- [x] Remove metadata scraping for collector detection (`pkg/registry/registry.go`)
+- [x] Update UI to consume capability hints (`web/src/components/Devices/DeviceTable.tsx`)
 
 **Success Criteria:** Collector status comes from explicit records, not metadata.
 
 ### Sprint 3: Stats Aggregator (Week 5)
-- [ ] Implement `pkg/core/stats_aggregator.go`
-- [ ] Add stats cache to registry
-- [ ] Create `/api/stats` endpoint
-- [ ] Update dashboard tiles to call `/api/stats`
-- [ ] Remove SRQL stat card queries from UI
+- [x] Implement `pkg/core/stats_aggregator.go`
+- [x] Add stats cache + diagnostics (`pkg/core/stats_aggregator.go`, `pkg/registry/hydrate.go`)
+- [x] Create `/api/stats` endpoint (`pkg/core/api/server.go`, `web/src/app/api/status/route.ts`)
+- [x] Update dashboard tiles to call `/api/stats` (`web/src/services/dataService.ts`, `web/src/components/Analytics/Dashboard.tsx`)
+- [x] Remove SRQL stat card queries from the UI path; analytics now requires a fresh `/api/stats` snapshot (no fallback)
 
 **Success Criteria:** Dashboard loads stats in <10ms, no Proton queries.
 
 ### Sprint 4: Search Index (Week 6-7)
-- [ ] Implement `pkg/search/trigram.go` in-memory index
-- [ ] Integrate with `DeviceRegistry.Upsert()`
-- [ ] Add `/api/devices/search?q=...` endpoint
-- [ ] Update inventory UI to use search API
-- [ ] Remove `SELECT ... LIKE ...` queries
+- [x] Implement `pkg/registry/trigram_index.go` in-memory index
+- [x] Integrate with `DeviceRegistry.Upsert()` (`pkg/registry/device_store.go`)
+- [x] Add registry-backed `/api/devices` search path (search params handled in `pkg/core/api/server.go`, proxied via `web/src/app/api/devices/route.ts`)
+- [ ] Update inventory UI to use search API (still uses SRQL via `web/src/components/Devices/Dashboard.tsx`)
+- [ ] Remove `SELECT ... LIKE ...` queries / SRQL fallbacks for inventory
 
 **Success Criteria:** Inventory search returns in <50ms for any query.
 

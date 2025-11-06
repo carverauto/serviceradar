@@ -132,6 +132,7 @@ type Service interface {
 	GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
 	GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips []string, deviceIDs []string) ([]*models.UnifiedDevice, error)
 	ListUnifiedDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
+	CountUnifiedDevices(ctx context.Context) (int64, error)
 
 	// DeviceUpdate operations (modern materialized view approach).
 

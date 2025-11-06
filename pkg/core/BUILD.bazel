@@ -29,6 +29,7 @@ go_library(
         "server.go",
         "service_registry_adapter.go",
         "services.go",
+        "stats_aggregator.go",
         "snmp.go",
         "time_utils.go",
         "types.go",
@@ -89,6 +90,7 @@ go_test(
         "edge_onboarding_test.go",
         "server_test.go",
         "log_digest_test.go",
+        "stats_aggregator_test.go",
     ],
     embed = [":core"],
     deps = [
