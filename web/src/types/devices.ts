@@ -48,9 +48,31 @@ export interface Pagination {
     next_cursor?: string;
     prev_cursor?: string;
     limit?: number;
+    offset?: number;
 }
 export interface DevicesApiResponse {
     results: Device[];
     pagination: Pagination;
+    error?: string;
+}
+
+export interface DeviceSearchRequestPayload {
+    query: string;
+    mode?: string;
+    filters?: Record<string, string>;
+    pagination?: {
+      limit?: number;
+      offset?: number;
+      cursor?: string;
+      direction?: "next" | "prev";
+    };
+}
+
+export interface DeviceSearchApiResponse {
+    engine: string;
+    results: Device[];
+    pagination?: Pagination;
+    diagnostics?: Record<string, unknown>;
+    raw_results?: Array<Record<string, unknown>>;
     error?: string;
 }

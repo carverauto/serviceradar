@@ -32,6 +32,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
+	"github.com/carverauto/serviceradar/pkg/search"
 )
 
 type ServiceStatus struct {
@@ -123,6 +124,7 @@ type APIServer struct {
 	eventPublisher       *natsutil.EventPublisher
 	logDigest            LogDigestService
 	statsService         StatsService
+	searchPlanner        *search.Planner
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint that fronts a specific JetStream domain.

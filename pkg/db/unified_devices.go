@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -129,12 +130,16 @@ func (db *DB) CountUnifiedDevices(ctx context.Context) (int64, error) {
 
 	row := db.Conn.QueryRow(ctx, query)
 
-	var total int64
+	var total uint64
 	if err := row.Scan(&total); err != nil {
 		return 0, fmt.Errorf("%w: %w", errFailedToQueryUnifiedDevice, err)
 	}
 
-	return total, nil
+	if total > math.MaxInt64 {
+		return 0, fmt.Errorf("%w: count %d exceeds supported range", errFailedToQueryUnifiedDevice, total)
+	}
+
+	return int64(total), nil
 }
 
 // scanUnifiedDeviceSimple scans a database row from the new unified_devices stream into a UnifiedDevice struct

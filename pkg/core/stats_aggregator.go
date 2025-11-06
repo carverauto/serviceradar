@@ -22,6 +22,11 @@ const (
 
 var defaultTrackedCapabilities = []string{"icmp", "snmp", "sysmon"}
 
+// StatsAlertHandler receives the previous and current snapshot metadata so callers can
+// trigger external notifications when anomaly thresholds are crossed (for example,
+// when the non-canonical skip count jumps).
+type StatsAlertHandler func(ctx context.Context, previousSnapshot *models.DeviceStatsSnapshot, previousMeta models.DeviceStatsMeta, currentSnapshot *models.DeviceStatsSnapshot, currentMeta models.DeviceStatsMeta)
+
 // StatsOption customises the behaviour of the StatsAggregator.
 type StatsOption func(*StatsAggregator)
 
@@ -39,6 +44,7 @@ type StatsAggregator struct {
 	mismatchLogInterval time.Duration
 	lastMismatchLog     time.Time
 	lastMeta            models.DeviceStatsMeta
+	alertHandler        StatsAlertHandler
 }
 
 // NewStatsAggregator constructs a StatsAggregator tied to the provided device registry.
@@ -119,6 +125,14 @@ func WithStatsDB(database db.Service) StatsOption {
 	}
 }
 
+// WithStatsAlertHandler wires a callback that fires after every snapshot refresh so
+// callers can surface anomalies through external alerting hooks.
+func WithStatsAlertHandler(handler StatsAlertHandler) StatsOption {
+	return func(a *StatsAggregator) {
+		a.alertHandler = handler
+	}
+}
+
 // Run starts the periodic refresh loop until the context is cancelled.
 func (a *StatsAggregator) Run(ctx context.Context) {
 	a.Refresh(ctx)
@@ -141,14 +155,18 @@ func (a *StatsAggregator) Refresh(ctx context.Context) {
 	snapshot, meta := a.computeSnapshot(ctx)
 
 	var previous *models.DeviceStatsSnapshot
+	var previousMeta models.DeviceStatsMeta
 
 	a.mu.Lock()
 	previous = a.current
+	previousMeta = a.lastMeta
 	a.current = snapshot
 	a.lastMeta = meta
 	a.mu.Unlock()
 
-	a.logSnapshotRefresh(previous, snapshot, meta)
+	a.logSnapshotRefresh(previous, previousMeta, snapshot, meta)
+	recordStatsMetrics(meta, snapshot)
+	a.invokeAlertHandler(ctx, previous, previousMeta, snapshot, meta)
 }
 
 // Snapshot returns a defensive copy of the latest cached statistics.
@@ -164,6 +182,23 @@ func (a *StatsAggregator) Meta() models.DeviceStatsMeta {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.lastMeta
+}
+
+func (a *StatsAggregator) invokeAlertHandler(ctx context.Context, previousSnapshot *models.DeviceStatsSnapshot, previousMeta models.DeviceStatsMeta, currentSnapshot *models.DeviceStatsSnapshot, currentMeta models.DeviceStatsMeta) {
+	if a.alertHandler == nil {
+		return
+	}
+
+	// Best-effort alerting; avoid panics if handler misbehaves.
+	defer func() {
+		if r := recover(); r != nil {
+			if a.logger != nil {
+				a.logger.Error().Interface("panic", r).Msg("Stats alert handler panicked")
+			}
+		}
+	}()
+
+	a.alertHandler(ctx, previousSnapshot, previousMeta, currentSnapshot, currentMeta)
 }
 
 func (a *StatsAggregator) computeSnapshot(ctx context.Context) (*models.DeviceStatsSnapshot, models.DeviceStatsMeta) {
@@ -182,30 +217,24 @@ func (a *StatsAggregator) computeSnapshot(ctx context.Context) (*models.DeviceSt
 		return snapshot, meta
 	}
 
+	selected := a.selectCanonicalRecords(records, &meta)
+	selected, protonTotal := a.reconcileWithProton(ctx, selected, &meta)
+	if protonTotal > 0 {
+		meta.RawRecords = int(protonTotal)
+	} else {
+		meta.RawRecords = len(selected)
+	}
+	if len(selected) == 0 {
+		return snapshot, meta
+	}
+	meta.ProcessedRecords = len(selected)
+
 	capabilitySets := a.buildCapabilitySets(ctx)
 	activeThreshold := now.Add(-a.activeWindow)
 	partitions := make(map[string]*models.PartitionStats)
 
-	for _, record := range records {
-		if record == nil {
-			meta.SkippedNilRecords++
-			continue
-		}
-		if isTombstonedRecord(record) {
-			meta.SkippedTombstonedRecords++
-			continue
-		}
-		if isServiceComponentRecord(record) {
-			meta.SkippedServiceComponents++
-			continue
-		}
-		if !isCanonicalRecord(record) {
-			meta.SkippedNonCanonical++
-			continue
-		}
-
+	for _, record := range selected {
 		snapshot.TotalDevices++
-		meta.ProcessedRecords++
 
 		partitionID := partitionFromDeviceIDLocal(record.DeviceID)
 		if partitionID == "" {
@@ -242,7 +271,7 @@ func (a *StatsAggregator) computeSnapshot(ctx context.Context) (*models.DeviceSt
 	snapshot.UnavailableDevices = snapshot.TotalDevices - snapshot.AvailableDevices
 	snapshot.Partitions = buildPartitionStats(partitions)
 
-	a.maybeReportDiscrepancy(ctx, records, snapshot.TotalDevices)
+	a.maybeReportDiscrepancy(ctx, records, snapshot.TotalDevices, protonTotal)
 
 	return snapshot, meta
 }
@@ -363,6 +392,153 @@ func isCanonicalRecord(record *registry.DeviceRecord) bool {
 	return strings.EqualFold(canonicalID, deviceID)
 }
 
+type canonicalEntry struct {
+	record    *registry.DeviceRecord
+	canonical bool
+}
+
+func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecord, meta *models.DeviceStatsMeta) []*registry.DeviceRecord {
+	if len(records) == 0 {
+		return nil
+	}
+
+	canonical := make(map[string]canonicalEntry)
+	fallback := make(map[string]*registry.DeviceRecord)
+
+	for _, record := range records {
+		if record == nil {
+			meta.SkippedNilRecords++
+			continue
+		}
+		if isTombstonedRecord(record) {
+			meta.SkippedTombstonedRecords++
+			continue
+		}
+		if isServiceComponentRecord(record) {
+			meta.SkippedServiceComponents++
+			continue
+		}
+
+		deviceID := strings.TrimSpace(record.DeviceID)
+		canonicalID := canonicalDeviceID(record)
+
+		key := canonicalID
+		if key == "" {
+			key = deviceID
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			meta.SkippedNonCanonical++
+			continue
+		}
+
+		normalizedKey := strings.ToLower(key)
+
+		if canonicalID != "" && strings.EqualFold(canonicalID, deviceID) {
+			if entry, ok := canonical[normalizedKey]; ok {
+				if entry.canonical {
+					if shouldReplaceRecord(entry.record, record) {
+						canonical[normalizedKey] = canonicalEntry{record: record, canonical: true}
+					} else {
+						meta.SkippedNonCanonical++
+					}
+				} else {
+					canonical[normalizedKey] = canonicalEntry{record: record, canonical: true}
+				}
+			} else {
+				canonical[normalizedKey] = canonicalEntry{record: record, canonical: true}
+			}
+			continue
+		}
+
+		if entry, ok := canonical[normalizedKey]; ok {
+			if entry.canonical {
+				meta.SkippedNonCanonical++
+			} else if shouldReplaceRecord(entry.record, record) {
+				canonical[normalizedKey] = canonicalEntry{record: record, canonical: false}
+			} else {
+				meta.SkippedNonCanonical++
+			}
+			continue
+		}
+
+		if existing, ok := fallback[normalizedKey]; ok {
+			if shouldReplaceRecord(existing, record) {
+				fallback[normalizedKey] = record
+			}
+			meta.SkippedNonCanonical++
+			continue
+		}
+
+		fallback[normalizedKey] = record
+	}
+
+	for key, record := range fallback {
+		if _, ok := canonical[key]; ok {
+			meta.SkippedNonCanonical++
+			continue
+		}
+		canonical[key] = canonicalEntry{record: record, canonical: false}
+		meta.InferredCanonicalFallback++
+	}
+
+	if len(canonical) == 0 {
+		return nil
+	}
+
+	selected := make([]*registry.DeviceRecord, 0, len(canonical))
+	for _, entry := range canonical {
+		if entry.record != nil {
+			selected = append(selected, entry.record)
+		}
+	}
+
+	return selected
+}
+
+func canonicalDeviceID(record *registry.DeviceRecord) string {
+	if record == nil || len(record.Metadata) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(record.Metadata["canonical_device_id"])
+}
+
+func shouldReplaceRecord(existing, candidate *registry.DeviceRecord) bool {
+	if candidate == nil {
+		return false
+	}
+	if existing == nil {
+		return true
+	}
+
+	existingLastSeen := existing.LastSeen
+	candidateLastSeen := candidate.LastSeen
+
+	if existingLastSeen.IsZero() && !candidateLastSeen.IsZero() {
+		return true
+	}
+	if !existingLastSeen.IsZero() && candidateLastSeen.IsZero() {
+		return false
+	}
+	if candidateLastSeen.After(existingLastSeen) {
+		return true
+	}
+	if candidateLastSeen.Before(existingLastSeen) {
+		return false
+	}
+
+	if candidate.IsAvailable && !existing.IsAvailable {
+		return true
+	}
+	if !candidate.IsAvailable && existing.IsAvailable {
+		return false
+	}
+
+	existingID := strings.TrimSpace(existing.DeviceID)
+	candidateID := strings.TrimSpace(candidate.DeviceID)
+	return strings.Compare(candidateID, existingID) < 0
+}
+
 func cloneDeviceStatsSnapshot(src *models.DeviceStatsSnapshot) *models.DeviceStatsSnapshot {
 	if src == nil {
 		return nil
@@ -376,16 +552,25 @@ func cloneDeviceStatsSnapshot(src *models.DeviceStatsSnapshot) *models.DeviceSta
 	return &dst
 }
 
-func (a *StatsAggregator) logSnapshotRefresh(previous, current *models.DeviceStatsSnapshot, meta models.DeviceStatsMeta) {
+func (a *StatsAggregator) logSnapshotRefresh(previous *models.DeviceStatsSnapshot, previousMeta models.DeviceStatsMeta, current *models.DeviceStatsSnapshot, meta models.DeviceStatsMeta) {
 	if a.logger == nil || current == nil {
 		return
 	}
+
+	metaChanged := meta.RawRecords != previousMeta.RawRecords ||
+		meta.ProcessedRecords != previousMeta.ProcessedRecords ||
+		meta.SkippedNilRecords != previousMeta.SkippedNilRecords ||
+		meta.SkippedTombstonedRecords != previousMeta.SkippedTombstonedRecords ||
+		meta.SkippedServiceComponents != previousMeta.SkippedServiceComponents ||
+		meta.SkippedNonCanonical != previousMeta.SkippedNonCanonical ||
+		meta.InferredCanonicalFallback != previousMeta.InferredCanonicalFallback
 
 	if previous != nil &&
 		previous.TotalDevices == current.TotalDevices &&
 		previous.AvailableDevices == current.AvailableDevices &&
 		previous.UnavailableDevices == current.UnavailableDevices &&
-		current.TotalDevices != 0 {
+		current.TotalDevices != 0 &&
+		!metaChanged {
 		return
 	}
 
@@ -401,7 +586,8 @@ func (a *StatsAggregator) logSnapshotRefresh(previous, current *models.DeviceSta
 		Int("skipped_nil_records", meta.SkippedNilRecords).
 		Int("skipped_tombstoned_records", meta.SkippedTombstonedRecords).
 		Int("skipped_service_components", meta.SkippedServiceComponents).
-		Int("skipped_non_canonical_records", meta.SkippedNonCanonical)
+		Int("skipped_non_canonical_records", meta.SkippedNonCanonical).
+		Int("inferred_canonical_records", meta.InferredCanonicalFallback)
 
 	if previous != nil {
 		event = event.
@@ -420,17 +606,39 @@ func (a *StatsAggregator) logSnapshotRefresh(previous, current *models.DeviceSta
 	}
 
 	event.Msg("Device stats snapshot refreshed")
+
+	if meta.SkippedNonCanonical > 0 && meta.SkippedNonCanonical != previousMeta.SkippedNonCanonical {
+		warn := a.logger.Warn().
+			Str("component", "stats_aggregator").
+			Int("skipped_non_canonical_records", meta.SkippedNonCanonical).
+			Int("previous_skipped_non_canonical_records", previousMeta.SkippedNonCanonical).
+			Int("raw_records", meta.RawRecords).
+			Int("processed_records", meta.ProcessedRecords).
+			Int("inferred_canonical_records", meta.InferredCanonicalFallback)
+
+		if current != nil {
+			warn = warn.
+				Int("total_devices", current.TotalDevices).
+				Time("snapshot_timestamp", current.Timestamp)
+		}
+
+		warn.Msg("Non-canonical device records filtered during stats aggregation")
+	}
 }
 
-func (a *StatsAggregator) maybeReportDiscrepancy(ctx context.Context, records []*registry.DeviceRecord, registryTotal int) {
+func (a *StatsAggregator) maybeReportDiscrepancy(ctx context.Context, records []*registry.DeviceRecord, registryTotal int, protonSnapshot int64) {
 	if a.dbService == nil || a.registry == nil {
 		return
 	}
 
-	protonTotal, err := a.dbService.CountUnifiedDevices(ctx)
-	if err != nil {
-		a.logger.Warn().Err(err).Msg("Failed to count Proton devices during stats diagnostics")
-		return
+	protonTotal := protonSnapshot
+	var err error
+	if protonTotal <= 0 {
+		protonTotal, err = a.dbService.CountUnifiedDevices(ctx)
+		if err != nil {
+			a.logger.Warn().Err(err).Msg("Failed to count Proton devices during stats diagnostics")
+			return
+		}
 	}
 
 	if int64(registryTotal) == protonTotal {
@@ -466,4 +674,183 @@ func (a *StatsAggregator) maybeReportDiscrepancy(ctx context.Context, records []
 
 	event.Msg("Device registry stats mismatch detected")
 	a.lastMismatchLog = a.now()
+}
+
+func (a *StatsAggregator) reconcileWithProton(ctx context.Context, records []*registry.DeviceRecord, meta *models.DeviceStatsMeta) ([]*registry.DeviceRecord, int64) {
+	if len(records) == 0 {
+		if meta != nil {
+			meta.ProcessedRecords = 0
+			meta.InferredCanonicalFallback = 0
+		}
+		return records, 0
+	}
+
+	fallbackCount := countInferredRecords(records)
+
+	if a.dbService == nil {
+		if meta != nil {
+			meta.InferredCanonicalFallback = fallbackCount
+		}
+		return records, 0
+	}
+
+	protonTotal, err := a.dbService.CountUnifiedDevices(ctx)
+	if err != nil {
+		if a.logger != nil {
+			a.logger.Warn().
+				Err(err).
+				Msg("Failed to count Proton devices during registry reconciliation")
+		}
+		if meta != nil {
+			meta.InferredCanonicalFallback = fallbackCount
+		}
+		return records, 0
+	}
+
+	excess := len(records) - int(protonTotal)
+	if excess <= 0 {
+		if meta != nil {
+			meta.InferredCanonicalFallback = fallbackCount
+		}
+		return records, protonTotal
+	}
+
+	fallbackRecords := collectInferredRecords(records)
+	if len(fallbackRecords) == 0 {
+		if a.logger != nil {
+			a.logger.Warn().
+				Int("registry_records", len(records)).
+				Int64("proton_records", protonTotal).
+				Msg("Registry exceeds Proton totals but no inferred records available to prune")
+		}
+		if meta != nil {
+			meta.InferredCanonicalFallback = fallbackCount
+		}
+		return records, protonTotal
+	}
+
+	sort.Slice(fallbackRecords, func(i, j int) bool {
+		return recordOlder(fallbackRecords[i], fallbackRecords[j])
+	})
+
+	removeCount := excess
+	if removeCount > len(fallbackRecords) {
+		removeCount = len(fallbackRecords)
+	}
+
+	if removeCount <= 0 {
+		if meta != nil {
+			meta.InferredCanonicalFallback = fallbackCount
+		}
+		return records, protonTotal
+	}
+
+	pruneSet := make(map[string]struct{}, removeCount)
+	for i := 0; i < removeCount; i++ {
+		if fallbackRecords[i] == nil {
+			continue
+		}
+		pruneSet[strings.TrimSpace(fallbackRecords[i].DeviceID)] = struct{}{}
+	}
+
+	filtered := make([]*registry.DeviceRecord, 0, len(records)-removeCount)
+	remainingFallback := 0
+	for _, record := range records {
+		if record == nil {
+			continue
+		}
+		if _, drop := pruneSet[strings.TrimSpace(record.DeviceID)]; drop {
+			continue
+		}
+		filtered = append(filtered, record)
+		if !isCanonicalRecord(record) {
+			remainingFallback++
+		}
+	}
+
+	if meta != nil {
+		meta.InferredCanonicalFallback = remainingFallback
+	}
+
+	if a.logger != nil {
+		a.logger.Info().
+			Str("component", "stats_aggregator").
+			Int("pruned_inferred_records", removeCount).
+			Int("fallback_remaining", remainingFallback).
+			Int("processed_records", len(filtered)).
+			Int64("proton_devices", protonTotal).
+			Msg("Pruned inferred registry records to reconcile with Proton")
+	}
+
+	// If we still have more records than Proton, log a warning but continue.
+	if len(filtered) > int(protonTotal) && a.logger != nil {
+		a.logger.Warn().
+			Str("component", "stats_aggregator").
+			Int("processed_records", len(filtered)).
+			Int64("proton_devices", protonTotal).
+			Msg("Registry still exceeds Proton totals after pruning inferred records")
+	}
+
+	return filtered, protonTotal
+}
+
+func countInferredRecords(records []*registry.DeviceRecord) int {
+	if len(records) == 0 {
+		return 0
+	}
+	var count int
+	for _, record := range records {
+		if record == nil {
+			continue
+		}
+		if !isCanonicalRecord(record) {
+			count++
+		}
+	}
+	return count
+}
+
+func collectInferredRecords(records []*registry.DeviceRecord) []*registry.DeviceRecord {
+	if len(records) == 0 {
+		return nil
+	}
+
+	fallback := make([]*registry.DeviceRecord, 0)
+	for _, record := range records {
+		if record == nil {
+			continue
+		}
+		if !isCanonicalRecord(record) {
+			fallback = append(fallback, record)
+		}
+	}
+	return fallback
+}
+
+func recordOlder(a, b *registry.DeviceRecord) bool {
+	if a == nil && b == nil {
+		return false
+	}
+	if a == nil {
+		return false
+	}
+	if b == nil {
+		return true
+	}
+
+	aTs := a.LastSeen
+	bTs := b.LastSeen
+
+	switch {
+	case aTs.IsZero() && bTs.IsZero():
+		return strings.Compare(strings.TrimSpace(a.DeviceID), strings.TrimSpace(b.DeviceID)) < 0
+	case aTs.IsZero():
+		return true
+	case bTs.IsZero():
+		return false
+	case aTs.Equal(bTs):
+		return strings.Compare(strings.TrimSpace(a.DeviceID), strings.TrimSpace(b.DeviceID)) < 0
+	default:
+		return aTs.Before(bTs)
+	}
 }

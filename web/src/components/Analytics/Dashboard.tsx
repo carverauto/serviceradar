@@ -89,6 +89,7 @@ const DashboardContent = () => {
     const router = useRouter();
     const { setQuery: setSrqlQuery } = useSrqlQuery();
     const { data: analyticsData, loading: isLoading, error } = useAnalytics();
+    const diagnostics = analyticsData?.deviceStatsDiagnostics;
 
     // Calculate derived stats from shared analytics data
     const stats = useMemo(() => {
@@ -106,6 +107,51 @@ const DashboardContent = () => {
             failingServices
         };
     }, [analyticsData]);
+
+    const totalDevicesAlert = Boolean(diagnostics?.warnings?.length);
+
+    const totalDevicesSubValue = useMemo(() => {
+        const summary = diagnostics?.summary;
+        if (!summary) {
+            return undefined;
+        }
+
+        const { rawRecords, processedRecords } = summary;
+        if (rawRecords === undefined || processedRecords === undefined) {
+            return undefined;
+        }
+
+        return `raw ${formatNumber(rawRecords)} / processed ${formatNumber(processedRecords)}`;
+    }, [diagnostics]);
+
+    const deviceStatsTooltip = useMemo(() => {
+        const summary = diagnostics?.summary;
+        if (!summary) {
+            return undefined;
+        }
+
+        const parts: string[] = [];
+        if (summary.timestamp) {
+            parts.push(`snapshot ${summary.timestamp}`);
+        }
+        if (typeof summary.ageMs === 'number') {
+            parts.push(`age ${Math.max(Math.floor(summary.ageMs / 1000), 0)}s`);
+        }
+        if (typeof summary.rawRecords === 'number' && typeof summary.processedRecords === 'number') {
+            parts.push(`raw ${formatNumber(summary.rawRecords)} → processed ${formatNumber(summary.processedRecords)}`);
+        }
+        if (typeof summary.skippedNonCanonicalRecords === 'number') {
+            parts.push(`skipped non-canonical ${formatNumber(summary.skippedNonCanonicalRecords)}`);
+        }
+        if (typeof summary.skippedServiceComponents === 'number') {
+            parts.push(`skipped components ${formatNumber(summary.skippedServiceComponents)}`);
+        }
+        if (typeof summary.skippedTombstonedRecords === 'number') {
+            parts.push(`skipped tombstoned ${formatNumber(summary.skippedTombstonedRecords)}`);
+        }
+
+        return parts.join(' • ');
+    }, [diagnostics]);
 
     const handleStatCardClick = useCallback((type: 'total' | 'offline' | 'latency' | 'failing') => {
         let query = '';
@@ -153,9 +199,11 @@ const DashboardContent = () => {
                     icon={Server}
                     title="Total Devices"
                     value={formatNumber(stats.totalDevices)}
+                    subValue={totalDevicesSubValue}
+                    alert={totalDevicesAlert}
                     isLoading={isLoading}
                     onClick={() => handleStatCardClick('total')}
-                    tooltip="Click to view all devices"
+                    tooltip={deviceStatsTooltip ?? 'Click to view all devices'}
                 />
                 <StatCard
                     icon={ServerOff}
@@ -186,6 +234,24 @@ const DashboardContent = () => {
                     tooltip="Click to view unavailable services"
                 />
             </div>
+
+            {totalDevicesAlert && diagnostics?.details.length ? (
+                <div className="rounded-md border border-yellow-400 bg-yellow-50 p-4 dark:border-yellow-600 dark:bg-yellow-900/30">
+                    <div className="flex items-start gap-3">
+                        <AlertTriangle className="mt-0.5 h-5 w-5 text-yellow-700 dark:text-yellow-300" />
+                        <div>
+                            <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-200">
+                                Device stats diagnostics
+                            </p>
+                            <ul className="mt-2 space-y-1 text-sm text-yellow-800 dark:text-yellow-200">
+                                {diagnostics.details.map((message, index) => (
+                                    <li key={index}>• {message}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
 
             {/* Network & Performance Analytics Section */}
             <div>

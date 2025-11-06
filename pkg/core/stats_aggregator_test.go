@@ -9,6 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.uber.org/mock/gomock"
+
+	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/registry"
@@ -68,6 +71,7 @@ func TestStatsAggregatorRefresh(t *testing.T) {
 	assert.Equal(t, 0, meta.SkippedTombstonedRecords)
 	assert.Equal(t, 0, meta.SkippedServiceComponents)
 	assert.Equal(t, 0, meta.SkippedNonCanonical)
+	assert.Equal(t, 0, meta.InferredCanonicalFallback)
 
 	assert.Equal(t, base.UTC(), snapshot.Timestamp)
 	assert.Equal(t, 3, snapshot.TotalDevices)
@@ -136,12 +140,13 @@ func TestStatsAggregatorSkipsTombstonedRecords(t *testing.T) {
 	snapshot := agg.Snapshot()
 	require.NotNil(t, snapshot)
 	meta := agg.Meta()
-	assert.Equal(t, 3, meta.RawRecords)
+	assert.Equal(t, 1, meta.RawRecords)
 	assert.Equal(t, 1, meta.ProcessedRecords)
 	assert.Equal(t, 0, meta.SkippedNilRecords)
 	assert.Equal(t, 2, meta.SkippedTombstonedRecords)
 	assert.Equal(t, 0, meta.SkippedServiceComponents)
 	assert.Equal(t, 0, meta.SkippedNonCanonical)
+	assert.Equal(t, 0, meta.InferredCanonicalFallback)
 	assert.Equal(t, 1, snapshot.TotalDevices)
 	assert.Equal(t, 1, snapshot.AvailableDevices)
 	assert.Equal(t, 0, snapshot.UnavailableDevices)
@@ -178,16 +183,127 @@ func TestStatsAggregatorSkipsNonCanonicalRecords(t *testing.T) {
 	require.NotNil(t, snapshot)
 
 	meta := agg.Meta()
-	assert.Equal(t, 2, meta.RawRecords)
+	assert.Equal(t, 1, meta.RawRecords)
 	assert.Equal(t, 1, meta.ProcessedRecords)
 	assert.Equal(t, 0, meta.SkippedNilRecords)
 	assert.Equal(t, 0, meta.SkippedTombstonedRecords)
 	assert.Equal(t, 0, meta.SkippedServiceComponents)
 	assert.Equal(t, 1, meta.SkippedNonCanonical)
+	assert.Equal(t, 0, meta.InferredCanonicalFallback)
 
 	assert.Equal(t, 1, snapshot.TotalDevices)
 	assert.Equal(t, 1, snapshot.AvailableDevices)
 	assert.Equal(t, 0, snapshot.UnavailableDevices)
+}
+
+func TestStatsAggregatorFallsBackToAliasWhenCanonicalMissing(t *testing.T) {
+	log := logger.NewTestLogger()
+	reg := registry.NewDeviceRegistry(nil, log)
+
+	base := time.Date(2025, 11, 6, 3, 30, 0, 0, time.UTC)
+
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    "default:alias-1",
+		IsAvailable: true,
+		LastSeen:    base,
+		Metadata: map[string]string{
+			"canonical_device_id": "default:canonical-1",
+		},
+	})
+
+	agg := NewStatsAggregator(reg, log, WithStatsClock(func() time.Time { return base }))
+	agg.Refresh(context.Background())
+
+	snapshot := agg.Snapshot()
+	require.NotNil(t, snapshot)
+
+	meta := agg.Meta()
+	assert.Equal(t, 1, meta.RawRecords)
+	assert.Equal(t, 1, meta.ProcessedRecords)
+	assert.Equal(t, 0, meta.SkippedNilRecords)
+	assert.Equal(t, 0, meta.SkippedTombstonedRecords)
+	assert.Equal(t, 0, meta.SkippedServiceComponents)
+	assert.Equal(t, 0, meta.SkippedNonCanonical)
+	assert.Equal(t, 1, meta.InferredCanonicalFallback)
+	assert.Equal(t, 1, snapshot.TotalDevices)
+	assert.Equal(t, 1, snapshot.AvailableDevices)
+}
+
+func TestStatsAggregatorPrefersCanonicalOverAliasFallback(t *testing.T) {
+	log := logger.NewTestLogger()
+	reg := registry.NewDeviceRegistry(nil, log)
+
+	base := time.Date(2025, 11, 6, 4, 0, 0, 0, time.UTC)
+
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    "default:alias-2",
+		IsAvailable: false,
+		LastSeen:    base.Add(-time.Minute),
+		Metadata: map[string]string{
+			"canonical_device_id": "default:canonical-2",
+		},
+	})
+
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    "default:canonical-2",
+		IsAvailable: true,
+		LastSeen:    base,
+		Metadata: map[string]string{
+			"canonical_device_id": "default:canonical-2",
+		},
+	})
+
+	agg := NewStatsAggregator(reg, log, WithStatsClock(func() time.Time { return base }))
+	agg.Refresh(context.Background())
+
+	snapshot := agg.Snapshot()
+	require.NotNil(t, snapshot)
+
+	meta := agg.Meta()
+	assert.Equal(t, 1, meta.RawRecords)
+	assert.Equal(t, 1, meta.ProcessedRecords)
+	assert.Equal(t, 1, meta.SkippedNonCanonical)
+	assert.Equal(t, 0, meta.InferredCanonicalFallback)
+	assert.Equal(t, 1, snapshot.TotalDevices)
+	assert.Equal(t, 1, snapshot.AvailableDevices)
+}
+
+func TestStatsAggregatorDeduplicatesAliasRecords(t *testing.T) {
+	log := logger.NewTestLogger()
+	reg := registry.NewDeviceRegistry(nil, log)
+
+	base := time.Date(2025, 11, 6, 5, 0, 0, 0, time.UTC)
+
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    "default:alias-a",
+		IsAvailable: true,
+		LastSeen:    base.Add(-5 * time.Minute),
+		Metadata: map[string]string{
+			"canonical_device_id": "default:canonical-a",
+		},
+	})
+
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    "default:alias-b",
+		IsAvailable: false,
+		LastSeen:    base,
+		Metadata: map[string]string{
+			"canonical_device_id": "default:canonical-a",
+		},
+	})
+
+	agg := NewStatsAggregator(reg, log, WithStatsClock(func() time.Time { return base }))
+	agg.Refresh(context.Background())
+
+	snapshot := agg.Snapshot()
+	require.NotNil(t, snapshot)
+
+	meta := agg.Meta()
+	assert.Equal(t, 1, meta.RawRecords)
+	assert.Equal(t, 1, meta.ProcessedRecords)
+	assert.Equal(t, 1, meta.InferredCanonicalFallback)
+	assert.Equal(t, 1, meta.SkippedNonCanonical)
+	assert.Equal(t, 1, snapshot.TotalDevices)
 }
 
 func TestStatsAggregatorCountsCanonicalWithMergedMarker(t *testing.T) {
@@ -218,6 +334,41 @@ func TestStatsAggregatorCountsCanonicalWithMergedMarker(t *testing.T) {
 	assert.Equal(t, 0, meta.SkippedTombstonedRecords)
 	assert.Equal(t, 0, meta.SkippedServiceComponents)
 	assert.Equal(t, 0, meta.SkippedNonCanonical)
+	assert.Equal(t, 0, meta.InferredCanonicalFallback)
+	assert.Equal(t, 1, snapshot.TotalDevices)
+	assert.Equal(t, 1, snapshot.AvailableDevices)
+	assert.Equal(t, 0, snapshot.UnavailableDevices)
+}
+
+func TestStatsAggregatorInfersCanonicalFallback(t *testing.T) {
+	log := logger.NewTestLogger()
+	reg := registry.NewDeviceRegistry(nil, log)
+
+	base := time.Date(2025, 5, 5, 15, 0, 0, 0, time.UTC)
+
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    "default:legacy-1",
+		IsAvailable: true,
+		LastSeen:    base,
+		FirstSeen:   base.Add(-48 * time.Hour),
+		Metadata:    nil,
+	})
+
+	agg := NewStatsAggregator(reg, log, WithStatsClock(func() time.Time { return base }))
+	agg.Refresh(context.Background())
+
+	snapshot := agg.Snapshot()
+	require.NotNil(t, snapshot)
+	meta := agg.Meta()
+
+	assert.Equal(t, 1, meta.RawRecords)
+	assert.Equal(t, 1, meta.ProcessedRecords)
+	assert.Equal(t, 0, meta.SkippedNilRecords)
+	assert.Equal(t, 0, meta.SkippedTombstonedRecords)
+	assert.Equal(t, 0, meta.SkippedServiceComponents)
+	assert.Equal(t, 0, meta.SkippedNonCanonical)
+	assert.Equal(t, 1, meta.InferredCanonicalFallback)
+
 	assert.Equal(t, 1, snapshot.TotalDevices)
 	assert.Equal(t, 1, snapshot.AvailableDevices)
 	assert.Equal(t, 0, snapshot.UnavailableDevices)
@@ -254,13 +405,118 @@ func TestStatsAggregatorSkipsServiceComponents(t *testing.T) {
 	snapshot := agg.Snapshot()
 	require.NotNil(t, snapshot)
 	meta := agg.Meta()
-	assert.Equal(t, 2, meta.RawRecords)
+	assert.Equal(t, 1, meta.RawRecords)
 	assert.Equal(t, 1, meta.ProcessedRecords)
 	assert.Equal(t, 0, meta.SkippedNilRecords)
 	assert.Equal(t, 0, meta.SkippedTombstonedRecords)
 	assert.Equal(t, 1, meta.SkippedServiceComponents)
 	assert.Equal(t, 0, meta.SkippedNonCanonical)
+	assert.Equal(t, 0, meta.InferredCanonicalFallback)
 	assert.Equal(t, 1, snapshot.TotalDevices)
 	assert.Equal(t, 1, snapshot.AvailableDevices)
 	assert.Equal(t, 0, snapshot.UnavailableDevices)
+}
+
+func TestStatsAggregatorAlertsOnNonCanonicalIncrease(t *testing.T) {
+	log := logger.NewTestLogger()
+	reg := registry.NewDeviceRegistry(nil, log)
+
+	base := time.Date(2025, 7, 1, 12, 0, 0, 0, time.UTC)
+
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    "default:canonical",
+		IsAvailable: true,
+		LastSeen:    base,
+		Metadata: map[string]string{
+			"canonical_device_id": "default:canonical",
+		},
+	})
+
+	var (
+		alertCalls int
+		alertMeta  models.DeviceStatsMeta
+	)
+
+	agg := NewStatsAggregator(
+		reg,
+		log,
+		WithStatsClock(func() time.Time { return base }),
+		WithStatsAlertHandler(func(ctx context.Context, previousSnapshot *models.DeviceStatsSnapshot, previousMeta models.DeviceStatsMeta, currentSnapshot *models.DeviceStatsSnapshot, currentMeta models.DeviceStatsMeta) {
+			if currentMeta.SkippedNonCanonical > previousMeta.SkippedNonCanonical {
+				alertCalls++
+				alertMeta = currentMeta
+			}
+		}),
+	)
+
+	agg.Refresh(context.Background())
+	assert.Equal(t, 0, alertCalls)
+
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    "default:alias",
+		IsAvailable: true,
+		LastSeen:    base,
+		Metadata: map[string]string{
+			"canonical_device_id": "default:canonical",
+		},
+	})
+
+	agg.Refresh(context.Background())
+	assert.Equal(t, 1, alertCalls)
+	assert.Equal(t, 1, alertMeta.SkippedNonCanonical)
+	assert.Equal(t, 0, alertMeta.InferredCanonicalFallback)
+}
+
+func TestStatsAggregatorPrunesInferredRecordsToMatchProton(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	base := time.Date(2025, 11, 6, 4, 17, 0, 0, time.UTC)
+	log := logger.NewTestLogger()
+	reg := registry.NewDeviceRegistry(nil, log)
+
+	// Canonical device with matching metadata.
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    "default:canonical-1",
+		IsAvailable: true,
+		LastSeen:    base,
+		Metadata: map[string]string{
+			"canonical_device_id": "default:canonical-1",
+		},
+	})
+
+	// Inferred record without canonical metadata (e.g. sweep echo).
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    "default:sweep-ephemeral-1",
+		IsAvailable: false,
+		LastSeen:    base.Add(-2 * time.Hour),
+		Metadata: map[string]string{
+			"discovery_hint": "sweep",
+		},
+	})
+
+	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().
+		CountUnifiedDevices(gomock.Any()).
+		Return(int64(1), nil)
+
+	agg := NewStatsAggregator(
+		reg,
+		log,
+		WithStatsDB(mockDB),
+		WithStatsClock(func() time.Time { return base }),
+	)
+
+	agg.Refresh(context.Background())
+
+	snapshot := agg.Snapshot()
+	require.NotNil(t, snapshot)
+	assert.Equal(t, 1, snapshot.TotalDevices)
+	assert.Equal(t, 1, snapshot.AvailableDevices)
+	assert.Equal(t, 0, snapshot.UnavailableDevices)
+
+	meta := agg.Meta()
+	assert.Equal(t, 1, meta.RawRecords)
+	assert.Equal(t, 1, meta.ProcessedRecords)
+	assert.Equal(t, 0, meta.InferredCanonicalFallback)
 }

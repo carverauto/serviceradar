@@ -26,10 +26,11 @@ type DeviceStatsSnapshot struct {
 
 // DeviceStatsMeta captures bookkeeping details for debugging the stats snapshot pipeline.
 type DeviceStatsMeta struct {
-	RawRecords               int `json:"raw_records"`
-	ProcessedRecords         int `json:"processed_records"`
-	SkippedNilRecords        int `json:"skipped_nil_records"`
-	SkippedTombstonedRecords int `json:"skipped_tombstoned_records"`
-	SkippedServiceComponents int `json:"skipped_service_components"`
-	SkippedNonCanonical      int `json:"skipped_non_canonical_records"`
+	RawRecords                int `json:"raw_records"`
+	ProcessedRecords          int `json:"processed_records"`
+	SkippedNilRecords         int `json:"skipped_nil_records"`
+	SkippedTombstonedRecords  int `json:"skipped_tombstoned_records"`
+	SkippedServiceComponents  int `json:"skipped_service_components"`
+	SkippedNonCanonical       int `json:"skipped_non_canonical_records"`
+	InferredCanonicalFallback int `json:"inferred_canonical_records"`
 }

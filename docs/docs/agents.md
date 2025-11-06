@@ -65,7 +65,14 @@ The latest schemas can be found in @pkg/db/migrations
    kubectl logs deployment/serviceradar-sync -n demo --tail 50
    ```
 
-   Once the sync pod reports “Completed streaming results”, the canonical tables will match the faker dataset.
+Once the sync pod reports “Completed streaming results”, the canonical tables will match the faker dataset.
+
+## Monitoring Non-Canonical Sweep Data
+
+- The core stats aggregator now publishes OTEL gauges under `serviceradar.core.device_stats` (`core_device_stats_skipped_non_canonical`, `core_device_stats_raw_records`, etc.). Point your collector at those gauges to alert when `skipped_non_canonical` climbs above zero.
+- Webhook integrations receive a `Non-canonical devices filtered from stats` warning the moment the skip counter increases. The payload includes `raw_records`, `processed_records`, the total filtered count, and the timestamp of the snapshot that triggered the alert.
+- The analytics dashboard’s “Total Devices” card now shows the raw/processed breakdown plus a yellow callout whenever any skips occur. When investigating, open the browser console and inspect `window.__SERVICERADAR_DEVICE_COUNTER_DEBUG__` to review the last 25 `/api/stats` samples and headers.
+- For ad-hoc validation, hit `/api/stats` directly; the `X-Serviceradar-Stats-*` headers mirror the numbers the alert uses (`X-Serviceradar-Stats-Skipped-Non-Canonical`, `X-Serviceradar-Stats-Skipped-Service-Components`, etc.).
 
 ## Proton Reset (PVC Rotation)
 

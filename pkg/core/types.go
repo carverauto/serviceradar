@@ -36,6 +36,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/carverauto/serviceradar/pkg/registry"
+	"github.com/carverauto/serviceradar/pkg/search"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -64,6 +65,7 @@ type Server struct {
 	authService         *auth.Auth
 	DeviceRegistry      registry.Manager
 	ServiceRegistry     registry.ServiceManager
+	deviceSearchPlanner *search.Planner
 	identityKVClient    identityKVClient
 	identityKVCloser    func() error
 	eventPublisher      *natsutil.EventPublisher
@@ -96,6 +98,9 @@ type Server struct {
 	logDigestCancel         context.CancelFunc
 	statsAggregator         *StatsAggregator
 	statsCancel             context.CancelFunc
+	statsAlertMu            sync.Mutex
+	lastStatsAlertTime      time.Time
+	lastStatsAlertCount     int
 }
 
 // OIDStatusData represents the structure of OID status data.
@@ -114,4 +119,13 @@ type ServiceStatus struct {
 	Available   bool
 	Details     string
 	Timestamp   time.Time
+}
+
+// DeviceSearchPlanner exposes the integrated search planner used by the API layer.
+func (s *Server) DeviceSearchPlanner() *search.Planner {
+	if s == nil {
+		return nil
+	}
+
+	return s.deviceSearchPlanner
 }

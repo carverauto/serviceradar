@@ -20,6 +20,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
@@ -122,6 +123,7 @@ var (
 	errEdgeOnboardingKeyLength          = fmt.Errorf("edge_onboarding.encryption_key must decode to 32 bytes")
 	errEdgeOnboardingJoinTokenTTL       = fmt.Errorf("edge_onboarding.join_token_ttl must be non-negative")
 	errEdgeOnboardingDownloadTokenTTL   = fmt.Errorf("edge_onboarding.download_token_ttl must be non-negative")
+	errSRQLBaseURLRequired              = fmt.Errorf("srql.base_url is required when SRQL integration is enabled")
 )
 
 // MCPConfigRef represents MCP configuration to avoid circular imports
@@ -155,6 +157,7 @@ type CoreServiceConfig struct {
 	Events         *EventsConfig          `json:"events,omitempty"`
 	Logging        *logger.Config         `json:"logging,omitempty"`
 	MCP            *MCPConfigRef          `json:"mcp,omitempty"`
+	SRQL           *SRQLConfig            `json:"srql,omitempty"`
 	// KV endpoints for admin config operations (hub/leaf mappings)
 	KVEndpoints    []KVEndpoint          `json:"kv_endpoints,omitempty"`
 	SpireAdmin     *SpireAdminConfig     `json:"spire_admin,omitempty"`
@@ -194,10 +197,20 @@ type EdgeOnboardingConfig struct {
 	PollerIDPrefix         string                       `json:"poller_id_prefix,omitempty"`
 }
 
+// SRQLConfig configures the external SRQL microservice integration.
+type SRQLConfig struct {
+	Enabled bool     `json:"enabled"`
+	BaseURL string   `json:"base_url"`
+	APIKey  string   `json:"api_key,omitempty"`
+	Timeout Duration `json:"timeout,omitempty"`
+	Path    string   `json:"path,omitempty"`
+}
+
 // FeatureFlags captures optional feature toggles for the core service.
 type FeatureFlags struct {
-	UseLogDigest  *bool `json:"use_log_digest,omitempty"`
-	UseStatsCache *bool `json:"use_stats_cache,omitempty"`
+	UseLogDigest           *bool `json:"use_log_digest,omitempty"`
+	UseStatsCache          *bool `json:"use_stats_cache,omitempty"`
+	UseDeviceSearchPlanner *bool `json:"use_device_search_planner,omitempty"`
 }
 
 func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
@@ -365,6 +378,12 @@ func (c *CoreServiceConfig) Validate() error {
 		}
 		if c.EdgeOnboarding.DownloadTokenTTL < 0 {
 			return errEdgeOnboardingDownloadTokenTTL
+		}
+	}
+
+	if c.SRQL != nil && c.SRQL.Enabled {
+		if strings.TrimSpace(c.SRQL.BaseURL) == "" {
+			return errSRQLBaseURLRequired
 		}
 	}
 
