@@ -78,6 +78,7 @@ func TestStatsAggregatorRefresh(t *testing.T) {
 	assert.Equal(t, 2, snapshot.AvailableDevices)
 	assert.Equal(t, 1, snapshot.UnavailableDevices)
 	assert.Equal(t, 2, snapshot.ActiveDevices)
+	assert.Equal(t, 3, snapshot.DevicesWithCollectors)
 	assert.Equal(t, 2, snapshot.DevicesWithICMP)
 	assert.Equal(t, 1, snapshot.DevicesWithSNMP)
 	assert.Equal(t, 1, snapshot.DevicesWithSysmon)
@@ -499,6 +500,12 @@ func TestStatsAggregatorPrunesInferredRecordsToMatchProton(t *testing.T) {
 	mockDB.EXPECT().
 		CountUnifiedDevices(gomock.Any()).
 		Return(int64(1), nil)
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), gomock.AssignableToTypeOf([]string{})).
+		Return([]*models.UnifiedDevice{
+			{DeviceID: "default:canonical-1"},
+		}, nil).
+		AnyTimes()
 
 	agg := NewStatsAggregator(
 		reg,

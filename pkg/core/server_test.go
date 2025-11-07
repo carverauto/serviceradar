@@ -363,6 +363,10 @@ func TestProcessSweepData(t *testing.T) {
 	mockDeviceRegistry.EXPECT().
 		SetDeviceCapabilitySnapshot(gomock.Any(), gomock.AssignableToTypeOf(&models.DeviceCapabilitySnapshot{})).
 		AnyTimes()
+	mockDeviceRegistry.EXPECT().
+		GetDevicesByIP(gomock.Any(), gomock.Any()).
+		Return([]*models.UnifiedDevice{}, nil).
+		AnyTimes()
 
 	server := &Server{
 		DB:             mockDB,

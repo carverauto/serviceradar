@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+const maxSampleScanBatches = 64
+
 // SampleMissingDeviceIDs returns up to sampleLimit device IDs that exist in Proton but are absent
 // from the provided knownIDs set (typically the current registry snapshot). This is intended for
 // diagnostics and should only be called when discrepancies are detected.
@@ -23,8 +25,9 @@ func (r *DeviceRegistry) SampleMissingDeviceIDs(ctx context.Context, knownIDs ma
 
 	missing := make([]string, 0, sampleLimit)
 	offset := 0
+	batchCount := 0
 
-	for len(missing) < sampleLimit {
+	for len(missing) < sampleLimit && batchCount < maxSampleScanBatches {
 		devices, err := r.db.ListUnifiedDevices(ctx, hydrateBatchSize, offset)
 		if err != nil {
 			return missing, err
@@ -50,6 +53,7 @@ func (r *DeviceRegistry) SampleMissingDeviceIDs(ctx context.Context, knownIDs ma
 		}
 
 		offset += len(devices)
+		batchCount++
 	}
 
 	return missing, nil

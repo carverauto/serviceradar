@@ -22,7 +22,6 @@ import {
   DeviceSearchApiResponse,
   DeviceSearchRequestPayload,
 } from "@/types/devices";
-import { cachedQuery } from "@/lib/cached-query";
 import { escapeSrqlValue } from "@/lib/srql";
 import { isDeviceSearchPlannerEnabled } from "@/config/features";
 import {
@@ -378,34 +377,47 @@ const Dashboard = () => {
   const fetchStats = useCallback(async () => {
     setStatsLoading(true);
     try {
-      const baseQuery = 'in:devices time:last_7d stats:"count() as total"';
+      const headers: HeadersInit = token
+        ? {
+            Authorization: `Bearer ${token}`,
+          }
+        : {};
 
-      const runCount = async (query: string): Promise<number> => {
-        try {
-          const response = await cachedQuery<{
-            results: Array<{ total: number }>;
-          }>(query, token || undefined, 30000);
-          return response.results?.[0]?.total ?? 0;
-        } catch (queryError) {
-          console.error(`Failed to execute count query: ${query}`, queryError);
-          return 0;
-        }
+      const response = await fetch("/api/stats", {
+        method: "GET",
+        headers,
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to load device stats (status ${response.status})`,
+        );
+      }
+
+      type StatsSnapshot = {
+        total_devices?: number;
+        available_devices?: number;
+        unavailable_devices?: number;
+        devices_with_collectors?: number;
+        devices_with_icmp?: number;
       };
 
-      const [total, online, offline] = await Promise.all([
-        runCount(baseQuery),
-        runCount(`${baseQuery} is_available:true`),
-        runCount(`${baseQuery} is_available:false`),
-      ]);
+      const data = (await response.json()) as StatsSnapshot;
 
-      const collectors = await runCount(
-        `${baseQuery} collector_capabilities.has_collector:true`,
-      );
+      const total = data.total_devices ?? 0;
+      const available = data.available_devices ?? 0;
+      const unavailable =
+        data.unavailable_devices ?? Math.max(0, total - available);
+      const collectors =
+        data.devices_with_collectors ??
+        data.devices_with_icmp ??
+        0;
 
       setStats({
         total,
-        online,
-        offline,
+        online: available,
+        offline: unavailable,
         collectors,
       });
     } catch (error) {
