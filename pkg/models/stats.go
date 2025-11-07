@@ -34,4 +34,5 @@ type DeviceStatsMeta struct {
 	SkippedServiceComponents  int `json:"skipped_service_components"`
 	SkippedNonCanonical       int `json:"skipped_non_canonical_records"`
 	InferredCanonicalFallback int `json:"inferred_canonical_records"`
+	SkippedSweepOnlyRecords   int `json:"skipped_sweep_only_records"`
 }

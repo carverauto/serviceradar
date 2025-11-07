@@ -21,6 +21,7 @@ const (
 	metricSkippedComponentsName   = "core_device_stats_skipped_service_components"
 	metricSkippedTombstonedName   = "core_device_stats_skipped_tombstoned"
 	metricSnapshotAgeName         = "core_device_stats_snapshot_age_ms"
+	metricSkippedSweepOnlyName    = "core_device_stats_skipped_sweep_only"
 )
 
 var (
@@ -33,6 +34,7 @@ var (
 		inferredCanonical   metric.Int64ObservableGauge
 		skippedComponents   metric.Int64ObservableGauge
 		skippedTombstoned   metric.Int64ObservableGauge
+		skippedSweepOnly    metric.Int64ObservableGauge
 		snapshotAgeMs       metric.Int64ObservableGauge
 	}
 	statsMetricsRegistration metric.Registration
@@ -45,6 +47,7 @@ type statsMetricsObservatory struct {
 	inferredCanonical   atomic.Int64
 	skippedComponents   atomic.Int64
 	skippedTombstoned   atomic.Int64
+	skippedSweepOnly    atomic.Int64
 	snapshotAgeMs       atomic.Int64
 }
 
@@ -106,6 +109,15 @@ func initStatsMetrics() {
 		return
 	}
 
+	statsMetricsGauges.skippedSweepOnly, err = meter.Int64ObservableGauge(
+		metricSkippedSweepOnlyName,
+		metric.WithDescription("Latest count of sweep-only registry records filtered from the stats snapshot"),
+	)
+	if err != nil {
+		otel.Handle(err)
+		return
+	}
+
 	statsMetricsGauges.snapshotAgeMs, err = meter.Int64ObservableGauge(
 		metricSnapshotAgeName,
 		metric.WithDescription("Age in milliseconds of the latest device stats snapshot"),
@@ -122,6 +134,7 @@ func initStatsMetrics() {
 		observer.ObserveInt64(statsMetricsGauges.inferredCanonical, statsMetricsData.inferredCanonical.Load())
 		observer.ObserveInt64(statsMetricsGauges.skippedComponents, statsMetricsData.skippedComponents.Load())
 		observer.ObserveInt64(statsMetricsGauges.skippedTombstoned, statsMetricsData.skippedTombstoned.Load())
+		observer.ObserveInt64(statsMetricsGauges.skippedSweepOnly, statsMetricsData.skippedSweepOnly.Load())
 		observer.ObserveInt64(statsMetricsGauges.snapshotAgeMs, statsMetricsData.snapshotAgeMs.Load())
 		return nil
 	},
@@ -131,6 +144,7 @@ func initStatsMetrics() {
 		statsMetricsGauges.inferredCanonical,
 		statsMetricsGauges.skippedComponents,
 		statsMetricsGauges.skippedTombstoned,
+		statsMetricsGauges.skippedSweepOnly,
 		statsMetricsGauges.snapshotAgeMs,
 	)
 	if err != nil {
@@ -150,6 +164,7 @@ func recordStatsMetrics(meta models.DeviceStatsMeta, snapshot *models.DeviceStat
 	statsMetricsData.inferredCanonical.Store(int64(meta.InferredCanonicalFallback))
 	statsMetricsData.skippedComponents.Store(int64(meta.SkippedServiceComponents))
 	statsMetricsData.skippedTombstoned.Store(int64(meta.SkippedTombstonedRecords))
+	statsMetricsData.skippedSweepOnly.Store(int64(meta.SkippedSweepOnlyRecords))
 
 	var ageMs int64
 	if snapshot != nil && !snapshot.Timestamp.IsZero() {

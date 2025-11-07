@@ -1653,6 +1653,10 @@ func (s *APIServer) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
 		"X-Serviceradar-Stats-Skipped-Non-Canonical",
 		strconv.Itoa(meta.SkippedNonCanonical),
 	)
+	w.Header().Set(
+		"X-Serviceradar-Stats-Skipped-Sweep-Only",
+		strconv.Itoa(meta.SkippedSweepOnlyRecords),
+	)
 
 	if !snapshot.Timestamp.IsZero() {
 		age := time.Since(snapshot.Timestamp)

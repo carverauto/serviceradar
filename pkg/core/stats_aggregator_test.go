@@ -418,6 +418,44 @@ func TestStatsAggregatorSkipsServiceComponents(t *testing.T) {
 	assert.Equal(t, 0, snapshot.UnavailableDevices)
 }
 
+func TestStatsAggregatorSkipsSweepOnlyRecordsWithoutIdentity(t *testing.T) {
+	log := logger.NewTestLogger()
+	reg := registry.NewDeviceRegistry(nil, log)
+
+	base := time.Date(2025, 5, 1, 12, 0, 0, 0, time.UTC)
+
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:         "default:10.0.0.10",
+		LastSeen:         base,
+		DiscoverySources: []string{string(models.DiscoverySourceSweep)},
+		Metadata: map[string]string{
+			"canonical_device_id": "default:10.0.0.10",
+		},
+	})
+
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:         "default:10.0.0.11",
+		LastSeen:         base,
+		DiscoverySources: []string{string(models.DiscoverySourceSweep)},
+		Metadata: map[string]string{
+			"canonical_device_id": "default:10.0.0.11",
+			"armis_device_id":     "armis-42",
+		},
+	})
+
+	agg := NewStatsAggregator(reg, log, WithStatsClock(func() time.Time { return base }))
+	agg.Refresh(context.Background())
+
+	snapshot := agg.Snapshot()
+	require.NotNil(t, snapshot)
+	assert.Equal(t, 1, snapshot.TotalDevices)
+
+	meta := agg.Meta()
+	assert.Equal(t, 2, meta.RawRecords)
+	assert.Equal(t, 1, meta.ProcessedRecords)
+	assert.Equal(t, 1, meta.SkippedSweepOnlyRecords)
+}
+
 func TestStatsAggregatorAlertsOnNonCanonicalIncrease(t *testing.T) {
 	log := logger.NewTestLogger()
 	reg := registry.NewDeviceRegistry(nil, log)

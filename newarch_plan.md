@@ -394,10 +394,13 @@ func (h *Handler) GetDeviceStats() *StatsSnapshot {
 - [x] Proton count diagnostics use `uint64` so stats cache no longer flaps on large totals (`pkg/db/unified_devices.go`)
 - [x] Canonical fallback groups alias + canonical records so the identity backfill no longer turns 7 mismatches into 37k skipped devices; the aggregator prefers the canonical row when present and falls back to the freshest alias when it is not (`pkg/core/stats_aggregator.go`, `pkg/core/stats_aggregator_test.go`)
 - [x] Analytics UI now treats stale snapshots as a warning banner and renders cached totals instead of hard failing, which keeps the dashboard usable during brief cache gaps (`web/src/services/dataService.ts`)
+- [x] Stats mismatch logging now surfaces both missing and excess registry device IDs by sampling Proton on every refresh, which made the runaway 76k → 50k regression debuggable (`pkg/core/stats_aggregator.go`)
+- [x] Registry hydration and device listings now ignore Proton rows flagged with `_deleted=true`/`deleted=true`, so API totals cannot resurrect admin-deleted devices after restarts (`pkg/db/unified_devices.go`)
 
 **Open follow-ups:**
 - Investigate why `serviceradar-kong:8000/api/query` returns 401 for internal SRQL requests (currently blocking an apples-to-apples comparison between SRQL and cached stats in the analytics view)
 - Monitor post-backfill behavior now that the canonical fallback is live: watch `skipped_non_canonical` and `inferred_canonical_records` in `/api/stats` headers and capture `__SERVICERADAR_DEVICE_COUNTER_DEBUG__` samples if they spike.
+- Continue peeling Proton out of hot paths: `GetUnifiedDevicesByIPsOrIDs` is still called for canonical-first-seen lookups, so we need to finish the registry snapshot/durable cache work and gate the legacy query behind a feature flag.
 
 ---
 
