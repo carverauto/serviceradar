@@ -227,13 +227,19 @@ func (a *StatsAggregator) computeSnapshot(ctx context.Context) (*models.DeviceSt
 	if len(selected) == 0 {
 		return snapshot, meta
 	}
-	meta.ProcessedRecords = len(selected)
+
+	countable := filterCountableRecords(selected, &meta)
+	if len(countable) == 0 {
+		meta.ProcessedRecords = 0
+		return snapshot, meta
+	}
+	meta.ProcessedRecords = len(countable)
 
 	capabilitySets := a.buildCapabilitySets(ctx)
 	activeThreshold := now.Add(-a.activeWindow)
 	partitions := make(map[string]*models.PartitionStats)
 
-	for _, record := range selected {
+	for _, record := range countable {
 		snapshot.TotalDevices++
 
 		partitionID := partitionFromDeviceIDLocal(record.DeviceID)
@@ -392,6 +398,71 @@ func isTombstonedRecord(record *registry.DeviceRecord) bool {
 		target := strings.TrimSpace(value)
 		if target != "" && !strings.EqualFold(target, strings.TrimSpace(record.DeviceID)) {
 			return true
+		}
+	}
+
+	return false
+}
+
+func filterCountableRecords(records []*registry.DeviceRecord, meta *models.DeviceStatsMeta) []*registry.DeviceRecord {
+	if len(records) == 0 {
+		return nil
+	}
+
+	countable := make([]*registry.DeviceRecord, 0, len(records))
+	for _, record := range records {
+		if shouldCountRecord(record) {
+			countable = append(countable, record)
+			continue
+		}
+		if meta != nil {
+			meta.SkippedSweepOnlyRecords++
+		}
+	}
+	return countable
+}
+
+func shouldCountRecord(record *registry.DeviceRecord) bool {
+	if record == nil {
+		return false
+	}
+	if !isSweepOnlyRecord(record) {
+		return true
+	}
+	return recordHasStrongIdentity(record)
+}
+
+func isSweepOnlyRecord(record *registry.DeviceRecord) bool {
+	if record == nil || len(record.DiscoverySources) == 0 {
+		return false
+	}
+	for _, source := range record.DiscoverySources {
+		if !strings.EqualFold(strings.TrimSpace(source), string(models.DiscoverySourceSweep)) {
+			return false
+		}
+	}
+	return true
+}
+
+func recordHasStrongIdentity(record *registry.DeviceRecord) bool {
+	if record == nil {
+		return false
+	}
+
+	if record.MAC != nil && strings.TrimSpace(*record.MAC) != "" {
+		return true
+	}
+
+	if metadata := record.Metadata; metadata != nil {
+		for _, key := range []string{"armis_device_id", "integration_id", "netbox_device_id"} {
+			if value := strings.TrimSpace(metadata[key]); value != "" {
+				return true
+			}
+		}
+		if canonical := strings.TrimSpace(metadata["canonical_device_id"]); canonical != "" {
+			if !strings.EqualFold(canonical, strings.TrimSpace(record.DeviceID)) {
+				return true
+			}
 		}
 	}
 
@@ -590,6 +661,7 @@ func (a *StatsAggregator) logSnapshotRefresh(previous *models.DeviceStatsSnapsho
 		meta.SkippedTombstonedRecords != previousMeta.SkippedTombstonedRecords ||
 		meta.SkippedServiceComponents != previousMeta.SkippedServiceComponents ||
 		meta.SkippedNonCanonical != previousMeta.SkippedNonCanonical ||
+		meta.SkippedSweepOnlyRecords != previousMeta.SkippedSweepOnlyRecords ||
 		meta.InferredCanonicalFallback != previousMeta.InferredCanonicalFallback
 
 	if previous != nil &&
@@ -614,6 +686,7 @@ func (a *StatsAggregator) logSnapshotRefresh(previous *models.DeviceStatsSnapsho
 		Int("skipped_tombstoned_records", meta.SkippedTombstonedRecords).
 		Int("skipped_service_components", meta.SkippedServiceComponents).
 		Int("skipped_non_canonical_records", meta.SkippedNonCanonical).
+		Int("skipped_sweep_only_records", meta.SkippedSweepOnlyRecords).
 		Int("inferred_canonical_records", meta.InferredCanonicalFallback)
 
 	if previous != nil {
@@ -650,6 +723,23 @@ func (a *StatsAggregator) logSnapshotRefresh(previous *models.DeviceStatsSnapsho
 		}
 
 		warn.Msg("Non-canonical device records filtered during stats aggregation")
+	}
+
+	if meta.SkippedSweepOnlyRecords > 0 && meta.SkippedSweepOnlyRecords != previousMeta.SkippedSweepOnlyRecords {
+		warn := a.logger.Warn().
+			Str("component", "stats_aggregator").
+			Int("skipped_sweep_only_records", meta.SkippedSweepOnlyRecords).
+			Int("previous_skipped_sweep_only_records", previousMeta.SkippedSweepOnlyRecords).
+			Int("raw_records", meta.RawRecords).
+			Int("processed_records", meta.ProcessedRecords)
+
+		if current != nil {
+			warn = warn.
+				Int("total_devices", current.TotalDevices).
+				Time("snapshot_timestamp", current.Timestamp)
+		}
+
+		warn.Msg("Sweep-only device records filtered during stats aggregation")
 	}
 }
 
