@@ -451,7 +451,7 @@ func TestStatsAggregatorSkipsSweepOnlyRecordsWithoutIdentity(t *testing.T) {
 	assert.Equal(t, 1, snapshot.TotalDevices)
 
 	meta := agg.Meta()
-	assert.Equal(t, 2, meta.RawRecords)
+	assert.Equal(t, 1, meta.RawRecords)
 	assert.Equal(t, 1, meta.ProcessedRecords)
 	assert.Equal(t, 1, meta.SkippedSweepOnlyRecords)
 }

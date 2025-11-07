@@ -225,21 +225,16 @@ func (a *StatsAggregator) computeSnapshot(ctx context.Context) (*models.DeviceSt
 		meta.RawRecords = len(selected)
 	}
 	if len(selected) == 0 {
-		return snapshot, meta
-	}
-
-	countable := filterCountableRecords(selected, &meta)
-	if len(countable) == 0 {
 		meta.ProcessedRecords = 0
 		return snapshot, meta
 	}
-	meta.ProcessedRecords = len(countable)
+	meta.ProcessedRecords = len(selected)
 
 	capabilitySets := a.buildCapabilitySets(ctx)
 	activeThreshold := now.Add(-a.activeWindow)
 	partitions := make(map[string]*models.PartitionStats)
 
-	for _, record := range countable {
+	for _, record := range selected {
 		snapshot.TotalDevices++
 
 		partitionID := partitionFromDeviceIDLocal(record.DeviceID)
@@ -290,7 +285,7 @@ func (a *StatsAggregator) computeSnapshot(ctx context.Context) (*models.DeviceSt
 	snapshot.UnavailableDevices = snapshot.TotalDevices - snapshot.AvailableDevices
 	snapshot.Partitions = buildPartitionStats(partitions)
 
-	a.maybeReportDiscrepancy(ctx, records, snapshot.TotalDevices, protonTotal)
+	a.maybeReportDiscrepancy(ctx, selected, snapshot.TotalDevices, protonTotal)
 
 	return snapshot, meta
 }
@@ -404,24 +399,6 @@ func isTombstonedRecord(record *registry.DeviceRecord) bool {
 	return false
 }
 
-func filterCountableRecords(records []*registry.DeviceRecord, meta *models.DeviceStatsMeta) []*registry.DeviceRecord {
-	if len(records) == 0 {
-		return nil
-	}
-
-	countable := make([]*registry.DeviceRecord, 0, len(records))
-	for _, record := range records {
-		if shouldCountRecord(record) {
-			countable = append(countable, record)
-			continue
-		}
-		if meta != nil {
-			meta.SkippedSweepOnlyRecords++
-		}
-	}
-	return countable
-}
-
 func shouldCountRecord(record *registry.DeviceRecord) bool {
 	if record == nil {
 		return false
@@ -514,6 +491,13 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 		}
 		if isServiceComponentRecord(record) {
 			meta.SkippedServiceComponents++
+			continue
+		}
+
+		if !shouldCountRecord(record) {
+			if meta != nil {
+				meta.SkippedSweepOnlyRecords++
+			}
 			continue
 		}
 
