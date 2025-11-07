@@ -827,6 +827,7 @@ func (db *DB) GetICMPMetrics(deviceID string, start, end time.Time) ([]*Metric, 
 - ✅ **SRQL service wiring (2025-11-07)** – Demo core config now ships an explicit SRQL block, the init script injects the shared API key, and docs capture the rollout steps (`k8s/demo/base/configmap.yaml`, `docs/docs/agents.md`, `web/src/app/api/query/route.ts`). Planner-backed queries now route analytics workloads to the OCaml service instead of failing open.
 - ✅ **Sweep identity hydration (2025-11-07)** – Result processor consults the registry/KV caches before touching Proton and only falls back when necessary, eliminating the wide `device_id IN (...)` scans that previously drove Proton CPU to 98% (`pkg/core/result_processor.go`, `pkg/core/server_test.go`). Demo core image `ghcr.io/carverauto/serviceradar-core:sha-81815e02b236` is rolled out with the change.
 - ✅ **Inventory stats alignment (2025-11-07)** – The devices dashboard now sources card counts from the cached `/api/stats` snapshot so “Online”/collector filters match registry-backed search results (`web/src/components/Devices/Dashboard.tsx`).
+- ✅ **Sweep-only guardrails (2025-11-07)** – The stats cache now drops sweep-only registry rows that lack a strong identity and emits the `X-Serviceradar-Stats-Skipped-Sweep-Only` header/OTEL gauge so analytics stays pinned to Proton totals (`pkg/core/stats_aggregator.go`, `pkg/core/stats_metrics.go`, `pkg/core/api/server.go`, `pkg/core/stats_aggregator_test.go`). Rolled out via `ghcr.io/carverauto/serviceradar-core@sha256:a68bfa627fb99f0ebd9adee224caf3928f287e52c2637def5784c73969db96cb`.
 
 - Next focus:
 - Complete the Proton boundary sweep: audit the remaining `db.*` call sites (metrics availability, identity fallbacks, SRQL adapters) and replace any steady-state `unified_devices` reads with registry/cache lookups.
@@ -837,6 +838,7 @@ func (db *DB) GetICMPMetrics(deviceID string, start, end time.Time) ([]*Metric, 
   - Ensure every faker DHCP churn update carries a canonical identifier (armis ID / `canonical_device_id`) so `ProcessBatchDeviceUpdates` rewrites straight to the canonical record.
   - Confirm identity resolver hydration runs before churn events land (pre-fill KV maps for faker devices to avoid transient fallback rows).
   - Add short-term instrumentation around churn updates to catch missing canonical metadata and keep `core_device_stats_inferred_canonical` near zero.
+- Sweep-only registry hygiene: either purge identity-free sweep rows after a TTL or teach ingestion to reject them up front so Proton and the registry converge without manual resets.
 
 ## Implementation Plan
 
