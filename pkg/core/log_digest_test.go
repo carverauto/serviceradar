@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -144,10 +143,10 @@ func TestLogDigestAggregatorHydrateTimeout(t *testing.T) {
 
 	err := aggregator.HydrateFromSource(ctx, blockingSource)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, context.DeadlineExceeded))
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 
 	latest := aggregator.Latest(10)
-	require.Len(t, latest, 0)
+	require.Empty(t, latest)
 }
 
 func TestLogDigestAggregatorPersistence(t *testing.T) {

@@ -1326,22 +1326,24 @@ func (r *DeviceRegistry) SearchDevices(query string, limit int) []*models.Unifie
 			score += 10
 		}
 
-		if strings.EqualFold(record.IP, query) {
+		switch {
+		case strings.EqualFold(record.IP, query):
 			score += 8
-		} else if strings.HasPrefix(strings.ToLower(record.IP), lowerQuery) {
+		case strings.HasPrefix(strings.ToLower(record.IP), lowerQuery):
 			score += 4
-		} else if strings.Contains(strings.ToLower(record.IP), lowerQuery) {
+		case strings.Contains(strings.ToLower(record.IP), lowerQuery):
 			score += 2
 		}
 
 		if record.Hostname != nil {
 			hostLower := strings.ToLower(*record.Hostname)
-			if hostLower == lowerQuery {
+			switch {
+			case hostLower == lowerQuery:
 				score += 6
-			} else if strings.HasPrefix(hostLower, lowerQuery) {
+			case strings.HasPrefix(hostLower, lowerQuery):
 				score += 3
-			} else if strings.Contains(hostLower, lowerQuery) {
-				score += 1
+			case strings.Contains(hostLower, lowerQuery):
+				score++
 			}
 		}
 

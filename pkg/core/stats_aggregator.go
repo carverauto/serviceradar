@@ -20,6 +20,7 @@ const (
 	defaultStatsMismatchLogInterval = time.Minute
 )
 
+//nolint:gochecknoglobals // default capability set is shared configuration
 var defaultTrackedCapabilities = []string{"icmp", "snmp", "sysmon"}
 
 // StatsAlertHandler receives the previous and current snapshot metadata so callers can
@@ -534,11 +535,12 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 		}
 
 		if entry, ok := canonical[normalizedKey]; ok {
-			if entry.canonical {
+			switch {
+			case entry.canonical:
 				meta.SkippedNonCanonical++
-			} else if shouldReplaceRecord(entry.record, record) {
+			case shouldReplaceRecord(entry.record, record):
 				canonical[normalizedKey] = canonicalEntry{record: record, canonical: false}
-			} else {
+			default:
 				meta.SkippedNonCanonical++
 			}
 			continue

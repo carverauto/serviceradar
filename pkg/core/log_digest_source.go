@@ -11,7 +11,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-const defaultSnapshotLimit = 200
+const (
+	defaultSnapshotLimit = 200
+	logSeverityError     = "error"
+	logSeverityErrAlias  = "err"
+)
 
 // DBLogDigestSource hydrates log digests from Proton via the db.Service abstraction.
 type DBLogDigestSource struct {
@@ -118,7 +122,7 @@ func (s *DBLogDigestSource) fetchWindowCounts(ctx context.Context, window time.D
 	for _, row := range rows {
 		severity := strings.ToLower(toString(row["severity_text"]))
 		if severity == "" {
-			severity = "unknown"
+			severity = statusUnknown
 		}
 		counts[severity] += toInt(row["total"])
 	}
@@ -133,7 +137,7 @@ func convertWindowCounts(raw map[string]int) models.SeverityWindowCounts {
 		switch severity {
 		case "fatal", "critical":
 			window.Fatal += count
-		case "error", "err":
+		case logSeverityError, logSeverityErrAlias:
 			window.Error += count
 		case "warn", "warning":
 			window.Warning += count

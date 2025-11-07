@@ -155,6 +155,8 @@ func (s *APIServer) getDeviceRegistryInfo(w http.ResponseWriter, r *http.Request
 // @Failure 404 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Router /api/devices/{id} [delete]
+//
+//nolint:gocyclo // handler coordinates validation, lookups, and fan-out side effects
 func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	deviceID := vars["id"]
@@ -243,12 +245,13 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 	var unified *models.UnifiedDevice
 	if s.deviceRegistry != nil {
 		device, err := s.deviceRegistry.GetDevice(ctx, deviceID)
-		if err == nil {
+		switch {
+		case err == nil:
 			unified = device
-		} else if errors.Is(err, registry.ErrDeviceNotFound) {
+		case errors.Is(err, registry.ErrDeviceNotFound):
 			writeError(w, "Device not found", http.StatusNotFound)
 			return
-		} else {
+		default:
 			if s.requireDeviceRegistry {
 				s.logger.Error().
 					Err(err).

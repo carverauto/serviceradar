@@ -7,6 +7,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
+const testRegionUSEast1 = "us-east-1"
+
 func newTestDeviceRegistry() *DeviceRegistry {
 	return NewDeviceRegistry(nil, logger.NewTestLogger())
 }
@@ -18,7 +20,7 @@ func TestUpsertAndGetDeviceRecord(t *testing.T) {
 	mac := "00:11:22:33:44:55"
 	integrationID := "armis:1234"
 	capabilities := []string{"icmp", "snmp"}
-	metadata := map[string]string{"region": "us-east-1"}
+	metadata := map[string]string{"region": testRegionUSEast1}
 	firstSeen := time.Unix(1700000000, 0).UTC()
 	lastSeen := time.Unix(1700003600, 0).UTC()
 
@@ -62,7 +64,7 @@ func TestUpsertAndGetDeviceRecord(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected device to remain in registry")
 	}
-	if original.Metadata["region"] != "us-east-1" {
+	if original.Metadata["region"] != testRegionUSEast1 {
 		t.Fatalf("expected original metadata to remain unchanged, got %q", original.Metadata["region"])
 	}
 	if original.Capabilities[0] != "icmp" {

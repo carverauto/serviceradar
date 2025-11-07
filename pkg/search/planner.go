@@ -15,6 +15,14 @@ const (
 	defaultLimit = 20
 )
 
+var (
+	errSearchRequestNil        = errors.New("search request cannot be nil")
+	errNoSearchBackends        = errors.New("no search backends are configured")
+	errSRQLEngineRequired      = errors.New("srql engine is required for this query")
+	errUnsupportedSearchEngine = errors.New("unsupported search engine")
+	errRegistryBackendMissing  = errors.New("registry backend not configured")
+)
+
 // Engine identifies which execution backend satisfied a search.
 type Engine string
 
@@ -99,11 +107,11 @@ func NewPlanner(reg Registry, srql SRQLClient, log logger.Logger) *Planner {
 // executes it, returning normalized devices or raw SRQL rows.
 func (p *Planner) Search(ctx context.Context, req *Request) (*Result, error) {
 	if req == nil {
-		return nil, errors.New("search request cannot be nil")
+		return nil, errSearchRequestNil
 	}
 
 	if p.registry == nil && p.srql == nil {
-		return nil, errors.New("no search backends are configured")
+		return nil, errNoSearchBackends
 	}
 
 	mode := req.Mode
@@ -150,7 +158,7 @@ func (p *Planner) Search(ctx context.Context, req *Request) (*Result, error) {
 	case EngineSRQL:
 		if p.srql == nil {
 			recordSRQLLatency(ctx, time.Since(start), mode, "error", 0)
-			return nil, fmt.Errorf("srql engine is required for this query")
+			return nil, errSRQLEngineRequired
 		}
 
 		srqlReq := SRQLRequest{
@@ -192,7 +200,7 @@ func (p *Planner) Search(ctx context.Context, req *Request) (*Result, error) {
 
 		return result, nil
 	default:
-		return nil, fmt.Errorf("unsupported search engine: %s", engine)
+		return nil, fmt.Errorf("%w: %s", errUnsupportedSearchEngine, engine)
 	}
 }
 
@@ -210,6 +218,8 @@ func (p *Planner) decideEngine(req *Request, mode Mode) (Engine, map[string]any)
 		}
 		diag["engine_reason"] = "mode_forced"
 		return EngineRegistry, diag
+	case ModeAuto:
+		fallthrough
 	default:
 		if p.supportsRegistry(req.Query, req.Filters) && p.registry != nil {
 			diag["engine_reason"] = "query_supported"
@@ -226,7 +236,7 @@ func (p *Planner) decideEngine(req *Request, mode Mode) (Engine, map[string]any)
 
 func (p *Planner) executeRegistry(ctx context.Context, req *Request) ([]*models.UnifiedDevice, Pagination, error) {
 	if p.registry == nil {
-		return nil, Pagination{}, errors.New("registry backend not configured")
+		return nil, Pagination{}, errRegistryBackendMissing
 	}
 
 	filters := req.Filters

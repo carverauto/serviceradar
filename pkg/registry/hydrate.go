@@ -15,7 +15,11 @@ import (
 
 const hydrateBatchSize = 512
 
-var errRegistryDatabaseUnavailable = errors.New("device registry database unavailable")
+var (
+	errRegistryDatabaseUnavailable = errors.New("device registry database unavailable")
+	errCapabilityRowNil            = errors.New("capability snapshot row is nil")
+	errMissingDeviceCapability     = errors.New("missing device_id or capability")
+)
 
 // HydrateFromStore loads the current device snapshot from Proton into the in-memory registry.
 // It returns the number of records loaded.
@@ -225,13 +229,13 @@ FROM table(device_capability_registry)`
 
 func buildCapabilitySnapshot(row map[string]any, log logger.Logger) (*models.DeviceCapabilitySnapshot, error) {
 	if row == nil {
-		return nil, errors.New("nil row")
+		return nil, errCapabilityRowNil
 	}
 
 	deviceID := strings.TrimSpace(toString(row["device_id"]))
 	capability := strings.ToLower(strings.TrimSpace(toString(row["capability"])))
 	if deviceID == "" || capability == "" {
-		return nil, errors.New("missing device_id or capability")
+		return nil, errMissingDeviceCapability
 	}
 
 	snapshot := &models.DeviceCapabilitySnapshot{
