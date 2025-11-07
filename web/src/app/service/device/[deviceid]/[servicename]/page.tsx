@@ -16,7 +16,10 @@
 
 // src/app/service/device/[deviceid]/[servicename]/page.tsx
 import { Suspense } from "react";
-import DeviceServiceDashboard from "../../../../../components/Device/ServiceDashboard";
+import DeviceServiceDashboard, {
+  type RegistryDetails,
+  type ServiceDashboardData,
+} from "../../../../../components/Device/ServiceDashboard";
 import SNMPDashboard from "../../../../../components/Network/SNMPDashboard";
 import { cookies } from "next/headers";
 import { fetchFromAPI } from "@/lib/api";
@@ -25,163 +28,217 @@ import { SnmpDataPoint } from "@/types/snmp";
 type Params = Promise<{ deviceid: string; servicename: string }>;
 
 interface PageProps {
-    params: Promise<Params>;
-    searchParams: Promise<{ timeRange?: string }>;
+  params: Promise<Params>;
+  searchParams: Promise<{ timeRange?: string }>;
 }
 
 export const revalidate = 0;
 
+type ServiceFetchResult = {
+  deviceId: string;
+  serviceName: string;
+  timeRange: string;
+  data: ServiceDashboardData;
+  error: string | null;
+  type: "snmp" | "sysmon" | "registry" | "unknown" | "error";
+};
+
 async function fetchDeviceServiceData(
-    deviceId: string,
-    serviceName: string,
-    timeRange = "1h",
-    token?: string,
-) {
-    try {
-        console.log(`fetchDeviceServiceData called with: deviceId="${deviceId}", serviceName="${serviceName}", timeRange="${timeRange}"`);
-        
-        // For device-based services, we'll fetch data directly using device metrics endpoints
-        // This replaces the old poller-based service lookup
-        
-        if (serviceName.toLowerCase() === "snmp") {
-            // Fetch SNMP data for the device
-            // deviceId is already URL-encoded from the route params
-            const hours = parseInt(timeRange.replace('h', ''));
-            const endTime = new Date();
-            // Get more data points by extending the time range for better rate calculation
-            const startTime = new Date(endTime.getTime() - Math.max(hours, 2) * 60 * 60 * 1000);
-            
-            console.log(`Fetching SNMP data for device: ${deviceId}`);
-            console.log(`API URL: /devices/${deviceId}/metrics?type=snmp&start=${startTime.toISOString()}&end=${endTime.toISOString()}`);
-            
-            const snmpData = await fetchFromAPI(
-                `/devices/${deviceId}/metrics?type=snmp&start=${startTime.toISOString()}&end=${endTime.toISOString()}`,
-                token
-            );
-            
-            console.log(`SNMP data received:`, snmpData);
-            console.log(`SNMP data type:`, typeof snmpData);
-            console.log(`SNMP data is array:`, Array.isArray(snmpData));
-            
-            // Transform data to match SNMPDashboard expected format
-            const snmpDataArray = Array.isArray(snmpData) ? snmpData : [];
-            const transformedData = snmpDataArray.map(item => ({
-                ...item,
-                oid_name: item.if_index !== undefined ? `${item.name}_${item.if_index}` : item.name,
-                // Ensure other fields are compatible
-                value: item.value,
-                timestamp: item.timestamp
-            }));
-            
-            console.log(`Transformed SNMP data:`, transformedData.slice(0, 3));
-            
-            return { 
-                deviceId, 
-                serviceName, 
-                timeRange,
-                data: transformedData,
-                error: null,
-                type: 'snmp'
-            };
-        }
-        
-        if (serviceName.toLowerCase() === "sysmon") {
-            // Fetch sysmon data for the device
-            // deviceId is already URL-encoded from the route params
-            const hours = timeRange.replace('h', '');
-            const endTime = new Date();
-            const startTime = new Date(endTime.getTime() - parseInt(hours) * 60 * 60 * 1000);
-            
-            const sysmonData = await fetchFromAPI(
-                `/devices/${deviceId}/metrics?type=sysmon&start=${startTime.toISOString()}&end=${endTime.toISOString()}`,
-                token
-            );
-            
-            return { 
-                deviceId, 
-                serviceName, 
-                timeRange,
-                data: sysmonData || [],
-                error: null,
-                type: 'sysmon'
-            };
-        }
-        
-        return { 
-            deviceId, 
-            serviceName, 
-            timeRange,
-            data: [],
-            error: `Service type '${serviceName}' not supported for device-based routing`,
-            type: 'unknown'
-        };
-        
-    } catch (err) {
-        console.error("Error fetching device service data:", err);
-        console.error("Error details:", {
-            message: (err as Error).message,
-            stack: (err as Error).stack,
-            deviceId,
-            serviceName,
-            timeRange
-        });
-        return { 
-            deviceId, 
-            serviceName, 
-            timeRange,
-            data: [],
-            error: (err as Error).message,
-            type: 'error'
-        };
+  deviceId: string,
+  serviceName: string,
+  timeRange = "1h",
+  token?: string,
+): Promise<ServiceFetchResult> {
+  try {
+    console.log(
+      `fetchDeviceServiceData called with: deviceId="${deviceId}", serviceName="${serviceName}", timeRange="${timeRange}"`,
+    );
+
+    // For device-based services, we'll fetch data directly using device metrics endpoints
+    // This replaces the old poller-based service lookup
+
+    if (serviceName.toLowerCase() === "snmp") {
+      // Fetch SNMP data for the device
+      // deviceId is already URL-encoded from the route params
+      const hours = parseInt(timeRange.replace("h", ""));
+      const endTime = new Date();
+      // Get more data points by extending the time range for better rate calculation
+      const startTime = new Date(
+        endTime.getTime() - Math.max(hours, 2) * 60 * 60 * 1000,
+      );
+
+      console.log(`Fetching SNMP data for device: ${deviceId}`);
+      console.log(
+        `API URL: /devices/${deviceId}/metrics?type=snmp&start=${startTime.toISOString()}&end=${endTime.toISOString()}`,
+      );
+
+      const snmpData = await fetchFromAPI(
+        `/devices/${deviceId}/metrics?type=snmp&start=${startTime.toISOString()}&end=${endTime.toISOString()}`,
+        token,
+      );
+
+      console.log(`SNMP data received:`, snmpData);
+      console.log(`SNMP data type:`, typeof snmpData);
+      console.log(`SNMP data is array:`, Array.isArray(snmpData));
+
+      // Transform data to match SNMPDashboard expected format
+      const snmpDataArray = Array.isArray(snmpData) ? snmpData : [];
+      const transformedData = snmpDataArray.map((item) => ({
+        ...item,
+        oid_name:
+          item.if_index !== undefined
+            ? `${item.name}_${item.if_index}`
+            : item.name,
+        // Ensure other fields are compatible
+        value: item.value,
+        timestamp: item.timestamp,
+      }));
+
+      console.log(`Transformed SNMP data:`, transformedData.slice(0, 3));
+
+      return {
+        deviceId,
+        serviceName,
+        timeRange,
+        data: transformedData,
+        error: null,
+        type: "snmp",
+      };
     }
+
+    if (serviceName.toLowerCase() === "sysmon") {
+      // Fetch sysmon data for the device
+      // deviceId is already URL-encoded from the route params
+      const hours = timeRange.replace("h", "");
+      const endTime = new Date();
+      const startTime = new Date(
+        endTime.getTime() - parseInt(hours) * 60 * 60 * 1000,
+      );
+
+      const sysmonData = await fetchFromAPI(
+        `/devices/${deviceId}/metrics?type=sysmon&start=${startTime.toISOString()}&end=${endTime.toISOString()}`,
+        token,
+      );
+      const sysmonArray = Array.isArray(sysmonData) ? sysmonData : [];
+
+      return {
+        deviceId,
+        serviceName,
+        timeRange,
+        data: sysmonArray,
+        error: null,
+        type: "sysmon",
+      };
+    }
+
+    if (serviceName.toLowerCase() === "registry") {
+      const registryInfo = await fetchFromAPI(
+        `/devices/${deviceId}/registry`,
+        token,
+      );
+
+      if (!registryInfo || typeof registryInfo !== "object") {
+        return {
+          deviceId,
+          serviceName,
+          timeRange,
+          data: null,
+          error: "Registry information is not available for this device",
+          type: "registry",
+        };
+      }
+
+      const registryPayload = registryInfo as RegistryDetails;
+
+      return {
+        deviceId,
+        serviceName,
+        timeRange,
+        data: registryPayload,
+        error: null,
+        type: "registry",
+      };
+    }
+
+    return {
+      deviceId,
+      serviceName,
+      timeRange,
+      data: [],
+      error: `Service type '${serviceName}' not supported for device-based routing`,
+      type: "unknown",
+    };
+  } catch (err) {
+    console.error("Error fetching device service data:", err);
+    console.error("Error details:", {
+      message: (err as Error).message,
+      stack: (err as Error).stack,
+      deviceId,
+      serviceName,
+      timeRange,
+    });
+    return {
+      deviceId,
+      serviceName,
+      timeRange,
+      data: [],
+      error: (err as Error).message,
+      type: "error",
+    };
+  }
 }
 
 export async function generateMetadata({ params }: { params: Params }) {
-    const { deviceid, servicename } = await params;
-    return {
-        title: `${servicename} on ${deviceid} - ServiceRadar`,
-    };
+  const { deviceid, servicename } = await params;
+  return {
+    title: `${servicename} on ${deviceid} - ServiceRadar`,
+  };
 }
 
 export default async function Page(props: PageProps) {
-    const { params, searchParams } = props;
-    const { deviceid, servicename } = await params;
-    const resolvedSearchParams = await searchParams;
-    const timeRange = resolvedSearchParams.timeRange || "1h";
-    const cookieStore = await cookies();
-    const token = cookieStore.get("accessToken")?.value;
+  const { params, searchParams } = props;
+  const { deviceid, servicename } = await params;
+  const resolvedSearchParams = await searchParams;
+  const timeRange = resolvedSearchParams.timeRange || "1h";
+  const cookieStore = await cookies();
+  const token = cookieStore.get("accessToken")?.value;
 
-    const initialData = await fetchDeviceServiceData(deviceid, servicename, timeRange, token);
+  const initialData = await fetchDeviceServiceData(
+    deviceid,
+    servicename,
+    timeRange,
+    token,
+  );
 
-    return (
-        <div>
-            <Suspense
-                fallback={
-                    <div className="flex justify-center items-center h-64">
-                        <div className="text-lg text-gray-600 dark:text-gray-300">
-                            Loading device service data...
-                        </div>
-                    </div>
-                }
-            >
-                {initialData.type === 'snmp' ? (
-                    <SNMPDashboard
-                        pollerId={deviceid}
-                        serviceName={servicename}
-                        initialData={initialData.data as SnmpDataPoint[]}
-                        initialTimeRange={initialData.timeRange}
-                        useDeviceId={true}
-                    />
-                ) : (
-                    <DeviceServiceDashboard
-                        deviceId={deviceid}
-                        serviceName={servicename}
-                        initialData={Array.isArray(initialData.data) ? initialData.data : []}
-                        initialError={initialData.error}
-                        initialTimeRange={initialData.timeRange}
-                    />
-                )}
-            </Suspense>
-        </div>
-    );
+  return (
+    <div>
+      <Suspense
+        fallback={
+          <div className="flex justify-center items-center h-64">
+            <div className="text-lg text-gray-600 dark:text-gray-300">
+              Loading device service data...
+            </div>
+          </div>
+        }
+      >
+        {initialData.type === "snmp" ? (
+          <SNMPDashboard
+            pollerId={deviceid}
+            serviceName={servicename}
+            initialData={initialData.data as SnmpDataPoint[]}
+            initialTimeRange={initialData.timeRange}
+            useDeviceId={true}
+          />
+        ) : (
+          <DeviceServiceDashboard
+            deviceId={deviceid}
+            serviceName={servicename}
+            initialData={initialData.data}
+            initialError={initialData.error}
+            initialTimeRange={initialData.timeRange}
+          />
+        )}
+      </Suspense>
+    </div>
+  );
 }

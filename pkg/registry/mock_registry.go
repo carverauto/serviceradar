@@ -143,3 +143,84 @@ func (mr *MockManagerMockRecorder) ProcessDeviceUpdate(ctx, update any) *gomock.
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessDeviceUpdate", reflect.TypeOf((*MockManager)(nil).ProcessDeviceUpdate), ctx, update)
 }
+
+// SetCollectorCapabilities mocks base method.
+func (m *MockManager) SetCollectorCapabilities(ctx context.Context, capability *models.CollectorCapability) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetCollectorCapabilities", ctx, capability)
+}
+
+// SetCollectorCapabilities indicates an expected call of SetCollectorCapabilities.
+func (mr *MockManagerMockRecorder) SetCollectorCapabilities(ctx, capability any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCollectorCapabilities", reflect.TypeOf((*MockManager)(nil).SetCollectorCapabilities), ctx, capability)
+}
+
+// SetDeviceCapabilitySnapshot mocks base method.
+func (m *MockManager) SetDeviceCapabilitySnapshot(ctx context.Context, snapshot *models.DeviceCapabilitySnapshot) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetDeviceCapabilitySnapshot", ctx, snapshot)
+}
+
+// SetDeviceCapabilitySnapshot indicates an expected call of SetDeviceCapabilitySnapshot.
+func (mr *MockManagerMockRecorder) SetDeviceCapabilitySnapshot(ctx, snapshot any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDeviceCapabilitySnapshot", reflect.TypeOf((*MockManager)(nil).SetDeviceCapabilitySnapshot), ctx, snapshot)
+}
+
+// ListDeviceCapabilitySnapshots mocks base method.
+func (m *MockManager) ListDeviceCapabilitySnapshots(ctx context.Context, deviceID string) []*models.DeviceCapabilitySnapshot {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDeviceCapabilitySnapshots", ctx, deviceID)
+	ret0, _ := ret[0].([]*models.DeviceCapabilitySnapshot)
+	return ret0
+}
+
+// ListDeviceCapabilitySnapshots indicates an expected call of ListDeviceCapabilitySnapshots.
+func (mr *MockManagerMockRecorder) ListDeviceCapabilitySnapshots(ctx, deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDeviceCapabilitySnapshots", reflect.TypeOf((*MockManager)(nil).ListDeviceCapabilitySnapshots), ctx, deviceID)
+}
+
+// GetCollectorCapabilities mocks base method.
+func (m *MockManager) GetCollectorCapabilities(ctx context.Context, deviceID string) (*models.CollectorCapability, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCollectorCapabilities", ctx, deviceID)
+	ret0, _ := ret[0].(*models.CollectorCapability)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// GetCollectorCapabilities indicates an expected call of GetCollectorCapabilities.
+func (mr *MockManagerMockRecorder) GetCollectorCapabilities(ctx, deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCollectorCapabilities", reflect.TypeOf((*MockManager)(nil).GetCollectorCapabilities), ctx, deviceID)
+}
+
+// HasDeviceCapability mocks base method.
+func (m *MockManager) HasDeviceCapability(ctx context.Context, deviceID, capability string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasDeviceCapability", ctx, deviceID, capability)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// HasDeviceCapability indicates an expected call of HasDeviceCapability.
+func (mr *MockManagerMockRecorder) HasDeviceCapability(ctx, deviceID, capability any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasDeviceCapability", reflect.TypeOf((*MockManager)(nil).HasDeviceCapability), ctx, deviceID, capability)
+}
+
+// ListDevicesWithCapability mocks base method.
+func (m *MockManager) ListDevicesWithCapability(ctx context.Context, capability string) []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDevicesWithCapability", ctx, capability)
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// ListDevicesWithCapability indicates an expected call of ListDevicesWithCapability.
+func (mr *MockManagerMockRecorder) ListDevicesWithCapability(ctx, capability any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDevicesWithCapability", reflect.TypeOf((*MockManager)(nil).ListDevicesWithCapability), ctx, capability)
+}

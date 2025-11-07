@@ -46,12 +46,12 @@ func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.Pol
 
 // GetPollerServices retrieves services for a poller.
 func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]models.ServiceStatus, error) {
-    rows, err := db.Conn.Query(ctx, `
+	rows, err := db.Conn.Query(ctx, `
         SELECT service_name, service_type, available, timestamp, agent_id
         FROM table(service_status)
         WHERE poller_id = $1
         ORDER BY service_type, service_name`,
-        pollerID)
+		pollerID)
 	if err != nil {
 		return nil, fmt.Errorf("%w poller services: %w", ErrFailedToQuery, err)
 	}
@@ -62,9 +62,9 @@ func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]models.
 	for rows.Next() {
 		var s models.ServiceStatus
 
-        if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Timestamp, &s.AgentID); err != nil {
-            return nil, fmt.Errorf("%w service row: %w", ErrFailedToScan, err)
-        }
+		if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Timestamp, &s.AgentID); err != nil {
+			return nil, fmt.Errorf("%w service row: %w", ErrFailedToScan, err)
+		}
 
 		services = append(services, s)
 	}
@@ -192,7 +192,7 @@ func (db *DB) ListPollers(ctx context.Context) ([]string, error) {
 
 // DeletePoller deletes a poller by ID.
 func (db *DB) DeletePoller(ctx context.Context, pollerID string) error {
-	query := "ALTER TABLE pollers DELETE WHERE poller_id = $1"
+	query := "ALTER STREAM pollers DELETE WHERE poller_id = $1"
 
 	if err := db.Conn.Exec(ctx, query, pollerID); err != nil {
 		return fmt.Errorf("%w: failed to delete poller: %w", ErrFailedToInsert, err)
@@ -391,19 +391,19 @@ func (db *DB) preserveFirstSeen(ctx context.Context, status *models.PollerStatus
 func (db *DB) insertPollerStatus(ctx context.Context, status *models.PollerStatus) error {
 	return db.executeBatch(ctx, "INSERT INTO pollers (* except _tp_time)", func(batch driver.Batch) error {
 		return batch.Append(
-			status.PollerID,      // poller_id
-			"",                   // component_id (empty for implicit registration)
-			"implicit",           // registration_source
-			"active",             // status
-			"",                   // spiffe_identity (empty for now)
-			status.FirstSeen,     // first_registered
-			&status.FirstSeen,    // first_seen (nullable)
-			status.LastSeen,      // last_seen
-			"{}",                 // metadata (empty JSON object)
-			"system",             // created_by
-			status.IsHealthy,     // is_healthy
-			uint32(0),            // agent_count
-			uint32(0),            // checker_count
+			status.PollerID,   // poller_id
+			"",                // component_id (empty for implicit registration)
+			"implicit",        // registration_source
+			"active",          // status
+			"",                // spiffe_identity (empty for now)
+			status.FirstSeen,  // first_registered
+			&status.FirstSeen, // first_seen (nullable)
+			status.LastSeen,   // last_seen
+			"{}",              // metadata (empty JSON object)
+			"system",          // created_by
+			status.IsHealthy,  // is_healthy
+			uint32(0),         // agent_count
+			uint32(0),         // checker_count
 		)
 	})
 }

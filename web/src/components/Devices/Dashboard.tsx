@@ -14,11 +14,16 @@
  * limitations under the License.
  */
 "use client";
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useAuth } from "@/components/AuthProvider";
-import { Device, Pagination, DevicesApiResponse } from "@/types/devices";
-import { cachedQuery } from "@/lib/cached-query";
+import {
+  Device,
+  Pagination,
+  DeviceSearchApiResponse,
+  DeviceSearchRequestPayload,
+} from "@/types/devices";
 import { escapeSrqlValue } from "@/lib/srql";
+import { isDeviceSearchPlannerEnabled } from "@/config/features";
 import {
   Server,
   Search,
@@ -117,12 +122,18 @@ const Dashboard = () => {
   const [statsLoading, setStatsLoading] = useState(true);
   const [devicesLoading, setDevicesLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchEngine, setSearchEngine] = useState<string>("srql");
+  const [searchDiagnostics, setSearchDiagnostics] = useState<
+    Record<string, unknown> | null
+  >(null);
+  const [registryOffset, setRegistryOffset] = useState(0);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm] = useDebounce(searchTerm, 300);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   const [sortBy, setSortBy] = useState<SortableKeys>("last_seen");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const pendingFilterRef = useRef<FilterStatus | null>(null);
+  const plannerEnabled = useMemo(() => isDeviceSearchPlannerEnabled(), []);
   const buildQuery = useCallback(
     (
       status: FilterStatus,
@@ -155,69 +166,258 @@ const Dashboard = () => {
     [],
   );
 
-  const postQuery = useCallback(
-    async <T,>(
-      query: string,
-      cursor?: string,
-      direction?: "next" | "prev",
-    ): Promise<T> => {
-      const body: Record<string, unknown> = {
-        query,
-        limit: 20,
-      };
-      if (cursor) body.cursor = cursor;
-      if (direction) body.direction = direction;
+  const postSearch = useCallback(
+    async (
+      payload: DeviceSearchRequestPayload,
+    ): Promise<DeviceSearchApiResponse> => {
+      if (!plannerEnabled) {
+        const limit = payload.pagination?.limit ?? 20;
+        const offset = payload.pagination?.offset ?? 0;
+        const filters = payload.filters ?? {};
 
-      const response = await fetch("/api/query", {
+        const params = new URLSearchParams();
+        params.set("limit", String(limit));
+        if (offset > 0 && limit > 0) {
+          params.set("page", String(Math.floor(offset / limit) + 1));
+        }
+
+        const trimmedSearch = filters.search?.trim();
+        if (trimmedSearch) {
+          params.set("search", trimmedSearch);
+        }
+
+        const statusFilter = filters.status?.toLowerCase();
+        if (
+          statusFilter &&
+          statusFilter !== "all" &&
+          statusFilter !== "collectors"
+        ) {
+          params.set("status", statusFilter);
+        }
+
+        const headers: HeadersInit = {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        };
+
+        const queryString = params.toString();
+        const response = await fetch(
+          `/api/devices${queryString ? `?${queryString}` : ""}`,
+          {
+            method: "GET",
+            headers,
+            cache: "no-store",
+          },
+        );
+
+        if (!response.ok) {
+          let errorMessage = `Failed to fetch devices (${response.status})`;
+          try {
+            const errorData = await response.json();
+            if (errorData?.error) {
+              errorMessage = errorData.error as string;
+            }
+          } catch {
+            // Response body might be empty or not JSON – ignore parsing issues.
+          }
+          throw new Error(errorMessage);
+        }
+
+        const data = await response.json();
+        if (data?.error) {
+          throw new Error(
+            typeof data.error === "string"
+              ? data.error
+              : "Failed to fetch devices",
+          );
+        }
+
+        const rawResults = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.results)
+            ? data.results
+            : [];
+
+        let results: Device[] = Array.isArray(rawResults)
+          ? (rawResults as Device[])
+          : [];
+
+        if (statusFilter === "collectors") {
+          results = results.filter((device) => {
+            const caps = device.collector_capabilities;
+            if (!caps) {
+              return false;
+            }
+            if (Array.isArray(caps.capabilities) && caps.capabilities.length) {
+              return true;
+            }
+            return Boolean(
+              caps.has_collector ||
+                caps.supports_icmp ||
+                caps.supports_snmp ||
+                caps.supports_sysmon,
+            );
+          });
+        }
+
+        const capabilityFilter = filters.capability?.trim().toLowerCase();
+        if (capabilityFilter) {
+          results = results.filter((device) => {
+            const caps = device.collector_capabilities?.capabilities ?? [];
+            return caps.some(
+              (cap) =>
+                typeof cap === "string" &&
+                cap.toLowerCase() === capabilityFilter,
+            );
+          });
+        }
+
+        const sortFieldCandidate = filters.sort as SortableKeys | undefined;
+        const allowedSortFields: SortableKeys[] = [
+          "ip",
+          "hostname",
+          "last_seen",
+          "first_seen",
+          "poller_id",
+        ];
+        const sortField =
+          sortFieldCandidate && allowedSortFields.includes(sortFieldCandidate)
+            ? sortFieldCandidate
+            : "last_seen";
+        const sortDirection = filters.order === "asc" ? "asc" : "desc";
+        const multiplier = sortDirection === "asc" ? 1 : -1;
+
+        const normalizeTimestamp = (value: string | undefined | null): number => {
+          if (!value) {
+            return 0;
+          }
+          const parsed = Date.parse(value);
+          return Number.isFinite(parsed) ? parsed : 0;
+        };
+
+        const normalizeString = (value: string | undefined | null): string =>
+          (value ?? "").toString().toLowerCase();
+
+        results = [...results].sort((a, b) => {
+          switch (sortField) {
+            case "first_seen":
+              return (
+                (normalizeTimestamp(a.first_seen) -
+                  normalizeTimestamp(b.first_seen)) * multiplier
+              );
+            case "last_seen":
+              return (
+                (normalizeTimestamp(a.last_seen) -
+                  normalizeTimestamp(b.last_seen)) * multiplier
+              );
+            case "hostname":
+              return (
+                normalizeString(a.hostname).localeCompare(
+                  normalizeString(b.hostname),
+                ) * multiplier
+              );
+            case "ip":
+              return (
+                normalizeString(a.ip).localeCompare(
+                  normalizeString(b.ip),
+                ) * multiplier
+              );
+            case "poller_id":
+              return (
+                normalizeString(a.poller_id).localeCompare(
+                  normalizeString(b.poller_id),
+                ) * multiplier
+              );
+            default:
+              return 0;
+          }
+        });
+
+        return {
+          engine: "registry",
+          results,
+          pagination: {
+            limit,
+            offset,
+          },
+          diagnostics: {
+            engine_reason: "feature_flag_disabled",
+            source: "legacy_devices_endpoint",
+          },
+        };
+      }
+
+      const response = await fetch("/api/devices/search", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(token && { Authorization: `Bearer ${token}` }),
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
         cache: "no-store",
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to execute query");
+        let errorMessage = "Failed to execute device search";
+        try {
+          const errorData = await response.json();
+          if (errorData?.error) {
+            errorMessage = errorData.error as string;
+          }
+        } catch {
+          // Best-effort error parsing only.
+        }
+        throw new Error(errorMessage);
       }
+
       return response.json();
     },
-    [token],
+    [plannerEnabled, token],
   );
 
   const fetchStats = useCallback(async () => {
     setStatsLoading(true);
     try {
-      const baseQuery = 'in:devices time:last_7d stats:"count() as total"';
+      const headers: HeadersInit = token
+        ? {
+            Authorization: `Bearer ${token}`,
+          }
+        : {};
 
-      const runCount = async (query: string): Promise<number> => {
-        try {
-          const response = await cachedQuery<{
-            results: Array<{ total: number }>;
-          }>(query, token || undefined, 30000);
-          return response.results?.[0]?.total ?? 0;
-        } catch (queryError) {
-          console.error(`Failed to execute count query: ${query}`, queryError);
-          return 0;
-        }
+      const response = await fetch("/api/stats", {
+        method: "GET",
+        headers,
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to load device stats (status ${response.status})`,
+        );
+      }
+
+      type StatsSnapshot = {
+        total_devices?: number;
+        available_devices?: number;
+        unavailable_devices?: number;
+        devices_with_collectors?: number;
+        devices_with_icmp?: number;
       };
 
-      const [total, online, offline] = await Promise.all([
-        runCount(baseQuery),
-        runCount(`${baseQuery} is_available:true`),
-        runCount(`${baseQuery} is_available:false`),
-      ]);
+      const data = (await response.json()) as StatsSnapshot;
 
-      const collectors = await runCount(
-        `${baseQuery} collector_capabilities.has_collector:true`,
-      );
+      const total = data.total_devices ?? 0;
+      const available = data.available_devices ?? 0;
+      const unavailable =
+        data.unavailable_devices ?? Math.max(0, total - available);
+      const collectors =
+        data.devices_with_collectors ??
+        data.devices_with_icmp ??
+        0;
 
       setStats({
         total,
-        online,
-        offline,
+        online: available,
+        offline: unavailable,
         collectors,
       });
     } catch (error) {
@@ -244,18 +444,50 @@ const Dashboard = () => {
         cursor?: string;
         direction?: "next" | "prev";
         syncContext?: boolean;
+        registryOffset?: number;
       },
     ) => {
       setDevicesLoading(true);
       setError(null);
+      const requestedOffset = options?.registryOffset ?? 0;
       try {
-        const data = await postQuery<DevicesApiResponse>(
+        const trimmedSearch = debouncedSearchTerm.trim();
+        const filters: Record<string, string> = {
+          status: filterStatus,
+          sort: sortBy,
+          order: sortOrder,
+        };
+        if (trimmedSearch) {
+          filters.search = trimmedSearch;
+        }
+
+        const payload: DeviceSearchRequestPayload = {
           query,
-          options?.cursor,
-          options?.direction,
-        );
+          mode: "auto",
+          filters,
+          pagination: {
+            limit: 20,
+            cursor: options?.cursor,
+            direction: options?.direction,
+            offset: requestedOffset,
+          },
+        };
+
+        const data = await postSearch(payload);
+
         setDevices(data.results || []);
         setPagination(data.pagination || null);
+        setSearchEngine(data.engine || "srql");
+        setSearchDiagnostics(data.diagnostics ?? null);
+
+        if (data.engine === "registry") {
+          const nextOffset =
+            data.pagination?.offset ?? requestedOffset ?? 0;
+          setRegistryOffset(nextOffset);
+        } else {
+          setRegistryOffset(0);
+        }
+
         setCurrentQuery(query);
 
         if (options?.syncContext !== false) {
@@ -269,11 +501,22 @@ const Dashboard = () => {
         setError(e instanceof Error ? e.message : "An unknown error occurred.");
         setDevices([]);
         setPagination(null);
+        setSearchDiagnostics(null);
+        setSearchEngine("srql");
+        setRegistryOffset(0);
       } finally {
         setDevicesLoading(false);
       }
     },
-    [postQuery, setSrqlQuery, viewPath],
+    [
+      debouncedSearchTerm,
+      filterStatus,
+      postSearch,
+      setSrqlQuery,
+      sortBy,
+      sortOrder,
+      viewPath,
+    ],
   );
 
   const buildQueryFromState = useCallback(
@@ -295,16 +538,51 @@ const Dashboard = () => {
 
   const handlePageChange = useCallback(
     (cursor?: string, direction?: "next" | "prev") => {
+      const resolvedDirection = direction ?? "next";
+
+      if (searchEngine === "registry") {
+        const limit = pagination?.limit ?? 20;
+        const isPrev = resolvedDirection === "prev";
+
+        if (isPrev && registryOffset === 0) {
+          return;
+        }
+
+        if (!isPrev && devices.length < limit) {
+          return;
+        }
+
+        const nextOffset = isPrev
+          ? Math.max(registryOffset - limit, 0)
+          : registryOffset + limit;
+
+        void runDevicesQuery(currentQuery, {
+          direction: resolvedDirection,
+          registryOffset: nextOffset,
+          syncContext: false,
+        });
+
+        return;
+      }
+
       if (!cursor) {
         return;
       }
+
       void runDevicesQuery(currentQuery, {
         cursor,
-        direction,
+        direction: resolvedDirection,
         syncContext: false,
       });
     },
-    [currentQuery, runDevicesQuery],
+    [
+      currentQuery,
+      devices.length,
+      pagination,
+      registryOffset,
+      runDevicesQuery,
+      searchEngine,
+    ],
   );
 
   useEffect(() => {
@@ -560,7 +838,33 @@ const Dashboard = () => {
             </select>
           </div>
         </div>
-
+        <div className="px-4 py-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-700">
+          <span>Engine: {searchEngine}</span>
+          {searchDiagnostics &&
+            typeof searchDiagnostics.duration_ms === "number" && (
+              <span>
+                Latency:{" "}
+                {Number(searchDiagnostics.duration_ms).toFixed(1)} ms
+              </span>
+            )}
+          {searchEngine === "registry" ? (
+            <span>
+              Offset: {registryOffset.toLocaleString()} • Limit:{" "}
+              {(pagination?.limit ?? 20).toLocaleString()}
+            </span>
+          ) : (
+            <span>
+              Next cursor:{" "}
+              {pagination?.next_cursor ? "available" : "none"}
+            </span>
+          )}
+          {searchDiagnostics &&
+            typeof searchDiagnostics.engine_reason === "string" && (
+              <span>
+                Reason: {String(searchDiagnostics.engine_reason)}
+              </span>
+            )}
+        </div>
         {devicesLoading ? (
           <div className="text-center p-8">
             <Loader2 className="h-8 w-8 text-gray-400 animate-spin mx-auto" />
@@ -579,18 +883,45 @@ const Dashboard = () => {
           />
         )}
 
-        {pagination && (pagination.prev_cursor || pagination.next_cursor) && (
+        {pagination &&
+          (searchEngine === "registry" ||
+            pagination.prev_cursor ||
+            pagination.next_cursor) && (
           <div className="p-4 flex items-center justify-between border-t border-gray-700">
             <button
-              onClick={() => handlePageChange(pagination.prev_cursor, "prev")}
-              disabled={!pagination.prev_cursor || devicesLoading}
+              onClick={() =>
+                handlePageChange(
+                  searchEngine === "registry"
+                    ? undefined
+                    : pagination.prev_cursor,
+                  "prev",
+                )
+              }
+              disabled={
+                devicesLoading ||
+                (searchEngine === "registry"
+                  ? registryOffset === 0
+                  : !pagination.prev_cursor)
+              }
               className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Previous
             </button>
             <button
-              onClick={() => handlePageChange(pagination.next_cursor, "next")}
-              disabled={!pagination.next_cursor || devicesLoading}
+              onClick={() =>
+                handlePageChange(
+                  searchEngine === "registry"
+                    ? undefined
+                    : pagination.next_cursor,
+                  "next",
+                )
+              }
+              disabled={
+                devicesLoading ||
+                (searchEngine === "registry"
+                  ? devices.length < (pagination?.limit ?? 20)
+                  : !pagination.next_cursor)
+              }
               className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Next

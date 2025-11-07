@@ -32,7 +32,8 @@ import (
 
 // Static errors for err113 compliance
 var (
-	ErrRperfTestFailed = errors.New("rperf test failed")
+	ErrRperfTestFailed             = errors.New("rperf test failed")
+	errICMPServiceMetadataRequired = errors.New("icmp service metadata is required")
 )
 
 // createSNMPMetric creates a new timeseries metric from SNMP data
@@ -212,6 +213,7 @@ func (s *Server) processSNMPDeviceUpdates(
 	agentID, pollerID, partition string,
 	timestamp time.Time) error {
 	var deviceUpdates []*models.DeviceUpdate
+	statusByDeviceID := make(map[string]*snmp.TargetStatus, len(targetStatusMap))
 
 	for targetName, targetData := range targetStatusMap {
 		deviceIP := targetData.HostIP
@@ -232,12 +234,63 @@ func (s *Server) processSNMPDeviceUpdates(
 			agentID, pollerID, partition, deviceIP, deviceHostname, timestamp, targetData.Available)
 		if deviceUpdate != nil {
 			deviceUpdates = append(deviceUpdates, deviceUpdate)
+			statusByDeviceID[deviceUpdate.DeviceID] = targetData
 		}
 	}
 
 	if len(deviceUpdates) > 0 && s.DeviceRegistry != nil {
 		if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, deviceUpdates); err != nil {
 			return fmt.Errorf("failed to process batch SNMP target devices: %w", err)
+		}
+
+		for _, update := range deviceUpdates {
+			if update == nil || strings.TrimSpace(update.DeviceID) == "" {
+				continue
+			}
+			s.upsertCollectorCapabilities(ctx, update.DeviceID, []string{"snmp"}, agentID, pollerID, "snmp", timestamp)
+
+			status := statusByDeviceID[update.DeviceID]
+			metadata := map[string]any{
+				"agent_id":  agentID,
+				"poller_id": pollerID,
+				"partition": partition,
+			}
+			if update.IP != "" {
+				metadata["target_ip"] = update.IP
+			}
+			if update.Hostname != nil && *update.Hostname != "" {
+				metadata["target_hostname"] = *update.Hostname
+			}
+			if status != nil {
+				if !status.LastPoll.IsZero() {
+					metadata["last_poll"] = status.LastPoll.UTC()
+				}
+				if status.Error != "" {
+					metadata["error"] = status.Error
+				}
+			}
+
+			failureReason := ""
+			if !update.IsAvailable {
+				if status != nil && status.Error != "" {
+					failureReason = status.Error
+				} else {
+					failureReason = "snmp target unavailable"
+				}
+			}
+
+			s.recordCapabilityEvent(ctx, &capabilityEventInput{
+				DeviceID:      update.DeviceID,
+				Capability:    "snmp",
+				ServiceID:     agentID,
+				ServiceType:   "snmp",
+				RecordedBy:    pollerID,
+				Enabled:       true,
+				Success:       update.IsAvailable,
+				CheckedAt:     update.Timestamp,
+				FailureReason: failureReason,
+				Metadata:      metadata,
+			})
 		}
 
 		s.logger.Info().
@@ -526,6 +579,13 @@ func (s *Server) processICMPMetrics(
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
+	if svc == nil {
+		return errICMPServiceMetadataRequired
+	}
+
+	serviceName := strings.TrimSpace(svc.ServiceName)
+	serviceType := strings.TrimSpace(svc.ServiceType)
+
 	var pingResult struct {
 		Host         string  `json:"host"`
 		ResponseTime int64   `json:"response_time"`
@@ -537,7 +597,7 @@ func (s *Server) processICMPMetrics(
 	if err := json.Unmarshal(details, &pingResult); err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("service_name", svc.ServiceName).
+			Str("service_name", serviceName).
 			Msg("Failed to parse ICMP response JSON")
 
 		return fmt.Errorf("failed to parse ICMP data: %w", err)
@@ -575,7 +635,7 @@ func (s *Server) processICMPMetrics(
 		"response_time":     fmt.Sprintf("%d", pingResult.ResponseTime),
 		"packet_loss":       fmt.Sprintf("%f", pingResult.PacketLoss),
 		"available":         fmt.Sprintf("%t", pingResult.Available),
-		"icmp_service_name": svc.ServiceName,
+		"icmp_service_name": serviceName,
 		"host_device_id":    hostDeviceID,
 		"host_last_seen_ip": updateIP,
 		"host_last_seen_at": now.Format(time.RFC3339Nano),
@@ -589,7 +649,7 @@ func (s *Server) processICMPMetrics(
 	if err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("service_name", svc.ServiceName).
+			Str("service_name", serviceName).
 			Str("poller_id", pollerID).
 			Msg("Failed to marshal ICMP metadata")
 
@@ -599,7 +659,7 @@ func (s *Server) processICMPMetrics(
 	metadataStr := string(metadataBytes)
 
 	metric := &models.TimeseriesMetric{
-		Name:           fmt.Sprintf("icmp_%s_response_time_ms", svc.ServiceName),
+		Name:           fmt.Sprintf("icmp_%s_response_time_ms", serviceName),
 		Value:          fmt.Sprintf("%d", pingResult.ResponseTime),
 		Type:           "icmp",
 		Timestamp:      now,
@@ -621,7 +681,7 @@ func (s *Server) processICMPMetrics(
 			pollerID,
 			now,
 			pingResult.ResponseTime,
-			svc.ServiceName,
+			serviceName,
 			deviceID,
 			partition,
 			agentID,
@@ -629,7 +689,7 @@ func (s *Server) processICMPMetrics(
 		if err != nil {
 			s.logger.Error().
 				Err(err).
-				Str("service_name", svc.ServiceName).
+				Str("service_name", serviceName).
 				Msg("Failed to add ICMP metric to in-memory buffer")
 		}
 	} else {
@@ -646,7 +706,7 @@ func (s *Server) processICMPMetrics(
 			"collector_agent_id":   agentID,
 			"collector_poller_id":  pollerID,
 			"collector_ip":         sourceIP,
-			"icmp_service_name":    svc.ServiceName,
+			"icmp_service_name":    serviceName,
 			"_last_icmp_update_at": now.Format(time.RFC3339Nano),
 		}
 		if targetHost != "" {
@@ -667,6 +727,52 @@ func (s *Server) processICMPMetrics(
 		}
 
 		s.enqueueServiceDeviceUpdate(update)
+
+		s.upsertCollectorCapabilities(ctx, deviceID, []string{"icmp"}, agentID, pollerID, serviceName, now)
+
+		eventMetadata := map[string]any{
+			"collector_ip":      sourceIP,
+			"response_time_ms":  pingResult.ResponseTime,
+			"packet_loss":       pingResult.PacketLoss,
+			"available":         pingResult.Available,
+			"partition":         partition,
+			"host_device_id":    hostDeviceID,
+			"host_last_seen_ip": updateIP,
+		}
+		if agentID != "" {
+			eventMetadata["agent_id"] = agentID
+		}
+		if pollerID != "" {
+			eventMetadata["poller_id"] = pollerID
+		}
+		if targetHost != "" {
+			eventMetadata["target_host"] = targetHost
+		}
+		if serviceName != "" {
+			eventMetadata["service_name"] = serviceName
+		}
+
+		var failureReason string
+		if !pingResult.Available {
+			if serviceName != "" {
+				failureReason = fmt.Sprintf("icmp check %s reported target unavailable", serviceName)
+			} else {
+				failureReason = "icmp check reported target unavailable"
+			}
+		}
+
+		s.recordCapabilityEvent(ctx, &capabilityEventInput{
+			DeviceID:      deviceID,
+			Capability:    "icmp",
+			ServiceID:     serviceName,
+			ServiceType:   serviceType,
+			RecordedBy:    pollerID,
+			Enabled:       true,
+			Success:       pingResult.Available,
+			CheckedAt:     now,
+			FailureReason: failureReason,
+			Metadata:      eventMetadata,
+		})
 
 		if hostDeviceID != "" && hostDeviceID != deviceID {
 			if hostUpdate := buildHostAliasUpdate(
@@ -689,6 +795,7 @@ func (s *Server) processICMPMetrics(
 }
 
 func (s *Server) processSysmonMetrics(
+	ctx context.Context,
 	pollerID, partition, agentID string,
 	details json.RawMessage,
 	timestamp time.Time) error {
@@ -720,6 +827,36 @@ func (s *Server) processSysmonMetrics(
 		Str("partition", partition).
 		Str("timestamp", sysmonPayload.Status.Timestamp).
 		Msg("Parsed sysmon metrics")
+
+	s.upsertCollectorCapabilities(ctx, deviceID, []string{"sysmon"}, agentID, pollerID, "sysmon", pollerTimestamp)
+
+	eventMetadata := map[string]any{
+		"agent_id":         agentID,
+		"poller_id":        pollerID,
+		"partition":        partition,
+		"host_ip":          sysmonPayload.Status.HostIP,
+		"host_id":          sysmonPayload.Status.HostID,
+		"cpu_count":        len(sysmonPayload.Status.CPUs),
+		"disk_count":       len(sysmonPayload.Status.Disks),
+		"process_count":    len(sysmonPayload.Status.Processes),
+		"reported_at":      sysmonPayload.Status.Timestamp,
+		"memory_total":     sysmonPayload.Status.Memory.TotalBytes,
+		"memory_used":      sysmonPayload.Status.Memory.UsedBytes,
+		"sysmon_available": true,
+	}
+
+	s.recordCapabilityEvent(ctx, &capabilityEventInput{
+		DeviceID:      deviceID,
+		Capability:    "sysmon",
+		ServiceID:     agentID,
+		ServiceType:   "sysmon",
+		RecordedBy:    pollerID,
+		Enabled:       true,
+		Success:       true,
+		CheckedAt:     pollerTimestamp,
+		FailureReason: "",
+		Metadata:      eventMetadata,
+	})
 
 	return nil
 }
@@ -1057,9 +1194,9 @@ func (s *Server) processGRPCService(
 	case rperfServiceType:
 		return s.processRperfMetrics(pollerID, partition, serviceData, now)
 	case sysmonServiceType:
-		return s.processSysmonMetrics(pollerID, partition, agentID, serviceData, now)
+		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
 	case "sysmon-vm":
-		return s.processSysmonMetrics(pollerID, partition, agentID, serviceData, now)
+		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
 	case syncServiceType:
 		s.logger.Debug().
 			Str("poller_id", pollerID).
@@ -1106,7 +1243,7 @@ func (s *Server) processServicePayload(
 		contextAgentID = enhancedPayload.AgentID
 	}
 
-	s.ensureServiceDevice(contextAgentID, contextPollerID, contextPartition, svc, serviceData, now)
+	s.ensureServiceDevice(ctx, contextAgentID, contextPollerID, contextPartition, svc, serviceData, now)
 
 	switch svc.ServiceType {
 	case snmpServiceType:

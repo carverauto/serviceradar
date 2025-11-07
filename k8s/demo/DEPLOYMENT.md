@@ -256,6 +256,34 @@ To update configuration:
    kubectl rollout restart deployment/serviceradar-core -n serviceradar-staging
    ```
 
+#### Toggling Feature Flags (ConfigMap)
+Feature flags (including the device search planner) are sourced from the `serviceradar-config` ConfigMap:
+
+1. Edit the ConfigMap to update `core.json` (for core flags) or other entries as needed:
+   ```bash
+   kubectl edit configmap serviceradar-config -n serviceradar-staging
+   ```
+2. Locate the `features` block and adjust values, for example:
+   ```json
+   "features": {
+     "use_log_digest": true,
+     "use_device_search_planner": true,
+     "require_device_registry": true
+   }
+   ```
+   Setting `require_device_registry` to `true` prevents the API from falling back to Proton for device lists or detail lookups; flip it to `false` if you need the legacy behavior for debugging.
+3. Restart the component that reads the config:
+   ```bash
+   kubectl rollout restart deployment/serviceradar-core -n serviceradar-staging
+   ```
+4. For web UI flags (e.g. `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER`), update the environment variables on the deployment:
+   ```bash
+   kubectl set env deployment/serviceradar-web NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER=true FEATURE_DEVICE_SEARCH_PLANNER=true -n serviceradar-staging
+   kubectl rollout restart deployment/serviceradar-web -n serviceradar-staging
+   ```
+
+Changes made via `deploy.sh` are persisted to the ConfigMap; remember to re-run the script if the base configuration is updated in source control.
+
 ## Production Considerations
 
 ### Security Hardening

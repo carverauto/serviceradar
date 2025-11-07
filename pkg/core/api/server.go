@@ -48,6 +48,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/natsutil"
+	"github.com/carverauto/serviceradar/pkg/registry"
+	"github.com/carverauto/serviceradar/pkg/search"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
 	"github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/carverauto/serviceradar/proto"
@@ -79,9 +81,30 @@ type DeviceAliasRecord struct {
 
 type deviceResponse struct {
 	*models.Device
-	AliasHistory          *DeviceAliasHistory          `json:"alias_history,omitempty"`
-	CollectorCapabilities *CollectorCapabilityResponse `json:"collector_capabilities,omitempty"`
-	MetricsSummary        map[string]bool              `json:"metrics_summary,omitempty"`
+	AliasHistory          *DeviceAliasHistory           `json:"alias_history,omitempty"`
+	CollectorCapabilities *CollectorCapabilityResponse  `json:"collector_capabilities,omitempty"`
+	CapabilitySnapshots   []*CapabilitySnapshotResponse `json:"capability_snapshots,omitempty"`
+	MetricsSummary        map[string]bool               `json:"metrics_summary,omitempty"`
+}
+
+type deviceSearchRequest struct {
+	Query      string            `json:"query"`
+	Mode       string            `json:"mode"`
+	Filters    map[string]string `json:"filters"`
+	Pagination struct {
+		Limit     int    `json:"limit"`
+		Offset    int    `json:"offset"`
+		Cursor    string `json:"cursor"`
+		Direction string `json:"direction"`
+	} `json:"pagination"`
+}
+
+type deviceSearchResponse struct {
+	Engine      string                   `json:"engine"`
+	Results     []map[string]interface{} `json:"results"`
+	Pagination  search.Pagination        `json:"pagination"`
+	Diagnostics map[string]any           `json:"diagnostics,omitempty"`
+	RawResults  []map[string]interface{} `json:"raw_results,omitempty"`
 }
 
 // NewAPIServer creates a new API server instance with the given configuration
@@ -199,6 +222,13 @@ func WithSNMPManager(m metricstore.SNMPManager) func(server *APIServer) {
 	}
 }
 
+// WithDeviceSearchPlanner attaches the device search planner to the API server.
+func WithDeviceSearchPlanner(planner *search.Planner) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.searchPlanner = planner
+	}
+}
+
 // WithRperfManager adds an rperf manager to the API server
 func WithRperfManager(m metricstore.RperfManager) func(server *APIServer) {
 	return func(server *APIServer) {
@@ -293,10 +323,32 @@ func WithDeviceRegistry(dr DeviceRegistryService) func(server *APIServer) {
 	}
 }
 
+// WithDeviceRegistryEnforcement controls whether the API should refuse Proton-based
+// fallbacks when the device registry is unavailable.
+func WithDeviceRegistryEnforcement(require bool) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.requireDeviceRegistry = require
+	}
+}
+
 // WithServiceRegistry adds a service registry to the API server
 func WithServiceRegistry(sr ServiceRegistryService) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.serviceRegistry = sr
+	}
+}
+
+// WithLogDigest wires the log digest cache into the API server.
+func WithLogDigest(ld LogDigestService) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.logDigest = ld
+	}
+}
+
+// WithDeviceStats wires the device stats cache into the API server.
+func WithDeviceStats(stats StatsService) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.statsService = stats
 	}
 }
 
@@ -775,12 +827,18 @@ func (s *APIServer) setupProtectedRoutes() {
 	// SRQL HTTP endpoint removed; SRQL moves to OCaml service
 
 	// Device-centric endpoints
+	if s.searchPlanner != nil {
+		protected.HandleFunc("/devices/search", s.handleDeviceSearch).Methods("POST")
+	}
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
 	protected.HandleFunc("/devices/{id}", s.handleDeviceByID).Methods("GET", "DELETE")
 	protected.HandleFunc("/devices/{id}/registry", s.getDeviceRegistryInfo).Methods("GET")
 	protected.HandleFunc("/devices/{id}/metrics", s.getDeviceMetrics).Methods("GET")
 	protected.HandleFunc("/devices/metrics/status", s.getDeviceMetricsStatus).Methods("GET")
 	protected.HandleFunc("/devices/snmp/status", s.getDeviceSNMPStatus).Methods("POST")
+	protected.HandleFunc("/stats", s.handleDeviceStats).Methods("GET")
+	protected.HandleFunc("/logs/critical", s.handleCriticalLogs).Methods("GET")
+	protected.HandleFunc("/logs/critical/counters", s.handleCriticalLogCounters).Methods("GET")
 
 	// Store reference to protected router for MCP routes
 	s.protectedRouter = protected
@@ -1565,6 +1623,90 @@ func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Service not found", http.StatusNotFound)
 }
 
+func (s *APIServer) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
+	if s.statsService == nil {
+		writeError(w, "device stats cache unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	snapshot := s.statsService.Snapshot()
+	if snapshot == nil {
+		snapshot = &models.DeviceStatsSnapshot{
+			Timestamp: time.Now().UTC(),
+		}
+	}
+
+	meta := s.statsService.Meta()
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Serviceradar-Stats-Raw-Records", strconv.Itoa(meta.RawRecords))
+	w.Header().Set("X-Serviceradar-Stats-Processed-Records", strconv.Itoa(meta.ProcessedRecords))
+	w.Header().Set("X-Serviceradar-Stats-Skipped-Nil", strconv.Itoa(meta.SkippedNilRecords))
+	w.Header().Set(
+		"X-Serviceradar-Stats-Skipped-Tombstoned",
+		strconv.Itoa(meta.SkippedTombstonedRecords),
+	)
+	w.Header().Set(
+		"X-Serviceradar-Stats-Skipped-Service-Components",
+		strconv.Itoa(meta.SkippedServiceComponents),
+	)
+	w.Header().Set(
+		"X-Serviceradar-Stats-Skipped-Non-Canonical",
+		strconv.Itoa(meta.SkippedNonCanonical),
+	)
+	w.Header().Set(
+		"X-Serviceradar-Stats-Skipped-Sweep-Only",
+		strconv.Itoa(meta.SkippedSweepOnlyRecords),
+	)
+
+	if !snapshot.Timestamp.IsZero() {
+		age := time.Since(snapshot.Timestamp)
+		if age < 0 {
+			age = 0
+		}
+		w.Header().Set("X-Serviceradar-Stats-Timestamp", snapshot.Timestamp.Format(time.RFC3339Nano))
+		w.Header().Set("X-Serviceradar-Stats-Age-Ms", strconv.FormatInt(age.Milliseconds(), 10))
+	}
+
+	s.writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (s *APIServer) handleCriticalLogs(w http.ResponseWriter, r *http.Request) {
+	if s.logDigest == nil {
+		writeError(w, "critical log digest unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	response := struct {
+		Logs []models.LogSummary `json:"logs"`
+	}{
+		Logs: s.logDigest.Latest(limit),
+	}
+
+	s.writeJSON(w, http.StatusOK, response)
+}
+
+func (s *APIServer) handleCriticalLogCounters(w http.ResponseWriter, r *http.Request) {
+	if s.logDigest == nil {
+		writeError(w, "critical log digest unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	response := struct {
+		Counters *models.LogCounters `json:"counters"`
+	}{
+		Counters: s.logDigest.Counters(),
+	}
+
+	s.writeJSON(w, http.StatusOK, response)
+}
+
 const (
 	defaultReadTimeout           = 10 * time.Second
 	defaultWriteTimeout          = 10 * time.Second
@@ -1683,6 +1825,86 @@ func writeError(w http.ResponseWriter, message string, statusCode int) {
 	}
 }
 
+func (s *APIServer) handleDeviceSearch(w http.ResponseWriter, r *http.Request) {
+	if s.searchPlanner == nil {
+		writeError(w, "device search planner unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	var request deviceSearchRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, "invalid search request payload", http.StatusBadRequest)
+		return
+	}
+
+	if request.Filters == nil {
+		request.Filters = make(map[string]string)
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
+	defer cancel()
+
+	plannerReq := &search.Request{
+		Query:   request.Query,
+		Mode:    search.Mode(request.Mode),
+		Filters: request.Filters,
+		Pagination: search.Pagination{
+			Limit:     request.Pagination.Limit,
+			Offset:    request.Pagination.Offset,
+			Cursor:    request.Pagination.Cursor,
+			Direction: request.Pagination.Direction,
+		},
+	}
+
+	result, err := s.searchPlanner.Search(ctx, plannerReq)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Device search planner failed")
+		writeError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	diagnostics := make(map[string]any, len(result.Diagnostics)+2)
+	for k, v := range result.Diagnostics {
+		diagnostics[k] = v
+	}
+	diagnostics["engine"] = result.Engine
+	diagnostics["duration_ms"] = float64(result.Duration) / float64(time.Millisecond)
+
+	response := deviceSearchResponse{
+		Engine:      string(result.Engine),
+		Pagination:  result.Pagination,
+		Diagnostics: diagnostics,
+	}
+
+	switch result.Engine {
+	case search.EngineRegistry:
+		metricSummary := s.fetchDeviceMetricSummary(ctx, result.Devices)
+		response.Results = s.buildDeviceRecords(ctx, result.Devices, metricSummary)
+		if len(response.Results) == 0 {
+			response.Results = make([]map[string]interface{}, 0)
+		}
+	case search.EngineSRQL:
+		converted := s.convertSRQLRowsToDevices(ctx, result.Rows)
+		if len(converted) > 0 {
+			metricSummary := s.fetchDeviceMetricSummary(ctx, converted)
+			response.Results = s.buildDeviceRecords(ctx, converted, metricSummary)
+			if len(result.Rows) > 0 {
+				response.RawResults = result.Rows
+			}
+		} else if len(result.Rows) > 0 {
+			// Return raw SRQL rows if we cannot hydrate registry records.
+			response.Results = result.Rows
+		}
+		if response.Results == nil {
+			response.Results = make([]map[string]interface{}, 0)
+		}
+	default:
+		response.Results = make([]map[string]interface{}, 0)
+	}
+
+	s.writeJSON(w, http.StatusOK, response)
+}
+
 // @Summary Get all devices
 // @Description Retrieves a list of all devices in the network
 // @Tags Devices
@@ -1702,12 +1924,26 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
 	defer cancel()
 
+	if s.requireDeviceRegistry && s.deviceRegistry == nil {
+		s.logger.Error().Msg("Device registry enforcement enabled but registry service not configured")
+		writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
 	// Parse query parameters
 	params := parseDeviceQueryParams(r)
 
 	// Try device registry first (enhanced device data with discovery sources)
 	if s.deviceRegistry != nil {
 		if s.tryDeviceRegistryPath(ctx, w, params) {
+			return
+		}
+
+		if s.requireDeviceRegistry {
+			s.logger.Error().
+				Str("search_term", params["searchTerm"].(string)).
+				Msg("Device registry lookup failed and Proton fallback disabled")
+			writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
 			return
 		}
 	}
@@ -1763,7 +1999,19 @@ func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWr
 	}
 
 	// Filter devices based on search and status parameters
-	filteredDevices := filterDevices(devices, params["searchTerm"].(string), params["status"].(string), s.logger)
+	filteredDevices := devices
+	if searchTerm := strings.TrimSpace(params["searchTerm"].(string)); searchTerm != "" {
+		if searcher, ok := s.deviceRegistry.(interface {
+			SearchDevices(query string, limit int) []*models.UnifiedDevice
+		}); ok {
+			if searched := searcher.SearchDevices(searchTerm, params["limit"].(int)); len(searched) > 0 {
+				filteredDevices = searched
+			} else {
+				filteredDevices = nil
+			}
+		}
+	}
+	filteredDevices = filterDevices(filteredDevices, "", params["status"].(string), s.logger)
 
 	// Apply device merging if requested
 	if params["mergedStr"].(string) == "true" {
@@ -1772,21 +2020,42 @@ func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWr
 
 	// Format and send the response
 	metricSummary := s.fetchDeviceMetricSummary(ctx, filteredDevices)
-	s.sendDeviceRegistryResponse(w, filteredDevices, metricSummary)
+	s.sendDeviceRegistryResponse(ctx, w, filteredDevices, metricSummary)
 
 	return true
 }
 
 // sendDeviceRegistryResponse formats and sends the response for device registry path
 func (s *APIServer) sendDeviceRegistryResponse(
+	ctx context.Context,
 	w http.ResponseWriter,
 	devices []*models.UnifiedDevice,
 	metricSummary map[string]map[string]bool,
 ) {
-	// Convert to response format with discovery information
-	response := make([]map[string]interface{}, len(devices))
+	payload := s.buildDeviceRecords(ctx, devices, metricSummary)
+	if payload == nil {
+		payload = make([]map[string]interface{}, 0)
+	}
 
-	for i, device := range devices {
+	s.writeJSON(w, http.StatusOK, payload)
+}
+
+func (s *APIServer) buildDeviceRecords(
+	ctx context.Context,
+	devices []*models.UnifiedDevice,
+	metricSummary map[string]map[string]bool,
+) []map[string]interface{} {
+	if len(devices) == 0 {
+		return nil
+	}
+
+	response := make([]map[string]interface{}, 0, len(devices))
+
+	for _, device := range devices {
+		if device == nil {
+			continue
+		}
+
 		entry := map[string]interface{}{
 			"device_id":         device.DeviceID,
 			"ip":                device.IP,
@@ -1804,23 +2073,86 @@ func (s *APIServer) sendDeviceRegistryResponse(
 			entry["alias_history"] = history
 		}
 
-		if caps, ok := deriveCollectorCapabilities(device); ok {
-			entry["collector_capabilities"] = toCollectorCapabilityResponse(caps)
+		if s.deviceRegistry != nil && device.DeviceID != "" {
+			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, device.DeviceID); ok {
+				if resp := toCollectorCapabilityResponse(record); resp != nil {
+					entry["collector_capabilities"] = resp
+				}
+			}
+
+			if snapshots := s.deviceRegistry.ListDeviceCapabilitySnapshots(ctx, device.DeviceID); len(snapshots) > 0 {
+				if resp := toCapabilitySnapshotResponses(snapshots); len(resp) > 0 {
+					entry["capability_snapshots"] = resp
+				}
+			}
 		}
 
-		if summary := metricSummary[device.DeviceID]; len(summary) > 0 {
-			entry["metrics_summary"] = summary
+		if metricSummary != nil {
+			if summary := metricSummary[device.DeviceID]; len(summary) > 0 {
+				entry["metrics_summary"] = summary
+			}
 		}
 
-		response[i] = entry
+		response = append(response, entry)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	return response
+}
 
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error().Err(err).Msg("Error encoding enhanced devices response")
-		writeError(w, "Failed to encode response", http.StatusInternalServerError)
+func (s *APIServer) convertSRQLRowsToDevices(ctx context.Context, rows []map[string]interface{}) []*models.UnifiedDevice {
+	if s.deviceRegistry == nil || len(rows) == 0 {
+		return nil
 	}
+
+	seen := make(map[string]struct{}, len(rows))
+	devices := make([]*models.UnifiedDevice, 0, len(rows))
+
+	for _, row := range rows {
+		deviceID := extractDeviceID(row)
+		if deviceID == "" {
+			continue
+		}
+
+		if _, exists := seen[deviceID]; exists {
+			continue
+		}
+
+		device, err := s.deviceRegistry.GetDevice(ctx, deviceID)
+		if err != nil {
+			s.logger.Debug().
+				Err(err).
+				Str("device_id", deviceID).
+				Msg("Failed to hydrate device from registry for SRQL row")
+			continue
+		}
+
+		if device != nil {
+			devices = append(devices, device)
+			seen[deviceID] = struct{}{}
+		}
+	}
+
+	return devices
+}
+
+func extractDeviceID(row map[string]interface{}) string {
+	if row == nil {
+		return ""
+	}
+
+	if v, ok := row["device_id"].(string); ok && v != "" {
+		return v
+	}
+
+	if v, ok := row["device.device_id"].(string); ok && v != "" {
+		return v
+	}
+
+	if v, ok := row["id"].(string); ok && strings.Contains(v, ":") {
+		return v
+	}
+
+	return ""
 }
 
 // fallbackToDBDeviceList lists devices via the database service without SRQL
@@ -1840,7 +2172,7 @@ func (s *APIServer) fallbackToDBDeviceList(ctx context.Context, w http.ResponseW
 	// Filter based on search/status to match registry path behavior
 	filtered := filterDevices(devices, params["searchTerm"].(string), params["status"].(string), s.logger)
 	metricSummary := s.fetchDeviceMetricSummary(ctx, filtered)
-	s.sendDeviceRegistryResponse(w, filtered, metricSummary)
+	s.sendDeviceRegistryResponse(ctx, w, filtered, metricSummary)
 }
 
 func (s *APIServer) fetchDeviceMetricSummary(ctx context.Context, devices []*models.UnifiedDevice) map[string]map[string]bool {
@@ -1932,6 +2264,12 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
 	defer cancel()
 
+	if s.requireDeviceRegistry && s.deviceRegistry == nil {
+		s.logger.Error().Str("device_id", deviceID).Msg("Device registry enforcement enabled but registry service not configured")
+		writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
 	// Try device registry first (enhanced device data with discovery sources)
 	if s.deviceRegistry != nil {
 		unifiedDevice, err := s.deviceRegistry.GetMergedDevice(ctx, deviceID)
@@ -1941,8 +2279,11 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 				Device:       legacy,
 				AliasHistory: buildAliasHistory(unifiedDevice),
 			}
-			if caps, ok := deriveCollectorCapabilities(unifiedDevice); ok {
-				resp.CollectorCapabilities = toCollectorCapabilityResponse(caps)
+			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, unifiedDevice.DeviceID); ok {
+				resp.CollectorCapabilities = toCollectorCapabilityResponse(record)
+			}
+			if snapshots := s.deviceRegistry.ListDeviceCapabilitySnapshots(ctx, unifiedDevice.DeviceID); len(snapshots) > 0 {
+				resp.CapabilitySnapshots = toCapabilitySnapshotResponses(snapshots)
 			}
 			if summary := s.fetchDeviceMetricSummary(ctx, []*models.UnifiedDevice{unifiedDevice}); summary != nil {
 				if metrics := summary[unifiedDevice.DeviceID]; len(metrics) > 0 {
@@ -1969,6 +2310,20 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if errors.Is(err, registry.ErrDeviceNotFound) {
+			writeError(w, "Device not found", http.StatusNotFound)
+			return
+		}
+
+		if s.requireDeviceRegistry {
+			s.logger.Error().
+				Err(err).
+				Str("device_id", deviceID).
+				Msg("Device registry lookup failed and Proton fallback disabled")
+			writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
 		s.logger.Warn().Err(err).Str("device_id", deviceID).Msg("Device registry lookup failed, falling back to legacy")
 	}
 
@@ -1978,33 +2333,43 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	device, err := s.dbService.GetDeviceByID(ctx, deviceID)
-	if err != nil {
-		s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error fetching device")
-		writeError(w, "Device not found", http.StatusNotFound)
-
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-
 	var (
+		legacyDevice          *models.Device
 		aliasHistory          *DeviceAliasHistory
 		collectorCapabilities *CollectorCapabilityResponse
+		capabilitySnapshots   []*CapabilitySnapshotResponse
 	)
+
 	if s.deviceRegistry != nil {
 		if unified, err := s.deviceRegistry.GetDevice(ctx, deviceID); err == nil && unified != nil {
+			legacyDevice = unified.ToLegacyDevice()
 			aliasHistory = buildAliasHistory(unified)
-			if caps, ok := deriveCollectorCapabilities(unified); ok {
-				collectorCapabilities = toCollectorCapabilityResponse(caps)
+			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, unified.DeviceID); ok {
+				collectorCapabilities = toCollectorCapabilityResponse(record)
+			}
+			if snapshots := s.deviceRegistry.ListDeviceCapabilitySnapshots(ctx, unified.DeviceID); len(snapshots) > 0 {
+				capabilitySnapshots = toCapabilitySnapshotResponses(snapshots)
 			}
 		}
 	}
 
+	if legacyDevice == nil {
+		device, err := s.dbService.GetDeviceByID(ctx, deviceID)
+		if err != nil {
+			s.logger.Error().Err(err).Str("device_id", deviceID).Msg("Error fetching device")
+			writeError(w, "Device not found", http.StatusNotFound)
+			return
+		}
+		legacyDevice = device
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
 	response := deviceResponse{
-		Device:                device,
+		Device:                legacyDevice,
 		AliasHistory:          aliasHistory,
 		CollectorCapabilities: collectorCapabilities,
+		CapabilitySnapshots:   capabilitySnapshots,
 	}
 
 	if summary := s.fetchDeviceMetricSummary(ctx, []*models.UnifiedDevice{{
@@ -2041,9 +2406,11 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 	deviceID := vars["id"]
 
 	var (
-		deviceIP           string
-		collectorCaps      collectorCapabilities
-		collectorCapsKnown bool
+		deviceIP          string
+		hasCollectorHint  bool
+		hasCollectorKnown bool
+		supportsICMPHint  bool
+		supportsICMPKnown bool
 	)
 
 	queryValues := r.URL.Query()
@@ -2056,12 +2423,12 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if hasCollector, ok := parseBoolQuery(queryValues, "has_collector"); ok {
-		collectorCaps.hasCollector = hasCollector
-		collectorCapsKnown = true
+		hasCollectorHint = hasCollector
+		hasCollectorKnown = true
 	}
 	if supportsICMP, ok := parseBoolQuery(queryValues, "supports_icmp"); ok {
-		collectorCaps.supportsICMP = supportsICMP
-		collectorCapsKnown = true
+		supportsICMPHint = supportsICMP
+		supportsICMPKnown = true
 	}
 
 	// Set a timeout for the request
@@ -2073,6 +2440,21 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	if s.deviceRegistry != nil && (!hasCollectorKnown || !supportsICMPKnown) {
+		if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, deviceID); ok {
+			if !hasCollectorKnown {
+				hasCollectorHint = record != nil && len(record.Capabilities) > 0
+				hasCollectorKnown = true
+			}
+			if !supportsICMPKnown {
+				if resp := toCollectorCapabilityResponse(record); resp != nil {
+					supportsICMPHint = resp.SupportsICMP
+					supportsICMPKnown = true
+				}
+			}
+		}
 	}
 
 	// Check if database is configured
@@ -2121,7 +2503,7 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 
 		if len(timeseriesMetrics) == 0 {
 			shouldFallback := true
-			if collectorCapsKnown && (!collectorCaps.hasCollector || !collectorCaps.supportsICMP) {
+			if (hasCollectorKnown && !hasCollectorHint) || (supportsICMPKnown && !supportsICMPHint) {
 				shouldFallback = false
 				s.logger.Debug().
 					Str("device_id", deviceID).

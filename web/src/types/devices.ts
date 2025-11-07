@@ -19,6 +19,25 @@ export interface CollectorCapabilities {
     supports_icmp?: boolean;
     supports_snmp?: boolean;
     supports_sysmon?: boolean;
+    capabilities?: string[];
+    agent_id?: string;
+    poller_id?: string;
+    service_name?: string;
+    last_seen?: string;
+}
+
+export interface CapabilitySnapshot {
+    capability: string;
+    service_id?: string;
+    service_type?: string;
+    state?: string;
+    enabled?: boolean;
+    last_checked?: string;
+    last_success?: string;
+    last_failure?: string;
+    failure_reason?: string;
+    metadata?: Record<string, unknown>;
+    recorded_by?: string;
 }
 
 export interface Device {
@@ -38,14 +57,37 @@ export interface Device {
     alias_history?: DeviceAliasHistory;
     collector_capabilities?: CollectorCapabilities;
     metrics_summary?: Record<string, boolean>;
+    capability_snapshots?: CapabilitySnapshot[];
 }
 export interface Pagination {
     next_cursor?: string;
     prev_cursor?: string;
     limit?: number;
+    offset?: number;
 }
 export interface DevicesApiResponse {
     results: Device[];
     pagination: Pagination;
+    error?: string;
+}
+
+export interface DeviceSearchRequestPayload {
+    query: string;
+    mode?: string;
+    filters?: Record<string, string>;
+    pagination?: {
+      limit?: number;
+      offset?: number;
+      cursor?: string;
+      direction?: "next" | "prev";
+    };
+}
+
+export interface DeviceSearchApiResponse {
+    engine: string;
+    results: Device[];
+    pagination?: Pagination;
+    diagnostics?: Record<string, unknown>;
+    raw_results?: Array<Record<string, unknown>>;
     error?: string;
 }

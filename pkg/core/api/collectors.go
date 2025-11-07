@@ -2,188 +2,113 @@ package api
 
 import (
 	"strings"
+	"time"
 
-	"github.com/carverauto/serviceradar/pkg/devicealias"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-type collectorCapabilities struct {
-	hasCollector   bool
-	supportsICMP   bool
-	supportsSNMP   bool
-	supportsSysmon bool
-}
-
-// CollectorCapabilityResponse represents collector capability hints exposed via the API.
+// CollectorCapabilityResponse surfaces explicit collector capability details for a device.
 type CollectorCapabilityResponse struct {
-	HasCollector   bool `json:"has_collector"`
-	SupportsICMP   bool `json:"supports_icmp"`
-	SupportsSNMP   bool `json:"supports_snmp"`
-	SupportsSysmon bool `json:"supports_sysmon"`
+	HasCollector   bool       `json:"has_collector"`
+	SupportsICMP   bool       `json:"supports_icmp"`
+	SupportsSNMP   bool       `json:"supports_snmp"`
+	SupportsSysmon bool       `json:"supports_sysmon"`
+	Capabilities   []string   `json:"capabilities,omitempty"`
+	AgentID        string     `json:"agent_id,omitempty"`
+	PollerID       string     `json:"poller_id,omitempty"`
+	ServiceName    string     `json:"service_name,omitempty"`
+	LastSeen       *time.Time `json:"last_seen,omitempty"`
 }
 
-type collectorSignals struct {
-	serviceID       string
-	collectorIP     string
-	collectorAgent  string
-	collectorPoller string
-}
-
-// deriveCollectorCapabilities inspects unified device metadata and alias history to infer
-// which collectors are active for the device. It returns the inferred capabilities along with
-// a boolean indicating whether the metadata contained any alias/collector hints.
-func deriveCollectorCapabilities(device *models.UnifiedDevice) (collectorCapabilities, bool) {
-	if device == nil || device.Metadata == nil || device.Metadata.Value == nil {
-		return collectorCapabilities{}, false
+func toCollectorCapabilityResponse(record *models.CollectorCapability) *CollectorCapabilityResponse {
+	if record == nil || len(record.Capabilities) == 0 {
+		return nil
 	}
 
-	metadata := device.Metadata.Value
-	if len(metadata) == 0 {
-		return collectorCapabilities{}, false
+	resp := &CollectorCapabilityResponse{
+		HasCollector: true,
+		Capabilities: append([]string(nil), record.Capabilities...),
+		AgentID:      record.AgentID,
+		PollerID:     record.PollerID,
+		ServiceName:  record.ServiceName,
 	}
 
-	record := devicealias.FromMetadata(metadata)
-	signals := extractCollectorSignals(metadata, record)
-	serviceTypes := extractServiceTypes(metadata, record, device.DiscoverySources, signals.serviceID, device.DeviceID)
-
-	hasCollector := len(serviceTypes) > 0 ||
-		serviceIDIndicatesCollector(signals.serviceID) ||
-		signals.collectorAgent != "" ||
-		signals.collectorPoller != ""
-
-	caps := collectorCapabilities{
-		hasCollector: hasCollector,
+	if !record.LastSeen.IsZero() {
+		ts := record.LastSeen.UTC()
+		resp.LastSeen = &ts
 	}
 
-	if containsServiceType(serviceTypes, "icmp") {
-		caps.supportsICMP = true
-	}
-	if containsServiceType(serviceTypes, "snmp") {
-		caps.supportsSNMP = true
-	}
-	if containsServiceType(serviceTypes, "sysmon") {
-		caps.supportsSysmon = true
-	}
-
-	return caps, true
-}
-
-func toCollectorCapabilityResponse(caps collectorCapabilities) *CollectorCapabilityResponse {
-	return &CollectorCapabilityResponse{
-		HasCollector:   caps.hasCollector,
-		SupportsICMP:   caps.supportsICMP,
-		SupportsSNMP:   caps.supportsSNMP,
-		SupportsSysmon: caps.supportsSysmon,
-	}
-}
-
-func extractCollectorSignals(metadata map[string]string, record *devicealias.Record) collectorSignals {
-	signals := collectorSignals{
-		collectorAgent:  strings.TrimSpace(metadata["collector_agent_id"]),
-		collectorPoller: strings.TrimSpace(metadata["collector_poller_id"]),
-	}
-
-	if record != nil {
-		signals.serviceID = strings.TrimSpace(record.CurrentServiceID)
-		signals.collectorIP = strings.TrimSpace(record.CollectorIP)
-	}
-
-	if signals.serviceID == "" {
-		signals.serviceID = strings.TrimSpace(metadata["_alias_last_seen_service_id"])
-	}
-	if signals.collectorIP == "" {
-		signals.collectorIP = strings.TrimSpace(metadata["_alias_collector_ip"])
-	}
-
-	return signals
-}
-
-func extractServiceTypes(
-	metadata map[string]string,
-	record *devicealias.Record,
-	sources []models.DiscoverySourceInfo,
-	primaryServiceID string,
-	deviceID string,
-) map[string]struct{} {
-	serviceTypes := make(map[string]struct{})
-
-	if serviceIDMatchesDevice(primaryServiceID, deviceID) || serviceIDIndicatesCollector(primaryServiceID) {
-		registerServiceType(primaryServiceID, serviceTypes)
-	}
-
-	if value := strings.TrimSpace(metadata["checker_service_type"]); value != "" {
-		registerServiceType(value, serviceTypes)
-	}
-	if value := strings.TrimSpace(metadata["checker_service"]); value != "" {
-		registerServiceType(value, serviceTypes)
-	}
-	if value := strings.TrimSpace(metadata["icmp_service_name"]); value != "" {
-		serviceTypes["icmp"] = struct{}{}
-	}
-	if value := strings.TrimSpace(metadata["icmp_target"]); value != "" {
-		serviceTypes["icmp"] = struct{}{}
-	}
-	if value := strings.TrimSpace(metadata["_last_icmp_update_at"]); value != "" {
-		serviceTypes["icmp"] = struct{}{}
-	}
-
-	if value, ok := metadata["snmp_monitoring"]; ok && strings.TrimSpace(value) != "" {
-		serviceTypes["snmp"] = struct{}{}
-	}
-
-	for key := range metadata {
-		if strings.HasPrefix(key, "service_alias:") {
-			id := strings.TrimSpace(strings.TrimPrefix(key, "service_alias:"))
-			if serviceIDMatchesDevice(id, deviceID) || serviceIDIndicatesCollector(id) {
-				registerServiceType(id, serviceTypes)
-			}
+	for _, capability := range record.Capabilities {
+		switch strings.ToLower(strings.TrimSpace(capability)) {
+		case "icmp":
+			resp.SupportsICMP = true
+		case "snmp":
+			resp.SupportsSNMP = true
+		case "sysmon":
+			resp.SupportsSysmon = true
 		}
 	}
 
-	if record != nil {
-		for id := range record.Services {
-			if serviceIDMatchesDevice(id, deviceID) || serviceIDIndicatesCollector(id) {
-				registerServiceType(id, serviceTypes)
-			}
+	return resp
+}
+
+// CapabilitySnapshotResponse surfaces per-capability state tracked in the capability matrix.
+type CapabilitySnapshotResponse struct {
+	Capability    string         `json:"capability"`
+	ServiceID     string         `json:"service_id,omitempty"`
+	ServiceType   string         `json:"service_type,omitempty"`
+	State         string         `json:"state,omitempty"`
+	Enabled       bool           `json:"enabled"`
+	LastChecked   string         `json:"last_checked,omitempty"`
+	LastSuccess   string         `json:"last_success,omitempty"`
+	LastFailure   string         `json:"last_failure,omitempty"`
+	FailureReason string         `json:"failure_reason,omitempty"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
+	RecordedBy    string         `json:"recorded_by,omitempty"`
+}
+
+func toCapabilitySnapshotResponse(snapshot *models.DeviceCapabilitySnapshot) *CapabilitySnapshotResponse {
+	if snapshot == nil || snapshot.Capability == "" {
+		return nil
+	}
+
+	resp := &CapabilitySnapshotResponse{
+		Capability:    snapshot.Capability,
+		ServiceID:     snapshot.ServiceID,
+		ServiceType:   snapshot.ServiceType,
+		State:         snapshot.State,
+		Enabled:       snapshot.Enabled,
+		FailureReason: snapshot.FailureReason,
+		Metadata:      snapshot.Metadata,
+		RecordedBy:    snapshot.RecordedBy,
+	}
+
+	if !snapshot.LastChecked.IsZero() {
+		resp.LastChecked = snapshot.LastChecked.UTC().Format(time.RFC3339Nano)
+	}
+	if snapshot.LastSuccess != nil && !snapshot.LastSuccess.IsZero() {
+		resp.LastSuccess = snapshot.LastSuccess.UTC().Format(time.RFC3339Nano)
+	}
+	if snapshot.LastFailure != nil && !snapshot.LastFailure.IsZero() {
+		resp.LastFailure = snapshot.LastFailure.UTC().Format(time.RFC3339Nano)
+	}
+
+	return resp
+}
+
+func toCapabilitySnapshotResponses(snapshots []*models.DeviceCapabilitySnapshot) []*CapabilitySnapshotResponse {
+	if len(snapshots) == 0 {
+		return nil
+	}
+
+	results := make([]*CapabilitySnapshotResponse, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		if resp := toCapabilitySnapshotResponse(snapshot); resp != nil {
+			results = append(results, resp)
 		}
 	}
-
-	for _, source := range sources {
-		registerServiceType(string(source.Source), serviceTypes)
+	if len(results) == 0 {
+		return nil
 	}
-
-	return serviceTypes
-}
-
-func registerServiceType(value string, into map[string]struct{}) {
-	cv := strings.ToLower(strings.TrimSpace(value))
-	if cv == "" {
-		return
-	}
-	if strings.Contains(cv, "icmp") || strings.Contains(cv, "ping") {
-		into["icmp"] = struct{}{}
-	}
-	if strings.Contains(cv, "sysmon") {
-		into["sysmon"] = struct{}{}
-	}
-	if strings.Contains(cv, "snmp") {
-		into["snmp"] = struct{}{}
-	}
-}
-
-func containsServiceType(values map[string]struct{}, key string) bool {
-	_, ok := values[key]
-	return ok
-}
-
-func serviceIDMatchesDevice(serviceID, deviceID string) bool {
-	return strings.EqualFold(strings.TrimSpace(serviceID), strings.TrimSpace(deviceID))
-}
-
-func serviceIDIndicatesCollector(serviceID string) bool {
-	id := strings.ToLower(strings.TrimSpace(serviceID))
-	if id == "" {
-		return false
-	}
-	return strings.Contains(id, ":collector:") || strings.Contains(id, ":checker:")
+	return results
 }

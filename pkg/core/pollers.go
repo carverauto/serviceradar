@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -1309,6 +1310,27 @@ func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID string) er
 		Str("device_id", deviceUpdate.DeviceID).
 		Msg("Successfully registered poller as device")
 
+	s.upsertCollectorCapabilities(ctx, deviceUpdate.DeviceID, []string{"poller"}, "", pollerID, pollerID, deviceUpdate.Timestamp)
+
+	eventMetadata := map[string]any{
+		"poller_id": pollerID,
+	}
+	if hostIP != "" {
+		eventMetadata["host_ip"] = hostIP
+	}
+
+	s.recordCapabilityEvent(ctx, &capabilityEventInput{
+		DeviceID:    deviceUpdate.DeviceID,
+		Capability:  "poller",
+		ServiceID:   pollerID,
+		ServiceType: "poller",
+		RecordedBy:  pollerID,
+		Enabled:     true,
+		Success:     true,
+		CheckedAt:   deviceUpdate.Timestamp,
+		Metadata:    eventMetadata,
+	})
+
 	return nil
 }
 
@@ -1324,7 +1346,33 @@ func (s *Server) registerAgentAsDevice(ctx context.Context, agentID, pollerID, h
 
 	deviceUpdate := models.CreateAgentDeviceUpdate(agentID, pollerID, hostIP, metadata)
 
-	return s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate})
+	if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate}); err != nil {
+		return err
+	}
+
+	s.upsertCollectorCapabilities(ctx, deviceUpdate.DeviceID, []string{"agent"}, agentID, pollerID, agentID, deviceUpdate.Timestamp)
+
+	eventMetadata := map[string]any{
+		"agent_id":  agentID,
+		"poller_id": pollerID,
+	}
+	if hostIP != "" {
+		eventMetadata["host_ip"] = hostIP
+	}
+
+	s.recordCapabilityEvent(ctx, &capabilityEventInput{
+		DeviceID:    deviceUpdate.DeviceID,
+		Capability:  "agent",
+		ServiceID:   agentID,
+		ServiceType: "agent",
+		RecordedBy:  pollerID,
+		Enabled:     true,
+		Success:     true,
+		CheckedAt:   deviceUpdate.Timestamp,
+		Metadata:    eventMetadata,
+	})
+
+	return nil
 }
 
 // registerCheckerAsDevice registers a checker as a device in the inventory
@@ -1339,7 +1387,44 @@ func (s *Server) registerCheckerAsDevice(ctx context.Context, checkerID, checker
 
 	deviceUpdate := models.CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP, metadata)
 
-	return s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate})
+	if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate}); err != nil {
+		return err
+	}
+
+	capabilities := make([]string, 0, 1)
+	if trimmed := strings.ToLower(strings.TrimSpace(checkerKind)); trimmed != "" {
+		capabilities = append(capabilities, trimmed)
+	}
+	if len(capabilities) == 0 {
+		capabilities = append(capabilities, "checker")
+	}
+
+	s.upsertCollectorCapabilities(ctx, deviceUpdate.DeviceID, capabilities, agentID, pollerID, checkerID, deviceUpdate.Timestamp)
+
+	eventMetadata := map[string]any{
+		"checker_id": checkerID,
+		"agent_id":   agentID,
+		"poller_id":  pollerID,
+	}
+	if hostIP != "" {
+		eventMetadata["host_ip"] = hostIP
+	}
+
+	for _, capability := range capabilities {
+		s.recordCapabilityEvent(ctx, &capabilityEventInput{
+			DeviceID:    deviceUpdate.DeviceID,
+			Capability:  capability,
+			ServiceID:   checkerID,
+			ServiceType: checkerKind,
+			RecordedBy:  pollerID,
+			Enabled:     true,
+			Success:     true,
+			CheckedAt:   deviceUpdate.Timestamp,
+			Metadata:    eventMetadata,
+		})
+	}
+
+	return nil
 }
 
 // getHostIP returns the host IP address for this service

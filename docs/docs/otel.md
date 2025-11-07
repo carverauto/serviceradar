@@ -34,3 +34,25 @@ OpenTelemetry (OTEL) lets ServiceRadar receive traces, metrics, and logs from cl
 - Validate connectivity with `otelcol --config test-collector.yaml --dry-run`.
 - Check the gateway logs (`kubectl logs deploy/serviceradar-otel -n demo`) for schema rejection or TLS errors.
 - Refer to the [Troubleshooting Guide](./troubleshooting-guide.md#otel) for rate limiting and export lag scenarios.
+
+## Core Capability Metrics
+
+ServiceRadar emits capability lifecycle metrics whenever the core service records a capability event:
+
+- `serviceradar_core_capability_events_total` (counter) – increments on every capability snapshot written to Proton. Key attributes:
+  - `capability`: logical capability string (`icmp`, `snmp`, `sysmon`, `poller`, …)
+  - `service_type`: poller/agent/checker service type (if available)
+  - `recorded_by`: poller ID or component that produced the event
+  - `state`: normalized state stored alongside the snapshot (`ok`, `failed`, `degraded`, `unknown`)
+
+Suggested PromQL examples once the OTEL collector exports to Prometheus:
+
+```promql
+# Track per-capability event cadence across the fleet
+sum(rate(serviceradar_core_capability_events_total[5m])) by (capability)
+
+# Alert if ICMP capability reports go silent for 10 minutes
+sum(rate(serviceradar_core_capability_events_total{capability="icmp"}[10m])) < 0.1
+```
+
+Grafana tip: plot the per-capability series as a stacked area chart to spot imbalances between collectors; overlay `recorded_by` to see which pollers stop reporting first during outages.

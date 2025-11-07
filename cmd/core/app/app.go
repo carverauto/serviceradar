@@ -117,6 +117,8 @@ func Run(ctx context.Context, opts Options) error {
 
 	apiOptions := bootstrap.BuildAPIServerOptions(&cfg, mainLogger, spireAdminClient)
 
+	requireDeviceRegistry := cfg.Features.RequireDeviceRegistry != nil && *cfg.Features.RequireDeviceRegistry
+
 	allOptions := []func(server *api.APIServer){
 		api.WithMetricsManager(server.GetMetricsManager()),
 		api.WithSNMPManager(server.GetSNMPManager()),
@@ -128,6 +130,16 @@ func Run(ctx context.Context, opts Options) error {
 		api.WithServiceRegistry(server.ServiceRegistry),
 		api.WithLogger(mainLogger),
 		api.WithEventPublisher(server.EventPublisher()),
+		api.WithDeviceRegistryEnforcement(requireDeviceRegistry),
+	}
+	if planner := server.DeviceSearchPlanner(); planner != nil {
+		allOptions = append(allOptions, api.WithDeviceSearchPlanner(planner))
+	}
+	if digest := server.LogDigest(); digest != nil {
+		allOptions = append(allOptions, api.WithLogDigest(digest))
+	}
+	if stats := server.DeviceStats(); stats != nil {
+		allOptions = append(allOptions, api.WithDeviceStats(stats))
 	}
 	if cfg.Auth != nil {
 		allOptions = append(allOptions, api.WithRBACConfig(&cfg.Auth.RBAC))

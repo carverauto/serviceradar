@@ -21,7 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
@@ -56,6 +58,14 @@ type DeviceRegistry struct {
 	identityPublisher        *identityPublisher
 	identityResolver         *identityResolver
 	firstSeenLookupChunkSize int
+
+	mu           sync.RWMutex
+	devices      map[string]*DeviceRecord
+	devicesByIP  map[string]map[string]*DeviceRecord
+	devicesByMAC map[string]map[string]*DeviceRecord
+	searchIndex  *TrigramIndex
+	capabilities *CapabilityIndex
+	matrix       *CapabilityMatrix
 }
 
 // NewDeviceRegistry creates a new, authoritative device registry.
@@ -64,6 +74,12 @@ func NewDeviceRegistry(database db.Service, log logger.Logger, opts ...Option) *
 		db:                       database,
 		logger:                   log,
 		firstSeenLookupChunkSize: defaultFirstSeenLookupChunkSize,
+		devices:                  make(map[string]*DeviceRecord),
+		devicesByIP:              make(map[string]map[string]*DeviceRecord),
+		devicesByMAC:             make(map[string]map[string]*DeviceRecord),
+		searchIndex:              NewTrigramIndex(log),
+		capabilities:             NewCapabilityIndex(),
+		matrix:                   NewCapabilityMatrix(),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -221,6 +237,8 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		return fmt.Errorf("failed to publish device updates: %w", err)
 	}
 
+	r.applyRegistryStore(canonicalized, tombstones)
+
 	r.logger.Debug().
 		Int("incoming_updates", len(updates)).
 		Int("valid_updates", len(valid)).
@@ -236,6 +254,60 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		Msg("Registry batch processed")
 
 	return nil
+}
+
+// SetCollectorCapabilities stores or updates the collector capability record for a device.
+func (r *DeviceRegistry) SetCollectorCapabilities(_ context.Context, capability *models.CollectorCapability) {
+	if capability == nil {
+		return
+	}
+	if r.capabilities == nil {
+		r.capabilities = NewCapabilityIndex()
+	}
+	r.capabilities.Set(capability)
+}
+
+// GetCollectorCapabilities returns the collector capability record for a device if present.
+func (r *DeviceRegistry) GetCollectorCapabilities(_ context.Context, deviceID string) (*models.CollectorCapability, bool) {
+	if r.capabilities == nil {
+		return nil, false
+	}
+	return r.capabilities.Get(deviceID)
+}
+
+// HasDeviceCapability reports whether the device exposes the specified capability.
+func (r *DeviceRegistry) HasDeviceCapability(_ context.Context, deviceID, capability string) bool {
+	if r.capabilities == nil {
+		return false
+	}
+	return r.capabilities.HasCapability(deviceID, capability)
+}
+
+// ListDevicesWithCapability lists devices that expose the requested capability.
+func (r *DeviceRegistry) ListDevicesWithCapability(_ context.Context, capability string) []string {
+	if r.capabilities == nil {
+		return nil
+	}
+	return r.capabilities.ListDevicesWithCapability(capability)
+}
+
+// SetDeviceCapabilitySnapshot records the latest snapshot for a device capability tuple.
+func (r *DeviceRegistry) SetDeviceCapabilitySnapshot(_ context.Context, snapshot *models.DeviceCapabilitySnapshot) {
+	if snapshot == nil {
+		return
+	}
+	if r.matrix == nil {
+		r.matrix = NewCapabilityMatrix()
+	}
+	r.matrix.Set(snapshot)
+}
+
+// ListDeviceCapabilitySnapshots returns the capability snapshots tracked for a device.
+func (r *DeviceRegistry) ListDeviceCapabilitySnapshots(_ context.Context, deviceID string) []*models.DeviceCapabilitySnapshot {
+	if r.matrix == nil {
+		return nil
+	}
+	return r.matrix.ListForDevice(deviceID)
 }
 
 // identityMaps holds batch-resolved mappings from identity → canonical device_id
@@ -703,18 +775,36 @@ func (r *DeviceRegistry) fetchExistingFirstSeen(ctx context.Context, deviceIDs [
 		return result, nil
 	}
 
-	chunkSize := r.firstSeenLookupChunkSize
-	if chunkSize <= 0 {
-		chunkSize = len(deviceIDs)
+	missing := make([]string, 0, len(deviceIDs))
+
+	for _, rawID := range deviceIDs {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			continue
+		}
+		if ts, ok := r.lookupFirstSeenTimestamp(id); ok {
+			result[id] = ts
+			continue
+		}
+		missing = append(missing, id)
 	}
 
-	for start := 0; start < len(deviceIDs); start += chunkSize {
+	if len(missing) == 0 || r.db == nil {
+		return result, nil
+	}
+
+	chunkSize := r.firstSeenLookupChunkSize
+	if chunkSize <= 0 {
+		chunkSize = len(missing)
+	}
+
+	for start := 0; start < len(missing); start += chunkSize {
 		end := start + chunkSize
-		if end > len(deviceIDs) {
-			end = len(deviceIDs)
+		if end > len(missing) {
+			end = len(missing)
 		}
 
-		devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, deviceIDs[start:end])
+		devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, missing[start:end])
 		if err != nil {
 			return nil, fmt.Errorf("lookup existing devices: %w", err)
 		}
@@ -727,6 +817,26 @@ func (r *DeviceRegistry) fetchExistingFirstSeen(ctx context.Context, deviceIDs [
 	}
 
 	return result, nil
+}
+
+func (r *DeviceRegistry) lookupFirstSeenTimestamp(deviceID string) (time.Time, bool) {
+	if strings.TrimSpace(deviceID) == "" {
+		return time.Time{}, false
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	record, ok := r.devices[deviceID]
+	if !ok || record == nil {
+		return time.Time{}, false
+	}
+
+	if record.FirstSeen.IsZero() {
+		return time.Time{}, false
+	}
+
+	return record.FirstSeen.UTC(), true
 }
 
 func computeBatchFirstSeen(updates []*models.DeviceUpdate, seed map[string]time.Time) map[string]time.Time {
@@ -1125,34 +1235,151 @@ func hasStrongIdentity(update *models.DeviceUpdate) bool {
 }
 
 func (r *DeviceRegistry) GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
-	devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, []string{deviceID})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get device %s: %w", deviceID, err)
-	}
-
-	if len(devices) == 0 {
+	trimmed := strings.TrimSpace(deviceID)
+	if trimmed == "" {
 		return nil, fmt.Errorf("%w: %s", ErrDeviceNotFound, deviceID)
 	}
 
-	return devices[0], nil
+	record, ok := r.GetDeviceRecord(trimmed)
+	if !ok || record == nil {
+		return nil, fmt.Errorf("%w: %s", ErrDeviceNotFound, trimmed)
+	}
+
+	return UnifiedDeviceFromRecord(record), nil
 }
 
 func (r *DeviceRegistry) GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error) {
-	devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, []string{ip}, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get devices by IP %s: %w", ip, err)
-	}
-
-	return devices, nil
+	records := r.FindDevicesByIP(ip)
+	return UnifiedDeviceSlice(records), nil
 }
 
 func (r *DeviceRegistry) ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error) {
-	return r.db.ListUnifiedDevices(ctx, limit, offset)
+	records := r.snapshotRecords()
+	if len(records) == 0 {
+		return nil, nil
+	}
+
+	sortRecordsByLastSeenDesc(records)
+
+	if offset >= len(records) {
+		return []*models.UnifiedDevice{}, nil
+	}
+
+	end := len(records)
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+
+	window := records[offset:end]
+	return UnifiedDeviceSlice(window), nil
+}
+
+// SearchDevices returns devices whose indexed fields contain the query string.
+func (r *DeviceRegistry) SearchDevices(query string, limit int) []*models.UnifiedDevice {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil
+	}
+
+	records := r.snapshotRecords()
+	if len(records) == 0 {
+		return nil
+	}
+
+	var matchedRecords []*DeviceRecord
+
+	scores := make(map[string]int)
+
+	if r.searchIndex != nil {
+		matches := r.searchIndex.Search(query)
+		if len(matches) > 0 {
+			matchedRecords = make([]*DeviceRecord, 0, len(matches))
+			for _, match := range matches {
+				if record, ok := r.GetDeviceRecord(match.ID); ok && record != nil {
+					matchedRecords = append(matchedRecords, record)
+					scores[record.DeviceID] = match.Score
+				}
+			}
+		}
+	}
+
+	if len(matchedRecords) == 0 {
+		// Fallback to linear scan if trigram index missing or no matches.
+		lowerQuery := strings.ToLower(query)
+		for _, record := range records {
+			if strings.Contains(searchTextForRecord(record), lowerQuery) {
+				matchedRecords = append(matchedRecords, record)
+				scores[record.DeviceID]++
+			}
+		}
+	}
+
+	if len(matchedRecords) == 0 {
+		return nil
+	}
+
+	lowerQuery := strings.ToLower(query)
+	for _, record := range matchedRecords {
+		score := scores[record.DeviceID]
+
+		if strings.EqualFold(record.DeviceID, query) {
+			score += 10
+		}
+
+		switch {
+		case strings.EqualFold(record.IP, query):
+			score += 8
+		case strings.HasPrefix(strings.ToLower(record.IP), lowerQuery):
+			score += 4
+		case strings.Contains(strings.ToLower(record.IP), lowerQuery):
+			score += 2
+		}
+
+		if record.Hostname != nil {
+			hostLower := strings.ToLower(*record.Hostname)
+			switch {
+			case hostLower == lowerQuery:
+				score += 6
+			case strings.HasPrefix(hostLower, lowerQuery):
+				score += 3
+			case strings.Contains(hostLower, lowerQuery):
+				score++
+			}
+		}
+
+		if record.MAC != nil && strings.EqualFold(*record.MAC, query) {
+			score += 5
+		}
+
+		scores[record.DeviceID] = score
+	}
+
+	sort.Slice(matchedRecords, func(i, j int) bool {
+		ri := matchedRecords[i]
+		rj := matchedRecords[j]
+
+		scoreI := scores[ri.DeviceID]
+		scoreJ := scores[rj.DeviceID]
+
+		if scoreI != scoreJ {
+			return scoreI > scoreJ
+		}
+
+		if ri.LastSeen.Equal(rj.LastSeen) {
+			return ri.DeviceID < rj.DeviceID
+		}
+		return ri.LastSeen.After(rj.LastSeen)
+	})
+
+	if limit > 0 && limit < len(matchedRecords) {
+		matchedRecords = matchedRecords[:limit]
+	}
+
+	return UnifiedDeviceSlice(matchedRecords)
 }
 
 func (r *DeviceRegistry) GetMergedDevice(ctx context.Context, deviceIDOrIP string) (*models.UnifiedDevice, error) {
-	device, err := r.GetDevice(ctx, deviceIDOrIP)
-	if err == nil {
+	if device, err := r.GetDevice(ctx, deviceIDOrIP); err == nil {
 		return device, nil
 	}
 
@@ -1169,25 +1396,26 @@ func (r *DeviceRegistry) GetMergedDevice(ctx context.Context, deviceIDOrIP strin
 }
 
 func (r *DeviceRegistry) FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error) {
-	primaryDevice, err := r.GetDevice(ctx, deviceID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get primary device %s: %w", deviceID, err)
+	primaryRecord, ok := r.GetDeviceRecord(deviceID)
+	if !ok || primaryRecord == nil {
+		return nil, fmt.Errorf("%w: %s", ErrDeviceNotFound, deviceID)
 	}
 
-	relatedDevices, err := r.GetDevicesByIP(ctx, primaryDevice.IP)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get related devices by IP %s: %w", primaryDevice.IP, err)
-	}
-
-	finalList := make([]*models.UnifiedDevice, 0)
-
-	for _, dev := range relatedDevices {
-		if dev.DeviceID != deviceID {
-			finalList = append(finalList, dev)
+	relatedRecords := r.FindDevicesByIP(primaryRecord.IP)
+	result := make([]*models.UnifiedDevice, 0, len(relatedRecords))
+	for _, record := range relatedRecords {
+		if record.DeviceID == primaryRecord.DeviceID {
+			continue
 		}
+		result = append(result, UnifiedDeviceFromRecord(record))
 	}
 
-	return finalList, nil
+	return result, nil
+}
+
+// DeleteLocal removes a device from the in-memory registry without emitting tombstones.
+func (r *DeviceRegistry) DeleteLocal(deviceID string) {
+	r.DeleteDeviceRecord(deviceID)
 }
 
 func extractPartitionFromDeviceID(deviceID string) string {
