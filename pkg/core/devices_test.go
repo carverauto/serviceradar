@@ -82,6 +82,7 @@ func TestEnsureServiceDeviceRegistersOnStatusSource(t *testing.T) {
 	)
 
 	server.ensureServiceDevice(
+		context.Background(),
 		"agent-1",
 		"poller-1",
 		"default",
@@ -113,6 +114,7 @@ func TestEnsureServiceDeviceSkipsResultSource(t *testing.T) {
 	}
 
 	server.ensureServiceDevice(
+		context.Background(),
 		"agent-1",
 		"poller-1",
 		"default",

@@ -795,6 +795,7 @@ func (s *Server) processICMPMetrics(
 }
 
 func (s *Server) processSysmonMetrics(
+	ctx context.Context,
 	pollerID, partition, agentID string,
 	details json.RawMessage,
 	timestamp time.Time) error {
@@ -827,7 +828,7 @@ func (s *Server) processSysmonMetrics(
 		Str("timestamp", sysmonPayload.Status.Timestamp).
 		Msg("Parsed sysmon metrics")
 
-	s.upsertCollectorCapabilities(context.Background(), deviceID, []string{"sysmon"}, agentID, pollerID, "sysmon", pollerTimestamp)
+	s.upsertCollectorCapabilities(ctx, deviceID, []string{"sysmon"}, agentID, pollerID, "sysmon", pollerTimestamp)
 
 	eventMetadata := map[string]any{
 		"agent_id":         agentID,
@@ -844,7 +845,7 @@ func (s *Server) processSysmonMetrics(
 		"sysmon_available": true,
 	}
 
-	s.recordCapabilityEvent(context.Background(), &capabilityEventInput{
+	s.recordCapabilityEvent(ctx, &capabilityEventInput{
 		DeviceID:      deviceID,
 		Capability:    "sysmon",
 		ServiceID:     agentID,
@@ -1193,9 +1194,9 @@ func (s *Server) processGRPCService(
 	case rperfServiceType:
 		return s.processRperfMetrics(pollerID, partition, serviceData, now)
 	case sysmonServiceType:
-		return s.processSysmonMetrics(pollerID, partition, agentID, serviceData, now)
+		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
 	case "sysmon-vm":
-		return s.processSysmonMetrics(pollerID, partition, agentID, serviceData, now)
+		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
 	case syncServiceType:
 		s.logger.Debug().
 			Str("poller_id", pollerID).
@@ -1242,7 +1243,7 @@ func (s *Server) processServicePayload(
 		contextAgentID = enhancedPayload.AgentID
 	}
 
-	s.ensureServiceDevice(contextAgentID, contextPollerID, contextPartition, svc, serviceData, now)
+	s.ensureServiceDevice(ctx, contextAgentID, contextPollerID, contextPartition, svc, serviceData, now)
 
 	switch svc.ServiceType {
 	case snmpServiceType:

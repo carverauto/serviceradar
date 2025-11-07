@@ -158,15 +158,14 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     const capabilityHints = device.collector_capabilities;
     const metricsSummary = (device.metrics_summary ?? {}) as Record<string, boolean>;
 
-    const rawCapabilities = Array.isArray(capabilityHints?.capabilities)
-      ? capabilityHints!.capabilities
-      : [];
-    const capabilitySet = new Set(
-      rawCapabilities
-        .filter((value): value is string => typeof value === "string")
-        .map((value) => value.trim().toLowerCase())
-        .filter(Boolean),
-    );
+    const capabilitySet = new Set<string>();
+    if (Array.isArray(capabilityHints?.capabilities)) {
+      for (const cap of capabilityHints.capabilities) {
+        if (typeof cap === "string" && cap.trim()) {
+          capabilitySet.add(cap.trim().toLowerCase());
+        }
+      }
+    }
 
     const supports: CollectorFlags = {
       icmp: capabilityHints?.supports_icmp ?? capabilitySet.has("icmp"),

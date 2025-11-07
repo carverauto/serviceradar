@@ -29,6 +29,7 @@ import (
 )
 
 func (s *Server) ensureServiceDevice(
+	ctx context.Context,
 	agentID, pollerID, partition string,
 	svc *proto.ServiceStatus,
 	serviceData json.RawMessage,
@@ -112,7 +113,7 @@ func (s *Server) ensureServiceDevice(
 	}
 
 	capabilities := normalizeCapabilities([]string{svc.ServiceType, svc.ServiceName})
-	s.upsertCollectorCapabilities(context.Background(), deviceID, capabilities, agentID, pollerID, svc.ServiceName, timestamp)
+	s.upsertCollectorCapabilities(ctx, deviceID, capabilities, agentID, pollerID, svc.ServiceName, timestamp)
 
 	eventMetadata := map[string]any{
 		"agent_id":             agentID,
