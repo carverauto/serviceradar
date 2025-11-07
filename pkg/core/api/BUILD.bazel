@@ -33,6 +33,7 @@ go_library(
         "//pkg/models",
         "//pkg/natsutil",
         "//pkg/registry",
+        "//pkg/search",
         "//pkg/spireadmin",
         "//pkg/swagger",
         "//proto",

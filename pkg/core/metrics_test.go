@@ -45,6 +45,10 @@ func TestProcessServicePayload_SyncService_PayloadDetection(t *testing.T) {
 	mockRegistry := registry.NewMockManager(ctrl)
 	mockDiscovery := NewMockDiscoveryService(ctrl)
 
+	mockRegistry.EXPECT().
+		SetDeviceCapabilitySnapshot(gomock.Any(), gomock.AssignableToTypeOf(&models.DeviceCapabilitySnapshot{})).
+		AnyTimes()
+
 	server := &Server{
 		DB:               mockDB,
 		DeviceRegistry:   mockRegistry,
@@ -152,6 +156,10 @@ func TestProcessServicePayload_SyncService_WithEnhancedPayload(t *testing.T) {
 	mockRegistry := registry.NewMockManager(ctrl)
 	mockDiscovery := NewMockDiscoveryService(ctrl)
 
+	mockRegistry.EXPECT().
+		SetDeviceCapabilitySnapshot(gomock.Any(), gomock.AssignableToTypeOf(&models.DeviceCapabilitySnapshot{})).
+		AnyTimes()
+
 	server := &Server{
 		DB:               mockDB,
 		DeviceRegistry:   mockRegistry,
@@ -249,6 +257,10 @@ func TestProcessServicePayload_SyncService_HealthCheckNotProcessed(t *testing.T)
 	mockDB := db.NewMockService(ctrl)
 	mockRegistry := registry.NewMockManager(ctrl)
 	mockDiscovery := NewMockDiscoveryService(ctrl)
+
+	mockRegistry.EXPECT().
+		SetDeviceCapabilitySnapshot(gomock.Any(), gomock.AssignableToTypeOf(&models.DeviceCapabilitySnapshot{})).
+		AnyTimes()
 
 	server := &Server{
 		DB:               mockDB,

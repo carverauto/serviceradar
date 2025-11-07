@@ -102,6 +102,22 @@ func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig
 		}
 	}
 
+	if normalized.Features.UseLogDigest == nil {
+		normalized.Features.UseLogDigest = boolPtr(true)
+	}
+
+	if normalized.Features.UseStatsCache == nil {
+		normalized.Features.UseStatsCache = boolPtr(true)
+	}
+
+	if normalized.Features.UseDeviceSearchPlanner == nil {
+		normalized.Features.UseDeviceSearchPlanner = boolPtr(true)
+	}
+
+	if normalized.Features.RequireDeviceRegistry == nil {
+		normalized.Features.RequireDeviceRegistry = boolPtr(false)
+	}
+
 	return &normalized
 }
 
@@ -179,6 +195,10 @@ func applyAuthOverrides(authConfig, configAuth *models.AuthConfig) {
 		authConfig.RBAC = configAuth.RBAC
 		fmt.Printf("DEBUG: Copied RBAC config anyway. UserRoles: %+v\n", authConfig.RBAC.UserRoles)
 	}
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }
 
 func applyDefaultAdminUser(authConfig *models.AuthConfig) {

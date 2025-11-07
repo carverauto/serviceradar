@@ -105,12 +105,24 @@ data:
         "retention": 100,
         "max_nodes": 10000
       },
-        "security": {
-          "mode": "spiffe",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "core",
-          "server_name": "",
-          "trust_domain": "carverauto.dev",
+      "features": {
+        "use_log_digest": true,
+        "use_device_search_planner": true,
+        "require_device_registry": true
+      },
+      "srql": {
+        "enabled": true,
+        "base_url": "http://serviceradar-srql:8080",
+        "api_key": "",
+        "timeout": "15s",
+        "path": "/api/query"
+      },
+      "security": {
+        "mode": "spiffe",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "core",
+        "server_name": "",
+        "trust_domain": "carverauto.dev",
       "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core",
       "workload_socket": "unix:/run/spire/sockets/agent.sock",
       "tls": {
@@ -1134,6 +1146,7 @@ data:
             | .auth.jwt_expiration = "24h"
             | .auth.local_users.admin = $bcrypt
             | .api_key = $api_key
+            | (if .srql != null then (.srql.api_key = $api_key) else . end)
             | .edge_onboarding.encryption_key = $edge_key' \
            "$CONFIG_PATH" > "$TMP_CONFIG"
         mv "$TMP_CONFIG" "$CONFIG_PATH"

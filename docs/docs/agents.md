@@ -65,7 +65,107 @@ The latest schemas can be found in @pkg/db/migrations
    kubectl logs deployment/serviceradar-sync -n demo --tail 50
    ```
 
-   Once the sync pod reports “Completed streaming results”, the canonical tables will match the faker dataset.
+Once the sync pod reports “Completed streaming results”, the canonical tables will match the faker dataset.
+
+## Monitoring Non-Canonical Sweep Data
+
+- The core stats aggregator now publishes OTEL gauges under `serviceradar.core.device_stats` (`core_device_stats_skipped_non_canonical`, `core_device_stats_raw_records`, etc.). Point your collector at those gauges to alert when `skipped_non_canonical` climbs above zero.
+- Collector capability writes now increment the OTEL counter `serviceradar_core_capability_events_total`. Alert on drops in `sum(rate(serviceradar_core_capability_events_total[5m]))` to make sure pollers continue reporting, and break the series down by the `capability`, `service_type`, and `recorded_by` labels when investigating gaps.
+- Webhook integrations receive a `Non-canonical devices filtered from stats` warning the moment the skip counter increases. The payload includes `raw_records`, `processed_records`, the total filtered count, and the timestamp of the snapshot that triggered the alert.
+- The analytics dashboard’s “Total Devices” card now shows the raw/processed breakdown plus a yellow callout whenever any skips occur. When investigating, open the browser console and inspect `window.__SERVICERADAR_DEVICE_COUNTER_DEBUG__` to review the last 25 `/api/stats` samples and headers.
+- For ad-hoc validation, hit `/api/stats` directly; the `X-Serviceradar-Stats-*` headers mirror the numbers the alert uses (`X-Serviceradar-Stats-Skipped-Non-Canonical`, `X-Serviceradar-Stats-Skipped-Service-Components`, etc.).
+
+## Device Registry Feature Flags
+
+- Set `features.require_device_registry` (in `serviceradar-config` → `core.json`) to `true` once the registry/search stack is stable. It blocks `/api/devices` and `/api/devices/{id}` from falling back to Proton so hot-path reads stay in-memory. Flip it back to `false` only if you need the legacy Proton endpoints during an incident.
+- Keep `features.use_device_search_planner` enabled alongside the web flag `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER` so inventory traffic routes through the planner instead of hitting Proton directly.
+
+### Post-Rollout Verification (demo)
+
+Run these checks after flipping `require_device_registry` or deploying new core images:
+
+1. **Registry hydration**  
+   ```bash
+   kubectl logs deployment/serviceradar-core -n demo --tail=100 | \
+     rg "Device registry hydrated"
+   ```
+   Expect a log line with `device_count` matching Proton (`~50k` in demo).
+
+2. **Auth + API sanity**  
+   ```bash
+   API_KEY=$(kubectl get secret serviceradar-secrets -n demo \
+     -o jsonpath='{.data.api-key}' | base64 -d)
+   ADMIN_PW=$(kubectl get secret serviceradar-secrets -n demo \
+     -o jsonpath='{.data.admin-password}' | base64 -d)
+
+   # login to obtain a token
+   TOKEN=$(kubectl run login-smoke --rm -i --restart=Never -n demo \
+     --image=curlimages/curl:8.9.1 -- \
+     curl -sS -H "Content-Type: application/json" \
+       -H "X-API-Key: ${API_KEY}" \
+       -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PW}\"}" \
+       http://serviceradar-core:8090/auth/login | jq -r '.access_token')
+
+   # fetch a device (should succeed with registry data)
+   kubectl run devices-smoke --rm -i --restart=Never -n demo \
+     --image=curlimages/curl:8.9.1 -- \
+     curl -sS -H "Authorization: Bearer ${TOKEN}" \
+       "http://serviceradar-core:8090/api/devices?limit=1"
+   ```
+
+3. **Stats headers**  
+   ```bash
+   kubectl run stats-smoke --rm -i --restart=Never -n demo \
+     --image=curlimages/curl:8.9.1 -- \
+     curl -sS -D - -H "Authorization: Bearer ${TOKEN}" \
+       http://serviceradar-core:8090/api/stats | head
+   ```
+   Confirm `X-Serviceradar-Stats-Skipped-Non-Canonical: 0` and processed/raw counts are ~50k.
+
+4. **Planner diagnostics**  
+   ```bash
+   kubectl run planner-smoke --rm -i --restart=Never -n demo \
+     --image=curlimages/curl:8.9.1 -- \
+     curl -sS -H "Authorization: Bearer ${TOKEN}" \
+       -H "Content-Type: application/json" \
+       -d '{"query":"in:devices","filters":{"search":"k8s"},"pagination":{"limit":5}}' \
+       http://serviceradar-core:8090/api/devices/search | jq '.diagnostics'
+   ```
+   Expect `engine":"registry"` / `engine_reason":"query_supported"` and latency in the low ms.
+
+### Proton vs Registry Query Guidance
+
+- Treat `/api/devices/search` as the front door for inventory queries. The planner decides whether the in-memory registry or SRQL should execute the request and always includes `engine` + `engine_reason` diagnostics so you can verify the path that ran.
+- The web proxy at `/api/query` now runs the same planner first. Registry-capable queries (for example `in:devices status:online search:"core"`) return cached registry results; analytics-grade SRQL still flows through when the planner reports `engine:"srql"`.
+- Prefer the registry for hot-path lookups. Use the quick-reference table below when choosing a data source.
+
+| Question | Endpoint / Engine |
+|----------|-------------------|
+| Does device `X` exist? | `/api/devices/search` → `engine:"registry"` |
+| How many devices have ICMP today? | `/api/stats` (registry snapshot) |
+| Search devices matching `foo` | `/api/devices/search` with `filters.search=foo` |
+| ICMP RTT for last 7d / historical analytics | Direct SRQL (`/api/query` with `mode:"srql_only"` if needed) |
+- Force SRQL only when you truly need OLAP features: pass `"mode":"srql_only"` in the planner request or visit the SRQL service directly. Registry fallbacks (`engine_reason:"query_not_supported"`) usually mean the query contains aggregates, joins, or metadata fan-out that we have not cached yet.
+- When debugging unexpected SRQL load, inspect `/api/devices/search` diagnostics (`engine_reason`, `unsupported_tokens`) and confirm feature flags stay enabled (`features.use_device_search_planner` server side, `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER` in the web deployment).
+
+## SRQL Service Wiring
+
+- Ensure the core config includes an `srql` block that points at the in-cluster service. The demo ConfigMap ships with:
+  ```json
+  "srql": {
+    "enabled": true,
+    "base_url": "http://serviceradar-srql:8080",
+    "timeout": "15s",
+    "path": "/api/query"
+  }
+  ```
+  The core init script injects the shared API key at startup, so no manual secret editing is required.
+- Whenever you tweak the SRQL config, reapply the ConfigMap (`kubectl apply -f k8s/demo/base/configmap.yaml`) and restart the core deployment:
+  ```bash
+  kubectl rollout restart deployment/serviceradar-core -n demo
+  kubectl rollout status deployment/serviceradar-core -n demo
+  ```
+- Smoke test end-to-end: run `planner-smoke` and `web-query` checks from earlier to confirm `/api/devices/search` returns `engine:"srql"` for aggregate queries, and that `/api/query` forwards diagnostics showing `engine_reason:"query_not_supported"` when SRQL satisfies the request.
 
 ## Proton Reset (PVC Rotation)
 
@@ -166,6 +266,52 @@ After the reset:
 - `rpc error: code = Unimplemented desc =` – emitted by core when the poller is stopped; safe to ignore while the pipeline is paused.
 - `json: cannot unmarshal object into Go value of type []*models.DeviceUpdate` – happens if the discovery queue contains an object instead of an array. Clearing the streams and replaying new discovery data resolves it.
 - `TOO_LARGE_RECORD` when inserting into `unified_devices_registry` – confirm the streaming safeguards above are active, replay stuck data with `proton-sql "DROP VIEW IF EXISTS unified_device_pipeline_mv"` followed by the migration definition, and, when necessary, re-shard replays (hash on `device_id`) so every insert batch remains under ~4 MiB.
+
+## Investigating Slow Proton Queries
+
+Use the pre-authenticated `serviceradar-tools` deployment whenever you need to inspect ClickHouse load:
+
+```bash
+# Shell into the toolbox (optional; commands below exec directly)
+kubectl exec -it -n demo deploy/serviceradar-tools -- bash
+```
+
+- **Top queries by bytes read (last 30 m)**  
+  ```bash
+  kubectl exec -n demo deploy/serviceradar-tools -- \
+    proton-sql "SELECT any(query) AS sample_query,
+                       sum(read_rows) AS total_rows,
+                       sum(read_bytes) AS total_bytes,
+                       round(sum(query_duration_ms)/1000,2) AS total_s,
+                       max(query_duration_ms) AS max_ms,
+                       count() AS executions
+                FROM system.query_log
+                WHERE event_time >= now() - INTERVAL 30 MINUTE
+                  AND type = 'QueryFinish'
+                GROUP BY normalized_query_hash
+                ORDER BY total_bytes DESC
+                LIMIT 12"
+  ```
+  This surfaces the normalized query shape, aggregate row/byte counts, and peak duration so you can spot hot spots quickly.
+
+- **Same view ordered by total runtime or worst-case latency**  
+  Change the `ORDER BY` clause to `total_s DESC` or `max_ms DESC` to focus on slow queries rather than volume.
+
+- **Query volume by outcome**  
+  ```bash
+  kubectl exec -n demo deploy/serviceradar-tools -- \
+    proton-sql "SELECT type, count() AS total
+                FROM system.query_log
+                WHERE event_time >= now() - INTERVAL 30 MINUTE
+                GROUP BY type
+                ORDER BY total DESC"
+  ```
+  Helpful for spotting spikes in `ExceptionWhileProcessing` or `ExceptionBeforeStart`.
+
+- **Tighten the window**  
+  Swap `INTERVAL 30 MINUTE` for `10 MINUTE` / `2 MINUTE` to see how a deploy or feature flag change impacted load in near-real time.
+
+Once you have the offending normalized query hash, correlate it with the Go/UI code path and migrate the workload to the registry cache. This workflow kept Proton CPU near 4 % after we removed the sweep `device_id IN (...)` scans.
 
 ## Quick Reference Commands
 
