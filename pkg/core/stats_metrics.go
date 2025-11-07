@@ -25,8 +25,11 @@ const (
 )
 
 var (
-	statsMetricsOnce   sync.Once
-	statsMetricsData   = &statsMetricsObservatory{}
+	//nolint:gochecknoglobals // metric observers are shared singletons
+	statsMetricsOnce sync.Once
+	//nolint:gochecknoglobals // metric observers are shared singletons
+	statsMetricsData = &statsMetricsObservatory{}
+	//nolint:gochecknoglobals // metric observers are shared singletons
 	statsMetricsGauges struct {
 		rawRecords          metric.Int64ObservableGauge
 		processedRecords    metric.Int64ObservableGauge
@@ -37,7 +40,7 @@ var (
 		skippedSweepOnly    metric.Int64ObservableGauge
 		snapshotAgeMs       metric.Int64ObservableGauge
 	}
-	statsMetricsRegistration metric.Registration
+	statsMetricsRegistration metric.Registration //nolint:unused,gochecknoglobals // reference retained to keep callback registered
 )
 
 type statsMetricsObservatory struct {

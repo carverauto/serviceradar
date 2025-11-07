@@ -21,6 +21,12 @@ const (
 	defaultHTTPTimeout = 15 * time.Second
 )
 
+var (
+	errSRQLBaseURLRequired = errors.New("srql base url is required")
+	errSRQLQueryEmpty      = errors.New("srql query cannot be empty")
+	errSRQLResponseStatus  = errors.New("srql response status")
+)
+
 // SRQLRequest represents an outbound query to the SRQL microservice.
 type SRQLRequest struct {
 	Query     string `json:"query"`
@@ -57,7 +63,7 @@ type httpSRQLClient struct {
 // NewHTTPClient constructs an SRQL client backed by HTTP.
 func NewHTTPClient(cfg HTTPClientConfig) (SRQLClient, error) {
 	if strings.TrimSpace(cfg.BaseURL) == "" {
-		return nil, errors.New("srql base url is required")
+		return nil, errSRQLBaseURLRequired
 	}
 
 	parsed, err := url.Parse(cfg.BaseURL)
@@ -92,7 +98,7 @@ func NewHTTPClient(cfg HTTPClientConfig) (SRQLClient, error) {
 // Query executes the supplied SRQL request and normalizes the response.
 func (c *httpSRQLClient) Query(ctx context.Context, req SRQLRequest) (*SRQLResult, error) {
 	if strings.TrimSpace(req.Query) == "" {
-		return nil, errors.New("srql query cannot be empty")
+		return nil, errSRQLQueryEmpty
 	}
 
 	body := map[string]interface{}{
@@ -134,7 +140,7 @@ func (c *httpSRQLClient) Query(ctx context.Context, req SRQLRequest) (*SRQLResul
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, fmt.Errorf("srql response status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+		return nil, fmt.Errorf("%w %d: %s", errSRQLResponseStatus, resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
 
 	var decoded struct {

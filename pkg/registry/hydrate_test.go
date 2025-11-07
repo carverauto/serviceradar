@@ -13,6 +13,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+var errHydrateTestBoom = errors.New("boom")
+
 func TestHydrateFromStoreLoadsDevices(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -100,7 +102,7 @@ func TestHydrateFromStorePreservesExistingStateOnError(t *testing.T) {
 
 	mockDB.EXPECT().
 		ListUnifiedDevices(gomock.Any(), hydrateBatchSize, 0).
-		Return(nil, errors.New("boom"))
+		Return(nil, errHydrateTestBoom)
 
 	if _, err := reg.HydrateFromStore(context.Background()); err == nil {
 		t.Fatalf("expected error from hydration")

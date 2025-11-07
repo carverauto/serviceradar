@@ -16,6 +16,7 @@ type capabilityMetricsState struct {
 	counter metric.Int64Counter
 }
 
+//nolint:gochecknoglobals // metrics state is shared process-wide
 var capabilityMetrics capabilityMetricsState
 
 func recordCapabilityEventMetric(ctx context.Context, event *models.DeviceCapabilityEvent) {

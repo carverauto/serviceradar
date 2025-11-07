@@ -81,6 +81,7 @@ func (s *Server) pollerStatusIntervalOrDefault() time.Duration {
 	return s.pollerStatusInterval
 }
 
+//nolint:gocyclo // initialization wiring spans config validation, db bootstrapping, and subsystem setup
 func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClient spireadmin.Client) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 
@@ -252,7 +253,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 				log.Warn().Err(fallbackErr).Str("path", fallbackPath).Msg("failed to initialize fallback log digest store; persistence disabled")
 			} else {
 				digestStore = fallbackStore
-				digestStorePath = fallbackPath
+				log.Info().Str("path", fallbackPath).Msg("using fallback log digest store")
 			}
 		} else {
 			digestStore = store

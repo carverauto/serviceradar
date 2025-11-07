@@ -32,7 +32,8 @@ import (
 
 // Static errors for err113 compliance
 var (
-	ErrRperfTestFailed = errors.New("rperf test failed")
+	ErrRperfTestFailed             = errors.New("rperf test failed")
+	errICMPServiceMetadataRequired = errors.New("icmp service metadata is required")
 )
 
 // createSNMPMetric creates a new timeseries metric from SNMP data
@@ -578,6 +579,13 @@ func (s *Server) processICMPMetrics(
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
+	if svc == nil {
+		return errICMPServiceMetadataRequired
+	}
+
+	serviceName := strings.TrimSpace(svc.ServiceName)
+	serviceType := strings.TrimSpace(svc.ServiceType)
+
 	var pingResult struct {
 		Host         string  `json:"host"`
 		ResponseTime int64   `json:"response_time"`
@@ -589,7 +597,7 @@ func (s *Server) processICMPMetrics(
 	if err := json.Unmarshal(details, &pingResult); err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("service_name", svc.ServiceName).
+			Str("service_name", serviceName).
 			Msg("Failed to parse ICMP response JSON")
 
 		return fmt.Errorf("failed to parse ICMP data: %w", err)
@@ -627,7 +635,7 @@ func (s *Server) processICMPMetrics(
 		"response_time":     fmt.Sprintf("%d", pingResult.ResponseTime),
 		"packet_loss":       fmt.Sprintf("%f", pingResult.PacketLoss),
 		"available":         fmt.Sprintf("%t", pingResult.Available),
-		"icmp_service_name": svc.ServiceName,
+		"icmp_service_name": serviceName,
 		"host_device_id":    hostDeviceID,
 		"host_last_seen_ip": updateIP,
 		"host_last_seen_at": now.Format(time.RFC3339Nano),
@@ -641,7 +649,7 @@ func (s *Server) processICMPMetrics(
 	if err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("service_name", svc.ServiceName).
+			Str("service_name", serviceName).
 			Str("poller_id", pollerID).
 			Msg("Failed to marshal ICMP metadata")
 
@@ -651,7 +659,7 @@ func (s *Server) processICMPMetrics(
 	metadataStr := string(metadataBytes)
 
 	metric := &models.TimeseriesMetric{
-		Name:           fmt.Sprintf("icmp_%s_response_time_ms", svc.ServiceName),
+		Name:           fmt.Sprintf("icmp_%s_response_time_ms", serviceName),
 		Value:          fmt.Sprintf("%d", pingResult.ResponseTime),
 		Type:           "icmp",
 		Timestamp:      now,
@@ -673,7 +681,7 @@ func (s *Server) processICMPMetrics(
 			pollerID,
 			now,
 			pingResult.ResponseTime,
-			svc.ServiceName,
+			serviceName,
 			deviceID,
 			partition,
 			agentID,
@@ -681,7 +689,7 @@ func (s *Server) processICMPMetrics(
 		if err != nil {
 			s.logger.Error().
 				Err(err).
-				Str("service_name", svc.ServiceName).
+				Str("service_name", serviceName).
 				Msg("Failed to add ICMP metric to in-memory buffer")
 		}
 	} else {
@@ -698,7 +706,7 @@ func (s *Server) processICMPMetrics(
 			"collector_agent_id":   agentID,
 			"collector_poller_id":  pollerID,
 			"collector_ip":         sourceIP,
-			"icmp_service_name":    svc.ServiceName,
+			"icmp_service_name":    serviceName,
 			"_last_icmp_update_at": now.Format(time.RFC3339Nano),
 		}
 		if targetHost != "" {
@@ -720,7 +728,7 @@ func (s *Server) processICMPMetrics(
 
 		s.enqueueServiceDeviceUpdate(update)
 
-		s.upsertCollectorCapabilities(ctx, deviceID, []string{"icmp"}, agentID, pollerID, svc.ServiceName, now)
+		s.upsertCollectorCapabilities(ctx, deviceID, []string{"icmp"}, agentID, pollerID, serviceName, now)
 
 		eventMetadata := map[string]any{
 			"collector_ip":      sourceIP,
@@ -740,14 +748,14 @@ func (s *Server) processICMPMetrics(
 		if targetHost != "" {
 			eventMetadata["target_host"] = targetHost
 		}
-		if svc != nil && svc.ServiceName != "" {
-			eventMetadata["service_name"] = svc.ServiceName
+		if serviceName != "" {
+			eventMetadata["service_name"] = serviceName
 		}
 
 		var failureReason string
 		if !pingResult.Available {
-			if svc != nil && svc.ServiceName != "" {
-				failureReason = fmt.Sprintf("icmp check %s reported target unavailable", svc.ServiceName)
+			if serviceName != "" {
+				failureReason = fmt.Sprintf("icmp check %s reported target unavailable", serviceName)
 			} else {
 				failureReason = "icmp check reported target unavailable"
 			}
@@ -756,8 +764,8 @@ func (s *Server) processICMPMetrics(
 		s.recordCapabilityEvent(ctx, &capabilityEventInput{
 			DeviceID:      deviceID,
 			Capability:    "icmp",
-			ServiceID:     svc.ServiceName,
-			ServiceType:   svc.ServiceType,
+			ServiceID:     serviceName,
+			ServiceType:   serviceType,
 			RecordedBy:    pollerID,
 			Enabled:       true,
 			Success:       pingResult.Available,

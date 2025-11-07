@@ -12,6 +12,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+var errLogDigestStorePathRequired = errors.New("log digest store path is required")
+
 // FileLogDigestStore persists log digest snapshots to a local JSON file.
 type FileLogDigestStore struct {
 	path   string
@@ -22,7 +24,7 @@ type FileLogDigestStore struct {
 // NewFileLogDigestStore constructs a file-backed log digest store.
 func NewFileLogDigestStore(path string, log logger.Logger) (*FileLogDigestStore, error) {
 	if path == "" {
-		return nil, errors.New("log digest store path is required")
+		return nil, errLogDigestStorePathRequired
 	}
 
 	dir := filepath.Dir(path)

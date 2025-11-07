@@ -19,11 +19,11 @@ const (
 )
 
 var (
-	searchMetricsOnce sync.Once
+	searchMetricsOnce sync.Once //nolint:gochecknoglobals // metrics collectors are process-wide singletons
 
-	registryLatency metric.Float64Histogram
-	srqlLatency     metric.Float64Histogram
-	fallbackCounter metric.Int64Counter
+	registryLatency metric.Float64Histogram //nolint:gochecknoglobals // metrics collectors are process-wide singletons
+	srqlLatency     metric.Float64Histogram //nolint:gochecknoglobals // metrics collectors are process-wide singletons
+	fallbackCounter metric.Int64Counter     //nolint:gochecknoglobals // metrics collectors are process-wide singletons
 )
 
 func initSearchMetrics() {
@@ -124,7 +124,7 @@ func recordPlannerFallback(ctx context.Context, reason string, mode Mode) {
 
 func normalizeMode(mode Mode) Mode {
 	switch mode {
-	case ModeRegistryOnly, ModeSRQLOnly:
+	case ModeRegistryOnly, ModeSRQLOnly, ModeAuto:
 		return mode
 	default:
 		return ModeAuto

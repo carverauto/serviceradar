@@ -14,6 +14,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+var errLogDigestHandlerNil = errors.New("log digest handler cannot be nil")
+
 const (
 	criticalLogStreamQuery = `
 SELECT
@@ -44,7 +46,7 @@ func NewDBLogTailer(database db.Service, log logger.Logger) *DBLogTailer {
 // Stream starts an unbounded query and forwards matching log summaries to the handler.
 func (t *DBLogTailer) Stream(ctx context.Context, handler func(models.LogSummary)) error {
 	if handler == nil {
-		return errors.New("log digest handler cannot be nil")
+		return errLogDigestHandlerNil
 	}
 
 	conn, closeFn, err := t.openStreamingConn()

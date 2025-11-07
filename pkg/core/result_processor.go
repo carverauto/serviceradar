@@ -171,6 +171,7 @@ func addPortMetadata(metadata map[string]string, portResults []*models.PortResul
 	}
 }
 
+//nolint:gocyclo // evaluation needs to aggregate multiple heuristics per host result
 func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []models.HostResult) map[string]canonicalSnapshot {
 	if len(hosts) == 0 {
 		return nil
