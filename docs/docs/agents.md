@@ -148,6 +148,25 @@ Run these checks after flipping `require_device_registry` or deploying new core 
 - Force SRQL only when you truly need OLAP features: pass `"mode":"srql_only"` in the planner request or visit the SRQL service directly. Registry fallbacks (`engine_reason:"query_not_supported"`) usually mean the query contains aggregates, joins, or metadata fan-out that we have not cached yet.
 - When debugging unexpected SRQL load, inspect `/api/devices/search` diagnostics (`engine_reason`, `unsupported_tokens`) and confirm feature flags stay enabled (`features.use_device_search_planner` server side, `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER` in the web deployment).
 
+## SRQL Service Wiring
+
+- Ensure the core config includes an `srql` block that points at the in-cluster service. The demo ConfigMap ships with:
+  ```json
+  "srql": {
+    "enabled": true,
+    "base_url": "http://serviceradar-srql:8080",
+    "timeout": "15s",
+    "path": "/api/query"
+  }
+  ```
+  The core init script injects the shared API key at startup, so no manual secret editing is required.
+- Whenever you tweak the SRQL config, reapply the ConfigMap (`kubectl apply -f k8s/demo/base/configmap.yaml`) and restart the core deployment:
+  ```bash
+  kubectl rollout restart deployment/serviceradar-core -n demo
+  kubectl rollout status deployment/serviceradar-core -n demo
+  ```
+- Smoke test end-to-end: run `planner-smoke` and `web-query` checks from earlier to confirm `/api/devices/search` returns `engine:"srql"` for aggregate queries, and that `/api/query` forwards diagnostics showing `engine_reason:"query_not_supported"` when SRQL satisfies the request.
+
 ## Proton Reset (PVC Rotation)
 
 If the telemetry tables balloon again, it is faster to rotate Proton’s volume than to hand-truncate every dependent stream. The helper script below scales Proton down, recreates the PVC, brings Proton back online, and restarts core so it can rebuild the schema from scratch:
@@ -247,6 +266,52 @@ After the reset:
 - `rpc error: code = Unimplemented desc =` – emitted by core when the poller is stopped; safe to ignore while the pipeline is paused.
 - `json: cannot unmarshal object into Go value of type []*models.DeviceUpdate` – happens if the discovery queue contains an object instead of an array. Clearing the streams and replaying new discovery data resolves it.
 - `TOO_LARGE_RECORD` when inserting into `unified_devices_registry` – confirm the streaming safeguards above are active, replay stuck data with `proton-sql "DROP VIEW IF EXISTS unified_device_pipeline_mv"` followed by the migration definition, and, when necessary, re-shard replays (hash on `device_id`) so every insert batch remains under ~4 MiB.
+
+## Investigating Slow Proton Queries
+
+Use the pre-authenticated `serviceradar-tools` deployment whenever you need to inspect ClickHouse load:
+
+```bash
+# Shell into the toolbox (optional; commands below exec directly)
+kubectl exec -it -n demo deploy/serviceradar-tools -- bash
+```
+
+- **Top queries by bytes read (last 30 m)**  
+  ```bash
+  kubectl exec -n demo deploy/serviceradar-tools -- \
+    proton-sql "SELECT any(query) AS sample_query,
+                       sum(read_rows) AS total_rows,
+                       sum(read_bytes) AS total_bytes,
+                       round(sum(query_duration_ms)/1000,2) AS total_s,
+                       max(query_duration_ms) AS max_ms,
+                       count() AS executions
+                FROM system.query_log
+                WHERE event_time >= now() - INTERVAL 30 MINUTE
+                  AND type = 'QueryFinish'
+                GROUP BY normalized_query_hash
+                ORDER BY total_bytes DESC
+                LIMIT 12"
+  ```
+  This surfaces the normalized query shape, aggregate row/byte counts, and peak duration so you can spot hot spots quickly.
+
+- **Same view ordered by total runtime or worst-case latency**  
+  Change the `ORDER BY` clause to `total_s DESC` or `max_ms DESC` to focus on slow queries rather than volume.
+
+- **Query volume by outcome**  
+  ```bash
+  kubectl exec -n demo deploy/serviceradar-tools -- \
+    proton-sql "SELECT type, count() AS total
+                FROM system.query_log
+                WHERE event_time >= now() - INTERVAL 30 MINUTE
+                GROUP BY type
+                ORDER BY total DESC"
+  ```
+  Helpful for spotting spikes in `ExceptionWhileProcessing` or `ExceptionBeforeStart`.
+
+- **Tighten the window**  
+  Swap `INTERVAL 30 MINUTE` for `10 MINUTE` / `2 MINUTE` to see how a deploy or feature flag change impacted load in near-real time.
+
+Once you have the offending normalized query hash, correlate it with the Go/UI code path and migrate the workload to the registry cache. This workflow kept Proton CPU near 4 % after we removed the sweep `device_id IN (...)` scans.
 
 ## Quick Reference Commands
 

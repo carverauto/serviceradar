@@ -257,6 +257,19 @@ func (a *StatsAggregator) computeSnapshot(ctx context.Context) (*models.DeviceSt
 			stats.ActiveCount++
 		}
 
+		collectorID := ""
+		if record.CollectorAgentID != nil {
+			collectorID = *record.CollectorAgentID
+		} else if record.Metadata != nil {
+			collectorID = record.Metadata["collector_agent_id"]
+		}
+
+		if hasAnyCapability(capabilitySets, record.DeviceID) ||
+			len(record.Capabilities) > 0 ||
+			strings.TrimSpace(collectorID) != "" {
+			snapshot.DevicesWithCollectors++
+		}
+
 		if hasCapability(capabilitySets["icmp"], record.DeviceID) {
 			snapshot.DevicesWithICMP++
 		}
@@ -348,6 +361,20 @@ func hasCapability(set map[string]struct{}, deviceID string) bool {
 	}
 	_, ok := set[strings.TrimSpace(deviceID)]
 	return ok
+}
+
+func hasAnyCapability(sets map[string]map[string]struct{}, deviceID string) bool {
+	if len(sets) == 0 {
+		return false
+	}
+
+	for _, set := range sets {
+		if hasCapability(set, deviceID) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func isTombstonedRecord(record *registry.DeviceRecord) bool {
@@ -660,6 +687,7 @@ func (a *StatsAggregator) maybeReportDiscrepancy(ctx context.Context, records []
 	}
 
 	missingIDs, sampleErr := a.registry.SampleMissingDeviceIDs(ctx, known, 20)
+	excessIDs, excessErr := sampleRegistryExcessIDs(ctx, a.dbService, records, 20)
 
 	event := a.logger.Warn().
 		Int("registry_devices", registryTotal).
@@ -668,8 +696,14 @@ func (a *StatsAggregator) maybeReportDiscrepancy(ctx context.Context, records []
 	if len(missingIDs) > 0 {
 		event = event.Strs("missing_device_ids", missingIDs)
 	}
+	if len(excessIDs) > 0 {
+		event = event.Strs("excess_device_ids", excessIDs)
+	}
 	if sampleErr != nil {
 		event = event.Err(sampleErr)
+	}
+	if excessErr != nil {
+		event = event.Err(excessErr)
 	}
 
 	event.Msg("Device registry stats mismatch detected")
@@ -853,4 +887,96 @@ func recordOlder(a, b *registry.DeviceRecord) bool {
 	default:
 		return aTs.Before(bTs)
 	}
+}
+
+func sampleRegistryExcessIDs(
+	ctx context.Context,
+	dbService db.Service,
+	records []*registry.DeviceRecord,
+	limit int,
+) ([]string, error) {
+	if limit <= 0 || dbService == nil || len(records) == 0 {
+		return nil, nil
+	}
+
+	const chunkSize = 128
+
+	result := make([]string, 0, limit)
+	buffer := make([]string, 0, chunkSize)
+	seen := make(map[string]struct{}, len(records))
+
+	flush := func() error {
+		if len(buffer) == 0 {
+			return nil
+		}
+
+		devices, err := dbService.GetUnifiedDevicesByIPsOrIDs(ctx, nil, buffer)
+		if err != nil {
+			return err
+		}
+
+		found := make(map[string]struct{}, len(devices))
+		for _, device := range devices {
+			if device == nil {
+				continue
+			}
+			id := strings.TrimSpace(device.DeviceID)
+			if id == "" {
+				continue
+			}
+			found[id] = struct{}{}
+		}
+
+		for _, id := range buffer {
+			if _, ok := found[id]; ok {
+				continue
+			}
+			result = append(result, id)
+			if len(result) >= limit {
+				buffer = buffer[:0]
+				return nil
+			}
+		}
+
+		buffer = buffer[:0]
+		return nil
+	}
+
+	for _, record := range records {
+		if len(result) >= limit {
+			break
+		}
+		if record == nil {
+			continue
+		}
+
+		id := strings.TrimSpace(record.DeviceID)
+		if id == "" {
+			continue
+		}
+
+		if _, duplicate := seen[id]; duplicate {
+			continue
+		}
+		seen[id] = struct{}{}
+
+		buffer = append(buffer, id)
+		if len(buffer) >= chunkSize {
+			if err := flush(); err != nil {
+				return result, err
+			}
+		}
+	}
+
+	if len(result) < limit {
+		if err := flush(); err != nil {
+			return result, err
+		}
+	}
+
+	if len(result) > limit {
+		result = result[:limit]
+	}
+
+	return result, nil
 }

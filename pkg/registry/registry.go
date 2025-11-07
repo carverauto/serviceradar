@@ -775,18 +775,36 @@ func (r *DeviceRegistry) fetchExistingFirstSeen(ctx context.Context, deviceIDs [
 		return result, nil
 	}
 
-	chunkSize := r.firstSeenLookupChunkSize
-	if chunkSize <= 0 {
-		chunkSize = len(deviceIDs)
+	missing := make([]string, 0, len(deviceIDs))
+
+	for _, rawID := range deviceIDs {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			continue
+		}
+		if ts, ok := r.lookupFirstSeenTimestamp(id); ok {
+			result[id] = ts
+			continue
+		}
+		missing = append(missing, id)
 	}
 
-	for start := 0; start < len(deviceIDs); start += chunkSize {
+	if len(missing) == 0 || r.db == nil {
+		return result, nil
+	}
+
+	chunkSize := r.firstSeenLookupChunkSize
+	if chunkSize <= 0 {
+		chunkSize = len(missing)
+	}
+
+	for start := 0; start < len(missing); start += chunkSize {
 		end := start + chunkSize
-		if end > len(deviceIDs) {
-			end = len(deviceIDs)
+		if end > len(missing) {
+			end = len(missing)
 		}
 
-		devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, deviceIDs[start:end])
+		devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, missing[start:end])
 		if err != nil {
 			return nil, fmt.Errorf("lookup existing devices: %w", err)
 		}
@@ -799,6 +817,26 @@ func (r *DeviceRegistry) fetchExistingFirstSeen(ctx context.Context, deviceIDs [
 	}
 
 	return result, nil
+}
+
+func (r *DeviceRegistry) lookupFirstSeenTimestamp(deviceID string) (time.Time, bool) {
+	if strings.TrimSpace(deviceID) == "" {
+		return time.Time{}, false
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	record, ok := r.devices[deviceID]
+	if !ok || record == nil {
+		return time.Time{}, false
+	}
+
+	if record.FirstSeen.IsZero() {
+		return time.Time{}, false
+	}
+
+	return record.FirstSeen.UTC(), true
 }
 
 func computeBatchFirstSeen(updates []*models.DeviceUpdate, seed map[string]time.Time) map[string]time.Time {

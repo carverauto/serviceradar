@@ -115,9 +115,11 @@ func (db *DB) ListUnifiedDevices(ctx context.Context, limit, offset int) ([]*mod
         is_available, first_seen, last_seen, metadata, agent_id, device_type, 
         service_type, service_status, last_heartbeat, os_info, version_info
     FROM table(unified_devices)
-    WHERE metadata['_merged_into'] IS NULL
+    WHERE (metadata['_merged_into'] IS NULL
        OR metadata['_merged_into'] = ''
-       OR metadata['_merged_into'] = device_id
+       OR metadata['_merged_into'] = device_id)
+      AND (metadata['_deleted'] IS NULL OR lower(metadata['_deleted']) != 'true')
+      AND (metadata['deleted'] IS NULL OR lower(metadata['deleted']) != 'true')
     ORDER BY device_id ASC
     LIMIT $1 OFFSET $2`
 
@@ -126,7 +128,13 @@ func (db *DB) ListUnifiedDevices(ctx context.Context, limit, offset int) ([]*mod
 
 // CountUnifiedDevices returns the total number of unified devices materialized in Proton.
 func (db *DB) CountUnifiedDevices(ctx context.Context) (int64, error) {
-	const query = `SELECT count() AS total FROM table(unified_devices)`
+	const query = `SELECT count() AS total
+FROM table(unified_devices)
+WHERE (metadata['_merged_into'] IS NULL
+    OR metadata['_merged_into'] = ''
+    OR metadata['_merged_into'] = device_id)
+  AND (metadata['_deleted'] IS NULL OR lower(metadata['_deleted']) != 'true')
+  AND (metadata['deleted'] IS NULL OR lower(metadata['deleted']) != 'true')`
 
 	row := db.Conn.QueryRow(ctx, query)
 

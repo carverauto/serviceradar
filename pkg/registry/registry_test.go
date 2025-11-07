@@ -185,9 +185,9 @@ func TestSearchDevices(t *testing.T) {
 		FirstSeen:        now.Add(-2 * time.Hour),
 	})
 
- results := reg.SearchDevices("edge", 10)
- require.Len(t, results, 2)
- assert.Equal(t, "default:10.3.0.1", results[0].DeviceID)
+	results := reg.SearchDevices("edge", 10)
+	require.Len(t, results, 2)
+	assert.Equal(t, "default:10.3.0.1", results[0].DeviceID)
 
 	results = reg.SearchDevices("10.3.0.", 1)
 	require.Len(t, results, 1)
@@ -552,23 +552,13 @@ func TestDeviceRegistry_FirstSeenPreservedFromExistingRecord(t *testing.T) {
 	existingFirstSeen := time.Date(2024, 12, 1, 15, 4, 5, 0, time.UTC)
 	deviceID := "default:10.0.0.5"
 
-	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ []string, _ []string) ([]*models.UnifiedDevice, error) {
-			t.Helper()
-			t.Log("GetUnifiedDevicesByIPsOrIDs called")
-			return []*models.UnifiedDevice{
-				{
-					DeviceID:  deviceID,
-					FirstSeen: existingFirstSeen,
-				},
-			}, nil
-		}).
-		Times(1)
-
 	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)
+	registry.UpsertDeviceRecord(&DeviceRecord{
+		DeviceID:  deviceID,
+		FirstSeen: existingFirstSeen,
+	})
 
 	mockDB.EXPECT().
 		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
@@ -605,16 +595,16 @@ func TestAnnotateFirstSeenUsesEarliestAcrossBatch(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), gomock.Any()).
-		Return([]*models.UnifiedDevice{}, nil).
-		Times(1)
-
-	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
 
 	deviceID := "default:10.0.0.42"
 	later := time.Date(2025, 1, 2, 15, 4, 5, 0, time.UTC)
 	earlier := later.Add(-48 * time.Hour)
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
+	registry.UpsertDeviceRecord(&DeviceRecord{
+		DeviceID:  deviceID,
+		FirstSeen: earlier,
+	})
 
 	updates := []*models.DeviceUpdate{
 		{
@@ -645,7 +635,7 @@ func TestAnnotateFirstSeenUsesEarliestAcrossBatch(t *testing.T) {
 	}
 }
 
-func TestAnnotateFirstSeenChunksDeviceLookups(t *testing.T) {
+func TestAnnotateFirstSeenUsesRegistryCache(t *testing.T) {
 	ctx := context.Background()
 
 	ctrl := gomock.NewController(t)
@@ -653,37 +643,72 @@ func TestAnnotateFirstSeenChunksDeviceLookups(t *testing.T) {
 
 	mockDB := db.NewMockService(ctrl)
 
-	const chunkSize = 3
-
-	callCount := 0
-	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), gomock.AssignableToTypeOf([]string{})).
-		DoAndReturn(func(_ context.Context, _ []string, ids []string) ([]*models.UnifiedDevice, error) {
-			callCount++
-			require.LessOrEqual(t, len(ids), chunkSize, "chunk size exceeded")
-			return nil, nil
-		}).
-		Times(3)
-
-	registry := NewDeviceRegistry(
-		mockDB,
-		logger.NewTestLogger(),
-		WithFirstSeenLookupChunkSize(chunkSize),
-	)
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
 
 	var updates []*models.DeviceUpdate
+	refTimes := make(map[string]time.Time)
 	for i := 0; i < 7; i++ {
 		deviceID := fmt.Sprintf("default:10.0.0.%d", i)
+		firstSeen := time.Now().Add(-time.Duration(i) * time.Hour).UTC()
+		refTimes[deviceID] = firstSeen
+		registry.UpsertDeviceRecord(&DeviceRecord{
+			DeviceID:  deviceID,
+			FirstSeen: firstSeen,
+		})
+
 		updates = append(updates, &models.DeviceUpdate{
 			DeviceID:  deviceID,
 			Partition: "default",
-			Timestamp: time.Now(),
+			Timestamp: time.Now().UTC(),
 		})
 	}
 
 	err := registry.annotateFirstSeen(ctx, updates)
 	require.NoError(t, err)
-	require.Equal(t, 3, callCount)
+
+	for _, update := range updates {
+		require.NotNil(t, update.Metadata)
+		got, err := time.Parse(time.RFC3339Nano, update.Metadata["_first_seen"])
+		require.NoError(t, err)
+		assert.Equal(t, refTimes[update.DeviceID], got)
+	}
+}
+
+func TestAnnotateFirstSeenFallsBackToDB(t *testing.T) {
+	ctx := context.Background()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	deviceID := "default:10.9.8.7"
+	existing := time.Date(2024, 11, 15, 10, 30, 0, 0, time.UTC)
+
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), gomock.AssignableToTypeOf([]string{})).
+		Return([]*models.UnifiedDevice{
+			{
+				DeviceID:  deviceID,
+				FirstSeen: existing,
+			},
+		}, nil).
+		Times(1)
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
+
+	update := &models.DeviceUpdate{
+		DeviceID:  deviceID,
+		Partition: "default",
+		Timestamp: time.Date(2025, 1, 5, 12, 0, 0, 0, time.UTC),
+	}
+
+	err := registry.annotateFirstSeen(ctx, []*models.DeviceUpdate{update})
+	require.NoError(t, err)
+
+	require.NotNil(t, update.Metadata)
+	got, err := time.Parse(time.RFC3339Nano, update.Metadata["_first_seen"])
+	require.NoError(t, err)
+	assert.Equal(t, existing, got)
 }
 
 // Helper function

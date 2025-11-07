@@ -223,19 +223,72 @@ func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []mod
 		cacheMisses = kvMisses
 	}
 
-	if len(cacheMisses) == 0 || s.DB == nil {
+	if len(cacheMisses) == 0 {
+		return result
+	}
+
+	remaining := cacheMisses
+
+	if s.DeviceRegistry != nil {
+		unresolved := make([]string, 0, len(remaining))
+
+		for _, ip := range remaining {
+			devices, err := s.DeviceRegistry.GetDevicesByIP(ctx, ip)
+			if err != nil {
+				s.logger.Debug().
+					Err(err).
+					Str("ip", ip).
+					Msg("Device registry lookup failed during canonical sweep hydration")
+				unresolved = append(unresolved, ip)
+				continue
+			}
+
+			if len(devices) == 0 {
+				unresolved = append(unresolved, ip)
+				continue
+			}
+
+			resolved := false
+			for _, device := range devices {
+				if device == nil {
+					continue
+				}
+
+				snapshot := canonicalSnapshotFromDevice(device)
+				if !snapshotHasStrongIdentity(snapshot) {
+					continue
+				}
+
+				resolved = true
+				result[ip] = snapshot
+				if s.canonicalCache != nil {
+					s.canonicalCache.store(ip, snapshot)
+				}
+				s.persistIdentityForSnapshot(ctx, snapshot, device)
+				break
+			}
+
+			if !resolved {
+				unresolved = append(unresolved, ip)
+			}
+		}
+
+		remaining = unresolved
+	}
+
+	if len(remaining) == 0 || s.DB == nil {
 		return result
 	}
 
 	const chunkSize = 512
 
-	for i := 0; i < len(cacheMisses); i += chunkSize {
+	for i := 0; i < len(remaining); i += chunkSize {
 		end := i + chunkSize
-		if end > len(cacheMisses) {
-			end = len(cacheMisses)
+		if end > len(remaining) {
+			end = len(remaining)
 		}
 
-		chunk := cacheMisses[i:end]
+		chunk := remaining[i:end]
 		if len(chunk) == 0 {
 			continue
 		}
@@ -255,18 +308,7 @@ func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []mod
 				continue
 			}
 
-			snapshot := canonicalSnapshot{
-				DeviceID: strings.TrimSpace(device.DeviceID),
-				IP:       strings.TrimSpace(device.IP),
-			}
-
-			if device.MAC != nil {
-				snapshot.MAC = strings.TrimSpace(device.MAC.Value)
-			}
-
-			if device.Metadata != nil && device.Metadata.Value != nil {
-				snapshot.Metadata = device.Metadata.Value
-			}
+			snapshot := canonicalSnapshotFromDevice(device)
 
 			if !snapshotHasStrongIdentity(snapshot) {
 				continue
@@ -281,6 +323,27 @@ func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []mod
 	}
 
 	return result
+}
+
+func canonicalSnapshotFromDevice(device *models.UnifiedDevice) canonicalSnapshot {
+	if device == nil {
+		return canonicalSnapshot{}
+	}
+
+	snapshot := canonicalSnapshot{
+		DeviceID: strings.TrimSpace(device.DeviceID),
+		IP:       strings.TrimSpace(device.IP),
+	}
+
+	if device.MAC != nil {
+		snapshot.MAC = strings.TrimSpace(device.MAC.Value)
+	}
+
+	if device.Metadata != nil && device.Metadata.Value != nil {
+		snapshot.Metadata = device.Metadata.Value
+	}
+
+	return snapshot
 }
 
 func snapshotHasStrongIdentity(snapshot canonicalSnapshot) bool {

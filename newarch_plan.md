@@ -821,11 +821,14 @@ func (db *DB) GetICMPMetrics(deviceID string, start, end time.Time) ([]*Metric, 
 - ✅ **Core redeploy (2025-11-06)** – Added Go/Bazel deps for the search planner, shipped the canonical stats fallback + UI warning flow, built `ghcr.io/carverauto/serviceradar-core:sha-616606a524aa68bb8106f91ca71266b6764eb0ad`, and rolled the demo `serviceradar-core` deployment onto it.
 - ✅ **Stats reconciliation (2025-11-06)** – Stats aggregator now reconciles the registry snapshot against Proton, pruning inferred sweep echoes and reporting Proton’s device count as the raw record total (`pkg/core/stats_aggregator.go`, `pkg/core/stats_aggregator_test.go`). Deployed `ghcr.io/carverauto/serviceradar-core@sha256:4975908b82df0985ba1af9dcddb1fb9df828d23b25d4248f8070639ecbf1e2d0` with the fix.
 - ✅ **Registry enforcement flag (2025-11-07)** – Added `features.require_device_registry` so `/api/devices*` refuse Proton fallbacks; demo ConfigMap defaults it to `true` and docs cover toggling during staged rollouts.
+- ✅ **SRQL service wiring (2025-11-07)** – Demo core config now ships an explicit SRQL block, the init script injects the shared API key, and docs capture the rollout steps (`k8s/demo/base/configmap.yaml`, `docs/docs/agents.md`, `web/src/app/api/query/route.ts`). Planner-backed queries now route analytics workloads to the OCaml service instead of failing open.
+- ✅ **Sweep identity hydration (2025-11-07)** – Result processor consults the registry/KV caches before touching Proton and only falls back when necessary, eliminating the wide `device_id IN (...)` scans that previously drove Proton CPU to 98% (`pkg/core/result_processor.go`, `pkg/core/server_test.go`). Demo core image `ghcr.io/carverauto/serviceradar-core:sha-81815e02b236` is rolled out with the change.
+- ✅ **Inventory stats alignment (2025-11-07)** – The devices dashboard now sources card counts from the cached `/api/stats` snapshot so “Online”/collector filters match registry-backed search results (`web/src/components/Devices/Dashboard.tsx`).
 
 - Next focus:
-- Wire the SRQL translator/HTTP handlers so registry-supported filters never bounce back to Proton, keeping planner fallbacks strictly for analytics queries.
-- Add the “when to use Proton vs registry” guidance to docs (pair with the new runbook smoke-test steps) and circulate with API/UI teams.
-- Stand up Grafana panels/alerts for the capability counter and validate OTEL ingestion end-to-end before the next deploy.
+- Complete the Proton boundary sweep: audit the remaining `db.*` call sites (metrics availability, identity fallbacks, SRQL adapters) and replace any steady-state `unified_devices` reads with registry/cache lookups.
+- Extend the stats snapshot to expose a dedicated “has collector” counter (vs. `icmp`-only) so the UI can drop the temporary mapping and align terminology across teams.
+- Stand up ClickHouse guardrails: lightweight `system.query_log` view + alert that flags queries reading >10 MiB from `unified_devices`, keeping pressure off Proton as we finish the refactor.
 - Track `core_device_stats_inferred_canonical` after the completed identity backfill; once it trends to zero, remove the temporary stats fallback and tighten canonical checks.
 - Investigate upstream causes of high inferred-record churn so registry writes fewer fallback rows:
   - Ensure every faker DHCP churn update carries a canonical identifier (armis ID / `canonical_device_id`) so `ProcessBatchDeviceUpdates` rewrites straight to the canonical record.
