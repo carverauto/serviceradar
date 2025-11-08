@@ -569,6 +569,16 @@ services:
       - WAIT_FOR_NATS=true
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Config sync
+      - CONFIG_SERVICE=${OTEL_CONFIG_SERVICE:-otel}
+      - CONFIG_OUTPUT=${OTEL_CONFIG_OUTPUT:-/etc/serviceradar/otel.toml}
+      - CONFIG_TEMPLATE=${OTEL_CONFIG_TEMPLATE:-/etc/serviceradar/templates/otel.toml}
+      - CONFIG_SYNC_ROLE=${OTEL_CONFIG_SYNC_ROLE:-core}
+      - CONFIG_SYNC_ENABLED=${OTEL_CONFIG_SYNC_ENABLED:-false}
+      - CONFIG_SYNC_SEED=${OTEL_CONFIG_SYNC_SEED:-true}
+      - CONFIG_SYNC_WATCH=${OTEL_CONFIG_SYNC_WATCH:-false}
+      - CONFIG_KV_KEY=${OTEL_CONFIG_KV_KEY:-}
+      - CONFIG_SYNC_EXTRA_ARGS=${OTEL_CONFIG_SYNC_EXTRA_ARGS:-}
     depends_on:
       cert-generator:
         condition: service_completed_successfully
@@ -605,6 +615,16 @@ services:
       - WAIT_FOR_NATS=true
       # Logging
       - RUST_LOG=${RUST_LOG:-info}
+      # Config sync
+      - CONFIG_SERVICE=${FLOWGGER_CONFIG_SERVICE:-flowgger}
+      - CONFIG_OUTPUT=${FLOWGGER_CONFIG_OUTPUT:-/etc/serviceradar/flowgger.toml}
+      - CONFIG_TEMPLATE=${FLOWGGER_CONFIG_TEMPLATE:-/etc/serviceradar/templates/flowgger.toml}
+      - CONFIG_SYNC_ROLE=${FLOWGGER_CONFIG_SYNC_ROLE:-core}
+      - CONFIG_SYNC_ENABLED=${FLOWGGER_CONFIG_SYNC_ENABLED:-false}
+      - CONFIG_SYNC_SEED=${FLOWGGER_CONFIG_SYNC_SEED:-true}
+      - CONFIG_SYNC_WATCH=${FLOWGGER_CONFIG_SYNC_WATCH:-false}
+      - CONFIG_KV_KEY=${FLOWGGER_CONFIG_KV_KEY:-}
+      - CONFIG_SYNC_EXTRA_ARGS=${FLOWGGER_CONFIG_SYNC_EXTRA_ARGS:-}
     # Capabilities needed for binding to port 514
     cap_add:
       - NET_BIND_SERVICE
@@ -644,6 +664,16 @@ services:
       - WAIT_FOR_NATS=true
       # Logging
       - RUST_LOG=${RUST_LOG:-info}
+      # Config sync
+      - CONFIG_SERVICE=${TRAPD_CONFIG_SERVICE:-trapd}
+      - CONFIG_OUTPUT=${TRAPD_CONFIG_OUTPUT:-/etc/serviceradar/trapd.json}
+      - CONFIG_TEMPLATE=${TRAPD_CONFIG_TEMPLATE:-/etc/serviceradar/templates/trapd.json}
+      - CONFIG_SYNC_ROLE=${TRAPD_CONFIG_SYNC_ROLE:-core}
+      - CONFIG_SYNC_ENABLED=${TRAPD_CONFIG_SYNC_ENABLED:-false}
+      - CONFIG_SYNC_SEED=${TRAPD_CONFIG_SYNC_SEED:-true}
+      - CONFIG_SYNC_WATCH=${TRAPD_CONFIG_SYNC_WATCH:-false}
+      - CONFIG_KV_KEY=${TRAPD_CONFIG_KV_KEY:-}
+      - CONFIG_SYNC_EXTRA_ARGS=${TRAPD_CONFIG_SYNC_EXTRA_ARGS:-}
     # Capabilities needed for binding to privileged port 162
     cap_add:
       - NET_BIND_SERVICE
@@ -683,6 +713,16 @@ services:
       - WAIT_FOR_DATASVC=true
       # Logging
       - RUST_LOG=${RUST_LOG:-info}
+      # Config sync
+      - CONFIG_SERVICE=${ZEN_CONFIG_SERVICE:-zen-consumer}
+      - CONFIG_OUTPUT=${ZEN_CONFIG_OUTPUT:-/etc/serviceradar/consumers/zen-consumer.json}
+      - CONFIG_TEMPLATE=${ZEN_CONFIG_TEMPLATE:-/etc/serviceradar/templates/consumers/zen-consumer.json}
+      - CONFIG_SYNC_ROLE=${ZEN_CONFIG_SYNC_ROLE:-core}
+      - CONFIG_SYNC_ENABLED=${ZEN_CONFIG_SYNC_ENABLED:-false}
+      - CONFIG_SYNC_SEED=${ZEN_CONFIG_SYNC_SEED:-true}
+      - CONFIG_SYNC_WATCH=${ZEN_CONFIG_SYNC_WATCH:-false}
+      - CONFIG_KV_KEY=${ZEN_CONFIG_KV_KEY:-}
+      - CONFIG_SYNC_EXTRA_ARGS=${ZEN_CONFIG_SYNC_EXTRA_ARGS:-}
     depends_on:
       cert-generator:
         condition: service_completed_successfully

@@ -1,3 +1,14 @@
+FROM golang:1.22-bookworm AS configsync-builder
+WORKDIR /workspace
+COPY go.mod go.sum ./
+COPY vendor ./vendor
+COPY cmd ./cmd
+COPY pkg ./pkg
+COPY internal ./internal
+COPY proto ./proto
+RUN go env -w GOFLAGS="-mod=vendor" && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /config-sync ./cmd/tools/config-sync
+
 # Build stage
 FROM rust:latest AS builder
 
@@ -53,9 +64,14 @@ RUN mkdir -p /output
 # Copy the binary from the builder stage to both /usr/local/bin and /output
 COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/release/otel /usr/local/bin/serviceradar-otel
 COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/release/otel /output/serviceradar-otel
+COPY --from=configsync-builder /config-sync /usr/local/bin/config-sync
+COPY docker/entrypoints/run-with-config-sync.sh /usr/local/bin/run-with-config-sync.sh
+RUN chmod +x /usr/local/bin/run-with-config-sync.sh
 
 # Configuration and user setup
 WORKDIR /etc/serviceradar
+RUN mkdir -p /etc/serviceradar/templates
+COPY packaging/otel/config/otel.toml /etc/serviceradar/templates/otel.toml
 
 RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar
@@ -63,4 +79,10 @@ RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
 USER serviceradar
 EXPOSE 4317
 
-CMD ["/usr/local/bin/serviceradar-otel"]
+ENV CONFIG_SERVICE=otel \
+    CONFIG_OUTPUT=/etc/serviceradar/otel.toml \
+    CONFIG_TEMPLATE=/etc/serviceradar/templates/otel.toml \
+    CONFIG_SYNC_ROLE=core
+
+ENTRYPOINT ["/usr/local/bin/run-with-config-sync.sh"]
+CMD ["/usr/local/bin/serviceradar-otel", "--config", "/etc/serviceradar/otel.toml"]

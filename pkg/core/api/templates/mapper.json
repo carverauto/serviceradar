@@ -1,0 +1,105 @@
+{
+  "workers": 20,
+  "timeout": "30s",
+  "retries": 3,
+  "max_active_jobs": 100,
+  "result_retention": "24h",
+  "mapper_agent_id": "default-mapper",
+  "mapper_instance_id": "serviceradar-mapper-01",
+  "default_credentials": {
+    "version": "v2c",
+    "community": "public"
+  },
+  "oids": {
+    "basic": [
+      ".1.3.6.1.2.1.1.1.0",
+      ".1.3.6.1.2.1.1.2.0",
+      ".1.3.6.1.2.1.1.5.0",
+      ".1.3.6.1.2.1.1.4.0",
+      ".1.3.6.1.2.1.1.6.0",
+      ".1.3.6.1.2.1.1.3.0"
+    ],
+    "interfaces": [
+      ".1.3.6.1.2.1.2.2.1",
+      ".1.3.6.1.2.1.31.1.1.1",
+      ".1.3.6.1.2.1.4.20.1"
+    ],
+    "topology": [
+      ".1.0.8802.1.1.2.1",
+      ".1.3.6.1.4.1.9.9.23.1"
+    ]
+  },
+  "stream_config": {
+    "device_stream": "sweep_results",
+    "interface_stream": "discovered_interfaces",
+    "topology_stream": "topology_discovery_events",
+    "agent_id": "snmp-discovery-agent",
+    "publish_batch_size": 100,
+    "publish_retries": 3,
+    "publish_retry_interval": "5s"
+  },
+  "credentials": [
+    {
+      "targets": ["192.168.2.0/24"],
+      "version": "v2c",
+      "community": "public"
+    }
+  ],
+  "scheduled_jobs": [
+    {
+      "name": "primary-lan-discovery",
+      "interval": "1h",
+      "enabled": true,
+      "seeds": ["192.168.2.1"],
+      "type": "full",
+      "credentials": {
+        "version": "v2c",
+        "community": "public"
+      },
+      "concurrency": 10,
+      "timeout": "45s",
+      "retries": 2,
+      "options": {
+        "trigger_discovery": "false"
+      }
+    }
+  ],
+  "unifi_apis": [
+    {
+      "name": "Main Controller",
+      "base_url": "https://192.168.1.1/proxy/network/integration/v1",
+      "api_key": "UbiquitiAPIkey",
+      "insecure_skip_verify": true
+    }
+  ],
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "role": "checker",
+    "server_name": "serviceradar.mapper",
+    "tls": {
+      "cert_file": "checkers.pem",
+      "key_file": "checkers-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "logging": {
+    "level": "info",
+    "debug": false,
+    "output": "stdout",
+    "time_format": "",
+    "otel": {
+      "enabled": true,
+      "endpoint": "192.168.2.23:4317",
+      "service_name": "serviceradar-mapper",
+      "batch_timeout": "5s",
+      "insecure": false,
+      "tls": {
+        "cert_file": "/etc/serviceradar/certs/mapper.pem",
+        "key_file": "/etc/serviceradar/certs/mapper-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
+      }
+    }
+  }
+}

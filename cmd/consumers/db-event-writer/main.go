@@ -1,20 +1,21 @@
 package main
 
 import (
-    "context"
-    "flag"
-    "log"
+	"context"
+	"flag"
+	"log"
 
-    "google.golang.org/grpc"
+	"google.golang.org/grpc"
 
-    "github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/config"
+	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	dbeventwriter "github.com/carverauto/serviceradar/pkg/consumers/db-event-writer"
-    "github.com/carverauto/serviceradar/pkg/db"
-    "github.com/carverauto/serviceradar/pkg/edgeonboarding"
-    "github.com/carverauto/serviceradar/pkg/lifecycle"
-    "github.com/carverauto/serviceradar/pkg/logger"
-    "github.com/carverauto/serviceradar/pkg/models"
-    "github.com/carverauto/serviceradar/proto"
+	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
+	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 func main() {
@@ -38,28 +39,20 @@ func main() {
 		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
 	}
 
-	// Step 1: Load config with KV support
-	kvMgr := config.NewKVManagerFromEnv(ctx, models.RoleCore)
-
-	cleanup := func() {
-		if kvMgr != nil {
-			_ = kvMgr.Close()
-		}
-	}
-
-	cfgLoader := config.NewConfig(nil)
-	if kvMgr != nil {
-		kvMgr.SetupConfigLoader(cfgLoader)
-	}
-
 	var cfg dbeventwriter.DBEventWriterConfig
-
-	config.LoadAndOverlayOrExit(ctx, kvMgr, cfgLoader, *configPath, &cfg, "Failed to load configuration")
-
-	// Bootstrap service-level default into KV if missing
-	if kvMgr != nil {
-		kvMgr.BootstrapConfig(ctx, "config/db-event-writer.json", cfg)
+	desc, ok := config.ServiceDescriptorFor("db-event-writer")
+	if !ok {
+		log.Fatalf("Failed to load configuration: service descriptor missing")
 	}
+	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
+		Role:         models.RoleCore,
+		ConfigPath:   *configPath,
+		DisableWatch: true,
+	})
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+	defer func() { _ = bootstrapResult.Close() }()
 
 	// Explicitly normalize paths after loading
 	if cfg.Security != nil && cfg.Security.CertDir != "" {
@@ -71,7 +64,6 @@ func main() {
 	}
 
 	if err := cfg.Validate(); err != nil {
-		cleanup()
 		log.Fatalf("DB event writer config validation failed: %v", err)
 	}
 
@@ -99,37 +91,30 @@ func main() {
 	// Initialize logger for database
 	dbLogger, err := lifecycle.CreateComponentLogger(ctx, "db-writer-db", loggerConfig)
 	if err != nil {
-		cleanup()
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 
 	// Initialize logger for service
 	serviceLogger, err := lifecycle.CreateComponentLogger(ctx, "db-writer-service", loggerConfig)
 	if err != nil {
-		cleanup()
 		log.Fatalf("Failed to initialize service logger: %v", err)
 	}
 
 	dbService, err := db.New(ctx, dbConfig, dbLogger)
 	if err != nil {
-		cleanup()
 		log.Fatalf("Failed to initialize database service: %v", err)
 	}
 
 	svc, err := dbeventwriter.NewService(&cfg, dbService, serviceLogger)
 	if err != nil {
-		cleanup()
 		log.Fatalf("Failed to initialize event writer service: %v", err)
 	}
 
 	agentService := dbeventwriter.NewAgentService(svc)
 
-	// KV Watch: overlay and apply hot-reload on relevant changes
-	if kvMgr != nil {
-		kvMgr.StartWatch(ctx, "config/db-event-writer.json", &cfg, serviceLogger, func() {
-			_ = svc.UpdateConfig(ctx, &cfg)
-		})
-	}
+	bootstrapResult.StartWatch(ctx, serviceLogger, &cfg, func() {
+		_ = svc.UpdateConfig(ctx, &cfg)
+	})
 
 	opts := &lifecycle.ServerOptions{
 		ListenAddr:        cfg.ListenAddr,
@@ -146,9 +131,6 @@ func main() {
 	}
 
 	if err := lifecycle.RunServer(ctx, opts); err != nil {
-		cleanup()
 		log.Fatalf("Server failed: %v", err)
 	}
-	
-	cleanup()
 }

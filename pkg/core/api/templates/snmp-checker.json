@@ -1,0 +1,47 @@
+{
+    "node_address": "localhost:50051",
+    "listen_addr": ":50054",
+    "security": {
+        "server_name": "PLACEHOLDER_AGENT_SERVER_NAME",
+        "mode": "spiffe",
+        "role": "checker",
+        "cert_dir": "/etc/serviceradar/certs",
+        "trust_domain": "PLACEHOLDER_TRUST_DOMAIN",
+        "server_spiffe_id": "spiffe://PLACEHOLDER_TRUST_DOMAIN/ns/PLACEHOLDER_NAMESPACE/sa/PLACEHOLDER_SNMP_CHECKER_SA",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock"
+    },
+    "timeout": "30s",
+    "logger": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+            "enabled": false,
+            "endpoint": "",
+            "headers": {},
+            "service_name": "serviceradar-snmp-checker",
+            "batch_timeout": "5s",
+            "insecure": false
+        }
+    },
+    "targets": [
+        {
+            "name": "test-router",
+            "host": "192.168.1.1",
+            "port": 161,
+            "community": "public",
+            "version": "v2c",
+            "interval": "30s",
+            "retries": 2,
+            "oids": [
+                {
+                    "oid": ".1.3.6.1.2.1.2.2.1.10.4",
+                    "name": "ifInOctets_4",
+                    "type": "counter",
+                    "scale": 1.0
+                }
+            ]
+        }
+    ]
+}

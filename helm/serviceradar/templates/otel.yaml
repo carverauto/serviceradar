@@ -43,6 +43,7 @@ spec:
           value: "4222"
         - name: RUST_LOG
           value: "info"
+        {{- include "serviceradar.configSyncEnv" (dict "cfg" (default (dict) .Values.configSync.otel)) | nindent 8 }}
         resources:
           limits:
             cpu: "1000m"

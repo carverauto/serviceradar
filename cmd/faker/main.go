@@ -21,6 +21,7 @@ import (
 	"context"
 	cryptoRand "crypto/rand"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -32,6 +33,8 @@ import (
 	"sync"
 	"time"
 
+	cfgconfig "github.com/carverauto/serviceradar/pkg/config"
+	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -183,6 +186,59 @@ type Config struct {
 	} `json:"logging"`
 }
 
+// Validate ensures the configuration is well-formed while applying defaults for optional fields.
+func (c *Config) Validate() error {
+	if c == nil {
+		return errors.New("config must not be nil")
+	}
+
+	if c.Server.ListenAddress == "" {
+		return errors.New("server.listen_address is required")
+	}
+	if c.Server.ReadTimeout == "" {
+		return errors.New("server.read_timeout is required")
+	}
+	if c.Server.WriteTimeout == "" {
+		return errors.New("server.write_timeout is required")
+	}
+	if c.Server.IdleTimeout == "" {
+		return errors.New("server.idle_timeout is required")
+	}
+
+	if c.Simulation.TotalDevices <= 0 {
+		c.Simulation.TotalDevices = totalDevices
+	}
+	if c.Simulation.IPShuffle.Interval == "" {
+		return errors.New("simulation.ip_shuffle.interval is required")
+	}
+	if c.Simulation.IPShuffle.Percentage <= 0 {
+		return errors.New("simulation.ip_shuffle.percentage must be > 0")
+	}
+	if c.Storage.DataDir == "" {
+		return errors.New("storage.data_dir is required")
+	}
+	if c.Storage.DevicesFile == "" {
+		return errors.New("storage.devices_file is required")
+	}
+
+	return nil
+}
+
+func (c *Config) applyDefaults() {
+	c.Server.ListenAddress = ":8080"
+	c.Server.ReadTimeout = "10s"
+	c.Server.WriteTimeout = "30s"
+	c.Server.IdleTimeout = "30s"
+	c.Simulation.TotalDevices = totalDevices
+	c.Simulation.IPShuffle.Enabled = true
+	c.Simulation.IPShuffle.Interval = "60s"
+	c.Simulation.IPShuffle.Percentage = 5
+	c.Simulation.IPShuffle.LogChanges = true
+	c.Storage.DataDir = "/var/lib/serviceradar/faker"
+	c.Storage.DevicesFile = "fake_armis_devices.json"
+	c.Storage.PersistChanges = true
+}
+
 const (
 	totalDevices = 50000
 	// File permission constants
@@ -330,38 +386,6 @@ func shuffleIPs() {
 	}
 }
 
-// loadConfig loads configuration from file
-func loadConfig(configPath string) (*Config, error) {
-	cfg := &Config{}
-
-	// Set defaults
-	cfg.Server.ListenAddress = ":8080"
-	cfg.Server.ReadTimeout = "10s"
-	cfg.Server.WriteTimeout = "30s"
-	cfg.Server.IdleTimeout = "30s"
-	cfg.Simulation.TotalDevices = totalDevices
-	cfg.Simulation.IPShuffle.Enabled = true
-	cfg.Simulation.IPShuffle.Interval = "60s"
-	cfg.Simulation.IPShuffle.Percentage = 5
-	cfg.Simulation.IPShuffle.LogChanges = true
-	cfg.Storage.DataDir = "/var/lib/serviceradar/faker"
-	cfg.Storage.DevicesFile = "fake_armis_devices.json"
-	cfg.Storage.PersistChanges = true
-
-	if configPath != "" {
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read config file: %w", err)
-		}
-
-		if err := json.Unmarshal(data, cfg); err != nil {
-			return nil, fmt.Errorf("failed to parse config file: %w", err)
-		}
-	}
-
-	return cfg, nil
-}
-
 func main() {
 	var configPath string
 
@@ -385,12 +409,10 @@ func main() {
 		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
 	}
 
-	// Load configuration
-	config, err = loadConfig(configPath)
-	if err != nil {
-		log.Printf("Warning: Could not load config file: %v. Using defaults.", err)
-
-		config, _ = loadConfig("") // Load with defaults
+	config = &Config{}
+	bootstrapResult := loadFakerConfig(ctx, configPath, config)
+	if bootstrapResult != nil {
+		defer func() { _ = bootstrapResult.Close() }()
 	}
 
 	log.Printf("ServiceRadar Faker %s starting...", config.Service.Version)
@@ -435,6 +457,47 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+func loadFakerConfig(ctx context.Context, path string, cfg *Config) *cfgbootstrap.Result {
+	cfg.applyDefaults()
+
+	desc, ok := cfgconfig.ServiceDescriptorFor("faker")
+	if !ok {
+		log.Fatalf("faker descriptor missing")
+	}
+
+	if strings.TrimSpace(path) == "" {
+		if err := cfg.Validate(); err != nil {
+			log.Fatalf("default faker configuration invalid: %v", err)
+		}
+		return nil
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if err := cfg.Validate(); err != nil {
+				log.Fatalf("default faker configuration invalid: %v", err)
+			}
+			log.Printf("Config file %s not found; using defaults", path)
+			return nil
+		}
+		log.Fatalf("Failed to inspect config file %s: %v", path, err)
+	}
+	if info.IsDir() {
+		log.Fatalf("config path %s is a directory", path)
+	}
+
+	result, err := cfgbootstrap.Service(ctx, desc, cfg, cfgbootstrap.ServiceOptions{
+		Role:         models.RoleAgent,
+		ConfigPath:   path,
+		DisableWatch: true,
+	})
+	if err != nil {
+		log.Fatalf("Failed to load faker config: %v", err)
+	}
+	return result
 }
 
 // tokenHandler handles POST requests for /api/v1/access_token/

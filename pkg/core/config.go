@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -71,7 +72,17 @@ func overlayFromKV(path string, cfg *models.CoreServiceConfig) error {
 	cfgLoader := config.NewConfig(nil)
 	kvMgr.SetupConfigLoader(cfgLoader)
 
-	return cfgLoader.OverlayFromKV(ctx, path, cfg)
+	if err := cfgLoader.OverlayFromKV(ctx, path, cfg); err != nil {
+		return err
+	}
+
+	if desc, ok := config.ServiceDescriptorFor("core"); ok {
+		if err := kvMgr.BootstrapConfig(ctx, desc.KVKey, path, cfg); err != nil {
+			log.Printf("failed to bootstrap core config into KV: %v", err)
+		}
+	}
+
+	return nil
 }
 
 func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig {

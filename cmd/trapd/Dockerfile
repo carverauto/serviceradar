@@ -1,3 +1,14 @@
+FROM golang:1.22-bookworm AS configsync-builder
+WORKDIR /workspace
+COPY go.mod go.sum ./
+COPY vendor ./vendor
+COPY cmd ./cmd
+COPY pkg ./pkg
+COPY internal ./internal
+COPY proto ./proto
+RUN go env -w GOFLAGS="-mod=vendor" && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /config-sync ./cmd/tools/config-sync
+
 # Build stage
 FROM rust:latest AS builder
 
@@ -53,10 +64,14 @@ RUN mkdir -p /output
 # Copy the binary from the builder stage to both /usr/local/bin and /output
 COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/release/serviceradar-trapd /usr/local/bin/serviceradar-trapd
 COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/release/serviceradar-trapd /output/serviceradar-trapd
+COPY --from=configsync-builder /config-sync /usr/local/bin/config-sync
+COPY docker/entrypoints/run-with-config-sync.sh /usr/local/bin/run-with-config-sync.sh
+RUN chmod +x /usr/local/bin/run-with-config-sync.sh
 
 # Configuration and user setup
 WORKDIR /etc/serviceradar
-COPY packaging/trapd/config/trapd.json ./trapd.json
+RUN mkdir -p /etc/serviceradar/templates
+COPY packaging/trapd/config/trapd.json /etc/serviceradar/templates/trapd.json
 
 RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar
@@ -65,4 +80,10 @@ USER serviceradar
 EXPOSE 162
 EXPOSE 50056
 
+ENV CONFIG_SERVICE=trapd \
+    CONFIG_OUTPUT=/etc/serviceradar/trapd.json \
+    CONFIG_TEMPLATE=/etc/serviceradar/templates/trapd.json \
+    CONFIG_SYNC_ROLE=core
+
+ENTRYPOINT ["/usr/local/bin/run-with-config-sync.sh"]
 CMD ["/usr/local/bin/serviceradar-trapd", "/etc/serviceradar/trapd.json"]

@@ -38,6 +38,23 @@ interface ConfigEditorProps {
   onSave: () => void;
 }
 
+type ConfigMetadata = {
+  service: string;
+  kv_key: string;
+  kv_store_id?: string;
+  revision: number;
+  origin?: 'seeded' | 'user' | 'unknown';
+  last_writer?: string;
+  updated_at?: string;
+  format: 'json' | 'toml';
+};
+
+type ConfigEnvelope = {
+  metadata: ConfigMetadata;
+  config?: Record<string, unknown>;
+  raw_config?: string;
+};
+
 export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorProps) {
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
@@ -51,6 +68,21 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
   // KV Info state
   const [kvInfo, setKvInfo] = useState<{ domain: string; bucket: string } | null>(null);
   const [kvInfoError, setKvInfoError] = useState<string | null>(null);
+  const [metadata, setMetadata] = useState<ConfigMetadata | null>(null);
+
+  const buildConfigQuery = React.useCallback(() => {
+    const params = new URLSearchParams();
+    if (kvStore) {
+      params.set('kv_store_id', kvStore);
+    }
+    const needsAgentScope = service.type !== 'poller' && service.type !== 'agent' && Boolean(service.agentId);
+    if (needsAgentScope && service.agentId) {
+      params.set('agent_id', service.agentId);
+      params.set('service_type', service.type);
+    }
+    const query = params.toString();
+    return query ? `?${query}` : '';
+  }, [kvStore, service.agentId, service.type]);
 
   const fetchConfig = React.useCallback(async () => {
     try {
@@ -62,20 +94,22 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
         .split("; ")
         .find((row) => row.startsWith("accessToken="))
         ?.split("=")[1];
-      const extraGet = (service.type !== 'poller' && service.type !== 'agent' && service.agentId) ? `&agent_id=${encodeURIComponent(service.agentId)}&service_type=${encodeURIComponent(service.type)}` : '';
-      const response = await fetch(`/api/admin/config/${service.type}?kv_store_id=${kvStore}${extraGet}`, {
+      const query = buildConfigQuery();
+      const response = await fetch(`/api/admin/config/${service.type}${query}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
 
       if (!response.ok) {
+        setMetadata(null);
         if (response.status === 404) {
-          // Load default config template
           const def = getDefaultConfig(service.type);
           if (typeof def === 'string') {
             setIsToml(true);
             setRawValue(def);
+            setConfig(null);
+            setJsonValue(def);
           } else {
             setIsToml(false);
             setConfig(def);
@@ -86,20 +120,44 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
         }
       } else {
         const ct = response.headers.get('content-type') || '';
-        if (ct.includes('text/plain')) {
+        if (ct.includes('application/json')) {
+          const data = await response.json();
+          if (data && 'metadata' in data) {
+            const envelope = data as ConfigEnvelope;
+            setMetadata(envelope.metadata);
+            const fmt = envelope.metadata.format;
+            if (fmt === 'toml') {
+              setIsToml(true);
+              setRawValue(envelope.raw_config ?? '');
+              setConfig(null);
+              setJsonValue(envelope.raw_config ?? '');
+              setJsonMode(false);
+            } else {
+              const cfg = (envelope.config ?? {}) as Record<string, unknown>;
+              setIsToml(false);
+              setConfig(cfg);
+              setRawValue('');
+              setJsonValue(JSON.stringify(cfg, null, 2));
+            }
+          } else {
+            setMetadata(null);
+            setIsToml(false);
+            setConfig(data as Record<string, unknown>);
+            setJsonValue(JSON.stringify(data, null, 2));
+          }
+        } else {
           const text = await response.text();
+          setMetadata(null);
           setIsToml(true);
           setRawValue(text);
-        } else {
-          const data = await response.json();
-          setIsToml(false);
-          setConfig(data);
-          setJsonValue(JSON.stringify(data, null, 2));
+          setConfig(null);
+          setJsonValue(text);
         }
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       setError(message);
+      setMetadata(null);
       // Load default config on error
       const def = getDefaultConfig(service.type);
       if (typeof def === 'string') { setIsToml(true); setRawValue(def); }
@@ -107,7 +165,7 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
     } finally {
       setLoading(false);
     }
-  }, [service, kvStore]);
+  }, [service, buildConfigQuery]);
 
   const fetchKvInfo = React.useCallback(async () => {
     try {
@@ -116,7 +174,8 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
         .split("; ")
         .find((row) => row.startsWith("accessToken="))
         ?.split("=")[1];
-      const response = await fetch(`/api/kv/info?kv_store_id=${encodeURIComponent(kvStore)}` , {
+      const query = kvStore ? `?kv_store_id=${encodeURIComponent(kvStore)}` : '';
+      const response = await fetch(`/api/kv/info${query}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!response.ok) throw new Error('Failed to fetch KV info');
@@ -249,9 +308,8 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
         .split("; ")
         .find((row) => row.startsWith("accessToken="))
         ?.split("=")[1];
-        
-      const extra = (service.type !== 'poller' && service.type !== 'agent' && service.agentId) ? `&agent_id=${encodeURIComponent(service.agentId)}&service_type=${encodeURIComponent(service.type)}` : '';
-      const response = await fetch(`/api/admin/config/${service.type}?kv_store_id=${kvStore}${extra}`, {
+      const query = buildConfigQuery();
+      const response = await fetch(`/api/admin/config/${service.type}${query}`, {
         method: 'PUT',
         headers: isToml ? {
           'Content-Type': 'text/plain',
@@ -276,6 +334,11 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
         });
         window.dispatchEvent(evt);
       } catch {}
+      try {
+        await fetchConfig();
+      } catch {
+        // fetchConfig already surfaces its own error state
+      }
       onSave();
       
       setTimeout(() => setSuccess(false), 3000);
@@ -370,7 +433,7 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
           <div>
             <h2 className="text-lg font-semibold">{service.name}</h2>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              KV Store: {kvStore} | Service ID: {service.id}
+              KV Store: {kvStore || 'default'} | Service ID: {service.id}
             </p>
             <div className="mt-1 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
               {kvInfo ? (
@@ -424,6 +487,27 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
           <div className="mt-2 p-2 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded-md flex items-center gap-2">
             <Check className="h-4 w-4" />
             <span className="text-sm">Configuration saved successfully</span>
+          </div>
+        )}
+
+        {metadata && (
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-600 dark:text-gray-400">
+            <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">
+              Revision #{metadata.revision ?? 0}
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">
+              {metadata.origin === 'seeded'
+                ? 'Fresh seed'
+                : metadata.origin === 'user'
+                  ? 'User-edited'
+                  : 'Origin unknown'}
+              {metadata.last_writer ? ` by ${metadata.last_writer}` : ''}
+            </span>
+            {metadata.updated_at && (
+              <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">
+                Updated {new Date(metadata.updated_at).toLocaleString()}
+              </span>
+            )}
           </div>
         )}
       </div>

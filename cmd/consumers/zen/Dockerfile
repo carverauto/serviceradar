@@ -1,3 +1,14 @@
+FROM golang:1.22-bookworm AS configsync-builder
+WORKDIR /workspace
+COPY go.mod go.sum ./
+COPY vendor ./vendor
+COPY cmd ./cmd
+COPY pkg ./pkg
+COPY internal ./internal
+COPY proto ./proto
+RUN go env -w GOFLAGS="-mod=vendor" && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /config-sync ./cmd/tools/config-sync
+
 # Build stage
 FROM rust:latest AS builder
 
@@ -57,11 +68,14 @@ COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/releas
 # Ship the zen-put-rule helper as well
 COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/release/zen-put-rule /usr/local/bin/zen-put-rule
 COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/release/zen-put-rule /output/zen-put-rule
+COPY --from=configsync-builder /config-sync /usr/local/bin/config-sync
+COPY docker/entrypoints/run-with-config-sync.sh /usr/local/bin/run-with-config-sync.sh
+RUN chmod +x /usr/local/bin/run-with-config-sync.sh
 
 # Configuration and user setup
 WORKDIR /etc/serviceradar
-RUN mkdir -p consumers
-COPY packaging/zen/config/zen-consumer.json ./consumers/zen-consumer.json
+RUN mkdir -p consumers /etc/serviceradar/templates/consumers
+COPY packaging/zen/config/zen-consumer.json /etc/serviceradar/templates/consumers/zen-consumer.json
 
 RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar
@@ -69,4 +83,10 @@ RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
 USER serviceradar
 EXPOSE 50040
 
+ENV CONFIG_SERVICE="zen-consumer" \
+    CONFIG_OUTPUT="/etc/serviceradar/consumers/zen-consumer.json" \
+    CONFIG_TEMPLATE="/etc/serviceradar/templates/consumers/zen-consumer.json" \
+    CONFIG_SYNC_ROLE=core
+
+ENTRYPOINT ["/usr/local/bin/run-with-config-sync.sh"]
 CMD ["/usr/local/bin/serviceradar-zen", "--config", "/etc/serviceradar/consumers/zen-consumer.json"]

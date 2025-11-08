@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"reflect"
 	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/config/kvgrpc"
@@ -87,20 +88,69 @@ func LoadAndOverlayOrExit(ctx context.Context, kvMgr *KVManager, cfgLoader *Conf
 	}
 }
 
-// BootstrapConfig stores default config in KV if it doesn't exist
-func (m *KVManager) BootstrapConfig(ctx context.Context, kvKey string, cfg interface{}) {
-	if m == nil || m.client == nil {
-		return
+// BootstrapConfig stores default config in KV if it doesn't exist.
+// It prefers reading sanitized defaults from the on-disk config file to keep
+// the canonical KV copy aligned with baked manifests.
+func (m *KVManager) BootstrapConfig(ctx context.Context, kvKey string, configPath string, cfg interface{}) error {
+	if m == nil || m.client == nil || kvKey == "" || cfg == nil {
+		return nil
 	}
 
-	data, err := json.Marshal(cfg)
+	data, err := sanitizeBootstrapSource(configPath, cfg)
 	if err != nil {
-		return
+		return err
+	}
+	if len(data) == 0 {
+		return nil
 	}
 
-	if _, found, _ := m.client.Get(ctx, kvKey); !found {
-		_ = m.client.Put(ctx, kvKey, data, 0)
+	_, found, err := m.client.Get(ctx, kvKey)
+	if err != nil {
+		return err
 	}
+	if found {
+		return nil
+	}
+
+	return m.client.Put(ctx, kvKey, data, 0)
+}
+
+// sanitizeBootstrapSource prefers sanitizing the on-disk config file so the KV
+// defaults reflect what operators see in manifests. It falls back to the in-
+// memory config struct if the file cannot be parsed.
+func sanitizeBootstrapSource(configPath string, cfg interface{}) ([]byte, error) {
+	if configPath == "" {
+		return sanitizeForKV(cfg)
+	}
+
+	payload, err := os.ReadFile(configPath)
+	if err != nil {
+		return sanitizeForKV(cfg)
+	}
+
+	clone := cloneConfig(cfg)
+	if clone == nil {
+		return sanitizeForKV(cfg)
+	}
+
+	if err := json.Unmarshal(payload, clone); err != nil {
+		return sanitizeForKV(cfg)
+	}
+
+	return sanitizeForKV(clone)
+}
+
+func cloneConfig(cfg interface{}) interface{} {
+	if cfg == nil {
+		return nil
+	}
+
+	t := reflect.TypeOf(cfg)
+	if t.Kind() != reflect.Ptr {
+		return nil
+	}
+
+	return reflect.New(t.Elem()).Interface()
 }
 
 // StartWatch sets up KV watching with hot-reload functionality

@@ -115,7 +115,7 @@ type APIServer struct {
 	kvAddress             string
 	kvSecurity            *models.SecurityConfig
 	kvPutFn               func(ctx context.Context, key string, value []byte, ttl int64) error
-	kvGetFn               func(ctx context.Context, key string) ([]byte, bool, error)
+	kvGetFn               func(ctx context.Context, key string) ([]byte, bool, uint64, error)
 	kvEndpoints           map[string]*KVEndpoint
 	rbacConfig            *models.RBACConfig
 	spireAdminClient      spireadmin.Client

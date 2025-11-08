@@ -26,6 +26,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/config"
+	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -74,15 +75,20 @@ func run() error {
 			Msg("Using edge-onboarded configuration")
 	}
 
-	// Initialize configuration loader
-	cfgLoader := config.NewConfig(nil)
-
-	// Load configuration with context
 	var cfg snmp.SNMPConfig
-
-	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
+	desc, ok := config.ServiceDescriptorFor("snmp-checker")
+	if !ok {
+		return fmt.Errorf("snmp-checker descriptor missing")
+	}
+	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
+		Role:         models.RoleChecker,
+		ConfigPath:   *configPath,
+		DisableWatch: true,
+	})
+	if err != nil {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
 	}
+	defer func() { _ = bootstrapResult.Close() }()
 
 	// Create logger instance for the service
 	var loggerConfig *logger.Config
@@ -105,6 +111,10 @@ func run() error {
 
 	// Create and register block service
 	snmpAgentService := snmp.NewSNMPPollerService(&snmp.Poller{Config: cfg}, service, log)
+
+	bootstrapResult.StartWatch(ctx, log, &cfg, func() {
+		log.Warn().Msg("SNMP checker config updated in KV; restart checker to apply changes")
+	})
 
 	// Create gRPC service registrar
 	registerServices := func(s *grpc.Server) error { // s is *google.golang.org/grpc.Server due to lifecycle update

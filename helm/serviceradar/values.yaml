@@ -23,6 +23,40 @@ image:
     rperfChecker: latest
     tools: latest
 
+configSync:
+  flowgger:
+    enabled: true
+    seed: true
+    watch: false
+    kvKey: ""
+    role: ""
+    extraArgs: ""
+    extraEnv: {}
+  trapd:
+    enabled: true
+    seed: true
+    watch: false
+    kvKey: ""
+    role: ""
+    extraArgs: ""
+    extraEnv: {}
+  otel:
+    enabled: true
+    seed: true
+    watch: false
+    kvKey: ""
+    role: ""
+    extraArgs: ""
+    extraEnv: {}
+  zen:
+    enabled: true
+    seed: true
+    watch: false
+    kvKey: ""
+    role: ""
+    extraArgs: ""
+    extraEnv: {}
+
 spire:
   enabled: true
   namespace: ""
