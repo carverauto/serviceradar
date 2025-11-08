@@ -34,6 +34,10 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+var (
+	errServiceDescriptorMissing = fmt.Errorf("service descriptor for agent missing")
+)
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatalf("Fatal error: %v", err)
@@ -66,7 +70,7 @@ func run() error {
 	var cfg agent.ServerConfig
 	desc, ok := config.ServiceDescriptorFor("agent")
 	if !ok {
-		return fmt.Errorf("service descriptor for agent missing")
+		return errServiceDescriptorMissing
 	}
 	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
 		Role:         models.RoleAgent,

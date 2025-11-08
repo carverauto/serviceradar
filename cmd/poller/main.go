@@ -34,7 +34,8 @@ import (
 )
 
 var (
-	errFailedToLoadConfig = fmt.Errorf("failed to load config")
+	errFailedToLoadConfig      = fmt.Errorf("failed to load config")
+	errPollerDescriptorMissing = fmt.Errorf("service descriptor for poller missing")
 )
 
 func main() {
@@ -69,7 +70,7 @@ func run() error {
 	var cfg poller.Config
 	desc, ok := config.ServiceDescriptorFor("poller")
 	if !ok {
-		return fmt.Errorf("service descriptor for poller missing")
+		return errPollerDescriptorMissing
 	}
 	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
 		Role:         models.RolePoller,

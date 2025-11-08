@@ -9,6 +9,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+var (
+	errContextNil      = errors.New("context cannot be nil")
+	errConfigPathEmpty = errors.New("config path is required")
+)
+
 // ServiceOptions controls how a service configuration is loaded and watched.
 type ServiceOptions struct {
 	Role         models.ServiceRole
@@ -82,10 +87,10 @@ func (r *Result) Manager() *config.KVManager {
 // Service loads, overlays, seeds, and optionally watches configuration for a managed service.
 func Service(ctx context.Context, desc config.ServiceDescriptor, cfg interface{}, opts ServiceOptions) (*Result, error) {
 	if ctx == nil {
-		return nil, errors.New("context cannot be nil")
+		return nil, errContextNil
 	}
 	if opts.ConfigPath == "" {
-		return nil, errors.New("config path is required")
+		return nil, errConfigPathEmpty
 	}
 
 	cfgLoader := config.NewConfig(opts.Logger)

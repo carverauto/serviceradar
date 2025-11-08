@@ -69,7 +69,8 @@ func main() {
 
 	server, err := datasvc.NewServer(ctx, &cfg)
 	if err != nil {
-		log.Fatalf("Failed to create data service server: %v", err)
+		_ = bootstrapResult.Close()
+		log.Fatalf("Failed to create data service server: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
 	}
 
 	opts := &lifecycle.ServerOptions{

@@ -34,7 +34,8 @@ import (
 )
 
 var (
-	errFailedToLoadConfig = fmt.Errorf("failed to load config")
+	errFailedToLoadConfig      = fmt.Errorf("failed to load config")
+	errDuskDescriptorMissing   = fmt.Errorf("dusk-checker descriptor missing")
 )
 
 func main() {
@@ -71,7 +72,7 @@ func run() error {
 	var cfg dusk.Config
 	desc, ok := config.ServiceDescriptorFor("dusk-checker")
 	if !ok {
-		return fmt.Errorf("dusk-checker descriptor missing")
+		return errDuskDescriptorMissing
 	}
 	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
 		Role:         models.RoleChecker,

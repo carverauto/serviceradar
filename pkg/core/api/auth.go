@@ -46,7 +46,12 @@ const (
 	serviceAgent  = "agent"
 )
 
-var errTemplateUnavailable = errors.New("config template unavailable")
+var (
+	errTemplateUnavailable  = errors.New("config template unavailable")
+	errKVKeyNotSpecified    = errors.New("kv key not specified")
+	errKVPutUnavailable     = fmt.Errorf("kv put unavailable")
+	errConfigKeyUnresolved  = fmt.Errorf("configuration key could not be determined")
+)
 
 const (
 	configOriginSeeded  = "seeded"
@@ -506,11 +511,12 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	resp := configResponse{
 		Metadata: *metadata,
 	}
-	if formatHint == config.ConfigFormatTOML {
+	switch {
+	case formatHint == config.ConfigFormatTOML:
 		resp.RawConfig = string(entry.Value)
-	} else if len(entry.Value) > 0 {
+	case len(entry.Value) > 0:
 		resp.Config = json.RawMessage(entry.Value)
-	} else {
+	default:
 		resp.Config = json.RawMessage([]byte("null"))
 	}
 
@@ -670,6 +676,8 @@ func (s *APIServer) writeRawConfigResponse(w http.ResponseWriter, data []byte, f
 	switch format {
 	case config.ConfigFormatTOML:
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	case config.ConfigFormatJSON:
+		w.Header().Set("Content-Type", "application/json")
 	default:
 		w.Header().Set("Content-Type", "application/json")
 	}
@@ -699,7 +707,7 @@ func isRawConfigRequested(r *http.Request) bool {
 	if raw == "" {
 		raw = strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
 	}
-	return raw == "1" || raw == "true" || raw == "raw"
+	return raw == "1" || raw == authEnabledTrue || raw == "raw"
 }
 
 func (s *APIServer) loadConfigEntry(ctx context.Context, kvStoreID, key string) (*kvEntry, *configMetadataRecord, error) {
@@ -720,7 +728,7 @@ func (s *APIServer) loadConfigEntry(ctx context.Context, kvStoreID, key string) 
 
 func (s *APIServer) getKVEntry(ctx context.Context, kvStoreID, key string) (*kvEntry, error) {
 	if key == "" {
-		return nil, errors.New("kv key not specified")
+		return nil, errKVKeyNotSpecified
 	}
 
 	if kvStoreID != "" {
@@ -825,7 +833,7 @@ func (s *APIServer) recordConfigMetadata(ctx context.Context, kvStoreID, key, or
 
 func (s *APIServer) checkConfigKey(ctx context.Context, kvStoreID, key string) (bool, error) {
 	if key == "" {
-		return false, errors.New("kv key not specified")
+		return false, errKVKeyNotSpecified
 	}
 
 	resolvedKey := s.qualifyKVKey(kvStoreID, key)
@@ -874,7 +882,7 @@ func (s *APIServer) putConfigToKV(ctx context.Context, kvStoreID, key string, va
 	}
 
 	if s.kvPutFn == nil {
-		return fmt.Errorf("kv put unavailable")
+		return errKVPutUnavailable
 	}
 
 	return s.kvPutFn(ctx, key, value, 0)
@@ -978,7 +986,7 @@ func (s *APIServer) resolveServiceKey(service, serviceType, agentID string) (con
 		}
 	}
 
-	return config.ServiceDescriptor{}, "", false, fmt.Errorf("configuration key could not be determined")
+	return config.ServiceDescriptor{}, "", false, errConfigKeyUnresolved
 }
 
 func (s *APIServer) lookupServiceDescriptor(service, serviceType, agentID string) (config.ServiceDescriptor, bool) {

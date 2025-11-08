@@ -41,7 +41,7 @@ func TestHandleGetConfigSeedsFromTemplate(t *testing.T) {
 		return nil
 	}
 
-	req := httptest.NewRequest("GET", "/api/admin/config/core", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/config/core", nil)
 	req = mux.SetURLVars(req, map[string]string{"service": "core"})
 	rr := httptest.NewRecorder()
 
@@ -73,7 +73,7 @@ func TestHandleGetConfigAgentRequiresAgentID(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
-	req := httptest.NewRequest("GET", "/api/admin/config/snmp", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/config/snmp", nil)
 	req = mux.SetURLVars(req, map[string]string{"service": "snmp"})
 	rr := httptest.NewRecorder()
 
@@ -99,7 +99,7 @@ func TestHandleGetConfigAgentDescriptorSeedsTemplate(t *testing.T) {
 		return nil
 	}
 
-	req := httptest.NewRequest("GET", "/api/admin/config/snmp?agent_id=test-agent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/config/snmp?agent_id=test-agent", nil)
 	req = mux.SetURLVars(req, map[string]string{"service": "snmp"})
 	rr := httptest.NewRecorder()
 
@@ -123,7 +123,7 @@ func TestHandleConfigWatchers(t *testing.T) {
 	})
 
 	server := &APIServer{logger: logger.NewTestLogger()}
-	req := httptest.NewRequest("GET", "/api/admin/config/watchers", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/config/watchers", nil)
 	rr := httptest.NewRecorder()
 
 	server.handleConfigWatchers(rr, req)
