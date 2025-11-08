@@ -39,6 +39,18 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+var (
+	errConfigNil                     = errors.New("config must not be nil")
+	errListenAddressRequired         = errors.New("server.listen_address is required")
+	errReadTimeoutRequired           = errors.New("server.read_timeout is required")
+	errWriteTimeoutRequired          = errors.New("server.write_timeout is required")
+	errIdleTimeoutRequired           = errors.New("server.idle_timeout is required")
+	errIPShuffleIntervalRequired     = errors.New("simulation.ip_shuffle.interval is required")
+	errIPShufflePercentageInvalid    = errors.New("simulation.ip_shuffle.percentage must be > 0")
+	errDataDirRequired               = errors.New("storage.data_dir is required")
+	errDevicesFileRequired           = errors.New("storage.devices_file is required")
+)
+
 const (
 	dataDirPerms = 0o755
 
@@ -189,36 +201,36 @@ type Config struct {
 // Validate ensures the configuration is well-formed while applying defaults for optional fields.
 func (c *Config) Validate() error {
 	if c == nil {
-		return errors.New("config must not be nil")
+		return errConfigNil
 	}
 
 	if c.Server.ListenAddress == "" {
-		return errors.New("server.listen_address is required")
+		return errListenAddressRequired
 	}
 	if c.Server.ReadTimeout == "" {
-		return errors.New("server.read_timeout is required")
+		return errReadTimeoutRequired
 	}
 	if c.Server.WriteTimeout == "" {
-		return errors.New("server.write_timeout is required")
+		return errWriteTimeoutRequired
 	}
 	if c.Server.IdleTimeout == "" {
-		return errors.New("server.idle_timeout is required")
+		return errIdleTimeoutRequired
 	}
 
 	if c.Simulation.TotalDevices <= 0 {
 		c.Simulation.TotalDevices = totalDevices
 	}
 	if c.Simulation.IPShuffle.Interval == "" {
-		return errors.New("simulation.ip_shuffle.interval is required")
+		return errIPShuffleIntervalRequired
 	}
 	if c.Simulation.IPShuffle.Percentage <= 0 {
-		return errors.New("simulation.ip_shuffle.percentage must be > 0")
+		return errIPShufflePercentageInvalid
 	}
 	if c.Storage.DataDir == "" {
-		return errors.New("storage.data_dir is required")
+		return errDataDirRequired
 	}
 	if c.Storage.DevicesFile == "" {
-		return errors.New("storage.devices_file is required")
+		return errDevicesFileRequired
 	}
 
 	return nil
@@ -455,7 +467,8 @@ func main() {
 	}
 
 	if err := server.ListenAndServe(); err != nil {
-		log.Fatalf("Server failed: %v", err)
+		_ = bootstrapResult.Close()
+		log.Fatalf("Server failed: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
 	}
 }
 

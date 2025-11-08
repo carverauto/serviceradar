@@ -20,6 +20,10 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+var (
+	errCoreDescriptorMissing = errors.New("core service descriptor missing")
+)
+
 // Options contains runtime configuration derived from CLI flags.
 type Options struct {
 	ConfigPath        string
@@ -38,7 +42,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	desc, ok := config.ServiceDescriptorFor("core")
 	if !ok {
-		return errors.New("core service descriptor missing")
+		return errCoreDescriptorMissing
 	}
 
 	var cfg models.CoreServiceConfig

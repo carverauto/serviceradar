@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -36,10 +37,13 @@ type WatcherInfo struct {
 	LastError string        `json:"last_error,omitempty"`
 }
 
+type watcherContextKey struct{}
+
+//nolint:gochecknoglobals // Watcher state must be package-level for cross-function access
 var (
 	watcherMu   sync.RWMutex
 	watchers    = make(map[string]*WatcherInfo)
-	watcherCtxK = struct{}{}
+	watcherCtxK = watcherContextKey{}
 )
 
 // RegisterWatcher records watcher metadata and returns a watcher ID.
@@ -96,7 +100,7 @@ func MarkWatcherStopped(id string, err error) {
 		return
 	}
 	info.Status = WatcherStatusStopped
-	if err != nil && err != context.Canceled {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		info.LastError = err.Error()
 	}
 	if info.LastEvent.IsZero() {

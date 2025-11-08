@@ -6,6 +6,13 @@ import (
 	"strings"
 )
 
+var (
+	errNoKVKeyDefined            = fmt.Errorf("descriptor does not define a KV key")
+	errAgentIDRequired           = fmt.Errorf("descriptor requires agent_id")
+	errPollerIDRequired          = fmt.Errorf("descriptor requires poller_id")
+	errUnresolvedTemplateVars    = fmt.Errorf("descriptor has unresolved template variables")
+)
+
 // ConfigFormat identifies how a service persists its configuration.
 type ConfigFormat string
 
@@ -40,6 +47,7 @@ type KeyContext struct {
 	PollerID string
 }
 
+//nolint:gochecknoglobals // Service registry must be package-level
 var serviceDescriptors = map[string]ServiceDescriptor{
 	"core": {
 		Name:        "core",
@@ -257,7 +265,7 @@ func ServiceDescriptors() []ServiceDescriptor {
 func (sd ServiceDescriptor) ResolveKVKey(ctx KeyContext) (string, error) {
 	if sd.KVKeyTemplate == "" {
 		if sd.KVKey == "" {
-			return "", fmt.Errorf("descriptor %s does not define a KV key", sd.Name)
+			return "", fmt.Errorf("%w: %s", errNoKVKeyDefined, sd.Name)
 		}
 		return sd.KVKey, nil
 	}
@@ -265,18 +273,18 @@ func (sd ServiceDescriptor) ResolveKVKey(ctx KeyContext) (string, error) {
 	key := sd.KVKeyTemplate
 	if strings.Contains(key, "{{agent_id}}") {
 		if ctx.AgentID == "" {
-			return "", fmt.Errorf("descriptor %s requires agent_id", sd.Name)
+			return "", fmt.Errorf("%w: %s", errAgentIDRequired, sd.Name)
 		}
 		key = strings.ReplaceAll(key, "{{agent_id}}", ctx.AgentID)
 	}
 	if strings.Contains(key, "{{poller_id}}") {
 		if ctx.PollerID == "" {
-			return "", fmt.Errorf("descriptor %s requires poller_id", sd.Name)
+			return "", fmt.Errorf("%w: %s", errPollerIDRequired, sd.Name)
 		}
 		key = strings.ReplaceAll(key, "{{poller_id}}", ctx.PollerID)
 	}
 	if strings.Contains(key, "{{") {
-		return "", fmt.Errorf("descriptor %s has unresolved template variables", sd.Name)
+		return "", fmt.Errorf("%w: %s", errUnresolvedTemplateVars, sd.Name)
 	}
 	return key, nil
 }

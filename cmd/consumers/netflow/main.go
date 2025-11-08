@@ -71,7 +71,8 @@ func main() {
 
 	// Validate configuration
 	if err := netflowCfg.Validate(); err != nil {
-		log.Fatalf("NetflowConfig validation failed: %v", err)
+		_ = bootstrapResult.Close()
+		log.Fatalf("NetflowConfig validation failed: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
 	}
 
 	// Use CoreServiceConfig from netflowCfg, override ServerName for Proton

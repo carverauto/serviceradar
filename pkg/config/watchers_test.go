@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var errOverlayFailed = errors.New("overlay failed")
+
 func TestWatcherRegistryTracksEvents(t *testing.T) {
 	resetWatchersForTest()
 
@@ -28,7 +30,7 @@ func TestWatcherRegistryTracksEvents(t *testing.T) {
 	list = ListWatchers()
 	require.False(t, list[0].LastEvent.IsZero())
 
-	MarkWatcherEvent(id, errors.New("overlay failed"))
+	MarkWatcherEvent(id, errOverlayFailed)
 	list = ListWatchers()
 	require.Equal(t, WatcherStatusError, list[0].Status)
 	require.Contains(t, list[0].LastError, "overlay failed")

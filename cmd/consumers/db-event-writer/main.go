@@ -64,7 +64,8 @@ func main() {
 	}
 
 	if err := cfg.Validate(); err != nil {
-		log.Fatalf("DB event writer config validation failed: %v", err)
+		_ = bootstrapResult.Close()
+		log.Fatalf("DB event writer config validation failed: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
 	}
 
 	dbSecurity := cfg.Security

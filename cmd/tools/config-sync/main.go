@@ -17,6 +17,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+var (
+	errKVKeyEmpty           = errors.New("kv key is empty and no template specified")
+	errKVWatchChannelClosed = errors.New("kv watch channel closed")
+)
+
 type options struct {
 	service      string
 	kvKey        string
@@ -39,7 +44,8 @@ func main() {
 
 	client, err := newKVClient(ctx, opts.role)
 	if err != nil {
-		log.Fatalf("failed to create KV client: %v", err)
+		cancel()
+		log.Fatalf("failed to create KV client: %v", err) //nolint:gocritic // cancel is explicitly called before Fatalf
 	}
 	if client == nil && len(templateBytes) == 0 {
 		log.Fatal("KV not configured and no template provided")
@@ -128,7 +134,7 @@ func syncOnce(ctx context.Context, client *kvgrpc.Client, opts options, template
 
 	if len(data) == 0 {
 		if len(template) == 0 {
-			return fmt.Errorf("kv key %q is empty and no template specified", opts.kvKey)
+			return fmt.Errorf("%w: %q", errKVKeyEmpty, opts.kvKey)
 		}
 		data = template
 		if client != nil && opts.seed {
@@ -185,7 +191,7 @@ func watchLoop(ctx context.Context, client *kvgrpc.Client, opts options) error {
 			return ctx.Err()
 		case data, ok := <-ch:
 			if !ok {
-				return errors.New("kv watch channel closed")
+				return errKVWatchChannelClosed
 			}
 			if len(strings.TrimSpace(string(data))) == 0 {
 				continue

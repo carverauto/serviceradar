@@ -44,6 +44,7 @@ var (
 	errFailedToLoadMapperConfig    = fmt.Errorf("failed to load mapper configuration")
 	errFailedToTypeCastEngine      = fmt.Errorf("failed to cast discovery engine to *mapper.DiscoveryEngine for health service")
 	errFailedToInitDiscoveryEngine = fmt.Errorf("failed to initialize discovery engine")
+	errMapperDescriptorMissing     = fmt.Errorf("mapper descriptor missing")
 )
 
 func run() error {
@@ -76,7 +77,7 @@ func run() error {
 
 	desc, ok := config.ServiceDescriptorFor("mapper")
 	if !ok {
-		return fmt.Errorf("mapper descriptor missing")
+		return errMapperDescriptorMissing
 	}
 	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
 		Role:         models.RoleCore,

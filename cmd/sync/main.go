@@ -71,7 +71,8 @@ func main() {
 	// Step 2: Create logger from config
 	logger, err := lifecycle.CreateComponentLogger(ctx, "sync", cfg.Logging)
 	if err != nil {
-		log.Fatalf("Failed to initialize logger: %v", err)
+		_ = bootstrapResult.Close()
+		log.Fatalf("Failed to initialize logger: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
 	}
 
 	// Step 3: Create config loader with proper logger for any future config operations

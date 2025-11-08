@@ -39,7 +39,8 @@ const (
 )
 
 var (
-	errFailedToLoadConfig = fmt.Errorf("failed to load config")
+	errFailedToLoadConfig     = fmt.Errorf("failed to load config")
+	errSNMPDescriptorMissing  = fmt.Errorf("snmp-checker descriptor missing")
 )
 
 func main() {
@@ -78,7 +79,7 @@ func run() error {
 	var cfg snmp.SNMPConfig
 	desc, ok := config.ServiceDescriptorFor("snmp-checker")
 	if !ok {
-		return fmt.Errorf("snmp-checker descriptor missing")
+		return errSNMPDescriptorMissing
 	}
 	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
 		Role:         models.RoleChecker,

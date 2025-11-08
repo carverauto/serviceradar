@@ -19,6 +19,10 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+var (
+	errSysmonDescriptorMissing = fmt.Errorf("sysmon-vm-checker descriptor missing")
+)
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatalf("sysmon-vm checker failed: %v", err)
@@ -49,7 +53,7 @@ func run() error {
 	var cfg sysmonvm.Config
 	desc, ok := config.ServiceDescriptorFor("sysmon-vm-checker")
 	if !ok {
-		return fmt.Errorf("sysmon-vm-checker descriptor missing")
+		return errSysmonDescriptorMissing
 	}
 	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
 		Role:         models.RoleChecker,

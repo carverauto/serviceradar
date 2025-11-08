@@ -59,6 +59,7 @@ var (
 	templateAgentSysmon []byte
 )
 
+//nolint:gochecknoglobals // Template registry must be package-level
 var serviceTemplates = map[string]templateAsset{
 	"core":              {data: templateCore, format: config.ConfigFormatJSON},
 	"sync":              {data: templateSync, format: config.ConfigFormatJSON},
