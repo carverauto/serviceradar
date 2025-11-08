@@ -75,6 +75,28 @@ Once the sync pod reports “Completed streaming results”, the canonical table
 - The analytics dashboard’s “Total Devices” card now shows the raw/processed breakdown plus a yellow callout whenever any skips occur. When investigating, open the browser console and inspect `window.__SERVICERADAR_DEVICE_COUNTER_DEBUG__` to review the last 25 `/api/stats` samples and headers.
 - For ad-hoc validation, hit `/api/stats` directly; the `X-Serviceradar-Stats-*` headers mirror the numbers the alert uses (`X-Serviceradar-Stats-Skipped-Non-Canonical`, `X-Serviceradar-Stats-Skipped-Service-Components`, etc.).
 
+## KV Configuration Checks
+
+- The `serviceradar-tools` pod already bundles the `nats-kv` helper. Exec into the pod and list expected entries before debugging the Admin UI:
+
+  ```bash
+  kubectl exec -n demo deploy/serviceradar-tools -- nats-kv ls config
+  kubectl exec -n demo deploy/serviceradar-tools -- nats-kv get config/core.json
+  kubectl exec -n demo deploy/serviceradar-tools -- nats-kv get config/flowgger.toml
+  ```
+
+- To hydrate collectors that cannot read KV directly, run the new `config-sync` helper (built from `cmd/tools/config-sync`) as an init container or a lightweight sidecar. Example:
+
+  ```bash
+  config-sync \
+    --service flowgger \
+    --output /etc/serviceradar/flowgger.toml \
+    --template /etc/serviceradar/templates/flowgger.toml \
+    --watch
+  ```
+
+  The tool pulls the KV record if it exists, seeds the sanitized template if it does not, writes the merged file to disk, and optionally watches for future changes.
+
 ## Device Registry Feature Flags
 
 - Set `features.require_device_registry` (in `serviceradar-config` → `core.json`) to `true` once the registry/search stack is stable. It blocks `/api/devices` and `/api/devices/{id}` from falling back to Proton so hot-path reads stay in-memory. Flip it back to `false` only if you need the legacy Proton endpoints during an incident.

@@ -1,0 +1,31 @@
+# ServiceRadar OTEL Collector Configuration
+
+[server]
+# Address to bind the OTEL collector to
+bind_address = "0.0.0.0"
+# Port to listen on for OTEL traces
+port = 4317
+
+[nats]
+# NATS server URL (required to enable NATS output)
+url = "nats://localhost:4222"
+
+# Subject to publish traces to (default: events.otel)
+subject = "events.otel"
+
+# JetStream stream name (default: events)
+stream = "events"
+
+# Timeout for NATS operations in seconds (default: 30)
+timeout_secs = 30
+
+# Optional TLS configuration
+[nats.tls]
+cert_file = "/etc/serviceradar/certs/nats-client.pem"
+key_file = "/etc/serviceradar/certs/nats-client-key.pem"
+ca_file = "/etc/serviceradar/certs/root.pem"
+
+[grpc_tls]
+cert_file = "/etc/serviceradar/certs/otel.pem"
+key_file = "/etc/serviceradar/certs/otel-key.pem"
+ca_file = "/etc/serviceradar/certs/root.pem"

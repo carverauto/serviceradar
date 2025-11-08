@@ -42,6 +42,7 @@ spec:
           value: "serviceradar-nats"
         - name: NATS_PORT
           value: "4222"
+        {{- include "serviceradar.configSyncEnv" (dict "cfg" (default (dict) .Values.configSync.trapd)) | nindent 8 }}
         resources:
           limits:
             cpu: "500m"

@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/carverauto/serviceradar/pkg/config"
+	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/mapper"
@@ -70,24 +71,28 @@ func run() error {
 		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
 	}
 
-	// Initialize configuration loader
-	cfgLoader := config.NewConfig(nil)
-
 	// Load configuration with context
 	var cfg mapper.Config
 
-	if err := cfgLoader.LoadAndValidate(ctx, *configFile, &cfg); err != nil {
+	desc, ok := config.ServiceDescriptorFor("mapper")
+	if !ok {
+		return fmt.Errorf("mapper descriptor missing")
+	}
+	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
+		Role:         models.RoleCore,
+		ConfigPath:   *configFile,
+		DisableWatch: true,
+	})
+	if err != nil {
 		return fmt.Errorf("%w: %w", errFailedToLoadMapperConfig, err)
 	}
+	defer func() { _ = bootstrapResult.Close() }()
 
 	// Step 2: Create logger from config
 	logger, err := lifecycle.CreateComponentLogger(ctx, "mapper", cfg.Logging)
 	if err != nil {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
-
-	// Step 3: Create config loader with proper logger for any future config operations
-	_ = config.NewConfig(logger)
 
 	// Create discovery engine with a nil publisher for now
 	// TODO: Create a proper publisher implementation
@@ -115,6 +120,10 @@ func run() error {
 	}
 
 	grpcMapperAgentService := mapper.NewAgentService(snmpEngine)
+
+	bootstrapResult.StartWatch(ctx, logger, &cfg, func() {
+		logger.Warn().Msg("Mapper config updated in KV; restart mapper to apply changes")
+	})
 
 	// Create server options
 	opts := &lifecycle.ServerOptions{

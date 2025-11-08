@@ -22,6 +22,7 @@ import (
 	"log"
 
 	"github.com/carverauto/serviceradar/pkg/config"
+	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/consumers/netflow"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
@@ -51,15 +52,22 @@ func main() {
 		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
 	}
 
-	// Initialize configuration loader
-	cfgLoader := config.NewConfig(nil)
-
 	// Load configuration
 	var netflowCfg netflow.NetflowConfig
 
-	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &netflowCfg); err != nil {
+	desc, ok := config.ServiceDescriptorFor("netflow-consumer")
+	if !ok {
+		log.Fatalf("Failed to load configuration: service descriptor missing")
+	}
+	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &netflowCfg, cfgbootstrap.ServiceOptions{
+		Role:         models.RoleCore,
+		ConfigPath:   *configPath,
+		DisableWatch: true,
+	})
+	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
+	defer func() { _ = bootstrapResult.Close() }()
 
 	// Validate configuration
 	if err := netflowCfg.Validate(); err != nil {
@@ -105,6 +113,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize NetFlow service: %v", err)
 	}
+
+	bootstrapResult.StartWatch(ctx, dbLogger, &netflowCfg, func() {
+		dbLogger.Warn().Msg("NetFlow consumer config updated in KV; restart component to apply changes")
+	})
 
 	// Configure server options
 	opts := &lifecycle.ServerOptions{

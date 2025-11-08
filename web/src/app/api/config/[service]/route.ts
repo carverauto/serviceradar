@@ -15,153 +15,25 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getInternalApiUrl, getApiKey } from "@/lib/config";
+import { proxyConfigRequest } from "@/app/api/admin/config/proxy";
 
-// Get configuration for a specific service
 export async function GET(
   req: NextRequest,
-  { params }: { params: Promise<{ service: string }> }
-) {
-  const { service } = await params;
-  
-  // Simple auth check - verify token is present
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return NextResponse.json(
-      { error: 'Unauthorized: Authentication required' },
-      { status: 401 }
-    );
-  }
-
-  const apiKey = getApiKey();
-  const apiUrl = getInternalApiUrl();
-  const kvStore = req.nextUrl.searchParams.get("kvStore") || "local";
-
-  try {
-    const response = await fetch(`${apiUrl}/config/${service}?kvStore=${kvStore}`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": apiKey,
-        "Authorization": req.headers.get("Authorization") || "",
-      },
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      return NextResponse.json(
-        { error: `Failed to fetch ${service} configuration`, details: errorText },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error(`${service} config fetch error:`, error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
+  ctx: { params: Promise<{ service: string }> },
+): Promise<NextResponse> {
+  return proxyConfigRequest("GET", req, ctx);
 }
 
-// Update configuration for a specific service
 export async function PUT(
   req: NextRequest,
-  { params }: { params: Promise<{ service: string }> }
-) {
-  const { service } = await params;
-  
-  // Simple auth check - verify token is present
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return NextResponse.json(
-      { error: 'Unauthorized: Authentication required' },
-      { status: 401 }
-    );
-  }
-
-  const apiKey = getApiKey();
-  const apiUrl = getInternalApiUrl();
-  const kvStore = req.nextUrl.searchParams.get("kvStore") || "local";
-
-  try {
-    const body = await req.json();
-
-    const response = await fetch(`${apiUrl}/config/${service}?kvStore=${kvStore}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": apiKey,
-        "Authorization": req.headers.get("Authorization") || "",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      return NextResponse.json(
-        { error: `Failed to update ${service} configuration`, details: errorText },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error(`${service} config update error:`, error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
+  ctx: { params: Promise<{ service: string }> },
+): Promise<NextResponse> {
+  return proxyConfigRequest("PUT", req, ctx);
 }
 
-// Delete configuration for a specific service
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: Promise<{ service: string }> }
-) {
-  const { service } = await params;
-  
-  // Simple auth check - verify token is present
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return NextResponse.json(
-      { error: 'Unauthorized: Authentication required' },
-      { status: 401 }
-    );
-  }
-
-  const apiKey = getApiKey();
-  const apiUrl = getInternalApiUrl();
-  const kvStore = req.nextUrl.searchParams.get("kvStore") || "local";
-
-  try {
-    const response = await fetch(`${apiUrl}/config/${service}?kvStore=${kvStore}`, {
-      method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": apiKey,
-        "Authorization": req.headers.get("Authorization") || "",
-      },
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      return NextResponse.json(
-        { error: `Failed to delete ${service} configuration`, details: errorText },
-        { status: response.status }
-      );
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error(`${service} config delete error:`, error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
+  ctx: { params: Promise<{ service: string }> },
+): Promise<NextResponse> {
+  return proxyConfigRequest("DELETE", req, ctx);
 }

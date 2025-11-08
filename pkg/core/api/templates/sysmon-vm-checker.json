@@ -1,0 +1,27 @@
+{
+  "listen_addr": "0.0.0.0:50083",
+  "security": {
+    "mode": "spiffe",
+    "cert_dir": "/etc/serviceradar/certs",
+    "cert_file": "sysmon.pem",
+    "key_file": "sysmon-key.pem",
+    "ca_file": "root.pem",
+    "trust_domain": "PLACEHOLDER_TRUST_DOMAIN",
+    "workload_socket": "unix:/run/spire/sockets/agent.sock",
+    "server_spiffe_id": "spiffe://PLACEHOLDER_TRUST_DOMAIN/ns/PLACEHOLDER_NAMESPACE/sa/PLACEHOLDER_SYSMON_CHECKER_SA"
+  },
+  "poll_interval": 30,
+  "zfs": {
+    "enabled": false,
+    "pools": [""],
+    "include_datasets": false,
+    "use_libzetta": false
+  },
+  "filesystems": [
+    {
+      "name": "/",
+      "type": "zfs",
+      "monitor": true
+    }
+  ]
+}
