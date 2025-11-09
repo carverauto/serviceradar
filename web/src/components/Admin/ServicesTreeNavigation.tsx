@@ -70,20 +70,39 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
       new Set(
         configDescriptors
           .filter((desc) => desc.scope === 'global')
-          .map((desc) => desc.service_type),
+          .map((desc) => (desc.service_type || '').toLowerCase())
+          .filter(Boolean),
       ),
     [configDescriptors],
   );
   const descriptorByType = React.useMemo(() => {
     const map = new Map<string, ConfigDescriptor>();
     configDescriptors.forEach((desc) => {
-      map.set(desc.service_type, desc);
+      const key = desc.service_type?.toLowerCase();
+      if (key) {
+        map.set(key, desc);
+      }
     });
     return map;
   }, [configDescriptors]);
+  const resolveDescriptorForService = React.useCallback(
+    (svc?: { type?: string; name?: string } | null) => {
+      if (!svc) return null;
+      const typeKey = svc.type?.toLowerCase?.() ?? '';
+      const nameKey = svc.name?.toLowerCase?.() ?? '';
+      if (typeKey && descriptorByType.has(typeKey)) {
+        return descriptorByType.get(typeKey) ?? null;
+      }
+      if (nameKey && descriptorByType.has(nameKey)) {
+        return descriptorByType.get(nameKey) ?? null;
+      }
+      return null;
+    },
+    [descriptorByType],
+  );
   const getServiceLabel = React.useCallback(
     (serviceType: string) => {
-      const desc = descriptorByType.get(serviceType);
+      const desc = descriptorByType.get(serviceType?.toLowerCase?.() ?? '');
       if (!desc) {
         return toTitleCase(serviceType);
       }
@@ -104,8 +123,16 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
     [descriptorByType],
   );
   const filterGlobalServices = React.useCallback(
-    (services: ServiceTreeService[] = []) => services.filter((svc) => !globalServiceTypes.has(svc.type)),
-    [globalServiceTypes],
+    (services: ServiceTreeService[] = []) =>
+      services.filter((svc) => {
+        const desc = resolveDescriptorForService(svc);
+        const canonical = (desc?.service_type ?? svc.type ?? '').toLowerCase();
+        if (!canonical) {
+          return true;
+        }
+        return !globalServiceTypes.has(canonical);
+      }),
+    [globalServiceTypes, resolveDescriptorForService],
   );
 
   useEffect(() => {
@@ -132,7 +159,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
 
   const [globalServices, setGlobalServices] = useState<string[]>([]);
   useEffect(() => {
-    setGlobalServices(Array.from(globalServiceTypes));
+    setGlobalServices(Array.from(globalServiceTypes).filter(Boolean));
   }, [globalServiceTypes]);
 
   // Global services (not scoped to agents/pollers)
@@ -165,7 +192,11 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
           ?.split("=")[1];
         const headers: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
         const results: Record<string, 'configured' | 'missing' | 'unknown'> = {};
-        await Promise.all(globalServices.map(async (svc) => {
+        await Promise.all(globalServices.map(async (type) => {
+          const svc = type?.toLowerCase();
+          if (!svc) {
+            return;
+          }
           try {
             const resp = await fetch(`/api/admin/config/${svc}`, { headers });
             results[svc] = resp.ok ? 'configured' : 'missing';
@@ -190,7 +221,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
     const onSaved = (e: Event) => {
       // @ts-expect-error Custom event with detail
       const detail = e.detail || {};
-      const t = detail.serviceType as string | undefined;
+      const t = (detail.serviceType as string | undefined)?.toLowerCase();
       if (!t || !globalServiceTypes.has(t)) {
         return;
       }
@@ -656,21 +687,43 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
                             </div>
                           );
                         }
-                        return services.map((svc) => (
-                        <div
-                          key={`${p.poller_id}:${a.agent_id}:${svc.name}:${svc.type}`}
-                          className={`ml-3 flex items-center gap-2 p-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === `svc:${p.poller_id}:${a.agent_id}:${svc.type}:${svc.name}` ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                          onClick={() => onSelect({ id: `svc:${p.poller_id}:${a.agent_id}:${svc.type}:${svc.name}`, name: svc.name, type: svc.type, kvStore: svc.kv_store_id, pollerId: p.poller_id, agentId: a.agent_id })}
-                        >
-                          <span className="w-3" />
-                          {iconForType('service')}
-                          <span>{highlight(svc.name, filterService)}</span>
-                          <span className="text-xs text-gray-500">({svc.type})</span>
-                          {svc.kv_store_id && (
-                            <span className="ml-2"><KvInfoBadge kvId={svc.kv_store_id} hoverTrigger /></span>
-                          )}
-                        </div>
-                        ));
+                        return services.map((svc) => {
+                          const descriptor = resolveDescriptorForService(svc);
+                          const canonicalType = descriptor?.service_type ?? svc.type;
+                          const rowId = `svc:${p.poller_id}:${a.agent_id}:${canonicalType ?? svc.type}:${svc.name}`;
+                          const canConfigure = Boolean(descriptor && canonicalType);
+                          const displayName = descriptor?.display_name ?? svc.name;
+                          const badgeType = canonicalType ?? svc.type;
+                          const rawTypeDiffers = svc.type && badgeType && svc.type !== badgeType;
+                          return (
+                            <div
+                              key={`${p.poller_id}:${a.agent_id}:${svc.name}:${svc.type}`}
+                              className={`ml-3 flex items-center gap-2 p-1.5 text-sm rounded ${canConfigure ? 'hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer' : 'opacity-60 cursor-not-allowed' } ${selected?.id === rowId ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
+                              title={canConfigure ? undefined : 'No KV descriptor registered for this service yet'}
+                              onClick={() => {
+                                if (!canConfigure || !canonicalType) return;
+                                onSelect({
+                                  id: rowId,
+                                  name: displayName,
+                                  type: canonicalType,
+                                  kvStore: svc.kv_store_id,
+                                  pollerId: p.poller_id,
+                                  agentId: a.agent_id,
+                                });
+                              }}
+                            >
+                              <span className="w-3" />
+                              {iconForType('service')}
+                              <span>{highlight(displayName, filterService)}</span>
+                              {badgeType && (
+                                <span className="text-xs text-gray-500">({badgeType}{rawTypeDiffers ? ` · ${svc.type}` : ''})</span>
+                              )}
+                              {svc.kv_store_id && (
+                                <span className="ml-2"><KvInfoBadge kvId={svc.kv_store_id} hoverTrigger /></span>
+                              )}
+                            </div>
+                          );
+                        });
                       })()}
                       {agentHasMore[`${p.poller_id}:${a.agent_id}`] && (
                         <div className="ml-6">

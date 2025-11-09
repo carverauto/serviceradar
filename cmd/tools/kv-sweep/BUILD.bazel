@@ -1,0 +1,23 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "kv_sweep_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/cmd/tools/kv-sweep",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//alias:config-bootstrap",
+        "//alias:identitymap",
+        "//alias:logger",
+        "//alias:models",
+        "//proto",
+        "@com_github_nats_io_nats_go//:nats_go",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
+
+go_binary(
+    name = "kv-sweep",
+    embed = [":kv_sweep_lib"],
+    visibility = ["//visibility:public"],
+)

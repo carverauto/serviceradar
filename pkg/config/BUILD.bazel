@@ -11,6 +11,9 @@ go_library(
         "kv_client.go",
         "kv_loader.go",
         "kv_watch.go",
+        "registry.go",
+        "sanitize.go",
+        "watchers.go",
     ],
     importpath = "github.com/carverauto/serviceradar/pkg/config",
     visibility = ["//visibility:public"],
@@ -21,6 +24,7 @@ go_library(
         "//pkg/logger",
         "//pkg/models",
         "//proto",
+        "@com_github_google_uuid//:uuid",
         "@com_github_rs_zerolog//:zerolog",
     ],
 )

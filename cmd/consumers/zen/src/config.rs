@@ -1,11 +1,14 @@
-use anyhow::{ensure, Context, Result};
-use serde::Deserialize;
+#[cfg(test)]
+use anyhow::Context;
+use anyhow::{ensure, Result};
+use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const DEFAULT_WORKLOAD_SOCKET: &str = "unix:/run/spire/sockets/agent.sock";
 
-#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SecurityMode {
     #[default]
@@ -14,14 +17,14 @@ pub enum SecurityMode {
     Spiffe,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct TlsConfig {
     pub cert_file: Option<String>,
     pub key_file: Option<String>,
     pub ca_file: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct SecurityConfig {
     #[serde(default)]
     mode: Option<SecurityMode>,
@@ -116,13 +119,13 @@ impl SecurityConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RuleEntry {
     pub order: u32,
     pub key: String,
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageFormat {
     #[default]
@@ -132,7 +135,7 @@ pub enum MessageFormat {
     OtelMetrics,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DecisionGroupConfig {
     #[allow(dead_code)]
     pub name: String,
@@ -144,7 +147,7 @@ pub struct DecisionGroupConfig {
     pub format: MessageFormat,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     pub nats_url: String,
     #[serde(default)]
@@ -179,6 +182,7 @@ fn default_listen_addr() -> String {
 }
 
 impl Config {
+    #[cfg(test)]
     pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
         let content = fs::read_to_string(path).context("Failed to read config file")?;
         let cfg: Config = serde_json::from_str(&content).context("Failed to parse config file")?;

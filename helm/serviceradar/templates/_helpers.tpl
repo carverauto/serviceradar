@@ -36,3 +36,48 @@ imagePullSecrets:
 {{- end }}
 {{- end }}
 {{- end -}}
+
+{{- define "serviceradar.kvEnv" -}}
+{{- $vals := .Values -}}
+{{- $ns := default .Release.Namespace $vals.spire.namespace -}}
+{{- $datasvcSA := default "serviceradar-datasvc" $vals.spire.datasvcServiceAccount -}}
+{{- $trustDomain := default $vals.spire.trustDomain $vals.kv.trustDomain -}}
+{{- $serverID := default (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $datasvcSA) $vals.kv.serverSPIFFEID -}}
+{{- if or (not $vals.kv.enabled) (ne (lower (default "kv" $vals.kv.configSource)) "kv") }}
+{{- else }}
+- name: CONFIG_SOURCE
+  value: "{{ default "kv" $vals.kv.configSource }}"
+- name: KV_ADDRESS
+  value: "{{ default "serviceradar-datasvc:50057" $vals.kv.address }}"
+- name: KV_SEC_MODE
+  value: "{{ default "spiffe" $vals.kv.secMode }}"
+- name: KV_TRUST_DOMAIN
+  value: "{{ $trustDomain }}"
+- name: KV_SERVER_SPIFFE_ID
+  value: "{{ $serverID }}"
+- name: KV_WORKLOAD_SOCKET
+  value: "{{ default "unix:/run/spire/sockets/agent.sock" $vals.kv.workloadSocket }}"
+- name: KV_CERT_DIR
+  value: "{{ default "/etc/serviceradar/certs" $vals.kv.certDir }}"
+{{- end }}
+{{- end -}}
+
+{{- define "serviceradar.coreEnv" -}}
+{{- $vals := .Values -}}
+{{- $ns := default .Release.Namespace $vals.spire.namespace -}}
+{{- $trustDomain := default $vals.spire.trustDomain $vals.coreClient.trustDomain -}}
+{{- $coreSA := default "serviceradar-core" $vals.spire.coreServiceAccount -}}
+{{- $serverID := default (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $coreSA) $vals.coreClient.serverSPIFFEID -}}
+- name: CORE_ADDRESS
+  value: "{{ default "serviceradar-core:50052" $vals.coreClient.address }}"
+- name: CORE_SEC_MODE
+  value: "{{ default "spiffe" $vals.coreClient.secMode }}"
+- name: CORE_TRUST_DOMAIN
+  value: "{{ $trustDomain }}"
+- name: CORE_SERVER_SPIFFE_ID
+  value: "{{ $serverID }}"
+- name: CORE_WORKLOAD_SOCKET
+  value: "{{ default "unix:/run/spire/sockets/agent.sock" $vals.coreClient.workloadSocket }}"
+- name: CORE_CERT_DIR
+  value: "{{ default "/etc/serviceradar/certs" $vals.coreClient.certDir }}"
+{{- end -}}

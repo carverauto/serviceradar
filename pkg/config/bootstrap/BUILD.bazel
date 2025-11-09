@@ -1,0 +1,21 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "bootstrap",
+    srcs = [
+        "core_client.go",
+        "service.go",
+        "template.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/config/bootstrap",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/config",
+        "//pkg/grpc",
+        "//pkg/logger",
+        "//pkg/models",
+        "//proto",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials/insecure",
+    ],
+)

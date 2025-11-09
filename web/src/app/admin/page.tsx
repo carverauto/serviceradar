@@ -22,6 +22,7 @@ import { Database, Settings2, RefreshCw, ShieldPlus } from 'lucide-react';
 import ConfigEditor from '@/components/Admin/ConfigEditor';
 import ServicesTreeNavigation, { SelectedServiceInfo } from '@/components/Admin/ServicesTreeNavigation';
 import RoleGuard from '@/components/Auth/RoleGuard';
+import WatcherTelemetryPanel from '@/components/Admin/WatcherTelemetryPanel';
 
 import type { ServiceTreePoller } from '@/components/Admin/ServicesTreeNavigation';
 
@@ -121,22 +122,25 @@ export default function AdminPage() {
           <ServicesTreeNavigation pollers={pollers} onSelect={handleSelect} selected={selectedService} filterPoller={filterPoller} filterAgent={filterAgent} filterService={filterService} />
         </div>
 
-        <div className="flex-1 overflow-y-auto">
-          {selectedService ? (
-            <ConfigEditor 
-              service={selectedService}
-              kvStore={selectedService.kvStore || ''}
-              onSave={() => fetchServicesTree()}
-            />
-          ) : (
-            <div className="flex items-center justify-center h-full text-gray-500">
-              <div className="text-center">
-                <Settings2 className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                <p className="text-lg">Select a service to configure</p>
-                <p className="text-sm mt-2">Choose from the navigation tree on the left</p>
+        <div className="flex-1 flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-900/30">
+          <WatcherTelemetryPanel />
+          <div className="flex-1 overflow-y-auto">
+            {selectedService ? (
+              <ConfigEditor 
+                service={selectedService}
+                kvStore={selectedService.kvStore || ''}
+                onSave={() => fetchServicesTree()}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-500">
+                <div className="text-center">
+                  <Settings2 className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                  <p className="text-lg">Select a service to configure</p>
+                  <p className="text-sm mt-2">Choose from the navigation tree on the left</p>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </RoleGuard>

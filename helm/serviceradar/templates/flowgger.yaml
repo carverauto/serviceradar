@@ -76,6 +76,7 @@ spec:
           containerPort: 50044
           protocol: TCP
         env:
+{{ include "serviceradar.kvEnv" . | indent 8 }}
         - name: CONFIG_PATH
           value: "/etc/serviceradar/flowgger.toml"
         - name: RUST_LOG

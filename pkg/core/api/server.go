@@ -365,6 +365,12 @@ func WithSpireAdmin(client spireadmin.Client, cfg *models.SpireAdminConfig) func
 	}
 }
 
+func WithTemplateRegistry(registry TemplateRegistry) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.templateRegistry = registry
+	}
+}
+
 // setupRoutes configures the HTTP routes for the API server.
 func (s *APIServer) setupRoutes() {
 	s.setupMiddleware()

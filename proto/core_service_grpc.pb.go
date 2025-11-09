@@ -20,6 +20,9 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	CoreService_GetCanonicalDevice_FullMethodName = "/core.CoreService/GetCanonicalDevice"
+	CoreService_RegisterTemplate_FullMethodName   = "/core.CoreService/RegisterTemplate"
+	CoreService_GetTemplate_FullMethodName        = "/core.CoreService/GetTemplate"
+	CoreService_ListTemplates_FullMethodName      = "/core.CoreService/ListTemplates"
 )
 
 // CoreServiceClient is the client API for CoreService service.
@@ -30,6 +33,12 @@ const (
 type CoreServiceClient interface {
 	// GetCanonicalDevice resolves identities to canonical device records backed by the shared identity map.
 	GetCanonicalDevice(ctx context.Context, in *GetCanonicalDeviceRequest, opts ...grpc.CallOption) (*GetCanonicalDeviceResponse, error)
+	// RegisterTemplate allows services to register their default config templates on startup.
+	RegisterTemplate(ctx context.Context, in *RegisterTemplateRequest, opts ...grpc.CallOption) (*RegisterTemplateResponse, error)
+	// GetTemplate retrieves a registered template for admin seeding operations.
+	GetTemplate(ctx context.Context, in *GetTemplateRequest, opts ...grpc.CallOption) (*GetTemplateResponse, error)
+	// ListTemplates returns metadata about all registered templates.
+	ListTemplates(ctx context.Context, in *ListTemplatesRequest, opts ...grpc.CallOption) (*ListTemplatesResponse, error)
 }
 
 type coreServiceClient struct {
@@ -50,6 +59,36 @@ func (c *coreServiceClient) GetCanonicalDevice(ctx context.Context, in *GetCanon
 	return out, nil
 }
 
+func (c *coreServiceClient) RegisterTemplate(ctx context.Context, in *RegisterTemplateRequest, opts ...grpc.CallOption) (*RegisterTemplateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RegisterTemplateResponse)
+	err := c.cc.Invoke(ctx, CoreService_RegisterTemplate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreServiceClient) GetTemplate(ctx context.Context, in *GetTemplateRequest, opts ...grpc.CallOption) (*GetTemplateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetTemplateResponse)
+	err := c.cc.Invoke(ctx, CoreService_GetTemplate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coreServiceClient) ListTemplates(ctx context.Context, in *ListTemplatesRequest, opts ...grpc.CallOption) (*ListTemplatesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListTemplatesResponse)
+	err := c.cc.Invoke(ctx, CoreService_ListTemplates_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoreServiceServer is the server API for CoreService service.
 // All implementations must embed UnimplementedCoreServiceServer
 // for forward compatibility.
@@ -58,6 +97,12 @@ func (c *coreServiceClient) GetCanonicalDevice(ctx context.Context, in *GetCanon
 type CoreServiceServer interface {
 	// GetCanonicalDevice resolves identities to canonical device records backed by the shared identity map.
 	GetCanonicalDevice(context.Context, *GetCanonicalDeviceRequest) (*GetCanonicalDeviceResponse, error)
+	// RegisterTemplate allows services to register their default config templates on startup.
+	RegisterTemplate(context.Context, *RegisterTemplateRequest) (*RegisterTemplateResponse, error)
+	// GetTemplate retrieves a registered template for admin seeding operations.
+	GetTemplate(context.Context, *GetTemplateRequest) (*GetTemplateResponse, error)
+	// ListTemplates returns metadata about all registered templates.
+	ListTemplates(context.Context, *ListTemplatesRequest) (*ListTemplatesResponse, error)
 	mustEmbedUnimplementedCoreServiceServer()
 }
 
@@ -70,6 +115,15 @@ type UnimplementedCoreServiceServer struct{}
 
 func (UnimplementedCoreServiceServer) GetCanonicalDevice(context.Context, *GetCanonicalDeviceRequest) (*GetCanonicalDeviceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCanonicalDevice not implemented")
+}
+func (UnimplementedCoreServiceServer) RegisterTemplate(context.Context, *RegisterTemplateRequest) (*RegisterTemplateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterTemplate not implemented")
+}
+func (UnimplementedCoreServiceServer) GetTemplate(context.Context, *GetTemplateRequest) (*GetTemplateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTemplate not implemented")
+}
+func (UnimplementedCoreServiceServer) ListTemplates(context.Context, *ListTemplatesRequest) (*ListTemplatesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListTemplates not implemented")
 }
 func (UnimplementedCoreServiceServer) mustEmbedUnimplementedCoreServiceServer() {}
 func (UnimplementedCoreServiceServer) testEmbeddedByValue()                     {}
@@ -110,6 +164,60 @@ func _CoreService_GetCanonicalDevice_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoreService_RegisterTemplate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterTemplateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreServiceServer).RegisterTemplate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreService_RegisterTemplate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreServiceServer).RegisterTemplate(ctx, req.(*RegisterTemplateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreService_GetTemplate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTemplateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreServiceServer).GetTemplate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreService_GetTemplate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreServiceServer).GetTemplate(ctx, req.(*GetTemplateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoreService_ListTemplates_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListTemplatesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreServiceServer).ListTemplates(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreService_ListTemplates_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreServiceServer).ListTemplates(ctx, req.(*ListTemplatesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CoreService_ServiceDesc is the grpc.ServiceDesc for CoreService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -120,6 +228,18 @@ var CoreService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCanonicalDevice",
 			Handler:    _CoreService_GetCanonicalDevice_Handler,
+		},
+		{
+			MethodName: "RegisterTemplate",
+			Handler:    _CoreService_RegisterTemplate_Handler,
+		},
+		{
+			MethodName: "GetTemplate",
+			Handler:    _CoreService_GetTemplate_Handler,
+		},
+		{
+			MethodName: "ListTemplates",
+			Handler:    _CoreService_ListTemplates_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

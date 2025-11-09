@@ -1,0 +1,25 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "templateregistry",
+    srcs = ["registry.go"],
+    importpath = "github.com/carverauto/serviceradar/pkg/core/templateregistry",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/config",
+        "//pkg/logger",
+        "//proto",
+    ],
+)
+
+go_test(
+    name = "templateregistry_test",
+    srcs = ["registry_test.go"],
+    embed = [":templateregistry"],
+    deps = [
+        "//pkg/config",
+        "//pkg/logger",
+        "//proto",
+        "@com_github_stretchr_testify//require",
+    ],
+)

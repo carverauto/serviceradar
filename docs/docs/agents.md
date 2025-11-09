@@ -85,17 +85,15 @@ Once the sync pod reports “Completed streaming results”, the canonical table
   kubectl exec -n demo deploy/serviceradar-tools -- nats-kv get config/flowgger.toml
   ```
 
-- To hydrate collectors that cannot read KV directly, run the new `config-sync` helper (built from `cmd/tools/config-sync`) as an init container or a lightweight sidecar. Example:
+- All Rust collectors now link the shared bootstrap library and pull KV at boot. If you need to rehydrate configs manually, exec into the pod and write the baked template back to disk:
 
   ```bash
-  config-sync \
-    --service flowgger \
-    --output /etc/serviceradar/flowgger.toml \
-    --template /etc/serviceradar/templates/flowgger.toml \
-    --watch
+  kubectl exec -n demo deploy/serviceradar-flowgger -- \
+    cp /etc/serviceradar/templates/flowgger.toml /etc/serviceradar/flowgger.toml
   ```
 
-  The tool pulls the KV record if it exists, seeds the sanitized template if it does not, writes the merged file to disk, and optionally watches for future changes.
+  The service will reseed KV on next start; no separate `config-sync` sidecar is required.
+- Hot reload is unified across OTEL, flowgger, trapd, and zen: when `CONFIG_SOURCE=kv`, each binary calls `config_bootstrap::watch()` and relies on the shared `RestartHandle` helper. Any `nats-kv put config/<service>` will log `KV update detected; restarting process to apply new config`, spawn a fresh process, and exit the old one so supervisors/container runtimes apply the overlay. Set `CONFIG_SOURCE=file` (or the service-specific `*_SEED_KV=false`) if you need to temporarily disable the watcher in lab environments.
 
 ## Device Registry Feature Flags
 

@@ -1,0 +1,57 @@
+{
+  "description": "Shared sanitization rules for both Go and Rust config bootstrappers",
+  "toml_deny_list": [
+    {
+      "table": "*",
+      "key": "token"
+    },
+    {
+      "table": "*",
+      "key": "secret"
+    },
+    {
+      "table": "*",
+      "key": "api_key"
+    },
+    {
+      "table": "*",
+      "key": "apiKey"
+    },
+    {
+      "table": "*",
+      "key": "password"
+    },
+    {
+      "table": "*",
+      "key": "private_key"
+    },
+    {
+      "table": "*",
+      "key": "privateKey"
+    },
+    {
+      "table": "outputs.prometheus",
+      "key": "token"
+    },
+    {
+      "table": "outputs.nats",
+      "key": "token"
+    },
+    {
+      "table": "security",
+      "key": "*"
+    },
+    {
+      "table": "tls",
+      "key": "cert_file"
+    },
+    {
+      "table": "tls",
+      "key": "key_file"
+    },
+    {
+      "table": "tls",
+      "key": "ca_file"
+    }
+  ]
+}

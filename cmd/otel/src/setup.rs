@@ -1,4 +1,4 @@
-use log::{debug, error, info, warn};
+use log::{debug, info};
 use std::net::SocketAddr;
 
 use crate::cli::CLI;
@@ -27,28 +27,6 @@ pub fn handle_generate_config() -> Result<(), Box<dyn std::error::Error>> {
     info!("Generating example configuration");
     println!("{}", Config::example_toml());
     Ok(())
-}
-
-/// Loads configuration from the specified path or defaults
-pub fn load_configuration(args: &CLI) -> Result<Config, Box<dyn std::error::Error>> {
-    debug!("Loading configuration from: {:?}", args.config);
-
-    match Config::load(args.config.as_deref()) {
-        Ok(cfg) => {
-            debug!("Configuration loaded successfully");
-            Ok(cfg)
-        }
-        Err(e) => {
-            error!("Failed to load configuration: {e}");
-            if args.config.is_some() {
-                // If a specific config was requested and failed, exit
-                Err(e.into())
-            } else {
-                warn!("Using default configuration");
-                Ok(Config::default())
-            }
-        }
-    }
 }
 
 /// Parses the bind address from configuration

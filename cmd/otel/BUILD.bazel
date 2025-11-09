@@ -35,7 +35,12 @@ rust_binary(
     name = "otel",
     srcs = ["src/main.rs"],
     edition = "2024",
-    deps = all_crate_deps(normal = True) + [":build_script", ":otel_lib", "//rust/kvutil:kvutil"],
+    deps = all_crate_deps(normal = True) + [
+        ":build_script",
+        ":otel_lib",
+        "//rust/config-bootstrap:config_bootstrap",
+        "//rust/kvutil:kvutil",
+    ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
 

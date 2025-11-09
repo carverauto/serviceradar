@@ -149,6 +149,7 @@ type CoreServiceConfig struct {
 	Metrics        Metrics                `json:"metrics"`
 	SNMP           SNMPConfig             `json:"snmp"`
 	Security       *SecurityConfig        `json:"security"`
+	KVSecurity     *SecurityConfig        `json:"kv_security,omitempty"`
 	Auth           *AuthConfig            `json:"auth,omitempty"`
 	CORS           CORSConfig             `json:"cors,omitempty"`
 	Database       ProtonDatabase         `json:"database"`

@@ -66,11 +66,6 @@ func TestQualifyKVKeyPrefixesDomains(t *testing.T) {
 	)
 }
 
-func TestServiceTemplatesCoverDescriptors(t *testing.T) {
-	for _, desc := range config.ServiceDescriptors() {
-		tmpl, ok := serviceTemplates[desc.Name]
-		require.Truef(t, ok, "missing template for descriptor %s", desc.Name)
-		require.NotEmptyf(t, tmpl.data, "empty template for descriptor %s", desc.Name)
-		require.Equalf(t, desc.Format, tmpl.format, "format mismatch for descriptor %s", desc.Name)
-	}
-}
+// TestServiceTemplatesCoverDescriptors was removed because templates are now
+// dynamically registered by services at startup, not embedded in core.
+// Services register their own templates via the template registry.

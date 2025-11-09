@@ -25,6 +25,18 @@ spec:
         env:
         - name: LOG_LEVEL
           value: "info"
+        - name: CORE_ADDRESS
+          value: "serviceradar-core:50052"
+        - name: CORE_SEC_MODE
+          value: "spiffe"
+        - name: CORE_TRUST_DOMAIN
+          value: "carverauto.dev"
+        - name: CORE_SERVER_SPIFFE_ID
+          value: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core"
+        - name: CORE_WORKLOAD_SOCKET
+          value: "unix:/run/spire/sockets/agent.sock"
+        - name: CORE_CERT_DIR
+          value: "/etc/serviceradar/certs"
         volumeMounts:
         - name: faker-data
           mountPath: /var/lib/serviceradar/faker

@@ -8,6 +8,7 @@ go_library(
     deps = [
         "//alias:dusk",
         "//alias:config",
+        "//alias:config-bootstrap",
         "//alias:edgeonboarding",
         "//alias:lifecycle",
         "//alias:models",

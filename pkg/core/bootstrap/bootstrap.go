@@ -49,8 +49,13 @@ func BuildAPIServerOptions(cfg *models.CoreServiceConfig, log logger.Logger, spi
 		apiOptions = append(apiOptions, api.WithKVAddress(kvAddr))
 	}
 
-	if cfg.Security != nil {
-		apiOptions = append(apiOptions, api.WithKVSecurity(cfg.Security))
+	kvSecurity := cfg.KVSecurity
+	if kvSecurity == nil {
+		kvSecurity = cfg.Security
+	}
+
+	if kvSecurity != nil {
+		apiOptions = append(apiOptions, api.WithKVSecurity(kvSecurity))
 	}
 
 	if len(cfg.KVEndpoints) > 0 {
@@ -62,7 +67,7 @@ func BuildAPIServerOptions(cfg *models.CoreServiceConfig, log logger.Logger, spi
 				Address:  endpoint.Address,
 				Domain:   endpoint.Domain,
 				Type:     endpoint.Type,
-				Security: cfg.Security,
+				Security: kvSecurity,
 			}
 		}
 		apiOptions = append(apiOptions, api.WithKVEndpoints(endpoints))

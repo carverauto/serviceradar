@@ -10,6 +10,7 @@ go_library(
     deps = [
         "//alias:sysmonvm",
         "//alias:config",
+        "//alias:config-bootstrap",
         "//alias:edgeonboarding",
         "//alias:lifecycle",
         "//alias:logger",

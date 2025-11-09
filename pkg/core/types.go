@@ -74,6 +74,7 @@ type Server struct {
 	natsReconnectMu     sync.Mutex
 	natsReconnectActive bool
 	edgeOnboarding      *edgeOnboardingService
+	templateRegistry    templateRegistry
 	// MCP removed from Go server; SRQL tooling moved out of process
 	metricBuffers           map[string][]*models.TimeseriesMetric
 	serviceBuffers          map[string][]*models.ServiceStatus

@@ -25,6 +25,10 @@ rust_binary(
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
     edition = "2021",
-    deps = all_crate_deps(normal = True) + [":build_script", "//rust/kvutil:kvutil"],
+    deps = all_crate_deps(normal = True) + [
+        ":build_script",
+        "//rust/config-bootstrap:config_bootstrap",
+        "//rust/kvutil:kvutil",
+    ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )

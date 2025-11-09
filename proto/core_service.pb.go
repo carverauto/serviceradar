@@ -168,6 +168,431 @@ func (x *GetCanonicalDeviceResponse) GetHydrated() bool {
 	return false
 }
 
+// RegisterTemplateRequest registers a service's default configuration template with the core.
+// Services call this on startup to make their templates available for admin seeding operations.
+type RegisterTemplateRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// service_name matches the ServiceDescriptor.Name from pkg/config/registry.go (e.g., "core", "snmp-checker")
+	ServiceName string `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	// template_data contains the default configuration bytes (JSON or TOML)
+	TemplateData []byte `protobuf:"bytes,2,opt,name=template_data,json=templateData,proto3" json:"template_data,omitempty"`
+	// format indicates the configuration format ("json" or "toml")
+	Format string `protobuf:"bytes,3,opt,name=format,proto3" json:"format,omitempty"`
+	// service_version optional semver for versioning templates
+	ServiceVersion string `protobuf:"bytes,4,opt,name=service_version,json=serviceVersion,proto3" json:"service_version,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *RegisterTemplateRequest) Reset() {
+	*x = RegisterTemplateRequest{}
+	mi := &file_core_service_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterTemplateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterTemplateRequest) ProtoMessage() {}
+
+func (x *RegisterTemplateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_core_service_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterTemplateRequest.ProtoReflect.Descriptor instead.
+func (*RegisterTemplateRequest) Descriptor() ([]byte, []int) {
+	return file_core_service_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RegisterTemplateRequest) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *RegisterTemplateRequest) GetTemplateData() []byte {
+	if x != nil {
+		return x.TemplateData
+	}
+	return nil
+}
+
+func (x *RegisterTemplateRequest) GetFormat() string {
+	if x != nil {
+		return x.Format
+	}
+	return ""
+}
+
+func (x *RegisterTemplateRequest) GetServiceVersion() string {
+	if x != nil {
+		return x.ServiceVersion
+	}
+	return ""
+}
+
+// RegisterTemplateResponse confirms template registration.
+type RegisterTemplateResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// success indicates whether the template was registered
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// message contains any error or informational text
+	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterTemplateResponse) Reset() {
+	*x = RegisterTemplateResponse{}
+	mi := &file_core_service_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterTemplateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterTemplateResponse) ProtoMessage() {}
+
+func (x *RegisterTemplateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_core_service_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterTemplateResponse.ProtoReflect.Descriptor instead.
+func (*RegisterTemplateResponse) Descriptor() ([]byte, []int) {
+	return file_core_service_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RegisterTemplateResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *RegisterTemplateResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+// GetTemplateRequest retrieves a registered service template.
+type GetTemplateRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// service_name to fetch template for
+	ServiceName   string `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetTemplateRequest) Reset() {
+	*x = GetTemplateRequest{}
+	mi := &file_core_service_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetTemplateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetTemplateRequest) ProtoMessage() {}
+
+func (x *GetTemplateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_core_service_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetTemplateRequest.ProtoReflect.Descriptor instead.
+func (*GetTemplateRequest) Descriptor() ([]byte, []int) {
+	return file_core_service_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetTemplateRequest) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+// GetTemplateResponse returns the registered template if available.
+type GetTemplateResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// found indicates whether a template exists for the service
+	Found bool `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
+	// template_data contains the configuration bytes
+	TemplateData []byte `protobuf:"bytes,2,opt,name=template_data,json=templateData,proto3" json:"template_data,omitempty"`
+	// format indicates the configuration format ("json" or "toml")
+	Format string `protobuf:"bytes,3,opt,name=format,proto3" json:"format,omitempty"`
+	// service_version semver of the template
+	ServiceVersion string `protobuf:"bytes,4,opt,name=service_version,json=serviceVersion,proto3" json:"service_version,omitempty"`
+	// registered_at timestamp when template was registered
+	RegisteredAt  int64 `protobuf:"varint,5,opt,name=registered_at,json=registeredAt,proto3" json:"registered_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetTemplateResponse) Reset() {
+	*x = GetTemplateResponse{}
+	mi := &file_core_service_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetTemplateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetTemplateResponse) ProtoMessage() {}
+
+func (x *GetTemplateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_core_service_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetTemplateResponse.ProtoReflect.Descriptor instead.
+func (*GetTemplateResponse) Descriptor() ([]byte, []int) {
+	return file_core_service_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *GetTemplateResponse) GetFound() bool {
+	if x != nil {
+		return x.Found
+	}
+	return false
+}
+
+func (x *GetTemplateResponse) GetTemplateData() []byte {
+	if x != nil {
+		return x.TemplateData
+	}
+	return nil
+}
+
+func (x *GetTemplateResponse) GetFormat() string {
+	if x != nil {
+		return x.Format
+	}
+	return ""
+}
+
+func (x *GetTemplateResponse) GetServiceVersion() string {
+	if x != nil {
+		return x.ServiceVersion
+	}
+	return ""
+}
+
+func (x *GetTemplateResponse) GetRegisteredAt() int64 {
+	if x != nil {
+		return x.RegisteredAt
+	}
+	return 0
+}
+
+// ListTemplatesRequest requests all registered templates.
+type ListTemplatesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// filter by service_name prefix (optional)
+	Prefix        string `protobuf:"bytes,1,opt,name=prefix,proto3" json:"prefix,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListTemplatesRequest) Reset() {
+	*x = ListTemplatesRequest{}
+	mi := &file_core_service_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListTemplatesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListTemplatesRequest) ProtoMessage() {}
+
+func (x *ListTemplatesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_core_service_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListTemplatesRequest.ProtoReflect.Descriptor instead.
+func (*ListTemplatesRequest) Descriptor() ([]byte, []int) {
+	return file_core_service_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ListTemplatesRequest) GetPrefix() string {
+	if x != nil {
+		return x.Prefix
+	}
+	return ""
+}
+
+// ListTemplatesResponse returns summary of registered templates.
+type ListTemplatesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Templates     []*TemplateInfo        `protobuf:"bytes,1,rep,name=templates,proto3" json:"templates,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListTemplatesResponse) Reset() {
+	*x = ListTemplatesResponse{}
+	mi := &file_core_service_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListTemplatesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListTemplatesResponse) ProtoMessage() {}
+
+func (x *ListTemplatesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_core_service_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListTemplatesResponse.ProtoReflect.Descriptor instead.
+func (*ListTemplatesResponse) Descriptor() ([]byte, []int) {
+	return file_core_service_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ListTemplatesResponse) GetTemplates() []*TemplateInfo {
+	if x != nil {
+		return x.Templates
+	}
+	return nil
+}
+
+// TemplateInfo provides metadata about a registered template.
+type TemplateInfo struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ServiceName    string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	Format         string                 `protobuf:"bytes,2,opt,name=format,proto3" json:"format,omitempty"`
+	ServiceVersion string                 `protobuf:"bytes,3,opt,name=service_version,json=serviceVersion,proto3" json:"service_version,omitempty"`
+	RegisteredAt   int64                  `protobuf:"varint,4,opt,name=registered_at,json=registeredAt,proto3" json:"registered_at,omitempty"`
+	SizeBytes      int32                  `protobuf:"varint,5,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *TemplateInfo) Reset() {
+	*x = TemplateInfo{}
+	mi := &file_core_service_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TemplateInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TemplateInfo) ProtoMessage() {}
+
+func (x *TemplateInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_core_service_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TemplateInfo.ProtoReflect.Descriptor instead.
+func (*TemplateInfo) Descriptor() ([]byte, []int) {
+	return file_core_service_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *TemplateInfo) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *TemplateInfo) GetFormat() string {
+	if x != nil {
+		return x.Format
+	}
+	return ""
+}
+
+func (x *TemplateInfo) GetServiceVersion() string {
+	if x != nil {
+		return x.ServiceVersion
+	}
+	return ""
+}
+
+func (x *TemplateInfo) GetRegisteredAt() int64 {
+	if x != nil {
+		return x.RegisteredAt
+	}
+	return 0
+}
+
+func (x *TemplateInfo) GetSizeBytes() int32 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
 var File_core_service_proto protoreflect.FileDescriptor
 
 const file_core_service_proto_rawDesc = "" +
@@ -183,9 +608,39 @@ const file_core_service_proto_rawDesc = "" +
 	"\vmatched_key\x18\x03 \x01(\v2\x1b.identitymap.v1.IdentityKeyR\n" +
 	"matchedKey\x12\x1a\n" +
 	"\brevision\x18\x04 \x01(\x04R\brevision\x12\x1a\n" +
-	"\bhydrated\x18\x05 \x01(\bR\bhydrated2f\n" +
+	"\bhydrated\x18\x05 \x01(\bR\bhydrated\"\xa2\x01\n" +
+	"\x17RegisterTemplateRequest\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12#\n" +
+	"\rtemplate_data\x18\x02 \x01(\fR\ftemplateData\x12\x16\n" +
+	"\x06format\x18\x03 \x01(\tR\x06format\x12'\n" +
+	"\x0fservice_version\x18\x04 \x01(\tR\x0eserviceVersion\"N\n" +
+	"\x18RegisterTemplateResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"7\n" +
+	"\x12GetTemplateRequest\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\"\xb6\x01\n" +
+	"\x13GetTemplateResponse\x12\x14\n" +
+	"\x05found\x18\x01 \x01(\bR\x05found\x12#\n" +
+	"\rtemplate_data\x18\x02 \x01(\fR\ftemplateData\x12\x16\n" +
+	"\x06format\x18\x03 \x01(\tR\x06format\x12'\n" +
+	"\x0fservice_version\x18\x04 \x01(\tR\x0eserviceVersion\x12#\n" +
+	"\rregistered_at\x18\x05 \x01(\x03R\fregisteredAt\".\n" +
+	"\x14ListTemplatesRequest\x12\x16\n" +
+	"\x06prefix\x18\x01 \x01(\tR\x06prefix\"I\n" +
+	"\x15ListTemplatesResponse\x120\n" +
+	"\ttemplates\x18\x01 \x03(\v2\x12.core.TemplateInfoR\ttemplates\"\xb6\x01\n" +
+	"\fTemplateInfo\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x16\n" +
+	"\x06format\x18\x02 \x01(\tR\x06format\x12'\n" +
+	"\x0fservice_version\x18\x03 \x01(\tR\x0eserviceVersion\x12#\n" +
+	"\rregistered_at\x18\x04 \x01(\x03R\fregisteredAt\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x05 \x01(\x05R\tsizeBytes2\xc7\x02\n" +
 	"\vCoreService\x12W\n" +
-	"\x12GetCanonicalDevice\x12\x1f.core.GetCanonicalDeviceRequest\x1a .core.GetCanonicalDeviceResponseB*Z(github.com/carverauto/serviceradar/protob\x06proto3"
+	"\x12GetCanonicalDevice\x12\x1f.core.GetCanonicalDeviceRequest\x1a .core.GetCanonicalDeviceResponse\x12Q\n" +
+	"\x10RegisterTemplate\x12\x1d.core.RegisterTemplateRequest\x1a\x1e.core.RegisterTemplateResponse\x12B\n" +
+	"\vGetTemplate\x12\x18.core.GetTemplateRequest\x1a\x19.core.GetTemplateResponse\x12H\n" +
+	"\rListTemplates\x12\x1a.core.ListTemplatesRequest\x1a\x1b.core.ListTemplatesResponseB*Z(github.com/carverauto/serviceradar/protob\x06proto3"
 
 var (
 	file_core_service_proto_rawDescOnce sync.Once
@@ -199,24 +654,38 @@ func file_core_service_proto_rawDescGZIP() []byte {
 	return file_core_service_proto_rawDescData
 }
 
-var file_core_service_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_core_service_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_core_service_proto_goTypes = []any{
 	(*GetCanonicalDeviceRequest)(nil),  // 0: core.GetCanonicalDeviceRequest
 	(*GetCanonicalDeviceResponse)(nil), // 1: core.GetCanonicalDeviceResponse
-	(*v1.IdentityKey)(nil),             // 2: identitymap.v1.IdentityKey
-	(*v1.CanonicalRecord)(nil),         // 3: identitymap.v1.CanonicalRecord
+	(*RegisterTemplateRequest)(nil),    // 2: core.RegisterTemplateRequest
+	(*RegisterTemplateResponse)(nil),   // 3: core.RegisterTemplateResponse
+	(*GetTemplateRequest)(nil),         // 4: core.GetTemplateRequest
+	(*GetTemplateResponse)(nil),        // 5: core.GetTemplateResponse
+	(*ListTemplatesRequest)(nil),       // 6: core.ListTemplatesRequest
+	(*ListTemplatesResponse)(nil),      // 7: core.ListTemplatesResponse
+	(*TemplateInfo)(nil),               // 8: core.TemplateInfo
+	(*v1.IdentityKey)(nil),             // 9: identitymap.v1.IdentityKey
+	(*v1.CanonicalRecord)(nil),         // 10: identitymap.v1.CanonicalRecord
 }
 var file_core_service_proto_depIdxs = []int32{
-	2, // 0: core.GetCanonicalDeviceRequest.identity_keys:type_name -> identitymap.v1.IdentityKey
-	3, // 1: core.GetCanonicalDeviceResponse.record:type_name -> identitymap.v1.CanonicalRecord
-	2, // 2: core.GetCanonicalDeviceResponse.matched_key:type_name -> identitymap.v1.IdentityKey
-	0, // 3: core.CoreService.GetCanonicalDevice:input_type -> core.GetCanonicalDeviceRequest
-	1, // 4: core.CoreService.GetCanonicalDevice:output_type -> core.GetCanonicalDeviceResponse
-	4, // [4:5] is the sub-list for method output_type
-	3, // [3:4] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	9,  // 0: core.GetCanonicalDeviceRequest.identity_keys:type_name -> identitymap.v1.IdentityKey
+	10, // 1: core.GetCanonicalDeviceResponse.record:type_name -> identitymap.v1.CanonicalRecord
+	9,  // 2: core.GetCanonicalDeviceResponse.matched_key:type_name -> identitymap.v1.IdentityKey
+	8,  // 3: core.ListTemplatesResponse.templates:type_name -> core.TemplateInfo
+	0,  // 4: core.CoreService.GetCanonicalDevice:input_type -> core.GetCanonicalDeviceRequest
+	2,  // 5: core.CoreService.RegisterTemplate:input_type -> core.RegisterTemplateRequest
+	4,  // 6: core.CoreService.GetTemplate:input_type -> core.GetTemplateRequest
+	6,  // 7: core.CoreService.ListTemplates:input_type -> core.ListTemplatesRequest
+	1,  // 8: core.CoreService.GetCanonicalDevice:output_type -> core.GetCanonicalDeviceResponse
+	3,  // 9: core.CoreService.RegisterTemplate:output_type -> core.RegisterTemplateResponse
+	5,  // 10: core.CoreService.GetTemplate:output_type -> core.GetTemplateResponse
+	7,  // 11: core.CoreService.ListTemplates:output_type -> core.ListTemplatesResponse
+	8,  // [8:12] is the sub-list for method output_type
+	4,  // [4:8] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_core_service_proto_init() }
@@ -230,7 +699,7 @@ func file_core_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_core_service_proto_rawDesc), len(file_core_service_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
