@@ -27,6 +27,7 @@ type identityKVClient interface {
 	Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
 	PutIfAbsent(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error)
 	Update(ctx context.Context, in *proto.UpdateRequest, opts ...grpc.CallOption) (*proto.UpdateResponse, error)
+	Delete(ctx context.Context, in *proto.DeleteRequest, opts ...grpc.CallOption) (*proto.DeleteResponse, error)
 }
 
 // GetCanonicalDevice resolves a set of identity keys to the canonical device record maintained in KV.
@@ -129,6 +130,11 @@ func (s *Server) lookupIdentityFromKV(ctx context.Context, namespace string, key
 		if errors.Is(err, identitymap.ErrCorruptRecord) {
 			if s.logger != nil {
 				s.logger.Warn().Err(err).Str("key", key.KeyPath(namespace)).Msg("Skipping corrupt canonical identity record from KV")
+			}
+			if _, delErr := s.identityKVClient.Delete(ctx, &proto.DeleteRequest{Key: key.KeyPath(namespace)}); delErr != nil {
+				if s.logger != nil {
+					s.logger.Warn().Err(delErr).Str("key", key.KeyPath(namespace)).Msg("Failed to delete corrupt canonical identity record from KV")
+				}
 			}
 			return nil, resp.GetRevision(), nil
 		}

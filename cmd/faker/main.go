@@ -20,6 +20,7 @@ package main
 import (
 	"context"
 	cryptoRand "crypto/rand"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -38,6 +39,9 @@ import (
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
+
+//go:embed config.json
+var defaultConfigTemplate []byte
 
 var (
 	errConfigNil                     = errors.New("config must not be nil")
@@ -502,7 +506,7 @@ func loadFakerConfig(ctx context.Context, path string, cfg *Config) *cfgbootstra
 		log.Fatalf("config path %s is a directory", path)
 	}
 
-	result, err := cfgbootstrap.Service(ctx, desc, cfg, cfgbootstrap.ServiceOptions{
+	result, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, cfg, defaultConfigTemplate, cfgbootstrap.ServiceOptions{
 		Role:         models.RoleAgent,
 		ConfigPath:   path,
 		DisableWatch: true,

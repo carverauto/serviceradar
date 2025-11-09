@@ -32,7 +32,11 @@ spec:
           readOnly: true
         - name: otel-data
           mountPath: /var/lib/serviceradar
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
         env:
+{{ include "serviceradar.kvEnv" . | indent 8 }}
         - name: CONFIG_PATH
           value: "/etc/serviceradar/otel.toml"
         - name: WAIT_FOR_NATS
@@ -75,6 +79,10 @@ spec:
       - name: otel-data
         persistentVolumeClaim:
           claimName: serviceradar-otel-data
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

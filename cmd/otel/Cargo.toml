@@ -32,7 +32,7 @@ hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-kvutil = { path = "../../rust/kvutil" }
+config-bootstrap = { path = "../../rust/config-bootstrap" }
 
 [dev-dependencies]
 tempfile = "3.0"

@@ -222,6 +222,8 @@ For certificate generation instructions, see the [TLS Security](./tls-security.m
 
 ## Configuring Components to Use the KV Store
 
+> **Heads up:** As of this change, the demo Kubernetes manifests, Helm chart, and Docker Compose stack all export `CONFIG_SOURCE=kv` plus the appropriate `KV_*` (and `CORE_*` for services that register templates) out of the box. You only need to follow the steps below if you're managing a bare-metal/edge install or have custom systemd units; cluster deployments now seed and watch the KV store automatically.
+
 ### Agent Configuration
 
 To enable an agent to use the KV store for dynamic configuration:

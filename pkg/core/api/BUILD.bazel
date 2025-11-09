@@ -17,11 +17,13 @@ go_library(
         "snmp_status.go",
         "spire.go",
         "sysmon.go",
+        "template_registry_adapter.go",
         "types.go",
     ],
     importpath = "github.com/carverauto/serviceradar/pkg/core/api",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/config",
         "//pkg/core/auth",
         "//pkg/devicealias",
         "//pkg/db",

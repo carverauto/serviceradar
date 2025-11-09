@@ -36,9 +36,26 @@ spec:
           readOnly: true
         - name: otel-data
           mountPath: /var/lib/serviceradar
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
         env:
+        - name: CONFIG_SOURCE
+          value: "kv"
         - name: CONFIG_PATH
           value: "/etc/serviceradar/otel.toml"
+        - name: KV_ADDRESS
+          value: "serviceradar-datasvc:50057"
+        - name: KV_SEC_MODE
+          value: "spiffe"
+        - name: KV_TRUST_DOMAIN
+          value: "carverauto.dev"
+        - name: KV_SERVER_SPIFFE_ID
+          value: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc"
+        - name: KV_WORKLOAD_SOCKET
+          value: "unix:/run/spire/sockets/agent.sock"
+        - name: KV_CERT_DIR
+          value: "/etc/serviceradar/certs"
         - name: WAIT_FOR_NATS
           value: "true"
         - name: NATS_HOST
@@ -80,6 +97,10 @@ spec:
       - name: otel-data
         persistentVolumeClaim:
           claimName: serviceradar-otel-data
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

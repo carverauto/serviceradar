@@ -579,12 +579,12 @@ write_file(
 """,
     build_script_data = [
         ":workspace_perl_tool",
-        "@rust_crates__openssl-src-300.5.2-3.5.2//:openssl_src_runfiles",
-        "@rust_crates__openssl-src-300.5.2-3.5.2//:openssl_src_readme",
+        "@rust_crates__openssl-src-300.5.4-3.5.4//:openssl_src_runfiles",
+        "@rust_crates__openssl-src-300.5.4-3.5.4//:openssl_src_readme",
     ],
     build_script_env = {
         "OPENSSL_SRC_PERL": "$(execpath :workspace_perl_tool)",
-        "RULES_RUST_OPENSSL_SRC_DIR": "$(location @rust_crates__openssl-src-300.5.2-3.5.2//:openssl_src_readme)",
+        "RULES_RUST_OPENSSL_SRC_DIR": "$(location @rust_crates__openssl-src-300.5.4-3.5.4//:openssl_src_readme)",
     },
     crate = "openssl-sys",
     repositories = ["rust_crates"],
@@ -610,7 +610,7 @@ filegroup(
 
 filegroup(
     name = "openssl_src_readme",
-    srcs = ["openssl/README.md"],
+    srcs = ["README.md"],
     visibility = ["//visibility:public"],
 )
 """,

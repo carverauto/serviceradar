@@ -179,8 +179,15 @@ services:
       - PROTON_PASSWORD=${PROTON_PASSWORD:-}
       
       # Config source
-      - CONFIG_SOURCE=${CONFIG_SOURCE:-file}
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/config/core.json
+      - KV_ADDRESS=serviceradar-datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_FILE=/etc/serviceradar/certs/core.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/core-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_CERT_DIR=/etc/serviceradar/certs
     depends_on:
       cert-generator:
         condition: service_completed_successfully
@@ -365,7 +372,22 @@ services:
       - ./logs:/var/log/serviceradar
     environment:
       # Config path
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/config/poller.json
+      - CORE_ADDRESS=serviceradar-core:50052
+      - CORE_SEC_MODE=mtls
+      - CORE_CERT_FILE=/etc/serviceradar/certs/poller.pem
+      - CORE_KEY_FILE=/etc/serviceradar/certs/poller-key.pem
+      - CORE_CA_FILE=/etc/serviceradar/certs/root.pem
+      - CORE_SERVER_NAME=core.serviceradar
+      - CORE_CERT_DIR=/etc/serviceradar/certs
+      - KV_ADDRESS=serviceradar-datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_FILE=/etc/serviceradar/certs/poller.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/poller-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_CERT_DIR=/etc/serviceradar/certs
       - POLLERS_SECURITY_MODE=${POLLERS_SECURITY_MODE:-mtls}
       - MANAGE_NESTED_SPIRE=${MANAGE_NESTED_SPIRE:-disabled}
       - POLLERS_TRUST_DOMAIN=${POLLERS_TRUST_DOMAIN:-carverauto.dev}
@@ -417,7 +439,22 @@ services:
       - ./logs:/var/log/serviceradar
     environment:
       # Config path
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/agent.json
+      - CORE_ADDRESS=serviceradar-core:50052
+      - CORE_SEC_MODE=mtls
+      - CORE_CERT_FILE=/etc/serviceradar/certs/agent.pem
+      - CORE_KEY_FILE=/etc/serviceradar/certs/agent-key.pem
+      - CORE_CA_FILE=/etc/serviceradar/certs/root.pem
+      - CORE_SERVER_NAME=core.serviceradar
+      - CORE_CERT_DIR=/etc/serviceradar/certs
+      - KV_ADDRESS=serviceradar-datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_FILE=/etc/serviceradar/certs/agent.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/agent-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_CERT_DIR=/etc/serviceradar/certs
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-info}
     # Required capabilities for network operations
@@ -526,7 +563,22 @@ services:
       - ./logs:/var/log/serviceradar
     environment:
       # Config path
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/sync.json
+      - CORE_ADDRESS=serviceradar-core:50052
+      - CORE_SEC_MODE=mtls
+      - CORE_CERT_FILE=/etc/serviceradar/certs/sync.pem
+      - CORE_KEY_FILE=/etc/serviceradar/certs/sync-key.pem
+      - CORE_CA_FILE=/etc/serviceradar/certs/root.pem
+      - CORE_SERVER_NAME=core.serviceradar
+      - CORE_CERT_DIR=/etc/serviceradar/certs
+      - KV_ADDRESS=serviceradar-datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_FILE=/etc/serviceradar/certs/sync.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/sync-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_DATASVC=true
       - WAIT_FOR_NATS=true
@@ -564,7 +616,15 @@ services:
       - ./logs:/var/log/serviceradar
     environment:
       # Config path
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/otel.toml
+      - KV_ADDRESS=serviceradar-datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_FILE=/etc/serviceradar/certs/otel.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/otel-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
       # Logging
@@ -610,7 +670,15 @@ services:
       - ./logs:/var/log/serviceradar
     environment:
       # Config path
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/flowgger.toml
+      - KV_ADDRESS=serviceradar-datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_FILE=/etc/serviceradar/certs/flowgger.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/flowgger-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
       # Logging
@@ -659,7 +727,15 @@ services:
       - ./logs:/var/log/serviceradar
     environment:
       # Config path
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/trapd.json
+      - KV_ADDRESS=serviceradar-datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_FILE=/etc/serviceradar/certs/trapd.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/trapd-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
       # Logging
@@ -707,7 +783,22 @@ services:
       - ./logs:/var/log/serviceradar
     environment:
       # Config path
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/zen.json
+      - CORE_ADDRESS=serviceradar-core:50052
+      - CORE_SEC_MODE=mtls
+      - CORE_CERT_FILE=/etc/serviceradar/certs/zen.pem
+      - CORE_KEY_FILE=/etc/serviceradar/certs/zen-key.pem
+      - CORE_CA_FILE=/etc/serviceradar/certs/root.pem
+      - CORE_SERVER_NAME=core.serviceradar
+      - CORE_CERT_DIR=/etc/serviceradar/certs
+      - KV_ADDRESS=serviceradar-datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_FILE=/etc/serviceradar/certs/zen.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/zen-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
       - WAIT_FOR_DATASVC=true
@@ -756,6 +847,22 @@ services:
       - db-event-writer-config:/etc/serviceradar/consumers
       - ./logs:/var/log/serviceradar
     environment:
+      - CONFIG_SOURCE=kv
+      - CONFIG_PATH=/etc/serviceradar/templates/db-event-writer.json
+      - CORE_ADDRESS=serviceradar-core:50052
+      - CORE_SEC_MODE=mtls
+      - CORE_CERT_FILE=/etc/serviceradar/certs/db-event-writer.pem
+      - CORE_KEY_FILE=/etc/serviceradar/certs/db-event-writer-key.pem
+      - CORE_CA_FILE=/etc/serviceradar/certs/root.pem
+      - CORE_SERVER_NAME=core.serviceradar
+      - CORE_CERT_DIR=/etc/serviceradar/certs
+      - KV_ADDRESS=serviceradar-datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_FILE=/etc/serviceradar/certs/db-event-writer.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/db-event-writer-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
       - WAIT_FOR_PROTON=true
@@ -794,6 +901,22 @@ services:
       - mapper-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
+      - CONFIG_SOURCE=kv
+      - CONFIG_PATH=/etc/serviceradar/mapper.json
+      - CORE_ADDRESS=serviceradar-core:50052
+      - CORE_SEC_MODE=mtls
+      - CORE_CERT_FILE=/etc/serviceradar/certs/mapper.pem
+      - CORE_KEY_FILE=/etc/serviceradar/certs/mapper-key.pem
+      - CORE_CA_FILE=/etc/serviceradar/certs/root.pem
+      - CORE_SERVER_NAME=core.serviceradar
+      - CORE_CERT_DIR=/etc/serviceradar/certs
+      - KV_ADDRESS=serviceradar-datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_FILE=/etc/serviceradar/certs/mapper.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/mapper-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_OTEL=true
       # Logging

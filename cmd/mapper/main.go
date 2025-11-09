@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"log"
@@ -33,6 +34,9 @@ import (
 	monitoringpb "github.com/carverauto/serviceradar/proto"
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
+
+//go:embed config.json
+var defaultConfig []byte
 
 func main() {
 	if err := run(); err != nil {
@@ -79,7 +83,7 @@ func run() error {
 	if !ok {
 		return errMapperDescriptorMissing
 	}
-	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
+	bootstrapResult, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, &cfg, defaultConfig, cfgbootstrap.ServiceOptions{
 		Role:         models.RoleCore,
 		ConfigPath:   *configFile,
 		DisableWatch: true,

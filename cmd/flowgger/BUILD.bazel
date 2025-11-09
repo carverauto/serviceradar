@@ -56,6 +56,11 @@ rust_binary(
         "syslog",
         "tls",
     ],
-    deps = all_crate_deps(normal = True) + [":build_script", ":flowgger_lib", "//rust/kvutil:kvutil"],
+    deps = all_crate_deps(normal = True) + [
+        ":build_script",
+        ":flowgger_lib",
+        "//rust/config-bootstrap:config_bootstrap",
+        "//rust/kvutil:kvutil",
+    ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )

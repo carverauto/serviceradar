@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"log"
@@ -32,6 +33,9 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/poller"
 )
+
+//go:embed config.json
+var defaultConfig []byte
 
 var (
 	errFailedToLoadConfig      = fmt.Errorf("failed to load config")
@@ -72,7 +76,7 @@ func run() error {
 	if !ok {
 		return errPollerDescriptorMissing
 	}
-	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
+	bootstrapResult, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, &cfg, defaultConfig, cfgbootstrap.ServiceOptions{
 		Role:         models.RolePoller,
 		ConfigPath:   *configPath,
 		DisableWatch: true,

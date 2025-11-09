@@ -24,6 +24,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -126,6 +127,7 @@ type APIServer struct {
 	statsService          StatsService
 	searchPlanner         *search.Planner
 	requireDeviceRegistry bool
+	templateRegistry      TemplateRegistry
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint that fronts a specific JetStream domain.
@@ -159,4 +161,9 @@ type LogDigestService interface {
 type StatsService interface {
 	Snapshot() *models.DeviceStatsSnapshot
 	Meta() models.DeviceStatsMeta
+}
+
+// TemplateRegistry provides access to service configuration templates.
+type TemplateRegistry interface {
+	Get(serviceName string) ([]byte, config.ConfigFormat, error)
 }

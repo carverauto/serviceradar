@@ -42,6 +42,8 @@ spec:
             mountPath: /run/spire/sockets
             readOnly: true
           env:
+{{ include "serviceradar.kvEnv" . | indent 12 }}
+{{ include "serviceradar.coreEnv" . | indent 12 }}
             - name: CONFIG_PATH
               value: "/etc/serviceradar/agent.json"
             - name: LOG_LEVEL

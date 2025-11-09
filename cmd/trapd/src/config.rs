@@ -14,12 +14,9 @@
  * limitations under the License.
  */
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -90,13 +87,6 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let content = fs::read_to_string(path).context("Failed to read config file")?;
-        let cfg: Config = serde_json::from_str(&content).context("Failed to parse config file")?;
-        cfg.validate()?;
-        Ok(cfg)
-    }
-
     pub fn validate(&self) -> Result<()> {
         if self.listen_addr.is_empty() {
             anyhow::bail!("listen_addr is required");

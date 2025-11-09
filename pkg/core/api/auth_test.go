@@ -14,19 +14,38 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
-func TestHandleGetConfigSeedsFromTemplate(t *testing.T) {
-	origTemplate := serviceTemplates["core"]
-	testPayload := []byte(`{"seeded":true}`)
-	serviceTemplates["core"] = templateAsset{
-		data:   testPayload,
-		format: config.ConfigFormatJSON,
+// mockTemplateRegistry implements TemplateRegistry for testing
+type mockTemplateRegistry struct {
+	templates map[string][]byte
+	formats   map[string]config.ConfigFormat
+}
+
+func (m *mockTemplateRegistry) Get(serviceName string) ([]byte, config.ConfigFormat, error) {
+	data, ok := m.templates[serviceName]
+	if !ok {
+		return nil, "", config.ErrServiceNotFound
 	}
-	defer func() {
-		serviceTemplates["core"] = origTemplate
-	}()
+	format := m.formats[serviceName]
+	if format == "" {
+		format = config.ConfigFormatJSON
+	}
+	return data, format, nil
+}
+
+func TestHandleGetConfigSeedsFromTemplate(t *testing.T) {
+	testPayload := []byte(`{"seeded":true}`)
+	mockRegistry := &mockTemplateRegistry{
+		templates: map[string][]byte{
+			"core": testPayload,
+		},
+		formats: map[string]config.ConfigFormat{
+			"core": config.ConfigFormatJSON,
+		},
+	}
 
 	server := &APIServer{
-		logger: logger.NewTestLogger(),
+		logger:           logger.NewTestLogger(),
+		templateRegistry: mockRegistry,
 	}
 
 	store := make(map[string][]byte)

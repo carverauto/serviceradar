@@ -1,6 +1,0 @@
-{
-  "enabled": false,
-  "listen_addr": ":50054",
-  "node_address": "localhost:50051",
-  "targets": []
-}

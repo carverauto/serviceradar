@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"log"
@@ -33,6 +34,9 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
+
+//go:embed config.json
+var defaultConfig []byte
 
 var (
 	errServiceDescriptorMissing = fmt.Errorf("service descriptor for agent missing")
@@ -72,7 +76,7 @@ func run() error {
 	if !ok {
 		return errServiceDescriptorMissing
 	}
-	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
+	bootstrapResult, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, &cfg, defaultConfig, cfgbootstrap.ServiceOptions{
 		Role:         models.RoleAgent,
 		ConfigPath:   *configPath,
 		DisableWatch: true,

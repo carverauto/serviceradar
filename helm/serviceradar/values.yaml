@@ -23,6 +23,24 @@ image:
     rperfChecker: latest
     tools: latest
 
+kv:
+  enabled: true
+  configSource: kv
+  address: serviceradar-datasvc:50057
+  secMode: spiffe
+  trustDomain: ""
+  serverSPIFFEID: ""
+  workloadSocket: unix:/run/spire/sockets/agent.sock
+  certDir: /etc/serviceradar/certs
+
+coreClient:
+  address: serviceradar-core:50052
+  secMode: spiffe
+  trustDomain: ""
+  serverSPIFFEID: ""
+  workloadSocket: unix:/run/spire/sockets/agent.sock
+  certDir: /etc/serviceradar/certs
+
 configSync:
   flowgger:
     enabled: true

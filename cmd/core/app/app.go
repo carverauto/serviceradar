@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"strings"
 
@@ -19,6 +20,9 @@ import (
 	_ "github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/carverauto/serviceradar/proto"
 )
+
+//go:embed config.json
+var defaultConfig []byte
 
 var (
 	errCoreDescriptorMissing = errors.New("core service descriptor missing")
@@ -46,7 +50,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	var cfg models.CoreServiceConfig
-	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
+	bootstrapResult, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, &cfg, defaultConfig, cfgbootstrap.ServiceOptions{
 		Role:         models.RoleCore,
 		ConfigPath:   opts.ConfigPath,
 		DisableWatch: true,
@@ -149,6 +153,7 @@ func Run(ctx context.Context, opts Options) error {
 		api.WithLogger(mainLogger),
 		api.WithEventPublisher(server.EventPublisher()),
 		api.WithDeviceRegistryEnforcement(requireDeviceRegistry),
+		api.WithTemplateRegistry(api.NewTemplateRegistryAdapter(server)),
 	}
 	if planner := server.DeviceSearchPlanner(); planner != nil {
 		allOptions = append(allOptions, api.WithDeviceSearchPlanner(planner))

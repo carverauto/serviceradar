@@ -34,6 +34,7 @@ go_library(
         "stats_alerts.go",
         "stats_metrics.go",
         "snmp.go",
+        "template_registry.go",
         "time_utils.go",
         "types.go",
     ],
@@ -42,6 +43,7 @@ go_library(
     deps = [
         "//pkg/checker/snmp",
         "//pkg/config",
+        "//pkg/core/templateregistry",
         "//pkg/crypto/secrets",
         "//pkg/core/alerts",
         "//pkg/core/api",

@@ -846,13 +846,25 @@ func (s *APIServer) checkConfigKey(ctx context.Context, kvStoreID, key string) (
 }
 
 func (s *APIServer) seedConfigFromTemplate(ctx context.Context, desc config.ServiceDescriptor, key, kvStoreID string) ([]byte, error) {
-	tmpl, ok := serviceTemplates[desc.Name]
-	if !ok || len(tmpl.data) == 0 {
+	if s.templateRegistry == nil {
 		return nil, errTemplateUnavailable
 	}
 
-	payload := make([]byte, len(tmpl.data))
-	copy(payload, tmpl.data)
+	templateData, _, err := s.templateRegistry.Get(desc.Name)
+	if err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("service", desc.Name).
+			Msg("failed to retrieve template from registry")
+		return nil, errTemplateUnavailable
+	}
+
+	if len(templateData) == 0 {
+		return nil, errTemplateUnavailable
+	}
+
+	payload := make([]byte, len(templateData))
+	copy(payload, templateData)
 
 	if err := s.putConfigToKV(ctx, kvStoreID, key, payload); err != nil {
 		return nil, err

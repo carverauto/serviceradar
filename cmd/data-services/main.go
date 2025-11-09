@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"log"
 
@@ -31,6 +32,9 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
+
+//go:embed config.json
+var defaultConfig []byte
 
 func main() {
 	configPath := flag.String("config", "/etc/serviceradar/datasvc.json", "Path to config file")
@@ -58,7 +62,7 @@ func main() {
 	if !ok {
 		log.Fatalf("datasvc descriptor missing")
 	}
-	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
+	bootstrapResult, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, &cfg, defaultConfig, cfgbootstrap.ServiceOptions{
 		ConfigPath:   *configPath,
 		DisableWatch: true,
 	})

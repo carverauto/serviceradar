@@ -3,6 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
 go_library(
     name = "sync_lib",
     srcs = ["main.go"],
+    embedsrcs = ["config.json"],
     importpath = "github.com/carverauto/serviceradar/cmd/sync",
     visibility = ["//visibility:private"],
     deps = [
@@ -11,6 +12,7 @@ go_library(
         "//alias:lifecycle",
         "//alias:models",
         "//alias:sync",
+        "//alias:config-bootstrap",
         "//proto",
         "@org_golang_google_grpc//:grpc",
     ],

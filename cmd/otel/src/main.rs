@@ -1,11 +1,13 @@
-use kvutil::KvClient;
+use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat};
 use otel::server::{create_collector, start_metrics_server, start_server};
 use otel::setup::{
-    handle_generate_config, load_configuration, log_configuration_info, parse_bind_address,
+    handle_generate_config, log_configuration_info, parse_bind_address,
     setup_logging_and_parse_args,
 };
 use otel::tls::setup_grpc_tls;
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 const CONFIG_PATH: &str = "config/otel.toml";
 
@@ -17,47 +19,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return handle_generate_config();
     }
 
-    // Load config from file first, then overlay/replace from KV if configured
-    let mut config = load_configuration(&args)?;
+    let config_path = resolve_config_path(&args);
+    log::debug!("Loading OTEL config from {}", config_path.display());
+
     let use_kv = std::env::var("CONFIG_SOURCE").ok().as_deref() == Some("kv")
         && !std::env::var("KV_ADDRESS").unwrap_or_default().is_empty();
-    let mut kv_client: Option<KvClient> = None;
-    let kv_connection = if use_kv {
-        Some(KvClient::connect_from_env().await)
-    } else {
-        None
-    };
+    let kv_key = use_kv.then(|| CONFIG_PATH.to_string());
+    let mut bootstrap = Bootstrap::new(BootstrapOptions {
+        service_name: "otel".to_string(),
+        config_path: config_path
+            .to_str()
+            .unwrap_or("/etc/serviceradar/otel.toml")
+            .to_string(),
+        format: ConfigFormat::Toml,
+        kv_key,
+        seed_kv: use_kv,
+        watch_kv: use_kv,
+    })
+    .await?;
 
-    match kv_connection {
-        Some(Ok(mut kv)) => {
-            match kv.get(CONFIG_PATH).await {
-                Ok(Some(bytes)) => {
-                    if let Some(new_cfg) = std::str::from_utf8(&bytes)
-                        .ok()
-                        .and_then(|s| toml::from_str::<otel::config::Config>(s).ok())
-                    {
-                        config = new_cfg;
-                    }
-                }
-                Ok(None) => {
-                    if let Ok(content) = toml::to_string_pretty(&config) {
-                        let _ = kv.put_if_absent(CONFIG_PATH, content.into_bytes()).await;
-                    }
-                }
-                Err(err) => {
-                    log::warn!(
-                        "Failed to fetch OTEL config from KV at {}: {err}",
-                        CONFIG_PATH
-                    );
-                }
-            }
-            kv_client = Some(kv);
-        }
-        Some(Err(err)) => {
-            log::warn!("Failed to connect to KV config source: {err}");
-        }
-        None => {}
-    }
+    let config: otel::config::Config = bootstrap.load().await?;
+
     let addr = parse_bind_address(&config)?;
 
     log_configuration_info(&config);
@@ -66,41 +48,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_tls_config = setup_grpc_tls(&config)?;
     let collector = create_collector(nats_config).await?;
 
-    // If using KV, set up a watcher to hot-apply config overlays and reconfigure subsystems
-    if let Some(mut kv) = kv_client {
-        let shared_cfg = std::sync::Arc::new(tokio::sync::RwLock::new(config.clone()));
-        let shared_for_cb = shared_cfg.clone();
-        let collector_for_cb = collector.clone();
-        let _ = kv
-            .watch_apply(CONFIG_PATH, move |bytes| {
-                let shared = shared_for_cb.clone();
-                let coll = collector_for_cb.clone();
-                let b = bytes.to_vec();
-                tokio::spawn(async move {
-                    {
-                        let mut guard = shared.write().await;
-                        // Snapshot previous values
-                        let prev = guard.clone();
-                        // Apply overlay into config
-                        let _ = kvutil::overlay_toml(&mut *guard, &b);
-                        // Reconfigure NATS output with new config (idempotent)
-                        let new_nats = guard.nats_config();
-                        coll.reconfigure_nats(new_nats).await;
-                        // Log advisory if bind address/port or TLS changed
-                        let prev_bind = prev.bind_address();
-                        let new_bind = guard.bind_address();
-                        if prev_bind != new_bind
-                            || prev.grpc_tls.as_ref() != guard.grpc_tls.as_ref()
-                        {
-                            eprintln!("OTEL server bind/TLS changed; restart required to apply");
-                        }
-                    }
-                });
-            })
-            .await;
+    if let Some(mut watcher) = bootstrap.watch::<otel::config::Config>().await? {
+        let shared_cfg = Arc::new(tokio::sync::RwLock::new(config.clone()));
+        let shared_for_watch = shared_cfg.clone();
+        let collector_for_watch = collector.clone();
+        tokio::spawn(async move {
+            while let Some(updated) = watcher.recv().await {
+                let mut guard = shared_for_watch.write().await;
+                let previous = guard.clone();
+                *guard = updated.clone();
+                let new_nats = guard.nats_config();
+                collector_for_watch.reconfigure_nats(new_nats).await;
+                let prev_bind = previous.bind_address();
+                let new_bind = guard.bind_address();
+                if prev_bind != new_bind || previous.grpc_tls.as_ref() != guard.grpc_tls.as_ref() {
+                    eprintln!("OTEL server bind/TLS changed; restart required to apply");
+                }
+            }
+        });
     }
-
-    // (KV bootstrap and watch now done above via kvutil)
 
     // Start metrics server if configured
     if let Some(metrics_addr_str) = config.metrics_address() {
@@ -116,4 +82,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     start_server(addr, grpc_tls_config, collector).await
 }
 
-// (kvutil-based helpers used inline above; no local tonic glue)
+fn resolve_config_path(args: &otel::cli::CLI) -> PathBuf {
+    if let Some(path) = &args.config {
+        return PathBuf::from(path);
+    }
+
+    let mut candidates = vec![
+        PathBuf::from("./otel.toml"),
+        PathBuf::from("/etc/serviceradar/otel.toml"),
+    ];
+
+    if let Some(home) = std::env::var_os("HOME") {
+        let mut home_path = PathBuf::from(home);
+        home_path.push(".config/serviceradar/otel.toml");
+        candidates.push(home_path);
+    }
+
+    for candidate in &candidates {
+        if Path::new(candidate).exists() {
+            return candidate.clone();
+        }
+    }
+
+    PathBuf::from("/etc/serviceradar/otel.toml")
+}

@@ -1,5 +1,5 @@
---- openssl-src-300.5.2+3.5.2.orig/src/lib.rs	2025-09-19 15:34:09
-+++ openssl-src-300.5.2+3.5.2/src/lib.rs	2025-09-19 15:34:09
+--- openssl-src-300.5.4+3.5.4.orig/src/lib.rs	2025-09-19 15:34:09
++++ openssl-src-300.5.4+3.5.4/src/lib.rs	2025-09-19 15:34:09
 @@ -7,7 +7,50 @@
  use std::process::Command;
  
