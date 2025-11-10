@@ -31,7 +31,11 @@ func TestSanitizeBootstrapSourceAddsJWTPublicKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	t.Cleanup(func() {
+		if err := os.Remove(tmpFile.Name()); err != nil {
+			t.Fatalf("remove temp file: %v", err)
+		}
+	})
 
 	cfgInput := models.CoreServiceConfig{
 		Auth: &models.AuthConfig{
@@ -59,7 +63,9 @@ func TestSanitizeBootstrapSourceAddsJWTPublicKey(t *testing.T) {
 	if _, err := tmpFile.Write(payload); err != nil {
 		t.Fatalf("write temp file: %v", err)
 	}
-	_ = tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
 
 	var cfg models.CoreServiceConfig
 	data, err := sanitizeBootstrapSource(tmpFile.Name(), &cfg)
@@ -92,7 +98,14 @@ func TestSanitizeBootstrapSourceUsesFallbackPrivateKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	t.Cleanup(func() {
+		if err := os.Remove(tmpFile.Name()); err != nil {
+			t.Fatalf("remove temp file: %v", err)
+		}
+	})
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
 
 	if err := os.WriteFile(tmpFile.Name(), []byte(`{"auth":{"jwt_algorithm":"RS256"}}`), 0600); err != nil {
 		t.Fatalf("write masked config: %v", err)
@@ -171,10 +184,10 @@ func TestKVManagerOverlayConfigNormalizesSecurity(t *testing.T) {
 	if cfg.Security.TLS.KeyFile != "/etc/serviceradar/certs/kv-key.pem" {
 		t.Fatalf("expected normalized key_file, got %q", cfg.Security.TLS.KeyFile)
 	}
-	if cfg.Security.TLS.CAFile != "/etc/serviceradar/certs/kv-root.pem" {
+	if cfg.Security.TLS.CAFile != kvRootCertPath {
 		t.Fatalf("expected normalized ca_file, got %q", cfg.Security.TLS.CAFile)
 	}
-	if cfg.Security.TLS.ClientCAFile != "/etc/serviceradar/certs/kv-root.pem" {
+	if cfg.Security.TLS.ClientCAFile != kvRootCertPath {
 		t.Fatalf("expected client_ca_file to fall back to normalized ca_file, got %q", cfg.Security.TLS.ClientCAFile)
 	}
 }

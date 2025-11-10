@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -14,10 +15,15 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+var (
+	errCoreMTLSConfig         = errors.New("CORE_SEC_MODE=mtls requires CORE_CERT_FILE, CORE_KEY_FILE, and CORE_CA_FILE")
+	errUnsupportedCoreSecMode = errors.New("unsupported CORE_SEC_MODE")
+)
+
 // BuildCoreDialOptionsFromEnv constructs gRPC dial options for reaching the core service
 // using the SPIFFE or mTLS settings provided via environment variables.
 func BuildCoreDialOptionsFromEnv(ctx context.Context, role models.ServiceRole, log logger.Logger) ([]grpc.DialOption, coregrpc.SecurityProvider, error) {
-	opts := []grpc.DialOption{grpc.WithBlock()}
+	opts := []grpc.DialOption{}
 
 	provider, err := CoreSecurityProviderFromEnv(ctx, role, log)
 	if err != nil {
@@ -66,7 +72,7 @@ func CoreSecurityProviderFromEnv(ctx context.Context, role models.ServiceRole, l
 		key := strings.TrimSpace(os.Getenv("CORE_KEY_FILE"))
 		ca := strings.TrimSpace(os.Getenv("CORE_CA_FILE"))
 		if cert == "" || key == "" || ca == "" {
-			return nil, fmt.Errorf("CORE_SEC_MODE=mtls requires CORE_CERT_FILE, CORE_KEY_FILE, and CORE_CA_FILE")
+			return nil, errCoreMTLSConfig
 		}
 
 		conf := &models.SecurityConfig{
@@ -82,6 +88,6 @@ func CoreSecurityProviderFromEnv(ctx context.Context, role models.ServiceRole, l
 		}
 		return coregrpc.NewSecurityProvider(ctx, conf, log)
 	default:
-		return nil, fmt.Errorf("unsupported CORE_SEC_MODE %q", mode)
+		return nil, fmt.Errorf("%w %q", errUnsupportedCoreSecMode, mode)
 	}
 }
