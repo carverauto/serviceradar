@@ -1,0 +1,22 @@
+# ServiceRadar eBPF Profiler Configuration
+
+[server]
+bind_address = "0.0.0.0"
+port = 50084
+
+[grpc_tls]
+cert_file = "/etc/serviceradar/certs/profiler.pem"
+key_file = "/etc/serviceradar/certs/profiler-key.pem"
+ca_file = "/etc/serviceradar/certs/root.pem"
+
+[profiler]
+max_concurrent_sessions = 10
+max_session_duration_seconds = 300
+max_frequency_hz = 1000
+chunk_size_bytes = 65536
+
+[ebpf]
+enabled = true
+max_stack_depth = 32
+stack_trace_buffer_size = 8192
+perf_buffer_size = 262144
