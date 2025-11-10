@@ -94,6 +94,17 @@ export default function AdminPage() {
 
   const handleSelect = (sel: SelectedServiceInfo) => setSelectedService(sel);
 
+  useEffect(() => {
+    if (!selectedService) {
+      return;
+    }
+    const original = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = original;
+    };
+  }, [selectedService]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -165,11 +176,13 @@ export default function AdminPage() {
           <WatcherTelemetryPanel />
           <div className="flex-1 overflow-y-auto">
             {selectedService ? (
-              <ConfigEditor 
-                service={selectedService}
-                kvStore={selectedService.kvStore || ''}
-                onSave={() => fetchServicesTree()}
-              />
+              <div className="flex h-full items-center justify-center text-gray-500">
+                <div className="text-center text-sm">
+                  <Settings2 className="h-10 w-10 mx-auto mb-3 text-gray-400" />
+                  <p>Editing {selectedService.name}</p>
+                  <p className="mt-1 text-gray-400">Close the editor to return to this view.</p>
+                </div>
+              </div>
             ) : (
               <div className="flex items-center justify-center h-full text-gray-500">
                 <div className="text-center">
@@ -182,6 +195,20 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
+      {selectedService && (
+        <div className="fixed inset-0 z-40 bg-gray-950/70 backdrop-blur-sm">
+          <div className="flex h-full w-full">
+            <div className="flex-1 bg-white dark:bg-gray-950 shadow-2xl flex flex-col overflow-hidden">
+              <ConfigEditor 
+                service={selectedService}
+                kvStore={selectedService.kvStore || ''}
+                onSave={() => fetchServicesTree()}
+                onClose={() => setSelectedService(null)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </RoleGuard>
   );
 }
