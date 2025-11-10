@@ -17,6 +17,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { Buffer } from 'buffer';
 import safeSet from '../../../lib/safeSet';
 import RBACEditor, { RBACConfig } from '../RBACEditor';
 
@@ -224,19 +225,175 @@ interface SectionProps {
   title: string;
   description?: string;
   children: React.ReactNode;
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
+  id?: string;
 }
 
-const Section = ({ title, description, children }: SectionProps) => (
-  <div className="bg-white dark:bg-gray-800 p-6 rounded-lg border space-y-4">
-    <div>
-      <h3 className="text-lg font-semibold">{title}</h3>
-      {description && (
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{description}</p>
-      )}
+const Section = ({ title, description, children, collapsible = false, defaultCollapsed = false, id }: SectionProps) => {
+  const [open, setOpen] = useState(!defaultCollapsed);
+
+  return (
+    <div id={id} className="bg-white dark:bg-gray-800 p-6 rounded-lg border space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-semibold">{title}</h3>
+          {description && (
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{description}</p>
+          )}
+        </div>
+        {collapsible && (
+          <button
+            type="button"
+            onClick={() => setOpen((prev) => !prev)}
+            className="text-xs font-medium uppercase tracking-wide text-blue-600 dark:text-blue-300"
+          >
+            {open ? 'Collapse' : 'Expand'}
+          </button>
+        )}
+      </div>
+      {(!collapsible || open) && children}
     </div>
-    {children}
-  </div>
-);
+  );
+};
+
+const decodeBase64ToBytes = (value: string): number[] => {
+  if (!value) {
+    return [];
+  }
+  if (typeof window !== 'undefined' && typeof window.atob === 'function') {
+    try {
+      const binary = window.atob(value);
+      return Array.from(binary).map((char) => char.charCodeAt(0));
+    } catch {
+      throw new Error('Invalid base64 encoding');
+    }
+  }
+  try {
+    return Array.from(Buffer.from(value, 'base64'));
+  } catch {
+    throw new Error('Invalid base64 encoding');
+  }
+};
+
+const bytesToBase64 = (bytes: number[]): string => {
+  if (!bytes.length) {
+    return '';
+  }
+  if (typeof window !== 'undefined' && typeof window.btoa === 'function') {
+    const binary = bytes.map((byte) => String.fromCharCode(byte)).join('');
+    return window.btoa(binary);
+  }
+  return Buffer.from(bytes).toString('base64');
+};
+
+const hexFromBytes = (bytes: number[]): string =>
+  bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('');
+
+const hexToBytes = (hex: string): number[] => {
+  const normalized = hex.replace(/[^0-9a-f]/gi, '');
+  if (!normalized) {
+    return [];
+  }
+  if (normalized.length % 2 !== 0) {
+    throw new Error('Hex length must be even');
+  }
+  const pairs = normalized.match(/.{1,2}/g) ?? [];
+  return pairs.map((pair) => parseInt(pair, 16));
+};
+
+const decodeEdgeKey = (value?: string) => {
+  if (!value) {
+    return { hex: '', length: 0, error: null as string | null };
+  }
+  try {
+    const bytes = decodeBase64ToBytes(value);
+    return { hex: hexFromBytes(bytes), length: bytes.length, error: null as string | null };
+  } catch {
+    return { hex: '', length: 0, error: 'Invalid base64 key' as string | null };
+  }
+};
+
+interface StatusBadgeProps {
+  label: string;
+  tone?: 'ok' | 'warn' | 'info';
+}
+
+const StatusBadge = ({ label, tone = 'info' }: StatusBadgeProps) => {
+  const styles =
+    tone === 'ok'
+      ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200'
+      : tone === 'warn'
+        ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200'
+        : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${styles}`}>
+      {label}
+    </span>
+  );
+};
+
+interface SensitiveFieldProps {
+  value?: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+  textarea?: boolean;
+  rows?: number;
+  copyLabel?: string;
+}
+
+const SensitiveField = ({
+  value = '',
+  onChange,
+  placeholder,
+  className = '',
+  textarea = false,
+  rows = 4,
+  copyLabel,
+}: SensitiveFieldProps) => {
+  const [revealed, setRevealed] = useState(false);
+
+  const handleCopy = () => {
+    if (!value || typeof navigator === 'undefined') return;
+    navigator.clipboard.writeText(value);
+  };
+
+  const commonProps = {
+    value,
+    placeholder,
+    className: `w-full font-mono text-sm p-2 border border-gray-300 dark:border-gray-600 rounded-md pr-16 ${className}`,
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onChange(e.target.value),
+  };
+
+  return (
+    <div className="relative">
+      {textarea ? (
+        <textarea {...commonProps} rows={rows} spellCheck={false} />
+      ) : (
+        <input type={revealed ? 'text' : 'password'} {...commonProps} />
+      )}
+      <div className="absolute inset-y-0 right-2 flex items-center gap-2">
+        {copyLabel && (
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="text-xs text-blue-600 dark:text-blue-300"
+          >
+            {copyLabel}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setRevealed((prev) => !prev)}
+          className="text-xs text-blue-600 dark:text-blue-300"
+        >
+          {revealed ? 'Hide' : 'Show'}
+        </button>
+      </div>
+    </div>
+  );
+};
 
 interface StringArrayEditorProps {
   label: string;
@@ -342,14 +499,17 @@ interface SecurityFieldsProps {
   path: string;
   data?: ServiceSecurityConfig | null;
   updateConfig: (path: string, value: unknown) => void;
+  allowedModes?: Array<'spiffe' | 'mtls' | 'tls' | 'none'>;
+  id?: string;
 }
 
-const SecurityFields = ({ title, path, data, updateConfig }: SecurityFieldsProps) => {
+const SecurityFields = ({ title, path, data, updateConfig, allowedModes, id }: SecurityFieldsProps) => {
   const security = data ?? {};
   const tls = security.tls ?? {};
+  const modeOptions = allowedModes ?? ['spiffe', 'mtls', 'tls', 'none'];
 
   return (
-    <Section title={title}>
+    <Section title={title} id={id}>
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium mb-2">Mode</label>
@@ -359,10 +519,11 @@ const SecurityFields = ({ title, path, data, updateConfig }: SecurityFieldsProps
             className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
           >
             <option value="">Select mode</option>
-            <option value="spiffe">SPIFFE</option>
-            <option value="mtls">mTLS</option>
-            <option value="tls">TLS</option>
-            <option value="none">None</option>
+            {modeOptions.map((option) => (
+              <option key={option} value={option}>
+                {option === 'spiffe' ? 'SPIFFE' : option.toUpperCase()}
+              </option>
+            ))}
           </select>
         </div>
         <div>
@@ -481,17 +642,11 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
   const [ssoProvidersText, setSsoProvidersText] = useState('{}');
   const [ssoProvidersError, setSsoProvidersError] = useState<string | null>(null);
 
-  const [edgeMetadataText, setEdgeMetadataText] = useState('{}');
-  const [edgeMetadataError, setEdgeMetadataError] = useState<string | null>(null);
-
-  const [databaseSettingsText, setDatabaseSettingsText] = useState('{}');
-  const [databaseSettingsError, setDatabaseSettingsError] = useState<string | null>(null);
-
-  const [snmpTargetsText, setSnmpTargetsText] = useState('[]');
-  const [snmpTargetsError, setSnmpTargetsError] = useState<string | null>(null);
-
   const [otelHeadersText, setOtelHeadersText] = useState('{}');
   const [otelHeadersError, setOtelHeadersError] = useState<string | null>(null);
+  const [edgeKeyHex, setEdgeKeyHex] = useState('');
+  const [edgeKeyError, setEdgeKeyError] = useState<string | null>(null);
+  const [edgeKeyDecodeError, setEdgeKeyDecodeError] = useState<string | null>(null);
 
   const serializedLocalUsers = useMemo(
     () => JSON.stringify(config.auth?.local_users ?? {}, null, 2),
@@ -509,30 +664,6 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
     setSsoProvidersText(serializedSsoProviders);
   }, [serializedSsoProviders]);
 
-  const serializedEdgeMetadata = useMemo(
-    () => JSON.stringify(config.edge_onboarding?.default_metadata ?? {}, null, 2),
-    [config.edge_onboarding?.default_metadata],
-  );
-  useEffect(() => {
-    setEdgeMetadataText(serializedEdgeMetadata);
-  }, [serializedEdgeMetadata]);
-
-  const serializedDbSettings = useMemo(
-    () => JSON.stringify(config.database?.settings ?? {}, null, 2),
-    [config.database?.settings],
-  );
-  useEffect(() => {
-    setDatabaseSettingsText(serializedDbSettings);
-  }, [serializedDbSettings]);
-
-  const serializedSnmpTargets = useMemo(
-    () => JSON.stringify(config.snmp?.targets ?? [], null, 2),
-    [config.snmp?.targets],
-  );
-  useEffect(() => {
-    setSnmpTargetsText(serializedSnmpTargets);
-  }, [serializedSnmpTargets]);
-
   const serializedOtelHeaders = useMemo(
     () => JSON.stringify(config.logging?.otel?.headers ?? {}, null, 2),
     [config.logging?.otel?.headers],
@@ -540,6 +671,84 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
   useEffect(() => {
     setOtelHeadersText(serializedOtelHeaders);
   }, [serializedOtelHeaders]);
+
+  const dbSettings = useMemo(() => config.database?.settings ?? {}, [config.database?.settings]);
+
+  const updateDbSetting = (key: string, value?: number | '') => {
+    const next = { ...dbSettings };
+    if (value === '' || value === undefined || value === null || Number.isNaN(value)) {
+      delete next[key];
+    } else {
+      next[key] = value;
+    }
+    updateConfig('database.settings', next);
+  };
+
+  const dbSettingBoolean = (key: string) => Number(dbSettings[key] ?? 0) === 1;
+  const dbSettingNumber = (key: string): number | '' => {
+    const value = dbSettings[key];
+    return typeof value === 'number' ? value : '';
+  };
+
+  const edgeKeyInfo = useMemo(
+    () => decodeEdgeKey(config.edge_onboarding?.encryption_key ?? ''),
+    [config.edge_onboarding?.encryption_key],
+  );
+
+  useEffect(() => {
+    setEdgeKeyHex(edgeKeyInfo.hex);
+    setEdgeKeyDecodeError(edgeKeyInfo.error);
+  }, [edgeKeyInfo.hex, edgeKeyInfo.error]);
+
+  const pollerMetadata = useMemo<Record<string, string | number | undefined>>(
+    () => (config.edge_onboarding?.default_metadata?.poller as Record<string, string | number | undefined>) ?? {},
+    [config.edge_onboarding?.default_metadata],
+  );
+
+  const updatePollerMetadata = (field: string, value: string) => {
+    const next = {
+      ...(config.edge_onboarding?.default_metadata ?? {}),
+      poller: {
+        ...(config.edge_onboarding?.default_metadata?.poller ?? {}),
+        [field]: value,
+      },
+    };
+    updateConfig('edge_onboarding.default_metadata', next);
+  };
+
+  const isSpiffeMode = (config.security?.mode ?? '').toLowerCase() === 'spiffe';
+  const hasSSOProviders = Boolean(
+    config.auth?.sso_providers && Object.keys(config.auth.sso_providers).length > 0,
+  );
+  const hasCallbackUrl = Boolean(config.auth?.callback_url);
+  const navItems = useMemo(
+    () => {
+      const items: Array<{ id: string; label: string }> = [
+        { id: 'core-service', label: 'Core Service' },
+        { id: 'proton-db', label: 'Database' },
+        { id: 'cors', label: 'CORS' },
+        { id: 'auth-rbac', label: 'Auth & RBAC' },
+        { id: 'logging-otel', label: 'Logging & OTEL' },
+        { id: 'metrics-flags', label: 'Metrics & Flags' },
+        { id: 'events-messaging', label: 'Events & Messaging' },
+        { id: 'core-security', label: 'Core Security' },
+        { id: 'nats-security', label: 'NATS Security' },
+        { id: 'edge-onboarding', label: 'Edge Onboarding' },
+        { id: 'integrations', label: 'Integrations' },
+        { id: 'webhooks', label: 'Webhooks' },
+        { id: 'write-buffer', label: 'Write Buffer' },
+      ];
+      if (isSpiffeMode) {
+        items.splice(8, 0, { id: 'kv-security', label: 'KV Security' });
+        const edgeIndex = items.findIndex((item) => item.id === 'edge-onboarding');
+        if (edgeIndex !== -1) {
+          items.splice(edgeIndex + 1, 0, { id: 'spire-kv', label: 'SPIRE & KV' });
+        }
+      }
+      return items;
+    },
+    [isSpiffeMode],
+  );
 
   const handleJsonBlur = (
     text: string,
@@ -592,6 +801,34 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
     updateConfig('kv_endpoints', next);
   };
 
+  const handleEdgeKeyBase64Change = (value: string) => {
+    setEdgeKeyError(null);
+    updateConfig('edge_onboarding.encryption_key', value);
+  };
+
+  const handleEdgeKeyHexChange = (value: string) => {
+    setEdgeKeyHex(value);
+    if (!value.trim()) {
+      updateConfig('edge_onboarding.encryption_key', '');
+      setEdgeKeyError(null);
+      return;
+    }
+    try {
+      const bytes = hexToBytes(value);
+      if (bytes.length === 0) {
+        updateConfig('edge_onboarding.encryption_key', '');
+        setEdgeKeyError(null);
+        return;
+      }
+      const encoded = bytesToBase64(bytes);
+      updateConfig('edge_onboarding.encryption_key', encoded);
+      setEdgeKeyError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Invalid hex-encoded key';
+      setEdgeKeyError(message);
+    }
+  };
+
   const featureOptions: Array<{
     key: keyof FeatureFlags;
     label: string;
@@ -620,8 +857,42 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
   ];
 
   return (
-    <div className="space-y-6">
-      <Section title="Core Service">
+    <div className="lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-6">
+      <nav className="hidden lg:block sticky top-4 self-start">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+            Configuration
+          </p>
+          <ul className="space-y-1">
+            {navItems.map((item) => (
+              <li key={item.id}>
+                <a
+                  href={`#${item.id}`}
+                  className="block rounded px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                >
+                  {item.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </nav>
+      <div>
+        <div className="lg:hidden mb-4">
+          <div className="flex gap-2 overflow-x-auto pb-2">
+            {navItems.map((item) => (
+              <a
+                key={item.id}
+                href={`#${item.id}`}
+                className="flex-shrink-0 rounded-full border border-gray-200 dark:border-gray-700 px-3 py-1 text-sm text-gray-700 dark:text-gray-200"
+              >
+                {item.label}
+              </a>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-6">
+        <Section title="Core Service" id="core-service">
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Listen Address</label>
@@ -718,17 +989,16 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
           </div>
           <div>
             <label className="block text-sm font-medium mb-2">DB Password</label>
-            <input
-              type="text"
+            <SensitiveField
               value={config.db_pass ?? ''}
-              onChange={(e) => updateConfig('db_pass', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              onChange={(val) => updateConfig('db_pass', val)}
+              copyLabel="Copy"
             />
           </div>
         </div>
       </Section>
 
-      <Section title="Database Configuration">
+        <Section title="Database Configuration" id="proton-db">
         <StringArrayEditor
           label="Addresses"
           values={config.database?.addresses}
@@ -757,11 +1027,10 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
           </div>
           <div>
             <label className="block text-sm font-medium mb-2">Password</label>
-            <input
-              type="text"
+            <SensitiveField
               value={config.database?.password ?? ''}
-              onChange={(e) => updateConfig('database.password', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              onChange={(val) => updateConfig('database.password', val)}
+              copyLabel="Copy"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -833,19 +1102,87 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
             />
           </div>
         </div>
-        <JsonTextArea
-          label="Advanced Proton Settings"
-          value={databaseSettingsText}
-          onChange={setDatabaseSettingsText}
-          onBlur={() =>
-            handleJsonBlur(databaseSettingsText, 'database.settings', setDatabaseSettingsError, {})
-          }
-          error={databaseSettingsError}
-          description="Key/value map is stored verbatim in the config; use valid JSON."
-        />
+        <div className="mt-6 space-y-4">
+          <h4 className="text-md font-semibold">Advanced Proton Settings</h4>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            These map directly to ClickHouse session settings. Leave blank to use defaults.
+          </p>
+          <div className="grid grid-cols-3 gap-4">
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+              <input
+                type="checkbox"
+                checked={dbSettingBoolean('allow_experimental_live_views')}
+                onChange={(e) => updateDbSetting('allow_experimental_live_views', e.target.checked ? 1 : 0)}
+              />
+              Allow experimental live views
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+              <input
+                type="checkbox"
+                checked={dbSettingBoolean('input_format_defaults_for_omitted_fields')}
+                onChange={(e) =>
+                  updateDbSetting('input_format_defaults_for_omitted_fields', e.target.checked ? 1 : 0)
+                }
+              />
+              Default missing input fields
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+              <input
+                type="checkbox"
+                checked={dbSettingBoolean('join_use_nulls')}
+                onChange={(e) => updateDbSetting('join_use_nulls', e.target.checked ? 1 : 0)}
+              />
+              JOIN use NULLs
+            </label>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Idle connection timeout (s)</label>
+              <input
+                type="number"
+                value={dbSettingNumber('idle_connection_timeout')}
+                onChange={(e) =>
+                  updateDbSetting(
+                    'idle_connection_timeout',
+                    e.target.value === '' ? '' : Number(e.target.value),
+                  )
+                }
+                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Max execution time (s)</label>
+              <input
+                type="number"
+                value={dbSettingNumber('max_execution_time')}
+                onChange={(e) =>
+                  updateDbSetting(
+                    'max_execution_time',
+                    e.target.value === '' ? '' : Number(e.target.value),
+                  )
+                }
+                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Quote 64-bit ints in JSON</label>
+              <input
+                type="number"
+                value={dbSettingNumber('output_format_json_quote_64bit_int')}
+                onChange={(e) =>
+                  updateDbSetting(
+                    'output_format_json_quote_64bit_int',
+                    e.target.value === '' ? '' : Number(e.target.value),
+                  )
+                }
+                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              />
+            </div>
+          </div>
+        </div>
       </Section>
 
-      <Section title="CORS">
+        <Section title="CORS" id="cors">
         <StringArrayEditor
           label="Allowed Origins"
           values={config.cors?.allowed_origins}
@@ -862,7 +1199,23 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
         </label>
       </Section>
 
-      <Section title="Authentication & RBAC">
+        <Section
+          title="Authentication & RBAC"
+          id="auth-rbac"
+          collapsible
+          defaultCollapsed
+          description="Local admin access plus optional SSO providers."
+        >
+        <div className="flex flex-wrap gap-2 mb-4">
+          <StatusBadge
+            label={hasCallbackUrl ? 'Callback URL configured' : 'No callback URL'}
+            tone={hasCallbackUrl ? 'ok' : 'warn'}
+          />
+          <StatusBadge
+            label={hasSSOProviders ? 'SSO providers registered' : 'SSO disabled'}
+            tone={hasSSOProviders ? 'ok' : 'info'}
+          />
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Callback URL</label>
@@ -910,21 +1263,22 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">JWT Public Key (PEM)</label>
-            <textarea
+            <SensitiveField
               value={config.auth?.jwt_public_key_pem ?? ''}
-              onChange={(e) => updateConfig('auth.jwt_public_key_pem', e.target.value)}
+              onChange={(val) => updateConfig('auth.jwt_public_key_pem', val)}
+              textarea
               rows={6}
-              className="w-full font-mono text-sm p-2 border border-gray-300 dark:border-gray-600 rounded-md"
               placeholder="-----BEGIN PUBLIC KEY-----"
+              copyLabel="Copy"
             />
           </div>
           <div>
             <label className="block text-sm font-medium mb-2">JWT Private Key (PEM)</label>
-            <textarea
+            <SensitiveField
               value={config.auth?.jwt_private_key_pem ?? ''}
-              onChange={(e) => updateConfig('auth.jwt_private_key_pem', e.target.value)}
+              onChange={(val) => updateConfig('auth.jwt_private_key_pem', val)}
+              textarea
               rows={6}
-              className="w-full font-mono text-sm p-2 border border-gray-300 dark:border-gray-600 rounded-md"
               placeholder="-----BEGIN PRIVATE KEY-----"
             />
           </div>
@@ -967,7 +1321,7 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
         />
       </Section>
 
-      <Section title="Logging & OTEL">
+        <Section title="Logging & OTEL" id="logging-otel">
         <div className="grid grid-cols-4 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Level</label>
@@ -1104,7 +1458,7 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
         </div>
       </Section>
 
-      <Section title="Metrics & Feature Flags">
+        <Section title="Metrics & Feature Flags" id="metrics-flags">
         <div className="grid grid-cols-3 gap-4">
           <label className="flex items-center gap-2">
             <input
@@ -1182,7 +1536,11 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
         </div>
       </Section>
 
-      <Section title="Events & Messaging">
+        <Section
+          title="Events & Messaging"
+          id="events-messaging"
+          description="NATS JetStream carries ServiceRadar events; keep stream, domain, and URL aligned with your cluster defaults."
+        >
         <div className="grid grid-cols-2 gap-4">
           <label className="flex items-center gap-2">
             <input
@@ -1233,405 +1591,351 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
         </div>
       </Section>
 
-      <SecurityFields
-        title="Core Security"
-        path="security"
-        data={config.security}
-        updateConfig={updateConfig}
-      />
-
-      <SecurityFields
-        title="KV Security"
-        path="kv_security"
-        data={config.kv_security}
-        updateConfig={updateConfig}
-      />
-
-      <SecurityFields
-        title="NATS Security"
-        path="nats.security"
-        data={config.nats?.security}
-        updateConfig={updateConfig}
-      />
-
-      <Section title="Edge Onboarding">
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={config.edge_onboarding?.enabled ?? false}
-            onChange={(e) => updateConfig('edge_onboarding.enabled', e.target.checked)}
-          />
-          Enable onboarding packages
-        </label>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-2">Encryption Key (base64)</label>
-            <input
-              type="text"
-              value={config.edge_onboarding?.encryption_key ?? ''}
-              onChange={(e) => updateConfig('edge_onboarding.encryption_key', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Poller ID Prefix</label>
-            <input
-              type="text"
-              value={config.edge_onboarding?.poller_id_prefix ?? ''}
-              onChange={(e) => updateConfig('edge_onboarding.poller_id_prefix', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Join Token TTL</label>
-            <input
-              type="text"
-              value={stringValue(config.edge_onboarding?.join_token_ttl)}
-              onChange={(e) => updateConfig('edge_onboarding.join_token_ttl', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder="15m0s"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Download Token TTL</label>
-            <input
-              type="text"
-              value={stringValue(config.edge_onboarding?.download_token_ttl)}
-              onChange={(e) => updateConfig('edge_onboarding.download_token_ttl', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder="10m0s"
-            />
-          </div>
-          <div className="col-span-2">
-            <label className="block text-sm font-medium mb-2">Downstream Path Template</label>
-            <input
-              type="text"
-              value={config.edge_onboarding?.downstream_path_template ?? ''}
-              onChange={(e) =>
-                updateConfig('edge_onboarding.downstream_path_template', e.target.value)
-              }
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-            />
-          </div>
-        </div>
-        <StringArrayEditor
-          label="Default Selectors"
-          values={config.edge_onboarding?.default_selectors}
-          onChange={(next) => updateConfig('edge_onboarding.default_selectors', next)}
-          placeholder="unix:uid:0"
+        <SecurityFields
+          title="Core Security"
+          path="security"
+          data={config.security}
+          updateConfig={updateConfig}
+          id="core-security"
         />
-        <JsonTextArea
-          label="Default Metadata"
-          value={edgeMetadataText}
-          onChange={setEdgeMetadataText}
-          onBlur={() =>
-            handleJsonBlur(
-              edgeMetadataText,
-              'edge_onboarding.default_metadata',
-              setEdgeMetadataError,
-              {},
-            )
-          }
-          error={edgeMetadataError}
-          description="Map component types (poller, agent, etc.) to metadata entries."
-        />
-      </Section>
 
-      <Section title="SPIRE & KV Connectivity">
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={config.spire_admin?.enabled ?? false}
-            onChange={(e) => updateConfig('spire_admin.enabled', e.target.checked)}
+        {isSpiffeMode && (
+          <SecurityFields
+            title="KV Security"
+            path="kv_security"
+            data={config.kv_security}
+            updateConfig={updateConfig}
+            id="kv-security"
           />
-          Enable SPIRE admin integration
-        </label>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-2">Server Address</label>
-            <input
-              type="text"
-              value={config.spire_admin?.server_address ?? ''}
-              onChange={(e) => updateConfig('spire_admin.server_address', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder="spire-server.demo.svc.cluster.local:8081"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Server SPIFFE ID</label>
-            <input
-              type="text"
-              value={config.spire_admin?.server_spiffe_id ?? ''}
-              onChange={(e) => updateConfig('spire_admin.server_spiffe_id', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Workload Socket</label>
-            <input
-              type="text"
-              value={config.spire_admin?.workload_socket ?? ''}
-              onChange={(e) => updateConfig('spire_admin.workload_socket', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Bundle Path</label>
-            <input
-              type="text"
-              value={config.spire_admin?.bundle_path ?? ''}
-              onChange={(e) => updateConfig('spire_admin.bundle_path', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Join Token TTL</label>
-            <input
-              type="text"
-              value={stringValue(config.spire_admin?.join_token_ttl)}
-              onChange={(e) => updateConfig('spire_admin.join_token_ttl', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder="15m0s"
-            />
-          </div>
-        </div>
+        )}
 
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h4 className="text-md font-semibold">KV Endpoints</h4>
-            <button
-              type="button"
-              onClick={() =>
-                updateConfig('kv_endpoints', [
-                  ...kvEndpoints,
-                  { id: '', name: '', address: '', domain: '', type: '' },
-                ])
-              }
-              className="px-3 py-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900 rounded-md"
-            >
-              Add endpoint
-            </button>
-          </div>
-          {kvEndpoints.length === 0 && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Configure KV endpoints to target hub/leaf stores.
-            </p>
-          )}
-          <div className="space-y-4">
-            {kvEndpoints.map((endpoint, index) => (
-              <div
-                key={`kv-endpoint-${index}`}
-                className="border border-gray-200 dark:border-gray-700 rounded-md p-4 space-y-3"
+        <SecurityFields
+          title="NATS Security"
+          path="nats.security"
+          data={config.nats?.security}
+          updateConfig={updateConfig}
+          allowedModes={['mtls', 'tls', 'none']}
+          id="nats-security"
+        />
+
+        <Section
+          title="Edge Onboarding"
+          id="edge-onboarding"
+          description="Controls how self-serve poller packages are generated. Update selectors and metadata when service addresses or SPIFFE IDs change."
+        >
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={config.edge_onboarding?.enabled ?? false}
+              onChange={(e) => updateConfig('edge_onboarding.enabled', e.target.checked)}
+            />
+            Enable onboarding packages
+          </label>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <label className="block text-sm font-medium mb-2">Encryption Key (base64)</label>
+              <SensitiveField
+                value={config.edge_onboarding?.encryption_key ?? ''}
+                onChange={handleEdgeKeyBase64Change}
+                copyLabel="Copy"
+              />
+              <p
+                className={`mt-1 text-xs ${edgeKeyDecodeError ? 'text-red-600' : 'text-gray-500 dark:text-gray-400'}`}
               >
-                <div className="flex justify-between items-center">
-                  <strong>Endpoint #{index + 1}</strong>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateConfig(
-                        'kv_endpoints',
-                        kvEndpoints.filter((_, i) => i !== index),
-                      )
-                    }
-                    className="text-red-600 hover:underline text-sm"
-                  >
-                    Remove
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-2">ID</label>
-                    <input
-                      type="text"
-                      value={endpoint.id ?? ''}
-                      onChange={(e) => handleKvEndpointChange(index, 'id', e.target.value)}
-                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Name</label>
-                    <input
-                      type="text"
-                      value={endpoint.name ?? ''}
-                      onChange={(e) => handleKvEndpointChange(index, 'name', e.target.value)}
-                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Address</label>
-                    <input
-                      type="text"
-                      value={endpoint.address ?? ''}
-                      onChange={(e) => handleKvEndpointChange(index, 'address', e.target.value)}
-                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                      placeholder="serviceradar-datasvc:50057"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Domain</label>
-                    <input
-                      type="text"
-                      value={endpoint.domain ?? ''}
-                      onChange={(e) => handleKvEndpointChange(index, 'domain', e.target.value)}
-                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                      placeholder="demo"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Type</label>
-                    <input
-                      type="text"
-                      value={endpoint.type ?? ''}
-                      onChange={(e) => handleKvEndpointChange(index, 'type', e.target.value)}
-                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                      placeholder="hub / leaf"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
+                {edgeKeyDecodeError ??
+                  (edgeKeyInfo.length
+                    ? `Length: ${edgeKeyInfo.length} bytes. Hex value shown below.`
+                    : 'Provide a 32-byte key (base64).')}
+              </p>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-sm font-medium mb-2">Decoded Key (hex)</label>
+              <textarea
+                value={edgeKeyHex}
+                onChange={(e) => handleEdgeKeyHexChange(e.target.value)}
+                rows={3}
+                spellCheck={false}
+                className="w-full font-mono text-sm p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-900"
+                placeholder="64 hex characters (32 bytes)"
+              />
+              <p
+                className={`mt-1 text-xs ${edgeKeyError ? 'text-red-600' : 'text-gray-500 dark:text-gray-400'}`}
+              >
+                {edgeKeyError ?? 'Editing the decoded key regenerates the encoded value automatically.'}
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Poller ID Prefix</label>
+              <input
+                type="text"
+                value={config.edge_onboarding?.poller_id_prefix ?? ''}
+                onChange={(e) => updateConfig('edge_onboarding.poller_id_prefix', e.target.value)}
+                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Join Token TTL</label>
+              <input
+                type="text"
+                value={stringValue(config.edge_onboarding?.join_token_ttl)}
+                onChange={(e) => updateConfig('edge_onboarding.join_token_ttl', e.target.value)}
+                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                placeholder="15m0s"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Download Token TTL</label>
+              <input
+                type="text"
+                value={stringValue(config.edge_onboarding?.download_token_ttl)}
+                onChange={(e) => updateConfig('edge_onboarding.download_token_ttl', e.target.value)}
+                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                placeholder="10m0s"
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-sm font-medium mb-2">Downstream Path Template</label>
+              <input
+                type="text"
+                value={config.edge_onboarding?.downstream_path_template ?? ''}
+                onChange={(e) =>
+                  updateConfig('edge_onboarding.downstream_path_template', e.target.value)
+                }
+                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              />
+            </div>
           </div>
-        </div>
-      </Section>
+          <StringArrayEditor
+            label="Default Selectors"
+            values={config.edge_onboarding?.default_selectors}
+            onChange={(next) => updateConfig('edge_onboarding.default_selectors', next)}
+            placeholder="unix:uid:0"
+          />
+          <div className="space-y-4">
+            <h4 className="text-md font-semibold">Poller Package Metadata</h4>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              These values hydrate edge poller bootstrap scripts. Update them when service addresses or SPIFFE IDs change.
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              {[
+                ['agent_address', 'Agent gRPC Address', 'agent:50051'],
+                ['agent_spiffe_id', 'Agent SPIFFE ID', 'spiffe://.../services/agent'],
+                ['core_address', 'Core Address', 'serviceradar-core:50052'],
+                ['core_spiffe_id', 'Core SPIFFE ID', 'spiffe://.../serviceradar-core'],
+                ['kv_address', 'KV Address', 'serviceradar-datasvc:50057'],
+                ['kv_spiffe_id', 'KV SPIFFE ID', 'spiffe://.../serviceradar-datasvc'],
+                ['log_level', 'Log Level', 'info'],
+                ['logs_dir', 'Logs Directory', './logs'],
+                ['nested_spire_wait_attempts', 'Nested SPIRE wait attempts', '120'],
+                ['spire_parent_id', 'SPIRE Parent ID', 'spiffe://.../poller-nested-spire'],
+                ['spire_upstream_address', 'SPIRE Upstream Address', 'spire-server.demo.svc.cluster.local'],
+                ['spire_upstream_port', 'SPIRE Upstream Port', '8081'],
+              ].map(([field, label, placeholder]) => (
+                <div key={field}>
+                  <label className="block text-sm font-medium mb-2">{label}</label>
+                  <input
+                    type="text"
+                    value={pollerMetadata[field as keyof typeof pollerMetadata] ?? ''}
+                    onChange={(e) => updatePollerMetadata(field, e.target.value)}
+                    className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                    placeholder={placeholder}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </Section>
 
-      <Section title="Integrations">
-        <div className="grid grid-cols-2 gap-4">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={config.srql?.enabled ?? false}
-              onChange={(e) => updateConfig('srql.enabled', e.target.checked)}
-            />
-            Enable SRQL
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={config.mcp?.enabled ?? false}
-              onChange={(e) => updateConfig('mcp.enabled', e.target.checked)}
-            />
-            Enable MCP Agent
-          </label>
+        {isSpiffeMode && (
+          <Section title="SPIRE & KV Connectivity" id="spire-kv" collapsible defaultCollapsed>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={config.spire_admin?.enabled ?? false}
+                onChange={(e) => updateConfig('spire_admin.enabled', e.target.checked)}
+              />
+              Enable SPIRE admin integration
+            </label>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Server Address</label>
+                <input
+                  type="text"
+                  value={config.spire_admin?.server_address ?? ''}
+                  onChange={(e) => updateConfig('spire_admin.server_address', e.target.value)}
+                  className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                  placeholder="spire-server.demo.svc.cluster.local:8081"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Server SPIFFE ID</label>
+                <input
+                  type="text"
+                  value={config.spire_admin?.server_spiffe_id ?? ''}
+                  onChange={(e) => updateConfig('spire_admin.server_spiffe_id', e.target.value)}
+                  className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Workload Socket</label>
+                <input
+                  type="text"
+                  value={config.spire_admin?.workload_socket ?? ''}
+                  onChange={(e) => updateConfig('spire_admin.workload_socket', e.target.value)}
+                  className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Bundle Path</label>
+                <input
+                  type="text"
+                  value={config.spire_admin?.bundle_path ?? ''}
+                  onChange={(e) => updateConfig('spire_admin.bundle_path', e.target.value)}
+                  className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Join Token TTL</label>
+                <input
+                  type="text"
+                  value={stringValue(config.spire_admin?.join_token_ttl)}
+                  onChange={(e) => updateConfig('spire_admin.join_token_ttl', e.target.value)}
+                  className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                  placeholder="15m0s"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-md font-semibold">KV Endpoints</h4>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateConfig('kv_endpoints', [
+                      ...kvEndpoints,
+                      { id: '', name: '', address: '', domain: '', type: '' },
+                    ])
+                  }
+                  className="px-3 py-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900 rounded-md"
+                >
+                  Add endpoint
+                </button>
+              </div>
+              {kvEndpoints.length === 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Configure KV endpoints to target hub/leaf stores.
+                </p>
+              )}
+              <div className="space-y-4">
+                {kvEndpoints.map((endpoint, index) => (
+                  <div
+                    key={`kv-endpoint-${index}`}
+                    className="border border-gray-200 dark:border-gray-700 rounded-md p-4 space-y-3"
+                  >
+                    <div className="flex justify-between items-center">
+                      <strong>Endpoint #{index + 1}</strong>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateConfig(
+                            'kv_endpoints',
+                            kvEndpoints.filter((_, i) => i !== index),
+                          )
+                        }
+                        className="text-red-600 hover:underline text-sm"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-2">ID</label>
+                        <input
+                          type="text"
+                          value={endpoint.id ?? ''}
+                          onChange={(e) => handleKvEndpointChange(index, 'id', e.target.value)}
+                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Name</label>
+                        <input
+                          type="text"
+                          value={endpoint.name ?? ''}
+                          onChange={(e) => handleKvEndpointChange(index, 'name', e.target.value)}
+                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Address</label>
+                        <input
+                          type="text"
+                          value={endpoint.address ?? ''}
+                          onChange={(e) => handleKvEndpointChange(index, 'address', e.target.value)}
+                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                          placeholder="serviceradar-datasvc:50057"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Domain</label>
+                        <input
+                          type="text"
+                          value={endpoint.domain ?? ''}
+                          onChange={(e) => handleKvEndpointChange(index, 'domain', e.target.value)}
+                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                          placeholder="demo"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Type</label>
+                        <input
+                          type="text"
+                          value={endpoint.type ?? ''}
+                          onChange={(e) => handleKvEndpointChange(index, 'type', e.target.value)}
+                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                          placeholder="hub / leaf"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Section>
+        )}
+
+        <Section
+          title="Integrations"
+          id="integrations"
+          collapsible
+          defaultCollapsed
+          description="SRQL lives in the srql service; MCP API tokens can still be managed inline."
+        >
+        <div className="p-3 rounded-md bg-blue-50 text-sm text-blue-900 dark:bg-blue-900/30 dark:text-blue-100 mb-4">
+          The SRQL editor was removed from Core; update SRQL settings via deployment manifests or the srql service runbook.
         </div>
+        <label className="flex items-center gap-2 mb-4">
+          <input
+            type="checkbox"
+            checked={config.mcp?.enabled ?? false}
+            onChange={(e) => updateConfig('mcp.enabled', e.target.checked)}
+          />
+          Enable MCP Agent
+        </label>
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-2">SRQL Base URL</label>
-            <input
-              type="text"
-              value={config.srql?.base_url ?? ''}
-              onChange={(e) => updateConfig('srql.base_url', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder="http://serviceradar-srql:8080"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">SRQL API Key</label>
-            <input
-              type="text"
-              value={config.srql?.api_key ?? ''}
-              onChange={(e) => updateConfig('srql.api_key', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">SRQL Timeout</label>
-            <input
-              type="text"
-              value={config.srql?.timeout ?? ''}
-              onChange={(e) => updateConfig('srql.timeout', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder="15s"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">SRQL Path</label>
-            <input
-              type="text"
-              value={config.srql?.path ?? ''}
-              onChange={(e) => updateConfig('srql.path', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder="/api/query"
-            />
-          </div>
           <div>
             <label className="block text-sm font-medium mb-2">MCP API Key</label>
-            <input
-              type="text"
+            <SensitiveField
               value={config.mcp?.api_key ?? ''}
-              onChange={(e) => updateConfig('mcp.api_key', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              onChange={(val) => updateConfig('mcp.api_key', val)}
+              copyLabel="Copy"
             />
           </div>
         </div>
       </Section>
 
-      <Section title="SNMP">
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-2">Listen Address</label>
-            <input
-              type="text"
-              value={config.snmp?.listen_addr ?? ''}
-              onChange={(e) => updateConfig('snmp.listen_addr', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder=":161"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Node Address</label>
-            <input
-              type="text"
-              value={config.snmp?.node_address ?? ''}
-              onChange={(e) => updateConfig('snmp.node_address', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Timeout</label>
-            <input
-              type="text"
-              value={stringValue(config.snmp?.timeout)}
-              onChange={(e) => updateConfig('snmp.timeout', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-            />
-          </div>
-        </div>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={Boolean(config.snmp?.security)}
-            onChange={(e) => {
-              if (e.target.checked) {
-                updateConfig('snmp.security', config.snmp?.security ?? { mode: 'spiffe', tls: {} });
-              } else {
-                updateConfig('snmp.security', null);
-              }
-            }}
-          />
-          Configure SNMP security
-        </label>
-        {config.snmp?.security ? (
-          <SecurityFields
-            title="SNMP Security"
-            path="snmp.security"
-            data={config.snmp.security}
-            updateConfig={updateConfig}
-          />
-        ) : null}
-        <JsonTextArea
-          label="Targets"
-          value={snmpTargetsText}
-          onChange={setSnmpTargetsText}
-          onBlur={() =>
-            handleJsonBlur(snmpTargetsText, 'snmp.targets', setSnmpTargetsError, [])
-          }
-          error={snmpTargetsError}
-          description="Provide an array of SNMP target descriptors."
-          rows={8}
-        />
-      </Section>
-
-      <Section title="Webhooks">
+        <Section title="Webhooks" id="webhooks" collapsible defaultCollapsed>
         <div className="flex justify-end">
           <button
             type="button"
@@ -1771,7 +2075,13 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
         </div>
       </Section>
 
-      <Section title="Write Buffer">
+        <Section
+          title="Write Buffer"
+          id="write-buffer"
+          collapsible
+          defaultCollapsed
+          description="Buffers telemetry writes before flushing to Proton. See docs/docs/kv-configuration.md#write-buffer."
+        >
         <label className="flex items-center gap-2">
           <input
             type="checkbox"
@@ -1807,6 +2117,8 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
           </div>
         </div>
       </Section>
+        </div>
+      </div>
     </div>
   );
 }
