@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
+use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat, RestartHandle};
 use env_logger::Env;
 use log::{debug, info, warn};
 use std::time::Duration;
@@ -33,6 +34,7 @@ use rule_watcher::watch_rules;
 
 const BATCH_TIMEOUT: Duration = Duration::from_secs(1);
 const MAX_RETRIES: i64 = 3;
+const KV_KEY: &str = "config/zen-consumer.json";
 
 #[derive(Parser, Debug)]
 #[command(name = "serviceradar-zen")]
@@ -40,13 +42,41 @@ struct Cli {
     /// Path to configuration file
     #[arg(short, long, env = "ZEN_CONFIG")]
     config: String,
+
+    /// Seed sanitized config to KV when CONFIG_SOURCE=kv
+    #[arg(long, env = "ZEN_SEED_KV", default_value_t = true)]
+    seed_kv: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let cli = Cli::parse();
-    let cfg = Config::from_file(&cli.config)?;
+    let use_kv = std::env::var("CONFIG_SOURCE").ok().as_deref() == Some("kv");
+    let kv_key = use_kv.then(|| KV_KEY.to_string());
+    let mut bootstrap = Bootstrap::new(BootstrapOptions {
+        service_name: "zen-consumer".to_string(),
+        config_path: cli.config.clone(),
+        format: ConfigFormat::Json,
+        kv_key,
+        seed_kv: use_kv && cli.seed_kv,
+        watch_kv: use_kv,
+    })
+    .await?;
+    let cfg: Config = bootstrap.load().await?;
+    cfg.validate()?;
+
+    if use_kv {
+        if let Some(watcher) = bootstrap.watch::<Config>().await? {
+            let restarter = RestartHandle::new("zen-consumer", KV_KEY);
+            tokio::spawn(async move {
+                let mut cfg_watcher = watcher;
+                while cfg_watcher.recv().await.is_some() {
+                    restarter.trigger();
+                }
+            });
+        }
+    }
 
     let (_client, js) = connect_nats(&cfg).await?;
     let stream = match js.get_stream(&cfg.stream_name).await {

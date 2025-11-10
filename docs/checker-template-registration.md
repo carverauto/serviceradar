@@ -60,6 +60,10 @@ templates/
       ├── rperf.json         # Template for rperf checker (written by checker)
       └── snmp.json          # Template for snmp checker (written by checker)
 
+> Implementation note: In code we persist templates under `templates/<descriptor>.json`
+> (for example `templates/agent-snmp.json`). The checker-friendly aliases above map
+> directly to those descriptor names for each service.
+
 agents/
   └── {agent-id}/
       └── checkers/

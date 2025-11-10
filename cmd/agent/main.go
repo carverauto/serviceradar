@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"log"
@@ -26,11 +27,19 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/agent"
 	"github.com/carverauto/serviceradar/pkg/config"
+	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+)
+
+//go:embed config.json
+var defaultConfig []byte
+
+var (
+	errServiceDescriptorMissing = fmt.Errorf("service descriptor for agent missing")
 )
 
 func main() {
@@ -62,23 +71,26 @@ func run() error {
 		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
 	}
 
-	// Step 1: Load config with KV support
-	kvMgr := config.NewKVManagerFromEnv(ctx, models.RoleAgent)
-	defer func() {
-		if kvMgr != nil {
-			_ = kvMgr.Close()
-		}
-	}()
-
-	cfgLoader := config.NewConfig(nil)
-	if kvMgr != nil {
-		kvMgr.SetupConfigLoader(cfgLoader)
-	}
-
 	var cfg agent.ServerConfig
-	if err := kvMgr.LoadAndOverlay(ctx, cfgLoader, *configPath, &cfg); err != nil {
+	desc, ok := config.ServiceDescriptorFor("agent")
+	if !ok {
+		return errServiceDescriptorMissing
+	}
+	bootstrapResult, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, &cfg, defaultConfig, cfgbootstrap.ServiceOptions{
+		Role:         models.RoleAgent,
+		ConfigPath:   *configPath,
+		DisableWatch: true,
+		KeyContextFn: func(conf interface{}) config.KeyContext {
+			if agentCfg, ok := conf.(*agent.ServerConfig); ok {
+				return config.KeyContext{AgentID: agentCfg.AgentID}
+			}
+			return config.KeyContext{}
+		},
+	})
+	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	defer func() { _ = bootstrapResult.Close() }()
 
 	// Step 2: Create logger from loaded config
 	logConfig := cfg.Logging
@@ -95,12 +107,7 @@ func run() error {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
 
-	// Bootstrap service-level default into KV if missing
-	if kvMgr != nil {
-		kvMgr.BootstrapConfig(ctx, "config/agent.json", cfg)
-	}
-
-    // Step 3: Create agent server with proper logger
+	// Step 3: Create agent server with proper logger
 	server, err := agent.NewServer(ctx, cfg.CheckersDir, &cfg, agentLogger)
 	if err != nil {
 		if shutdownErr := lifecycle.ShutdownLogger(); shutdownErr != nil {
@@ -111,12 +118,13 @@ func run() error {
 	}
 
 	// KV Watch: overlay and apply hot-reload on relevant changes
-	if kvMgr != nil {
-		kvMgr.StartWatch(ctx, "config/agent.json", &cfg, agentLogger, func() {
-			server.UpdateConfig(&cfg)
-			server.RestartServices(ctx)
-		})
+	if cfg.AgentID != "" {
+		bootstrapResult.SetInstanceID(cfg.AgentID)
 	}
+	bootstrapResult.StartWatch(ctx, agentLogger, &cfg, func() {
+		server.UpdateConfig(&cfg)
+		server.RestartServices(ctx)
+	})
 
 	// Create server options
 	opts := &lifecycle.ServerOptions{

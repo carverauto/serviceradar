@@ -48,15 +48,27 @@ func StartKVWatchOverlay(ctx context.Context, kvStore cfgkv.KVStore, key string,
 	if kvStore == nil || key == "" || dst == nil {
 		return
 	}
+	watcherID := watcherIDFromContext(ctx)
 	go func() {
-		defer func() { _ = kvStore.Close() }()
+		defer func() {
+			if watcherID != "" {
+				MarkWatcherStopped(watcherID, ctx.Err())
+			}
+			_ = kvStore.Close()
+		}()
 
 		if data, found, err := kvStore.Get(ctx, key); err == nil && found && len(data) > 0 {
 			if err := MergeOverlayBytes(dst, data); err != nil {
+				if watcherID != "" {
+					MarkWatcherEvent(watcherID, err)
+				}
 				if log != nil {
 					log.Warn().Err(err).Str("key", key).Msg("Failed initial KV overlay")
 				}
 			} else if onChange != nil {
+				if watcherID != "" {
+					MarkWatcherEvent(watcherID, nil)
+				}
 				onChange()
 			}
 		}
@@ -86,10 +98,16 @@ func StartKVWatchOverlay(ctx context.Context, kvStore cfgkv.KVStore, key string,
 				}
 
 				if err := MergeOverlayBytes(dst, data); err != nil {
+					if watcherID != "" {
+						MarkWatcherEvent(watcherID, err)
+					}
 					if log != nil {
 						log.Warn().Err(err).Str("key", key).Msg("Failed KV overlay on update")
 					}
 				} else {
+					if watcherID != "" {
+						MarkWatcherEvent(watcherID, nil)
+					}
 					if log != nil {
 						log.Info().Str("key", key).Msg("Applied KV config overlay")
 					}

@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, ChevronDown, Server, Cpu, Package, Settings } from 'lucide-react';
 import KvInfoBadge from './KvInfoBadge';
+import type { ConfigDescriptor } from './types';
 
 export interface ServiceTreeService {
   name: string;
@@ -31,7 +32,16 @@ export interface SelectedServiceInfo {
   kvStore?: string; // kv_store_id
   pollerId?: string;
   agentId?: string;
+  descriptor?: ConfigDescriptor | null;
 }
+
+const toTitleCase = (value: string) =>
+  value
+    .replace(/[-_]/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const descriptorKey = (desc?: ConfigDescriptor | null) => (desc?.service_type || desc?.name || '').toLowerCase();
+const descriptorPath = (desc?: ConfigDescriptor | null) => desc?.service_type || desc?.name || '';
 
 interface Props {
   pollers?: ServiceTreePoller[];
@@ -41,21 +51,168 @@ interface Props {
   filterAgent?: string;
   filterService?: string;
   pageSize?: number; // services per agent page
+  configDescriptors?: ConfigDescriptor[];
 }
 
-export default function ServicesTreeNavigation({ pollers, selected, onSelect, filterPoller = '', filterAgent = '', filterService = '', pageSize = 200 }: Props) {
+export default function ServicesTreeNavigation({ pollers, selected, onSelect, filterPoller = '', filterAgent = '', filterService = '', pageSize = 200, configDescriptors = [] }: Props) {
   const [expandedPollers, setExpandedPollers] = useState<Set<string>>(new Set());
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
   const [loadingPollers, setLoadingPollers] = useState(false);
   const [tree, setTree] = useState<Record<string, ServiceTreePoller>>({});
+  const descriptorIndex = useMemo(() => {
+    const map = new Map<string, ConfigDescriptor>();
+    configDescriptors.forEach((desc) => {
+      const keys = new Set<string>();
+      if (desc.service_type) {
+        keys.add(desc.service_type.toLowerCase());
+      }
+      if (desc.name) {
+        keys.add(desc.name.toLowerCase());
+      }
+      keys.forEach((key) => {
+        if (!map.has(key)) {
+          map.set(key, desc);
+        }
+      });
+    });
+    return map;
+  }, [configDescriptors]);
+  const lookupDescriptor = React.useCallback(
+    (value?: string | null) => {
+      if (!value) {
+        return null;
+      }
+      const normalized = value.toLowerCase();
+      if (descriptorIndex.has(normalized)) {
+        return descriptorIndex.get(normalized) ?? null;
+      }
+      if (normalized.includes(':') || normalized.includes('/')) {
+        for (const token of normalized.split(/[:/]/)) {
+          if (!token) continue;
+          if (descriptorIndex.has(token)) {
+            return descriptorIndex.get(token) ?? null;
+          }
+        }
+      }
+      return null;
+    },
+    [descriptorIndex],
+  );
+  const resolveDescriptorForService = React.useCallback(
+    (svc?: { type?: string; name?: string } | null) => {
+      if (!svc) return null;
+      return lookupDescriptor(svc.name) ?? lookupDescriptor(svc.type);
+    },
+    [lookupDescriptor],
+  );
+  const getServiceLabel = React.useCallback(
+    (serviceType: string) => {
+      const desc = lookupDescriptor(serviceType);
+      if (!desc) {
+        return toTitleCase(serviceType);
+      }
+      if (desc.display_name) {
+        return desc.display_name;
+      }
+      return toTitleCase(desc.name ?? serviceType);
+    },
+    [lookupDescriptor],
+  );
+  const globalDescriptors = React.useMemo(
+    () => configDescriptors.filter((desc) => desc.scope === 'global'),
+    [configDescriptors],
+  );
+  const globalServiceTypes = React.useMemo(
+    () =>
+      new Set(
+        globalDescriptors
+          .map((desc) => (desc.service_type || desc.name || '').toLowerCase())
+          .filter(Boolean),
+      ),
+    [globalDescriptors],
+  );
+  const globalDescriptorNames = React.useMemo(
+    () =>
+      new Set(
+        globalDescriptors
+          .map((desc) => (desc.name || '').toLowerCase())
+          .filter(Boolean),
+      ),
+    [globalDescriptors],
+  );
+  const filterGlobalServices = React.useCallback(
+    (services: ServiceTreeService[] = []) =>
+      services.filter((svc) => {
+        const desc = resolveDescriptorForService(svc);
+        if (desc) {
+          return desc.scope !== 'global';
+        }
+        const normalizedName = (svc.name || '').toLowerCase();
+        if (normalizedName && globalDescriptorNames.has(normalizedName)) {
+          return false;
+        }
+        return true;
+      }),
+    [globalDescriptorNames, resolveDescriptorForService],
+  );
+
   // Global services (not scoped to agents/pollers)
   const [globalOpen, setGlobalOpen] = useState<boolean>(false);
-  const [globalStatus, setGlobalStatus] = useState<Record<string, 'unknown' | 'configured' | 'missing'>>({
-    'otel': 'unknown',
-    'flowgger': 'unknown',
-    'db-event-writer': 'unknown',
-    'zen-consumer': 'unknown',
-  });
+  const orderedGlobalDescriptors = React.useMemo(
+    () =>
+      [...globalDescriptors].sort((a, b) => {
+        const left = a.display_name || a.name || a.service_type;
+        const right = b.display_name || b.name || b.service_type;
+        return left.localeCompare(right);
+      }),
+    [globalDescriptors],
+  );
+  const agentAddOptions = React.useMemo(() => {
+    return configDescriptors
+      .filter((desc) => desc.scope === 'agent' && desc.requires_agent)
+      .map((desc) => {
+        const canonicalType = descriptorPath(desc);
+        if (!canonicalType) {
+          return null;
+        }
+        return {
+          label: desc.display_name ?? toTitleCase(desc.name ?? canonicalType),
+          type: canonicalType,
+          descriptor: desc,
+        };
+      })
+      .filter((entry): entry is { label: string; type: string; descriptor: ConfigDescriptor } => Boolean(entry))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [configDescriptors]);
+  const [globalStatus, setGlobalStatus] = useState<Record<string, 'unknown' | 'configured' | 'missing'>>({});
+
+  useEffect(() => {
+    if (orderedGlobalDescriptors.length === 0) {
+      setGlobalStatus({});
+      return;
+    }
+    setGlobalStatus(prev => {
+      const next = { ...prev };
+      let mutated = false;
+      const activeKeys = new Set<string>();
+      orderedGlobalDescriptors.forEach((desc) => {
+        const key = descriptorKey(desc);
+        if (!key) return;
+        activeKeys.add(key);
+        if (!next[key]) {
+          next[key] = 'unknown';
+          mutated = true;
+        }
+      });
+      Object.keys(next).forEach((key) => {
+        if (!activeKeys.has(key)) {
+          delete next[key];
+          mutated = true;
+        }
+      });
+      return mutated ? next : prev;
+    });
+  }, [orderedGlobalDescriptors]);
 
   useEffect(() => {
     const loadStatus = async () => {
@@ -65,38 +222,52 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
           .find((row) => row.startsWith("accessToken="))
           ?.split("=")[1];
         const headers: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
-        const services = ['otel','flowgger','db-event-writer','zen-consumer'];
         const results: Record<string, 'configured' | 'missing' | 'unknown'> = {};
-        await Promise.all(services.map(async (svc) => {
+        await Promise.all(orderedGlobalDescriptors.map(async (desc) => {
+          const svc = descriptorPath(desc);
+          const key = descriptorKey(desc);
+          if (!svc || !key) {
+            return;
+          }
           try {
             const resp = await fetch(`/api/admin/config/${svc}`, { headers });
-            results[svc] = resp.ok ? 'configured' : 'missing';
-          } catch { results[svc] = 'unknown'; }
+            results[key] = resp.ok ? 'configured' : 'missing';
+          } catch {
+            results[key] = 'unknown';
+          }
         }));
         setGlobalStatus(prev => ({ ...prev, ...results }));
-      } catch {}
+      } catch {
+        // ignore
+      }
     };
-    if (globalOpen) {
-      // Only fetch once per session unless user toggles again
-      const anyUnknown = Object.values(globalStatus).some(v => v === 'unknown');
-      if (anyUnknown) loadStatus();
+    if (!globalOpen || orderedGlobalDescriptors.length === 0) {
+      return;
     }
-  }, [globalOpen, globalStatus]);
+    const anyUnknown = orderedGlobalDescriptors.some((desc) => {
+      const key = descriptorKey(desc);
+      if (!key) {
+        return false;
+      }
+      return (globalStatus[key] ?? 'unknown') === 'unknown';
+    });
+    if (anyUnknown) loadStatus();
+  }, [globalOpen, orderedGlobalDescriptors, globalStatus]);
 
   // Listen for config saves to update global status indicator immediately
   useEffect(() => {
     const onSaved = (e: Event) => {
       // @ts-expect-error Custom event with detail
       const detail = e.detail || {};
-      const t = detail.serviceType as string | undefined;
-      if (!t) return;
-      if (t === 'otel' || t === 'flowgger' || t === 'db-event-writer' || t === 'zen-consumer') {
-        setGlobalStatus(prev => ({ ...prev, [t]: 'configured' }));
+      const t = (detail.serviceType as string | undefined)?.toLowerCase();
+      if (!t || !globalServiceTypes.has(t)) {
+        return;
       }
+      setGlobalStatus(prev => ({ ...prev, [t]: 'configured' }));
     };
     window.addEventListener('sr:config-saved', onSaved);
     return () => window.removeEventListener('sr:config-saved', onSaved);
-  }, []);
+  }, [globalServiceTypes]);
   // Track pagination offsets per agent
   const [agentOffsets, setAgentOffsets] = useState<Record<string, number>>({});
   const [agentHasMore, setAgentHasMore] = useState<Record<string, boolean>>({});
@@ -135,7 +306,15 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
   useEffect(() => {
     if (pollers && pollers.length > 0) {
       const map: Record<string, ServiceTreePoller> = {};
-      pollers.forEach(p => { map[p.poller_id] = p; });
+      pollers.forEach(p => {
+        map[p.poller_id] = {
+          ...p,
+          agents: (p.agents || []).map(agent => ({
+            ...agent,
+            services: filterGlobalServices(agent.services),
+          })),
+        };
+      });
       setTree(map);
       return;
     }
@@ -157,7 +336,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
     };
     fetchPollers();
     return () => { cancelled = true; };
-  }, [pollers]);
+  }, [pollers, filterGlobalServices]);
 
   // No domain selection here; global services target the default KV (hub) unless overridden in editor.
 
@@ -181,7 +360,16 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
     const arr = await resp.json();
     const node = (arr && arr.length) ? arr[0] : null;
     if (!node) return;
-    setTree(prev => ({ ...prev, [id]: node }));
+    setTree(prev => ({
+      ...prev,
+      [id]: {
+        ...node,
+        agents: (node.agents || []).map((agent: ServiceTreeAgent) => ({
+          ...agent,
+          services: filterGlobalServices(agent.services),
+        })),
+      },
+    }));
   };
 
   const toggleAgent = async (pollerId: string, agentId: string) => {
@@ -217,7 +405,9 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
     const freshAgent = (node.agents || []).find((a: ServiceTreeAgent) => a.agent_id === agentId);
     if (!freshAgent) return;
     // Mark hasMore for this agent based on returned page size
-    const pageCount = (freshAgent.services || []).length;
+    const rawServices = freshAgent.services || [];
+    const filteredServices = filterGlobalServices(rawServices);
+    const pageCount = rawServices.length;
     setAgentHasMore(prev => ({ ...prev, [k]: pageCount >= pageSize }));
     setTree(prev => {
       const p = prev[pollerId] || { poller_id: pollerId, is_healthy: true, agents: [] };
@@ -227,7 +417,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
         const merged = { ...agents[idx] } as ServiceTreeAgent;
         // Append while de-duplicating by type+name
         const existing = new Set((merged.services || []).map(s => `${s.type}:${s.name}`));
-        const toAdd = (freshAgent.services || []).filter((s: ServiceTreeService) => {
+        const toAdd = filteredServices.filter((s: ServiceTreeService) => {
           const key = `${s.type}:${s.name}`;
           if (existing.has(key)) return false;
           existing.add(key);
@@ -237,7 +427,10 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
         merged.kv_store_ids = freshAgent.kv_store_ids || merged.kv_store_ids;
         agents[idx] = merged;
       } else {
-        agents.push(freshAgent);
+        agents.push({
+          ...freshAgent,
+          services: filteredServices,
+        });
       }
       return { ...prev, [pollerId]: { ...p, agents } };
     });
@@ -417,30 +610,35 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
         </div>
         {globalOpen && (
           <div className="ml-4 text-sm">
-            <div className={`flex items-center gap-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === 'global::otel' ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                 onClick={() => onSelect({ id: 'global::otel', name: 'OTEL Collector', type: 'otel', kvStore: '' })}>
-              <span className="w-3" />
-              <span>OTEL Collector</span>
-              <span className={`ml-2 w-2 h-2 rounded-full ${globalStatus['otel'] === 'configured' ? 'bg-green-500' : globalStatus['otel'] === 'missing' ? 'bg-gray-400' : 'bg-yellow-400'}`} title={globalStatus['otel'] === 'configured' ? 'Configured' : globalStatus['otel'] === 'missing' ? 'Not configured' : 'Checking…'} />
-            </div>
-            <div className={`flex items-center gap-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === 'global::flowgger' ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                 onClick={() => onSelect({ id: 'global::flowgger', name: 'Flowgger', type: 'flowgger', kvStore: '' })}>
-              <span className="w-3" />
-              <span>Flowgger</span>
-              <span className={`ml-2 w-2 h-2 rounded-full ${globalStatus['flowgger'] === 'configured' ? 'bg-green-500' : globalStatus['flowgger'] === 'missing' ? 'bg-gray-400' : 'bg-yellow-400'}`} title={globalStatus['flowgger'] === 'configured' ? 'Configured' : globalStatus['flowgger'] === 'missing' ? 'Not configured' : 'Checking…'} />
-            </div>
-            <div className={`flex items-center gap-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === 'global::db-event-writer' ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                 onClick={() => onSelect({ id: 'global::db-event-writer', name: 'DB Event Writer', type: 'db-event-writer', kvStore: '' })}>
-              <span className="w-3" />
-              <span>DB Event Writer</span>
-              <span className={`ml-2 w-2 h-2 rounded-full ${globalStatus['db-event-writer'] === 'configured' ? 'bg-green-500' : globalStatus['db-event-writer'] === 'missing' ? 'bg-gray-400' : 'bg-yellow-400'}`} title={globalStatus['db-event-writer'] === 'configured' ? 'Configured' : globalStatus['db-event-writer'] === 'missing' ? 'Not configured' : 'Checking…'} />
-            </div>
-            <div className={`flex items-center gap-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === 'global::zen-consumer' ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                 onClick={() => onSelect({ id: 'global::zen-consumer', name: 'Zen Consumer', type: 'zen-consumer', kvStore: '' })}>
-              <span className="w-3" />
-              <span>Zen Consumer</span>
-              <span className={`ml-2 w-2 h-2 rounded-full ${globalStatus['zen-consumer'] === 'configured' ? 'bg-green-500' : globalStatus['zen-consumer'] === 'missing' ? 'bg-gray-400' : 'bg-yellow-400'}`} title={globalStatus['zen-consumer'] === 'configured' ? 'Configured' : globalStatus['zen-consumer'] === 'missing' ? 'Not configured' : 'Checking…'} />
-            </div>
+            {orderedGlobalDescriptors.length === 0 && (
+              <div className="p-1 text-xs text-gray-500">No global services registered.</div>
+            )}
+            {orderedGlobalDescriptors.map((desc) => {
+              const canonicalType = descriptorPath(desc);
+              if (!canonicalType) {
+                return null;
+              }
+              const key = descriptorKey(desc);
+              const label = getServiceLabel(canonicalType);
+              const rowId = `global::${desc.name ?? canonicalType}`;
+              const status = key ? (globalStatus[key] ?? 'unknown') : 'unknown';
+              const statusClass = status === 'configured' ? 'bg-green-500' : status === 'missing' ? 'bg-gray-400' : 'bg-yellow-400';
+              const statusTitle = status === 'configured' ? 'Configured' : status === 'missing' ? 'Not configured' : 'Checking…';
+              return (
+                <div
+                  key={rowId}
+                  className={`flex items-center gap-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === rowId ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
+                  onClick={() => onSelect({ id: rowId, name: label, type: canonicalType, kvStore: '', descriptor: desc })}
+                >
+                  <span className="w-3" />
+                  <span>{label}</span>
+                  {desc?.kv_key && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{desc.kv_key}</span>
+                  )}
+                  <span className={`ml-2 w-2 h-2 rounded-full ${statusClass}`} title={statusTitle} />
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -465,7 +663,14 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
               {/* Poller-level selection */}
               <div
                 className={`flex items-center gap-2 p-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === `poller:${p.poller_id}` ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                onClick={() => onSelect({ id: `poller:${p.poller_id}`, name: p.poller_id, type: 'poller', kvStore: p.kv_store_ids?.[0], pollerId: p.poller_id })}
+                onClick={() => onSelect({
+                  id: `poller:${p.poller_id}`,
+                  name: p.poller_id,
+                  type: 'poller',
+                  kvStore: p.kv_store_ids?.[0],
+                  pollerId: p.poller_id,
+                  descriptor: lookupDescriptor('poller'),
+                })}
               >
                 {iconForType('poller')}
                 <span>Configure poller</span>
@@ -485,7 +690,15 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
                       {/* Agent-level selection */}
                       <div
                         className={`flex items-center gap-2 p-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === `agent:${p.poller_id}:${a.agent_id}` ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                        onClick={() => onSelect({ id: `agent:${p.poller_id}:${a.agent_id}`, name: a.agent_id, type: 'agent', kvStore: a.kv_store_ids?.[0], pollerId: p.poller_id, agentId: a.agent_id })}
+                        onClick={() => onSelect({
+                          id: `agent:${p.poller_id}:${a.agent_id}`,
+                          name: a.agent_id,
+                          type: 'agent',
+                          kvStore: a.kv_store_ids?.[0],
+                          pollerId: p.poller_id,
+                          agentId: a.agent_id,
+                          descriptor: lookupDescriptor('agent'),
+                        })}
                       >
                         {iconForType('agent')}
                         <span>Configure agent</span>
@@ -494,36 +707,39 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
                         const services = (a.services || []).filter(s => !filterService || s.name.toLowerCase().includes(filterService.toLowerCase()));
                         if (services.length === 0) {
                           const key = `${p.poller_id}:${a.agent_id}`;
-                          const supported = [
-                            { label: 'SNMP', type: 'snmp' },
-                            { label: 'Sweep', type: 'sweep' },
-                            { label: 'SysMon', type: 'sysmon' },
-                            { label: 'rPerf', type: 'rperf' },
-                            { label: 'Trapd', type: 'trapd' },
-                            { label: 'Mapper', type: 'mapper' },
-                          ];
                           return (
                             <div className="mt-2 ml-2 text-xs text-gray-600 dark:text-gray-400">
                               <div className="mb-1">No configured services yet.</div>
                               <div className="relative inline-block">
                                 <button
-                                  className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                  className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-60"
+                                  disabled={agentAddOptions.length === 0}
                                   onClick={(e) => { e.stopPropagation(); setOpenAddMenuFor(openAddMenuFor === key ? null : key); }}
                                 >
-                                  Add service
+                                  {agentAddOptions.length === 0 ? 'No descriptors' : 'Add service'}
                                 </button>
-                                {openAddMenuFor === key && (
-                                  <div className="absolute z-20 mt-1 w-40 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow">
-                                    {supported.map(s => (
+                                {openAddMenuFor === key && agentAddOptions.length > 0 && (
+                                  <div className="absolute z-20 mt-1 w-48 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow">
+                                    {agentAddOptions.map((option) => (
                                       <button
-                                        key={s.type}
+                                        key={option.type}
                                         className="w-full text-left px-3 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700"
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           setOpenAddMenuFor(null);
-                                          onSelect({ id: `newsvc:${p.poller_id}:${a.agent_id}:${s.type}`, name: s.type, type: s.type, kvStore: a.kv_store_ids?.[0], pollerId: p.poller_id, agentId: a.agent_id });
+                                          onSelect({
+                                            id: `newsvc:${p.poller_id}:${a.agent_id}:${option.type}`,
+                                            name: option.label,
+                                            type: option.type,
+                                            kvStore: a.kv_store_ids?.[0],
+                                            pollerId: p.poller_id,
+                                            agentId: a.agent_id,
+                                            descriptor: option.descriptor,
+                                          });
                                         }}
-                                      >{s.label}</button>
+                                      >
+                                        {option.label}
+                                      </button>
                                     ))}
                                   </div>
                                 )}
@@ -531,21 +747,44 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
                             </div>
                           );
                         }
-                        return services.map((svc) => (
-                        <div
-                          key={`${p.poller_id}:${a.agent_id}:${svc.name}:${svc.type}`}
-                          className={`ml-3 flex items-center gap-2 p-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === `svc:${p.poller_id}:${a.agent_id}:${svc.type}:${svc.name}` ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                          onClick={() => onSelect({ id: `svc:${p.poller_id}:${a.agent_id}:${svc.type}:${svc.name}`, name: svc.name, type: svc.type, kvStore: svc.kv_store_id, pollerId: p.poller_id, agentId: a.agent_id })}
-                        >
-                          <span className="w-3" />
-                          {iconForType('service')}
-                          <span>{highlight(svc.name, filterService)}</span>
-                          <span className="text-xs text-gray-500">({svc.type})</span>
-                          {svc.kv_store_id && (
-                            <span className="ml-2"><KvInfoBadge kvId={svc.kv_store_id} hoverTrigger /></span>
-                          )}
-                        </div>
-                        ));
+                        return services.map((svc) => {
+                          const descriptor = resolveDescriptorForService(svc);
+                          const canonicalType = descriptor?.service_type ?? svc.type ?? svc.name;
+                          const rowId = `svc:${p.poller_id}:${a.agent_id}:${canonicalType ?? 'unknown'}:${svc.name}`;
+                          const canConfigure = Boolean(canonicalType);
+                          const displayName = descriptor?.display_name ?? svc.name;
+                          const badgeType = canonicalType ?? svc.type;
+                          const rawTypeDiffers = svc.type && badgeType && svc.type !== badgeType;
+                          return (
+                            <div
+                              key={`${p.poller_id}:${a.agent_id}:${svc.name}:${svc.type}`}
+                              className={`ml-3 flex items-center gap-2 p-1.5 text-sm rounded ${canConfigure ? 'hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer' : 'opacity-60 cursor-not-allowed' } ${selected?.id === rowId ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
+                              title={canConfigure ? undefined : 'Unable to resolve service type for this configuration'}
+                              onClick={() => {
+                                if (!canConfigure || !canonicalType) return;
+                                onSelect({
+                                  id: rowId,
+                                  name: displayName,
+                                  type: canonicalType,
+                                  kvStore: svc.kv_store_id,
+                                  pollerId: p.poller_id,
+                                  agentId: a.agent_id,
+                                  descriptor,
+                                });
+                              }}
+                            >
+                              <span className="w-3" />
+                              {iconForType('service')}
+                              <span>{highlight(displayName, filterService)}</span>
+                              {badgeType && (
+                                <span className="text-xs text-gray-500">({badgeType}{rawTypeDiffers ? ` · ${svc.type}` : ''})</span>
+                              )}
+                              {svc.kv_store_id && (
+                                <span className="ml-2"><KvInfoBadge kvId={svc.kv_store_id} hoverTrigger /></span>
+                              )}
+                            </div>
+                          );
+                        });
                       })()}
                       {agentHasMore[`${p.poller_id}:${a.agent_id}`] && (
                         <div className="ml-6">

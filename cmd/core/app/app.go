@@ -2,19 +2,30 @@ package app
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"strings"
 
 	"google.golang.org/grpc"
 	grpcstats "google.golang.org/grpc/stats"
 
+	"github.com/carverauto/serviceradar/pkg/config"
+	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/core"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 	_ "github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/carverauto/serviceradar/proto"
+)
+
+//go:embed config.json
+var defaultConfig []byte
+
+var (
+	errCoreDescriptorMissing = errors.New("core service descriptor missing")
 )
 
 // Options contains runtime configuration derived from CLI flags.
@@ -33,10 +44,21 @@ func Run(ctx context.Context, opts Options) error {
 		ctx = context.Background()
 	}
 
-	cfg, err := core.LoadConfig(opts.ConfigPath)
+	desc, ok := config.ServiceDescriptorFor("core")
+	if !ok {
+		return errCoreDescriptorMissing
+	}
+
+	var cfg models.CoreServiceConfig
+	bootstrapResult, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, &cfg, defaultConfig, cfgbootstrap.ServiceOptions{
+		Role:         models.RoleCore,
+		ConfigPath:   opts.ConfigPath,
+		DisableWatch: true,
+	})
 	if err != nil {
 		return err
 	}
+	defer func() { _ = bootstrapResult.Close() }()
 
 	// Initialize basic logger first (without trace context)
 	basicLogger, err := lifecycle.CreateComponentLogger(ctx, "core-main", cfg.Logging)
@@ -131,6 +153,7 @@ func Run(ctx context.Context, opts Options) error {
 		api.WithLogger(mainLogger),
 		api.WithEventPublisher(server.EventPublisher()),
 		api.WithDeviceRegistryEnforcement(requireDeviceRegistry),
+		api.WithTemplateRegistry(api.NewTemplateRegistryAdapter(server)),
 	}
 	if planner := server.DeviceSearchPlanner(); planner != nil {
 		allOptions = append(allOptions, api.WithDeviceSearchPlanner(planner))
@@ -174,6 +197,12 @@ func Run(ctx context.Context, opts Options) error {
 		proto.RegisterPollerServiceServer(s, server)
 		proto.RegisterCoreServiceServer(s, server)
 		return nil
+	}
+
+	if bootstrapResult.Manager() != nil {
+		bootstrapResult.StartWatch(ctx, mainLogger, &cfg, func() {
+			mainLogger.Warn().Msg("core config updated in KV; restart required to apply changes")
+		})
 	}
 
 	// Run server with lifecycle management

@@ -18,6 +18,7 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,7 +26,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -201,16 +204,41 @@ func (c *Config) OverlayFromKV(ctx context.Context, path string, dst interface{}
 		return err
 	}
 	var over map[string]interface{}
-	if err := json.Unmarshal(data, &over); err != nil {
+	if err := decodeJSONObject(data, &over); err != nil {
 		return err
 	}
-	stripSecurityKeys(over)
+
+	if normalizeOverlayTypes(over, base) {
+		if c.kvStore != nil {
+			if normalized, err := json.Marshal(over); err == nil {
+				if err := c.kvStore.Put(ctx, key, normalized, 0); err != nil && c.logger != nil {
+					c.logger.Warn().
+						Err(err).
+						Str("key", key).
+						Msg("failed to rewrite normalized KV entry")
+				}
+			}
+		} else if c.logger != nil {
+			c.logger.Debug().
+				Str("key", key).
+				Msg("skipping KV normalization rewrite; kvStore not configured")
+		}
+	}
+
 	merged := deepMerge(base, over)
 	mergedBytes, err := json.Marshal(merged)
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(mergedBytes, dst)
+	if err := json.Unmarshal(mergedBytes, dst); err != nil {
+		return err
+	}
+
+	if err := c.normalizeSecurityConfig(dst); err != nil {
+		return fmt.Errorf("failed to normalize SecurityConfig after overlay: %w", err)
+	}
+
+	return ValidateConfig(dst)
 }
 
 // deepMerge overlays src onto dst recursively.
@@ -227,27 +255,6 @@ func deepMerge(dst, src map[string]interface{}) map[string]interface{} {
 		}
 	}
 	return dst
-}
-
-// stripSecurityKeys removes any map entries that would override security/mTLS settings.
-// Keys named "security" or ending with "_security" are filtered recursively.
-func stripSecurityKeys(value interface{}) {
-	switch v := value.(type) {
-	case map[string]interface{}:
-		for key, child := range v {
-			lower := strings.ToLower(key)
-			if lower == "security" || strings.HasSuffix(lower, "_security") {
-				delete(v, key)
-				continue
-			}
-
-			stripSecurityKeys(child)
-		}
-	case []interface{}:
-		for _, item := range v {
-			stripSecurityKeys(item)
-		}
-	}
 }
 
 // MergeOverlayBytes deep-merges a JSON document onto an existing config struct in memory.
@@ -273,6 +280,143 @@ func MergeOverlayBytes(dst interface{}, overlay []byte) error {
 	return json.Unmarshal(mergedBytes, dst)
 }
 
+func decodeJSONObject(data []byte, out interface{}) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+
+	return dec.Decode(out)
+}
+
+func normalizeOverlayTypes(overlay map[string]interface{}, base map[string]interface{}) bool {
+	changed := false
+
+	for key, value := range overlay {
+		var baseValue interface{}
+		if base != nil {
+			baseValue = base[key]
+		}
+		if newValue, subChanged := coerceOverlayValue(value, baseValue); subChanged {
+			overlay[key] = newValue
+			changed = true
+		}
+	}
+
+	return changed
+}
+
+func coerceOverlayValue(value interface{}, base interface{}) (interface{}, bool) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		var baseMap map[string]interface{}
+		if bm, ok := base.(map[string]interface{}); ok {
+			baseMap = bm
+		}
+		if normalizeOverlayTypes(v, baseMap) {
+			return v, true
+		}
+	case []interface{}:
+		var sample interface{}
+		if baseSlice, ok := base.([]interface{}); ok && len(baseSlice) > 0 {
+			sample = baseSlice[0]
+		}
+		changed := false
+		for i, elem := range v {
+			if newElem, subChanged := coerceOverlayValue(elem, sample); subChanged {
+				v[i] = newElem
+				changed = true
+			}
+		}
+		if changed {
+			return v, true
+		}
+	default:
+		if baseStr, ok := base.(string); ok {
+			if _, isString := value.(string); isString {
+				return value, false
+			}
+			if baseStr != "" && isDurationString(baseStr) {
+				if formatted, ok := formatDurationValue(v); ok {
+					return formatted, true
+				}
+			}
+			if literal, ok := stringifyValue(v); ok {
+				return literal, true
+			}
+		}
+	}
+
+	return value, false
+}
+
+func isDurationString(value string) bool {
+	if value == "" {
+		return false
+	}
+	_, err := time.ParseDuration(value)
+
+	return err == nil
+}
+
+func formatDurationValue(value interface{}) (string, bool) {
+	switch v := value.(type) {
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return time.Duration(i).String(), true
+		}
+		if f, err := v.Float64(); err == nil {
+			return time.Duration(int64(f)).String(), true
+		}
+	case float64:
+		return time.Duration(int64(v)).String(), true
+	case float32:
+		return time.Duration(int64(v)).String(), true
+	case int64:
+		return time.Duration(v).String(), true
+	case int32:
+		return time.Duration(v).String(), true
+	case int:
+		return time.Duration(v).String(), true
+	case uint64:
+		return time.Duration(v).String(), true
+	case uint32:
+		return time.Duration(v).String(), true
+	case uint:
+		return time.Duration(v).String(), true
+	}
+
+	return "", false
+}
+
+func stringifyValue(value interface{}) (string, bool) {
+	switch v := value.(type) {
+	case json.Number:
+		return v.String(), true
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64), true
+	case float32:
+		return strconv.FormatFloat(float64(v), 'f', -1, 32), true
+	case int64:
+		return strconv.FormatInt(v, 10), true
+	case int32:
+		return strconv.FormatInt(int64(v), 10), true
+	case int:
+		return strconv.Itoa(v), true
+	case uint64:
+		return strconv.FormatUint(v, 10), true
+	case uint32:
+		return strconv.FormatUint(uint64(v), 10), true
+	case uint:
+		return strconv.FormatUint(uint64(v), 10), true
+	case bool:
+		if v {
+			return "true", true
+		}
+		return "false", true
+	}
+
+	return "", false
+}
+
 // loadAndValidateWithSource loads and validates config using the appropriate loader.
 func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg interface{}) error {
 	source := strings.ToLower(os.Getenv("CONFIG_SOURCE"))
@@ -285,7 +429,26 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 			return errKVStoreNotSet
 		}
 
-		loader = NewKVConfigLoader(c.kvStore, c.logger)
+		// Always load the on-disk defaults first so sensitive values (e.g., JWT private keys)
+		// remain present even though the KV overlay stores only sanitized data.
+		fileErr := c.defaultLoader.Load(ctx, path, cfg)
+		if fileErr != nil {
+			loader = NewKVConfigLoader(c.kvStore, c.logger)
+			if err := loader.Load(ctx, path, cfg); err != nil {
+				return fmt.Errorf("%w from file: %w, and from KV: %w", errLoadConfigFailed, fileErr, err)
+			}
+			return nil
+		}
+
+		if err := c.OverlayFromKV(ctx, path, cfg); err != nil {
+			if c.logger != nil {
+				c.logger.Warn().
+					Err(err).
+					Str("path", path).
+					Msg("failed to overlay configuration from KV; continuing with file defaults")
+			}
+		}
+		return nil
 	case configSourceEnv:
 		// Use environment variables with optional prefix
 		prefix := os.Getenv("CONFIG_ENV_PREFIX")

@@ -75,6 +75,73 @@ Once the sync pod reports “Completed streaming results”, the canonical table
 - The analytics dashboard’s “Total Devices” card now shows the raw/processed breakdown plus a yellow callout whenever any skips occur. When investigating, open the browser console and inspect `window.__SERVICERADAR_DEVICE_COUNTER_DEBUG__` to review the last 25 `/api/stats` samples and headers.
 - For ad-hoc validation, hit `/api/stats` directly; the `X-Serviceradar-Stats-*` headers mirror the numbers the alert uses (`X-Serviceradar-Stats-Skipped-Non-Canonical`, `X-Serviceradar-Stats-Skipped-Service-Components`, etc.).
 
+## KV Configuration Checks
+
+- The `serviceradar-tools` pod already bundles the `nats-kv` helper. Exec into the pod and list expected entries before debugging the Admin UI:
+
+  ```bash
+  kubectl exec -n demo deploy/serviceradar-tools -- nats-kv ls config
+  kubectl exec -n demo deploy/serviceradar-tools -- nats-kv get config/core.json
+  kubectl exec -n demo deploy/serviceradar-tools -- nats-kv get config/flowgger.toml
+  ```
+
+### Descriptor metadata health
+
+1. Hit the admin metadata endpoint before assuming the UI is missing a form:
+
+   ```bash
+   curl -sS -H "Authorization: Bearer ${TOKEN}" \
+     https://<core-host>/api/admin/config | jq '.[].service_type'
+   ```
+
+   Every service shown in the UI now comes directly from this payload. If a node is greyed out, confirm the descriptor exists here and that it advertises the right `scope`/`kv_key_template`.
+2. Fetch the concrete config and metadata in the same session to prove KV state is present:
+
+   ```bash
+   curl -sS -H "Authorization: Bearer ${TOKEN}" \
+     "https://<core-host>/api/admin/config/core" | jq '.metadata'
+   ```
+
+   A `404` at this step means the service never registered its template—usually because the workload did not start with `CONFIG_SOURCE=kv` or SPIFFE could not reach core.
+
+### Watcher telemetry outside the demo cluster
+
+- After rolling Helm or docker-compose, verify watchers register in the new process (not just the demo namespace):
+
+  ```bash
+  curl -sS -H "Authorization: Bearer ${TOKEN}" \
+    https://<core-host>/api/admin/config/watchers | jq '.[] | {service, kv_key, status}'
+  ```
+
+  The table should include every global service plus any agent checkers that have reported in. Use the same call when a customer cluster reports “stale config” so you can immediately see if the watcher stopped.
+- The Admin UI’s Watcher Telemetry panel is just a thin wrapper around the same endpoint. Keep it pinned while other environments roll so you can capture a screenshot proving the watchers stayed registered.
+
+### Expected KV keys
+
+- Global defaults must exist even if no devices are configured yet. Spot check the following whenever `/api/admin/config/*` starts returning `404`s:
+
+  ```
+  config/core.json
+  config/sync.json
+  config/poller.json
+  config/agent.json
+  config/flowgger.toml
+  config/otel.toml
+  config/db-event-writer.json
+  config/zen-consumer.json
+  ```
+- Agent checkers follow `agents/<agent_id>/checkers/<service>/<service>.json`. When the UI requests an agent-scoped service it now always passes the descriptor metadata—if the API still returns `404`, exec into `serviceradar-tools` and confirm the key exists with `nats-kv get`.
+
+- All Rust collectors now link the shared bootstrap library and pull KV at boot. If you need to rehydrate configs manually, exec into the pod and write the baked template back to disk:
+
+  ```bash
+  kubectl exec -n demo deploy/serviceradar-flowgger -- \
+    cp /etc/serviceradar/templates/flowgger.toml /etc/serviceradar/flowgger.toml
+  ```
+
+  The service will reseed KV on next start; no separate `config-sync` sidecar is required.
+- Hot reload is unified across OTEL, flowgger, trapd, and zen: when `CONFIG_SOURCE=kv`, each binary calls `config_bootstrap::watch()` and relies on the shared `RestartHandle` helper. Any `nats-kv put config/<service>` will log `KV update detected; restarting process to apply new config`, spawn a fresh process, and exit the old one so supervisors/container runtimes apply the overlay. Set `CONFIG_SOURCE=file` (or the service-specific `*_SEED_KV=false`) if you need to temporarily disable the watcher in lab environments.
+
 ## Device Registry Feature Flags
 
 - Set `features.require_device_registry` (in `serviceradar-config` → `core.json`) to `true` once the registry/search stack is stable. It blocks `/api/devices` and `/api/devices/{id}` from falling back to Proton so hot-path reads stay in-memory. Flip it back to `false` only if you need the legacy Proton endpoints during an incident.

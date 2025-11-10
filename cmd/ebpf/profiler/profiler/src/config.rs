@@ -65,13 +65,13 @@ impl Config {
         let path = path.as_ref();
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {}", path.display()))?;
-        
+
         let config: Config = toml::from_str(&content)
             .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
-        
+
         Ok(config)
     }
-    
+
     /// Load configuration from the specified path, or search default locations if None
     pub fn load(config_path: Option<&str>) -> Result<Self> {
         // If a specific path is provided, use it
@@ -79,11 +79,11 @@ impl Config {
             println!("Loading config from specified path: {path}");
             return Self::from_file(path);
         }
-        
+
         // Otherwise search default locations
         Self::load_from_defaults()
     }
-    
+
     /// Load configuration from the default locations
     /// Tries: ./profiler.toml, /etc/serviceradar/profiler.toml, ~/.config/serviceradar/profiler.toml
     pub fn load_from_defaults() -> Result<Self> {
@@ -91,28 +91,28 @@ impl Config {
             "./profiler.toml".to_string(),
             "/etc/serviceradar/profiler.toml".to_string(),
         ];
-        
+
         // Add home directory path if available
         if let Ok(home) = std::env::var("HOME") {
             all_paths.push(format!("{home}/.config/serviceradar/profiler.toml"));
         }
-        
+
         for path in &all_paths {
             if Path::new(path).exists() {
                 println!("Loading config from: {path}");
                 return Self::from_file(path);
             }
         }
-        
+
         println!("No config file found, using defaults (searched: {all_paths:?})");
         Ok(Self::default())
     }
-    
+
     /// Get the full bind address (address:port)
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.server.bind_address, self.server.port)
     }
-    
+
     /// Generate an example configuration file content
     pub fn example_toml() -> String {
         let example = Config {
@@ -124,8 +124,9 @@ impl Config {
             }),
             profiler: ProfilerConfig::default(),
         };
-        
-        toml::to_string_pretty(&example).unwrap_or_else(|_| "# Failed to generate example".to_string())
+
+        toml::to_string_pretty(&example)
+            .unwrap_or_else(|_| "# Failed to generate example".to_string())
     }
 }
 
@@ -185,7 +186,7 @@ max_session_duration_seconds = 600
 max_frequency_hz = 500
 chunk_size_bytes = 32768
 "#;
-        
+
         let config: Config = toml::from_str(toml_content).unwrap();
         assert_eq!(config.server.bind_address, "127.0.0.1");
         assert_eq!(config.server.port, 9090);
@@ -205,14 +206,14 @@ port = 9090
 cert_file = "/test.crt"
 key_file = "/test.key"
 "#;
-        
+
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(toml_content.as_bytes()).unwrap();
-        
+
         let config = Config::from_file(temp_file.path()).unwrap();
         assert_eq!(config.server.port, 9090);
         assert_eq!(config.server.bind_address, "0.0.0.0"); // default
-        
+
         let tls = config.grpc_tls.unwrap();
         assert_eq!(tls.cert_file, "/test.crt");
         assert_eq!(tls.key_file, "/test.key");
@@ -229,7 +230,7 @@ key_file = "/test.key"
             grpc_tls: None,
             profiler: ProfilerConfig::default(),
         };
-        
+
         assert_eq!(config.bind_address(), "127.0.0.1:8080");
     }
 

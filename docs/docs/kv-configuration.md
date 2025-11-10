@@ -143,6 +143,35 @@ Available roles:
 
 The `identity` field must match the Subject Distinguished Name from the client's certificate. This is typically in the format `CN=<common-name>,O=<organization>`.
 
+## Operational SOP (Helm & Compose)
+
+Use this runbook whenever you roll the Helm chart or docker-compose stack so we can prove KV-backed configuration is working outside the demo cluster:
+
+1. **List descriptors from the admin API** – the Admin UI now renders its services tree directly from `/api/admin/config`. If a service is missing or greyed out, confirm the descriptor exists here before debugging React.
+
+   ```bash
+   curl -sS -H "Authorization: Bearer ${TOKEN}" \
+     https://<core-host>/api/admin/config | jq '.[].service_type'
+   ```
+
+2. **Fetch individual configs** – hitting `/api/admin/config/<service>` should return a `metadata` block plus the config payload. A `404` means the workload never published its template to KV (typically because it did not boot with `CONFIG_SOURCE=kv` or lacked KV connectivity).
+
+   ```bash
+   curl -sS -H "Authorization: Bearer ${TOKEN}" \
+     https://<core-host>/api/admin/config/flowgger | jq '.metadata'
+   ```
+
+3. **Check watcher telemetry** – immediately after the rollout (and again after other environments settle), call `/api/admin/config/watchers` to ensure every process is still subscribed to its KV keys.
+
+   ```bash
+   curl -sS -H "Authorization: Bearer ${TOKEN}" \
+     https://<core-host>/api/admin/config/watchers | jq '.[] | {service, kv_key, status}'
+   ```
+
+4. **Spot-check the canonical keys** – Helm, compose, and the demo manifests now seed the same set of global keys (`config/core.json`, `config/sync.json`, `config/agent.json`, `config/flowgger.toml`, etc.). If the API returns `404`, exec into the `serviceradar-tools` pod (or your compose shell) and run `nats-kv get <key>` to confirm the data is actually missing before filing an Admin UI bug.
+
+Running this SOP gives you a paper trail that the metadata, the KV buckets, and the live watchers all look healthy before you touch the UI.
+
 ## NATS Server Configuration
 
 The NATS Server configuration is located at `/etc/nats/nats-server.conf`. The default configuration provided by the `serviceradar-nats` package and includes mTLS and JetStream support:
@@ -222,32 +251,26 @@ For certificate generation instructions, see the [TLS Security](./tls-security.m
 
 ## Configuring Components to Use the KV Store
 
-### Agent Configuration
+Bare-metal installs now behave the same way as our Kubernetes, Helm, and Compose deployments: every systemd unit (core, poller, agent, sync, mapper, flowgger, trapd, zen, otel, db-event-writer, and the packaged checkers) exports `CONFIG_SOURCE=kv` plus the `KV_*` client settings out of the box. Services immediately seed KV from the JSON/TOML file on first boot and switch to KV overlays without any manual edits.
 
-To enable an agent to use the KV store for dynamic configuration:
+All of those units also load `/etc/serviceradar/kv-overrides.env` (if it exists) so operators can override the defaults without touching the shipped units. Use that file to point at a remote KV instance or to set the server name that matches your datasvc certificate:
 
-1. Edit the agent's systemd service file:
-
-```bash
-sudo systemctl edit serviceradar-agent
+```ini title="/etc/serviceradar/kv-overrides.env"
+KV_ADDRESS=192.168.2.23:50057
+KV_SERVER_NAME=datasvc.serviceradar
+# Optional per-host overrides:
+# KV_CERT_FILE=/etc/serviceradar/certs/custom.pem
+# KV_KEY_FILE=/etc/serviceradar/certs/custom-key.pem
 ```
 
-2. Add the environment variable for KV store configuration:
-
-```ini
-[Service]
-Environment="CONFIG_SOURCE=kv"
-Environment="KV_SERVER=192.168.2.23:50057"
-```
-
-3. Restart the agent to apply the changes:
+After updating the override file, reload systemd and restart the affected services:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl restart serviceradar-agent
+sudo systemctl restart serviceradar-core serviceradar-poller serviceradar-agent
 ```
 
-4. Ensure the agent's certificate is added to the RBAC configuration in the KV service.
+> **Note:** The datasvc package intentionally keeps `CONFIG_SOURCE=file`; it cannot bootstrap itself from KV. All other services now enable KV automatically as long as their certificates are installed.
 
 ## Firewall Configuration
 

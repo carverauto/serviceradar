@@ -145,32 +145,34 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 	}
 
 	// Default kvGetFn dials KV and performs a Get
-	s.kvGetFn = func(ctx context.Context, key string) ([]byte, bool, error) {
+	s.kvGetFn = func(ctx context.Context, key string) ([]byte, bool, uint64, error) {
 		if s.kvAddress == "" {
-			return nil, false, ErrKVAddressNotConfigured
+			return nil, false, 0, ErrKVAddressNotConfigured
 		}
 		clientCfg := coregrpc.ClientConfig{Address: s.kvAddress, MaxRetries: 3, Logger: s.logger, DisableTelemetry: true}
+		var provider coregrpc.SecurityProvider
 		if s.kvSecurity != nil {
 			sec := *s.kvSecurity
 			sec.Role = models.RolePoller
-			provider, err := coregrpc.NewSecurityProvider(ctx, &sec, s.logger)
+			var err error
+			provider, err = coregrpc.NewSecurityProvider(ctx, &sec, s.logger)
 			if err != nil {
-				return nil, false, err
+				return nil, false, 0, err
 			}
-			clientCfg.SecurityProvider = provider
 			defer func() { _ = provider.Close() }()
+			clientCfg.SecurityProvider = provider
 		}
 		c, err := coregrpc.NewClient(ctx, clientCfg)
 		if err != nil {
-			return nil, false, err
+			return nil, false, 0, err
 		}
 		defer func() { _ = c.Close() }()
 		kv := proto.NewKVServiceClient(c.GetConnection())
 		resp, err := kv.Get(ctx, &proto.GetRequest{Key: key})
 		if err != nil {
-			return nil, false, err
+			return nil, false, 0, err
 		}
-		return resp.Value, resp.Found, nil
+		return resp.Value, resp.Found, resp.Revision, nil
 	}
 
 	for _, o := range options {
@@ -362,6 +364,12 @@ func WithSpireAdmin(client spireadmin.Client, cfg *models.SpireAdminConfig) func
 	return func(server *APIServer) {
 		server.spireAdminClient = client
 		server.spireAdminConfig = cfg
+	}
+}
+
+func WithTemplateRegistry(registry TemplateRegistry) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.templateRegistry = registry
 	}
 }
 
@@ -853,6 +861,9 @@ func (s *APIServer) setupProtectedRoutes() {
 		adminRoutes.Use(auth.RBACMiddleware("admin"))
 	}
 
+	adminRoutes.HandleFunc("/config", s.handleListConfigDescriptors).Methods("GET")
+	adminRoutes.HandleFunc("/config/watchers", s.handleConfigWatchers).Methods("GET")
+	adminRoutes.HandleFunc("/config/status", s.handleConfigStatus).Methods("GET")
 	adminRoutes.HandleFunc("/config/{service}", s.handleGetConfig).Methods("GET")
 	adminRoutes.HandleFunc("/config/{service}", s.handleUpdateConfig).Methods("PUT")
 	adminRoutes.HandleFunc("/spire/join-tokens", s.handleCreateSpireJoinToken).Methods("POST")
@@ -922,6 +933,7 @@ type ServiceNode struct {
 	Name      string `json:"name"`
 	Type      string `json:"type"`
 	AgentID   string `json:"agent_id"`
+	PollerID  string `json:"poller_id,omitempty"`
 	KvStoreID string `json:"kv_store_id,omitempty"`
 }
 
@@ -1002,6 +1014,7 @@ func (s *APIServer) buildAgentServices(services []ServiceStatus, filters service
 			Name:      svc.Name,
 			Type:      svc.Type,
 			AgentID:   agentID,
+			PollerID:  pollerID,
 			KvStoreID: svc.KvStoreID,
 		}
 
@@ -1013,8 +1026,8 @@ func (s *APIServer) buildAgentServices(services []ServiceStatus, filters service
 
 // isServiceConfigured checks if a service is configured in KV store
 func (s *APIServer) isServiceConfigured(ctx context.Context, sn ServiceNode) bool {
-	key, ok := defaultKVKeyForService(sn.Type, sn.Type, sn.AgentID)
-	if !ok {
+	_, key, _, err := s.resolveServiceKey(sn.Type, sn.Type, sn.AgentID, sn.PollerID)
+	if err != nil || key == "" {
 		return false
 	}
 
@@ -1055,7 +1068,7 @@ func (s *APIServer) isServiceConfigured(ctx context.Context, sn ServiceNode) boo
 			}
 		}
 	} else if s.kvGetFn != nil {
-		if _, found, err := s.kvGetFn(ctx, key); err == nil && found {
+		if _, found, _, err := s.kvGetFn(ctx, key); err == nil && found {
 			return true
 		}
 	}

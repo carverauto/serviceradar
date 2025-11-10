@@ -35,8 +35,8 @@ impl KvClient {
                 .map_err(|e| KvError::Other(e.into()))?;
             let ca = fs::read(std::env::var("KV_CA_FILE").map_err(|e| KvError::Other(e.into()))?)
                 .map_err(|e| KvError::Other(e.into()))?;
-            let server_name =
-                std::env::var("KV_SERVER_NAME").unwrap_or_else(|_| "datasvc.serviceradar".to_string());
+            let server_name = std::env::var("KV_SERVER_NAME")
+                .unwrap_or_else(|_| "datasvc.serviceradar".to_string());
             let tls = ClientTlsConfig::new()
                 .ca_certificate(Certificate::from_pem(ca))
                 .identity(Identity::from_pem(cert, key))

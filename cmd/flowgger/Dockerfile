@@ -45,10 +45,12 @@ RUN mkdir -p /output
 # Copy the binary from the builder stage to both /usr/local/bin and /output
 COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/release/serviceradar-flowgger /usr/local/bin/serviceradar-flowgger
 COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/release/serviceradar-flowgger /output/serviceradar-flowgger
-
+ 
 # Configuration and user setup
 WORKDIR /etc/serviceradar
-COPY packaging/flowgger/config/flowgger.toml ./flowgger.toml
+RUN mkdir -p /etc/serviceradar/templates
+COPY packaging/flowgger/config/flowgger.toml /etc/serviceradar/templates/flowgger.toml
+COPY packaging/flowgger/config/flowgger.toml /etc/serviceradar/flowgger.toml
 
 RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar
@@ -56,4 +58,5 @@ RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
 USER serviceradar
 EXPOSE 514
 
-CMD ["/usr/local/bin/serviceradar-flowgger", "/etc/serviceradar/flowgger.toml"]
+ENTRYPOINT ["/usr/local/bin/serviceradar-flowgger"]
+CMD ["/etc/serviceradar/flowgger.toml"]

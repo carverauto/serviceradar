@@ -32,7 +32,7 @@ data:
       location = /api-docs { proxy_pass http://serviceradar-core:8090; }
 
       # Next.js API routes (keep hitting web)
-      location ~ ^/api/(auth|nodes|status|pollers|devices|mcp|admin) {
+      location ~ ^/api/(auth|nodes|status|pollers|devices|mcp|admin|config) {
         proxy_pass http://serviceradar-web:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -870,6 +870,42 @@ data:
             "ca_file": "/etc/serviceradar/certs/root.pem"
           }
         }
+      }
+    }
+
+  faker.json: |
+    {
+      "service": {
+        "name": "faker",
+        "description": "ServiceRadar Fake Armis API Service",
+        "version": "1.0.0"
+      },
+      "server": {
+        "listen_address": "0.0.0.0:8080",
+        "read_timeout": "10s",
+        "write_timeout": "30s",
+        "idle_timeout": "30s"
+      },
+      "simulation": {
+        "total_devices": 50000,
+        "ip_shuffle": {
+          "enabled": true,
+          "interval": "60s",
+          "percentage": 5,
+          "log_changes": true
+        }
+      },
+      "storage": {
+        "data_dir": "/var/lib/serviceradar/faker",
+        "devices_file": "fake_armis_devices.json",
+        "persist_changes": true
+      },
+      "logging": {
+        "level": "info",
+        "file": "/var/log/serviceradar/faker.log",
+        "max_size": "100M",
+        "max_backups": 5,
+        "max_age": 30
       }
     }
 

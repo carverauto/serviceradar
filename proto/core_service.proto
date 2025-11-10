@@ -30,8 +30,78 @@ message GetCanonicalDeviceResponse {
   bool hydrated = 5;
 }
 
+// RegisterTemplateRequest registers a service's default configuration template with the core.
+// Services call this on startup to make their templates available for admin seeding operations.
+message RegisterTemplateRequest {
+  // service_name matches the ServiceDescriptor.Name from pkg/config/registry.go (e.g., "core", "snmp-checker")
+  string service_name = 1;
+  // template_data contains the default configuration bytes (JSON or TOML)
+  bytes template_data = 2;
+  // format indicates the configuration format ("json" or "toml")
+  string format = 3;
+  // service_version optional semver for versioning templates
+  string service_version = 4;
+}
+
+// RegisterTemplateResponse confirms template registration.
+message RegisterTemplateResponse {
+  // success indicates whether the template was registered
+  bool success = 1;
+  // message contains any error or informational text
+  string message = 2;
+}
+
+// GetTemplateRequest retrieves a registered service template.
+message GetTemplateRequest {
+  // service_name to fetch template for
+  string service_name = 1;
+}
+
+// GetTemplateResponse returns the registered template if available.
+message GetTemplateResponse {
+  // found indicates whether a template exists for the service
+  bool found = 1;
+  // template_data contains the configuration bytes
+  bytes template_data = 2;
+  // format indicates the configuration format ("json" or "toml")
+  string format = 3;
+  // service_version semver of the template
+  string service_version = 4;
+  // registered_at timestamp when template was registered
+  int64 registered_at = 5;
+}
+
+// ListTemplatesRequest requests all registered templates.
+message ListTemplatesRequest {
+  // filter by service_name prefix (optional)
+  string prefix = 1;
+}
+
+// ListTemplatesResponse returns summary of registered templates.
+message ListTemplatesResponse {
+  repeated TemplateInfo templates = 1;
+}
+
+// TemplateInfo provides metadata about a registered template.
+message TemplateInfo {
+  string service_name = 1;
+  string format = 2;
+  string service_version = 3;
+  int64 registered_at = 4;
+  int32 size_bytes = 5;
+}
+
 // CoreService exposes control-plane RPCs for pollers and agents.
 service CoreService {
   // GetCanonicalDevice resolves identities to canonical device records backed by the shared identity map.
   rpc GetCanonicalDevice(GetCanonicalDeviceRequest) returns (GetCanonicalDeviceResponse);
+
+  // RegisterTemplate allows services to register their default config templates on startup.
+  rpc RegisterTemplate(RegisterTemplateRequest) returns (RegisterTemplateResponse);
+
+  // GetTemplate retrieves a registered template for admin seeding operations.
+  rpc GetTemplate(GetTemplateRequest) returns (GetTemplateResponse);
+
+  // ListTemplates returns metadata about all registered templates.
+  rpc ListTemplates(ListTemplatesRequest) returns (ListTemplatesResponse);
 }

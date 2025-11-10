@@ -36,6 +36,7 @@ spec:
           mountPath: /run/spire/sockets
           readOnly: true
         env:
+{{ include "serviceradar.kvEnv" . | indent 8 }}
         - name: CONFIG_PATH
           value: "/etc/serviceradar/zen.json"
         - name: NATS_URL
@@ -56,6 +57,7 @@ spec:
           value: "true"
         - name: RUST_LOG
           value: "info"
+        {{- include "serviceradar.configSyncEnv" (dict "cfg" (default (dict) .Values.configSync.zen)) | nindent 8 }}
         resources:
           limits:
             cpu: "500m"

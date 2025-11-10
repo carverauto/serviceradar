@@ -14,56 +14,21 @@
  * limitations under the License.
  */
 
-// template.rs - Checker template registration
+use std::fs;
+use std::path::Path;
 
-use anyhow::Result;
-use log::{info, warn};
+pub const DEFAULT_TEMPLATE: &str = include_str!("../config/default_template.json");
 
-const DEFAULT_TEMPLATE: &str = include_str!("../config/default_template.json");
-const CHECKER_KIND: &str = "sysmon";
-
-/// Registers the checker template with the KV service.
-/// This writes the default configuration template to templates/checkers/sysmon.json.
-/// Safe to call on every startup - templates are factory defaults and can be overwritten.
-pub async fn register_template() -> Result<()> {
-    // Try to connect to KV service from environment
-    let mut kv_client = match kvutil::KvClient::connect_from_env().await {
-        Ok(client) => client,
-        Err(e) => {
-            warn!(
-                "Failed to connect to KV service for template registration: {}. \
-                 Skipping template registration (this is non-fatal).",
-                e
-            );
-            return Ok(());
-        }
-    };
-
-    // Validate the template is valid JSON
-    if serde_json::from_str::<serde_json::Value>(DEFAULT_TEMPLATE).is_err() {
-        anyhow::bail!("Embedded default template is not valid JSON");
+/// Ensure the on-disk configuration exists so the bootstrapper can seed KV.
+pub fn ensure_config_file(path: &Path) -> std::io::Result<()> {
+    if path.exists() {
+        return Ok(());
     }
 
-    // Write template to KV
-    let template_key = format!("templates/checkers/{}.json", CHECKER_KIND);
-    match kv_client
-        .put(&template_key, DEFAULT_TEMPLATE.as_bytes().to_vec())
-        .await
-    {
-        Ok(_) => {
-            info!(
-                "Successfully registered checker template at {}",
-                template_key
-            );
-            Ok(())
-        }
-        Err(e) => {
-            warn!(
-                "Failed to register template at {}: {}. \
-                 This is non-fatal, continuing startup.",
-                template_key, e
-            );
-            Ok(())
-        }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
     }
+
+    fs::write(path, DEFAULT_TEMPLATE)?;
+    Ok(())
 }

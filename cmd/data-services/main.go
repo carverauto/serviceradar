@@ -18,18 +18,23 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"log"
 
 	ggrpc "google.golang.org/grpc"
 
 	"github.com/carverauto/serviceradar/pkg/config"
+	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/datasvc"
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
+
+//go:embed config.json
+var defaultConfig []byte
 
 func main() {
 	configPath := flag.String("config", "/etc/serviceradar/datasvc.json", "Path to config file")
@@ -52,23 +57,25 @@ func main() {
 		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
 	}
 
-	cfgLoader := config.NewConfig(nil)
-
 	var cfg datasvc.Config
-	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
+	desc, ok := config.ServiceDescriptorFor("datasvc")
+	if !ok {
+		log.Fatalf("datasvc descriptor missing")
+	}
+	bootstrapResult, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, &cfg, defaultConfig, cfgbootstrap.ServiceOptions{
+		ConfigPath:   *configPath,
+		DisableWatch: true,
+	})
+	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
-
-	if err := cfg.Validate(); err != nil {
-		log.Fatalf("Invalid configuration: %v", err)
-	}
+	defer func() { _ = bootstrapResult.Close() }()
 
 	server, err := datasvc.NewServer(ctx, &cfg)
 	if err != nil {
-		log.Fatalf("Failed to create data service server: %v", err)
+		_ = bootstrapResult.Close()
+		log.Fatalf("Failed to create data service server: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
 	}
-
-	cfgLoader.SetKVStore(server.Store())
 
 	opts := &lifecycle.ServerOptions{
 		ListenAddr:        cfg.ListenAddr,

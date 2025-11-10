@@ -49,6 +49,22 @@ spec:
           mountPath: /run/spire/sockets
           readOnly: true
         env:
+        - name: CONFIG_SOURCE
+          value: "kv"
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/checkers/snmp.json"
+        - name: KV_ADDRESS
+          value: "serviceradar-datasvc:50057"
+        - name: KV_SEC_MODE
+          value: "spiffe"
+        - name: KV_TRUST_DOMAIN
+          value: "carverauto.dev"
+        - name: KV_SERVER_SPIFFE_ID
+          value: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc"
+        - name: KV_WORKLOAD_SOCKET
+          value: "unix:/run/spire/sockets/agent.sock"
+        - name: KV_CERT_DIR
+          value: "/etc/serviceradar/certs"
         - name: SERVICERADAR_CONFIG_PATH
           value: "/etc/serviceradar/snmp.json"
         - name: SERVICERADAR_CLOUD_ADDR

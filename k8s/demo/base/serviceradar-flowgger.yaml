@@ -84,8 +84,22 @@ spec:
           containerPort: 50044
           protocol: TCP
         env:
+        - name: CONFIG_SOURCE
+          value: "kv"
         - name: CONFIG_PATH
           value: "/etc/serviceradar/flowgger.toml"
+        - name: KV_ADDRESS
+          value: "serviceradar-datasvc:50057"
+        - name: KV_SEC_MODE
+          value: "spiffe"
+        - name: KV_TRUST_DOMAIN
+          value: "carverauto.dev"
+        - name: KV_SERVER_SPIFFE_ID
+          value: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc"
+        - name: KV_WORKLOAD_SOCKET
+          value: "unix:/run/spire/sockets/agent.sock"
+        - name: KV_CERT_DIR
+          value: "/etc/serviceradar/certs"
         - name: RUST_LOG
           value: "info"
         # Process-based health checks since flowgger doesn't expose health endpoints

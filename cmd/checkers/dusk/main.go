@@ -26,6 +26,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker/dusk"
 	"github.com/carverauto/serviceradar/pkg/config"
+	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -33,7 +34,8 @@ import (
 )
 
 var (
-	errFailedToLoadConfig = fmt.Errorf("failed to load config")
+	errFailedToLoadConfig      = fmt.Errorf("failed to load config")
+	errDuskDescriptorMissing   = fmt.Errorf("dusk-checker descriptor missing")
 )
 
 func main() {
@@ -67,15 +69,20 @@ func run() error {
 		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
 	}
 
-	// Initialize configuration loader
-	cfgLoader := config.NewConfig(nil)
-
-	// Load configuration with context
 	var cfg dusk.Config
-
-	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
+	desc, ok := config.ServiceDescriptorFor("dusk-checker")
+	if !ok {
+		return errDuskDescriptorMissing
+	}
+	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
+		Role:         models.RoleChecker,
+		ConfigPath:   *configPath,
+		DisableWatch: true,
+	})
+	if err != nil {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
 	}
+	defer func() { _ = bootstrapResult.Close() }()
 
 	// Create the checker
 	checker := &dusk.DuskChecker{

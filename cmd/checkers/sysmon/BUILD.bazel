@@ -30,7 +30,6 @@ rust_library(
     ],
     deps = all_crate_deps(normal = True) + [
         ":build_script",
-        "//rust/kvutil",
     ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
@@ -39,5 +38,5 @@ rust_binary(
     name = "sysmon",
     srcs = ["src/main.rs"],
     edition = "2021",
-    deps = [":sysmon_lib"] + all_crate_deps(normal = True),
+    deps = [":sysmon_lib", "//rust/config-bootstrap:config_bootstrap"] + all_crate_deps(normal = True),
 )

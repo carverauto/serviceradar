@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 )
 
 var (
@@ -40,16 +41,16 @@ func FilterSensitiveFields(input interface{}) (map[string]interface{}, error) {
 	if input == nil {
 		return make(map[string]interface{}), nil
 	}
-	
+
 	result := filterRecursively(input)
 	if result == nil {
 		return make(map[string]interface{}), nil
 	}
-	
+
 	if resultMap, ok := result.(map[string]interface{}); ok {
 		return resultMap, nil
 	}
-	
+
 	return nil, ErrInputMustBeStruct
 }
 
@@ -58,10 +59,14 @@ func filterRecursively(input interface{}) interface{} {
 	if input == nil {
 		return nil
 	}
-	
+
+	if str, ok := normalizeDurationValue(input); ok {
+		return str
+	}
+
 	rv := reflect.ValueOf(input)
 	rt := reflect.TypeOf(input)
-	
+
 	// Dereference pointers
 	if rv.Kind() == reflect.Ptr {
 		if rv.IsNil() {
@@ -70,65 +75,65 @@ func filterRecursively(input interface{}) interface{} {
 		rv = rv.Elem()
 		rt = rt.Elem()
 	}
-	
+
 	switch rv.Kind() {
 	case reflect.Struct:
 		result := make(map[string]interface{})
-		
-        for i := 0; i < rt.NumField(); i++ {
-            field := rt.Field(i)
-            fieldValue := rv.Field(i)
-            jsonTag := field.Tag.Get("json")
-            sensitiveTag := field.Tag.Get("sensitive")
-			
+
+		for i := 0; i < rt.NumField(); i++ {
+			field := rt.Field(i)
+			fieldValue := rv.Field(i)
+			jsonTag := field.Tag.Get("json")
+			sensitiveTag := field.Tag.Get("sensitive")
+
 			// Skip unexported fields
 			if !fieldValue.CanInterface() {
 				continue
 			}
-			
+
 			// Skip fields marked as sensitive
 			if sensitiveTag == TrueString {
 				continue
 			}
-			
+
 			// Skip fields with json:"-"
 			if jsonTag == "-" {
 				continue
 			}
-			
-            // Determine JSON field name and options (e.g., omitempty)
-            fieldName := field.Name
-            var tagOptions string
-            if jsonTag != "" {
-                if commaIdx := strings.Index(jsonTag, ","); commaIdx != -1 {
-                    fieldName = jsonTag[:commaIdx]
-                    tagOptions = jsonTag[commaIdx+1:]
-                } else {
-                    fieldName = jsonTag
-                }
-            }
 
-            // Respect omitempty: skip zero-value fields when tag has omitempty
-            if tagOptions != "" && strings.Contains(tagOptions, "omitempty") {
-                if fieldValue.IsZero() && shouldHonorOmitEmpty(rt, fieldName) {
-                    continue
-                }
-            }
-			
-            // Recursively filter the field value
-            filteredValue := filterRecursively(fieldValue.Interface())
-            result[fieldName] = filteredValue
-        }
-		
+			// Determine JSON field name and options (e.g., omitempty)
+			fieldName := field.Name
+			var tagOptions string
+			if jsonTag != "" {
+				if commaIdx := strings.Index(jsonTag, ","); commaIdx != -1 {
+					fieldName = jsonTag[:commaIdx]
+					tagOptions = jsonTag[commaIdx+1:]
+				} else {
+					fieldName = jsonTag
+				}
+			}
+
+			// Respect omitempty: skip zero-value fields when tag has omitempty
+			if tagOptions != "" && strings.Contains(tagOptions, "omitempty") {
+				if fieldValue.IsZero() && shouldHonorOmitEmpty(rt, fieldName) {
+					continue
+				}
+			}
+
+			// Recursively filter the field value
+			filteredValue := filterRecursively(fieldValue.Interface())
+			result[fieldName] = filteredValue
+		}
+
 		return result
-		
+
 	case reflect.Slice, reflect.Array:
 		result := make([]interface{}, rv.Len())
 		for i := 0; i < rv.Len(); i++ {
 			result[i] = filterRecursively(rv.Index(i).Interface())
 		}
 		return result
-		
+
 	case reflect.Map:
 		result := make(map[string]interface{})
 		for _, key := range rv.MapKeys() {
@@ -137,17 +142,38 @@ func filterRecursively(input interface{}) interface{} {
 			}
 		}
 		return result
-		
+
 	case reflect.Invalid, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		 reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
-		 reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128, reflect.String, 
-		 reflect.Chan, reflect.Func, reflect.Interface, reflect.Pointer, reflect.UnsafePointer:
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128, reflect.String,
+		reflect.Chan, reflect.Func, reflect.Interface, reflect.Pointer, reflect.UnsafePointer:
 		// For basic types and unsupported types, return as-is
 		return input
-		
+
 	default:
 		// Fallback for any missed cases
 		return input
+	}
+}
+
+func normalizeDurationValue(value interface{}) (interface{}, bool) {
+	switch v := value.(type) {
+	case time.Duration:
+		return v.String(), true
+	case Duration:
+		return time.Duration(v).String(), true
+	case *Duration:
+		if v == nil {
+			return nil, true
+		}
+		return time.Duration(*v).String(), true
+	case *time.Duration:
+		if v == nil {
+			return nil, true
+		}
+		return v.String(), true
+	default:
+		return nil, false
 	}
 }
 
@@ -156,29 +182,29 @@ func filterRecursively(input interface{}) interface{} {
 // expectations from tests that rely on certain empty fields being present while
 // omitting newer optional fields (e.g., AuthConfig JWT RS256 fields).
 func shouldHonorOmitEmpty(rt reflect.Type, jsonField string) bool {
-    switch rt.Name() {
-    case "AuthConfig":
-        // Omit empty RS256-related fields by default
-        if jsonField == "jwt_algorithm" || jsonField == "jwt_public_key_pem" || jsonField == "jwt_key_id" {
-            return true
-        }
-        return false
-    default:
-        // Preserve legacy behavior: include empty fields unless explicitly listed
-        return false
-    }
+	switch rt.Name() {
+	case "AuthConfig":
+		// Omit empty RS256-related fields by default
+		if jsonField == "jwt_algorithm" || jsonField == "jwt_public_key_pem" || jsonField == "jwt_key_id" {
+			return true
+		}
+		return false
+	default:
+		// Preserve legacy behavior: include empty fields unless explicitly listed
+		return false
+	}
 }
 
 // ExtractSafeConfigMetadata extracts only safe, non-sensitive configuration
 // metadata for service registration and tracking purposes.
 func ExtractSafeConfigMetadata(config interface{}) map[string]string {
 	metadata := make(map[string]string)
-	
+
 	safeData, err := FilterSensitiveFields(config)
 	if err != nil {
 		return metadata
 	}
-	
+
 	// Convert the filtered data to string key-value pairs for database storage
 	for key, value := range safeData {
 		if value != nil {
@@ -217,6 +243,6 @@ func ExtractSafeConfigMetadata(config interface{}) map[string]string {
 			}
 		}
 	}
-	
+
 	return metadata
 }

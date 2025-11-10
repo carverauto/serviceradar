@@ -54,6 +54,8 @@ var (
 	ErrInvalidSweepMetadata = errors.New("invalid sweep metadata")
 	// ErrObjectStoreUnavailable is returned when the object store client is not available.
 	ErrObjectStoreUnavailable = errors.New("object store unavailable")
+	errKVMtlsEnvMissing       = errors.New("KV_SEC_MODE=mtls requires KV_CERT_FILE, KV_KEY_FILE, and KV_CA_FILE")
+	errUnsupportedKVSecMode   = errors.New("unsupported KV_SEC_MODE")
 )
 
 const (
@@ -160,31 +162,40 @@ func initializeServer(configDir string, cfg *ServerConfig, log logger.Logger) *S
 
 // setupDataStores configures the KV and object stores if an address is provided.
 func setupDataStores(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig, log logger.Logger) (KVStore, ObjectStore, error) {
-	if cfg.KVAddress == "" {
-		log.Info().Msg("KVAddress not set, skipping KV store setup")
+	kvAddress, securityConfig, err := resolveKVConnectionSettings(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if kvAddress == "" {
+		log.Info().Msg("KVAddress not set via config or environment, skipping KV store setup")
 		return nil, nil, nil
-	}
-
-	clientCfg := grpc.ClientConfig{
-		Address:          cfg.KVAddress,
-		MaxRetries:       3,
-		Logger:           log,
-		DisableTelemetry: true,
-	}
-
-	securityConfig := cfg.Security
-	if cfg.KVSecurity != nil {
-		securityConfig = cfg.KVSecurity
 	}
 
 	if securityConfig == nil {
 		return nil, nil, errNoSecurityConfigKV
 	}
 
+	cfg.KVAddress = kvAddress
+	if cfg.KVSecurity == nil && securityConfig != cfg.Security {
+		cfg.KVSecurity = securityConfig
+	}
+
+	clientCfg := grpc.ClientConfig{
+		Address:          kvAddress,
+		MaxRetries:       3,
+		Logger:           log,
+		DisableTelemetry: true,
+	}
+
+	secMode := ""
+	if securityConfig != nil {
+		secMode = string(securityConfig.Mode)
+	}
+
 	log.Info().
-		Str("kv_address", cfg.KVAddress).
-		Str("kv_server_spiffe_id", securityConfig.ServerSPIFFEID).
-		Str("kv_trust_domain", securityConfig.TrustDomain).
+		Str("kv_address", kvAddress).
+		Str("kv_security_mode", secMode).
 		Msg("Initializing KV security provider")
 
 	provider, err := grpc.NewSecurityProvider(ctx, securityConfig, log)
@@ -227,6 +238,75 @@ func setupDataStores(ctx context.Context, cfgLoader *config.Config, cfg *ServerC
 	cfgLoader.SetKVStore(store)
 
 	return store, store, nil
+}
+
+func resolveKVConnectionSettings(cfg *ServerConfig) (string, *models.SecurityConfig, error) {
+	var kvAddress string
+	if cfg != nil {
+		kvAddress = strings.TrimSpace(cfg.KVAddress)
+	}
+	if kvAddress == "" {
+		kvAddress = strings.TrimSpace(os.Getenv("KV_ADDRESS"))
+	}
+
+	var securityConfig *models.SecurityConfig
+	switch {
+	case cfg != nil && cfg.KVSecurity != nil:
+		securityConfig = cfg.KVSecurity
+	case cfg != nil && cfg.Security != nil:
+		securityConfig = cfg.Security
+	default:
+		var err error
+		securityConfig, err = kvSecurityFromEnv()
+		if err != nil {
+			return kvAddress, nil, err
+		}
+	}
+
+	return kvAddress, securityConfig, nil
+}
+
+func kvSecurityFromEnv() (*models.SecurityConfig, error) {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("KV_SEC_MODE")))
+	switch mode {
+	case "":
+		return nil, nil
+	case "spiffe":
+		socket := strings.TrimSpace(os.Getenv("KV_WORKLOAD_SOCKET"))
+		if socket == "" {
+			socket = "unix:/run/spire/sockets/agent.sock"
+		}
+
+		return &models.SecurityConfig{
+			Mode:           "spiffe",
+			CertDir:        strings.TrimSpace(os.Getenv("KV_CERT_DIR")),
+			Role:           models.RoleAgent,
+			TrustDomain:    strings.TrimSpace(os.Getenv("KV_TRUST_DOMAIN")),
+			ServerSPIFFEID: strings.TrimSpace(os.Getenv("KV_SERVER_SPIFFE_ID")),
+			WorkloadSocket: socket,
+		}, nil
+	case "mtls":
+		cert := strings.TrimSpace(os.Getenv("KV_CERT_FILE"))
+		key := strings.TrimSpace(os.Getenv("KV_KEY_FILE"))
+		ca := strings.TrimSpace(os.Getenv("KV_CA_FILE"))
+		if cert == "" || key == "" || ca == "" {
+			return nil, errKVMtlsEnvMissing
+		}
+
+		return &models.SecurityConfig{
+			Mode:       "mtls",
+			CertDir:    strings.TrimSpace(os.Getenv("KV_CERT_DIR")),
+			Role:       models.RoleAgent,
+			ServerName: strings.TrimSpace(os.Getenv("KV_SERVER_NAME")),
+			TLS: models.TLSConfig{
+				CertFile: cert,
+				KeyFile:  key,
+				CAFile:   ca,
+			},
+		}, nil
+	default:
+		return nil, fmt.Errorf("%w %q", errUnsupportedKVSecMode, mode)
+	}
 }
 
 // createSweepService constructs a new SweepService instance.

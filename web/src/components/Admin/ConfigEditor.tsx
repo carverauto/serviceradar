@@ -16,12 +16,13 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Save, RefreshCw, AlertCircle, Check, Copy, FileJson } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Save, RefreshCw, AlertCircle, Check, Copy, FileJson, ArrowLeft } from 'lucide-react';
 import CoreConfigForm from './ConfigForms/CoreConfigForm';
 import SyncConfigForm from './ConfigForms/SyncConfigForm';
 import PollerConfigForm from './ConfigForms/PollerConfigForm';
 import AgentConfigForm from './ConfigForms/AgentConfigForm';
+import type { ConfigDescriptor } from './types';
 
 interface ServiceInfo {
   id: string;
@@ -30,15 +31,55 @@ interface ServiceInfo {
   kvStore?: string;
   pollerId?: string;
   agentId?: string;
+  descriptor?: ConfigDescriptor | null;
 }
 
 interface ConfigEditorProps {
   service: ServiceInfo;
   kvStore: string;
   onSave: () => void;
+  onClose?: () => void;
 }
 
-export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorProps) {
+type ConfigMetadata = {
+  service: string;
+  kv_key: string;
+  kv_store_id?: string;
+  revision: number;
+  origin?: 'seeded' | 'user' | 'unknown';
+  last_writer?: string;
+  updated_at?: string;
+  format: 'json' | 'toml';
+};
+
+type ConfigEnvelope = {
+  metadata: ConfigMetadata;
+  config?: Record<string, unknown>;
+  raw_config?: string;
+};
+
+const normalizeConfigPayload = (payload: unknown): Record<string, unknown> => {
+  if (!payload) {
+    return {};
+  }
+  if (typeof payload === 'string') {
+    try {
+      return normalizeConfigPayload(JSON.parse(payload));
+    } catch {
+      return {};
+    }
+  }
+  if (typeof payload !== 'object' || Array.isArray(payload)) {
+    return {};
+  }
+  try {
+    return JSON.parse(JSON.stringify(payload));
+  } catch {
+    return { ...(payload as Record<string, unknown>) };
+  }
+};
+
+export default function ConfigEditor({ service, kvStore, onSave, onClose }: ConfigEditorProps) {
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -51,6 +92,60 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
   // KV Info state
   const [kvInfo, setKvInfo] = useState<{ domain: string; bucket: string } | null>(null);
   const [kvInfoError, setKvInfoError] = useState<string | null>(null);
+  const [metadata, setMetadata] = useState<ConfigMetadata | null>(null);
+  const descriptorMeta = service.descriptor ?? null;
+  const canonicalServiceType = descriptorMeta?.service_type ?? service.type;
+  const needsAgentContext = React.useMemo(() => {
+    if (descriptorMeta) {
+      return descriptorMeta.scope === 'agent' || Boolean(descriptorMeta.requires_agent);
+    }
+    return Boolean(service.agentId) && service.type !== 'poller' && service.type !== 'agent';
+  }, [descriptorMeta, service.agentId, service.type]);
+  const needsPollerContext = React.useMemo(() => {
+    if (descriptorMeta) {
+      return descriptorMeta.scope === 'poller' || Boolean(descriptorMeta.requires_poller);
+    }
+    return service.type === 'poller' || Boolean(service.pollerId);
+  }, [descriptorMeta, service.pollerId, service.type]);
+  const scopeHint = descriptorMeta?.scope ?? (needsAgentContext ? 'agent' : needsPollerContext ? 'poller' : 'global');
+
+  const applyJsonConfig = useCallback(
+    (payload: unknown) => {
+      const normalized = normalizeConfigPayload(payload);
+      setIsToml(false);
+      setConfig(normalized);
+      setRawValue('');
+      setJsonValue(JSON.stringify(normalized, null, 2));
+    },
+    [setConfig, setIsToml, setRawValue, setJsonValue],
+  );
+
+  const buildConfigQuery = React.useCallback(() => {
+    const params = new URLSearchParams();
+    if (kvStore) {
+      params.set('kv_store_id', kvStore);
+    }
+    if (needsAgentContext) {
+      if (!service.agentId) {
+        throw new Error('Select an agent before editing this configuration');
+      }
+      params.set('agent_id', service.agentId);
+      if (canonicalServiceType) {
+        params.set('service_type', canonicalServiceType);
+      }
+    }
+    if (needsPollerContext) {
+      if (!service.pollerId) {
+        throw new Error('Select a poller before editing this configuration');
+      }
+      params.set('poller_id', service.pollerId);
+      if (canonicalServiceType) {
+        params.set('service_type', canonicalServiceType);
+      }
+    }
+    const query = params.toString();
+    return query ? `?${query}` : '';
+  }, [kvStore, needsAgentContext, needsPollerContext, service.agentId, service.pollerId, canonicalServiceType]);
 
   const fetchConfig = React.useCallback(async () => {
     try {
@@ -62,52 +157,97 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
         .split("; ")
         .find((row) => row.startsWith("accessToken="))
         ?.split("=")[1];
-      const extraGet = (service.type !== 'poller' && service.type !== 'agent' && service.agentId) ? `&agent_id=${encodeURIComponent(service.agentId)}&service_type=${encodeURIComponent(service.type)}` : '';
-      const response = await fetch(`/api/admin/config/${service.type}?kv_store_id=${kvStore}${extraGet}`, {
+      let query = '';
+      try {
+        query = buildConfigQuery();
+      } catch (buildErr) {
+        const message = buildErr instanceof Error ? buildErr.message : 'Invalid configuration selection';
+        setMetadata(null);
+        setConfig(null);
+        setRawValue('');
+        setError(message);
+        return;
+      }
+
+      const targetService = canonicalServiceType || service.type;
+      if (!targetService) {
+        setMetadata(null);
+        setConfig(null);
+        setRawValue('');
+        setError('Unknown service descriptor');
+        return;
+      }
+
+      const response = await fetch(`/api/admin/config/${targetService}${query}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
 
       if (!response.ok) {
+        setMetadata(null);
         if (response.status === 404) {
-          // Load default config template
-          const def = getDefaultConfig(service.type);
+          const def = getDefaultConfig(targetService);
           if (typeof def === 'string') {
             setIsToml(true);
             setRawValue(def);
+            setConfig(null);
+            setJsonValue(def);
           } else {
-            setIsToml(false);
-            setConfig(def);
-            setJsonValue(JSON.stringify(def, null, 2));
+            applyJsonConfig(def);
           }
         } else {
           throw new Error('Failed to fetch configuration');
         }
       } else {
         const ct = response.headers.get('content-type') || '';
-        if (ct.includes('text/plain')) {
+        if (ct.includes('application/json')) {
+          const data = await response.json();
+          if (data && 'metadata' in data) {
+            const envelope = data as ConfigEnvelope;
+            setMetadata(envelope.metadata);
+            const fmt = envelope.metadata.format;
+            if (fmt === 'toml') {
+              setIsToml(true);
+              setRawValue(envelope.raw_config ?? '');
+              setConfig(null);
+              setJsonValue(envelope.raw_config ?? '');
+              setJsonMode(false);
+            } else {
+              applyJsonConfig(envelope.config ?? {});
+            }
+          } else {
+            setMetadata(null);
+            applyJsonConfig(data);
+          }
+        } else {
           const text = await response.text();
+          setMetadata(null);
           setIsToml(true);
           setRawValue(text);
-        } else {
-          const data = await response.json();
-          setIsToml(false);
-          setConfig(data);
-          setJsonValue(JSON.stringify(data, null, 2));
+          setConfig(null);
+          setJsonValue(text);
         }
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       setError(message);
+      setMetadata(null);
       // Load default config on error
-      const def = getDefaultConfig(service.type);
-      if (typeof def === 'string') { setIsToml(true); setRawValue(def); }
-      else { setIsToml(false); setConfig(def); setJsonValue(JSON.stringify(def, null, 2)); }
+      const fallbackTarget = canonicalServiceType || service.type;
+      const def = getDefaultConfig(fallbackTarget);
+      if (typeof def === 'string') {
+        setIsToml(true);
+        setRawValue(def);
+        setConfig(null);
+        setJsonValue(def);
+      } else {
+        applyJsonConfig(def);
+      }
     } finally {
       setLoading(false);
     }
-  }, [service, kvStore]);
+  }, [applyJsonConfig, buildConfigQuery, canonicalServiceType, service.type]);
 
   const fetchKvInfo = React.useCallback(async () => {
     try {
@@ -116,7 +256,8 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
         .split("; ")
         .find((row) => row.startsWith("accessToken="))
         ?.split("=")[1];
-      const response = await fetch(`/api/kv/info?kv_store_id=${encodeURIComponent(kvStore)}` , {
+      const query = kvStore ? `?kv_store_id=${encodeURIComponent(kvStore)}` : '';
+      const response = await fetch(`/api/kv/info${query}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!response.ok) throw new Error('Failed to fetch KV info');
@@ -249,9 +390,22 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
         .split("; ")
         .find((row) => row.startsWith("accessToken="))
         ?.split("=")[1];
-        
-      const extra = (service.type !== 'poller' && service.type !== 'agent' && service.agentId) ? `&agent_id=${encodeURIComponent(service.agentId)}&service_type=${encodeURIComponent(service.type)}` : '';
-      const response = await fetch(`/api/admin/config/${service.type}?kv_store_id=${kvStore}${extra}`, {
+      let query = '';
+      try {
+        query = buildConfigQuery();
+      } catch (buildErr) {
+        const message = buildErr instanceof Error ? buildErr.message : 'Invalid configuration selection';
+        setError(message);
+        return;
+      }
+
+      const targetService = canonicalServiceType || service.type;
+      if (!targetService) {
+        setError('Unknown service descriptor');
+        return;
+      }
+
+      const response = await fetch(`/api/admin/config/${targetService}${query}`, {
         method: 'PUT',
         headers: isToml ? {
           'Content-Type': 'text/plain',
@@ -272,10 +426,19 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
       try {
         // Use a custom event; keep payload minimal and generic
         const evt = new CustomEvent('sr:config-saved', {
-          detail: { serviceType: service.type, scope: (service.type === 'otel' || service.type === 'flowgger' || service.type === 'db-event-writer' || service.type === 'zen-consumer') ? 'global' : 'scoped', kvStore }
+          detail: {
+            serviceType: targetService,
+            scope: scopeHint,
+            kvStore,
+          }
         });
         window.dispatchEvent(evt);
       } catch {}
+      try {
+        await fetchConfig();
+      } catch {
+        // fetchConfig already surfaces its own error state
+      }
       onSave();
       
       setTimeout(() => setSuccess(false), 3000);
@@ -303,9 +466,19 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
     }
   };
 
+  const currentConfig = React.useMemo(() => {
+    if (isToml) return null;
+    return config;
+  }, [isToml, config]);
+
   const copyToClipboard = () => {
     navigator.clipboard.writeText(jsonValue);
   };
+
+  const effectiveServiceType = React.useMemo(
+    () => (canonicalServiceType || service.type || '').toLowerCase(),
+    [canonicalServiceType, service.type],
+  );
 
   const renderConfigForm = () => {
     // Don't render form if config is not loaded yet
@@ -328,7 +501,7 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
         </div>
       );
     }
-    if (!config) {
+    if (!currentConfig) {
       return (
         <div className="flex items-center justify-center p-8">
           <div className="text-gray-500 dark:text-gray-400">
@@ -338,15 +511,15 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
       );
     }
 
-    switch (service.type) {
+    switch (effectiveServiceType) {
       case 'core':
-        return <CoreConfigForm config={config as unknown as Parameters<typeof CoreConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof CoreConfigForm>[0]['onChange']} />;
+        return <CoreConfigForm config={currentConfig as unknown as Parameters<typeof CoreConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof CoreConfigForm>[0]['onChange']} />;
       case 'sync':
-        return <SyncConfigForm config={config as unknown as Parameters<typeof SyncConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof SyncConfigForm>[0]['onChange']} />;
+        return <SyncConfigForm config={currentConfig as unknown as Parameters<typeof SyncConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof SyncConfigForm>[0]['onChange']} />;
       case 'poller':
-        return <PollerConfigForm config={config as unknown as Parameters<typeof PollerConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof PollerConfigForm>[0]['onChange']} />;
+        return <PollerConfigForm config={currentConfig as unknown as Parameters<typeof PollerConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof PollerConfigForm>[0]['onChange']} />;
       case 'agent':
-        return <AgentConfigForm config={config as unknown as Parameters<typeof AgentConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof AgentConfigForm>[0]['onChange']} />;
+        return <AgentConfigForm config={currentConfig as unknown as Parameters<typeof AgentConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof AgentConfigForm>[0]['onChange']} />;
       default:
         return null;
     }
@@ -366,21 +539,33 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
   return (
     <div className="h-full flex flex-col">
       <div className="border-b border-gray-200 dark:border-gray-700 p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">{service.name}</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              KV Store: {kvStore} | Service ID: {service.id}
-            </p>
-            <div className="mt-1 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-              {kvInfo ? (
-                <>
-                  <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700">Domain: {kvInfo.domain}</span>
-                  <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700">Bucket: {kvInfo.bucket}</span>
-                </>
-              ) : (
-                <span className="opacity-75">{kvInfoError ? `KV info: ${kvInfoError}` : 'Loading KV info…'}</span>
-              )}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-1 items-start gap-3 min-w-0">
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Back to service list"
+                className="mt-1 inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+            )}
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold truncate">{service.name}</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                KV Store: {kvStore || 'default'} | Service ID: {service.id}
+              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                {kvInfo ? (
+                  <>
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700">Domain: {kvInfo.domain}</span>
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700">Bucket: {kvInfo.bucket}</span>
+                  </>
+                ) : (
+                  <span className="opacity-75">{kvInfoError ? `KV info: ${kvInfoError}` : 'Loading KV info…'}</span>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -424,6 +609,27 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
           <div className="mt-2 p-2 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded-md flex items-center gap-2">
             <Check className="h-4 w-4" />
             <span className="text-sm">Configuration saved successfully</span>
+          </div>
+        )}
+
+        {metadata && (
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-gray-600 dark:text-gray-400">
+            <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">
+              Revision #{metadata.revision ?? 0}
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">
+              {metadata.origin === 'seeded'
+                ? 'Fresh seed'
+                : metadata.origin === 'user'
+                  ? 'User-edited'
+                  : 'Origin unknown'}
+              {metadata.last_writer ? ` by ${metadata.last_writer}` : ''}
+            </span>
+            {metadata.updated_at && (
+              <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">
+                Updated {new Date(metadata.updated_at).toLocaleString()}
+              </span>
+            )}
           </div>
         )}
       </div>

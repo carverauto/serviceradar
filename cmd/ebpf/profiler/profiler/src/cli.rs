@@ -8,19 +8,19 @@ pub struct CLI {
     /// Path to configuration file
     #[arg(short = 'c', long = "config", value_name = "FILE")]
     pub config: Option<String>,
-    
+
     /// Generate example configuration file
     #[arg(long = "generate-config")]
     pub generate_config: bool,
-    
+
     /// Enable debug logging
     #[arg(short = 'd', long = "debug")]
     pub debug: bool,
-    
+
     /// Enable verbose logging (same as debug)
     #[arg(short = 'v', long = "verbose")]
     pub verbose: bool,
-    
+
     /// gRPC server bind address (server mode)
     #[arg(short = 'b', long = "bind", value_name = "ADDRESS")]
     pub bind_address: Option<String>,
@@ -34,7 +34,12 @@ pub struct CLI {
     pub output_file: Option<String>,
 
     /// Duration to profile in seconds (standalone mode, default: 30)
-    #[arg(short = 't', long = "duration", value_name = "SECONDS", default_value = "30")]
+    #[arg(
+        short = 't',
+        long = "duration",
+        value_name = "SECONDS",
+        default_value = "30"
+    )]
     pub duration: i32,
 
     /// Sampling frequency in Hz (standalone mode, default: 99)
@@ -65,7 +70,10 @@ impl std::str::FromStr for OutputFormat {
             "pprof" => Ok(OutputFormat::Pprof),
             "flamegraph" | "flame" => Ok(OutputFormat::FlameGraph),
             "json" => Ok(OutputFormat::Json),
-            _ => Err(format!("Invalid format '{}'. Valid formats: pprof, flamegraph, json", s)),
+            _ => Err(format!(
+                "Invalid format '{}'. Valid formats: pprof, flamegraph, json",
+                s
+            )),
         }
     }
 }
@@ -74,7 +82,7 @@ impl CLI {
     pub fn parse_args() -> Self {
         Self::parse()
     }
-    
+
     /// Returns true if debug logging should be enabled
     pub fn is_debug_enabled(&self) -> bool {
         self.debug || self.verbose

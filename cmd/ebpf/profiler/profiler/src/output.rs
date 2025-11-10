@@ -6,9 +6,9 @@ use serde_json;
 use std::fs::File;
 use std::io::Write;
 
+use crate::cli::OutputFormat;
 use crate::ebpf_profiler::ProfileStackTrace;
 use crate::flame_graph::FlameGraphFormatter;
-use crate::cli::OutputFormat;
 
 pub struct OutputWriter {
     format: OutputFormat,
@@ -27,9 +27,17 @@ impl OutputWriter {
         &self.format
     }
 
-    pub fn write_profile(&self, stack_traces: Vec<ProfileStackTrace>, pid: i32, duration: i32) -> Result<()> {
-        info!("Writing profile data to {} in {:?} format", self.output_path, self.format);
-        
+    pub fn write_profile(
+        &self,
+        stack_traces: Vec<ProfileStackTrace>,
+        pid: i32,
+        duration: i32,
+    ) -> Result<()> {
+        info!(
+            "Writing profile data to {} in {:?} format",
+            self.output_path, self.format
+        );
+
         match self.format {
             OutputFormat::Pprof => self.write_pprof(stack_traces, pid, duration),
             OutputFormat::FlameGraph => self.write_flamegraph(stack_traces, pid, duration),
@@ -37,76 +45,110 @@ impl OutputWriter {
         }
     }
 
-    fn write_pprof(&self, stack_traces: Vec<ProfileStackTrace>, pid: i32, duration: i32) -> Result<()> {
-        debug!("Generating pprof-compatible format with {} stack traces", stack_traces.len());
+    fn write_pprof(
+        &self,
+        stack_traces: Vec<ProfileStackTrace>,
+        pid: i32,
+        duration: i32,
+    ) -> Result<()> {
+        debug!(
+            "Generating pprof-compatible format with {} stack traces",
+            stack_traces.len()
+        );
 
         // For now, create a simple text-based pprof format that Go tools can read
         // This is a simplified implementation - a full pprof implementation would use protobuf
         let mut output = String::new();
-        
+
         // Write pprof header
-        output.push_str(&format!("heap profile: {} {}: {} {} heap\n", 
-            stack_traces.len(), 
+        output.push_str(&format!(
+            "heap profile: {} {}: {} {} heap\n",
+            stack_traces.len(),
             stack_traces.iter().map(|t| t.count).sum::<u64>(),
             stack_traces.len(),
             stack_traces.iter().map(|t| t.count).sum::<u64>()
         ));
-        
+
         // Calculate totals first
         let total_samples: u64 = stack_traces.iter().map(|t| t.count).sum();
         let unique_stacks = stack_traces.len();
-        
+
         // Write stack traces in pprof text format
         for stack_trace in &stack_traces {
             // Write sample line: count [count2] @hex_addresses
             output.push_str(&format!("{} {} @ ", stack_trace.count, stack_trace.count));
-            
+
             // Add fake hex addresses for each frame (pprof format requirement)
             for (i, _frame) in stack_trace.frames.iter().enumerate() {
                 output.push_str(&format!("0x{:x} ", 0x400000 + (i * 0x10)));
             }
             output.push('\n');
-            
-            // Write frame information  
+
+            // Write frame information
             for (i, frame) in stack_trace.frames.iter().enumerate() {
                 output.push_str(&format!("#   0x{:x} {}\n", 0x400000 + (i * 0x10), frame));
             }
             output.push('\n');
         }
-        
+
         // Write profile metadata
         output.push_str("\n# Profile metadata\n");
         output.push_str(&format!("# PID: {}\n", pid));
         output.push_str(&format!("# Duration: {}s\n", duration));
         output.push_str(&format!("# Total samples: {}\n", total_samples));
         output.push_str(&format!("# Unique stacks: {}\n", unique_stacks));
-        
+
         let mut file = File::create(&self.output_path)?;
         file.write_all(output.as_bytes())?;
-        
-        info!("Successfully wrote pprof-compatible profile to {}", self.output_path);
+
+        info!(
+            "Successfully wrote pprof-compatible profile to {}",
+            self.output_path
+        );
         info!("View with: go tool pprof -text {}", self.output_path);
-        
+
         Ok(())
     }
 
-    fn write_flamegraph(&self, stack_traces: Vec<ProfileStackTrace>, pid: i32, duration: i32) -> Result<()> {
-        debug!("Generating flame graph format with {} stack traces", stack_traces.len());
+    fn write_flamegraph(
+        &self,
+        stack_traces: Vec<ProfileStackTrace>,
+        pid: i32,
+        duration: i32,
+    ) -> Result<()> {
+        debug!(
+            "Generating flame graph format with {} stack traces",
+            stack_traces.len()
+        );
 
         let formatter = FlameGraphFormatter::new(stack_traces);
         let flame_graph_data = formatter.generate_complete_output(pid, duration);
-        
+
         let mut file = File::create(&self.output_path)?;
         file.write_all(&flame_graph_data)?;
-        
-        info!("Successfully wrote flame graph data to {}", self.output_path);
-        info!("Generate SVG with: flamegraph.pl {} > output.svg", self.output_path);
-        
+
+        info!(
+            "Successfully wrote flame graph data to {}",
+            self.output_path
+        );
+        info!(
+            "Generate SVG with: flamegraph.pl {} > output.svg",
+            self.output_path
+        );
+
         Ok(())
     }
 
-    fn write_json(&self, stack_traces: Vec<ProfileStackTrace>, pid: i32, duration: i32) -> Result<()> {
-        debug!("Generating JSON format with {} stack traces", stack_traces.len());
+    fn write_json(
+        &self,
+        stack_traces: Vec<ProfileStackTrace>,
+        pid: i32,
+        duration: i32,
+    ) -> Result<()> {
+        debug!(
+            "Generating JSON format with {} stack traces",
+            stack_traces.len()
+        );
 
         let json_output = JsonProfileOutput {
             metadata: JsonMetadata {
@@ -119,11 +161,14 @@ impl OutputWriter {
                     .unwrap_or_default()
                     .as_secs(),
             },
-            stack_traces: stack_traces.into_iter().map(|trace| JsonStackTrace {
-                frames: trace.frames,
-                count: trace.count,
-                percentage: 0.0, // Will be calculated below
-            }).collect(),
+            stack_traces: stack_traces
+                .into_iter()
+                .map(|trace| JsonStackTrace {
+                    frames: trace.frames,
+                    count: trace.count,
+                    percentage: 0.0, // Will be calculated below
+                })
+                .collect(),
         };
 
         // Calculate percentages
@@ -136,9 +181,9 @@ impl OutputWriter {
         let json_string = serde_json::to_string_pretty(&json_output)?;
         let mut file = File::create(&self.output_path)?;
         file.write_all(json_string.as_bytes())?;
-        
+
         info!("Successfully wrote JSON profile to {}", self.output_path);
-        
+
         Ok(())
     }
 }
@@ -173,7 +218,7 @@ pub fn suggest_output_filename(pid: i32, format: &OutputFormat) -> String {
         .as_secs();
 
     match format {
-        OutputFormat::Pprof => format!("profile_pid_{}__{}.pb.gz", pid, timestamp), 
+        OutputFormat::Pprof => format!("profile_pid_{}__{}.pb.gz", pid, timestamp),
         OutputFormat::FlameGraph => format!("profile_pid_{}__{}.folded", pid, timestamp),
         OutputFormat::Json => format!("profile_pid_{}__{}.json", pid, timestamp),
     }
@@ -216,8 +261,8 @@ mod tests {
     fn test_write_json() -> Result<()> {
         let temp_file = NamedTempFile::new()?;
         let writer = OutputWriter::new(
-            OutputFormat::Json, 
-            temp_file.path().to_string_lossy().to_string()
+            OutputFormat::Json,
+            temp_file.path().to_string_lossy().to_string(),
         );
 
         let stack_traces = create_test_stack_traces();
@@ -238,7 +283,7 @@ mod tests {
         let temp_file = NamedTempFile::new()?;
         let writer = OutputWriter::new(
             OutputFormat::FlameGraph,
-            temp_file.path().to_string_lossy().to_string()
+            temp_file.path().to_string_lossy().to_string(),
         );
 
         let stack_traces = create_test_stack_traces();

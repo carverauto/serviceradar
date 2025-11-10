@@ -97,9 +97,21 @@ spec:
         - name: INIT_DB
           value: "true"
         - name: CONFIG_SOURCE
-          value: "file"
+          value: "kv"
         - name: CONFIG_PATH
           value: "/var/lib/serviceradar/core.json"
+        - name: CORE_ADDRESS
+          value: "serviceradar-core:50052"
+        - name: CORE_SEC_MODE
+          value: "spiffe"
+        - name: CORE_TRUST_DOMAIN
+          value: "carverauto.dev"
+        - name: CORE_SERVER_SPIFFE_ID
+          value: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core"
+        - name: CORE_WORKLOAD_SOCKET
+          value: "unix:/run/spire/sockets/agent.sock"
+        - name: CORE_CERT_DIR
+          value: "/etc/serviceradar/certs"
         - name: PROTON_HOST
           value: "serviceradar-proton"
         - name: PROTON_USER
