@@ -1,3 +1,15 @@
+# ServiceRadar v1.0.54-pre6
+
+Core admin UI polish and onboarding fixes.
+
+## Whats New
+
+**1.0.54-pre6**
+- Added a sticky navigation rail plus mobile jump links for the Core Admin configuration form, and defaulted the heaviest panels (RBAC, Webhooks, Write Buffer) to collapsed view for faster scanning.
+- Masked both legacy and primary Proton database credentials with click-to-show/copy fields, expanded helper text across ambiguous sections, and constrained NATS/security inputs to the supported modes.
+- Reworked edge onboarding to surface decoded key length/hex, support editing raw hex with automatic re-encoding, and generally structure default metadata inputs so operators can edit settings without dropping to JSON.
+- Removed the SRQL editor in favor of the managed srql service; the integrations panel now only exposes MCP credentials with masked/copyable input.
+
 # ServiceRadar v1.0.54-pre5
 
 Release automation fixes (BuildBuddy remote execution).
