@@ -850,8 +850,16 @@ func (s *APIServer) writeRawConfigResponse(w http.ResponseWriter, data []byte, f
 }
 
 func (s *APIServer) writeAPIError(w http.ResponseWriter, status int, message string) {
+	switch status {
+	case http.StatusNoContent, http.StatusNotModified:
+		w.WriteHeader(status)
+		return
+	}
+
+	w.Header().Del("Content-Type")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+
 	errResp := models.ErrorResponse{
 		Message: message,
 		Status:  status,
@@ -905,7 +913,9 @@ func (s *APIServer) getKVEntry(ctx context.Context, kvStoreID, key string) (*kvE
 		if err != nil {
 			return nil, err
 		}
-		defer closeFn()
+		if closeFn != nil {
+			defer closeFn()
+		}
 
 		resp, err := kvClient.Get(ctx, &proto.GetRequest{Key: key})
 		if err != nil {

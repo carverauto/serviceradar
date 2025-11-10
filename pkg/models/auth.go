@@ -18,7 +18,14 @@ package models
 
 import (
 	"encoding/json"
+	"errors"
+	"strings"
 	"time"
+)
+
+var (
+	errJWTDurationString = errors.New("jwt_expiration must be a duration string (e.g., \"24h\")")
+	errJWTInvalidFormat  = errors.New("invalid jwt_expiration format")
 )
 
 // User contains information about an authenticated user.
@@ -111,8 +118,10 @@ func (a *AuthConfig) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
+	// Prefer string durations like "24h".
 	var expStr string
 	if err := json.Unmarshal(aux.JWTExpiration, &expStr); err == nil {
+		expStr = strings.TrimSpace(expStr)
 		if expStr == "" {
 			a.JWTExpiration = 0
 			return nil
@@ -125,13 +134,13 @@ func (a *AuthConfig) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	var expNumber float64
-	if err := json.Unmarshal(aux.JWTExpiration, &expNumber); err == nil {
-		a.JWTExpiration = time.Duration(expNumber)
-		return nil
+	// Reject numeric inputs to avoid ambiguous nanosecond interpretation.
+	var numericProbe float64
+	if err := json.Unmarshal(aux.JWTExpiration, &numericProbe); err == nil {
+		return errJWTDurationString
 	}
 
-	return json.Unmarshal(aux.JWTExpiration, &expStr)
+	return errJWTInvalidFormat
 }
 
 // RBACConfig contains role-based access control configuration.

@@ -209,13 +209,19 @@ func (c *Config) OverlayFromKV(ctx context.Context, path string, dst interface{}
 	}
 
 	if normalizeOverlayTypes(over, base) {
-		if normalized, err := json.Marshal(over); err == nil {
-			if err := c.kvStore.Put(ctx, key, normalized, 0); err != nil && c.logger != nil {
-				c.logger.Warn().
-					Err(err).
-					Str("key", key).
-					Msg("failed to rewrite normalized KV entry")
+		if c.kvStore != nil {
+			if normalized, err := json.Marshal(over); err == nil {
+				if err := c.kvStore.Put(ctx, key, normalized, 0); err != nil && c.logger != nil {
+					c.logger.Warn().
+						Err(err).
+						Str("key", key).
+						Msg("failed to rewrite normalized KV entry")
+				}
 			}
+		} else if c.logger != nil {
+			c.logger.Debug().
+				Str("key", key).
+				Msg("skipping KV normalization rewrite; kvStore not configured")
 		}
 	}
 

@@ -297,6 +297,9 @@ func derivePublicKeyPEM(privatePEM string) (string, error) {
 	if block == nil {
 		return "", errDecodePrivateKeyPEM
 	}
+	if isEncryptedPEMBlock(block) {
+		return "", errUnsupportedPrivateKey
+	}
 
 	var rsaKey *rsa.PrivateKey
 
@@ -306,9 +309,9 @@ func derivePublicKeyPEM(privatePEM string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		var ok bool
-		rsaKey, ok = key.(*rsa.PrivateKey)
-		if !ok {
+		if k, ok := key.(*rsa.PrivateKey); ok {
+			rsaKey = k
+		} else {
 			return "", errUnsupportedPrivateKey
 		}
 	case "RSA PRIVATE KEY":
@@ -326,6 +329,14 @@ func derivePublicKeyPEM(privatePEM string) (string, error) {
 		return "", err
 	}
 	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})), nil
+}
+
+func isEncryptedPEMBlock(block *pem.Block) bool {
+	if block == nil {
+		return false
+	}
+	procType := block.Headers["Proc-Type"]
+	return strings.EqualFold(procType, "4,ENCRYPTED")
 }
 
 // StartWatch sets up KV watching with hot-reload functionality
