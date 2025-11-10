@@ -750,6 +750,7 @@ use_repo(
 crates.from_cargo(
     name = "rust_crates_profiler",
     cargo_lockfile = "//cmd/ebpf/profiler/profiler:Cargo.lock",
+    manifests = ["//cmd/ebpf/profiler:Cargo.toml"],
 )
 use_repo(
     crates,
