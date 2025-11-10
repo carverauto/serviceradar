@@ -188,10 +188,14 @@ func setupDataStores(ctx context.Context, cfgLoader *config.Config, cfg *ServerC
 		DisableTelemetry: true,
 	}
 
+	secMode := ""
+	if securityConfig != nil {
+		secMode = string(securityConfig.Mode)
+	}
+
 	log.Info().
 		Str("kv_address", kvAddress).
-		Str("kv_server_spiffe_id", securityConfig.ServerSPIFFEID).
-		Str("kv_trust_domain", securityConfig.TrustDomain).
+		Str("kv_security_mode", secMode).
 		Msg("Initializing KV security provider")
 
 	provider, err := grpc.NewSecurityProvider(ctx, securityConfig, log)

@@ -194,18 +194,14 @@ func registerTemplateWithCore(ctx context.Context, desc config.ServiceDescriptor
 	regCtx, cancel := context.WithTimeout(ctx, templatePublishTimeout)
 	defer cancel()
 
-	dialOpts, provider, err := BuildCoreDialOptionsFromEnv(regCtx, opts.Role, log)
+	dialOpts, closeProvider, err := BuildCoreDialOptionsFromEnv(regCtx, opts.Role, log)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errTemplateRegistration, err)
 	}
 
 	conn, err := grpc.NewClient(coreAddr, dialOpts...)
 	if err != nil {
-		if provider != nil {
-			if closeErr := provider.Close(); closeErr != nil {
-				log.Warn().Err(closeErr).Msg("failed to close core security provider after dial error")
-			}
-		}
+		closeProvider()
 		return fmt.Errorf("%w: %w", errTemplateRegistration, err)
 	}
 	defer func() {
@@ -213,13 +209,7 @@ func registerTemplateWithCore(ctx context.Context, desc config.ServiceDescriptor
 			log.Warn().Err(closeErr).Msg("failed to close core template connection")
 		}
 	}()
-	if provider != nil {
-		defer func() {
-			if closeErr := provider.Close(); closeErr != nil {
-				log.Warn().Err(closeErr).Msg("failed to close core security provider")
-			}
-		}()
-	}
+	defer closeProvider()
 
 	client := proto.NewCoreServiceClient(conn)
 

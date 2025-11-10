@@ -107,8 +107,34 @@ func isTableHeader(line string) bool {
 }
 
 func extractKey(line string) string {
-	if idx := strings.Index(line, "="); idx != -1 {
-		return strings.TrimSpace(line[:idx])
+	inString := false
+	escapeNext := false
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		if ch == '#' && !inString {
+			break
+		}
+		if inString {
+			if escapeNext {
+				escapeNext = false
+				continue
+			}
+			if ch == '\\' {
+				escapeNext = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		if ch == '"' {
+			inString = true
+			continue
+		}
+		if ch == '=' {
+			return strings.TrimSpace(line[:i])
+		}
 	}
 	return ""
 }

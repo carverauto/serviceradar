@@ -297,25 +297,30 @@ func derivePublicKeyPEM(privatePEM string) (string, error) {
 	if block == nil {
 		return "", errDecodePrivateKeyPEM
 	}
-	var key interface{}
-	var err error
+
+	var rsaKey *rsa.PrivateKey
+
 	switch block.Type {
 	case "PRIVATE KEY":
-		key, err = x509.ParsePKCS8PrivateKey(block.Bytes)
-	default:
-		key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
-	}
-	if err != nil {
-		return "", err
-	}
-	rsaKey, ok := key.(*rsa.PrivateKey)
-	if !ok {
-		if pkcs1, ok := key.(*rsa.PrivateKey); ok {
-			rsaKey = pkcs1
-		} else {
+		key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if err != nil {
+			return "", err
+		}
+		var ok bool
+		rsaKey, ok = key.(*rsa.PrivateKey)
+		if !ok {
 			return "", errUnsupportedPrivateKey
 		}
+	case "RSA PRIVATE KEY":
+		key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+		if err != nil {
+			return "", err
+		}
+		rsaKey = key
+	default:
+		return "", errUnsupportedPrivateKey
 	}
+
 	pubDER, err := x509.MarshalPKIXPublicKey(&rsaKey.PublicKey)
 	if err != nil {
 		return "", err

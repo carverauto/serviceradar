@@ -104,15 +104,15 @@ type configResponse struct {
 }
 
 type configDescriptorResponse struct {
-	Name          string `json:"name"`
-	DisplayName   string `json:"display_name,omitempty"`
-	ServiceType   string `json:"service_type"`
-	Scope         string `json:"scope"`
-	KVKey         string `json:"kv_key,omitempty"`
-	KVKeyTemplate string `json:"kv_key_template,omitempty"`
-	Format        string `json:"format"`
-	RequiresAgent bool   `json:"requires_agent"`
-	RequiresPoller bool  `json:"requires_poller"`
+	Name           string `json:"name"`
+	DisplayName    string `json:"display_name,omitempty"`
+	ServiceType    string `json:"service_type"`
+	Scope          string `json:"scope"`
+	KVKey          string `json:"kv_key,omitempty"`
+	KVKeyTemplate  string `json:"kv_key_template,omitempty"`
+	Format         string `json:"format"`
+	RequiresAgent  bool   `json:"requires_agent"`
+	RequiresPoller bool   `json:"requires_poller"`
 }
 
 // @Summary List managed config descriptors
@@ -126,14 +126,14 @@ func (s *APIServer) handleListConfigDescriptors(w http.ResponseWriter, r *http.R
 	resp := make([]configDescriptorResponse, 0, len(descs))
 	for _, desc := range descs {
 		resp = append(resp, configDescriptorResponse{
-			Name:          desc.Name,
-			DisplayName:   desc.DisplayName,
-			ServiceType:   desc.ServiceType,
-			Scope:         string(desc.Scope),
-			KVKey:         desc.KVKey,
-			KVKeyTemplate: desc.KVKeyTemplate,
-			Format:        string(desc.Format),
-			RequiresAgent: desc.Scope == config.ConfigScopeAgent && desc.KVKeyTemplate != "",
+			Name:           desc.Name,
+			DisplayName:    desc.DisplayName,
+			ServiceType:    desc.ServiceType,
+			Scope:          string(desc.Scope),
+			KVKey:          desc.KVKey,
+			KVKeyTemplate:  desc.KVKeyTemplate,
+			Format:         string(desc.Format),
+			RequiresAgent:  desc.Scope == config.ConfigScopeAgent && desc.KVKeyTemplate != "",
 			RequiresPoller: desc.Scope == config.ConfigScopePoller && desc.KVKeyTemplate != "",
 		})
 	}
@@ -607,9 +607,21 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 
 	entry, metaRecord, err := s.loadConfigEntry(ctx, kvStoreID, resolvedKey)
 	if err != nil && kvStoreID != "" {
-		s.logger.Warn().Err(err).Str("key", resolvedKey).Str("kv_store_id", kvStoreID).Msg("KV fetch failed; falling back to default store")
+		if s.logger != nil {
+			s.logger.Warn().Err(err).Str("key", resolvedKey).Str("kv_store_id", kvStoreID).Msg("KV fetch failed; falling back to default store")
+		}
 		kvStoreID = ""
-		resolvedKey = baseKey
+		baseKeyUnqualified := baseKey
+		if strings.HasPrefix(strings.ToLower(baseKeyUnqualified), "domains/") {
+			parts := strings.SplitN(baseKeyUnqualified, "/", 3)
+			if len(parts) == 3 {
+				baseKeyUnqualified = parts[2]
+			}
+		}
+		resolvedKey = s.qualifyKVKey(kvStoreID, baseKeyUnqualified)
+		if !hasDescriptor {
+			formatHint = guessFormatFromKey(resolvedKey)
+		}
 		entry, metaRecord, err = s.loadConfigEntry(ctx, kvStoreID, resolvedKey)
 	}
 	if err != nil {
@@ -832,7 +844,9 @@ func (s *APIServer) writeRawConfigResponse(w http.ResponseWriter, data []byte, f
 	default:
 		w.Header().Set("Content-Type", "application/json")
 	}
-	_, _ = w.Write(data)
+	if _, err := w.Write(data); err != nil && s != nil && s.logger != nil {
+		s.logger.Warn().Err(err).Msg("failed to write raw config response")
+	}
 }
 
 func (s *APIServer) writeAPIError(w http.ResponseWriter, status int, message string) {

@@ -452,7 +452,7 @@ func getenvDefault(key, fallback string) string {
 
 func connectCore(ctx context.Context, cfg sweepConfig) (proto.CoreServiceClient, func(), error) {
 	role := models.ServiceRole(cfg.coreRole)
-	dialOpts, provider, err := bootstrap.BuildCoreDialOptionsFromEnv(ctx, role, logger.NewTestLogger())
+	dialOpts, closeProvider, err := bootstrap.BuildCoreDialOptionsFromEnv(ctx, role, logger.NewTestLogger())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -465,19 +465,15 @@ func connectCore(ctx context.Context, cfg sweepConfig) (proto.CoreServiceClient,
 		return nil, nil, errCoreAddressNotConfigured
 	}
 
-	conn, err := grpc.NewClient(address, dialOpts...)
+	conn, err := grpc.DialContext(ctx, address, dialOpts...) //nolint:staticcheck // DialContext ensures ctx cancellation adherence
 	if err != nil {
-		if provider != nil {
-			_ = provider.Close()
-		}
+		closeProvider()
 		return nil, nil, err
 	}
 
 	cleanup := func() {
 		_ = conn.Close()
-		if provider != nil {
-			_ = provider.Close()
-		}
+		closeProvider()
 	}
 	return proto.NewCoreServiceClient(conn), cleanup, nil
 }

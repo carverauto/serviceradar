@@ -14,6 +14,10 @@ const UNAUTHORIZED = NextResponse.json(
 );
 
 function buildUpstreamUrl(req: NextRequest, service: string): string {
+  if (!/^[a-z0-9-]+$/i.test(service)) {
+    throw new Error("invalid service name");
+  }
+
   const params = new URLSearchParams(req.nextUrl.searchParams);
 
   // Normalize legacy kvStore query parameter if present.
@@ -21,9 +25,8 @@ function buildUpstreamUrl(req: NextRequest, service: string): string {
     const legacy = params.get("kvStore");
     if (legacy) {
       params.set("kv_store_id", legacy);
-    } else {
-      params.delete("kvStore");
     }
+    params.delete("kvStore");
   }
 
   const query = params.toString();

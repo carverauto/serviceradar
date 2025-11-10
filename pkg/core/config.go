@@ -177,11 +177,16 @@ func initializeAuthConfig(config *models.CoreServiceConfig) (*models.AuthConfig,
 	}
 
 	if strings.EqualFold(authConfig.JWTAlgorithm, jwtAlgorithmRS256) {
-		if authConfig.JWTPublicKeyPEM == "" && authConfig.JWTPrivateKeyPEM != "" {
-			if pub, err := derivePublicKeyPEM(authConfig.JWTPrivateKeyPEM); err == nil {
+		priv := strings.TrimSpace(authConfig.JWTPrivateKeyPEM)
+		if strings.HasPrefix(priv, `"`) && strings.HasSuffix(priv, `"`) {
+			priv = strings.TrimPrefix(priv, `"`)
+			priv = strings.TrimSuffix(priv, `"`)
+		}
+		if authConfig.JWTPublicKeyPEM == "" && priv != "" {
+			if pub, err := derivePublicKeyPEM(priv); err == nil {
 				authConfig.JWTPublicKeyPEM = pub
 			} else {
-				log.Printf("core: unable to derive JWKS public key: %v", err)
+				log.Printf("core: unable to derive JWKS public key from configured private key")
 			}
 		}
 	}

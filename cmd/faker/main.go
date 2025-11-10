@@ -472,7 +472,13 @@ func main() {
 	}
 
 	if err := server.ListenAndServe(); err != nil {
-		_ = bootstrapResult.Close()
+		if bootstrapResult != nil {
+			_ = bootstrapResult.Close()
+		}
+		if errors.Is(err, http.ErrServerClosed) {
+			log.Printf("Server shut down gracefully")
+			return
+		}
 		log.Fatalf("Server failed: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
 	}
 }
