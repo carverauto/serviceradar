@@ -76,10 +76,12 @@ spec:
           containerPort: 50044
           protocol: TCP
         env:
+{{ include "serviceradar.kvEnv" . | indent 8 }}
         - name: CONFIG_PATH
           value: "/etc/serviceradar/flowgger.toml"
         - name: RUST_LOG
           value: "info"
+        {{- include "serviceradar.configSyncEnv" (dict "cfg" (default (dict) .Values.configSync.flowgger)) | nindent 8 }}
         livenessProbe:
           exec:
             command: ["/bin/sh", "-c", "pgrep -f flowgger > /dev/null"]

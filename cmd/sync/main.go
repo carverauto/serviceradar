@@ -18,18 +18,23 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"log"
 
 	"google.golang.org/grpc"
 
 	"github.com/carverauto/serviceradar/pkg/config"
+	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/sync"
 	"github.com/carverauto/serviceradar/proto"
 )
+
+//go:embed config.json
+var defaultConfig []byte
 
 func main() {
 	configPath := flag.String("config", "/etc/serviceradar/sync.json", "Path to config file")
@@ -52,34 +57,26 @@ func main() {
 		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
 	}
 
-	// Step 1: Load config with KV support
-	kvMgr := config.NewKVManagerFromEnv(ctx, models.RoleCore)
-	
-	cleanup := func() {
-		if kvMgr != nil {
-			_ = kvMgr.Close()
-		}
-	}
-
-	cfgLoader := config.NewConfig(nil)
-	if kvMgr != nil {
-		kvMgr.SetupConfigLoader(cfgLoader)
-	}
-
 	var cfg sync.Config
-	config.LoadAndOverlayOrExit(ctx, kvMgr, cfgLoader, *configPath, &cfg, "Failed to load config")
-
-	// Bootstrap service-level default into KV if missing
-	if kvMgr != nil {
-		kvMgr.BootstrapConfig(ctx, "config/sync.json", cfg)
+	desc, ok := config.ServiceDescriptorFor("sync")
+	if !ok {
+		log.Fatalf("Failed to load config: service descriptor for sync missing")
 	}
-
+	bootstrapResult, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, &cfg, defaultConfig, cfgbootstrap.ServiceOptions{
+		Role:         models.RoleCore,
+		ConfigPath:   *configPath,
+		DisableWatch: true,
+	})
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+	defer func() { _ = bootstrapResult.Close() }()
 
 	// Step 2: Create logger from config
 	logger, err := lifecycle.CreateComponentLogger(ctx, "sync", cfg.Logging)
 	if err != nil {
-		cleanup()
-		log.Fatalf("Failed to initialize logger: %v", err)
+		_ = bootstrapResult.Close()
+		log.Fatalf("Failed to initialize logger: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
 	}
 
 	// Step 3: Create config loader with proper logger for any future config operations
@@ -90,16 +87,12 @@ func main() {
 		if shutdownErr := lifecycle.ShutdownLogger(); shutdownErr != nil {
 			log.Printf("Failed to shutdown logger: %v", shutdownErr)
 		}
-		cleanup()
 		log.Fatalf("Failed to create syncer: %v", err)
 	}
 
-	// KV Watch: overlay and apply hot-reload on relevant changes
-	if kvMgr != nil {
-		kvMgr.StartWatch(ctx, "config/sync.json", &cfg, logger, func() {
-			syncer.UpdateConfig(&cfg)
-		})
-	}
+	bootstrapResult.StartWatch(ctx, logger, &cfg, func() {
+		syncer.UpdateConfig(&cfg)
+	})
 
 	registerServices := func(s *grpc.Server) error {
 		proto.RegisterAgentServiceServer(s, syncer)
@@ -125,9 +118,6 @@ func main() {
 	}
 
 	if serverErr != nil {
-		cleanup()
 		log.Fatalf("Sync service failed: %v", serverErr)
 	}
-	
-	cleanup()
 }

@@ -41,7 +41,7 @@ func TestFilterSensitiveFields(t *testing.T) {
 				RBAC:         RBACConfig{UserRoles: map[string][]string{"admin": {"admin", "user"}}, RolePermissions: map[string][]string{"admin": {"read", "write"}}},
 			},
 			expected: map[string]interface{}{
-				"jwt_expiration": time.Duration(0),
+				"jwt_expiration": "0s",
 				"callback_url":   "",
 				"rbac": map[string]interface{}{
 					"user_roles":       map[string]interface{}{"admin": []interface{}{"admin", "user"}},
@@ -262,7 +262,7 @@ func TestFilterSensitiveFields_EdgeCases(t *testing.T) {
 		expected := map[string]interface{}{
 			"name": "test",
 			"config": map[string]interface{}{
-				"jwt_expiration": time.Duration(0),
+				"jwt_expiration": "0s",
 				"callback_url":   "",
 				"rbac": map[string]interface{}{
 					"user_roles":       map[string]interface{}{"admin": []interface{}{"admin"}},

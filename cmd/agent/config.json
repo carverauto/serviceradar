@@ -1,0 +1,39 @@
+{
+  "checkers_dir": "/etc/serviceradar/checkers",
+  "listen_addr": ":50051",
+  "service_type": "grpc",
+  "service_name": "AgentService",
+  "agent_id": "default-agent",
+  "agent_name": "127.0.0.1",
+  "host_ip": "PLACEHOLDER_HOST_IP",
+  "partition": "default",
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "127.0.0.1",
+    "role": "agent",
+    "tls": {
+      "cert_file": "agent.pem",
+      "key_file": "agent-key.pem",
+      "ca_file": "root.pem"
+    }
+  },
+  "logging": {
+    "level": "info",
+    "debug": false,
+    "output": "stdout",
+    "time_format": "",
+    "otel": {
+      "enabled": true,
+      "endpoint": "127.0.0.1:4317",
+      "service_name": "serviceradar-agent",
+      "batch_timeout": "5s",
+      "insecure": false,
+      "tls": {
+        "cert_file": "/etc/serviceradar/certs/agent.pem",
+        "key_file": "/etc/serviceradar/certs/agent-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
+      }
+    }
+  }
+}

@@ -31,6 +31,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
+	"github.com/carverauto/serviceradar/pkg/core/templateregistry"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
@@ -216,6 +217,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		identityKVCloser:    identityKVCloser,
 		canonicalCache:      newCanonicalCache(10 * time.Minute),
 		deviceSearchPlanner: deviceSearchPlanner,
+		templateRegistry:    templateregistry.New(log),
 	}
 
 	// Create adapter to avoid import cycles

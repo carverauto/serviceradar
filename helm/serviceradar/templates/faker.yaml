@@ -20,11 +20,26 @@ spec:
         - containerPort: 8080
           name: http
         env:
+{{ include "serviceradar.kvEnv" . | indent 8 }}
+{{ include "serviceradar.coreEnv" . | indent 8 }}
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/faker.json"
         - name: LOG_LEVEL
           value: "info"
         volumeMounts:
         - name: faker-data
+          mountPath: /var/lib/serviceradar/faker
+        - name: faker-data
           mountPath: /data
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+          readOnly: true
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
         readinessProbe:
           httpGet:
             path: /api/v1/search/?aql=test&length=1
@@ -45,6 +60,16 @@ spec:
       - name: faker-data
         persistentVolumeClaim:
           claimName: serviceradar-faker-data
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

@@ -23,6 +23,7 @@ clap = "~2.33.3"
 anyhow = "1.0"
 pem = "3"
 spiffe = { version = "0.6", default-features = false, features = ["spiffe-types", "workload-api"] }
+config-bootstrap = { path = "../../../rust/config-bootstrap" }
 
 [build-dependencies]
 tonic-build = "0.9"

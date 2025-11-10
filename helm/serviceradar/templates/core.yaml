@@ -91,8 +91,7 @@ spec:
           value: "true"
         - name: INIT_DB
           value: "true"
-        - name: CONFIG_SOURCE
-          value: "file"
+{{ include "serviceradar.kvEnv" . | indent 8 }}
         - name: CONFIG_PATH
           value: "/var/lib/serviceradar/core.json"
         - name: PROTON_HOST
@@ -125,18 +124,6 @@ spec:
             secretKeyRef:
               name: serviceradar-secrets
               key: admin-bcrypt-hash
-        - name: KV_ADDRESS
-          value: "serviceradar-datasvc:50057"
-        - name: KV_SEC_MODE
-          value: "spiffe"
-        - name: KV_TRUST_DOMAIN
-          value: {{ $trustDomain | quote }}
-        - name: KV_SERVER_SPIFFE_ID
-          value: "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $datasvcSA }}"
-        - name: KV_WORKLOAD_SOCKET
-          value: "unix:/run/spire/sockets/agent.sock"
-        - name: KV_CERT_DIR
-          value: "/etc/serviceradar/certs"
         resources:
           limits:
             cpu: "2"

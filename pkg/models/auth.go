@@ -17,7 +17,15 @@
 package models
 
 import (
+	"encoding/json"
+	"errors"
+	"strings"
 	"time"
+)
+
+var (
+	errJWTDurationString = errors.New("jwt_expiration must be a duration string (e.g., \"24h\")")
+	errJWTInvalidFormat  = errors.New("invalid jwt_expiration format")
 )
 
 // User contains information about an authenticated user.
@@ -55,18 +63,18 @@ type Token struct {
 // AuthConfig contains authentication configuration.
 // @Description Authentication and authorization configuration settings.
 type AuthConfig struct {
-    // Secret key used for signing JWT tokens (SENSITIVE: never store in DB or display in UI)
-    JWTSecret string `json:"jwt_secret" example:"very-secret-key-do-not-share" sensitive:"true"`
-    // Optional JWT signing algorithm. Defaults to HS256. Set to RS256 to enable RSA signing.
-    JWTAlgorithm string `json:"jwt_algorithm,omitempty" example:"RS256"`
-    // PEM-encoded RSA private key used for RS256 signing (SENSITIVE)
-    JWTPrivateKeyPEM string `json:"jwt_private_key_pem,omitempty" sensitive:"true"`
-    // PEM-encoded RSA public key (optional; derived from private key if omitted)
-    JWTPublicKeyPEM string `json:"jwt_public_key_pem,omitempty"`
-    // Key ID placed in JWT header as `kid` for JWKS lookup
-    JWTKeyID string `json:"jwt_key_id,omitempty" example:"main-2025-09"`
-    // How long JWT tokens are valid
-    JWTExpiration time.Duration `json:"jwt_expiration" example:"24h"`
+	// Secret key used for signing JWT tokens (SENSITIVE: never store in DB or display in UI)
+	JWTSecret string `json:"jwt_secret" example:"very-secret-key-do-not-share" sensitive:"true"`
+	// Optional JWT signing algorithm. Defaults to HS256. Set to RS256 to enable RSA signing.
+	JWTAlgorithm string `json:"jwt_algorithm,omitempty" example:"RS256"`
+	// PEM-encoded RSA private key used for RS256 signing (SENSITIVE)
+	JWTPrivateKeyPEM string `json:"jwt_private_key_pem,omitempty" sensitive:"true"`
+	// PEM-encoded RSA public key (optional; derived from private key if omitted)
+	JWTPublicKeyPEM string `json:"jwt_public_key_pem,omitempty"`
+	// Key ID placed in JWT header as `kid` for JWKS lookup
+	JWTKeyID string `json:"jwt_key_id,omitempty" example:"main-2025-09"`
+	// How long JWT tokens are valid
+	JWTExpiration time.Duration `json:"jwt_expiration" example:"24h"`
 	// OAuth callback URL
 	CallbackURL string `json:"callback_url" example:"https://api.example.com/auth/callback"`
 	// Map of local usernames to password hashes (SENSITIVE: never store in DB or display in UI)
@@ -77,14 +85,72 @@ type AuthConfig struct {
 	RBAC RBACConfig `json:"rbac"`
 }
 
+func (a *AuthConfig) MarshalJSON() ([]byte, error) {
+	type Alias AuthConfig
+	aux := &struct {
+		*Alias
+		JWTExpiration string `json:"jwt_expiration,omitempty"`
+	}{
+		Alias: (*Alias)(a),
+	}
+
+	if a != nil && a.JWTExpiration != 0 {
+		aux.JWTExpiration = a.JWTExpiration.String()
+	}
+
+	return json.Marshal(aux)
+}
+
+func (a *AuthConfig) UnmarshalJSON(data []byte) error {
+	type Alias AuthConfig
+	aux := &struct {
+		*Alias
+		JWTExpiration json.RawMessage `json:"jwt_expiration"`
+	}{
+		Alias: (*Alias)(a),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if len(aux.JWTExpiration) == 0 {
+		return nil
+	}
+
+	// Prefer string durations like "24h".
+	var expStr string
+	if err := json.Unmarshal(aux.JWTExpiration, &expStr); err == nil {
+		expStr = strings.TrimSpace(expStr)
+		if expStr == "" {
+			a.JWTExpiration = 0
+			return nil
+		}
+		dur, err := time.ParseDuration(expStr)
+		if err != nil {
+			return err
+		}
+		a.JWTExpiration = dur
+		return nil
+	}
+
+	// Reject numeric inputs to avoid ambiguous nanosecond interpretation.
+	var numericProbe float64
+	if err := json.Unmarshal(aux.JWTExpiration, &numericProbe); err == nil {
+		return errJWTDurationString
+	}
+
+	return errJWTInvalidFormat
+}
+
 // RBACConfig contains role-based access control configuration.
 type RBACConfig struct {
-    // Map of identities to roles. Keys can be one of:
-    // - "provider:subject" (preferred, e.g., "google:1122334455")
-    // - "provider:email" (lowercased, e.g., "github:admin@company.com")
-    // - legacy "username-or-email" (lowercased)
-    // Example: {"local:admin":["admin"], "google:1122334455":["admin"], "user1":["user"]}
-    UserRoles map[string][]string `json:"user_roles"`
+	// Map of identities to roles. Keys can be one of:
+	// - "provider:subject" (preferred, e.g., "google:1122334455")
+	// - "provider:email" (lowercased, e.g., "github:admin@company.com")
+	// - legacy "username-or-email" (lowercased)
+	// Example: {"local:admin":["admin"], "google:1122334455":["admin"], "user1":["user"]}
+	UserRoles map[string][]string `json:"user_roles"`
 	// Map of roles to their permissions
 	RolePermissions map[string][]string `json:"role_permissions" example:"admin:[config:read,config:write,config:delete],user:[config:read]"`
 	// Map of routes to required roles (can be string array or map of methods to roles)

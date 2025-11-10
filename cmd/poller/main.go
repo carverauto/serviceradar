@@ -17,23 +17,29 @@
 package main
 
 import (
-    "context"
-    "flag"
-    "fmt"
-    "log"
+	"context"
+	_ "embed"
+	"flag"
+	"fmt"
+	"log"
 
-    "google.golang.org/grpc"
+	"google.golang.org/grpc"
 
-    "github.com/carverauto/serviceradar/pkg/config"
-    "github.com/carverauto/serviceradar/pkg/edgeonboarding"
-    "github.com/carverauto/serviceradar/pkg/lifecycle"
-    "github.com/carverauto/serviceradar/pkg/logger"
-    "github.com/carverauto/serviceradar/pkg/models"
-    "github.com/carverauto/serviceradar/pkg/poller"
+	"github.com/carverauto/serviceradar/pkg/config"
+	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
+	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
+	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/poller"
 )
 
+//go:embed config.json
+var defaultConfig []byte
+
 var (
-	errFailedToLoadConfig = fmt.Errorf("failed to load config")
+	errFailedToLoadConfig      = fmt.Errorf("failed to load config")
+	errPollerDescriptorMissing = fmt.Errorf("service descriptor for poller missing")
 )
 
 func main() {
@@ -65,28 +71,26 @@ func run() error {
 		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
 	}
 
-	// Step 1: Load configuration with KV support
-	kvMgr := config.NewKVManagerFromEnv(ctx, models.RolePoller)
-	defer func() {
-		if kvMgr != nil {
-			_ = kvMgr.Close()
-		}
-	}()
-
-	cfgLoader := config.NewConfig(nil)
-	if kvMgr != nil {
-		kvMgr.SetupConfigLoader(cfgLoader)
-	}
-
 	var cfg poller.Config
-	if err := kvMgr.LoadAndOverlay(ctx, cfgLoader, *configPath, &cfg); err != nil {
+	desc, ok := config.ServiceDescriptorFor("poller")
+	if !ok {
+		return errPollerDescriptorMissing
+	}
+	bootstrapResult, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, &cfg, defaultConfig, cfgbootstrap.ServiceOptions{
+		Role:         models.RolePoller,
+		ConfigPath:   *configPath,
+		DisableWatch: true,
+		KeyContextFn: func(conf interface{}) config.KeyContext {
+			if pollerCfg, ok := conf.(*poller.Config); ok {
+				return config.KeyContext{PollerID: pollerCfg.PollerID}
+			}
+			return config.KeyContext{}
+		},
+	})
+	if err != nil {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
 	}
-
-	// Bootstrap service-level default into KV if missing
-	if kvMgr != nil {
-		kvMgr.BootstrapConfig(ctx, "config/poller.json", cfg)
-	}
+	defer func() { _ = bootstrapResult.Close() }()
 
 	// Step 2: Create logger from loaded config
 	logConfig := cfg.Logging
@@ -103,18 +107,19 @@ func run() error {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
 
-    // Create poller instance with a real clock for production
-    p, err := poller.New(ctx, &cfg, nil, pollerLogger) // nil clock defaults to realClock in poller.New
-    if err != nil {
-        return err
-    }
+	// Create poller instance with a real clock for production
+	p, err := poller.New(ctx, &cfg, nil, pollerLogger) // nil clock defaults to realClock in poller.New
+	if err != nil {
+		return err
+	}
 
-    // KV Watch: overlay and apply hot-reload on relevant changes
-    if kvMgr != nil {
-        kvMgr.StartWatch(ctx, "config/poller.json", &cfg, pollerLogger, func() {
-            _ = p.UpdateConfig(ctx, &cfg)
-        })
-    }
+	// KV Watch: overlay and apply hot-reload on relevant changes
+	if cfg.PollerID != "" {
+		bootstrapResult.SetInstanceID(cfg.PollerID)
+	}
+	bootstrapResult.StartWatch(ctx, pollerLogger, &cfg, func() {
+		_ = p.UpdateConfig(ctx, &cfg)
+	})
 
 	// No gRPC services to register - simplified architecture
 	registerServices := func(_ *grpc.Server) error {

@@ -13,14 +13,16 @@ RUN apt-get update && apt-get install -y \
 COPY Cargo.toml ./
 # Copy all workspace members' manifests
 COPY rust/kvutil/Cargo.toml ./rust/kvutil/Cargo.toml
+COPY rust/config-bootstrap/Cargo.toml ./rust/config-bootstrap/Cargo.toml
 COPY cmd/flowgger/Cargo.toml ./cmd/flowgger/Cargo.toml
 COPY cmd/trapd/Cargo.toml ./cmd/trapd/Cargo.toml
 COPY cmd/otel/Cargo.toml ./cmd/otel/Cargo.toml
 COPY cmd/poller-ng/Cargo.toml ./cmd/poller-ng/Cargo.toml
 COPY cmd/consumers/zen/Cargo.toml ./cmd/consumers/zen/Cargo.toml
 # Create stub targets to satisfy workspace validation
-RUN mkdir -p rust/kvutil/src cmd/flowgger/src cmd/trapd/src cmd/otel/src cmd/poller-ng/src cmd/consumers/zen/src && \
+RUN mkdir -p rust/kvutil/src rust/config-bootstrap/src cmd/flowgger/src cmd/trapd/src cmd/otel/src cmd/poller-ng/src cmd/consumers/zen/src && \
     printf "pub fn _stub(){}" > rust/kvutil/src/lib.rs && \
+    printf "pub fn _stub(){}" > rust/config-bootstrap/src/lib.rs && \
     printf "fn main(){}" > cmd/trapd/src/main.rs && \
     printf "fn main(){}" > cmd/poller-ng/src/main.rs && \
     printf "fn main(){}" > cmd/flowgger/src/main.rs && \
@@ -32,6 +34,7 @@ RUN cargo fetch --manifest-path cmd/consumers/zen/Cargo.toml
 
 # Now copy sources
 COPY rust/kvutil ./rust/kvutil
+COPY rust/config-bootstrap ./rust/config-bootstrap
 COPY proto ./proto
 COPY cmd/otel/proto ./cmd/otel/proto
 COPY cmd/consumers/zen ./cmd/consumers/zen
@@ -60,8 +63,9 @@ COPY --from=builder /usr/src/serviceradar/target/x86_64-unknown-linux-gnu/releas
 
 # Configuration and user setup
 WORKDIR /etc/serviceradar
-RUN mkdir -p consumers
-COPY packaging/zen/config/zen-consumer.json ./consumers/zen-consumer.json
+RUN mkdir -p consumers /etc/serviceradar/templates/consumers
+COPY packaging/zen/config/zen-consumer.json /etc/serviceradar/templates/consumers/zen-consumer.json
+COPY packaging/zen/config/zen-consumer.json /etc/serviceradar/consumers/zen-consumer.json
 
 RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar
@@ -69,4 +73,5 @@ RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
 USER serviceradar
 EXPOSE 50040
 
-CMD ["/usr/local/bin/serviceradar-zen", "--config", "/etc/serviceradar/consumers/zen-consumer.json"]
+ENTRYPOINT ["/usr/local/bin/serviceradar-zen"]
+CMD ["--config", "/etc/serviceradar/consumers/zen-consumer.json"]

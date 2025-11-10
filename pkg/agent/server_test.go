@@ -104,6 +104,41 @@ func setupServerConfig() *ServerConfig {
 	}
 }
 
+func TestResolveKVConnectionSettingsPrefersConfig(t *testing.T) {
+	t.Setenv("KV_ADDRESS", "env-kv:50057")
+	t.Setenv("KV_SEC_MODE", "spiffe")
+
+	cfg := &ServerConfig{
+		KVAddress: "config-kv:50057",
+		KVSecurity: &models.SecurityConfig{
+			Mode:           "spiffe",
+			ServerSPIFFEID: "spiffe://example.org/ns/demo/sa/serviceradar-datasvc",
+		},
+	}
+
+	addr, sec, err := resolveKVConnectionSettings(cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "config-kv:50057", addr)
+	assert.Equal(t, cfg.KVSecurity, sec)
+}
+
+func TestResolveKVConnectionSettingsEnvFallback(t *testing.T) {
+	t.Setenv("KV_ADDRESS", "env-kv:50057")
+	t.Setenv("KV_SEC_MODE", "spiffe")
+	t.Setenv("KV_TRUST_DOMAIN", "example.org")
+	t.Setenv("KV_SERVER_SPIFFE_ID", "spiffe://example.org/ns/demo/sa/serviceradar-datasvc")
+	t.Setenv("KV_WORKLOAD_SOCKET", "unix:/tmp/spire-agent.sock")
+
+	addr, sec, err := resolveKVConnectionSettings(&ServerConfig{})
+	require.NoError(t, err)
+	assert.Equal(t, "env-kv:50057", addr)
+	require.NotNil(t, sec)
+	assert.Equal(t, models.SecurityMode("spiffe"), sec.Mode)
+	assert.Equal(t, "spiffe://example.org/ns/demo/sa/serviceradar-datasvc", sec.ServerSPIFFEID)
+	assert.Equal(t, "unix:/tmp/spire-agent.sock", sec.WorkloadSocket)
+	assert.Equal(t, models.RoleAgent, sec.Role)
+}
+
 // In server_test.go
 
 func TestNewServerBasic(t *testing.T) {

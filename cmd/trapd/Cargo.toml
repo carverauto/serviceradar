@@ -22,9 +22,9 @@ prost = { workspace = true }
 tonic = { workspace = true }
 tonic-health = { workspace = true }
 tonic-reflection = { workspace = true }
-kvutil = { path = "../../rust/kvutil" }
 pem = "3"
 spiffe = { version = "0.6", default-features = false, features = ["spiffe-types", "workload-api"] }
+config-bootstrap = { path = "../../rust/config-bootstrap" }
 
 [build-dependencies]
 tonic-build = { workspace = true }

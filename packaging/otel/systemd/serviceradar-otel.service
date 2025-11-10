@@ -5,6 +5,14 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/serviceradar-otel --config /etc/serviceradar/otel.toml
+Environment="CONFIG_SOURCE=kv"
+Environment="KV_ADDRESS=127.0.0.1:50057"
+Environment="KV_SEC_MODE=mtls"
+Environment="KV_CERT_DIR=/etc/serviceradar/certs"
+Environment="KV_CERT_FILE=/etc/serviceradar/certs/otel.pem"
+Environment="KV_KEY_FILE=/etc/serviceradar/certs/otel-key.pem"
+Environment="KV_CA_FILE=/etc/serviceradar/certs/root.pem"
+EnvironmentFile=-/etc/serviceradar/kv-overrides.env
 Restart=on-failure
 User=serviceradar
 Group=serviceradar

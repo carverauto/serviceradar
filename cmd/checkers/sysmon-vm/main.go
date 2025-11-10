@@ -10,12 +10,17 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker/sysmonvm"
 	"github.com/carverauto/serviceradar/pkg/config"
+	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/cpufreq"
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+)
+
+var (
+	errSysmonDescriptorMissing = fmt.Errorf("sysmon-vm-checker descriptor missing")
 )
 
 func main() {
@@ -45,12 +50,20 @@ func run() error {
 		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
 	}
 
-	cfgLoader := config.NewConfig(nil)
-
 	var cfg sysmonvm.Config
-	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
+	desc, ok := config.ServiceDescriptorFor("sysmon-vm-checker")
+	if !ok {
+		return errSysmonDescriptorMissing
+	}
+	bootstrapResult, err := cfgbootstrap.Service(ctx, desc, &cfg, cfgbootstrap.ServiceOptions{
+		Role:         models.RoleChecker,
+		ConfigPath:   *configPath,
+		DisableWatch: true,
+	})
+	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	defer func() { _ = bootstrapResult.Close() }()
 
 	sampleInterval, err := cfg.Normalize()
 	if err != nil {
@@ -68,6 +81,10 @@ func run() error {
 	}
 
 	service := sysmonvm.NewService(componentLogger, sampleInterval)
+
+	bootstrapResult.StartWatch(ctx, componentLogger, &cfg, func() {
+		componentLogger.Warn().Msg("sysmon-vm config updated in KV; restart checker to apply changes")
+	})
 
 	register := func(s *grpc.Server) error {
 		proto.RegisterAgentServiceServer(s, service)

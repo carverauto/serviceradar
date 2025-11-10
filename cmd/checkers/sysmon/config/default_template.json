@@ -3,9 +3,12 @@
   "security": {
     "mode": "spiffe",
     "cert_dir": "/etc/serviceradar/certs",
-    "trust_domain": "{{TRUST_DOMAIN}}",
+    "cert_file": "sysmon.pem",
+    "key_file": "sysmon-key.pem",
+    "ca_file": "root.pem",
+    "trust_domain": "PLACEHOLDER_TRUST_DOMAIN",
     "workload_socket": "unix:/run/spire/sockets/agent.sock",
-    "server_spiffe_id": "{{DOWNSTREAM_SPIFFE_ID}}"
+    "server_spiffe_id": "spiffe://PLACEHOLDER_TRUST_DOMAIN/ns/PLACEHOLDER_NAMESPACE/sa/PLACEHOLDER_SYSMON_CHECKER_SA"
   },
   "poll_interval": 30,
   "zfs": {
@@ -17,7 +20,7 @@
   "filesystems": [
     {
       "name": "/",
-      "type": "ext4",
+      "type": "zfs",
       "monitor": true
     }
   ]

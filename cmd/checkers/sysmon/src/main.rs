@@ -18,14 +18,15 @@
 
 use anyhow::{Context, Result};
 use clap::{App, Arg};
-use log::{debug, error, info, warn};
+use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat, RestartHandle};
+use log::{debug, info, warn};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use serviceradar_sysmon_checker::config::Config;
-use serviceradar_sysmon_checker::poller::MetricsCollector;
-use serviceradar_sysmon_checker::server::SysmonService;
+use serviceradar_sysmon_checker::{
+    config::Config, poller::MetricsCollector, server::SysmonService, template,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -37,12 +38,6 @@ async fn main() -> Result<()> {
         "Starting serviceradar-sysmon-checker version {}",
         env!("CARGO_PKG_VERSION")
     );
-
-    // Register checker template with KV (non-fatal if it fails)
-    debug!("Attempting to register checker template with KV");
-    if let Err(e) = serviceradar_sysmon_checker::template::register_template().await {
-        warn!("Template registration failed: {}", e);
-    }
 
     let matches = App::new("serviceradar-sysmon-checker")
         .version(env!("CARGO_PKG_VERSION"))
@@ -62,14 +57,38 @@ async fn main() -> Result<()> {
     let config_path = matches.value_of("config").unwrap();
     let config_path = PathBuf::from(config_path);
     info!("Loading configuration from {config_path:?}");
+    template::ensure_config_file(&config_path)
+        .with_context(|| format!("failed to install default config at {config_path:?}"))?;
 
-    debug!("Checking if config file exists and is readable");
-    if !config_path.exists() {
-        error!("Config file does not exist: {config_path:?}");
-        anyhow::bail!("Config file does not exist");
+    let config_path_str = config_path.display().to_string();
+    let use_kv = std::env::var("CONFIG_SOURCE").ok().as_deref() == Some("kv");
+    let kv_key = use_kv.then(|| "config/sysmon-checker.json".to_string());
+    let mut bootstrap = Bootstrap::new(BootstrapOptions {
+        service_name: "sysmon-checker".to_string(),
+        config_path: config_path_str.clone(),
+        format: ConfigFormat::Json,
+        kv_key,
+        seed_kv: use_kv,
+        watch_kv: use_kv,
+    })
+    .await?;
+    let config: Config = bootstrap
+        .load()
+        .await
+        .with_context(|| format!("failed to load configuration from {config_path_str}"))?;
+
+    if use_kv {
+        if let Some(watcher) = bootstrap.watch::<Config>().await? {
+            let restarter = RestartHandle::new("sysmon-checker", "config/sysmon-checker.json");
+            tokio::spawn(async move {
+                let mut cfg_watcher = watcher;
+                while cfg_watcher.recv().await.is_some() {
+                    restarter.trigger();
+                }
+            });
+        }
     }
 
-    let config = Config::from_file(&config_path).context("Failed to load configuration")?;
     info!("Server will listen on {}", config.listen_addr);
     debug!(
         "Config details: listen_addr={}, poll_interval={}, filesystems_count={}",

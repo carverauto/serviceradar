@@ -50,6 +50,8 @@ spec:
           mountPath: /run/spire/sockets
           readOnly: true
         env:
+{{ include "serviceradar.kvEnv" . | indent 8 }}
+{{ include "serviceradar.coreEnv" . | indent 8 }}
         - name: CONFIG_PATH
           value: "/etc/serviceradar/templates/db-event-writer.json"
         - name: WAIT_FOR_NATS

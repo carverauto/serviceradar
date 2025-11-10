@@ -85,6 +85,20 @@ spec:
             name: serviceradar-web
             port:
               number: 3000
+      - path: /api/kv
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      - path: /api/config
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
       
       # Backend API routes (catch-all for core service)
       - path: /api

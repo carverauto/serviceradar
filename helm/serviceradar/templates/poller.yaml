@@ -187,6 +187,8 @@ spec:
           mountPath: /etc/poller-spire
 {{- end }}
         env:
+{{ include "serviceradar.kvEnv" . | indent 8 }}
+{{ include "serviceradar.coreEnv" . | indent 8 }}
         - name: CONFIG_PATH
           value: "/etc/serviceradar/poller.json"
         - name: LOG_LEVEL

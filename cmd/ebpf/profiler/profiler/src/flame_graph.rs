@@ -15,12 +15,12 @@ impl FlameGraphFormatter {
     /// Convert stack traces to folded stack format suitable for flame graph generation
     pub fn to_folded_format(&self) -> String {
         let mut output = String::new();
-        
+
         for trace in &self.traces {
             output.push_str(&trace.to_folded_format());
             output.push('\n');
         }
-        
+
         output
     }
 
@@ -28,7 +28,7 @@ impl FlameGraphFormatter {
     pub fn generate_metadata(&self, pid: i32, duration_seconds: i32) -> String {
         let total_samples: u64 = self.traces.iter().map(|t| t.count).sum();
         let unique_stacks = self.traces.len();
-        
+
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -55,7 +55,7 @@ impl FlameGraphFormatter {
     pub fn generate_complete_output(&self, pid: i32, duration_seconds: i32) -> Vec<u8> {
         let metadata = self.generate_metadata(pid, duration_seconds);
         let folded_data = self.to_folded_format();
-        
+
         let mut result = metadata.into_bytes();
         result.extend_from_slice(folded_data.as_bytes());
         result
@@ -64,20 +64,20 @@ impl FlameGraphFormatter {
     /// Aggregate traces by function to show top consumers
     pub fn get_function_statistics(&self) -> Vec<FunctionStats> {
         let mut function_counts: HashMap<String, u64> = HashMap::new();
-        
+
         // Count occurrences of each function across all stack traces
         for trace in &self.traces {
             for frame in &trace.frames {
                 *function_counts.entry(frame.clone()).or_insert(0) += trace.count;
             }
         }
-        
+
         // Convert to sorted list
         let mut stats: Vec<FunctionStats> = function_counts
             .into_iter()
             .map(|(function, count)| FunctionStats { function, count })
             .collect();
-        
+
         stats.sort_by(|a, b| b.count.cmp(&a.count));
         stats
     }
@@ -86,13 +86,14 @@ impl FlameGraphFormatter {
     pub fn get_summary(&self) -> ProfilingSummary {
         let total_samples: u64 = self.traces.iter().map(|t| t.count).sum();
         let unique_stacks = self.traces.len();
-        
-        let max_depth = self.traces
+
+        let max_depth = self
+            .traces
             .iter()
             .map(|t| t.frames.len())
             .max()
             .unwrap_or(0);
-        
+
         let avg_depth = if unique_stacks > 0 {
             self.traces.iter().map(|t| t.frames.len()).sum::<usize>() as f64 / unique_stacks as f64
         } else {
@@ -104,7 +105,11 @@ impl FlameGraphFormatter {
             unique_stacks,
             max_stack_depth: max_depth,
             avg_stack_depth: avg_depth,
-            top_functions: self.get_function_statistics().into_iter().take(10).collect(),
+            top_functions: self
+                .get_function_statistics()
+                .into_iter()
+                .take(10)
+                .collect(),
         }
     }
 }
@@ -133,7 +138,7 @@ impl ProfilingSummary {
         output.push_str(&format!("  Max stack depth: {}\n", self.max_stack_depth));
         output.push_str(&format!("  Avg stack depth: {:.1}\n", self.avg_stack_depth));
         output.push_str(&format!("  Top functions:\n"));
-        
+
         for (i, func) in self.top_functions.iter().enumerate() {
             let percentage = if self.total_samples > 0 {
                 (func.count as f64 / self.total_samples as f64) * 100.0
@@ -142,10 +147,13 @@ impl ProfilingSummary {
             };
             output.push_str(&format!(
                 "    {}: {} ({} samples, {:.1}%)\n",
-                i + 1, func.function, func.count, percentage
+                i + 1,
+                func.function,
+                func.count,
+                percentage
             ));
         }
-        
+
         output
     }
 }
@@ -183,7 +191,7 @@ mod tests {
         let traces = create_test_traces();
         let formatter = FlameGraphFormatter::new(traces);
         let folded = formatter.to_folded_format();
-        
+
         assert!(folded.contains("main;foo;bar 10"));
         assert!(folded.contains("main;foo;baz 20"));
         assert!(folded.contains("main;other 5"));
@@ -194,7 +202,7 @@ mod tests {
         let traces = create_test_traces();
         let formatter = FlameGraphFormatter::new(traces);
         let metadata = formatter.generate_metadata(123, 10);
-        
+
         assert!(metadata.contains("# PID: 123"));
         assert!(metadata.contains("# Duration: 10s"));
         assert!(metadata.contains("# Total samples: 35")); // 10 + 20 + 5
@@ -208,7 +216,7 @@ mod tests {
         let formatter = FlameGraphFormatter::new(traces);
         let output = formatter.generate_complete_output(123, 10);
         let output_str = String::from_utf8(output).unwrap();
-        
+
         // Should contain both metadata and folded data
         assert!(output_str.contains("# PID: 123"));
         assert!(output_str.contains("main;foo;bar 10"));
@@ -219,13 +227,13 @@ mod tests {
         let traces = create_test_traces();
         let formatter = FlameGraphFormatter::new(traces);
         let stats = formatter.get_function_statistics();
-        
+
         // main appears in all traces: 10 + 20 + 5 = 35
         // foo appears in first two traces: 10 + 20 = 30
         // bar appears in first trace: 10
         // baz appears in second trace: 20
         // other appears in third trace: 5
-        
+
         assert_eq!(stats.len(), 5);
         assert_eq!(stats[0].function, "main");
         assert_eq!(stats[0].count, 35);
@@ -238,7 +246,7 @@ mod tests {
         let traces = create_test_traces();
         let formatter = FlameGraphFormatter::new(traces);
         let summary = formatter.get_summary();
-        
+
         assert_eq!(summary.total_samples, 35);
         assert_eq!(summary.unique_stacks, 3);
         assert_eq!(summary.max_stack_depth, 3); // main;foo;bar has 3 frames
@@ -252,7 +260,7 @@ mod tests {
         let formatter = FlameGraphFormatter::new(traces);
         let summary = formatter.get_summary();
         let summary_str = summary.to_string();
-        
+
         assert!(summary_str.contains("Total samples: 35"));
         assert!(summary_str.contains("Unique stacks: 3"));
         assert!(summary_str.contains("Max stack depth: 3"));
@@ -265,7 +273,7 @@ mod tests {
         let traces = vec![];
         let formatter = FlameGraphFormatter::new(traces);
         let summary = formatter.get_summary();
-        
+
         assert_eq!(summary.total_samples, 0);
         assert_eq!(summary.unique_stacks, 0);
         assert_eq!(summary.max_stack_depth, 0);

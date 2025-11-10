@@ -13,7 +13,7 @@ type ProtonDatabase struct {
 	Addresses []string       `json:"addresses"`
 	Name      string         `json:"name"`
 	Username  string         `json:"username"`
-	Password  string         `json:"password"`
+	Password  string         `json:"password" sensitive:"true"`
 	MaxConns  int            `json:"max_conns"`
 	IdleConns int            `json:"idle_conns"`
 	TLS       *TLSConfig     `json:"tls,omitempty"`

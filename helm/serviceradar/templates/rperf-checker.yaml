@@ -41,6 +41,9 @@ spec:
           mountPath: /run/spire/sockets
           readOnly: true
         env:
+{{ include "serviceradar.kvEnv" . | indent 8 }}
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/checkers/rperf.json"
         - name: RUST_LOG
           value: "info"
         resources:

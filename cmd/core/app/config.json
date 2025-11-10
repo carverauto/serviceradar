@@ -1,0 +1,165 @@
+{
+    "listen_addr": ":8090",
+    "grpc_addr": ":50052",
+    "alert_threshold": "5m",
+    "known_pollers": [
+        "default-poller"
+    ],
+    "metrics": {
+        "enabled": true,
+        "retention": 100,
+        "max_pollers": 10000
+    },
+    "database": {
+        "addresses": [
+            "proton:9440"
+        ],
+        "name": "default",
+        "username": "default",
+        "password": "",
+        "max_conns": 10,
+        "idle_conns": 5,
+        "tls": {
+            "cert_file": "/etc/serviceradar/certs/core.pem",
+            "key_file": "/etc/serviceradar/certs/core-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem",
+            "server_name": "proton.serviceradar"
+        },
+        "settings": {
+            "max_execution_time": 60,
+            "output_format_json_quote_64bit_int": 0,
+            "allow_experimental_live_view": 1,
+            "idle_connection_timeout": 600,
+            "join_use_nulls": 1,
+            "input_format_defaults_for_omitted_fields": 1
+        }
+    },
+    "security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "core",
+        "server_name": "core.serviceradar",
+        "trust_domain": "",
+        "server_spiffe_id": "",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock",
+        "tls": {
+            "cert_file": "/etc/serviceradar/certs/core.pem",
+            "key_file": "/etc/serviceradar/certs/core-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem",
+            "client_ca_file": "/etc/serviceradar/certs/root.pem",
+            "skip_verify": false
+        }
+    },
+    "spire_admin": {
+        "enabled": false
+    },
+    "cors": {
+        "allowed_origins": [
+            "*"
+        ],
+        "allow_credentials": true
+    },
+    "nats": {
+        "url": "nats://127.0.0.1:4222",
+        "security": {
+            "mode": "mtls",
+            "cert_dir": "/etc/serviceradar/certs",
+            "server_name": "PLACEHOLDER_NATS_SERVER_NAME",
+            "role": "datasvc",
+            "tls": {
+                "cert_file": "nats.pem",
+                "key_file": "nats-key.pem",
+                "ca_file": "root.pem",
+                "client_ca_file": "root.pem"
+            }
+        }
+    },
+    "events": {
+        "enabled": true,
+        "stream_name": "events",
+        "subjects": ["poller.health.*", "poller.status.*"]
+    },
+    "auth": {
+        "jwt_secret": "PLACEHOLDER_WILL_BE_REPLACED",
+        "jwt_expiration": "24h",
+        "local_users": {
+            "admin": "PLACEHOLDER_BCRYPT_HASH_WILL_BE_REPLACED"
+        },
+        "rbac": {
+            "user_roles": {
+                "admin": ["admin", "operator", "viewer"],
+                "operator": ["operator", "viewer"],
+                "user": ["viewer"]
+            },
+            "role_permissions": {
+                "admin": ["*"],
+                "operator": ["config:read", "config:write", "device:*", "alert:*"],
+                "viewer": ["config:read", "device:read", "alert:read", "metrics:read"]
+            },
+            "route_protection": {
+                "/api/admin/*": ["admin"],
+                "/api/config/*": {
+                    "GET": ["viewer", "operator", "admin"],
+                    "POST": ["operator", "admin"],
+                    "PUT": ["operator", "admin"],
+                    "DELETE": ["admin"]
+                },
+                "/api/devices/*": {
+                    "GET": ["viewer", "operator", "admin"],
+                    "POST": ["operator", "admin"],
+                    "PUT": ["operator", "admin"],
+                    "DELETE": ["admin"]
+                },
+                "/api/alerts/*": {
+                    "GET": ["viewer", "operator", "admin"],
+                    "POST": ["operator", "admin"],
+                    "PUT": ["operator", "admin"],
+                    "DELETE": ["admin"]
+                }
+            }
+        }
+    },
+    "webhooks": [
+        {
+            "enabled": false,
+            "url": "https://your-webhook-url",
+            "cooldown": "15m",
+            "headers": [
+                {
+                    "key": "Authorization",
+                    "value": "Bearer PLACEHOLDER_TOKEN"
+                }
+            ]
+        },
+        {
+            "enabled": false,
+            "url": "https://discord.com/api/webhooks/PLACEHOLDER_WEBHOOK_URL",
+            "cooldown": "15m",
+            "template": "{\"embeds\":[{\"title\":\"{{.alert.Title}}\",\"description\":\"{{.alert.Message}}\",\"color\":{{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}},\"timestamp\":\"{{.alert.Timestamp}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{.alert.NodeID}}\",\"inline\":true}{{range $key, $value := .alert.Details}},{\"name\":\"{{$key}}\",\"value\":\"{{$value}}\",\"inline\":true}{{end}}]}]}"
+        }
+    ],
+    "logging": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "time_format": "",
+        "otel": {
+            "enabled": true,
+            "endpoint": "127.0.0.1:4317",
+            "service_name": "serviceradar-core",
+            "batch_timeout": "5s",
+            "insecure": false,
+            "headers": {
+                "x-api-key": "PLACEHOLDER_COLLECTOR_API_KEY"
+            },
+            "tls": {
+                "cert_file": "/etc/serviceradar/certs/core.pem",
+                "key_file": "/etc/serviceradar/certs/core-key.pem",
+                "ca_file": "/etc/serviceradar/certs/root.pem"
+            }
+        }
+    },
+    "mcp": {
+        "enabled": true
+    }
+}

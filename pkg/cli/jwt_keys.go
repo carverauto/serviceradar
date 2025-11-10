@@ -82,6 +82,12 @@ func RunGenerateJWTKeys(cfg *CmdConfig) error {
 	pemBlock := &pem.Block{Type: "PRIVATE KEY", Bytes: der}
 	pemBytes := pem.EncodeToMemory(pemBlock)
 
+	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		return fmt.Errorf("marshal public key: %w", err)
+	}
+	pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
+
 	// Derive kid if not provided: sha256 of modulus, first 16 hex chars
 	kid := cfg.JWTKeyID
 	if kid == "" {
@@ -92,6 +98,7 @@ func RunGenerateJWTKeys(cfg *CmdConfig) error {
 	// Update auth section
 	auth["jwt_algorithm"] = "RS256"
 	auth["jwt_private_key_pem"] = string(pemBytes)
+	auth["jwt_public_key_pem"] = string(pubPEM)
 	auth["jwt_key_id"] = kid
 
 	// Persist

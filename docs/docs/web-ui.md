@@ -86,7 +86,7 @@ server {
     }
 
     # API routes handled by Next.js
-    location ~ ^/api/(auth|pollers|status) {
+    location ~ ^/api/(auth|pollers|status|config) {
         proxy_pass http://127.0.0.1:3000; # Note: using IPv4 address
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

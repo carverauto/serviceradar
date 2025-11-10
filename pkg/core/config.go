@@ -18,10 +18,16 @@ package core
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/config"
@@ -33,6 +39,13 @@ const (
 	defaultMetricsRetention  = 100
 	defaultMetricsMaxPollers = 10000
 	jwtAlgorithmRS256        = "RS256"
+)
+
+var (
+	errEmptyPrivateKey       = errors.New("empty private key")
+	errDecodePrivateKeyPEM   = errors.New("failed to decode private key PEM")
+	errUnsupportedPrivateKey = errors.New("unsupported private key type")
+	errNotRSAPrivateKey      = errors.New("decoded key is not RSA private key")
 )
 
 func LoadConfig(path string) (models.CoreServiceConfig, error) {
@@ -71,7 +84,17 @@ func overlayFromKV(path string, cfg *models.CoreServiceConfig) error {
 	cfgLoader := config.NewConfig(nil)
 	kvMgr.SetupConfigLoader(cfgLoader)
 
-	return cfgLoader.OverlayFromKV(ctx, path, cfg)
+	if err := cfgLoader.OverlayFromKV(ctx, path, cfg); err != nil {
+		return err
+	}
+
+	if desc, ok := config.ServiceDescriptorFor("core"); ok {
+		if err := kvMgr.BootstrapConfig(ctx, desc.KVKey, path, cfg); err != nil {
+			log.Printf("failed to bootstrap core config into KV: %v", err)
+		}
+	}
+
+	return nil
 }
 
 func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig {
@@ -149,6 +172,25 @@ func initializeAuthConfig(config *models.CoreServiceConfig) (*models.AuthConfig,
 		applyDefaultAdminUser(authConfig)
 	}
 
+	if err := hydrateJWTKeys(authConfig); err != nil {
+		log.Printf("core: unable to hydrate JWT keys from disk: %v", err)
+	}
+
+	if strings.EqualFold(authConfig.JWTAlgorithm, jwtAlgorithmRS256) {
+		priv := strings.TrimSpace(authConfig.JWTPrivateKeyPEM)
+		if strings.HasPrefix(priv, `"`) && strings.HasSuffix(priv, `"`) {
+			priv = strings.TrimPrefix(priv, `"`)
+			priv = strings.TrimSuffix(priv, `"`)
+		}
+		if authConfig.JWTPublicKeyPEM == "" && priv != "" {
+			if pub, err := derivePublicKeyPEM(priv); err == nil {
+				authConfig.JWTPublicKeyPEM = pub
+			} else {
+				log.Printf("core: unable to derive JWKS public key from configured private key")
+			}
+		}
+	}
+
 	// If RS256 is configured with a key, allow empty JWT_SECRET.
 	if authConfig.JWTAlgorithm != jwtAlgorithmRS256 || (authConfig.JWTPrivateKeyPEM == "" && authConfig.JWTPublicKeyPEM == "") {
 		if authConfig.JWTSecret == "" {
@@ -205,6 +247,94 @@ func applyDefaultAdminUser(authConfig *models.AuthConfig) {
 	if adminHash := os.Getenv("ADMIN_PASSWORD_HASH"); adminHash != "" {
 		authConfig.LocalUsers["admin"] = adminHash
 	}
+}
+
+func hydrateJWTKeys(authConfig *models.AuthConfig) error {
+	if authConfig == nil || !strings.EqualFold(authConfig.JWTAlgorithm, jwtAlgorithmRS256) {
+		return nil
+	}
+
+	needsPriv := authConfig.JWTPrivateKeyPEM == ""
+	needsPub := authConfig.JWTPublicKeyPEM == ""
+	needsKID := authConfig.JWTKeyID == ""
+
+	if !needsPriv && !needsPub && !needsKID {
+		return nil
+	}
+
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		return nil
+	}
+
+	payload, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+
+	var wrapper struct {
+		Auth json.RawMessage `json:"auth"`
+	}
+	if err := json.Unmarshal(payload, &wrapper); err != nil {
+		return err
+	}
+	if len(wrapper.Auth) == 0 {
+		return nil
+	}
+
+	var diskAuth models.AuthConfig
+	if err := json.Unmarshal(wrapper.Auth, &diskAuth); err != nil {
+		return nil
+	}
+
+	if needsPriv && diskAuth.JWTPrivateKeyPEM != "" {
+		authConfig.JWTPrivateKeyPEM = diskAuth.JWTPrivateKeyPEM
+	}
+	if needsPub && diskAuth.JWTPublicKeyPEM != "" {
+		authConfig.JWTPublicKeyPEM = diskAuth.JWTPublicKeyPEM
+	}
+	if needsKID && diskAuth.JWTKeyID != "" {
+		authConfig.JWTKeyID = diskAuth.JWTKeyID
+	}
+
+	return nil
+}
+
+func derivePublicKeyPEM(privatePEM string) (string, error) {
+	if privatePEM == "" {
+		return "", errEmptyPrivateKey
+	}
+
+	block, _ := pem.Decode([]byte(privatePEM))
+	if block == nil {
+		return "", errDecodePrivateKeyPEM
+	}
+
+	var key any
+	var err error
+	switch block.Type {
+	case "PRIVATE KEY":
+		key, err = x509.ParsePKCS8PrivateKey(block.Bytes)
+	case "RSA PRIVATE KEY":
+		key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+	default:
+		return "", fmt.Errorf("%w %q", errUnsupportedPrivateKey, block.Type)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	priv, ok := key.(*rsa.PrivateKey)
+	if !ok {
+		return "", errNotRSAPrivateKey
+	}
+
+	pubDER, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+	if err != nil {
+		return "", err
+	}
+
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})), nil
 }
 
 func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {

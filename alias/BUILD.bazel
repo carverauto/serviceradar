@@ -39,6 +39,11 @@ alias(
     actual = "//pkg/config:config",
 )
 
+alias(
+    name = "config-bootstrap",
+    actual = "//pkg/config/bootstrap:bootstrap",
+)
+
 # pkg/consumers
 alias(
     name = "db-event-writer",
