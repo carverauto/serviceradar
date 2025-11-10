@@ -77,6 +77,8 @@ var (
 	errCoreAddressNotConfigured = errors.New("CORE_ADDRESS not configured")
 	errInvalidKeyPath           = errors.New("invalid key path")
 	errUnknownIdentitySegment   = errors.New("unknown identity kind segment")
+	errInvalidHexEscape         = errors.New("invalid hex escape length in sanitized segment")
+	errUnsafeASCIICharacter     = errors.New("decoded character out of safe ASCII range")
 )
 
 func main() {
@@ -465,7 +467,7 @@ func connectCore(ctx context.Context, cfg sweepConfig) (proto.CoreServiceClient,
 		return nil, nil, errCoreAddressNotConfigured
 	}
 
-	conn, err := grpc.DialContext(ctx, address, dialOpts...) //nolint:staticcheck // DialContext ensures ctx cancellation adherence
+	conn, err := grpc.NewClient(address, dialOpts...)
 	if err != nil {
 		closeProvider()
 		return nil, nil, err
@@ -561,15 +563,24 @@ func unsanitizeSegment(seg string) (string, error) {
 		}
 
 		if j == i+1 {
+			// Lone '='; leave as-is.
 			b.WriteByte('=')
 			continue
 		}
 
-		val, err := strconv.ParseInt(seg[i+1:j], 16, 32)
+		hexRun := seg[i+1 : j]
+		if len(hexRun)%2 != 0 {
+			return "", fmt.Errorf("%w after '=' in %q", errInvalidHexEscape, seg)
+		}
+
+		val, err := strconv.ParseInt(hexRun, 16, 32)
 		if err != nil {
 			return "", err
 		}
-		b.WriteRune(rune(val))
+		if val < 0x20 || val > 0x7E {
+			return "", fmt.Errorf("%w in %q", errUnsafeASCIICharacter, seg)
+		}
+		b.WriteByte(byte(val))
 		i = j - 1
 	}
 

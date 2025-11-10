@@ -159,14 +159,11 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 			if err != nil {
 				return nil, false, 0, err
 			}
-			clientCfg.SecurityProvider = provider
 			defer func() { _ = provider.Close() }()
+			clientCfg.SecurityProvider = provider
 		}
 		c, err := coregrpc.NewClient(ctx, clientCfg)
 		if err != nil {
-			if provider != nil {
-				_ = provider.Close()
-			}
 			return nil, false, 0, err
 		}
 		defer func() { _ = c.Close() }()

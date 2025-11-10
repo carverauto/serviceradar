@@ -107,34 +107,135 @@ func isTableHeader(line string) bool {
 }
 
 func extractKey(line string) string {
-	inString := false
-	escapeNext := false
+	scanner := tomlKeyScanner{}
 	for i := 0; i < len(line); i++ {
 		ch := line[i]
-		if ch == '#' && !inString {
+
+		if scanner.shouldStopAtComment(ch) {
 			break
 		}
-		if inString {
-			if escapeNext {
-				escapeNext = false
-				continue
-			}
-			if ch == '\\' {
-				escapeNext = true
-				continue
-			}
-			if ch == '"' {
-				inString = false
-			}
+
+		if scanner.handleMultiline(line, &i) {
 			continue
 		}
-		if ch == '"' {
-			inString = true
+
+		if scanner.handleSingleString(ch) {
 			continue
 		}
-		if ch == '=' {
+
+		if scanner.handleBasicString(ch) {
+			continue
+		}
+
+		if scanner.handleBrackets(ch) {
+			continue
+		}
+
+		if ch == '=' && scanner.bracketDepth == 0 {
 			return strings.TrimSpace(line[:i])
 		}
 	}
 	return ""
+}
+
+type tomlKeyScanner struct {
+	inBasicString  bool
+	inSingleString bool
+	inMultiline    bool
+	escapeNext     bool
+	bracketDepth   int
+}
+
+func (s *tomlKeyScanner) inAnyString() bool {
+	return s.inBasicString || s.inSingleString || s.inMultiline
+}
+
+func (s *tomlKeyScanner) shouldStopAtComment(ch byte) bool {
+	return ch == '#' && !s.inAnyString()
+}
+
+func (s *tomlKeyScanner) handleMultiline(line string, idx *int) bool {
+	if s.inSingleString {
+		return false
+	}
+	if !s.inMultiline {
+		if s.inBasicString {
+			return false
+		}
+		if hasTripleQuote(line, *idx) {
+			s.inMultiline = true
+			*idx += 2
+			return true
+		}
+		return false
+	}
+	if hasTripleQuote(line, *idx) {
+		s.inMultiline = false
+		*idx += 2
+	}
+	return true
+}
+
+func (s *tomlKeyScanner) handleSingleString(ch byte) bool {
+	if s.inBasicString || s.inMultiline {
+		return false
+	}
+	if s.inSingleString {
+		if ch == '\'' {
+			s.inSingleString = false
+		}
+		return true
+	}
+	if ch == '\'' {
+		s.inSingleString = true
+		return true
+	}
+	return false
+}
+
+func (s *tomlKeyScanner) handleBasicString(ch byte) bool {
+	if s.inSingleString || s.inMultiline {
+		return false
+	}
+	if s.inBasicString {
+		if s.escapeNext {
+			s.escapeNext = false
+			return true
+		}
+		if ch == '\\' {
+			s.escapeNext = true
+			return true
+		}
+		if ch == '"' {
+			s.inBasicString = false
+		}
+		return true
+	}
+	if ch == '"' {
+		s.inBasicString = true
+		return true
+	}
+	return false
+}
+
+func (s *tomlKeyScanner) handleBrackets(ch byte) bool {
+	if s.inAnyString() {
+		return false
+	}
+	switch ch {
+	case '[', '{', '(':
+		s.bracketDepth++
+		return true
+	case ']', '}', ')':
+		if s.bracketDepth > 0 {
+			s.bracketDepth--
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func hasTripleQuote(line string, idx int) bool {
+	return idx+2 < len(line) && line[idx] == '"' && line[idx+1] == '"' && line[idx+2] == '"'
 }

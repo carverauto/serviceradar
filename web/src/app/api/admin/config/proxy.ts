@@ -14,8 +14,9 @@ const UNAUTHORIZED = NextResponse.json(
 );
 
 function buildUpstreamUrl(req: NextRequest, service: string): string {
-  if (!/^[a-z0-9-]+$/i.test(service)) {
-    throw new Error("invalid service name");
+  const normalized = service.trim().toLowerCase();
+  if (!/^[a-z0-9-]+$/.test(normalized)) {
+    throw new TypeError("bad-service");
   }
 
   const params = new URLSearchParams(req.nextUrl.searchParams);
@@ -30,7 +31,7 @@ function buildUpstreamUrl(req: NextRequest, service: string): string {
   }
 
   const query = params.toString();
-  const base = `${getInternalApiUrl()}/api/admin/config/${service}`;
+  const base = `${getInternalApiUrl()}/api/admin/config/${normalized}`;
   return query ? `${base}?${query}` : base;
 }
 
@@ -44,15 +45,31 @@ async function forwardRequest(
     "X-API-Key": getApiKey(),
     Authorization: authHeader,
   });
-  const contentType = req.headers.get("Content-Type");
-  if (contentType) {
-    headers.set("Content-Type", contentType);
+
+  // Remove hop-by-hop headers that must not be forwarded.
+  const hopByHopHeaders = [
+    "connection",
+    "upgrade",
+    "transfer-encoding",
+    "proxy-connection",
+    "keep-alive",
+    "te",
+    "trailer",
+  ];
+  for (const header of hopByHopHeaders) {
+    headers.delete(header);
+  }
+
+  if (method === "PUT") {
+    const contentType = req.headers.get("content-type");
+    if (contentType) {
+      headers.set("Content-Type", contentType);
+    }
   }
 
   const init: RequestInit = {
     method,
     headers,
-    body: undefined,
   };
 
   if (method === "PUT") {
@@ -91,6 +108,17 @@ export async function proxyConfigRequest(
   }
 
   const { service } = await params;
-  const upstreamUrl = buildUpstreamUrl(req, service);
+  let upstreamUrl: string;
+  try {
+    upstreamUrl = buildUpstreamUrl(req, service);
+  } catch (err) {
+    if (err instanceof TypeError && err.message === "bad-service") {
+      return NextResponse.json(
+        { error: "Invalid service name" },
+        { status: 400 },
+      );
+    }
+    throw err;
+  }
   return forwardRequest(method, req, upstreamUrl, authHeader);
 }

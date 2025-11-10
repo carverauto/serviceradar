@@ -35,15 +35,15 @@ func TestAuthConfigUnmarshalJSONAcceptsDurationString(t *testing.T) {
 	}
 }
 
-func TestAuthConfigUnmarshalJSONAcceptsDurationNumber(t *testing.T) {
+func TestAuthConfigUnmarshalJSONRejectsDurationNumber(t *testing.T) {
 	var cfg AuthConfig
 	payload := `{"jwt_expiration": 5000000000}`
 
-	if err := json.Unmarshal([]byte(payload), &cfg); err != nil {
-		t.Fatalf("unmarshal auth config number: %v", err)
+	err := json.Unmarshal([]byte(payload), &cfg)
+	if err == nil {
+		t.Fatalf("expected error when using numeric jwt_expiration")
 	}
-
-	if cfg.JWTExpiration != 5*time.Second {
-		t.Fatalf("expected 5s duration, got %v", cfg.JWTExpiration)
+	if !strings.Contains(err.Error(), "duration string") {
+		t.Fatalf("expected duration string error, got %v", err)
 	}
 }
