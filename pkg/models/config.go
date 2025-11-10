@@ -133,7 +133,7 @@ var (
 // MCPConfigRef represents MCP configuration to avoid circular imports
 type MCPConfigRef struct {
 	Enabled bool   `json:"enabled"`
-	APIKey  string `json:"api_key"`
+	APIKey  string `json:"api_key" sensitive:"true"`
 }
 
 // CoreServiceConfig represents the configuration for the core service.
@@ -141,11 +141,11 @@ type MCPConfigRef struct {
 type CoreServiceConfig struct {
 	ListenAddr     string                 `json:"listen_addr"`
 	GrpcAddr       string                 `json:"grpc_addr"`
-	DBPath         string                 `json:"db_path"` // Keep for compatibility, can be optional
-	DBAddr         string                 `json:"db_addr"` // Proton host:port
-	DBName         string                 `json:"db_name"` // Proton database name
-	DBUser         string                 `json:"db_user"` // Proton username
-	DBPass         string                 `json:"db_pass"` // Proton password
+	DBPath         string                 `json:"db_path"`                  // Keep for compatibility, can be optional
+	DBAddr         string                 `json:"db_addr"`                  // Proton host:port
+	DBName         string                 `json:"db_name"`                  // Proton database name
+	DBUser         string                 `json:"db_user"`                  // Proton username
+	DBPass         string                 `json:"db_pass" sensitive:"true"` // Proton password
 	AlertThreshold time.Duration          `json:"alert_threshold"`
 	PollerPatterns []string               `json:"poller_patterns"`
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
@@ -193,7 +193,7 @@ type SpireAdminConfig struct {
 // EdgeOnboardingConfig configures secure edge poller enrollment.
 type EdgeOnboardingConfig struct {
 	Enabled                bool                         `json:"enabled"`
-	EncryptionKey          string                       `json:"encryption_key"`
+	EncryptionKey          string                       `json:"encryption_key" sensitive:"true"`
 	DefaultSelectors       []string                     `json:"default_selectors,omitempty"`
 	DefaultMetadata        map[string]map[string]string `json:"default_metadata,omitempty"`
 	DownstreamPathTemplate string                       `json:"downstream_path_template,omitempty"`
@@ -206,7 +206,7 @@ type EdgeOnboardingConfig struct {
 type SRQLConfig struct {
 	Enabled bool     `json:"enabled"`
 	BaseURL string   `json:"base_url"`
-	APIKey  string   `json:"api_key,omitempty"`
+	APIKey  string   `json:"api_key,omitempty" sensitive:"true"`
 	Timeout Duration `json:"timeout,omitempty"`
 	Path    string   `json:"path,omitempty"`
 }

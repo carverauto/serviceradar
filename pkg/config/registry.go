@@ -251,6 +251,30 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 		KVKeyTemplate: "agents/{{agent_id}}/checkers/sysmon/sysmon.json",
 		Format:        ConfigFormatJSON,
 	},
+	"poller-icmp": {
+		Name:          "poller-icmp",
+		DisplayName:   "ICMP Check",
+		ServiceType:   "icmp",
+		Scope:         ConfigScopePoller,
+		KVKeyTemplate: "config/pollers/{{poller_id}}.json",
+		Format:        ConfigFormatJSON,
+	},
+	"poller-port": {
+		Name:          "poller-port",
+		DisplayName:   "Port Check",
+		ServiceType:   "port",
+		Scope:         ConfigScopePoller,
+		KVKeyTemplate: "config/pollers/{{poller_id}}.json",
+		Format:        ConfigFormatJSON,
+	},
+	"poller-process": {
+		Name:          "poller-process",
+		DisplayName:   "Process Check",
+		ServiceType:   "process",
+		Scope:         ConfigScopePoller,
+		KVKeyTemplate: "config/pollers/{{poller_id}}.json",
+		Format:        ConfigFormatJSON,
+	},
 }
 
 // ServiceDescriptorFor returns the descriptor for a named service if it exists.

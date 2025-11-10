@@ -16,8 +16,8 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Save, RefreshCw, AlertCircle, Check, Copy, FileJson } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Save, RefreshCw, AlertCircle, Check, Copy, FileJson, ArrowLeft } from 'lucide-react';
 import CoreConfigForm from './ConfigForms/CoreConfigForm';
 import SyncConfigForm from './ConfigForms/SyncConfigForm';
 import PollerConfigForm from './ConfigForms/PollerConfigForm';
@@ -38,6 +38,7 @@ interface ConfigEditorProps {
   service: ServiceInfo;
   kvStore: string;
   onSave: () => void;
+  onClose?: () => void;
 }
 
 type ConfigMetadata = {
@@ -57,7 +58,28 @@ type ConfigEnvelope = {
   raw_config?: string;
 };
 
-export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorProps) {
+const normalizeConfigPayload = (payload: unknown): Record<string, unknown> => {
+  if (!payload) {
+    return {};
+  }
+  if (typeof payload === 'string') {
+    try {
+      return normalizeConfigPayload(JSON.parse(payload));
+    } catch {
+      return {};
+    }
+  }
+  if (typeof payload !== 'object' || Array.isArray(payload)) {
+    return {};
+  }
+  try {
+    return JSON.parse(JSON.stringify(payload));
+  } catch {
+    return { ...(payload as Record<string, unknown>) };
+  }
+};
+
+export default function ConfigEditor({ service, kvStore, onSave, onClose }: ConfigEditorProps) {
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -161,9 +183,7 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
             setConfig(null);
             setJsonValue(def);
           } else {
-            setIsToml(false);
-            setConfig(def);
-            setJsonValue(JSON.stringify(def, null, 2));
+            applyJsonConfig(def);
           }
         } else {
           throw new Error('Failed to fetch configuration');
@@ -183,17 +203,11 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
               setJsonValue(envelope.raw_config ?? '');
               setJsonMode(false);
             } else {
-              const cfg = (envelope.config ?? {}) as Record<string, unknown>;
-              setIsToml(false);
-              setConfig(cfg);
-              setRawValue('');
-              setJsonValue(JSON.stringify(cfg, null, 2));
+              applyJsonConfig(envelope.config ?? {});
             }
           } else {
             setMetadata(null);
-            setIsToml(false);
-            setConfig(data as Record<string, unknown>);
-            setJsonValue(JSON.stringify(data, null, 2));
+            applyJsonConfig(data);
           }
         } else {
           const text = await response.text();
@@ -211,12 +225,18 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
       // Load default config on error
       const fallbackTarget = canonicalServiceType || service.type;
       const def = getDefaultConfig(fallbackTarget);
-      if (typeof def === 'string') { setIsToml(true); setRawValue(def); }
-      else { setIsToml(false); setConfig(def); setJsonValue(JSON.stringify(def, null, 2)); }
+      if (typeof def === 'string') {
+        setIsToml(true);
+        setRawValue(def);
+        setConfig(null);
+        setJsonValue(def);
+      } else {
+        applyJsonConfig(def);
+      }
     } finally {
       setLoading(false);
     }
-  }, [buildConfigQuery, canonicalServiceType, service.type]);
+  }, [applyJsonConfig, buildConfigQuery, canonicalServiceType, service.type]);
 
   const fetchKvInfo = React.useCallback(async () => {
     try {
@@ -498,21 +518,33 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
   return (
     <div className="h-full flex flex-col">
       <div className="border-b border-gray-200 dark:border-gray-700 p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">{service.name}</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              KV Store: {kvStore || 'default'} | Service ID: {service.id}
-            </p>
-            <div className="mt-1 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-              {kvInfo ? (
-                <>
-                  <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700">Domain: {kvInfo.domain}</span>
-                  <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700">Bucket: {kvInfo.bucket}</span>
-                </>
-              ) : (
-                <span className="opacity-75">{kvInfoError ? `KV info: ${kvInfoError}` : 'Loading KV info…'}</span>
-              )}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-1 items-start gap-3 min-w-0">
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Back to service list"
+                className="mt-1 inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+            )}
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold truncate">{service.name}</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                KV Store: {kvStore || 'default'} | Service ID: {service.id}
+              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                {kvInfo ? (
+                  <>
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700">Domain: {kvInfo.domain}</span>
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700">Bucket: {kvInfo.bucket}</span>
+                  </>
+                ) : (
+                  <span className="opacity-75">{kvInfoError ? `KV info: ${kvInfoError}` : 'Loading KV info…'}</span>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -608,3 +640,13 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
     </div>
   );
 }
+  const applyJsonConfig = useCallback(
+    (payload: unknown) => {
+      const normalized = normalizeConfigPayload(payload);
+      setIsToml(false);
+      setConfig(normalized);
+      setRawValue('');
+      setJsonValue(JSON.stringify(normalized, null, 2));
+    },
+    [setConfig, setIsToml, setRawValue, setJsonValue],
+  );

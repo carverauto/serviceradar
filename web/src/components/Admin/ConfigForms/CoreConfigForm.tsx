@@ -18,6 +18,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import safeSet from '../../../lib/safeSet';
+import RBACEditor, { RBACConfig } from '../RBACEditor';
 
 type TLSConfig = {
   cert_file?: string;
@@ -35,12 +36,6 @@ type ServiceSecurityConfig = {
   trust_domain?: string;
   workload_socket?: string;
   tls?: TLSConfig;
-};
-
-type RBACConfig = {
-  role_permissions?: Record<string, string[]>;
-  route_protection?: Record<string, unknown>;
-  user_roles?: Record<string, string[]>;
 };
 
 type AuthConfig = {
@@ -480,15 +475,6 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
     onChange(nextConfig as CoreConfig);
   };
 
-  const [rolePermissionsText, setRolePermissionsText] = useState('{}');
-  const [rolePermissionsError, setRolePermissionsError] = useState<string | null>(null);
-
-  const [routeProtectionText, setRouteProtectionText] = useState('{}');
-  const [routeProtectionError, setRouteProtectionError] = useState<string | null>(null);
-
-  const [userRolesText, setUserRolesText] = useState('{}');
-  const [userRolesError, setUserRolesError] = useState<string | null>(null);
-
   const [localUsersText, setLocalUsersText] = useState('{}');
   const [localUsersError, setLocalUsersError] = useState<string | null>(null);
 
@@ -506,30 +492,6 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
 
   const [otelHeadersText, setOtelHeadersText] = useState('{}');
   const [otelHeadersError, setOtelHeadersError] = useState<string | null>(null);
-
-  const serializedRolePermissions = useMemo(
-    () => JSON.stringify(config.auth?.rbac?.role_permissions ?? {}, null, 2),
-    [config.auth?.rbac?.role_permissions],
-  );
-  useEffect(() => {
-    setRolePermissionsText(serializedRolePermissions);
-  }, [serializedRolePermissions]);
-
-  const serializedRouteProtection = useMemo(
-    () => JSON.stringify(config.auth?.rbac?.route_protection ?? {}, null, 2),
-    [config.auth?.rbac?.route_protection],
-  );
-  useEffect(() => {
-    setRouteProtectionText(serializedRouteProtection);
-  }, [serializedRouteProtection]);
-
-  const serializedUserRoles = useMemo(
-    () => JSON.stringify(config.auth?.rbac?.user_roles ?? {}, null, 2),
-    [config.auth?.rbac?.user_roles],
-  );
-  useEffect(() => {
-    setUserRolesText(serializedUserRoles);
-  }, [serializedUserRoles]);
 
   const serializedLocalUsers = useMemo(
     () => JSON.stringify(config.auth?.local_users ?? {}, null, 2),
@@ -973,34 +935,16 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
             Manage shared secrets directly in JSON mode or via secure deployment tooling.
           </div>
         </div>
-        <JsonTextArea
-          label="RBAC Role Permissions"
-          value={rolePermissionsText}
-          onChange={setRolePermissionsText}
-          onBlur={() =>
-            handleJsonBlur(rolePermissionsText, 'auth.rbac.role_permissions', setRolePermissionsError, {})
-          }
-          error={rolePermissionsError}
-        />
-        <JsonTextArea
-          label="RBAC Route Protection"
-          value={routeProtectionText}
-          onChange={setRouteProtectionText}
-          onBlur={() =>
-            handleJsonBlur(routeProtectionText, 'auth.rbac.route_protection', setRouteProtectionError, {})
-          }
-          error={routeProtectionError}
-          description="Supports either an array of roles or method map per route."
-        />
-        <JsonTextArea
-          label="RBAC User Roles"
-          value={userRolesText}
-          onChange={setUserRolesText}
-          onBlur={() =>
-            handleJsonBlur(userRolesText, 'auth.rbac.user_roles', setUserRolesError, {})
-          }
-          error={userRolesError}
-        />
+        <div className="mt-6 space-y-4">
+          <h4 className="text-md font-semibold">Role-based access control</h4>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Manage roles, user assignments, and route protections without dropping to raw JSON.
+          </p>
+          <RBACEditor
+            value={config.auth?.rbac}
+            onChange={(next) => updateConfig('auth.rbac', next)}
+          />
+        </div>
         <JsonTextArea
           label="Local Users"
           value={localUsersText}
