@@ -586,7 +586,7 @@ PACKAGES = {
         "deb_depends": ["systemd"],
         "rpm_requires": ["systemd"],
         "binary": {
-            "target": "@rust_crates_rperf_checker//:rperf",
+            "target": "//cmd/checkers/rperf-server:rperf",
             "dest": "/usr/local/bin/serviceradar-rperf",
         },
         "files": [
