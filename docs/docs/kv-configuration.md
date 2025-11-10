@@ -251,34 +251,26 @@ For certificate generation instructions, see the [TLS Security](./tls-security.m
 
 ## Configuring Components to Use the KV Store
 
-> **Heads up:** As of this change, the demo Kubernetes manifests, Helm chart, and Docker Compose stack all export `CONFIG_SOURCE=kv` plus the appropriate `KV_*` blocks out of the box. You only need to follow the steps below if you're managing a bare-metal/edge install or have custom systemd units; cluster deployments now seed and watch the KV store automatically.
+Bare-metal installs now behave the same way as our Kubernetes, Helm, and Compose deployments: every systemd unit (core, poller, agent, sync, mapper, flowgger, trapd, zen, otel, db-event-writer, and the packaged checkers) exports `CONFIG_SOURCE=kv` plus the `KV_*` client settings out of the box. Services immediately seed KV from the JSON/TOML file on first boot and switch to KV overlays without any manual edits.
 
-### Agent Configuration
+All of those units also load `/etc/serviceradar/kv-overrides.env` (if it exists) so operators can override the defaults without touching the shipped units. Use that file to point at a remote KV instance or to set the server name that matches your datasvc certificate:
 
-To enable an agent to use the KV store for dynamic configuration:
-
-1. Edit the agent's systemd service file:
-
-```bash
-sudo systemctl edit serviceradar-agent
+```ini title="/etc/serviceradar/kv-overrides.env"
+KV_ADDRESS=192.168.2.23:50057
+KV_SERVER_NAME=datasvc.serviceradar
+# Optional per-host overrides:
+# KV_CERT_FILE=/etc/serviceradar/certs/custom.pem
+# KV_KEY_FILE=/etc/serviceradar/certs/custom-key.pem
 ```
 
-2. Add the environment variable for KV store configuration:
-
-```ini
-[Service]
-Environment="CONFIG_SOURCE=kv"
-Environment="KV_SERVER=192.168.2.23:50057"
-```
-
-3. Restart the agent to apply the changes:
+After updating the override file, reload systemd and restart the affected services:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl restart serviceradar-agent
+sudo systemctl restart serviceradar-core serviceradar-poller serviceradar-agent
 ```
 
-4. Ensure the agent's certificate is added to the RBAC configuration in the KV service.
+> **Note:** The datasvc package intentionally keeps `CONFIG_SOURCE=file`; it cannot bootstrap itself from KV. All other services now enable KV automatically as long as their certificates are installed.
 
 ## Firewall Configuration
 

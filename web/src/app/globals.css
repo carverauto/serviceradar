@@ -18,3 +18,17 @@ body {
 }
 
 /* Add any additional global styles here */
+
+input,
+textarea,
+select {
+  color: #111827;
+  background-color: #ffffff;
+}
+
+.dark input,
+.dark textarea,
+.dark select {
+  color: #f3f4f6;
+  background-color: #111827;
+}

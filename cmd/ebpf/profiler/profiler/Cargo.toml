@@ -35,6 +35,7 @@ log = { workspace = true }
 env_logger = { workspace = true }
 dashmap = "6.0"
 futures-util = "0.3"
+config-bootstrap = { path = "../../../../rust/config-bootstrap" }
 
 # Profiling output formats
 pprof = { version = "0.14", features = ["flamegraph", "protobuf-codec"] }

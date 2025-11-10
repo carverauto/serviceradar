@@ -57,7 +57,7 @@ server {
     }
 
     # API routes handled by Next.js (auth, nodes, status, pollers)
-    location ~ ^/api/(auth|nodes|status|pollers|devices|mcp) {
+    location ~ ^/api/(auth|nodes|status|pollers|devices|mcp|config) {
         # Use variable to force runtime DNS resolution
         set $web_upstream http://web:3000;
         proxy_pass $web_upstream;

@@ -32,7 +32,7 @@ data:
       location = /api-docs { proxy_pass http://serviceradar-core:8090; }
 
       # Next.js API routes (keep hitting web)
-      location ~ ^/api/(auth|nodes|status|pollers|devices|mcp|admin) {
+      location ~ ^/api/(auth|nodes|status|pollers|devices|mcp|admin|config) {
         proxy_pass http://serviceradar-web:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

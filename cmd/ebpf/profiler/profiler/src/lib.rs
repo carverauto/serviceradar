@@ -1,17 +1,18 @@
-use tonic::{Request, Response, Status};
-use log::{debug, info, error, warn};
+use dashmap::DashMap;
+use log::{debug, error, info, warn};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use dashmap::DashMap;
+use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 pub mod cli;
 pub mod config;
-pub mod server;
-pub mod setup;
 pub mod ebpf_profiler;
 pub mod flame_graph;
 pub mod output;
+pub mod server;
+pub mod setup;
+pub mod template;
 pub mod tui_flamegraph;
 
 // Generated protobuf code
@@ -19,13 +20,12 @@ pub mod profiler {
     tonic::include_proto!("profiler");
 }
 
+use crate::ebpf_profiler::EbpfProfiler;
 use profiler::profiler_service_server::ProfilerService;
 use profiler::{
+    GetProfilingResultsRequest, GetStatusRequest, GetStatusResponse, ProfilingResultsChunk,
     StartProfilingRequest, StartProfilingResponse,
-    GetProfilingResultsRequest, ProfilingResultsChunk,
-    GetStatusRequest, GetStatusResponse,
 };
-use crate::ebpf_profiler::EbpfProfiler;
 
 // Session management
 #[derive(Debug, Clone)]
@@ -93,7 +93,7 @@ impl ProfilerService for ServiceRadarProfiler {
         request: Request<StartProfilingRequest>,
     ) -> Result<Response<StartProfilingResponse>, Status> {
         let req = request.into_inner();
-        
+
         info!(
             "Received profiling request for PID {}, duration {}s, frequency {}Hz",
             req.process_id, req.duration_seconds, req.frequency
@@ -110,7 +110,10 @@ impl ProfilerService for ServiceRadarProfiler {
         }
 
         if req.duration_seconds <= 0 || req.duration_seconds > 300 {
-            warn!("Invalid duration: {}s (must be 1-300)", req.duration_seconds);
+            warn!(
+                "Invalid duration: {}s (must be 1-300)",
+                req.duration_seconds
+            );
             return Ok(Response::new(StartProfilingResponse {
                 success: false,
                 message: "Duration must be between 1 and 300 seconds".to_string(),
@@ -158,8 +161,11 @@ impl ProfilerService for ServiceRadarProfiler {
             profiler.run_profiling_session(session_id_clone).await;
         });
 
-        info!("Started profiling session {} for PID {}", session_id, req.process_id);
-        
+        info!(
+            "Started profiling session {} for PID {}",
+            session_id, req.process_id
+        );
+
         Ok(Response::new(StartProfilingResponse {
             success: true,
             message: format!("Profiling started for PID {}", req.process_id),
@@ -167,38 +173,49 @@ impl ProfilerService for ServiceRadarProfiler {
         }))
     }
 
-    type GetProfilingResultsStream = tokio_stream::wrappers::ReceiverStream<Result<ProfilingResultsChunk, Status>>;
+    type GetProfilingResultsStream =
+        tokio_stream::wrappers::ReceiverStream<Result<ProfilingResultsChunk, Status>>;
 
     async fn get_profiling_results(
         &self,
         request: Request<GetProfilingResultsRequest>,
-    ) -> Result<Response<tokio_stream::wrappers::ReceiverStream<Result<ProfilingResultsChunk, Status>>>, Status> {
+    ) -> Result<
+        Response<tokio_stream::wrappers::ReceiverStream<Result<ProfilingResultsChunk, Status>>>,
+        Status,
+    > {
         let req = request.into_inner();
-        
+
         debug!("Received results request for session {}", req.session_id);
 
         let session = match self.sessions.get(&req.session_id) {
             Some(session) => session.clone(),
             None => {
                 warn!("Session {} not found", req.session_id);
-                return Err(Status::not_found(format!("Session {} not found", req.session_id)));
+                return Err(Status::not_found(format!(
+                    "Session {} not found",
+                    req.session_id
+                )));
             }
         };
 
         match &session.status {
             SessionStatus::Completed => {
                 if let Some(results) = &session.results {
-                    info!("Streaming results for session {} ({} bytes)", req.session_id, results.len());
-                    
+                    info!(
+                        "Streaming results for session {} ({} bytes)",
+                        req.session_id,
+                        results.len()
+                    );
+
                     // Stream the results in chunks
                     let (tx, rx) = tokio::sync::mpsc::channel(4);
                     let results = results.clone();
                     let session_id = req.session_id.clone();
-                    
+
                     tokio::spawn(async move {
                         let chunk_size = 64 * 1024; // 64KB chunks
                         let total_chunks = (results.len() + chunk_size - 1) / chunk_size;
-                        
+
                         for (i, chunk) in results.chunks(chunk_size).enumerate() {
                             let chunk_msg = ProfilingResultsChunk {
                                 data: chunk.to_vec(),
@@ -209,18 +226,25 @@ impl ProfilerService for ServiceRadarProfiler {
                                     .unwrap_or_default()
                                     .as_secs() as i64,
                             };
-                            
+
                             if tx.send(Ok(chunk_msg)).await.is_err() {
-                                debug!("Client disconnected while streaming results for session {}", session_id);
+                                debug!(
+                                    "Client disconnected while streaming results for session {}",
+                                    session_id
+                                );
                                 break;
                             }
                         }
                     });
 
-                    Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(rx)))
+                    Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
+                        rx,
+                    )))
                 } else {
                     warn!("Session {} completed but has no results", req.session_id);
-                    Err(Status::internal("Session completed but no results available"))
+                    Err(Status::internal(
+                        "Session completed but no results available",
+                    ))
                 }
             }
             SessionStatus::Failed(error) => {
@@ -228,11 +252,16 @@ impl ProfilerService for ServiceRadarProfiler {
                 Err(Status::internal(format!("Profiling failed: {}", error)))
             }
             SessionStatus::Starting | SessionStatus::Running => {
-                info!("Session {} still running, returning empty stream", req.session_id);
+                info!(
+                    "Session {} still running, returning empty stream",
+                    req.session_id
+                );
                 let (tx, rx) = tokio::sync::mpsc::channel(1);
                 // Close the channel immediately to return empty stream
                 drop(tx);
-                Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(rx)))
+                Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
+                    rx,
+                )))
             }
         }
     }
@@ -242,9 +271,12 @@ impl ProfilerService for ServiceRadarProfiler {
         _request: Request<GetStatusRequest>,
     ) -> Result<Response<GetStatusResponse>, Status> {
         let active_sessions = self.get_active_sessions().await;
-        
-        debug!("Status request received, {} active sessions", active_sessions);
-        
+
+        debug!(
+            "Status request received, {} active sessions",
+            active_sessions
+        );
+
         Ok(Response::new(GetStatusResponse {
             healthy: true,
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -257,7 +289,7 @@ impl ProfilerService for ServiceRadarProfiler {
 impl ServiceRadarProfiler {
     async fn run_profiling_session(&self, session_id: String) {
         debug!("Starting profiling session {}", session_id);
-        
+
         // Update session status to running
         if let Some(mut session) = self.sessions.get_mut(&session_id) {
             session.status = SessionStatus::Running;
@@ -284,7 +316,7 @@ impl ServiceRadarProfiler {
                 return;
             }
         };
-        
+
         // Update session with results
         if let Some(mut session_ref) = self.sessions.get_mut(&session_id) {
             session_ref.status = SessionStatus::Completed;
@@ -295,29 +327,40 @@ impl ServiceRadarProfiler {
         info!("Completed profiling session {}", session_id);
     }
 
-    async fn run_ebpf_profiling(&self, session: &ProfilingSession) -> Result<Vec<u8>, anyhow::Error> {
+    async fn run_ebpf_profiling(
+        &self,
+        session: &ProfilingSession,
+    ) -> Result<Vec<u8>, anyhow::Error> {
         debug!("Starting eBPF profiling for session {}", session.session_id);
 
-        // Create eBPF profiler instance  
+        // Create eBPF profiler instance
         let mut profiler = EbpfProfiler::new()
             .map_err(|e| anyhow::anyhow!("Failed to create eBPF profiler: {}", e))?;
 
         // Start profiling
-        profiler.start_profiling(
-            session.process_id,
-            session.frequency,
-            session.duration_seconds,
-        ).await
+        profiler
+            .start_profiling(
+                session.process_id,
+                session.frequency,
+                session.duration_seconds,
+            )
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to start eBPF profiling: {}", e))?;
 
         // Wait for profiling duration
-        tokio::time::sleep(std::time::Duration::from_secs(session.duration_seconds as u64)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(
+            session.duration_seconds as u64,
+        ))
+        .await;
 
         // Stop profiling and collect results
-        profiler.stop_profiling()
+        profiler
+            .stop_profiling()
             .map_err(|e| anyhow::anyhow!("Failed to stop eBPF profiling: {}", e))?;
 
-        let stack_traces = profiler.collect_results().await
+        let stack_traces = profiler
+            .collect_results()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to collect eBPF results: {}", e))?;
 
         // Clean up profiler resources after collecting results
@@ -325,12 +368,13 @@ impl ServiceRadarProfiler {
 
         // Convert stack traces to flame graph format
         let formatter = crate::flame_graph::FlameGraphFormatter::new(stack_traces);
-        let flame_graph_data = formatter.generate_complete_output(
-            session.process_id,
-            session.duration_seconds,
-        );
+        let flame_graph_data =
+            formatter.generate_complete_output(session.process_id, session.duration_seconds);
 
-        info!("Successfully completed eBPF profiling for session {}", session.session_id);
+        info!(
+            "Successfully completed eBPF profiling for session {}",
+            session.session_id
+        );
         Ok(flame_graph_data)
     }
 }
@@ -344,9 +388,12 @@ pub async fn run_standalone_profiling(
     format: crate::cli::OutputFormat,
     show_tui: bool,
 ) -> Result<(), anyhow::Error> {
-    use crate::output::{OutputWriter, suggest_output_filename};
+    use crate::output::{suggest_output_filename, OutputWriter};
 
-    info!("Starting standalone profiling for PID {} ({}s at {}Hz)", pid, duration, frequency);
+    info!(
+        "Starting standalone profiling for PID {} ({}s at {}Hz)",
+        pid, duration, frequency
+    );
 
     // Determine output filename
     let output_path = match output_file {
@@ -363,10 +410,15 @@ pub async fn run_standalone_profiling(
         .map_err(|e| anyhow::anyhow!("Failed to create eBPF profiler: {}", e))?;
 
     // Start profiling
-    profiler.start_profiling(pid, frequency, duration).await
+    profiler
+        .start_profiling(pid, frequency, duration)
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to start profiling: {}", e))?;
 
-    info!("Profiling started, collecting data for {} seconds...", duration);
+    info!(
+        "Profiling started, collecting data for {} seconds...",
+        duration
+    );
 
     // Show progress
     let progress_interval = std::cmp::max(1, duration / 10); // Show progress every 10% or at least every second
@@ -379,12 +431,15 @@ pub async fn run_standalone_profiling(
     }
 
     // Stop profiling and collect results
-    profiler.stop_profiling()
+    profiler
+        .stop_profiling()
         .map_err(|e| anyhow::anyhow!("Failed to stop profiling: {}", e))?;
 
     info!("Profiling completed, collecting results...");
 
-    let stack_traces = profiler.collect_results().await
+    let stack_traces = profiler
+        .collect_results()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to collect results: {}", e))?;
 
     // Clean up profiler resources after collecting results
@@ -411,7 +466,8 @@ pub async fn run_standalone_profiling(
 
     // Write output to file
     let writer = OutputWriter::new(format, output_path.clone());
-    writer.write_profile(stack_traces, pid, duration)
+    writer
+        .write_profile(stack_traces, pid, duration)
         .map_err(|e| anyhow::anyhow!("Failed to write output: {}", e))?;
 
     info!("Successfully wrote profiling results to: {}", output_path);
@@ -444,7 +500,7 @@ fn process_exists(pid: i32) -> bool {
     {
         std::path::Path::new(&format!("/proc/{}", pid)).exists()
     }
-    
+
     #[cfg(not(target_os = "linux"))]
     {
         // On non-Linux systems, use a different approach
@@ -453,7 +509,6 @@ fn process_exists(pid: i32) -> bool {
         pid > 0 && pid < 100000
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -471,10 +526,10 @@ mod tests {
     async fn test_get_status() {
         let profiler = ServiceRadarProfiler::new();
         let request = Request::new(GetStatusRequest {});
-        
+
         let response = profiler.get_status(request).await;
         assert!(response.is_ok());
-        
+
         let status = response.unwrap().into_inner();
         assert!(status.healthy);
         assert_eq!(status.active_sessions, 0);
@@ -489,10 +544,10 @@ mod tests {
             duration_seconds: 10,
             frequency: 99,
         });
-        
+
         let response = profiler.start_profiling(request).await;
         assert!(response.is_ok());
-        
+
         let start_response = response.unwrap().into_inner();
         assert!(!start_response.success);
         assert!(start_response.message.contains("Invalid process ID"));
@@ -506,10 +561,10 @@ mod tests {
             duration_seconds: 0,
             frequency: 99,
         });
-        
+
         let response = profiler.start_profiling(request).await;
         assert!(response.is_ok());
-        
+
         let start_response = response.unwrap().into_inner();
         assert!(!start_response.success);
         assert!(start_response.message.contains("Duration must be"));
@@ -521,7 +576,7 @@ mod tests {
         let request = Request::new(GetProfilingResultsRequest {
             session_id: "nonexistent".to_string(),
         });
-        
+
         let response = profiler.get_profiling_results(request).await;
         assert!(response.is_err());
     }
@@ -530,9 +585,8 @@ mod tests {
     fn test_process_exists() {
         // Test with current process (should always exist)
         assert!(process_exists(std::process::id() as i32));
-        
+
         // Very high PID unlikely to exist
         assert!(!process_exists(999999));
     }
-
 }

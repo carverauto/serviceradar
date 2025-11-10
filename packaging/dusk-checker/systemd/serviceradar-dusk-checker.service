@@ -6,6 +6,14 @@ After=network.target
 Type=simple
 User=serviceradar
 ExecStart=/usr/local/bin/serviceradar-dusk-checker -config /etc/serviceradar/checkers/dusk.json
+Environment="CONFIG_SOURCE=kv"
+Environment="KV_ADDRESS=127.0.0.1:50057"
+Environment="KV_SEC_MODE=mtls"
+Environment="KV_CERT_DIR=/etc/serviceradar/certs"
+Environment="KV_CERT_FILE=/etc/serviceradar/certs/dusk.pem"
+Environment="KV_KEY_FILE=/etc/serviceradar/certs/dusk-key.pem"
+Environment="KV_CA_FILE=/etc/serviceradar/certs/root.pem"
+EnvironmentFile=-/etc/serviceradar/kv-overrides.env
 Restart=always
 RestartSec=10
 LimitNPROC=512
