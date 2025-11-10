@@ -6,7 +6,10 @@ rust_library(
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/lib.rs",
     edition = "2021",
-    deps = all_crate_deps(normal = True) + ["//rust/kvutil:kvutil"],
+    deps = all_crate_deps(normal = True) + [
+        "//rust/kvutil:kvutil",
+        "@rust_crates//:tempfile",
+    ],
     visibility = ["//visibility:public"],
 )
 
