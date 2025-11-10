@@ -44,5 +44,5 @@ rust_binary(
     name = "profiler",
     srcs = ["src/main.rs"],
     edition = "2021",
-    deps = [":profiler_lib", "//rust/config-bootstrap:config_bootstrap"] + all_crate_deps(normal = True),
+    deps = [":profiler_lib"] + all_crate_deps(normal = True),
 )
