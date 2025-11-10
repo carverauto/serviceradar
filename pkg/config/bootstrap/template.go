@@ -19,15 +19,24 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"strings"
 	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 var (
 	errTemplateDataEmpty          = errors.New("template data is empty")
 	errTemplateStorageUnavailable = errors.New("template storage unavailable")
+	errCoreAddressNotSet          = errors.New("CORE_ADDRESS environment variable not set")
+	errTemplateRegistration       = errors.New("failed to register template with core")
 )
 
 const (
@@ -52,17 +61,43 @@ func ServiceWithTemplateRegistration(
 	}
 
 	if len(templateData) > 0 {
-		if err := persistTemplateToKV(ctx, result.Manager(), desc, templateData, opts.Logger); err != nil {
+		if err := publishTemplateWithFallback(ctx, result.Manager(), desc, templateData, opts); err != nil {
 			if opts.Logger != nil {
 				opts.Logger.Warn().
 					Err(err).
 					Str("service", desc.Name).
-					Msg("failed to publish template to KV; service will continue")
+					Msg("failed to publish configuration template; service will continue")
 			}
 		}
 	}
 
 	return result, nil
+}
+
+func publishTemplateWithFallback(ctx context.Context, manager *config.KVManager, desc config.ServiceDescriptor, templateData []byte, opts ServiceOptions) error {
+	if len(templateData) == 0 {
+		return errTemplateDataEmpty
+	}
+
+	var kvErr error
+	if manager != nil {
+		kvErr = persistTemplateToKV(ctx, manager, desc, templateData, opts.Logger)
+		if kvErr == nil {
+			return nil
+		}
+	} else {
+		kvErr = errTemplateStorageUnavailable
+	}
+
+	regErr := registerTemplateWithCore(ctx, desc, templateData, opts)
+	if regErr == nil {
+		return nil
+	}
+
+	if kvErr == nil {
+		return regErr
+	}
+	return fmt.Errorf("kv template publish failed: %w; core registration failed: %w", kvErr, regErr)
 }
 
 func persistTemplateToKV(ctx context.Context, manager *config.KVManager, desc config.ServiceDescriptor, templateData []byte, log logger.Logger) error {
@@ -138,4 +173,64 @@ func retryTemplatePublish(
 			return
 		}
 	}
+}
+
+func registerTemplateWithCore(ctx context.Context, desc config.ServiceDescriptor, templateData []byte, opts ServiceOptions) error {
+	if len(templateData) == 0 {
+		return errTemplateDataEmpty
+	}
+
+	log := opts.Logger
+	if log == nil {
+		log = logger.NewTestLogger()
+	}
+
+	coreAddr := strings.TrimSpace(os.Getenv("CORE_ADDRESS"))
+	if coreAddr == "" {
+		return errCoreAddressNotSet
+	}
+
+	regCtx, cancel := context.WithTimeout(ctx, templatePublishTimeout)
+	defer cancel()
+
+	dialOpts, provider, err := BuildCoreDialOptionsFromEnv(regCtx, opts.Role, log)
+	if err != nil {
+		log.Warn().
+			Err(err).
+			Msg("unable to build secure dial options for core; falling back to insecure transport")
+		dialOpts = []grpc.DialOption{
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithBlock(),
+		}
+	}
+
+	conn, err := grpc.DialContext(regCtx, coreAddr, dialOpts...)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errTemplateRegistration, err)
+	}
+	defer func() { _ = conn.Close() }()
+	if provider != nil {
+		defer provider.Close()
+	}
+
+	client := proto.NewCoreServiceClient(conn)
+
+	resp, err := client.RegisterTemplate(regCtx, &proto.RegisterTemplateRequest{
+		ServiceName:  desc.Name,
+		TemplateData: templateData,
+		Format:       string(desc.Format),
+	})
+	if err != nil {
+		return fmt.Errorf("%w: %w", errTemplateRegistration, err)
+	}
+	if !resp.GetSuccess() {
+		return fmt.Errorf("%w: %s", errTemplateRegistration, resp.GetMessage())
+	}
+
+	log.Debug().
+		Str("service", desc.Name).
+		Str("core_address", coreAddr).
+		Msg("published configuration template to core registry")
+
+	return nil
 }

@@ -285,7 +285,26 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 			return errKVStoreNotSet
 		}
 
-		loader = NewKVConfigLoader(c.kvStore, c.logger)
+		// Always load the on-disk defaults first so sensitive values (e.g., JWT private keys)
+		// remain present even though the KV overlay stores only sanitized data.
+		fileErr := c.defaultLoader.Load(ctx, path, cfg)
+		if fileErr != nil {
+			loader = NewKVConfigLoader(c.kvStore, c.logger)
+			if err := loader.Load(ctx, path, cfg); err != nil {
+				return fmt.Errorf("%w from file: %w, and from KV: %w", errLoadConfigFailed, fileErr, err)
+			}
+			return nil
+		}
+
+		if err := c.OverlayFromKV(ctx, path, cfg); err != nil {
+			if c.logger != nil {
+				c.logger.Warn().
+					Err(err).
+					Str("path", path).
+					Msg("failed to overlay configuration from KV; continuing with file defaults")
+			}
+		}
+		return nil
 	case configSourceEnv:
 		// Use environment variables with optional prefix
 		prefix := os.Getenv("CONFIG_ENV_PREFIX")

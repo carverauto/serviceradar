@@ -18,11 +18,15 @@ package core
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/config"
@@ -160,6 +164,20 @@ func initializeAuthConfig(config *models.CoreServiceConfig) (*models.AuthConfig,
 		applyDefaultAdminUser(authConfig)
 	}
 
+	if err := hydrateJWTKeys(authConfig); err != nil {
+		log.Printf("core: unable to hydrate JWT keys from disk: %v", err)
+	}
+
+	if strings.EqualFold(authConfig.JWTAlgorithm, jwtAlgorithmRS256) {
+		if authConfig.JWTPublicKeyPEM == "" && authConfig.JWTPrivateKeyPEM != "" {
+			if pub, err := derivePublicKeyPEM(authConfig.JWTPrivateKeyPEM); err == nil {
+				authConfig.JWTPublicKeyPEM = pub
+			} else {
+				log.Printf("core: unable to derive JWKS public key: %v", err)
+			}
+		}
+	}
+
 	// If RS256 is configured with a key, allow empty JWT_SECRET.
 	if authConfig.JWTAlgorithm != jwtAlgorithmRS256 || (authConfig.JWTPrivateKeyPEM == "" && authConfig.JWTPublicKeyPEM == "") {
 		if authConfig.JWTSecret == "" {
@@ -216,6 +234,94 @@ func applyDefaultAdminUser(authConfig *models.AuthConfig) {
 	if adminHash := os.Getenv("ADMIN_PASSWORD_HASH"); adminHash != "" {
 		authConfig.LocalUsers["admin"] = adminHash
 	}
+}
+
+func hydrateJWTKeys(authConfig *models.AuthConfig) error {
+	if authConfig == nil || !strings.EqualFold(authConfig.JWTAlgorithm, jwtAlgorithmRS256) {
+		return nil
+	}
+
+	needsPriv := authConfig.JWTPrivateKeyPEM == ""
+	needsPub := authConfig.JWTPublicKeyPEM == ""
+	needsKID := authConfig.JWTKeyID == ""
+
+	if !needsPriv && !needsPub && !needsKID {
+		return nil
+	}
+
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		return nil
+	}
+
+	payload, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+
+	var wrapper struct {
+		Auth json.RawMessage `json:"auth"`
+	}
+	if err := json.Unmarshal(payload, &wrapper); err != nil {
+		return err
+	}
+	if len(wrapper.Auth) == 0 {
+		return nil
+	}
+
+	var diskAuth models.AuthConfig
+	if err := json.Unmarshal(wrapper.Auth, &diskAuth); err != nil {
+		return nil
+	}
+
+	if needsPriv && diskAuth.JWTPrivateKeyPEM != "" {
+		authConfig.JWTPrivateKeyPEM = diskAuth.JWTPrivateKeyPEM
+	}
+	if needsPub && diskAuth.JWTPublicKeyPEM != "" {
+		authConfig.JWTPublicKeyPEM = diskAuth.JWTPublicKeyPEM
+	}
+	if needsKID && diskAuth.JWTKeyID != "" {
+		authConfig.JWTKeyID = diskAuth.JWTKeyID
+	}
+
+	return nil
+}
+
+func derivePublicKeyPEM(privatePEM string) (string, error) {
+	if privatePEM == "" {
+		return "", fmt.Errorf("empty private key")
+	}
+
+	block, _ := pem.Decode([]byte(privatePEM))
+	if block == nil {
+		return "", fmt.Errorf("failed to decode private key PEM")
+	}
+
+	var key any
+	var err error
+	switch block.Type {
+	case "PRIVATE KEY":
+		key, err = x509.ParsePKCS8PrivateKey(block.Bytes)
+	case "RSA PRIVATE KEY":
+		key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+	default:
+		return "", fmt.Errorf("unsupported private key type %q", block.Type)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	priv, ok := key.(*rsa.PrivateKey)
+	if !ok {
+		return "", fmt.Errorf("decoded key is not RSA private key")
+	}
+
+	pubDER, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+	if err != nil {
+		return "", err
+	}
+
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})), nil
 }
 
 func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {

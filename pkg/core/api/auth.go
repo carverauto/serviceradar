@@ -240,7 +240,10 @@ func (s *APIServer) handleConfigWatchers(w http.ResponseWriter, r *http.Request)
 	}
 
 	ctx := r.Context()
-	infos := config.ListWatchers()
+	var infos []config.WatcherInfo
+	if kvStoreID == "" {
+		infos = config.ListWatchers()
+	}
 	infos = append(infos, s.collectRemoteWatchers(ctx, kvStoreID)...)
 	infos = s.filterAndDedupeWatchers(infos, filter)
 
