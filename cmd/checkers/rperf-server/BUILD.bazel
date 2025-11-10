@@ -1,0 +1,20 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_binary(
+    name = "rperf",
+    crate_name = "rperf",
+    crate_root = "@rust_crates__rperf-0.1.25//:src/main.rs",
+    edition = "2021",
+    srcs = [
+        "@rust_crates__rperf-0.1.25//:src/main.rs",
+    ],
+    deps = [
+        "@rust_crates__rperf-0.1.25//:rperf",
+        "@@rules_rust++crate+rust_crates__clap-2.33.4//:clap",
+        "@@rules_rust++crate+rust_crates__env_logger-0.8.4//:env_logger",
+        "@@rules_rust++crate+rust_crates__log-0.4.28//:log",
+        "@@rules_rust++crate+rust_crates__ctrlc-3.5.1//:ctrlc",
+    ],
+)

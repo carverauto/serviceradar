@@ -11,6 +11,7 @@ go_library(
         "//alias:logger",
         "//alias:models",
         "//proto",
+        "//proto/identitymap/v1:identity_map",
         "@com_github_nats_io_nats_go//:nats_go",
         "@org_golang_google_grpc//:grpc",
     ],

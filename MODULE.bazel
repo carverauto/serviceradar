@@ -742,7 +742,11 @@ crates.from_cargo(
     cargo_lockfile = "//:Cargo.lock",
     manifests = ["//:Cargo.toml"],
 )
-use_repo(crates, "rust_crates")
+use_repo(
+    crates,
+    "rust_crates",
+    "rust_crates__rperf-0.1.25",
+)
 crates.from_cargo(
     name = "rust_crates_profiler",
     cargo_lockfile = "//cmd/ebpf/profiler/profiler:Cargo.lock",
