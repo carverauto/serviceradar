@@ -54,6 +54,8 @@ var (
 	ErrInvalidSweepMetadata = errors.New("invalid sweep metadata")
 	// ErrObjectStoreUnavailable is returned when the object store client is not available.
 	ErrObjectStoreUnavailable = errors.New("object store unavailable")
+	errKVMtlsEnvMissing       = errors.New("KV_SEC_MODE=mtls requires KV_CERT_FILE, KV_KEY_FILE, and KV_CA_FILE")
+	errUnsupportedKVSecMode   = errors.New("unsupported KV_SEC_MODE")
 )
 
 const (
@@ -284,7 +286,7 @@ func kvSecurityFromEnv() (*models.SecurityConfig, error) {
 		key := strings.TrimSpace(os.Getenv("KV_KEY_FILE"))
 		ca := strings.TrimSpace(os.Getenv("KV_CA_FILE"))
 		if cert == "" || key == "" || ca == "" {
-			return nil, fmt.Errorf("KV_SEC_MODE=mtls requires KV_CERT_FILE, KV_KEY_FILE, and KV_CA_FILE")
+			return nil, errKVMtlsEnvMissing
 		}
 
 		return &models.SecurityConfig{
@@ -299,7 +301,7 @@ func kvSecurityFromEnv() (*models.SecurityConfig, error) {
 			},
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported KV_SEC_MODE %q", mode)
+		return nil, fmt.Errorf("%w %q", errUnsupportedKVSecMode, mode)
 	}
 }
 

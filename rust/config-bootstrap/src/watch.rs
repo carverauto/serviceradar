@@ -24,7 +24,6 @@ where
         let (tx, rx) = mpsc::unbounded_channel();
         kv_client
             .watch_apply(&kv_key, {
-                let service_name = service_name;
                 move |bytes| match parse_config::<T>(bytes, format) {
                     Ok(cfg) => {
                         if tx.send(cfg).is_err() {

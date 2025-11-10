@@ -200,7 +200,7 @@ func TestOverlayFromKVNormalizesSecurityPaths(t *testing.T) {
 		t.Fatalf("expected normalized key_file, got %q", base.Security.TLS.KeyFile)
 	}
 
-	if base.Security.TLS.CAFile != "/etc/serviceradar/certs/kv-root.pem" {
+	if base.Security.TLS.CAFile != kvRootCertPath {
 		t.Fatalf("expected normalized ca_file, got %q", base.Security.TLS.CAFile)
 	}
 
@@ -221,8 +221,14 @@ func TestLoadAndValidateWithSourceKVOverlaysFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create temp file: %v", err)
 	}
-	defer tmpFile.Close()
-	defer os.Remove(tmpFile.Name())
+	t.Cleanup(func() {
+		if closeErr := tmpFile.Close(); closeErr != nil {
+			t.Fatalf("close temp file: %v", closeErr)
+		}
+		if removeErr := os.Remove(tmpFile.Name()); removeErr != nil {
+			t.Fatalf("remove temp file: %v", removeErr)
+		}
+	})
 
 	privateKey := generateTestPrivateKeyPEM(t)
 	filePayload := authWrapper{

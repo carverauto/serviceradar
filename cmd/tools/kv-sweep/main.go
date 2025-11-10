@@ -71,6 +71,14 @@ type sweepStats struct {
 	startedAt      time.Time
 }
 
+var (
+	errBucketRequired           = errors.New("bucket is required")
+	errRehydrateCoreAddress     = errors.New("rehydrate requested but CORE_ADDRESS not provided")
+	errCoreAddressNotConfigured = errors.New("CORE_ADDRESS not configured")
+	errInvalidKeyPath           = errors.New("invalid key path")
+	errUnknownIdentitySegment   = errors.New("unknown identity kind segment")
+)
+
 func main() {
 	cfg := parseFlags()
 	if err := run(cfg); err != nil {
@@ -110,23 +118,18 @@ func parseFlags() sweepConfig {
 }
 
 func run(cfg sweepConfig) error {
-	if cfg.bucket == "" {
-		return errors.New("bucket is required")
+	if err := validateSweepConfig(cfg); err != nil {
+		return err
 	}
-
-	if cfg.rehydrate {
-		if cfg.coreAddress != "" {
-			_ = os.Setenv("CORE_ADDRESS", cfg.coreAddress)
-		} else if os.Getenv("CORE_ADDRESS") == "" {
-			return errors.New("rehydrate requested but CORE_ADDRESS not provided")
-		}
+	if err := ensureCoreAddress(cfg); err != nil {
+		return err
 	}
 
 	nc, err := connectNATS(cfg)
 	if err != nil {
 		return fmt.Errorf("connect to NATS: %w", err)
 	}
-	defer nc.Drain()
+	defer drainNATS(nc)
 
 	jsOpts := []nats.JSOpt{}
 	if cfg.jsDomain != "" {
@@ -145,14 +148,8 @@ func run(cfg sweepConfig) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	lister, err := kv.ListKeys()
-	if err != nil {
-		return fmt.Errorf("list keys: %w", err)
-	}
-	defer lister.Stop()
-
-	var problems []corruptRecord
 	stats := sweepStats{startedAt: time.Now()}
+	var problems []corruptRecord
 
 	var coreClient proto.CoreServiceClient
 	var coreCleanup func()
@@ -170,65 +167,8 @@ func run(cfg sweepConfig) error {
 		}
 	}
 
-loop:
-	for key := range lister.Keys() {
-		stats.totalKeys++
-		if cfg.prefix != "" && !strings.HasPrefix(key, cfg.prefix) {
-			continue
-		}
-		stats.filteredKeys++
-		if cfg.maxKeys > 0 && stats.filteredKeys > cfg.maxKeys {
-			break loop
-		}
-
-		entry, err := kv.Get(key)
-		if err != nil {
-			log.Printf("WARN: failed to get key %s: %v", key, err)
-			continue
-		}
-
-		value := entry.Value()
-		if _, err := identitymap.UnmarshalRecord(value); err != nil {
-			stats.corruptRecords++
-			rec := corruptRecord{
-				Key:      key,
-				Revision: entry.Revision(),
-				Error:    err.Error(),
-			}
-			if cfg.dumpDir != "" {
-				if path, dumpErr := dumpPayload(cfg.dumpDir, key, value); dumpErr != nil {
-					log.Printf("WARN: failed to dump payload for %s: %v", key, dumpErr)
-				} else {
-					rec.DumpedPayload = path
-				}
-			}
-
-			if cfg.deleteCorrupt {
-				if cfg.dryRun {
-					log.Printf("[dry-run] would delete %s (rev=%d)", key, entry.Revision())
-				} else if err := kv.Delete(key); err != nil {
-					stats.deleteFailures++
-					log.Printf("ERROR: failed to delete %s: %v", key, err)
-				} else {
-					stats.deleted++
-					log.Printf("Deleted %s (rev=%d)", key, entry.Revision())
-				}
-			}
-
-			if cfg.rehydrate && !cfg.dryRun && coreClient != nil {
-				if err := requestRehydrate(ctx, coreClient, key); err != nil {
-					stats.rehydrateFail++
-					log.Printf("WARN: rehydrate request for %s failed: %v", key, err)
-				} else {
-					stats.rehydrated++
-				}
-			}
-
-			problems = append(problems, rec)
-			continue
-		}
-
-		stats.validRecords++
+	if err := scanBucket(ctx, kv, cfg, &stats, &problems, coreClient); err != nil {
+		return err
 	}
 
 	if cfg.reportPath != "" {
@@ -266,6 +206,159 @@ loop:
 	}
 
 	return nil
+}
+
+func validateSweepConfig(cfg sweepConfig) error {
+	if cfg.bucket == "" {
+		return errBucketRequired
+	}
+	return nil
+}
+
+func ensureCoreAddress(cfg sweepConfig) error {
+	if !cfg.rehydrate {
+		return nil
+	}
+
+	if cfg.coreAddress != "" {
+		if err := os.Setenv("CORE_ADDRESS", cfg.coreAddress); err != nil {
+			return fmt.Errorf("set CORE_ADDRESS: %w", err)
+		}
+		return nil
+	}
+
+	if os.Getenv("CORE_ADDRESS") == "" {
+		return errRehydrateCoreAddress
+	}
+
+	return nil
+}
+
+func scanBucket(
+	ctx context.Context,
+	kv nats.KeyValue,
+	cfg sweepConfig,
+	stats *sweepStats,
+	problems *[]corruptRecord,
+	coreClient proto.CoreServiceClient,
+) error {
+	lister, err := kv.ListKeys()
+	if err != nil {
+		return fmt.Errorf("list keys: %w", err)
+	}
+	defer stopLister(lister)
+
+	for key := range lister.Keys() {
+		stats.totalKeys++
+		if cfg.prefix != "" && !strings.HasPrefix(key, cfg.prefix) {
+			continue
+		}
+
+		stats.filteredKeys++
+		if cfg.maxKeys > 0 && stats.filteredKeys > cfg.maxKeys {
+			break
+		}
+
+		if err := processKey(ctx, kv, key, cfg, stats, problems, coreClient); err != nil {
+			log.Printf("WARN: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func processKey(
+	ctx context.Context,
+	kv nats.KeyValue,
+	key string,
+	cfg sweepConfig,
+	stats *sweepStats,
+	problems *[]corruptRecord,
+	coreClient proto.CoreServiceClient,
+) error {
+	entry, err := kv.Get(key)
+	if err != nil {
+		return fmt.Errorf("failed to get key %s: %w", key, err)
+	}
+
+	value := entry.Value()
+	if _, err := identitymap.UnmarshalRecord(value); err != nil {
+		handleCorruptEntry(ctx, cfg, kv, key, entry, value, stats, problems, coreClient, err)
+		return nil
+	}
+
+	stats.validRecords++
+	return nil
+}
+
+func handleCorruptEntry(
+	ctx context.Context,
+	cfg sweepConfig,
+	kv nats.KeyValue,
+	key string,
+	entry nats.KeyValueEntry,
+	value []byte,
+	stats *sweepStats,
+	problems *[]corruptRecord,
+	coreClient proto.CoreServiceClient,
+	parseErr error,
+) {
+	stats.corruptRecords++
+	rec := corruptRecord{
+		Key:      key,
+		Revision: entry.Revision(),
+		Error:    parseErr.Error(),
+	}
+
+	if cfg.dumpDir != "" {
+		if path, dumpErr := dumpPayload(cfg.dumpDir, key, value); dumpErr != nil {
+			log.Printf("WARN: failed to dump payload for %s: %v", key, dumpErr)
+		} else {
+			rec.DumpedPayload = path
+		}
+	}
+
+	if cfg.deleteCorrupt {
+		if cfg.dryRun {
+			log.Printf("[dry-run] would delete %s (rev=%d)", key, entry.Revision())
+		} else if err := kv.Delete(key); err != nil {
+			stats.deleteFailures++
+			log.Printf("ERROR: failed to delete %s: %v", key, err)
+		} else {
+			stats.deleted++
+			log.Printf("Deleted %s (rev=%d)", key, entry.Revision())
+		}
+	}
+
+	if cfg.rehydrate && !cfg.dryRun && coreClient != nil {
+		if err := requestRehydrate(ctx, coreClient, key); err != nil {
+			stats.rehydrateFail++
+			log.Printf("WARN: rehydrate request for %s failed: %v", key, err)
+		} else {
+			stats.rehydrated++
+		}
+	}
+
+	*problems = append(*problems, rec)
+}
+
+func drainNATS(nc *nats.Conn) {
+	if nc == nil {
+		return
+	}
+
+	if err := nc.Drain(); err != nil {
+		log.Printf("WARN: failed to drain NATS connection: %v", err)
+	}
+}
+
+func stopLister(lister nats.KeyLister) {
+	if lister == nil {
+		return
+	}
+	if err := lister.Stop(); err != nil {
+		log.Printf("WARN: failed to stop key lister: %v", err)
+	}
 }
 
 func connectNATS(cfg sweepConfig) (*nats.Conn, error) {
@@ -369,10 +462,10 @@ func connectCore(ctx context.Context, cfg sweepConfig) (proto.CoreServiceClient,
 		address = os.Getenv("CORE_ADDRESS")
 	}
 	if address == "" {
-		return nil, nil, errors.New("CORE_ADDRESS not configured")
+		return nil, nil, errCoreAddressNotConfigured
 	}
 
-	conn, err := grpc.DialContext(ctx, address, dialOpts...)
+	conn, err := grpc.NewClient(address, dialOpts...)
 	if err != nil {
 		if provider != nil {
 			_ = provider.Close()
@@ -413,7 +506,7 @@ func keyFromPath(path string) (identitymap.Key, error) {
 	trimmed := strings.Trim(path, "/")
 	parts := strings.Split(trimmed, "/")
 	if len(parts) < 3 {
-		return identitymap.Key{}, fmt.Errorf("invalid key path: %s", path)
+		return identitymap.Key{}, fmt.Errorf("%w: %s", errInvalidKeyPath, path)
 	}
 
 	kind, err := kindFromSegment(parts[1])
@@ -447,7 +540,7 @@ func kindFromSegment(seg string) (identitymap.Kind, error) {
 	case "partition-ip":
 		return identitymap.KindPartitionIP, nil
 	default:
-		return identitymap.KindUnspecified, fmt.Errorf("unknown identity kind segment: %s", seg)
+		return identitymap.KindUnspecified, fmt.Errorf("%w: %s", errUnknownIdentitySegment, seg)
 	}
 }
 

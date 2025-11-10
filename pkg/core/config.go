@@ -22,6 +22,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -38,6 +39,13 @@ const (
 	defaultMetricsRetention  = 100
 	defaultMetricsMaxPollers = 10000
 	jwtAlgorithmRS256        = "RS256"
+)
+
+var (
+	errEmptyPrivateKey       = errors.New("empty private key")
+	errDecodePrivateKeyPEM   = errors.New("failed to decode private key PEM")
+	errUnsupportedPrivateKey = errors.New("unsupported private key type")
+	errNotRSAPrivateKey      = errors.New("decoded key is not RSA private key")
 )
 
 func LoadConfig(path string) (models.CoreServiceConfig, error) {
@@ -289,12 +297,12 @@ func hydrateJWTKeys(authConfig *models.AuthConfig) error {
 
 func derivePublicKeyPEM(privatePEM string) (string, error) {
 	if privatePEM == "" {
-		return "", fmt.Errorf("empty private key")
+		return "", errEmptyPrivateKey
 	}
 
 	block, _ := pem.Decode([]byte(privatePEM))
 	if block == nil {
-		return "", fmt.Errorf("failed to decode private key PEM")
+		return "", errDecodePrivateKeyPEM
 	}
 
 	var key any
@@ -305,7 +313,7 @@ func derivePublicKeyPEM(privatePEM string) (string, error) {
 	case "RSA PRIVATE KEY":
 		key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
 	default:
-		return "", fmt.Errorf("unsupported private key type %q", block.Type)
+		return "", fmt.Errorf("%w %q", errUnsupportedPrivateKey, block.Type)
 	}
 	if err != nil {
 		return "", err
@@ -313,7 +321,7 @@ func derivePublicKeyPEM(privatePEM string) (string, error) {
 
 	priv, ok := key.(*rsa.PrivateKey)
 	if !ok {
-		return "", fmt.Errorf("decoded key is not RSA private key")
+		return "", errNotRSAPrivateKey
 	}
 
 	pubDER, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)

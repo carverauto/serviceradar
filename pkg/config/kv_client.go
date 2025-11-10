@@ -44,8 +44,10 @@ type KVManager struct {
 }
 
 var (
-	errKVClientUnavailable = errors.New("KV client is unavailable")
-	errKVKeyEmpty          = errors.New("KV key is required")
+	errKVClientUnavailable   = errors.New("KV client is unavailable")
+	errKVKeyEmpty            = errors.New("KV key is required")
+	errDecodePrivateKeyPEM   = errors.New("failed to decode private key PEM")
+	errUnsupportedPrivateKey = errors.New("unsupported private key type")
 )
 
 // NewKVManagerFromEnv creates a KV manager from environment variables
@@ -293,7 +295,7 @@ func extractAuthConfig(cfg interface{}) *models.AuthConfig {
 func derivePublicKeyPEM(privatePEM string) (string, error) {
 	block, _ := pem.Decode([]byte(privatePEM))
 	if block == nil {
-		return "", fmt.Errorf("failed to decode private key PEM")
+		return "", errDecodePrivateKeyPEM
 	}
 	var key interface{}
 	var err error
@@ -311,7 +313,7 @@ func derivePublicKeyPEM(privatePEM string) (string, error) {
 		if pkcs1, ok := key.(*rsa.PrivateKey); ok {
 			rsaKey = pkcs1
 		} else {
-			return "", fmt.Errorf("unsupported private key type")
+			return "", errUnsupportedPrivateKey
 		}
 	}
 	pubDER, err := x509.MarshalPKIXPublicKey(&rsaKey.PublicKey)

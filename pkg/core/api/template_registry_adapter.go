@@ -18,6 +18,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/carverauto/serviceradar/pkg/config"
@@ -41,6 +42,8 @@ func NewTemplateRegistryAdapter(getter templateRegistryGetter) TemplateRegistry 
 	return &templateRegistryAdapter{getter: getter}
 }
 
+var errTemplateMissing = errors.New("template not found")
+
 // Get retrieves a template from the registry.
 func (a *templateRegistryAdapter) Get(serviceName string) ([]byte, config.ConfigFormat, error) {
 	resp, err := a.getter.GetTemplate(context.Background(), &proto.GetTemplateRequest{
@@ -51,7 +54,7 @@ func (a *templateRegistryAdapter) Get(serviceName string) ([]byte, config.Config
 	}
 
 	if !resp.Found {
-		return nil, "", fmt.Errorf("template not found for service %s", serviceName)
+		return nil, "", fmt.Errorf("%w: %s", errTemplateMissing, serviceName)
 	}
 
 	return resp.TemplateData, config.ConfigFormat(resp.Format), nil

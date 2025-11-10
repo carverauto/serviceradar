@@ -125,7 +125,7 @@ func (r *Registry) ListTemplates(ctx context.Context, req *proto.ListTemplatesRe
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var templates []*proto.TemplateInfo
+	templates := make([]*proto.TemplateInfo, 0, len(r.templates))
 	for name, tmpl := range r.templates {
 		if req.Prefix != "" && !strings.HasPrefix(name, req.Prefix) {
 			continue

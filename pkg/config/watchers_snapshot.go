@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -15,10 +16,12 @@ type WatcherSnapshot struct {
 
 const watcherSnapshotTTL = 5 * time.Minute
 
+var errWatcherServiceRequired = errors.New("service is required for watcher snapshot")
+
 // WatcherSnapshotKey returns the canonical KV key for a watcher record.
 func WatcherSnapshotKey(service, instanceID string) (string, error) {
 	if service == "" {
-		return "", fmt.Errorf("service is required for watcher snapshot")
+		return "", errWatcherServiceRequired
 	}
 	if instanceID == "" {
 		instanceID = service

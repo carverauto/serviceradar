@@ -36,7 +36,7 @@ func TestRegisterAndGetTemplate(t *testing.T) {
 	require.Equal(t, templateData, getResp.TemplateData)
 	require.Equal(t, "json", getResp.Format)
 	require.Equal(t, "1.0.0", getResp.ServiceVersion)
-	require.Greater(t, getResp.RegisteredAt, int64(0))
+	require.Positive(t, getResp.RegisteredAt)
 }
 
 func TestGetTemplateNotFound(t *testing.T) {

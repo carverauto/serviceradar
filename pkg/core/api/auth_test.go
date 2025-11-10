@@ -145,5 +145,5 @@ func TestHandleConfigWatchersWithKVStoreID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	var resp []config.WatcherInfo
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
-	require.Len(t, resp, 0)
+	require.Empty(t, resp)
 }
