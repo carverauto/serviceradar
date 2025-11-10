@@ -15877,7 +15877,7 @@
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {
-          "BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN": null,
+          "BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN": "1",
           "HOME": "/home/mfreeman",
           "OBAZL_OPAM_ENV": null,
           "OBAZL_USE_LOCAL_TC": null,
