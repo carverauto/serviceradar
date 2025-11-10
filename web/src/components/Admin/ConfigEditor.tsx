@@ -112,7 +112,7 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
     }
     const query = params.toString();
     return query ? `?${query}` : '';
-  }, [kvStore, needsAgentContext, service.agentId, canonicalServiceType]);
+  }, [kvStore, needsAgentContext, needsPollerContext, service.agentId, service.pollerId, canonicalServiceType]);
 
   const fetchConfig = React.useCallback(async () => {
     try {

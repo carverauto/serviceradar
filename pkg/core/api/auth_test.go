@@ -127,3 +127,23 @@ func TestHandleConfigWatchers(t *testing.T) {
 	require.Len(t, resp, 1)
 	require.Equal(t, "core", resp[0].Service)
 }
+
+func TestHandleConfigWatchersWithKVStoreID(t *testing.T) {
+	config.ResetWatchersForTest()
+	config.RegisterWatcher(config.WatcherRegistration{
+		Service: "core",
+		Scope:   config.ConfigScopeGlobal,
+		KVKey:   "config/core.json",
+	})
+
+	server := &APIServer{logger: logger.NewTestLogger()}
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/config/watchers?kv_store_id=leaf-a", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleConfigWatchers(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	var resp []config.WatcherInfo
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	require.Len(t, resp, 0)
+}

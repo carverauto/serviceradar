@@ -177,6 +177,8 @@ func defaultKVKeyFromPath(configPath string) string {
 // defaults reflect what operators see in manifests. It falls back to the in-
 // memory config struct if the file cannot be parsed.
 func sanitizeBootstrapSource(configPath string, cfg interface{}) ([]byte, error) {
+	ensureJWTPublicKey(cfg)
+
 	if configPath == "" {
 		return sanitizeForKV(cfg)
 	}
@@ -195,7 +197,7 @@ func sanitizeBootstrapSource(configPath string, cfg interface{}) ([]byte, error)
 		return sanitizeForKV(cfg)
 	}
 
-	ensureJWTPublicKey(clone)
+	ensureJWTPublicKeyWithFallback(clone, cfg)
 
 	return sanitizeForKV(clone)
 }
@@ -214,6 +216,10 @@ func cloneConfig(cfg interface{}) interface{} {
 }
 
 func ensureJWTPublicKey(cfg interface{}) {
+	ensureJWTPublicKeyWithFallback(cfg, nil)
+}
+
+func ensureJWTPublicKeyWithFallback(cfg interface{}, fallback interface{}) {
 	authCfg := extractAuthConfig(cfg)
 	if authCfg == nil {
 		return
@@ -223,12 +229,32 @@ func ensureJWTPublicKey(cfg interface{}) {
 		return
 	}
 
-	if authCfg.JWTPublicKeyPEM != "" || authCfg.JWTPrivateKeyPEM == "" {
+	if authCfg.JWTPublicKeyPEM != "" {
 		return
 	}
 
-	if pub, err := derivePublicKeyPEM(authCfg.JWTPrivateKeyPEM); err == nil {
+	priv := authCfg.JWTPrivateKeyPEM
+	keyID := authCfg.JWTKeyID
+
+	if priv == "" && fallback != nil {
+		if fbAuth := extractAuthConfig(fallback); fbAuth != nil {
+			priv = fbAuth.JWTPrivateKeyPEM
+			if keyID == "" {
+				keyID = fbAuth.JWTKeyID
+			}
+		}
+	}
+
+	if priv == "" {
+		return
+	}
+
+	if pub, err := derivePublicKeyPEM(priv); err == nil {
 		authCfg.JWTPublicKeyPEM = pub
+
+		if authCfg.JWTKeyID == "" && keyID != "" {
+			authCfg.JWTKeyID = keyID
+		}
 	}
 }
 
