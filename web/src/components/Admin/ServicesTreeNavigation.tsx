@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, ChevronDown, Server, Cpu, Package, Settings } from 'lucide-react';
 import KvInfoBadge from './KvInfoBadge';
+import type { ConfigDescriptor } from './types';
 
 export interface ServiceTreeService {
   name: string;
@@ -31,23 +32,16 @@ export interface SelectedServiceInfo {
   kvStore?: string; // kv_store_id
   pollerId?: string;
   agentId?: string;
+  descriptor?: ConfigDescriptor | null;
 }
-
-type ConfigDescriptor = {
-  name: string;
-  display_name?: string;
-  service_type: string;
-  scope: string;
-  kv_key?: string;
-  kv_key_template?: string;
-  format: string;
-  requires_agent?: boolean;
-};
 
 const toTitleCase = (value: string) =>
   value
     .replace(/[-_]/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const descriptorKey = (desc?: ConfigDescriptor | null) => (desc?.service_type || desc?.name || '').toLowerCase();
+const descriptorPath = (desc?: ConfigDescriptor | null) => desc?.service_type || desc?.name || '';
 
 interface Props {
   pollers?: ServiceTreePoller[];
@@ -57,70 +51,85 @@ interface Props {
   filterAgent?: string;
   filterService?: string;
   pageSize?: number; // services per agent page
+  configDescriptors?: ConfigDescriptor[];
 }
 
-export default function ServicesTreeNavigation({ pollers, selected, onSelect, filterPoller = '', filterAgent = '', filterService = '', pageSize = 200 }: Props) {
+export default function ServicesTreeNavigation({ pollers, selected, onSelect, filterPoller = '', filterAgent = '', filterService = '', pageSize = 200, configDescriptors = [] }: Props) {
   const [expandedPollers, setExpandedPollers] = useState<Set<string>>(new Set());
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
   const [loadingPollers, setLoadingPollers] = useState(false);
   const [tree, setTree] = useState<Record<string, ServiceTreePoller>>({});
-  const [configDescriptors, setConfigDescriptors] = useState<ConfigDescriptor[]>([]);
-  const globalServiceTypes = React.useMemo(
-    () =>
-      new Set(
-        configDescriptors
-          .filter((desc) => desc.scope === 'global')
-          .map((desc) => (desc.service_type || '').toLowerCase())
-          .filter(Boolean),
-      ),
-    [configDescriptors],
-  );
-  const descriptorByType = React.useMemo(() => {
+  const descriptorIndex = useMemo(() => {
     const map = new Map<string, ConfigDescriptor>();
     configDescriptors.forEach((desc) => {
-      const key = desc.service_type?.toLowerCase();
-      if (key) {
-        map.set(key, desc);
+      const keys = new Set<string>();
+      if (desc.service_type) {
+        keys.add(desc.service_type.toLowerCase());
       }
+      if (desc.name) {
+        keys.add(desc.name.toLowerCase());
+      }
+      keys.forEach((key) => {
+        if (!map.has(key)) {
+          map.set(key, desc);
+        }
+      });
     });
     return map;
   }, [configDescriptors]);
-  const resolveDescriptorForService = React.useCallback(
-    (svc?: { type?: string; name?: string } | null) => {
-      if (!svc) return null;
-      const typeKey = svc.type?.toLowerCase?.() ?? '';
-      const nameKey = svc.name?.toLowerCase?.() ?? '';
-      if (typeKey && descriptorByType.has(typeKey)) {
-        return descriptorByType.get(typeKey) ?? null;
+  const lookupDescriptor = React.useCallback(
+    (value?: string | null) => {
+      if (!value) {
+        return null;
       }
-      if (nameKey && descriptorByType.has(nameKey)) {
-        return descriptorByType.get(nameKey) ?? null;
+      const normalized = value.toLowerCase();
+      if (descriptorIndex.has(normalized)) {
+        return descriptorIndex.get(normalized) ?? null;
+      }
+      if (normalized.includes(':') || normalized.includes('/')) {
+        for (const token of normalized.split(/[:/]/)) {
+          if (!token) continue;
+          if (descriptorIndex.has(token)) {
+            return descriptorIndex.get(token) ?? null;
+          }
+        }
       }
       return null;
     },
-    [descriptorByType],
+    [descriptorIndex],
+  );
+  const resolveDescriptorForService = React.useCallback(
+    (svc?: { type?: string; name?: string } | null) => {
+      if (!svc) return null;
+      return lookupDescriptor(svc.type) ?? lookupDescriptor(svc.name);
+    },
+    [lookupDescriptor],
   );
   const getServiceLabel = React.useCallback(
     (serviceType: string) => {
-      const desc = descriptorByType.get(serviceType?.toLowerCase?.() ?? '');
+      const desc = lookupDescriptor(serviceType);
       if (!desc) {
         return toTitleCase(serviceType);
       }
       if (desc.display_name) {
         return desc.display_name;
       }
-      switch (desc.name) {
-        case 'otel':
-          return 'OTEL Collector';
-        case 'db-event-writer':
-          return 'DB Event Writer';
-        case 'zen-consumer':
-          return 'Zen Consumer';
-        default:
-          return toTitleCase(desc.name);
-      }
+      return toTitleCase(desc.name ?? serviceType);
     },
-    [descriptorByType],
+    [lookupDescriptor],
+  );
+  const globalDescriptors = React.useMemo(
+    () => configDescriptors.filter((desc) => desc.scope === 'global'),
+    [configDescriptors],
+  );
+  const globalServiceTypes = React.useMemo(
+    () =>
+      new Set(
+        globalDescriptors
+          .map((desc) => (desc.service_type || desc.name || '').toLowerCase())
+          .filter(Boolean),
+      ),
+    [globalDescriptors],
   );
   const filterGlobalServices = React.useCallback(
     (services: ServiceTreeService[] = []) =>
@@ -135,53 +144,63 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
     [globalServiceTypes, resolveDescriptorForService],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    const fetchDescriptors = async () => {
-      try {
-        const token = document.cookie
-          .split("; ")
-          .find((row) => row.startsWith("accessToken="))
-          ?.split("=")[1];
-        const resp = await fetch('/api/admin/config', { headers: token ? { 'Authorization': `Bearer ${token}` } : {} });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        if (!cancelled) {
-          setConfigDescriptors(Array.isArray(data) ? data : []);
-        }
-      } catch {
-        // ignore
-      }
-    };
-    fetchDescriptors();
-    return () => { cancelled = true; };
-  }, []);
-
-  const [globalServices, setGlobalServices] = useState<string[]>([]);
-  useEffect(() => {
-    setGlobalServices(Array.from(globalServiceTypes).filter(Boolean));
-  }, [globalServiceTypes]);
-
   // Global services (not scoped to agents/pollers)
   const [globalOpen, setGlobalOpen] = useState<boolean>(false);
+  const orderedGlobalDescriptors = React.useMemo(
+    () =>
+      [...globalDescriptors].sort((a, b) => {
+        const left = a.display_name || a.name || a.service_type;
+        const right = b.display_name || b.name || b.service_type;
+        return left.localeCompare(right);
+      }),
+    [globalDescriptors],
+  );
+  const agentAddOptions = React.useMemo(() => {
+    return configDescriptors
+      .filter((desc) => desc.scope === 'agent' && desc.requires_agent)
+      .map((desc) => {
+        const canonicalType = descriptorPath(desc);
+        if (!canonicalType) {
+          return null;
+        }
+        return {
+          label: desc.display_name ?? toTitleCase(desc.name ?? canonicalType),
+          type: canonicalType,
+          descriptor: desc,
+        };
+      })
+      .filter((entry): entry is { label: string; type: string; descriptor: ConfigDescriptor } => Boolean(entry))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [configDescriptors]);
   const [globalStatus, setGlobalStatus] = useState<Record<string, 'unknown' | 'configured' | 'missing'>>({});
 
   useEffect(() => {
-    if (globalServices.length === 0) {
+    if (orderedGlobalDescriptors.length === 0) {
+      setGlobalStatus({});
       return;
     }
     setGlobalStatus(prev => {
       const next = { ...prev };
       let mutated = false;
-      globalServices.forEach((svc) => {
-        if (!next[svc]) {
-          next[svc] = 'unknown';
+      const activeKeys = new Set<string>();
+      orderedGlobalDescriptors.forEach((desc) => {
+        const key = descriptorKey(desc);
+        if (!key) return;
+        activeKeys.add(key);
+        if (!next[key]) {
+          next[key] = 'unknown';
+          mutated = true;
+        }
+      });
+      Object.keys(next).forEach((key) => {
+        if (!activeKeys.has(key)) {
+          delete next[key];
           mutated = true;
         }
       });
       return mutated ? next : prev;
     });
-  }, [globalServices]);
+  }, [orderedGlobalDescriptors]);
 
   useEffect(() => {
     const loadStatus = async () => {
@@ -192,16 +211,17 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
           ?.split("=")[1];
         const headers: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
         const results: Record<string, 'configured' | 'missing' | 'unknown'> = {};
-        await Promise.all(globalServices.map(async (type) => {
-          const svc = type?.toLowerCase();
-          if (!svc) {
+        await Promise.all(orderedGlobalDescriptors.map(async (desc) => {
+          const svc = descriptorPath(desc);
+          const key = descriptorKey(desc);
+          if (!svc || !key) {
             return;
           }
           try {
             const resp = await fetch(`/api/admin/config/${svc}`, { headers });
-            results[svc] = resp.ok ? 'configured' : 'missing';
+            results[key] = resp.ok ? 'configured' : 'missing';
           } catch {
-            results[svc] = 'unknown';
+            results[key] = 'unknown';
           }
         }));
         setGlobalStatus(prev => ({ ...prev, ...results }));
@@ -209,12 +229,18 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
         // ignore
       }
     };
-    if (!globalOpen || globalServices.length === 0) {
+    if (!globalOpen || orderedGlobalDescriptors.length === 0) {
       return;
     }
-    const anyUnknown = globalServices.some((svc) => (globalStatus[svc] ?? 'unknown') === 'unknown');
+    const anyUnknown = orderedGlobalDescriptors.some((desc) => {
+      const key = descriptorKey(desc);
+      if (!key) {
+        return false;
+      }
+      return (globalStatus[key] ?? 'unknown') === 'unknown';
+    });
     if (anyUnknown) loadStatus();
-  }, [globalOpen, globalServices, globalStatus]);
+  }, [globalOpen, orderedGlobalDescriptors, globalStatus]);
 
   // Listen for config saves to update global status indicator immediately
   useEffect(() => {
@@ -572,21 +598,25 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
         </div>
         {globalOpen && (
           <div className="ml-4 text-sm">
-            {globalServices.length === 0 && (
+            {orderedGlobalDescriptors.length === 0 && (
               <div className="p-1 text-xs text-gray-500">No global services registered.</div>
             )}
-            {globalServices.map((svc) => {
-              const desc = descriptorByType.get(svc);
-              const label = getServiceLabel(svc);
-              const rowId = `global::${desc?.name ?? svc}`;
-              const status = globalStatus[svc] ?? 'unknown';
+            {orderedGlobalDescriptors.map((desc) => {
+              const canonicalType = descriptorPath(desc);
+              if (!canonicalType) {
+                return null;
+              }
+              const key = descriptorKey(desc);
+              const label = getServiceLabel(canonicalType);
+              const rowId = `global::${desc.name ?? canonicalType}`;
+              const status = key ? (globalStatus[key] ?? 'unknown') : 'unknown';
               const statusClass = status === 'configured' ? 'bg-green-500' : status === 'missing' ? 'bg-gray-400' : 'bg-yellow-400';
               const statusTitle = status === 'configured' ? 'Configured' : status === 'missing' ? 'Not configured' : 'Checking…';
               return (
                 <div
-                  key={svc}
+                  key={rowId}
                   className={`flex items-center gap-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === rowId ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                  onClick={() => onSelect({ id: rowId, name: label, type: svc, kvStore: '' })}
+                  onClick={() => onSelect({ id: rowId, name: label, type: canonicalType, kvStore: '', descriptor: desc })}
                 >
                   <span className="w-3" />
                   <span>{label}</span>
@@ -621,7 +651,14 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
               {/* Poller-level selection */}
               <div
                 className={`flex items-center gap-2 p-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === `poller:${p.poller_id}` ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                onClick={() => onSelect({ id: `poller:${p.poller_id}`, name: p.poller_id, type: 'poller', kvStore: p.kv_store_ids?.[0], pollerId: p.poller_id })}
+                onClick={() => onSelect({
+                  id: `poller:${p.poller_id}`,
+                  name: p.poller_id,
+                  type: 'poller',
+                  kvStore: p.kv_store_ids?.[0],
+                  pollerId: p.poller_id,
+                  descriptor: lookupDescriptor('poller'),
+                })}
               >
                 {iconForType('poller')}
                 <span>Configure poller</span>
@@ -641,7 +678,15 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
                       {/* Agent-level selection */}
                       <div
                         className={`flex items-center gap-2 p-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer ${selected?.id === `agent:${p.poller_id}:${a.agent_id}` ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                        onClick={() => onSelect({ id: `agent:${p.poller_id}:${a.agent_id}`, name: a.agent_id, type: 'agent', kvStore: a.kv_store_ids?.[0], pollerId: p.poller_id, agentId: a.agent_id })}
+                        onClick={() => onSelect({
+                          id: `agent:${p.poller_id}:${a.agent_id}`,
+                          name: a.agent_id,
+                          type: 'agent',
+                          kvStore: a.kv_store_ids?.[0],
+                          pollerId: p.poller_id,
+                          agentId: a.agent_id,
+                          descriptor: lookupDescriptor('agent'),
+                        })}
                       >
                         {iconForType('agent')}
                         <span>Configure agent</span>
@@ -650,36 +695,39 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
                         const services = (a.services || []).filter(s => !filterService || s.name.toLowerCase().includes(filterService.toLowerCase()));
                         if (services.length === 0) {
                           const key = `${p.poller_id}:${a.agent_id}`;
-                          const supported = [
-                            { label: 'SNMP', type: 'snmp' },
-                            { label: 'Sweep', type: 'sweep' },
-                            { label: 'SysMon', type: 'sysmon' },
-                            { label: 'rPerf', type: 'rperf' },
-                            { label: 'Trapd', type: 'trapd' },
-                            { label: 'Mapper', type: 'mapper' },
-                          ];
                           return (
                             <div className="mt-2 ml-2 text-xs text-gray-600 dark:text-gray-400">
                               <div className="mb-1">No configured services yet.</div>
                               <div className="relative inline-block">
                                 <button
-                                  className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                  className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-60"
+                                  disabled={agentAddOptions.length === 0}
                                   onClick={(e) => { e.stopPropagation(); setOpenAddMenuFor(openAddMenuFor === key ? null : key); }}
                                 >
-                                  Add service
+                                  {agentAddOptions.length === 0 ? 'No descriptors' : 'Add service'}
                                 </button>
-                                {openAddMenuFor === key && (
-                                  <div className="absolute z-20 mt-1 w-40 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow">
-                                    {supported.map(s => (
+                                {openAddMenuFor === key && agentAddOptions.length > 0 && (
+                                  <div className="absolute z-20 mt-1 w-48 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow">
+                                    {agentAddOptions.map((option) => (
                                       <button
-                                        key={s.type}
+                                        key={option.type}
                                         className="w-full text-left px-3 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700"
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           setOpenAddMenuFor(null);
-                                          onSelect({ id: `newsvc:${p.poller_id}:${a.agent_id}:${s.type}`, name: s.type, type: s.type, kvStore: a.kv_store_ids?.[0], pollerId: p.poller_id, agentId: a.agent_id });
+                                          onSelect({
+                                            id: `newsvc:${p.poller_id}:${a.agent_id}:${option.type}`,
+                                            name: option.label,
+                                            type: option.type,
+                                            kvStore: a.kv_store_ids?.[0],
+                                            pollerId: p.poller_id,
+                                            agentId: a.agent_id,
+                                            descriptor: option.descriptor,
+                                          });
                                         }}
-                                      >{s.label}</button>
+                                      >
+                                        {option.label}
+                                      </button>
                                     ))}
                                   </div>
                                 )}
@@ -709,6 +757,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
                                   kvStore: svc.kv_store_id,
                                   pollerId: p.poller_id,
                                   agentId: a.agent_id,
+                                  descriptor,
                                 });
                               }}
                             >

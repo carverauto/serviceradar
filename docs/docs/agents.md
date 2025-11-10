@@ -85,6 +85,53 @@ Once the sync pod reports “Completed streaming results”, the canonical table
   kubectl exec -n demo deploy/serviceradar-tools -- nats-kv get config/flowgger.toml
   ```
 
+### Descriptor metadata health
+
+1. Hit the admin metadata endpoint before assuming the UI is missing a form:
+
+   ```bash
+   curl -sS -H "Authorization: Bearer ${TOKEN}" \
+     https://<core-host>/api/admin/config | jq '.[].service_type'
+   ```
+
+   Every service shown in the UI now comes directly from this payload. If a node is greyed out, confirm the descriptor exists here and that it advertises the right `scope`/`kv_key_template`.
+2. Fetch the concrete config and metadata in the same session to prove KV state is present:
+
+   ```bash
+   curl -sS -H "Authorization: Bearer ${TOKEN}" \
+     "https://<core-host>/api/admin/config/core" | jq '.metadata'
+   ```
+
+   A `404` at this step means the service never registered its template—usually because the workload did not start with `CONFIG_SOURCE=kv` or SPIFFE could not reach core.
+
+### Watcher telemetry outside the demo cluster
+
+- After rolling Helm or docker-compose, verify watchers register in the new process (not just the demo namespace):
+
+  ```bash
+  curl -sS -H "Authorization: Bearer ${TOKEN}" \
+    https://<core-host>/api/admin/config/watchers | jq '.[] | {service, kv_key, status}'
+  ```
+
+  The table should include every global service plus any agent checkers that have reported in. Use the same call when a customer cluster reports “stale config” so you can immediately see if the watcher stopped.
+- The Admin UI’s Watcher Telemetry panel is just a thin wrapper around the same endpoint. Keep it pinned while other environments roll so you can capture a screenshot proving the watchers stayed registered.
+
+### Expected KV keys
+
+- Global defaults must exist even if no devices are configured yet. Spot check the following whenever `/api/admin/config/*` starts returning `404`s:
+
+  ```
+  config/core.json
+  config/sync.json
+  config/poller.json
+  config/agent.json
+  config/flowgger.toml
+  config/otel.toml
+  config/db-event-writer.json
+  config/zen-consumer.json
+  ```
+- Agent checkers follow `agents/<agent_id>/checkers/<service>/<service>.json`. When the UI requests an agent-scoped service it now always passes the descriptor metadata—if the API still returns `404`, exec into `serviceradar-tools` and confirm the key exists with `nats-kv get`.
+
 - All Rust collectors now link the shared bootstrap library and pull KV at boot. If you need to rehydrate configs manually, exec into the pod and write the baked template back to disk:
 
   ```bash

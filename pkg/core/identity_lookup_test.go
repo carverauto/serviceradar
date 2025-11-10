@@ -47,6 +47,10 @@ func (f *fakeIdentityKV) Update(ctx context.Context, in *proto.UpdateRequest, _ 
 	return &proto.UpdateResponse{}, nil
 }
 
+func (f *fakeIdentityKV) Delete(ctx context.Context, in *proto.DeleteRequest, _ ...grpc.CallOption) (*proto.DeleteResponse, error) {
+	return &proto.DeleteResponse{}, nil
+}
+
 func TestGetCanonicalDevice_FromKV(t *testing.T) {
 	t.Parallel()
 

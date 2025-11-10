@@ -29,6 +29,7 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,15 +45,15 @@ import (
 var defaultConfigTemplate []byte
 
 var (
-	errConfigNil                     = errors.New("config must not be nil")
-	errListenAddressRequired         = errors.New("server.listen_address is required")
-	errReadTimeoutRequired           = errors.New("server.read_timeout is required")
-	errWriteTimeoutRequired          = errors.New("server.write_timeout is required")
-	errIdleTimeoutRequired           = errors.New("server.idle_timeout is required")
-	errIPShuffleIntervalRequired     = errors.New("simulation.ip_shuffle.interval is required")
-	errIPShufflePercentageInvalid    = errors.New("simulation.ip_shuffle.percentage must be > 0")
-	errDataDirRequired               = errors.New("storage.data_dir is required")
-	errDevicesFileRequired           = errors.New("storage.devices_file is required")
+	errConfigNil                  = errors.New("config must not be nil")
+	errListenAddressRequired      = errors.New("server.listen_address is required")
+	errReadTimeoutRequired        = errors.New("server.read_timeout is required")
+	errWriteTimeoutRequired       = errors.New("server.write_timeout is required")
+	errIdleTimeoutRequired        = errors.New("server.idle_timeout is required")
+	errIPShuffleIntervalRequired  = errors.New("simulation.ip_shuffle.interval is required")
+	errIPShufflePercentageInvalid = errors.New("simulation.ip_shuffle.percentage must be > 0")
+	errDataDirRequired            = errors.New("storage.data_dir is required")
+	errDevicesFileRequired        = errors.New("storage.devices_file is required")
 )
 
 const (
@@ -484,37 +485,73 @@ func loadFakerConfig(ctx context.Context, path string, cfg *Config) *cfgbootstra
 		log.Fatalf("faker descriptor missing")
 	}
 
-	if strings.TrimSpace(path) == "" {
+	configPath := strings.TrimSpace(path)
+	if configPath == "" {
 		if err := cfg.Validate(); err != nil {
 			log.Fatalf("default faker configuration invalid: %v", err)
 		}
 		return nil
 	}
 
-	info, err := os.Stat(path)
+	useKV := strings.EqualFold(os.Getenv("CONFIG_SOURCE"), "kv")
+	resolvedPath := configPath
+
+	info, err := os.Stat(configPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			if err := cfg.Validate(); err != nil {
-				log.Fatalf("default faker configuration invalid: %v", err)
+			if !useKV {
+				if err := cfg.Validate(); err != nil {
+					log.Fatalf("default faker configuration invalid: %v", err)
+				}
+				log.Printf("Config file %s not found; using defaults", configPath)
+				return nil
 			}
-			log.Printf("Config file %s not found; using defaults", path)
-			return nil
+
+			materializedPath, matErr := materializeEmbeddedConfig(configPath)
+			if matErr != nil {
+				log.Fatalf("Failed to materialize default faker config for KV bootstrap: %v", matErr)
+			}
+			log.Printf("Config file %s not found; using embedded defaults from %s for KV bootstrap", configPath, materializedPath)
+			resolvedPath = materializedPath
+		} else {
+			if !useKV {
+				log.Fatalf("Failed to inspect config file %s: %v", configPath, err)
+			}
+
+			materializedPath, matErr := materializeEmbeddedConfig(configPath)
+			if matErr != nil {
+				log.Fatalf("Failed to materialize fallback faker config for KV bootstrap: %v", matErr)
+			}
+			log.Printf("Unable to read config file %s (%v); using embedded defaults from %s for KV bootstrap", configPath, err, materializedPath)
+			resolvedPath = materializedPath
 		}
-		log.Fatalf("Failed to inspect config file %s: %v", path, err)
-	}
-	if info.IsDir() {
-		log.Fatalf("config path %s is a directory", path)
+	} else if info.IsDir() {
+		log.Fatalf("config path %s is a directory", configPath)
 	}
 
 	result, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, cfg, defaultConfigTemplate, cfgbootstrap.ServiceOptions{
 		Role:         models.RoleAgent,
-		ConfigPath:   path,
+		ConfigPath:   resolvedPath,
 		DisableWatch: true,
 	})
 	if err != nil {
 		log.Fatalf("Failed to load faker config: %v", err)
 	}
 	return result
+}
+
+func materializeEmbeddedConfig(targetPath string) (string, error) {
+	dir, err := os.MkdirTemp("", "serviceradar-faker-config-*")
+	if err != nil {
+		return "", err
+	}
+
+	fullPath := filepath.Join(dir, filepath.Base(targetPath))
+	if err := os.WriteFile(fullPath, defaultConfigTemplate, 0o600); err != nil {
+		return "", err
+	}
+
+	return fullPath, nil
 }
 
 // tokenHandler handles POST requests for /api/v1/access_token/

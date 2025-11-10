@@ -931,6 +931,7 @@ type ServiceNode struct {
 	Name      string `json:"name"`
 	Type      string `json:"type"`
 	AgentID   string `json:"agent_id"`
+	PollerID  string `json:"poller_id,omitempty"`
 	KvStoreID string `json:"kv_store_id,omitempty"`
 }
 
@@ -1011,6 +1012,7 @@ func (s *APIServer) buildAgentServices(services []ServiceStatus, filters service
 			Name:      svc.Name,
 			Type:      svc.Type,
 			AgentID:   agentID,
+			PollerID:  pollerID,
 			KvStoreID: svc.KvStoreID,
 		}
 
@@ -1022,7 +1024,7 @@ func (s *APIServer) buildAgentServices(services []ServiceStatus, filters service
 
 // isServiceConfigured checks if a service is configured in KV store
 func (s *APIServer) isServiceConfigured(ctx context.Context, sn ServiceNode) bool {
-	_, key, _, err := s.resolveServiceKey(sn.Type, sn.Type, sn.AgentID)
+	_, key, _, err := s.resolveServiceKey(sn.Type, sn.Type, sn.AgentID, sn.PollerID)
 	if err != nil || key == "" {
 		return false
 	}

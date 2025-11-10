@@ -80,6 +80,12 @@ func run() error {
 		Role:         models.RoleAgent,
 		ConfigPath:   *configPath,
 		DisableWatch: true,
+		KeyContextFn: func(conf interface{}) config.KeyContext {
+			if agentCfg, ok := conf.(*agent.ServerConfig); ok {
+				return config.KeyContext{AgentID: agentCfg.AgentID}
+			}
+			return config.KeyContext{}
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -112,6 +118,9 @@ func run() error {
 	}
 
 	// KV Watch: overlay and apply hot-reload on relevant changes
+	if cfg.AgentID != "" {
+		bootstrapResult.SetInstanceID(cfg.AgentID)
+	}
 	bootstrapResult.StartWatch(ctx, agentLogger, &cfg, func() {
 		server.UpdateConfig(&cfg)
 		server.RestartServices(ctx)

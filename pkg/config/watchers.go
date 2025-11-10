@@ -23,27 +23,32 @@ type WatcherRegistration struct {
 	Service string
 	Scope   ConfigScope
 	KVKey   string
+	// InstanceID uniquely identifies the process publishing watcher state (agent_id, poller_id, etc.)
+	InstanceID string
 }
 
 // WatcherInfo exposes runtime metadata for an active watcher.
 type WatcherInfo struct {
-	ID        string        `json:"id"`
-	Service   string        `json:"service"`
-	Scope     ConfigScope   `json:"scope"`
-	KVKey     string        `json:"kv_key"`
-	StartedAt time.Time     `json:"started_at"`
-	LastEvent time.Time     `json:"last_event,omitempty"`
-	Status    WatcherStatus `json:"status"`
-	LastError string        `json:"last_error,omitempty"`
+	ID         string        `json:"id"`
+	Service    string        `json:"service"`
+	InstanceID string        `json:"instance_id"`
+	Scope      ConfigScope   `json:"scope"`
+	KVKey      string        `json:"kv_key"`
+	StartedAt  time.Time     `json:"started_at"`
+	LastEvent  time.Time     `json:"last_event,omitempty"`
+	Status     WatcherStatus `json:"status"`
+	LastError  string        `json:"last_error,omitempty"`
 }
 
 type watcherContextKey struct{}
 
 //nolint:gochecknoglobals // Watcher state must be package-level for cross-function access
 var (
-	watcherMu   sync.RWMutex
-	watchers    = make(map[string]*WatcherInfo)
-	watcherCtxK = watcherContextKey{}
+	watcherMu    sync.RWMutex
+	watchers     = make(map[string]*WatcherInfo)
+	watcherCtxK  = watcherContextKey{}
+	updateHookMu sync.RWMutex
+	updateHook   func(info WatcherInfo)
 )
 
 // RegisterWatcher records watcher metadata and returns a watcher ID.
@@ -51,14 +56,16 @@ func RegisterWatcher(reg WatcherRegistration) string {
 	id := uuid.NewString()
 	watcherMu.Lock()
 	watchers[id] = &WatcherInfo{
-		ID:        id,
-		Service:   reg.Service,
-		Scope:     reg.Scope,
-		KVKey:     reg.KVKey,
-		StartedAt: time.Now().UTC(),
-		Status:    WatcherStatusRunning,
+		ID:         id,
+		Service:    reg.Service,
+		InstanceID: reg.InstanceID,
+		Scope:      reg.Scope,
+		KVKey:      reg.KVKey,
+		StartedAt:  time.Now().UTC(),
+		Status:     WatcherStatusRunning,
 	}
 	watcherMu.Unlock()
+	dispatchWatcherUpdate(*watchers[id])
 	return id
 }
 
@@ -86,6 +93,7 @@ func MarkWatcherEvent(id string, err error) {
 		info.Status = WatcherStatusRunning
 		info.LastError = ""
 	}
+	dispatchWatcherUpdate(*info)
 }
 
 // MarkWatcherStopped marks the watcher as stopped and records the last error if present.
@@ -106,6 +114,7 @@ func MarkWatcherStopped(id string, err error) {
 	if info.LastEvent.IsZero() {
 		info.LastEvent = time.Now().UTC()
 	}
+	dispatchWatcherUpdate(*info)
 }
 
 // ListWatchers returns a snapshot of registered watchers.
@@ -151,4 +160,20 @@ func resetWatchersForTest() {
 // ResetWatchersForTest exposes a safe way for other packages to clear watcher state in tests.
 func ResetWatchersForTest() {
 	resetWatchersForTest()
+}
+
+// SetWatcherUpdateHook registers a callback invoked whenever watcher state changes.
+func SetWatcherUpdateHook(fn func(info WatcherInfo)) {
+	updateHookMu.Lock()
+	defer updateHookMu.Unlock()
+	updateHook = fn
+}
+
+func dispatchWatcherUpdate(info WatcherInfo) {
+	updateHookMu.RLock()
+	defer updateHookMu.RUnlock()
+	if updateHook != nil {
+		// Dispatch asynchronously so watcher updates do not block config reloads.
+		go updateHook(info)
+	}
 }
