@@ -30,6 +30,9 @@ rust_library(
     crate_root = "src/lib.rs",
     crate_name = "profiler",
     edition = "2021",
+    compile_data = [
+        "config/default_template.toml",
+    ],
     deps = all_crate_deps(normal = True) + [
         ":build_script",
         "//cmd/ebpf/profiler/profiler-common:profiler_common",
@@ -41,5 +44,5 @@ rust_binary(
     name = "profiler",
     srcs = ["src/main.rs"],
     edition = "2021",
-    deps = [":profiler_lib"] + all_crate_deps(normal = True),
+    deps = [":profiler_lib", "//rust/config-bootstrap:config_bootstrap"] + all_crate_deps(normal = True),
 )

@@ -16,12 +16,12 @@
 
 use anyhow::{Context, Result};
 use clap::{App, Arg};
+use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat, RestartHandle};
 use log::{info, warn};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use serviceradar_rperf_checker::config::Config;
-use serviceradar_rperf_checker::server::RPerfTestOrchestrator;
+use serviceradar_rperf_checker::{config::Config, server::RPerfTestOrchestrator, template};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -52,7 +52,36 @@ async fn main() -> Result<()> {
 
     // Load configuration
     info!("Loading configuration from {config_path:?}");
-    let config = Config::from_file(&config_path).context("Failed to load configuration")?;
+    template::ensure_config_file(&config_path)
+        .with_context(|| format!("failed to install default config at {config_path:?}"))?;
+    let config_path_str = config_path.display().to_string();
+    let use_kv = std::env::var("CONFIG_SOURCE").ok().as_deref() == Some("kv");
+    let kv_key = use_kv.then(|| "config/rperf-checker.json".to_string());
+    let mut bootstrap = Bootstrap::new(BootstrapOptions {
+        service_name: "rperf-checker".to_string(),
+        config_path: config_path_str.clone(),
+        format: ConfigFormat::Json,
+        kv_key,
+        seed_kv: use_kv,
+        watch_kv: use_kv,
+    })
+    .await?;
+    let config: Config = bootstrap
+        .load()
+        .await
+        .with_context(|| format!("failed to load configuration from {config_path_str}"))?;
+
+    if use_kv {
+        if let Some(watcher) = bootstrap.watch::<Config>().await? {
+            let restarter = RestartHandle::new("rperf-checker", "config/rperf-checker.json");
+            tokio::spawn(async move {
+                let mut cfg_watcher = watcher;
+                while cfg_watcher.recv().await.is_some() {
+                    restarter.trigger();
+                }
+            });
+        }
+    }
 
     // Print configuration summary
     info!("Loaded configuration with {} targets", config.targets.len());

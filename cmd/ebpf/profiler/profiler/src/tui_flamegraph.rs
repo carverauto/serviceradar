@@ -66,18 +66,20 @@ impl FlameGraphTUI {
         // Build the flame graph tree structure
         for stack_trace in stack_traces {
             let mut current_node = &mut flame_tree;
-            
+
             // Walk down the stack (reverse order for flame graph)
             for frame in stack_trace.frames.iter().rev() {
                 if !current_node.children.contains_key(frame) {
-                    current_node.children.insert(frame.clone(), FlameNode::new(frame.clone()));
+                    current_node
+                        .children
+                        .insert(frame.clone(), FlameNode::new(frame.clone()));
                 }
-                
+
                 // Add samples to the path from root to this node
                 current_node.add_child_sample(stack_trace.count);
                 current_node = current_node.children.get_mut(frame).unwrap();
             }
-            
+
             // Add samples to the leaf node
             current_node.add_sample(stack_trace.count);
         }
@@ -190,9 +192,16 @@ impl FlameGraphTUI {
         // Header
         let header = Paragraph::new(vec![
             Line::from(vec![
-                Span::styled("Flame Graph Viewer", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::raw(format!(" - PID: {} | Duration: {}s | Total Samples: {}", 
-                    self.pid, self.duration, self.total_samples)),
+                Span::styled(
+                    "Flame Graph Viewer",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(format!(
+                    " - PID: {} | Duration: {}s | Total Samples: {}",
+                    self.pid, self.duration, self.total_samples
+                )),
             ]),
             Line::from(format!("Path: {}", self.current_path.join(" → "))),
         ])
@@ -208,26 +217,21 @@ impl FlameGraphTUI {
             .iter()
             .map(|(name, node)| {
                 let percentage = (node.total_samples as f64 / self.total_samples as f64) * 100.0;
-                let self_percentage = (node.self_samples as f64 / self.total_samples as f64) * 100.0;
-                
+                let self_percentage =
+                    (node.self_samples as f64 / self.total_samples as f64) * 100.0;
+
                 let content = if node.self_samples > 0 {
                     format!(
                         "{:<50} {:>8} ({:>5.1}%) self: {} ({:.1}%)",
-                        name,
-                        node.total_samples,
-                        percentage,
-                        node.self_samples,
-                        self_percentage
+                        name, node.total_samples, percentage, node.self_samples, self_percentage
                     )
                 } else {
                     format!(
                         "{:<50} {:>8} ({:>5.1}%)",
-                        name,
-                        node.total_samples,
-                        percentage
+                        name, node.total_samples, percentage
                     )
                 };
-                
+
                 let style = if percentage > 10.0 {
                     Style::default().fg(Color::Red)
                 } else if percentage > 5.0 {
@@ -235,14 +239,18 @@ impl FlameGraphTUI {
                 } else {
                     Style::default().fg(Color::Green)
                 };
-                
+
                 ListItem::new(content).style(style)
             })
             .collect();
 
         let list = List::new(items)
             .block(Block::default().borders(Borders::ALL).title("Functions"))
-            .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+            .highlight_style(
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )
             .highlight_symbol("► ");
 
         f.render_stateful_widget(list, chunks[1], list_state);
@@ -282,11 +290,11 @@ mod tests {
     fn test_flamegraph_tree_building() {
         let stack_traces = create_test_stack_traces();
         let tui = FlameGraphTUI::new(stack_traces, 123, 30);
-        
+
         assert_eq!(tui.total_samples, 35);
         assert_eq!(tui.flame_tree.total_samples, 35);
         assert_eq!(tui.flame_tree.children.len(), 1); // Should have "main" as only child
-        
+
         let main_node = tui.flame_tree.children.get("main").unwrap();
         assert_eq!(main_node.total_samples, 35);
         assert_eq!(main_node.children.len(), 2); // "foo" and "other"

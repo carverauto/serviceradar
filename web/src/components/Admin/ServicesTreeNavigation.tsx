@@ -101,7 +101,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
   const resolveDescriptorForService = React.useCallback(
     (svc?: { type?: string; name?: string } | null) => {
       if (!svc) return null;
-      return lookupDescriptor(svc.type) ?? lookupDescriptor(svc.name);
+      return lookupDescriptor(svc.name) ?? lookupDescriptor(svc.type);
     },
     [lookupDescriptor],
   );
@@ -131,17 +131,29 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
       ),
     [globalDescriptors],
   );
+  const globalDescriptorNames = React.useMemo(
+    () =>
+      new Set(
+        globalDescriptors
+          .map((desc) => (desc.name || '').toLowerCase())
+          .filter(Boolean),
+      ),
+    [globalDescriptors],
+  );
   const filterGlobalServices = React.useCallback(
     (services: ServiceTreeService[] = []) =>
       services.filter((svc) => {
         const desc = resolveDescriptorForService(svc);
-        const canonical = (desc?.service_type ?? svc.type ?? '').toLowerCase();
-        if (!canonical) {
-          return true;
+        if (desc) {
+          return desc.scope !== 'global';
         }
-        return !globalServiceTypes.has(canonical);
+        const normalizedName = (svc.name || '').toLowerCase();
+        if (normalizedName && globalDescriptorNames.has(normalizedName)) {
+          return false;
+        }
+        return true;
       }),
-    [globalServiceTypes, resolveDescriptorForService],
+    [globalDescriptorNames, resolveDescriptorForService],
   );
 
   // Global services (not scoped to agents/pollers)

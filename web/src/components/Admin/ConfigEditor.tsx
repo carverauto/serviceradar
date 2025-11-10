@@ -109,6 +109,17 @@ export default function ConfigEditor({ service, kvStore, onSave, onClose }: Conf
   }, [descriptorMeta, service.pollerId, service.type]);
   const scopeHint = descriptorMeta?.scope ?? (needsAgentContext ? 'agent' : needsPollerContext ? 'poller' : 'global');
 
+  const applyJsonConfig = useCallback(
+    (payload: unknown) => {
+      const normalized = normalizeConfigPayload(payload);
+      setIsToml(false);
+      setConfig(normalized);
+      setRawValue('');
+      setJsonValue(JSON.stringify(normalized, null, 2));
+    },
+    [setConfig, setIsToml, setRawValue, setJsonValue],
+  );
+
   const buildConfigQuery = React.useCallback(() => {
     const params = new URLSearchParams();
     if (kvStore) {
@@ -455,9 +466,19 @@ export default function ConfigEditor({ service, kvStore, onSave, onClose }: Conf
     }
   };
 
+  const currentConfig = React.useMemo(() => {
+    if (isToml) return null;
+    return config;
+  }, [isToml, config]);
+
   const copyToClipboard = () => {
     navigator.clipboard.writeText(jsonValue);
   };
+
+  const effectiveServiceType = React.useMemo(
+    () => (canonicalServiceType || service.type || '').toLowerCase(),
+    [canonicalServiceType, service.type],
+  );
 
   const renderConfigForm = () => {
     // Don't render form if config is not loaded yet
@@ -480,7 +501,7 @@ export default function ConfigEditor({ service, kvStore, onSave, onClose }: Conf
         </div>
       );
     }
-    if (!config) {
+    if (!currentConfig) {
       return (
         <div className="flex items-center justify-center p-8">
           <div className="text-gray-500 dark:text-gray-400">
@@ -490,15 +511,15 @@ export default function ConfigEditor({ service, kvStore, onSave, onClose }: Conf
       );
     }
 
-    switch (service.type) {
+    switch (effectiveServiceType) {
       case 'core':
-        return <CoreConfigForm config={config as unknown as Parameters<typeof CoreConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof CoreConfigForm>[0]['onChange']} />;
+        return <CoreConfigForm config={currentConfig as unknown as Parameters<typeof CoreConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof CoreConfigForm>[0]['onChange']} />;
       case 'sync':
-        return <SyncConfigForm config={config as unknown as Parameters<typeof SyncConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof SyncConfigForm>[0]['onChange']} />;
+        return <SyncConfigForm config={currentConfig as unknown as Parameters<typeof SyncConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof SyncConfigForm>[0]['onChange']} />;
       case 'poller':
-        return <PollerConfigForm config={config as unknown as Parameters<typeof PollerConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof PollerConfigForm>[0]['onChange']} />;
+        return <PollerConfigForm config={currentConfig as unknown as Parameters<typeof PollerConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof PollerConfigForm>[0]['onChange']} />;
       case 'agent':
-        return <AgentConfigForm config={config as unknown as Parameters<typeof AgentConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof AgentConfigForm>[0]['onChange']} />;
+        return <AgentConfigForm config={currentConfig as unknown as Parameters<typeof AgentConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof AgentConfigForm>[0]['onChange']} />;
       default:
         return null;
     }
@@ -640,13 +661,3 @@ export default function ConfigEditor({ service, kvStore, onSave, onClose }: Conf
     </div>
   );
 }
-  const applyJsonConfig = useCallback(
-    (payload: unknown) => {
-      const normalized = normalizeConfigPayload(payload);
-      setIsToml(false);
-      setConfig(normalized);
-      setRawValue('');
-      setJsonValue(JSON.stringify(normalized, null, 2));
-    },
-    [setConfig, setIsToml, setRawValue, setJsonValue],
-  );

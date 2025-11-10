@@ -619,6 +619,124 @@ filegroup(
     patches = ["//third_party/rust_patches:openssl_src_runfiles_patch"],
     repositories = ["rust_crates"],
 )
+
+# Direct crate specs for profiler dependencies.
+crates.spec(
+    features = ["std"],
+    package = "anyhow",
+    repositories = ["rust_crates_profiler"],
+    version = "1.0.98",
+)
+crates.spec(
+    features = ["async_tokio"],
+    package = "aya",
+    repositories = ["rust_crates_profiler"],
+    version = "0.13.1",
+)
+crates.spec(
+    package = "aya-ebpf",
+    repositories = ["rust_crates_profiler"],
+    version = "0.1.1",
+)
+crates.spec(
+    package = "aya-log",
+    repositories = ["rust_crates_profiler"],
+    version = "0.2.1",
+)
+crates.spec(
+    package = "aya-log-common",
+    repositories = ["rust_crates_profiler"],
+    version = "0.1.15",
+)
+crates.spec(
+    features = ["derive"],
+    package = "clap",
+    repositories = ["rust_crates_profiler"],
+    version = "4.5.41",
+)
+crates.spec(
+    package = "crossterm",
+    repositories = ["rust_crates_profiler"],
+    version = "0.28.1",
+)
+crates.spec(
+    package = "dashmap",
+    repositories = ["rust_crates_profiler"],
+    version = "6.1.0",
+)
+crates.spec(
+    package = "env_logger",
+    repositories = ["rust_crates_profiler"],
+    version = "0.10.2",
+)
+crates.spec(
+    package = "futures-util",
+    repositories = ["rust_crates_profiler"],
+    version = "0.3.31",
+)
+crates.spec(
+    features = [
+        "flamegraph",
+        "protobuf-codec",
+    ],
+    package = "pprof",
+    repositories = ["rust_crates_profiler"],
+    version = "0.14.1",
+)
+crates.spec(
+    package = "prost",
+    repositories = ["rust_crates_profiler"],
+    version = "0.13.5",
+)
+crates.spec(
+    package = "ratatui",
+    repositories = ["rust_crates_profiler"],
+    version = "0.29.0",
+)
+crates.spec(
+    features = ["derive"],
+    package = "serde",
+    repositories = ["rust_crates_profiler"],
+    version = "1.0.219",
+)
+crates.spec(
+    package = "serde_json",
+    repositories = ["rust_crates_profiler"],
+    version = "1.0.141",
+)
+crates.spec(
+    package = "tempfile",
+    repositories = ["rust_crates_profiler"],
+    version = "3.20.0",
+)
+crates.spec(
+    features = ["full"],
+    package = "tokio",
+    repositories = ["rust_crates_profiler"],
+    version = "1.47.0",
+)
+crates.spec(
+    package = "tokio-stream",
+    repositories = ["rust_crates_profiler"],
+    version = "0.1.17",
+)
+crates.spec(
+    features = ["tls"],
+    package = "tonic",
+    repositories = ["rust_crates_profiler"],
+    version = "0.12.3",
+)
+crates.spec(
+    package = "tonic-build",
+    repositories = ["rust_crates_profiler"],
+    version = "0.12.3",
+)
+crates.spec(
+    features = ["v4"],
+    package = "uuid",
+    repositories = ["rust_crates_profiler"],
+    version = "1.17.0",
+)
 crates.from_cargo(
     name = "rust_crates",
     cargo_lockfile = "//:Cargo.lock",
@@ -626,19 +744,12 @@ crates.from_cargo(
 )
 use_repo(crates, "rust_crates")
 crates.from_cargo(
-    name = "rust_crates_rperf_checker",
-    cargo_lockfile = "//cmd/checkers/rperf-client:Cargo.lock",
-    manifests = ["//cmd/checkers/rperf-client:Cargo.toml"],
-)
-crates.from_cargo(
     name = "rust_crates_profiler",
     cargo_lockfile = "//cmd/ebpf/profiler/profiler:Cargo.lock",
-    manifests = ["//cmd/ebpf/profiler:Cargo.toml"],
 )
 use_repo(
     crates,
     "rust_crates_profiler",
-    "rust_crates_rperf_checker",
 )
 
 # --- Node.js toolchain -------------------------------------------------------
