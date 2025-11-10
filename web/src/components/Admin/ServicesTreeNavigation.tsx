@@ -737,9 +737,9 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
                         }
                         return services.map((svc) => {
                           const descriptor = resolveDescriptorForService(svc);
-                          const canonicalType = descriptor?.service_type ?? svc.type;
-                          const rowId = `svc:${p.poller_id}:${a.agent_id}:${canonicalType ?? svc.type}:${svc.name}`;
-                          const canConfigure = Boolean(descriptor && canonicalType);
+                          const canonicalType = descriptor?.service_type ?? svc.type ?? svc.name;
+                          const rowId = `svc:${p.poller_id}:${a.agent_id}:${canonicalType ?? 'unknown'}:${svc.name}`;
+                          const canConfigure = Boolean(canonicalType);
                           const displayName = descriptor?.display_name ?? svc.name;
                           const badgeType = canonicalType ?? svc.type;
                           const rawTypeDiffers = svc.type && badgeType && svc.type !== badgeType;
@@ -747,7 +747,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
                             <div
                               key={`${p.poller_id}:${a.agent_id}:${svc.name}:${svc.type}`}
                               className={`ml-3 flex items-center gap-2 p-1.5 text-sm rounded ${canConfigure ? 'hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer' : 'opacity-60 cursor-not-allowed' } ${selected?.id === rowId ? 'bg-blue-100 dark:bg-blue-900' : ''}`}
-                              title={canConfigure ? undefined : 'No KV descriptor registered for this service yet'}
+                              title={canConfigure ? undefined : 'Unable to resolve service type for this configuration'}
                               onClick={() => {
                                 if (!canConfigure || !canonicalType) return;
                                 onSelect({

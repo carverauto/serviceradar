@@ -281,7 +281,11 @@ func connectNATS(cfg sweepConfig) (*nats.Conn, error) {
 		opts = append(opts, nats.UserCredentials(cfg.natsCreds))
 	}
 	if cfg.natsNKey != "" {
-		opts = append(opts, nats.NkeyOptionFromSeed(cfg.natsNKey))
+		opt, err := nats.NkeyOptionFromSeed(cfg.natsNKey)
+		if err != nil {
+			return nil, fmt.Errorf("load NATS nkey seed: %w", err)
+		}
+		opts = append(opts, opt)
 	}
 
 	tlsConfig, err := buildTLSConfig(cfg)

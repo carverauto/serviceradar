@@ -27,6 +27,10 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
+func (d Duration) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Duration(d).String())
+}
+
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var v interface{}
 	if err := json.Unmarshal(b, &v); err != nil {

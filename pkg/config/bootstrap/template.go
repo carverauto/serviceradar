@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -61,7 +60,7 @@ func ServiceWithTemplateRegistration(
 	}
 
 	if len(templateData) > 0 {
-		if err := publishTemplateWithFallback(ctx, result.Manager(), desc, templateData, opts); err != nil {
+		if err := publishTemplateWithFallback(ctx, result.Manager(), desc, cfg, templateData, opts); err != nil {
 			if opts.Logger != nil {
 				opts.Logger.Warn().
 					Err(err).
@@ -74,13 +73,14 @@ func ServiceWithTemplateRegistration(
 	return result, nil
 }
 
-func publishTemplateWithFallback(ctx context.Context, manager *config.KVManager, desc config.ServiceDescriptor, templateData []byte, opts ServiceOptions) error {
+func publishTemplateWithFallback(ctx context.Context, manager *config.KVManager, desc config.ServiceDescriptor, cfg interface{}, templateData []byte, opts ServiceOptions) error {
 	if len(templateData) == 0 {
 		return errTemplateDataEmpty
 	}
 
 	var kvErr error
-	if manager != nil {
+	hasManager := manager != nil
+	if hasManager {
 		kvErr = persistTemplateToKV(ctx, manager, desc, templateData, opts.Logger)
 		if kvErr == nil {
 			return nil
@@ -89,14 +89,15 @@ func publishTemplateWithFallback(ctx context.Context, manager *config.KVManager,
 		kvErr = errTemplateStorageUnavailable
 	}
 
-	regErr := registerTemplateWithCore(ctx, desc, templateData, opts)
+	regErr := registerTemplateWithCore(ctx, desc, cfg, templateData, opts)
 	if regErr == nil {
 		return nil
 	}
 
-	if kvErr == nil {
+	if kvErr == nil || errors.Is(kvErr, errTemplateStorageUnavailable) {
 		return regErr
 	}
+
 	return fmt.Errorf("kv template publish failed: %w; core registration failed: %w", kvErr, regErr)
 }
 
@@ -175,7 +176,7 @@ func retryTemplatePublish(
 	}
 }
 
-func registerTemplateWithCore(ctx context.Context, desc config.ServiceDescriptor, templateData []byte, opts ServiceOptions) error {
+func registerTemplateWithCore(ctx context.Context, desc config.ServiceDescriptor, _ interface{}, templateData []byte, opts ServiceOptions) error {
 	if len(templateData) == 0 {
 		return errTemplateDataEmpty
 	}
@@ -195,13 +196,7 @@ func registerTemplateWithCore(ctx context.Context, desc config.ServiceDescriptor
 
 	dialOpts, provider, err := BuildCoreDialOptionsFromEnv(regCtx, opts.Role, log)
 	if err != nil {
-		log.Warn().
-			Err(err).
-			Msg("unable to build secure dial options for core; falling back to insecure transport")
-		dialOpts = []grpc.DialOption{
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithBlock(),
-		}
+		return fmt.Errorf("%w: %w", errTemplateRegistration, err)
 	}
 
 	conn, err := grpc.DialContext(regCtx, coreAddr, dialOpts...)

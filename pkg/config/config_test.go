@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -17,7 +18,9 @@ import (
 
 // fakeKVStore implements kv.KVStore for unit tests.
 type fakeKVStore struct {
-	values map[string][]byte
+	values       map[string][]byte
+	lastPutKey   string
+	lastPutValue []byte
 }
 
 func (f *fakeKVStore) Get(_ context.Context, key string) ([]byte, bool, error) {
@@ -29,7 +32,19 @@ func (f *fakeKVStore) Get(_ context.Context, key string) ([]byte, bool, error) {
 	return val, ok, nil
 }
 
-func (f *fakeKVStore) Put(_ context.Context, _ string, _ []byte, _ time.Duration) error {
+func (f *fakeKVStore) Put(_ context.Context, key string, value []byte, _ time.Duration) error {
+	if f.values == nil {
+		f.values = make(map[string][]byte)
+	}
+	if value != nil {
+		f.values[key] = append([]byte(nil), value...)
+		f.lastPutValue = append([]byte(nil), value...)
+	} else {
+		delete(f.values, key)
+		f.lastPutValue = nil
+	}
+	f.lastPutKey = key
+
 	return nil
 }
 
@@ -67,7 +82,7 @@ const (
 	securityModeMTLS   = "mtls"
 )
 
-func TestOverlayFromKVStripsSecurityBlocks(t *testing.T) {
+func TestOverlayFromKVAllowsSecurityOverrides(t *testing.T) {
 	base := overlayTarget{
 		Security: testSecurityConfig{
 			Mode: securityModeSpiffe,
@@ -118,20 +133,83 @@ func TestOverlayFromKVStripsSecurityBlocks(t *testing.T) {
 		t.Fatalf("OverlayFromKV returned error: %v", err)
 	}
 
-	if base.Security.Mode != securityModeSpiffe {
-		t.Fatalf("expected security.mode to remain %q, got %q", securityModeSpiffe, base.Security.Mode)
+	if base.Security.Mode != securityModeMTLS {
+		t.Fatalf("expected security.mode to update to %q, got %q", securityModeMTLS, base.Security.Mode)
 	}
 
-	if base.Security.TLS.CertFile != "/etc/serviceradar/certs/core.pem" {
-		t.Fatalf("expected security TLS cert_file to remain unchanged, got %q", base.Security.TLS.CertFile)
+	if base.Security.TLS.CertFile != "/tmp/kv/core.pem" {
+		t.Fatalf("expected security TLS cert_file to be overridden, got %q", base.Security.TLS.CertFile)
 	}
 
-	if base.CoreSecurity.Mode != securityModeSpiffe {
-		t.Fatalf("expected core_security.mode to remain %q, got %q", securityModeSpiffe, base.CoreSecurity.Mode)
+	if base.CoreSecurity.Mode != securityModeMTLS {
+		t.Fatalf("expected core_security.mode to update to %q, got %q", securityModeMTLS, base.CoreSecurity.Mode)
 	}
 
 	if base.ServiceName != "kv-overridden" {
-		t.Fatalf("expected non-security field to be overridden, got %q", base.ServiceName)
+		t.Fatalf("expected service_name field to be overridden, got %q", base.ServiceName)
+	}
+}
+
+func TestOverlayFromKVNormalizesSecurityPaths(t *testing.T) {
+	base := struct {
+		Security *models.SecurityConfig `json:"security"`
+	}{
+		Security: &models.SecurityConfig{
+			Mode:    securityModeSpiffe,
+			CertDir: "/etc/serviceradar/certs",
+			TLS: models.TLSConfig{
+				CertFile: "/etc/serviceradar/certs/base.pem",
+				KeyFile:  "/etc/serviceradar/certs/base-key.pem",
+				CAFile:   "/etc/serviceradar/certs/base-root.pem",
+			},
+		},
+	}
+
+	overlayPayload := map[string]any{
+		"security": map[string]any{
+			"tls": map[string]any{
+				"cert_file":      "kv-core.pem",
+				"key_file":       "kv-core-key.pem",
+				"ca_file":        "kv-root.pem",
+				"client_ca_file": "",
+			},
+		},
+	}
+
+	payload, err := json.Marshal(overlayPayload)
+	if err != nil {
+		t.Fatalf("failed to marshal overlay payload: %v", err)
+	}
+
+	store := &fakeKVStore{
+		values: map[string][]byte{
+			"config/core.json": payload,
+		},
+	}
+
+	cfg := NewConfig(nil)
+	cfg.SetKVStore(store)
+
+	err = cfg.OverlayFromKV(context.Background(), "/etc/serviceradar/core.json", &base)
+	if err != nil {
+		t.Fatalf("OverlayFromKV returned error: %v", err)
+	}
+
+	expected := "/etc/serviceradar/certs/kv-core.pem"
+	if base.Security.TLS.CertFile != expected {
+		t.Fatalf("expected normalized cert_file %q, got %q", expected, base.Security.TLS.CertFile)
+	}
+
+	if base.Security.TLS.KeyFile != "/etc/serviceradar/certs/kv-core-key.pem" {
+		t.Fatalf("expected normalized key_file, got %q", base.Security.TLS.KeyFile)
+	}
+
+	if base.Security.TLS.CAFile != "/etc/serviceradar/certs/kv-root.pem" {
+		t.Fatalf("expected normalized ca_file, got %q", base.Security.TLS.CAFile)
+	}
+
+	if base.Security.TLS.ClientCAFile != base.Security.TLS.CAFile {
+		t.Fatalf("expected client_ca_file to fall back to CA file; got %q (ca %q)", base.Security.TLS.ClientCAFile, base.Security.TLS.CAFile)
 	}
 }
 
@@ -147,6 +225,7 @@ func TestLoadAndValidateWithSourceKVOverlaysFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create temp file: %v", err)
 	}
+	defer tmpFile.Close()
 	defer os.Remove(tmpFile.Name())
 
 	privateKey := generateTestPrivateKeyPEM(t)
@@ -234,6 +313,53 @@ func TestLoadAndValidateWithSourceKVFileMissingFallsBack(t *testing.T) {
 
 	if result.Name != "kv-only" {
 		t.Fatalf("expected KV payload to load when file missing, got %q", result.Name)
+	}
+}
+
+func TestOverlayFromKVNormalizesNumericDurations(t *testing.T) {
+	type webhook struct {
+		Cooldown string `json:"cooldown"`
+	}
+
+	type webhookCfg struct {
+		Name     string    `json:"name"`
+		Webhooks []webhook `json:"webhooks"`
+	}
+
+	base := webhookCfg{
+		Name: "file-default",
+		Webhooks: []webhook{
+			{Cooldown: "5m0s"},
+		},
+	}
+
+	store := &fakeKVStore{
+		values: map[string][]byte{
+			"config/core.json": []byte(`{"name":"kv-value","webhooks":[{"cooldown":900000000000}]}`),
+		},
+	}
+
+	cfg := NewConfig(nil)
+	cfg.SetKVStore(store)
+
+	if err := cfg.OverlayFromKV(context.Background(), "/etc/serviceradar/core.json", &base); err != nil {
+		t.Fatalf("OverlayFromKV returned error: %v", err)
+	}
+
+	if base.Name != "kv-value" {
+		t.Fatalf("expected name to be overridden, got %q", base.Name)
+	}
+
+	if len(base.Webhooks) == 0 || base.Webhooks[0].Cooldown != "15m0s" {
+		t.Fatalf("expected numeric cooldown to normalize to 15m0s, got %+v", base.Webhooks)
+	}
+
+	if store.lastPutKey != "config/core.json" {
+		t.Fatalf("expected KV entry to be rewritten, got %q", store.lastPutKey)
+	}
+
+	if store.lastPutValue == nil || !bytes.Contains(store.lastPutValue, []byte("\"cooldown\":\"15m0s\"")) {
+		t.Fatalf("expected rewritten KV value to contain normalized cooldown, got %s", store.lastPutValue)
 	}
 }
 
