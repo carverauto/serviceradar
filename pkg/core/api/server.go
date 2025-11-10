@@ -150,10 +150,12 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 			return nil, false, 0, ErrKVAddressNotConfigured
 		}
 		clientCfg := coregrpc.ClientConfig{Address: s.kvAddress, MaxRetries: 3, Logger: s.logger, DisableTelemetry: true}
+		var provider coregrpc.SecurityProvider
 		if s.kvSecurity != nil {
 			sec := *s.kvSecurity
 			sec.Role = models.RolePoller
-			provider, err := coregrpc.NewSecurityProvider(ctx, &sec, s.logger)
+			var err error
+			provider, err = coregrpc.NewSecurityProvider(ctx, &sec, s.logger)
 			if err != nil {
 				return nil, false, 0, err
 			}
@@ -162,6 +164,9 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		}
 		c, err := coregrpc.NewClient(ctx, clientCfg)
 		if err != nil {
+			if provider != nil {
+				_ = provider.Close()
+			}
 			return nil, false, 0, err
 		}
 		defer func() { _ = c.Close() }()

@@ -21,29 +21,31 @@ var (
 )
 
 // BuildCoreDialOptionsFromEnv constructs gRPC dial options for reaching the core service
-// using the SPIFFE or mTLS settings provided via environment variables.
-func BuildCoreDialOptionsFromEnv(ctx context.Context, role models.ServiceRole, log logger.Logger) ([]grpc.DialOption, coregrpc.SecurityProvider, error) {
-	opts := []grpc.DialOption{}
+// using the SPIFFE or mTLS settings provided via environment variables. It returns a
+// closer function that callers should invoke to release any underlying security provider.
+func BuildCoreDialOptionsFromEnv(ctx context.Context, role models.ServiceRole, log logger.Logger) ([]grpc.DialOption, func(), error) {
+	noOpCloser := func() {}
 
 	provider, err := CoreSecurityProviderFromEnv(ctx, role, log)
 	if err != nil {
-		return nil, nil, err
+		return nil, noOpCloser, err
 	}
 
 	if provider != nil {
 		creds, credErr := provider.GetClientCredentials(ctx)
 		if credErr != nil {
-			if provider != nil {
-				_ = provider.Close()
-			}
-			return nil, nil, credErr
+			_ = provider.Close()
+			return nil, noOpCloser, credErr
 		}
-		opts = append(opts, creds)
-	} else {
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		closer := func() {
+			if err := provider.Close(); err != nil && log != nil {
+				log.Warn().Err(err).Msg("failed to close core security provider")
+			}
+		}
+		return []grpc.DialOption{creds}, closer, nil
 	}
 
-	return opts, provider, nil
+	return []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, noOpCloser, nil
 }
 
 // CoreSecurityProviderFromEnv returns a security provider initialized from CORE_* env vars.
