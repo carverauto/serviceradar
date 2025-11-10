@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -47,10 +48,10 @@ const (
 )
 
 var (
-	errTemplateUnavailable  = errors.New("config template unavailable")
-	errKVKeyNotSpecified    = errors.New("kv key not specified")
-	errKVPutUnavailable     = fmt.Errorf("kv put unavailable")
-	errConfigKeyUnresolved  = fmt.Errorf("configuration key could not be determined")
+	errTemplateUnavailable = errors.New("config template unavailable")
+	errKVKeyNotSpecified   = errors.New("kv key not specified")
+	errKVPutUnavailable    = fmt.Errorf("kv put unavailable")
+	errConfigKeyUnresolved = fmt.Errorf("configuration key could not be determined")
 )
 
 const (
@@ -111,6 +112,7 @@ type configDescriptorResponse struct {
 	KVKeyTemplate string `json:"kv_key_template,omitempty"`
 	Format        string `json:"format"`
 	RequiresAgent bool   `json:"requires_agent"`
+	RequiresPoller bool  `json:"requires_poller"`
 }
 
 // @Summary List managed config descriptors
@@ -132,6 +134,7 @@ func (s *APIServer) handleListConfigDescriptors(w http.ResponseWriter, r *http.R
 			KVKeyTemplate: desc.KVKeyTemplate,
 			Format:        string(desc.Format),
 			RequiresAgent: desc.Scope == config.ConfigScopeAgent && desc.KVKeyTemplate != "",
+			RequiresPoller: desc.Scope == config.ConfigScopePoller && desc.KVKeyTemplate != "",
 		})
 	}
 
@@ -231,22 +234,165 @@ func (s *APIServer) handleConfigStatus(w http.ResponseWriter, r *http.Request) {
 // @Router /api/admin/config/watchers [get]
 func (s *APIServer) handleConfigWatchers(w http.ResponseWriter, r *http.Request) {
 	filter := strings.TrimSpace(r.URL.Query().Get("service"))
-	infos := config.ListWatchers()
-	if filter != "" {
-		match := strings.ToLower(filter)
-		filtered := make([]config.WatcherInfo, 0, len(infos))
-		for _, info := range infos {
-			if strings.EqualFold(info.Service, match) {
-				filtered = append(filtered, info)
-			}
-		}
-		infos = filtered
+	kvStoreID := r.URL.Query().Get("kv_store_id")
+	if kvStoreID == "" {
+		kvStoreID = r.URL.Query().Get("kvStore")
 	}
+
+	ctx := r.Context()
+	infos := config.ListWatchers()
+	infos = append(infos, s.collectRemoteWatchers(ctx, kvStoreID)...)
+	infos = s.filterAndDedupeWatchers(infos, filter)
 
 	if err := s.encodeJSONResponse(w, infos); err != nil {
 		s.logger.Error().Err(err).Msg("failed to encode watcher response")
 		s.writeAPIError(w, http.StatusInternalServerError, "failed to enumerate watchers")
 	}
+}
+
+type remoteWatcherTarget struct {
+	service    string
+	instanceID string
+}
+
+func (s *APIServer) collectRemoteWatchers(ctx context.Context, kvStoreID string) []config.WatcherInfo {
+	targets := s.remoteWatcherTargets(ctx)
+	snapshots := make([]config.WatcherInfo, 0, len(targets))
+	for _, target := range targets {
+		snapshot, err := s.loadWatcherSnapshot(ctx, kvStoreID, target.service, target.instanceID)
+		if err != nil {
+			if s.logger != nil {
+				s.logger.Debug().
+					Err(err).
+					Str("service", target.service).
+					Str("instance_id", target.instanceID).
+					Msg("failed to load watcher snapshot")
+			}
+			continue
+		}
+		if snapshot != nil {
+			snapshots = append(snapshots, *snapshot)
+		}
+	}
+	return snapshots
+}
+
+func (s *APIServer) remoteWatcherTargets(ctx context.Context) []remoteWatcherTarget {
+	descs := config.ServiceDescriptors()
+	agentDescriptors := make([]config.ServiceDescriptor, 0)
+	targets := make([]remoteWatcherTarget, 0, len(descs))
+
+	for _, desc := range descs {
+		if desc.Scope == config.ConfigScopeAgent {
+			agentDescriptors = append(agentDescriptors, desc)
+			continue
+		}
+		if desc.Scope == config.ConfigScopeGlobal {
+			// Core watchers already exposed locally.
+			if desc.Name == "core" {
+				continue
+			}
+			targets = append(targets, remoteWatcherTarget{
+				service:    desc.Name,
+				instanceID: desc.Name,
+			})
+		}
+	}
+
+	if s.dbService != nil {
+		if pollerIDs, err := s.dbService.ListPollers(ctx); err == nil {
+			for _, pollerID := range pollerIDs {
+				if pollerID == "" {
+					continue
+				}
+				targets = append(targets, remoteWatcherTarget{
+					service:    "poller",
+					instanceID: pollerID,
+				})
+			}
+		}
+
+		if agents, err := s.dbService.ListAgentsWithPollers(ctx); err == nil {
+			for _, agent := range agents {
+				if agent.AgentID == "" {
+					continue
+				}
+				targets = append(targets, remoteWatcherTarget{
+					service:    "agent",
+					instanceID: agent.AgentID,
+				})
+				for _, desc := range agentDescriptors {
+					targets = append(targets, remoteWatcherTarget{
+						service:    desc.Name,
+						instanceID: agent.AgentID,
+					})
+				}
+			}
+		}
+	}
+
+	return targets
+}
+
+func (s *APIServer) loadWatcherSnapshot(ctx context.Context, kvStoreID, service, instanceID string) (*config.WatcherInfo, error) {
+	if service == "" {
+		return nil, nil
+	}
+	key, err := config.WatcherSnapshotKey(service, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	resolvedKey := s.qualifyKVKey(kvStoreID, key)
+	entry, err := s.getKVEntry(ctx, kvStoreID, resolvedKey)
+	if err != nil || entry == nil || !entry.Found || len(entry.Value) == 0 {
+		return nil, err
+	}
+
+	var snapshot config.WatcherSnapshot
+	if err := json.Unmarshal(entry.Value, &snapshot); err != nil {
+		return nil, err
+	}
+
+	return &snapshot.WatcherInfo, nil
+}
+
+func (s *APIServer) filterAndDedupeWatchers(infos []config.WatcherInfo, filter string) []config.WatcherInfo {
+	dedup := make(map[string]config.WatcherInfo, len(infos))
+	for _, info := range infos {
+		key := fmt.Sprintf("%s|%s|%s",
+			strings.ToLower(info.Service),
+			strings.ToLower(info.InstanceID),
+			strings.ToLower(info.KVKey),
+		)
+		if existing, ok := dedup[key]; ok {
+			if info.LastEvent.After(existing.LastEvent) {
+				dedup[key] = info
+			}
+			continue
+		}
+		dedup[key] = info
+	}
+
+	result := make([]config.WatcherInfo, 0, len(dedup))
+	match := strings.ToLower(filter)
+	for _, info := range dedup {
+		if match != "" && !strings.EqualFold(info.Service, match) {
+			continue
+		}
+		result = append(result, info)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Service == result[j].Service {
+			if result[i].InstanceID == result[j].InstanceID {
+				return result[i].KVKey < result[j].KVKey
+			}
+			return result[i].InstanceID < result[j].InstanceID
+		}
+		return result[i].Service < result[j].Service
+	})
+
+	return result
 }
 
 // @Summary Authenticate with username and password
@@ -427,6 +573,7 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 
 	key := r.URL.Query().Get("key")
 	agentID := r.URL.Query().Get("agent_id")
+	pollerID := r.URL.Query().Get("poller_id")
 	serviceType := r.URL.Query().Get("service_type")
 	kvStoreID := r.URL.Query().Get("kv_store_id")
 	if kvStoreID == "" {
@@ -437,13 +584,13 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	var hasDescriptor bool
 	if key == "" {
 		var err error
-		desc, key, hasDescriptor, err = s.resolveServiceKey(service, serviceType, agentID)
+		desc, key, hasDescriptor, err = s.resolveServiceKey(service, serviceType, agentID, pollerID)
 		if err != nil {
 			s.writeAPIError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	} else {
-		desc, hasDescriptor = s.lookupServiceDescriptor(service, serviceType, agentID)
+		desc, hasDescriptor = s.lookupServiceDescriptor(service, serviceType, agentID, pollerID)
 	}
 
 	rawMode := isRawConfigRequested(r)
@@ -468,7 +615,7 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if entry == nil || !entry.Found {
+	if kvEntryMissing(entry) {
 		if !hasDescriptor {
 			s.writeAPIError(w, http.StatusNotFound, "configuration not found")
 			return
@@ -491,8 +638,8 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if entry == nil || !entry.Found {
-		s.writeAPIError(w, http.StatusNotFound, "configuration not found")
+	if kvEntryMissing(entry) {
+		s.writeAPIError(w, http.StatusNotFound, "configuration not found or empty")
 		return
 	}
 
@@ -548,6 +695,7 @@ func (s *APIServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// Preferred: explicit KV key via ?key=. Otherwise derive from service_type and agent_id
 	key := r.URL.Query().Get("key")
 	agentID := r.URL.Query().Get("agent_id")
+	pollerID := r.URL.Query().Get("poller_id")
 	serviceType := r.URL.Query().Get("service_type")
 	kvStoreID := r.URL.Query().Get("kv_store_id")
 	if kvStoreID == "" {
@@ -559,7 +707,7 @@ func (s *APIServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	if key == "" {
 		var err error
-		_, key, _, err = s.resolveServiceKey(service, serviceType, agentID)
+		_, key, _, err = s.resolveServiceKey(service, serviceType, agentID, pollerID)
 		if err != nil {
 			s.writeAPIError(w, http.StatusBadRequest, err.Error())
 			return
@@ -700,6 +848,10 @@ type kvEntry struct {
 	Value    []byte
 	Found    bool
 	Revision uint64
+}
+
+func kvEntryMissing(entry *kvEntry) bool {
+	return entry == nil || !entry.Found || len(entry.Value) == 0
 }
 
 func isRawConfigRequested(r *http.Request) bool {
@@ -846,21 +998,9 @@ func (s *APIServer) checkConfigKey(ctx context.Context, kvStoreID, key string) (
 }
 
 func (s *APIServer) seedConfigFromTemplate(ctx context.Context, desc config.ServiceDescriptor, key, kvStoreID string) ([]byte, error) {
-	if s.templateRegistry == nil {
-		return nil, errTemplateUnavailable
-	}
-
-	templateData, _, err := s.templateRegistry.Get(desc.Name)
+	templateData, err := s.fetchTemplateData(ctx, kvStoreID, desc)
 	if err != nil {
-		s.logger.Warn().
-			Err(err).
-			Str("service", desc.Name).
-			Msg("failed to retrieve template from registry")
-		return nil, errTemplateUnavailable
-	}
-
-	if len(templateData) == 0 {
-		return nil, errTemplateUnavailable
+		return nil, err
 	}
 
 	payload := make([]byte, len(templateData))
@@ -913,6 +1053,32 @@ func (s *APIServer) qualifyKVKey(kvStoreID, key string) string {
 		return key
 	}
 	return fmt.Sprintf("domains/%s/%s", domain, key)
+}
+
+func (s *APIServer) fetchTemplateData(ctx context.Context, kvStoreID string, desc config.ServiceDescriptor) ([]byte, error) {
+	templateKey := config.TemplateStorageKey(desc)
+	if templateKey != "" {
+		if entry, err := s.getKVEntry(ctx, kvStoreID, s.qualifyKVKey(kvStoreID, templateKey)); err == nil {
+			if entry != nil && entry.Found && len(entry.Value) > 0 {
+				return entry.Value, nil
+			}
+		} else if s.logger != nil {
+			s.logger.Warn().
+				Err(err).
+				Str("service", desc.Name).
+				Str("template_key", templateKey).
+				Msg("failed to read template from KV")
+		}
+	}
+
+	if s.templateRegistry != nil {
+		data, _, err := s.templateRegistry.Get(desc.Name)
+		if err == nil && len(data) > 0 {
+			return data, nil
+		}
+	}
+
+	return nil, errTemplateUnavailable
 }
 
 // defaultKVKeyForService returns a conventional KV key for known services.
@@ -973,10 +1139,13 @@ func serviceLevelKeyFor(service string) (string, bool) {
 	}
 }
 
-func (s *APIServer) resolveServiceKey(service, serviceType, agentID string) (config.ServiceDescriptor, string, bool, error) {
-	desc, hasDescriptor := s.lookupServiceDescriptor(service, serviceType, agentID)
+func (s *APIServer) resolveServiceKey(service, serviceType, agentID, pollerID string) (config.ServiceDescriptor, string, bool, error) {
+	desc, hasDescriptor := s.lookupServiceDescriptor(service, serviceType, agentID, pollerID)
 	if hasDescriptor {
-		key, err := desc.ResolveKVKey(config.KeyContext{AgentID: agentID})
+		key, err := desc.ResolveKVKey(config.KeyContext{
+			AgentID:  agentID,
+			PollerID: pollerID,
+		})
 		if err != nil {
 			return desc, "", true, err
 		}
@@ -1001,7 +1170,7 @@ func (s *APIServer) resolveServiceKey(service, serviceType, agentID string) (con
 	return config.ServiceDescriptor{}, "", false, errConfigKeyUnresolved
 }
 
-func (s *APIServer) lookupServiceDescriptor(service, serviceType, agentID string) (config.ServiceDescriptor, bool) {
+func (s *APIServer) lookupServiceDescriptor(service, serviceType, agentID, pollerID string) (config.ServiceDescriptor, bool) {
 	candidates := uniqueStrings(service, serviceType)
 
 	if agentID != "" {
@@ -1012,9 +1181,20 @@ func (s *APIServer) lookupServiceDescriptor(service, serviceType, agentID string
 		}
 	}
 
+	if pollerID != "" {
+		for _, candidate := range candidates {
+			if desc, ok := config.ServiceDescriptorByType(candidate, config.ConfigScopePoller); ok {
+				return desc, true
+			}
+		}
+	}
+
 	for _, candidate := range candidates {
 		if desc, ok := config.ServiceDescriptorFor(candidate); ok {
 			if desc.Scope == config.ConfigScopeAgent && agentID == "" {
+				continue
+			}
+			if desc.Scope == config.ConfigScopePoller && pollerID == "" {
 				continue
 			}
 			return desc, true

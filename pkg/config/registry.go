@@ -7,11 +7,13 @@ import (
 )
 
 var (
-	errNoKVKeyDefined            = fmt.Errorf("descriptor does not define a KV key")
-	errAgentIDRequired           = fmt.Errorf("descriptor requires agent_id")
-	errPollerIDRequired          = fmt.Errorf("descriptor requires poller_id")
-	errUnresolvedTemplateVars    = fmt.Errorf("descriptor has unresolved template variables")
+	errNoKVKeyDefined         = fmt.Errorf("descriptor does not define a KV key")
+	errAgentIDRequired        = fmt.Errorf("descriptor requires agent_id")
+	errPollerIDRequired       = fmt.Errorf("descriptor requires poller_id")
+	errUnresolvedTemplateVars = fmt.Errorf("descriptor has unresolved template variables")
 )
+
+const templatePrefix = "templates"
 
 // ConfigFormat identifies how a service persists its configuration.
 type ConfigFormat string
@@ -32,13 +34,14 @@ const (
 
 // ServiceDescriptor captures metadata about a managed service configuration.
 type ServiceDescriptor struct {
-	Name          string
-	DisplayName   string
-	ServiceType   string
-	Scope         ConfigScope
-	KVKey         string
-	KVKeyTemplate string
-	Format        ConfigFormat
+	Name           string
+	DisplayName    string
+	ServiceType    string
+	Scope          ConfigScope
+	KVKey          string
+	KVKeyTemplate  string
+	Format         ConfigFormat
+	CriticalFields []string
 }
 
 // KeyContext supplies identity information used to resolve scoped KV keys.
@@ -56,6 +59,10 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 		Scope:       ConfigScopeGlobal,
 		KVKey:       "config/core.json",
 		Format:      ConfigFormatJSON,
+		CriticalFields: []string{
+			"edge_onboarding.encryption_key",
+			"auth.jwt_public_key_pem",
+		},
 	},
 	"sync": {
 		Name:        "sync",
@@ -64,22 +71,32 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 		Scope:       ConfigScopeGlobal,
 		KVKey:       "config/sync.json",
 		Format:      ConfigFormatJSON,
+		CriticalFields: []string{
+			"kv_address",
+		},
 	},
 	"poller": {
-		Name:        "poller",
-		DisplayName: "Poller",
-		ServiceType: "poller",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/poller.json",
-		Format:      ConfigFormatJSON,
+		Name:          "poller",
+		DisplayName:   "Poller",
+		ServiceType:   "poller",
+		Scope:         ConfigScopePoller,
+		KVKeyTemplate: "config/pollers/{{poller_id}}.json",
+		Format:        ConfigFormatJSON,
+		CriticalFields: []string{
+			"kv_address",
+			"core_address",
+		},
 	},
 	"agent": {
-		Name:        "agent",
-		DisplayName: "Agent Defaults",
-		ServiceType: "agent",
-		Scope:       ConfigScopeAgent,
-		KVKey:       "config/agent.json",
-		Format:      ConfigFormatJSON,
+		Name:          "agent",
+		DisplayName:   "Agent Defaults",
+		ServiceType:   "agent",
+		Scope:         ConfigScopeAgent,
+		KVKeyTemplate: "config/agents/{{agent_id}}.json",
+		Format:        ConfigFormatJSON,
+		CriticalFields: []string{
+			"kv_address",
+		},
 	},
 	"db-event-writer": {
 		Name:        "db-event-writer",
@@ -88,6 +105,9 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 		Scope:       ConfigScopeGlobal,
 		KVKey:       "config/db-event-writer.json",
 		Format:      ConfigFormatJSON,
+		CriticalFields: []string{
+			"kv_address",
+		},
 	},
 	"flowgger": {
 		Name:        "flowgger",
@@ -128,6 +148,9 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 		Scope:       ConfigScopeGlobal,
 		KVKey:       "config/datasvc.json",
 		Format:      ConfigFormatJSON,
+		CriticalFields: []string{
+			"kv_address",
+		},
 	},
 	"mapper": {
 		Name:        "mapper",
@@ -136,6 +159,9 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 		Scope:       ConfigScopeGlobal,
 		KVKey:       "config/mapper.json",
 		Format:      ConfigFormatJSON,
+		CriticalFields: []string{
+			"kv_address",
+		},
 	},
 	"netflow-consumer": {
 		Name:        "netflow-consumer",
@@ -287,4 +313,27 @@ func (sd ServiceDescriptor) ResolveKVKey(ctx KeyContext) (string, error) {
 		return "", fmt.Errorf("%w: %s", errUnresolvedTemplateVars, sd.Name)
 	}
 	return key, nil
+}
+
+// TemplateStorageKey returns the canonical KV location for storing a descriptor's default template.
+func TemplateStorageKey(desc ServiceDescriptor) string {
+	if desc.Name == "" {
+		return ""
+	}
+
+	extension := "json"
+	if desc.Format == ConfigFormatTOML {
+		extension = "toml"
+	}
+
+	return fmt.Sprintf("%s/%s.%s", templatePrefix, desc.Name, extension)
+}
+
+// TemplateStorageKeyFor returns the template storage key for the provided descriptor name, if known.
+func TemplateStorageKeyFor(name string) (string, ConfigFormat, bool) {
+	desc, ok := ServiceDescriptorFor(name)
+	if !ok {
+		return "", "", false
+	}
+	return TemplateStorageKey(desc), desc.Format, true
 }

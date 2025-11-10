@@ -143,6 +143,35 @@ Available roles:
 
 The `identity` field must match the Subject Distinguished Name from the client's certificate. This is typically in the format `CN=<common-name>,O=<organization>`.
 
+## Operational SOP (Helm & Compose)
+
+Use this runbook whenever you roll the Helm chart or docker-compose stack so we can prove KV-backed configuration is working outside the demo cluster:
+
+1. **List descriptors from the admin API** – the Admin UI now renders its services tree directly from `/api/admin/config`. If a service is missing or greyed out, confirm the descriptor exists here before debugging React.
+
+   ```bash
+   curl -sS -H "Authorization: Bearer ${TOKEN}" \
+     https://<core-host>/api/admin/config | jq '.[].service_type'
+   ```
+
+2. **Fetch individual configs** – hitting `/api/admin/config/<service>` should return a `metadata` block plus the config payload. A `404` means the workload never published its template to KV (typically because it did not boot with `CONFIG_SOURCE=kv` or lacked KV connectivity).
+
+   ```bash
+   curl -sS -H "Authorization: Bearer ${TOKEN}" \
+     https://<core-host>/api/admin/config/flowgger | jq '.metadata'
+   ```
+
+3. **Check watcher telemetry** – immediately after the rollout (and again after other environments settle), call `/api/admin/config/watchers` to ensure every process is still subscribed to its KV keys.
+
+   ```bash
+   curl -sS -H "Authorization: Bearer ${TOKEN}" \
+     https://<core-host>/api/admin/config/watchers | jq '.[] | {service, kv_key, status}'
+   ```
+
+4. **Spot-check the canonical keys** – Helm, compose, and the demo manifests now seed the same set of global keys (`config/core.json`, `config/sync.json`, `config/agent.json`, `config/flowgger.toml`, etc.). If the API returns `404`, exec into the `serviceradar-tools` pod (or your compose shell) and run `nats-kv get <key>` to confirm the data is actually missing before filing an Admin UI bug.
+
+Running this SOP gives you a paper trail that the metadata, the KV buckets, and the live watchers all look healthy before you touch the UI.
+
 ## NATS Server Configuration
 
 The NATS Server configuration is located at `/etc/nats/nats-server.conf`. The default configuration provided by the `serviceradar-nats` package and includes mTLS and JetStream support:
@@ -222,7 +251,7 @@ For certificate generation instructions, see the [TLS Security](./tls-security.m
 
 ## Configuring Components to Use the KV Store
 
-> **Heads up:** As of this change, the demo Kubernetes manifests, Helm chart, and Docker Compose stack all export `CONFIG_SOURCE=kv` plus the appropriate `KV_*` (and `CORE_*` for services that register templates) out of the box. You only need to follow the steps below if you're managing a bare-metal/edge install or have custom systemd units; cluster deployments now seed and watch the KV store automatically.
+> **Heads up:** As of this change, the demo Kubernetes manifests, Helm chart, and Docker Compose stack all export `CONFIG_SOURCE=kv` plus the appropriate `KV_*` blocks out of the box. You only need to follow the steps below if you're managing a bare-metal/edge install or have custom systemd units; cluster deployments now seed and watch the KV store automatically.
 
 ### Agent Configuration
 

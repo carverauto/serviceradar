@@ -22,6 +22,7 @@ import CoreConfigForm from './ConfigForms/CoreConfigForm';
 import SyncConfigForm from './ConfigForms/SyncConfigForm';
 import PollerConfigForm from './ConfigForms/PollerConfigForm';
 import AgentConfigForm from './ConfigForms/AgentConfigForm';
+import type { ConfigDescriptor } from './types';
 
 interface ServiceInfo {
   id: string;
@@ -30,6 +31,7 @@ interface ServiceInfo {
   kvStore?: string;
   pollerId?: string;
   agentId?: string;
+  descriptor?: ConfigDescriptor | null;
 }
 
 interface ConfigEditorProps {
@@ -69,20 +71,48 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
   const [kvInfo, setKvInfo] = useState<{ domain: string; bucket: string } | null>(null);
   const [kvInfoError, setKvInfoError] = useState<string | null>(null);
   const [metadata, setMetadata] = useState<ConfigMetadata | null>(null);
+  const descriptorMeta = service.descriptor ?? null;
+  const canonicalServiceType = descriptorMeta?.service_type ?? service.type;
+  const needsAgentContext = React.useMemo(() => {
+    if (descriptorMeta) {
+      return descriptorMeta.scope === 'agent' || Boolean(descriptorMeta.requires_agent);
+    }
+    return Boolean(service.agentId) && service.type !== 'poller' && service.type !== 'agent';
+  }, [descriptorMeta, service.agentId, service.type]);
+  const needsPollerContext = React.useMemo(() => {
+    if (descriptorMeta) {
+      return descriptorMeta.scope === 'poller' || Boolean(descriptorMeta.requires_poller);
+    }
+    return service.type === 'poller' || Boolean(service.pollerId);
+  }, [descriptorMeta, service.pollerId, service.type]);
+  const scopeHint = descriptorMeta?.scope ?? (needsAgentContext ? 'agent' : needsPollerContext ? 'poller' : 'global');
 
   const buildConfigQuery = React.useCallback(() => {
     const params = new URLSearchParams();
     if (kvStore) {
       params.set('kv_store_id', kvStore);
     }
-    const needsAgentScope = service.type !== 'poller' && service.type !== 'agent' && Boolean(service.agentId);
-    if (needsAgentScope && service.agentId) {
+    if (needsAgentContext) {
+      if (!service.agentId) {
+        throw new Error('Select an agent before editing this configuration');
+      }
       params.set('agent_id', service.agentId);
-      params.set('service_type', service.type);
+      if (canonicalServiceType) {
+        params.set('service_type', canonicalServiceType);
+      }
+    }
+    if (needsPollerContext) {
+      if (!service.pollerId) {
+        throw new Error('Select a poller before editing this configuration');
+      }
+      params.set('poller_id', service.pollerId);
+      if (canonicalServiceType) {
+        params.set('service_type', canonicalServiceType);
+      }
     }
     const query = params.toString();
     return query ? `?${query}` : '';
-  }, [kvStore, service.agentId, service.type]);
+  }, [kvStore, needsAgentContext, service.agentId, canonicalServiceType]);
 
   const fetchConfig = React.useCallback(async () => {
     try {
@@ -94,8 +124,28 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
         .split("; ")
         .find((row) => row.startsWith("accessToken="))
         ?.split("=")[1];
-      const query = buildConfigQuery();
-      const response = await fetch(`/api/admin/config/${service.type}${query}`, {
+      let query = '';
+      try {
+        query = buildConfigQuery();
+      } catch (buildErr) {
+        const message = buildErr instanceof Error ? buildErr.message : 'Invalid configuration selection';
+        setMetadata(null);
+        setConfig(null);
+        setRawValue('');
+        setError(message);
+        return;
+      }
+
+      const targetService = canonicalServiceType || service.type;
+      if (!targetService) {
+        setMetadata(null);
+        setConfig(null);
+        setRawValue('');
+        setError('Unknown service descriptor');
+        return;
+      }
+
+      const response = await fetch(`/api/admin/config/${targetService}${query}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -104,7 +154,7 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
       if (!response.ok) {
         setMetadata(null);
         if (response.status === 404) {
-          const def = getDefaultConfig(service.type);
+          const def = getDefaultConfig(targetService);
           if (typeof def === 'string') {
             setIsToml(true);
             setRawValue(def);
@@ -159,13 +209,14 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
       setError(message);
       setMetadata(null);
       // Load default config on error
-      const def = getDefaultConfig(service.type);
+      const fallbackTarget = canonicalServiceType || service.type;
+      const def = getDefaultConfig(fallbackTarget);
       if (typeof def === 'string') { setIsToml(true); setRawValue(def); }
       else { setIsToml(false); setConfig(def); setJsonValue(JSON.stringify(def, null, 2)); }
     } finally {
       setLoading(false);
     }
-  }, [service, buildConfigQuery]);
+  }, [buildConfigQuery, canonicalServiceType, service.type]);
 
   const fetchKvInfo = React.useCallback(async () => {
     try {
@@ -308,8 +359,22 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
         .split("; ")
         .find((row) => row.startsWith("accessToken="))
         ?.split("=")[1];
-      const query = buildConfigQuery();
-      const response = await fetch(`/api/admin/config/${service.type}${query}`, {
+      let query = '';
+      try {
+        query = buildConfigQuery();
+      } catch (buildErr) {
+        const message = buildErr instanceof Error ? buildErr.message : 'Invalid configuration selection';
+        setError(message);
+        return;
+      }
+
+      const targetService = canonicalServiceType || service.type;
+      if (!targetService) {
+        setError('Unknown service descriptor');
+        return;
+      }
+
+      const response = await fetch(`/api/admin/config/${targetService}${query}`, {
         method: 'PUT',
         headers: isToml ? {
           'Content-Type': 'text/plain',
@@ -330,7 +395,11 @@ export default function ConfigEditor({ service, kvStore, onSave }: ConfigEditorP
       try {
         // Use a custom event; keep payload minimal and generic
         const evt = new CustomEvent('sr:config-saved', {
-          detail: { serviceType: service.type, scope: (service.type === 'otel' || service.type === 'flowgger' || service.type === 'db-event-writer' || service.type === 'zen-consumer') ? 'global' : 'scoped', kvStore }
+          detail: {
+            serviceType: targetService,
+            scope: scopeHint,
+            kvStore,
+          }
         });
         window.dispatchEvent(evt);
       } catch {}

@@ -6,7 +6,6 @@ resources:
   - cert-configmap.yaml
   - spire-ca.yaml
   - spire-root-issuer.yaml
-  - spire-ca-issuer.yaml
   - spire-bundle-configmap.yaml
   - spire-crd-clusterspiffeids.yaml
   - spire-crd-clusterstaticentries.yaml

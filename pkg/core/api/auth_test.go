@@ -14,41 +14,14 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
-// mockTemplateRegistry implements TemplateRegistry for testing
-type mockTemplateRegistry struct {
-	templates map[string][]byte
-	formats   map[string]config.ConfigFormat
-}
-
-func (m *mockTemplateRegistry) Get(serviceName string) ([]byte, config.ConfigFormat, error) {
-	data, ok := m.templates[serviceName]
-	if !ok {
-		return nil, "", config.ErrServiceNotFound
-	}
-	format := m.formats[serviceName]
-	if format == "" {
-		format = config.ConfigFormatJSON
-	}
-	return data, format, nil
-}
-
 func TestHandleGetConfigSeedsFromTemplate(t *testing.T) {
 	testPayload := []byte(`{"seeded":true}`)
-	mockRegistry := &mockTemplateRegistry{
-		templates: map[string][]byte{
-			"core": testPayload,
-		},
-		formats: map[string]config.ConfigFormat{
-			"core": config.ConfigFormatJSON,
-		},
-	}
+	store := make(map[string][]byte)
+	store["templates/core.json"] = append([]byte(nil), testPayload...)
 
 	server := &APIServer{
-		logger:           logger.NewTestLogger(),
-		templateRegistry: mockRegistry,
+		logger: logger.NewTestLogger(),
 	}
-
-	store := make(map[string][]byte)
 
 	server.kvGetFn = func(ctx context.Context, key string) ([]byte, bool, uint64, error) {
 		value, ok := store[key]
@@ -107,6 +80,7 @@ func TestHandleGetConfigAgentDescriptorSeedsTemplate(t *testing.T) {
 	}
 
 	stored := make(map[string][]byte)
+	stored["templates/agent-snmp.json"] = []byte(`{"defaults":true}`)
 
 	server.kvGetFn = func(ctx context.Context, key string) ([]byte, bool, uint64, error) {
 		value, ok := stored[key]

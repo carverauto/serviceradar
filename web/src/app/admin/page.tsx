@@ -23,6 +23,7 @@ import ConfigEditor from '@/components/Admin/ConfigEditor';
 import ServicesTreeNavigation, { SelectedServiceInfo } from '@/components/Admin/ServicesTreeNavigation';
 import RoleGuard from '@/components/Auth/RoleGuard';
 import WatcherTelemetryPanel from '@/components/Admin/WatcherTelemetryPanel';
+import type { ConfigDescriptor } from '@/components/Admin/types';
 
 import type { ServiceTreePoller } from '@/components/Admin/ServicesTreeNavigation';
 
@@ -33,9 +34,36 @@ export default function AdminPage() {
   const [filterPoller, setFilterPoller] = useState('');
   const [filterAgent, setFilterAgent] = useState('');
   const [filterService, setFilterService] = useState('');
+  const [configDescriptors, setConfigDescriptors] = useState<ConfigDescriptor[]>([]);
+  const [descriptorError, setDescriptorError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchServicesTree();
+  }, []);
+
+  useEffect(() => {
+    const fetchDescriptors = async () => {
+      try {
+        const token = document.cookie
+          .split("; ")
+          .find((row) => row.startsWith("accessToken="))
+          ?.split("=")[1];
+        const resp = await fetch('/api/admin/config', {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        });
+        if (!resp.ok) {
+          throw new Error('Failed to fetch config descriptors');
+        }
+        const data = await resp.json();
+        setConfigDescriptors(Array.isArray(data) ? data : []);
+        setDescriptorError(null);
+      } catch (err) {
+        console.error('Error fetching config descriptors:', err);
+        setConfigDescriptors([]);
+        setDescriptorError('Configuration metadata unavailable; showing cached services only.');
+      }
+    };
+    fetchDescriptors();
   }, []);
 
   const fetchServicesTree = async () => {
@@ -108,18 +136,29 @@ export default function AdminPage() {
                 value={filterAgent}
                 onChange={(e) => setFilterAgent(e.target.value)}
               />
-            </div>
-            <div className="mt-2">
-              <input
-                placeholder="Filter service…"
-                className="w-full px-2 py-1 text-sm border rounded bg-white dark:bg-gray-900"
-                value={filterService}
-                onChange={(e) => setFilterService(e.target.value)}
-              />
-            </div>
           </div>
+          <div className="mt-2">
+            <input
+              placeholder="Filter service…"
+              className="w-full px-2 py-1 text-sm border rounded bg-white dark:bg-gray-900"
+              value={filterService}
+              onChange={(e) => setFilterService(e.target.value)}
+            />
+          </div>
+          {descriptorError && (
+            <p className="mt-2 text-xs text-yellow-700 dark:text-yellow-300">{descriptorError}</p>
+          )}
+        </div>
           
-          <ServicesTreeNavigation pollers={pollers} onSelect={handleSelect} selected={selectedService} filterPoller={filterPoller} filterAgent={filterAgent} filterService={filterService} />
+          <ServicesTreeNavigation
+            pollers={pollers}
+            onSelect={handleSelect}
+            selected={selectedService}
+            filterPoller={filterPoller}
+            filterAgent={filterAgent}
+            filterService={filterService}
+            configDescriptors={configDescriptors}
+          />
         </div>
 
         <div className="flex-1 flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-900/30">

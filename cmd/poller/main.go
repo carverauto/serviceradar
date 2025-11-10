@@ -80,6 +80,12 @@ func run() error {
 		Role:         models.RolePoller,
 		ConfigPath:   *configPath,
 		DisableWatch: true,
+		KeyContextFn: func(conf interface{}) config.KeyContext {
+			if pollerCfg, ok := conf.(*poller.Config); ok {
+				return config.KeyContext{PollerID: pollerCfg.PollerID}
+			}
+			return config.KeyContext{}
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
@@ -108,6 +114,9 @@ func run() error {
 	}
 
 	// KV Watch: overlay and apply hot-reload on relevant changes
+	if cfg.PollerID != "" {
+		bootstrapResult.SetInstanceID(cfg.PollerID)
+	}
 	bootstrapResult.StartWatch(ctx, pollerLogger, &cfg, func() {
 		_ = p.UpdateConfig(ctx, &cfg)
 	})

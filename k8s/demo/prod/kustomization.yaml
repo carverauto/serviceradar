@@ -13,7 +13,6 @@ resources:
 - serviceradar-datasvc-grpc-external.yaml
 - serviceradar-flowgger-external.yaml
 - spire-server-external.yaml
-- metallb-internal.yaml
 
 
 images:
@@ -32,17 +31,3 @@ images:
 - name: ghcr.io/carverauto/serviceradar-sync
   newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
 patches:
-- patch: |-
-    - op: replace
-      path: /metadata/namespace
-      value: metallb-system
-  target:
-    kind: IPAddressPool
-    name: k3s-lan-pool
-- patch: |-
-    - op: replace
-      path: /metadata/namespace
-      value: metallb-system
-  target:
-    kind: L2Advertisement
-    name: k3s-lan-pool

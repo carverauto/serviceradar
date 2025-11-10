@@ -25,6 +25,10 @@ spec:
         env:
         - name: LOG_LEVEL
           value: "info"
+        - name: CONFIG_SOURCE
+          value: "kv"
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/faker.json"
         - name: CORE_ADDRESS
           value: "serviceradar-core:50052"
         - name: CORE_SEC_MODE
@@ -37,11 +41,32 @@ spec:
           value: "unix:/run/spire/sockets/agent.sock"
         - name: CORE_CERT_DIR
           value: "/etc/serviceradar/certs"
+        - name: KV_ADDRESS
+          value: "serviceradar-datasvc:50057"
+        - name: KV_SEC_MODE
+          value: "spiffe"
+        - name: KV_TRUST_DOMAIN
+          value: "carverauto.dev"
+        - name: KV_SERVER_SPIFFE_ID
+          value: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc"
+        - name: KV_WORKLOAD_SOCKET
+          value: "unix:/run/spire/sockets/agent.sock"
+        - name: KV_CERT_DIR
+          value: "/etc/serviceradar/certs"
         volumeMounts:
         - name: faker-data
           mountPath: /var/lib/serviceradar/faker
         - name: faker-data
           mountPath: /data
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+          readOnly: true
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
         readinessProbe:
           httpGet:
             path: /api/v1/search/?aql=test&length=1
@@ -62,6 +87,16 @@ spec:
       - name: faker-data
         persistentVolumeClaim:
           claimName: serviceradar-faker-data
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

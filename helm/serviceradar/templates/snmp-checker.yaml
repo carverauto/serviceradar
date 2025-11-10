@@ -41,6 +41,9 @@ spec:
           mountPath: /run/spire/sockets
           readOnly: true
         env:
+{{ include "serviceradar.kvEnv" . | indent 8 }}
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/checkers/snmp.json"
         - name: SERVICERADAR_CONFIG_PATH
           value: "/etc/serviceradar/snmp.json"
         - name: SERVICERADAR_CLOUD_ADDR
