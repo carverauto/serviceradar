@@ -1,16 +1,30 @@
 package config
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
+	"context"
 	"encoding/json"
-	"encoding/pem"
 	"os"
 	"testing"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
+
+const testPrivateKey = `-----BEGIN PRIVATE KEY-----
+MIICdgIBADANBgkqhkiG9w0BAQEFAASCAmAwggJcAgEAAoGBAMAekMd4AjIonVVM
+W8oH9fXIARBW94rgL92Zoz/6113HgWkhPWmc69KTIVkJDBa53SDZ5ah1bOpMJdOt
+9ZPjSxEdjvcF9KPpTs7Sznz0PypGEGTPybdpzJ0rSAPr2hmiB+qvi9hLZ7TmLWMm
+VA0Ptn9ySMoee8BGN2V9f4CRovFfAgMBAAECgYAIvcXz8ssiVx0u1kKy5nLwKV4L
+Biu+wqhZGoSUdlMBJwEFmBYjzXwgfPtJHsxfdMjRsmMJOfL9eTfwuO0AHpkPJWow
+KT2zDkQt2AsoDcso6/PIE/09XZJAB+EIbF6PLUtDZ6kL9Ft9a49684zc5Z0qUKE+
+ZADfjRRV3HT9SRvEEQJBAMRPlj6TG5vdlnFXRPrkmVWD/qSH7PZg06Wj+WCUcNVr
+YCJiXSPeqKVnD5jB9O5GXIZ/UdTgD9AZctdNLrBc3nkCQQD6iLjiC4znPVZaObsh
+iHbIjrlZqniB5Wzn2X3CshJaJJz/OsekZGiHl35JEUdHipDUJh7/7MCdd0H5j9C2
+a3iXAkABxG2n1o8zEgWes5htYc13lZ6fQJIDjc+Z+CXwlqWFZlgRNy17ey+tfYYI
+bAaWdo+yrkbAUdwSlYgRJCK9d7iRAkBubsXQHfdGFqtxqfDqnxR84yygcZwc5dxT
+dnMQ1x1vzqPFfUtzEy9gVU69NniM+G9OlF8lwF5HCsJyFwqQ3l6RAkEAr4SWX6P5
+aNRRXZdIgnVnW8ydYrM/HqsjtnBwFwJxKm4ZBhng54g5ywVfwgbDsLkdrMH983LB
+Stry7BwsPBarcA==
+-----END PRIVATE KEY-----`
 
 func TestSanitizeBootstrapSourceAddsJWTPublicKey(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "core-config-*.json")
@@ -116,18 +130,57 @@ func TestSanitizeBootstrapSourceUsesFallbackPrivateKey(t *testing.T) {
 	}
 }
 
+func TestKVManagerOverlayConfigNormalizesSecurity(t *testing.T) {
+	manager := &KVManager{
+		client: &fakeKVStore{
+			values: map[string][]byte{
+				"config/service.json": []byte(`{
+					"security": {
+						"tls": {
+							"cert_file": "kv.pem",
+							"key_file": "kv-key.pem",
+							"ca_file": "kv-root.pem",
+							"client_ca_file": ""
+						}
+					}
+				}`),
+			},
+		},
+	}
+
+	cfg := struct {
+		Security *models.SecurityConfig `json:"security"`
+	}{
+		Security: &models.SecurityConfig{
+			CertDir: "/etc/serviceradar/certs",
+			TLS: models.TLSConfig{
+				CertFile: "/etc/serviceradar/certs/base.pem",
+				KeyFile:  "/etc/serviceradar/certs/base-key.pem",
+				CAFile:   "/etc/serviceradar/certs/base-root.pem",
+			},
+		},
+	}
+
+	if err := manager.OverlayConfig(context.Background(), "config/service.json", &cfg); err != nil {
+		t.Fatalf("OverlayConfig returned error: %v", err)
+	}
+
+	if cfg.Security.TLS.CertFile != "/etc/serviceradar/certs/kv.pem" {
+		t.Fatalf("expected normalized cert_file, got %q", cfg.Security.TLS.CertFile)
+	}
+	if cfg.Security.TLS.KeyFile != "/etc/serviceradar/certs/kv-key.pem" {
+		t.Fatalf("expected normalized key_file, got %q", cfg.Security.TLS.KeyFile)
+	}
+	if cfg.Security.TLS.CAFile != "/etc/serviceradar/certs/kv-root.pem" {
+		t.Fatalf("expected normalized ca_file, got %q", cfg.Security.TLS.CAFile)
+	}
+	if cfg.Security.TLS.ClientCAFile != "/etc/serviceradar/certs/kv-root.pem" {
+		t.Fatalf("expected client_ca_file to fall back to normalized ca_file, got %q", cfg.Security.TLS.ClientCAFile)
+	}
+}
+
 func generateTestPrivateKey(t *testing.T) string {
 	t.Helper()
 
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("generate rsa key: %v", err)
-	}
-
-	der, err := x509.MarshalPKCS8PrivateKey(key)
-	if err != nil {
-		t.Fatalf("marshal private key: %v", err)
-	}
-
-	return string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
+	return testPrivateKey
 }

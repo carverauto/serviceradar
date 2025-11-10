@@ -97,14 +97,22 @@ func (m *KVManager) OverlayConfig(ctx context.Context, kvKey string, cfg interfa
 	if err := json.Unmarshal(data, &overlay); err != nil {
 		return err
 	}
-	stripSecurityKeys(overlay)
 
 	sanitized, err := json.Marshal(overlay)
 	if err != nil {
 		return err
 	}
 
-	return MergeOverlayBytes(cfg, sanitized)
+	if err := MergeOverlayBytes(cfg, sanitized); err != nil {
+		return err
+	}
+
+	cfgLoader := NewConfig(nil)
+	if err := cfgLoader.normalizeSecurityConfig(cfg); err != nil {
+		return err
+	}
+
+	return ValidateConfig(cfg)
 }
 
 // LoadAndOverlayOrExit loads config and exits with cleanup on error
