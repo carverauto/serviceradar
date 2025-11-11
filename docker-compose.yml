@@ -293,7 +293,7 @@ services:
       web:
         condition: service_started
       core:
-        condition: service_healthy
+        condition: service_started
       kong:
         condition: service_started
     healthcheck:
@@ -311,12 +311,28 @@ services:
     image: ghcr.io/carverauto/serviceradar-kong-config:latest
     container_name: serviceradar-kong-config
     user: "0:0"
-    command: ["render-kong","--jwks","${JWKS_URL:-http://core:8090/auth/jwks.json}","--service","${KONG_SERVICE_URL:-http://core:8090}","--path","${KONG_ROUTE_PATH:-/api}","--srql-service","${SRQL_SERVICE_URL:-http://srql:8080}","--srql-path","${SRQL_ROUTE_PATH:-/api/query}","--out","/out/kong.yml"]
+    entrypoint: ["/bin/sh","-c"]
+    command:
+      - |
+        until /usr/local/bin/serviceradar-cli render-kong \
+          --jwks "${JWKS_URL:-http://core:8090/auth/jwks.json}" \
+          --service "${KONG_SERVICE_URL:-http://core:8090}" \
+          --path "${KONG_ROUTE_PATH:-/api}" \
+          --srql-service "${SRQL_SERVICE_URL:-http://srql:8080}" \
+          --srql-path "${SRQL_ROUTE_PATH:-/api/query}" \
+          --out /out/kong.yml
+        do
+          status=$$?
+          echo "[kong-config] render failed (exit $$status), retrying in $${KONG_CONFIG_RETRY_SECONDS:-5}s"
+          sleep $${KONG_CONFIG_RETRY_SECONDS:-5}
+        done
+    environment:
+      - KONG_CONFIG_RETRY_SECONDS=${KONG_CONFIG_RETRY_SECONDS:-5}
     volumes:
       - kong_config:/out
     depends_on:
       core:
-        condition: service_healthy
+        condition: service_started
     networks:
       - serviceradar-net
     # runs as part of default stack (no profile)
@@ -331,9 +347,9 @@ services:
     # so we don't block on kong-config completion.
     depends_on:
       kong-config:
-        condition: service_started
+        condition: service_completed_successfully
       srql:
-        condition: service_healthy
+        condition: service_started
     environment:
       KONG_DATABASE: off
       KONG_DECLARATIVE_CONFIG: /opt/kong/kong.yml
@@ -414,6 +430,8 @@ services:
         condition: service_completed_successfully
       core:
         condition: service_healthy
+      poller-kv-seed:
+        condition: service_completed_successfully
     command: ["/usr/local/bin/serviceradar-poller","-config","/etc/serviceradar/config/poller.json"]
     healthcheck:
       test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/poller.pem", "-key", "/etc/serviceradar/certs/poller-key.pem", "-servername", "poller.serviceradar", "localhost:50053", "grpc.health.v1.Health/Check"]
@@ -549,6 +567,31 @@ services:
         aliases:
           - datasvc.serviceradar
     restart: unless-stopped
+
+  # Seed poller configuration/template into KV so the Admin UI has defaults.
+  poller-kv-seed:
+    image: ghcr.io/carverauto/serviceradar-tools:latest
+    container_name: serviceradar-poller-kv-seed
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - generated-config:/etc/serviceradar/config:ro
+      - ./docker/compose/seed-poller-kv.sh:/usr/local/bin/seed-poller-kv.sh:ro
+    environment:
+      - POLLERS_CONFIG_PATH=/etc/serviceradar/config/poller.json
+      - POLLERS_POLLER_ID=${POLLERS_POLLER_ID:-}
+      - KV_BUCKET=${KV_BUCKET:-serviceradar-datasvc}
+      - NATS_SERVER=${NATS_SERVER:-tls://serviceradar-nats:4222}
+    depends_on:
+      config-updater:
+        condition: service_completed_successfully
+      datasvc:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    entrypoint: ["/bin/bash", "/usr/local/bin/seed-poller-kv.sh"]
+    restart: "no"
+    networks:
+      - serviceradar-net
 
   # ServiceRadar Sync Service (Device discovery synchronization)
   sync:

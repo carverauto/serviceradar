@@ -23,6 +23,7 @@ import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { Event } from '@/types/events';
 import { formatNumber } from '@/utils/formatters';
 import { escapeSrqlValue } from '@/lib/srql';
+import { formatMessagePreview } from '@/utils/messagePreview';
 
 
 const CriticalEventsWidget: React.FC = () => {
@@ -101,10 +102,8 @@ const CriticalEventsWidget: React.FC = () => {
         }
     };
 
-    const truncateMessage = (message: string, maxLength: number = 50) => {
-        if (message.length <= maxLength) return message;
-        return message.substring(0, maxLength) + '...';
-    };
+    const formatEventMessage = (message?: string | null) =>
+        formatMessagePreview(message, { fallback: 'No additional details' });
 
     const handleEventSeverityClick = useCallback((severity: string) => {
         const eventWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -261,7 +260,7 @@ const CriticalEventsWidget: React.FC = () => {
                                             {event.host}
                                         </div>
                                         <div className="text-xs text-gray-600 dark:text-gray-400 truncate">
-                                            {truncateMessage(event.short_message)}
+                                            {formatEventMessage(event.short_message)}
                                         </div>
                                         <div className={`text-xs ${getSeverityColor(event.severity || 'unknown')}`}>
                                             {event.severity || 'unknown'} • {formatTimestamp(event.event_timestamp)}
