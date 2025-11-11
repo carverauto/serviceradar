@@ -48,13 +48,36 @@ var (
 	errKVKeyEmpty            = errors.New("KV key is required")
 	errDecodePrivateKeyPEM   = errors.New("failed to decode private key PEM")
 	errUnsupportedPrivateKey = errors.New("unsupported private key type")
+)
 
+const (
 	defaultKVConnectTimeout     = 2 * time.Minute
 	defaultKVConnectBaseBackoff = 500 * time.Millisecond
 	defaultKVConnectMaxBackoff  = 10 * time.Second
 )
 
-var kvClientFactory = createKVClientFromEnv
+type kvClientFactoryFunc func(context.Context, models.ServiceRole) (kv.KVStore, error)
+
+type kvClientFactoryContextKey struct{}
+
+// withKVClientFactory injects a custom KV client factory into ctx (primarily for tests).
+func withKVClientFactory(ctx context.Context, factory kvClientFactoryFunc) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, kvClientFactoryContextKey{}, factory)
+}
+
+// kvClientFactoryFromContext returns either the injected factory or the default creator.
+func kvClientFactoryFromContext(ctx context.Context) kvClientFactoryFunc {
+	if ctx == nil {
+		return createKVClientFromEnv
+	}
+	if factory, ok := ctx.Value(kvClientFactoryContextKey{}).(kvClientFactoryFunc); ok && factory != nil {
+		return factory
+	}
+	return createKVClientFromEnv
+}
 
 // NewKVManagerFromEnv creates a KV manager from environment variables.
 func NewKVManagerFromEnv(ctx context.Context, role models.ServiceRole) (*KVManager, error) {
@@ -62,7 +85,7 @@ func NewKVManagerFromEnv(ctx context.Context, role models.ServiceRole) (*KVManag
 		return nil, nil
 	}
 
-	client, err := kvClientFactory(ctx, role)
+	client, err := kvClientFactoryFromContext(ctx)(ctx, role)
 	if err != nil {
 		return nil, err
 	}

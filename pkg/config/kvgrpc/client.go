@@ -172,6 +172,17 @@ func shouldRetryWatch(ctx context.Context, err error) bool {
 			codes.FailedPrecondition,
 			codes.Unimplemented:
 			return false
+		case codes.OK,
+			codes.Unknown,
+			codes.NotFound,
+			codes.AlreadyExists,
+			codes.ResourceExhausted,
+			codes.Aborted,
+			codes.OutOfRange,
+			codes.Internal,
+			codes.Unavailable,
+			codes.DataLoss:
+			return true
 		}
 	}
 	return true

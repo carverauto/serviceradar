@@ -42,25 +42,22 @@ func NewKVConfigLoader(store kv.KVStore, log logger.Logger) *KVConfigLoader {
 }
 
 var (
-	explicitKVPrefixes = []string{
-		"config/",
-		"agents/",
-		"pollers/",
-		"watchers/",
-		"templates/",
-		"domains/",
-	}
 	errKVKeyNotFound = errors.New("key not found in KV store")
 )
 
 func isExplicitKVKey(path string) bool {
 	trimmed := strings.TrimSpace(path)
-	for _, prefix := range explicitKVPrefixes {
-		if strings.HasPrefix(trimmed, prefix) {
-			return true
-		}
+	switch {
+	case strings.HasPrefix(trimmed, "config/"),
+		strings.HasPrefix(trimmed, "agents/"),
+		strings.HasPrefix(trimmed, "pollers/"),
+		strings.HasPrefix(trimmed, "watchers/"),
+		strings.HasPrefix(trimmed, "templates/"),
+		strings.HasPrefix(trimmed, "domains/"):
+		return true
+	default:
+		return false
 	}
-	return false
 }
 
 func deriveKVKey(path string) string {
