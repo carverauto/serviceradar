@@ -17,7 +17,6 @@
 package core
 
 import (
-	"context"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
@@ -30,7 +29,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -47,59 +45,6 @@ var (
 	errUnsupportedPrivateKey = errors.New("unsupported private key type")
 	errNotRSAPrivateKey      = errors.New("decoded key is not RSA private key")
 )
-
-func LoadConfig(ctx context.Context, path string) (models.CoreServiceConfig, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return models.CoreServiceConfig{}, fmt.Errorf("failed to read coreServiceConfig: %w", err)
-	}
-
-	var coreServiceConfig models.CoreServiceConfig
-
-	if err := json.Unmarshal(data, &coreServiceConfig); err != nil {
-		return models.CoreServiceConfig{}, fmt.Errorf("failed to parse coreServiceConfig: %w", err)
-	}
-
-	// Overlay from KV if configured (no-op if KV env is not set or key missing)
-	_ = overlayFromKV(ctx, path, &coreServiceConfig)
-
-	if err := coreServiceConfig.Validate(); err != nil {
-		return models.CoreServiceConfig{}, fmt.Errorf("invalid configuration: %w", err)
-	}
-
-	return coreServiceConfig, nil
-}
-
-// overlayFromKV uses the config package's KV manager to overlay configuration from KV store
-func overlayFromKV(ctx context.Context, path string, cfg *models.CoreServiceConfig) error {
-	// Use the existing KVManager from pkg/config which handles env vars properly
-	kvMgr, err := config.NewKVManagerFromEnv(ctx, models.RoleCore)
-	if err != nil {
-		kvMgr, err = config.NewKVManagerFromEnvWithRetry(ctx, models.RoleCore, nil)
-		if err != nil {
-			return err
-		}
-	}
-	if kvMgr == nil {
-		return nil // No KV configured, which is fine
-	}
-	defer func() { _ = kvMgr.Close() }()
-
-	cfgLoader := config.NewConfig(nil)
-	kvMgr.SetupConfigLoader(cfgLoader)
-
-	if err := cfgLoader.OverlayFromKV(ctx, path, cfg); err != nil {
-		return err
-	}
-
-	if desc, ok := config.ServiceDescriptorFor("core"); ok {
-		if err := kvMgr.BootstrapConfig(ctx, desc.KVKey, path, cfg); err != nil {
-			log.Printf("failed to bootstrap core config into KV: %v", err)
-		}
-	}
-
-	return nil
-}
 
 func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig {
 	normalized := *config
