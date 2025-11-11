@@ -26,6 +26,7 @@ go_library(
         "//pkg/checker",
         "//pkg/checker/snmp",
         "//pkg/config",
+        "//pkg/config/kv",
         "//pkg/grpc",
         "//pkg/hashutil",
         "//pkg/logger",
@@ -53,6 +54,7 @@ go_test(
     deps = [
         "//pkg/checker",
         "//pkg/config",
+        "//pkg/config/kv",
         "//pkg/grpc",
         "//pkg/logger",
         "//pkg/models",
