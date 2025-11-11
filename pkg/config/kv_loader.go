@@ -42,12 +42,44 @@ func NewKVConfigLoader(store kv.KVStore, log logger.Logger) *KVConfigLoader {
 }
 
 var (
+	explicitKVPrefixes = []string{
+		"config/",
+		"agents/",
+		"pollers/",
+		"watchers/",
+		"templates/",
+		"domains/",
+	}
 	errKVKeyNotFound = errors.New("key not found in KV store")
 )
 
+func isExplicitKVKey(path string) bool {
+	trimmed := strings.TrimSpace(path)
+	for _, prefix := range explicitKVPrefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func deriveKVKey(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if isExplicitKVKey(trimmed) {
+		return trimmed
+	}
+
+	lastSlash := strings.LastIndex(trimmed, "/")
+	if lastSlash >= 0 && lastSlash < len(trimmed)-1 {
+		return "config/" + trimmed[lastSlash+1:]
+	}
+
+	return "config/" + trimmed
+}
+
 // Load implements ConfigLoader by fetching and unmarshaling data from the KV store.
 func (k *KVConfigLoader) Load(ctx context.Context, path string, dst interface{}) error {
-	key := "config/" + path[strings.LastIndex(path, "/")+1:]
+	key := deriveKVKey(path)
 
 	if k.logger != nil {
 		k.logger.Debug().Str("key", key).Str("path", path).Msg("Loading configuration from KV store")

@@ -75,7 +75,13 @@ func overlayFromKV(path string, cfg *models.CoreServiceConfig) error {
 	ctx := context.Background()
 
 	// Use the existing KVManager from pkg/config which handles env vars properly
-	kvMgr := config.NewKVManagerFromEnv(ctx, models.RoleCore)
+	kvMgr, err := config.NewKVManagerFromEnv(ctx, models.RoleCore)
+	if err != nil {
+		kvMgr, err = config.NewKVManagerFromEnvWithRetry(ctx, models.RoleCore, nil)
+		if err != nil {
+			return err
+		}
+	}
 	if kvMgr == nil {
 		return nil // No KV configured, which is fine
 	}

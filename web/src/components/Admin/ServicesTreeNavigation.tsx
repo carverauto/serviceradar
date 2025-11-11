@@ -43,6 +43,19 @@ const toTitleCase = (value: string) =>
 const descriptorKey = (desc?: ConfigDescriptor | null) => (desc?.service_type || desc?.name || '').toLowerCase();
 const descriptorPath = (desc?: ConfigDescriptor | null) => desc?.service_type || desc?.name || '';
 
+const allowedGlobalServiceTypes = new Set([
+  'core',
+  'datasvc',
+  'db-event-writer',
+  'flowgger',
+  'otel',
+  'netflow-consumer',
+  'sync',
+  'zen-consumer',
+  'trapd',
+  'faker',
+]);
+
 interface Props {
   pollers?: ServiceTreePoller[];
   selected?: SelectedServiceInfo | null;
@@ -158,15 +171,18 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
 
   // Global services (not scoped to agents/pollers)
   const [globalOpen, setGlobalOpen] = useState<boolean>(false);
-  const orderedGlobalDescriptors = React.useMemo(
-    () =>
-      [...globalDescriptors].sort((a, b) => {
+  const orderedGlobalDescriptors = React.useMemo(() => {
+    return [...globalDescriptors]
+      .filter((desc) => {
+        const key = descriptorKey(desc);
+        return allowedGlobalServiceTypes.has(key);
+      })
+      .sort((a, b) => {
         const left = a.display_name || a.name || a.service_type;
         const right = b.display_name || b.name || b.service_type;
         return left.localeCompare(right);
-      }),
-    [globalDescriptors],
-  );
+      });
+  }, [globalDescriptors]);
   const agentAddOptions = React.useMemo(() => {
     return configDescriptors
       .filter((desc) => desc.scope === 'agent' && desc.requires_agent)
