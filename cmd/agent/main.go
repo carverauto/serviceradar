@@ -108,6 +108,10 @@ func run() error {
 	}
 
 	// Step 3: Create agent server with proper logger
+	if err := agent.SeedCheckerConfigsFromDisk(ctx, bootstrapResult.Manager(), &cfg, *configPath, agentLogger); err != nil {
+		agentLogger.Warn().Err(err).Msg("Failed to seed checker configs to KV")
+	}
+
 	server, err := agent.NewServer(ctx, cfg.CheckersDir, &cfg, agentLogger)
 	if err != nil {
 		if shutdownErr := lifecycle.ShutdownLogger(); shutdownErr != nil {

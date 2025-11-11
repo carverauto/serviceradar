@@ -43,6 +43,16 @@ const CORE_KV_STORE: KvStoreOption = {
   name: 'Core KV (default)',
 };
 
+const agentScopedServiceOverrides = new Set([
+  'snmp-checker',
+  'sysmon-checker',
+  'sysmon-vm-checker',
+  'rperf-checker',
+  'mapper',
+  'mapper-checker',
+  'dusk-checker',
+]);
+
 type WatcherTelemetryPanelProps = {
   kvStoreHints?: string[];
 };
@@ -289,8 +299,18 @@ export default function WatcherTelemetryPanel({ kvStoreHints = [] }: WatcherTele
     };
   }, [fetchWatchers]);
 
+  const normalizedWatchers = useMemo(() => {
+    return watchers.map((watcher) => {
+      const normalizedService = (watcher.service ?? '').toLowerCase();
+      if (agentScopedServiceOverrides.has(normalizedService) && watcher.scope !== 'agent') {
+        return { ...watcher, scope: 'agent' };
+      }
+      return watcher;
+    });
+  }, [watchers]);
+
   const rows = useMemo(() => {
-    return [...watchers].sort((a, b) => {
+    return [...normalizedWatchers].sort((a, b) => {
       const storeA = a.kv_store_id ?? '';
       const storeB = b.kv_store_id ?? '';
       if (storeA !== storeB) {
@@ -301,7 +321,7 @@ export default function WatcherTelemetryPanel({ kvStoreHints = [] }: WatcherTele
       }
       return a.service.localeCompare(b.service);
     });
-  }, [watchers]);
+  }, [normalizedWatchers]);
 
   const renderStatusPill = (status: WatcherStatus, lastError?: string) => (
     <span

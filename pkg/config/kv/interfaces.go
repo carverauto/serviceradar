@@ -19,8 +19,12 @@ package kv
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrKeyExists indicates that a create/put-if-absent operation found an existing value.
+var ErrKeyExists = errors.New("kv: key already exists")
 
 // KVStore defines the interface for a key-value store used in ServiceRadar configuration management.
 type KVStore interface {
@@ -31,6 +35,10 @@ type KVStore interface {
 	// Put stores a value under the given key with an optional TTL (time-to-live).
 	// If ttl is zero, the value persists indefinitely (or until explicitly deleted, depending on the backend).
 	Put(ctx context.Context, key string, value []byte, ttl time.Duration) error
+
+	// Create stores the value only if the key does not already exist. Implementations must perform this atomically.
+	// Returns ErrKeyExists if the key already exists.
+	Create(ctx context.Context, key string, value []byte, ttl time.Duration) error
 
 	// Delete removes the key and its associated value from the store.
 	Delete(ctx context.Context, key string) error

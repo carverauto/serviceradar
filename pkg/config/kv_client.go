@@ -50,18 +50,119 @@ var (
 	errUnsupportedPrivateKey = errors.New("unsupported private key type")
 )
 
-// NewKVManagerFromEnv creates a KV manager from environment variables
-func NewKVManagerFromEnv(ctx context.Context, role models.ServiceRole) *KVManager {
-	if os.Getenv("CONFIG_SOURCE") != "kv" || os.Getenv("KV_ADDRESS") == "" {
-		return nil
+const (
+	defaultKVConnectTimeout     = 2 * time.Minute
+	defaultKVConnectBaseBackoff = 500 * time.Millisecond
+	defaultKVConnectMaxBackoff  = 10 * time.Second
+)
+
+type kvClientFactoryFunc func(context.Context, models.ServiceRole) (kv.KVStore, error)
+
+type kvClientFactoryContextKey struct{}
+
+// withKVClientFactory injects a custom KV client factory into ctx (primarily for tests).
+func withKVClientFactory(ctx context.Context, factory kvClientFactoryFunc) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, kvClientFactoryContextKey{}, factory)
+}
+
+// kvClientFactoryFromContext returns either the injected factory or the default creator.
+func kvClientFactoryFromContext(ctx context.Context) kvClientFactoryFunc {
+	if ctx == nil {
+		return createKVClientFromEnv
+	}
+	if factory, ok := ctx.Value(kvClientFactoryContextKey{}).(kvClientFactoryFunc); ok && factory != nil {
+		return factory
+	}
+	return createKVClientFromEnv
+}
+
+// NewKVManagerFromEnv creates a KV manager from environment variables.
+func NewKVManagerFromEnv(ctx context.Context, role models.ServiceRole) (*KVManager, error) {
+	if !ShouldUseKVFromEnv() {
+		return nil, nil
 	}
 
-	client := createKVClientFromEnv(ctx, role)
+	client, err := kvClientFactoryFromContext(ctx)(ctx, role)
+	if err != nil {
+		return nil, err
+	}
 	if client == nil {
-		return nil
+		return nil, nil
 	}
 
-	return &KVManager{client: client}
+	return &KVManager{client: client}, nil
+}
+
+// NewKVManagerFromEnvWithRetry blocks until a KV manager can be created or the configured timeout expires.
+func NewKVManagerFromEnvWithRetry(ctx context.Context, role models.ServiceRole, log logger.Logger) (*KVManager, error) {
+	if !ShouldUseKVFromEnv() {
+		return nil, nil
+	}
+
+	if log == nil {
+		log = logger.NewTestLogger()
+	}
+
+	timeout := durationFromEnv("KV_CONNECT_TIMEOUT", defaultKVConnectTimeout)
+	baseBackoff := durationFromEnv("KV_CONNECT_RETRY_BASE", defaultKVConnectBaseBackoff)
+	maxBackoff := durationFromEnv("KV_CONNECT_RETRY_MAX", defaultKVConnectMaxBackoff)
+
+	if timeout <= 0 {
+		timeout = defaultKVConnectTimeout
+	}
+	if baseBackoff <= 0 {
+		baseBackoff = defaultKVConnectBaseBackoff
+	}
+	if maxBackoff <= 0 {
+		maxBackoff = defaultKVConnectMaxBackoff
+	}
+
+	deadline := time.Now().Add(timeout)
+	attempt := 0
+	var lastErr error
+
+	for {
+		attempt++
+		manager, err := NewKVManagerFromEnv(ctx, role)
+		if err == nil && manager != nil {
+			if attempt > 1 {
+				log.Info().
+					Int("attempt", attempt).
+					Msg("connected to KV service after retry")
+			}
+			return manager, nil
+		}
+		if err == nil && manager == nil {
+			// Environment changed while waiting; KV is no longer configured.
+			return nil, nil
+		}
+
+		lastErr = err
+		log.Warn().
+			Err(err).
+			Int("attempt", attempt).
+			Msg("KV connection attempt failed; retrying")
+
+		wait := baseBackoff << (attempt - 1)
+		if wait > maxBackoff {
+			wait = maxBackoff
+		}
+
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+		}
+
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timed out waiting for KV connection after %d attempts: %w", attempt, lastErr)
+		}
+	}
 }
 
 // SetupConfigLoader configures a Config instance with KV store if available
@@ -170,6 +271,27 @@ func (m *KVManager) Put(ctx context.Context, key string, value []byte, ttl time.
 		return errKVKeyEmpty
 	}
 	return m.client.Put(ctx, key, value, ttl)
+}
+
+// PutIfAbsent writes the provided value only if the key does not already exist.
+// Returns true when the key was created.
+func (m *KVManager) PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error) {
+	if m == nil || m.client == nil {
+		return false, errKVClientUnavailable
+	}
+	if key == "" {
+		return false, errKVKeyEmpty
+	}
+
+	err := m.client.Create(ctx, key, value, ttl)
+	if err != nil {
+		if errors.Is(err, kv.ErrKeyExists) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return true, nil
 }
 
 func defaultKVKeyFromPath(configPath string) string {
@@ -368,15 +490,21 @@ func (m *KVManager) Close() error {
 }
 
 // createKVClientFromEnv creates a KV client from environment variables
-func createKVClientFromEnv(ctx context.Context, role models.ServiceRole) *kvgrpc.Client {
+func createKVClientFromEnv(ctx context.Context, role models.ServiceRole) (kv.KVStore, error) {
 	client, closer, err := NewKVServiceClientFromEnv(ctx, role)
-	if err != nil || client == nil {
+	if err != nil {
 		if closer != nil {
 			_ = closer()
 		}
-		return nil
+		return nil, err
 	}
-	return kvgrpc.New(client, closer)
+	if client == nil {
+		if closer != nil {
+			_ = closer()
+		}
+		return nil, nil
+	}
+	return kvgrpc.New(client, closer), nil
 }
 
 // NewKVServiceClientFromEnv dials the remote KV service using environment variables suitable for the given role.
@@ -449,4 +577,45 @@ func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (pr
 		return client.Close()
 	}
 	return kvClient, closer, nil
+}
+
+// ShouldUseKVFromEnv reports whether the current environment is configured for KV-backed configuration.
+func ShouldUseKVFromEnv() bool {
+	if strings.ToLower(strings.TrimSpace(os.Getenv("CONFIG_SOURCE"))) != "kv" {
+		return false
+	}
+	if strings.TrimSpace(os.Getenv("KV_ADDRESS")) == "" {
+		return false
+	}
+
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("KV_SEC_MODE")))
+	switch mode {
+	case "mtls":
+		return allEnvSet("KV_CERT_FILE", "KV_KEY_FILE", "KV_CA_FILE")
+	case "spiffe":
+		return allEnvSet("KV_TRUST_DOMAIN", "KV_SERVER_SPIFFE_ID")
+	default:
+		return false
+	}
+}
+
+func durationFromEnv(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	val, err := time.ParseDuration(raw)
+	if err != nil || val <= 0 {
+		return fallback
+	}
+	return val
+}
+
+func allEnvSet(keys ...string) bool {
+	for _, key := range keys {
+		if strings.TrimSpace(os.Getenv(key)) == "" {
+			return false
+		}
+	}
+	return true
 }

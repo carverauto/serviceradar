@@ -126,7 +126,18 @@ func Service(ctx context.Context, desc config.ServiceDescriptor, cfg interface{}
 
 	var kvMgr *config.KVManager
 	if opts.Role != "" {
-		kvMgr = config.NewKVManagerFromEnv(ctx, opts.Role)
+		var err error
+		kvMgr, err = config.NewKVManagerFromEnv(ctx, opts.Role)
+		if err != nil {
+			waitLogger := opts.Logger
+			if waitLogger == nil {
+				waitLogger = logger.NewTestLogger()
+			}
+			kvMgr, err = config.NewKVManagerFromEnvWithRetry(ctx, opts.Role, waitLogger)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	if kvMgr != nil {
 		kvMgr.SetupConfigLoader(cfgLoader)

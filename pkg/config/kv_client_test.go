@@ -3,9 +3,12 @@ package config
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"strings"
 	"testing"
 
+	"github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -25,6 +28,11 @@ dnMQ1x1vzqPFfUtzEy9gVU69NniM+G9OlF8lwF5HCsJyFwqQ3l6RAkEAr4SWX6P5
 aNRRXZdIgnVnW8ydYrM/HqsjtnBwFwJxKm4ZBhng54g5ywVfwgbDsLkdrMH983LB
 Stry7BwsPBarcA==
 -----END PRIVATE KEY-----`
+
+var (
+	errKVNotReady         = errors.New("kv not ready")
+	errDatasvcUnavailable = errors.New("datasvc unavailable")
+)
 
 func TestSanitizeBootstrapSourceAddsJWTPublicKey(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "core-config-*.json")
@@ -189,6 +197,117 @@ func TestKVManagerOverlayConfigNormalizesSecurity(t *testing.T) {
 	}
 	if cfg.Security.TLS.ClientCAFile != kvRootCertPath {
 		t.Fatalf("expected client_ca_file to fall back to normalized ca_file, got %q", cfg.Security.TLS.ClientCAFile)
+	}
+}
+
+func TestKVManagerPutIfAbsent(t *testing.T) {
+	manager := &KVManager{
+		client: &fakeKVStore{
+			values: map[string][]byte{},
+		},
+	}
+	ctx := context.Background()
+
+	created, err := manager.PutIfAbsent(ctx, "config/example.json", []byte(`{"foo":"bar"}`), 0)
+	if err != nil {
+		t.Fatalf("PutIfAbsent returned error: %v", err)
+	}
+	if !created {
+		t.Fatalf("expected key to be created")
+	}
+
+	created, err = manager.PutIfAbsent(ctx, "config/example.json", []byte(`{"foo":"baz"}`), 0)
+	if err != nil {
+		t.Fatalf("PutIfAbsent returned error when key exists: %v", err)
+	}
+	if created {
+		t.Fatalf("expected PutIfAbsent to report existing key")
+	}
+}
+
+func TestShouldUseKVFromEnv(t *testing.T) {
+	t.Setenv("CONFIG_SOURCE", "kv")
+	t.Setenv("KV_ADDRESS", "serviceradar-datasvc:50057")
+	t.Setenv("KV_SEC_MODE", "spiffe")
+	t.Setenv("KV_TRUST_DOMAIN", "carverauto.dev")
+	t.Setenv("KV_SERVER_SPIFFE_ID", "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc")
+
+	if !ShouldUseKVFromEnv() {
+		t.Fatalf("expected spiffe configuration to be detected")
+	}
+
+	t.Setenv("KV_SEC_MODE", "mtls")
+	t.Setenv("KV_CERT_FILE", "/etc/serviceradar/certs/agent.pem")
+	t.Setenv("KV_KEY_FILE", "/etc/serviceradar/certs/agent-key.pem")
+	t.Setenv("KV_CA_FILE", "/etc/serviceradar/certs/root.pem")
+
+	if !ShouldUseKVFromEnv() {
+		t.Fatalf("expected mtls configuration to be detected")
+	}
+
+	t.Setenv("KV_SEC_MODE", "unknown")
+	if ShouldUseKVFromEnv() {
+		t.Fatalf("unexpected success for unsupported security mode")
+	}
+}
+
+func TestNewKVManagerFromEnvWithRetryEventuallySucceeds(t *testing.T) {
+	t.Setenv("CONFIG_SOURCE", "kv")
+	t.Setenv("KV_ADDRESS", "serviceradar-datasvc:50057")
+	t.Setenv("KV_SEC_MODE", "spiffe")
+	t.Setenv("KV_TRUST_DOMAIN", "carverauto.dev")
+	t.Setenv("KV_SERVER_SPIFFE_ID", "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc")
+	t.Setenv("KV_CONNECT_TIMEOUT", "2s")
+	t.Setenv("KV_CONNECT_RETRY_BASE", "10ms")
+	t.Setenv("KV_CONNECT_RETRY_MAX", "20ms")
+
+	failures := 2
+	attempts := 0
+	ctx := withKVClientFactory(context.Background(), func(context.Context, models.ServiceRole) (kv.KVStore, error) {
+		attempts++
+		if attempts <= failures {
+			return nil, errKVNotReady
+		}
+		return &fakeKVStore{}, nil
+	})
+
+	manager, err := NewKVManagerFromEnvWithRetry(ctx, models.RoleAgent, nil)
+	if err != nil {
+		t.Fatalf("expected success after retries, got error: %v", err)
+	}
+	if manager == nil {
+		t.Fatalf("expected manager after retries")
+	}
+	if attempts != failures+1 {
+		t.Fatalf("expected %d attempts, got %d", failures+1, attempts)
+	}
+}
+
+func TestNewKVManagerFromEnvWithRetryTimesOut(t *testing.T) {
+	t.Setenv("CONFIG_SOURCE", "kv")
+	t.Setenv("KV_ADDRESS", "serviceradar-datasvc:50057")
+	t.Setenv("KV_SEC_MODE", "spiffe")
+	t.Setenv("KV_TRUST_DOMAIN", "carverauto.dev")
+	t.Setenv("KV_SERVER_SPIFFE_ID", "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc")
+	t.Setenv("KV_CONNECT_TIMEOUT", "50ms")
+	t.Setenv("KV_CONNECT_RETRY_BASE", "5ms")
+	t.Setenv("KV_CONNECT_RETRY_MAX", "5ms")
+
+	attempts := 0
+	ctx := withKVClientFactory(context.Background(), func(context.Context, models.ServiceRole) (kv.KVStore, error) {
+		attempts++
+		return nil, errDatasvcUnavailable
+	})
+
+	_, err := NewKVManagerFromEnvWithRetry(ctx, models.RoleAgent, nil)
+	if err == nil {
+		t.Fatalf("expected timeout error")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("expected timeout error, got %v", err)
+	}
+	if attempts < 2 {
+		t.Fatalf("expected multiple attempts before timeout, got %d", attempts)
 	}
 }
 
