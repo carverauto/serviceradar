@@ -243,8 +243,8 @@ func (n *NATSStore) Put(ctx context.Context, key string, value []byte, _ time.Du
 	return nil
 }
 
-// PutIfAbsent stores a key-value pair only if it doesn't already exist.
-func (n *NATSStore) PutIfAbsent(ctx context.Context, key string, value []byte, _ time.Duration) error {
+// Create stores a key-value pair only if it doesn't already exist.
+func (n *NATSStore) Create(ctx context.Context, key string, value []byte, _ time.Duration) error {
 	domain, realKey := n.extractDomain(key)
 	kv, err := n.getKVForDomain(ctx, domain)
 	if err != nil {
@@ -259,6 +259,11 @@ func (n *NATSStore) PutIfAbsent(ctx context.Context, key string, value []byte, _
 	}
 
 	return nil
+}
+
+// PutIfAbsent stores a key-value pair only if it doesn't already exist.
+func (n *NATSStore) PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	return n.Create(ctx, key, value, ttl)
 }
 
 // PutMany stores multiple key/value pairs. TTL is ignored in this implementation.

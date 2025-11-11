@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	configkv "github.com/carverauto/serviceradar/pkg/config/kv"
 )
 
 type fakeKVClient struct {
@@ -20,6 +22,13 @@ func (f *fakeKVClient) Get(_ context.Context, _ string) ([]byte, bool, error) {
 func (f *fakeKVClient) Put(_ context.Context, _ string, value []byte, _ time.Duration) error {
 	f.value = value
 	return nil
+}
+
+func (f *fakeKVClient) Create(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	if len(f.value) > 0 {
+		return configkv.ErrKeyExists
+	}
+	return f.Put(ctx, key, value, ttl)
 }
 
 func (f *fakeKVClient) Delete(context.Context, string) error                 { return nil }

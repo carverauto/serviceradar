@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	configkv "github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -42,6 +43,16 @@ func (f *fakeKVStore) Put(_ context.Context, key string, value []byte, _ time.Du
 	f.lastPutKey = key
 
 	return nil
+}
+
+func (f *fakeKVStore) Create(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	if f.values == nil {
+		f.values = make(map[string][]byte)
+	}
+	if _, exists := f.values[key]; exists {
+		return configkv.ErrKeyExists
+	}
+	return f.Put(ctx, key, value, ttl)
 }
 
 func (f *fakeKVStore) Delete(_ context.Context, _ string) error {

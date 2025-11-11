@@ -283,15 +283,15 @@ func (m *KVManager) PutIfAbsent(ctx context.Context, key string, value []byte, t
 		return false, errKVKeyEmpty
 	}
 
-	_, found, err := m.client.Get(ctx, key)
+	err := m.client.Create(ctx, key, value, ttl)
 	if err != nil {
+		if errors.Is(err, kv.ErrKeyExists) {
+			return false, nil
+		}
 		return false, err
 	}
-	if found {
-		return false, nil
-	}
 
-	return true, m.client.Put(ctx, key, value, ttl)
+	return true, nil
 }
 
 func defaultKVKeyFromPath(configPath string) string {
