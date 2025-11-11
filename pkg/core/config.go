@@ -48,7 +48,7 @@ var (
 	errNotRSAPrivateKey      = errors.New("decoded key is not RSA private key")
 )
 
-func LoadConfig(path string) (models.CoreServiceConfig, error) {
+func LoadConfig(ctx context.Context, path string) (models.CoreServiceConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return models.CoreServiceConfig{}, fmt.Errorf("failed to read coreServiceConfig: %w", err)
@@ -61,7 +61,7 @@ func LoadConfig(path string) (models.CoreServiceConfig, error) {
 	}
 
 	// Overlay from KV if configured (no-op if KV env is not set or key missing)
-	_ = overlayFromKV(path, &coreServiceConfig)
+	_ = overlayFromKV(ctx, path, &coreServiceConfig)
 
 	if err := coreServiceConfig.Validate(); err != nil {
 		return models.CoreServiceConfig{}, fmt.Errorf("invalid configuration: %w", err)
@@ -71,9 +71,7 @@ func LoadConfig(path string) (models.CoreServiceConfig, error) {
 }
 
 // overlayFromKV uses the config package's KV manager to overlay configuration from KV store
-func overlayFromKV(path string, cfg *models.CoreServiceConfig) error {
-	ctx := context.Background()
-
+func overlayFromKV(ctx context.Context, path string, cfg *models.CoreServiceConfig) error {
 	// Use the existing KVManager from pkg/config which handles env vars properly
 	kvMgr, err := config.NewKVManagerFromEnv(ctx, models.RoleCore)
 	if err != nil {
