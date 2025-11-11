@@ -148,66 +148,36 @@ After saving changes, redeploy Mapper so it reloads the file:
 docker-compose up -d mapper
 ```
 
-### Enabling a Nested SPIRE Poller (Docker Compose)
+### SPIFFE In Docker Compose
 
-ServiceRadar ships with optional SPIFFE support for the poller when you deploy via Docker Compose. The poller container can launch its own nested SPIRE server and agent pair and forward workloads through the upstream SPIRE control plane. To enable this mode:
+`docker compose up -d` now launches a local SPIRE control plane automatically:
 
-> Need the full edge onboarding workflow (poller package issuance, Docker restart scripts, and the upcoming agent/checker flows)? See the dedicated
-> [Secure Edge Onboarding](./edge-onboarding.md) runbook.
+1. The `serviceradar-spire-server` container runs the standalone SPIRE server defined in `docker/compose/spire/server.conf` (SQLite datastore, exposed on port
+   `8081` inside the Compose network).
+2. `serviceradar-spire-bootstrap` waits for the server socket, generates a join
+   token for the compose agent, and ensures that every ServiceRadar workload
+   has a registration entry (`spiffe://carverauto.dev/services/<name>` keyed by
+   the binary path selector like `unix:path:/usr/local/bin/serviceradar-core`).
+3. `serviceradar-spire-agent` reads the generated token, dials the server, and
+   exposes the Workload API at `/run/spire/sockets/agent.sock`. Each ServiceRadar
+   container mounts this socket read-only and now speaks SPIFFE when dialing
+   Core, datasvc, or the other internal gRPC endpoints.
 
-1. **Prepare upstream credentials.**
-   - Ensure the upstream SPIRE server is reachable from the poller host (default gRPC port `8081`).
-   - Request a join token (and downstream registration) from Core using the CLI. The example below stores the full response as JSON and extracts the token for the poller init container:
+There is no additional override file to apply—the default stack ships with SPIFFE
+enabled and `docker-compose.spiffe.yml` is kept only for backwards compatibility.
+To verify the SPIRE components:
 
-     ```bash
-     mkdir -p docker/compose/spire
-     serviceradar spire-join-token \
-       -core-url https://core.demo.serviceradar.cloud \
-       -api-key "$SERVICERADAR_API_KEY" \
-       -downstream-spiffe-id spiffe://carverauto.dev/ns/demo/poller-nested-spire \
-       -selector unix:uid:0 \
-       -selector unix:gid:0 \
-       -selector unix:user:root \
-       -selector unix:path:/opt/spire/bin/spire-server \
-       -output docker/compose/spire/join-token.json
+```bash
+docker compose ps spire-server spire-agent
+docker logs serviceradar-spire-bootstrap
+docker exec serviceradar-spire-server /opt/spire/bin/spire-server entry show
+docker exec serviceradar-poller ls /run/spire/sockets/agent.sock
+```
 
-     jq -r '.token' docker/compose/spire/join-token.json >docker/compose/spire/upstream-join-token
-     ```
-
-     The response also includes the downstream entry ID so you can audit or rotate it later. If you are operating in a lab environment without Core API access, you can fall back to the bootstrap script shipped in the repository (`docker/compose/bootstrap-nested-spire.sh`).
-   - Copy the upstream CA bundle beside the token as `docker/compose/spire/upstream-bundle.pem`.
-
-2. **Configure environment overrides.**
-   - Update your `.env` (or exported environment) with the upstream SPIRE details so the configuration updater can render SPIFFE-aware poller settings:
-
-     ```bash
-     cat >> .env <<'EOF'
-     POLLERS_SECURITY_MODE=spiffe
-     POLLERS_TRUST_DOMAIN=${POLLERS_TRUST_DOMAIN:-carverauto.dev}
-     POLLERS_SPIRE_UPSTREAM_ADDRESS=spire-server.example.org
-     POLLERS_SPIRE_UPSTREAM_PORT=8081
-     EOF
-     ```
-
-3. **Apply the SPIFFE override.**
-   - Use the provided override file to mount the token/bundle path and enable embedded SPIRE management for the poller:
-
-     ```bash
-     docker compose -f docker-compose.yml -f docker-compose.spiffe.yml up -d config-updater
-     docker compose -f docker-compose.yml -f docker-compose.spiffe.yml up -d poller
-     ```
-
-     The override sets `MANAGE_NESTED_SPIRE=enabled`, switches the poller to SPIFFE mode, and mounts `docker/compose/spire/` into the container.
-
-4. **Verify the workload socket.**
-   - After the poller restarts, the entrypoint launches the upstream agent, nested server, and downstream agent. Confirm the workload API is available:
-
-     ```bash
-     docker exec serviceradar-poller ls /run/spire/nested/workload/agent.sock
-     docker logs serviceradar-poller
-     ```
-
-     The logs should report `Downstream SPIRE workload API is ready` before the poller establishes gRPC sessions.
+Need the full edge onboarding workflow (where a poller runs outside Docker and
+bootstraps against the demo namespace)? See the dedicated
+[Secure Edge Onboarding](./edge-onboarding.md) runbook, which still relies on
+the helper scripts under `docker/compose/edge-*`.
 
 ### Edge Poller Against the Kubernetes Core
 

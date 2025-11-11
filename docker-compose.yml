@@ -11,6 +11,90 @@
 #   - testing: Adds the optional faker Armis emulator when the testing override is included
 
 services:
+  spire-server:
+    image: ghcr.io/spiffe/spire-server:1.11.2
+    container_name: serviceradar-spire-server
+    entrypoint: ["/opt/spire/bin/spire-server"]
+    command: ["run","-config","/spire/config/server.conf"]
+    volumes:
+      - ./docker/compose/spire/server.conf:/spire/config/server.conf:ro
+      - spire-server-data:/run/spire
+      - spire-server-socket:/run/spire/server
+    healthcheck:
+      test:
+        - CMD
+        - /opt/spire/bin/spire-server
+        - healthcheck
+        - -socketPath
+        - /run/spire/server/api.sock
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  spire-bootstrap:
+    image: alpine:3.20
+    container_name: serviceradar-spire-bootstrap
+    depends_on:
+      spire-server:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - >
+        apk add --no-cache curl tar >/dev/null &&
+        exec /bin/sh /spire/scripts/bootstrap.sh
+    environment:
+      - SPIRE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - SPIRE_WORKLOAD_PARENT_ID=${SPIRE_WORKLOAD_PARENT_ID:-}
+      - SPIRE_AGENT_JOIN_TOKEN_FILE=${SPIRE_AGENT_JOIN_TOKEN_FILE:-/spire/bootstrap/join_token}
+    volumes:
+      - ./docker/compose/spire/bootstrap-compose-spire.sh:/spire/scripts/bootstrap.sh:ro
+      - spire-server-socket:/run/spire/server
+      - spire-bootstrap:/spire/bootstrap
+    networks:
+      - serviceradar-net
+    restart: "no"
+
+  spire-agent:
+    image: alpine:3.20
+    container_name: serviceradar-spire-agent
+    pid: "host"
+    depends_on:
+      spire-bootstrap:
+        condition: service_completed_successfully
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - >
+        apk add --no-cache curl tar >/dev/null &&
+        exec /spire/scripts/run-agent.sh
+    environment:
+      - SPIRE_AGENT_JOIN_TOKEN_FILE=${SPIRE_AGENT_JOIN_TOKEN_FILE:-/spire/bootstrap/join_token}
+      - SPIRE_AGENT_SOCKET=${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
+    volumes:
+      - ./docker/compose/spire/agent.conf:/spire/config/agent.conf:ro
+      - ./docker/compose/spire/run-agent.sh:/spire/scripts/run-agent.sh:ro
+      - spire-agent-data:/run/spire/data
+      - spire-agent-sockets:/run/spire/sockets
+      - spire-bootstrap:/spire/bootstrap:ro
+    healthcheck:
+      test:
+        - CMD
+        - test
+        - -S
+        - /run/spire/sockets/agent.sock
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
   # Certificate Generation Service (runs once to generate mTLS certs)
   cert-generator:
     image: alpine:3.20
@@ -34,8 +118,9 @@ services:
       - ./docker/compose:/templates:ro
     environment:
       - SYSMON_VM_ADDRESS=${SYSMON_VM_ADDRESS:-192.168.1.219:50110}
-      - POLLERS_SECURITY_MODE=${POLLERS_SECURITY_MODE:-mtls}
-      - POLLERS_TRUST_DOMAIN=${POLLERS_TRUST_DOMAIN:-carverauto.dev}
+      - POLLERS_SECURITY_MODE=${POLLERS_SECURITY_MODE:-spiffe}
+      - POLLERS_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - POLLERS_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - POLLERS_SPIRE_UPSTREAM_ADDRESS=${POLLERS_SPIRE_UPSTREAM_ADDRESS:-spire-server}
       - POLLERS_SPIRE_UPSTREAM_PORT=${POLLERS_SPIRE_UPSTREAM_PORT:-8081}
       - POLLERS_SPIRE_INSECURE_BOOTSTRAP=${POLLERS_SPIRE_INSECURE_BOOTSTRAP:-true}
@@ -170,6 +255,7 @@ services:
       - credentials:/etc/serviceradar/credentials:ro
       - core-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
+      - spire-agent-sockets:/run/spire/sockets:ro
     environment:
       # Wait for dependencies
       - WAIT_FOR_PROTON=true
@@ -182,11 +268,10 @@ services:
       - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/config/core.json
       - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_FILE=/etc/serviceradar/certs/core.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/core-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_SEC_MODE=spiffe
+      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
+      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
     depends_on:
       cert-generator:
@@ -200,6 +285,8 @@ services:
       credentials-permissions-fixer:
         condition: service_completed_successfully
       proton:
+        condition: service_healthy
+      spire-agent:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/core.pem", "-key", "/etc/serviceradar/certs/core-key.pem", "-servername", "core.serviceradar", "localhost:50052", "grpc.health.v1.Health/Check"]
@@ -386,25 +473,24 @@ services:
       - generated-config:/etc/serviceradar/config:ro
       - poller-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
+      - spire-agent-sockets:/run/spire/sockets:ro
     environment:
       # Config path
       - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/config/poller.json
       - CORE_ADDRESS=serviceradar-core:50052
-      - CORE_SEC_MODE=mtls
-      - CORE_CERT_FILE=/etc/serviceradar/certs/poller.pem
-      - CORE_KEY_FILE=/etc/serviceradar/certs/poller-key.pem
-      - CORE_CA_FILE=/etc/serviceradar/certs/root.pem
-      - CORE_SERVER_NAME=core.serviceradar
+      - CORE_SEC_MODE=spiffe
+      - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
+      - CORE_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - CORE_CERT_DIR=/etc/serviceradar/certs
       - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_FILE=/etc/serviceradar/certs/poller.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/poller-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_SEC_MODE=spiffe
+      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
+      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
-      - POLLERS_SECURITY_MODE=${POLLERS_SECURITY_MODE:-mtls}
+      - POLLERS_SECURITY_MODE=${POLLERS_SECURITY_MODE:-spiffe}
       - MANAGE_NESTED_SPIRE=${MANAGE_NESTED_SPIRE:-disabled}
       - POLLERS_TRUST_DOMAIN=${POLLERS_TRUST_DOMAIN:-carverauto.dev}
       - NESTED_SPIRE_CONFIG_DIR=/etc/serviceradar/config/poller-spire
@@ -432,6 +518,8 @@ services:
         condition: service_healthy
       poller-kv-seed:
         condition: service_completed_successfully
+      spire-agent:
+        condition: service_healthy
     command: ["/usr/local/bin/serviceradar-poller","-config","/etc/serviceradar/config/poller.json"]
     healthcheck:
       test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/poller.pem", "-key", "/etc/serviceradar/certs/poller-key.pem", "-servername", "poller.serviceradar", "localhost:50053", "grpc.health.v1.Health/Check"]
@@ -455,23 +543,22 @@ services:
       - generated-config:/etc/serviceradar/config:ro
       - agent-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
+      - spire-agent-sockets:/run/spire/sockets:ro
     environment:
       # Config path
       - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/agent.json
       - CORE_ADDRESS=serviceradar-core:50052
-      - CORE_SEC_MODE=mtls
-      - CORE_CERT_FILE=/etc/serviceradar/certs/agent.pem
-      - CORE_KEY_FILE=/etc/serviceradar/certs/agent-key.pem
-      - CORE_CA_FILE=/etc/serviceradar/certs/root.pem
-      - CORE_SERVER_NAME=core.serviceradar
+      - CORE_SEC_MODE=spiffe
+      - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
+      - CORE_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - CORE_CERT_DIR=/etc/serviceradar/certs
       - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_FILE=/etc/serviceradar/certs/agent.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/agent-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_SEC_MODE=spiffe
+      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
+      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-info}
@@ -486,6 +573,8 @@ services:
         condition: service_completed_successfully
       config-updater:
         condition: service_completed_successfully
+      spire-agent:
+        condition: service_healthy
     command: ["/bin/sh","-c","if [ -f /etc/serviceradar/config/checkers/sysmon-vm.json ]; then cp /etc/serviceradar/config/checkers/sysmon-vm.json /etc/serviceradar/checkers/sysmon-vm.json; fi; exec /usr/local/bin/serviceradar-agent -config /etc/serviceradar/agent.json"]
     healthcheck:
       test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/agent.pem", "-key", "/etc/serviceradar/certs/agent-key.pem", "-servername", "agent.serviceradar", "localhost:50051", "grpc.health.v1.Health/Check"]
@@ -544,6 +633,7 @@ services:
       - cert-data:/etc/serviceradar/certs:ro
       - datasvc-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
+      - spire-agent-sockets:/run/spire/sockets:ro
     environment:
       # Config path
       - CONFIG_PATH=/etc/serviceradar/datasvc.json
@@ -556,12 +646,14 @@ services:
         condition: service_completed_successfully
       nats:
         condition: service_started
+      spire-agent:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/datasvc.pem", "-key", "/etc/serviceradar/certs/datasvc-key.pem", "-servername", "datasvc.serviceradar", "localhost:50057", "grpc.health.v1.Health/Check"]
+      test: ["CMD-SHELL", "wait-for-port --host 127.0.0.1 --port 50057 --attempts 1 --interval 1s --quiet"]
       interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       serviceradar-net:
         aliases:
@@ -604,23 +696,22 @@ services:
       - cert-data:/etc/serviceradar/certs:ro
       - sync-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
+      - spire-agent-sockets:/run/spire/sockets:ro
     environment:
       # Config path
       - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/sync.json
       - CORE_ADDRESS=serviceradar-core:50052
-      - CORE_SEC_MODE=mtls
-      - CORE_CERT_FILE=/etc/serviceradar/certs/sync.pem
-      - CORE_KEY_FILE=/etc/serviceradar/certs/sync-key.pem
-      - CORE_CA_FILE=/etc/serviceradar/certs/root.pem
-      - CORE_SERVER_NAME=core.serviceradar
+      - CORE_SEC_MODE=spiffe
+      - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
+      - CORE_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - CORE_CERT_DIR=/etc/serviceradar/certs
       - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_FILE=/etc/serviceradar/certs/sync.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/sync-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_SEC_MODE=spiffe
+      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
+      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_DATASVC=true
@@ -634,6 +725,8 @@ services:
         condition: service_healthy
       nats:
         condition: service_started
+      spire-agent:
+        condition: service_healthy
     # Health check disabled - sync service may not implement standard gRPC health service
     # Service logs show when it's ready and healthy
     # healthcheck:
@@ -657,16 +750,16 @@ services:
       - cert-data:/etc/serviceradar/certs:ro
       - otel-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
+      - spire-agent-sockets:/run/spire/sockets:ro
     environment:
       # Config path
       - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/otel.toml
       - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_FILE=/etc/serviceradar/certs/otel.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/otel-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_SEC_MODE=spiffe
+      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
+      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
@@ -687,6 +780,8 @@ services:
         condition: service_completed_successfully
       nats:
         condition: service_started
+      spire-agent:
+        condition: service_healthy
     # Health check disabled - OTEL service may not implement standard gRPC health service
     # Service logs show when it's ready and healthy
     # healthcheck:
@@ -711,16 +806,16 @@ services:
       - cert-data:/etc/serviceradar/certs:ro
       - flowgger-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
+      - spire-agent-sockets:/run/spire/sockets:ro
     environment:
       # Config path
       - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/flowgger.toml
       - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_FILE=/etc/serviceradar/certs/flowgger.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/flowgger-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_SEC_MODE=spiffe
+      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
+      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
@@ -744,6 +839,8 @@ services:
         condition: service_completed_successfully
       nats:
         condition: service_started
+      spire-agent:
+        condition: service_healthy
     # Health check disabled - Flowgger service may not implement standard gRPC health service
     # Service logs show when it's ready and healthy
     # healthcheck:
@@ -768,16 +865,16 @@ services:
       - cert-data:/etc/serviceradar/certs:ro
       - trapd-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
+      - spire-agent-sockets:/run/spire/sockets:ro
     environment:
       # Config path
       - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/trapd.json
       - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_FILE=/etc/serviceradar/certs/trapd.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/trapd-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_SEC_MODE=spiffe
+      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
+      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
@@ -801,6 +898,8 @@ services:
         condition: service_completed_successfully
       nats:
         condition: service_started
+      spire-agent:
+        condition: service_healthy
     # Health check disabled - Trapd service may not implement standard gRPC health service
     # Service logs show when it's ready and healthy
     # healthcheck:
@@ -824,23 +923,22 @@ services:
       - cert-data:/etc/serviceradar/certs:ro
       - zen-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
+      - spire-agent-sockets:/run/spire/sockets:ro
     environment:
       # Config path
       - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/zen.json
       - CORE_ADDRESS=serviceradar-core:50052
-      - CORE_SEC_MODE=mtls
-      - CORE_CERT_FILE=/etc/serviceradar/certs/zen.pem
-      - CORE_KEY_FILE=/etc/serviceradar/certs/zen-key.pem
-      - CORE_CA_FILE=/etc/serviceradar/certs/root.pem
-      - CORE_SERVER_NAME=core.serviceradar
+      - CORE_SEC_MODE=spiffe
+      - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
+      - CORE_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - CORE_CERT_DIR=/etc/serviceradar/certs
       - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_FILE=/etc/serviceradar/certs/zen.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/zen-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_SEC_MODE=spiffe
+      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
+      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
@@ -863,6 +961,8 @@ services:
       nats:
         condition: service_started
       datasvc:
+        condition: service_healthy
+      spire-agent:
         condition: service_healthy
     # Health check disabled - Zen service may not implement standard gRPC health service
     # Service logs show when it's ready and healthy
@@ -889,22 +989,21 @@ services:
       - db-event-writer-data:/var/lib/serviceradar
       - db-event-writer-config:/etc/serviceradar/consumers
       - ./logs:/var/log/serviceradar
+      - spire-agent-sockets:/run/spire/sockets:ro
     environment:
       - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/templates/db-event-writer.json
       - CORE_ADDRESS=serviceradar-core:50052
-      - CORE_SEC_MODE=mtls
-      - CORE_CERT_FILE=/etc/serviceradar/certs/db-event-writer.pem
-      - CORE_KEY_FILE=/etc/serviceradar/certs/db-event-writer-key.pem
-      - CORE_CA_FILE=/etc/serviceradar/certs/root.pem
-      - CORE_SERVER_NAME=core.serviceradar
+      - CORE_SEC_MODE=spiffe
+      - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
+      - CORE_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - CORE_CERT_DIR=/etc/serviceradar/certs
       - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_FILE=/etc/serviceradar/certs/db-event-writer.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/db-event-writer-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_SEC_MODE=spiffe
+      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
+      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
@@ -922,6 +1021,8 @@ services:
         condition: service_healthy
       credentials-permissions-fixer:
         condition: service_completed_successfully
+      spire-agent:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/db-event-writer.pem", "-key", "/etc/serviceradar/certs/db-event-writer-key.pem", "-servername", "db-event-writer.serviceradar", "localhost:50041", "grpc.health.v1.Health/Check"]
       interval: 30s
@@ -943,22 +1044,21 @@ services:
       - cert-data:/etc/serviceradar/certs:ro
       - mapper-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
+      - spire-agent-sockets:/run/spire/sockets:ro
     environment:
       - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/mapper.json
       - CORE_ADDRESS=serviceradar-core:50052
-      - CORE_SEC_MODE=mtls
-      - CORE_CERT_FILE=/etc/serviceradar/certs/mapper.pem
-      - CORE_KEY_FILE=/etc/serviceradar/certs/mapper-key.pem
-      - CORE_CA_FILE=/etc/serviceradar/certs/root.pem
-      - CORE_SERVER_NAME=core.serviceradar
+      - CORE_SEC_MODE=spiffe
+      - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
+      - CORE_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - CORE_CERT_DIR=/etc/serviceradar/certs
       - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_FILE=/etc/serviceradar/certs/mapper.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/mapper-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
+      - KV_SEC_MODE=spiffe
+      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
+      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
+      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_OTEL=true
@@ -969,6 +1069,8 @@ services:
         condition: service_completed_successfully
       otel:
         condition: service_started
+      spire-agent:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/mapper.pem", "-key", "/etc/serviceradar/certs/mapper-key.pem", "-servername", "mapper.serviceradar", "localhost:50056", "grpc.health.v1.Health/Check"]
       interval: 30s
@@ -1095,4 +1197,14 @@ volumes:
   kong_config:
     driver: local
   kong_db_data:
+    driver: local
+  spire-server-data:
+    driver: local
+  spire-server-socket:
+    driver: local
+  spire-agent-data:
+    driver: local
+  spire-agent-sockets:
+    driver: local
+  spire-bootstrap:
     driver: local
