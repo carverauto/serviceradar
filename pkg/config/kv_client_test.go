@@ -29,6 +29,11 @@ aNRRXZdIgnVnW8ydYrM/HqsjtnBwFwJxKm4ZBhng54g5ywVfwgbDsLkdrMH983LB
 Stry7BwsPBarcA==
 -----END PRIVATE KEY-----`
 
+var (
+	errKVNotReady         = errors.New("kv not ready")
+	errDatasvcUnavailable = errors.New("datasvc unavailable")
+)
+
 func TestSanitizeBootstrapSourceAddsJWTPublicKey(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "core-config-*.json")
 	if err != nil {
@@ -256,20 +261,17 @@ func TestNewKVManagerFromEnvWithRetryEventuallySucceeds(t *testing.T) {
 	t.Setenv("KV_CONNECT_RETRY_BASE", "10ms")
 	t.Setenv("KV_CONNECT_RETRY_MAX", "20ms")
 
-	originalFactory := kvClientFactory
-	defer func() { kvClientFactory = originalFactory }()
-
 	failures := 2
 	attempts := 0
-	kvClientFactory = func(context.Context, models.ServiceRole) (kv.KVStore, error) {
+	ctx := withKVClientFactory(context.Background(), func(context.Context, models.ServiceRole) (kv.KVStore, error) {
 		attempts++
 		if attempts <= failures {
-			return nil, errors.New("kv not ready")
+			return nil, errKVNotReady
 		}
 		return &fakeKVStore{}, nil
-	}
+	})
 
-	manager, err := NewKVManagerFromEnvWithRetry(context.Background(), models.RoleAgent, nil)
+	manager, err := NewKVManagerFromEnvWithRetry(ctx, models.RoleAgent, nil)
 	if err != nil {
 		t.Fatalf("expected success after retries, got error: %v", err)
 	}
@@ -291,16 +293,13 @@ func TestNewKVManagerFromEnvWithRetryTimesOut(t *testing.T) {
 	t.Setenv("KV_CONNECT_RETRY_BASE", "5ms")
 	t.Setenv("KV_CONNECT_RETRY_MAX", "5ms")
 
-	originalFactory := kvClientFactory
-	defer func() { kvClientFactory = originalFactory }()
-
 	attempts := 0
-	kvClientFactory = func(context.Context, models.ServiceRole) (kv.KVStore, error) {
+	ctx := withKVClientFactory(context.Background(), func(context.Context, models.ServiceRole) (kv.KVStore, error) {
 		attempts++
-		return nil, errors.New("datasvc unavailable")
-	}
+		return nil, errDatasvcUnavailable
+	})
 
-	_, err := NewKVManagerFromEnvWithRetry(context.Background(), models.RoleAgent, nil)
+	_, err := NewKVManagerFromEnvWithRetry(ctx, models.RoleAgent, nil)
 	if err == nil {
 		t.Fatalf("expected timeout error")
 	}

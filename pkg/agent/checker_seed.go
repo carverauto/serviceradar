@@ -19,6 +19,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,6 +30,11 @@ import (
 )
 
 const defaultAgentID = "default-agent"
+
+var (
+	errAgentIDUnavailable = errors.New("agent_id not set and config path unavailable")
+	errAgentIDMissing     = errors.New("agent_id missing")
+)
 
 // SeedCheckerConfigsFromDisk pushes checker definitions from the filesystem into KV if they are missing.
 func SeedCheckerConfigsFromDisk(
@@ -106,7 +112,7 @@ func ResolveAgentID(configPath, current string) (string, error) {
 	}
 	path := strings.TrimSpace(configPath)
 	if path == "" {
-		return "", fmt.Errorf("agent_id not set and config path unavailable")
+		return "", errAgentIDUnavailable
 	}
 
 	payload, err := os.ReadFile(path)
@@ -121,7 +127,7 @@ func ResolveAgentID(configPath, current string) (string, error) {
 	}
 	stub.AgentID = strings.TrimSpace(stub.AgentID)
 	if stub.AgentID == "" || stub.AgentID == defaultAgentID {
-		return "", fmt.Errorf("agent_id missing in %s", path)
+		return "", fmt.Errorf("agent_id missing in %s: %w", path, errAgentIDMissing)
 	}
 	return stub.AgentID, nil
 }
