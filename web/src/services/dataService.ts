@@ -260,8 +260,8 @@ interface SrqlRperfRow {
   metric_name?: string;
   metric_type?: string;
   timestamp?: string;
-  metadata?: string;
-  message?: string;
+  metadata?: string | Record<string, unknown>;
+  message?: string | Record<string, unknown>;
   target_device_ip?: string | null;
 }
 
@@ -1391,16 +1391,23 @@ export class DataService {
   }
 
   private rowToMetric(row: SrqlRperfRow): { pollerId: string; metric: RperfMetric } | null {
-    const rawPayload = row.metadata ?? row.message;
-    if (!rawPayload) {
-      return null;
+    const payloadCandidates: Array<string | Record<string, unknown> | undefined> = [
+      row.metadata,
+      row.message
+    ];
+    let metadata: RperfMetadataPayload | null = null;
+    for (const candidate of payloadCandidates) {
+      metadata = this.parseRperfMetadataPayload(candidate);
+      if (metadata) {
+        break;
+      }
     }
 
-    let metadata: RperfMetadataPayload;
-    try {
-      metadata = JSON.parse(rawPayload) as RperfMetadataPayload;
-    } catch (err) {
-      console.error('Failed to parse rperf metadata payload', err);
+    if (!metadata) {
+      console.error('Failed to parse rperf metadata payload', {
+        metadata: row.metadata,
+        message: row.message
+      });
       return null;
     }
 
@@ -1439,6 +1446,32 @@ export class DataService {
     };
 
     return { pollerId, metric };
+  }
+
+  private parseRperfMetadataPayload(
+    payload: string | Record<string, unknown> | undefined
+  ): RperfMetadataPayload | null {
+    if (!payload) {
+      return null;
+    }
+
+    if (typeof payload === 'string') {
+      const trimmed = payload.trim();
+      if (!trimmed || trimmed === '[object Object]') {
+        return null;
+      }
+      try {
+        return JSON.parse(trimmed) as RperfMetadataPayload;
+      } catch {
+        return null;
+      }
+    }
+
+    if (typeof payload === 'object') {
+      return payload as RperfMetadataPayload;
+    }
+
+    return null;
   }
 
   private toNumber(value: number | string | undefined): number | undefined {
