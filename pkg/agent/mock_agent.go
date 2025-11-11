@@ -218,6 +218,20 @@ func (mr *MockKVStoreMockRecorder) Put(arg0, arg1, arg2, arg3 any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*MockKVStore)(nil).Put), arg0, arg1, arg2, arg3)
 }
 
+// Create mocks base method.
+func (m *MockKVStore) Create(arg0 context.Context, arg1 string, arg2 []byte, arg3 time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Create", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockKVStoreMockRecorder) Create(arg0, arg1, arg2, arg3 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockKVStore)(nil).Create), arg0, arg1, arg2, arg3)
+}
+
 // Watch mocks base method.
 func (m *MockKVStore) Watch(arg0 context.Context, arg1 string) (<-chan []byte, error) {
 	m.ctrl.T.Helper()
