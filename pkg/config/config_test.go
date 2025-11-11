@@ -318,6 +318,33 @@ func TestLoadAndValidateWithSourceKVFileMissingFallsBack(t *testing.T) {
 	}
 }
 
+func TestLoadAndValidateWithExplicitAgentKVKey(t *testing.T) {
+	t.Setenv("CONFIG_SOURCE", "kv")
+
+	store := &fakeKVStore{
+		values: map[string][]byte{
+			"agents/test-agent/checkers/foo.json": []byte(`{"name":"foo","type":"grpc","address":"localhost:1"}`),
+		},
+	}
+
+	cfg := NewConfig(nil)
+	cfg.SetKVStore(store)
+
+	type checkerCfg struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+	}
+
+	var result checkerCfg
+	if err := cfg.LoadAndValidate(context.Background(), "agents/test-agent/checkers/foo.json", &result); err != nil {
+		t.Fatalf("LoadAndValidate returned error: %v", err)
+	}
+
+	if result.Name != "foo" || result.Type != "grpc" {
+		t.Fatalf("expected KV payload to populate struct, got %+v", result)
+	}
+}
+
 func TestOverlayFromKVNormalizesNumericDurations(t *testing.T) {
 	type webhook struct {
 		Cooldown string `json:"cooldown"`

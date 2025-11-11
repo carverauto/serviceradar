@@ -1049,7 +1049,7 @@ version_file="$(location //:VERSION)"
 
 web_digest=$$(cat "$$web_digest_file")
 if [[ "$$web_digest" != sha256:* ]]; then
-  echo "unexpected web digest format: $$web_digest" >&2
+  echo "unexpected web base digest format: $$web_digest" >&2
   exit 1
 fi
 
