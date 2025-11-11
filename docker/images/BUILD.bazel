@@ -1039,13 +1039,14 @@ genrule(
         "//:VERSION",
     ],
     outs = ["web_build_info.json"],
-    stamp = 1,
+    stamp = True,
     cmd = """
 set -euo pipefail
 
 web_digest_file="$(location :web_image_base_amd64.digest)"
 core_digest_file="$(location //docker/images:core_image_amd64.digest)"
 version_file="$(location //:VERSION)"
+info_file="bazel-out/stable-status.txt"
 
 web_digest=$$(cat "$$web_digest_file")
 if [[ "$$web_digest" != sha256:* ]]; then
@@ -1065,6 +1066,15 @@ fi
 core_short=$${core_digest#sha256:}
 core_short=$$(printf '%s' "$$core_short" | cut -c1-12)
 
+commit_sha="dev"
+if [[ -f "$$info_file" ]]; then
+  commit_sha=$$(grep -m1 '^STABLE_COMMIT_SHA ' "$$info_file" | awk '{print $$2}')
+  if [[ -z "$$commit_sha" ]]; then
+    commit_sha="dev"
+  fi
+fi
+commit_short=$$(printf '%s' "$$commit_sha" | cut -c1-12)
+
 if [[ -f "$$version_file" ]]; then
   version=$$(tr -d '\\n' < "$$version_file")
 else
@@ -1077,7 +1087,8 @@ cat > "$@" <<EOF
 {
   "version": "$$version",
   "buildTime": "$$build_time",
-  "webBuildId": "sha-$$web_short",
+  "webBuildId": "sha-$$commit_short",
+  "webImageDigest": "$$web_digest",
   "coreBuildId": "sha-$$core_short"
 }
 EOF

@@ -374,17 +374,26 @@ func (s *APIServer) loadWatcherSnapshot(ctx context.Context, kvStoreID, service,
 		return nil, err
 	}
 
+	if snapshot.InstanceID == "" || strings.EqualFold(snapshot.InstanceID, service) {
+		snapshot.InstanceID = instanceID
+	}
+	if snapshot.KVKey == "" {
+		snapshot.KVKey = key
+	}
+
 	return &snapshot.WatcherInfo, nil
 }
 
 func (s *APIServer) filterAndDedupeWatchers(infos []config.WatcherInfo, filter string) []config.WatcherInfo {
 	dedup := make(map[string]config.WatcherInfo, len(infos))
 	for _, info := range infos {
-		key := fmt.Sprintf("%s|%s|%s",
-			strings.ToLower(info.Service),
-			strings.ToLower(info.InstanceID),
-			strings.ToLower(info.KVKey),
-		)
+		key := strings.ToLower(info.KVKey)
+		if key == "" {
+			key = fmt.Sprintf("%s|%s",
+				strings.ToLower(info.Service),
+				strings.ToLower(info.InstanceID),
+			)
+		}
 		if existing, ok := dedup[key]; ok {
 			if info.LastEvent.After(existing.LastEvent) {
 				dedup[key] = info
