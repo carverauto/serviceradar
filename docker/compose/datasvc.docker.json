@@ -13,11 +13,34 @@
       "client_ca_file": "/etc/serviceradar/certs/root.pem"
     }
   },
+  "nats_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats.serviceradar",
+    "role": "datasvc",
+    "tls": {
+      "cert_file": "/etc/serviceradar/certs/datasvc.pem",
+      "key_file": "/etc/serviceradar/certs/datasvc-key.pem",
+      "ca_file": "/etc/serviceradar/certs/root.pem",
+      "client_ca_file": "/etc/serviceradar/certs/root.pem"
+    }
+  },
   "rbac": {
     "roles": [
-      {"identity": "CN=core.serviceradar,O=ServiceRadar", "role": "admin"},
-      {"identity": "CN=poller.serviceradar,O=ServiceRadar", "role": "reader"},
-      {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "reader"}
+      {"identity": "CN=core.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=poller.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=sync.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=mapper.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=flowgger.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=db-event-writer.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=trapd.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=zen.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=otel.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=snmp-checker.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=rperf-client.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=srql.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=web.serviceradar,O=ServiceRadar", "role": "reader"}
     ]
   },
   "bucket": "serviceradar-datasvc"
