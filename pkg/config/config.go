@@ -429,6 +429,11 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 			return errKVStoreNotSet
 		}
 
+		if isExplicitKVKey(path) {
+			loader = NewKVConfigLoader(c.kvStore, c.logger)
+			return loader.Load(ctx, path, cfg)
+		}
+
 		// Always load the on-disk defaults first so sensitive values (e.g., JWT private keys)
 		// remain present even though the KV overlay stores only sanitized data.
 		fileErr := c.defaultLoader.Load(ctx, path, cfg)

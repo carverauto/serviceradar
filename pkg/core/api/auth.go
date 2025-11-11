@@ -283,7 +283,23 @@ func (s *APIServer) collectRemoteWatchers(ctx context.Context, kvStoreID string)
 func (s *APIServer) remoteWatcherTargets(ctx context.Context) []remoteWatcherTarget {
 	descs := config.ServiceDescriptors()
 	agentDescriptors := make([]config.ServiceDescriptor, 0)
-	targets := make([]remoteWatcherTarget, 0, len(descs))
+	targetMap := make(map[string]remoteWatcherTarget, len(descs))
+
+	addTarget := func(service, instanceID string) {
+		service = strings.TrimSpace(service)
+		instanceID = strings.TrimSpace(instanceID)
+		if service == "" || instanceID == "" {
+			return
+		}
+		key := strings.ToLower(service) + "|" + strings.ToLower(instanceID)
+		if _, exists := targetMap[key]; exists {
+			return
+		}
+		targetMap[key] = remoteWatcherTarget{
+			service:    service,
+			instanceID: instanceID,
+		}
+	}
 
 	for _, desc := range descs {
 		if desc.Scope == config.ConfigScopeAgent {
@@ -295,44 +311,50 @@ func (s *APIServer) remoteWatcherTargets(ctx context.Context) []remoteWatcherTar
 			if desc.Name == "core" {
 				continue
 			}
-			targets = append(targets, remoteWatcherTarget{
-				service:    desc.Name,
-				instanceID: desc.Name,
-			})
+			addTarget(desc.Name, desc.Name)
 		}
 	}
 
 	if s.dbService != nil {
-		if pollerIDs, err := s.dbService.ListPollers(ctx); err == nil {
+		if pollerIDs, err := s.dbService.ListPollers(ctx); err != nil {
+			s.logger.Warn().Err(err).Msg("failed to list pollers for remote watcher targets")
+		} else {
 			for _, pollerID := range pollerIDs {
 				if pollerID == "" {
 					continue
 				}
-				targets = append(targets, remoteWatcherTarget{
-					service:    "poller",
-					instanceID: pollerID,
-				})
+				addTarget("poller", pollerID)
 			}
 		}
 
-		if agents, err := s.dbService.ListAgentsWithPollers(ctx); err == nil {
+		if agents, err := s.dbService.ListAgentsWithPollers(ctx); err != nil {
+			s.logger.Warn().Err(err).Msg("failed to list agents for remote watcher targets")
+		} else {
 			for _, agent := range agents {
 				if agent.AgentID == "" {
 					continue
 				}
-				targets = append(targets, remoteWatcherTarget{
-					service:    "agent",
-					instanceID: agent.AgentID,
-				})
+				addTarget("agent", agent.AgentID)
 				for _, desc := range agentDescriptors {
-					targets = append(targets, remoteWatcherTarget{
-						service:    desc.Name,
-						instanceID: agent.AgentID,
-					})
+					if desc.Name == "agent" {
+						continue
+					}
+					addTarget(desc.Name, agent.AgentID)
 				}
 			}
 		}
 	}
+
+	targets := make([]remoteWatcherTarget, 0, len(targetMap))
+	for _, target := range targetMap {
+		targets = append(targets, target)
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		if targets[i].service == targets[j].service {
+			return targets[i].instanceID < targets[j].instanceID
+		}
+		return targets[i].service < targets[j].service
+	})
 
 	return targets
 }
@@ -356,17 +378,26 @@ func (s *APIServer) loadWatcherSnapshot(ctx context.Context, kvStoreID, service,
 		return nil, err
 	}
 
+	if snapshot.InstanceID == "" || strings.EqualFold(snapshot.InstanceID, service) {
+		snapshot.InstanceID = instanceID
+	}
+	if snapshot.KVKey == "" {
+		snapshot.KVKey = key
+	}
+
 	return &snapshot.WatcherInfo, nil
 }
 
 func (s *APIServer) filterAndDedupeWatchers(infos []config.WatcherInfo, filter string) []config.WatcherInfo {
 	dedup := make(map[string]config.WatcherInfo, len(infos))
 	for _, info := range infos {
-		key := fmt.Sprintf("%s|%s|%s",
-			strings.ToLower(info.Service),
-			strings.ToLower(info.InstanceID),
-			strings.ToLower(info.KVKey),
-		)
+		key := strings.ToLower(info.KVKey)
+		if key == "" {
+			key = fmt.Sprintf("%s|%s",
+				strings.ToLower(info.Service),
+				strings.ToLower(info.InstanceID),
+			)
+		}
 		if existing, ok := dedup[key]; ok {
 			if info.LastEvent.After(existing.LastEvent) {
 				dedup[key] = info

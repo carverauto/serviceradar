@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	configkv "github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -42,6 +43,16 @@ func (f *fakeKVStore) Put(_ context.Context, key string, value []byte, _ time.Du
 	f.lastPutKey = key
 
 	return nil
+}
+
+func (f *fakeKVStore) Create(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	if f.values == nil {
+		f.values = make(map[string][]byte)
+	}
+	if _, exists := f.values[key]; exists {
+		return configkv.ErrKeyExists
+	}
+	return f.Put(ctx, key, value, ttl)
 }
 
 func (f *fakeKVStore) Delete(_ context.Context, _ string) error {
@@ -315,6 +326,33 @@ func TestLoadAndValidateWithSourceKVFileMissingFallsBack(t *testing.T) {
 
 	if result.Name != "kv-only" {
 		t.Fatalf("expected KV payload to load when file missing, got %q", result.Name)
+	}
+}
+
+func TestLoadAndValidateWithExplicitAgentKVKey(t *testing.T) {
+	t.Setenv("CONFIG_SOURCE", "kv")
+
+	store := &fakeKVStore{
+		values: map[string][]byte{
+			"agents/test-agent/checkers/foo.json": []byte(`{"name":"foo","type":"grpc","address":"localhost:1"}`),
+		},
+	}
+
+	cfg := NewConfig(nil)
+	cfg.SetKVStore(store)
+
+	type checkerCfg struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+	}
+
+	var result checkerCfg
+	if err := cfg.LoadAndValidate(context.Background(), "agents/test-agent/checkers/foo.json", &result); err != nil {
+		t.Fatalf("LoadAndValidate returned error: %v", err)
+	}
+
+	if result.Name != "foo" || result.Type != "grpc" {
+		t.Fatalf("expected KV payload to populate struct, got %+v", result)
 	}
 }
 

@@ -36,6 +36,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker"
 	cconfig "github.com/carverauto/serviceradar/pkg/config"
+	kvpkg "github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -55,6 +56,10 @@ func (*mockKVStore) Put(_ context.Context, _ string, _ []byte, _ time.Duration) 
 	err = nil
 
 	return err
+}
+
+func (*mockKVStore) Create(_ context.Context, _ string, _ []byte, _ time.Duration) error {
+	return nil
 }
 
 func (*mockKVStore) Delete(_ context.Context, _ string) error {
@@ -1194,6 +1199,14 @@ func (t *testKVStore) Get(_ context.Context, key string) ([]byte, bool, error) {
 }
 
 func (t *testKVStore) Put(_ context.Context, key string, value []byte, _ time.Duration) error {
+	t.data[key] = value
+	return nil
+}
+
+func (t *testKVStore) Create(_ context.Context, key string, value []byte, _ time.Duration) error {
+	if _, exists := t.data[key]; exists {
+		return kvpkg.ErrKeyExists
+	}
 	t.data[key] = value
 	return nil
 }

@@ -4,6 +4,7 @@ go_library(
     name = "agent",
     srcs = [
         "checker.go",
+        "checker_seed.go",
         "errors.go",
         "external_checker.go",
         "icmp_checker.go",
@@ -25,6 +26,7 @@ go_library(
         "//pkg/checker",
         "//pkg/checker/snmp",
         "//pkg/config",
+        "//pkg/config/kv",
         "//pkg/grpc",
         "//pkg/hashutil",
         "//pkg/logger",
@@ -52,6 +54,7 @@ go_test(
     deps = [
         "//pkg/checker",
         "//pkg/config",
+        "//pkg/config/kv",
         "//pkg/grpc",
         "//pkg/logger",
         "//pkg/models",

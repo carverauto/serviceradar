@@ -18,8 +18,8 @@ package agent
 
 import (
 	"context"
-	"time"
 
+	"github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -40,12 +40,10 @@ type SweepStatusProvider interface {
 }
 
 // KVStore defines the interface for key-value store operations.
+// It embeds the shared configuration KV interface so agent stores remain compatible
+// with the config loader while allowing optional extensions (e.g. PutIfAbsent).
 type KVStore interface {
-	Get(ctx context.Context, key string) (value []byte, found bool, err error)
-	Put(ctx context.Context, key string, value []byte, ttl time.Duration) error
-	Delete(ctx context.Context, key string) error
-	Watch(ctx context.Context, key string) (<-chan []byte, error)
-	Close() error
+	kv.KVStore
 }
 
 // ObjectStore defines read access to the JetStream-backed object store.
