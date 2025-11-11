@@ -23,6 +23,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
@@ -52,6 +53,20 @@ func (s *grpcRemoteStore) Get(ctx context.Context, key string) (value []byte, fo
 
 func (s *grpcRemoteStore) Put(ctx context.Context, key string, value []byte, ttl time.Duration) error {
 	_, err := s.configClient.Put(ctx, &proto.PutRequest{Key: key, Value: value, TtlSeconds: int64(ttl / time.Second)})
+
+	return err
+}
+
+// Create stores a value only if the key does not already exist.
+func (s *grpcRemoteStore) Create(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	_, err := s.configClient.PutIfAbsent(ctx, &proto.PutRequest{Key: key, Value: value, TtlSeconds: int64(ttl / time.Second)})
+	if err == nil {
+		return nil
+	}
+
+	if st, ok := status.FromError(err); ok && st.Code() == codes.AlreadyExists {
+		return kv.ErrKeyExists
+	}
 
 	return err
 }
