@@ -42,6 +42,7 @@ type BuildInfo = {
     version?: string;
     buildTime?: string;
     webBuildId?: string;
+    webImageDigest?: string;
     coreBuildId?: string;
 };
 
@@ -82,6 +83,9 @@ export default function Sidebar() {
                     ) : null}
                     {buildInfo.webBuildId ? (
                         <div>Web Build: {buildInfo.webBuildId}</div>
+                    ) : null}
+                    {buildInfo.webImageDigest ? (
+                        <div className="break-all">Web Digest: {buildInfo.webImageDigest}</div>
                     ) : null}
                     {buildInfo.coreBuildId ? (
                         <div>Core Build: {buildInfo.coreBuildId}</div>
