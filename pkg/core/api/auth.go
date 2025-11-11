@@ -316,7 +316,9 @@ func (s *APIServer) remoteWatcherTargets(ctx context.Context) []remoteWatcherTar
 	}
 
 	if s.dbService != nil {
-		if pollerIDs, err := s.dbService.ListPollers(ctx); err == nil {
+		if pollerIDs, err := s.dbService.ListPollers(ctx); err != nil {
+			s.logger.Warn().Err(err).Msg("failed to list pollers for remote watcher targets")
+		} else {
 			for _, pollerID := range pollerIDs {
 				if pollerID == "" {
 					continue
@@ -325,7 +327,9 @@ func (s *APIServer) remoteWatcherTargets(ctx context.Context) []remoteWatcherTar
 			}
 		}
 
-		if agents, err := s.dbService.ListAgentsWithPollers(ctx); err == nil {
+		if agents, err := s.dbService.ListAgentsWithPollers(ctx); err != nil {
+			s.logger.Warn().Err(err).Msg("failed to list agents for remote watcher targets")
+		} else {
 			for _, agent := range agents {
 				if agent.AgentID == "" {
 					continue

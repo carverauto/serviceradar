@@ -4,6 +4,7 @@ go_library(
     name = "agent",
     srcs = [
         "checker.go",
+        "checker_seed.go",
         "errors.go",
         "external_checker.go",
         "icmp_checker.go",

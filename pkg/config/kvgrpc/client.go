@@ -45,6 +45,17 @@ func (k *Client) Put(ctx context.Context, key string, value []byte, ttl time.Dur
 	return err
 }
 
+func (k *Client) Create(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	_, err := k.c.PutIfAbsent(ctx, &proto.PutRequest{Key: key, Value: value, TtlSeconds: int64(ttl / time.Second)})
+	if err == nil {
+		return nil
+	}
+	if st, ok := status.FromError(err); ok && st.Code() == codes.AlreadyExists {
+		return kv.ErrKeyExists
+	}
+	return err
+}
+
 func (k *Client) Delete(ctx context.Context, key string) error {
 	_, err := k.c.Delete(ctx, &proto.DeleteRequest{Key: key})
 	return err
