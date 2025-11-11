@@ -1,5 +1,8 @@
 # Docker Compose override for edge E2E testing with SPIFFE
-# Usage: docker compose -f docker-compose.yml -f docker-compose.spiffe.yml -f docker-compose.edge-e2e.yml up -d
+# Usage: docker compose -f docker-compose.yml -f docker-compose.edge-e2e.yml up -d
+#
+# (If you still have scripts that append docker-compose.spiffe.yml, it is a no-op now
+# because the base stack already starts SPIRE.)
 #
 # This override configures the agent to connect to the k8s demo namespace KV service
 # using SPIFFE authentication via the nested SPIRE workload socket from the poller.
