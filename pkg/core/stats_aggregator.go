@@ -473,7 +473,7 @@ type canonicalEntry struct {
 	canonical bool
 }
 
-func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecord, meta *models.DeviceStatsMeta) []*registry.DeviceRecord {
+func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecord, meta *models.DeviceStatsMeta) []*registry.DeviceRecord { //nolint:gocyclo // Complex device record selection logic, intentionally kept together for clarity
 	if len(records) == 0 {
 		return nil
 	}
