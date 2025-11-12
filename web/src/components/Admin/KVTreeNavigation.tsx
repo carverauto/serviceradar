@@ -23,7 +23,7 @@ interface KVStore {
   id: string;
   name: string;
   type: 'hub' | 'leaf';
-  services: ServiceInfo[];
+  services?: ServiceInfo[];
 }
 
 interface ServiceInfo {
@@ -89,7 +89,10 @@ export default function KVTreeNavigation({ kvStores, onServiceSelect, selectedSe
   return (
     <div className="p-2">
       {kvStores.map((kv) => {
-        const services = kv.services.length > 0 ? kv.services : createDefaultServices(kv.id);
+        const serviceList = Array.isArray(kv.services) ? kv.services : [];
+        const services = serviceList.length > 0
+          ? serviceList
+          : createDefaultServices(kv.id);
         const groupedServices = services.reduce((acc, service) => {
           if (!acc[service.type]) acc[service.type] = [];
           acc[service.type].push(service);

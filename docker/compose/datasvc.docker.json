@@ -2,6 +2,19 @@
   "listen_addr": ":50057",
   "nats_url": "tls://nats:4222",
   "security": {
+    "mode": "spiffe",
+    "cert_dir": "/etc/serviceradar/certs",
+    "role": "datasvc",
+    "trust_domain": "carverauto.dev",
+    "workload_socket": "unix:///run/spire/sockets/agent.sock",
+    "tls": {
+      "cert_file": "/etc/serviceradar/certs/datasvc.pem",
+      "key_file": "/etc/serviceradar/certs/datasvc-key.pem",
+      "ca_file": "/etc/serviceradar/certs/root.pem",
+      "client_ca_file": "/etc/serviceradar/certs/root.pem"
+    }
+  },
+  "nats_security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "server_name": "nats.serviceradar",
@@ -15,9 +28,32 @@
   },
   "rbac": {
     "roles": [
-      {"identity": "CN=core.serviceradar,O=ServiceRadar", "role": "admin"},
-      {"identity": "CN=poller.serviceradar,O=ServiceRadar", "role": "reader"},
-      {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "reader"}
+      {"identity": "spiffe://carverauto.dev/services/core", "role": "writer"},
+      {"identity": "CN=core.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "spiffe://carverauto.dev/services/poller", "role": "writer"},
+      {"identity": "CN=poller.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "spiffe://carverauto.dev/services/agent", "role": "writer"},
+      {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "spiffe://carverauto.dev/services/sync", "role": "writer"},
+      {"identity": "CN=sync.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "spiffe://carverauto.dev/services/mapper", "role": "writer"},
+      {"identity": "CN=mapper.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "spiffe://carverauto.dev/services/flowgger", "role": "writer"},
+      {"identity": "CN=flowgger.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "spiffe://carverauto.dev/services/db-event-writer", "role": "writer"},
+      {"identity": "CN=db-event-writer.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "spiffe://carverauto.dev/services/trapd", "role": "writer"},
+      {"identity": "CN=trapd.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "spiffe://carverauto.dev/services/zen", "role": "writer"},
+      {"identity": "CN=zen.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "spiffe://carverauto.dev/services/otel", "role": "writer"},
+      {"identity": "CN=otel.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "spiffe://carverauto.dev/services/snmp-checker", "role": "writer"},
+      {"identity": "CN=snmp-checker.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "spiffe://carverauto.dev/services/rperf-client", "role": "writer"},
+      {"identity": "CN=rperf-client.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=srql.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=web.serviceradar,O=ServiceRadar", "role": "reader"}
     ]
   },
   "bucket": "serviceradar-datasvc"

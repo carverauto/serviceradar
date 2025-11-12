@@ -22,12 +22,13 @@ import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { useRouter } from 'next/navigation';
 import { formatNumber } from '@/utils/formatters';
 import { escapeSrqlValue } from '@/lib/srql';
+import { formatMessagePreview } from '@/utils/messagePreview';
 
 
 interface LogEntry {
-    timestamp: string;
-    severity_text: string;
-    body: string;
+    timestamp?: string;
+    severity_text?: string;
+    body?: string | null;
     service_name?: string;
     trace_id?: string;
     span_id?: string;
@@ -59,7 +60,7 @@ const CriticalLogsWidget = () => {
         return { stats, recentLogs };
     }, [analyticsData]);
 
-    const getLevelIcon = (level: string) => {
+    const getLevelIcon = (level?: string) => {
         switch (level?.toLowerCase()) {
             case 'critical':
             case 'fatal':
@@ -76,7 +77,7 @@ const CriticalLogsWidget = () => {
         }
     };
 
-    const getLevelColor = (level: string) => {
+    const getLevelColor = (level?: string) => {
         switch (level?.toLowerCase()) {
             case 'critical':
             case 'fatal':
@@ -95,12 +96,15 @@ const CriticalLogsWidget = () => {
         }
     };
 
-    const formatSeverityForDisplay = (severity: string) => {
+    const formatSeverityForDisplay = (severity?: string) => {
         // Capitalize first letter for display
         return severity ? severity.charAt(0).toUpperCase() + severity.slice(1).toLowerCase() : '';
     };
 
-    const formatTimestamp = (timestamp: string) => {
+    const formatTimestamp = (timestamp?: string) => {
+        if (!timestamp) {
+            return 'Unknown';
+        }
         try {
             const date = new Date(timestamp);
             const now = new Date();
@@ -119,10 +123,8 @@ const CriticalLogsWidget = () => {
         }
     };
 
-    const truncateMessage = (message: string, maxLength: number = 50) => {
-        if (!message || message.length <= maxLength) return message || '';
-        return message.substring(0, maxLength) + '...';
-    };
+    const formatLogMessage = (message?: string | null) =>
+        formatMessagePreview(message, { fallback: '' });
 
     const handleLogLevelClick = useCallback((level: string) => {
         const clauses = ['in:logs', 'time:last_24h', 'sort:timestamp:desc', 'limit:100'];
@@ -295,7 +297,7 @@ const CriticalLogsWidget = () => {
                                             {log.service_name || 'Unknown Service'}
                                         </div>
                                         <div className="text-xs text-gray-600 dark:text-gray-400 truncate">
-                                            {truncateMessage(log.body)}
+                                            {formatLogMessage(log.body)}
                                         </div>
                                         <div className={`text-xs ${getLevelColor(log.severity_text)} truncate`}>
                                             {formatSeverityForDisplay(log.severity_text)} • {formatTimestamp(log.timestamp)}
