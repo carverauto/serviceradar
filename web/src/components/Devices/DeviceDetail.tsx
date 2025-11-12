@@ -57,11 +57,20 @@ interface SrqlResponse<T> {
   error?: string;
 }
 
+interface DiscoverySource {
+  source?: string;
+  agent_id?: string;
+  poller_id?: string;
+  first_seen?: string;
+  last_seen?: string;
+  confidence?: number | string;
+}
+
 interface DeviceRecord {
   device_id: string;
   agent_id?: string;
   poller_id?: string;
-  discovery_sources?: string[] | string;
+  discovery_sources?: string[] | string | DiscoverySource[];
   ip?: string;
   mac?: string;
   hostname?: string;
@@ -180,9 +189,24 @@ const TIME_RANGE_CONFIG: Record<string, { label: string; durationMs: number }> =
 
 const DEFAULT_TIME_RANGE = "24h";
 
-const ensureArray = (value: string[] | string | undefined): string[] => {
+const ensureArray = (
+  value: string[] | string | DiscoverySource[] | undefined,
+): string[] => {
   if (!value) return [];
-  if (Array.isArray(value)) return value;
+  if (Array.isArray(value)) {
+    // Handle case where array contains objects instead of strings
+    return value
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (typeof item === "object" && item !== null) {
+          // If it's an object with a 'source' field, extract that
+          const obj = item as DiscoverySource;
+          return obj.source ?? "";
+        }
+        return String(item);
+      })
+      .filter(Boolean);
+  }
   return value
     .split(",")
     .map((item) => item.trim())

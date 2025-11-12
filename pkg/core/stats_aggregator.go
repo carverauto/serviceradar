@@ -480,26 +480,14 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 
 	canonical := make(map[string]canonicalEntry)
 	fallback := make(map[string]*registry.DeviceRecord)
+	serviceComponents := make([]*registry.DeviceRecord, 0)
 
-	for _, record := range records {
-		if record == nil {
-			meta.SkippedNilRecords++
-			continue
-		}
-		if isTombstonedRecord(record) {
-			meta.SkippedTombstonedRecords++
-			continue
-		}
-		if isServiceComponentRecord(record) {
-			meta.SkippedServiceComponents++
-			continue
-		}
-
+	processRecord := func(record *registry.DeviceRecord) {
 		if !shouldCountRecord(record) {
 			if meta != nil {
 				meta.SkippedSweepOnlyRecords++
 			}
-			continue
+			return
 		}
 
 		deviceID := strings.TrimSpace(record.DeviceID)
@@ -511,8 +499,10 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 		}
 		key = strings.TrimSpace(key)
 		if key == "" {
-			meta.SkippedNonCanonical++
-			continue
+			if meta != nil {
+				meta.SkippedNonCanonical++
+			}
+			return
 		}
 
 		normalizedKey := strings.ToLower(key)
@@ -522,7 +512,7 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 				if entry.canonical {
 					if shouldReplaceRecord(entry.record, record) {
 						canonical[normalizedKey] = canonicalEntry{record: record, canonical: true}
-					} else {
+					} else if meta != nil {
 						meta.SkippedNonCanonical++
 					}
 				} else {
@@ -531,30 +521,65 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 			} else {
 				canonical[normalizedKey] = canonicalEntry{record: record, canonical: true}
 			}
-			continue
+			return
 		}
 
 		if entry, ok := canonical[normalizedKey]; ok {
 			switch {
 			case entry.canonical:
-				meta.SkippedNonCanonical++
+				if meta != nil {
+					meta.SkippedNonCanonical++
+				}
 			case shouldReplaceRecord(entry.record, record):
 				canonical[normalizedKey] = canonicalEntry{record: record, canonical: false}
 			default:
-				meta.SkippedNonCanonical++
+				if meta != nil {
+					meta.SkippedNonCanonical++
+				}
 			}
-			continue
+			return
 		}
 
 		if existing, ok := fallback[normalizedKey]; ok {
 			if shouldReplaceRecord(existing, record) {
 				fallback[normalizedKey] = record
 			}
-			meta.SkippedNonCanonical++
-			continue
+			if meta != nil {
+				meta.SkippedNonCanonical++
+			}
+			return
 		}
 
 		fallback[normalizedKey] = record
+	}
+
+	for _, record := range records {
+		if record == nil {
+			if meta != nil {
+				meta.SkippedNilRecords++
+			}
+			continue
+		}
+		if isTombstonedRecord(record) {
+			if meta != nil {
+				meta.SkippedTombstonedRecords++
+			}
+			continue
+		}
+		if isServiceComponentRecord(record) {
+			serviceComponents = append(serviceComponents, record)
+			continue
+		}
+
+		processRecord(record)
+	}
+
+	if len(canonical) == 0 && len(serviceComponents) > 0 {
+		for _, record := range serviceComponents {
+			processRecord(record)
+		}
+	} else if len(serviceComponents) > 0 && meta != nil {
+		meta.SkippedServiceComponents += len(serviceComponents)
 	}
 
 	for key, record := range fallback {
