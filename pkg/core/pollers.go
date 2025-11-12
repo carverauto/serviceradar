@@ -398,6 +398,14 @@ func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealt
 		return fmt.Errorf("failed to store poller status: %w", err)
 	}
 
+	// Register poller as a device for inventory tracking (best-effort)
+	if err := s.registerPollerAsDevice(ctx, pollerID, hostIP); err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("poller_id", pollerID).
+			Msg("Failed to register poller as device")
+	}
+
 	return nil
 }
 
