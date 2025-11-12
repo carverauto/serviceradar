@@ -188,36 +188,68 @@ const TIME_RANGE_CONFIG: Record<string, { label: string; durationMs: number }> =
   };
 
 const DEFAULT_TIME_RANGE = "24h";
+const MAX_DISCOVERY_SOURCES = 50;
+const ALLOWED_DISCOVERY_SOURCE_KEYS = new Set([
+  "source",
+  "agent_id",
+  "poller_id",
+  "first_seen",
+  "last_seen",
+  "confidence",
+]);
 
 const ensureArray = (
   value: string[] | string | DiscoverySource[] | undefined,
 ): string[] => {
   if (value == null) return [];
 
+  const out: string[] = [];
+  const pushSafe = (s: string) => {
+    if (typeof s === "string" && s.length > 0 && out.length < MAX_DISCOVERY_SOURCES) {
+      out.push(s);
+    }
+  };
+
+  const isPlainObject = (v: unknown): v is Record<string, unknown> => {
+    if (Object.prototype.toString.call(v) !== "[object Object]") return false;
+    const proto = Object.getPrototypeOf(v);
+    return proto === null || proto === Object.prototype;
+  };
+
+  const fromDiscoverySource = (obj: unknown) => {
+    if (!isPlainObject(obj)) return;
+    const keys = Object.keys(obj);
+    if (!keys.every((key) => ALLOWED_DISCOVERY_SOURCE_KEYS.has(key))) return;
+    const ds = obj as DiscoverySource;
+    if (typeof ds.source === "string") {
+      pushSafe(ds.source);
+    }
+  };
+
   if (Array.isArray(value)) {
-    return value
-      .map((item) => {
-        if (typeof item === "string") return item;
-        if (typeof item === "object" && item !== null) {
-          const obj = item as DiscoverySource;
-          return typeof obj.source === "string" ? obj.source : "";
-        }
-        if (typeof item === "number" || typeof item === "boolean") {
-          return String(item);
-        }
-        return "";
-      })
-      .filter((s): s is string => typeof s === "string" && s.length > 0);
+    for (const item of value) {
+      if (typeof item === "string") {
+        pushSafe(item);
+      } else if (typeof item === "number" || typeof item === "boolean") {
+        pushSafe(String(item));
+      } else {
+        fromDiscoverySource(item);
+      }
+      if (out.length >= MAX_DISCOVERY_SOURCES) break;
+    }
+    return out;
   }
 
-  if (typeof value !== "string") {
-    return [];
+  if (typeof value === "string") {
+    for (const token of value.split(",")) {
+      const t = token.trim();
+      if (t) pushSafe(t);
+      if (out.length >= MAX_DISCOVERY_SOURCES) break;
+    }
+    return out;
   }
 
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter((s) => s.length > 0);
+  return out;
 };
 
 const normalizeMetricValue = (metric: TimeseriesMetric): number => {
