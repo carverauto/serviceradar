@@ -11,46 +11,29 @@ import { isDeviceSearchPlannerEnabled } from "@/config/features";
 const DEVICE_PLANNER_STREAMS = new Set(["devices", "device", "device_inventory"]);
 const AGGREGATION_PATTERN = /\bstats\s*:/i;
 
+function cleanToken(token: string): string {
+  let t = token.trim();
+  // remove surrounding quotes/brackets
+  t = t.replace(/^[\s"'`(]+/, "").replace(/[\s"'`),]+$/, "");
+  return t.toLowerCase();
+}
+
 function extractPrimaryStream(rawQuery: unknown): string | null {
-  if (typeof rawQuery !== "string") {
-    return null;
-  }
+  if (typeof rawQuery !== "string") return null;
 
-  const inMatch = rawQuery.match(/\bin:([^\s]+)/i);
-  if (!inMatch) {
-    return null;
-  }
+  const inMatch = rawQuery.match(/\bin\s*:\s*([^\s]+)/i);
+  if (!inMatch) return null;
 
-  let stream = inMatch[1]?.trim();
-  if (!stream) {
-    return null;
-  }
-
-  stream = stream.replace(/^[("'`]+/, "").replace(/[)"'`]+$/, "");
-
-  const firstCandidate = stream.split(/[|,]/)[0]?.trim();
-  if (!firstCandidate) {
-    return null;
-  }
-
-  const normalized = firstCandidate.toLowerCase();
-  return normalized.length > 0 ? normalized : null;
+  const raw = inMatch[1] ?? "";
+  const candidates = raw.split(/[,|]/).map(cleanToken).filter(Boolean);
+  return candidates.length > 0 ? candidates[0] : null;
 }
 
 function shouldUseDevicePlanner(query: unknown): boolean {
-  if (typeof query !== "string") {
-    return false;
-  }
-
-  if (AGGREGATION_PATTERN.test(query)) {
-    return false;
-  }
-
+  if (typeof query !== "string") return false;
+  if (AGGREGATION_PATTERN.test(query)) return false;
   const stream = extractPrimaryStream(query);
-  if (!stream) {
-    return false;
-  }
-  return DEVICE_PLANNER_STREAMS.has(stream);
+  return !!stream && DEVICE_PLANNER_STREAMS.has(stream);
 }
 
 export async function POST(req: NextRequest) {
