@@ -105,6 +105,19 @@ ensure_workload_entry() {
 }
 
 generate_join_token() {
+    if [ -s "$TOKEN_FILE" ] && [ -z "${SPIRE_FORCE_NEW_JOIN_TOKEN:-}" ]; then
+        token="$(cat "$TOKEN_FILE" 2>/dev/null | tr -d '[:space:]')"
+        if [ -n "$token" ]; then
+            echo "[spire-bootstrap] reusing existing join token from ${TOKEN_FILE}"
+            if [ -z "${SPIRE_WORKLOAD_PARENT_ID:-}" ]; then
+                PARENT_ID="spiffe://${TRUST_DOMAIN}/spire/agent/join_token/${token}"
+                echo "[spire-bootstrap] derived workload parent ID ${PARENT_ID}"
+            fi
+            return
+        fi
+        echo "[spire-bootstrap] existing join token file empty, generating new token"
+    fi
+
     set -- "$SERVER_BIN" token generate -socketPath "$SERVER_SOCKET"
     if [ -n "$AGENT_ID" ]; then
         set -- "$@" -spiffeID "$AGENT_ID"
