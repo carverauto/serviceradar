@@ -197,6 +197,46 @@ func TestStatsAggregatorSkipsNonCanonicalRecords(t *testing.T) {
 	assert.Equal(t, 0, snapshot.UnavailableDevices)
 }
 
+func TestStatsAggregatorFallsBackToServiceComponents(t *testing.T) {
+	log := logger.NewTestLogger()
+	reg := registry.NewDeviceRegistry(nil, log)
+
+	base := time.Date(2025, 7, 4, 12, 0, 0, 0, time.UTC)
+
+	addServiceComponent := func(componentType, deviceID string) {
+		reg.UpsertDeviceRecord(&registry.DeviceRecord{
+			DeviceID:         deviceID,
+			IsAvailable:      true,
+			FirstSeen:        base.Add(-time.Hour),
+			LastSeen:         base,
+			DiscoverySources: []string{string(models.DiscoverySourceServiceRadar)},
+			Metadata: map[string]string{
+				"component_type":      componentType,
+				"canonical_device_id": deviceID,
+				"canonical_partition": models.ServiceDevicePartition,
+			},
+		})
+	}
+
+	addServiceComponent("poller", models.GenerateServiceDeviceID(models.ServiceTypePoller, "docker-poller"))
+	addServiceComponent("agent", models.GenerateServiceDeviceID(models.ServiceTypeAgent, "docker-agent"))
+
+	agg := NewStatsAggregator(reg, log, WithStatsClock(func() time.Time { return base }))
+	agg.Refresh(context.Background())
+
+	snapshot := agg.Snapshot()
+	require.NotNil(t, snapshot)
+
+	meta := agg.Meta()
+	assert.Equal(t, 2, meta.RawRecords)
+	assert.Equal(t, 2, meta.ProcessedRecords)
+	assert.Equal(t, 0, meta.SkippedServiceComponents, "service components should be counted when they are the only records")
+
+	assert.Equal(t, 2, snapshot.TotalDevices)
+	assert.Equal(t, 2, snapshot.AvailableDevices)
+	assert.Equal(t, 0, snapshot.UnavailableDevices)
+}
+
 func TestStatsAggregatorFallsBackToAliasWhenCanonicalMissing(t *testing.T) {
 	log := logger.NewTestLogger()
 	reg := registry.NewDeviceRegistry(nil, log)

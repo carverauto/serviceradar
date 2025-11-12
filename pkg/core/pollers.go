@@ -386,7 +386,7 @@ func (s *Server) handlePollerRecovery(
 	}
 }
 
-func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealthy bool, now time.Time) error {
+func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealthy bool, hostIP string, now time.Time) error {
 	pollerStatus := &models.PollerStatus{
 		PollerID:  pollerID,
 		IsHealthy: isHealthy,
@@ -395,15 +395,6 @@ func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealt
 
 	if err := s.DB.UpdatePollerStatus(ctx, pollerStatus); err != nil {
 		return fmt.Errorf("failed to store poller status: %w", err)
-	}
-
-	// Register poller as a device for inventory tracking
-	if err := s.registerPollerAsDevice(ctx, pollerID); err != nil {
-		// Log but don't fail - device registration is best-effort
-		s.logger.Warn().
-			Err(err).
-			Str("poller_id", pollerID).
-			Msg("Failed to register poller as device")
 	}
 
 	return nil
@@ -432,7 +423,7 @@ func (s *Server) updatePollerStatus(ctx context.Context, pollerID string, isHeal
 	}
 
 	// Register poller as a device for inventory tracking
-	if err := s.registerPollerAsDevice(ctx, pollerID); err != nil {
+	if err := s.registerPollerAsDevice(ctx, pollerID, ""); err != nil {
 		// Log but don't fail - device registration is best-effort
 		s.logger.Warn().
 			Err(err).
@@ -450,7 +441,7 @@ func (s *Server) updatePollerState(
 	wasHealthy bool,
 	now time.Time,
 	req *proto.PollerStatusRequest) error {
-	if err := s.storePollerStatus(ctx, pollerID, apiStatus.IsHealthy, now); err != nil {
+	if err := s.storePollerStatus(ctx, pollerID, apiStatus.IsHealthy, req.SourceIp, now); err != nil {
 		return err
 	}
 
@@ -581,7 +572,7 @@ func (s *Server) processStatusReport(
 		}
 
 		// Register poller as a device for inventory tracking
-		if err := s.registerPollerAsDevice(ctx, req.PollerId); err != nil {
+		if err := s.registerPollerAsDevice(ctx, req.PollerId, req.SourceIp); err != nil {
 			// Log but don't fail - device registration is best-effort
 			s.logger.Warn().
 				Err(err).
@@ -1278,7 +1269,7 @@ func (s *Server) copyPollerStatusCache() map[string]*models.PollerStatus {
 }
 
 // registerPollerAsDevice registers a poller as a device in the inventory
-func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID string) error {
+func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID, hostIP string) error {
 	if s.DeviceRegistry == nil {
 		s.logger.Debug().
 			Str("poller_id", pollerID).
@@ -1286,19 +1277,35 @@ func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID string) er
 		return nil // Registry not available
 	}
 
-	// Get host IP - in Kubernetes this will be the pod IP
-	hostIP := s.getHostIP()
+	resolvedIP := strings.TrimSpace(hostIP)
+
+	if resolvedIP == "" && s.ServiceRegistry != nil {
+		if poller, err := s.ServiceRegistry.GetPoller(ctx, pollerID); err == nil && poller != nil {
+			if poller.Metadata != nil {
+				if ip := strings.TrimSpace(poller.Metadata["source_ip"]); ip != "" {
+					resolvedIP = ip
+				} else if ip := strings.TrimSpace(poller.Metadata["host_ip"]); ip != "" {
+					resolvedIP = ip
+				}
+			}
+		}
+	}
+
+	if resolvedIP == "" {
+		// Fall back to the local host IP if we cannot determine the poller's address
+		resolvedIP = s.getHostIP()
+	}
 
 	metadata := map[string]string{
 		"last_heartbeat": time.Now().Format(time.RFC3339),
 	}
 
-	deviceUpdate := models.CreatePollerDeviceUpdate(pollerID, hostIP, metadata)
+	deviceUpdate := models.CreatePollerDeviceUpdate(pollerID, resolvedIP, metadata)
 
 	s.logger.Info().
 		Str("poller_id", pollerID).
 		Str("device_id", deviceUpdate.DeviceID).
-		Str("host_ip", hostIP).
+		Str("host_ip", resolvedIP).
 		Msg("Registering poller as device")
 
 	if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate}); err != nil {
@@ -1315,8 +1322,8 @@ func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID string) er
 	eventMetadata := map[string]any{
 		"poller_id": pollerID,
 	}
-	if hostIP != "" {
-		eventMetadata["host_ip"] = hostIP
+	if resolvedIP != "" {
+		eventMetadata["host_ip"] = resolvedIP
 	}
 
 	s.recordCapabilityEvent(ctx, &capabilityEventInput{

@@ -8,6 +8,51 @@ import {
 } from "@/lib/config";
 import { isDeviceSearchPlannerEnabled } from "@/config/features";
 
+const DEVICE_PLANNER_STREAMS = new Set(["devices", "device", "device_inventory"]);
+const AGGREGATION_PATTERN = /\bstats\s*:/i;
+
+function extractPrimaryStream(rawQuery: unknown): string | null {
+  if (typeof rawQuery !== "string") {
+    return null;
+  }
+
+  const inMatch = rawQuery.match(/\bin:([^\s]+)/i);
+  if (!inMatch) {
+    return null;
+  }
+
+  let stream = inMatch[1]?.trim();
+  if (!stream) {
+    return null;
+  }
+
+  stream = stream.replace(/^[("'`]+/, "").replace(/[)"'`]+$/, "");
+
+  const firstCandidate = stream.split(/[|,]/)[0]?.trim();
+  if (!firstCandidate) {
+    return null;
+  }
+
+  const normalized = firstCandidate.toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function shouldUseDevicePlanner(query: unknown): boolean {
+  if (typeof query !== "string") {
+    return false;
+  }
+
+  if (AGGREGATION_PATTERN.test(query)) {
+    return false;
+  }
+
+  const stream = extractPrimaryStream(query);
+  if (!stream) {
+    return false;
+  }
+  return DEVICE_PLANNER_STREAMS.has(stream);
+}
+
 export async function POST(req: NextRequest) {
   const apiKey = getApiKey();
   const srqlUrl = getInternalSrqlUrl();
@@ -53,7 +98,7 @@ export async function POST(req: NextRequest) {
     }
 
     const plannerEnabled = isDeviceSearchPlannerEnabled();
-    if (plannerEnabled) {
+    if (plannerEnabled && shouldUseDevicePlanner(query)) {
       const plannerRequest = {
         query,
         mode: typeof body.mode === "string" ? body.mode : "auto",
