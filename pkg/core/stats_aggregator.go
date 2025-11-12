@@ -470,8 +470,13 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 		deviceID := strings.TrimSpace(record.DeviceID)
 		canonicalID := canonicalDeviceID(record)
 
-		key := canonicalID
-		if key == "" {
+		var key string
+		switch {
+		case models.IsServiceDevice(deviceID):
+			key = deviceID
+		case canonicalID != "":
+			key = canonicalID
+		default:
 			key = deviceID
 		}
 		key = strings.TrimSpace(key)
