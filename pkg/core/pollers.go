@@ -386,11 +386,12 @@ func (s *Server) handlePollerRecovery(
 	}
 }
 
-func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealthy bool, hostIP string, now time.Time) error { //nolint:unparam // hostIP reserved for future use
+func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealthy bool, hostIP string, now time.Time) error {
 	pollerStatus := &models.PollerStatus{
 		PollerID:  pollerID,
 		IsHealthy: isHealthy,
 		LastSeen:  now,
+		HostIP:    hostIP,
 	}
 
 	if err := s.DB.UpdatePollerStatus(ctx, pollerStatus); err != nil {
