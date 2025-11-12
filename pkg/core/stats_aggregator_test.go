@@ -198,7 +198,7 @@ func TestStatsAggregatorSkipsNonCanonicalRecords(t *testing.T) {
 	assert.Equal(t, 0, snapshot.UnavailableDevices)
 }
 
-func TestStatsAggregatorCountsOnlyServiceComponents(t *testing.T) {
+func TestStatsAggregatorCountsServiceComponents(t *testing.T) {
 	log := logger.NewTestLogger()
 	reg := registry.NewDeviceRegistry(nil, log)
 
@@ -231,7 +231,7 @@ func TestStatsAggregatorCountsOnlyServiceComponents(t *testing.T) {
 	meta := agg.Meta()
 	assert.Equal(t, 2, meta.RawRecords)
 	assert.Equal(t, 2, meta.ProcessedRecords)
-	assert.Equal(t, 0, meta.SkippedServiceComponents, "service components are always counted as devices")
+	assert.Equal(t, 0, meta.SkippedServiceComponents, "service components are counted as devices")
 
 	assert.Equal(t, 2, snapshot.TotalDevices)
 	assert.Equal(t, 2, snapshot.AvailableDevices)
@@ -474,6 +474,7 @@ func TestStatsAggregatorCountsServiceComponentsWithSharedIP(t *testing.T) {
 		DeviceID:    "default:" + sharedIP,
 		IP:          sharedIP,
 		IsAvailable: true,
+		FirstSeen:   base.Add(-time.Hour),
 		LastSeen:    base,
 		Metadata: map[string]string{
 			"canonical_device_id": "default:" + sharedIP,
@@ -487,6 +488,7 @@ func TestStatsAggregatorCountsServiceComponentsWithSharedIP(t *testing.T) {
 		DeviceID:    pollerID,
 		IP:          sharedIP,
 		IsAvailable: true,
+		FirstSeen:   base.Add(-time.Hour),
 		LastSeen:    base,
 		Metadata: map[string]string{
 			"component_type":      "poller",
@@ -501,6 +503,7 @@ func TestStatsAggregatorCountsServiceComponentsWithSharedIP(t *testing.T) {
 		DeviceID:    agentID,
 		IP:          sharedIP,
 		IsAvailable: true,
+		FirstSeen:   base.Add(-time.Hour),
 		LastSeen:    base,
 		Metadata: map[string]string{
 			"component_type":      "agent",

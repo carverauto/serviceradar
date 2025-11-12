@@ -192,25 +192,32 @@ const DEFAULT_TIME_RANGE = "24h";
 const ensureArray = (
   value: string[] | string | DiscoverySource[] | undefined,
 ): string[] => {
-  if (!value) return [];
+  if (value == null) return [];
+
   if (Array.isArray(value)) {
-    // Handle case where array contains objects instead of strings
     return value
       .map((item) => {
         if (typeof item === "string") return item;
         if (typeof item === "object" && item !== null) {
-          // If it's an object with a 'source' field, extract that
           const obj = item as DiscoverySource;
-          return obj.source ?? "";
+          return typeof obj.source === "string" ? obj.source : "";
         }
-        return String(item);
+        if (typeof item === "number" || typeof item === "boolean") {
+          return String(item);
+        }
+        return "";
       })
-      .filter(Boolean);
+      .filter((s): s is string => typeof s === "string" && s.length > 0);
   }
+
+  if (typeof value !== "string") {
+    return [];
+  }
+
   return value
     .split(",")
     .map((item) => item.trim())
-    .filter(Boolean);
+    .filter((s) => s.length > 0);
 };
 
 const normalizeMetricValue = (metric: TimeseriesMetric): number => {
