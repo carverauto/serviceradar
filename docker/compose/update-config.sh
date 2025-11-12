@@ -127,6 +127,41 @@ EOF
     echo "✅ Created .env file for Docker Compose"
 fi
 
+# Ensure core security configuration matches the desired mode (default: SPIFFE)
+CORE_SECURITY_MODE="${CORE_SECURITY_MODE:-spiffe}"
+SPIRE_TRUST_DOMAIN_DEFAULT="${SPIRE_TRUST_DOMAIN:-carverauto.dev}"
+CORE_TRUST_DOMAIN="${CORE_TRUST_DOMAIN:-$SPIRE_TRUST_DOMAIN_DEFAULT}"
+DEFAULT_AGENT_SOCKET="${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}"
+if printf '%s' "$DEFAULT_AGENT_SOCKET" | grep -q '^unix://'; then
+    DEFAULT_CORE_WORKLOAD_SOCKET="$DEFAULT_AGENT_SOCKET"
+else
+    DEFAULT_CORE_WORKLOAD_SOCKET="unix://$DEFAULT_AGENT_SOCKET"
+fi
+CORE_WORKLOAD_SOCKET="${CORE_WORKLOAD_SOCKET:-$DEFAULT_CORE_WORKLOAD_SOCKET}"
+CORE_SERVER_NAME="${CORE_SERVER_NAME:-core.serviceradar}"
+
+if [ -f "$CORE_CONFIG" ]; then
+    case "$CORE_SECURITY_MODE" in
+        spiffe)
+            jq --arg mode "spiffe" \
+               --arg td "$CORE_TRUST_DOMAIN" \
+               --arg socket "$CORE_WORKLOAD_SOCKET" \
+               --arg server "$CORE_SERVER_NAME" \
+               '.security.mode = $mode
+                | .security.trust_domain = $td
+                | .security.workload_socket = $socket
+                | .security.server_name = $server
+                | .security.role = "core"' \
+                "$CORE_CONFIG" > "$CORE_CONFIG.tmp"
+            mv "$CORE_CONFIG.tmp" "$CORE_CONFIG"
+            echo "✅ Applied SPIFFE security settings to core.json"
+            ;;
+        *)
+            echo "ℹ️  CORE_SECURITY_MODE set to $CORE_SECURITY_MODE; leaving existing security block in place"
+            ;;
+    esac
+fi
+
 # Display important setup information to the user
 if [ -f "$CERT_DIR/admin-password" ]; then
     ADMIN_PASSWORD=$(cat "$CERT_DIR/admin-password")
@@ -174,7 +209,7 @@ POLLERS_SECURITY_MODE="${POLLERS_SECURITY_MODE:-mtls}"
 POLLERS_TRUST_DOMAIN="${POLLERS_TRUST_DOMAIN:-carverauto.dev}"
 POLLERS_AGENT_SPIFFE_ID="${POLLERS_AGENT_SPIFFE_ID:-spiffe://$POLLERS_TRUST_DOMAIN/services/agent}"
 POLLERS_CORE_SPIFFE_ID="${POLLERS_CORE_SPIFFE_ID:-spiffe://$POLLERS_TRUST_DOMAIN/services/core}"
-POLLERS_WORKLOAD_SOCKET="${POLLERS_WORKLOAD_SOCKET:-unix:/run/spire/nested/workload/agent.sock}"
+POLLERS_WORKLOAD_SOCKET="${POLLERS_WORKLOAD_SOCKET:-unix:/run/spire/sockets/agent.sock}"
 POLLERS_SPIRE_CONFIG_DIR="${POLLERS_SPIRE_CONFIG_DIR:-$CONFIG_DIR/poller-spire}"
 POLLERS_SPIRE_UPSTREAM_ADDRESS="${POLLERS_SPIRE_UPSTREAM_ADDRESS:-spire-server}"
 POLLERS_SPIRE_UPSTREAM_PORT="${POLLERS_SPIRE_UPSTREAM_PORT:-8081}"

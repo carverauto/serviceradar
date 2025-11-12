@@ -35,9 +35,11 @@
     }
   },
   "security": {
-    "mode": "mtls",
+    "mode": "spiffe",
     "cert_dir": "/etc/serviceradar/certs",
     "role": "core",
+    "trust_domain": "carverauto.dev",
+    "workload_socket": "unix:///run/spire/sockets/agent.sock",
     "server_name": "core.serviceradar",
     "tls": {
       "cert_file": "/etc/serviceradar/certs/core.pem",
@@ -58,6 +60,39 @@
     "jwt_expiration": "24h",
     "local_users": {
       "admin": "PLACEHOLDER_BCRYPT_HASH_WILL_BE_REPLACED"
+    },
+    "rbac": {
+      "user_roles": {
+        "admin": ["admin", "operator", "viewer"],
+        "operator": ["operator", "viewer"],
+        "user": ["viewer"]
+      },
+      "role_permissions": {
+        "admin": ["*"],
+        "operator": ["config:read", "config:write", "device:*", "alert:*"],
+        "viewer": ["config:read", "device:read", "alert:read", "metrics:read"]
+      },
+      "route_protection": {
+        "/api/admin/*": ["admin"],
+        "/api/config/*": {
+          "GET": ["viewer", "operator", "admin"],
+          "POST": ["operator", "admin"],
+          "PUT": ["operator", "admin"],
+          "DELETE": ["admin"]
+        },
+        "/api/devices/*": {
+          "GET": ["viewer", "operator", "admin"],
+          "POST": ["operator", "admin"],
+          "PUT": ["operator", "admin"],
+          "DELETE": ["admin"]
+        },
+        "/api/alerts/*": {
+          "GET": ["viewer", "operator", "admin"],
+          "POST": ["operator", "admin"],
+          "PUT": ["operator", "admin"],
+          "DELETE": ["admin"]
+        }
+      }
     }
   },
   "nats": {
@@ -85,12 +120,17 @@
     "output": "stdout",
     "time_format": "",
     "otel": {
-      "enabled": false,
-      "endpoint": "127.0.0.1:4317",
+      "enabled": true,
+      "endpoint": "otel:4317",
       "service_name": "serviceradar-core",
       "batch_timeout": "5s",
-      "insecure": true,
-      "headers": {}
+      "insecure": false,
+      "headers": {},
+      "tls": {
+        "cert_file": "/etc/serviceradar/certs/core.pem",
+        "key_file": "/etc/serviceradar/certs/core-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
+      }
     }
   }
 }

@@ -1,5 +1,5 @@
 {
-  "kv_address": "kv:50057",
+  "kv_address": "serviceradar-datasvc:50057",
   "listen_addr": ":50058",
   "poll_interval": "5m",
   "discovery_interval": "5m",
@@ -8,16 +8,12 @@
   "poller_id": "docker-poller",
   "nats_url": "tls://nats:4222",
   "security": {
-    "mode": "mtls",
+    "mode": "spiffe",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "datasvc.serviceradar",
-    "role": "poller",
-    "tls": {
-      "cert_file": "/etc/serviceradar/certs/sync.pem",
-      "key_file": "/etc/serviceradar/certs/sync-key.pem",
-      "ca_file": "/etc/serviceradar/certs/root.pem",
-      "client_ca_file": "/etc/serviceradar/certs/root.pem"
-    }
+    "trust_domain": "carverauto.dev",
+    "server_spiffe_id": "spiffe://carverauto.dev/services/datasvc",
+    "workload_socket": "unix:///run/spire/sockets/agent.sock",
+    "role": "poller"
   },
   "nats_security": {
     "mode": "mtls",
