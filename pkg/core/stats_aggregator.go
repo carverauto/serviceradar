@@ -335,28 +335,6 @@ func buildPartitionStats(partitions map[string]*models.PartitionStats) []models.
 	return out
 }
 
-func isServiceComponentRecord(record *registry.DeviceRecord) bool {
-	if record == nil {
-		return false
-	}
-
-	if models.IsServiceDevice(record.DeviceID) {
-		return true
-	}
-
-	if len(record.Metadata) == 0 {
-		return false
-	}
-
-	componentType := strings.ToLower(strings.TrimSpace(record.Metadata["component_type"]))
-	switch componentType {
-	case "poller", "agent", "checker":
-		return true
-	default:
-		return false
-	}
-}
-
 func hasCapability(set map[string]struct{}, deviceID string) bool {
 	if len(set) == 0 {
 		return false
@@ -480,7 +458,6 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 
 	canonical := make(map[string]canonicalEntry)
 	fallback := make(map[string]*registry.DeviceRecord)
-	serviceComponents := make([]*registry.DeviceRecord, 0)
 
 	processRecord := func(record *registry.DeviceRecord) {
 		if !shouldCountRecord(record) {
@@ -566,20 +543,11 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 			}
 			continue
 		}
-		if isServiceComponentRecord(record) {
-			serviceComponents = append(serviceComponents, record)
-			continue
-		}
 
+		// All records (including pollers, agents, global services) are counted as devices.
+		// Even if service components share an IP with other devices, they maintain
+		// separate device records in inventory for tracking purposes.
 		processRecord(record)
-	}
-
-	if len(canonical) == 0 && len(serviceComponents) > 0 {
-		for _, record := range serviceComponents {
-			processRecord(record)
-		}
-	} else if len(serviceComponents) > 0 && meta != nil {
-		meta.SkippedServiceComponents += len(serviceComponents)
 	}
 
 	for key, record := range fallback {

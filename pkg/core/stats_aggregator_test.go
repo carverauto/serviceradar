@@ -415,7 +415,7 @@ func TestStatsAggregatorInfersCanonicalFallback(t *testing.T) {
 	assert.Equal(t, 0, snapshot.UnavailableDevices)
 }
 
-func TestStatsAggregatorSkipsServiceComponents(t *testing.T) {
+func TestStatsAggregatorCountsServiceComponentsAsDevices(t *testing.T) {
 	log := logger.NewTestLogger()
 	reg := registry.NewDeviceRegistry(nil, log)
 
@@ -431,12 +431,15 @@ func TestStatsAggregatorSkipsServiceComponents(t *testing.T) {
 		},
 	})
 
+	agentID := models.GenerateServiceDeviceID(models.ServiceTypeAgent, "agent-123")
 	reg.UpsertDeviceRecord(&registry.DeviceRecord{
-		DeviceID:    models.GenerateServiceDeviceID(models.ServiceTypeAgent, "agent-123"),
+		DeviceID:    agentID,
 		IsAvailable: true,
 		LastSeen:    base,
 		Metadata: map[string]string{
-			"component_type": "agent",
+			"component_type":      "agent",
+			"canonical_device_id": agentID,
+			"canonical_partition": "default",
 		},
 	})
 
@@ -446,15 +449,15 @@ func TestStatsAggregatorSkipsServiceComponents(t *testing.T) {
 	snapshot := agg.Snapshot()
 	require.NotNil(t, snapshot)
 	meta := agg.Meta()
-	assert.Equal(t, 1, meta.RawRecords)
-	assert.Equal(t, 1, meta.ProcessedRecords)
+	assert.Equal(t, 2, meta.RawRecords, "Should count both normal device and service component")
+	assert.Equal(t, 2, meta.ProcessedRecords, "Service components are now counted as devices")
 	assert.Equal(t, 0, meta.SkippedNilRecords)
 	assert.Equal(t, 0, meta.SkippedTombstonedRecords)
-	assert.Equal(t, 1, meta.SkippedServiceComponents)
+	assert.Equal(t, 0, meta.SkippedServiceComponents, "Service components are no longer skipped")
 	assert.Equal(t, 0, meta.SkippedNonCanonical)
 	assert.Equal(t, 0, meta.InferredCanonicalFallback)
-	assert.Equal(t, 1, snapshot.TotalDevices)
-	assert.Equal(t, 1, snapshot.AvailableDevices)
+	assert.Equal(t, 2, snapshot.TotalDevices, "Should count both normal device and agent")
+	assert.Equal(t, 2, snapshot.AvailableDevices, "Both devices are available")
 	assert.Equal(t, 0, snapshot.UnavailableDevices)
 }
 
