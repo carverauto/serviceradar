@@ -58,7 +58,7 @@ seed_key() {
     source_file="$2"
     if [ -z "${key}" ] || [ ! -s "${source_file}" ]; then
         return 0
-    }
+    fi
 
     if nats_cmd kv get "${KV_BUCKET}" "${key}" >/dev/null 2>&1; then
         log "KV key ${key} already present in bucket ${KV_BUCKET}; skipping"

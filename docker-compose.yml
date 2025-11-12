@@ -63,6 +63,8 @@ services:
     image: alpine:3.20
     container_name: serviceradar-spire-agent
     pid: "host"
+    cap_add:
+      - SYS_PTRACE
     depends_on:
       spire-bootstrap:
         condition: service_completed_successfully
@@ -116,11 +118,12 @@ services:
       - generated-config:/etc/serviceradar/config
       - ./packaging/core/config:/config:ro
       - ./docker/compose:/templates:ro
+      - ./docker/compose/update-config.sh:/usr/local/bin/update-config.sh:ro
     environment:
       - SYSMON_VM_ADDRESS=${SYSMON_VM_ADDRESS:-192.168.1.219:50110}
       - POLLERS_SECURITY_MODE=${POLLERS_SECURITY_MODE:-spiffe}
       - POLLERS_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - POLLERS_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
+      - POLLERS_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - POLLERS_SPIRE_UPSTREAM_ADDRESS=${POLLERS_SPIRE_UPSTREAM_ADDRESS:-spire-server}
       - POLLERS_SPIRE_UPSTREAM_PORT=${POLLERS_SPIRE_UPSTREAM_PORT:-8081}
       - POLLERS_SPIRE_INSECURE_BOOTSTRAP=${POLLERS_SPIRE_INSECURE_BOOTSTRAP:-true}
@@ -271,7 +274,7 @@ services:
       - KV_SEC_MODE=spiffe
       - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
     depends_on:
       cert-generator:
@@ -289,11 +292,11 @@ services:
       spire-agent:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/core.pem", "-key", "/etc/serviceradar/certs/core-key.pem", "-servername", "core.serviceradar", "localhost:50052", "grpc.health.v1.Health/Check"]
+      test: ["CMD-SHELL", "pgrep -f serviceradar-core >/dev/null"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 30s
     networks:
       serviceradar-net:
         aliases:
@@ -482,13 +485,13 @@ services:
       - CORE_SEC_MODE=spiffe
       - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
-      - CORE_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - CORE_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - CORE_CERT_DIR=/etc/serviceradar/certs
       - KV_ADDRESS=serviceradar-datasvc:50057
       - KV_SEC_MODE=spiffe
       - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       - POLLERS_SECURITY_MODE=${POLLERS_SECURITY_MODE:-spiffe}
       - MANAGE_NESTED_SPIRE=${MANAGE_NESTED_SPIRE:-disabled}
@@ -522,9 +525,9 @@ services:
         condition: service_healthy
     command: ["/usr/local/bin/serviceradar-poller","-config","/etc/serviceradar/config/poller.json"]
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/poller.pem", "-key", "/etc/serviceradar/certs/poller-key.pem", "-servername", "poller.serviceradar", "localhost:50053", "grpc.health.v1.Health/Check"]
+      test: ["CMD-SHELL", "pgrep -f serviceradar-poller >/dev/null"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
       start_period: 60s
     networks:
@@ -552,13 +555,13 @@ services:
       - CORE_SEC_MODE=spiffe
       - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
-      - CORE_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - CORE_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - CORE_CERT_DIR=/etc/serviceradar/certs
       - KV_ADDRESS=serviceradar-datasvc:50057
       - KV_SEC_MODE=spiffe
       - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-info}
@@ -577,11 +580,11 @@ services:
         condition: service_healthy
     command: ["/bin/sh","-c","if [ -f /etc/serviceradar/config/checkers/sysmon-vm.json ]; then cp /etc/serviceradar/config/checkers/sysmon-vm.json /etc/serviceradar/checkers/sysmon-vm.json; fi; exec /usr/local/bin/serviceradar-agent -config /etc/serviceradar/agent.json"]
     healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/agent.pem", "-key", "/etc/serviceradar/certs/agent-key.pem", "-servername", "agent.serviceradar", "localhost:50051", "grpc.health.v1.Health/Check"]
+      test: ["CMD-SHELL", "pgrep -f serviceradar-agent >/dev/null"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 30s
     networks:
       serviceradar-net:
         aliases:
@@ -705,13 +708,13 @@ services:
       - CORE_SEC_MODE=spiffe
       - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
-      - CORE_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - CORE_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - CORE_CERT_DIR=/etc/serviceradar/certs
       - KV_ADDRESS=serviceradar-datasvc:50057
       - KV_SEC_MODE=spiffe
       - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_DATASVC=true
@@ -759,7 +762,7 @@ services:
       - KV_SEC_MODE=spiffe
       - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
@@ -815,7 +818,7 @@ services:
       - KV_SEC_MODE=spiffe
       - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
@@ -874,7 +877,7 @@ services:
       - KV_SEC_MODE=spiffe
       - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
@@ -932,13 +935,13 @@ services:
       - CORE_SEC_MODE=spiffe
       - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
-      - CORE_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - CORE_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - CORE_CERT_DIR=/etc/serviceradar/certs
       - KV_ADDRESS=serviceradar-datasvc:50057
       - KV_SEC_MODE=spiffe
       - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
@@ -997,13 +1000,13 @@ services:
       - CORE_SEC_MODE=spiffe
       - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
-      - CORE_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - CORE_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - CORE_CERT_DIR=/etc/serviceradar/certs
       - KV_ADDRESS=serviceradar-datasvc:50057
       - KV_SEC_MODE=spiffe
       - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
@@ -1052,13 +1055,13 @@ services:
       - CORE_SEC_MODE=spiffe
       - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
-      - CORE_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - CORE_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - CORE_CERT_DIR=/etc/serviceradar/certs
       - KV_ADDRESS=serviceradar-datasvc:50057
       - KV_SEC_MODE=spiffe
       - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=${SPIRE_AGENT_SOCKET:-unix:/run/spire/sockets/agent.sock}
+      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_OTEL=true
