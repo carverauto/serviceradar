@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -197,7 +198,7 @@ func TestStatsAggregatorSkipsNonCanonicalRecords(t *testing.T) {
 	assert.Equal(t, 0, snapshot.UnavailableDevices)
 }
 
-func TestStatsAggregatorFallsBackToServiceComponents(t *testing.T) {
+func TestStatsAggregatorCountsOnlyServiceComponents(t *testing.T) {
 	log := logger.NewTestLogger()
 	reg := registry.NewDeviceRegistry(nil, log)
 
@@ -230,7 +231,7 @@ func TestStatsAggregatorFallsBackToServiceComponents(t *testing.T) {
 	meta := agg.Meta()
 	assert.Equal(t, 2, meta.RawRecords)
 	assert.Equal(t, 2, meta.ProcessedRecords)
-	assert.Equal(t, 0, meta.SkippedServiceComponents, "service components should be counted when they are the only records")
+	assert.Equal(t, 0, meta.SkippedServiceComponents, "service components are always counted as devices")
 
 	assert.Equal(t, 2, snapshot.TotalDevices)
 	assert.Equal(t, 2, snapshot.AvailableDevices)
@@ -459,6 +460,170 @@ func TestStatsAggregatorCountsServiceComponentsAsDevices(t *testing.T) {
 	assert.Equal(t, 2, snapshot.TotalDevices, "Should count both normal device and agent")
 	assert.Equal(t, 2, snapshot.AvailableDevices, "Both devices are available")
 	assert.Equal(t, 0, snapshot.UnavailableDevices)
+}
+
+func TestStatsAggregatorCountsServiceComponentsWithSharedIP(t *testing.T) {
+	log := logger.NewTestLogger()
+	reg := registry.NewDeviceRegistry(nil, log)
+
+	base := time.Date(2025, 4, 12, 10, 0, 0, 0, time.UTC)
+	sharedIP := "10.50.1.200"
+
+	// Regular device on shared IP
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    "default:" + sharedIP,
+		IP:          sharedIP,
+		IsAvailable: true,
+		LastSeen:    base,
+		Metadata: map[string]string{
+			"canonical_device_id": "default:" + sharedIP,
+			"canonical_partition": "default",
+		},
+	})
+
+	// Poller on same IP - should be counted as separate device
+	pollerID := models.GenerateServiceDeviceID(models.ServiceTypePoller, "poller-on-shared-ip")
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    pollerID,
+		IP:          sharedIP,
+		IsAvailable: true,
+		LastSeen:    base,
+		Metadata: map[string]string{
+			"component_type":      "poller",
+			"canonical_device_id": pollerID,
+			"canonical_partition": "default",
+		},
+	})
+
+	// Agent on same IP - should also be counted as separate device
+	agentID := models.GenerateServiceDeviceID(models.ServiceTypeAgent, "agent-on-shared-ip")
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    agentID,
+		IP:          sharedIP,
+		IsAvailable: true,
+		LastSeen:    base,
+		Metadata: map[string]string{
+			"component_type":      "agent",
+			"canonical_device_id": agentID,
+			"canonical_partition": "default",
+		},
+	})
+
+	agg := NewStatsAggregator(reg, log, WithStatsClock(func() time.Time { return base }))
+	agg.Refresh(context.Background())
+
+	snapshot := agg.Snapshot()
+	require.NotNil(t, snapshot)
+	meta := agg.Meta()
+
+	assert.Equal(t, 3, meta.RawRecords, "Should have 3 records total")
+	assert.Equal(t, 3, meta.ProcessedRecords, "All 3 should be processed")
+	assert.Equal(t, 0, meta.SkippedServiceComponents, "Service components should not be skipped")
+	assert.Equal(t, 3, snapshot.TotalDevices, "Should count all 3 as separate devices despite shared IP")
+	assert.Equal(t, 3, snapshot.AvailableDevices)
+	assert.Equal(t, 0, snapshot.UnavailableDevices)
+}
+
+func TestStatsAggregatorCountsMultipleServiceComponentsOfSameType(t *testing.T) {
+	log := logger.NewTestLogger()
+	reg := registry.NewDeviceRegistry(nil, log)
+
+	base := time.Date(2025, 4, 12, 11, 0, 0, 0, time.UTC)
+
+	// Multiple pollers
+	for i := 1; i <= 3; i++ {
+		pollerID := models.GenerateServiceDeviceID(models.ServiceTypePoller, fmt.Sprintf("poller-%d", i))
+		reg.UpsertDeviceRecord(&registry.DeviceRecord{
+			DeviceID:    pollerID,
+			IsAvailable: true,
+			LastSeen:    base,
+			Metadata: map[string]string{
+				"component_type":      "poller",
+				"canonical_device_id": pollerID,
+				"canonical_partition": "default",
+			},
+		})
+	}
+
+	// Multiple agents
+	for i := 1; i <= 2; i++ {
+		agentID := models.GenerateServiceDeviceID(models.ServiceTypeAgent, fmt.Sprintf("agent-%d", i))
+		reg.UpsertDeviceRecord(&registry.DeviceRecord{
+			DeviceID:    agentID,
+			IsAvailable: true,
+			LastSeen:    base,
+			Metadata: map[string]string{
+				"component_type":      "agent",
+				"canonical_device_id": agentID,
+				"canonical_partition": "default",
+			},
+		})
+	}
+
+	agg := NewStatsAggregator(reg, log, WithStatsClock(func() time.Time { return base }))
+	agg.Refresh(context.Background())
+
+	snapshot := agg.Snapshot()
+	require.NotNil(t, snapshot)
+	meta := agg.Meta()
+
+	assert.Equal(t, 5, meta.RawRecords, "Should have 5 service components")
+	assert.Equal(t, 5, meta.ProcessedRecords, "All should be processed")
+	assert.Equal(t, 0, meta.SkippedServiceComponents, "None should be skipped")
+	assert.Equal(t, 5, snapshot.TotalDevices, "Should count all service components")
+	assert.Equal(t, 5, snapshot.AvailableDevices)
+}
+
+func TestStatsAggregatorCountsServiceComponentsEvenWithFallbackRecords(t *testing.T) {
+	log := logger.NewTestLogger()
+	reg := registry.NewDeviceRegistry(nil, log)
+
+	base := time.Date(2025, 4, 12, 12, 0, 0, 0, time.UTC)
+
+	// Device with canonical metadata (will go to canonical map)
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    "default:10.0.0.1",
+		IsAvailable: true,
+		LastSeen:    base,
+		Metadata: map[string]string{
+			"canonical_device_id": "default:10.0.0.1",
+			"canonical_partition": "default",
+		},
+	})
+
+	// Device without canonical metadata (will go to fallback map)
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    "default:10.0.0.2",
+		IsAvailable: true,
+		LastSeen:    base,
+		Metadata:    map[string]string{},
+	})
+
+	// Service component - should still be counted
+	agentID := models.GenerateServiceDeviceID(models.ServiceTypeAgent, "agent-123")
+	reg.UpsertDeviceRecord(&registry.DeviceRecord{
+		DeviceID:    agentID,
+		IsAvailable: true,
+		LastSeen:    base,
+		Metadata: map[string]string{
+			"component_type":      "agent",
+			"canonical_device_id": agentID,
+			"canonical_partition": "default",
+		},
+	})
+
+	agg := NewStatsAggregator(reg, log, WithStatsClock(func() time.Time { return base }))
+	agg.Refresh(context.Background())
+
+	snapshot := agg.Snapshot()
+	require.NotNil(t, snapshot)
+	meta := agg.Meta()
+
+	assert.Equal(t, 3, meta.RawRecords, "Should have 3 records")
+	assert.Equal(t, 3, meta.ProcessedRecords, "All should be processed")
+	assert.Equal(t, 0, meta.SkippedServiceComponents, "Service components counted regardless of fallback records")
+	assert.Equal(t, 1, meta.InferredCanonicalFallback, "One record inferred from fallback")
+	assert.Equal(t, 3, snapshot.TotalDevices, "Should count canonical + fallback + service component")
 }
 
 func TestStatsAggregatorSkipsSweepOnlyRecordsWithoutIdentity(t *testing.T) {
