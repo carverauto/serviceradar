@@ -10,7 +10,7 @@ import { isDeviceSearchPlannerEnabled } from "@/config/features";
 
 const DEVICE_PLANNER_STREAMS = new Set(["devices", "device", "device_inventory"]);
 // Match stats aggregations at token boundaries (e.g., "stats:" or " stats :")
-const AGGREGATION_PATTERN = /(^|[\s([{,;]))stats\s*:/i;
+const AGGREGATION_PATTERN = /(^|\s|\(|\{|\[|,|;)stats\s*:/i;
 
 function cleanToken(token: string): string {
   let t = token.trim();

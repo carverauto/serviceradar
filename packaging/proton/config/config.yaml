@@ -21,7 +21,7 @@ logger:
   # See https://github.com/pocoproject/poco/blob/poco-1.9.4-release/Foundation/include/Poco/FileChannel.h#L54-L85
   size: 1000M
   count: 10
-  # console: 1
+  console: 1
   # Default behavior is autodetection (log to console if not daemon mode and is tty)
 
   # Per level overrides (legacy):

@@ -1366,7 +1366,7 @@ pkg_tar(
 
 oci_image(
     name = "proton_image_amd64",
-    base = "@serviceradar_proton_linux_amd64//:serviceradar_proton_linux_amd64",
+    base = "@timeplus_proton_linux_amd64//:timeplus_proton_linux_amd64",
     tars = [":common_tools_amd64", ":proton_layer_amd64"],
     entrypoint = ["/usr/local/bin/proton-init.sh"],
     workdir = "/var/lib/proton",
