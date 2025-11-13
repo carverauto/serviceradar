@@ -66,6 +66,7 @@ interface PollerConfig {
   agents?: Record<string, PollerAgentConfig>;
   logging?: LoggingConfig;
   security?: SecurityConfig | null;
+  core_security?: SecurityConfig | null;
 }
 
 interface PollerConfigFormProps {
@@ -112,6 +113,16 @@ export default function PollerConfigForm({ config, onChange }: PollerConfigFormP
 
   const [otelHeadersText, setOtelHeadersText] = useState('{}');
   const [otelHeadersError, setOtelHeadersError] = useState<string | null>(null);
+  const effectiveSecurity = useMemo<SecurityConfig | null>(
+    () => (config.security ?? config.core_security ?? null),
+    [config.security, config.core_security],
+  );
+  const updatePollerSecurity = (path: string, value: unknown) => {
+    updateConfig(`security.${path}`, value);
+    if (!config.security && config.core_security) {
+      updateConfig(`core_security.${path}`, value);
+    }
+  };
 
   const serializedHeaders = useMemo(
     () => JSON.stringify(config.logging?.otel?.headers ?? {}, null, 2),
@@ -538,9 +549,14 @@ export default function PollerConfigForm({ config, onChange }: PollerConfigFormP
             description="SPIFFE / TLS configuration for the poller itself."
           >
             <div className="pt-2">
+              {!config.security && config.core_security && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">
+                  Showing inherited values from <code>core_security</code>. Saving will persist them under poller security.
+                </p>
+              )}
               <SecurityFields
-                security={config.security}
-                onChange={(path, value) => updateConfig(`security.${path}`, value)}
+                security={effectiveSecurity}
+                onChange={(path, value) => updatePollerSecurity(path, value)}
               />
             </div>
           </Section>

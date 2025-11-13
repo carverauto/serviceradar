@@ -17,6 +17,7 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"crypto/rsa"
 	"crypto/x509"
@@ -467,18 +468,94 @@ func (m *KVManager) StartWatch(ctx context.Context, kvKey string, cfg interface{
 		return
 	}
 
-	prev := cfg
+	prevSnapshot, err := newConfigSnapshot(cfg)
+	if err != nil && logger != nil {
+		logger.Warn().Err(err).Str("key", kvKey).Msg("Failed to snapshot initial config for KV watch")
+	}
+
 	StartKVWatchOverlay(ctx, m.client, kvKey, cfg, logger, func() {
+		currSnapshot, snapErr := newConfigSnapshot(cfg)
+		if snapErr != nil {
+			if logger != nil {
+				logger.Warn().Err(snapErr).Str("key", kvKey).Msg("Failed to snapshot config after KV overlay")
+			}
+			return
+		}
+
+		if prevSnapshot != nil && bytes.Equal(prevSnapshot.raw, currSnapshot.raw) {
+			// No actual change after overlay; skip reload.
+			return
+		}
+
 		triggers := map[string]bool{"reload": true, "rebuild": true}
-		changed := FieldsChangedByTag(prev, cfg, "hot", triggers)
+		var changed []string
+		if prevSnapshot != nil {
+			changed = FieldsChangedByTag(prevSnapshot.value, currSnapshot.value, "hot", triggers)
+		}
+		if len(changed) == 0 {
+			changed = []string{"*"}
+		}
+
 		if len(changed) > 0 {
-			logger.Info().Strs("changed_fields", changed).Msg("Applying hot-reload")
+			if logger != nil {
+				logger.Info().Strs("changed_fields", changed).Msg("Applying hot-reload")
+			}
 			if onReload != nil {
 				onReload()
 			}
-			prev = cfg
+			prevSnapshot = currSnapshot
 		}
 	})
+}
+
+type configSnapshot struct {
+	raw   []byte
+	value interface{}
+}
+
+func newConfigSnapshot(cfg interface{}) (*configSnapshot, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	cloneTarget, err := cloneConfigValue(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(raw, cloneTarget); err != nil {
+		return nil, err
+	}
+
+	return &configSnapshot{
+		raw:   raw,
+		value: cloneTarget,
+	}, nil
+}
+
+func cloneConfigValue(cfg interface{}) (interface{}, error) {
+	val := reflect.ValueOf(cfg)
+	if !val.IsValid() {
+		return nil, nil
+	}
+
+	switch val.Kind() {
+	case reflect.Ptr:
+		if val.IsNil() {
+			return nil, nil
+		}
+		elem := val.Elem()
+		clone := reflect.New(elem.Type())
+		return clone.Interface(), nil
+	case reflect.Struct:
+		clone := reflect.New(val.Type())
+		return clone.Interface(), nil
+	default:
+		return nil, fmt.Errorf("unsupported config type %T", cfg)
+	}
 }
 
 // Close closes the KV client connection

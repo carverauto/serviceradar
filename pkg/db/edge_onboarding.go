@@ -215,7 +215,7 @@ type edgeOnboardingQueryBuilder struct {
 
 func (b *edgeOnboardingQueryBuilder) param(value interface{}) string {
 	b.args = append(b.args, value)
-	return fmt.Sprintf("$%d", len(b.args))
+	return "?"
 }
 
 func buildEdgeOnboardingPackagesQuery(opts edgeOnboardingQueryOptions) (string, []interface{}) {

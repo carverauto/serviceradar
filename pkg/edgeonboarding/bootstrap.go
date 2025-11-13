@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -55,6 +56,13 @@ type Config struct {
 	// Format: "host:port" e.g., "23.138.124.23:50057"
 	KVEndpoint string
 
+	// CoreAPIURL is the HTTP(S) endpoint for the Core API (e.g., https://demo.serviceradar.cloud)
+	// If empty, the token payload or environment variables may provide it.
+	CoreAPIURL string
+
+	// PackageID optionally overrides the package identifier when the token format does not embed it.
+	PackageID string
+
 	// ServiceType identifies what type of service is being onboarded
 	ServiceType models.EdgeOnboardingComponentType
 
@@ -70,6 +78,9 @@ type Config struct {
 	// Values: "docker", "kubernetes", "bare-metal"
 	// If empty, will auto-detect
 	DeploymentType DeploymentType
+
+	// HTTPClient allows callers to override the HTTP client used for Core API requests.
+	HTTPClient *http.Client
 
 	// Logger is optional; if nil, a default logger will be created
 	Logger logger.Logger
@@ -94,6 +105,8 @@ type Bootstrapper struct {
 	downloadResult   *models.EdgeOnboardingDeliverResult
 	deploymentType   DeploymentType
 	generatedConfigs map[string][]byte
+	tokenInfo        *tokenPayload
+	httpClient       *http.Client
 }
 
 // NewBootstrapper creates a new bootstrapper instance.
@@ -124,6 +137,7 @@ func NewBootstrapper(cfg *Config) (*Bootstrapper, error) {
 		cfg:              cfg,
 		logger:           log,
 		generatedConfigs: make(map[string][]byte),
+		httpClient:       cfg.HTTPClient,
 	}
 
 	return b, nil

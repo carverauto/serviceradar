@@ -64,6 +64,8 @@ func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponen
 	// Check for onboarding token from environment or flags
 	token := os.Getenv("ONBOARDING_TOKEN")
 	kvEndpoint := os.Getenv("KV_ENDPOINT")
+	packageID := os.Getenv("EDGE_PACKAGE_ID")
+	coreAPIURL := os.Getenv("CORE_API_URL")
 
 	// If no onboarding token, use traditional config
 	if token == "" {
@@ -88,6 +90,8 @@ func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponen
 		Token:       token,
 		KVEndpoint:  kvEndpoint,
 		ServiceType: componentType,
+		PackageID:   packageID,
+		CoreAPIURL:  coreAPIURL,
 		Logger:      log,
 		// StoragePath will use default
 	})
