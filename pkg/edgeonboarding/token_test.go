@@ -26,7 +26,7 @@ func TestParseLegacyToken(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "pkg-001", payload.PackageID)
 	require.Equal(t, "token-xyz", payload.DownloadToken)
-	require.Equal(t, "", payload.CoreURL)
+	require.Empty(t, payload.CoreURL)
 }
 
 func TestParseLegacyTokenWithCoreURL(t *testing.T) {

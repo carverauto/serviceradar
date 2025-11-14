@@ -49,6 +49,7 @@ var (
 	errKVKeyEmpty            = errors.New("KV key is required")
 	errDecodePrivateKeyPEM   = errors.New("failed to decode private key PEM")
 	errUnsupportedPrivateKey = errors.New("unsupported private key type")
+	errUnsupportedConfigType = errors.New("unsupported config type")
 )
 
 const (
@@ -542,20 +543,22 @@ func cloneConfigValue(cfg interface{}) (interface{}, error) {
 		return nil, nil
 	}
 
-	switch val.Kind() {
-	case reflect.Ptr:
+	kind := val.Kind()
+	if kind == reflect.Ptr {
 		if val.IsNil() {
 			return nil, nil
 		}
 		elem := val.Elem()
 		clone := reflect.New(elem.Type())
 		return clone.Interface(), nil
-	case reflect.Struct:
+	}
+
+	if kind == reflect.Struct {
 		clone := reflect.New(val.Type())
 		return clone.Interface(), nil
-	default:
-		return nil, fmt.Errorf("unsupported config type %T", cfg)
 	}
+
+	return nil, fmt.Errorf("%w: %T", errUnsupportedConfigType, cfg)
 }
 
 // Close closes the KV client connection

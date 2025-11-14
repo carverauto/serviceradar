@@ -564,10 +564,10 @@ func (EdgeHandler) Parse(args []string, cfg *CmdConfig) error {
 
 	entity := strings.ToLower(strings.TrimSpace(args[0]))
 	switch entity {
-	case "package", "packages":
-		cfg.EdgeCommand = "package"
+	case edgeCommandPackage, "packages":
+		cfg.EdgeCommand = edgeCommandPackage
 	default:
-		return fmt.Errorf("unknown edge resource %q (expected package)", entity)
+		return fmt.Errorf("%w: %s (expected package)", errEdgeUnknownResource, entity)
 	}
 
 	if len(args) < 2 {
@@ -592,7 +592,7 @@ func (EdgeHandler) Parse(args []string, cfg *CmdConfig) error {
 	case "token":
 		return (EdgePackageTokenHandler{}).Parse(subArgs, cfg)
 	default:
-		return fmt.Errorf("unknown edge package action %q", action)
+		return fmt.Errorf("%w: %s", errEdgeUnknownAction, action)
 	}
 }
 
@@ -654,19 +654,20 @@ func parseEdgePackageCreateFlags(args []string, cfg *CmdConfig) error {
 
 	componentTypeValue := strings.ToLower(strings.TrimSpace(*componentType))
 	if componentTypeValue == "" {
-		componentTypeValue = "poller"
+		componentTypeValue = componentTypePoller
 	}
-	if strings.HasPrefix(componentTypeValue, "checker:") {
-		kind := strings.TrimSpace(componentTypeValue[len("checker:"):])
-		componentTypeValue = "checker"
+	checkerPrefix := componentTypeChecker + ":"
+	if strings.HasPrefix(componentTypeValue, checkerPrefix) {
+		kind := strings.TrimSpace(componentTypeValue[len(checkerPrefix):])
+		componentTypeValue = componentTypeChecker
 		if cfg.EdgePackageCheckerKind == "" {
 			cfg.EdgePackageCheckerKind = kind
 		}
-	} else if componentTypeValue != "poller" && componentTypeValue != "agent" && componentTypeValue != "checker" {
+	} else if componentTypeValue != componentTypePoller && componentTypeValue != componentTypeAgent && componentTypeValue != componentTypeChecker {
 		if cfg.EdgePackageCheckerKind == "" {
 			cfg.EdgePackageCheckerKind = componentTypeValue
 		}
-		componentTypeValue = "checker"
+		componentTypeValue = componentTypeChecker
 	}
 	cfg.EdgePackageComponentType = componentTypeValue
 
@@ -775,7 +776,7 @@ func parseTTLSeconds(raw string) (int, error) {
 		return 0, err
 	}
 	if duration <= 0 {
-		return 0, fmt.Errorf("duration must be positive")
+		return 0, errDurationNotPositive
 	}
 	return int(duration.Seconds()), nil
 }

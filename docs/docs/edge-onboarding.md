@@ -112,6 +112,25 @@ serviceradar-cli edge package create \
   --metadata-json "$(cat metadata.json)"
 ```
 
+Inspect existing packages or reissue tokens without touching the UI:
+
+```bash
+# Summaries (table or --output=json)
+serviceradar-cli edge package list \
+  --core-url https://demo.serviceradar.cloud \
+  --api-key "$SERVICERADAR_API_KEY" \
+  --bearer "$ADMIN_JWT"
+
+# Detailed view + fresh onboarding token
+serviceradar-cli edge package show \
+  --core-url https://demo.serviceradar.cloud \
+  --api-key "$SERVICERADAR_API_KEY" \
+  --bearer "$ADMIN_JWT" \
+  --id <PACKAGE_ID> \
+  --reissue-token \
+  --download-token <NEW_DOWNLOAD_TOKEN>
+```
+
 ### 3.2 Download the artifacts
 
 - **UI**: Click **Download** while the package status is *Issued*.
@@ -124,6 +143,16 @@ serviceradar-cli edge package create \
     --id <PACKAGE_ID> \
     --download-token <DOWNLOAD_TOKEN> \
     --output edge-package.tar.gz
+
+  # Optional JSON payload for records or automation
+  serviceradar-cli edge package download \
+    --core-url https://demo.serviceradar.cloud \
+    --api-key "$SERVICERADAR_API_KEY" \
+    --bearer "$ADMIN_JWT" \
+    --id <PACKAGE_ID> \
+    --download-token <DOWNLOAD_TOKEN> \
+    --format json \
+    --output edge-package.json
   ```
 
 The archive contains:
@@ -186,6 +215,30 @@ Core deletes the downstream SPIRE entry, clears the tokens, and marks the
 package *Revoked*.
 
 ---
+
+### 3.6 Offline bootstrap (`ONBOARDING_PACKAGE`)
+
+Air-gapped hosts (or CI jobs that do not have direct Core access) can skip the
+HTTP download step entirely:
+
+1. Download the tarball once from a connected machine (`edge package download
+   --output edge-package.tar.gz`).
+2. Copy the archive to the target host.
+3. Export both the KV endpoint and the archive path before launching the poller
+   (or agent/checker):
+   ```bash
+   export KV_ENDPOINT=23.138.124.23:50057
+   export ONBOARDING_PACKAGE=/opt/serviceradar/offline/edge-package.tar.gz
+   # Optional: still export ONBOARDING_TOKEN if you want the bootstrapper to
+   # notify Core about activation when connectivity returns.
+   ```
+4. Start the service as normal; the bootstrapper verifies
+   `metadata.json`/`spire/*` from disk, writes configs under
+   `/var/lib/serviceradar`, and proceeds with SPIRE + KV enrollment.
+
+> `ONBOARDING_PACKAGE` works for every Go service that already calls
+> `edgeonboarding.TryOnboard`. Rust/sysmon parity is in progress; until then
+> the CLI download remains the canonical bootstrap for Go binaries.
 
 ## 4. Agent Onboarding (Planned Enhancement)
 

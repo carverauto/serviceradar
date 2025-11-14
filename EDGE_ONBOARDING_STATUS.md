@@ -25,6 +25,8 @@ We've successfully integrated the edge onboarding library into ServiceRadar serv
 - `pkg/edgeonboarding/download.go` performs the full HTTP flow (token parsing → Core URL resolution via structured tokens / `CORE_API_URL` → JSON deliver → package validation) and is exercised via `pkg/edgeonboarding/download_test.go`.
 - Structured `edgepkg-v1:<payload>` tokens are parsed/encoded by `pkg/edgeonboarding/token.go`, paving the way for single-string onboarding once the UI/CLI emits them by default.
 - The admin UI now exposes a copy-to-clipboard edgepkg-v1 onboarding token (and `serviceradar-cli edge-package-token` mirrors it) so operators simply export `ONBOARDING_TOKEN` instead of juggling `EDGE_PACKAGE_ID`/`CORE_API_URL`.
+- `serviceradar-cli` gained `edge package create/list/show/download/revoke/token`, mirroring the UI’s package workflow with JSON or tabular output. The download command now supports `--format=json` for audit logs, and `edge package show --reissue-token` emits fresh `edgepkg-v1` strings without touching the UI.
+- Offline hosts can set `ONBOARDING_PACKAGE=/path/to/archive.tar.gz`. The bootstrapper validates the tarball (metadata/join-token/bundle) and hydrates SPIRE + config without contacting Core, which means air-gapped installs now follow the exact same binary flow as online pollers/agents.
 
 ## 🚀 How to Use
 
@@ -183,10 +185,9 @@ Needs to:
 
 ## 🔜 Next Focus
 
-- **CLI automation (`serviceradar-cli`)** – We now emit tokens via `edge-package-token`, but we still need create/list/show plumbing that talks to Core’s `/api/admin/edge-packages/*` endpoints. The CLI will live in `pkg/cli/edge_onboarding.go` and should output both human-readable text and JSON (see the command contract captured in `edge_onboarding-todo.md`).
-- **Offline bootstrap + SPIRE config** – Finish `downloadPackage`, `generateNestedSPIREServerConfig`, and `generateNestedSPIREAgentConfig` so a structured token (or tarball path via `ONBOARDING_PACKAGE`) can generate usable SPIRE HCL, join tokens, and filesystem layouts without any shell scripts. Document how we persist bundles/keys under `/var/lib/serviceradar` and the non-root fallback.
-- **Rust/sysmon parity** – Capture the requirements for a Rust bootstrap crate that mirrors the Go helper so `cmd/checkers/sysmon` accepts the exact same `--onboarding-token`/`--kv-endpoint` flags as Go services. The TODO doc now sketches the sequence so the implementation work can start next sprint.
-- **Docs + UI alignment** – The admin UI now builds `edgepkg-v1` strings, so update `docs/docs/edge-onboarding.md`, `docs/docs/docker-setup.md`, and the in-product copy to highlight the new flow while keeping the tarball/offline appendix for air-gapped installs.
+- **SPIRE + metadata polish** – We still need real HCL emitters in `generateNestedSPIREServerConfig`/`generateNestedSPIREAgentConfig` plus deployment-aware address helpers so Docker pollers automatically pivot to LoadBalancer IPs.
+- **Rust/sysmon parity** – Capture the requirements for a Rust bootstrap crate that mirrors the Go helper so `cmd/checkers/sysmon` accepts the exact same `--onboarding-token`/`--kv-endpoint` or `ONBOARDING_PACKAGE` flow as Go services.
+- **Docs + UI alignment** – The admin UI already builds `edgepkg-v1` strings and now references the CLI; continue tightening `docs/docs/edge-onboarding.md`, `docs/docs/docker-setup.md`, and the admin copy so the JSON download/ONBOARDING_PACKAGE path is the primary workflow.
 
 ## 🎯 Quick Wins
 
@@ -244,6 +245,73 @@ if kvEndpoint == "" {
     kvEndpoint = os.Getenv("SR_KV_ENDPOINT")
 }
 ```
+
+## 🗂️ Workstream Implementation Plan
+
+### 1. Documentation & UX alignment
+- Merge the Compose SPIFFE explanation plus the Kong profile steps into `docs/docs/docker-setup.md` so “clone → docker compose up -d → docker compose up -d nginx kong” is obvious.
+- Keep `docs/docs/edge-onboarding.md` and `docs/docs/edge-agent-onboarding.md` pointed at Admin → Edge Packages while we work through the Settings relocation; highlight tokens + CLI as the canonical bootstrap, with a short offline appendix.
+- Link the UI’s “copy onboarding command” helpers to the new CLI verbs so the in-product experience matches the doc.
+
+### 2. Finish the Go bootstrapper (`pkg/edgeonboarding`)
+- **Package delivery:** Wire `downloadPackage` to honor env overrides, parse metadata, and store helper artifacts under `/var/lib/serviceradar`.
+- **Offline mode:** `ONBOARDING_PACKAGE` already loads tarballs from disk—continue tightening validation and add checksum verification before writing to disk.
+- **SPIRE config:** Replace the placeholder HCL emitters with real nested server/agent configs that mirror the Compose templates (datastore, upstream authority, selectors).
+- **Address/metadata handling:** Teach `getAddressForDeployment`/`getSPIREAddressesForDeployment` to pick the right endpoints for Docker vs. k8s vs. bare metal based on metadata hints.
+- **Rotation & status:** Fill in `Rotate()`/`GetRotationInfo()` so services and the CLI can surface certificate health.
+- **Testing:** Expand the `pkg/edgeonboarding/*_test.go` coverage for metadata parsing, SPIRE config generation, download error handling, and offline archive validation.
+
+### 3. Service integration (Go)
+- Ensure every Go binary that calls `edgeonboarding.TryOnboard` still loads legacy configs when no token/package is present.
+- Consider a shared helper (maybe `pkg/edgeonboarding/cmd/bootstrap`) for init containers or provisioning scripts that need to pre-download packages for air-gapped installs.
+- Add smoke tests for poller, agent, sysmon-vm, mapper, sync, etc., so we know the onboarding path hasn’t regressed.
+
+### 4. Service integration (Rust)
+- Build a Rust crate (`rust/edge-onboarding`) mirroring the Go bootstrapper—accepts `ONBOARDING_TOKEN` or `ONBOARDING_PACKAGE`, calls the Core deliver API, and writes the same config layout.
+- Update `cmd/checkers/sysmon/src/main.rs` with `--onboarding-token`, `--kv-endpoint`, `--package` flags plus env fallbacks and call the bootstrapper before `config_bootstrap::Bootstrap`.
+- Log the SPIFFE ID on success so operators get the same confirmation they see in the Go services.
+
+### 5. UI/API polish
+- Make Edge onboarding reachable from Settings (breadcrumb + nav), communicate the parent hierarchy, and surface “Copy onboarding command” helpers for poller/agent/checker components.
+- Extend the CLI subcommands (`edge package create/list/show/download`) as the UX evolves (e.g., include checker metadata, parents, and events in JSON mode).
+- For offline installs, add an explicit download button per component that delivers the same tarball that the CLI emits.
+
+### 6. Validation & monitoring
+- Build integration tests (potentially in `docker/compose/edge-e2e`) that issue a package, start poller/agent/checker with `ONBOARDING_TOKEN` or `ONBOARDING_PACKAGE`, and assert activation in Core.
+- Emit bootstrapper metrics/logs for download errors, expired tokens, SPIRE failures, and offline package validation so support can diagnose issues quickly.
+
+### 7. Rolling the docs once code ships
+- Replace the manual `edge-poller.env` steps in `docs/docs/edge-onboarding.md` with the token/CLI instructions, leaving tarball edits in the offline appendix.
+- Add a troubleshooting appendix for limited-connectivity scenarios (e.g., when the checker must import a package via `--package`).
+
+## 🛠️ CLI Reference
+
+`serviceradar-cli` mirrors the Admin → Edge Packages workflow:
+
+- `serviceradar-cli edge package create` — Issue a package (`--component-type poller|agent|checker[:kind]`, `--label`, selectors, TTLs, notes) and emit a ready-to-export `edgepkg-v1:` token plus JSON output when `--output=json` is set.
+- `serviceradar-cli edge package list` — Summaries with ID, component type, status, expiry, optional filters (`--status`, `--component-type`, `--poller-id`, `--parent-id`), and JSON output for automation.
+- `serviceradar-cli edge package show` — Detailed view (timestamps, selectors, metadata). Add `--reissue-token --download-token <token>` to mint a new structured onboarding token without visiting the UI.
+- `serviceradar-cli edge package download` — Fetch artifacts as a tarball (default) or JSON (`--format=json`). Tarballs are what operators pass to `ONBOARDING_PACKAGE`; JSON is great for audit trails or copying join/download tokens into password managers.
+- `serviceradar-cli edge package revoke` / `edge package token` — Existing revoke/token helpers remain, now reachable via the nested `edge package` dispatcher.
+
+All commands live under `pkg/cli/edge_onboarding.go`, share auth/TLS flags with the rest of the CLI, and default to human-friendly output while offering structured JSON for scripting.
+
+## 📦 Offline Package Semantics
+
+- Set `ONBOARDING_PACKAGE=/path/to/edge-package.tar.gz` on hosts without Core access. The bootstrapper validates `metadata.json`, `spire/upstream-join-token`, and `spire/upstream-bundle.pem`, hydrates SPIRE/config under `/var/lib/serviceradar`, and proceeds without an HTTP download.
+- Recommended tar layout (produced by Core + the CLI):
+  ```
+  edge-package-<id>.tar.gz
+    ├── metadata.json
+    ├── kv/seed.json
+    ├── spire/server/server.conf
+    ├── spire/server/server.key
+    ├── spire/agent/agent.conf
+    ├── spire/agent/bootstrap.crt
+    └── README.offline.md
+  ```
+- `metadata.json` must include `core_address`, `kv_address`, `datasvc_endpoint`, `spire_upstream_address`, deployment hints, and checker/agent metadata so `getAddressForDeployment` can choose the right endpoint automatically.
+- Follow-up: add checksum verification (and a CLI `--verify` flag) so sneakernet copies are validated before touching disk. If validation fails, we’ll instruct operators to re-run `serviceradar-cli edge package download --verify`.
 
 ## 🧪 Testing Plan
 

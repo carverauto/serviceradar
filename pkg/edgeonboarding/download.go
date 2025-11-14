@@ -71,6 +71,10 @@ var (
 	ErrPackageArchiveMissingBundle = errors.New("package archive missing SPIRE trust bundle")
 	// ErrPackageArchiveInvalid is returned when the archive is malformed.
 	ErrPackageArchiveInvalid = errors.New("package archive invalid")
+	// ErrCoreDeliverEndpoint indicates the Core deliver endpoint returned an error.
+	ErrCoreDeliverEndpoint = errors.New("core deliver endpoint error")
+	// ErrCoreAPIURLMissingHost indicates the base URL lacks a host.
+	ErrCoreAPIURLMissingHost = errors.New("core api url missing host")
 )
 
 type archiveMetadataFile struct {
@@ -178,9 +182,9 @@ func (b *Bootstrapper) downloadPackage(ctx context.Context) error {
 	if resp.StatusCode != http.StatusOK {
 		msg := readErrorBody(resp.Body)
 		if msg != "" {
-			return fmt.Errorf("core deliver endpoint (%s): %s", resp.Status, msg)
+			return fmt.Errorf("%w (%s): %s", ErrCoreDeliverEndpoint, resp.Status, msg)
 		}
-		return fmt.Errorf("core deliver endpoint returned %s", resp.Status)
+		return fmt.Errorf("%w returned %s", ErrCoreDeliverEndpoint, resp.Status)
 	}
 
 	var deliver deliverResponse
@@ -237,7 +241,7 @@ func (b *Bootstrapper) loadPackageFromArchive(ctx context.Context, path string) 
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("%w: %v", ErrPackageArchiveInvalid, err)
+			return fmt.Errorf("%w: %w", ErrPackageArchiveInvalid, err)
 		}
 		if hdr.FileInfo().IsDir() {
 			continue
@@ -245,7 +249,7 @@ func (b *Bootstrapper) loadPackageFromArchive(ctx context.Context, path string) 
 		name := strings.TrimPrefix(hdr.Name, "./")
 		content, err := io.ReadAll(tr)
 		if err != nil {
-			return fmt.Errorf("%w: read %s: %v", ErrPackageArchiveInvalid, hdr.Name, err)
+			return fmt.Errorf("%w: read %s: %w", ErrPackageArchiveInvalid, hdr.Name, err)
 		}
 		switch name {
 		case "metadata.json":
@@ -303,7 +307,7 @@ func (b *Bootstrapper) loadPackageFromArchive(ctx context.Context, path string) 
 func parseArchiveMetadata(data []byte) (*archiveMetadataFile, error) {
 	var meta archiveMetadataFile
 	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrPackageArchiveInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrPackageArchiveInvalid, err)
 	}
 	return &meta, nil
 }
@@ -557,7 +561,7 @@ func normalizeBaseURL(raw string) (string, error) {
 		u.Scheme = "https"
 	}
 	if u.Host == "" {
-		return "", fmt.Errorf("core api url missing host")
+		return "", ErrCoreAPIURLMissingHost
 	}
 	u.RawQuery = ""
 	u.Fragment = ""
@@ -634,12 +638,4 @@ func (p edgePackagePayload) toModel() (*models.EdgeOnboardingPackage, error) {
 	}
 
 	return pkg, nil
-}
-
-// min returns the minimum of two integers.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

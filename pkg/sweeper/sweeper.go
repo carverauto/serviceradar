@@ -199,10 +199,12 @@ func NewNetworkSweeper(
 		configKey:         configKey,
 		logger:            log,
 		kvBackoff:         defaultKVWatchBackoffSettings(),
-		done:              make(chan struct{}),
-		watchDone:         make(chan struct{}),
+		done:              nil,
+		watchDone:         nil,
 		deviceResults:     make(map[string]*DeviceResultAggregator),
 	}
+
+	ns.ensureControlChannels()
 
 	for _, opt := range opts {
 		opt(ns)
@@ -450,9 +452,13 @@ func calculateEffectiveConcurrency(config *models.Config, log logger.Logger) int
 func (s *NetworkSweeper) Start(ctx context.Context) error {
 	s.logger.Info().Dur("interval", s.config.Interval).Msg("Starting network sweeper")
 
+	s.ensureControlChannels()
+	s.ensureScannersInitialized()
+
 	// Start KV config watching and wait for initial config (if available)
-	configReady := make(chan struct{})
-	go s.watchConfigWithInitialSignal(ctx, configReady)
+	configReady := make(chan struct{}, 1)
+	signalConfigReady := newConfigReadySignal(configReady)
+	go s.watchConfigWithInitialSignal(ctx, signalConfigReady)
 
 	// Wait for initial config update (with timeout) or proceed with file config
 	select {
@@ -517,28 +523,66 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 func (s *NetworkSweeper) Stop() error {
 	s.logger.Info().Msg("Stopping network sweeper")
 
+	if s.done == nil {
+		s.logger.Debug().Msg("Sweep service already stopped")
+		return nil
+	}
+
 	close(s.done)
-	<-s.watchDone // Wait for KV watching to stop
+
+	if s.watchDone != nil {
+		<-s.watchDone // Wait for KV watching to stop
+	}
+
+	s.done = nil
+	s.watchDone = nil
 
 	if s.icmpScanner != nil {
 		if err := s.icmpScanner.Stop(); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop ICMP scanner")
 		}
+		s.icmpScanner = nil
 	}
 
 	if s.tcpScanner != nil {
 		if err := s.tcpScanner.Stop(); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop TCP scanner")
 		}
+		s.tcpScanner = nil
 	}
 
 	if s.tcpConnectScanner != nil {
 		if err := s.tcpConnectScanner.Stop(); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop TCP connect scanner")
 		}
+		s.tcpConnectScanner = nil
 	}
 
 	return nil
+}
+
+func (s *NetworkSweeper) ensureControlChannels() {
+	if s.done == nil {
+		s.done = make(chan struct{})
+	}
+
+	if s.watchDone == nil {
+		s.watchDone = make(chan struct{})
+	}
+}
+
+func (s *NetworkSweeper) ensureScannersInitialized() {
+	if s.icmpScanner == nil {
+		s.icmpScanner = initializeICMPScanner(s.config, s.logger)
+	}
+
+	if s.tcpScanner == nil {
+		s.tcpScanner = initializeTCPScanner(s.config, s.logger)
+	}
+
+	if s.tcpConnectScanner == nil {
+		s.tcpConnectScanner = initializeTCPConnectScanner(s.config, s.logger)
+	}
 }
 
 // GetStatus returns current sweep status.
@@ -726,14 +770,28 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 	return nil
 }
 
+// configReadySignal ensures the channel is only closed once even if multiple goroutines race to signal readiness.
+func newConfigReadySignal(ch chan<- struct{}) func() {
+	var once sync.Once
+
+	return func() {
+		once.Do(func() {
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
+		})
+	}
+}
+
 // handleCancellation checks for context cancellation or sweeper shutdown and closes configReady if needed
-func (s *NetworkSweeper) handleCancellation(ctx context.Context, initialConfigReceived bool, configReady chan<- struct{}) bool {
+func (s *NetworkSweeper) handleCancellation(ctx context.Context, initialConfigReceived bool, signalConfigReady func()) bool {
 	select {
 	case <-ctx.Done():
 		s.logger.Debug().Msg("Context canceled, stopping config watch")
 
 		if !initialConfigReceived {
-			close(configReady)
+			signalConfigReady()
 		}
 
 		return true
@@ -741,7 +799,7 @@ func (s *NetworkSweeper) handleCancellation(ctx context.Context, initialConfigRe
 		s.logger.Debug().Msg("Sweep service closed, stopping config watch")
 
 		if !initialConfigReceived {
-			close(configReady)
+			signalConfigReady()
 		}
 
 		return true
@@ -752,7 +810,7 @@ func (s *NetworkSweeper) handleCancellation(ctx context.Context, initialConfigRe
 
 // handleBackoffWait implements the backoff logic with cancellation checks
 func (s *NetworkSweeper) handleBackoffWait(
-	ctx context.Context, backoff time.Duration, initialConfigReceived bool, configReady chan<- struct{},
+	ctx context.Context, backoff time.Duration, initialConfigReceived bool, signalConfigReady func(),
 ) bool {
 	cfg := s.kvWatchBackoff()
 
@@ -775,7 +833,7 @@ func (s *NetworkSweeper) handleBackoffWait(
 		s.logger.Debug().Msg("Context canceled during backoff, stopping config watch")
 
 		if !initialConfigReceived {
-			close(configReady)
+			signalConfigReady()
 		}
 
 		return true
@@ -783,7 +841,7 @@ func (s *NetworkSweeper) handleBackoffWait(
 		s.logger.Debug().Msg("Sweep service closed during backoff, stopping config watch")
 
 		if !initialConfigReceived {
-			close(configReady)
+			signalConfigReady()
 		}
 
 		return true
@@ -795,12 +853,12 @@ func (s *NetworkSweeper) handleBackoffWait(
 
 // watchConfigWithInitialSignal watches the KV store for config updates and signals when first config is received.
 // Implements auto-reconnect with exponential backoff and jitter to handle spurious channel closures.
-func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, configReady chan<- struct{}) {
+func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, signalConfigReady func()) {
 	defer close(s.watchDone)
 
 	if s.configStore == nil {
 		s.logger.Debug().Msg("No config store configured, skipping config watch")
-		close(configReady) // Signal immediately since there's no KV config to wait for
+		signalConfigReady() // Signal immediately since there's no KV config to wait for
 
 		return
 	}
@@ -813,12 +871,12 @@ func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, confi
 	// Auto-reconnect loop with exponential backoff and jitter
 	for {
 		// Check for cancellation
-		if s.handleCancellation(ctx, initialConfigReceived, configReady) {
+		if s.handleCancellation(ctx, initialConfigReceived, signalConfigReady) {
 			return
 		}
 
 		// Establish watch connection
-		watchResult := s.performKVWatch(ctx, &initialConfigReceived, configReady)
+		watchResult := s.performKVWatch(ctx, &initialConfigReceived, signalConfigReady)
 
 		// If watch returned due to context cancellation or sweeper shutdown, exit
 		if watchResult == watchResultCanceled {
@@ -832,7 +890,7 @@ func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, confi
 
 		// If this was a channel closure, implement backoff before retrying
 		if watchResult == watchResultChannelClosed {
-			if s.handleBackoffWait(ctx, backoff, initialConfigReceived, configReady) {
+			if s.handleBackoffWait(ctx, backoff, initialConfigReceived, signalConfigReady) {
 				return
 			}
 
@@ -855,13 +913,13 @@ const (
 )
 
 // performKVWatch performs a single KV watch session and returns the reason it ended
-func (s *NetworkSweeper) performKVWatch(ctx context.Context, initialConfigReceived *bool, configReady chan<- struct{}) watchResult {
+func (s *NetworkSweeper) performKVWatch(ctx context.Context, initialConfigReceived *bool, signalConfigReady func()) watchResult {
 	ch, err := s.configStore.Watch(ctx, s.configKey)
 	if err != nil {
 		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to watch KV key")
 		// If we can't establish the watch and haven't received initial config, signal to proceed with file config
 		if !*initialConfigReceived {
-			close(configReady)
+			signalConfigReady()
 		}
 
 		return watchResultError
@@ -875,7 +933,7 @@ func (s *NetworkSweeper) performKVWatch(ctx context.Context, initialConfigReceiv
 			s.logger.Debug().Msg("Context canceled during watch")
 
 			if !*initialConfigReceived {
-				close(configReady)
+				signalConfigReady()
 			}
 
 			return watchResultCanceled
@@ -884,7 +942,7 @@ func (s *NetworkSweeper) performKVWatch(ctx context.Context, initialConfigReceiv
 			s.logger.Debug().Msg("Sweep service closed during watch")
 
 			if !*initialConfigReceived {
-				close(configReady)
+				signalConfigReady()
 			}
 
 			return watchResultCanceled
@@ -901,7 +959,7 @@ func (s *NetworkSweeper) performKVWatch(ctx context.Context, initialConfigReceiv
 			if !*initialConfigReceived {
 				*initialConfigReceived = true
 
-				close(configReady)
+				signalConfigReady()
 				s.logger.Info().Str("configKey", s.configKey).Msg("Initial KV config received")
 			}
 		}
