@@ -11,6 +11,7 @@ import (
 type CmdConfig struct {
 	Help            bool
 	SubCmd          string
+	EdgeCommand     string
 	ConfigFile      string
 	AdminHash       string
 	DBPasswordFile  string
@@ -39,29 +40,55 @@ type CmdConfig struct {
 	SRQLServiceURL string
 	SRQLRoutePath  string
 	// JWT key generation
-	JWTKeyBits               int
-	JWTKeyID                 string
-	JWTForce                 bool
-	CoreAPIURL               string
-	APIKey                   string
-	BearerToken              string
-	TLSSkipVerify            bool
-	JoinTokenTTLSeconds      int
-	AgentSPIFFEID            string
-	DownstreamSPIFFEID       string
-	DownstreamSelectors      []string
-	DownstreamX509TTLSeconds int
-	DownstreamJWTTTLSeconds  int
-	DownstreamAdmin          bool
-	DownstreamStoreSVID      bool
-	DownstreamDNSNames       []string
-	DownstreamFederates      []string
-	NoDownstream             bool
-	JoinTokenOutput          string
-	EdgePackageID            string
-	EdgePackageDownloadToken string
-	EdgePackageOutput        string
-	EdgePackageReason        string
+	JWTKeyBits                 int
+	JWTKeyID                   string
+	JWTForce                   bool
+	CoreAPIURL                 string
+	APIKey                     string
+	BearerToken                string
+	TLSSkipVerify              bool
+	JoinTokenTTLSeconds        int
+	AgentSPIFFEID              string
+	DownstreamSPIFFEID         string
+	DownstreamSelectors        []string
+	DownstreamX509TTLSeconds   int
+	DownstreamJWTTTLSeconds    int
+	DownstreamAdmin            bool
+	DownstreamStoreSVID        bool
+	DownstreamDNSNames         []string
+	DownstreamFederates        []string
+	NoDownstream               bool
+	JoinTokenOutput            string
+	EdgePackageID              string
+	EdgePackageDownloadToken   string
+	EdgePackageOutput          string
+	EdgePackageReason          string
+	EdgePackageAction          string
+	EdgePackageFormat          string
+	EdgePackageLabel           string
+	EdgePackageComponentID     string
+	EdgePackageComponentType   string
+	EdgePackageParentType      string
+	EdgePackageParentID        string
+	EdgePackagePollerID        string
+	EdgePackageSite            string
+	EdgePackageSelectors       []string
+	EdgePackageMetadata        string
+	EdgePackageNotes           string
+	EdgePackageCheckerKind     string
+	EdgePackageCheckerConfig   string
+	EdgePackageDataSvc         string
+	EdgePackageDownstreamID    string
+	EdgePackageLimit           int
+	EdgePackageStatuses        []string
+	EdgePackageTypes           []string
+	EdgePackageComponentFilter string
+	EdgePackageParentFilter    string
+	EdgePackagePollerFilter    string
+	EdgeOutputFormat           string
+	EdgePackageReissueToken    bool
+	EdgeJoinTTLSeconds         int
+	EdgeDownloadTTLSeconds     int
 }
 
 // logStyles defines styles for logging messages

@@ -8,6 +8,7 @@ go_library(
         "deployment.go",
         "download.go",
         "integration.go",
+        "token.go",
         "spire.go",
     ],
     importpath = "github.com/carverauto/serviceradar/pkg/edgeonboarding",

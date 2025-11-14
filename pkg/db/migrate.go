@@ -32,7 +32,11 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-const migrationsTable = "schema_migrations"
+const (
+	migrationsTable        = "schema_migrations"
+	migrationRetryAttempts = 5
+	migrationRetryDelay    = 2 * time.Second
+)
 
 // RunMigrations checks for and applies all pending database migrations.
 func RunMigrations(ctx context.Context, conn proton.Conn, log logger.Logger) error {
@@ -121,7 +125,7 @@ func executeMultiStatementMigration(ctx context.Context, conn proton.Conn, conte
 			// Execute with extended context timeout
 			migrationCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 
-			err := conn.Exec(migrationCtx, stmt)
+			err := execStatementWithRetry(migrationCtx, conn, stmt, log)
 			// Call cancel immediately after the operation completes
 			cancel()
 
@@ -135,13 +139,49 @@ func executeMultiStatementMigration(ctx context.Context, conn proton.Conn, conte
 			}
 		} else {
 			// Normal execution for other statements
-			if err := conn.Exec(ctx, stmt); err != nil {
+			if err := execStatementWithRetry(ctx, conn, stmt, log); err != nil {
 				return fmt.Errorf("failed to execute statement %d: %w\nStatement: %s", i+1, err, stmt)
 			}
 		}
 	}
 
 	return nil
+}
+
+func execStatementWithRetry(ctx context.Context, conn proton.Conn, stmt string, log logger.Logger) error {
+	for attempt := 1; attempt <= migrationRetryAttempts; attempt++ {
+		err := conn.Exec(ctx, stmt)
+		if err == nil {
+			return nil
+		}
+
+		if !isRetryableMigrationError(err) || attempt == migrationRetryAttempts {
+			return err
+		}
+
+		log.Warn().
+			Int("attempt", attempt).
+			Int("max_attempts", migrationRetryAttempts).
+			Err(err).
+			Msg("migration statement conflicted with concurrent Proton change; retrying")
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(migrationRetryDelay):
+		}
+	}
+
+	return nil
+}
+
+func isRetryableMigrationError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := err.Error()
+	return strings.Contains(msg, "version changed")
 }
 
 // splitSQLStatements splits SQL content into individual statements.

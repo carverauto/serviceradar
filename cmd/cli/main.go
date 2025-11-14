@@ -69,6 +69,10 @@ func dispatchCommand(cfg *cli.CmdConfig) error {
 		return cli.RunEdgePackageDownload(cfg)
 	case "edge-package-revoke":
 		return cli.RunEdgePackageRevoke(cfg)
+	case "edge-package-token":
+		return cli.RunEdgePackageToken(cfg)
+	case "edge":
+		return cli.RunEdgeCommand(cfg)
 	default:
 		return runBcryptMode(cfg)
 	}

@@ -19,6 +19,7 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/pkg/cli",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/edgeonboarding",
         "@com_github_atotto_clipboard//:clipboard",
         "@com_github_charmbracelet_bubbles//textinput",
         "@com_github_charmbracelet_bubbletea//:bubbletea",

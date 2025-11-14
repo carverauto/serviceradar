@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -32,6 +33,8 @@ var (
 	ErrConfigRequired = errors.New("config is required")
 	// ErrTokenRequired is returned when no onboarding token is provided.
 	ErrTokenRequired = errors.New("onboarding token is required")
+	// ErrTokenOrPackageRequired is returned when neither token nor package path are provided.
+	ErrTokenOrPackageRequired = errors.New("onboarding token or package archive is required")
 	// ErrKVEndpointRequired is returned when no KV endpoint is provided (bootstrap config or integration).
 	ErrKVEndpointRequired = errors.New("KV endpoint is required")
 	// ErrCredentialRotationNotImplemented is returned when credential rotation is attempted.
@@ -59,6 +62,10 @@ type Config struct {
 	// CoreAPIURL is the HTTP(S) endpoint for the Core API (e.g., https://demo.serviceradar.cloud)
 	// If empty, the token payload or environment variables may provide it.
 	CoreAPIURL string
+
+	// PackagePath points to a pre-downloaded onboarding archive (tar.gz) for offline installs.
+	// When set, Token/CoreAPIURL are optional and the archive is used instead of contacting Core.
+	PackagePath string
 
 	// PackageID optionally overrides the package identifier when the token format does not embed it.
 	PackageID string
@@ -115,8 +122,11 @@ func NewBootstrapper(cfg *Config) (*Bootstrapper, error) {
 		return nil, ErrConfigRequired
 	}
 
-	if cfg.Token == "" {
-		return nil, ErrTokenRequired
+	cfg.Token = strings.TrimSpace(cfg.Token)
+	cfg.PackagePath = strings.TrimSpace(cfg.PackagePath)
+
+	if cfg.Token == "" && cfg.PackagePath == "" {
+		return nil, ErrTokenOrPackageRequired
 	}
 
 	if cfg.KVEndpoint == "" {

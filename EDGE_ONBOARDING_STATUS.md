@@ -11,7 +11,7 @@ We've successfully integrated the edge onboarding library into ServiceRadar serv
 - ✅ Deployment type detection (Docker, Kubernetes, bare-metal)
 - ✅ Component-specific SPIRE configuration
 - ✅ Service configuration generation
-- ✅ Package download and validation structure
+- ✅ Package download and validation (HTTP JSON deliver + structured token parsing)
 - ✅ Comprehensive documentation (README.md)
 
 ### Phase 2: Service Integration (Complete)
@@ -19,6 +19,12 @@ We've successfully integrated the edge onboarding library into ServiceRadar serv
 - ✅ Integrated into `cmd/poller/main.go`
 - ✅ Integrated into `cmd/agent/main.go`
 - ✅ Integrated into `cmd/checkers/snmp/main.go` (example for all checkers)
+
+## 📦 Recent Updates (Nov 2025)
+- Core’s `/api/admin/edge-packages/{id}/download` endpoint now serves JSON responses when `?format=json` or `Accept: application/json` is supplied, so bootstrap clients can pull sanitized metadata plus SPIRE join material without touching tarballs.
+- `pkg/edgeonboarding/download.go` performs the full HTTP flow (token parsing → Core URL resolution via structured tokens / `CORE_API_URL` → JSON deliver → package validation) and is exercised via `pkg/edgeonboarding/download_test.go`.
+- Structured `edgepkg-v1:<payload>` tokens are parsed/encoded by `pkg/edgeonboarding/token.go`, paving the way for single-string onboarding once the UI/CLI emits them by default.
+- The admin UI now exposes a copy-to-clipboard edgepkg-v1 onboarding token (and `serviceradar-cli edge-package-token` mirrors it) so operators simply export `ONBOARDING_TOKEN` instead of juggling `EDGE_PACKAGE_ID`/`CORE_API_URL`.
 
 ## 🚀 How to Use
 
@@ -65,35 +71,7 @@ If no onboarding token is provided, services fall back to traditional config:
 
 ### High Priority
 
-#### 1. Implement Actual Package Download
-**File**: `pkg/edgeonboarding/download.go:downloadPackage()`
-
-Currently returns `not implemented`. Needs to:
-- Call Core API `/api/admin/edge-packages/deliver` endpoint
-- Provide download token for authentication
-- Receive and parse package response
-- Extract decrypted SPIRE credentials
-
-**Implementation**:
-```go
-func (b *Bootstrapper) downloadPackage(ctx context.Context) error {
-    // 1. Determine Core endpoint (from config or metadata)
-    coreAddr := b.cfg.CoreEndpoint
-    if coreAddr == "" {
-        // TODO: Discover from DNS or default
-        coreAddr = "serviceradar-core:50052"
-    }
-
-    // 2. Create gRPC client to Core
-    // 3. Call edge onboarding API with token
-    // 4. Receive and parse package
-    // 5. Set b.pkg and b.downloadResult
-
-    return nil
-}
-```
-
-#### 2. Complete SPIRE Configuration Generation
+#### 1. Complete SPIRE Configuration Generation
 **Files**:
 - `pkg/edgeonboarding/spire.go:generateNestedSPIREServerConfig()`
 - `pkg/edgeonboarding/spire.go:generateNestedSPIREAgentConfig()`
@@ -137,20 +115,14 @@ plugins {
 }
 ```
 
-#### 3. Add Core API Endpoint for Package Delivery
-**File**: `pkg/core/api/edge_onboarding.go`
+#### 2. Wire docs/UI to the JSON downloader
+**Files**: `docs/docs/edge-onboarding.md`, `web/src/components/Admin/ConfigForms/*`, onboarding runbooks
 
-The Core service needs to expose an endpoint that:
-- Accepts download token
-- Validates token and returns decrypted package
-- Marks package as delivered
-- Returns package metadata + SPIRE credentials
-
-This might already exist - need to check Core API.
+The HTTP bootstrapper expects operators to provide the Core URL (via token or `CORE_API_URL`). Update the docs and the admin UI copy to explain the JSON download flow, highlight the new environment variables, and steer users away from tarball/manual scripts except for offline installs.
 
 ### Medium Priority
 
-#### 4. Implement Credential Rotation
+#### 3. Implement Credential Rotation
 **File**: `pkg/edgeonboarding/bootstrap.go:Rotate()`
 
 ```go
@@ -166,7 +138,7 @@ func Rotate(ctx context.Context, storagePath string, log logger.Logger) error {
 
 Should be called periodically (e.g., via cron or background goroutine).
 
-#### 5. Add Integration Tests
+#### 4. Add Integration Tests
 
 ```bash
 # Test files needed:
@@ -178,7 +150,7 @@ pkg/edgeonboarding/config_test.go
 pkg/edgeonboarding/integration_test.go
 ```
 
-#### 6. Integrate into Other Checkers
+#### 5. Integrate into Other Checkers
 
 Apply the same pattern to:
 - `cmd/checkers/dusk/main.go`
@@ -187,7 +159,7 @@ Apply the same pattern to:
 
 ### Low Priority
 
-#### 7. Address Resolution from Package Metadata
+#### 6. Address Resolution from Package Metadata
 **File**: `pkg/edgeonboarding/deployment.go:getAddressForDeployment()`
 
 Needs to:
@@ -195,7 +167,7 @@ Needs to:
 - Extract service addresses based on deployment type
 - Return appropriate address (LoadBalancer IP for Docker, DNS for k8s)
 
-#### 8. Storage Path Detection
+#### 7. Storage Path Detection
 **File**: `pkg/edgeonboarding/bootstrap.go:detectDefaultStoragePath()`
 
 Needs to:
@@ -208,6 +180,13 @@ Needs to:
 - Add migration guide for existing deployments
 - Create video/demo of onboarding process
 - Update deployment guides
+
+## 🔜 Next Focus
+
+- **CLI automation (`serviceradar-cli`)** – We now emit tokens via `edge-package-token`, but we still need create/list/show plumbing that talks to Core’s `/api/admin/edge-packages/*` endpoints. The CLI will live in `pkg/cli/edge_onboarding.go` and should output both human-readable text and JSON (see the command contract captured in `edge_onboarding-todo.md`).
+- **Offline bootstrap + SPIRE config** – Finish `downloadPackage`, `generateNestedSPIREServerConfig`, and `generateNestedSPIREAgentConfig` so a structured token (or tarball path via `ONBOARDING_PACKAGE`) can generate usable SPIRE HCL, join tokens, and filesystem layouts without any shell scripts. Document how we persist bundles/keys under `/var/lib/serviceradar` and the non-root fallback.
+- **Rust/sysmon parity** – Capture the requirements for a Rust bootstrap crate that mirrors the Go helper so `cmd/checkers/sysmon` accepts the exact same `--onboarding-token`/`--kv-endpoint` flags as Go services. The TODO doc now sketches the sequence so the implementation work can start next sprint.
+- **Docs + UI alignment** – The admin UI now builds `edgepkg-v1` strings, so update `docs/docs/edge-onboarding.md`, `docs/docs/docker-setup.md`, and the in-product copy to highlight the new flow while keeping the tarball/offline appendix for air-gapped installs.
 
 ## 🎯 Quick Wins
 

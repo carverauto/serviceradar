@@ -131,7 +131,7 @@ CREATE STREAM IF NOT EXISTS service_registration_events (
     timestamp datetime64(3) DEFAULT now64(),
     metadata string DEFAULT '{}'
 
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY to_start_of_day(timestamp)
 ORDER BY (timestamp, service_id)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 90 DAY

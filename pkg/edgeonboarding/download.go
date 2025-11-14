@@ -17,7 +17,9 @@
 package edgeonboarding
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -61,7 +63,41 @@ var (
 	ErrPackageDeleted = errors.New("package has been deleted")
 	// ErrPackageNotDelivered is returned when package is still in issued state.
 	ErrPackageNotDelivered = errors.New("package has not been delivered yet")
+	// ErrPackageArchiveMissingMetadata is returned when metadata.json is missing from archived package.
+	ErrPackageArchiveMissingMetadata = errors.New("package archive missing metadata.json")
+	// ErrPackageArchiveMissingJoinToken is returned when the archive is missing the join token.
+	ErrPackageArchiveMissingJoinToken = errors.New("package archive missing SPIRE join token")
+	// ErrPackageArchiveMissingBundle is returned when the archive is missing the SPIRE trust bundle.
+	ErrPackageArchiveMissingBundle = errors.New("package archive missing SPIRE trust bundle")
+	// ErrPackageArchiveInvalid is returned when the archive is malformed.
+	ErrPackageArchiveInvalid = errors.New("package archive invalid")
 )
+
+type archiveMetadataFile struct {
+	PackageID          string                 `json:"package_id"`
+	Label              string                 `json:"label"`
+	ComponentID        string                 `json:"component_id"`
+	ComponentType      string                 `json:"component_type"`
+	ParentType         string                 `json:"parent_type"`
+	ParentID           string                 `json:"parent_id"`
+	PollerID           string                 `json:"poller_id"`
+	Site               string                 `json:"site"`
+	Status             string                 `json:"status"`
+	DownstreamSPIFFEID string                 `json:"downstream_spiffe_id"`
+	Selectors          []string               `json:"selectors"`
+	JoinTokenExpiresAt time.Time              `json:"join_token_expires_at"`
+	DownloadExpiresAt  time.Time              `json:"download_expires_at"`
+	CreatedBy          string                 `json:"created_by"`
+	CreatedAt          time.Time              `json:"created_at"`
+	UpdatedAt          time.Time              `json:"updated_at"`
+	DeliveredAt        *time.Time             `json:"delivered_at"`
+	ActivatedAt        *time.Time             `json:"activated_at"`
+	ActivatedFromIP    *string                `json:"activated_from_ip"`
+	LastSeenSPIFFEID   *string                `json:"last_seen_spiffe_id"`
+	RevokedAt          *time.Time             `json:"revoked_at"`
+	Notes              string                 `json:"notes"`
+	Metadata           map[string]interface{} `json:"metadata"`
+}
 
 type deliverResponse struct {
 	Package   edgePackagePayload `json:"package"`
@@ -105,6 +141,10 @@ type edgePackagePayload struct {
 // This contacts the Core API to deliver the package, which validates the token
 // and marks the package as delivered.
 func (b *Bootstrapper) downloadPackage(ctx context.Context) error {
+	if strings.TrimSpace(b.cfg.PackagePath) != "" {
+		return b.loadPackageFromArchive(ctx, b.cfg.PackagePath)
+	}
+
 	tokenInfo, err := parseOnboardingToken(b.cfg.Token, b.cfg.PackageID, b.cfg.CoreAPIURL)
 	if err != nil {
 		return err
@@ -168,6 +208,213 @@ func (b *Bootstrapper) downloadPackage(ctx context.Context) error {
 		Msg("Downloaded edge onboarding package")
 
 	return nil
+}
+
+func (b *Bootstrapper) loadPackageFromArchive(ctx context.Context, path string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open package archive: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	gzr, err := gzip.NewReader(file)
+	if err != nil {
+		return fmt.Errorf("open package archive: %w", err)
+	}
+	defer func() { _ = gzr.Close() }()
+
+	tr := tar.NewReader(gzr)
+
+	var metadataBytes, joinTokenBytes, bundleBytes []byte
+
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrPackageArchiveInvalid, err)
+		}
+		if hdr.FileInfo().IsDir() {
+			continue
+		}
+		name := strings.TrimPrefix(hdr.Name, "./")
+		content, err := io.ReadAll(tr)
+		if err != nil {
+			return fmt.Errorf("%w: read %s: %v", ErrPackageArchiveInvalid, hdr.Name, err)
+		}
+		switch name {
+		case "metadata.json":
+			metadataBytes = append([]byte(nil), content...)
+		case "spire/upstream-join-token":
+			joinTokenBytes = append([]byte(nil), content...)
+		case "spire/upstream-bundle.pem":
+			bundleBytes = append([]byte(nil), content...)
+		}
+	}
+
+	if len(metadataBytes) == 0 {
+		return ErrPackageArchiveMissingMetadata
+	}
+	if len(joinTokenBytes) == 0 {
+		return ErrPackageArchiveMissingJoinToken
+	}
+	if len(bundleBytes) == 0 {
+		return ErrPackageArchiveMissingBundle
+	}
+
+	meta, err := parseArchiveMetadata(metadataBytes)
+	if err != nil {
+		return err
+	}
+
+	pkg, err := meta.toModel()
+	if err != nil {
+		return err
+	}
+
+	b.pkg = pkg
+	b.downloadResult = &models.EdgeOnboardingDeliverResult{
+		Package:   pkg,
+		JoinToken: strings.TrimSpace(string(joinTokenBytes)),
+		BundlePEM: append([]byte(nil), bundleBytes...),
+	}
+	if b.downloadResult.JoinToken == "" {
+		return ErrJoinTokenEmpty
+	}
+	if len(b.downloadResult.BundlePEM) == 0 {
+		return ErrBundlePEMEmpty
+	}
+
+	b.logger.Info().
+		Str("package_id", pkg.PackageID).
+		Str("component_id", pkg.ComponentID).
+		Str("component_type", string(pkg.ComponentType)).
+		Str("package_path", path).
+		Msg("Loaded onboarding package from archive")
+
+	return nil
+}
+
+func parseArchiveMetadata(data []byte) (*archiveMetadataFile, error) {
+	var meta archiveMetadataFile
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrPackageArchiveInvalid, err)
+	}
+	return &meta, nil
+}
+
+func (m *archiveMetadataFile) toModel() (*models.EdgeOnboardingPackage, error) {
+	if strings.TrimSpace(m.PackageID) == "" {
+		return nil, ErrPackageIDEmpty
+	}
+
+	componentID := strings.TrimSpace(m.ComponentID)
+	if componentID == "" {
+		componentID = strings.TrimSpace(m.PollerID)
+	}
+	if componentID == "" {
+		return nil, ErrComponentIDEmpty
+	}
+
+	componentType := models.EdgeOnboardingComponentType(strings.TrimSpace(m.ComponentType))
+	if componentType == models.EdgeOnboardingComponentTypeNone {
+		componentType = models.EdgeOnboardingComponentTypePoller
+	}
+
+	parentType := models.EdgeOnboardingComponentType(strings.TrimSpace(m.ParentType))
+
+	status := models.EdgeOnboardingStatus(strings.TrimSpace(m.Status))
+	if status == "" {
+		status = models.EdgeOnboardingStatusDelivered
+	}
+
+	metadataJSON := encodeMetadataMap(m.Metadata)
+
+	pkg := &models.EdgeOnboardingPackage{
+		PackageID:              m.PackageID,
+		Label:                  m.Label,
+		ComponentID:            componentID,
+		ComponentType:          componentType,
+		ParentType:             parentType,
+		ParentID:               strings.TrimSpace(m.ParentID),
+		PollerID:               m.PollerID,
+		Site:                   m.Site,
+		Status:                 status,
+		DownstreamSPIFFEID:     strings.TrimSpace(m.DownstreamSPIFFEID),
+		Selectors:              append([]string(nil), m.Selectors...),
+		JoinTokenExpiresAt:     m.JoinTokenExpiresAt,
+		DownloadTokenExpiresAt: m.DownloadExpiresAt,
+		CreatedBy:              m.CreatedBy,
+		CreatedAt:              m.CreatedAt,
+		UpdatedAt:              m.UpdatedAt,
+		MetadataJSON:           metadataJSON,
+		Notes:                  m.Notes,
+	}
+	if m.DeliveredAt != nil {
+		pkg.DeliveredAt = m.DeliveredAt
+	}
+	if m.ActivatedAt != nil {
+		pkg.ActivatedAt = m.ActivatedAt
+	}
+	if m.ActivatedFromIP != nil {
+		pkg.ActivatedFromIP = m.ActivatedFromIP
+	}
+	if m.LastSeenSPIFFEID != nil {
+		pkg.LastSeenSPIFFEID = m.LastSeenSPIFFEID
+	}
+	if m.RevokedAt != nil {
+		pkg.RevokedAt = m.RevokedAt
+	}
+
+	if pkg.ComponentType == models.EdgeOnboardingComponentTypeNone {
+		pkg.ComponentType = models.EdgeOnboardingComponentTypePoller
+	}
+	if pkg.PollerID == "" {
+		pkg.PollerID = componentID
+	}
+
+	if pkg.MetadataJSON == "" && len(m.Metadata) > 0 {
+		if data, err := json.Marshal(m.Metadata); err == nil {
+			pkg.MetadataJSON = string(data)
+		}
+	}
+
+	if kind, ok := extractMetadataString(m.Metadata, "checker_kind"); ok && pkg.CheckerKind == "" {
+		pkg.CheckerKind = kind
+	}
+
+	return pkg, nil
+}
+
+func encodeMetadataMap(meta map[string]interface{}) string {
+	if len(meta) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func extractMetadataString(meta map[string]interface{}, key string) (string, bool) {
+	if len(meta) == 0 {
+		return "", false
+	}
+	value, ok := meta[key]
+	if !ok {
+		return "", false
+	}
+	str, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	return strings.TrimSpace(str), str != ""
 }
 
 // validatePackage validates the downloaded package contents.

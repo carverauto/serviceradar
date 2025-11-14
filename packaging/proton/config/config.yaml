@@ -241,7 +241,10 @@ max_thread_pool_size: 10000
 max_server_memory_usage_to_ram_ratio: 0.9
 
 # Maximum local disk utilization. Once it is hit, all ingest will be errored out
-max_local_disk_usage_ratio: 0.9
+max_local_disk_usage_ratio: 0.995
+
+# Hard cap enforced by Proton 3.x when checking disk free space
+max_disk_util: 0.995
 
 # Simple server-wide memory profiler. Collect a stack trace at every peak allocation step (in bytes).
 # Data will be stored in system.trace_log table with query_id = empty string.

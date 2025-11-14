@@ -24,7 +24,7 @@ CREATE STREAM IF NOT EXISTS otel_spans_enriched (
   status_message        string,
   duration_ms           float64,
   is_root               bool
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (trace_id, span_id)
 SETTINGS index_granularity = 8192;
@@ -54,7 +54,7 @@ CREATE STREAM IF NOT EXISTS otel_root_spans (
   root_span_name string,
   root_kind      int32,
   root_service   string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (trace_id);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_root_spans_mv
@@ -73,7 +73,7 @@ WHERE is_root;
 CREATE STREAM IF NOT EXISTS otel_trace_min_start (
   trace_id              string,
   start_time_unix_nano  uint64
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (trace_id);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_min_start_mv
@@ -88,7 +88,7 @@ GROUP BY trace_id;
 CREATE STREAM IF NOT EXISTS otel_trace_max_end (
   trace_id            string,
   end_time_unix_nano  uint64
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (trace_id);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_max_end_mv
@@ -103,7 +103,7 @@ GROUP BY trace_id;
 CREATE STREAM IF NOT EXISTS otel_trace_span_count (
   trace_id    string,
   span_count  uint32
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (trace_id);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_span_count_mv
@@ -118,7 +118,7 @@ GROUP BY trace_id;
 CREATE STREAM IF NOT EXISTS otel_trace_error_count (
   trace_id     string,
   error_count  uint32
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (trace_id);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_error_count_mv
@@ -133,7 +133,7 @@ GROUP BY trace_id;
 CREATE STREAM IF NOT EXISTS otel_trace_status_max (
   trace_id        string,
   status_code_max int32
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (trace_id);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_status_max_mv
@@ -148,7 +148,7 @@ GROUP BY trace_id;
 CREATE STREAM IF NOT EXISTS otel_trace_services (
   trace_id     string,
   service_set  array(string)
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (trace_id);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_services_mv
@@ -164,7 +164,7 @@ GROUP BY trace_id;
 CREATE STREAM IF NOT EXISTS otel_trace_min_ts (
   trace_id  string,
   timestamp DateTime64(9)
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (trace_id);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_min_ts_mv
@@ -182,7 +182,7 @@ CREATE STREAM IF NOT EXISTS otel_trace_duration (
   start_time_unix_nano  uint64,
   end_time_unix_nano    uint64,
   duration_ms           float64
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (trace_id);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_duration_mv
@@ -210,7 +210,7 @@ CREATE STREAM IF NOT EXISTS otel_trace_summaries_final (
   error_count           uint32,
   status_code           int32,
   service_set           array(string)
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (timestamp, trace_id);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_trace_summaries_final_mv
@@ -247,7 +247,7 @@ CREATE STREAM IF NOT EXISTS otel_span_attrs (
   rpc_service nullable(string),
   rpc_method  nullable(string),
   rpc_grpc_status_code nullable(string)
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (trace_id, span_id);
 
 -- I. Optional: edges stream (tree expansion)
@@ -257,7 +257,7 @@ CREATE STREAM IF NOT EXISTS otel_span_edges (
   child_span_id  string,
   child_name     string,
   child_service  string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (trace_id, parent_span_id);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS otel_span_edges_mv

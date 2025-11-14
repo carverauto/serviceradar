@@ -1337,6 +1337,7 @@ pkg_tar(
         "//docker/compose:proton-limits.conf": "etc/security/limits.d/serviceradar.conf",
         "//docker/compose:proton-sysctl.conf": "etc/sysctl.d/99-clickhouse.conf",
         "//docker/compose:proton-init.sh": "usr/local/bin/proton-init.sh",
+        "//cmd/proton-tls-proxy:proton_tls_proxy": "usr/local/bin/proton-tls-proxy",
     },
     modes = {
         "etc/proton-server/config.yaml": "0644",
@@ -1346,6 +1347,7 @@ pkg_tar(
         "etc/security/limits.d/serviceradar.conf": "0644",
         "etc/sysctl.d/99-clickhouse.conf": "0644",
         "usr/local/bin/proton-init.sh": "0755",
+        "usr/local/bin/proton-tls-proxy": "0755",
     },
     symlinks = {
         "etc/proton-server/server.crt": "certs/proton.pem",

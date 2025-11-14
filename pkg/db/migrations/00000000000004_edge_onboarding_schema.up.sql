@@ -29,7 +29,7 @@ CREATE STREAM IF NOT EXISTS edge_onboarding_packages (
     revoked_at nullable(DateTime64(3)),
     metadata_json string,
     notes string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY to_YYYYMM(created_at)
 PRIMARY KEY (package_id)
 ORDER BY (package_id)
@@ -42,7 +42,7 @@ CREATE STREAM IF NOT EXISTS edge_onboarding_events (
     actor string,
     source_ip string,
     details_json string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY to_YYYYMM(event_time)
 PRIMARY KEY (event_time, package_id)
 ORDER BY (event_time, package_id);
