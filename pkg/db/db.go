@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/timeplus-io/proton-go-driver/v2"
@@ -259,9 +260,13 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 		return nil, fmt.Errorf("%w: %w", ErrFailedOpenDB, err)
 	}
 
-	// Run database migrations to ensure schema is up-to-date.
-	if err := RunMigrations(ctx, conn, log); err != nil {
-		return nil, fmt.Errorf("failed to run database migrations: %w", err)
+	if shouldRunDBMigrations() {
+		// Run database migrations to ensure schema is up-to-date unless explicitly disabled.
+		if err := RunMigrations(ctx, conn, log); err != nil {
+			return nil, fmt.Errorf("failed to run database migrations: %w", err)
+		}
+	} else {
+		log.Info().Msg("Skipping database migrations (ENABLE_DB_MIGRATIONS=false)")
 	}
 
 	return createDBWithBuffer(ctx, conn, config, log), nil
@@ -313,6 +318,23 @@ func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.Co
 	}
 
 	return db
+}
+
+func shouldRunDBMigrations() bool {
+	val, ok := os.LookupEnv("ENABLE_DB_MIGRATIONS")
+	if !ok {
+		return true
+	}
+
+	val = strings.TrimSpace(strings.ToLower(val))
+	switch val {
+	case "", "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
 }
 
 // Close closes the database connection.

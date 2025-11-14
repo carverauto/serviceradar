@@ -89,6 +89,8 @@ spec:
           value: "unix:/run/spire/sockets/agent.sock"
         - name: CORE_CERT_DIR
           value: "/etc/serviceradar/certs"
+        - name: ENABLE_DB_MIGRATIONS
+          value: "false"
         - name: LOG_LEVEL
           value: "info"
         - name: PROTON_PASSWORD

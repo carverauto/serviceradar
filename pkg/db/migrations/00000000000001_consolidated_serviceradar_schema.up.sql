@@ -451,6 +451,7 @@ CREATE STREAM IF NOT EXISTS users (
     id                string,
     username          string,
     email             string,
+    provider          string DEFAULT 'local',
     password_hash     string,
     created_at        DateTime64(3),
     updated_at        DateTime64(3),
@@ -1718,24 +1719,6 @@ FROM (
 ) AS filtered
 GROUP BY device_id;
 
-ALTER STREAM unified_devices
-    DELETE WHERE coalesce(metadata['_merged_into'], '') != ''
-       OR lower(coalesce(metadata['_deleted'], 'false')) = 'true'
-       OR (
-            coalesce(metadata['armis_device_id'], '') = ''
-            AND coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') = ''
-            AND coalesce(mac, '') = ''
-       );
-
-ALTER STREAM unified_devices_registry
-    DELETE WHERE coalesce(metadata['_merged_into'], '') != ''
-       OR lower(coalesce(metadata['_deleted'], 'false')) = 'true'
-       OR (
-            coalesce(metadata['armis_device_id'], '') = ''
-            AND coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') = ''
-            AND coalesce(mac, '') = ''
-       );
-
 -- Allow non-sweep IP-identified devices to remain in unified device views.
 DROP VIEW IF EXISTS unified_device_pipeline_mv;
 
@@ -1786,29 +1769,3 @@ FROM (
       )
 ) AS filtered
 GROUP BY device_id;
-
-ALTER STREAM unified_devices
-    DELETE WHERE coalesce(metadata['_merged_into'], '') != ''
-       OR lower(coalesce(metadata['_deleted'], 'false')) = 'true'
-       OR (
-            coalesce(metadata['armis_device_id'], '') = ''
-            AND coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') = ''
-            AND coalesce(mac, '') = ''
-            AND (
-                has(discovery_sources, 'sweep')
-                OR ip = ''
-            )
-       );
-
-ALTER STREAM unified_devices_registry
-    DELETE WHERE coalesce(metadata['_merged_into'], '') != ''
-       OR lower(coalesce(metadata['_deleted'], 'false')) = 'true'
-       OR (
-            coalesce(metadata['armis_device_id'], '') = ''
-            AND coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') = ''
-            AND coalesce(mac, '') = ''
-            AND (
-                has(discovery_sources, 'sweep')
-                OR ip = ''
-            )
-       );
