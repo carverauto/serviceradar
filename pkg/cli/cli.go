@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -486,6 +487,7 @@ func (EdgePackageDownloadHandler) Parse(args []string, cfg *CmdConfig) error {
 	packageID := fs.String("id", "", "Edge package identifier")
 	downloadToken := fs.String("download-token", "", "Edge package download token")
 	output := fs.String("output", "", "Optional file path for writing onboarding artifacts (JSON)")
+	format := fs.String("format", "tar", "Download format: tar or json")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parsing edge-package-download flags: %w", err)
@@ -498,6 +500,7 @@ func (EdgePackageDownloadHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.EdgePackageID = *packageID
 	cfg.EdgePackageDownloadToken = *downloadToken
 	cfg.EdgePackageOutput = *output
+	cfg.EdgePackageFormat = strings.ToLower(strings.TrimSpace(*format))
 
 	return nil
 }
@@ -527,6 +530,255 @@ func (EdgePackageRevokeHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.EdgePackageReason = *reason
 
 	return nil
+}
+
+// EdgePackageTokenHandler handles flags for emitting structured onboarding tokens.
+type EdgePackageTokenHandler struct{}
+
+// Parse reads flags for the edge-package-token subcommand.
+func (EdgePackageTokenHandler) Parse(args []string, cfg *CmdConfig) error {
+	fs := flag.NewFlagSet("edge-package-token", flag.ExitOnError)
+	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
+	packageID := fs.String("id", "", "Edge package identifier")
+	downloadToken := fs.String("download-token", "", "Edge package download token")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parsing edge-package-token flags: %w", err)
+	}
+
+	cfg.CoreAPIURL = *coreURL
+	cfg.EdgePackageID = *packageID
+	cfg.EdgePackageDownloadToken = *downloadToken
+
+	return nil
+}
+
+// EdgeHandler handles multi-level `edge ...` commands.
+type EdgeHandler struct{}
+
+// Parse dispatches nested edge commands (currently only packages).
+func (EdgeHandler) Parse(args []string, cfg *CmdConfig) error {
+	if len(args) == 0 {
+		return errEdgeCommandRequired
+	}
+
+	entity := strings.ToLower(strings.TrimSpace(args[0]))
+	switch entity {
+	case edgeCommandPackage, "packages":
+		cfg.EdgeCommand = edgeCommandPackage
+	default:
+		return fmt.Errorf("%w: %s (expected package)", errEdgeUnknownResource, entity)
+	}
+
+	if len(args) < 2 {
+		return errEdgePackageAction
+	}
+
+	action := strings.ToLower(strings.TrimSpace(args[1]))
+	cfg.EdgePackageAction = action
+
+	subArgs := args[2:]
+	switch action {
+	case "create":
+		return parseEdgePackageCreateFlags(subArgs, cfg)
+	case "list":
+		return parseEdgePackageListFlags(subArgs, cfg)
+	case "show":
+		return parseEdgePackageShowFlags(subArgs, cfg)
+	case "download":
+		return (EdgePackageDownloadHandler{}).Parse(subArgs, cfg)
+	case "revoke":
+		return (EdgePackageRevokeHandler{}).Parse(subArgs, cfg)
+	case "token":
+		return (EdgePackageTokenHandler{}).Parse(subArgs, cfg)
+	default:
+		return fmt.Errorf("%w: %s", errEdgeUnknownAction, action)
+	}
+}
+
+func parseEdgePackageCreateFlags(args []string, cfg *CmdConfig) error {
+	fs := flag.NewFlagSet("edge package create", flag.ExitOnError)
+	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
+	apiKey := fs.String("api-key", "", "API key for authenticating with core")
+	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
+	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
+	label := fs.String("label", "", "Display label for the package (required)")
+	componentID := fs.String("component-id", "", "Optional component identifier (defaults to generated slug)")
+	componentType := fs.String("component-type", "poller", "Component type (poller, agent, checker[:kind])")
+	parentType := fs.String("parent-type", "", "Parent component type (poller, agent, checker)")
+	parentID := fs.String("parent-id", "", "Parent component identifier")
+	pollerID := fs.String("poller-id", "", "Poller identifier override")
+	site := fs.String("site", "", "Optional site/location note")
+	metadataJSON := fs.String("metadata-json", "", "Metadata JSON payload for endpoints and SPIRE config")
+	metadataFile := fs.String("metadata-file", "", "Path to metadata JSON on disk")
+	checkerKind := fs.String("checker-kind", "", "Checker kind (used for component-type checker)")
+	checkerConfig := fs.String("checker-config-json", "", "Checker-specific config JSON")
+	notes := fs.String("notes", "", "Operator notes")
+	datasvc := fs.String("datasvc-endpoint", "", "Datasvc/KV gRPC endpoint override")
+	downstream := fs.String("downstream-spiffe-id", "", "Downstream SPIFFE ID override")
+	output := fs.String("output", "text", "Output format: text or json")
+	joinTTL := fs.String("join-ttl", "", "Join token TTL (e.g., 30m, 4h)")
+	downloadTTL := fs.String("download-ttl", "", "Download token TTL (e.g., 15m, 24h)")
+
+	var selectors stringSliceFlag
+	fs.Var(&selectors, "selector", "SPIRE selector (repeatable, key:value)")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parsing edge package create flags: %w", err)
+	}
+
+	cfg.CoreAPIURL = *coreURL
+	cfg.APIKey = *apiKey
+	cfg.BearerToken = *bearer
+	cfg.TLSSkipVerify = *skipTLS
+	cfg.EdgePackageLabel = *label
+	cfg.EdgePackageComponentID = *componentID
+	cfg.EdgePackageParentType = strings.ToLower(strings.TrimSpace(*parentType))
+	cfg.EdgePackageParentID = strings.TrimSpace(*parentID)
+	cfg.EdgePackagePollerID = strings.TrimSpace(*pollerID)
+	cfg.EdgePackageSite = strings.TrimSpace(*site)
+	cfg.EdgePackageSelectors = append([]string(nil), selectors...)
+	cfg.EdgePackageNotes = *notes
+	cfg.EdgePackageCheckerConfig = *checkerConfig
+	cfg.EdgePackageDataSvc = strings.TrimSpace(*datasvc)
+	cfg.EdgePackageDownstreamID = strings.TrimSpace(*downstream)
+	cfg.EdgeOutputFormat = strings.ToLower(strings.TrimSpace(*output))
+
+	if trimmed := strings.TrimSpace(*checkerKind); trimmed != "" {
+		cfg.EdgePackageCheckerKind = trimmed
+	}
+
+	if err := loadMetadataPayload(metadataJSON, metadataFile, cfg); err != nil {
+		return err
+	}
+
+	componentTypeValue := strings.ToLower(strings.TrimSpace(*componentType))
+	if componentTypeValue == "" {
+		componentTypeValue = componentTypePoller
+	}
+	checkerPrefix := componentTypeChecker + ":"
+	if strings.HasPrefix(componentTypeValue, checkerPrefix) {
+		kind := strings.TrimSpace(componentTypeValue[len(checkerPrefix):])
+		componentTypeValue = componentTypeChecker
+		if cfg.EdgePackageCheckerKind == "" {
+			cfg.EdgePackageCheckerKind = kind
+		}
+	} else if componentTypeValue != componentTypePoller && componentTypeValue != componentTypeAgent && componentTypeValue != componentTypeChecker {
+		if cfg.EdgePackageCheckerKind == "" {
+			cfg.EdgePackageCheckerKind = componentTypeValue
+		}
+		componentTypeValue = componentTypeChecker
+	}
+	cfg.EdgePackageComponentType = componentTypeValue
+
+	joinTTLSeconds, err := parseTTLSeconds(*joinTTL)
+	if err != nil {
+		return fmt.Errorf("invalid join-ttl: %w", err)
+	}
+	cfg.EdgeJoinTTLSeconds = joinTTLSeconds
+
+	downloadTTLSeconds, err := parseTTLSeconds(*downloadTTL)
+	if err != nil {
+		return fmt.Errorf("invalid download-ttl: %w", err)
+	}
+	cfg.EdgeDownloadTTLSeconds = downloadTTLSeconds
+
+	return nil
+}
+
+func parseEdgePackageListFlags(args []string, cfg *CmdConfig) error {
+	fs := flag.NewFlagSet("edge package list", flag.ExitOnError)
+	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
+	apiKey := fs.String("api-key", "", "API key for authenticating with core")
+	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
+	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
+	limit := fs.Int("limit", 50, "Maximum number of packages to return")
+	pollerID := fs.String("poller-id", "", "Filter by poller identifier")
+	parentID := fs.String("parent-id", "", "Filter by parent identifier")
+	componentID := fs.String("component-id", "", "Filter by component identifier")
+	output := fs.String("output", "text", "Output format: text or json")
+
+	var statuses stringSliceFlag
+	fs.Var(&statuses, "status", "Filter by status (repeatable)")
+
+	var types stringSliceFlag
+	fs.Var(&types, "component-type", "Filter by component type (repeatable)")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parsing edge package list flags: %w", err)
+	}
+
+	cfg.CoreAPIURL = *coreURL
+	cfg.APIKey = *apiKey
+	cfg.BearerToken = *bearer
+	cfg.TLSSkipVerify = *skipTLS
+	cfg.EdgePackageLimit = *limit
+	cfg.EdgePackagePollerFilter = strings.TrimSpace(*pollerID)
+	cfg.EdgePackageParentFilter = strings.TrimSpace(*parentID)
+	cfg.EdgePackageComponentFilter = strings.TrimSpace(*componentID)
+	cfg.EdgePackageStatuses = append([]string(nil), statuses...)
+	cfg.EdgePackageTypes = append([]string(nil), types...)
+	cfg.EdgeOutputFormat = strings.ToLower(strings.TrimSpace(*output))
+
+	return nil
+}
+
+func parseEdgePackageShowFlags(args []string, cfg *CmdConfig) error {
+	fs := flag.NewFlagSet("edge package show", flag.ExitOnError)
+	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
+	apiKey := fs.String("api-key", "", "API key for authenticating with core")
+	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
+	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
+	id := fs.String("id", "", "Edge package identifier")
+	output := fs.String("output", "text", "Output format: text or json")
+	reissue := fs.Bool("reissue-token", false, "Emit edgepkg-v1 string using --download-token")
+	downloadToken := fs.String("download-token", "", "Download token to encode when --reissue-token is set")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parsing edge package show flags: %w", err)
+	}
+
+	cfg.CoreAPIURL = *coreURL
+	cfg.APIKey = *apiKey
+	cfg.BearerToken = *bearer
+	cfg.TLSSkipVerify = *skipTLS
+	cfg.EdgePackageID = *id
+	cfg.EdgeOutputFormat = strings.ToLower(strings.TrimSpace(*output))
+	cfg.EdgePackageReissueToken = *reissue
+	cfg.EdgePackageDownloadToken = *downloadToken
+
+	return nil
+}
+
+func loadMetadataPayload(rawJSON, path *string, cfg *CmdConfig) error {
+	metadata := strings.TrimSpace(*rawJSON)
+	if metadata == "" && path != nil && strings.TrimSpace(*path) != "" {
+		data, err := os.ReadFile(strings.TrimSpace(*path))
+		if err != nil {
+			return fmt.Errorf("read metadata file: %w", err)
+		}
+		metadata = strings.TrimSpace(string(data))
+	}
+	if metadata != "" && !json.Valid([]byte(metadata)) {
+		return errMetadataJSONInvalid
+	}
+	cfg.EdgePackageMetadata = metadata
+	return nil
+}
+
+func parseTTLSeconds(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	duration, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, err
+	}
+	if duration <= 0 {
+		return 0, errDurationNotPositive
+	}
+	return int(duration.Seconds()), nil
 }
 
 // GenerateTLSHandler handles flags for the generate-tls subcommand
@@ -585,6 +837,8 @@ func ParseFlags() (*CmdConfig, error) {
 		"spire-join-token":      SpireJoinTokenHandler{},
 		"edge-package-download": EdgePackageDownloadHandler{},
 		"edge-package-revoke":   EdgePackageRevokeHandler{},
+		"edge-package-token":    EdgePackageTokenHandler{},
+		"edge":                  EdgeHandler{},
 	}
 
 	// Parse subcommand flags if present

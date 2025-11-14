@@ -98,6 +98,12 @@ type edgePackageDefaultsResponse struct {
 	Metadata  map[string]map[string]string `json:"metadata,omitempty"`
 }
 
+type edgePackageDeliverResponse struct {
+	Package   edgePackageView `json:"package"`
+	JoinToken string          `json:"join_token"`
+	BundlePEM string          `json:"bundle_pem"`
+}
+
 const (
 	componentTypePoller  = "poller"
 	componentTypeChecker = "checker"
@@ -509,6 +515,20 @@ func (s *APIServer) handleDownloadEdgePackage(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	if shouldReturnJSON(r) {
+		if result.Package == nil {
+			writeError(w, "package payload missing", http.StatusInternalServerError)
+			return
+		}
+		payload := edgePackageDeliverResponse{
+			Package:   toEdgePackageView(result.Package),
+			JoinToken: result.JoinToken,
+			BundlePEM: string(result.BundlePEM),
+		}
+		s.writeJSON(w, http.StatusOK, payload)
+		return
+	}
+
 	archive, filename, err := buildEdgePackageArchive(result, time.Now().UTC())
 	if err != nil {
 		if errors.Is(err, errEdgePackageArchive) {
@@ -617,6 +637,24 @@ func (s *APIServer) handleDeleteEdgePackage(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func shouldReturnJSON(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	if format == "json" {
+		return true
+	}
+	accept := strings.ToLower(strings.TrimSpace(r.Header.Get("Accept")))
+	if accept == "" {
+		return false
+	}
+	if strings.Contains(accept, "application/json") && !strings.Contains(accept, "application/gzip") {
+		return true
+	}
+	return false
 }
 
 func toEdgePackageView(pkg *models.EdgeOnboardingPackage) edgePackageView {

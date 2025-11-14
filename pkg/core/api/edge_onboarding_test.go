@@ -94,7 +94,8 @@ func (s *stubEdgeOnboardingService) MetadataDefaults() map[models.EdgeOnboarding
 
 func (s *stubEdgeOnboardingService) SetAllowedPollerCallback(func([]string)) {}
 
-func (s *stubEdgeOnboardingService) SetDeviceRegistryCallback(func(context.Context, []*models.DeviceUpdate) error) {}
+func (s *stubEdgeOnboardingService) SetDeviceRegistryCallback(func(context.Context, []*models.DeviceUpdate) error) {
+}
 
 func TestHandleGetEdgePackageDefaultsSuccess(t *testing.T) {
 	service := &stubEdgeOnboardingService{
@@ -356,6 +357,50 @@ func TestHandleDownloadEdgePackageInvalidToken(t *testing.T) {
 	server.handleDownloadEdgePackage(rec, req)
 
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestHandleDownloadEdgePackageJSONResponse(t *testing.T) {
+	now := time.Now()
+	service := &stubEdgeOnboardingService{
+		deliverResult: &models.EdgeOnboardingDeliverResult{
+			Package: &models.EdgeOnboardingPackage{
+				PackageID:          "pkg-json",
+				Label:              "JSON Poller",
+				ComponentID:        "json-poller",
+				ComponentType:      models.EdgeOnboardingComponentTypePoller,
+				PollerID:           "json-poller",
+				Status:             models.EdgeOnboardingStatusIssued,
+				DownstreamSPIFFEID: "spiffe://example.org/ns/edge/json-poller",
+				MetadataJSON:       `{"core_address":"core:50052"}`,
+				JoinTokenExpiresAt: now.Add(5 * time.Minute),
+				CreatedAt:          now,
+				UpdatedAt:          now,
+			},
+			JoinToken: "join-json",
+			BundlePEM: []byte("bundle-json"),
+		},
+	}
+	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service))
+
+	body, _ := json.Marshal(edgePackageDownloadRequest{DownloadToken: "token-json"})
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/edge-packages/pkg-json/download?format=json", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"id": "pkg-json"})
+
+	rec := httptest.NewRecorder()
+	server.handleDownloadEdgePackage(rec, req)
+
+	resp := rec.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+
+	var payload edgePackageDeliverResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&payload))
+	assert.Equal(t, "json-poller", payload.Package.ComponentID)
+	assert.Equal(t, "pkg-json", payload.Package.PackageID)
+	assert.Equal(t, "join-json", payload.JoinToken)
+	assert.Equal(t, "bundle-json", payload.BundlePEM)
 }
 
 func TestHandleRevokeEdgePackageSuccess(t *testing.T) {

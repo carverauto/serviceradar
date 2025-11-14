@@ -8,6 +8,73 @@ import {
 } from "@/lib/config";
 import { isDeviceSearchPlannerEnabled } from "@/config/features";
 
+const DEVICE_PLANNER_STREAMS = new Set(["devices", "device", "device_inventory"]);
+// Match stats aggregations at token boundaries (e.g., "stats:" or " stats :")
+const AGGREGATION_PATTERN = /(^|\s|\(|\{|\[|,|;)stats\s*:/i;
+
+function cleanToken(token: string): string {
+  let t = token.trim();
+  t = t.replace(/^[\s"'`(]+/, "").replace(/[\s"'`),]+$/, "");
+  return t.toLowerCase();
+}
+
+function isInsideQuotes(query: string, targetIndex: number): boolean {
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+
+  for (let i = 0; i < targetIndex; i++) {
+    const ch = query[i];
+    if (ch === "\\" && i + 1 < targetIndex) {
+      i++;
+      continue;
+    }
+    if (!inDouble && !inBacktick && ch === "'") {
+      inSingle = !inSingle;
+    } else if (!inSingle && !inBacktick && ch === '"') {
+      inDouble = !inDouble;
+    } else if (!inSingle && !inDouble && ch === "`") {
+      inBacktick = !inBacktick;
+    }
+  }
+
+  return inSingle || inDouble || inBacktick;
+}
+
+function extractPrimaryStream(rawQuery: unknown): string | null {
+  if (typeof rawQuery !== "string") return null;
+
+  const inMatch = rawQuery.match(/\bin\s*:\s*([^\s]+)/i);
+  if (!inMatch) return null;
+
+  const raw = inMatch[1] ?? "";
+  const candidates = raw.split(/[,|]/).map(cleanToken).filter(Boolean);
+  return candidates.length > 0 ? candidates[0] : null;
+}
+
+function hasAggregationOutsideQuotes(query: string): boolean {
+  const regex = new RegExp(AGGREGATION_PATTERN.source, "gi");
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(query)) !== null) {
+    const boundary = match[1] ?? "";
+    const statsIndex = match.index + boundary.length;
+    if (!isInsideQuotes(query, statsIndex)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function shouldUseDevicePlanner(query: unknown): boolean {
+  if (typeof query !== "string") return false;
+  if (hasAggregationOutsideQuotes(query)) return false;
+
+  const stream = extractPrimaryStream(query);
+  return !!stream && DEVICE_PLANNER_STREAMS.has(stream);
+}
+
 export async function POST(req: NextRequest) {
   const apiKey = getApiKey();
   const srqlUrl = getInternalSrqlUrl();
@@ -53,7 +120,7 @@ export async function POST(req: NextRequest) {
     }
 
     const plannerEnabled = isDeviceSearchPlannerEnabled();
-    if (plannerEnabled) {
+    if (plannerEnabled && shouldUseDevicePlanner(query)) {
       const plannerRequest = {
         query,
         mode: typeof body.mode === "string" ? body.mode : "auto",

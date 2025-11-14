@@ -330,12 +330,22 @@ func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Tar
 			return
 		default:
 			if err := s.conn.SetReadDeadline(time.Now().Add(defaultReadDeadline)); err != nil {
+				if errors.Is(err, net.ErrClosed) {
+					s.logger.Debug().Msg("ICMP connection closed, stopping listener")
+					return
+				}
+
 				s.logger.Error().Err(err).Msg("Error setting read deadline")
 				continue
 			}
 
 			reply, err := s.readReply(buf)
 			if err != nil {
+				if errors.Is(err, net.ErrClosed) {
+					s.logger.Debug().Msg("ICMP reply reader stopping: connection closed")
+					return
+				}
+
 				continue
 			}
 
@@ -358,6 +368,11 @@ func (s *ICMPSweeper) readReply(buf []byte) (reply struct {
 
 		if errors.As(err, &netErr) && netErr.Timeout() {
 			return reply, nil // Timeout is not an error in this context
+		}
+
+		if errors.Is(err, net.ErrClosed) {
+			s.logger.Debug().Msg("ICMP connection closed while reading reply")
+			return reply, err
 		}
 
 		s.logger.Error().Err(err).Msg("Error reading ICMP reply")

@@ -208,12 +208,15 @@ oci_ext.pull(
     ],
 )
 oci_ext.pull(
-    name = "serviceradar_proton",
-    digest = "sha256:e26cf79d2c28b091b31bc1e7d1f3da9a6268c03d6f4c7a4fd3314b9ef2a99842",
-    image = "ghcr.io/carverauto/serviceradar-proton",
+    name = "timeplus_proton",
+    digest = "sha256:9ddbd0172ef8d24dfcafe4f0236b367e533af9a1e25831439b1bbb122cc19404",
+    image = "d.timeplus.com/timeplus-io/proton",
     platforms = [
         "linux/amd64",
     ],
+    www_authenticate_challenges = {
+        "d.timeplus.com": "Bearer realm=\"https://ghcr.io/token\",service=\"ghcr.io\",scope=\"repository:{repository}:pull\"",
+    },
 )
 use_repo(
     oci_ext,
@@ -227,12 +230,12 @@ use_repo(
     "node_20_alpine_linux_amd64",
     "serviceradar_cert_generator",
     "serviceradar_cert_generator_linux_amd64",
-    "serviceradar_proton",
-    "serviceradar_proton_linux_amd64",
     "serviceradar_srql",
     "serviceradar_srql_linux_amd64",
     "serviceradar_tools",
     "serviceradar_tools_linux_amd64",
+    "timeplus_proton",
+    "timeplus_proton_linux_amd64",
     "ubuntu_jammy",
     "ubuntu_jammy_linux_amd64",
     "ubuntu_noble",

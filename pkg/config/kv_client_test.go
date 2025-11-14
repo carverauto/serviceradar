@@ -6,9 +6,12 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/config/kv"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -197,6 +200,152 @@ func TestKVManagerOverlayConfigNormalizesSecurity(t *testing.T) {
 	}
 	if cfg.Security.TLS.ClientCAFile != kvRootCertPath {
 		t.Fatalf("expected client_ca_file to fall back to normalized ca_file, got %q", cfg.Security.TLS.ClientCAFile)
+	}
+}
+
+func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
+	initialKV := []byte(`{"listen_addr":":8080","logging":{"level":"info"}}`)
+	store := newWatchKVStore(initialKV)
+	manager := &KVManager{client: store}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cfg := &watcherTestConfig{
+		ListenAddr: ":8080",
+		Logging: &logger.Config{
+			Level: "info",
+		},
+	}
+
+	reloads := make(chan struct{}, 2)
+	manager.StartWatch(ctx, "config/agent/test.json", cfg, logger.NewTestLogger(), func() {
+		reloads <- struct{}{}
+	})
+
+	store.waitForWatch(t)
+
+	store.emit([]byte(`{"listen_addr":":9090"}`))
+
+	select {
+	case <-reloads:
+	case <-time.After(150 * time.Millisecond):
+		t.Fatalf("timed out waiting for reload triggered by listen_addr change")
+	}
+
+	if cfg.ListenAddr != ":9090" {
+		t.Fatalf("expected config to apply listen_addr change, got %q", cfg.ListenAddr)
+	}
+
+	store.emit([]byte(`{"listen_addr":":9090"}`))
+
+	select {
+	case <-reloads:
+		t.Fatalf("unexpected reload when config payload did not change")
+	case <-time.After(75 * time.Millisecond):
+	}
+}
+
+type watcherTestConfig struct {
+	ListenAddr string         `json:"listen_addr"`
+	Logging    *logger.Config `json:"logging,omitempty" hot:"reload"`
+}
+
+type watchKVStore struct {
+	mu        sync.Mutex
+	value     []byte
+	watchCh   chan []byte
+	ready     chan struct{}
+	readyOnce sync.Once
+}
+
+func newWatchKVStore(initial []byte) *watchKVStore {
+	return &watchKVStore{
+		value: append([]byte(nil), initial...),
+		ready: make(chan struct{}),
+	}
+}
+
+func (s *watchKVStore) Get(_ context.Context, _ string) ([]byte, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.value == nil {
+		return nil, false, nil
+	}
+	return append([]byte(nil), s.value...), true, nil
+}
+
+func (s *watchKVStore) Put(_ context.Context, _ string, value []byte, _ time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if value == nil {
+		s.value = nil
+		return nil
+	}
+	s.value = append([]byte(nil), value...)
+	return nil
+}
+
+func (s *watchKVStore) Create(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	return s.Put(ctx, key, value, ttl)
+}
+
+func (s *watchKVStore) Delete(_ context.Context, _ string) error {
+	return nil
+}
+
+func (s *watchKVStore) Watch(ctx context.Context, _ string) (<-chan []byte, error) {
+	s.mu.Lock()
+	if s.watchCh == nil {
+		s.watchCh = make(chan []byte, 1)
+		s.readyOnce.Do(func() {
+			close(s.ready)
+		})
+	}
+	ch := s.watchCh
+	s.mu.Unlock()
+
+	go func() {
+		<-ctx.Done()
+		s.mu.Lock()
+		if s.watchCh != nil {
+			close(s.watchCh)
+			s.watchCh = nil
+		}
+		s.mu.Unlock()
+	}()
+
+	return ch, nil
+}
+
+func (s *watchKVStore) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.watchCh != nil {
+		close(s.watchCh)
+		s.watchCh = nil
+	}
+	return nil
+}
+
+func (s *watchKVStore) emit(data []byte) {
+	s.mu.Lock()
+	if data != nil {
+		s.value = append([]byte(nil), data...)
+	}
+	ch := s.watchCh
+	s.mu.Unlock()
+	if ch != nil {
+		ch <- append([]byte(nil), data...)
+	}
+}
+
+func (s *watchKVStore) waitForWatch(t *testing.T) {
+	t.Helper()
+	select {
+	case <-s.ready:
+	case <-time.After(time.Second):
+		t.Fatalf("watch channel was not initialized")
 	}
 }
 

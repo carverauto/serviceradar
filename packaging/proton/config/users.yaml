@@ -7,6 +7,9 @@ profiles:
     # see https://groups.google.com/g/clickhouse/c/wWQzPtH2PjI
     # max_memory_usage: 10000000000 hide for memory overcommit
 
+    # Proton 3.x requires explicit opt-in for ALTER ... DELETE mutations on streams.
+    allow_experimental_lightweight_delete: 1
+
     # How to choose between replicas during distributed query processing.
     # random - choose random replica from set of replicas with minimum number of errors
     # nearest_hostname - from set of replicas with minimum number of errors, choose replica
@@ -103,6 +106,7 @@ users:
     ssl_certificates:
       common_name:
         - "core.serviceradar"
+        - "srql.serviceradar"
   system:
     password: 'sys@t+'
 
