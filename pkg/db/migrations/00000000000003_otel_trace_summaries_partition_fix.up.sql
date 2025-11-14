@@ -25,7 +25,7 @@ CREATE STREAM IF NOT EXISTS otel_trace_summaries (
     service_set       array(string) CODEC(ZSTD(1)),
     span_count        uint32 CODEC(ZSTD(1)),
     error_count       uint32 CODEC(ZSTD(1))
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY to_start_of_day(timestamp)
 ORDER BY (timestamp, trace_id)
 TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY

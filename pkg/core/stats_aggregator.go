@@ -335,28 +335,6 @@ func buildPartitionStats(partitions map[string]*models.PartitionStats) []models.
 	return out
 }
 
-func isServiceComponentRecord(record *registry.DeviceRecord) bool {
-	if record == nil {
-		return false
-	}
-
-	if models.IsServiceDevice(record.DeviceID) {
-		return true
-	}
-
-	if len(record.Metadata) == 0 {
-		return false
-	}
-
-	componentType := strings.ToLower(strings.TrimSpace(record.Metadata["component_type"]))
-	switch componentType {
-	case "poller", "agent", "checker":
-		return true
-	default:
-		return false
-	}
-}
-
 func hasCapability(set map[string]struct{}, deviceID string) bool {
 	if len(set) == 0 {
 		return false
@@ -473,7 +451,7 @@ type canonicalEntry struct {
 	canonical bool
 }
 
-func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecord, meta *models.DeviceStatsMeta) []*registry.DeviceRecord {
+func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecord, meta *models.DeviceStatsMeta) []*registry.DeviceRecord { //nolint:gocyclo // Complex device record selection logic, intentionally kept together for clarity
 	if len(records) == 0 {
 		return nil
 	}
@@ -481,38 +459,32 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 	canonical := make(map[string]canonicalEntry)
 	fallback := make(map[string]*registry.DeviceRecord)
 
-	for _, record := range records {
-		if record == nil {
-			meta.SkippedNilRecords++
-			continue
-		}
-		if isTombstonedRecord(record) {
-			meta.SkippedTombstonedRecords++
-			continue
-		}
-		if isServiceComponentRecord(record) {
-			meta.SkippedServiceComponents++
-			continue
-		}
-
+	processRecord := func(record *registry.DeviceRecord) {
 		if !shouldCountRecord(record) {
 			if meta != nil {
 				meta.SkippedSweepOnlyRecords++
 			}
-			continue
+			return
 		}
 
 		deviceID := strings.TrimSpace(record.DeviceID)
 		canonicalID := canonicalDeviceID(record)
 
-		key := canonicalID
-		if key == "" {
+		var key string
+		switch {
+		case models.IsServiceDevice(deviceID):
+			key = deviceID
+		case canonicalID != "":
+			key = canonicalID
+		default:
 			key = deviceID
 		}
 		key = strings.TrimSpace(key)
 		if key == "" {
-			meta.SkippedNonCanonical++
-			continue
+			if meta != nil {
+				meta.SkippedNonCanonical++
+			}
+			return
 		}
 
 		normalizedKey := strings.ToLower(key)
@@ -522,7 +494,7 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 				if entry.canonical {
 					if shouldReplaceRecord(entry.record, record) {
 						canonical[normalizedKey] = canonicalEntry{record: record, canonical: true}
-					} else {
+					} else if meta != nil {
 						meta.SkippedNonCanonical++
 					}
 				} else {
@@ -531,30 +503,56 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 			} else {
 				canonical[normalizedKey] = canonicalEntry{record: record, canonical: true}
 			}
-			continue
+			return
 		}
 
 		if entry, ok := canonical[normalizedKey]; ok {
 			switch {
 			case entry.canonical:
-				meta.SkippedNonCanonical++
+				if meta != nil {
+					meta.SkippedNonCanonical++
+				}
 			case shouldReplaceRecord(entry.record, record):
 				canonical[normalizedKey] = canonicalEntry{record: record, canonical: false}
 			default:
-				meta.SkippedNonCanonical++
+				if meta != nil {
+					meta.SkippedNonCanonical++
+				}
 			}
-			continue
+			return
 		}
 
 		if existing, ok := fallback[normalizedKey]; ok {
 			if shouldReplaceRecord(existing, record) {
 				fallback[normalizedKey] = record
 			}
-			meta.SkippedNonCanonical++
-			continue
+			if meta != nil {
+				meta.SkippedNonCanonical++
+			}
+			return
 		}
 
 		fallback[normalizedKey] = record
+	}
+
+	for _, record := range records {
+		if record == nil {
+			if meta != nil {
+				meta.SkippedNilRecords++
+			}
+			continue
+		}
+		if isTombstonedRecord(record) {
+			if meta != nil {
+				meta.SkippedTombstonedRecords++
+			}
+			continue
+		}
+
+		// All records (including pollers, agents, global services) are counted as devices.
+		// Even if service components share an IP with other devices, they maintain
+		// separate device records in inventory for tracking purposes.
+		processRecord(record)
 	}
 
 	for key, record := range fallback {

@@ -23,7 +23,7 @@ CREATE STREAM IF NOT EXISTS device_capabilities (
     failure_reason      string DEFAULT '',
     metadata            string DEFAULT '{}',
     recorded_by         string DEFAULT 'system'
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY to_start_of_day(coalesce(last_checked, _tp_time))
 ORDER BY (last_checked, device_id, capability, service_id)
 TTL to_start_of_day(coalesce(last_checked, _tp_time)) + INTERVAL 90 DAY

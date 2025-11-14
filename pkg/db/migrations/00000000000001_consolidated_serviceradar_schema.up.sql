@@ -49,7 +49,7 @@ CREATE STREAM IF NOT EXISTS device_updates (
     timestamp DateTime64(3),
     available boolean,
     metadata map(string, string)
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY to_start_of_day(timestamp)
 ORDER BY (timestamp, device_id, poller_id)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
@@ -171,7 +171,7 @@ CREATE STREAM IF NOT EXISTS topology_discovery_events (
     neighbor_as                uint32,
     bgp_session_state          string,
     metadata                   string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, local_device_id, local_if_index)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
@@ -197,7 +197,7 @@ CREATE STREAM IF NOT EXISTS timeseries_metrics (
     target_device_ip  nullable(string),
     ifIndex           nullable(int32),
     metadata          string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, device_id, metric_name)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
@@ -215,7 +215,7 @@ CREATE STREAM IF NOT EXISTS cpu_metrics (
     cluster           string,
     device_id         string,
     partition         string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, device_id, host_id, cluster, core_id)
  TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
@@ -230,7 +230,7 @@ CREATE STREAM IF NOT EXISTS cpu_cluster_metrics (
     frequency_hz      float64,
     device_id         string,
     partition         string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, cluster, host_id, device_id)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
@@ -251,7 +251,7 @@ CREATE STREAM IF NOT EXISTS disk_metrics (
     usage_percent     float64,
     device_id         string,
     partition         string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, device_id, host_id, mount_point)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
@@ -268,7 +268,7 @@ CREATE STREAM IF NOT EXISTS memory_metrics (
     usage_percent     float64,
     device_id         string,
     partition         string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, device_id, host_id)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
@@ -287,7 +287,7 @@ CREATE STREAM IF NOT EXISTS process_metrics (
     start_time        string,
     device_id         string,
     partition         string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, device_id, host_id, pid)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
@@ -308,7 +308,7 @@ CREATE STREAM IF NOT EXISTS service_statuses (
     message           string,
     details           string,
     partition         string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, service_name, poller_id)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
@@ -324,7 +324,7 @@ CREATE STREAM IF NOT EXISTS service_status (
     message           string,
     details           string,
     partition         string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, service_name, poller_id)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
@@ -339,7 +339,7 @@ CREATE STREAM IF NOT EXISTS services (
     service_type      string,
     config            string,          -- Store JSON as text; still queryable via json_extract_*
     partition         string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, service_name, poller_id)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
@@ -360,7 +360,7 @@ CREATE STREAM IF NOT EXISTS poller_history (
     timestamp         DateTime64(3),
     poller_id         string,
     is_healthy        bool
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, poller_id)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 7 DAY
@@ -376,7 +376,7 @@ CREATE STREAM IF NOT EXISTS poller_statuses (
     last_seen         DateTime64(3),
     uptime_seconds    uint64,
     partition         string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, poller_id)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 7 DAY
@@ -425,7 +425,7 @@ CREATE STREAM IF NOT EXISTS netflow_metrics (
     tcp_flags         uint8,
     tos               uint8,
     partition         string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, src_ip, dst_ip, src_port, dst_port)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
@@ -436,7 +436,7 @@ CREATE STREAM IF NOT EXISTS rperf_metrics (
     poller_id         string,
     service_name      string,
     message           string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, poller_id, service_name)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
@@ -451,6 +451,7 @@ CREATE STREAM IF NOT EXISTS users (
     id                string,
     username          string,
     email             string,
+    provider          string DEFAULT 'local',
     password_hash     string,
     created_at        DateTime64(3),
     updated_at        DateTime64(3),
@@ -476,7 +477,7 @@ CREATE STREAM IF NOT EXISTS device_metrics_summary (
     total_memory_bytes uint64,
     used_memory_bytes  uint64,
     metric_count      uint64
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(window_time), 3600)
 ORDER BY (window_time, device_id, poller_id)
 TTL to_start_of_day(coalesce(window_time, _tp_time)) + INTERVAL 3 DAY
@@ -525,7 +526,7 @@ CREATE STREAM IF NOT EXISTS logs (
     scope_version      string CODEC(ZSTD(1)),
     attributes         string CODEC(ZSTD(1)),
     resource_attributes string CODEC(ZSTD(1))
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, service_name, trace_id)
 TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
@@ -550,7 +551,7 @@ CREATE STREAM IF NOT EXISTS otel_metrics (
     is_slow         bool CODEC(ZSTD(1)),
     component       string CODEC(ZSTD(1)),
     level           string CODEC(ZSTD(1))
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, service_name, span_id)
 TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
@@ -576,7 +577,7 @@ CREATE STREAM IF NOT EXISTS otel_traces (
     resource_attributes string CODEC(ZSTD(1)),
     events            string CODEC(ZSTD(1)),
     links             string CODEC(ZSTD(1))
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (service_name, timestamp, trace_id, span_id)
 TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
@@ -597,7 +598,7 @@ CREATE STREAM IF NOT EXISTS otel_trace_summaries (
     service_set       array(string) CODEC(ZSTD(1)),
     span_count        uint32 CODEC(ZSTD(1)),
     error_count       uint32 CODEC(ZSTD(1))
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY to_start_of_day(timestamp)
 ORDER BY (timestamp, trace_id)
 TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
@@ -616,7 +617,7 @@ CREATE STREAM IF NOT EXISTS otel_spans_enriched (
   status_code           int32,
   duration_ms           float64,
   is_root               bool
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (trace_id, span_id)
 TTL to_start_of_day(_tp_time) + INTERVAL 3 DAY
@@ -772,7 +773,7 @@ CREATE STREAM ocsf_device_inventory (
     observables_mac array(string) DEFAULT [],
     observables_hostname array(string) DEFAULT [],
     observables_domain array(string) DEFAULT [],
-    observables_resource_uid array(string)) ENGINE = Stream(1, 1, rand())
+    observables_resource_uid array(string)) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(time), 3600)  -- Hourly partitions
 ORDER BY (time, device_uid)
 TTL to_start_of_day(time) + INTERVAL 30 DAY
@@ -832,7 +833,7 @@ CREATE STREAM ocsf_network_activity (
     observables_ip array(string) DEFAULT [],
     observables_port array(string) DEFAULT [],      -- Format: "ip:port"
     observables_hostname array(string) DEFAULT [],
-    observables_mac array(string)) ENGINE = Stream(1, 1, rand())
+    observables_mac array(string)) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(time), 3600)
 ORDER BY (time, src_endpoint_ip, dst_endpoint_ip)
 TTL to_start_of_day(time) + INTERVAL 3 DAY        -- Shorter retention for high-volume data
@@ -878,7 +879,7 @@ CREATE STREAM ocsf_user_inventory (
     observables_email array(string) DEFAULT [],
     observables_hostname array(string) DEFAULT [],
     observables_domain array(string) DEFAULT [],
-    observables_resource_uid array(string)) ENGINE = Stream(1, 1, rand())
+    observables_resource_uid array(string)) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(time), 3600)
 ORDER BY (time, user_uid)
 TTL to_start_of_day(time) + INTERVAL 90 DAY        -- Longer retention for compliance
@@ -929,7 +930,7 @@ CREATE STREAM ocsf_system_activity (
     observables_ip array(string) DEFAULT [],
     observables_hostname array(string) DEFAULT [],
     observables_username array(string) DEFAULT [],
-    observables_process array(string)) ENGINE = Stream(1, 1, rand())
+    observables_process array(string)) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(time), 3600)
 ORDER BY (time, endpoint_hostname, service_name)
 TTL to_start_of_day(time) + INTERVAL 7 DAY
@@ -1188,7 +1189,7 @@ CREATE STREAM ocsf_observable_index (
 
     -- Raw Data
     metadata map(string, string)
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY (observable_type, farm_hash64(observable_value))  -- Distribute by type and value
 ORDER BY (observable_type, observable_value, entity_last_seen)
 TTL to_start_of_day(entity_last_seen) + INTERVAL 30 DAY
@@ -1233,7 +1234,7 @@ CREATE STREAM ocsf_observable_statistics (
 
     -- Metadata
     metadata map(string, string)
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY (observable_type, int_div(to_unix_timestamp(time_window_start), 3600))
 ORDER BY (observable_type, observable_value, time_window_start)
 TTL to_start_of_day(time_window_start) + INTERVAL 90 DAY
@@ -1280,7 +1281,7 @@ CREATE STREAM ocsf_entity_relationships (
     -- Metadata
     metadata map(string, string),
     tags array(string)
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY farm_hash64(concat(source_entity_uid, target_entity_uid))
 ORDER BY (relationship_type, source_entity_uid, target_entity_uid, time)
 TTL to_start_of_day(time) + INTERVAL 30 DAY
@@ -1318,7 +1319,7 @@ CREATE STREAM ocsf_search_performance (
 
     -- Metadata
     metadata map(string, string)
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(time), 3600)
 ORDER BY (time, query_hash)
 TTL to_start_of_day(time) + INTERVAL 7 DAY
@@ -1718,24 +1719,6 @@ FROM (
 ) AS filtered
 GROUP BY device_id;
 
-ALTER STREAM unified_devices
-    DELETE WHERE coalesce(metadata['_merged_into'], '') != ''
-       OR lower(coalesce(metadata['_deleted'], 'false')) = 'true'
-       OR (
-            coalesce(metadata['armis_device_id'], '') = ''
-            AND coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') = ''
-            AND coalesce(mac, '') = ''
-       );
-
-ALTER STREAM unified_devices_registry
-    DELETE WHERE coalesce(metadata['_merged_into'], '') != ''
-       OR lower(coalesce(metadata['_deleted'], 'false')) = 'true'
-       OR (
-            coalesce(metadata['armis_device_id'], '') = ''
-            AND coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') = ''
-            AND coalesce(mac, '') = ''
-       );
-
 -- Allow non-sweep IP-identified devices to remain in unified device views.
 DROP VIEW IF EXISTS unified_device_pipeline_mv;
 
@@ -1786,29 +1769,3 @@ FROM (
       )
 ) AS filtered
 GROUP BY device_id;
-
-ALTER STREAM unified_devices
-    DELETE WHERE coalesce(metadata['_merged_into'], '') != ''
-       OR lower(coalesce(metadata['_deleted'], 'false')) = 'true'
-       OR (
-            coalesce(metadata['armis_device_id'], '') = ''
-            AND coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') = ''
-            AND coalesce(mac, '') = ''
-            AND (
-                has(discovery_sources, 'sweep')
-                OR ip = ''
-            )
-       );
-
-ALTER STREAM unified_devices_registry
-    DELETE WHERE coalesce(metadata['_merged_into'], '') != ''
-       OR lower(coalesce(metadata['_deleted'], 'false')) = 'true'
-       OR (
-            coalesce(metadata['armis_device_id'], '') = ''
-            AND coalesce(metadata['integration_id'], metadata['netbox_device_id'], '') = ''
-            AND coalesce(mac, '') = ''
-            AND (
-                has(discovery_sources, 'sweep')
-                OR ip = ''
-            )
-       );

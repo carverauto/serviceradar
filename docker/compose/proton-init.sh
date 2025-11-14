@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -e
+set -euo pipefail
 
 # Logging functions
 log_info() {
@@ -23,6 +23,30 @@ log_info() {
 log_error() {
     echo "[Proton Init] ERROR: $1" >&2
     exit 1
+}
+
+proton_pid=""
+
+cleanup() {
+    if [ -n "${proton_pid}" ]; then
+        if kill -0 "${proton_pid}" >/dev/null 2>&1; then
+            log_info "Stopping Proton server (pid ${proton_pid})"
+            kill "${proton_pid}" >/dev/null 2>&1 || true
+            wait "${proton_pid}" 2>/dev/null || true
+        fi
+    fi
+}
+
+trap cleanup EXIT INT TERM
+
+ensure_proton_user() {
+    if ! id -u proton >/dev/null 2>&1; then
+        log_info "Creating proton user..."
+        if ! getent group proton >/dev/null 2>&1; then
+            groupadd -r proton
+        fi
+        useradd -r -g proton -s /bin/false proton
+    fi
 }
 
 # Wait for Proton to be ready
@@ -94,6 +118,8 @@ log_info "Setting up ulimits..."
 ulimit -n 1048576
 ulimit -u 65535
 
+ensure_proton_user
+
 # Create required directories
 log_info "Creating required directories..."
 for dir in /var/lib/proton/tmp /var/lib/proton/checkpoint /var/lib/proton/nativelog/meta \
@@ -130,6 +156,12 @@ if [ -d "/etc/proton-server/certs" ]; then
     log_info "Certificate directory accessible at /etc/proton-server/certs"
 fi
 
-# Start Proton in background
+# Start Proton
 log_info "Starting Proton server..."
-exec proton server --config-file=/etc/proton-server/config.yaml
+proton server --config-file=/etc/proton-server/config.yaml &
+proton_pid=$!
+
+wait "${proton_pid}"
+status=$?
+proton_pid=""
+exit "${status}"

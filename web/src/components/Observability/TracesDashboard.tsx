@@ -97,11 +97,15 @@ const formatNumber = (num: number): string => {
 
 const TraceIdCell = ({ traceId }: { traceId: string }) => {
     const [copied, setCopied] = useState(false);
-    
+
+    // Handle undefined or null traceId
+    const safeTraceId = traceId || '';
+
     const copyToClipboard = async (e: React.MouseEvent) => {
         e.stopPropagation();
+        if (!safeTraceId) return;
         try {
-            await navigator.clipboard.writeText(traceId);
+            await navigator.clipboard.writeText(safeTraceId);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         } catch (err) {
@@ -109,25 +113,29 @@ const TraceIdCell = ({ traceId }: { traceId: string }) => {
         }
     };
 
+    if (!safeTraceId) {
+        return <span className="text-xs text-gray-500 dark:text-gray-400">—</span>;
+    }
+
     return (
         <div className="group relative">
             <button
                 onClick={copyToClipboard}
                 className="flex items-center gap-1 text-xs font-mono text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                title={`Click to copy: ${traceId}`}
+                title={`Click to copy: ${safeTraceId}`}
             >
-                <span className="lg:hidden">{traceId.substring(0, 6)}...</span>
-                <span className="hidden lg:inline">{traceId.substring(0, 8)}...</span>
+                <span className="lg:hidden">{safeTraceId.substring(0, 6)}...</span>
+                <span className="hidden lg:inline">{safeTraceId.substring(0, 8)}...</span>
                 {copied ? (
                     <Check className="h-3 w-3 text-green-500" />
                 ) : (
                     <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                 )}
             </button>
-            
+
             {/* Tooltip with full trace ID */}
             <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 whitespace-nowrap">
-                {traceId}
+                {safeTraceId}
                 <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-100"></div>
             </div>
         </div>

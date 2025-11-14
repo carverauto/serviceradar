@@ -17,7 +17,9 @@ const SERVICE_NAME_MAP: Record<string, string> = {
     'serviceradar-agent': 'serviceradar-agent',
     'ping': 'serviceradar-agent',
     'ssh': 'serviceradar-agent',
-    'trapd': 'serviceradar-trapd'
+    'trapd': 'serviceradar-trapd',
+    'poller': 'serviceradar-poller',
+    'docker-poller': 'serviceradar-poller'
 };
 
 const EXTRA_SERVICES = ['serviceradar-core'];
@@ -157,12 +159,27 @@ export const canonicalizeServiceList = (names: string[]): string[] => {
 export type SrqlPostQuery = <T>(query: string, cursor?: string, direction?: 'next' | 'prev') => Promise<T>;
 
 export const SERVICES_SNAPSHOT_QUERY = 'in:services stats:"group_uniq_array(service_name) as services" limit:1';
+export const LOG_SERVICE_SNAPSHOT_QUERY = 'in:logs stats:"group_uniq_array(service_name) as services" limit:1';
 
 export const fetchCanonicalServiceNames = async (
     postQuery: SrqlPostQuery
 ): Promise<string[]> => {
-    const data = await postQuery<{ results?: unknown[] }>(SERVICES_SNAPSHOT_QUERY);
-    return extractServiceNamesFromResults(data.results ?? []);
+    const snapshotQueries = [SERVICES_SNAPSHOT_QUERY, LOG_SERVICE_SNAPSHOT_QUERY];
+    const aggregated = new Set<string>();
+
+    for (const query of snapshotQueries) {
+        try {
+            const data = await postQuery<{ results?: unknown[] }>(query);
+            const names = extractServiceNamesFromResults(data?.results ?? []);
+            names.forEach((name) => aggregated.add(name));
+        } catch (error) {
+            if (typeof console !== 'undefined' && typeof console.debug === 'function') {
+                console.debug('Failed to load service snapshot', { query, error });
+            }
+        }
+    }
+
+    return canonicalizeServiceList([...aggregated, ...EXTRA_SERVICES]);
 };
 
 export const getServiceQueryValues = (serviceName: string): string[] => {

@@ -59,6 +59,8 @@ type PollerStatus struct {
 	FirstSeen time.Time `json:"first_seen" example:"2025-04-20T10:00:00Z"`
 	// Last time the poller reported its status
 	LastSeen time.Time `json:"last_seen" example:"2025-04-24T14:15:22Z"`
+	// IP address of the host where the poller is running
+	HostIP string `json:"host_ip,omitempty" example:"192.168.1.100"`
 	// Optional metrics data points
 	Metrics []MetricPoint `json:"metrics,omitempty"`
 	// Metadata about the poller

@@ -35,7 +35,7 @@ func TestBuildEdgeOnboardingPackagesQuery_WithFilters(t *testing.T) {
 	require.Contains(t, query, "FROM filtered")
 	require.Contains(t, query, "GROUP BY package_id")
 	require.Contains(t, query, "ORDER BY latest_updated_at DESC")
-	require.Contains(t, query, "LIMIT $")
+	require.Contains(t, query, "LIMIT ?")
 
 	require.Len(t, args, 8)
 	require.Equal(t, packageID, args[0])
@@ -52,7 +52,7 @@ func TestBuildEdgeOnboardingPackagesQuery_DefaultLimit(t *testing.T) {
 	query, args := buildEdgeOnboardingPackagesQuery(edgeOnboardingQueryOptions{})
 
 	require.Contains(t, query, "FROM table(edge_onboarding_packages)")
-	require.Contains(t, query, "LIMIT $1")
+	require.Contains(t, query, "LIMIT ?")
 	require.Len(t, args, 1)
 	require.Equal(t, defaultEdgeOnboardingPackageLimit, args[0])
 }

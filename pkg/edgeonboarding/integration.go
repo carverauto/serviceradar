@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -64,9 +65,12 @@ func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponen
 	// Check for onboarding token from environment or flags
 	token := os.Getenv("ONBOARDING_TOKEN")
 	kvEndpoint := os.Getenv("KV_ENDPOINT")
+	packageID := os.Getenv("EDGE_PACKAGE_ID")
+	coreAPIURL := os.Getenv("CORE_API_URL")
+	packagePath := firstNonEmpty(os.Getenv("ONBOARDING_PACKAGE"), os.Getenv("SR_ONBOARDING_PACKAGE"))
 
 	// If no onboarding token, use traditional config
-	if token == "" {
+	if token == "" && packagePath == "" {
 		return nil, nil
 	}
 
@@ -76,6 +80,7 @@ func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponen
 
 	log.Info().
 		Str("component_type", string(componentType)).
+		Bool("offline_package", packagePath != "").
 		Msg("Onboarding token detected - starting edge onboarding")
 
 	// Validate required bootstrap config
@@ -86,8 +91,11 @@ func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponen
 	// Create bootstrapper
 	b, err := NewBootstrapper(&Config{
 		Token:       token,
+		PackagePath: packagePath,
 		KVEndpoint:  kvEndpoint,
 		ServiceType: componentType,
+		PackageID:   packageID,
+		CoreAPIURL:  coreAPIURL,
 		Logger:      log,
 		// StoragePath will use default
 	})
@@ -194,6 +202,15 @@ func LoadConfigFromOnboarding(result *IntegrationResult, target interface{}) err
 	}
 
 	return nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 // GetSPIREWorkloadAPISocket returns the path to the SPIRE workload API socket.

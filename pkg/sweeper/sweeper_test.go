@@ -255,6 +255,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			AnyTimes()
 
 		configReady := make(chan struct{})
+		signalConfigReady := newConfigReadySignal(configReady)
 		ctx, cancel := context.WithTimeout(context.Background(), testWatchContextTimeout)
 
 		t.Cleanup(func() {
@@ -271,7 +272,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			}
 		})
 
-		go sweeper.watchConfigWithInitialSignal(ctx, configReady)
+		go sweeper.watchConfigWithInitialSignal(ctx, signalConfigReady)
 
 		// Wait for the config ready signal
 		select {
@@ -306,6 +307,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 		}
 
 		configReady := make(chan struct{})
+		signalConfigReady := newConfigReadySignal(configReady)
 		ctx, cancel := context.WithTimeout(context.Background(), testWatchContextTimeout)
 
 		t.Cleanup(func() {
@@ -318,7 +320,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			<-sweeper.watchDone
 		})
 
-		go sweeper.watchConfigWithInitialSignal(ctx, configReady)
+		go sweeper.watchConfigWithInitialSignal(ctx, signalConfigReady)
 
 		// Should signal immediately since there's no KV store
 		select {
@@ -363,6 +365,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			AnyTimes()
 
 		configReady := make(chan struct{})
+		signalConfigReady := newConfigReadySignal(configReady)
 		ctx, cancel := context.WithTimeout(context.Background(), testWatchContextTimeout)
 
 		t.Cleanup(func() {
@@ -375,7 +378,7 @@ func TestNetworkSweeper_WatchConfigWithInitialSignal(t *testing.T) {
 			<-sweeper.watchDone
 		})
 
-		go sweeper.watchConfigWithInitialSignal(ctx, configReady)
+		go sweeper.watchConfigWithInitialSignal(ctx, signalConfigReady)
 
 		// Should signal immediately on error
 		select {
@@ -941,6 +944,7 @@ func TestKVWatchAutoReconnect(t *testing.T) {
 	}
 
 	configReady := make(chan struct{})
+	signalConfigReady := newConfigReadySignal(configReady)
 	ctx, cancel := context.WithTimeout(context.Background(), testWatchContextTimeout)
 
 	defer cancel()
@@ -967,7 +971,7 @@ func TestKVWatchAutoReconnect(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		sweeper.watchConfigWithInitialSignal(ctx, configReady)
+		sweeper.watchConfigWithInitialSignal(ctx, signalConfigReady)
 	}()
 
 	// Simulate spurious channel closure after a brief delay

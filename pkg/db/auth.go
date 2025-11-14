@@ -24,12 +24,14 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+const insertUserStatement = "INSERT INTO users (id, username, email, provider, password_hash, created_at, updated_at, is_active, roles)"
+
 // getUserByField retrieves a user by a specific field (e.g., id or email).
 func (db *DB) getUserByField(ctx context.Context, field, value string) (*models.User, error) {
 	user := &models.User{}
 
 	query := `
-        SELECT id, email, name, provider, created_at, updated_at
+        SELECT id, email, username AS name, provider, created_at, updated_at
         FROM users
         WHERE ` + field + ` = $1
         LIMIT 1`
@@ -75,7 +77,7 @@ func (db *DB) StoreUser(ctx context.Context, user *models.User) error {
 	user.CreatedAt = time.Now()
 	user.UpdatedAt = user.CreatedAt
 
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO users (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, insertUserStatement)
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -84,11 +86,12 @@ func (db *DB) StoreUser(ctx context.Context, user *models.User) error {
 		user.ID,
 		user.Name, // username field
 		user.Email,
+		normalizeProvider(user.Provider),
 		"", // password_hash (empty for OAuth users)
 		user.CreatedAt,
 		user.UpdatedAt,
-		true,                // is_active (default to true)
-		[]string{"default"}, // roles (default role)
+		true,                       // is_active (default to true)
+		normalizeRoles(user.Roles), // roles (default role if missing)
 	)
 	if err != nil {
 		return fmt.Errorf("failed to append user: %w", err)
@@ -107,7 +110,7 @@ func (db *DB) StoreBatchUsers(ctx context.Context, users []*models.User) error {
 		return nil
 	}
 
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO users (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, insertUserStatement)
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -128,11 +131,12 @@ func (db *DB) StoreBatchUsers(ctx context.Context, users []*models.User) error {
 			user.ID,
 			user.Name, // username field
 			user.Email,
+			normalizeProvider(user.Provider),
 			"", // password_hash (empty for OAuth users)
 			user.CreatedAt,
 			user.UpdatedAt,
-			true,                // is_active (default to true)
-			[]string{"default"}, // roles (default role)
+			true,                       // is_active (default to true)
+			normalizeRoles(user.Roles), // roles (default role if missing)
 		)
 		if err != nil {
 			return fmt.Errorf("failed to append user %s: %w", user.ID, err)
@@ -171,7 +175,7 @@ func (db *DB) UpdateUserLastSeen(ctx context.Context, userID string) error {
 func (db *DB) UpdateUser(ctx context.Context, user *models.User) error {
 	user.UpdatedAt = time.Now()
 
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO users (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, insertUserStatement)
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -180,11 +184,12 @@ func (db *DB) UpdateUser(ctx context.Context, user *models.User) error {
 		user.ID,
 		user.Name, // username field
 		user.Email,
+		normalizeProvider(user.Provider),
 		"", // password_hash (empty for OAuth users)
 		user.CreatedAt,
 		user.UpdatedAt,
-		true,                // is_active (default to true)
-		[]string{"default"}, // roles (default role)
+		true,                       // is_active (default to true)
+		normalizeRoles(user.Roles), // roles (default role if missing)
 	)
 	if err != nil {
 		return fmt.Errorf("failed to append user update: %w", err)
@@ -195,4 +200,18 @@ func (db *DB) UpdateUser(ctx context.Context, user *models.User) error {
 	}
 
 	return nil
+}
+
+func normalizeProvider(provider string) string {
+	if provider == "" {
+		return "local"
+	}
+	return provider
+}
+
+func normalizeRoles(roles []string) []string {
+	if len(roles) == 0 {
+		return []string{"default"}
+	}
+	return roles
 }

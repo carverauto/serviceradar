@@ -23,7 +23,7 @@ CREATE STREAM IF NOT EXISTS otel_trace_summaries_final (
   error_count           uint32,
   status_code           int32,
   service_set           array(string)
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (timestamp, trace_id);
 
 -- Recreate the materialized view with proper defaults and direct span data
