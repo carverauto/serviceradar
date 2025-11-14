@@ -344,6 +344,9 @@ services:
       - PROTON_TLS=1
       - PROTON_INSECURE_SKIP_VERIFY=1
       - PROTON_VERIFY_HOSTNAME=0
+      - PROTON_CLIENT_CERT=/etc/serviceradar/certs/srql.pem
+      - PROTON_CLIENT_KEY=/etc/serviceradar/certs/srql-key.pem
+      - PROTON_CA_CERT=/etc/serviceradar/certs/root.pem
       - AUTH_ENABLED=true
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
@@ -1013,6 +1016,8 @@ services:
       - WAIT_FOR_PROTON=true
       # Database password
       - PROTON_PASSWORD=${PROTON_PASSWORD:-}
+      # Disable duplicate migrations (Core handles them)
+      - ENABLE_DB_MIGRATIONS=false
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
