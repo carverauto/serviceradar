@@ -12,15 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Build proton TLS proxy binary
-FROM golang:1.22 AS proton_tls_proxy_builder
-
-WORKDIR /workspace
-COPY go.mod go.sum ./
-RUN go mod download
-COPY cmd/proton-tls-proxy ./cmd/proton-tls-proxy
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /proton-tls-proxy ./cmd/proton-tls-proxy
-
 # Custom Proton image with ServiceRadar configurations
 FROM d.timeplus.com/timeplus-io/proton:latest
 
@@ -49,7 +40,6 @@ COPY packaging/proton/config/config.yaml /etc/proton-server/config.yaml
 COPY packaging/proton/config/users.yaml /etc/proton-server/users.yaml
 COPY packaging/proton/config/grok-patterns /etc/proton-server/grok-patterns
 COPY docker/compose/proton-init.sh /usr/local/bin/proton-init.sh
-COPY --from=proton_tls_proxy_builder /proton-tls-proxy /usr/local/bin/proton-tls-proxy
 
 # Fix Docker-specific configuration issues in the proper config file
 RUN sed -i 's/listen_host: 127.0.0.1/listen_host: 0.0.0.0/' /etc/proton-server/config.yaml && \

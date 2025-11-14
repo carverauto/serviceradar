@@ -28,6 +28,12 @@ logger:
 # By default, anything with "production" will be highlighted in red in query prompt.
 display_name: proton
 
+# Explicit legacy port settings (Proton 3.x still reads these even with node.*)
+http_port: 8123
+tcp_port: 8463
+https_port: 8443
+tcp_port_secure: 9440
+
 node:
 
     # Roles that the current node has
@@ -41,13 +47,13 @@ node:
 
     # Public protocols and ports
     http:
-        port: 3218 # Maintained default, was http_port in old config
-        is_tls_port: false
+        port: 8443 # Replaces legacy https_port
+        is_tls_port: true
 
     # Public native protocol port for proton-client
     tcp:
-        port: 8463
-        is_tls_port: false
+        port: 9440 # Replaces legacy tcp_port_secure
+        is_tls_port: true
 
     # Query on this port is historical table query by default
     table_tcp:
@@ -311,17 +317,18 @@ openSSL:
     server:
         # Used for https server AND secure tcp port
         # openssl req -subj "/CN=localhost" -new -newkey rsa:2048 -days 365 -nodes -x509 -keyout /etc/proton-server/server.key -out /etc/proton-server/server.crt
-        certificateFile: /etc/proton-server/root.pem
-        privateKeyFile: /etc/proton-server/core-key.pem
+        certificateFile: /etc/proton-server/certs/proton.pem
+        privateKeyFile: /etc/proton-server/certs/proton-key.pem
+        caConfig: /etc/proton-server/certs/root.pem
 
         # dhparams are optional. You can delete the dhParamsFile: element.
         # To generate dhparams, use the following command:
         # openssl dhparam -out /etc/proton-server/dhparam.pem 4096
         # Only file format with BEGIN DH PARAMETERS is supported.
-        # dhParamsFile: /etc/proton-server/dhparam.pem
-        verificationMode: relaxed # Merged from old config
-        loadDefaultCAFile: false # Merged from old config
-        cacheSessions: false # Merged from old config
+        dhParamsFile: /etc/proton-server/dhparam.pem
+        verificationMode: none
+        loadDefaultCAFile: true
+        cacheSessions: true
         disableProtocols: 'sslv2,sslv3'
         preferServerCiphers: true
     client:
