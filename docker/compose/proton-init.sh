@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -e
+set -euo pipefail
 
 # Logging functions
 log_info() {
@@ -23,6 +23,38 @@ log_info() {
 log_error() {
     echo "[Proton Init] ERROR: $1" >&2
     exit 1
+}
+
+declare -a tls_proxy_pids=()
+proton_pid=""
+
+cleanup() {
+    if [ -n "${proton_pid}" ]; then
+        if kill -0 "${proton_pid}" >/dev/null 2>&1; then
+            log_info "Stopping Proton server (pid ${proton_pid})"
+            kill "${proton_pid}" >/dev/null 2>&1 || true
+            wait "${proton_pid}" 2>/dev/null || true
+        fi
+    fi
+    for pid in "${tls_proxy_pids[@]:-}"; do
+        if kill -0 "${pid}" >/dev/null 2>&1; then
+            log_info "Stopping TLS proxy (pid ${pid})"
+            kill "${pid}" >/dev/null 2>&1 || true
+            wait "${pid}" 2>/dev/null || true
+        fi
+    done
+}
+
+trap cleanup EXIT INT TERM
+
+ensure_proton_user() {
+    if ! id -u proton >/dev/null 2>&1; then
+        log_info "Creating proton user..."
+        if ! getent group proton >/dev/null 2>&1; then
+            groupadd -r proton
+        fi
+        useradd -r -g proton -s /bin/false proton
+    fi
 }
 
 # Wait for Proton to be ready
@@ -37,6 +69,51 @@ wait_for_proton() {
         sleep 2
     done
     log_error "Proton failed to start within 60 seconds"
+}
+
+start_tls_proxy() {
+    if [ "${ENABLE_TLS_PROXY:-1}" = "0" ]; then
+        log_info "TLS proxy disabled via ENABLE_TLS_PROXY"
+        return
+    fi
+
+    if ! command -v proton-tls-proxy >/dev/null 2>&1; then
+        log_error "proton-tls-proxy binary is missing; cannot provide TLS proxy"
+    fi
+
+    mkdir -p /var/log/proton-server
+
+    start_single_proxy() {
+        local name="$1"
+        local listen_addr="$2"
+        local target_addr="$3"
+        local require_client_cert="$4"
+
+        local log_file="/var/log/proton-server/${name}.log"
+        local args=(--listen "${listen_addr}" --target "${target_addr}" --cert /etc/proton-server/certs/proton.pem --key /etc/proton-server/certs/proton-key.pem --log-file "${log_file}")
+
+        if [ "${require_client_cert}" = "1" ]; then
+            args+=(--ca /etc/proton-server/certs/root.pem --require-client-cert)
+        fi
+
+        log_info "Starting TLS proxy ${name} (${listen_addr} -> ${target_addr})"
+        proton-tls-proxy "${args[@]}" &
+        tls_proxy_pids+=("$!")
+    }
+
+    start_single_proxy "proxy-native" "0.0.0.0:9440" "127.0.0.1:8463" "1"
+    start_single_proxy "proxy-http" "0.0.0.0:8443" "127.0.0.1:8123" "0"
+
+    for attempt in {1..15}; do
+        if nc -z localhost 9440 && nc -z localhost 8443; then
+            log_info "TLS proxies are listening on 8443/9440"
+            return
+        fi
+        log_info "Waiting for TLS proxy sockets... (${attempt}/15)"
+        sleep 1
+    done
+
+    log_error "TLS proxies failed to start; check /var/log/proton-server/proxy-*.log"
 }
 
 # Generate or recover password
@@ -94,6 +171,8 @@ log_info "Setting up ulimits..."
 ulimit -n 1048576
 ulimit -u 65535
 
+ensure_proton_user
+
 # Create required directories
 log_info "Creating required directories..."
 for dir in /var/lib/proton/tmp /var/lib/proton/checkpoint /var/lib/proton/nativelog/meta \
@@ -130,6 +209,14 @@ if [ -d "/etc/proton-server/certs" ]; then
     log_info "Certificate directory accessible at /etc/proton-server/certs"
 fi
 
-# Start Proton in background
+start_tls_proxy
+
+# Start Proton
 log_info "Starting Proton server..."
-exec proton server --config-file=/etc/proton-server/config.yaml
+proton server --config-file=/etc/proton-server/config.yaml &
+proton_pid=$!
+
+wait "${proton_pid}"
+status=$?
+proton_pid=""
+exit "${status}"

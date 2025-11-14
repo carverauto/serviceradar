@@ -198,7 +198,7 @@ CREATE STREAM IF NOT EXISTS services (
     service_type      string,
     config            string,
     partition         string
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
 ```
 

@@ -65,7 +65,7 @@ CREATE STREAM IF NOT EXISTS otel_trace_summaries (
     span_count        uint32 CODEC(ZSTD(1)),
     error_count       uint32 CODEC(ZSTD(1))
     
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (timestamp, trace_id)
 SETTINGS index_granularity = 8192;
@@ -155,5 +155,5 @@ CREATE STREAM IF NOT EXISTS otel_span_attrs (
   rpc_service nullable(string),
   rpc_method  nullable(string),
   rpc_grpc_status_code nullable(string)
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (trace_id, span_id);

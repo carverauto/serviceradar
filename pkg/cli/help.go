@@ -22,6 +22,15 @@ Commands:
   render-kong      Render Kong DB-less config from Core JWKS
   generate-jwt-keys Generate RS256 keypair and update core.json
   spire-join-token  Request a join token from Core and optionally register a downstream entry
+  edge package create  Issue a new onboarding package and emit the structured token
+  edge package list    List onboarding packages with optional filters
+  edge package show    Display detailed information for a package
+  edge package download Download onboarding artifacts (tar.gz or JSON)
+  edge package revoke  Revoke an onboarding package (alias: edge-package-revoke)
+  edge package token   Emit an edgepkg-v1 token (alias: edge-package-token)
+  edge-package-download Download the onboarding archive for a package (tar.gz)
+  edge-package-token    Emit an edgepkg-v1 onboarding token for ONBOARDING_TOKEN
+  edge-package-revoke   Revoke an onboarding package and downstream entry
 
 Options for bcrypt generation:
   -help         show this help message
@@ -110,5 +119,74 @@ Options for spire-join-token:
   -dns-name value         Downstream DNS name (repeatable)
   -federates-with value   Downstream federated trust domain (repeatable)
   -output string          Write the response JSON to the given file path
+
+Options for edge-package-download:
+  -core-url string        Core API base URL (default http://localhost:8090)
+  -api-key string         API key used to authenticate with core
+  -bearer string          Bearer token used to authenticate with core
+  -tls-skip-verify        Skip TLS certificate verification
+  -id string              Edge package identifier
+  -download-token string  Edge package download token
+  -output string          Optional file path for writing the onboarding archive
+  -format string          Download format: tar or json (default "tar")
+
+Options for edge-package-token:
+  -core-url string        Core API base URL (default http://localhost:8090)
+  -id string              Edge package identifier
+  -download-token string  Edge package download token
+
+Options for edge-package-revoke:
+  -core-url string        Core API base URL (default http://localhost:8090)
+  -api-key string         API key used to authenticate with core
+  -bearer string          Bearer token used to authenticate with core
+  -tls-skip-verify        Skip TLS certificate verification
+  -id string              Edge package identifier
+  -reason string          Optional revocation reason
+
+Options for edge package create:
+  --core-url string            Core API base URL (default http://localhost:8090)
+  --api-key string             API key used to authenticate with core
+  --bearer string              Bearer token used to authenticate with core
+  --tls-skip-verify            Skip TLS certificate verification
+  --label string               Display label for the package (required)
+  --component-type string      Component type (poller, agent, checker[:kind], default poller)
+  --component-id string        Optional component identifier override
+  --parent-type string         Parent component type (poller, agent, checker)
+  --parent-id string           Parent identifier
+  --poller-id string           Poller identifier override
+  --site string                Site/location note
+  --metadata-json string       Metadata JSON payload
+  --metadata-file string       Path to metadata JSON file (alternative to --metadata-json)
+  --selector value             SPIRE selector (repeatable, e.g. unix:uid:0)
+  --join-ttl duration          Join token TTL (e.g., 30m, 2h)
+  --download-ttl duration      Download token TTL (e.g., 15m, 24h)
+  --downstream-spiffe-id string Downstream SPIFFE ID override
+  --datasvc-endpoint string    Datasvc/KV gRPC endpoint override
+  --checker-kind string        Checker kind (when component-type checker)
+  --checker-config-json string Checker configuration JSON
+  --output string              Output format: text or json (default text)
+
+Options for edge package list:
+  --core-url string        Core API base URL (default http://localhost:8090)
+  --api-key string         API key used to authenticate with core
+  --bearer string          Bearer token used to authenticate with core
+  --tls-skip-verify        Skip TLS certificate verification
+  --limit int              Maximum number of packages to return (default 50)
+  --status value           Filter by status (repeatable)
+  --component-type value   Filter by component type (repeatable)
+  --poller-id string       Filter by poller identifier
+  --parent-id string       Filter by parent identifier
+  --component-id string    Filter by component identifier
+  --output string          Output format: text or json (default text)
+
+Options for edge package show:
+  --core-url string        Core API base URL (default http://localhost:8090)
+  --api-key string         API key used to authenticate with core
+  --bearer string          Bearer token used to authenticate with core
+  --tls-skip-verify        Skip TLS certificate verification
+  --id string              Edge package identifier (required)
+  --output string          Output format: text or json (default text)
+  --reissue-token          Emit an edgepkg-v1 token using --download-token
+  --download-token string  Download token to encode when --reissue-token is set
 `)
 }

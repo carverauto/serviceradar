@@ -43,7 +43,7 @@ CREATE STREAM IF NOT EXISTS otel_traces (
     -- Raw protobuf data for debugging/reprocessing
     raw_data          string CODEC(ZSTD(1))
     
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)  -- Hourly partitions
 ORDER BY (service_name, timestamp, trace_id, span_id)
 SETTINGS index_granularity = 8192;

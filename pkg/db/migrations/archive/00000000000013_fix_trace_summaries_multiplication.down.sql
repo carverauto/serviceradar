@@ -34,7 +34,7 @@ CREATE STREAM IF NOT EXISTS otel_spans_enriched (
   status_message        string,
   duration_ms           float64,
   is_root               bool
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 3600)
 ORDER BY (trace_id, span_id)
 SETTINGS index_granularity = 8192;
@@ -72,7 +72,7 @@ CREATE STREAM IF NOT EXISTS otel_trace_summaries_final (
   error_count           uint32,
   status_code           int32,
   service_set           array(string)
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 ORDER BY (timestamp, trace_id);
 
 -- C. Simplified final materialized view (without all intermediate streams)

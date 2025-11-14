@@ -353,7 +353,7 @@ CREATE STREAM IF NOT EXISTS service_registration_events (
     actor               string,  -- Who performed the action
     timestamp           DateTime64(3),
     metadata            string   -- JSON
-) ENGINE = Stream(1, 1, rand())
+) ENGINE = Stream(1, rand())
 PARTITION BY int_div(to_unix_timestamp(timestamp), 86400)
 ORDER BY (timestamp, service_type, service_id)
 TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 90 DAY

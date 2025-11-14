@@ -16,6 +16,7 @@
 
 'use client';
 
+import { Buffer } from 'buffer';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
@@ -35,6 +36,7 @@ import {
 } from 'lucide-react';
 
 import RoleGuard from '@/components/Auth/RoleGuard';
+import { getPublicApiUrl } from '@/lib/config';
 
 type EdgeComponentType = 'poller' | 'agent' | 'checker' | '';
 
@@ -79,6 +81,7 @@ type EdgeEvent = {
 type EdgePackageSecrets = {
   joinToken: string;
   downloadToken: string;
+  structuredToken: string;
   bundlePEM: string;
 };
 
@@ -238,6 +241,31 @@ function parseContentDisposition(disposition?: string | null): string | null {
   return null;
 }
 
+function base64UrlEncode(value: string): string {
+  return Buffer.from(value, 'utf-8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function buildStructuredToken(packageId: string, downloadToken: string, coreApiUrl: string): string {
+  const pkg = packageId.trim();
+  const token = downloadToken.trim();
+  if (!pkg || !token) {
+    return '';
+  }
+  const payload: { pkg: string; dl: string; api?: string } = {
+    pkg,
+    dl: token,
+  };
+  const api = coreApiUrl.trim();
+  if (api) {
+    payload.api = api;
+  }
+  return `edgepkg-v1:${base64UrlEncode(JSON.stringify(payload))}`;
+}
+
 export default function EdgePackagesPage() {
   const [packages, setPackages] = useState<EdgePackage[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -258,6 +286,7 @@ export default function EdgePackagesPage() {
   const [metadataTouched, setMetadataTouched] = useState<boolean>(false);
   const [selectorsTouched, setSelectorsTouched] = useState<boolean>(false);
   const [registeredAgents, setRegisteredAgents] = useState<AgentInfo[]>([]);
+  const coreApiBase = useMemo(() => getPublicApiUrl(), []);
 
   const selectedPackage = useMemo(
     () => packages.find((pkg) => pkg.package_id === selectedId) ?? null,
@@ -583,6 +612,7 @@ export default function EdgePackagesPage() {
       const result = await response.json();
       const createdPackage: EdgePackage = result.package;
 
+      const structuredToken = buildStructuredToken(createdPackage.package_id, result.download_token, coreApiBase);
       setPackages((prev) => [createdPackage, ...prev]);
       setSelectedId(createdPackage.package_id);
       setSecrets((prev) => ({
@@ -590,6 +620,7 @@ export default function EdgePackagesPage() {
         [createdPackage.package_id]: {
           joinToken: result.join_token,
           downloadToken: result.download_token,
+          structuredToken,
           bundlePEM: result.bundle_pem,
         },
       }));
@@ -663,6 +694,7 @@ export default function EdgePackagesPage() {
           next[pkg.package_id] = {
             ...next[pkg.package_id],
             downloadToken: '',
+            structuredToken: '',
           };
         }
         return next;
@@ -1540,6 +1572,28 @@ export default function EdgePackagesPage() {
 
                         <div>
                           <div className="flex items-center justify-between">
+                            <span className="font-medium">Onboarding token (edgepkg-v1)</span>
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                              onClick={() => copyToClipboard(selectedSecrets.structuredToken, 'Onboarding token')}
+                              disabled={!selectedSecrets.structuredToken}
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                              Copy
+                            </button>
+                          </div>
+                          <p className="mt-1 break-all rounded bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                            {selectedSecrets.structuredToken || 'Token unavailable (download token already consumed).'}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
+                            Set <code className="rounded bg-slate-200 px-1 py-0.5 text-[11px] dark:bg-slate-700">ONBOARDING_TOKEN</code> to this value; it already
+                            includes the Core URL, package id, and download token.
+                          </p>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between">
                             <span className="font-medium">SPIRE bundle (PEM)</span>
                             <button
                               type="button"
@@ -1560,7 +1614,8 @@ export default function EdgePackagesPage() {
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                         <p>
                           This package was created outside the current session or its secrets have been cleared. Use{' '}
-                          <code>serviceradar-cli edge package download</code> with the original download token to retrieve the archive.
+                          <code>serviceradar-cli edge-package-download</code> with the original download token to retrieve the archive, then{' '}
+                          <code>serviceradar-cli edge-package-token</code> to rebuild the structured <code>ONBOARDING_TOKEN</code>.
                         </p>
                       </div>
                     )}
@@ -1588,6 +1643,9 @@ export default function EdgePackagesPage() {
                 <ul className="mt-3 space-y-2 text-xs text-gray-600 dark:text-gray-300">
                   <li>
                     • Download tokens are single-use. Once consumed, regenerate a new package to refresh credentials.
+                  </li>
+                  <li>
+                    • Set <code>ONBOARDING_TOKEN</code> to the edgepkg-v1 value above (and <code>KV_ENDPOINT</code> to your datasvc host) before starting pollers/agents.
                   </li>
                   <li>
                     • Join tokens expire quickly; ensure installers run immediately after retrieving the archive.
