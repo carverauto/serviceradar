@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -25,6 +27,8 @@ type proxyConfig struct {
 	logPath           string
 }
 
+var errInvalidCAFile = errors.New("failed to parse CA file")
+
 func main() {
 	cfg := parseFlags()
 
@@ -37,7 +41,11 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to open log file: %v", err)
 		}
-		defer f.Close()
+		defer func() {
+			if err := f.Close(); err != nil {
+				logger.Printf("error closing log file: %v", err)
+			}
+		}()
 		logger.SetOutput(f)
 	}
 
@@ -50,7 +58,11 @@ func main() {
 	if err != nil {
 		logger.Fatalf("failed to listen on %s: %v", cfg.listenAddr, err)
 	}
-	defer ln.Close()
+	defer func() {
+		if err := ln.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			logger.Printf("error closing listener: %v", err)
+		}
+	}()
 
 	logger.Printf("listening on %s, proxying to %s", cfg.listenAddr, cfg.targetAddr)
 
@@ -59,15 +71,21 @@ func main() {
 	go func() {
 		<-signalCh
 		logger.Println("shutting down listener")
-		ln.Close()
+		if err := ln.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			logger.Printf("listener close error: %v", err)
+		}
 	}()
 
 	for {
 		clientConn, err := ln.Accept()
 		if err != nil {
-			// Listener closed during shutdown.
-			if ne, ok := err.(net.Error); ok && ne.Temporary() {
-				logger.Printf("temporary accept error: %v", err)
+			if errors.Is(err, net.ErrClosed) {
+				logger.Printf("listener exiting: %v", err)
+				return
+			}
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				logger.Printf("accept timeout: %v", err)
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
@@ -122,7 +140,7 @@ func buildTLSConfig(cfg proxyConfig) (*tls.Config, error) {
 
 		pool := x509.NewCertPool()
 		if ok := pool.AppendCertsFromPEM(caPEM); !ok {
-			return nil, fmt.Errorf("failed to parse CA file")
+			return nil, errInvalidCAFile
 		}
 		tlsConf.ClientCAs = pool
 		tlsConf.ClientAuth = tls.RequireAndVerifyClientCert
@@ -132,29 +150,45 @@ func buildTLSConfig(cfg proxyConfig) (*tls.Config, error) {
 }
 
 func handleConnection(logger *log.Logger, clientConn net.Conn, target string) {
-	defer clientConn.Close()
+	defer func() {
+		if err := clientConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			logger.Printf("close client connection: %v", err)
+		}
+	}()
 	logPrefix := fmt.Sprintf("client %s -> %s", clientConn.RemoteAddr(), target)
 
-	serverConn, err := net.DialTimeout("tcp", target, 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	serverConn, err := (&net.Dialer{}).DialContext(ctx, "tcp", target)
 	if err != nil {
 		logger.Printf("%s: backend dial failed: %v", logPrefix, err)
 		return
 	}
-	defer serverConn.Close()
+	defer func() {
+		if err := serverConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			logger.Printf("%s: close server connection: %v", logPrefix, err)
+		}
+	}()
 
 	errCh := make(chan error, 2)
 
 	go proxyCopy(errCh, serverConn, clientConn)
 	go proxyCopy(errCh, clientConn, serverConn)
 
-	if err := <-errCh; err != nil && err != io.EOF {
+	if err := <-errCh; err != nil && !errors.Is(err, io.EOF) {
 		logger.Printf("%s: %v", logPrefix, err)
 	}
 }
 
 func proxyCopy(errCh chan<- error, dst net.Conn, src net.Conn) {
-	_, err := io.Copy(dst, src)
-	// Ensure the other side sees EOF.
-	dst.Close()
-	errCh <- err
+	_, copyErr := io.Copy(dst, src)
+	closeErr := dst.Close()
+	var resultErr error
+	if copyErr != nil {
+		resultErr = copyErr
+	} else if closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+		resultErr = fmt.Errorf("close destination: %w", closeErr)
+	}
+	errCh <- resultErr
 }

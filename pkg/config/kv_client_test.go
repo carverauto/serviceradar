@@ -229,7 +229,7 @@ func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
 
 	select {
 	case <-reloads:
-	case <-time.After(time.Second):
+	case <-time.After(150 * time.Millisecond):
 		t.Fatalf("timed out waiting for reload triggered by listen_addr change")
 	}
 
@@ -242,7 +242,7 @@ func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
 	select {
 	case <-reloads:
 		t.Fatalf("unexpected reload when config payload did not change")
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(75 * time.Millisecond):
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -20,11 +21,11 @@ import (
 
 func TestDownloadPackageSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/admin/edge-packages/pkg-123/download", r.URL.Path)
-		require.Equal(t, "json", r.URL.Query().Get("format"))
+		assert.Equal(t, "/api/admin/edge-packages/pkg-123/download", r.URL.Path)
+		assert.Equal(t, "json", r.URL.Query().Get("format"))
 		var req map[string]string
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
-		require.Equal(t, "token-xyz", req["download_token"])
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		assert.Equal(t, "token-xyz", req["download_token"])
 
 		resp := deliverResponse{
 			Package: edgePackagePayload{
@@ -43,7 +44,7 @@ func TestDownloadPackageSuccess(t *testing.T) {
 			BundlePEM: "bundle-json",
 		}
 		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(resp))
+		assert.NoError(t, json.NewEncoder(w).Encode(resp))
 	}))
 	defer server.Close()
 

@@ -388,8 +388,25 @@ func (db *DB) preserveFirstSeen(ctx context.Context, status *models.PollerStatus
 }
 
 // insertPollerStatus inserts or updates the poller status in the pollers table.
+const insertPollerStatusQuery = `
+INSERT INTO pollers (
+	poller_id,
+	component_id,
+	registration_source,
+	status,
+	spiffe_identity,
+	first_registered,
+	first_seen,
+	last_seen,
+	metadata,
+	created_by,
+	is_healthy,
+	agent_count,
+	checker_count
+)`
+
 func (db *DB) insertPollerStatus(ctx context.Context, status *models.PollerStatus) error {
-	return db.executeBatch(ctx, "INSERT INTO pollers (* except _tp_time)", func(batch driver.Batch) error {
+	return db.executeBatch(ctx, insertPollerStatusQuery, func(batch driver.Batch) error {
 		return batch.Append(
 			status.PollerID,   // poller_id
 			"",                // component_id (empty for implicit registration)

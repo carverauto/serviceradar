@@ -26,6 +26,12 @@ const (
 
 	edgePackageFormatTar  = "tar"
 	edgePackageFormatJSON = "json"
+
+	edgeCommandPackage = "package"
+
+	componentTypePoller  = "poller"
+	componentTypeAgent   = "agent"
+	componentTypeChecker = "checker"
 )
 
 type edgePackageView struct {
@@ -84,10 +90,10 @@ type edgePackageRevokeAPIResponse struct {
 // RunEdgeCommand dispatches multi-level `edge ...` invocations.
 func RunEdgeCommand(cfg *CmdConfig) error {
 	switch cfg.EdgeCommand {
-	case "package":
+	case edgeCommandPackage:
 		return runEdgePackageCommand(cfg)
 	default:
-		return fmt.Errorf("unknown edge resource %q", cfg.EdgeCommand)
+		return fmt.Errorf("%w: %s", errEdgeUnknownResource, cfg.EdgeCommand)
 	}
 }
 
@@ -106,7 +112,7 @@ func runEdgePackageCommand(cfg *CmdConfig) error {
 	case "token":
 		return RunEdgePackageToken(cfg)
 	default:
-		return fmt.Errorf("unknown edge package action %q", cfg.EdgePackageAction)
+		return fmt.Errorf("%w: %s", errEdgeUnknownAction, cfg.EdgePackageAction)
 	}
 }
 
@@ -424,7 +430,7 @@ func RunEdgePackageDownload(cfg *CmdConfig) error {
 		return fmt.Errorf("build download endpoint: %w", err)
 	}
 	if format == edgePackageFormatJSON {
-		endpoint = endpoint + "?format=json"
+		endpoint += "?format=json"
 	}
 
 	payload := map[string]string{
@@ -708,9 +714,11 @@ func printPackageTable(packages []edgePackageView) {
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "PACKAGE\tCOMPONENT\tSTATUS\tDOWNLOAD EXPIRES\tLABEL")
+	if _, err := fmt.Fprintln(w, "PACKAGE\tCOMPONENT\tSTATUS\tDOWNLOAD EXPIRES\tLABEL"); err != nil {
+		return
+	}
 	for _, pkg := range packages {
-		fmt.Fprintf(
+		if _, err := fmt.Fprintf(
 			w,
 			"%s\t%s\t%s\t%s\t%s\n",
 			pkg.PackageID,
@@ -718,7 +726,9 @@ func printPackageTable(packages []edgePackageView) {
 			pkg.Status,
 			formatTimestamp(pkg.DownloadExpiresAt),
 			pkg.Label,
-		)
+		); err != nil {
+			return
+		}
 	}
 	_ = w.Flush()
 }
@@ -796,6 +806,11 @@ func trimValues(values []string) []string {
 	return out
 }
 
+func readErrorBody(body io.Reader) string {
+	data, _ := io.ReadAll(io.LimitReader(body, 8192))
+	return strings.TrimSpace(string(data))
+}
+
 func normalizeOutputFormat(raw string) (string, error) {
 	format := strings.ToLower(strings.TrimSpace(raw))
 	if format == "" || format == outputFormatText {
@@ -821,13 +836,17 @@ func normalizePackageFormat(raw string) (string, error) {
 func normalizeComponentType(raw string) (string, error) {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	if value == "" {
-		value = "poller"
+		value = componentTypePoller
 	}
 	switch value {
-	case "poller", "agent", "checker":
+	case componentTypePoller, componentTypeAgent, componentTypeChecker:
 		return value, nil
 	default:
-		return "", fmt.Errorf("unknown component type %q", raw)
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			trimmed = raw
+		}
+		return "", fmt.Errorf("%w: %s", edgeonboarding.ErrUnsupportedComponentType, trimmed)
 	}
 }
 
