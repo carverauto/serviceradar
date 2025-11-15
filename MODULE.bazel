@@ -218,10 +218,21 @@ oci_ext.pull(
         "d.timeplus.com": "Bearer realm=\"https://ghcr.io/token\",service=\"ghcr.io\",scope=\"repository:{repository}:pull\"",
     },
 )
+oci_ext.pull(
+    name = "cloudnativepg_postgresql_16_6",
+    image = "ghcr.io/cloudnative-pg/postgresql",
+    platforms = [
+        "linux/amd64",
+    ],
+    reproducible = False,
+    tag = "16.6",
+)
 use_repo(
     oci_ext,
     "alpine_3_20",
     "alpine_3_20_linux_amd64",
+    "cloudnativepg_postgresql_16_6",
+    "cloudnativepg_postgresql_16_6_linux_amd64",
     "debian_bookworm_slim",
     "debian_bookworm_slim_linux_amd64",
     "nginx_alpine",
@@ -240,6 +251,18 @@ use_repo(
     "ubuntu_jammy_linux_amd64",
     "ubuntu_noble",
     "ubuntu_noble_linux_amd64",
+)
+
+repo_alias = use_repo_rule("//build:repo_alias.bzl", "repo_alias")
+
+repo_alias(
+    name = "oci_regctl_linux_amd64",
+    actual = "@rules_oci++oci+oci_regctl_linux_amd64",
+)
+
+repo_alias(
+    name = "oci_regctl_toolchains",
+    actual = "@rules_oci++oci+oci_regctl_toolchains",
 )
 
 # --- Xcode Toolchain  ----------------------------------
@@ -861,7 +884,10 @@ http_file = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_file",
 )
-
+http_archive = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:http.bzl",
+    "http_archive",
+)
 http_file(
     name = "jq_linux_amd64",
     executable = True,
@@ -895,6 +921,49 @@ http_file(
     sha256 = "1b050abd1669f9a2ac29b34eb022cdeafb271dce5a4fb57d8ef8fadff6d7be1f",
     urls = [
         "https://github.com/moparisthebest/static-curl/releases/download/v8.11.0/curl-aarch64",
+    ],
+)
+
+http_file(
+    name = "postgresql_server_dev_16_deb",
+    sha256 = "032956e4539bbfb9ba56734cb6d28b3e1227c27543e54df02fb172e97b169c09",
+    urls = [
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-16/postgresql-server-dev-16_16.11-1.pgdg+1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_bison_amd64_deb",
+    sha256 = "a414afd7519c53bfa33415ba5b951bc8b4906877004c49723ffda50a6033c3e8",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/b/bison/bison_3.8.2+dfsg-1+b1_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_flex_amd64_deb",
+    sha256 = "75f963765232c356d0a2fb70e780dfa9de2425aca036ec60eefb7fc98a2c905b",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/f/flex/flex_2.6.4-8.2+b4_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libpq_dev_amd64_deb",
+    sha256 = "770a208820cb4061c7296d80b56d1c4ae39f8007ab8c578a13fc1f5eb36ae780",
+    urls = [
+        "https://ftp.debian.org/debian/pool/main/p/postgresql-15/libpq-dev_15.14-0+deb12u1_amd64.deb",
+    ],
+)
+
+http_archive(
+    name = "crane_linux_amd64",
+    build_file_content = """
+exports_files(["crane"])
+""",
+    integrity = "sha256-zfTUJtll2ai6YT1+vzrd+TEBqi6FOj8I+/2u0oI5GPM=",
+    urls = [
+        "https://github.com/google/go-containerregistry/releases/download/v0.18.0/go-containerregistry_Linux_x86_64.tar.gz",
     ],
 )
 
@@ -960,11 +1029,6 @@ http_file(
     urls = [
         "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/readline-8.2.10-r0.apk",
     ],
-)
-
-http_archive = use_repo_rule(
-    "@bazel_tools//tools/build_defs/repo:http.bzl",
-    "http_archive",
 )
 
 http_archive(
@@ -1066,6 +1130,40 @@ filegroup(
     urls = [
         "https://github.com/nats-io/nats-server/releases/download/v2.11.4/nats-server-v2.11.4-linux-amd64.tar.gz",
     ],
+)
+
+# --- CNPG extension sources ----------------------------------
+
+http_archive(
+    name = "timescaledb_src",
+    urls = [
+        "https://github.com/timescale/timescaledb/archive/refs/tags/2.23.1.tar.gz",
+    ],
+    strip_prefix = "timescaledb-2.23.1",
+    sha256 = "26575fa9e287a6107a6bf162bacab4932b0df19bee38d28c132f9a2d6591d647",
+    build_file_content = """
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
+    visibility = ["//visibility:public"],
+)
+""",
+)
+
+http_archive(
+    name = "age_src",
+    urls = [
+        "https://downloads.apache.org/age/PG17/1.6.0/apache-age-1.6.0-src.tar.gz",
+    ],
+    strip_prefix = "apache-age-1.6.0",
+    sha256 = "57c7187a37942f1b6208e1f68caafcb7374f8bedaabad162c8760adb44ae9ffe",
+    build_file_content = """
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
+    visibility = ["//visibility:public"],
+)
+""",
 )
 
 # Additional module extensions will be layered in as language owners migrate to
