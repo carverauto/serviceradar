@@ -72,6 +72,10 @@ func (db *DB) queryTimeseriesMetrics(
 	pollerID, filterValue, filterColumn string,
 	start, end time.Time,
 ) ([]models.TimeseriesMetric, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgQueryTimeseriesMetrics(ctx, pollerID, filterValue, filterColumn, start, end)
+	}
+
 	query := fmt.Sprintf(`
         SELECT metric_name, metric_type, value, metadata, timestamp, target_device_ip, ifIndex, device_id, partition 
         FROM table(timeseries_metrics)
@@ -311,6 +315,10 @@ func (db *DB) GetMetricsByType(
 // GetCPUMetrics retrieves CPU metrics for a specific core.
 func (db *DB) GetCPUMetrics(
 	ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetCPUMetrics(ctx, pollerID, coreID, start, end)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz, label, cluster
 		FROM table(cpu_metrics)
@@ -870,6 +878,10 @@ func (db *DB) storeProcessMetrics(
 // GetAllCPUMetrics retrieves all CPU metrics for a poller within a time range, grouped by timestamp.
 func (db *DB) GetAllCPUMetrics(
 	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetAllCPUMetrics(ctx, pollerID, start, end)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz, label, cluster
 		FROM table(cpu_metrics)
@@ -965,6 +977,10 @@ func (db *DB) GetAllCPUMetrics(
 // GetAllDiskMetrics retrieves all disk metrics for a poller.
 func (db *DB) GetAllDiskMetrics(
 	ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetAllDiskMetrics(ctx, pollerID, start, end)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
 		SELECT mount_point, used_bytes, total_bytes, timestamp, agent_id, host_id
 		FROM table(disk_metrics)
@@ -1004,6 +1020,10 @@ func (db *DB) GetAllDiskMetrics(
 // GetDiskMetrics retrieves disk metrics for a specific mount point.
 func (db *DB) GetDiskMetrics(
 	ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetDiskMetrics(ctx, pollerID, mountPoint, start, end)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, mount_point, used_bytes, total_bytes, agent_id, host_id
 		FROM table(disk_metrics)
@@ -1034,6 +1054,10 @@ func (db *DB) GetDiskMetrics(
 // GetMemoryMetrics retrieves memory metrics.
 func (db *DB) GetMemoryMetrics(
 	ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetMemoryMetrics(ctx, pollerID, start, end)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, used_bytes, total_bytes, agent_id, host_id
 		FROM table(memory_metrics)
@@ -1065,6 +1089,10 @@ func (db *DB) GetMemoryMetrics(
 // GetAllDiskMetricsGrouped retrieves disk metrics grouped by timestamp.
 func (db *DB) GetAllDiskMetricsGrouped(
 	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetAllDiskMetricsGrouped(ctx, pollerID, start, end)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, mount_point, used_bytes, total_bytes, agent_id, host_id
 		FROM table(disk_metrics)
@@ -1121,6 +1149,10 @@ func (db *DB) GetAllDiskMetricsGrouped(
 // GetMemoryMetricsGrouped retrieves memory metrics grouped by timestamp.
 func (db *DB) GetMemoryMetricsGrouped(
 	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetMemoryMetricsGrouped(ctx, pollerID, start, end)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, used_bytes, total_bytes, agent_id, host_id
 		FROM table(memory_metrics)
@@ -1183,6 +1215,10 @@ func (db *DB) GetMetricsForDeviceByType(
 // GetICMPMetricsForDevice retrieves ICMP metrics for a device, including those where the device acted as the collector.
 func (db *DB) GetICMPMetricsForDevice(
 	ctx context.Context, deviceID, deviceIP string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetICMPMetricsForDevice(ctx, deviceID, deviceIP, start, end)
+	}
+
 	query := `
 			SELECT metric_name, metric_type, value, metadata, timestamp, target_device_ip,
 			       ifIndex, device_id, partition, poller_id
@@ -1245,6 +1281,10 @@ const deviceMetricsAvailabilityChunkSize = 200
 // GetDeviceMetricTypes returns the distinct metric types observed for each device since the provided timestamp.
 func (db *DB) GetDeviceMetricTypes(
 	ctx context.Context, deviceIDs []string, since time.Time) (map[string][]string, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetDeviceMetricTypes(ctx, deviceIDs, since)
+	}
+
 	result := make(map[string][]string, len(deviceIDs))
 
 	if len(deviceIDs) == 0 {
@@ -1316,6 +1356,10 @@ func (db *DB) getTimeseriesMetricsByFilter(
 // getTimeseriesMetricsByFilters is a helper function to query timeseries metrics by multiple filter criteria
 func (db *DB) getTimeseriesMetricsByFilters(
 	ctx context.Context, filters map[string]string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetTimeseriesMetricsByFilters(ctx, filters, start, end)
+	}
+
 	// pre-allocate with expected size
 	whereConditions := make([]string, 0, len(filters)+2) // +2 for timestamp conditions
 
@@ -1380,6 +1424,10 @@ func (db *DB) getTimeseriesMetricsByFilters(
 // GetAllProcessMetrics retrieves all process metrics for a poller within a time range.
 func (db *DB) GetAllProcessMetrics(
 	ctx context.Context, pollerID string, start, end time.Time) ([]models.ProcessMetric, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetAllProcessMetrics(ctx, pollerID, start, end)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, agent_id, host_id, pid, name, cpu_usage, memory_usage, status, start_time
 		FROM table(process_metrics)
@@ -1412,6 +1460,10 @@ func (db *DB) GetAllProcessMetrics(
 // GetAllProcessMetricsGrouped retrieves process metrics grouped by timestamp.
 func (db *DB) GetAllProcessMetricsGrouped(
 	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonProcessResponse, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetAllProcessMetricsGrouped(ctx, pollerID, start, end)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, agent_id, host_id, pid, name, cpu_usage, memory_usage, status, start_time
 		FROM table(process_metrics)

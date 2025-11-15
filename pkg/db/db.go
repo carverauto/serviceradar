@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/timeplus-io/proton-go-driver/v2"
 	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
@@ -41,6 +42,7 @@ import (
 // Static errors for err113 compliance
 var (
 	ErrDatabaseNotInitialized = errors.New("database connection not initialized")
+	ErrCNPGUnavailable        = errors.New("cnpg connection pool not configured")
 )
 
 // DB represents the database connection for Timeplus Proton.
@@ -362,8 +364,16 @@ func (db *DB) cnpgConfigured() bool {
 	return db != nil && db.pgPool != nil
 }
 
-func (db *DB) useCNPGReads() bool {
+func (db *DB) UseCNPGReads() bool {
 	return db.cnpgConfigured() && db.storageRouting.PrimaryBackend == models.StorageBackendCNPG
+}
+
+func (db *DB) UseCNPGWrites() bool {
+	if db == nil {
+		return false
+	}
+
+	return db.useCNPGWrites()
 }
 
 func (db *DB) useCNPGWrites() bool {
@@ -388,6 +398,33 @@ func (db *DB) Close() error {
 	}
 
 	return closeErr
+}
+
+// QueryCNPGRows executes a query against the CNPG pool and returns a Rows implementation.
+func (db *DB) QueryCNPGRows(ctx context.Context, query string, args ...interface{}) (Rows, error) {
+	if !db.cnpgConfigured() {
+		return nil, ErrCNPGUnavailable
+	}
+
+	rows, err := db.pgPool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cnpgRows{rows: rows}, nil
+}
+
+// ExecCNPG executes a statement against the CNPG pool.
+func (db *DB) ExecCNPG(ctx context.Context, query string, args ...interface{}) error {
+	if !db.cnpgConfigured() {
+		return ErrCNPGUnavailable
+	}
+
+	if _, err := db.pgPool.Exec(ctx, query, args...); err != nil {
+		return fmt.Errorf("cnpg exec: %w", err)
+	}
+
+	return nil
 }
 
 // ExecuteQuery executes a raw SQL query against the Proton database.
@@ -493,6 +530,10 @@ func (db *DB) executeBatch(ctx context.Context, query string, appendFunc func(dr
 
 // GetAllMountPoints retrieves all unique mount points for a poller.
 func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetAllMountPoints(ctx, pollerID)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
 		SELECT DISTINCT mount_point
 		FROM table(disk_metrics)
@@ -757,4 +798,37 @@ func (*DB) appendUpdateToBatch(batch driver.Batch, update *models.DeviceUpdate) 
 		update.IsAvailable,
 		update.Metadata,
 	)
+}
+
+type cnpgRows struct {
+	rows pgx.Rows
+}
+
+func (r *cnpgRows) Next() bool {
+	if r == nil || r.rows == nil {
+		return false
+	}
+	return r.rows.Next()
+}
+
+func (r *cnpgRows) Scan(dest ...interface{}) error {
+	if r == nil || r.rows == nil {
+		return fmt.Errorf("cnpg rows not initialized")
+	}
+	return r.rows.Scan(dest...)
+}
+
+func (r *cnpgRows) Close() error {
+	if r == nil || r.rows == nil {
+		return nil
+	}
+	r.rows.Close()
+	return nil
+}
+
+func (r *cnpgRows) Err() error {
+	if r == nil || r.rows == nil {
+		return nil
+	}
+	return r.rows.Err()
 }

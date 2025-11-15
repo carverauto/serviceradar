@@ -46,6 +46,7 @@ const (
 	identitySourceDeviceID          = "device_id"
 	integrationTypeNetbox           = "netbox"
 	defaultFirstSeenLookupChunkSize = 512
+	cnpgIdentifierChunkSize         = 1000
 )
 
 // Option configures DeviceRegistry behaviour.
@@ -66,6 +67,11 @@ type DeviceRegistry struct {
 	searchIndex  *TrigramIndex
 	capabilities *CapabilityIndex
 	matrix       *CapabilityMatrix
+}
+
+type cnpgRegistryClient interface {
+	UseCNPGReads() bool
+	QueryCNPGRows(ctx context.Context, query string, args ...interface{}) (db.Rows, error)
 }
 
 // NewDeviceRegistry creates a new, authoritative device registry.
@@ -507,7 +513,168 @@ func (r *DeviceRegistry) resolveIdentifiers(
 	return nil
 }
 
+func (r *DeviceRegistry) resolveArmisIDsCNPG(ctx context.Context, ids []string, out map[string]string) error {
+	const query = `
+SELECT metadata->>'armis_device_id' AS id, device_id
+FROM unified_devices
+WHERE metadata ? 'armis_device_id'
+  AND metadata->>'armis_device_id' = ANY($1)
+ORDER BY updated_at DESC`
+
+	return r.resolveIdentifiersCNPG(ctx, ids, query, nil, out)
+}
+
+func (r *DeviceRegistry) resolveNetboxIDsCNPG(ctx context.Context, ids []string, out map[string]string) error {
+	const query = `
+SELECT COALESCE(metadata->>'integration_id', metadata->>'netbox_device_id') AS id,
+       device_id
+FROM unified_devices
+WHERE metadata->>'integration_type' = $1
+  AND (
+        (metadata ? 'integration_id' AND metadata->>'integration_id' = ANY($2))
+     OR (metadata ? 'netbox_device_id' AND metadata->>'netbox_device_id' = ANY($2))
+      )
+ORDER BY updated_at DESC`
+
+	argBuilder := func(chunk []string) []interface{} {
+		return []interface{}{integrationTypeNetbox, chunk}
+	}
+
+	return r.resolveIdentifiersCNPG(ctx, ids, query, argBuilder, out)
+}
+
+func (r *DeviceRegistry) resolveMACsCNPG(ctx context.Context, macs []string, out map[string]string) error {
+	const query = `
+SELECT mac, device_id
+FROM unified_devices
+WHERE mac = ANY($1)
+ORDER BY updated_at DESC`
+
+	return r.resolveIdentifiersCNPG(ctx, macs, query, nil, out)
+}
+
+func (r *DeviceRegistry) resolveIPsToCanonicalCNPG(ctx context.Context, ips []string, out map[string]string) error {
+	const query = `
+SELECT DISTINCT ON (ip) ip, device_id
+FROM unified_devices
+WHERE ip = ANY($1)
+  AND (
+        metadata ? 'armis_device_id'
+     OR (metadata ? 'integration_type' AND metadata->>'integration_type' = $2)
+     OR (mac IS NOT NULL AND mac <> '')
+      )
+ORDER BY ip, last_seen DESC`
+
+	argBuilder := func(chunk []string) []interface{} {
+		return []interface{}{chunk, integrationTypeNetbox}
+	}
+
+	return r.resolveIdentifiersCNPG(ctx, ips, query, argBuilder, out)
+}
+
+func (r *DeviceRegistry) resolveIdentifiersCNPG(
+	ctx context.Context,
+	values []string,
+	query string,
+	argBuilder func([]string) []interface{},
+	out map[string]string,
+) error {
+	if len(values) == 0 {
+		return nil
+	}
+
+	for start := 0; start < len(values); start += cnpgIdentifierChunkSize {
+		end := start + cnpgIdentifierChunkSize
+		if end > len(values) {
+			end = len(values)
+		}
+
+		chunk := filterIdentifierValues(values[start:end])
+		if len(chunk) == 0 {
+			continue
+		}
+
+		args := []interface{}{chunk}
+		if argBuilder != nil {
+			args = argBuilder(chunk)
+		}
+
+		rows, err := r.queryCNPGRows(ctx, query, args...)
+		if err != nil {
+			return err
+		}
+
+		if err := r.scanIdentifierRows(rows, out); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *DeviceRegistry) scanIdentifierRows(rows db.Rows, out map[string]string) error {
+	if rows == nil {
+		return nil
+	}
+	defer func() { _ = rows.Close() }()
+
+	if out == nil {
+		return rows.Err()
+	}
+
+	for rows.Next() {
+		var key, deviceID string
+		if err := rows.Scan(&key, &deviceID); err != nil {
+			return err
+		}
+
+		key = strings.TrimSpace(key)
+		deviceID = strings.TrimSpace(deviceID)
+		if key == "" || deviceID == "" {
+			continue
+		}
+
+		if _, exists := out[key]; !exists {
+			out[key] = deviceID
+		}
+	}
+
+	return rows.Err()
+}
+
+func (r *DeviceRegistry) useCNPGReads() bool {
+	client, ok := r.db.(cnpgRegistryClient)
+	if !ok {
+		return false
+	}
+
+	return client.UseCNPGReads()
+}
+
+func (r *DeviceRegistry) queryCNPGRows(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
+	client, ok := r.db.(cnpgRegistryClient)
+	if !ok {
+		return nil, fmt.Errorf("cnpg querying is not supported by db.Service")
+	}
+
+	return client.QueryCNPGRows(ctx, query, args...)
+}
+
+func filterIdentifierValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if trimmed := strings.TrimSpace(v); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
 func (r *DeviceRegistry) resolveArmisIDs(ctx context.Context, ids []string, out map[string]string) error {
+	if r.useCNPGReads() {
+		return r.resolveArmisIDsCNPG(ctx, ids, out)
+	}
+
 	buildQuery := func(list string) string {
 		return fmt.Sprintf(`SELECT device_id, metadata['armis_device_id'] AS id, _tp_time
               FROM table(unified_devices)
@@ -524,6 +691,10 @@ func (r *DeviceRegistry) resolveArmisIDs(ctx context.Context, ids []string, out 
 }
 
 func (r *DeviceRegistry) resolveNetboxIDs(ctx context.Context, ids []string, out map[string]string) error {
+	if r.useCNPGReads() {
+		return r.resolveNetboxIDsCNPG(ctx, ids, out)
+	}
+
 	buildQuery := func(list string) string {
 		return fmt.Sprintf(`SELECT device_id,
                      if(has(map_keys(metadata),'integration_id'), metadata['integration_id'], metadata['netbox_device_id']) AS id,
@@ -543,6 +714,10 @@ func (r *DeviceRegistry) resolveNetboxIDs(ctx context.Context, ids []string, out
 }
 
 func (r *DeviceRegistry) resolveMACs(ctx context.Context, macs []string, out map[string]string) error {
+	if r.useCNPGReads() {
+		return r.resolveMACsCNPG(ctx, macs, out)
+	}
+
 	buildQuery := func(list string) string {
 		return fmt.Sprintf(`SELECT device_id, mac AS id, _tp_time
               FROM table(unified_devices)
@@ -614,6 +789,11 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 	fallbackIPs := make([]string, 0, len(unresolved))
 	for ip := range unresolved {
 		fallbackIPs = append(fallbackIPs, ip)
+	}
+
+	if r.useCNPGReads() {
+		cnpgErr := r.resolveIPsToCanonicalCNPG(ctx, fallbackIPs, out)
+		return errors.Join(kvErr, cnpgErr)
 	}
 
 	buildQuery := func(list string) string {

@@ -26,6 +26,10 @@ import (
 // GetDevicesWithRecentSNMPMetrics checks a list of device IDs and returns a map indicating
 // which ones have recent SNMP metrics.
 func (db *DB) GetDevicesWithRecentSNMPMetrics(ctx context.Context, deviceIDs []string) (map[string]bool, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetDevicesWithRecentSNMPMetrics(ctx, deviceIDs)
+	}
+
 	if len(deviceIDs) == 0 {
 		return make(map[string]bool), nil
 	}

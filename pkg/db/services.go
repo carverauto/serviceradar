@@ -40,7 +40,7 @@ func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*models.Serv
 		return fmt.Errorf("%w service statuses: %w", ErrFailedToInsert, err)
 	}
 
-	return nil
+	return db.cnpgInsertServiceStatuses(ctx, statuses)
 }
 
 // UpdateServiceStatus updates a service's status.
@@ -69,11 +69,15 @@ func (db *DB) UpdateServiceStatus(ctx context.Context, status *models.ServiceSta
 		return fmt.Errorf("%w service status: %w", ErrFailedToInsert, err)
 	}
 
-	return nil
+	return db.cnpgInsertServiceStatuses(ctx, []*models.ServiceStatus{status})
 }
 
 // GetServiceHistory retrieves the recent history for a service.
 func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]models.ServiceStatus, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetServiceHistory(ctx, pollerID, serviceName, limit)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, available, details
 		FROM table(service_status)
@@ -145,5 +149,5 @@ func (db *DB) StoreServices(ctx context.Context, services []*models.Service) err
 		return fmt.Errorf("%w services: %w", ErrFailedToInsert, err)
 	}
 
-	return nil
+	return db.cnpgInsertServices(ctx, services)
 }
