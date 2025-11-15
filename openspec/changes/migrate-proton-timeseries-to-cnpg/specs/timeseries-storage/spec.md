@@ -35,20 +35,20 @@ ServiceRadar MUST maintain canonical device inventory, poller/agent/checker regi
 - **WHEN** the request runs against the CNPG-backed implementation
 - **THEN** the device count, pagination cursors, and metadata flags (deleted/merged markers) match what Proton returned for the same dataset.
 
-### Requirement: Controlled Proton → CNPG migration and rollback
-The project MUST provide a reversible migration plan that dual-writes during the cutover, validates parity, and lets operators fall back to Proton until CNPG proves stable.
+### Requirement: Proton-free runtime
+ServiceRadar MUST operate exclusively against CNPG/Timescale and remove every dependency on the Proton driver, schema artifacts, and operational tooling.
 
-#### Scenario: Dual-write guard is available
-- **GIVEN** ServiceRadar services are on a build that includes this change
-- **WHEN** the feature flag/config value enabling CNPG writes is toggled on
-- **THEN** `pkg/db` writes every mutation to both Proton (until we decommission it) and CNPG so we can compare counts/latencies without losing data.
+#### Scenario: Services boot without Proton configuration
+- **GIVEN** a fresh deployment of `cmd/core`, `cmd/db-event-writer`, and the supporting Go binaries
+- **WHEN** they load configuration
+- **THEN** only CNPG DSNs/TLS files are required, Proton connection settings are ignored or deleted, and the Go services fail fast if CNPG is unavailable rather than attempting to dial Proton.
 
-#### Scenario: Cutover validation succeeds before Proton is decommissioned
-- **GIVEN** CNPG dual-writes are enabled
-- **WHEN** the provided verification command/runbook executes (device counts, metric samples, registry tallies)
-- **THEN** it reports parity and records the evidence needed to flip the read path to CNPG and disable Proton entirely.
+#### Scenario: Codebase no longer references Proton helpers
+- **GIVEN** the repository is built after this change lands
+- **WHEN** developers search for `timeplus-io/proton-go-driver` (or Proton-specific SQL such as `table(...)`, `_tp_time`, `FINAL`)
+- **THEN** no references remain under `pkg/`, `cmd/`, or `scripts/`, and all persistence layer tests exercise the pgx-backed CNPG implementation.
 
-#### Scenario: Rollback instructions exist
-- **GIVEN** CNPG encounters critical issues during rollout
-- **WHEN** operators follow the rollback steps
-- **THEN** services point back at Proton, any unapplied migrations are reverted, and no data is lost beyond the already-documented retention windows.
+#### Scenario: Operational docs mention CNPG only
+- **GIVEN** an operator follows the updated runbooks
+- **WHEN** they read `docs/docs/agents.md`, `docs/docs/runbooks`, or the demo cluster guides
+- **THEN** every instruction references CNPG (migrations, health checks, resets), and Proton-specific guidance (PVC resets, dual-write toggles, rollback commands) has been removed or replaced with CNPG equivalents.

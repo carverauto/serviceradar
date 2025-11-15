@@ -22,6 +22,20 @@ export NATS_KEY=${NATS_KEY:-/etc/serviceradar/certs/client-key.pem}
 export NATS_CONTEXT=${NATS_CONTEXT:-serviceradar}
 unset NATS_URL
 
+export CNPG_HOST=${CNPG_HOST:-cnpg-rw}
+export CNPG_PORT=${CNPG_PORT:-5432}
+export CNPG_DATABASE=${CNPG_DATABASE:-telemetry}
+export CNPG_SSLMODE=${CNPG_SSLMODE:-verify-full}
+export CNPG_CA_FILE=${CNPG_CA_FILE:-/etc/serviceradar/cnpg/ca.crt}
+export CNPG_SERVICE_NAME=${CNPG_SERVICE_NAME:-serviceradar}
+if [ -f /etc/serviceradar/cnpg/superuser-password ]; then
+    export CNPG_PASSWORD_FILE=${CNPG_PASSWORD_FILE:-/etc/serviceradar/cnpg/superuser-password}
+fi
+if [ -n "${CNPG_SERVICE_NAME:-}" ] && [ -z "${PGSERVICE:-}" ]; then
+    export PGSERVICE="${CNPG_SERVICE_NAME}"
+fi
+export PGPASSFILE=${PGPASSFILE:-/root/.pgpass}
+
 alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
@@ -51,6 +65,29 @@ alias proton-cli-tls='PROTON_SECURE=1 PROTON_CONFIG=/etc/serviceradar/proton-cli
 alias proton-bin='/usr/local/bin/proton.bin'
 alias proton-version='proton-client --query "SELECT version()"'
 alias proton-shell='proton-client'
+
+cnpg_info() {
+    local service="${PGSERVICE:-${CNPG_SERVICE_NAME:-}}"
+    echo "CNPG target:"
+    echo "  host: ${CNPG_HOST:-cnpg-rw}"
+    echo "  port: ${CNPG_PORT:-5432}"
+    echo "  database: ${CNPG_DATABASE:-telemetry}"
+    echo "  service: ${service:-<unset>}"
+    echo "  sslmode: ${CNPG_SSLMODE:-verify-full}"
+    if [ -n "${CNPG_PASSWORD_FILE:-}" ]; then
+        echo "  password file: ${CNPG_PASSWORD_FILE}"
+    elif [ -n "${CNPG_PASSWORD:-}" ]; then
+        echo "  password: (set via CNPG_PASSWORD env)"
+    else
+        echo "  password: <not set>"
+    fi
+}
+
+alias cnpg-info='cnpg_info'
+cnpg_sql() {
+    psql "$@"
+}
+alias cnpg-sql='cnpg_sql'
 
 proton_info() {
     echo "Proton target:"
@@ -91,6 +128,8 @@ test_connectivity() {
     nc -zv serviceradar-core 8090 || echo "  Core API connection failed"
     echo "Testing Core gRPC..."
     nc -zv serviceradar-core 50052 || echo "  Core gRPC connection failed"
+    echo "Testing CNPG..."
+    nc -zv "${CNPG_HOST:-cnpg-rw}" "${CNPG_PORT:-5432}" || echo "  CNPG connection failed"
     echo "Testing Proton..."
     nc -zv serviceradar-proton 9440 || echo "  Proton TLS connection failed"
     nc -zv serviceradar-proton 8123 || echo "  Proton HTTP connection failed"

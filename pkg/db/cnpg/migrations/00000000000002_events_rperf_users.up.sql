@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS events (
 );
 SELECT create_hypertable('events','event_timestamp', if_not_exists => TRUE);
 SELECT add_retention_policy('events', INTERVAL '3 days', if_not_exists => TRUE);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_events_id_unique ON events (id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_id_unique ON events (id, event_timestamp);
 CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events (event_timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_events_subject ON events (subject);
 

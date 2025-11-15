@@ -32,12 +32,14 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-func newCNPGPool(ctx context.Context, config *models.CoreServiceConfig, log logger.Logger) (*pgxpool.Pool, error) {
-	if config == nil || config.CNPG == nil {
+// NewCNPGPool dials the configured CNPG cluster and returns a pgx pool that can
+// be used for Timescale-backed reads/writes.
+func NewCNPGPool(ctx context.Context, cfg *models.CNPGDatabase, log logger.Logger) (*pgxpool.Pool, error) {
+	if cfg == nil {
 		return nil, nil
 	}
 
-	cnpg := *config.CNPG
+	cnpg := *cfg
 	if cnpg.Port == 0 {
 		cnpg.Port = 5432
 	}
@@ -127,13 +129,23 @@ func newCNPGPool(ctx context.Context, config *models.CoreServiceConfig, log logg
 		return nil, fmt.Errorf("cnpg: failed to initialize pool: %w", err)
 	}
 
-	log.Info().
-		Str("host", cnpg.Host).
-		Int("port", cnpg.Port).
-		Int32("max_conns", poolConfig.MaxConns).
-		Msg("connected to CNPG/Timescale cluster")
+	if log != nil {
+		log.Info().
+			Str("host", cnpg.Host).
+			Int("port", cnpg.Port).
+			Int32("max_conns", poolConfig.MaxConns).
+			Msg("connected to CNPG/Timescale cluster")
+	}
 
 	return pool, nil
+}
+
+func newCNPGPool(ctx context.Context, config *models.CoreServiceConfig, log logger.Logger) (*pgxpool.Pool, error) {
+	if config == nil || config.CNPG == nil {
+		return nil, nil
+	}
+
+	return NewCNPGPool(ctx, config.CNPG, log)
 }
 
 func buildCNPGTLSConfig(cfg *models.CNPGDatabase) (*tls.Config, error) {

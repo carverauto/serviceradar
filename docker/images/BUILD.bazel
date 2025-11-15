@@ -197,6 +197,72 @@ tar -czf "$@" -C "$${TMP}/rootfs" .
 )
 
 genrule(
+    name = "apk_postgresql16_client_rootfs_amd64",
+    srcs = ["@alpine_postgresql16_client_apk//file"],
+    outs = ["apk_postgresql16_client_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+APK=$(location @alpine_postgresql16_client_apk//file)
+TMP=$(@D)/postgresql16_client_extract
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
+tar -xzf "$${APK}" -C "$${TMP}/extracted"
+DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
+if [ -n "$${DATA_TAR}" ]; then
+  case "$${DATA_TAR}" in
+    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+  esac
+else
+  shopt -s nullglob
+  for entry in "$${TMP}/extracted"/*; do
+    base=`basename "$${entry}"`
+    case "$${base}" in
+      .SIGN*|.PKGINFO) continue ;;
+    esac
+    cp -a "$${entry}" "$${TMP}/rootfs/"
+  done
+fi
+tar -czf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+genrule(
+    name = "apk_libpq16_rootfs_amd64",
+    srcs = ["@alpine_libpq16_apk//file"],
+    outs = ["apk_libpq16_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+APK=$(location @alpine_libpq16_apk//file)
+TMP=$(@D)/libpq16_extract
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/extracted" "$${TMP}/rootfs"
+tar -xzf "$${APK}" -C "$${TMP}/extracted"
+DATA_TAR=`find "$${TMP}/extracted" -maxdepth 1 -type f -name 'data.tar.*' -print -quit`
+if [ -n "$${DATA_TAR}" ]; then
+  case "$${DATA_TAR}" in
+    *.gz) tar -xzf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.xz) tar -xJf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *.bz2) tar -xjf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+    *) tar -xf "$${DATA_TAR}" -C "$${TMP}/rootfs" ;;
+  esac
+else
+  shopt -s nullglob
+  for entry in "$${TMP}/extracted"/*; do
+    base=`basename "$${entry}"`
+    case "$${base}" in
+      .SIGN*|.PKGINFO) continue ;;
+    esac
+    cp -a "$${entry}" "$${TMP}/rootfs/"
+  done
+fi
+tar -czf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+genrule(
     name = "apk_glibc_rootfs_amd64",
     srcs = ["@alpine_glibc_apk//file"],
     outs = ["apk_glibc_rootfs_amd64.tar"],
@@ -1266,6 +1332,7 @@ pkg_tar(
     name = "tools_layer_amd64",
     files = {
         "//cmd/cli:cli": "usr/local/bin/serviceradar-cli",
+        "//cmd/tools/cnpg-migrate:cnpg-migrate": "usr/local/bin/cnpg-migrate",
         "//docker/compose:tools-entrypoint.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:tools-profile.sh": "etc/profile.d/serviceradar-tools.sh",
         "//docker/compose:tools-motd.txt": "etc/motd",
@@ -1282,6 +1349,7 @@ pkg_tar(
     },
     modes = {
         "usr/local/bin/serviceradar-cli": "0755",
+        "usr/local/bin/cnpg-migrate": "0755",
         "usr/local/bin/entrypoint.sh": "0755",
         "etc/profile.d/serviceradar-tools.sh": "0644",
         "etc/motd": "0644",
@@ -1306,6 +1374,31 @@ pkg_tar(
     package_dir = "/",
 )
 
+pkg_tar(
+    name = "postgresql16_client_symlinks",
+    package_dir = "/",
+    symlinks = {
+        "usr/bin/clusterdb": "/usr/libexec/postgresql16/clusterdb",
+        "usr/bin/createdb": "/usr/libexec/postgresql16/createdb",
+        "usr/bin/createuser": "/usr/libexec/postgresql16/createuser",
+        "usr/bin/dropdb": "/usr/libexec/postgresql16/dropdb",
+        "usr/bin/dropuser": "/usr/libexec/postgresql16/dropuser",
+        "usr/bin/pg_amcheck": "/usr/libexec/postgresql16/pg_amcheck",
+        "usr/bin/pg_basebackup": "/usr/libexec/postgresql16/pg_basebackup",
+        "usr/bin/pg_dump": "/usr/libexec/postgresql16/pg_dump",
+        "usr/bin/pg_dumpall": "/usr/libexec/postgresql16/pg_dumpall",
+        "usr/bin/pg_isready": "/usr/libexec/postgresql16/pg_isready",
+        "usr/bin/pg_recvlogical": "/usr/libexec/postgresql16/pg_recvlogical",
+        "usr/bin/pg_receivewal": "/usr/libexec/postgresql16/pg_receivewal",
+        "usr/bin/pg_restore": "/usr/libexec/postgresql16/pg_restore",
+        "usr/bin/pg_verifybackup": "/usr/libexec/postgresql16/pg_verifybackup",
+        "usr/bin/pgbench": "/usr/libexec/postgresql16/pgbench",
+        "usr/bin/psql": "/usr/libexec/postgresql16/psql",
+        "usr/bin/reindexdb": "/usr/libexec/postgresql16/reindexdb",
+        "usr/bin/vacuumdb": "/usr/libexec/postgresql16/vacuumdb",
+    },
+)
+
 oci_image(
     name = "tools_image_amd64",
     base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
@@ -1313,6 +1406,9 @@ oci_image(
         ":alpine_netutils_rootfs_amd64",
         ":apk_bash_rootfs_amd64",
         ":apk_readline_rootfs_amd64",
+        ":apk_postgresql16_client_rootfs_amd64",
+        ":apk_libpq16_rootfs_amd64",
+        ":postgresql16_client_symlinks",
         ":apk_libncursesw_rootfs_amd64",
         ":apk_ncurses_terminfo_base_rootfs_amd64",
         ":apk_glibc_rootfs_amd64",
@@ -1322,7 +1418,7 @@ oci_image(
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["/bin/sh"],
     env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "PATH": "/usr/libexec/postgresql16:/usr/local/bin:/usr/bin:/bin",
     },
     labels = {
         "org.opencontainers.image.title": "serviceradar-tools",

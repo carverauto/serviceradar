@@ -37,21 +37,23 @@ cd serviceradar/k8s/demo
 
 ### 2. Create GitHub Container Registry Secret
 ```bash
+# Replace demo with demo-staging to target the rehearsal namespace
+NAMESPACE=demo
 kubectl create secret docker-registry ghcr-io-cred \
   --docker-server=ghcr.io \
   --docker-username=YOUR_GITHUB_USERNAME \
   --docker-password=YOUR_GITHUB_TOKEN \
-  --namespace=serviceradar-staging
+  --namespace=$NAMESPACE
 ```
 
 ### 3. Deploy ServiceRadar
 ```bash
 chmod +x deploy.sh
-./deploy.sh
+./deploy.sh prod      # or ./deploy.sh staging
 ```
 
 The deployment script will:
-- Create the `serviceradar-staging` namespace
+- Create the `demo` or `demo-staging` namespace as needed
 - Generate secure random passwords and API keys
 - Create Kubernetes secrets with proper bcrypt hashing
 - Generate a complete configuration with all required components
@@ -62,26 +64,25 @@ The deployment script will:
 ## Configuration
 
 ### Namespace and Environment
-The deployment defaults to:
-- **Namespace**: `serviceradar-staging`
-- **Environment**: `staging`
+`deploy.sh` accepts an environment argument:
 
-To customize, edit the variables at the top of `deploy.sh`:
-```bash
-NAMESPACE="your-namespace"
-ENVIRONMENT="your-environment"
-```
+| Argument  | Namespace     | Hostname                        | Use case             |
+|-----------|---------------|---------------------------------|----------------------|
+| `prod`    | `demo`        | `demo.serviceradar.cloud`       | Public demo          |
+| `staging` | `demo-staging`| `demo-staging.serviceradar.cloud` | Demo rehearsal/testing |
+
+Running the script without an argument defaults to `prod`.
 
 ### Ingress Configuration
-Update `staging/ingress.yaml` with your domain:
+Update `staging/ingress.yaml` (or `prod/ingress.yaml`) with your domain:
 ```yaml
 spec:
   tls:
-  - secretName: serviceradar-staging-tls
+  - secretName: serviceradar-demo-staging-tls
     hosts:
-    - your-domain.com
+    - demo-staging.serviceradar.cloud
   rules:
-  - host: your-domain.com
+  - host: demo-staging.serviceradar.cloud
     http:
       paths:
       - path: /
@@ -110,7 +111,7 @@ The deployment automatically generates:
 ### Password Retrieval
 After deployment, retrieve the admin password:
 ```bash
-kubectl get secret serviceradar-secrets -n serviceradar-staging \
+kubectl get secret serviceradar-secrets -n <namespace> \
   -o jsonpath='{.data.admin-password}' | base64 -d
 ```
 
@@ -118,10 +119,10 @@ kubectl get secret serviceradar-secrets -n serviceradar-staging \
 
 ### Check Deployment Status
 ```bash
-kubectl get deployments -n serviceradar-staging
-kubectl get pods -n serviceradar-staging
-kubectl get services -n serviceradar-staging
-kubectl get ingress -n serviceradar-staging
+kubectl get deployments -n <namespace>
+kubectl get pods -n <namespace>
+kubectl get services -n <namespace>
+kubectl get ingress -n <namespace>
 ```
 
 ### Test API Connectivity
@@ -130,7 +131,7 @@ kubectl get ingress -n serviceradar-staging
 curl -k https://your-domain.com/api/auth/status
 
 # Via port-forward
-kubectl port-forward -n serviceradar-staging svc/serviceradar-web 3000:3000
+kubectl port-forward -n <namespace> svc/serviceradar-web 3000:3000
 curl http://localhost:3000/api/auth/status
 ```
 
@@ -139,7 +140,7 @@ Expected response: `{"authEnabled":true}`
 ### Test Authentication
 ```bash
 # Get admin password
-ADMIN_PASSWORD=$(kubectl get secret serviceradar-secrets -n serviceradar-staging \
+ADMIN_PASSWORD=$(kubectl get secret serviceradar-secrets -n <namespace> \
   -o jsonpath='{.data.admin-password}' | base64 -d)
 
 # Login
@@ -189,8 +190,8 @@ Default resource allocations:
 ### Horizontal Scaling
 Most services support horizontal scaling:
 ```bash
-kubectl scale deployment serviceradar-core --replicas=3 -n serviceradar-staging
-kubectl scale deployment serviceradar-web --replicas=2 -n serviceradar-staging
+kubectl scale deployment serviceradar-core --replicas=3 -n <namespace>
+kubectl scale deployment serviceradar-web --replicas=2 -n <namespace>
 ```
 
 **Note**: Proton should remain at 1 replica for data consistency.
@@ -214,19 +215,19 @@ kubectl scale deployment serviceradar-web --replicas=2 -n serviceradar-staging
 
 1. **Pod startup failures**
    ```bash
-   kubectl logs -n serviceradar-staging <pod-name>
-   kubectl describe pod -n serviceradar-staging <pod-name>
+   kubectl logs -n <namespace> <pod-name>
+   kubectl describe pod -n <namespace> <pod-name>
    ```
 
 2. **Certificate issues**
    ```bash
-   kubectl logs -n serviceradar-staging job/serviceradar-cert-generator
-   kubectl get certificates -n serviceradar-staging
+   kubectl logs -n <namespace> job/serviceradar-cert-generator
+   kubectl get certificates -n <namespace>
    ```
 
 3. **Database connectivity**
    ```bash
-   kubectl exec -it -n serviceradar-staging deployment/serviceradar-core -- \
+   kubectl exec -it -n <namespace> deployment/serviceradar-core -- \
      grpcurl -cacert /etc/serviceradar/certs/root.pem \
      -cert /etc/serviceradar/certs/core.pem \
      -key /etc/serviceradar/certs/core-key.pem \
@@ -244,8 +245,8 @@ All services include comprehensive health checks:
 ### Updates
 To update ServiceRadar:
 1. Update image tags in deployment manifests
-2. Run `kubectl apply -k base/ -n serviceradar-staging`
-3. Monitor rollout: `kubectl rollout status deployment -n serviceradar-staging`
+2. Run `kubectl apply -k base/ -n <namespace>`
+3. Monitor rollout: `kubectl rollout status deployment -n <namespace>`
 
 ### Configuration Changes
 To update configuration:
@@ -253,7 +254,7 @@ To update configuration:
 2. Run `./deploy.sh` to apply changes
 3. Restart affected deployments:
    ```bash
-   kubectl rollout restart deployment/serviceradar-core -n serviceradar-staging
+   kubectl rollout restart deployment/serviceradar-core -n <namespace>
    ```
 
 #### Toggling Feature Flags (ConfigMap)
@@ -261,7 +262,7 @@ Feature flags (including the device search planner) are sourced from the `servic
 
 1. Edit the ConfigMap to update `core.json` (for core flags) or other entries as needed:
    ```bash
-   kubectl edit configmap serviceradar-config -n serviceradar-staging
+   kubectl edit configmap serviceradar-config -n <namespace>
    ```
 2. Locate the `features` block and adjust values, for example:
    ```json
@@ -274,12 +275,12 @@ Feature flags (including the device search planner) are sourced from the `servic
    Setting `require_device_registry` to `true` prevents the API from falling back to Proton for device lists or detail lookups; flip it to `false` if you need the legacy behavior for debugging.
 3. Restart the component that reads the config:
    ```bash
-   kubectl rollout restart deployment/serviceradar-core -n serviceradar-staging
+   kubectl rollout restart deployment/serviceradar-core -n <namespace>
    ```
 4. For web UI flags (e.g. `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER`), update the environment variables on the deployment:
    ```bash
-   kubectl set env deployment/serviceradar-web NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER=true FEATURE_DEVICE_SEARCH_PLANNER=true -n serviceradar-staging
-   kubectl rollout restart deployment/serviceradar-web -n serviceradar-staging
+   kubectl set env deployment/serviceradar-web NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER=true FEATURE_DEVICE_SEARCH_PLANNER=true -n <namespace>
+   kubectl rollout restart deployment/serviceradar-web -n <namespace>
    ```
 
 Changes made via `deploy.sh` are persisted to the ConfigMap; remember to re-run the script if the base configuration is updated in source control.
@@ -308,9 +309,9 @@ Changes made via `deploy.sh` are persisted to the ConfigMap; remember to re-run 
 ## Support
 
 For issues and questions:
-1. Check logs: `kubectl logs -n serviceradar-staging <service-name>`
+1. Check logs: `kubectl logs -n <namespace> <service-name>`
 2. Verify configuration: `kubectl get configmap serviceradar-config -o yaml`
 3. Check secrets: `kubectl get secret serviceradar-secrets -o yaml`
-4. Review ingress: `kubectl describe ingress serviceradar-staging`
+4. Review ingress: `kubectl describe ingress serviceradar-ingress -n <namespace>`
 
 This deployment has been tested and validated as production-ready with automatic secret generation, secure defaults, and comprehensive health monitoring.
