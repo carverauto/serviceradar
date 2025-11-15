@@ -14,6 +14,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/gosnmp/gosnmp v1.42.1
+	github.com/jackc/pgx/v5 v5.6.0
 	github.com/markbates/goth v1.82.0
 	github.com/nats-io/nats.go v1.47.0
 	github.com/rs/zerolog v1.34.0
@@ -49,6 +50,9 @@ require (
 require (
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
 	github.com/google/go-tpm v0.9.3 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
+	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/minio/highwayhash v1.0.3 // indirect
 	github.com/nats-io/jwt/v2 v2.7.4 // indirect
 	golang.org/x/time v0.11.0 // indirect

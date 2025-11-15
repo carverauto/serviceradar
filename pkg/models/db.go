@@ -20,6 +20,50 @@ type ProtonDatabase struct {
 	Settings  ProtonSettings `json:"settings"`
 }
 
+// StorageBackend enumerates the backend to use for persistence.
+type StorageBackend string
+
+const (
+	StorageBackendProton StorageBackend = "proton"
+	StorageBackendCNPG   StorageBackend = "cnpg"
+)
+
+// StorageRoutingConfig controls how reads/writes route between Proton and CNPG.
+type StorageRoutingConfig struct {
+	PrimaryBackend StorageBackend `json:"primary_backend"`
+	DualWrite      bool           `json:"dual_write,omitempty"`
+	MirrorReads    bool           `json:"mirror_reads,omitempty"`
+}
+
+// CNPGDatabase describes the Timescale/CloudNativePG connection.
+type CNPGDatabase struct {
+	Host               string            `json:"host"`
+	Port               int               `json:"port"`
+	Database           string            `json:"database"`
+	Username           string            `json:"username"`
+	Password           string            `json:"password" sensitive:"true"`
+	ApplicationName    string            `json:"application_name,omitempty"`
+	SSLMode            string            `json:"ssl_mode,omitempty"`
+	CertDir            string            `json:"cert_dir,omitempty"`
+	TLS                *TLSConfig        `json:"tls,omitempty"`
+	MaxConnections     int32             `json:"max_connections,omitempty"`
+	MinConnections     int32             `json:"min_connections,omitempty"`
+	MaxConnLifetime    Duration          `json:"max_conn_lifetime,omitempty"`
+	HealthCheckPeriod  Duration          `json:"health_check_period,omitempty"`
+	StatementTimeout   Duration          `json:"statement_timeout,omitempty"`
+	ExtraRuntimeParams map[string]string `json:"runtime_params,omitempty"`
+}
+
+// Normalize ensures sane defaults.
+func (cfg *StorageRoutingConfig) Normalize() {
+	if cfg == nil {
+		return
+	}
+	if cfg.PrimaryBackend == "" {
+		cfg.PrimaryBackend = StorageBackendProton
+	}
+}
+
 type Metrics struct {
 	Enabled    bool  `json:"enabled"`
 	Retention  int32 `json:"retention"`

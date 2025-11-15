@@ -18,16 +18,42 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-const insertUserStatement = "INSERT INTO users (id, username, email, provider, password_hash, created_at, updated_at, is_active, roles)"
+const insertUserStatement = `
+INSERT INTO users (
+	id,
+	username,
+	email,
+	provider,
+	password_hash,
+	created_at,
+	updated_at,
+	is_active,
+	roles
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+ON CONFLICT (id) DO UPDATE SET
+	username      = EXCLUDED.username,
+	email         = EXCLUDED.email,
+	provider      = EXCLUDED.provider,
+	password_hash = EXCLUDED.password_hash,
+	updated_at    = EXCLUDED.updated_at,
+	is_active     = EXCLUDED.is_active,
+	roles         = EXCLUDED.roles`
 
 // getUserByField retrieves a user by a specific field (e.g., id or email).
 func (db *DB) getUserByField(ctx context.Context, field, value string) (*models.User, error) {
+	if !db.cnpgConfigured() {
+		return nil, ErrDatabaseNotInitialized
+	}
+
 	user := &models.User{}
 
 	query := `
@@ -36,18 +62,8 @@ func (db *DB) getUserByField(ctx context.Context, field, value string) (*models.
         WHERE ` + field + ` = $1
         LIMIT 1`
 
-	rows, err := db.Conn.Query(ctx, query, value)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query user by %s: %w", field, err)
-	}
-
-	defer func() { _ = rows.Close() }()
-
-	if !rows.Next() {
-		return nil, ErrUserNotFound
-	}
-
-	err = rows.Scan(
+	row := db.pgPool.QueryRow(ctx, query, value)
+	err := row.Scan(
 		&user.ID,
 		&user.Email,
 		&user.Name,
@@ -56,7 +72,10 @@ func (db *DB) getUserByField(ctx context.Context, field, value string) (*models.
 		&user.UpdatedAt,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to scan user by %s: %w", field, err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("failed to query user by %s: %w", field, err)
 	}
 
 	return user, nil
@@ -74,15 +93,16 @@ func (db *DB) GetUserByEmail(ctx context.Context, email string) (*models.User, e
 
 // StoreUser stores a user in the database.
 func (db *DB) StoreUser(ctx context.Context, user *models.User) error {
+	if !db.cnpgConfigured() {
+		return ErrDatabaseNotInitialized
+	}
+
 	user.CreatedAt = time.Now()
 	user.UpdatedAt = user.CreatedAt
 
-	batch, err := db.Conn.PrepareBatch(ctx, insertUserStatement)
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
-	}
-
-	err = batch.Append(
+	if _, err := db.pgPool.Exec(
+		ctx,
+		insertUserStatement,
 		user.ID,
 		user.Name, // username field
 		user.Email,
@@ -92,12 +112,7 @@ func (db *DB) StoreUser(ctx context.Context, user *models.User) error {
 		user.UpdatedAt,
 		true,                       // is_active (default to true)
 		normalizeRoles(user.Roles), // roles (default role if missing)
-	)
-	if err != nil {
-		return fmt.Errorf("failed to append user: %w", err)
-	}
-
-	if err := batch.Send(); err != nil {
+	); err != nil {
 		return fmt.Errorf("failed to store user: %w", err)
 	}
 
@@ -110,10 +125,11 @@ func (db *DB) StoreBatchUsers(ctx context.Context, users []*models.User) error {
 		return nil
 	}
 
-	batch, err := db.Conn.PrepareBatch(ctx, insertUserStatement)
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
+	if !db.cnpgConfigured() {
+		return ErrDatabaseNotInitialized
 	}
+
+	batch := &pgx.Batch{}
 
 	now := time.Now()
 
@@ -127,23 +143,22 @@ func (db *DB) StoreBatchUsers(ctx context.Context, users []*models.User) error {
 			user.UpdatedAt = now
 		}
 
-		err = batch.Append(
+		batch.Queue(
+			insertUserStatement,
 			user.ID,
-			user.Name, // username field
+			user.Name,
 			user.Email,
 			normalizeProvider(user.Provider),
-			"", // password_hash (empty for OAuth users)
+			"",
 			user.CreatedAt,
 			user.UpdatedAt,
-			true,                       // is_active (default to true)
-			normalizeRoles(user.Roles), // roles (default role if missing)
+			true,
+			normalizeRoles(user.Roles),
 		)
-		if err != nil {
-			return fmt.Errorf("failed to append user %s: %w", user.ID, err)
-		}
 	}
 
-	if err := batch.Send(); err != nil {
+	br := db.pgPool.SendBatch(ctx, batch)
+	if err := br.Close(); err != nil {
 		return fmt.Errorf("failed to store batch users: %w", err)
 	}
 
@@ -152,20 +167,19 @@ func (db *DB) StoreBatchUsers(ctx context.Context, users []*models.User) error {
 
 // UpdateUserLastSeen updates a user's last seen timestamp
 func (db *DB) UpdateUserLastSeen(ctx context.Context, userID string) error {
+	if !db.cnpgConfigured() {
+		return ErrDatabaseNotInitialized
+	}
+
 	now := time.Now()
 
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO users (id, updated_at)")
+	cmdTag, err := db.pgPool.Exec(ctx, "UPDATE users SET updated_at=$2 WHERE id=$1", userID, now)
 	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
-	}
-
-	err = batch.Append(userID, now)
-	if err != nil {
-		return fmt.Errorf("failed to append user update: %w", err)
-	}
-
-	if err := batch.Send(); err != nil {
 		return fmt.Errorf("failed to update user last seen: %w", err)
+	}
+
+	if cmdTag.RowsAffected() == 0 {
+		return ErrUserNotFound
 	}
 
 	return nil
@@ -173,29 +187,25 @@ func (db *DB) UpdateUserLastSeen(ctx context.Context, userID string) error {
 
 // UpdateUser updates a user's information
 func (db *DB) UpdateUser(ctx context.Context, user *models.User) error {
+	if !db.cnpgConfigured() {
+		return ErrDatabaseNotInitialized
+	}
+
 	user.UpdatedAt = time.Now()
 
-	batch, err := db.Conn.PrepareBatch(ctx, insertUserStatement)
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
-	}
-
-	err = batch.Append(
+	if _, err := db.pgPool.Exec(
+		ctx,
+		insertUserStatement,
 		user.ID,
-		user.Name, // username field
+		user.Name,
 		user.Email,
 		normalizeProvider(user.Provider),
-		"", // password_hash (empty for OAuth users)
+		"",
 		user.CreatedAt,
 		user.UpdatedAt,
-		true,                       // is_active (default to true)
-		normalizeRoles(user.Roles), // roles (default role if missing)
-	)
-	if err != nil {
-		return fmt.Errorf("failed to append user update: %w", err)
-	}
-
-	if err := batch.Send(); err != nil {
+		true,
+		normalizeRoles(user.Roles),
+	); err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
 
