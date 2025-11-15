@@ -2,577 +2,109 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
-
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-// GetPollerStatus retrieves a poller's current status.
+// AgentInfo summarizes agent metadata for poller listings.
+type AgentInfo struct {
+	AgentID      string
+	PollerID     string
+	LastSeen     time.Time
+	ServiceTypes []string
+}
+
+// GetPollerStatus retrieves a poller's current status from CNPG.
 func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.PollerStatus, error) {
-	if db.UseCNPGReads() {
-		return db.cnpgGetPollerStatus(ctx, pollerID)
-	}
-
-	var status models.PollerStatus
-
-	rows, err := db.Conn.Query(ctx, `
-		SELECT poller_id, first_seen, last_seen, is_healthy
-		FROM table(pollers)
-		WHERE poller_id = $1
-		LIMIT 1`,
-		pollerID)
-	if err != nil {
-		return nil, fmt.Errorf("%w poller status: %w", ErrFailedToQuery, err)
-	}
-	defer db.CloseRows(rows)
-
-	if !rows.Next() {
-		return nil, fmt.Errorf("%w: poller not found", ErrFailedToQuery)
-	}
-
-	err = rows.Scan(
-		&status.PollerID,
-		&status.FirstSeen,
-		&status.LastSeen,
-		&status.IsHealthy,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w poller status: %w", ErrFailedToScan, err)
-	}
-
-	return &status, nil
+	return db.cnpgGetPollerStatus(ctx, pollerID)
 }
 
 // GetPollerServices retrieves services for a poller.
 func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]models.ServiceStatus, error) {
-	if db.UseCNPGReads() {
-		return db.cnpgGetPollerServices(ctx, pollerID)
-	}
-
-	rows, err := db.Conn.Query(ctx, `
-        SELECT service_name, service_type, available, timestamp, agent_id
-        FROM table(service_status)
-        WHERE poller_id = $1
-        ORDER BY service_type, service_name`,
-		pollerID)
-	if err != nil {
-		return nil, fmt.Errorf("%w poller services: %w", ErrFailedToQuery, err)
-	}
-	defer db.CloseRows(rows)
-
-	var services []models.ServiceStatus
-
-	for rows.Next() {
-		var s models.ServiceStatus
-
-		if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Timestamp, &s.AgentID); err != nil {
-			return nil, fmt.Errorf("%w service row: %w", ErrFailedToScan, err)
-		}
-
-		services = append(services, s)
-	}
-
-	return services, nil
+	return db.cnpgGetPollerServices(ctx, pollerID)
 }
 
-// GetPollerHistoryPoints retrieves history points for a poller.
+// GetPollerHistoryPoints retrieves recent history points for a poller.
 func (db *DB) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit int) ([]models.PollerHistoryPoint, error) {
-	if db.UseCNPGReads() {
-		return db.cnpgGetPollerHistoryPoints(ctx, pollerID, limit)
+	if limit <= 0 {
+		limit = 100
 	}
-
-	rows, err := db.Conn.Query(ctx, `
-		SELECT timestamp, is_healthy
-		FROM table(poller_history)
-		WHERE poller_id = $1
-		ORDER BY timestamp DESC
-		LIMIT $2`,
-		pollerID, limit)
-	if err != nil {
-		return nil, fmt.Errorf("%w poller history points: %w", ErrFailedToQuery, err)
-	}
-	defer db.CloseRows(rows)
-
-	var points []models.PollerHistoryPoint
-
-	for rows.Next() {
-		var point models.PollerHistoryPoint
-
-		if err := rows.Scan(&point.Timestamp, &point.IsHealthy); err != nil {
-			return nil, fmt.Errorf("%w history point: %w", ErrFailedToScan, err)
-		}
-
-		points = append(points, point)
-	}
-
-	return points, nil
+	return db.cnpgGetPollerHistoryPoints(ctx, pollerID, limit)
 }
 
-// GetPollerHistory retrieves the history for a poller.
+// GetPollerHistory retrieves the full history for a poller (bounded to 1000 entries).
 func (db *DB) GetPollerHistory(ctx context.Context, pollerID string) ([]models.PollerStatus, error) {
-	const maxHistoryPoints = 1000
-
-	if db.UseCNPGReads() {
-		return db.cnpgGetPollerHistory(ctx, pollerID, maxHistoryPoints)
-	}
-
-	rows, err := db.Conn.Query(ctx, `
-		SELECT timestamp, is_healthy
-		FROM table(poller_history)
-		WHERE poller_id = $1
-		ORDER BY timestamp DESC
-		LIMIT $2`,
-		pollerID, maxHistoryPoints)
-	if err != nil {
-		return nil, fmt.Errorf("%w poller history: %w", ErrFailedToQuery, err)
-	}
-	defer db.CloseRows(rows)
-
-	var history []models.PollerStatus
-
-	for rows.Next() {
-		var status models.PollerStatus
-
-		status.PollerID = pollerID
-		if err := rows.Scan(&status.LastSeen, &status.IsHealthy); err != nil {
-			return nil, fmt.Errorf("%w history row: %w", ErrFailedToScan, err)
-		}
-
-		history = append(history, status)
-	}
-
-	return history, nil
+	return db.cnpgGetPollerHistory(ctx, pollerID, 1000)
 }
 
 // IsPollerOffline checks if a poller is offline based on the threshold.
 func (db *DB) IsPollerOffline(ctx context.Context, pollerID string, threshold time.Duration) (bool, error) {
-	cutoff := time.Now().Add(-threshold)
-
-	rows, err := db.Conn.Query(ctx, `
-		SELECT COUNT(*)
-		FROM table(pollers)
-		WHERE poller_id = $1
-		AND last_seen < $2`,
-		pollerID, cutoff)
-	if err != nil {
-		return false, fmt.Errorf("%w poller status: %w", ErrFailedToQuery, err)
-	}
-	defer db.CloseRows(rows)
-
-	var count int
-
-	if !rows.Next() {
-		return false, fmt.Errorf("%w: count result not found", ErrFailedToQuery)
+	if !db.cnpgConfigured() {
+		return false, ErrCNPGUnavailable
 	}
 
-	if err := rows.Scan(&count); err != nil {
-		return false, fmt.Errorf("%w count: %w", ErrFailedToScan, err)
+	cutoff := time.Now().Add(-threshold).UTC()
+
+	row := db.pgPool.QueryRow(ctx, `
+        SELECT COUNT(*)
+        FROM pollers
+        WHERE poller_id = $1
+          AND last_seen < $2`, pollerID, cutoff)
+
+	var count int64
+	if err := row.Scan(&count); err != nil {
+		return false, fmt.Errorf("failed to check poller status: %w", err)
 	}
 
 	return count > 0, nil
 }
 
-// ListPollers retrieves all poller IDs from the pollers stream.
+// ListPollers retrieves all poller IDs.
 func (db *DB) ListPollers(ctx context.Context) ([]string, error) {
-	if db.UseCNPGReads() {
-		return db.cnpgListPollers(ctx)
-	}
-
-	rows, err := db.Conn.Query(ctx, "SELECT poller_id FROM table(pollers)")
-	if err != nil {
-		return nil, fmt.Errorf("%w: failed to query pollers: %w", ErrFailedToQuery, err)
-	}
-	defer db.CloseRows(rows)
-
-	var pollerIDs []string
-
-	for rows.Next() {
-		var pollerID string
-
-		if err := rows.Scan(&pollerID); err != nil {
-			db.logger.Error().Err(err).Msg("Error scanning poller ID")
-
-			continue
-		}
-
-		pollerIDs = append(pollerIDs, pollerID)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%w: error iterating rows: %w", ErrFailedToQuery, err)
-	}
-
-	return pollerIDs, nil
+	return db.cnpgListPollers(ctx)
 }
 
-// DeletePoller deletes a poller by ID.
+// DeletePoller removes a poller record.
 func (db *DB) DeletePoller(ctx context.Context, pollerID string) error {
-	query := "ALTER STREAM pollers DELETE WHERE poller_id = $1"
-
-	if err := db.Conn.Exec(ctx, query, pollerID); err != nil {
-		return fmt.Errorf("%w: failed to delete poller: %w", ErrFailedToInsert, err)
+	if strings.TrimSpace(pollerID) == "" {
+		return fmt.Errorf("poller id is required")
 	}
 
-	return nil
+	return db.ExecCNPG(ctx, "DELETE FROM pollers WHERE poller_id = $1", pollerID)
 }
 
 // ListPollerStatuses retrieves poller statuses, optionally filtered by patterns.
 func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]models.PollerStatus, error) {
-	if db.UseCNPGReads() {
-		return db.cnpgListPollerStatuses(ctx, patterns)
-	}
-
-	query := `SELECT poller_id, is_healthy, last_seen FROM table(pollers)`
-
-	var args []interface{}
-
-	if len(patterns) > 0 {
-		conditions := make([]string, 0, len(patterns))
-
-		for _, pattern := range patterns {
-			conditions = append(conditions, "poller_id LIKE $1")
-			args = append(args, pattern)
-		}
-
-		query += " WHERE " + strings.Join(conditions, " OR ")
-	}
-
-	query += " ORDER BY last_seen DESC"
-
-	rows, err := db.Conn.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("%w: failed to query pollers: %w", ErrFailedToQuery, err)
-	}
-	defer db.CloseRows(rows)
-
-	var statuses []models.PollerStatus
-
-	for rows.Next() {
-		var status models.PollerStatus
-
-		if err := rows.Scan(&status.PollerID, &status.IsHealthy, &status.LastSeen); err != nil {
-			db.logger.Error().Err(err).Msg("Error scanning poller status")
-
-			continue
-		}
-
-		statuses = append(statuses, status)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%w: error iterating rows: %w", ErrFailedToQuery, err)
-	}
-
-	return statuses, nil
+	return db.cnpgListPollerStatuses(ctx, patterns)
 }
 
-// ListNeverReportedPollers retrieves poller IDs that have never reported (first_seen = last_seen).
+// ListNeverReportedPollers lists pollers that never reported history events.
 func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) ([]string, error) {
-	if db.UseCNPGReads() {
-		return db.cnpgListNeverReportedPollers(ctx, patterns)
-	}
-
-	query := `
-        WITH history AS (
-            SELECT poller_id, MAX(timestamp) AS latest_timestamp
-            FROM table(poller_history)
-            GROUP BY poller_id
-        )
-        SELECT DISTINCT p.poller_id
-        FROM table(pollers) AS p
-        LEFT JOIN history ON p.poller_id = history.poller_id
-        WHERE history.latest_timestamp IS NULL OR history.latest_timestamp = p.first_seen`
-
-	var args []interface{}
-
-	if len(patterns) > 0 {
-		conditions := make([]string, 0, len(patterns))
-
-		for i, pattern := range patterns {
-			conditions = append(conditions, fmt.Sprintf("p.poller_id LIKE $%d", i+1))
-			args = append(args, pattern)
-		}
-
-		query += " AND (" + strings.Join(conditions, " OR ") + ")"
-	}
-
-	query += " ORDER BY p.poller_id"
-
-	rows, err := db.Conn.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("%w: failed to query never reported pollers: %w", ErrFailedToQuery, err)
-	}
-	defer db.CloseRows(rows)
-
-	var pollerIDs []string
-
-	for rows.Next() {
-		var pollerID string
-
-		if err := rows.Scan(&pollerID); err != nil {
-			db.logger.Error().Err(err).Msg("Error scanning poller ID")
-			continue
-		}
-
-		pollerIDs = append(pollerIDs, pollerID)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%w: error iterating rows: %w", ErrFailedToQuery, err)
-	}
-
-	db.logger.Debug().
-		Int("poller_count", len(pollerIDs)).
-		Interface("poller_ids", pollerIDs).
-		Msg("Found never reported pollers")
-
-	return pollerIDs, nil
+	return db.cnpgListNeverReportedPollers(ctx, patterns)
 }
 
-// UpdatePollerStatus updates a poller's status and logs it in the history.
+// UpdatePollerStatus upserts the poller status and records history.
 func (db *DB) UpdatePollerStatus(ctx context.Context, status *models.PollerStatus) error {
-	if err := validatePollerStatus(status); err != nil {
-		return err
+	if status == nil {
+		return fmt.Errorf("poller status is nil")
 	}
 
-	// Preserve original FirstSeen if poller exists
-	if err := db.preserveFirstSeen(ctx, status); err != nil {
-		return fmt.Errorf("failed to check poller existence: %w", err)
-	}
-
-	// Update pollers table
-	if err := db.insertPollerStatus(ctx, status); err != nil {
-		db.logger.Error().
-			Err(err).
-			Str("poller_id", status.PollerID).
-			Msg("Failed to update poller status")
-
-		return fmt.Errorf("failed to update poller status: %w", err)
-	}
-
-	// Check if status has changed before logging to poller_history
-	existing, err := db.GetPollerStatus(ctx, status.PollerID)
-	if err != nil && !errors.Is(err, ErrFailedToQuery) {
-		return fmt.Errorf("failed to check existing poller status: %w", err)
-	}
-
-	if existing == nil || existing.IsHealthy != status.IsHealthy || existing.LastSeen != status.LastSeen {
-		if err := db.insertPollerHistory(ctx, status); err != nil {
-			db.logger.Error().
-				Err(err).
-				Str("poller_id", status.PollerID).
-				Msg("Failed to add poller history")
-
-			return fmt.Errorf("failed to add poller history: %w", err)
-		}
-	}
-
-	db.logger.Debug().
-		Str("poller_id", status.PollerID).
-		Msg("Successfully updated poller status")
-
-	return nil
-}
-
-var (
-	errInvalidPollerID = errors.New("invalid poller ID")
-)
-
-// validatePollerStatus ensures the poller status is valid and sets default timestamps.
-func validatePollerStatus(status *models.PollerStatus) error {
-	if status.PollerID == "" {
-		return errInvalidPollerID
-	}
-
-	now := time.Now()
-	if !isValidTimestamp(status.FirstSeen) {
-		status.FirstSeen = now
-	}
-
-	if !isValidTimestamp(status.LastSeen) {
-		status.LastSeen = now
-	}
-
-	return nil
-}
-
-// preserveFirstSeen retrieves the existing poller and preserves its FirstSeen timestamp.
-func (db *DB) preserveFirstSeen(ctx context.Context, status *models.PollerStatus) error {
-	existing, err := db.GetPollerStatus(ctx, status.PollerID)
-	if err != nil && !errors.Is(err, ErrFailedToQuery) {
-		return err
-	}
-
-	if existing != nil {
-		status.FirstSeen = existing.FirstSeen
-	}
-
-	return nil
-}
-
-// insertPollerStatus inserts or updates the poller status in the pollers table.
-const insertPollerStatusQuery = `
-INSERT INTO pollers (
-	poller_id,
-	component_id,
-	registration_source,
-	status,
-	spiffe_identity,
-	first_registered,
-	first_seen,
-	last_seen,
-	metadata,
-	created_by,
-	is_healthy,
-	agent_count,
-	checker_count
-)`
-
-func (db *DB) insertPollerStatus(ctx context.Context, status *models.PollerStatus) error {
-	if err := db.executeBatch(ctx, insertPollerStatusQuery, func(batch driver.Batch) error {
-		return batch.Append(
-			status.PollerID,   // poller_id
-			"",                // component_id (empty for implicit registration)
-			"implicit",        // registration_source
-			"active",          // status
-			"",                // spiffe_identity (empty for now)
-			status.FirstSeen,  // first_registered
-			&status.FirstSeen, // first_seen (nullable)
-			status.LastSeen,   // last_seen
-			"{}",              // metadata (empty JSON object)
-			"system",          // created_by
-			status.IsHealthy,  // is_healthy
-			uint32(0),         // agent_count
-			uint32(0),         // checker_count
-		)
-	}); err != nil {
-		return err
-	}
-
-	return db.cnpgUpsertPollerStatus(ctx, status)
-}
-
-// insertPollerHistory logs the poller status in the poller_history table.
-func (db *DB) insertPollerHistory(ctx context.Context, status *models.PollerStatus) error {
-	if err := db.executeBatch(ctx, "INSERT INTO poller_history (timestamp, poller_id, is_healthy)", func(batch driver.Batch) error {
-		return batch.Append(
-			status.LastSeen,
-			status.PollerID,
-			status.IsHealthy,
-		)
-	}); err != nil {
+	if err := db.cnpgUpsertPollerStatus(ctx, status); err != nil {
 		return err
 	}
 
 	return db.cnpgInsertPollerHistory(ctx, status)
 }
 
-// AgentInfo represents an agent and its associated poller information.
-type AgentInfo struct {
-	AgentID      string    `json:"agent_id"`
-	PollerID     string    `json:"poller_id"`
-	LastSeen     time.Time `json:"last_seen"`
-	ServiceTypes []string  `json:"service_types,omitempty"`
-}
-
-// ListAgentsWithPollers retrieves all agents with their associated poller information.
-// This queries the services table to find unique agent_id and poller_id pairs.
+// ListAgentsWithPollers returns agent information grouped by poller.
 func (db *DB) ListAgentsWithPollers(ctx context.Context) ([]AgentInfo, error) {
-	if db.UseCNPGReads() {
-		return db.cnpgListAgentsWithPollers(ctx)
-	}
-
-	query := `
-		SELECT
-			agent_id,
-			poller_id,
-			MAX(timestamp) as last_seen,
-			array_distinct(group_array(service_type)) as service_types
-		FROM table(services)
-		WHERE agent_id != ''
-		GROUP BY agent_id, poller_id
-		ORDER BY last_seen DESC
-	`
-
-	rows, err := db.Conn.Query(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("%w: failed to query agents: %w", ErrFailedToQuery, err)
-	}
-	defer db.CloseRows(rows)
-
-	var agents []AgentInfo
-
-	for rows.Next() {
-		var agent AgentInfo
-		var serviceTypes []string
-
-		if err := rows.Scan(&agent.AgentID, &agent.PollerID, &agent.LastSeen, &serviceTypes); err != nil {
-			db.logger.Error().Err(err).Msg("Error scanning agent info")
-			continue
-		}
-
-		agent.ServiceTypes = serviceTypes
-		agents = append(agents, agent)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%w: error iterating rows: %w", ErrFailedToQuery, err)
-	}
-
-	db.logger.Debug().
-		Int("agent_count", len(agents)).
-		Msg("Listed agents with pollers")
-
-	return agents, nil
+	return db.cnpgListAgentsWithPollers(ctx)
 }
 
-// ListAgentsByPoller retrieves all agents associated with a specific poller.
+// ListAgentsByPoller lists all agents for a specific poller.
 func (db *DB) ListAgentsByPoller(ctx context.Context, pollerID string) ([]AgentInfo, error) {
-	if db.UseCNPGReads() {
-		return db.cnpgListAgentsByPoller(ctx, pollerID)
-	}
-
-	query := `
-		SELECT
-			agent_id,
-			poller_id,
-			MAX(timestamp) as last_seen,
-			array_distinct(group_array(service_type)) as service_types
-		FROM table(services)
-		WHERE agent_id != '' AND poller_id = $1
-		GROUP BY agent_id, poller_id
-		ORDER BY last_seen DESC
-	`
-
-	rows, err := db.Conn.Query(ctx, query, pollerID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: failed to query agents for poller: %w", ErrFailedToQuery, err)
-	}
-	defer db.CloseRows(rows)
-
-	var agents []AgentInfo
-
-	for rows.Next() {
-		var agent AgentInfo
-		var serviceTypes []string
-
-		if err := rows.Scan(&agent.AgentID, &agent.PollerID, &agent.LastSeen, &serviceTypes); err != nil {
-			db.logger.Error().Err(err).Msg("Error scanning agent info")
-			continue
-		}
-
-		agent.ServiceTypes = serviceTypes
-		agents = append(agents, agent)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%w: error iterating rows: %w", ErrFailedToQuery, err)
-	}
-
-	return agents, nil
+	return db.cnpgListAgentsByPoller(ctx, pollerID)
 }

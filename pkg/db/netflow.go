@@ -18,64 +18,11 @@ package db
 
 import (
 	"context"
-	"errors"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-// Database errors
-var (
-	ErrNilConnection = errors.New("database connection is nil")
-	ErrPrepareBatch  = errors.New("failed to prepare batch")
-	ErrAppendMetric  = errors.New("failed to append NetFlow metric")
-	ErrSendBatch     = errors.New("failed to send batch")
-)
-
-// StoreNetflowMetrics stores multiple NetFlow metrics in a single batch.
+// StoreNetflowMetrics stores multiple NetFlow metrics in CNPG.
 func (db *DB) StoreNetflowMetrics(ctx context.Context, metrics []*models.NetflowMetric) error {
-	if len(metrics) == 0 {
-		return nil
-	}
-
-	if db.Conn == nil {
-		return ErrNilConnection
-	}
-
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO netflow_metrics (* except _tp_time)")
-	if err != nil {
-		return errors.Join(ErrPrepareBatch, err)
-	}
-
-	for _, metric := range metrics {
-		err = batch.Append(
-			metric.Timestamp,
-			metric.SrcAddr,
-			metric.DstAddr,
-			metric.SrcPort,
-			metric.DstPort,
-			metric.Protocol,
-			metric.Bytes,
-			metric.Packets,
-			metric.ForwardingStatus,
-			metric.NextHop,
-			metric.SamplerAddress,
-			metric.SrcAs,
-			metric.DstAs,
-			metric.IPTos,
-			metric.VlanID,
-			metric.BgpNextHop,
-			metric.Metadata,
-		)
-		if err != nil {
-			db.logger.Error().Err(err).Msg("Failed to append NetFlow metric")
-			return errors.Join(ErrAppendMetric, err)
-		}
-	}
-
-	if err := batch.Send(); err != nil {
-		db.logger.Error().Err(err).Msg("Failed to send batch")
-		return errors.Join(ErrSendBatch, err)
-	}
-
-	return nil
+	return db.cnpgInsertNetflowMetrics(ctx, metrics)
 }
