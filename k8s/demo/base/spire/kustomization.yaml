@@ -21,7 +21,7 @@ resources:
   - agent-cluster-role.yaml
   - agent-configmap.yaml
   - agent-daemonset.yaml
-  - spire-postgres-cluster.yaml
+  - cnpg-cluster.yaml
   - spire-clusterspiffeid-core.yaml
   - spire-clusterspiffeid-poller.yaml
   - spire-clusterspiffeid-serviceradar-agent.yaml

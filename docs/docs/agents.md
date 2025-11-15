@@ -17,10 +17,10 @@ upgrade the database:
 1. **Delete the old cluster**
 
    ```bash
-   kubectl delete cluster spire-pg -n demo
+   kubectl delete cluster cnpg -n demo
    ```
 
-   Wait for all `spire-pg-*` pods to disappear before continuing.
+   Wait for all `cnpg-*` pods to disappear before continuing.
 
 2. **Apply the refreshed manifests**
 
@@ -31,14 +31,14 @@ upgrade the database:
    Confirm the pods point at the custom image:
 
    ```bash
-   kubectl get pods -n demo -l cnpg.io/cluster=spire-pg \
+   kubectl get pods -n demo -l cnpg.io/cluster=cnpg \
      -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}'
    ```
 
 3. **Verify the extensions**
 
    ```bash
-   kubectl exec -n demo spire-pg-0 -- \
+   kubectl exec -n demo cnpg-0 -- \
      psql -U spire -d spire \
        -c "SELECT extname FROM pg_extension WHERE extname IN ('timescaledb','age');"
    ```

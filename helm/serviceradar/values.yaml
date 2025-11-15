@@ -149,7 +149,7 @@ spire:
     waitForImage: cgr.dev/chainguard/wait-for-it
   postgres:
     enabled: true
-    clusterName: spire-pg
+    clusterName: cnpg
     database: spire
     instances: 3
     storageClass: local-path

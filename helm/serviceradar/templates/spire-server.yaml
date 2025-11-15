@@ -7,7 +7,7 @@
 {{- $clusterName := .Values.spire.clusterName }}
 {{- $agentSA := .Values.spire.agentServiceAccount }}
 {{- $serverName := default "spire-server" $serverVals.serviceName }}
-{{- $pgHost := printf "%s-rw.%s.svc.cluster.local" (default "spire-pg" $pg.clusterName) $ns }}
+{{- $pgHost := printf "%s-rw.%s.svc.cluster.local" (default "cnpg" $pg.clusterName) $ns }}
 {{- $dbUser := default "spire" $pg.username }}
 {{- $dbName := default "spire" $pg.database }}
 {{- $cmVals := .Values.spire.controllerManager }}
