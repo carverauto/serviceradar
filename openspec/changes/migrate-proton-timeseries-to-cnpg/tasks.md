@@ -11,9 +11,9 @@
 - [x] 2.4 Update `pkg/registry` to operate on the new relational tables (explicit merging logic for unified devices, registry tables, service counts) and cover the behavior with updated tests or fixtures. *DeviceRegistry's identifier lookups (Armis IDs, NetBox IDs, MACs, and canonical IPs) now issue parameterized CNPG queries via the new helpers in `pkg/registry/registry.go` with coverage in `pkg/registry/registry_cnpg_test.go`, and the ServiceRegistry poller/agent/checker readers/writers now target the CNPG tables with dual-write support plus new coverage in `pkg/registry/service_registry_queries_test.go`, so both registry paths run on Timescale.*
 
 ## 3. Proton driver removal
-- [ ] 3.1 Delete the Proton client/connection from `pkg/db` (no `Conn`, `NewStreamingConn`, or dual-write routing) so CNPG migrations and pgx pools are the only database initialization path.
-- [ ] 3.2 Rewrite the remaining Proton-backed code in `pkg/db` (`metrics.go`, `sweep.go`, `discovery.go`, `devices.go`, `services.go`, `pollers.go`, `netflow.go`, `edge_onboarding.go`, `capabilities.go`) so every read/write uses the CNPG helpers and no Proton SQL (`table(...)`, `_tp_time`, `FINAL`) remains.
-- [ ] 3.3 Remove Proton mocks/tests/build rules (`executeBatch`, Proton migration embeds, mock generators tied to `driver.Batch`) and update the db unit tests to run solely against the pgx-backed CNPG code.
+- [x] 3.1 Delete the Proton client/connection from `pkg/db` (no `Conn`, `NewStreamingConn`, or dual-write routing) so CNPG migrations and pgx pools are the only database initialization path.
+- [x] 3.2 Rewrite the remaining Proton-backed code in `pkg/db` (`metrics.go`, `sweep.go`, `discovery.go`, `devices.go`, `services.go`, `pollers.go`, `netflow.go`, `edge_onboarding.go`, `capabilities.go`) so every read/write uses the CNPG helpers and no Proton SQL (`table(...)`, `_tp_time`, `FINAL`) remains.
+- [x] 3.3 Remove Proton mocks/tests/build rules (`executeBatch`, Proton migration embeds, mock generators tied to `driver.Batch`) and update the db unit tests to run solely against the pgx-backed CNPG code.
 
 ## 4. Service + tooling cleanup
 - [ ] 4.1 Convert `cmd/consumers/db-event-writer` to read/write CNPG tables for OTEL logs/metrics/traces, removing Proton config flags, schema assumptions, and driver dependencies.

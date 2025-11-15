@@ -14,6 +14,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+const (
+	defaultTimeseriesLimit             = 2000
+	deviceMetricsAvailabilityChunkSize = 200
+)
+
 const cnpgTimeseriesSelect = `
 SELECT
 	metric_name,
