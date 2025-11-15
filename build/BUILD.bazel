@@ -1,0 +1,2 @@
+# Package placeholder for repository alias helper.
+exports_files(["repo_alias.bzl"])

@@ -324,7 +324,7 @@ func (s *Server) ensureServiceDevice(
 1. **SPIRE Server StatefulSet** (`spire-server-0`)
    - Runs upstream SPIRE server binary
    - Runs SPIRE Controller Manager sidecar
-   - Stores state in CloudNativePG cluster (`spire-pg`)
+  - Stores state in CloudNativePG cluster (`cnpg`)
 
 2. **SPIRE Agent DaemonSet**
    - Runs on every node

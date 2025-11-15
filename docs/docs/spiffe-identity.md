@@ -12,7 +12,7 @@ registration, and the fallbacks available for non-Kubernetes installs.
   (and via Helm for customer namespaces). The pod now hosts two containers:
   the upstream `spire-server` binary and the `spire-controller-manager`
   sidecar that owns workload registration.
-- **Postgres datastore** – SPIRE persists state in the `spire-pg` CNPG
+- **Postgres datastore** – SPIRE persists state in the shared `cnpg` CloudNativePG
   cluster, provisioned alongside the server manifests. Credentials live in the
   `spire-db-credentials` secret and should be rotated per environment.
 - **SPIRE Agent DaemonSet** – Deployed on every node to surface the Workload
