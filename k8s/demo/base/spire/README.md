@@ -57,6 +57,70 @@ Manifests in this directory bootstrap SPIFFE/SPIRE inside the `demo` Kubernetes 
    Updates to the manifests are picked up automatically; reapplying the
    kustomization is idempotent.
 
+## CNPG rebuild with TimescaleDB + AGE
+
+The SPIRE manifests now rely on the custom `ghcr.io/carverauto/serviceradar-cnpg`
+image, which ships PostgreSQL 16.6 along with the TimescaleDB and Apache AGE
+extensions. Follow this workflow whenever you need a clean rebuild (for example
+when refreshing the demo cluster or cutting over from the stock CloudNativePG
+image):
+
+1. **Remove the legacy cluster**
+
+   ```bash
+   kubectl delete cluster spire-pg -n demo
+   ```
+
+   Wait for every `spire-pg-*` pod to terminate before continuing.
+
+2. **Reapply the manifests**
+
+   ```bash
+   kubectl apply -k k8s/demo/base/spire
+   ```
+
+   Confirm that all three pods report the custom image:
+
+   ```bash
+   kubectl get pods -n demo -l cnpg.io/cluster=spire-pg \
+     -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}'
+   ```
+
+3. **Verify the extensions**
+
+   Once the cluster is Ready, exec into one of the pods and check
+   `pg_extension` for TimescaleDB and AGE:
+
+   ```bash
+   kubectl exec -n demo spire-pg-1 -- \
+     psql -U spire -d spire \
+       -c "SELECT extname FROM pg_extension WHERE extname IN ('timescaledb','age');"
+   ```
+
+   Both rows should be present. If either extension is missing, re-run the
+   `postInitApplicationSQL` statements manually inside the database.
+
+4. **Smoke-test SPIRE**
+
+   Reapply the SPIRE manifests (safe even if they’re already present) and wait
+   for the server/statefulset to settle:
+
+   ```bash
+   kubectl apply -k k8s/demo/base/spire
+   kubectl rollout status statefulset/spire-server -n demo
+   ```
+
+   Tail the controller manager container to confirm the `ClusterSPIFFEID`
+   objects re-register workloads and agents:
+
+   ```bash
+   kubectl logs statefulset/spire-server -c controller-manager -n demo -f
+   ```
+
+   Finish by running `scripts/test.sh` (or an equivalent `spire-agent api fetch`
+   from inside the cluster) to ensure workloads can still obtain SVIDs after the
+   database rebuild.
+
 ## Registering Agents and Workloads
 
 The controller manager sources workload identities from `ClusterSPIFFEID`

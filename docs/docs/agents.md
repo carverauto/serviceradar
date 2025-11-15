@@ -7,6 +7,55 @@ title: Agents & Demo Operations
 
 This runbook captures the operational steps we used while debugging the canonical device pipeline in the demo cluster. It focuses on the pieces that interact with the "agent" side of the world (faker → sync → core) and the backing Timeplus/Proton database.
 
+## Rebuilding the SPIRE CNPG cluster (TimescaleDB + AGE)
+
+SPIRE now depends on the `ghcr.io/carverauto/serviceradar-cnpg` image so the
+in-cluster CNPG deployment always exposes PostgreSQL 16.6 with the prebuilt
+TimescaleDB + Apache AGE extensions. Use this flow whenever you need to wipe or
+upgrade the database:
+
+1. **Delete the old cluster**
+
+   ```bash
+   kubectl delete cluster spire-pg -n demo
+   ```
+
+   Wait for all `spire-pg-*` pods to disappear before continuing.
+
+2. **Apply the refreshed manifests**
+
+   ```bash
+   kubectl apply -k k8s/demo/base/spire
+   ```
+
+   Confirm the pods point at the custom image:
+
+   ```bash
+   kubectl get pods -n demo -l cnpg.io/cluster=spire-pg \
+     -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}'
+   ```
+
+3. **Verify the extensions**
+
+   ```bash
+   kubectl exec -n demo spire-pg-0 -- \
+     psql -U spire -d spire \
+       -c "SELECT extname FROM pg_extension WHERE extname IN ('timescaledb','age');"
+   ```
+
+   Both rows must exist; rerun `CREATE EXTENSION` if either entry is missing.
+
+4. **Smoke test SPIRE**
+
+   ```bash
+   kubectl rollout status statefulset/spire-server -n demo
+   kubectl logs statefulset/spire-server -n demo -c controller-manager --tail=50
+   ```
+
+   The controller manager should immediately reconcile the `ClusterSPIFFEID`
+   objects. Finish with `scripts/test.sh` (or another `spire-agent api fetch`)
+   to prove workloads can still mint SVIDs.
+
 ## Armis Faker Service
 
 - Deployment: `serviceradar-faker` (`k8s/demo/base/serviceradar-faker.yaml`).

@@ -1,6 +1,25 @@
 {{- if and .Values.spire.enabled .Values.spire.postgres.enabled }}
 {{- $ns := default .Release.Namespace .Values.spire.namespace }}
 {{- $pg := .Values.spire.postgres }}
+{{- $imageName := $pg.imageName }}
+{{- if not $imageName }}
+  {{- $imageRepo := default "ghcr.io/carverauto/serviceradar-cnpg" $pg.image }}
+  {{- $imageTag := default "latest" $pg.imageTag }}
+  {{- $imageName = printf "%s:%s" $imageRepo $imageTag }}
+{{- end }}
+{{- $postInitSQL := default (list "CREATE EXTENSION IF NOT EXISTS timescaledb;" "CREATE EXTENSION IF NOT EXISTS age;") $pg.extensionsSQL }}
+{{- $sharedPreload := $pg.sharedPreloadLibraries }}
+{{- if not $sharedPreload }}
+  {{- $sharedPreload = list "timescaledb" "age" }}
+{{- else if kindIs "string" $sharedPreload }}
+  {{- $trimmed := list }}
+  {{- range $item := splitList "," $sharedPreload }}
+    {{- if $item }}
+      {{- $trimmed = append $trimmed (trim $item) }}
+    {{- end }}
+  {{- end }}
+  {{- $sharedPreload = $trimmed }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Secret
@@ -18,7 +37,18 @@ metadata:
   name: {{ default "spire-pg" $pg.clusterName }}
   namespace: {{ $ns }}
 spec:
+  imageName: {{ $imageName }}
   instances: {{ default 3 $pg.instances }}
+  {{- if $pg.imagePullSecrets }}
+  imagePullSecrets:
+    {{- range $secret := $pg.imagePullSecrets }}
+    {{- if kindIs "string" $secret }}
+    - name: {{ $secret }}
+    {{- else }}
+    - name: {{ $secret.name }}
+    {{- end }}
+    {{- end }}
+  {{- end }}
   storage:
     size: {{ default "5Gi" $pg.storageSize }}
     {{- if $pg.storageClass }}
@@ -30,6 +60,19 @@ spec:
       owner: {{ default "spire" $pg.username }}
       secret:
         name: {{ $pg.secretName }}
+      {{- if $postInitSQL }}
+      postInitApplicationSQL:
+        {{- range $stmt := $postInitSQL }}
+        - {{ $stmt | quote }}
+        {{- end }}
+      {{- end }}
+  postgresql:
+    {{- if $sharedPreload }}
+    shared_preload_libraries:
+      {{- range $lib := $sharedPreload }}
+      - {{ $lib | quote }}
+      {{- end }}
+    {{- end }}
   managed:
     roles:
       - name: {{ default "spire" $pg.username }}

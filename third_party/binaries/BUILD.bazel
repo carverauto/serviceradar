@@ -11,3 +11,9 @@ filegroup(
     srcs = ["@nats_server_linux_amd64//:nats_server"],
     visibility = ["//visibility:public"],
 )
+
+filegroup(
+    name = "crane_linux_amd64",
+    srcs = ["@crane_linux_amd64//:crane"],
+    visibility = ["//visibility:public"],
+)

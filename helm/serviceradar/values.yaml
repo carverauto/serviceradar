@@ -157,6 +157,16 @@ spire:
     secretName: spire-db-credentials
     username: spire
     password: changeme
+    image: ghcr.io/carverauto/serviceradar-cnpg
+    imageTag: ""
+    imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr1@sha256:68f2c4e55b553e7f5f710b28c9c19a56dc37de467543e9b31d4afe002df9d2ac
+    imagePullSecrets: []
+    sharedPreloadLibraries:
+      - timescaledb
+      - age
+    extensionsSQL:
+      - CREATE EXTENSION IF NOT EXISTS timescaledb;
+      - CREATE EXTENSION IF NOT EXISTS age;
   controllerManager:
     image: ghcr.io/spiffe/spire-controller-manager
     tag: 0.6.3

@@ -5,6 +5,9 @@ metadata:
   namespace: demo
 spec:
   instances: 3
+  imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr1@sha256:68f2c4e55b553e7f5f710b28c9c19a56dc37de467543e9b31d4afe002df9d2ac
+  imagePullSecrets:
+    - name: ghcr-io-cred
 
   storage:
     size: 5Gi
@@ -16,6 +19,14 @@ spec:
       owner: spire
       secret:
         name: spire-db-credentials
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS timescaledb;
+        - CREATE EXTENSION IF NOT EXISTS age;
+
+  postgresql:
+    shared_preload_libraries:
+      - timescaledb
+      - age
 
   managed:
     roles:
