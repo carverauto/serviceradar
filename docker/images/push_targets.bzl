@@ -6,27 +6,32 @@ load("//docker/images:container_tags.bzl", "immutable_push_tags")
 load("@rules_multirun//:defs.bzl", "command", "multirun")
 
 GHCR_PUSH_TARGETS = [
-    ("core_image_amd64", "ghcr.io/carverauto/serviceradar-core"),
-    ("agent_image_amd64", "ghcr.io/carverauto/serviceradar-agent"),
-    ("db_event_writer_image_amd64", "ghcr.io/carverauto/serviceradar-db-event-writer"),
-    ("mapper_image_amd64", "ghcr.io/carverauto/serviceradar-mapper"),
-    ("datasvc_image_amd64", "ghcr.io/carverauto/serviceradar-datasvc"),
-    ("flowgger_image_amd64", "ghcr.io/carverauto/serviceradar-flowgger"),
-    ("trapd_image_amd64", "ghcr.io/carverauto/serviceradar-trapd"),
-    ("otel_image_amd64", "ghcr.io/carverauto/serviceradar-otel"),
-    ("snmp_checker_image_amd64", "ghcr.io/carverauto/serviceradar-snmp-checker"),
-    ("rperf_client_image_amd64", "ghcr.io/carverauto/serviceradar-rperf-client"),
-    ("poller_image_amd64", "ghcr.io/carverauto/serviceradar-poller"),
-    ("sync_image_amd64", "ghcr.io/carverauto/serviceradar-sync"),
-    ("zen_image_amd64", "ghcr.io/carverauto/serviceradar-zen"),
-    ("config_updater_image_amd64", "ghcr.io/carverauto/serviceradar-config-updater"),
-    ("nginx_image_amd64", "ghcr.io/carverauto/serviceradar-nginx"),
-    ("web_image_amd64", "ghcr.io/carverauto/serviceradar-web", ":web_image_base_amd64.digest"),
-    ("srql_image_amd64", "ghcr.io/carverauto/serviceradar-srql"),
-    ("kong_config_image_amd64", "ghcr.io/carverauto/serviceradar-kong-config"),
-    ("cert_generator_image_amd64", "ghcr.io/carverauto/serviceradar-cert-generator"),
-    ("tools_image_amd64", "ghcr.io/carverauto/serviceradar-tools"),
-    ("proton_image_amd64", "ghcr.io/carverauto/serviceradar-proton"),
+    {"image": "core_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-core"},
+    {"image": "agent_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent"},
+    {"image": "db_event_writer_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-db-event-writer"},
+    {"image": "mapper_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-mapper"},
+    {"image": "datasvc_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-datasvc"},
+    {"image": "flowgger_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-flowgger"},
+    {"image": "trapd_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-trapd"},
+    {"image": "otel_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-otel"},
+    {"image": "snmp_checker_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-snmp-checker"},
+    {"image": "rperf_client_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-rperf-client"},
+    {"image": "poller_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-poller"},
+    {"image": "sync_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-sync"},
+    {"image": "zen_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-zen"},
+    {"image": "config_updater_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-config-updater"},
+    {"image": "nginx_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-nginx"},
+    {"image": "web_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-web", "digest_label": ":web_image_base_amd64.digest"},
+    {"image": "srql_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-srql"},
+    {"image": "kong_config_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-kong-config"},
+    {"image": "cert_generator_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-cert-generator"},
+    {"image": "tools_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-tools"},
+    {"image": "proton_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-proton"},
+    {
+        "image": "cnpg_image_amd64",
+        "repository": "ghcr.io/carverauto/serviceradar-cnpg",
+        "static_tags": ["16.6.0-sr1"],
+    },
 ]
 
 
@@ -36,11 +41,10 @@ def declare_ghcr_push_targets():
     push_command_targets = []
 
     for target in GHCR_PUSH_TARGETS:
-        if len(target) == 2:
-            image, repository = target
-            digest_label = ":{}.digest".format(image)
-        else:
-            image, repository, digest_label = target
+        image = target["image"]
+        repository = target["repository"]
+        digest_label = target.get("digest_label", ":{}.digest".format(image))
+        static_tags = ["latest"] + target.get("static_tags", [])
         expand_template(
             name = "{}_commit_tag".format(image),
             template = ["sha-{{STABLE_COMMIT_SHA}}"],
@@ -54,7 +58,7 @@ def declare_ghcr_push_targets():
             name = "{}_push_tags".format(image),
             digest = digest_label,
             commit_tags = ":{}_commit_tag".format(image),
-            static_tags = ["latest"],
+            static_tags = static_tags,
         )
 
         oci_push(

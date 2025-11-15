@@ -1333,7 +1333,7 @@
     "@@rules_oci+//oci:extensions.bzl%oci": {
       "general": {
         "bzlTransitiveDigest": "anfgzQokiHri4FJRiW4KvwSfiR7ComgkDZBoR/2HI1I=",
-        "usagesDigest": "kYAAFpM3inyqg7G8HzxCERBV1jCxgIgbaWtOueAq4/0=",
+        "usagesDigest": "fbhbIgne5z8BSDrc1wkAqZRTTUY5tUUWe1urLzWBDGs=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -1632,6 +1632,35 @@
               "reproducible": true
             }
           },
+          "cloudnativepg_postgresql_16_6_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "cloudnative-pg/postgresql",
+              "identifier": "16.6",
+              "platform": "linux/amd64",
+              "target_name": "cloudnativepg_postgresql_16_6_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "cloudnativepg_postgresql_16_6": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "cloudnativepg_postgresql_16_6",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "cloudnative-pg/postgresql",
+              "identifier": "16.6",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@cloudnativepg_postgresql_16_6_linux_amd64"
+              },
+              "bzlmod_repository": "cloudnativepg_postgresql_16_6",
+              "reproducible": false
+            }
+          },
           "oci_crane_darwin_amd64": {
             "repoRuleId": "@@rules_oci+//oci:repositories.bzl%crane_repositories",
             "attributes": {
@@ -1767,7 +1796,9 @@
             "serviceradar_tools",
             "serviceradar_tools_linux_amd64",
             "timeplus_proton",
-            "timeplus_proton_linux_amd64"
+            "timeplus_proton_linux_amd64",
+            "cloudnativepg_postgresql_16_6",
+            "cloudnativepg_postgresql_16_6_linux_amd64"
           ],
           "explicitRootModuleDirectDevDeps": [],
           "useAllRepos": "NO",
