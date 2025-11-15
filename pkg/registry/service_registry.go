@@ -36,11 +36,113 @@ const (
 	pollerCacheTTL = 5 * time.Minute
 )
 
+const (
+	cnpgUpsertPollerSQL = `
+INSERT INTO pollers (
+	poller_id,
+	component_id,
+	registration_source,
+	status,
+	spiffe_identity,
+	first_registered,
+	first_seen,
+	last_seen,
+	metadata,
+	created_by,
+	agent_count,
+	checker_count
+) VALUES (
+	$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+)
+ON CONFLICT (poller_id) DO UPDATE SET
+	component_id = EXCLUDED.component_id,
+	registration_source = EXCLUDED.registration_source,
+	status = EXCLUDED.status,
+	spiffe_identity = EXCLUDED.spiffe_identity,
+	first_registered = EXCLUDED.first_registered,
+	first_seen = EXCLUDED.first_seen,
+	last_seen = EXCLUDED.last_seen,
+	metadata = EXCLUDED.metadata,
+	created_by = EXCLUDED.created_by,
+	agent_count = EXCLUDED.agent_count,
+	checker_count = EXCLUDED.checker_count,
+	updated_at = now()`
+
+	cnpgUpsertAgentSQL = `
+INSERT INTO agents (
+	agent_id,
+	poller_id,
+	component_id,
+	status,
+	registration_source,
+	first_registered,
+	first_seen,
+	last_seen,
+	metadata,
+	spiffe_identity,
+	created_by,
+	checker_count
+) VALUES (
+	$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+)
+ON CONFLICT (agent_id) DO UPDATE SET
+	poller_id = EXCLUDED.poller_id,
+	component_id = EXCLUDED.component_id,
+	status = EXCLUDED.status,
+	registration_source = EXCLUDED.registration_source,
+	first_registered = EXCLUDED.first_registered,
+	first_seen = EXCLUDED.first_seen,
+	last_seen = EXCLUDED.last_seen,
+	metadata = EXCLUDED.metadata,
+	spiffe_identity = EXCLUDED.spiffe_identity,
+	created_by = EXCLUDED.created_by,
+	checker_count = EXCLUDED.checker_count,
+	updated_at = now()`
+
+	cnpgUpsertCheckerSQL = `
+INSERT INTO checkers (
+	checker_id,
+	agent_id,
+	poller_id,
+	checker_kind,
+	component_id,
+	status,
+	registration_source,
+	first_registered,
+	first_seen,
+	last_seen,
+	metadata,
+	spiffe_identity,
+	created_by
+) VALUES (
+	$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+)
+ON CONFLICT (checker_id) DO UPDATE SET
+	agent_id = EXCLUDED.agent_id,
+	poller_id = EXCLUDED.poller_id,
+	checker_kind = EXCLUDED.checker_kind,
+	component_id = EXCLUDED.component_id,
+	status = EXCLUDED.status,
+	registration_source = EXCLUDED.registration_source,
+	first_registered = EXCLUDED.first_registered,
+	first_seen = EXCLUDED.first_seen,
+	last_seen = EXCLUDED.last_seen,
+	metadata = EXCLUDED.metadata,
+	spiffe_identity = EXCLUDED.spiffe_identity,
+	created_by = EXCLUDED.created_by,
+	updated_at = now()`
+
+	cnpgDeletePollerSQL  = `DELETE FROM pollers WHERE poller_id = $1`
+	cnpgDeleteAgentSQL   = `DELETE FROM agents WHERE agent_id = $1`
+	cnpgDeleteCheckerSQL = `DELETE FROM checkers WHERE checker_id = $1`
+)
+
 // ServiceRegistry implements the ServiceManager interface.
 // It manages the lifecycle and registration of all services (pollers, agents, checkers).
 type ServiceRegistry struct {
-	db     *db.DB
-	logger zerolog.Logger
+	db         *db.DB
+	logger     zerolog.Logger
+	cnpgClient cnpgRegistryClient
 
 	// Cache for IsKnownPoller() - invalidated on registration changes
 	pollerCacheMu sync.RWMutex
@@ -53,6 +155,7 @@ func NewServiceRegistry(database *db.DB, log logger.Logger) *ServiceRegistry {
 	return &ServiceRegistry{
 		db:          database,
 		logger:      log.WithComponent("service-registry"),
+		cnpgClient:  database,
 		pollerCache: make(map[string]bool),
 	}
 }
@@ -110,6 +213,25 @@ func (r *ServiceRegistry) RegisterPoller(ctx context.Context, reg *PollerRegistr
 	err = batch.Send()
 	if err != nil {
 		return fmt.Errorf("failed to register poller: %w", err)
+	}
+
+	firstSeen := now
+	lastSeen := now
+	pollerRecord := &RegisteredPoller{
+		PollerID:           reg.PollerID,
+		ComponentID:        reg.ComponentID,
+		Status:             ServiceStatusPending,
+		RegistrationSource: reg.RegistrationSource,
+		FirstRegistered:    now,
+		FirstSeen:          &firstSeen,
+		LastSeen:           &lastSeen,
+		Metadata:           reg.Metadata,
+		SPIFFEIdentity:     reg.SPIFFEIdentity,
+		CreatedBy:          reg.CreatedBy,
+	}
+
+	if err := r.upsertCNPGPoller(ctx, pollerRecord); err != nil {
+		return err
 	}
 
 	// Emit registration event
@@ -199,6 +321,26 @@ func (r *ServiceRegistry) RegisterAgent(ctx context.Context, reg *AgentRegistrat
 		return fmt.Errorf("failed to register agent: %w", err)
 	}
 
+	firstSeen := now
+	lastSeen := now
+	agentRecord := &RegisteredAgent{
+		AgentID:            reg.AgentID,
+		PollerID:           reg.PollerID,
+		ComponentID:        reg.ComponentID,
+		Status:             ServiceStatusPending,
+		RegistrationSource: reg.RegistrationSource,
+		FirstRegistered:    now,
+		FirstSeen:          &firstSeen,
+		LastSeen:           &lastSeen,
+		Metadata:           reg.Metadata,
+		SPIFFEIdentity:     reg.SPIFFEIdentity,
+		CreatedBy:          reg.CreatedBy,
+	}
+
+	if err := r.upsertCNPGAgent(ctx, agentRecord); err != nil {
+		return err
+	}
+
 	// Emit registration event
 	eventMetadata := map[string]string{
 		"component_id": reg.ComponentID,
@@ -284,6 +426,28 @@ func (r *ServiceRegistry) RegisterChecker(ctx context.Context, reg *CheckerRegis
 	err = batch.Send()
 	if err != nil {
 		return fmt.Errorf("failed to register checker: %w", err)
+	}
+
+	firstSeen := now
+	lastSeen := now
+	checkerRecord := &RegisteredChecker{
+		CheckerID:          reg.CheckerID,
+		AgentID:            reg.AgentID,
+		PollerID:           reg.PollerID,
+		CheckerKind:        reg.CheckerKind,
+		ComponentID:        reg.ComponentID,
+		Status:             ServiceStatusPending,
+		RegistrationSource: reg.RegistrationSource,
+		FirstRegistered:    now,
+		FirstSeen:          &firstSeen,
+		LastSeen:           &lastSeen,
+		Metadata:           reg.Metadata,
+		SPIFFEIdentity:     reg.SPIFFEIdentity,
+		CreatedBy:          reg.CreatedBy,
+	}
+
+	if err := r.upsertCNPGChecker(ctx, checkerRecord); err != nil {
+		return err
 	}
 
 	// Emit registration event
@@ -412,6 +576,25 @@ func (r *ServiceRegistry) recordPollerHeartbeat(ctx context.Context, pollerID st
 		return fmt.Errorf("failed to record poller heartbeat: %w", err)
 	}
 
+	updatedPoller := &RegisteredPoller{
+		PollerID:           poller.PollerID,
+		ComponentID:        poller.ComponentID,
+		Status:             newStatus,
+		RegistrationSource: poller.RegistrationSource,
+		FirstRegistered:    poller.FirstRegistered,
+		FirstSeen:          firstSeen,
+		LastSeen:           &timestamp,
+		Metadata:           poller.Metadata,
+		SPIFFEIdentity:     poller.SPIFFEIdentity,
+		CreatedBy:          poller.CreatedBy,
+		AgentCount:         poller.AgentCount,
+		CheckerCount:       poller.CheckerCount,
+	}
+
+	if err := r.upsertCNPGPoller(ctx, updatedPoller); err != nil {
+		return err
+	}
+
 	// Emit activation event if transitioned to active
 	if poller.Status == ServiceStatusPending && newStatus == ServiceStatusActive {
 		eventMetadata := map[string]string{
@@ -498,6 +681,25 @@ func (r *ServiceRegistry) recordAgentHeartbeat(ctx context.Context, agentID, pol
 		return fmt.Errorf("failed to record agent heartbeat: %w", err)
 	}
 
+	updatedAgent := &RegisteredAgent{
+		AgentID:            agent.AgentID,
+		PollerID:           agent.PollerID,
+		ComponentID:        agent.ComponentID,
+		Status:             newStatus,
+		RegistrationSource: agent.RegistrationSource,
+		FirstRegistered:    agent.FirstRegistered,
+		FirstSeen:          firstSeen,
+		LastSeen:           &timestamp,
+		Metadata:           agent.Metadata,
+		SPIFFEIdentity:     agent.SPIFFEIdentity,
+		CreatedBy:          agent.CreatedBy,
+		CheckerCount:       agent.CheckerCount,
+	}
+
+	if err := r.upsertCNPGAgent(ctx, updatedAgent); err != nil {
+		return err
+	}
+
 	// Emit activation event if transitioned to active
 	if agent.Status == ServiceStatusPending && newStatus == ServiceStatusActive {
 		eventMetadata := map[string]string{
@@ -582,6 +784,26 @@ func (r *ServiceRegistry) recordCheckerHeartbeat(ctx context.Context, checkerID,
 
 	if err != nil {
 		return fmt.Errorf("failed to record checker heartbeat: %w", err)
+	}
+
+	updatedChecker := &RegisteredChecker{
+		CheckerID:          checker.CheckerID,
+		AgentID:            checker.AgentID,
+		PollerID:           checker.PollerID,
+		CheckerKind:        checker.CheckerKind,
+		ComponentID:        checker.ComponentID,
+		Status:             newStatus,
+		RegistrationSource: checker.RegistrationSource,
+		FirstRegistered:    checker.FirstRegistered,
+		FirstSeen:          firstSeen,
+		LastSeen:           &timestamp,
+		Metadata:           checker.Metadata,
+		SPIFFEIdentity:     checker.SPIFFEIdentity,
+		CreatedBy:          checker.CreatedBy,
+	}
+
+	if err := r.upsertCNPGChecker(ctx, updatedChecker); err != nil {
+		return err
 	}
 
 	// Emit activation event if transitioned to active
@@ -705,6 +927,10 @@ func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, servic
 		return fmt.Errorf("failed to delete service: %w", err)
 	}
 
+	if err := r.deleteServiceCNPG(ctx, serviceType, serviceID); err != nil {
+		return err
+	}
+
 	// Invalidate cache if it's a poller
 	if serviceType == serviceTypePoller {
 		r.invalidatePollerCache()
@@ -816,4 +1042,183 @@ func (r *ServiceRegistry) PurgeInactive(ctx context.Context, retentionPeriod tim
 		Msg("Completed purge of inactive services")
 
 	return count, nil
+}
+
+func (r *ServiceRegistry) getCNPGClient() (cnpgRegistryClient, bool) {
+	if r == nil {
+		return nil, false
+	}
+
+	if r.cnpgClient != nil {
+		return r.cnpgClient, true
+	}
+
+	if r.db == nil {
+		return nil, false
+	}
+
+	client, ok := interface{}(r.db).(cnpgRegistryClient)
+	if !ok {
+		return nil, false
+	}
+
+	r.cnpgClient = client
+	return client, true
+}
+
+func (r *ServiceRegistry) useCNPGReads() bool {
+	client, ok := r.getCNPGClient()
+	if !ok {
+		return false
+	}
+
+	return client.UseCNPGReads()
+}
+
+func (r *ServiceRegistry) queryCNPGRows(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
+	client, ok := r.getCNPGClient()
+	if !ok {
+		return nil, fmt.Errorf("cnpg querying is not supported by service registry db")
+	}
+
+	return client.QueryCNPGRows(ctx, query, args...)
+}
+
+func (r *ServiceRegistry) shouldWriteCNPG() bool {
+	return r != nil && r.db != nil && r.db.UseCNPGWrites()
+}
+
+func (r *ServiceRegistry) execCNPGWrite(ctx context.Context, query string, args ...interface{}) error {
+	if !r.shouldWriteCNPG() {
+		return nil
+	}
+
+	if err := r.db.ExecCNPG(ctx, query, args...); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func marshalServiceMetadata(metadata map[string]string) ([]byte, error) {
+	if metadata == nil {
+		metadata = map[string]string{}
+	}
+	return json.Marshal(metadata)
+}
+
+func (r *ServiceRegistry) upsertCNPGPoller(ctx context.Context, poller *RegisteredPoller) error {
+	if poller == nil || !r.shouldWriteCNPG() {
+		return nil
+	}
+
+	metadataJSON, err := marshalServiceMetadata(poller.Metadata)
+	if err != nil {
+		return fmt.Errorf("marshal poller metadata: %w", err)
+	}
+
+	if err := r.execCNPGWrite(ctx, cnpgUpsertPollerSQL,
+		poller.PollerID,
+		poller.ComponentID,
+		string(poller.RegistrationSource),
+		string(poller.Status),
+		poller.SPIFFEIdentity,
+		poller.FirstRegistered,
+		poller.FirstSeen,
+		poller.LastSeen,
+		metadataJSON,
+		poller.CreatedBy,
+		poller.AgentCount,
+		poller.CheckerCount,
+	); err != nil {
+		return fmt.Errorf("cnpg upsert poller: %w", err)
+	}
+
+	return nil
+}
+
+func (r *ServiceRegistry) upsertCNPGAgent(ctx context.Context, agent *RegisteredAgent) error {
+	if agent == nil || !r.shouldWriteCNPG() {
+		return nil
+	}
+
+	metadataJSON, err := marshalServiceMetadata(agent.Metadata)
+	if err != nil {
+		return fmt.Errorf("marshal agent metadata: %w", err)
+	}
+
+	if err := r.execCNPGWrite(ctx, cnpgUpsertAgentSQL,
+		agent.AgentID,
+		agent.PollerID,
+		agent.ComponentID,
+		string(agent.Status),
+		string(agent.RegistrationSource),
+		agent.FirstRegistered,
+		agent.FirstSeen,
+		agent.LastSeen,
+		metadataJSON,
+		agent.SPIFFEIdentity,
+		agent.CreatedBy,
+		agent.CheckerCount,
+	); err != nil {
+		return fmt.Errorf("cnpg upsert agent: %w", err)
+	}
+
+	return nil
+}
+
+func (r *ServiceRegistry) upsertCNPGChecker(ctx context.Context, checker *RegisteredChecker) error {
+	if checker == nil || !r.shouldWriteCNPG() {
+		return nil
+	}
+
+	metadataJSON, err := marshalServiceMetadata(checker.Metadata)
+	if err != nil {
+		return fmt.Errorf("marshal checker metadata: %w", err)
+	}
+
+	if err := r.execCNPGWrite(ctx, cnpgUpsertCheckerSQL,
+		checker.CheckerID,
+		checker.AgentID,
+		checker.PollerID,
+		checker.CheckerKind,
+		checker.ComponentID,
+		string(checker.Status),
+		string(checker.RegistrationSource),
+		checker.FirstRegistered,
+		checker.FirstSeen,
+		checker.LastSeen,
+		metadataJSON,
+		checker.SPIFFEIdentity,
+		checker.CreatedBy,
+	); err != nil {
+		return fmt.Errorf("cnpg upsert checker: %w", err)
+	}
+
+	return nil
+}
+
+func (r *ServiceRegistry) deleteServiceCNPG(ctx context.Context, serviceType, serviceID string) error {
+	if !r.shouldWriteCNPG() {
+		return nil
+	}
+
+	var query string
+
+	switch serviceType {
+	case serviceTypePoller:
+		query = cnpgDeletePollerSQL
+	case serviceTypeAgent:
+		query = cnpgDeleteAgentSQL
+	case serviceTypeChecker:
+		query = cnpgDeleteCheckerSQL
+	default:
+		return fmt.Errorf("%w: %s", ErrUnknownServiceType, serviceType)
+	}
+
+	if err := r.execCNPGWrite(ctx, query, serviceID); err != nil {
+		return fmt.Errorf("cnpg delete %s: %w", serviceType, err)
+	}
+
+	return nil
 }

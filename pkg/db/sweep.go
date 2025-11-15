@@ -106,6 +106,10 @@ func (db *DB) StoreSweepHostStates(ctx context.Context, states []*models.SweepHo
 		return fmt.Errorf("failed to send batch: %w", err)
 	}
 
+	if err := db.cnpgInsertSweepHostStates(ctx, states); err != nil {
+		return fmt.Errorf("cnpg sweep insert failed: %w", err)
+	}
+
 	db.logger.Info().Int("count", len(states)).Msg("Successfully stored sweep host states")
 
 	return nil
@@ -113,6 +117,10 @@ func (db *DB) StoreSweepHostStates(ctx context.Context, states []*models.SweepHo
 
 // GetSweepHostStates retrieves the latest sweep host states from the versioned KV stream.
 func (db *DB) GetSweepHostStates(ctx context.Context, pollerID string, limit int) ([]*models.SweepHostState, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetSweepHostStates(ctx, pollerID, limit)
+	}
+
 	query := `
 		SELECT 
 			host_ip, poller_id, agent_id, partition, network_cidr, hostname, mac,

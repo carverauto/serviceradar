@@ -14,6 +14,10 @@ import (
 
 // GetPollerStatus retrieves a poller's current status.
 func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.PollerStatus, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetPollerStatus(ctx, pollerID)
+	}
+
 	var status models.PollerStatus
 
 	rows, err := db.Conn.Query(ctx, `
@@ -46,6 +50,10 @@ func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.Pol
 
 // GetPollerServices retrieves services for a poller.
 func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]models.ServiceStatus, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetPollerServices(ctx, pollerID)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
         SELECT service_name, service_type, available, timestamp, agent_id
         FROM table(service_status)
@@ -74,6 +82,10 @@ func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]models.
 
 // GetPollerHistoryPoints retrieves history points for a poller.
 func (db *DB) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit int) ([]models.PollerHistoryPoint, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgGetPollerHistoryPoints(ctx, pollerID, limit)
+	}
+
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, is_healthy
 		FROM table(poller_history)
@@ -104,6 +116,10 @@ func (db *DB) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit
 // GetPollerHistory retrieves the history for a poller.
 func (db *DB) GetPollerHistory(ctx context.Context, pollerID string) ([]models.PollerStatus, error) {
 	const maxHistoryPoints = 1000
+
+	if db.UseCNPGReads() {
+		return db.cnpgGetPollerHistory(ctx, pollerID, maxHistoryPoints)
+	}
 
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, is_healthy
@@ -163,6 +179,10 @@ func (db *DB) IsPollerOffline(ctx context.Context, pollerID string, threshold ti
 
 // ListPollers retrieves all poller IDs from the pollers stream.
 func (db *DB) ListPollers(ctx context.Context) ([]string, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgListPollers(ctx)
+	}
+
 	rows, err := db.Conn.Query(ctx, "SELECT poller_id FROM table(pollers)")
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to query pollers: %w", ErrFailedToQuery, err)
@@ -203,6 +223,10 @@ func (db *DB) DeletePoller(ctx context.Context, pollerID string) error {
 
 // ListPollerStatuses retrieves poller statuses, optionally filtered by patterns.
 func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]models.PollerStatus, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgListPollerStatuses(ctx, patterns)
+	}
+
 	query := `SELECT poller_id, is_healthy, last_seen FROM table(pollers)`
 
 	var args []interface{}
@@ -249,6 +273,10 @@ func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]mode
 
 // ListNeverReportedPollers retrieves poller IDs that have never reported (first_seen = last_seen).
 func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) ([]string, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgListNeverReportedPollers(ctx, patterns)
+	}
+
 	query := `
         WITH history AS (
             SELECT poller_id, MAX(timestamp) AS latest_timestamp
@@ -406,7 +434,7 @@ INSERT INTO pollers (
 )`
 
 func (db *DB) insertPollerStatus(ctx context.Context, status *models.PollerStatus) error {
-	return db.executeBatch(ctx, insertPollerStatusQuery, func(batch driver.Batch) error {
+	if err := db.executeBatch(ctx, insertPollerStatusQuery, func(batch driver.Batch) error {
 		return batch.Append(
 			status.PollerID,   // poller_id
 			"",                // component_id (empty for implicit registration)
@@ -422,18 +450,26 @@ func (db *DB) insertPollerStatus(ctx context.Context, status *models.PollerStatu
 			uint32(0),         // agent_count
 			uint32(0),         // checker_count
 		)
-	})
+	}); err != nil {
+		return err
+	}
+
+	return db.cnpgUpsertPollerStatus(ctx, status)
 }
 
 // insertPollerHistory logs the poller status in the poller_history table.
 func (db *DB) insertPollerHistory(ctx context.Context, status *models.PollerStatus) error {
-	return db.executeBatch(ctx, "INSERT INTO poller_history (timestamp, poller_id, is_healthy)", func(batch driver.Batch) error {
+	if err := db.executeBatch(ctx, "INSERT INTO poller_history (timestamp, poller_id, is_healthy)", func(batch driver.Batch) error {
 		return batch.Append(
 			status.LastSeen,
 			status.PollerID,
 			status.IsHealthy,
 		)
-	})
+	}); err != nil {
+		return err
+	}
+
+	return db.cnpgInsertPollerHistory(ctx, status)
 }
 
 // AgentInfo represents an agent and its associated poller information.
@@ -447,6 +483,10 @@ type AgentInfo struct {
 // ListAgentsWithPollers retrieves all agents with their associated poller information.
 // This queries the services table to find unique agent_id and poller_id pairs.
 func (db *DB) ListAgentsWithPollers(ctx context.Context) ([]AgentInfo, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgListAgentsWithPollers(ctx)
+	}
+
 	query := `
 		SELECT
 			agent_id,
@@ -493,6 +533,10 @@ func (db *DB) ListAgentsWithPollers(ctx context.Context) ([]AgentInfo, error) {
 
 // ListAgentsByPoller retrieves all agents associated with a specific poller.
 func (db *DB) ListAgentsByPoller(ctx context.Context, pollerID string) ([]AgentInfo, error) {
+	if db.UseCNPGReads() {
+		return db.cnpgListAgentsByPoller(ctx, pollerID)
+	}
+
 	query := `
 		SELECT
 			agent_id,

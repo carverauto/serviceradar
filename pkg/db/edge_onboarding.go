@@ -112,7 +112,7 @@ func (db *DB) UpsertEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeO
 		Str("component_type", string(pkg.ComponentType)).
 		Msg("Upserting edge onboarding package row")
 
-	return db.executeBatch(ctx, `
+	if err := db.executeBatch(ctx, `
 		INSERT INTO edge_onboarding_packages (
 			package_id,
 			label,
@@ -149,7 +149,11 @@ func (db *DB) UpsertEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeO
 			downstream_entry_id
 		) VALUES`, func(batch driver.Batch) error {
 		return batch.Append(values...)
-	})
+	}); err != nil {
+		return err
+	}
+
+	return db.cnpgUpsertEdgeOnboardingPackage(ctx, pkg)
 }
 
 // GetEdgeOnboardingPackage fetches a single onboarding package by ID.
@@ -339,7 +343,7 @@ func (db *DB) InsertEdgeOnboardingEvent(ctx context.Context, event *models.EdgeO
 		return fmt.Errorf("%w: invalid package_id %q: %w", ErrEdgePackageInvalid, event.PackageID, err)
 	}
 
-	return db.executeBatch(ctx, `
+	if err := db.executeBatch(ctx, `
 		INSERT INTO edge_onboarding_events (
 			event_time,
 			package_id,
@@ -356,7 +360,11 @@ func (db *DB) InsertEdgeOnboardingEvent(ctx context.Context, event *models.EdgeO
 			event.SourceIP,
 			event.DetailsJSON,
 		)
-	})
+	}); err != nil {
+		return err
+	}
+
+	return db.cnpgInsertEdgeOnboardingEvent(ctx, event)
 }
 
 // ListEdgeOnboardingEvents fetches audit events for a package ordered by time descending.
