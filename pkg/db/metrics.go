@@ -476,6 +476,18 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 		return nil
 	}
 
+	if err := db.storeMetricsProton(ctx, pollerID, metrics); err != nil {
+		return err
+	}
+
+	return db.cnpgInsertTimeseriesMetrics(ctx, pollerID, metrics)
+}
+
+func (db *DB) storeMetricsProton(ctx context.Context, pollerID string, metrics []*models.TimeseriesMetric) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
 	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
@@ -583,7 +595,7 @@ func (db *DB) storeCPUMetrics(
 		return nil
 	}
 
-	return db.executeBatch(ctx, "INSERT INTO cpu_metrics (* except _tp_time)", func(batch driver.Batch) error {
+	if err := db.executeBatch(ctx, "INSERT INTO cpu_metrics (* except _tp_time)", func(batch driver.Batch) error {
 		appended := 0
 		var appendErr error
 
@@ -620,7 +632,14 @@ func (db *DB) storeCPUMetrics(
 		}
 
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	if err := db.cnpgInsertCPUMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, cpus, timestamp); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // storeCPUClusterMetrics stores CPU cluster metrics in a batch.
@@ -633,7 +652,7 @@ func (db *DB) storeCPUClusterMetrics(
 		return nil
 	}
 
-	return db.executeBatch(ctx, "INSERT INTO cpu_cluster_metrics (* except _tp_time)", func(batch driver.Batch) error {
+	if err := db.executeBatch(ctx, "INSERT INTO cpu_cluster_metrics (* except _tp_time)", func(batch driver.Batch) error {
 		appended := 0
 		var appendErr error
 
@@ -667,7 +686,14 @@ func (db *DB) storeCPUClusterMetrics(
 		}
 
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	if err := db.cnpgInsertCPUClusterMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, clusters, timestamp); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // storeDiskMetrics stores disk metrics in a batch.
@@ -680,7 +706,7 @@ func (db *DB) storeDiskMetrics(
 		return nil
 	}
 
-	return db.executeBatch(ctx, "INSERT INTO disk_metrics (* except _tp_time)", func(batch driver.Batch) error {
+	if err := db.executeBatch(ctx, "INSERT INTO disk_metrics (* except _tp_time)", func(batch driver.Batch) error {
 		appended := 0
 		var appendErr error
 
@@ -731,7 +757,14 @@ func (db *DB) storeDiskMetrics(
 		}
 
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	if err := db.cnpgInsertDiskMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, disks, timestamp); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // storeMemoryMetrics stores memory metrics in a batch.
@@ -740,11 +773,15 @@ func (db *DB) storeMemoryMetrics(
 	pollerID, agentID, hostID, deviceID, partition string,
 	memory *models.MemoryMetric,
 	timestamp time.Time) error {
+	if memory == nil {
+		return nil
+	}
+
 	if memory.UsedBytes == 0 && memory.TotalBytes == 0 {
 		return nil
 	}
 
-	return db.executeBatch(ctx, "INSERT INTO memory_metrics (* except _tp_time)", func(batch driver.Batch) error {
+	if err := db.executeBatch(ctx, "INSERT INTO memory_metrics (* except _tp_time)", func(batch driver.Batch) error {
 		// Calculate missing fields for the memory_metrics schema
 		availableBytes := uint64(0)
 		if memory.TotalBytes > memory.UsedBytes {
@@ -768,7 +805,11 @@ func (db *DB) storeMemoryMetrics(
 			deviceID,          // device_id
 			partition,         // partition
 		)
-	})
+	}); err != nil {
+		return err
+	}
+
+	return db.cnpgInsertMemoryMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, memory, timestamp)
 }
 
 // storeProcessMetrics stores process metrics in a batch.
@@ -781,7 +822,7 @@ func (db *DB) storeProcessMetrics(
 		return nil
 	}
 
-	return db.executeBatch(ctx, "INSERT INTO process_metrics (* except _tp_time)", func(batch driver.Batch) error {
+	if err := db.executeBatch(ctx, "INSERT INTO process_metrics (* except _tp_time)", func(batch driver.Batch) error {
 		appended := 0
 		var appendErr error
 
@@ -820,7 +861,10 @@ func (db *DB) storeProcessMetrics(
 		}
 
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	return db.cnpgInsertProcessMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, processes, timestamp)
 }
 
 // GetAllCPUMetrics retrieves all CPU metrics for a poller within a time range, grouped by timestamp.

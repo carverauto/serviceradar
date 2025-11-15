@@ -90,6 +90,8 @@ func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig
 		normalized.Features.RequireDeviceRegistry = boolPtr(false)
 	}
 
+	normalized.StorageRouting.Normalize()
+
 	return &normalized
 }
 

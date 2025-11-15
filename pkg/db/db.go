@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/timeplus-io/proton-go-driver/v2"
 	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
 
@@ -44,14 +45,16 @@ var (
 
 // DB represents the database connection for Timeplus Proton.
 type DB struct {
-	Conn          proton.Conn
-	writeBuffer   []*models.SweepResult
-	ctx           context.Context
-	cancel        context.CancelFunc
-	maxBufferSize int
-	flushInterval time.Duration
-	logger        logger.Logger
-	config        *models.CoreServiceConfig
+	Conn           proton.Conn
+	pgPool         *pgxpool.Pool
+	writeBuffer    []*models.SweepResult
+	ctx            context.Context
+	cancel         context.CancelFunc
+	maxBufferSize  int
+	flushInterval  time.Duration
+	logger         logger.Logger
+	config         *models.CoreServiceConfig
+	storageRouting models.StorageRoutingConfig
 }
 
 // GetStreamingConnection returns the underlying proton connection for streaming queries
@@ -260,7 +263,9 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 		return nil, fmt.Errorf("%w: %w", ErrFailedOpenDB, err)
 	}
 
-	if shouldRunDBMigrations() {
+	runMigrations := shouldRunDBMigrations()
+
+	if runMigrations {
 		// Run database migrations to ensure schema is up-to-date unless explicitly disabled.
 		if err := RunMigrations(ctx, conn, log); err != nil {
 			return nil, fmt.Errorf("failed to run database migrations: %w", err)
@@ -269,11 +274,25 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 		log.Info().Msg("Skipping database migrations (ENABLE_DB_MIGRATIONS=false)")
 	}
 
-	return createDBWithBuffer(ctx, conn, config, log), nil
+	cnpgPool, err := newCNPGPool(ctx, config, log)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+
+	if cnpgPool != nil && runMigrations {
+		if err := RunCNPGMigrations(ctx, cnpgPool, log); err != nil {
+			cnpgPool.Close()
+			_ = conn.Close()
+			return nil, fmt.Errorf("failed to run CNPG migrations: %w", err)
+		}
+	}
+
+	return createDBWithBuffer(ctx, conn, config, log, cnpgPool), nil
 }
 
 // createDBWithBuffer creates the DB struct with write buffering configured
-func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.CoreServiceConfig, log logger.Logger) *DB {
+func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.CoreServiceConfig, log logger.Logger, pgPool *pgxpool.Pool) *DB {
 	bufferCtx, cancel := context.WithCancel(ctx)
 
 	// Configure write buffer settings
@@ -307,14 +326,16 @@ func createDBWithBuffer(ctx context.Context, conn proton.Conn, config *models.Co
 	}
 
 	db := &DB{
-		Conn:          conn,
-		writeBuffer:   make([]*models.SweepResult, 0, bufferCapacity),
-		ctx:           bufferCtx,
-		cancel:        cancel,
-		maxBufferSize: maxBufferSize,
-		flushInterval: flushInterval,
-		logger:        log,
-		config:        config,
+		Conn:           conn,
+		pgPool:         pgPool,
+		writeBuffer:    make([]*models.SweepResult, 0, bufferCapacity),
+		ctx:            bufferCtx,
+		cancel:         cancel,
+		maxBufferSize:  maxBufferSize,
+		flushInterval:  flushInterval,
+		logger:         log,
+		config:         config,
+		storageRouting: config.StorageRouting,
 	}
 
 	return db
@@ -337,6 +358,18 @@ func shouldRunDBMigrations() bool {
 	}
 }
 
+func (db *DB) cnpgConfigured() bool {
+	return db != nil && db.pgPool != nil
+}
+
+func (db *DB) useCNPGReads() bool {
+	return db.cnpgConfigured() && db.storageRouting.PrimaryBackend == models.StorageBackendCNPG
+}
+
+func (db *DB) useCNPGWrites() bool {
+	return db.cnpgConfigured() && (db.storageRouting.PrimaryBackend == models.StorageBackendCNPG || db.storageRouting.DualWrite)
+}
+
 // Close closes the database connection.
 func (db *DB) Close() error {
 	// Stop the background flush routine
@@ -344,7 +377,17 @@ func (db *DB) Close() error {
 		db.cancel()
 	}
 
-	return db.Conn.Close()
+	var closeErr error
+
+	if db.Conn != nil {
+		closeErr = db.Conn.Close()
+	}
+
+	if db.pgPool != nil {
+		db.pgPool.Close()
+	}
+
+	return closeErr
 }
 
 // ExecuteQuery executes a raw SQL query against the Proton database.
@@ -662,6 +705,10 @@ func (db *DB) processBatch(ctx context.Context, updates []*models.DeviceUpdate, 
 
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("failed to send device updates batch %d (records %d-%d): %w", batchNum, startIndex, endIndex, err)
+	}
+
+	if err := db.cnpgInsertDeviceUpdates(ctx, chunk); err != nil {
+		return fmt.Errorf("failed to mirror device updates to CNPG: %w", err)
 	}
 
 	db.logger.Debug().

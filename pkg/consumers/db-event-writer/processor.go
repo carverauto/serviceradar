@@ -52,6 +52,7 @@ func safeUint64ToInt64(u uint64) int64 {
 // Processor writes JetStream messages to Proton tables.
 type Processor struct {
 	conn    proton.Conn
+	db      *db.DB
 	table   string         // Legacy single table
 	streams []StreamConfig // Multi-stream configuration
 	logger  logger.Logger
@@ -605,7 +606,7 @@ func NewProcessor(dbService db.Service, table string, log logger.Logger) (*Proce
 		return nil, errDBServiceNotDB
 	}
 
-	return &Processor{conn: dbImpl.Conn, table: table, logger: log}, nil
+	return &Processor{conn: dbImpl.Conn, db: dbImpl, table: table, logger: log}, nil
 }
 
 // NewProcessorWithStreams creates a Processor with multi-stream configuration.
@@ -615,7 +616,7 @@ func NewProcessorWithStreams(dbService db.Service, streams []StreamConfig, log l
 		return nil, errDBServiceNotDB
 	}
 
-	return &Processor{conn: dbImpl.Conn, streams: streams, logger: log}, nil
+	return &Processor{conn: dbImpl.Conn, db: dbImpl, streams: streams, logger: log}, nil
 }
 
 // getTableForSubject returns the table name for a given subject
@@ -686,47 +687,27 @@ func (p *Processor) processTableMessages(ctx context.Context, table string, tabl
 
 // processEventsTable handles events table batch processing
 func (p *Processor) processEventsTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
-	query := fmt.Sprintf("INSERT INTO %s (specversion, id, source, type, datacontenttype, "+
-		"subject, remote_addr, host, level, severity, short_message, event_timestamp, version, raw_data) "+
-		"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", table)
-
-	batch, err := p.conn.PrepareBatch(ctx, query)
-	if err != nil {
-		return nil, err
+	if len(msgs) == 0 {
+		return nil, nil
 	}
 
-	processed := make([]jetstream.Msg, 0, len(msgs))
+	if p.db == nil {
+		return nil, fmt.Errorf("cnpg storage is not configured for events ingestion")
+	}
+
+	eventRows := make([]*models.EventRow, 0, len(msgs))
 
 	for _, msg := range msgs {
 		row := buildEventRow(msg.Data(), msg.Subject())
-
-		if err := batch.Append(
-			row.SpecVersion,
-			row.ID,
-			row.Source,
-			row.Type,
-			row.DataContentType,
-			row.Subject,
-			row.RemoteAddr,
-			row.Host,
-			row.Level,
-			row.Severity,
-			row.ShortMessage,
-			row.EventTimestamp,
-			row.Version,
-			row.RawData,
-		); err != nil {
-			return processed, err
-		}
-
-		processed = append(processed, msg)
+		clone := row
+		eventRows = append(eventRows, &clone)
 	}
 
-	if err := batch.Send(); err != nil {
-		return processed, err
+	if err := p.db.InsertEvents(ctx, eventRows); err != nil {
+		return nil, err
 	}
 
-	return processed, nil
+	return msgs, nil
 }
 
 // processLogsTable handles logs table batch processing

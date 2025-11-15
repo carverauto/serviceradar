@@ -40,6 +40,10 @@ const unifiedDeviceBatchLimit = 200
 // GetUnifiedDevice retrieves a unified device by its ID (latest version)
 // Uses materialized view approach - reads from unified_devices stream
 func (db *DB) GetUnifiedDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
+	if db.useCNPGReads() {
+		return db.cnpgGetUnifiedDevice(ctx, deviceID)
+	}
+
 	query := `SELECT
         device_id, ip, poller_id, hostname, mac, discovery_sources,
         is_available, first_seen, last_seen, metadata, agent_id, device_type, 
@@ -98,6 +102,10 @@ func (db *DB) queryUnifiedDevicesWithArgs(ctx context.Context, query string, arg
 // GetUnifiedDevicesByIP retrieves unified devices with a specific IP address
 // Searches both primary IP field and alternate IPs in metadata using materialized view approach
 func (db *DB) GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error) {
+	if db.useCNPGReads() {
+		return db.cnpgGetUnifiedDevicesByIP(ctx, ip)
+	}
+
 	query := `SELECT
         device_id, ip, poller_id, hostname, mac, discovery_sources,
         is_available, first_seen, last_seen, metadata, agent_id, device_type, 
@@ -110,6 +118,10 @@ func (db *DB) GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.U
 
 // ListUnifiedDevices returns a list of unified devices with pagination using materialized view approach
 func (db *DB) ListUnifiedDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error) {
+	if db.useCNPGReads() {
+		return db.cnpgListUnifiedDevices(ctx, limit, offset)
+	}
+
 	query := `SELECT
         device_id, ip, poller_id, hostname, mac, discovery_sources,
         is_available, first_seen, last_seen, metadata, agent_id, device_type, 
@@ -128,6 +140,10 @@ func (db *DB) ListUnifiedDevices(ctx context.Context, limit, offset int) ([]*mod
 
 // CountUnifiedDevices returns the total number of unified devices materialized in Proton.
 func (db *DB) CountUnifiedDevices(ctx context.Context) (int64, error) {
+	if db.useCNPGReads() {
+		return db.cnpgCountUnifiedDevices(ctx)
+	}
+
 	const query = `SELECT count() AS total
 FROM table(unified_devices)
 WHERE (metadata['_merged_into'] IS NULL
@@ -245,6 +261,10 @@ func (*DB) scanUnifiedDeviceSimple(rows Rows) (*models.UnifiedDevice, error) {
 // GetUnifiedDevicesByIPsOrIDs fetches all potential candidate devices for a batch of IPs and Device IDs.
 // Uses materialized view approach for efficient batch lookups
 func (db *DB) GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips, deviceIDs []string) ([]*models.UnifiedDevice, error) {
+	if db.useCNPGReads() {
+		return db.cnpgQueryUnifiedDevicesBatch(ctx, deviceIDs, ips)
+	}
+
 	ips = dedupeStrings(ips)
 	deviceIDs = dedupeStrings(deviceIDs)
 
