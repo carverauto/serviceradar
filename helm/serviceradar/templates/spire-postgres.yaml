@@ -34,7 +34,7 @@ stringData:
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: {{ default "spire-pg" $pg.clusterName }}
+  name: {{ default "cnpg" $pg.clusterName }}
   namespace: {{ $ns }}
 spec:
   imageName: {{ $imageName }}

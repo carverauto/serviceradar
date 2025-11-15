@@ -1,6 +1,6 @@
 # ServiceRadar Demo SPIRE Setup
 
-Manifests in this directory bootstrap SPIFFE/SPIRE inside the `demo` Kubernetes namespace alongside the rest of the ServiceRadar stack. They are **not** part of the default demo kustomization; apply them separately while we iterate on the onboarding workflow.
+Manifests in this directory bootstrap SPIFFE/SPIRE inside the `demo` Kubernetes namespace alongside the rest of the ServiceRadar stack. They also provision the shared `cnpg` CloudNativePG cluster that now serves as the primary Postgres backing store for SPIRE and future demo workloads. These manifests are **not** part of the default demo kustomization; apply them separately while we iterate on the onboarding workflow.
 
 ## Quick Start
 
@@ -31,7 +31,7 @@ Manifests in this directory bootstrap SPIFFE/SPIRE inside the `demo` Kubernetes 
    kubectl apply -k k8s/demo/base/spire
    ```
 
-   This creates a dedicated three-instance `spire-pg` CNPG cluster inside the demo namespace alongside the SPIRE server/agent. If you previously relied on the global `cluster-pg` instance in `cnpg-system`, the SPIRE server config now points to the new in-namespace endpoint (`spire-pg-rw.demo.svc.cluster.local`).
+   This creates a dedicated three-instance `cnpg` cluster inside the demo namespace alongside the SPIRE server/agent. If you previously relied on the global `cluster-pg` instance in `cnpg-system`, the SPIRE server config now points to the new in-namespace endpoint (`cnpg-rw.demo.svc.cluster.local`).
 
    > **Migration tip:** If you deployed an earlier revision of these manifests (or the standalone `cnpg-system` cluster), delete those legacy resources once the new ones are healthy so only the demo-scoped installation remains.
 
@@ -68,10 +68,10 @@ image):
 1. **Remove the legacy cluster**
 
    ```bash
-   kubectl delete cluster spire-pg -n demo
+   kubectl delete cluster cnpg -n demo
    ```
 
-   Wait for every `spire-pg-*` pod to terminate before continuing.
+   Wait for every `cnpg-*` pod to terminate before continuing.
 
 2. **Reapply the manifests**
 
@@ -82,7 +82,7 @@ image):
    Confirm that all three pods report the custom image:
 
    ```bash
-   kubectl get pods -n demo -l cnpg.io/cluster=spire-pg \
+   kubectl get pods -n demo -l cnpg.io/cluster=cnpg \
      -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}'
    ```
 
@@ -92,7 +92,7 @@ image):
    `pg_extension` for TimescaleDB and AGE:
 
    ```bash
-   kubectl exec -n demo spire-pg-1 -- \
+   kubectl exec -n demo cnpg-1 -- \
      psql -U spire -d spire \
        -c "SELECT extname FROM pg_extension WHERE extname IN ('timescaledb','age');"
    ```

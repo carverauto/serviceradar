@@ -1444,15 +1444,15 @@ python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
 sed -i 's|^CLANG = .*|CLANG = clang|' "$${ROOT_DIR}/usr/lib/postgresql/16/lib/pgxs/src/Makefile.global"
 sed -i 's|^with_llvm\t= .*|with_llvm\t= no|' "$${ROOT_DIR}/usr/lib/postgresql/16/lib/pgxs/src/Makefile.global"
 
-SRC_TREE="$$(pwd)/$(rootpath //timescaledb:source_tree)"
-SRCDIR="$${SRC_TREE%/src}"
-echo "Copying TimescaleDB sources from $${SRCDIR}"
+SRC_TREE="$$(pwd)/$(execpath //timescaledb:source_tree)"
+echo "Copying TimescaleDB sources from $${SRC_TREE}"
 if [[ -d "$${OUT_DIR}/timescaledb" ]]; then
   chmod -R u+w "$${OUT_DIR}/timescaledb"
   rm -rf "$${OUT_DIR}/timescaledb"
 fi
 mkdir -p "$${OUT_DIR}/timescaledb"
-cp -R "$${SRCDIR}/." "$${OUT_DIR}/timescaledb"
+cp -R "$${SRC_TREE}/." "$${OUT_DIR}/timescaledb"
+chmod -R u+w "$${OUT_DIR}/timescaledb"
 
 cp "$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wrapper_ts.sh"
 chmod +x "$${OUT_DIR}/pg_config_wrapper_ts.sh"
@@ -1509,14 +1509,14 @@ python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
 sed -i 's|^CLANG = .*|CLANG = clang|' "$${ROOT_DIR}/usr/lib/postgresql/16/lib/pgxs/src/Makefile.global"
 sed -i 's|^with_llvm\t= .*|with_llvm\t= no|' "$${ROOT_DIR}/usr/lib/postgresql/16/lib/pgxs/src/Makefile.global"
 
-AGE_TREE="$$(pwd)/$(rootpath //age:source_tree)"
-AGESRC="$${AGE_TREE%/src}"
+AGE_TREE="$$(pwd)/$(execpath //age:source_tree)"
 if [[ -d "$${OUT_DIR}/age" ]]; then
   chmod -R u+w "$${OUT_DIR}/age"
   rm -rf "$${OUT_DIR}/age"
 fi
 mkdir -p "$${OUT_DIR}/age"
-cp -R "$${AGESRC}/." "$${OUT_DIR}/age"
+cp -R "$${AGE_TREE}/." "$${OUT_DIR}/age"
+chmod -R u+w "$${OUT_DIR}/age"
 
 cp "$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wrapper_age.sh"
 chmod +x "$${OUT_DIR}/pg_config_wrapper_age.sh"

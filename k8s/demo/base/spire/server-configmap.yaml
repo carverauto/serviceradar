@@ -26,7 +26,7 @@ data:
       DataStore "sql" {
         plugin_data {
           database_type = "postgres"
-          connection_string = "dbname=spire user=spire password=__DB_PASSWORD__ host=spire-pg-rw.demo.svc.cluster.local port=5432 sslmode=disable"
+          connection_string = "dbname=spire user=spire password=__DB_PASSWORD__ host=cnpg-rw.demo.svc.cluster.local port=5432 sslmode=disable"
         }
       }
 

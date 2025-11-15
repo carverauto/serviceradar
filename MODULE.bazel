@@ -1132,5 +1132,39 @@ filegroup(
     ],
 )
 
+# --- CNPG extension sources ----------------------------------
+
+http_archive(
+    name = "timescaledb_src",
+    urls = [
+        "https://github.com/timescale/timescaledb/archive/refs/tags/2.23.1.tar.gz",
+    ],
+    strip_prefix = "timescaledb-2.23.1",
+    sha256 = "26575fa9e287a6107a6bf162bacab4932b0df19bee38d28c132f9a2d6591d647",
+    build_file_content = """
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
+    visibility = ["//visibility:public"],
+)
+""",
+)
+
+http_archive(
+    name = "age_src",
+    urls = [
+        "https://downloads.apache.org/age/PG17/1.6.0/apache-age-1.6.0-src.tar.gz",
+    ],
+    strip_prefix = "apache-age-1.6.0",
+    sha256 = "57c7187a37942f1b6208e1f68caafcb7374f8bedaabad162c8760adb44ae9ffe",
+    build_file_content = """
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
+    visibility = ["//visibility:public"],
+)
+""",
+)
+
 # Additional module extensions will be layered in as language owners migrate to
 # Bazel (e.g., http_file for binary deps).
