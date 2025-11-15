@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: serviceradar-staging
+  name: demo-staging
   labels:
-    name: serviceradar-staging
-    environment: staging
+    name: demo-staging
+    environment: demo-staging

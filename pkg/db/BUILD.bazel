@@ -6,6 +6,7 @@ go_library(
         "auth.go",
         "cnpg_migrate.go",
         "cnpg_metrics.go",
+        "cnpg_metrics_reads.go",
         "cnpg_registry.go",
         "cnpg_edge_onboarding.go",
         "cnpg_pool.go",

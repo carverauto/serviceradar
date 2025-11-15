@@ -5,8 +5,24 @@
 
 set -e
 
-NAMESPACE="serviceradar-staging"
-ENVIRONMENT="staging"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
+ENVIRONMENT="${1:-prod}"
+case "$ENVIRONMENT" in
+  prod)
+    NAMESPACE="demo"
+    HOSTNAME="demo.serviceradar.cloud"
+    ;;
+  staging)
+    NAMESPACE="demo-staging"
+    HOSTNAME="demo-staging.serviceradar.cloud"
+    ;;
+  *)
+    echo "Usage: $0 [prod|staging]"
+    exit 1
+    ;;
+esac
 
 echo "🚀 Deploying ServiceRadar to Kubernetes"
 echo "Namespace: $NAMESPACE"
@@ -21,11 +37,11 @@ if ! kubectl get secret serviceradar-secrets -n $NAMESPACE >/dev/null 2>&1; then
     
     # Generate random secrets
     JWT_SECRET_RAW=$(openssl rand -hex 32)
-    JWT_SECRET=$(echo -n "$JWT_SECRET_RAW" | base64)
-    API_KEY=$(openssl rand -hex 32 | base64)
-    PROTON_PASSWORD=$(openssl rand -hex 16 | base64)
+    JWT_SECRET=$(echo -n "$JWT_SECRET_RAW" | base64 | tr -d '\n')
+    API_KEY=$(openssl rand -hex 32 | base64 | tr -d '\n')
+    PROTON_PASSWORD=$(openssl rand -hex 16 | base64 | tr -d '\n')
     ADMIN_PASSWORD_RAW=$(openssl rand -base64 16 | tr -d '=' | head -c 16)
-    ADMIN_PASSWORD=$(echo -n "$ADMIN_PASSWORD_RAW" | base64)
+    ADMIN_PASSWORD=$(echo -n "$ADMIN_PASSWORD_RAW" | base64 | tr -d '\n')
     
     # Generate bcrypt hash of admin password (cost 12)
     echo "🔐 Generating bcrypt hash for admin password..."
@@ -1014,7 +1030,7 @@ echo ""
 # Get ingress URL if available
 INGRESS_URL=$(kubectl get ingress -n $NAMESPACE -o jsonpath='{.items[0].spec.rules[0].host}' 2>/dev/null || echo "Not configured")
 if [ "$INGRESS_URL" != "Not configured" ]; then
-    echo "🌐 Access ServiceRadar at: http://$INGRESS_URL"
+    echo "🌐 Access ServiceRadar at: https://$INGRESS_URL"
 else
     # Try to get LoadBalancer IP from web service
     LB_IP=$(kubectl get svc serviceradar-web -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
@@ -1025,6 +1041,10 @@ else
         echo "   kubectl port-forward -n $NAMESPACE svc/serviceradar-web 3000:3000"
         echo "   Then access at: http://localhost:3000"
     fi
+fi
+
+if [ "$INGRESS_URL" = "Not configured" ]; then
+    echo "   (Expected ingress host: https://$HOSTNAME )"
 fi
 
 echo ""

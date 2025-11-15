@@ -1,0 +1,22 @@
+# staging/serviceradar-flowgger-external.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-flowgger-external
+  namespace: demo-staging
+  annotations:
+    metallb.universe.tf/address-pool: k3s-pool
+spec:
+  type: LoadBalancer
+  selector:
+    app: serviceradar-flowgger
+    app.kubernetes.io/part-of: serviceradar
+  ports:
+    - name: udp514
+      port: 30514
+      protocol: UDP
+      targetPort: udp514
+    - name: udp2055
+      port: 32055
+      protocol: UDP
+      targetPort: udp2055

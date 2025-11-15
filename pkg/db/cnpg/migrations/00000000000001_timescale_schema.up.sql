@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS sweep_host_states (
     first_seen          TIMESTAMPTZ,
     metadata            JSONB,
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now(),
-    PRIMARY KEY (host_ip, poller_id, partition)
+    PRIMARY KEY (host_ip, poller_id, partition, last_sweep_time)
 );
 SELECT create_hypertable('sweep_host_states','last_sweep_time', if_not_exists => TRUE);
 SELECT add_retention_policy('sweep_host_states', INTERVAL '3 days', if_not_exists => TRUE);
@@ -305,7 +305,7 @@ CREATE INDEX IF NOT EXISTS idx_checkers_agent ON checkers (agent_id);
 CREATE INDEX IF NOT EXISTS idx_checkers_poller ON checkers (poller_id);
 
 CREATE TABLE IF NOT EXISTS service_registration_events (
-    event_id            TEXT              PRIMARY KEY,
+    event_id            TEXT              NOT NULL,
     event_type          TEXT              NOT NULL,
     service_id          TEXT              NOT NULL,
     service_type        TEXT              NOT NULL,
@@ -313,7 +313,8 @@ CREATE TABLE IF NOT EXISTS service_registration_events (
     registration_source TEXT,
     actor               TEXT,
     timestamp           TIMESTAMPTZ       NOT NULL DEFAULT now(),
-    metadata            JSONB             DEFAULT '{}'::jsonb
+    metadata            JSONB             DEFAULT '{}'::jsonb,
+    PRIMARY KEY (event_id, timestamp)
 );
 SELECT create_hypertable('service_registration_events','timestamp', if_not_exists => TRUE);
 SELECT add_retention_policy('service_registration_events', INTERVAL '90 days', if_not_exists => TRUE);
@@ -416,7 +417,7 @@ SELECT add_retention_policy('edge_onboarding_events', INTERVAL '365 days', if_no
 -- Device capability registry
 -- ================================
 CREATE TABLE IF NOT EXISTS device_capabilities (
-    event_id            TEXT              PRIMARY KEY,
+    event_id            TEXT              NOT NULL,
     device_id           TEXT              NOT NULL,
     service_id          TEXT              DEFAULT '',
     service_type        TEXT              DEFAULT '',
@@ -428,7 +429,8 @@ CREATE TABLE IF NOT EXISTS device_capabilities (
     last_failure        TIMESTAMPTZ,
     failure_reason      TEXT              DEFAULT '',
     metadata            JSONB             DEFAULT '{}'::jsonb,
-    recorded_by         TEXT              DEFAULT 'system'
+    recorded_by         TEXT              DEFAULT 'system',
+    PRIMARY KEY (event_id, last_checked)
 );
 SELECT create_hypertable('device_capabilities','last_checked', if_not_exists => TRUE);
 SELECT add_retention_policy('device_capabilities', INTERVAL '90 days', if_not_exists => TRUE);

@@ -1034,6 +1034,22 @@ http_file(
     ],
 )
 
+http_file(
+    name = "alpine_postgresql16_client_apk",
+    sha256 = "db3180e984153d890b3b3fe87a45f4ecacfe1b9ead2fb1cf8bf06b75f6783baa",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/postgresql16-client-16.10-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libpq16_apk",
+    sha256 = "93055e5999d5d7cfb26a856b42714654dc07d8ba942b6bdaacd5d986d7b60aae",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libpq-16.10-r0.apk",
+    ],
+)
+
 http_archive(
     name = "grpcurl_linux_amd64",
     build_file_content = """

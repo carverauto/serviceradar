@@ -56,6 +56,110 @@ upgrade the database:
    objects. Finish with `scripts/test.sh` (or another `spire-agent api fetch`)
    to prove workloads can still mint SVIDs.
 
+## Running CNPG telemetry migrations
+
+The Timescale schema (`pkg/db/cnpg/migrations/*.sql`) now ships inside the
+`cmd/tools/cnpg-migrate` helper, so you no longer need to exec into pods or copy
+SQL files around to hydrate a fresh telemetry database. Configure the connection
+via environment variables and call either `make cnpg-migrate` or the Bazel
+binary:
+
+- `CNPG_HOST`/`CNPG_PORT` – target endpoint (defaults to `127.0.0.1:5432`)
+- `CNPG_DATABASE` – telemetry database name (`telemetry` in the demo cluster)
+- `CNPG_USERNAME`/`CNPG_PASSWORD` or `CNPG_PASSWORD_FILE`
+- Optional TLS knobs: `CNPG_CERT_DIR`, `CNPG_CA_FILE`, `CNPG_CERT_FILE`,
+  `CNPG_KEY_FILE`, and `CNPG_SSLMODE`
+- Advanced tuning: `CNPG_APP_NAME`, `CNPG_MAX_CONNS`, `CNPG_MIN_CONNS`,
+  `CNPG_STATEMENT_TIMEOUT`, `CNPG_HEALTH_CHECK_PERIOD`, or
+  repeated `--runtime-param key=value` flags (pass them via
+  `make cnpg-migrate ARGS="--runtime-param work_mem=64MB"`).
+
+### Demo quickstart
+
+```bash
+# 1) Port-forward to the RW service
+kubectl port-forward -n demo svc/cnpg-rw 55432:5432 >/tmp/cnpg-forward.log &
+
+# 2) Export connection details (superuser secret works for schema changes)
+export CNPG_HOST=127.0.0.1
+export CNPG_PORT=55432
+export CNPG_DATABASE=telemetry
+export CNPG_USERNAME=postgres
+export CNPG_PASSWORD="$(kubectl get secret -n demo cnpg-superuser -o jsonpath='{.data.password}' | base64 -d)"
+
+# 3) Run the migrations (same binary behind `bazel run //cmd/tools/cnpg-migrate:cnpg-migrate`)
+make cnpg-migrate
+```
+
+The tool logs each migration file before executing it and exits non-zero if any
+statement fails, making it safe to run in CI/CD or during demo refreshes.
+
+### Running migrations from `serviceradar-tools`
+
+The `serviceradar-tools` image now bundles `cnpg-migrate`, so you can run the
+schema updates entirely inside the cluster—useful for `demo-staging` rehearsals:
+
+```bash
+# Use Bazel to build + push the updated toolbox image before rolling:
+bazel run --config=remote //docker/images:tools_image_amd64_push
+
+# Update k8s/demo/staging/kustomization.yaml so the `images:` stanza
+# points at the new sha tag from the push output, for example:
+#   - name: ghcr.io/carverauto/serviceradar-tools
+#     newTag: sha-$(git rev-parse HEAD)
+
+# After redeploying the toolbox, exec into it and run migrations:
+kubectl exec -n demo-staging deploy/serviceradar-tools -- \
+  env CNPG_HOST=cnpg-rw.demo-staging.svc.cluster.local \
+      CNPG_DATABASE=telemetry \
+      CNPG_USERNAME=postgres \
+      CNPG_PASSWORD="$(kubectl get secret -n demo-staging cnpg-superuser -o jsonpath='{.data.password}' | base64 -d)" \
+      cnpg-migrate --app-name serviceradar-tools
+```
+
+Adjust the credentials/flags if you run against a read/write replica or use a
+service-specific role. The command prints each migration it applies so you can
+capture the log alongside other staging validation artifacts.
+
+## Enabling TimescaleDB + AGE in the telemetry database
+
+The CNPG image already bundles both extensions; you just need to enable them in
+every database that stores ServiceRadar data. Run the following SQL after
+connecting to the telemetry database (adjust the username if you minted a
+service-specific role):
+
+```sql
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+CREATE EXTENSION IF NOT EXISTS age;
+SELECT extname FROM pg_extension WHERE extname IN ('timescaledb','age') ORDER BY 1;
+```
+
+### Demo verification
+
+```bash
+kubectl exec -n demo cnpg-0 -- \
+  env PGPASSWORD="$(kubectl get secret -n demo cnpg-superuser -o jsonpath='{.data.password}' | base64 -d)" \
+  psql -U postgres -d telemetry <<'SQL'
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+CREATE EXTENSION IF NOT EXISTS age;
+SELECT extname FROM pg_extension WHERE extname IN ('timescaledb','age') ORDER BY 1;
+SQL
+```
+
+Expected output:
+
+```
+  extname
+-----------
+ age
+ timescaledb
+(2 rows)
+```
+
+Repeat the same sequence in any non-demo cluster (Helm or customer deployments)
+as part of the CNPG bootstrap so the telemetry schema and future AGE work share
+the same extension surface.
+
 ## Armis Faker Service
 
 - Deployment: `serviceradar-faker` (`k8s/demo/base/serviceradar-faker.yaml`).

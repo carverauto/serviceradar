@@ -1,0 +1,20 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "cnpg_migrate_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/cmd/tools/cnpg-migrate",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//alias:db",
+        "//alias:lifecycle",
+        "//alias:logger",
+        "//alias:models",
+    ],
+)
+
+go_binary(
+    name = "cnpg-migrate",
+    embed = [":cnpg_migrate_lib"],
+    visibility = ["//visibility:public"],
+)
