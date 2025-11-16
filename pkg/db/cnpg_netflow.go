@@ -60,7 +60,7 @@ func (db *DB) cnpgInsertNetflowMetrics(ctx context.Context, metrics []*models.Ne
 
 func buildNetflowMetricArgs(metric *models.NetflowMetric) ([]interface{}, error) {
 	if metric == nil {
-		return nil, fmt.Errorf("netflow metric is nil")
+		return nil, ErrNetflowMetricNil
 	}
 
 	metadata, err := normalizeJSON(metric.Metadata)

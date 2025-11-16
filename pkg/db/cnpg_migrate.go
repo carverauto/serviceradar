@@ -77,7 +77,7 @@ func RunCNPGMigrations(ctx context.Context, pool *pgxpool.Pool, log logger.Logge
 		return fmt.Errorf("cnpg migrations: read embedded migrations: %w", err)
 	}
 
-	var filenames []string
+	filenames := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue

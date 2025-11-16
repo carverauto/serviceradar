@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -20,13 +21,19 @@ type cnpgMockService struct {
 	queryFn func(ctx context.Context, query string, args ...interface{}) (db.Rows, error)
 }
 
+var (
+	errQueryFnNotConfigured = errors.New("query function not configured")
+	errSliceRowsExhausted   = errors.New("no row available")
+	errUnsupportedScanDest  = errors.New("unsupported scan destination")
+)
+
 func (m *cnpgMockService) UseCNPGReads() bool {
 	return m.useCNPG
 }
 
 func (m *cnpgMockService) QueryCNPGRows(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
 	if m.queryFn == nil {
-		return nil, fmt.Errorf("query function not configured")
+		return nil, errQueryFnNotConfigured
 	}
 	return m.queryFn(ctx, query, args...)
 }
@@ -47,14 +54,14 @@ func (r *sliceRows) Next() bool {
 
 func (r *sliceRows) Scan(dest ...interface{}) error {
 	if r.idx == 0 || r.idx > len(r.rows) {
-		return fmt.Errorf("no row available")
+		return errSliceRowsExhausted
 	}
 
 	values := r.rows[r.idx-1]
 	for i, d := range dest {
 		strPtr, ok := d.(*string)
 		if !ok {
-			return fmt.Errorf("unsupported scan destination %T", d)
+			return fmt.Errorf("%w: %T", errUnsupportedScanDest, d)
 		}
 		if i < len(values) {
 			*strPtr = values[i]

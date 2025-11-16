@@ -55,7 +55,7 @@ func TestBuildSweepHostStateArgs(t *testing.T) {
 	assert.Equal(t, "00:11:22:33:44:55", args[6])
 	assert.Equal(t, true, args[7])
 	assert.Equal(t, resp, args[8])
-	assert.Equal(t, loss, args[9])
+	assert.InEpsilon(t, loss, args[9], 0.0001)
 
 	assertJSONEquals(t, []int{22, 443}, args[10])
 	assertJSONEquals(t, []int{22}, args[11])

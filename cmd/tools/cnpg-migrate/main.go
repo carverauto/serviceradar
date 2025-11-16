@@ -40,13 +40,24 @@ type migrateConfig struct {
 	runtimeParams     map[string]string
 }
 
+var (
+	errTLSFilesIncomplete      = errors.New("cnpg tls: --ca-file, --cert-file, and --key-file must be provided together")
+	errNoCNPGConfiguration     = errors.New("no CNPG configuration provided")
+	errCNPGHostRequired        = errors.New("cnpg host is required")
+	errCNPGDatabaseRequired    = errors.New("cnpg database is required")
+	errInvalidCNPGPort         = errors.New("invalid cnpg port")
+	errInvalidRuntimeParameter = errors.New("invalid runtime parameter format")
+	errRuntimeParamKeyEmpty    = errors.New("runtime parameter key cannot be empty")
+)
+
 func main() {
 	cfg := parseFlags()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
+	err := run(ctx, cfg)
+	cancel()
 
-	if err := run(ctx, cfg); err != nil {
+	if err != nil {
 		log.Fatalf("cnpg-migrate: %v", err)
 	}
 }
@@ -103,7 +114,7 @@ func run(ctx context.Context, cfg *migrateConfig) error {
 
 	if cfg.caFile != "" || cfg.certFile != "" || cfg.keyFile != "" {
 		if cfg.caFile == "" || cfg.certFile == "" || cfg.keyFile == "" {
-			return errors.New("cnpg tls: --ca-file, --cert-file, and --key-file must be provided together")
+			return errTLSFilesIncomplete
 		}
 
 		cnpg.TLS = &models.TLSConfig{
@@ -118,7 +129,7 @@ func run(ctx context.Context, cfg *migrateConfig) error {
 		return fmt.Errorf("connect to CNPG: %w", err)
 	}
 	if pool == nil {
-		return errors.New("no CNPG configuration provided")
+		return errNoCNPGConfiguration
 	}
 	defer pool.Close()
 
@@ -133,13 +144,13 @@ func run(ctx context.Context, cfg *migrateConfig) error {
 
 func (cfg *migrateConfig) validate() error {
 	if strings.TrimSpace(cfg.host) == "" {
-		return errors.New("cnpg host is required")
+		return errCNPGHostRequired
 	}
 	if strings.TrimSpace(cfg.database) == "" {
-		return errors.New("cnpg database is required")
+		return errCNPGDatabaseRequired
 	}
 	if cfg.port <= 0 || cfg.port > 65535 {
-		return fmt.Errorf("invalid cnpg port %d", cfg.port)
+		return fmt.Errorf("%w: %d", errInvalidCNPGPort, cfg.port)
 	}
 
 	return nil
@@ -189,13 +200,13 @@ func parseFlags() *migrateConfig {
 
 		parts := strings.SplitN(value, "=", 2)
 		if len(parts) != 2 {
-			return fmt.Errorf("invalid runtime parameter %q (expected key=value)", value)
+			return fmt.Errorf("%w: %q", errInvalidRuntimeParameter, value)
 		}
 
 		key := strings.TrimSpace(parts[0])
 		val := strings.TrimSpace(parts[1])
 		if key == "" {
-			return fmt.Errorf("runtime parameter key cannot be empty")
+			return errRuntimeParamKeyEmpty
 		}
 
 		cfg.runtimeParams[key] = val

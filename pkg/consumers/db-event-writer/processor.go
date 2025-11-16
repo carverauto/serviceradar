@@ -614,18 +614,18 @@ func (p *Processor) processTableMessages(ctx context.Context, table string, tabl
 		return p.processMetricsTable(ctx, table, tableMsgs)
 	default:
 		p.logger.Debug().Str("table", table).Msg("Processing as events table")
-		return p.processEventsTable(ctx, table, tableMsgs)
+		return p.processEventsTable(ctx, tableMsgs)
 	}
 }
 
 // processEventsTable handles events table batch processing
-func (p *Processor) processEventsTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
+func (p *Processor) processEventsTable(ctx context.Context, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
 	if len(msgs) == 0 {
 		return nil, nil
 	}
 
 	if p.db == nil {
-		return nil, fmt.Errorf("cnpg storage is not configured for events ingestion")
+		return nil, errCNPGEventsNotConfigured
 	}
 
 	eventRows := make([]*models.EventRow, 0, len(msgs))
@@ -643,14 +643,21 @@ func (p *Processor) processEventsTable(ctx context.Context, table string, msgs [
 	return msgs, nil
 }
 
-// processLogsTable handles logs table batch processing
-func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
+func processOTELTable[T any](
+	ctx context.Context,
+	log logger.Logger,
+	table string,
+	msgs []jetstream.Msg,
+	parse func(jetstream.Msg) ([]T, bool),
+	insert func(context.Context, string, []T) error,
+	warnMsg, successMsg string,
+) ([]jetstream.Msg, error) {
 	if len(msgs) == 0 {
 		return nil, nil
 	}
 
 	processed := make([]jetstream.Msg, 0, len(msgs))
-	logRows := make([]models.OTELLogRow, 0, len(msgs))
+	rows := make([]T, 0, len(msgs))
 
 	for _, msg := range msgs {
 		processed = append(processed, msg)
@@ -659,29 +666,43 @@ func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []j
 			continue
 		}
 
-		rows, ok := p.parseOTELMessage(msg)
+		parsedRows, ok := parse(msg)
 		if !ok {
-			p.logger.Warn().Msg("Skipping malformed OTEL log message")
+			log.Warn().Msg(warnMsg)
 			continue
 		}
 
-		logRows = append(logRows, rows...)
+		rows = append(rows, parsedRows...)
 	}
 
-	if len(logRows) == 0 {
+	if len(rows) == 0 {
 		return processed, nil
 	}
 
-	if err := p.db.InsertOTELLogs(ctx, table, logRows); err != nil {
+	if err := insert(ctx, table, rows); err != nil {
 		return processed, err
 	}
 
-	p.logger.Info().
-		Int("rows_processed", len(logRows)).
+	log.Info().
+		Int("rows_processed", len(rows)).
 		Str("table", table).
-		Msg("Inserted OTEL logs into CNPG")
+		Msg(successMsg)
 
 	return processed, nil
+}
+
+// processLogsTable handles logs table batch processing
+func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
+	return processOTELTable(
+		ctx,
+		p.logger,
+		table,
+		msgs,
+		p.parseOTELMessage,
+		p.db.InsertOTELLogs,
+		"Skipping malformed OTEL log message",
+		"Inserted OTEL logs into CNPG",
+	)
 }
 
 // processMetricsTable handles performance metrics table batch processing
@@ -739,43 +760,16 @@ func (p *Processor) processMetricsTable(ctx context.Context, table string, msgs 
 
 // processTracesTable handles traces table batch processing
 func (p *Processor) processTracesTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
-	if len(msgs) == 0 {
-		return nil, nil
-	}
-
-	processed := make([]jetstream.Msg, 0, len(msgs))
-	traceRows := make([]models.OTELTraceRow, 0, len(msgs))
-
-	for _, msg := range msgs {
-		processed = append(processed, msg)
-
-		if !strings.Contains(msg.Subject(), "otel") {
-			continue
-		}
-
-		rows, ok := p.parseOTELTraces(msg)
-		if !ok {
-			p.logger.Warn().Msg("Skipping malformed OTEL trace message")
-			continue
-		}
-
-		traceRows = append(traceRows, rows...)
-	}
-
-	if len(traceRows) == 0 {
-		return processed, nil
-	}
-
-	if err := p.db.InsertOTELTraces(ctx, table, traceRows); err != nil {
-		return processed, err
-	}
-
-	p.logger.Info().
-		Int("rows_processed", len(traceRows)).
-		Str("table", table).
-		Msg("Inserted OTEL traces into CNPG")
-
-	return processed, nil
+	return processOTELTable(
+		ctx,
+		p.logger,
+		table,
+		msgs,
+		p.parseOTELTraces,
+		p.db.InsertOTELTraces,
+		"Skipping malformed OTEL trace message",
+		"Inserted OTEL traces into CNPG",
+	)
 }
 
 // parseOTELMessage attempts to parse an OTEL message and returns log rows

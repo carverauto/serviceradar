@@ -12,6 +12,9 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+// nowUTC allows tests to override the timestamp source.
+//
+//nolint:gochecknoglobals // test hooks need a package-level clock override.
 var nowUTC = func() time.Time {
 	return time.Now().UTC()
 }
@@ -295,7 +298,7 @@ func (db *DB) sendCNPG(ctx context.Context, batch *pgx.Batch, name string) error
 
 func buildTimeseriesMetricArgs(pollerID string, metric *models.TimeseriesMetric) ([]interface{}, error) {
 	if metric == nil {
-		return nil, fmt.Errorf("timeseries metric is nil")
+		return nil, ErrTimeseriesMetricNil
 	}
 
 	metadata, err := normalizeJSON(metric.Metadata)

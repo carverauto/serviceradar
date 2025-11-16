@@ -33,14 +33,6 @@ SELECT
 	poller_id
 FROM timeseries_metrics`
 
-var allowedTimeseriesColumns = map[string]struct{}{
-	"poller_id":   {},
-	"metric_name": {},
-	"metric_type": {},
-	"device_id":   {},
-	"partition":   {},
-}
-
 func (db *DB) cnpgQueryTimeseriesMetrics(
 	ctx context.Context,
 	pollerID, filterValue, filterColumn string,
@@ -769,11 +761,11 @@ func (db *DB) cnpgGetDevicesWithRecentSNMPMetrics(
 
 func sanitizeTimeseriesColumn(column string) (string, error) {
 	if column == "" {
-		return "", fmt.Errorf("timeseries column is required")
+		return "", ErrTimeseriesColumnRequired
 	}
 
-	if _, ok := allowedTimeseriesColumns[column]; !ok {
-		return "", fmt.Errorf("unsupported timeseries column: %s", column)
+	if !isAllowedTimeseriesColumn(column) {
+		return "", fmt.Errorf("%w: %s", ErrTimeseriesColumnUnsupported, column)
 	}
 
 	return column, nil
@@ -789,8 +781,8 @@ func buildTimeseriesFilterClause(
 
 	keys := make([]string, 0, len(filters))
 	for key := range filters {
-		if _, ok := allowedTimeseriesColumns[key]; !ok {
-			return "", nil, fmt.Errorf("unsupported timeseries column: %s", key)
+		if !isAllowedTimeseriesColumn(key) {
+			return "", nil, fmt.Errorf("%w: %s", ErrTimeseriesColumnUnsupported, key)
 		}
 		keys = append(keys, key)
 	}
@@ -807,6 +799,15 @@ func buildTimeseriesFilterClause(
 	}
 
 	return strings.Join(conditions, " AND "), args, nil
+}
+
+func isAllowedTimeseriesColumn(column string) bool {
+	switch column {
+	case "poller_id", "metric_name", "metric_type", "device_id", "partition":
+		return true
+	default:
+		return false
+	}
 }
 
 func gatherCNPGTimeseriesMetrics(rows pgx.Rows) ([]models.TimeseriesMetric, error) {

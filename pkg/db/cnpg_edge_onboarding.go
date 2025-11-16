@@ -131,12 +131,12 @@ func (db *DB) cnpgInsertEdgeOnboardingEvent(ctx context.Context, event *models.E
 
 func buildEdgeOnboardingPackageArgs(pkg *models.EdgeOnboardingPackage) ([]interface{}, error) {
 	if pkg == nil {
-		return nil, fmt.Errorf("edge onboarding package is nil")
+		return nil, fmt.Errorf("%w: package is nil", ErrEdgePackageInvalid)
 	}
 
 	packageID := strings.TrimSpace(pkg.PackageID)
 	if packageID == "" {
-		return nil, fmt.Errorf("edge onboarding package id is required")
+		return nil, ErrEdgePackageIDRequired
 	}
 
 	parsedID, err := uuid.Parse(packageID)
@@ -198,7 +198,7 @@ func buildEdgeOnboardingPackageArgs(pkg *models.EdgeOnboardingPackage) ([]interf
 
 func buildEdgeOnboardingEventArgs(event *models.EdgeOnboardingEvent) ([]interface{}, error) {
 	if event == nil {
-		return nil, fmt.Errorf("edge onboarding event is nil")
+		return nil, ErrEdgeEventNil
 	}
 
 	parsedID, err := uuid.Parse(strings.TrimSpace(event.PackageID))

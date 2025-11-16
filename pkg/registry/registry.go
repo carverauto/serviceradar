@@ -35,7 +35,8 @@ import (
 
 var (
 	// ErrDeviceNotFound is returned when a device is not found
-	ErrDeviceNotFound = errors.New("device not found")
+	ErrDeviceNotFound       = errors.New("device not found")
+	errCNPGQueryUnsupported = errors.New("cnpg querying is not supported by db.Service")
 )
 
 const (
@@ -654,7 +655,7 @@ func (r *DeviceRegistry) useCNPGReads() bool {
 func (r *DeviceRegistry) queryCNPGRows(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
 	client, ok := r.db.(cnpgRegistryClient)
 	if !ok {
-		return nil, fmt.Errorf("cnpg querying is not supported by db.Service")
+		return nil, errCNPGQueryUnsupported
 	}
 
 	return client.QueryCNPGRows(ctx, query, args...)
