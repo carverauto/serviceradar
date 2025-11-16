@@ -69,7 +69,7 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 		}
 
 		if update.Partition == "" {
-			update.Partition = "default"
+			update.Partition = defaultPartitionValue
 		}
 
 		if update.Metadata == nil {

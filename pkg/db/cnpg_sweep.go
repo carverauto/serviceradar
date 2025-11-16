@@ -65,20 +65,20 @@ func (db *DB) cnpgInsertSweepHostStates(ctx context.Context, states []*models.Sw
 
 func buildSweepHostStateArgs(state *models.SweepHostState) ([]interface{}, error) {
 	if state == nil {
-		return nil, fmt.Errorf("sweep host state is nil")
+		return nil, ErrSweepStateNil
 	}
 
 	if strings.TrimSpace(state.HostIP) == "" {
-		return nil, fmt.Errorf("host ip is required")
+		return nil, ErrSweepHostIPMissing
 	}
 	if strings.TrimSpace(state.PollerID) == "" {
-		return nil, fmt.Errorf("poller id is required")
+		return nil, ErrSweepPollerIDMissing
 	}
 	if strings.TrimSpace(state.AgentID) == "" {
-		return nil, fmt.Errorf("agent id is required")
+		return nil, ErrSweepAgentIDMissing
 	}
 	if strings.TrimSpace(state.Partition) == "" {
-		state.Partition = "default"
+		state.Partition = defaultPartitionValue
 	}
 
 	portsScanned, err := marshalJSONField(state.TCPPortsScanned)

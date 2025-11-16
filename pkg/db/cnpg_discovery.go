@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -111,7 +110,7 @@ func (db *DB) cnpgInsertTopologyEvents(ctx context.Context, events []*models.Top
 
 func buildDiscoveredInterfaceArgs(iface *models.DiscoveredInterface) ([]interface{}, error) {
 	if iface == nil {
-		return nil, fmt.Errorf("discovered interface is nil")
+		return nil, ErrDiscoveredInterfaceNil
 	}
 
 	agentID := strings.TrimSpace(iface.AgentID)
@@ -119,7 +118,7 @@ func buildDiscoveredInterfaceArgs(iface *models.DiscoveredInterface) ([]interfac
 	deviceIP := strings.TrimSpace(iface.DeviceIP)
 
 	if agentID == "" || pollerID == "" || deviceIP == "" {
-		return nil, fmt.Errorf("agent_id, poller_id, and device_ip are required")
+		return nil, ErrDiscoveredIdentifiersMissing
 	}
 
 	metadata := normalizeRawJSON(iface.Metadata)
@@ -145,7 +144,7 @@ func buildDiscoveredInterfaceArgs(iface *models.DiscoveredInterface) ([]interfac
 
 func buildTopologyEventArgs(event *models.TopologyDiscoveryEvent) ([]interface{}, error) {
 	if event == nil {
-		return nil, fmt.Errorf("topology event is nil")
+		return nil, ErrTopologyEventNil
 	}
 
 	agentID := strings.TrimSpace(event.AgentID)
@@ -154,7 +153,7 @@ func buildTopologyEventArgs(event *models.TopologyDiscoveryEvent) ([]interface{}
 	protocol := strings.TrimSpace(event.ProtocolType)
 
 	if agentID == "" || pollerID == "" || deviceIP == "" || protocol == "" {
-		return nil, fmt.Errorf("agent_id, poller_id, local_device_ip, and protocol_type are required")
+		return nil, ErrTopologyIdentifiersMissing
 	}
 
 	metadata := normalizeRawJSON(event.Metadata)

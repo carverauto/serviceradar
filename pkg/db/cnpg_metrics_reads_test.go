@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -10,13 +11,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	errFakeRowScanMismatch          = errors.New("fake row scan mismatch")
+	errFakeRowUnsupportedNullString = errors.New("unsupported NullString source")
+	errFakeRowUnsupportedNullInt32  = errors.New("unsupported NullInt32 source")
+	errFakeRowUnsupportedDest       = errors.New("unsupported destination type")
+)
+
 type fakeRow struct {
 	values []interface{}
 }
 
 func (r *fakeRow) Scan(dest ...interface{}) error {
 	if len(dest) != len(r.values) {
-		return fmt.Errorf("scan mismatch: %d dest vs %d values", len(dest), len(r.values))
+		return fmt.Errorf("%w: dest=%d values=%d", errFakeRowScanMismatch, len(dest), len(r.values))
 	}
 
 	for i, d := range dest {
@@ -48,7 +56,7 @@ func (r *fakeRow) Scan(dest ...interface{}) error {
 			case nil:
 				*ptr = sql.NullString{}
 			default:
-				return fmt.Errorf("unsupported NullString source %T", v)
+				return fmt.Errorf("%w: %T", errFakeRowUnsupportedNullString, v)
 			}
 		case *sql.NullInt32:
 			switch v := r.values[i].(type) {
@@ -59,10 +67,10 @@ func (r *fakeRow) Scan(dest ...interface{}) error {
 			case nil:
 				*ptr = sql.NullInt32{}
 			default:
-				return fmt.Errorf("unsupported NullInt32 source %T", v)
+				return fmt.Errorf("%w: %T", errFakeRowUnsupportedNullInt32, v)
 			}
 		default:
-			return fmt.Errorf("unsupported destination type %T", d)
+			return fmt.Errorf("%w: %T", errFakeRowUnsupportedDest, d)
 		}
 	}
 
@@ -97,7 +105,7 @@ func TestScanCNPGTimeseriesMetric(t *testing.T) {
 	assert.Equal(t, "default:1.2.3.4", metric.DeviceID)
 	assert.Equal(t, "default", metric.Partition)
 	assert.Equal(t, "poller-1", metric.PollerID)
-	assert.Equal(t, `{"foo":"bar"}`, metric.Metadata)
+	assert.JSONEq(t, `{"foo":"bar"}`, metric.Metadata)
 	assert.WithinDuration(t, now, metric.Timestamp, time.Second)
 }
 
@@ -120,9 +128,9 @@ func TestScanCNPGTimeseriesMetricHandlesNulls(t *testing.T) {
 	metric, err := scanCNPGTimeseriesMetric(row)
 	require.NoError(t, err)
 	require.NotNil(t, metric)
-	assert.Equal(t, "", metric.Metadata)
+	assert.Empty(t, metric.Metadata)
 	assert.EqualValues(t, 0, metric.IfIndex)
-	assert.Equal(t, "", metric.DeviceID)
+	assert.Empty(t, metric.DeviceID)
 }
 
 func TestBuildTimeseriesFilterClause(t *testing.T) {

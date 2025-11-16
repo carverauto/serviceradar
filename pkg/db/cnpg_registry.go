@@ -170,12 +170,12 @@ func (db *DB) cnpgInsertServices(ctx context.Context, services []*models.Service
 
 func buildCNPGPollerStatusArgs(status *models.PollerStatus) ([]interface{}, error) {
 	if status == nil {
-		return nil, fmt.Errorf("poller status nil")
+		return nil, ErrPollerStatusNil
 	}
 
 	id := strings.TrimSpace(status.PollerID)
 	if id == "" {
-		return nil, fmt.Errorf("poller id is required")
+		return nil, ErrPollerIDMissing
 	}
 
 	firstSeen := sanitizeTimestamp(status.FirstSeen)
@@ -201,11 +201,11 @@ func buildCNPGPollerStatusArgs(status *models.PollerStatus) ([]interface{}, erro
 
 func buildCNPGServiceStatusArgs(status *models.ServiceStatus) ([]interface{}, error) {
 	if status == nil {
-		return nil, fmt.Errorf("service status nil")
+		return nil, ErrServiceStatusNil
 	}
 
 	if strings.TrimSpace(status.PollerID) == "" {
-		return nil, fmt.Errorf("service status poller id is required")
+		return nil, ErrServiceStatusPollerIDMissing
 	}
 
 	ts := sanitizeTimestamp(status.Timestamp)
@@ -226,11 +226,11 @@ func buildCNPGServiceStatusArgs(status *models.ServiceStatus) ([]interface{}, er
 
 func buildCNPGServiceArgs(service *models.Service) ([]interface{}, error) {
 	if service == nil {
-		return nil, fmt.Errorf("service nil")
+		return nil, ErrServiceNil
 	}
 
 	if strings.TrimSpace(service.PollerID) == "" {
-		return nil, fmt.Errorf("service poller id required")
+		return nil, ErrServicePollerIDMissing
 	}
 
 	config, err := marshalMapToJSON(service.Config)
@@ -266,7 +266,7 @@ func normalizeRawJSON(raw json.RawMessage) interface{} {
 	if len(raw) == 0 {
 		return nil
 	}
-	return json.RawMessage(raw)
+	return raw
 }
 
 func safeServicePollerID(status *models.ServiceStatus) string {

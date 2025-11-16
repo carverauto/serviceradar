@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -10,6 +11,18 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/logger"
+)
+
+var (
+	errTestQueryNotConfigured = errors.New("query fn not configured")
+	errStubRowsExhausted      = errors.New("no row available")
+	errStubRowsValueCount     = errors.New("not enough values for scan")
+	errStubRowsStringType     = errors.New("unsupported string type")
+	errStubRowsTimeType       = errors.New("unsupported time type")
+	errStubRowsNullableTime   = errors.New("unsupported nullable time type")
+	errStubRowsMetadataType   = errors.New("unsupported metadata type")
+	errStubRowsIntType        = errors.New("unsupported int type")
+	errStubRowsScanDest       = errors.New("unsupported scan destination")
 )
 
 func TestEscapeLiteral(t *testing.T) {
@@ -197,7 +210,7 @@ func (c *testCNPGClient) UseCNPGReads() bool {
 
 func (c *testCNPGClient) QueryCNPGRows(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
 	if c.queryFn == nil {
-		return nil, fmt.Errorf("query fn not configured")
+		return nil, errTestQueryNotConfigured
 	}
 	return c.queryFn(ctx, query, args...)
 }
@@ -218,13 +231,13 @@ func (s *stubRows) Next() bool {
 
 func (s *stubRows) Scan(dest ...interface{}) error {
 	if s.idx == 0 || s.idx > len(s.rows) {
-		return fmt.Errorf("no row available")
+		return errStubRowsExhausted
 	}
 
 	row := s.rows[s.idx-1]
 	for i, d := range dest {
 		if i >= len(row) {
-			return fmt.Errorf("not enough values for scan")
+			return errStubRowsValueCount
 		}
 
 		val := row[i]
@@ -238,7 +251,7 @@ func (s *stubRows) Scan(dest ...interface{}) error {
 			case nil:
 				*target = ""
 			default:
-				return fmt.Errorf("unsupported string type %T", v)
+				return fmt.Errorf("%w: %T", errStubRowsStringType, v)
 			}
 		case *time.Time:
 			switch v := val.(type) {
@@ -251,7 +264,7 @@ func (s *stubRows) Scan(dest ...interface{}) error {
 					*target = time.Time{}
 				}
 			default:
-				return fmt.Errorf("unsupported time type %T", v)
+				return fmt.Errorf("%w: %T", errStubRowsTimeType, v)
 			}
 		case **time.Time:
 			switch v := val.(type) {
@@ -263,7 +276,7 @@ func (s *stubRows) Scan(dest ...interface{}) error {
 			case nil:
 				*target = nil
 			default:
-				return fmt.Errorf("unsupported nullable time type %T", v)
+				return fmt.Errorf("%w: %T", errStubRowsNullableTime, v)
 			}
 		case *[]byte:
 			switch v := val.(type) {
@@ -274,7 +287,7 @@ func (s *stubRows) Scan(dest ...interface{}) error {
 			case nil:
 				*target = nil
 			default:
-				return fmt.Errorf("unsupported metadata type %T", v)
+				return fmt.Errorf("%w: %T", errStubRowsMetadataType, v)
 			}
 		case *int:
 			switch v := val.(type) {
@@ -285,10 +298,10 @@ func (s *stubRows) Scan(dest ...interface{}) error {
 			case int64:
 				*target = int(v)
 			default:
-				return fmt.Errorf("unsupported int type %T", v)
+				return fmt.Errorf("%w: %T", errStubRowsIntType, v)
 			}
 		default:
-			return fmt.Errorf("unsupported scan destination %T", target)
+			return fmt.Errorf("%w: %T", errStubRowsScanDest, target)
 		}
 	}
 

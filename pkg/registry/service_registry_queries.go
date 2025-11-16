@@ -704,7 +704,9 @@ func (r *ServiceRegistry) getPollerCNPG(ctx context.Context, pollerID string) (*
 	if err != nil {
 		return nil, fmt.Errorf("failed to query poller: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	if !rows.Next() {
 		return nil, fmt.Errorf("poller not found: %w", db.ErrFailedToQuery)
@@ -770,7 +772,9 @@ func (r *ServiceRegistry) getAgentCNPG(ctx context.Context, agentID string) (*Re
 	if err != nil {
 		return nil, fmt.Errorf("failed to query agent: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	if !rows.Next() {
 		return nil, fmt.Errorf("agent not found: %w", db.ErrFailedToQuery)
@@ -833,7 +837,9 @@ func (r *ServiceRegistry) getCheckerCNPG(ctx context.Context, checkerID string) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query checker: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	if !rows.Next() {
 		return nil, fmt.Errorf("checker not found: %w", db.ErrFailedToQuery)
@@ -934,7 +940,9 @@ WHERE 1=1`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pollers: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var pollers []*RegisteredPoller
 
@@ -1003,7 +1011,9 @@ func (r *ServiceRegistry) listAgentsByPollerCNPG(ctx context.Context, pollerID s
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agents: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var agents []*RegisteredAgent
 
@@ -1069,7 +1079,9 @@ func (r *ServiceRegistry) listCheckersByAgentCNPG(ctx context.Context, agentID s
 	if err != nil {
 		return nil, fmt.Errorf("failed to list checkers: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var checkers []*RegisteredChecker
 
@@ -1123,7 +1135,9 @@ func (r *ServiceRegistry) isKnownPollerCNPG(ctx context.Context, pollerID string
 	if err != nil {
 		return false, fmt.Errorf("failed to check poller: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	if !rows.Next() {
 		return false, fmt.Errorf("failed to check poller: %w", db.ErrFailedToQuery)
@@ -1146,7 +1160,9 @@ func (r *ServiceRegistry) refreshPollerCacheCNPG(ctx context.Context) {
 		r.logger.Warn().Err(err).Msg("Failed to refresh poller cache (cnpg)")
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	newCache := make(map[string]bool)
 	for rows.Next() {

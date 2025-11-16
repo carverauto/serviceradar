@@ -170,7 +170,7 @@ func buildCNPGTLSConfig(cfg *models.CNPGDatabase) (*tls.Config, error) {
 	caFile := resolve(cfg.TLS.CAFile)
 
 	if certFile == "" || keyFile == "" || caFile == "" {
-		return nil, fmt.Errorf("cnpg tls: cert_file, key_file, and ca_file are required")
+		return nil, ErrCNPGLackingTLSFiles
 	}
 
 	clientCert, err := tls.LoadX509KeyPair(certFile, keyFile)
@@ -185,7 +185,7 @@ func buildCNPGTLSConfig(cfg *models.CNPGDatabase) (*tls.Config, error) {
 
 	caPool := x509.NewCertPool()
 	if !caPool.AppendCertsFromPEM(caBytes) {
-		return nil, fmt.Errorf("cnpg tls: unable to append CA certificate")
+		return nil, ErrCNPGAppendCACert
 	}
 
 	return &tls.Config{

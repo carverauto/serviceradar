@@ -39,6 +39,8 @@ var (
 	ErrCNPGUnavailable        = errors.New("cnpg connection pool not configured")
 )
 
+const defaultPartitionValue = "default"
+
 // DB represents the CNPG-backed database connection.
 type DB struct {
 	pgPool *pgxpool.Pool
@@ -171,7 +173,7 @@ func (db *DB) ExecuteQuery(ctx context.Context, query string, params ...interfac
 
 		row := make(map[string]interface{}, len(fieldDescriptions))
 		for idx, fd := range fieldDescriptions {
-			row[string(fd.Name)] = normalizeCNPGValue(values[idx])
+			row[fd.Name] = normalizeCNPGValue(values[idx])
 		}
 
 		results = append(results, row)
@@ -228,7 +230,7 @@ func newCompatConn(db *DB) *CompatConn {
 // INSERT statement and replaying each appended row through ExecCNPG.
 func (c *CompatConn) PrepareBatch(ctx context.Context, query string) (*compatBatch, error) {
 	if c == nil || c.db == nil {
-		return nil, fmt.Errorf("cnpg connection not configured")
+		return nil, ErrCNPGCompatUnconfigured
 	}
 
 	table, columns, err := parseInsertStatement(query)
@@ -250,7 +252,7 @@ func (c *CompatConn) PrepareBatch(ctx context.Context, query string) (*compatBat
 // Append buffers a single row worth of values that will be flushed when Send is invoked.
 func (b *compatBatch) Append(values ...interface{}) error {
 	if len(values) != len(b.columns) {
-		return fmt.Errorf("batch append: expected %d values, got %d", len(b.columns), len(values))
+		return fmt.Errorf("%w: expected %d values, got %d", ErrBatchValueCountMismatch, len(b.columns), len(values))
 	}
 
 	row := make([]interface{}, len(values))
@@ -277,7 +279,7 @@ func (b *compatBatch) Send() error {
 // QueryRow rewrites '?' placeholders to '$n' and proxies to pgxpool.
 func (c *CompatConn) QueryRow(ctx context.Context, query string, args ...interface{}) pgx.Row {
 	if c == nil || c.db == nil {
-		return &errorRow{err: fmt.Errorf("cnpg connection not configured")}
+		return &errorRow{err: ErrCNPGCompatUnconfigured}
 	}
 
 	rewritten, err := rewritePlaceholders(query, len(args))
@@ -291,7 +293,7 @@ func (c *CompatConn) QueryRow(ctx context.Context, query string, args ...interfa
 // Query proxies Proton-style queries to CNPG.
 func (c *CompatConn) Query(ctx context.Context, query string, args ...interface{}) (Rows, error) {
 	if c == nil || c.db == nil {
-		return nil, fmt.Errorf("cnpg connection not configured")
+		return nil, ErrCNPGCompatUnconfigured
 	}
 
 	rewritten, err := rewritePlaceholders(query, len(args))
@@ -305,7 +307,7 @@ func (c *CompatConn) Query(ctx context.Context, query string, args ...interface{
 // Exec executes a single statement with Proton-style '?' placeholders.
 func (c *CompatConn) Exec(ctx context.Context, query string, args ...interface{}) error {
 	if c == nil || c.db == nil {
-		return fmt.Errorf("cnpg connection not configured")
+		return ErrCNPGCompatUnconfigured
 	}
 
 	rewritten, err := rewritePlaceholders(query, len(args))
@@ -321,7 +323,7 @@ var insertStmtRegex = regexp.MustCompile(`(?is)insert\s+into\s+([a-zA-Z0-9_\."]+
 func parseInsertStatement(query string) (string, []string, error) {
 	matches := insertStmtRegex.FindStringSubmatch(query)
 	if len(matches) != 3 {
-		return "", nil, fmt.Errorf("unsupported insert statement: %s", query)
+		return "", nil, fmt.Errorf("%w: %s", ErrUnsupportedInsertStatement, query)
 	}
 
 	table := strings.TrimSpace(matches[1])
@@ -335,7 +337,7 @@ func parseInsertStatement(query string) (string, []string, error) {
 	}
 
 	if len(columns) == 0 {
-		return "", nil, fmt.Errorf("no columns parsed from insert statement: %s", query)
+		return "", nil, fmt.Errorf("%w: %s", ErrInsertColumnsMissing, query)
 	}
 
 	return table, columns, nil
@@ -370,7 +372,7 @@ func rewritePlaceholders(query string, argCount int) (string, error) {
 	}
 
 	if argCount >= 0 && count != argCount {
-		return "", fmt.Errorf("placeholder count mismatch: query expects %d args, got %d", count, argCount)
+		return "", fmt.Errorf("%w: query expects %d args, got %d", ErrPlaceholderMismatch, count, argCount)
 	}
 
 	return builder.String(), nil
@@ -411,7 +413,7 @@ func normalizeDeviceUpdate(update *models.DeviceUpdate) {
 		} else {
 			// Generate network device ID: partition:ip
 			if update.Partition == "" {
-				update.Partition = "default"
+				update.Partition = defaultPartitionValue
 			}
 			update.DeviceID = models.GenerateNetworkDeviceID(update.Partition, update.IP)
 		}
@@ -435,7 +437,7 @@ func (r *cnpgRows) Next() bool {
 
 func (r *cnpgRows) Scan(dest ...interface{}) error {
 	if r == nil || r.rows == nil {
-		return fmt.Errorf("cnpg rows not initialized")
+		return ErrCNPGRowsNotInitialized
 	}
 	return r.rows.Scan(dest...)
 }

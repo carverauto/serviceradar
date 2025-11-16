@@ -12,46 +12,18 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-const defaultEdgeOnboardingPackageLimit = 100
-
-var edgePackageColumns = []string{
-	"package_id",
-	"label",
-	"component_id",
-	"component_type",
-	"parent_type",
-	"parent_id",
-	"poller_id",
-	"site",
-	"status",
-	"downstream_entry_id",
-	"downstream_spiffe_id",
-	"selectors",
-	"checker_kind",
-	"checker_config_json",
-	"join_token_ciphertext",
-	"join_token_expires_at",
-	"bundle_ciphertext",
-	"download_token_hash",
-	"download_token_expires_at",
-	"created_by",
-	"created_at",
-	"updated_at",
-	"delivered_at",
-	"activated_at",
-	"activated_from_ip",
-	"last_seen_spiffe_id",
-	"revoked_at",
-	"deleted_at",
-	"deleted_by",
-	"deleted_reason",
-	"metadata_json",
-	"kv_revision",
-	"notes",
-}
+const (
+	defaultEdgeOnboardingPackageLimit = 100
+	edgePackageProjection             = "package_id,label,component_id,component_type,parent_type,parent_id,poller_id," +
+		"site,status,downstream_entry_id,downstream_spiffe_id,selectors,checker_kind,checker_config_json," +
+		"join_token_ciphertext,join_token_expires_at,bundle_ciphertext,download_token_hash," +
+		"download_token_expires_at,created_by,created_at,updated_at,delivered_at,activated_at," +
+		"activated_from_ip,last_seen_spiffe_id,revoked_at,deleted_at,deleted_by,deleted_reason," +
+		"metadata_json,kv_revision,notes"
+)
 
 func selectEdgePackageProjection() string {
-	return strings.Join(edgePackageColumns, ", ")
+	return edgePackageProjection
 }
 
 // UpsertEdgeOnboardingPackage inserts or replaces a package row.
@@ -221,7 +193,7 @@ func (db *DB) ListEdgeOnboardingPollerIDs(ctx context.Context, statuses ...model
 // InsertEdgeOnboardingEvent records a package event.
 func (db *DB) InsertEdgeOnboardingEvent(ctx context.Context, event *models.EdgeOnboardingEvent) error {
 	if event == nil {
-		return fmt.Errorf("edge onboarding event is nil")
+		return ErrEdgeEventNil
 	}
 
 	return db.cnpgInsertEdgeOnboardingEvent(ctx, event)

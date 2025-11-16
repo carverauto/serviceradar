@@ -28,7 +28,8 @@ var (
 	// ErrUnknownServiceType is returned when an unknown service type is encountered.
 	ErrUnknownServiceType = errors.New("unknown service type")
 	// ErrCannotDeleteActiveService is returned when trying to delete an active service.
-	ErrCannotDeleteActiveService = errors.New("cannot delete service: mark inactive/revoked/deleted first")
+	ErrCannotDeleteActiveService      = errors.New("cannot delete service: mark inactive/revoked/deleted first")
+	errServiceRegistryCNPGUnsupported = errors.New("cnpg querying is not supported by service registry db")
 )
 
 const (
@@ -844,7 +845,7 @@ func (r *ServiceRegistry) useCNPGReads() bool {
 func (r *ServiceRegistry) queryCNPGRows(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
 	client, ok := r.getCNPGClient()
 	if !ok {
-		return nil, fmt.Errorf("cnpg querying is not supported by service registry db")
+		return nil, errServiceRegistryCNPGUnsupported
 	}
 
 	return client.QueryCNPGRows(ctx, query, args...)

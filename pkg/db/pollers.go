@@ -70,7 +70,7 @@ func (db *DB) ListPollers(ctx context.Context) ([]string, error) {
 // DeletePoller removes a poller record.
 func (db *DB) DeletePoller(ctx context.Context, pollerID string) error {
 	if strings.TrimSpace(pollerID) == "" {
-		return fmt.Errorf("poller id is required")
+		return ErrPollerIDMissing
 	}
 
 	return db.ExecCNPG(ctx, "DELETE FROM pollers WHERE poller_id = $1", pollerID)
@@ -89,7 +89,7 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 // UpdatePollerStatus upserts the poller status and records history.
 func (db *DB) UpdatePollerStatus(ctx context.Context, status *models.PollerStatus) error {
 	if status == nil {
-		return fmt.Errorf("poller status is nil")
+		return ErrPollerStatusNil
 	}
 
 	if err := db.cnpgUpsertPollerStatus(ctx, status); err != nil {
