@@ -1,0 +1,11 @@
+load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
+
+package(default_visibility = ["//visibility:public"])
+
+# Expose the downloaded TimescaleDB sources as a tree artifact for CNPG builds.
+copy_to_directory(
+    name = "source_tree",
+    srcs = ["@timescaledb_src//:all_srcs"],
+    out = "src",
+    include_external_repositories = ["**"],
+)
