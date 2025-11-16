@@ -68,7 +68,6 @@ go_library(
         "@com_github_spiffe_spire_api_sdk//proto/spire/api/types:go_default_library",
         "@com_github_nats_io_nats_go//:nats_go",
         "@com_github_cenkalti_backoff_v5//:backoff",
-        "@com_github_timeplus_io_proton_go_driver_v2//:proton-go-driver",
         "@io_opentelemetry_go_otel//:otel",
         "@io_opentelemetry_go_otel//attribute",
         "@io_opentelemetry_go_otel//codes",

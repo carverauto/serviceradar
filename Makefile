@@ -101,6 +101,16 @@ help: ## Show this help message
 	@echo "$(COLOR_BOLD)Available targets:$(COLOR_RESET)"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(COLOR_CYAN)%-20s$(COLOR_RESET) %s\n", $$1, $$2}'
 
+.PHONY: cnpg-migrate
+cnpg-migrate: ## Apply CNPG migrations (set CNPG_* vars or pass ARGS="--host ...")
+	@$(GO) run ./cmd/tools/cnpg-migrate $(ARGS)
+
+.PHONY: cnpg-smoke
+cnpg-smoke: ## Run CNPG API smoke tests (set NAMESPACE=<ns>, default demo-staging)
+	@NS=$(if $(NAMESPACE),$(NAMESPACE),demo-staging); \
+	echo "$(COLOR_BOLD)Running CNPG smoke tests in namespace $${NS}$(COLOR_RESET)"; \
+	./scripts/cnpg-smoke.sh $${NS}
+
 .PHONY: sysmonvm-host-setup
 sysmonvm-host-setup: ## Prepare host tooling and workspace for the sysmon-vm AlmaLinux VM
 	@$(if $(WORKSPACE),scripts/sysmonvm/host-setup.sh --workspace "$(WORKSPACE)",scripts/sysmonvm/host-setup.sh)

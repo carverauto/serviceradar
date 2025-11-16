@@ -532,6 +532,7 @@ use_repo(
     "com_github_gorilla_mux",
     "com_github_gorilla_websocket",
     "com_github_gosnmp_gosnmp",
+    "com_github_jackc_pgx_v5",
     "com_github_markbates_goth",
     "com_github_nats_io_nats_go",
     "com_github_nats_io_nats_server_v2",
@@ -542,7 +543,6 @@ use_repo(
     "com_github_stretchr_testify",
     "com_github_swaggo_http_swagger",
     "com_github_swaggo_swag",
-    "com_github_timeplus_io_proton_go_driver_v2",
     "io_opentelemetry_go_contrib_instrumentation_github_com_gorilla_mux_otelmux",
     "io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc",
     "io_opentelemetry_go_otel",
@@ -884,10 +884,12 @@ http_file = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_file",
 )
+
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",
 )
+
 http_file(
     name = "jq_linux_amd64",
     executable = True,
@@ -1031,6 +1033,22 @@ http_file(
     ],
 )
 
+http_file(
+    name = "alpine_postgresql16_client_apk",
+    sha256 = "db3180e984153d890b3b3fe87a45f4ecacfe1b9ead2fb1cf8bf06b75f6783baa",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/postgresql16-client-16.10-r0.apk",
+    ],
+)
+
+http_file(
+    name = "alpine_libpq16_apk",
+    sha256 = "93055e5999d5d7cfb26a856b42714654dc07d8ba942b6bdaacd5d986d7b60aae",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libpq-16.10-r0.apk",
+    ],
+)
+
 http_archive(
     name = "grpcurl_linux_amd64",
     build_file_content = """
@@ -1136,11 +1154,6 @@ filegroup(
 
 http_archive(
     name = "timescaledb_src",
-    urls = [
-        "https://github.com/timescale/timescaledb/archive/refs/tags/2.23.1.tar.gz",
-    ],
-    strip_prefix = "timescaledb-2.23.1",
-    sha256 = "26575fa9e287a6107a6bf162bacab4932b0df19bee38d28c132f9a2d6591d647",
     build_file_content = """
 filegroup(
     name = "all_srcs",
@@ -1148,15 +1161,15 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 """,
+    sha256 = "26575fa9e287a6107a6bf162bacab4932b0df19bee38d28c132f9a2d6591d647",
+    strip_prefix = "timescaledb-2.23.1",
+    urls = [
+        "https://github.com/timescale/timescaledb/archive/refs/tags/2.23.1.tar.gz",
+    ],
 )
 
 http_archive(
     name = "age_src",
-    urls = [
-        "https://downloads.apache.org/age/PG17/1.6.0/apache-age-1.6.0-src.tar.gz",
-    ],
-    strip_prefix = "apache-age-1.6.0",
-    sha256 = "57c7187a37942f1b6208e1f68caafcb7374f8bedaabad162c8760adb44ae9ffe",
     build_file_content = """
 filegroup(
     name = "all_srcs",
@@ -1164,6 +1177,11 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 """,
+    sha256 = "57c7187a37942f1b6208e1f68caafcb7374f8bedaabad162c8760adb44ae9ffe",
+    strip_prefix = "apache-age-1.6.0",
+    urls = [
+        "https://downloads.apache.org/age/PG17/1.6.0/apache-age-1.6.0-src.tar.gz",
+    ],
 )
 
 # Additional module extensions will be layered in as language owners migrate to

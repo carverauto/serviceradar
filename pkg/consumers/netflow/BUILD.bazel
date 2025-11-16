@@ -5,7 +5,6 @@ go_library(
     srcs = [
         "config.go",
         "consumer.go",
-        "errors.go",
         "processor.go",
         "service.go",
     ],

@@ -65,9 +65,9 @@ Sidecar]
     end
 
     subgraph "Data Layer"
-        Proton[Proton / Timeplus]
-        CoreAPI -->|Ingest + Queries| Proton
-        SRQL -->|SQL Translation| Proton
+        CNPG[CNPG / Timescale]
+        CoreAPI -->|Ingest + Queries| CNPG
+        SRQL -->|SQL Translation| CNPG
     end
 
     subgraph "Alerting"
@@ -95,12 +95,12 @@ Sidecar]
     style SPIREServer fill:#d6c9ff,stroke:#333,stroke-width:1px
     style SPIREController fill:#d6c9ff,stroke:#333,stroke-width:1px
     style SPIREWorkloadAgent fill:#d6c9ff,stroke:#333,stroke-width:1px
-    style Proton fill:#cfc,stroke:#333,stroke-width:1px
+    style CNPG fill:#cfc,stroke:#333,stroke-width:1px
     style Discord fill:#c9d,stroke:#333,stroke-width:1px
     style Other fill:#c9d,stroke:#333,stroke-width:1px
 ```
 
-Kong now sits between the Web UI and the backend APIs as the policy enforcement point. It validates RS256-signed JWTs against the Core’s JWKS endpoint before forwarding traffic to either the Core service or the dedicated SRQL microservice. Downstream, SRQL translates `/api/query` requests into Proton SQL while the Core continues handling control-plane APIs. Pollers and agents still rely on mTLS for gRPC communication, keeping user traffic, edge policy, and service-to-service links cleanly separated.
+Kong now sits between the Web UI and the backend APIs as the policy enforcement point. It validates RS256-signed JWTs against the Core’s JWKS endpoint before forwarding traffic to either the Core service or the dedicated SRQL microservice. Downstream, SRQL translates `/api/query` requests into CNPG/Timescale SQL while the Core continues handling control-plane APIs. Pollers and agents still rely on mTLS for gRPC communication, keeping user traffic, edge policy, and service-to-service links cleanly separated.
 
 ## Key Components
 
@@ -189,7 +189,7 @@ workflow see [SPIFFE / SPIRE Identity Platform](spiffe-identity.md).
 The SRQL microservice executes ServiceRadar Query Language requests:
 
 - Exposes `/api/query` (HTTP) and `/api/stream` (WebSocket) for bounded and streaming query execution
-- Runs as an OCaml/Dream application that translates SRQL to Proton SQL before dispatching the query
+- Runs as an OCaml/Dream application that translates SRQL to Timescale-compatible SQL before dispatching the query
 - Shares Kong’s JWT policy; validated user tokens grant access to query endpoints without additional secrets
 - Streams results back to the Web UI, which renders them in explorers and dashboards
 

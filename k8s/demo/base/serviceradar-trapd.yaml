@@ -49,7 +49,7 @@ spec:
         - name: KV_TRUST_DOMAIN
           value: "carverauto.dev"
         - name: KV_SERVER_SPIFFE_ID
-          value: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc"
+          value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-datasvc"
         - name: KV_WORKLOAD_SOCKET
           value: "unix:/run/spire/sockets/agent.sock"
         - name: KV_CERT_DIR

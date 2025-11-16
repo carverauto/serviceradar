@@ -3,11 +3,9 @@
     "shared_config": {
       "certificates": {
         "root_dir": "/etc/serviceradar/certs",
-        "proton_dir": "/etc/proton-server",
         "components": [
           "core",
           "srql",
-          "proton",
           "agent",
           "poller",
           "kv",

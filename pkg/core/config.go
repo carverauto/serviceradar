@@ -49,16 +49,6 @@ var (
 func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig {
 	normalized := *config
 
-	// Set the DB parameters from the Database struct
-	if len(normalized.Database.Addresses) > 0 {
-		// Set the first address as the primary DB address
-		normalized.DBAddr = normalized.Database.Addresses[0]
-	}
-
-	normalized.DBName = normalized.Database.Name
-	normalized.DBUser = normalized.Database.Username
-	normalized.DBPass = normalized.Database.Password
-
 	// Default settings if not specified
 	if normalized.Metrics.Retention == 0 {
 		normalized.Metrics.Retention = defaultMetricsRetention

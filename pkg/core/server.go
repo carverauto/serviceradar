@@ -140,11 +140,11 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 	deviceRegistry := registry.NewDeviceRegistry(database, log, registryOpts...)
 
 	if count, err := deviceRegistry.HydrateFromStore(ctx); err != nil {
-		log.Warn().Err(err).Msg("Failed to hydrate device registry from Proton; continuing with cold cache")
+		log.Warn().Err(err).Msg("Failed to hydrate device registry from CNPG; continuing with cold cache")
 	} else {
 		log.Info().
 			Int("device_count", count).
-			Msg("Device registry hydrated from Proton")
+			Msg("Device registry hydrated from CNPG")
 	}
 
 	useSearchPlanner := normalizedConfig.Features.UseDeviceSearchPlanner == nil || *normalizedConfig.Features.UseDeviceSearchPlanner
@@ -284,13 +284,13 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 				case errors.Is(err, context.Canceled):
 					log.Debug().Msg("critical log digest bootstrap cancelled")
 				case errors.Is(err, context.DeadlineExceeded):
-					log.Info().Msg("critical log digest bootstrap from Proton timed out; continuing with streaming updates")
+					log.Info().Msg("critical log digest bootstrap from CNPG timed out; continuing with streaming updates")
 				default:
-					log.Warn().Err(err).Msg("failed to hydrate critical log digest from Proton")
+					log.Warn().Err(err).Msg("failed to hydrate critical log digest from CNPG")
 					return
 				}
 			} else {
-				log.Info().Msg("critical log digest hydrated from Proton snapshot")
+				log.Info().Msg("critical log digest hydrated from CNPG snapshot")
 			}
 		}()
 

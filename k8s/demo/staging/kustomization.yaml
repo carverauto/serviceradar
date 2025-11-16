@@ -2,23 +2,69 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: serviceradar-staging
+namespace: demo-staging
 
 resources:
   - ../base
   - namespace.yaml
+  - service-aliases.demo-staging.yaml
   - ingress.yaml
+  - serviceradar-core-grpc-external.yaml
+  - serviceradar-datasvc-grpc-external.yaml
+  - serviceradar-flowgger-external.yaml
+  - spire-server-external.yaml
+
+patchesStrategicMerge:
+  - spire-server-configmap.yaml
+  - spire-controller-manager-configmap.yaml
+
+transformers:
+  - namespace-transformer.yaml
+
+configurations:
+  - var-references.yaml
+
+replacements:
+  - source:
+      kind: Namespace
+      name: demo-staging
+      fieldPath: metadata.name
+    targets:
+      - select:
+          kind: ClusterSPIFFEID
+        fieldPaths:
+          - spec.namespaceSelector.matchLabels.[kubernetes.io/metadata.name]
+      - select:
+          kind: ClusterSPIFFEID
+        fieldPaths:
+          - spec.spiffeIDTemplate
+        options:
+          delimiter: /
+          index: 4
 
 images:
-  - name: ghcr.io/carverauto/serviceradar-proton
-    newTag: latest
-  - name: ghcr.io/carverauto/serviceradar-core
-    newTag: latest
-  - name: ghcr.io/carverauto/serviceradar-web
-    newTag: latest
-  - name: ghcr.io/carverauto/serviceradar-agent
-    newTag: latest
-  - name: ghcr.io/carverauto/serviceradar-poller
-    newTag: latest
-  - name: ghcr.io/carverauto/serviceradar-snmp-checker
-    newTag: latest
+- name: ghcr.io/carverauto/serviceradar-core
+  newTag: latest
+- name: ghcr.io/carverauto/serviceradar-web
+  newTag: latest
+- name: ghcr.io/carverauto/serviceradar-agent
+  newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
+- name: ghcr.io/carverauto/serviceradar-poller
+  newTag: latest
+- name: ghcr.io/carverauto/serviceradar-snmp-checker
+  newTag: latest
+- name: ghcr.io/carverauto/serviceradar-datasvc
+  newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
+- name: ghcr.io/carverauto/serviceradar-sync
+  newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
+- name: ghcr.io/carverauto/serviceradar-tools
+  newTag: sha-285e1d25a57f
+
+vars:
+- name: SERVICERADAR_NAMESPACE
+  objref:
+    apiVersion: v1
+    kind: Namespace
+    name: demo-staging
+  fieldref:
+    fieldPath: metadata.name

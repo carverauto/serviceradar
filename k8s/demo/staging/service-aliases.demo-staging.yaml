@@ -1,0 +1,125 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: core
+  namespace: demo-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-core.demo-staging.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong
+  namespace: demo-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-kong.demo-staging.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent
+  namespace: demo-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-agent.demo-staging.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kv
+  namespace: demo-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-datasvc.demo-staging.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: demo-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-nats.demo-staging.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sync
+  namespace: demo-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-sync.demo-staging.svc.cluster.local
+apiVersion: v1
+kind: Service
+metadata:
+  name: mapper
+  namespace: demo-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-mapper.demo-staging.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-event-writer
+  namespace: demo-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-db-event-writer.demo-staging.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zen
+  namespace: demo-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-zen.demo-staging.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trapd
+  namespace: demo-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-trapd.demo-staging.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flowgger
+  namespace: demo-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-flowgger.demo-staging.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rperf
+  namespace: demo-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-rperf.demo-staging.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rperf-client
+  namespace: demo-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-rperf-client.demo-staging.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel
+  namespace: demo-staging
+spec:
+  type: ExternalName
+  externalName: serviceradar-otel.demo-staging.svc.cluster.local

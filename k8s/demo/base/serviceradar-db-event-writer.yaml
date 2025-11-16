@@ -49,6 +49,9 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        - name: cnpg-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
         - name: db-event-writer-data
           mountPath: /var/lib/serviceradar
         - name: spire-agent-socket
@@ -63,8 +66,12 @@ spec:
           value: "true"
         - name: NATS_HOST
           value: "serviceradar-nats"
-        - name: WAIT_FOR_PROTON
+        - name: WAIT_FOR_CNPG
           value: "true"
+        - name: CNPG_HOST
+          value: "cnpg-rw.$(SERVICERADAR_NAMESPACE).svc"
+        - name: CNPG_PORT
+          value: "5432"
         - name: KV_ADDRESS
           value: "serviceradar-datasvc:50057"
         - name: KV_SEC_MODE
@@ -72,7 +79,7 @@ spec:
         - name: KV_TRUST_DOMAIN
           value: "carverauto.dev"
         - name: KV_SERVER_SPIFFE_ID
-          value: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc"
+          value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-datasvc"
         - name: KV_WORKLOAD_SOCKET
           value: "unix:/run/spire/sockets/agent.sock"
         - name: KV_CERT_DIR
@@ -84,7 +91,7 @@ spec:
         - name: CORE_TRUST_DOMAIN
           value: "carverauto.dev"
         - name: CORE_SERVER_SPIFFE_ID
-          value: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core"
+          value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-core"
         - name: CORE_WORKLOAD_SOCKET
           value: "unix:/run/spire/sockets/agent.sock"
         - name: CORE_CERT_DIR
@@ -93,11 +100,11 @@ spec:
           value: "false"
         - name: LOG_LEVEL
           value: "info"
-        - name: PROTON_PASSWORD
+        - name: CNPG_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: serviceradar-secrets
-              key: proton-password
+              name: cnpg-superuser
+              key: password
         resources:
           limits:
             cpu: "500m"
@@ -128,6 +135,9 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      - name: cnpg-ca
+        secret:
+          secretName: cnpg-ca
       - name: db-event-writer-data
         persistentVolumeClaim:
           claimName: serviceradar-db-event-writer-data

@@ -38,8 +38,8 @@ var (
 )
 
 // EnvConfigLoader loads configuration from environment variables.
-// It supports nested struct fields using underscore separation.
-// For example: DATABASE_HOST maps to config.Database.Host
+// It supports nested struct fields using underscore separation
+// (e.g., CNPG_HOST maps to config.cnpg.host).
 type EnvConfigLoader struct {
 	logger logger.Logger
 	prefix string // Optional prefix for all env vars (e.g., "SERVICERADAR_")

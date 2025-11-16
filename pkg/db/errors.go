@@ -47,4 +47,53 @@ var (
 	ErrAgentIDRequired       = errors.New("agent ID is required")
 	ErrLocalDeviceIPRequired = errors.New("local device IP is required")
 	ErrProtocolTypeRequired  = errors.New("protocol type is required")
+
+	// CNPG discovery + topology validation errors.
+
+	ErrDiscoveredInterfaceNil       = errors.New("discovered interface is nil")
+	ErrDiscoveredIdentifiersMissing = errors.New("agent_id, poller_id, and device_ip are required")
+	ErrTopologyEventNil             = errors.New("topology discovery event is nil")
+	ErrTopologyIdentifiersMissing   = errors.New("agent_id, poller_id, local_device_ip, and protocol_type are required")
+
+	// Edge onboarding helpers.
+
+	ErrEdgePackageIDRequired = errors.New("edge onboarding package id is required")
+	ErrEdgeEventNil          = errors.New("edge onboarding event is nil")
+
+	// Timeseries + metrics validation.
+
+	ErrTimeseriesMetricNil         = errors.New("timeseries metric is nil")
+	ErrTimeseriesColumnRequired    = errors.New("timeseries column is required")
+	ErrTimeseriesColumnUnsupported = errors.New("unsupported timeseries column")
+	ErrNetflowMetricNil            = errors.New("netflow metric is nil")
+
+	// Registry validation errors.
+
+	ErrPollerStatusNil              = errors.New("poller status nil")
+	ErrPollerIDMissing              = errors.New("poller id is required")
+	ErrServiceStatusNil             = errors.New("service status nil")
+	ErrServiceStatusPollerIDMissing = errors.New("service status poller id is required")
+	ErrServiceNil                   = errors.New("service nil")
+	ErrServicePollerIDMissing       = errors.New("service poller id required")
+
+	// Sweep validation errors.
+
+	ErrSweepStateNil        = errors.New("sweep host state is nil")
+	ErrSweepHostIPMissing   = errors.New("host ip is required")
+	ErrSweepPollerIDMissing = errors.New("poller id is required")
+	ErrSweepAgentIDMissing  = errors.New("agent id is required")
+
+	// Compat connection helpers.
+
+	ErrCNPGCompatUnconfigured     = errors.New("cnpg connection not configured")
+	ErrBatchValueCountMismatch    = errors.New("batch append value count mismatch")
+	ErrUnsupportedInsertStatement = errors.New("unsupported insert statement")
+	ErrInsertColumnsMissing       = errors.New("no columns parsed from insert statement")
+	ErrPlaceholderMismatch        = errors.New("placeholder count mismatch")
+	ErrCNPGRowsNotInitialized     = errors.New("cnpg rows not initialized")
+
+	// TLS helpers.
+
+	ErrCNPGLackingTLSFiles = errors.New("cnpg tls requires cert_file, key_file, and ca_file")
+	ErrCNPGAppendCACert    = errors.New("cnpg tls: unable to append CA certificate")
 )
