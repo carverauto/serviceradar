@@ -52,15 +52,22 @@ type AuthConfig = {
   rbac?: RBACConfig;
 };
 
-type DatabaseConfig = {
-  addresses?: string[];
-  name?: string;
+type CNPGConfig = {
+  host?: string;
+  port?: number;
+  database?: string;
   username?: string;
   password?: string;
-  max_conns?: number;
-  idle_conns?: number;
+  application_name?: string;
+  ssl_mode?: string;
+  cert_dir?: string;
   tls?: TLSConfig;
-  settings?: Record<string, unknown>;
+  max_connections?: number;
+  min_connections?: number;
+  max_conn_lifetime?: string;
+  health_check_period?: string;
+  statement_timeout?: string;
+  runtime_params?: Record<string, string>;
 };
 
 type EventsConfig = {
@@ -192,7 +199,7 @@ interface CoreConfig {
   known_pollers?: string[];
   poller_patterns?: string[];
   metrics?: MetricsConfig;
-  database?: DatabaseConfig;
+  cnpg?: CNPGConfig;
   cors?: CORSConfig;
   nats?: NATSConfig;
   events?: EventsConfig;
@@ -209,10 +216,6 @@ interface CoreConfig {
   spire_admin?: SpireAdminConfig;
   srql?: SRQLConfig;
   write_buffer?: WriteBufferConfig;
-  db_addr?: string;
-  db_name?: string;
-  db_user?: string;
-  db_pass?: string;
   db_path?: string;
 }
 
@@ -672,23 +675,15 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
     setOtelHeadersText(serializedOtelHeaders);
   }, [serializedOtelHeaders]);
 
-  const dbSettings = useMemo(() => config.database?.settings ?? {}, [config.database?.settings]);
-
-  const updateDbSetting = (key: string, value?: number | '') => {
-    const next = { ...dbSettings };
-    if (value === '' || value === undefined || value === null || Number.isNaN(value)) {
-      delete next[key];
-    } else {
-      next[key] = value;
-    }
-    updateConfig('database.settings', next);
-  };
-
-  const dbSettingBoolean = (key: string) => Number(dbSettings[key] ?? 0) === 1;
-  const dbSettingNumber = (key: string): number | '' => {
-    const value = dbSettings[key];
-    return typeof value === 'number' ? value : '';
-  };
+  const [cnpgRuntimeParamsText, setCnpgRuntimeParamsText] = useState('{}');
+  const [cnpgRuntimeParamsError, setCnpgRuntimeParamsError] = useState<string | null>(null);
+  const serializedCnpgRuntimeParams = useMemo(
+    () => JSON.stringify(config.cnpg?.runtime_params ?? {}, null, 2),
+    [config.cnpg?.runtime_params],
+  );
+  useEffect(() => {
+    setCnpgRuntimeParamsText(serializedCnpgRuntimeParams);
+  }, [serializedCnpgRuntimeParams]);
 
   const edgeKeyInfo = useMemo(
     () => decodeEdgeKey(config.edge_onboarding?.encryption_key ?? ''),
@@ -725,7 +720,7 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
     () => {
       const items: Array<{ id: string; label: string }> = [
         { id: 'core-service', label: 'Core Service' },
-        { id: 'proton-db', label: 'Database' },
+        { id: 'cnpg-config', label: 'CNPG' },
         { id: 'cors', label: 'CORS' },
         { id: 'auth-rbac', label: 'Auth & RBAC' },
         { id: 'logging-otel', label: 'Logging & OTEL' },
@@ -955,64 +950,39 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
       </Section>
 
       <Section
-        title="Legacy Proton Overrides"
-        description="Optional compatibility fields for legacy bootstrap scripts."
+        title="CNPG Configuration"
+        id="cnpg-config"
+        description="Configure the Timescale/CloudNativePG connection that replaces Proton."
       >
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium mb-2">DB Address</label>
+            <label className="block text-sm font-medium mb-2">Host</label>
             <input
               type="text"
-              value={config.db_addr ?? ''}
-              onChange={(e) => updateConfig('db_addr', e.target.value)}
+              value={config.cnpg?.host ?? ''}
+              onChange={(e) => updateConfig('cnpg.host', e.target.value)}
               className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder="proton:9440"
+              placeholder="cnpg-rw.demo.svc.cluster.local"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-2">DB Name</label>
+            <label className="block text-sm font-medium mb-2">Port</label>
             <input
-              type="text"
-              value={config.db_name ?? ''}
-              onChange={(e) => updateConfig('db_name', e.target.value)}
+              type="number"
+              value={config.cnpg?.port ?? ''}
+              onChange={(e) =>
+                updateConfig('cnpg.port', e.target.value === '' ? undefined : Number(e.target.value))
+              }
               className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              placeholder="5432"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-2">DB User</label>
+            <label className="block text-sm font-medium mb-2">Database</label>
             <input
               type="text"
-              value={config.db_user ?? ''}
-              onChange={(e) => updateConfig('db_user', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">DB Password</label>
-            <SensitiveField
-              value={config.db_pass ?? ''}
-              onChange={(val) => updateConfig('db_pass', val)}
-              copyLabel="Copy"
-            />
-          </div>
-        </div>
-      </Section>
-
-        <Section title="Database Configuration" id="proton-db">
-        <StringArrayEditor
-          label="Addresses"
-          values={config.database?.addresses}
-          onChange={(next) => updateConfig('database.addresses', next)}
-          placeholder="serviceradar-proton:9440"
-          addLabel="Add Address"
-        />
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-2">Database Name</label>
-            <input
-              type="text"
-              value={config.database?.name ?? ''}
-              onChange={(e) => updateConfig('database.name', e.target.value)}
+              value={config.cnpg?.database ?? ''}
+              onChange={(e) => updateConfig('cnpg.database', e.target.value)}
               className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
             />
           </div>
@@ -1020,57 +990,116 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
             <label className="block text-sm font-medium mb-2">Username</label>
             <input
               type="text"
-              value={config.database?.username ?? ''}
-              onChange={(e) => updateConfig('database.username', e.target.value)}
+              value={config.cnpg?.username ?? ''}
+              onChange={(e) => updateConfig('cnpg.username', e.target.value)}
               className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
             />
           </div>
           <div>
             <label className="block text-sm font-medium mb-2">Password</label>
             <SensitiveField
-              value={config.database?.password ?? ''}
-              onChange={(val) => updateConfig('database.password', val)}
+              value={config.cnpg?.password ?? ''}
+              onChange={(val) => updateConfig('cnpg.password', val)}
               copyLabel="Copy"
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Max Connections</label>
-              <input
-                type="number"
-                value={config.database?.max_conns ?? ''}
-                onChange={(e) =>
-                  updateConfig(
-                    'database.max_conns',
-                    e.target.value === '' ? undefined : Number(e.target.value),
-                  )
-                }
-                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Idle Connections</label>
-              <input
-                type="number"
-                value={config.database?.idle_conns ?? ''}
-                onChange={(e) =>
-                  updateConfig(
-                    'database.idle_conns',
-                    e.target.value === '' ? undefined : Number(e.target.value),
-                  )
-                }
-                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              />
-            </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Application Name</label>
+            <input
+              type="text"
+              value={config.cnpg?.application_name ?? ''}
+              onChange={(e) => updateConfig('cnpg.application_name', e.target.value)}
+              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">SSL Mode</label>
+            <input
+              type="text"
+              value={config.cnpg?.ssl_mode ?? ''}
+              onChange={(e) => updateConfig('cnpg.ssl_mode', e.target.value)}
+              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              placeholder="require"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Cert Directory</label>
+            <input
+              type="text"
+              value={config.cnpg?.cert_dir ?? ''}
+              onChange={(e) => updateConfig('cnpg.cert_dir', e.target.value)}
+              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              placeholder="/etc/serviceradar/certs"
+            />
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-4 mt-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Max Connections</label>
+            <input
+              type="number"
+              value={config.cnpg?.max_connections ?? ''}
+              onChange={(e) =>
+                updateConfig(
+                  'cnpg.max_connections',
+                  e.target.value === '' ? undefined : Number(e.target.value),
+                )
+              }
+              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Min Connections</label>
+            <input
+              type="number"
+              value={config.cnpg?.min_connections ?? ''}
+              onChange={(e) =>
+                updateConfig(
+                  'cnpg.min_connections',
+                  e.target.value === '' ? undefined : Number(e.target.value),
+                )
+              }
+              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Statement Timeout</label>
+            <input
+              type="text"
+              value={config.cnpg?.statement_timeout ?? ''}
+              onChange={(e) => updateConfig('cnpg.statement_timeout', e.target.value)}
+              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              placeholder="30s"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Max Connection Lifetime</label>
+            <input
+              type="text"
+              value={config.cnpg?.max_conn_lifetime ?? ''}
+              onChange={(e) => updateConfig('cnpg.max_conn_lifetime', e.target.value)}
+              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              placeholder="1h"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Health Check Period</label>
+            <input
+              type="text"
+              value={config.cnpg?.health_check_period ?? ''}
+              onChange={(e) => updateConfig('cnpg.health_check_period', e.target.value)}
+              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+              placeholder="1m"
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-4 mt-4">
           <div>
             <label className="block text-sm font-medium mb-2">TLS CA File</label>
             <input
               type="text"
-              value={config.database?.tls?.ca_file ?? ''}
-              onChange={(e) => updateConfig('database.tls.ca_file', e.target.value)}
+              value={config.cnpg?.tls?.ca_file ?? ''}
+              onChange={(e) => updateConfig('cnpg.tls.ca_file', e.target.value)}
               className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
             />
           </div>
@@ -1078,8 +1107,8 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
             <label className="block text-sm font-medium mb-2">TLS Cert File</label>
             <input
               type="text"
-              value={config.database?.tls?.cert_file ?? ''}
-              onChange={(e) => updateConfig('database.tls.cert_file', e.target.value)}
+              value={config.cnpg?.tls?.cert_file ?? ''}
+              onChange={(e) => updateConfig('cnpg.tls.cert_file', e.target.value)}
               className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
             />
           </div>
@@ -1087,98 +1116,32 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
             <label className="block text-sm font-medium mb-2">TLS Key File</label>
             <input
               type="text"
-              value={config.database?.tls?.key_file ?? ''}
-              onChange={(e) => updateConfig('database.tls.key_file', e.target.value)}
-              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">TLS Client CA File</label>
-            <input
-              type="text"
-              value={config.database?.tls?.client_ca_file ?? ''}
-              onChange={(e) => updateConfig('database.tls.client_ca_file', e.target.value)}
+              value={config.cnpg?.tls?.key_file ?? ''}
+              onChange={(e) => updateConfig('cnpg.tls.key_file', e.target.value)}
               className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
             />
           </div>
         </div>
-        <div className="mt-6 space-y-4">
-          <h4 className="text-md font-semibold">Advanced Proton Settings</h4>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            These map directly to ClickHouse session settings. Leave blank to use defaults.
-          </p>
-          <div className="grid grid-cols-3 gap-4">
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-              <input
-                type="checkbox"
-                checked={dbSettingBoolean('allow_experimental_live_views')}
-                onChange={(e) => updateDbSetting('allow_experimental_live_views', e.target.checked ? 1 : 0)}
-              />
-              Allow experimental live views
-            </label>
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-              <input
-                type="checkbox"
-                checked={dbSettingBoolean('input_format_defaults_for_omitted_fields')}
-                onChange={(e) =>
-                  updateDbSetting('input_format_defaults_for_omitted_fields', e.target.checked ? 1 : 0)
-                }
-              />
-              Default missing input fields
-            </label>
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-              <input
-                type="checkbox"
-                checked={dbSettingBoolean('join_use_nulls')}
-                onChange={(e) => updateDbSetting('join_use_nulls', e.target.checked ? 1 : 0)}
-              />
-              JOIN use NULLs
-            </label>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Idle connection timeout (s)</label>
-              <input
-                type="number"
-                value={dbSettingNumber('idle_connection_timeout')}
-                onChange={(e) =>
-                  updateDbSetting(
-                    'idle_connection_timeout',
-                    e.target.value === '' ? '' : Number(e.target.value),
-                  )
-                }
-                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Max execution time (s)</label>
-              <input
-                type="number"
-                value={dbSettingNumber('max_execution_time')}
-                onChange={(e) =>
-                  updateDbSetting(
-                    'max_execution_time',
-                    e.target.value === '' ? '' : Number(e.target.value),
-                  )
-                }
-                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Quote 64-bit ints in JSON</label>
-              <input
-                type="number"
-                value={dbSettingNumber('output_format_json_quote_64bit_int')}
-                onChange={(e) =>
-                  updateDbSetting(
-                    'output_format_json_quote_64bit_int',
-                    e.target.value === '' ? '' : Number(e.target.value),
-                  )
-                }
-                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-              />
-            </div>
-          </div>
+        <div className="mt-6 space-y-2">
+          <label className="block text-sm font-medium">Runtime Parameters (JSON)</label>
+          <textarea
+            value={cnpgRuntimeParamsText}
+            onChange={(e) => setCnpgRuntimeParamsText(e.target.value)}
+            onBlur={() =>
+              handleJsonBlur(
+                cnpgRuntimeParamsText,
+                'cnpg.runtime_params',
+                setCnpgRuntimeParamsError,
+                {},
+              )
+            }
+            rows={5}
+            className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md font-mono text-sm"
+            placeholder='{"search_path":"telemetry"}'
+          />
+          {cnpgRuntimeParamsError && (
+            <p className="text-sm text-red-600 dark:text-red-400">{cnpgRuntimeParamsError}</p>
+          )}
         </div>
       </Section>
 

@@ -16,15 +16,16 @@
 - [x] 3.3 Remove Proton mocks/tests/build rules (`executeBatch`, Proton migration embeds, mock generators tied to `driver.Batch`) and update the db unit tests to run solely against the pgx-backed CNPG code.
 
 ## 4. Service + tooling cleanup
-- [ ] 4.1 Convert `cmd/consumers/db-event-writer` to read/write CNPG tables for OTEL logs/metrics/traces, removing Proton config flags, schema assumptions, and driver dependencies.
-- [ ] 4.2 Replace Proton streaming utilities (core log digest tailer, stats aggregator parity checks, CLI helpers) with CNPG implementations or retire the features if they were Proton-only.
-- [ ] 4.3 Update CLI/config/installer tooling so Proton settings (`DBAddr`, Proton TLS certs, migration scripts) are removed, CNPG DSNs are required, and generated configs/scripts reference the Timescale schema exclusively.
+- [x] 4.1 Convert `cmd/consumers/db-event-writer` to read/write CNPG tables for OTEL logs/metrics/traces, removing Proton config flags, schema assumptions, and driver dependencies.
+- [x] 4.2 Replace Proton streaming utilities (core log digest tailer, stats aggregator parity checks, CLI helpers) with CNPG implementations or retire the features if they were Proton-only.
+- [x] 4.3 Update CLI/config/installer tooling so Proton settings (`DBAddr`, Proton TLS certs, migration scripts) are removed, CNPG DSNs are required, and generated configs/scripts reference the Timescale schema exclusively. *(Dropped the Proton override fields from `pkg/models` + the admin UI, rewired the CLI TLS generator and install/setup scripts to emit/consume CNPG-only certs, forced the config loaders/UI to require the CNPG DSN fields, and updated the demo Kustomize overlays + `deploy.sh` so they render CNPG/SPFFE-aware configmaps without any Proton placeholders.)*
 
 ## 5. Documentation + operations
-- [ ] 5.1 Purge Proton references from docs and runbooks (`docs/docs/agents.md`, runbook directory, demo README) and add CNPG-only operational procedures (migrations, resets, health checks).
-- [ ] 5.2 Remove Proton deployments/manifests/Helm values from `k8s/` and replace them with CNPG-only overlays (including any reset scripts or PVC instructions).
-- [ ] 5.3 Update scripts/automation (e.g., `reset-proton.sh`, backfill helpers, CI pipelines) to either target CNPG or be deleted if obsolete, ensuring `make`/Bazel targets no longer expect Proton artifacts.
+- [x] 5.1 Purge Proton references from docs and runbooks (`docs/docs/agents.md`, runbook directory, demo README) and add CNPG-only operational procedures (migrations, resets, health checks).
+- [x] 5.2 Remove Proton deployments/manifests/Helm values from `k8s/` and replace them with CNPG-only overlays (including any reset scripts or PVC instructions).
+- [x] 5.3 Update scripts/automation (e.g., `reset-proton.sh`, backfill helpers, CI pipelines) to either target CNPG or be deleted if obsolete, ensuring `make`/Bazel targets no longer expect Proton artifacts.
 
 ## 6. Validation + observability
-- [ ] 6.1 Add CNPG-focused smoke/integration tests that cover `/api/devices`, `/api/metrics`, `/api/registry`, and the db-event-writer ingestion path so we can prove the Proton-free stack works end-to-end.
-- [ ] 6.2 Refresh monitoring/dashboards to track CNPG ingestion/retention health (Timescale hypertables, retention jobs, pgx error metrics) and remove Proton parity dashboards/checks.
+- [x] 6.1 Add CNPG-focused smoke/integration tests that cover `/api/devices`, `/api/metrics`, `/api/registry`, and the db-event-writer ingestion path so we can prove the Proton-free stack works end-to-end. *(`scripts/cnpg-smoke.sh` hits the device + registry APIs, queries CNPG metrics, and exercises the db-event-writer path against the demo-staging namespace.)*
+- [x] 6.2 Refresh monitoring/dashboards to track CNPG ingestion/retention health (Timescale hypertables, retention jobs, pgx error metrics) and remove Proton parity dashboards/checks. *Added the new `docs/docs/cnpg-monitoring.md` dashboard cookbook, cross-referenced it from `docs/docs/agents.md`, and rewrote the OTEL/SNMP/Syslog/architecture/service-port-map/cluster docs so every “where does this land?” answer now points at CNPG instead of Proton.*
+- [x] 6.3 Debug demo-staging `serviceradar-db-event-writer` duplicate key errors by adding `ON CONFLICT DO NOTHING` to the CNPG OTEL insert helpers, rebuilding/pushing `ghcr.io/carverauto/serviceradar-db-event-writer:sha-84d6976bf1ab3bc8e515e178393a1e3603c17ce2`, and rolling the deployment so logs show successful `rows_processed` entries instead of `*_logs_pkey` violations.

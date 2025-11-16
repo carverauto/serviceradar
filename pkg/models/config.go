@@ -116,8 +116,6 @@ type CloudConfig struct {
 var (
 	errInvalidDuration                  = fmt.Errorf("invalid duration")
 	errLoggingConfigRequired            = fmt.Errorf("logging configuration is required")
-	errDatabaseNameRequired             = fmt.Errorf("database name is required")
-	errDatabaseAddressRequired          = fmt.Errorf("database address is required")
 	errListenAddrRequired               = fmt.Errorf("listen address is required")
 	errGRPCAddrRequired                 = fmt.Errorf("grpc address is required")
 	errSpireAdminServerAddressRequired  = fmt.Errorf("spire_admin.server_address is required when enabled")
@@ -128,7 +126,7 @@ var (
 	errEdgeOnboardingJoinTokenTTL       = fmt.Errorf("edge_onboarding.join_token_ttl must be non-negative")
 	errEdgeOnboardingDownloadTokenTTL   = fmt.Errorf("edge_onboarding.download_token_ttl must be non-negative")
 	errSRQLBaseURLRequired              = fmt.Errorf("srql.base_url is required when SRQL integration is enabled")
-	errCNPGConfigRequired               = fmt.Errorf("cnpg configuration is required when the CNPG backend or dual writes are enabled")
+	errCNPGConfigRequired               = fmt.Errorf("cnpg configuration is required")
 	errCNPGHostRequired                 = fmt.Errorf("cnpg.host is required when CNPG is enabled")
 	errCNPGPortInvalid                  = fmt.Errorf("cnpg.port must be between 0 and 65535 when CNPG is enabled")
 	errCNPGDatabaseRequired             = fmt.Errorf("cnpg.database is required when CNPG is enabled")
@@ -146,11 +144,7 @@ type MCPConfigRef struct {
 type CoreServiceConfig struct {
 	ListenAddr     string                 `json:"listen_addr"`
 	GrpcAddr       string                 `json:"grpc_addr"`
-	DBPath         string                 `json:"db_path"`                  // Keep for compatibility, can be optional
-	DBAddr         string                 `json:"db_addr"`                  // Proton host:port
-	DBName         string                 `json:"db_name"`                  // Proton database name
-	DBUser         string                 `json:"db_user"`                  // Proton username
-	DBPass         string                 `json:"db_pass" sensitive:"true"` // Proton password
+	DBPath         string                 `json:"db_path"` // Keep for compatibility, can be optional
 	AlertThreshold time.Duration          `json:"alert_threshold"`
 	PollerPatterns []string               `json:"poller_patterns"`
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
@@ -161,8 +155,7 @@ type CoreServiceConfig struct {
 	KVSecurity     *SecurityConfig        `json:"kv_security,omitempty"`
 	Auth           *AuthConfig            `json:"auth,omitempty"`
 	CORS           CORSConfig             `json:"cors,omitempty"`
-	Database       ProtonDatabase         `json:"database"`
-	CNPG           *CNPGDatabase          `json:"cnpg,omitempty"`
+	CNPG           *CNPGDatabase          `json:"cnpg"`
 	WriteBuffer    WriteBufferConfig      `json:"write_buffer,omitempty"`
 	NATS           *NATSConfig            `json:"nats,omitempty"`
 	Events         *EventsConfig          `json:"events,omitempty"`
@@ -174,7 +167,6 @@ type CoreServiceConfig struct {
 	SpireAdmin     *SpireAdminConfig     `json:"spire_admin,omitempty"`
 	EdgeOnboarding *EdgeOnboardingConfig `json:"edge_onboarding,omitempty"`
 	Features       FeatureFlags          `json:"features,omitempty"`
-	StorageRouting StorageRoutingConfig  `json:"storage,omitempty"`
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint and its JetStream domain.
@@ -350,14 +342,6 @@ func (c *CoreServiceConfig) Validate() error {
 		return errLoggingConfigRequired
 	}
 
-	if c.Database.Name == "" && c.DBName == "" {
-		return errDatabaseNameRequired
-	}
-
-	if len(c.Database.Addresses) == 0 && c.DBAddr == "" {
-		return errDatabaseAddressRequired
-	}
-
 	if c.ListenAddr == "" {
 		return errListenAddrRequired
 	}
@@ -366,28 +350,24 @@ func (c *CoreServiceConfig) Validate() error {
 		return errGRPCAddrRequired
 	}
 
-	c.StorageRouting.Normalize()
+	if c.CNPG == nil {
+		return errCNPGConfigRequired
+	}
 
-	if c.StorageRouting.PrimaryBackend == StorageBackendCNPG || c.StorageRouting.DualWrite {
-		if c.CNPG == nil {
-			return errCNPGConfigRequired
-		}
+	if strings.TrimSpace(c.CNPG.Host) == "" {
+		return errCNPGHostRequired
+	}
 
-		if strings.TrimSpace(c.CNPG.Host) == "" {
-			return errCNPGHostRequired
-		}
+	if strings.TrimSpace(c.CNPG.Username) == "" {
+		return errCNPGUsernameRequired
+	}
 
-		if strings.TrimSpace(c.CNPG.Username) == "" {
-			return errCNPGUsernameRequired
-		}
+	if strings.TrimSpace(c.CNPG.Database) == "" {
+		return errCNPGDatabaseRequired
+	}
 
-		if strings.TrimSpace(c.CNPG.Database) == "" {
-			return errCNPGDatabaseRequired
-		}
-
-		if c.CNPG.Port < 0 || c.CNPG.Port > 65535 {
-			return errCNPGPortInvalid
-		}
+	if c.CNPG.Port < 0 || c.CNPG.Port > 65535 {
+		return errCNPGPortInvalid
 	}
 
 	if c.SpireAdmin != nil && c.SpireAdmin.Enabled {

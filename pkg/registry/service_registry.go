@@ -174,47 +174,6 @@ func (r *ServiceRegistry) RegisterPoller(ctx context.Context, reg *PollerRegistr
 		return fmt.Errorf("%w: %s with status %s", ErrPollerAlreadyRegistered, reg.PollerID, existing.Status)
 	}
 
-	// Marshal metadata to JSON
-	metadataJSON, err := json.Marshal(reg.Metadata)
-	if err != nil {
-		return fmt.Errorf("failed to marshal metadata: %w", err)
-	}
-
-	// Insert into pollers stream (versioned_kv) using PrepareBatch/Append/Send
-	// Note: versioned_kv automatically manages _tp_time for versioning
-	batch, err := r.db.Conn.PrepareBatch(ctx,
-		`INSERT INTO pollers (
-			poller_id, component_id, status, registration_source,
-			first_registered, first_seen, last_seen, metadata,
-			spiffe_identity, created_by, agent_count, checker_count
-		)`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch for poller registration: %w", err)
-	}
-
-	err = batch.Append(
-		reg.PollerID,
-		reg.ComponentID,
-		string(ServiceStatusPending),
-		string(reg.RegistrationSource),
-		now,
-		now, // first_seen
-		now, // last_seen
-		string(metadataJSON),
-		reg.SPIFFEIdentity,
-		reg.CreatedBy,
-		uint32(0), // agent_count
-		uint32(0), // checker_count
-	)
-	if err != nil {
-		return fmt.Errorf("failed to append poller to batch: %w", err)
-	}
-
-	err = batch.Send()
-	if err != nil {
-		return fmt.Errorf("failed to register poller: %w", err)
-	}
-
 	firstSeen := now
 	lastSeen := now
 	pollerRecord := &RegisteredPoller{
@@ -281,46 +240,6 @@ func (r *ServiceRegistry) RegisterAgent(ctx context.Context, reg *AgentRegistrat
 		return fmt.Errorf("%w: %s with status %s", ErrAgentAlreadyRegistered, reg.AgentID, existing.Status)
 	}
 
-	// Marshal metadata to JSON
-	metadataJSON, err := json.Marshal(reg.Metadata)
-	if err != nil {
-		return fmt.Errorf("failed to marshal metadata: %w", err)
-	}
-
-	// Insert into agents stream (versioned_kv) using PrepareBatch/Append/Send
-	batch, err := r.db.Conn.PrepareBatch(ctx,
-		`INSERT INTO agents (
-			agent_id, poller_id, component_id, status, registration_source,
-			first_registered, first_seen, last_seen, metadata,
-			spiffe_identity, created_by, checker_count
-		)`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch for agent registration: %w", err)
-	}
-
-	err = batch.Append(
-		reg.AgentID,
-		reg.PollerID,
-		reg.ComponentID,
-		string(ServiceStatusPending),
-		string(reg.RegistrationSource),
-		now,
-		now, // first_seen
-		now, // last_seen
-		string(metadataJSON),
-		reg.SPIFFEIdentity,
-		reg.CreatedBy,
-		uint32(0), // checker_count
-	)
-	if err != nil {
-		return fmt.Errorf("failed to append agent to batch: %w", err)
-	}
-
-	err = batch.Send()
-	if err != nil {
-		return fmt.Errorf("failed to register agent: %w", err)
-	}
-
 	firstSeen := now
 	lastSeen := now
 	agentRecord := &RegisteredAgent{
@@ -385,47 +304,6 @@ func (r *ServiceRegistry) RegisterChecker(ctx context.Context, reg *CheckerRegis
 			Str("status", string(existing.Status)).
 			Msg("Checker already registered")
 		return fmt.Errorf("%w: %s with status %s", ErrCheckerAlreadyRegistered, reg.CheckerID, existing.Status)
-	}
-
-	// Marshal metadata to JSON
-	metadataJSON, err := json.Marshal(reg.Metadata)
-	if err != nil {
-		return fmt.Errorf("failed to marshal metadata: %w", err)
-	}
-
-	// Insert into checkers stream (versioned_kv) using PrepareBatch/Append/Send
-	batch, err := r.db.Conn.PrepareBatch(ctx,
-		`INSERT INTO checkers (
-			checker_id, agent_id, poller_id, checker_kind, component_id,
-			status, registration_source, first_registered, first_seen, last_seen,
-			metadata, spiffe_identity, created_by
-		)`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch for checker registration: %w", err)
-	}
-
-	err = batch.Append(
-		reg.CheckerID,
-		reg.AgentID,
-		reg.PollerID,
-		reg.CheckerKind,
-		reg.ComponentID,
-		string(ServiceStatusPending),
-		string(reg.RegistrationSource),
-		now,
-		now, // first_seen
-		now, // last_seen
-		string(metadataJSON),
-		reg.SPIFFEIdentity,
-		reg.CreatedBy,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to append checker to batch: %w", err)
-	}
-
-	err = batch.Send()
-	if err != nil {
-		return fmt.Errorf("failed to register checker: %w", err)
 	}
 
 	firstSeen := now
@@ -540,42 +418,6 @@ func (r *ServiceRegistry) recordPollerHeartbeat(ctx context.Context, pollerID st
 		firstSeen = &timestamp
 	}
 
-	// Insert updated row (versioned_kv will keep latest version)
-	// Use PrepareBatch/Append/Send pattern for Proton/ClickHouse streams
-	metadataJSON, _ := json.Marshal(poller.Metadata)
-
-	batch, err := r.db.Conn.PrepareBatch(ctx,
-		`INSERT INTO pollers (
-			poller_id, component_id, status, registration_source,
-			first_registered, first_seen, last_seen, metadata,
-			spiffe_identity, created_by
-		)`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch for poller heartbeat: %w", err)
-	}
-
-	err = batch.Append(
-		poller.PollerID,
-		poller.ComponentID,
-		string(newStatus),
-		string(poller.RegistrationSource),
-		poller.FirstRegistered,
-		firstSeen,
-		timestamp,
-		string(metadataJSON),
-		poller.SPIFFEIdentity,
-		poller.CreatedBy,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to append poller heartbeat to batch: %w", err)
-	}
-
-	err = batch.Send()
-
-	if err != nil {
-		return fmt.Errorf("failed to record poller heartbeat: %w", err)
-	}
-
 	updatedPoller := &RegisteredPoller{
 		PollerID:           poller.PollerID,
 		ComponentID:        poller.ComponentID,
@@ -644,43 +486,6 @@ func (r *ServiceRegistry) recordAgentHeartbeat(ctx context.Context, agentID, pol
 		firstSeen = &timestamp
 	}
 
-	// Insert updated row (versioned_kv will keep latest version)
-	// Use PrepareBatch/Append/Send pattern for Proton/ClickHouse streams
-	metadataJSON, _ := json.Marshal(agent.Metadata)
-
-	batch, err := r.db.Conn.PrepareBatch(ctx,
-		`INSERT INTO agents (
-			agent_id, poller_id, component_id, status, registration_source,
-			first_registered, first_seen, last_seen, metadata,
-			spiffe_identity, created_by
-		)`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch for agent heartbeat: %w", err)
-	}
-
-	err = batch.Append(
-		agent.AgentID,
-		agent.PollerID,
-		agent.ComponentID,
-		string(newStatus),
-		string(agent.RegistrationSource),
-		agent.FirstRegistered,
-		firstSeen,
-		timestamp,
-		string(metadataJSON),
-		agent.SPIFFEIdentity,
-		agent.CreatedBy,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to append agent heartbeat to batch: %w", err)
-	}
-
-	err = batch.Send()
-
-	if err != nil {
-		return fmt.Errorf("failed to record agent heartbeat: %w", err)
-	}
-
 	updatedAgent := &RegisteredAgent{
 		AgentID:            agent.AgentID,
 		PollerID:           agent.PollerID,
@@ -745,45 +550,6 @@ func (r *ServiceRegistry) recordCheckerHeartbeat(ctx context.Context, checkerID,
 	firstSeen := checker.FirstSeen
 	if firstSeen == nil {
 		firstSeen = &timestamp
-	}
-
-	// Insert updated row (versioned_kv will keep latest version)
-	// Use PrepareBatch/Append/Send pattern for Proton/ClickHouse streams
-	metadataJSON, _ := json.Marshal(checker.Metadata)
-
-	batch, err := r.db.Conn.PrepareBatch(ctx,
-		`INSERT INTO checkers (
-			checker_id, agent_id, poller_id, checker_kind, component_id,
-			status, registration_source, first_registered, first_seen, last_seen,
-			metadata, spiffe_identity, created_by
-		)`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch for checker heartbeat: %w", err)
-	}
-
-	err = batch.Append(
-		checker.CheckerID,
-		checker.AgentID,
-		checker.PollerID,
-		checker.CheckerKind,
-		checker.ComponentID,
-		string(newStatus),
-		string(checker.RegistrationSource),
-		checker.FirstRegistered,
-		firstSeen,
-		timestamp,
-		string(metadataJSON),
-		checker.SPIFFEIdentity,
-		checker.CreatedBy,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to append checker heartbeat to batch: %w", err)
-	}
-
-	err = batch.Send()
-
-	if err != nil {
-		return fmt.Errorf("failed to record checker heartbeat: %w", err)
 	}
 
 	updatedChecker := &RegisteredChecker{

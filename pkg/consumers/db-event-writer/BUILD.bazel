@@ -27,7 +27,6 @@ go_library(
         "//proto",
         "@com_github_nats_io_nats_go//:nats_go",
         "@com_github_nats_io_nats_go//jetstream",
-        "@com_github_timeplus_io_proton_go_driver_v2//:proton-go-driver",
         "@io_opentelemetry_go_proto_otlp//collector/metrics/v1:metrics",
         "@io_opentelemetry_go_proto_otlp//metrics/v1:metrics",
         "@org_golang_google_protobuf//proto",

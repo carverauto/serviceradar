@@ -15,7 +15,7 @@
 # limitations under the License.
 
 # install-serviceradar.sh
-# Installs ServiceRadar components with integrated mTLS setup for Proton database
+# Installs ServiceRadar components with integrated mTLS setup for CNPG/Timescale
 
 set -e
 
@@ -25,7 +25,6 @@ RELEASE_TAG="1.0.52"
 RELEASE_URL="https://github.com/carverauto/serviceradar/releases/download/${RELEASE_TAG}"
 TEMP_DIR="/tmp/serviceradar-install"
 POLLER_CONFIG="/etc/serviceradar/poller.json"
-PROTON_CERT_DIR="/etc/proton-server"
 SR_CERT_DIR="/etc/serviceradar/certs"
 DAYS_VALID=3650
 
@@ -385,9 +384,8 @@ validate_ips() {
 create_cert_dirs() {
     log "Creating certificate directories..."
     mkdir -p "$SR_CERT_DIR"
-    mkdir -p "$PROTON_CERT_DIR"
     mkdir -p "/tmp/serviceradar-tls"
-    chmod 750 "$SR_CERT_DIR" "$PROTON_CERT_DIR"
+    chmod 750 "$SR_CERT_DIR"
 }
 
 # Setup mTLS certificates using serviceradar CLI
@@ -395,7 +393,7 @@ setup_mtls_certificates() {
     log "Checking for existing certificates..."
 
     # Determine components to generate certificates for based on shared config
-    local components="core,proton"
+    local components="core"
 
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
         components="$components,web,nats,kv,sync"
@@ -427,7 +425,7 @@ setup_mtls_certificates() {
     create_cert_dirs
 
     # Generate certificates for all components
-    local cli_args="--cert-dir $SR_CERT_DIR --proton-dir $PROTON_CERT_DIR"
+    local cli_args="--cert-dir $SR_CERT_DIR"
     if [ "$INTERACTIVE" = "false" ]; then
         cli_args="$cli_args --non-interactive"
     fi
@@ -445,30 +443,11 @@ setup_mtls_certificates() {
         error "Failed to generate mTLS certificates using serviceradar CLI"
     fi
 
-    # Additional verification and file permissions/ownership
-    if [ -f "$SR_CERT_DIR/root.pem" ] && [ ! -f "$PROTON_CERT_DIR/root.pem" ]; then
-        log "Copying root CA certificate to Proton directory..."
-        cp "$SR_CERT_DIR/root.pem" "$PROTON_CERT_DIR/root.pem" || error "Failed to copy root.pem"
-        chmod 644 "$PROTON_CERT_DIR/root.pem" || error "Failed to set permissions on root.pem"
-    fi
-
-    if [ -f "$SR_CERT_DIR/core.pem" ] && [ ! -f "$PROTON_CERT_DIR/core.pem" ]; then
-        log "Copying core certificate to Proton directory..."
-        cp "$SR_CERT_DIR/core.pem" "$PROTON_CERT_DIR/core.pem" || error "Failed to copy core.pem"
-        cp "$SR_CERT_DIR/core-key.pem" "$PROTON_CERT_DIR/core-key.pem" || error "Failed to copy core-key.pem"
-        chmod 644 "$PROTON_CERT_DIR/core.pem" || error "Failed to set permissions on core.pem"
-        chmod 600 "$PROTON_CERT_DIR/core-key.pem" || error "Failed to set permissions on core-key.pem"
-    fi
-
     # Set proper ownership
     chown serviceradar:serviceradar "$SR_CERT_DIR"/*.pem 2>/dev/null || true
     chown serviceradar:serviceradar "$SR_CERT_DIR"/*-key.pem 2>/dev/null || true
-    chown proton:proton "$PROTON_CERT_DIR"/*.pem 2>/dev/null || true
-    chown proton:proton "$PROTON_CERT_DIR"/*-key.pem 2>/dev/null || true
     chmod 644 "$SR_CERT_DIR"/*.pem 2>/dev/null || true
     chmod 600 "$SR_CERT_DIR"/*-key.pem 2>/dev/null || true
-    chmod 644 "$PROTON_CERT_DIR"/*.pem 2>/dev/null || true
-    chmod 600 "$PROTON_CERT_DIR"/*-key.pem 2>/dev/null || true
 
     success "mTLS certificates generated and installed successfully"
 }
@@ -491,7 +470,7 @@ show_post_install_info() {
 
     local components=()
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
-        components+=("core" "proton" "nats" "kv" "sync" "web")
+        components+=("core" "nats" "kv" "sync" "web")
     fi
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ]; then
         components+=("poller")
@@ -513,10 +492,6 @@ show_post_install_info() {
         local cert_name="$component"
         local cert_dir="$SR_CERT_DIR"
         case "$component" in
-            proton)
-                cert_name="core"
-                cert_dir="$PROTON_CERT_DIR"
-                ;;
             nats)
                 cert_name="nats-server"
                 ;;
@@ -559,7 +534,7 @@ prompt_scenario() {
         header "Select Components to Install"
         echo -e "${COLOR_CYAN}Please choose the components you want to install (you can select multiple):${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  1) All-in-One (all components)${COLOR_RESET}"
-        echo -e "${COLOR_WHITE}  2) Core + Web UI (core+proton, web, nats, kv, sync)${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}  2) Core + Web UI (core, web, nats, kv, sync)${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  3) Poller (poller)${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  4) Agent (agent)${COLOR_RESET}"
 
@@ -998,7 +973,7 @@ main() {
     prompt_nats_mode
 
     # Install main components
-    core_packages=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-datasvc" "serviceradar-sync")
+    core_packages=("serviceradar-core" "serviceradar-web" "serviceradar-nats" "serviceradar-datasvc" "serviceradar-sync")
     poller_packages=("serviceradar-poller")
     agent_packages=("serviceradar-agent")
     packages_to_install=()
@@ -1016,7 +991,7 @@ main() {
     header "Installing Main Components"
     for pkg in "${packages_to_install[@]}"; do
         if [ "$SYSTEM" = "rhel" ]; then
-            if [ "$pkg" = "serviceradar-core" ] || [ "$pkg" = "serviceradar-datasvc" ] || [ "$pkg" = "serviceradar-nats" ] || [ "$pkg" = "serviceradar-agent" ] || [ "$pkg" = "serviceradar-poller" ] || [ "$pkg" = "serviceradar-sync" ] || [ "$pkg" = "serviceradar-proton" ]; then
+            if [ "$pkg" = "serviceradar-core" ] || [ "$pkg" = "serviceradar-datasvc" ] || [ "$pkg" = "serviceradar-nats" ] || [ "$pkg" = "serviceradar-agent" ] || [ "$pkg" = "serviceradar-poller" ] || [ "$pkg" = "serviceradar-sync" ]; then
                 download_package "$pkg" "-1.el9.x86_64"
             else
                 download_package "$pkg" "-1.el9.x86_64"

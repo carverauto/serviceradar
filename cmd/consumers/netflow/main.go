@@ -75,24 +75,8 @@ func main() {
 		log.Fatalf("NetflowConfig validation failed: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
 	}
 
-	// Use CoreServiceConfig from netflowCfg, override ServerName for Proton
 	dbConfig := &models.CoreServiceConfig{
-		DBAddr: netflowCfg.DBConfig.DBAddr,
-		DBName: netflowCfg.DBConfig.DBName,
-		DBUser: netflowCfg.DBConfig.DBUser,
-		DBPass: netflowCfg.DBConfig.DBPass,
-		Security: &models.SecurityConfig{
-			TLS: models.TLSConfig{
-				CertFile:     netflowCfg.Security.TLS.CertFile,
-				KeyFile:      netflowCfg.Security.TLS.KeyFile,
-				CAFile:       netflowCfg.Security.TLS.CAFile,
-				ClientCAFile: netflowCfg.Security.TLS.ClientCAFile,
-			},
-			CertDir:    netflowCfg.Security.CertDir,
-			ServerName: netflowCfg.Security.ServerName,
-			Mode:       netflowCfg.Security.Mode,
-			Role:       netflowCfg.Security.Role,
-		},
+		CNPG: netflowCfg.CNPG,
 	}
 
 	// Initialize logger for database

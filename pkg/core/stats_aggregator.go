@@ -119,7 +119,7 @@ func WithStatsCapabilities(capabilities []string) StatsOption {
 	}
 }
 
-// WithStatsDB wires a Proton-backed database into the stats aggregator for diagnostics.
+// WithStatsDB wires a CNPG-backed database into the stats aggregator for diagnostics.
 func WithStatsDB(database db.Service) StatsOption {
 	return func(a *StatsAggregator) {
 		a.dbService = database
@@ -219,9 +219,9 @@ func (a *StatsAggregator) computeSnapshot(ctx context.Context) (*models.DeviceSt
 	}
 
 	selected := a.selectCanonicalRecords(records, &meta)
-	selected, protonTotal := a.reconcileWithProton(ctx, selected, &meta)
-	if protonTotal > 0 {
-		meta.RawRecords = int(protonTotal)
+	selected, cnpgTotal := a.reconcileWithCNPG(ctx, selected, &meta)
+	if cnpgTotal > 0 {
+		meta.RawRecords = int(cnpgTotal)
 	} else {
 		meta.RawRecords = len(selected)
 	}
@@ -286,7 +286,7 @@ func (a *StatsAggregator) computeSnapshot(ctx context.Context) (*models.DeviceSt
 	snapshot.UnavailableDevices = snapshot.TotalDevices - snapshot.AvailableDevices
 	snapshot.Partitions = buildPartitionStats(partitions)
 
-	a.maybeReportDiscrepancy(ctx, selected, snapshot.TotalDevices, protonTotal)
+	a.maybeReportDiscrepancy(ctx, selected, snapshot.TotalDevices, cnpgTotal)
 
 	return snapshot, meta
 }
@@ -727,22 +727,22 @@ func (a *StatsAggregator) logSnapshotRefresh(previous *models.DeviceStatsSnapsho
 	}
 }
 
-func (a *StatsAggregator) maybeReportDiscrepancy(ctx context.Context, records []*registry.DeviceRecord, registryTotal int, protonSnapshot int64) {
+func (a *StatsAggregator) maybeReportDiscrepancy(ctx context.Context, records []*registry.DeviceRecord, registryTotal int, cnpgSnapshot int64) {
 	if a.dbService == nil || a.registry == nil {
 		return
 	}
 
-	protonTotal := protonSnapshot
+	cnpgTotal := cnpgSnapshot
 	var err error
-	if protonTotal <= 0 {
-		protonTotal, err = a.dbService.CountUnifiedDevices(ctx)
+	if cnpgTotal <= 0 {
+		cnpgTotal, err = a.dbService.CountUnifiedDevices(ctx)
 		if err != nil {
-			a.logger.Warn().Err(err).Msg("Failed to count Proton devices during stats diagnostics")
+			a.logger.Warn().Err(err).Msg("Failed to count CNPG devices during stats diagnostics")
 			return
 		}
 	}
 
-	if int64(registryTotal) == protonTotal {
+	if int64(registryTotal) == cnpgTotal {
 		return
 	}
 
@@ -765,7 +765,7 @@ func (a *StatsAggregator) maybeReportDiscrepancy(ctx context.Context, records []
 
 	event := a.logger.Warn().
 		Int("registry_devices", registryTotal).
-		Int64("proton_devices", protonTotal)
+		Int64("cnpg_devices", cnpgTotal)
 
 	if len(missingIDs) > 0 {
 		event = event.Strs("missing_device_ids", missingIDs)
@@ -784,7 +784,7 @@ func (a *StatsAggregator) maybeReportDiscrepancy(ctx context.Context, records []
 	a.lastMismatchLog = a.now()
 }
 
-func (a *StatsAggregator) reconcileWithProton(ctx context.Context, records []*registry.DeviceRecord, meta *models.DeviceStatsMeta) ([]*registry.DeviceRecord, int64) {
+func (a *StatsAggregator) reconcileWithCNPG(ctx context.Context, records []*registry.DeviceRecord, meta *models.DeviceStatsMeta) ([]*registry.DeviceRecord, int64) {
 	if len(records) == 0 {
 		if meta != nil {
 			meta.ProcessedRecords = 0
@@ -802,12 +802,12 @@ func (a *StatsAggregator) reconcileWithProton(ctx context.Context, records []*re
 		return records, 0
 	}
 
-	protonTotal, err := a.dbService.CountUnifiedDevices(ctx)
+	cnpgTotal, err := a.dbService.CountUnifiedDevices(ctx)
 	if err != nil {
 		if a.logger != nil {
 			a.logger.Warn().
 				Err(err).
-				Msg("Failed to count Proton devices during registry reconciliation")
+				Msg("Failed to count CNPG devices during registry reconciliation")
 		}
 		if meta != nil {
 			meta.InferredCanonicalFallback = fallbackCount
@@ -815,12 +815,12 @@ func (a *StatsAggregator) reconcileWithProton(ctx context.Context, records []*re
 		return records, 0
 	}
 
-	excess := len(records) - int(protonTotal)
+	excess := len(records) - int(cnpgTotal)
 	if excess <= 0 {
 		if meta != nil {
 			meta.InferredCanonicalFallback = fallbackCount
 		}
-		return records, protonTotal
+		return records, cnpgTotal
 	}
 
 	fallbackRecords := collectInferredRecords(records)
@@ -828,13 +828,13 @@ func (a *StatsAggregator) reconcileWithProton(ctx context.Context, records []*re
 		if a.logger != nil {
 			a.logger.Warn().
 				Int("registry_records", len(records)).
-				Int64("proton_records", protonTotal).
-				Msg("Registry exceeds Proton totals but no inferred records available to prune")
+				Int64("cnpg_records", cnpgTotal).
+				Msg("Registry exceeds CNPG totals but no inferred records available to prune")
 		}
 		if meta != nil {
 			meta.InferredCanonicalFallback = fallbackCount
 		}
-		return records, protonTotal
+		return records, cnpgTotal
 	}
 
 	sort.Slice(fallbackRecords, func(i, j int) bool {
@@ -850,7 +850,7 @@ func (a *StatsAggregator) reconcileWithProton(ctx context.Context, records []*re
 		if meta != nil {
 			meta.InferredCanonicalFallback = fallbackCount
 		}
-		return records, protonTotal
+		return records, cnpgTotal
 	}
 
 	pruneSet := make(map[string]struct{}, removeCount)
@@ -886,20 +886,20 @@ func (a *StatsAggregator) reconcileWithProton(ctx context.Context, records []*re
 			Int("pruned_inferred_records", removeCount).
 			Int("fallback_remaining", remainingFallback).
 			Int("processed_records", len(filtered)).
-			Int64("proton_devices", protonTotal).
-			Msg("Pruned inferred registry records to reconcile with Proton")
+			Int64("cnpg_devices", cnpgTotal).
+			Msg("Pruned inferred registry records to reconcile with CNPG")
 	}
 
-	// If we still have more records than Proton, log a warning but continue.
-	if len(filtered) > int(protonTotal) && a.logger != nil {
+	// If we still have more records than CNPG, log a warning but continue.
+	if len(filtered) > int(cnpgTotal) && a.logger != nil {
 		a.logger.Warn().
 			Str("component", "stats_aggregator").
 			Int("processed_records", len(filtered)).
-			Int64("proton_devices", protonTotal).
-			Msg("Registry still exceeds Proton totals after pruning inferred records")
+			Int64("cnpg_devices", cnpgTotal).
+			Msg("Registry still exceeds CNPG totals after pruning inferred records")
 	}
 
-	return filtered, protonTotal
+	return filtered, cnpgTotal
 }
 
 func countInferredRecords(records []*registry.DeviceRecord) int {

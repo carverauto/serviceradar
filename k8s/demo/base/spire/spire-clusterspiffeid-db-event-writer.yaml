@@ -3,10 +3,10 @@ kind: ClusterSPIFFEID
 metadata:
   name: serviceradar-db-event-writer
 spec:
-  spiffeIDTemplate: spiffe://carverauto.dev/ns/demo/sa/serviceradar-db-event-writer
+  spiffeIDTemplate: spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-db-event-writer
   namespaceSelector:
     matchLabels:
-      kubernetes.io/metadata.name: demo
+      kubernetes.io/metadata.name: $(SERVICERADAR_NAMESPACE)
   podSelector:
     matchLabels:
       app: serviceradar-db-event-writer

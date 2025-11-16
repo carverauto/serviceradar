@@ -26,7 +26,6 @@ type CmdConfig struct {
 	Args            []string
 	IPS             string
 	CertDir         string
-	ProtonDir       string
 	AddIPs          bool
 	NonInteractive  bool
 	Components      []string

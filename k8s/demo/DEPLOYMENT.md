@@ -6,7 +6,7 @@ This guide provides complete instructions for deploying ServiceRadar to Kubernet
 
 The ServiceRadar Kubernetes deployment includes:
 - **Core**: Main API server and business logic
-- **Proton**: ClickHouse-based analytics database
+- **CNPG / TimescaleDB**: CloudNativePG cluster hosting telemetry + registry data
 - **Web**: Next.js frontend application
 - **NATS**: Message broker for inter-service communication
 - **Agent**: Network scanning and monitoring agent
@@ -101,7 +101,6 @@ The deployment automatically generates:
 - **JWT Secret**: 256-bit random key for authentication tokens
 - **API Key**: 256-bit random key for service authentication
 - **Admin Password**: 128-bit random password with bcrypt hashing
-- **Proton Password**: 128-bit random database password
 
 ### TLS/mTLS Configuration
 - All internal service communication uses mutual TLS (mTLS)
@@ -153,9 +152,9 @@ curl -X POST https://your-domain.com/api/auth/login \
 
 ### Service Dependencies
 ```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│    Web      │───▶│    Core     │───▶│   Proton    │
-└─────────────┘    └─────────────┘    └─────────────┘
+┌─────────────┐    ┌─────────────┐    ┌──────────────┐
+│    Web      │───▶│    Core     │───▶│  CNPG / TSDB │
+└─────────────┘    └─────────────┘    └──────────────┘
                            │
                     ┌─────────────┐
                     │    NATS     │
@@ -172,7 +171,7 @@ curl -X POST https://your-domain.com/api/auth/login \
 
 ### Data Flow
 1. **Web** → **Core**: User requests via REST API
-2. **Core** → **Proton**: Database queries and analytics
+2. **Core** → **CNPG/Timescale**: Database queries and analytics
 3. **Core** → **NATS**: Event publishing and subscriptions
 4. **Poller** → **Agent**: Orchestrates monitoring tasks
 5. **Agent** → **Core**: Reports monitoring results
@@ -183,7 +182,7 @@ curl -X POST https://your-domain.com/api/auth/login \
 ### Resource Requirements
 Default resource allocations:
 - **Core**: 500m CPU, 512Mi RAM (limits: 2 CPU, 2Gi RAM)
-- **Proton**: 1 CPU, 4Gi RAM (limits: 4 CPU, 8Gi RAM)
+- **CNPG (3 pods)**: 500m CPU, 1Gi RAM each (limits: 2 CPU, 4Gi RAM)
 - **Web**: 100m CPU, 128Mi RAM (limits: 500m CPU, 512Mi RAM)
 - **Others**: 50m CPU, 64Mi RAM (limits: 200m CPU, 256Mi RAM)
 
@@ -194,18 +193,18 @@ kubectl scale deployment serviceradar-core --replicas=3 -n <namespace>
 kubectl scale deployment serviceradar-web --replicas=2 -n <namespace>
 ```
 
-**Note**: Proton should remain at 1 replica for data consistency.
+**Note**: Scale CNPG by editing the `Cluster` resource; the operator manages primary/replica placement automatically.
 
 ## Persistence
 
 ### Persistent Volumes
-- **Proton Data**: 1Ti for analytics storage (local-path); resize via `k8s/demo/resize-proton-pvc.sh`
+- **CNPG Data**: 5Gi per instance (local-path by default); resize via `k8s/demo/resize-cnpg-pvc.sh` which patches the `Cluster` storage size
 - **Core Data**: 5Gi for application metadata
 - **NATS Data**: 30Gi for message persistence
 - **Certificates**: 1Gi shared TLS material
 
 ### Backup Considerations
-- Regular backups of Proton database recommended
+- Regular backups of the CNPG database are recommended
 - Core application data contains configuration and state
 - NATS data is transient and can be rebuilt
 
@@ -227,12 +226,8 @@ kubectl scale deployment serviceradar-web --replicas=2 -n <namespace>
 
 3. **Database connectivity**
    ```bash
-   kubectl exec -it -n <namespace> deployment/serviceradar-core -- \
-     grpcurl -cacert /etc/serviceradar/certs/root.pem \
-     -cert /etc/serviceradar/certs/core.pem \
-     -key /etc/serviceradar/certs/core-key.pem \
-     -servername proton.serviceradar \
-     serviceradar-proton:9440 grpc.health.v1.Health/Check
+   kubectl exec -n <namespace> deploy/serviceradar-tools -- \
+     cnpg-sql "SELECT 1"
    ```
 
 ### Health Checks
@@ -272,7 +267,7 @@ Feature flags (including the device search planner) are sourced from the `servic
      "require_device_registry": true
    }
    ```
-   Setting `require_device_registry` to `true` prevents the API from falling back to Proton for device lists or detail lookups; flip it to `false` if you need the legacy behavior for debugging.
+   Setting `require_device_registry` to `true` keeps `/api/devices` pinned to the CNPG-backed registry cache. Flip it to `false` only if you need the legacy in-memory debugging mode.
 3. Restart the component that reads the config:
    ```bash
    kubectl rollout restart deployment/serviceradar-core -n <namespace>

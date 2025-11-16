@@ -19,6 +19,7 @@ package netflow
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -26,13 +27,13 @@ import (
 
 // Configuration errors
 var (
-	ErrMissingListenAddr     = errors.New("listen_addr is required")
-	ErrMissingNATSURL        = errors.New("nats_url is required")
-	ErrMissingStreamName     = errors.New("stream_name is required")
-	ErrMissingConsumerName   = errors.New("consumer_name is required")
-	ErrMissingDatabaseConfig = errors.New("database configuration is required")
-	ErrInvalidJSON           = errors.New("failed to unmarshal JSON configuration")
-	ErrFieldConflict         = errors.New("same column cannot be both enabled and disabled")
+	ErrMissingListenAddr   = errors.New("listen_addr is required")
+	ErrMissingNATSURL      = errors.New("nats_url is required")
+	ErrMissingStreamName   = errors.New("stream_name is required")
+	ErrMissingConsumerName = errors.New("consumer_name is required")
+	ErrMissingCNPGConfig   = errors.New("cnpg configuration is required")
+	ErrInvalidJSON         = errors.New("failed to unmarshal JSON configuration")
+	ErrFieldConflict       = errors.New("same column cannot be both enabled and disabled")
 )
 
 // NetflowConfig holds the configuration for the NetFlow consumer service.
@@ -45,18 +46,10 @@ func NewNetflowConfig(cfg *models.NetflowConfig) *NetflowConfig {
 	return &NetflowConfig{NetflowConfig: cfg}
 }
 
-// UnmarshalJSON customizes JSON unmarshalling to handle DBConfig fields
+// UnmarshalJSON hydrates the embedded models.NetflowConfig and normalizes TLS paths.
 func (c *NetflowConfig) UnmarshalJSON(data []byte) error {
 	type ConfigAlias struct {
-		ListenAddr     string                    `json:"listen_addr"`
-		NATSURL        string                    `json:"nats_url"`
-		StreamName     string                    `json:"stream_name"`
-		ConsumerName   string                    `json:"consumer_name"`
-		Security       *models.SecurityConfig    `json:"security"`
-		EnabledFields  []models.ColumnKey        `json:"enabled_fields"`
-		DisabledFields []models.ColumnKey        `json:"disabled_fields"`
-		Dictionaries   []models.DictionaryConfig `json:"dictionaries"`
-		Database       models.ProtonDatabase     `json:"database"`
+		*models.NetflowConfig
 	}
 
 	var alias ConfigAlias
@@ -65,31 +58,11 @@ func (c *NetflowConfig) UnmarshalJSON(data []byte) error {
 		return errors.Join(ErrInvalidJSON, err)
 	}
 
-	// Initialize NetflowConfig if nil
-	if c.NetflowConfig == nil {
-		c.NetflowConfig = &models.NetflowConfig{}
+	if alias.NetflowConfig == nil {
+		alias.NetflowConfig = &models.NetflowConfig{}
 	}
 
-	c.ListenAddr = alias.ListenAddr
-	c.NATSURL = alias.NATSURL
-	c.StreamName = alias.StreamName
-	c.ConsumerName = alias.ConsumerName
-	c.Security = alias.Security
-	c.EnabledFields = alias.EnabledFields
-	c.DisabledFields = alias.DisabledFields
-	c.Dictionaries = alias.Dictionaries
-	c.DBConfig = models.CoreServiceConfig{
-		Database: alias.Database,
-	}
-
-	if len(c.DBConfig.Database.Addresses) > 0 {
-		c.DBConfig.DBAddr = c.DBConfig.Database.Addresses[0]
-	}
-
-	c.DBConfig.DBName = alias.Database.Name
-	c.DBConfig.DBUser = alias.Database.Username
-	c.DBConfig.DBPass = alias.Database.Password
-	c.DBConfig.Security = c.Security
+	c.NetflowConfig = alias.NetflowConfig
 
 	// Normalize TLS paths if SecurityConfig is present
 	if c.Security != nil && c.Security.CertDir != "" {
@@ -119,8 +92,11 @@ func (c *NetflowConfig) Validate() error {
 		errs = append(errs, ErrMissingConsumerName)
 	}
 
-	if c.DBConfig.DBAddr == "" {
-		errs = append(errs, ErrMissingDatabaseConfig)
+	if c.CNPG == nil ||
+		strings.TrimSpace(c.CNPG.Host) == "" ||
+		strings.TrimSpace(c.CNPG.Username) == "" ||
+		strings.TrimSpace(c.CNPG.Database) == "" {
+		errs = append(errs, ErrMissingCNPGConfig)
 	}
 
 	// Check for overlapping EnabledFields and DisabledFields

@@ -66,21 +66,21 @@ if [ -n "${WAIT_FOR_NATS:-}" ]; then
     fi
 fi
 
-if [ -n "${WAIT_FOR_PROTON:-}" ]; then
-    PROTON_HOST_VALUE=$(resolve_service_host "serviceradar-proton" PROTON_HOST "proton")
-    PROTON_PORT_VALUE=$(resolve_service_port PROTON_PORT "9440")
-    echo "Waiting for Proton database at ${PROTON_HOST_VALUE}:${PROTON_PORT_VALUE}..."
+if [ -n "${WAIT_FOR_CNPG:-}" ]; then
+    CNPG_HOST_VALUE=$(resolve_service_host "cnpg-rw" CNPG_HOST "cnpg-rw")
+    CNPG_PORT_VALUE=$(resolve_service_port CNPG_PORT "5432")
+    echo "Waiting for CNPG database at ${CNPG_HOST_VALUE}:${CNPG_PORT_VALUE}..."
 
-    PROTON_ATTEMPTS="${WAIT_FOR_PROTON_ATTEMPTS:-$DEFAULT_WAIT_ATTEMPTS}"
+    CNPG_ATTEMPTS="${WAIT_FOR_CNPG_ATTEMPTS:-$DEFAULT_WAIT_ATTEMPTS}"
     if wait-for-port \
-        --host "${PROTON_HOST_VALUE}" \
-        --port "${PROTON_PORT_VALUE}" \
-        --attempts "${PROTON_ATTEMPTS}" \
+        --host "${CNPG_HOST_VALUE}" \
+        --port "${CNPG_PORT_VALUE}" \
+        --attempts "${CNPG_ATTEMPTS}" \
         --interval 2s \
         --quiet; then
-        echo "Proton database is ready!"
+        echo "CNPG database is ready!"
     else
-        echo "ERROR: Timed out waiting for Proton at ${PROTON_HOST_VALUE}:${PROTON_PORT_VALUE}" >&2
+        echo "ERROR: Timed out waiting for CNPG at ${CNPG_HOST_VALUE}:${CNPG_PORT_VALUE}" >&2
         exit 1
     fi
 fi
@@ -101,24 +101,29 @@ else
     echo "Using existing configuration from $CONFIG_PATH"
 fi
 
-# Check for Proton password in shared credentials volume (same as core service)
-# One-time password injection: update config if new password detected
-if [ -f "/etc/serviceradar/credentials/proton-password" ]; then
-    PROTON_PASSWORD=$(cat /etc/serviceradar/credentials/proton-password)
-    echo "Found Proton password from shared credentials"
+# One-time password injection for CNPG
+CNPG_PASSWORD_VALUE=""
+if [ -n "${CNPG_PASSWORD_FILE:-}" ] && [ -f "${CNPG_PASSWORD_FILE}" ]; then
+    CNPG_PASSWORD_VALUE=$(cat "${CNPG_PASSWORD_FILE}")
+    echo "Using CNPG password from ${CNPG_PASSWORD_FILE}"
+elif [ -f "/etc/serviceradar/credentials/cnpg-password" ]; then
+    CNPG_PASSWORD_VALUE=$(cat /etc/serviceradar/credentials/cnpg-password)
+    echo "Found CNPG password from shared credentials"
+elif [ -n "${CNPG_PASSWORD:-}" ]; then
+    CNPG_PASSWORD_VALUE="${CNPG_PASSWORD}"
 fi
 
-if [ -n "$PROTON_PASSWORD" ]; then
-    CURRENT_PASSWORD=$(jq -r '.database.password' "$CONFIG_PATH")
-    if [ "$CURRENT_PASSWORD" != "$PROTON_PASSWORD" ]; then
-        echo "Updating Proton password in $CONFIG_PATH"
-        jq --arg pwd "$PROTON_PASSWORD" '.database.password = $pwd' "$CONFIG_PATH" > /tmp/config-updated.json
+if [ -n "$CNPG_PASSWORD_VALUE" ]; then
+    CURRENT_PASSWORD=$(jq -r '.cnpg.password // ""' "$CONFIG_PATH")
+    if [ "$CURRENT_PASSWORD" != "$CNPG_PASSWORD_VALUE" ]; then
+        echo "Updating CNPG password in $CONFIG_PATH"
+        jq --arg pwd "$CNPG_PASSWORD_VALUE" '.cnpg.password = $pwd' "$CONFIG_PATH" > /tmp/config-updated.json
         mv /tmp/config-updated.json "$CONFIG_PATH"
     else
-        echo "✅ Proton password already up to date"
+        echo "✅ CNPG password already up to date"
     fi
 else
-    echo "⚠️  Warning: No Proton password found in credentials, using config as-is"
+    echo "⚠️  Warning: No CNPG password provided; config will rely on existing settings"
 fi
 
 echo "Starting ServiceRadar DB Event Writer with config: $CONFIG_PATH"

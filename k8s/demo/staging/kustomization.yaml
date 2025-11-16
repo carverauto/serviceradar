@@ -21,6 +21,9 @@ patchesStrategicMerge:
 transformers:
   - namespace-transformer.yaml
 
+configurations:
+  - var-references.yaml
+
 replacements:
   - source:
       kind: Namespace
@@ -56,3 +59,12 @@ images:
   newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
 - name: ghcr.io/carverauto/serviceradar-tools
   newTag: sha-285e1d25a57f
+
+vars:
+- name: SERVICERADAR_NAMESPACE
+  objref:
+    apiVersion: v1
+    kind: Namespace
+    name: demo-staging
+  fieldref:
+    fieldPath: metadata.name

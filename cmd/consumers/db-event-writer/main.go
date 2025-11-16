@@ -59,8 +59,8 @@ func main() {
 		config.NormalizeTLSPaths(&cfg.Security.TLS, cfg.Security.CertDir)
 	}
 
-	if cfg.DBSecurity != nil && cfg.DBSecurity.CertDir != "" {
-		config.NormalizeTLSPaths(&cfg.DBSecurity.TLS, cfg.DBSecurity.CertDir)
+	if cfg.CNPG != nil && cfg.CNPG.TLS != nil && cfg.CNPG.CertDir != "" {
+		config.NormalizeTLSPaths(cfg.CNPG.TLS, cfg.CNPG.CertDir)
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -68,17 +68,8 @@ func main() {
 		log.Fatalf("DB event writer config validation failed: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
 	}
 
-	dbSecurity := cfg.Security
-	if cfg.DBSecurity != nil {
-		dbSecurity = cfg.DBSecurity
-	}
-
 	dbConfig := &models.CoreServiceConfig{
-		DBAddr:   cfg.Database.Addresses[0],
-		DBName:   cfg.Database.Name,
-		DBUser:   cfg.Database.Username,
-		DBPass:   cfg.Database.Password,
-		Security: dbSecurity,
+		CNPG: cfg.CNPG,
 	}
 
 	// Initialize logger configuration
