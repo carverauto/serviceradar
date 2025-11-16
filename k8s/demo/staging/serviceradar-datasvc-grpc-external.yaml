@@ -1,0 +1,18 @@
+# staging/serviceradar-datasvc-grpc-external.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-datasvc-grpc-external
+  namespace: demo-staging
+  annotations:
+    metallb.universe.tf/address-pool: k3s-pool
+spec:
+  type: LoadBalancer
+  selector:
+    app: serviceradar-datasvc
+    app.kubernetes.io/part-of: serviceradar
+  ports:
+    - name: grpc
+      port: 50061
+      protocol: TCP
+      targetPort: grpc

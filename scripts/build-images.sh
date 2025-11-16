@@ -14,7 +14,7 @@ BUILDER_NAME="multiarch"
 
 # Available services grouped by category
 declare -A SERVICE_GROUPS=(
-    ["infrastructure"]="cert-generator config-updater proton"
+    ["infrastructure"]="cert-generator config-updater"
     ["core"]="core web poller agent"
     ["data"]="kv sync db-event-writer"
     ["observability"]="otel flowgger trapd zen"
@@ -71,7 +71,7 @@ OPTIONS:
   -h, --help                Show this help
 
 SERVICE GROUPS:
-  infrastructure: cert-generator, config-updater, proton
+  infrastructure: cert-generator, config-updater
   core:          core, web, poller, agent
   data:          kv, sync, db-event-writer
   observability: otel, flowgger, trapd, zen
@@ -81,7 +81,7 @@ SERVICE GROUPS:
 
 SERVICES:
   You can specify individual services to build:
-  cert-generator, config-updater, proton, core, web, poller, agent,
+  cert-generator, config-updater, core, web, poller, agent,
   kv, sync, db-event-writer, otel, flowgger, trapd, zen,
   mapper, snmp-checker, rperf-client, tools
 
@@ -306,7 +306,6 @@ log "Starting build process..."
 declare -A SERVICE_DOCKERFILES=(
     ["cert-generator"]="docker/compose/Dockerfile.cert-generator:DYNAMIC"
     ["config-updater"]="docker/compose/Dockerfile.config-updater"
-    ["proton"]="docker/compose/Dockerfile.proton"
     ["core"]="docker/compose/Dockerfile.core"
     ["web"]="docker/compose/Dockerfile.web"
     ["poller"]="docker/compose/Dockerfile.poller"

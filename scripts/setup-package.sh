@@ -134,7 +134,6 @@ setup_certificates_from_shared_config() {
     fi
 
     local root_dir=$(echo "$cert_config" | jq -r '.root_dir')
-    local proton_dir=$(echo "$cert_config" | jq -r '.proton_dir')
     local components=$(echo "$cert_config" | jq -r '.components[]' | tr '\n' ',' | sed 's/,$//')
 
     if [ -z "$root_dir" ] || [ -z "$components" ]; then
@@ -144,51 +143,23 @@ setup_certificates_from_shared_config() {
 
     echo "Setting up certificates using shared configuration..."
     echo "Root dir: $root_dir"
-    echo "Proton dir: $proton_dir"
     echo "Components: $components"
 
     # Create certificate directories
     mkdir -p "$root_dir"
-    mkdir -p "$proton_dir"
 
     # Check if root CA exists
     if [ -f "$root_dir/root.pem" ]; then
         echo "Root CA already exists at $root_dir/root.pem, skipping certificate generation"
-        # Ensure Proton has the core certificate
-        if [ -f "$root_dir/core.pem" ] && [ ! -f "$proton_dir/core.pem" ]; then
-            cp "$root_dir/core.pem" "$proton_dir/core.pem"
-            cp "$root_dir/core-key.pem" "$proton_dir/core-key.pem"
-            chmod 644 "$proton_dir/core.pem"
-            chmod 600 "$proton_dir/core-key.pem"
-        fi
-        # Ensure Proton has the root CA certificate
-        if [ -f "$root_dir/root.pem" ] && [ ! -f "$proton_dir/root.pem" ]; then
-            cp "$root_dir/root.pem" "$proton_dir/root.pem"
-            chmod 644 "$proton_dir/root.pem"
-        fi
         echo "Certificates setup completed using existing certificates"
         return 0
     fi
 
     # Generate certificates using serviceradar CLI
     echo "Generating new certificates..."
-    if ! /usr/local/bin/serviceradar generate-tls --cert-dir "$root_dir" --proton-dir "$proton_dir" --non-interactive --component "$components"; then
+    if ! /usr/local/bin/serviceradar generate-tls --cert-dir "$root_dir" --non-interactive --component "$components"; then
         echo "Error: Failed to generate certificates"
         return 1
-    fi
-
-    # Ensure Proton has the core certificate
-    if [ -f "$root_dir/core.pem" ] && [ ! -f "$proton_dir/core.pem" ]; then
-        cp "$root_dir/core.pem" "$proton_dir/core.pem"
-        cp "$root_dir/core-key.pem" "$proton_dir/core-key.pem"
-        chmod 644 "$proton_dir/core.pem"
-        chmod 600 "$proton_dir/core-key.pem"
-    fi
-
-    # Ensure Proton has the root CA certificate
-    if [ -f "$root_dir/root.pem" ] && [ ! -f "$proton_dir/root.pem" ]; then
-        cp "$root_dir/root.pem" "$proton_dir/root.pem"
-        chmod 644 "$proton_dir/root.pem"
     fi
 
     echo "Certificates set up successfully"

@@ -54,6 +54,10 @@ spec:
               readOnly: false
             - name: spire-server-socket
               mountPath: /tmp/spire-server/private
+            - name: cnpg-ca
+              mountPath: /run/spire/cnpg/ca.crt
+              subPath: ca.crt
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /live
@@ -113,6 +117,12 @@ spec:
         - name: spire-controller-manager-config
           configMap:
             name: spire-controller-manager-config
+        - name: cnpg-ca
+          secret:
+            secretName: cnpg-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
   volumeClaimTemplates:
     - metadata:
         name: spire-data

@@ -17,10 +17,11 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
-
-	proton "github.com/timeplus-io/proton-go-driver/v2"
 )
 
 type dataSvcInstanceView struct {
@@ -39,60 +40,40 @@ func (s *APIServer) handleListDataSvcInstances(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Query services table for service_type="datasvc"
-	// Parse endpoint and availability from the config JSON field
-	// Note: services is a STREAM table, so we can't use FINAL
-	// Return empty list for now as datasvc registration is not fully implemented
-	// (requires SPIFFE support in datasvc core_registration.go)
-	query := `
-		SELECT
-			'' as instance_id,
-			'' as endpoint,
-			false as available,
-			to_datetime('1970-01-01 00:00:00') as last_heartbeat
-		WHERE false
-	`
+	const listInstancesQuery = `
+		SELECT DISTINCT ON (service_name)
+			service_name,
+			poller_id,
+			agent_id,
+			available,
+			details,
+			timestamp
+		FROM service_status
+		WHERE service_type = 'datasvc'
+		ORDER BY service_name, timestamp DESC`
 
-	connRaw, err := s.dbService.GetStreamingConnection()
-	if err != nil {
-		s.logger.Error().Err(err).Msg("Failed to get database connection")
-		writeError(w, "failed to get database connection", http.StatusInternalServerError)
-		return
-	}
-
-	// Type assert to proton.Conn to access Query method
-	conn, ok := connRaw.(proton.Conn)
-	if !ok {
-		s.logger.Error().Msg("Database connection is not a valid proton connection")
-		writeError(w, "invalid database connection type", http.StatusInternalServerError)
-		return
-	}
-
-	rows, err := conn.Query(r.Context(), query)
+	rows, err := s.dbService.ExecuteQuery(r.Context(), listInstancesQuery)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to query datasvc instances")
 		writeError(w, "failed to list datasvc instances", http.StatusInternalServerError)
 		return
 	}
-	defer func() {
-		_ = rows.Close()
-	}()
 
-	var instances []dataSvcInstanceView
-
-	for rows.Next() {
-		var inst dataSvcInstanceView
-		if err := rows.Scan(&inst.InstanceID, &inst.Endpoint, &inst.Available, &inst.LastHeartbeat); err != nil {
-			s.logger.Error().Err(err).Msg("Failed to scan datasvc instance")
+	instances := make([]dataSvcInstanceView, 0, len(rows))
+	for _, row := range rows {
+		instanceID := selectInstanceID(row)
+		if instanceID == "" {
 			continue
 		}
-		instances = append(instances, inst)
-	}
 
-	if err := rows.Err(); err != nil {
-		s.logger.Error().Err(err).Msg("Error iterating datasvc instances")
-		writeError(w, "error reading datasvc instances", http.StatusInternalServerError)
-		return
+		inst := dataSvcInstanceView{
+			InstanceID:    instanceID,
+			Endpoint:      extractDatasvcEndpoint(asString(row["details"])),
+			Available:     asBool(row["available"]),
+			LastHeartbeat: asTimeValue(row["timestamp"]),
+		}
+
+		instances = append(instances, inst)
 	}
 
 	s.logger.Debug().
@@ -100,4 +81,95 @@ func (s *APIServer) handleListDataSvcInstances(w http.ResponseWriter, r *http.Re
 		Msg("Returning datasvc instances")
 
 	s.writeJSON(w, http.StatusOK, instances)
+}
+
+func selectInstanceID(row map[string]interface{}) string {
+	ids := []string{
+		asString(row["service_name"]),
+		asString(row["agent_id"]),
+		asString(row["poller_id"]),
+	}
+	for _, candidate := range ids {
+		if trimmed := strings.TrimSpace(candidate); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func extractDatasvcEndpoint(details string) string {
+	if strings.TrimSpace(details) == "" {
+		return ""
+	}
+
+	type payload struct {
+		Endpoint string `json:"endpoint"`
+	}
+
+	var body payload
+	if err := json.Unmarshal([]byte(details), &body); err == nil {
+		return strings.TrimSpace(body.Endpoint)
+	}
+
+	var generic map[string]interface{}
+	if err := json.Unmarshal([]byte(details), &generic); err == nil {
+		if endpoint, ok := generic["endpoint"].(string); ok {
+			return strings.TrimSpace(endpoint)
+		}
+	}
+
+	return ""
+}
+
+func asString(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	case fmt.Stringer:
+		return v.String()
+	case nil:
+		return ""
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+func asBool(value interface{}) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case int64:
+		return v != 0
+	case int32:
+		return v != 0
+	case uint64:
+		return v != 0
+	case uint32:
+		return v != 0
+	case string:
+		trimmed := strings.TrimSpace(v)
+		return trimmed == "1" || strings.EqualFold(trimmed, "true")
+	case []byte:
+		return asBool(string(v))
+	default:
+		return false
+	}
+}
+
+func asTimeValue(value interface{}) time.Time {
+	switch v := value.(type) {
+	case time.Time:
+		return v.UTC()
+	case string:
+		if parsed, err := time.Parse(time.RFC3339Nano, v); err == nil {
+			return parsed.UTC()
+		}
+	case []byte:
+		if parsed, err := time.Parse(time.RFC3339Nano, string(v)); err == nil {
+			return parsed.UTC()
+		}
+	}
+	return time.Time{}
 }

@@ -17,7 +17,7 @@ const (
 	logSeverityErrAlias  = "err"
 )
 
-// DBLogDigestSource hydrates log digests from Proton via the db.Service abstraction.
+// DBLogDigestSource hydrates log digests from CNPG via the db.Service abstraction.
 type DBLogDigestSource struct {
 	db     db.Service
 	logger logger.Logger
@@ -67,21 +67,23 @@ func (s *DBLogDigestSource) Fetch(ctx context.Context, limit int) (*models.LogDi
 }
 
 func (s *DBLogDigestSource) fetchRecentEntries(ctx context.Context, limit int) ([]models.LogSummary, error) {
-	query := fmt.Sprintf(`
-        SELECT
-            timestamp,
-            severity_text,
-            service_name,
-            trace_id,
-            span_id,
-            body
-        FROM table(logs)
-        WHERE timestamp >= now() - INTERVAL 24 HOUR
-          AND lower(severity_text) IN ('fatal', 'error')
-        ORDER BY timestamp DESC
-        LIMIT %d`, limit)
+	query := `
+		SELECT
+		    timestamp,
+		    severity_text,
+		    service_name,
+		    trace_id,
+		    span_id,
+		    body
+		FROM logs
+		WHERE timestamp >= $1
+		  AND lower(severity_text) IN ('fatal', 'error')
+		ORDER BY timestamp DESC
+		LIMIT $2`
 
-	rows, err := s.db.ExecuteQuery(ctx, query)
+	cutoff := s.now().Add(-24 * time.Hour)
+
+	rows, err := s.db.ExecuteQuery(ctx, query, cutoff, limit)
 	if err != nil {
 		return nil, fmt.Errorf("fetch recent critical logs: %w", err)
 	}
@@ -104,16 +106,17 @@ func (s *DBLogDigestSource) fetchRecentEntries(ctx context.Context, limit int) (
 }
 
 func (s *DBLogDigestSource) fetchWindowCounts(ctx context.Context, window time.Duration) (map[string]int, error) {
-	hours := int(window.Hours())
-	query := fmt.Sprintf(`
-        SELECT
-            severity_text,
-            count() AS total
-        FROM table(logs)
-        WHERE timestamp >= now() - INTERVAL %d HOUR
-        GROUP BY severity_text`, hours)
+	query := `
+		SELECT
+		    severity_text,
+		    COUNT(*) AS total
+		FROM logs
+		WHERE timestamp >= $1
+		GROUP BY severity_text`
 
-	rows, err := s.db.ExecuteQuery(ctx, query)
+	start := s.now().Add(-window)
+
+	rows, err := s.db.ExecuteQuery(ctx, query, start)
 	if err != nil {
 		return nil, fmt.Errorf("fetch log counters for window %s: %w", window, err)
 	}

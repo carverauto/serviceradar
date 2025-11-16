@@ -1,0 +1,33 @@
+varReference:
+  # Allow namespace substitution inside ConfigMap payloads
+  - kind: ConfigMap
+    path: data
+  # Deployment environment variables (containers + init containers)
+  - kind: Deployment
+    path: spec/template/spec/containers/env/value
+  - kind: Deployment
+    path: spec/template/spec/initContainers/env/value
+  # StatefulSet environment variables
+  - kind: StatefulSet
+    path: spec/template/spec/containers/env/value
+  - kind: StatefulSet
+    path: spec/template/spec/initContainers/env/value
+  # DaemonSet environment variables
+  - kind: DaemonSet
+    path: spec/template/spec/containers/env/value
+  - kind: DaemonSet
+    path: spec/template/spec/initContainers/env/value
+  # Job environment variables
+  - kind: Job
+    path: spec/template/spec/template/spec/containers/env/value
+  - kind: Job
+    path: spec/template/spec/template/spec/initContainers/env/value
+  # ClusterSPIFFEID templates and namespace selectors
+  - group: spire.spiffe.io
+    version: v1alpha1
+    kind: ClusterSPIFFEID
+    path: spec/spiffeIDTemplate
+  - group: spire.spiffe.io
+    version: v1alpha1
+    kind: ClusterSPIFFEID
+    path: spec/namespaceSelector/matchLabels/kubernetes.io~1metadata.name

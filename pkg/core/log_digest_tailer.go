@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	proton "github.com/timeplus-io/proton-go-driver/v2"
-
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -19,27 +17,40 @@ var errLogDigestHandlerNil = errors.New("log digest handler cannot be nil")
 const (
 	criticalLogStreamQuery = `
 SELECT
-    timestamp,
-    severity_text,
-    service_name,
-    trace_id,
-    span_id,
-    body
+	timestamp,
+	severity_text,
+	service_name,
+	trace_id,
+	span_id,
+	body,
+	created_at
 FROM logs
-WHERE lower(severity_text) IN ('fatal', 'error')`
+WHERE created_at >= $1
+	AND lower(severity_text) IN ('fatal', 'error')
+ORDER BY created_at ASC, timestamp ASC, trace_id ASC, span_id ASC
+LIMIT $2`
+
+	defaultLogTailerBatchSize    = 200
+	defaultLogTailerPollInterval = 5 * time.Second
 )
 
-// DBLogTailer streams critical log entries from Proton via the db.Service abstraction.
+// DBLogTailer streams critical log entries from CNPG via the db.Service abstraction.
 type DBLogTailer struct {
-	db     db.Service
-	logger logger.Logger
+	db           db.Service
+	logger       logger.Logger
+	now          func() time.Time
+	pollInterval time.Duration
+	batchSize    int
 }
 
 // NewDBLogTailer constructs a DB-backed log tailer.
 func NewDBLogTailer(database db.Service, log logger.Logger) *DBLogTailer {
 	return &DBLogTailer{
-		db:     database,
-		logger: log,
+		db:           database,
+		logger:       log,
+		now:          time.Now,
+		pollInterval: defaultLogTailerPollInterval,
+		batchSize:    defaultLogTailerBatchSize,
 	}
 }
 
@@ -49,70 +60,85 @@ func (t *DBLogTailer) Stream(ctx context.Context, handler func(models.LogSummary
 		return errLogDigestHandlerNil
 	}
 
-	conn, closeFn, err := t.openStreamingConn()
-	if err != nil {
-		return err
-	}
-	defer closeFn()
+	cursor := t.now().UTC()
+	lastKey := ""
 
-	rows, err := conn.Query(ctx, criticalLogStreamQuery)
-	if err != nil {
-		return fmt.Errorf("stream critical logs: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	for rows.Next() {
-		var (
-			ts       time.Time
-			severity string
-			service  string
-			traceID  string
-			spanID   string
-			body     string
-		)
-
-		if scanErr := rows.Scan(&ts, &severity, &service, &traceID, &spanID, &body); scanErr != nil {
-			return fmt.Errorf("scan critical log row: %w", scanErr)
+	for {
+		processed, err := t.consumeBatch(ctx, handler, &cursor, &lastKey)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
+			return err
 		}
 
-		handler(models.LogSummary{
-			Timestamp:   ts.UTC(),
-			Severity:    strings.ToLower(strings.TrimSpace(severity)),
-			ServiceName: strings.TrimSpace(service),
-			TraceID:     strings.TrimSpace(traceID),
-			SpanID:      strings.TrimSpace(spanID),
-			Body:        strings.TrimSpace(body),
-		})
-	}
+		if processed > 0 {
+			continue
+		}
 
-	if err := rows.Err(); err != nil {
-		if errors.Is(err, context.Canceled) {
+		timer := time.NewTimer(t.pollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
 			return nil
+		case <-timer.C:
 		}
-		return fmt.Errorf("critical log stream error: %w", err)
 	}
-
-	return nil
 }
 
-func (t *DBLogTailer) openStreamingConn() (proton.Conn, func(), error) {
-	if dbImpl, ok := t.db.(*db.DB); ok {
-		streamConn, err := dbImpl.NewStreamingConn()
-		if err != nil {
-			return nil, nil, fmt.Errorf("open streaming connection: %w", err)
-		}
-		return streamConn, func() { _ = streamConn.Close() }, nil
-	}
-
-	connRaw, err := t.db.GetStreamingConnection()
+func (t *DBLogTailer) consumeBatch(
+	ctx context.Context,
+	handler func(models.LogSummary),
+	cursor *time.Time,
+	lastKey *string,
+) (int, error) {
+	rows, err := t.db.ExecuteQuery(ctx, criticalLogStreamQuery, cursor.UTC(), t.batchSize)
 	if err != nil {
-		return nil, nil, fmt.Errorf("get streaming connection: %w", err)
+		return 0, fmt.Errorf("query critical logs: %w", err)
 	}
 
-	conn, ok := connRaw.(proton.Conn)
-	if !ok {
-		return nil, nil, ErrDatabaseTypeAssertion
+	processed := 0
+	currentCursor := cursor.UTC()
+
+	for _, row := range rows {
+		createdAt, _ := row["created_at"].(time.Time)
+		rowKey := buildLogRowKey(createdAt, toString(row["trace_id"]), toString(row["span_id"]))
+
+		if createdAt.Equal(currentCursor) && rowKey <= *lastKey {
+			continue
+		}
+
+		summary := models.LogSummary{
+			Timestamp:   asTime(row["timestamp"]),
+			Severity:    strings.ToLower(strings.TrimSpace(toString(row["severity_text"]))),
+			ServiceName: strings.TrimSpace(toString(row["service_name"])),
+			TraceID:     strings.TrimSpace(toString(row["trace_id"])),
+			SpanID:      strings.TrimSpace(toString(row["span_id"])),
+			Body:        strings.TrimSpace(toString(row["body"])),
+		}
+
+		handler(summary)
+		processed++
+		*cursor = createdAt.UTC()
+		currentCursor = *cursor
+		*lastKey = rowKey
 	}
 
-	return conn, func() {}, nil
+	return processed, nil
+}
+
+func buildLogRowKey(createdAt time.Time, traceID, spanID string) string {
+	return fmt.Sprintf("%d|%s|%s", createdAt.UTC().UnixNano(), traceID, spanID)
+}
+
+func asTime(value interface{}) time.Time {
+	switch v := value.(type) {
+	case time.Time:
+		return v.UTC()
+	case string:
+		if parsed, err := time.Parse(time.RFC3339Nano, v); err == nil {
+			return parsed.UTC()
+		}
+	}
+	return time.Time{}
 }

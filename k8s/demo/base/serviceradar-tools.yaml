@@ -66,6 +66,15 @@ spec:
           alias grpc-agent='echo "Usage: grpc-agent [METHOD] - Examples:"; echo "  grpc-agent grpc.health.v1.Health/Check"; echo "  grpc-agent list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-agent:50051'
           alias grpc-mapper='echo "Usage: grpc-mapper [METHOD] - Examples:"; echo "  grpc-mapper grpc.health.v1.Health/Check"; echo "  grpc-mapper list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-mapper:50056'
           alias grpc-trapd='echo "Usage: grpc-trapd [METHOD] - Examples:"; echo "  grpc-trapd grpc.health.v1.Health/Check"; echo "  grpc-trapd list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-trapd:50043'
+          export CNPG_SERVICE_NAME="${CNPG_SERVICE_NAME:-serviceradar}"
+          if [ -z "${PGSERVICE:-}" ] && [ -n "${CNPG_SERVICE_NAME:-}" ]; then
+            export PGSERVICE="${CNPG_SERVICE_NAME}"
+          fi
+          cnpg_sql() {
+            psql "$@"
+          }
+          alias cnpg-sql='cnpg_sql'
+          alias cnpg-info='psql --command "\conninfo"'
           alias nc-nats='nc -zv serviceradar-nats 4222'
           alias ping-nats='ping serviceradar-nats'
           alias sr-devices='serviceradar-cli devices list'
@@ -83,9 +92,6 @@ spec:
         volumeMounts:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
-          readOnly: true
-        - name: credentials
-          mountPath: /etc/serviceradar/credentials
           readOnly: true
         - name: nats-context-config
           mountPath: /etc/serviceradar/nats/serviceradar.json
@@ -109,6 +115,14 @@ spec:
             cp /shared/.bashrc /root/.bashrc
           fi
           
+          if [ -x /etc/serviceradar/nats/setup-nats-context.sh ]; then
+            /bin/bash /etc/serviceradar/nats/setup-nats-context.sh || true
+          fi
+
+          if [ -x /etc/serviceradar/cnpg/setup-cnpg-client.sh ]; then
+            /bin/bash /etc/serviceradar/cnpg/setup-cnpg-client.sh || true
+          fi
+          
           # Start the container with bash as the default shell
           exec /bin/bash -l -c "tail -f /dev/null"
         env:
@@ -126,16 +140,30 @@ spec:
           value: "https://serviceradar-core:8090"
         - name: SHOW_MOTD
           value: "1"
-        - name: PROTON_HOST
-          value: "serviceradar-proton"
-        - name: PROTON_PORT
-          value: "9440"
-        - name: PROTON_DATABASE
-          value: "default"
-        - name: PROTON_SECURE
-          value: "1"
-        - name: PROTON_PASSWORD_FILE
-          value: "/etc/serviceradar/credentials/proton-password"
+        - name: CNPG_HOST
+          value: "cnpg-rw"
+        - name: CNPG_PORT
+          value: "5432"
+        - name: CNPG_DATABASE
+          value: "telemetry"
+        - name: CNPG_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: cnpg-superuser
+              key: username
+        - name: CNPG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: cnpg-superuser
+              key: password
+        - name: CNPG_PASSWORD_FILE
+          value: "/etc/serviceradar/cnpg/superuser-password"
+        - name: CNPG_SSLMODE
+          value: "verify-full"
+        - name: CNPG_CA_FILE
+          value: "/etc/serviceradar/cnpg/ca.crt"
+        - name: CNPG_SERVICE_NAME
+          value: "serviceradar"
         volumeMounts:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
@@ -144,9 +172,6 @@ spec:
           mountPath: /etc/serviceradar/nats/serviceradar.json
           subPath: serviceradar.json
           readOnly: true
-        - name: credentials
-          mountPath: /etc/serviceradar/credentials
-          readOnly: true
         - name: tools-config
           mountPath: /etc/serviceradar/nats/setup-nats-context.sh
           subPath: setup-nats-context.sh
@@ -154,6 +179,18 @@ spec:
         - name: tools-config
           mountPath: /etc/motd
           subPath: motd
+          readOnly: true
+        - name: tools-config
+          mountPath: /etc/serviceradar/cnpg/setup-cnpg-client.sh
+          subPath: setup-cnpg-client.sh
+          readOnly: true
+        - name: cnpg-ca
+          mountPath: /etc/serviceradar/cnpg/ca.crt
+          subPath: ca.crt
+          readOnly: true
+        - name: cnpg-superuser
+          mountPath: /etc/serviceradar/cnpg/superuser-password
+          subPath: password
           readOnly: true
         - name: shared-config
           mountPath: /shared
@@ -180,12 +217,18 @@ spec:
         configMap:
           name: serviceradar-tools-config
           defaultMode: 0755
-      - name: credentials
+      - name: cnpg-ca
         secret:
-          secretName: serviceradar-secrets
+          secretName: cnpg-ca
           items:
-          - key: proton-password
-            path: proton-password
+          - key: ca.crt
+            path: ca.crt
+      - name: cnpg-superuser
+        secret:
+          secretName: cnpg-superuser
+          items:
+          - key: password
+            path: password
       - name: shared-config
         emptyDir: {}
 ---
@@ -249,17 +292,11 @@ data:
         test-grpc            - Health check all gRPC services
         nats-cert-check      - Diagnose NATS certificate issues
     
-    [*] PROTON HELPERS:
-        proton-cli           - Proton CLI wrapper (mTLS defaults)
-        proton-sql <SQL>     - Run SQL (ex: proton-sql "SELECT 1")
-        proton_sql <SQL>     - Bash helper (login shells only)
-        proton-version       - Print Proton server version via SQL
-        proton-info          - Show Proton host/port/password source
-    
-    [*] PASSWORD SOURCE:
-        /etc/serviceradar/credentials/proton-password (secret mount)
-        Override with PROTON_PASSWORD or PROTON_PASSWORD_FILE if required.
-    
+    [*] CNPG HELPERS:
+        cnpg-info            - Show Postgres connection metadata
+        cnpg-sql <SQL>       - Run SQL via TLS-verified service profile
+        cnpg-migrate         - Run Timescale migrations (env-driven)
+
     [*] NATS ALIASES:
         nats-info            - Show NATS server information
         nats-streams         - List all JetStream streams
@@ -286,7 +323,7 @@ data:
     
     [*] NATS CONTEXT: Auto-configured with proper FQDN and mTLS
     
-    [+] STATUS: TLS certs, Proton helpers, and JetStream aliases ready to use
+    [+] STATUS: TLS certs, CNPG helpers, and JetStream aliases ready to use
     
     [!] READY TO USE: MOTD appears on login; environment auto-loads helpers
     
@@ -333,3 +370,52 @@ data:
     echo "   Run 'nats-js-status' to check JetStream"
     echo "   Run 'test-grpc' to test all gRPC services"
     echo ""
+  setup-cnpg-client.sh: |
+    #!/bin/bash
+    set -e
+
+    CNPG_HOST="${CNPG_HOST:-cnpg-rw}"
+    CNPG_PORT="${CNPG_PORT:-5432}"
+    CNPG_DATABASE="${CNPG_DATABASE:-telemetry}"
+    CNPG_USERNAME="${CNPG_USERNAME:-postgres}"
+    CNPG_SSLMODE="${CNPG_SSLMODE:-verify-full}"
+    CNPG_CA_FILE="${CNPG_CA_FILE:-/etc/serviceradar/cnpg/ca.crt}"
+    CNPG_SERVICE_NAME="${CNPG_SERVICE_NAME:-serviceradar}"
+    CNPG_PASSWORD_FILE="${CNPG_PASSWORD_FILE:-}"
+    CNPG_PASSWORD_VALUE="${CNPG_PASSWORD:-}"
+
+    if [ -z "$CNPG_HOST" ]; then
+        echo "CNPG_HOST is not set, skipping CNPG bootstrap"
+        exit 0
+    fi
+
+    mkdir -p /root
+
+    if [ -n "$CNPG_SERVICE_NAME" ]; then
+        {
+            printf '[%s]\n' "${CNPG_SERVICE_NAME}"
+            printf 'host=%s\n' "${CNPG_HOST}"
+            printf 'port=%s\n' "${CNPG_PORT}"
+            printf 'dbname=%s\n' "${CNPG_DATABASE}"
+            printf 'user=%s\n' "${CNPG_USERNAME}"
+            printf 'sslmode=%s\n' "${CNPG_SSLMODE}"
+            printf 'sslrootcert=%s\n' "${CNPG_CA_FILE}"
+        } > /root/.pg_service.conf
+        chmod 600 /root/.pg_service.conf
+      fi
+
+    if [ -n "$CNPG_PASSWORD_FILE" ] && [ -f "$CNPG_PASSWORD_FILE" ]; then
+        CNPG_PASSWORD_VALUE="$(cat "$CNPG_PASSWORD_FILE")"
+    fi
+
+    if [ -n "$CNPG_PASSWORD_VALUE" ]; then
+        printf '%s:%s:%s:%s:%s\n' \
+            "${CNPG_HOST}" \
+            "${CNPG_PORT}" \
+            "${CNPG_DATABASE}" \
+            "${CNPG_USERNAME}" \
+            "${CNPG_PASSWORD_VALUE}" > /root/.pgpass
+        chmod 600 /root/.pgpass
+    fi
+
+    echo "CNPG client profile ready for ${CNPG_HOST}:${CNPG_PORT}/${CNPG_DATABASE}"

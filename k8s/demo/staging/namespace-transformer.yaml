@@ -1,0 +1,8 @@
+apiVersion: builtin
+kind: NamespaceTransformer
+metadata:
+  name: demo-staging-namespace
+namespace: demo-staging
+fieldSpecs:
+  - path: metadata/namespace
+    create: true

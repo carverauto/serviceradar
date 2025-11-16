@@ -18,7 +18,7 @@ Commands:
   (default)        Generate bcrypt hash from password
   update-config    Update core.json with new admin password hash
   update-poller    Manage service checks in poller.json
-  generate-tls     Generate mTLS certificates for ServiceRadar and Proton
+  generate-tls     Generate mTLS certificates for ServiceRadar services
   render-kong      Render Kong DB-less config from Core JWKS
   generate-jwt-keys Generate RS256 keypair and update core.json
   spire-join-token  Request a join token from Core and optionally register a downstream entry
@@ -51,7 +51,6 @@ Options for update-poller:
 Options for generate-tls:
   -ip string          IP addresses for the certificates (comma-separated)
   -cert-dir string    where to store ServiceRadar certificates (default "/etc/serviceradar/certs")
-  -proton-dir string  where to store Proton certificates (default "/etc/proton-server")
   -add-ips            add IPs to existing certificates
   -non-interactive    run in non-interactive mode (use 127.0.0.1)
 

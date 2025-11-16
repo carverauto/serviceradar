@@ -21,138 +21,233 @@ kind: ConfigMap
 metadata:
   name: serviceradar-config
 data:
-  core.json: |
-    {
-      "listen_addr": ":8090",
-      "grpc_addr": ":50052",
-      "database": {
-        "addresses": [
-          "serviceradar-proton:9440"
-        ],
-        "name": "default",
-        "username": "default",
-        "password": "",
-        "max_conns": 10,
-        "idle_conns": 5,
+
+core.json: |
+  {
+    "listen_addr": ":8090",
+    "grpc_addr": ":50052",
+    "api_key": "",
+    "cnpg": {
+      "host": "",
+      "port": 5432,
+      "database": "telemetry",
+      "username": "postgres",
+      "password": "",
+      "application_name": "serviceradar-core",
+      "ssl_mode": "verify-full",
+      "cert_dir": "/etc/serviceradar/certs",
+      "max_connections": 50,
+      "min_connections": 5,
+      "statement_timeout": "30s",
+      "tls": {
+        "cert_file": "/etc/serviceradar/certs/core.pem",
+        "key_file": "/etc/serviceradar/certs/core-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
+      }
+    },
+    "alert_threshold": "5m",
+    "known_pollers": [
+      "k8s-poller",
+      "docker-poller"
+    ],
+    "metrics": {
+      "enabled": true,
+      "retention": 100,
+      "max_pollers": 10000
+    },
+    "features": {
+      "use_log_digest": true,
+      "use_device_search_planner": true,
+      "require_device_registry": true
+    },
+    "srql": {
+      "enabled": true,
+      "base_url": "http://serviceradar-srql:8080",
+      "api_key": "",
+      "timeout": "15s",
+      "path": "/api/query"
+    },
+    "security": {
+      "mode": "spiffe",
+      "cert_dir": "/etc/serviceradar/certs",
+      "role": "core",
+      "trust_domain": "carverauto.dev",
+      "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core",
+      "workload_socket": "unix:/run/spire/sockets/agent.sock",
+      "tls": {
+        "cert_file": "/etc/serviceradar/certs/core.pem",
+        "key_file": "/etc/serviceradar/certs/core-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem",
+        "client_ca_file": "/etc/serviceradar/certs/root.pem",
+        "skip_verify": false
+      }
+    },
+    "kv_security": {
+      "mode": "spiffe",
+      "cert_dir": "/etc/serviceradar/certs",
+      "role": "core",
+      "trust_domain": "carverauto.dev",
+      "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc",
+      "workload_socket": "unix:/run/spire/sockets/agent.sock",
+      "tls": {
+        "cert_file": "/etc/serviceradar/certs/core.pem",
+        "key_file": "/etc/serviceradar/certs/core-key.pem",
+        "ca_file": "/etc/serviceradar/certs/root.pem"
+      }
+    },
+    "spire_admin": {
+      "enabled": true,
+      "server_address": "spire-server.demo.svc.cluster.local:8081",
+      "server_spiffe_id": "spiffe://carverauto.dev/spire/server",
+      "workload_socket": "unix:/run/spire/sockets/agent.sock",
+      "join_token_ttl": "15m"
+    },
+    "edge_onboarding": {
+      "enabled": true,
+      "encryption_key": "",
+      "default_selectors": [
+        "unix:uid:0",
+        "unix:gid:0",
+        "unix:user:root",
+        "unix:group:root"
+      ],
+      "default_metadata": {
+        "poller": {
+          "core_address": "serviceradar-core:50052",
+          "core_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core",
+          "kv_address": "serviceradar-datasvc:50057",
+          "kv_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc",
+          "spire_upstream_address": "spire-server.demo.svc.cluster.local",
+          "spire_upstream_port": "8081",
+          "spire_parent_id": "spiffe://carverauto.dev/ns/edge/poller-nested-spire",
+          "agent_address": "agent:50051",
+          "agent_spiffe_id": "spiffe://carverauto.dev/services/agent",
+          "nested_spire_wait_attempts": "120",
+          "log_level": "info",
+          "logs_dir": "./logs"
+        }
+      },
+      "join_token_ttl": "15m",
+      "download_token_ttl": "10m",
+      "poller_id_prefix": "edge"
+    },
+    "cors": {
+      "allowed_origins": ["*"],
+      "allow_credentials": true
+    },
+    "auth": {
+      "jwt_secret": "PLACEHOLDER_WILL_BE_REPLACED",
+      "jwt_expiration": "24h",
+      "local_users": {
+        "admin": "PLACEHOLDER_BCRYPT_HASH_WILL_BE_REPLACED"
+      },
+      "rbac": {
+        "user_roles": {
+          "admin": ["admin", "operator", "viewer"],
+          "operator": ["operator", "viewer"],
+          "user": ["viewer"]
+        },
+        "role_permissions": {
+          "admin": ["*"],
+          "operator": ["config:read", "config:write", "device:*", "alert:*"],
+          "viewer": ["config:read", "device:read", "alert:read", "metrics:read"]
+        },
+        "route_protection": {
+          "/api/admin/*": ["admin"],
+          "/api/config/*": {
+            "GET": ["viewer", "operator", "admin"],
+            "POST": ["operator", "admin"],
+            "PUT": ["operator", "admin"],
+            "DELETE": ["admin"]
+          },
+          "/api/devices/*": {
+            "GET": ["viewer", "operator", "admin"],
+            "POST": ["operator", "admin"],
+            "PUT": ["operator", "admin"],
+            "DELETE": ["admin"]
+          },
+          "/api/alerts/*": {
+            "GET": ["viewer", "operator", "admin"],
+            "POST": ["operator", "admin"],
+            "PUT": ["operator", "admin"],
+            "DELETE": ["admin"]
+          }
+        }
+      }
+    },
+    "nats": {
+      "url": "tls://serviceradar-nats:4222",
+      "max_reconnects": 10,
+      "reconnect_wait": "2s",
+      "drain_timeout": "30s",
+      "security": {
+        "mode": "mtls",
+        "tls": {
+          "cert_file": "/etc/serviceradar/certs/core.pem",
+          "key_file": "/etc/serviceradar/certs/core-key.pem",
+          "ca_file": "/etc/serviceradar/certs/root.pem"
+        }
+      }
+    },
+    "events": {
+      "enabled": true,
+      "stream_name": "events",
+      "subjects": ["events.>", "snmp.traps"]
+    },
+    "snmp": {
+      "enabled": false,
+      "listen_addr": ":161",
+      "community": "public",
+      "timeout": "5s",
+      "retries": 3
+    },
+    "write_buffer": {
+      "size": 10000,
+      "flush_interval": "5s",
+      "max_retries": 3,
+      "retry_delay": "1s"
+    },
+    "logging": {
+      "level": "info",
+      "debug": false,
+      "output": "stdout",
+      "time_format": "",
+      "otel": {
+        "enabled": true,
+        "endpoint": "serviceradar-otel:4317",
+        "service_name": "serviceradar-core",
+        "batch_timeout": "5s",
+        "insecure": false,
+        "headers": {},
         "tls": {
           "cert_file": "/etc/serviceradar/certs/core.pem",
           "key_file": "/etc/serviceradar/certs/core-key.pem",
           "ca_file": "/etc/serviceradar/certs/root.pem",
-          "server_name": "proton.serviceradar"
-        },
-        "settings": {
-          "max_execution_time": 60,
-          "output_format_json_quote_64bit_int": 0,
-          "allow_experimental_live_view": 1,
-          "idle_connection_timeout": 600,
-          "join_use_nulls": 1,
-          "input_format_defaults_for_omitted_fields": 1
+          "server_name": "serviceradar-otel",
+          "skip_verify": false
         }
-      },
-      "alert_threshold": "5m",
-      "known_pollers": ["k8s-poller", "docker-poller"],
-      "metrics": {
-      "enabled": true,
-      "retention": 100,
-      "max_nodes": 10000
-        },
-        "security": {
-          "mode": "mtls",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "core",
-          "server_name": "proton.serviceradar",
-          "tls": {
-            "cert_file": "/etc/serviceradar/certs/core.pem",
-            "key_file": "/etc/serviceradar/certs/core-key.pem",
-            "ca_file": "/etc/serviceradar/certs/root.pem",
-            "client_ca_file": "/etc/serviceradar/certs/root.pem",
-            "skip_verify": false
-          }
-        },
-        "spire_admin": {
-{{- if .Values.spire.enabled }}
-          "enabled": true,
-          "server_address": "{{ $spireServerService }}.{{ $spireNamespace }}.svc.cluster.local:8081",
-          "server_spiffe_id": "spiffe://{{ $trustDomain }}/spire/server",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
-          "join_token_ttl": "{{ .Values.spire.joinTokenTTL | default "15m" }}"
-{{- else }}
-          "enabled": false
-{{- end }}
-        },
-        "cors": {
-          "allowed_origins": [
-            "*"
-          ],
-          "allow_credentials": true
-        },
-        "auth": {
-          "jwt_secret": "PLACEHOLDER_WILL_BE_REPLACED",
-          "jwt_expiration": "24h",
-          "local_users": {
-            "admin": "PLACEHOLDER_BCRYPT_HASH_WILL_BE_REPLACED"
-          }
-        },
-        "nats": {
-          "url": "tls://serviceradar-nats:4222",
-          "max_reconnects": 10,
-          "reconnect_wait": "2s",
-          "drain_timeout": "30s"
-        },
-        "snmp": {
-          "enabled": false,
-          "listen_addr": ":161",
-          "community": "public",
-          "timeout": "5s",
-          "retries": 3
-        },
-        "write_buffer": {
-          "size": 10000,
-          "flush_interval": "5s",
-          "max_retries": 3,
-          "retry_delay": "1s"
-        },
-        "logging": {
-          "level": "info",
-          "debug": false,
-          "output": "stdout",
-          "time_format": "",
-          "otel": {
-            "enabled": true,
-            "endpoint": "serviceradar-otel:4317",
-            "service_name": "serviceradar-core",
-            "batch_timeout": "5s",
-            "insecure": false,
-            "headers": {},
-            "tls": {
-              "cert_file": "/etc/serviceradar/certs/core.pem",
-              "key_file": "/etc/serviceradar/certs/core-key.pem",
-              "ca_file": "/etc/serviceradar/certs/root.pem",
-              "server_name": "serviceradar-otel",
-              "skip_verify": false
-            }
-          }
-        },
-        "webhooks": [
+      }
+    },
+    "webhooks": [
+      {
+        "enabled": false,
+        "url": "https://your-webhook-url",
+        "cooldown": "15m",
+        "headers": [
           {
-            "enabled": false,
-            "url": "https://your-webhook-url",
-            "cooldown": "15m",
-            "headers": [
-              {
-                "key": "Authorization",
-                "value": "Bearer your-token"
-              }
-            ]
-          },
-          {
-            "enabled": false,
-            "url": "https://discord.com/api/webhooks/PLACEHOLDER_WEBHOOK_URL",
-            "cooldown": "15m",
-            "template": "{\"embeds\":[{\"title\":\"{{$lb}}.alert.Title{{$rb}}\",\"description\":\"{{$lb}}.alert.Message{{$rb}}\",\"color\":{{$lb}}if eq .alert.Level \\\"error\\\"{{$rb}}15158332{{$lb}}else if eq .alert.Level \\\"warning\\\"{{$rb}}16776960{{$lb}}else{{$rb}}3447003{{$lb}}end{{$rb}},\"timestamp\":\"{{$lb}}.alert.Timestamp{{$rb}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{$lb}}.alert.NodeID{{$rb}}\",\"inline\":true}{{$lb}}range $key, $value := .alert.Details{{$rb}},{\"name\":\"{{$lb}}$key{{$rb}}\",\"value\":\"{{$lb}}$value{{$rb}}\",\"inline\":true}{{$lb}}end{{$rb}}]}]}"
+            "key": "Authorization",
+            "value": "Bearer your-token"
           }
         ]
-    }
+      },
+      {
+        "enabled": false,
+        "url": "https://discord.com/api/webhooks/PLACEHOLDER_WEBHOOK_URL",
+        "cooldown": "15m",
+        "template": "{"embeds":[{"title":"{{.alert.Title}}","description":"{{.alert.Message}}","color":{{if eq .alert.Level "error"}}15158332{{else if eq .alert.Level "warning"}}16776960{{else}}3447003{{end}},"timestamp":"{{.alert.Timestamp}}","fields":[{"name":"Node ID","value":"{{.alert.NodeID}}","inline":true}{{range $key, $value := .alert.Details}},{"name":"{{$key}}","value":"{{$value}}","inline":true}{{end}}]}]}"
+      }
+    ]
+  }
 
   poller.json: |
     {
@@ -831,6 +926,20 @@ data:
 
     echo "Using runtime configuration at $CONFIG_PATH"
 
+    EFFECTIVE_NAMESPACE="${KUBERNETES_NAMESPACE:-demo}"
+    CNPG_HOST_VALUE="${CNPG_HOST:-cnpg-rw.${EFFECTIVE_NAMESPACE}.svc.cluster.local}"
+    CNPG_PORT_VALUE="${CNPG_PORT:-5432}"
+    CNPG_DATABASE_VALUE="${CNPG_DATABASE:-telemetry}"
+    CNPG_USERNAME_VALUE="${CNPG_USERNAME:-postgres}"
+    CNPG_SSLMODE_VALUE="${CNPG_SSLMODE:-verify-full}"
+    CNPG_CERT_DIR_VALUE="${CNPG_CERT_DIR:-/etc/serviceradar/certs}"
+
+    if [ -z "$CNPG_PASSWORD" ]; then
+        echo "Warning: CNPG_PASSWORD environment variable not found"
+    else
+        echo "Found CNPG password from Kubernetes secret"
+    fi
+
     if [ -f "$CONFIG_PATH" ]; then
         TEMPLATE_SECURITY=$(jq -c '.security // empty' "$TEMPLATE_PATH")
         if [ -n "$TEMPLATE_SECURITY" ]; then
@@ -842,11 +951,27 @@ data:
 
         echo "Updating configuration with secrets..."
         TMP_CONFIG=$(mktemp)
-        jq --arg pwd "$PROTON_PASSWORD" \
+        jq --arg host "$CNPG_HOST_VALUE" \
+           --arg port "$CNPG_PORT_VALUE" \
+           --arg db "$CNPG_DATABASE_VALUE" \
+           --arg user "$CNPG_USERNAME_VALUE" \
+           --arg pwd "$CNPG_PASSWORD" \
+           --arg ssl "$CNPG_SSLMODE_VALUE" \
+           --arg certdir "$CNPG_CERT_DIR_VALUE" \
            --arg jwt "$JWT_SECRET" \
            --arg api_key "$API_KEY" \
            --arg bcrypt "$ADMIN_BCRYPT_HASH" \
-           '.database.password = $pwd | .auth.jwt_secret = $jwt | .auth.jwt_expiration = "24h" | .auth.local_users.admin = $bcrypt | .api_key = $api_key' \
+           '.cnpg.host = $host
+            | .cnpg.port = ($port | tonumber)
+            | .cnpg.database = $db
+            | .cnpg.username = $user
+            | .cnpg.password = $pwd
+            | .cnpg.ssl_mode = $ssl
+            | .cnpg.cert_dir = $certdir
+            | .auth.jwt_secret = $jwt
+            | .auth.jwt_expiration = "24h"
+            | .auth.local_users.admin = $bcrypt
+            | .api_key = $api_key' \
            "$CONFIG_PATH" > "$TMP_CONFIG"
         mv "$TMP_CONFIG" "$CONFIG_PATH"
         echo "Configuration updated with secrets at $CONFIG_PATH"
@@ -856,41 +981,21 @@ data:
         fi
     fi
 
-    if [ "${WAIT_FOR_PROTON:-true}" = "true" ]; then
-        PROTON_TLS_ADDR="${PROTON_HOST:-serviceradar-proton}:9440"
-        PROTON_HTTP_ADDR="${PROTON_HOST:-serviceradar-proton}:8123"
-        PROTON_TLS_HOST="${PROTON_TLS_ADDR%%:*}"
-        PROTON_TLS_PORT="${PROTON_TLS_ADDR##*:}"
-        echo "Waiting for Proton TLS port at $PROTON_TLS_ADDR..."
-        TLS_READY=false
+    if [ "${WAIT_FOR_CNPG:-true}" = "true" ]; then
+        echo "Waiting for CNPG at ${CNPG_HOST_VALUE}:${CNPG_PORT_VALUE}..."
+        CNPG_READY=false
         for i in {1..30}; do
-            if command -v openssl >/dev/null 2>&1; then
-                if echo "QUIT" | openssl s_client -connect "$PROTON_TLS_ADDR" -cert /etc/serviceradar/certs/core.pem -key /etc/serviceradar/certs/core-key.pem -CAfile /etc/serviceradar/certs/root.pem -servername proton.serviceradar -quiet > /dev/null 2>&1; then
-                    TLS_READY=true
-                fi
-            else
-                if timeout 5 bash -lc "exec 3<>/dev/tcp/${PROTON_TLS_HOST}/${PROTON_TLS_PORT}" > /dev/null 2>&1; then
-                    TLS_READY=true
-                fi
-            fi
-            if [ "$TLS_READY" = "true" ]; then
-                echo "Proton TLS port is ready!"
-                if [ -n "$PROTON_PASSWORD" ]; then
-                    if curl -sf "http://default:${PROTON_PASSWORD}@$PROTON_HTTP_ADDR/?query=SELECT%201" > /dev/null 2>&1; then
-                        echo "Proton HTTP authentication is working!"
-                    else
-                        echo "TLS is working, HTTP auth may not be ready yet but proceeding..."
-                    fi
-                else
-                    echo "Warning: No password found for Proton authentication"
-                fi
+            if timeout 5 bash -lc "exec 3<>/dev/tcp/${CNPG_HOST_VALUE}/${CNPG_PORT_VALUE}" > /dev/null 2>&1; then
+                CNPG_READY=true
                 break
             fi
-            echo "Waiting for Proton TLS... ($i/30)"
+            echo "Waiting for CNPG... ($i/30)"
             sleep 2
         done
-        if [ "$TLS_READY" != "true" ]; then
-            echo "Warning: Proton TLS port did not respond after 30 attempts; proceeding anyway" >&2
+        if [ "$CNPG_READY" != "true" ]; then
+            echo "Warning: CNPG endpoint did not respond after 30 attempts; proceeding anyway" >&2
+        else
+            echo "CNPG port is reachable."
         fi
     fi
 

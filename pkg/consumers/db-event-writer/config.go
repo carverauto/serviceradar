@@ -2,6 +2,7 @@ package dbeventwriter
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -13,7 +14,7 @@ var (
 	ErrMissingStreamName     = errors.New("stream_name is required")
 	ErrMissingConsumerName   = errors.New("consumer_name is required")
 	ErrMissingTableName      = errors.New("table is required")
-	ErrMissingDatabaseConfig = errors.New("database configuration is required")
+	ErrMissingCNPGConfig     = errors.New("cnpg configuration is required")
 	ErrInvalidJSON           = errors.New("failed to unmarshal JSON configuration")
 	ErrStreamSubjectRequired = errors.New("stream subject is required")
 	ErrStreamTableRequired   = errors.New("stream table is required")
@@ -27,19 +28,18 @@ type StreamConfig struct {
 
 // DBEventWriterConfig holds configuration for the DB event writer consumer.
 type DBEventWriterConfig struct {
-    ListenAddr   string                 `json:"listen_addr"`
-    NATSURL      string                 `json:"nats_url" hot:"rebuild"`
-    Subject      string                 `json:"subject"` // Legacy field for backward compatibility
-    StreamName   string                 `json:"stream_name" hot:"rebuild"`
-    ConsumerName string                 `json:"consumer_name" hot:"rebuild"`
-    Domain       string                 `json:"domain" hot:"rebuild"`
-    Table        string                 `json:"table"`   // Legacy field for backward compatibility
-    Streams      []StreamConfig         `json:"streams" hot:"rebuild"` // New multi-stream configuration
-    Security     *models.SecurityConfig `json:"security" hot:"rebuild"`
-    NATSSecurity *models.SecurityConfig `json:"nats_security"`
-    DBSecurity   *models.SecurityConfig `json:"db_security"`
-    Database     models.ProtonDatabase  `json:"database"`
-    Logging      *logger.Config         `json:"logging"` // Logger configuration including OTEL settings
+	ListenAddr   string                 `json:"listen_addr"`
+	NATSURL      string                 `json:"nats_url" hot:"rebuild"`
+	Subject      string                 `json:"subject"` // Legacy field for backward compatibility
+	StreamName   string                 `json:"stream_name" hot:"rebuild"`
+	ConsumerName string                 `json:"consumer_name" hot:"rebuild"`
+	Domain       string                 `json:"domain" hot:"rebuild"`
+	Table        string                 `json:"table"`                 // Legacy field for backward compatibility
+	Streams      []StreamConfig         `json:"streams" hot:"rebuild"` // New multi-stream configuration
+	Security     *models.SecurityConfig `json:"security" hot:"rebuild"`
+	NATSSecurity *models.SecurityConfig `json:"nats_security"`
+	CNPG         *models.CNPGDatabase   `json:"cnpg"`
+	Logging      *logger.Config         `json:"logging"` // Logger configuration including OTEL settings
 }
 
 // Validate checks the configuration for required fields.
@@ -79,8 +79,11 @@ func (c *DBEventWriterConfig) Validate() error {
 		errs = append(errs, ErrMissingTableName)
 	}
 
-	if c.Database.Name == "" || len(c.Database.Addresses) == 0 {
-		errs = append(errs, ErrMissingDatabaseConfig)
+	if c.CNPG == nil ||
+		strings.TrimSpace(c.CNPG.Host) == "" ||
+		strings.TrimSpace(c.CNPG.Username) == "" ||
+		strings.TrimSpace(c.CNPG.Database) == "" {
+		errs = append(errs, ErrMissingCNPGConfig)
 	}
 
 	if len(errs) > 0 {

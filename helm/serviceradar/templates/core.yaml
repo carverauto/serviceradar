@@ -87,24 +87,32 @@ spec:
           mountPath: /run/spire/sockets
           readOnly: true
         env:
-        - name: WAIT_FOR_PROTON
+        - name: WAIT_FOR_CNPG
           value: "true"
         - name: INIT_DB
           value: "true"
 {{ include "serviceradar.kvEnv" . | indent 8 }}
         - name: CONFIG_PATH
           value: "/var/lib/serviceradar/core.json"
-        - name: PROTON_HOST
-          value: "serviceradar-proton"
-        - name: PROTON_USER
-          value: "default"
-        - name: PROTON_DATABASE
-          value: "default"
-        - name: PROTON_PASSWORD
+        - name: KUBERNETES_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: CNPG_PORT
+          value: "5432"
+        - name: CNPG_DATABASE
+          value: "telemetry"
+        - name: CNPG_USERNAME
+          value: "postgres"
+        - name: CNPG_SSLMODE
+          value: "verify-full"
+        - name: CNPG_CERT_DIR
+          value: "/etc/serviceradar/certs"
+        - name: CNPG_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: serviceradar-secrets
-              key: proton-password
+              name: cnpg-superuser
+              key: password
         - name: API_KEY
           valueFrom:
             secretKeyRef:

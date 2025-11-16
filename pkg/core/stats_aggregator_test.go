@@ -717,7 +717,7 @@ func TestStatsAggregatorAlertsOnNonCanonicalIncrease(t *testing.T) {
 	assert.Equal(t, 0, alertMeta.InferredCanonicalFallback)
 }
 
-func TestStatsAggregatorPrunesInferredRecordsToMatchProton(t *testing.T) {
+func TestStatsAggregatorPrunesInferredRecordsToMatchCNPG(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 

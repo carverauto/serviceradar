@@ -1,23 +1,22 @@
 package models
 
-type ProtonSettings struct {
-	MaxExecutionTime                    int `json:"max_execution_time"`
-	OutputFormatJSONQuote64bitInt       int `json:"output_format_json_quote_64bit_int"`
-	AllowExperimentalLiveViews          int `json:"allow_experimental_live_views"`
-	IdleConnectionTimeout               int `json:"idle_connection_timeout"`
-	JoinUseNulls                        int `json:"join_use_nulls"`
-	InputFormatDefaultsForOmittedFields int `json:"input_format_defaults_for_omitted_fields"`
-}
-
-type ProtonDatabase struct {
-	Addresses []string       `json:"addresses"`
-	Name      string         `json:"name"`
-	Username  string         `json:"username"`
-	Password  string         `json:"password" sensitive:"true"`
-	MaxConns  int            `json:"max_conns"`
-	IdleConns int            `json:"idle_conns"`
-	TLS       *TLSConfig     `json:"tls,omitempty"`
-	Settings  ProtonSettings `json:"settings"`
+// CNPGDatabase describes the Timescale/CloudNativePG connection.
+type CNPGDatabase struct {
+	Host               string            `json:"host"`
+	Port               int               `json:"port"`
+	Database           string            `json:"database"`
+	Username           string            `json:"username"`
+	Password           string            `json:"password" sensitive:"true"`
+	ApplicationName    string            `json:"application_name,omitempty"`
+	SSLMode            string            `json:"ssl_mode,omitempty"`
+	CertDir            string            `json:"cert_dir,omitempty"`
+	TLS                *TLSConfig        `json:"tls,omitempty"`
+	MaxConnections     int32             `json:"max_connections,omitempty"`
+	MinConnections     int32             `json:"min_connections,omitempty"`
+	MaxConnLifetime    Duration          `json:"max_conn_lifetime,omitempty"`
+	HealthCheckPeriod  Duration          `json:"health_check_period,omitempty"`
+	StatementTimeout   Duration          `json:"statement_timeout,omitempty"`
+	ExtraRuntimeParams map[string]string `json:"runtime_params,omitempty"`
 }
 
 type Metrics struct {

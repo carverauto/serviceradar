@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/timeplus-io/proton-go-driver/v2"
 	v1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	metricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -49,77 +48,12 @@ func safeUint64ToInt64(u uint64) int64 {
 	return int64(u)
 }
 
-// Processor writes JetStream messages to Proton tables.
+// Processor writes JetStream messages to CNPG observability tables.
 type Processor struct {
-	conn    proton.Conn
+	db      *db.DB
 	table   string         // Legacy single table
 	streams []StreamConfig // Multi-stream configuration
 	logger  logger.Logger
-}
-
-// LogRow represents a row in the logs table
-type LogRow struct {
-	Timestamp          time.Time `db:"timestamp"`
-	TraceID            string    `db:"trace_id"`
-	SpanID             string    `db:"span_id"`
-	SeverityText       string    `db:"severity_text"`
-	SeverityNumber     int32     `db:"severity_number"`
-	Body               string    `db:"body"`
-	ServiceName        string    `db:"service_name"`
-	ServiceVersion     string    `db:"service_version"`
-	ServiceInstance    string    `db:"service_instance"`
-	ScopeName          string    `db:"scope_name"`
-	ScopeVersion       string    `db:"scope_version"`
-	Attributes         string    `db:"attributes"`
-	ResourceAttributes string    `db:"resource_attributes"`
-	// RawData removed to save storage space
-}
-
-// MetricsRow represents a row in the metrics table
-type MetricsRow struct {
-	Timestamp       time.Time `db:"timestamp"`
-	TraceID         string    `db:"trace_id"`
-	SpanID          string    `db:"span_id"`
-	ServiceName     string    `db:"service_name"`
-	SpanName        string    `db:"span_name"`
-	SpanKind        string    `db:"span_kind"`
-	DurationMs      float64   `db:"duration_ms"`
-	DurationSeconds float64   `db:"duration_seconds"`
-	MetricType      string    `db:"metric_type"`
-	HTTPMethod      string    `db:"http_method"`
-	HTTPRoute       string    `db:"http_route"`
-	HTTPStatusCode  string    `db:"http_status_code"`
-	GRPCService     string    `db:"grpc_service"`
-	GRPCMethod      string    `db:"grpc_method"`
-	GRPCStatusCode  string    `db:"grpc_status_code"`
-	IsSlow          bool      `db:"is_slow"`
-	Component       string    `db:"component"`
-	Level           string    `db:"level"`
-	// RawData removed to save storage space
-}
-
-// TracesRow represents a row in the traces table
-type TracesRow struct {
-	Timestamp          time.Time `db:"timestamp"`
-	TraceID            string    `db:"trace_id"`
-	SpanID             string    `db:"span_id"`
-	ParentSpanID       string    `db:"parent_span_id"`
-	Name               string    `db:"name"`
-	Kind               int32     `db:"kind"`
-	StartTimeUnixNano  uint64    `db:"start_time_unix_nano"`
-	EndTimeUnixNano    uint64    `db:"end_time_unix_nano"`
-	ServiceName        string    `db:"service_name"`
-	ServiceVersion     string    `db:"service_version"`
-	ServiceInstance    string    `db:"service_instance"`
-	ScopeName          string    `db:"scope_name"`
-	ScopeVersion       string    `db:"scope_version"`
-	StatusCode         int32     `db:"status_code"`
-	StatusMessage      string    `db:"status_message"`
-	Attributes         string    `db:"attributes"`
-	ResourceAttributes string    `db:"resource_attributes"`
-	Events             string    `db:"events"`
-	Links              string    `db:"links"`
-	// RawData removed to save storage space
 }
 
 // parseCloudEvent attempts to extract the `data` field from a CloudEvent.
@@ -212,7 +146,7 @@ func createLogRow(
 	scopeName, scopeVersion string,
 	resourceAttribs []string,
 	logAttribs []string,
-) LogRow {
+) models.OTELLogRow {
 	// Extract body text
 	body := ""
 	if logRecord.Body != nil && logRecord.Body.GetStringValue() != "" {
@@ -259,7 +193,7 @@ func createLogRow(
 	// Note: Removed raw_data JSON generation to save storage space
 	// The raw protobuf data was consuming massive storage with no benefit
 
-	return LogRow{
+	return models.OTELLogRow{
 		Timestamp:          timestamp,
 		TraceID:            fmt.Sprintf("%x", logRecord.TraceId),
 		SpanID:             fmt.Sprintf("%x", logRecord.SpanId),
@@ -287,7 +221,7 @@ func getScopeInfo(scope *commonv1.InstrumentationScope) (name, version string) {
 }
 
 // parseOTELLogs parses OTEL protobuf logs data and returns LogRow entries
-func parseOTELLogs(b []byte, _ string) ([]LogRow, error) {
+func parseOTELLogs(b []byte, _ string) ([]models.OTELLogRow, error) {
 	// Unmarshal the protobuf data
 	var req v1.ExportLogsServiceRequest
 
@@ -296,7 +230,7 @@ func parseOTELLogs(b []byte, _ string) ([]LogRow, error) {
 	}
 
 	// Pre-allocate result slice
-	var rows []LogRow
+	var rows []models.OTELLogRow
 
 	// Process all logs in a single loop
 	for _, resourceLog := range req.ResourceLogs {
@@ -605,7 +539,7 @@ func NewProcessor(dbService db.Service, table string, log logger.Logger) (*Proce
 		return nil, errDBServiceNotDB
 	}
 
-	return &Processor{conn: dbImpl.Conn, table: table, logger: log}, nil
+	return &Processor{db: dbImpl, table: table, logger: log}, nil
 }
 
 // NewProcessorWithStreams creates a Processor with multi-stream configuration.
@@ -615,7 +549,7 @@ func NewProcessorWithStreams(dbService db.Service, streams []StreamConfig, log l
 		return nil, errDBServiceNotDB
 	}
 
-	return &Processor{conn: dbImpl.Conn, streams: streams, logger: log}, nil
+	return &Processor{db: dbImpl, streams: streams, logger: log}, nil
 }
 
 // getTableForSubject returns the table name for a given subject
@@ -680,291 +614,167 @@ func (p *Processor) processTableMessages(ctx context.Context, table string, tabl
 		return p.processMetricsTable(ctx, table, tableMsgs)
 	default:
 		p.logger.Debug().Str("table", table).Msg("Processing as events table")
-		return p.processEventsTable(ctx, table, tableMsgs)
+		return p.processEventsTable(ctx, tableMsgs)
 	}
 }
 
 // processEventsTable handles events table batch processing
-func (p *Processor) processEventsTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
-	query := fmt.Sprintf("INSERT INTO %s (specversion, id, source, type, datacontenttype, "+
-		"subject, remote_addr, host, level, severity, short_message, event_timestamp, version, raw_data) "+
-		"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", table)
-
-	batch, err := p.conn.PrepareBatch(ctx, query)
-	if err != nil {
-		return nil, err
+func (p *Processor) processEventsTable(ctx context.Context, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
+	if len(msgs) == 0 {
+		return nil, nil
 	}
 
-	processed := make([]jetstream.Msg, 0, len(msgs))
+	if p.db == nil {
+		return nil, errCNPGEventsNotConfigured
+	}
+
+	eventRows := make([]*models.EventRow, 0, len(msgs))
 
 	for _, msg := range msgs {
 		row := buildEventRow(msg.Data(), msg.Subject())
+		clone := row
+		eventRows = append(eventRows, &clone)
+	}
 
-		if err := batch.Append(
-			row.SpecVersion,
-			row.ID,
-			row.Source,
-			row.Type,
-			row.DataContentType,
-			row.Subject,
-			row.RemoteAddr,
-			row.Host,
-			row.Level,
-			row.Severity,
-			row.ShortMessage,
-			row.EventTimestamp,
-			row.Version,
-			row.RawData,
-		); err != nil {
-			return processed, err
+	if err := p.db.InsertEvents(ctx, eventRows); err != nil {
+		return nil, err
+	}
+
+	return msgs, nil
+}
+
+func processOTELTable[T any](
+	ctx context.Context,
+	log logger.Logger,
+	table string,
+	msgs []jetstream.Msg,
+	parse func(jetstream.Msg) ([]T, bool),
+	insert func(context.Context, string, []T) error,
+	warnMsg, successMsg string,
+) ([]jetstream.Msg, error) {
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+
+	processed := make([]jetstream.Msg, 0, len(msgs))
+	rows := make([]T, 0, len(msgs))
+
+	for _, msg := range msgs {
+		processed = append(processed, msg)
+
+		if !strings.Contains(msg.Subject(), "otel") {
+			continue
 		}
 
-		processed = append(processed, msg)
+		parsedRows, ok := parse(msg)
+		if !ok {
+			log.Warn().Msg(warnMsg)
+			continue
+		}
+
+		rows = append(rows, parsedRows...)
 	}
 
-	if err := batch.Send(); err != nil {
+	if len(rows) == 0 {
+		return processed, nil
+	}
+
+	if err := insert(ctx, table, rows); err != nil {
 		return processed, err
 	}
+
+	log.Info().
+		Int("rows_processed", len(rows)).
+		Str("table", table).
+		Msg(successMsg)
 
 	return processed, nil
 }
 
 // processLogsTable handles logs table batch processing
 func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
-	query := fmt.Sprintf("INSERT INTO %s (timestamp, trace_id, span_id, severity_text, severity_number, "+
-		"body, service_name, service_version, service_instance, scope_name, scope_version, "+
-		"attributes, resource_attributes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", table)
-
-	batch, err := p.conn.PrepareBatch(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	processed := make([]jetstream.Msg, 0, len(msgs))
-
-	for _, msg := range msgs {
-		// Handle OTEL logs
-		if strings.Contains(msg.Subject(), "otel") {
-			logRows, ok := p.parseOTELMessage(msg)
-			if ok {
-				for i := range logRows {
-					if err := batch.Append(
-						logRows[i].Timestamp,
-						logRows[i].TraceID,
-						logRows[i].SpanID,
-						logRows[i].SeverityText,
-						logRows[i].SeverityNumber,
-						logRows[i].Body,
-						logRows[i].ServiceName,
-						logRows[i].ServiceVersion,
-						logRows[i].ServiceInstance,
-						logRows[i].ScopeName,
-						logRows[i].ScopeVersion,
-						logRows[i].Attributes,
-						logRows[i].ResourceAttributes,
-					); err != nil {
-						return processed, err
-					}
-				}
-			} else {
-				p.logger.Warn().Msg("Skipping malformed OTEL message")
-			}
-		}
-
-		processed = append(processed, msg)
-	}
-
-	if err := batch.Send(); err != nil {
-		return processed, err
-	}
-
-	return processed, nil
+	return processOTELTable(
+		ctx,
+		p.logger,
+		table,
+		msgs,
+		p.parseOTELMessage,
+		p.db.InsertOTELLogs,
+		"Skipping malformed OTEL log message",
+		"Inserted OTEL logs into CNPG",
+	)
 }
 
 // processMetricsTable handles performance metrics table batch processing
 func (p *Processor) processMetricsTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
-	p.logger.Info().Str("table", table).Int("message_count", len(msgs)).Msg("Starting metrics table processing")
-
-	query := fmt.Sprintf("INSERT INTO %s (timestamp, trace_id, span_id, service_name, span_name, span_kind, "+
-		"duration_ms, duration_seconds, metric_type, http_method, http_route, http_status_code, "+
-		"grpc_service, grpc_method, grpc_status_code, is_slow, component, level) "+
-		"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", table)
-
-	batch, err := p.conn.PrepareBatch(ctx, query)
-	if err != nil {
-		p.logger.Error().Err(err).Str("query", query).Msg("Failed to prepare batch for metrics table")
-		return nil, err
+	if len(msgs) == 0 {
+		return nil, nil
 	}
-
-	p.logger.Debug().Str("table", table).Msg("Prepared batch for metrics table")
 
 	processed := make([]jetstream.Msg, 0, len(msgs))
-	rowsProcessed := 0
+	metricRows := make([]models.OTELMetricRow, 0, len(msgs))
 
 	for _, msg := range msgs {
-		// Handle OTEL metrics messages
-		if strings.Contains(msg.Subject(), "otel") && strings.Contains(msg.Subject(), "metrics") {
-			p.logger.Debug().Str("subject", msg.Subject()).Msg("Processing OTEL metrics message")
+		processed = append(processed, msg)
 
-			metricsRows, ok := p.parseOTELMetrics(msg)
-			if ok {
-				p.logger.Debug().Int("metrics_rows_count", len(metricsRows)).Msg("Parsed OTEL metrics rows")
+		var (
+			rows []models.OTELMetricRow
+			ok   bool
+		)
 
-				for i := range metricsRows {
-					if err = batch.Append(
-						metricsRows[i].Timestamp,
-						metricsRows[i].TraceID,
-						metricsRows[i].SpanID,
-						metricsRows[i].ServiceName,
-						metricsRows[i].SpanName,
-						metricsRows[i].SpanKind,
-						metricsRows[i].DurationMs,
-						metricsRows[i].DurationSeconds,
-						metricsRows[i].MetricType,
-						metricsRows[i].HTTPMethod,
-						metricsRows[i].HTTPRoute,
-						metricsRows[i].HTTPStatusCode,
-						metricsRows[i].GRPCService,
-						metricsRows[i].GRPCMethod,
-						metricsRows[i].GRPCStatusCode,
-						metricsRows[i].IsSlow,
-						metricsRows[i].Component,
-						metricsRows[i].Level,
-					); err != nil {
-						p.logger.Error().Err(err).Msg("Failed to append metrics row to batch")
-						return processed, err
-					}
-
-					rowsProcessed++
-				}
-			} else {
+		switch {
+		case strings.Contains(msg.Subject(), "otel") && strings.Contains(msg.Subject(), "metrics"):
+			rows, ok = p.parseOTELMetrics(msg)
+			if !ok {
 				p.logger.Warn().Msg("Skipping malformed OTEL metrics message")
+				continue
 			}
+		case p.isJSONFormat(msg.Data()):
+			rows, ok = p.parsePerformanceMessage(msg)
+			if !ok {
+				p.logger.Warn().Msg("Skipping malformed performance metrics JSON message")
+				continue
+			}
+		default:
+			continue
 		}
 
-		processed = append(processed, msg)
+		metricRows = append(metricRows, rows...)
 	}
 
-	p.logger.Info().Int("rows_processed", rowsProcessed).Str("table", table).Msg("Sending batch to database")
+	if len(metricRows) == 0 {
+		return processed, nil
+	}
 
-	err = batch.Send()
-	if err != nil {
-		p.logger.Error().Err(err).Str("table", table).Int("rows_processed", rowsProcessed).Msg("Failed to send batch to database")
+	if err := p.db.InsertOTELMetrics(ctx, table, metricRows); err != nil {
 		return processed, err
 	}
 
-	p.logger.Info().Int("rows_processed", rowsProcessed).Str("table", table).Msg("Successfully sent batch to database")
+	p.logger.Info().
+		Int("rows_processed", len(metricRows)).
+		Str("table", table).
+		Msg("Inserted OTEL metrics into CNPG")
 
 	return processed, nil
-}
-
-// processOTELTracesMessage processes a single OTEL traces message
-func (p *Processor) processOTELTracesMessage(msg jetstream.Msg, batch interface{}) (tracesCount int, err error) {
-	traceRows, ok := p.parseOTELTraces(msg)
-	if !ok {
-		p.logger.Warn().Msg("Skipping malformed OTEL trace message")
-		return 0, nil
-	}
-
-	p.logger.Debug().
-		Int("traces_rows_count", len(traceRows)).
-		Msg("Parsed OTEL traces rows")
-
-	rowsProcessed := 0
-
-	// Append traces rows
-	for i := range traceRows {
-		if err := batch.(interface {
-			Append(...interface{}) error
-		}).Append(
-			traceRows[i].Timestamp,
-			traceRows[i].TraceID,
-			traceRows[i].SpanID,
-			traceRows[i].ParentSpanID,
-			traceRows[i].Name,
-			traceRows[i].Kind,
-			traceRows[i].StartTimeUnixNano,
-			traceRows[i].EndTimeUnixNano,
-			traceRows[i].ServiceName,
-			traceRows[i].ServiceVersion,
-			traceRows[i].ServiceInstance,
-			traceRows[i].ScopeName,
-			traceRows[i].ScopeVersion,
-			traceRows[i].StatusCode,
-			traceRows[i].StatusMessage,
-			traceRows[i].Attributes,
-			traceRows[i].ResourceAttributes,
-			traceRows[i].Events,
-			traceRows[i].Links,
-		); err != nil {
-			p.logger.Error().Err(err).Msg("Failed to append traces row to batch")
-			return rowsProcessed, err
-		}
-
-		rowsProcessed++
-	}
-
-	return rowsProcessed, nil
 }
 
 // processTracesTable handles traces table batch processing
 func (p *Processor) processTracesTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
-	p.logger.Info().Str("table", table).Int("message_count", len(msgs)).Msg("Starting traces table processing")
-
-	// Prepare traces batch
-	query := fmt.Sprintf("INSERT INTO %s (timestamp, trace_id, span_id, parent_span_id, name, kind, "+
-		"start_time_unix_nano, end_time_unix_nano, service_name, service_version, service_instance, "+
-		"scope_name, scope_version, status_code, status_message, attributes, resource_attributes, "+
-		"events, links) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", table)
-
-	batch, err := p.conn.PrepareBatch(ctx, query)
-	if err != nil {
-		p.logger.Error().Err(err).Str("query", query).Msg("Failed to prepare batch for traces table")
-		return nil, err
-	}
-
-	p.logger.Debug().Str("table", table).Msg("Prepared batch for traces table")
-
-	processed := make([]jetstream.Msg, 0, len(msgs))
-	rowsProcessed := 0
-
-	for _, msg := range msgs {
-		if strings.Contains(msg.Subject(), "otel") {
-			p.logger.Debug().Str("subject", msg.Subject()).Msg("Processing OTEL traces message")
-
-			tracesCount, processErr := p.processOTELTracesMessage(msg, batch)
-			if processErr != nil {
-				return processed, processErr
-			}
-
-			rowsProcessed += tracesCount
-		}
-
-		processed = append(processed, msg)
-	}
-
-	p.logger.Info().
-		Int("traces_rows_processed", rowsProcessed).
-		Str("table", table).
-		Msg("Sending batch to database")
-
-	// Send traces batch
-	if err = batch.(interface{ Send() error }).Send(); err != nil {
-		p.logger.Error().Err(err).Str("table", table).Int("rows_processed", rowsProcessed).Msg("Failed to send traces batch to database")
-		return processed, err
-	}
-
-	p.logger.Info().
-		Int("traces_rows_processed", rowsProcessed).
-		Str("table", table).
-		Msg("Successfully sent traces batch to database")
-
-	return processed, nil
+	return processOTELTable(
+		ctx,
+		p.logger,
+		table,
+		msgs,
+		p.parseOTELTraces,
+		p.db.InsertOTELTraces,
+		"Skipping malformed OTEL trace message",
+		"Inserted OTEL traces into CNPG",
+	)
 }
 
 // parseOTELMessage attempts to parse an OTEL message and returns log rows
 // It returns the parsed log rows and a boolean indicating success
-func (p *Processor) parseOTELMessage(msg jetstream.Msg) ([]LogRow, bool) {
+func (p *Processor) parseOTELMessage(msg jetstream.Msg) ([]models.OTELLogRow, bool) {
 	p.logger.Debug().
 		Str("subject", msg.Subject()).
 		Int("data_length", len(msg.Data())).
@@ -1008,7 +818,7 @@ func (p *Processor) parseOTELMessage(msg jetstream.Msg) ([]LogRow, bool) {
 
 // parsePerformanceMessage attempts to parse a performance analytics JSON message and returns metrics rows
 // It returns the parsed metrics rows and a boolean indicating success
-func (p *Processor) parsePerformanceMessage(msg jetstream.Msg) ([]MetricsRow, bool) {
+func (p *Processor) parsePerformanceMessage(msg jetstream.Msg) ([]models.OTELMetricRow, bool) {
 	p.logger.Debug().
 		Str("subject", msg.Subject()).
 		Int("data_length", len(msg.Data())).
@@ -1041,8 +851,8 @@ func (p *Processor) parsePerformanceMessage(msg jetstream.Msg) ([]MetricsRow, bo
 		return nil, false
 	}
 
-	// Convert to MetricsRow structs
-	metricsRows := make([]MetricsRow, 0, len(performanceMetrics))
+	// Convert to OTELMetricRow structs
+	metricsRows := make([]models.OTELMetricRow, 0, len(performanceMetrics))
 
 	for i := range performanceMetrics {
 		metric := &performanceMetrics[i]
@@ -1065,7 +875,7 @@ func (p *Processor) parsePerformanceMessage(msg jetstream.Msg) ([]MetricsRow, bo
 
 		// Note: Removed raw_data JSON generation to save storage space
 
-		row := MetricsRow{
+		row := models.OTELMetricRow{
 			Timestamp:       timestamp,
 			TraceID:         metric.TraceID,
 			SpanID:          metric.SpanID,
@@ -1151,8 +961,8 @@ func (p *Processor) parseMetricsRequest(msgData []byte) (*metricsv1.ExportMetric
 }
 
 // processResourceMetrics processes all metrics for a single resource
-func (p *Processor) processResourceMetrics(resourceMetric *metricspbv1.ResourceMetrics) []MetricsRow {
-	var rows []MetricsRow
+func (p *Processor) processResourceMetrics(resourceMetric *metricspbv1.ResourceMetrics) []models.OTELMetricRow {
+	var rows []models.OTELMetricRow
 
 	// Skip invalid resource metrics
 	if resourceMetric.Resource == nil {
@@ -1177,7 +987,7 @@ func (p *Processor) processResourceMetrics(resourceMetric *metricspbv1.ResourceM
 				Str("metric_type", metricType).
 				Msg("Processing metric")
 
-			baseRow := MetricsRow{
+			baseRow := models.OTELMetricRow{
 				ServiceName: serviceName,
 				SpanName:    metric.Name,
 				MetricType:  metricType,
@@ -1193,11 +1003,11 @@ func (p *Processor) processResourceMetrics(resourceMetric *metricspbv1.ResourceM
 }
 
 // processMetricDataPoints processes data points based on metric type
-func processMetricDataPoints(metric *metricspbv1.Metric, baseRow *MetricsRow) []MetricsRow {
-	var rows []MetricsRow
+func processMetricDataPoints(metric *metricspbv1.Metric, baseRow *models.OTELMetricRow) []models.OTELMetricRow {
+	var rows []models.OTELMetricRow
 
 	// Helper function to process number data points
-	processNumberDataPoint := func(point *metricspbv1.NumberDataPoint, _ string) MetricsRow {
+	processNumberDataPoint := func(point *metricspbv1.NumberDataPoint, _ string) models.OTELMetricRow {
 		row := *baseRow
 		row.Timestamp = time.Unix(0, safeUint64ToInt64(point.TimeUnixNano))
 		row.DurationMs = getNumberValue(point)
@@ -1248,7 +1058,7 @@ func processMetricDataPoints(metric *metricspbv1.Metric, baseRow *MetricsRow) []
 
 // parseOTELMetrics attempts to parse an OTEL metrics message and returns metrics rows
 // It returns the parsed metrics rows and a boolean indicating success
-func (p *Processor) parseOTELMetrics(msg jetstream.Msg) ([]MetricsRow, bool) {
+func (p *Processor) parseOTELMetrics(msg jetstream.Msg) ([]models.OTELMetricRow, bool) {
 	msgData := msg.Data()
 	p.logger.Debug().
 		Str("subject", msg.Subject()).
@@ -1275,7 +1085,7 @@ func (p *Processor) parseOTELMetrics(msg jetstream.Msg) ([]MetricsRow, bool) {
 	}
 
 	// Pre-allocate result slice
-	var rows []MetricsRow
+	var rows []models.OTELMetricRow
 
 	p.logger.Debug().
 		Int("resource_metrics_count", len(req.ResourceMetrics)).
@@ -1325,7 +1135,7 @@ func getNumberValue(point *metricspbv1.NumberDataPoint) float64 {
 }
 
 // extractMetricAttributes extracts relevant attributes from metric data points
-func extractMetricAttributes(row *MetricsRow, attributes []*commonv1.KeyValue) {
+func extractMetricAttributes(row *models.OTELMetricRow, attributes []*commonv1.KeyValue) {
 	for _, attr := range attributes {
 		value := extractAttributeValue(attr)
 
@@ -1432,9 +1242,9 @@ func processSpanLinks(links []*tracepbv1.Span_Link) string {
 	return "[]"
 }
 
-// processSpanSimple converts a single span to a TracesRow
+// processSpanSimple converts a single span to an OTELTraceRow
 func processSpanSimple(span *tracepbv1.Span, serviceName, serviceVersion, serviceInstance string,
-	resourceAttribs []string, scopeName, scopeVersion string) TracesRow {
+	resourceAttribs []string, scopeName, scopeVersion string) models.OTELTraceRow {
 	// Convert timestamp
 	timestamp := convertSpanTimestamp(span.StartTimeUnixNano)
 
@@ -1462,15 +1272,15 @@ func processSpanSimple(span *tracepbv1.Span, serviceName, serviceVersion, servic
 	resourceAttribsStr := strings.Join(resourceAttribs, ",")
 
 	// Create the trace row
-	traceRow := TracesRow{
+	traceRow := models.OTELTraceRow{
 		Timestamp:          timestamp,
 		TraceID:            fmt.Sprintf("%x", span.TraceId),
 		SpanID:             fmt.Sprintf("%x", span.SpanId),
 		ParentSpanID:       fmt.Sprintf("%x", span.ParentSpanId),
 		Name:               span.Name,
 		Kind:               int32(span.Kind),
-		StartTimeUnixNano:  span.StartTimeUnixNano,
-		EndTimeUnixNano:    span.EndTimeUnixNano,
+		StartTimeUnixNano:  safeUint64ToInt64(span.StartTimeUnixNano),
+		EndTimeUnixNano:    safeUint64ToInt64(span.EndTimeUnixNano),
 		ServiceName:        serviceName,
 		ServiceVersion:     serviceVersion,
 		ServiceInstance:    serviceInstance,
@@ -1489,8 +1299,8 @@ func processSpanSimple(span *tracepbv1.Span, serviceName, serviceVersion, servic
 }
 
 // processResourceSpans processes all spans for a single resource
-func processResourceSpans(resourceSpan *tracepbv1.ResourceSpans) []TracesRow {
-	var traceRows []TracesRow
+func processResourceSpans(resourceSpan *tracepbv1.ResourceSpans) []models.OTELTraceRow {
+	var traceRows []models.OTELTraceRow
 
 	// Skip invalid resource spans
 	if resourceSpan.Resource == nil {
@@ -1519,7 +1329,7 @@ func processResourceSpans(resourceSpan *tracepbv1.ResourceSpans) []TracesRow {
 
 // parseOTELTraces attempts to parse an OTEL traces message and returns trace rows
 // It returns the parsed trace rows and a boolean indicating success
-func (p *Processor) parseOTELTraces(msg jetstream.Msg) ([]TracesRow, bool) {
+func (p *Processor) parseOTELTraces(msg jetstream.Msg) ([]models.OTELTraceRow, bool) {
 	p.logger.Debug().
 		Str("subject", msg.Subject()).
 		Int("data_length", len(msg.Data())).
@@ -1533,7 +1343,7 @@ func (p *Processor) parseOTELTraces(msg jetstream.Msg) ([]TracesRow, bool) {
 	}
 
 	// Pre-allocate result slice
-	var traceRows []TracesRow
+	var traceRows []models.OTELTraceRow
 
 	// Process all traces
 	for _, resourceSpan := range req.ResourceSpans {

@@ -46,20 +46,26 @@ data:
           "table": "otel_metrics"
         }
       ],
-      "database": {
-        "addresses": [
-          "serviceradar-proton:9440"
-        ],
-        "name": "default",
-        "username": "default",
-        "password": ""
+      "cnpg": {
+        "host": "cnpg-rw.$(SERVICERADAR_NAMESPACE).svc",
+        "port": 5432,
+        "database": "telemetry",
+        "username": "postgres",
+        "password": "",
+        "ssl_mode": "verify-full",
+        "cert_dir": "/etc/serviceradar/certs",
+        "tls": {
+          "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
+          "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
+          "ca_file": "/etc/serviceradar/cnpg/ca.crt"
+        }
       },
       "security": {
         "mode": "spiffe",
         "cert_dir": "/etc/serviceradar/certs",
         "role": "core",
         "trust_domain": "carverauto.dev",
-        "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-db-event-writer",
+        "server_spiffe_id": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-db-event-writer",
         "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
@@ -71,17 +77,6 @@ data:
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
         "server_name": "nats.serviceradar",
-        "role": "client",
-        "tls": {
-          "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
-          "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
-          "ca_file": "/etc/serviceradar/certs/root.pem"
-        }
-      },
-      "db_security": {
-        "mode": "mtls",
-        "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "proton.serviceradar",
         "role": "client",
         "tls": {
           "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",

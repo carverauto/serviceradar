@@ -45,7 +45,7 @@ spec:
         - name: CORE_TRUST_DOMAIN
           value: "carverauto.dev"
         - name: CORE_SERVER_SPIFFE_ID
-          value: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core"
+          value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-core"
         - name: CORE_WORKLOAD_SOCKET
           value: "unix:/run/spire/sockets/agent.sock"
         - name: CORE_CERT_DIR

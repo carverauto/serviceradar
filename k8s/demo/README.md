@@ -1,94 +1,114 @@
 # ServiceRadar Kubernetes Deployment
 
-This directory contains Kubernetes manifests for deploying ServiceRadar in a Kubernetes cluster using Kustomize.
+This directory contains Kubernetes manifests for deploying ServiceRadar in the demo environments. Common resources live under `base/` and each overlay (`prod/`, `staging/`) applies environment-specific tweaks via Kustomize.
 
 ## Structure
 
 ```
 .
-├── base/                  # Base manifests that are common across all environments
-│   ├── kustomization.yaml
-│   ├── serviceradar-agent.yaml
-│   ├── serviceradar-poller.yaml
-│   ├── serviceradar-cloud.yaml
-│   ├── serviceradar-dusk-checker.yaml
-│   ├── serviceradar-snmp-checker.yaml
-│   └── configmap.yaml
-├── overlays/              # Environment-specific overlays
-│   └── demo/              # Demo environment overlay
-│       ├── kustomization.yaml
-│       ├── namespace.yaml
-│       └── patches/
-│           └── resources.yaml
-└── deploy.sh              # Deployment script
+├── base/                     # Shared workloads, jobs, and configs
+├── prod/                     # Demo namespace (demo) overlay + ingress
+├── staging/                  # Demo-staging namespace overlay + ingress
+├── deploy.sh                 # Helper script that applies base + overlay
+├── DEPLOYMENT.md             # Detailed deployment guide
+└── README.md                 # This file
 ```
+
+- `prod/` renders the public demo (`demo` namespace, `demo.serviceradar.cloud`).
+- `staging/` mirrors `prod/` but targets the `demo-staging` namespace and `demo-staging.serviceradar.cloud` DNS so we can rehearse changes.
 
 ## Components
 
-- **cloud** - The central service that collects and stores monitoring data
-- **poller** - Service that polls targets and reports back to cloud
-- **agent** - DaemonSet that runs on each node to monitor local resources
-- **dusk-checker** - Specialization checker for Dusk Network services
-- **snmp-checker** - SNMP monitoring service
+- **cloud** – central service that collects and stores monitoring data
+- **poller** – polls targets and reports back to cloud
+- **agent** – DaemonSet on every node for local resource monitoring
+- **dusk-checker** – checker for Dusk Network services
+- **snmp-checker** – SNMP monitoring service
+- **kong/web/nats** – other core platform services defined in `base/`
+- **cnpg** – CloudNativePG cluster (Timescale + AGE) deployed via `base/spire`; hosts telemetry + SPIRE state.
 
 ## Quick Start
 
 ### Prerequisites
 
-- Kubernetes cluster
-- kubectl configured to access your cluster
-- (Optional) kustomize CLI
+- Kubernetes cluster with ingress + cert-manager
+- `kubectl` configured for the cluster (and optionally `kubectl kustomize`)
+- GitHub Container Registry credentials stored as `ghcr-io-cred` (see `DEPLOYMENT.md`)
 
-### Deployment
+### Deploy with the helper script
 
-To deploy to the demo environment:
+From `k8s/demo/` run:
 
 ```bash
-./deploy.sh demo
+./deploy.sh prod      # Deploy to namespace demo, host demo.serviceradar.cloud
+./deploy.sh staging   # Deploy to namespace demo-staging, host demo-staging.serviceradar.cloud
 ```
 
-This will:
-1. Create the `demo` namespace if it doesn't exist
-2. Apply all the kustomized resources to your cluster
-3. Wait for deployments to become available
+The script creates the namespace, generates secrets/configmaps, applies `base/` followed by the chosen overlay, and waits for key deployments before printing ingress details.
 
-### Accessing the UI
+### Manual Kustomize apply
 
-After deployment, you can access the ServiceRadar Cloud UI through:
+If you prefer raw Kustomize:
 
-- **NodePort**: http://\<node-ip\>:30080
-- **Ingress** (if configured): http://serviceradar-demo.example.com
+```bash
+kubectl apply -k base -n demo
+kubectl apply -k prod -n demo
+# or for staging
+kubectl apply -k base -n demo-staging
+kubectl apply -k staging -n demo-staging
+```
+
+## Accessing the UI
+
+- Demo: `https://demo.serviceradar.cloud`
+- Demo-staging: `https://demo-staging.serviceradar.cloud`
+
+Use `kubectl -n <namespace> get ingress serviceradar-ingress` to confirm DNS and TLS status.
 
 ## Configuration
 
-The base configuration is in the ConfigMap located at `base/configmap.yaml`. This contains JSON configurations for each component.
+The shared ConfigMap JSON lives in `base/configmap.yaml`. Override or extend behavior by editing the overlay manifests:
 
-To customize for your environment:
-1. Create a new overlay directory in `overlays/`
-2. Copy and modify the `kustomization.yaml` and other files from the demo overlay
-3. Add patches as needed for your environment
+1. Update `prod/` or `staging/` manifests (ingress, service aliases, external Services) for environment-specific changes.
+2. Run `kubectl kustomize <overlay>` to verify the rendered YAML before applying.
 
 ## Image Updates
 
-To update images, edit the `kustomization.yaml` in your overlay directory:
+Update the `images:` stanza in the overlay you are deploying:
 
 ```yaml
 images:
-- name: ghcr.io/carverauto/serviceradar/serviceradar-agent
-  newTag: v1.0.21  # Change to desired version
+- name: ghcr.io/carverauto/serviceradar-core
+  newTag: sha-<commit>
 ```
+
+Both overlays can pin different tags if needed for validation.
+
+When validating CNPG migrations in `demo-staging`, remember to ship the updated
+`serviceradar-tools` image and record its digest before rolling pods:
+
+```bash
+# Build + push the toolbox image (Bazel prints the sha tag)
+bazel run --config=remote //docker/images:tools_image_amd64_push
+
+# Update k8s/demo/staging/kustomization.yaml so the images block includes:
+# - name: ghcr.io/carverauto/serviceradar-tools
+#   newTag: sha-<digest from bazel output>
+
+# Apply the overlay again so the deployment picks up the pinned image
+kubectl apply -k staging -n demo-staging
+```
+
+Always apply the new sha tag before restarting workloads so the namespace stays
+pinned to the build you just validated.
 
 ## Troubleshooting
 
-If you encounter issues:
-
 ```bash
-# Check pod status
-kubectl -n demo get pods
-
-# Check logs for a specific component
-kubectl -n demo logs deployment/serviceradar-cloud
-
-# Describe a pod for more details
-kubectl -n demo describe pod <pod-name>
+# Replace <ns> with demo or demo-staging
+kubectl -n <ns> get pods
+kubectl -n <ns> logs deployment/serviceradar-core
+kubectl -n <ns> describe ingress serviceradar-ingress
 ```
+
+`kubectl get events -n <ns>` is also helpful for tracking cert-manager or ingress provisioning issues.

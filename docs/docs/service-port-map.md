@@ -19,7 +19,7 @@ The following table lists the primary ServiceRadar components and their default 
 | Poller            | 50053        | gRPC/TCP    | Coordination of monitoring activities    |
 | Device Manager    | 50059        | gRPC/TCP    | Device management and configuration      |
 | Zen Service       | 50040        | gRPC/TCP    | Zen service for device management        |
-| DB Event Writer   | 50041        | gRPC/TCP    | Writes events to the Timeplus Proton DB  |
+| DB Event Writer   | 50041        | gRPC/TCP    | Writes events to the CNPG/Timescale DB   |
 | Mapper            | 50056        | gRPC/TCP    | Network Discovery and Mapper Service     |
 | Web UI (Next.js)  | 3000         | HTTP/TCP    | Web interface (accessed via Nginx)       |
 | Nginx             | 80/443       | HTTP(S)/TCP | Web UI reverse proxy                     |
@@ -28,7 +28,7 @@ The following table lists the primary ServiceRadar components and their default 
 
 | Component          | Default Port | Protocol | Purpose                                   |
 |--------------------|--------------|----------|-------------------------------------------|
-| Timeplus Proton DB | 9440         | TCP      | Time-series database for metrics          |
+| CNPG / Timescale  | 5432         | TCP      | Unified Postgres/Timescale telemetry store |
 | KV Store           | 50057        | gRPC/TCP | Key-value store for dynamic configuration |
 | NATS JetStream     | 4222         | TCP      | Messaging and KV storage (localhost only) |
 | Sync Service       | 50058        | gRPC/TCP | Integration with external data sources    |

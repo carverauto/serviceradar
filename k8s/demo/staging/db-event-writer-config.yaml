@@ -42,13 +42,19 @@ data:
           "table": "otel_metrics"
         }
       ],
-      "database": {
-        "addresses": [
-          "serviceradar-proton:9440"
-        ],
-        "name": "default",
-        "username": "default",
-        "password": ""
+      "cnpg": {
+        "host": "cnpg-rw.demo-staging.svc.cluster.local",
+        "port": 5432,
+        "database": "telemetry",
+        "username": "postgres",
+        "password": "",
+        "ssl_mode": "verify-full",
+        "cert_dir": "/etc/serviceradar/certs",
+        "tls": {
+          "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
+          "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
+          "ca_file": "/etc/serviceradar/certs/root.pem"
+        }
       },
       "security": {
         "mode": "mtls",
@@ -65,17 +71,6 @@ data:
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
         "server_name": "nats.serviceradar",
-        "role": "client",
-        "tls": {
-          "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
-          "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
-          "ca_file": "/etc/serviceradar/certs/root.pem"
-        }
-      },
-      "db_security": {
-        "mode": "mtls",
-        "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "proton.serviceradar",
         "role": "client",
         "tls": {
           "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",

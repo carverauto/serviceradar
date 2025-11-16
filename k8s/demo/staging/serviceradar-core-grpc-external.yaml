@@ -1,0 +1,22 @@
+# staging/serviceradar-core-grpc-external.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-core-grpc-external
+  namespace: demo-staging
+  annotations:
+    metallb.universe.tf/address-pool: k3s-pool
+spec:
+  type: LoadBalancer
+  selector:
+    app: serviceradar-core
+    app.kubernetes.io/part-of: serviceradar
+  ports:
+    - name: grpc
+      port: 50052
+      protocol: TCP
+      targetPort: grpc
+    - name: core
+      port: 8090
+      protocol: TCP
+      targetPort: core

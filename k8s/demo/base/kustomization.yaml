@@ -4,7 +4,6 @@ kind: Kustomization
 
 resources:
 - spire
-- serviceradar-proton.yaml
 - serviceradar-nats.yaml
 - serviceradar-datasvc.yaml
 - serviceradar-core.yaml
@@ -21,7 +20,6 @@ resources:
 - serviceradar-trapd.yaml
 - serviceradar-tools.yaml
 - serviceradar-kong.yaml
-- serviceradar-srql.yaml
 - serviceradar-sync.yaml
 - serviceradar-rperf-checker.yaml
 - serviceradar-faker.yaml
@@ -35,3 +33,6 @@ resources:
 labels:
 - pairs:
     app.kubernetes.io/part-of: serviceradar
+
+configurations:
+- var-references.yaml

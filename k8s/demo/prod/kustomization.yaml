@@ -14,6 +14,26 @@ resources:
 - serviceradar-flowgger-external.yaml
 - spire-server-external.yaml
 
+configurations:
+- var-references.yaml
+
+replacements:
+  - source:
+      kind: Namespace
+      name: demo
+      fieldPath: metadata.name
+    targets:
+      - select:
+          kind: ClusterSPIFFEID
+        fieldPaths:
+          - spec.namespaceSelector.matchLabels.[kubernetes.io/metadata.name]
+      - select:
+          kind: ClusterSPIFFEID
+        fieldPaths:
+          - spec.spiffeIDTemplate
+        options:
+          delimiter: /
+          index: 4
 
 images:
 - name: ghcr.io/carverauto/serviceradar-core
@@ -31,3 +51,12 @@ images:
 - name: ghcr.io/carverauto/serviceradar-sync
   newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
 patches:
+
+vars:
+- name: SERVICERADAR_NAMESPACE
+  objref:
+    apiVersion: v1
+    kind: Namespace
+    name: demo
+  fieldref:
+    fieldPath: metadata.name

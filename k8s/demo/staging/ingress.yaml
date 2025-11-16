@@ -2,25 +2,116 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: serviceradar-staging
+  name: serviceradar-ingress
   annotations:
     cert-manager.io/cluster-issuer: "carverauto-issuer"
-    external-dns.alpha.kubernetes.io/hostname: "staging.serviceradar.cloud"
+    external-dns.alpha.kubernetes.io/hostname: "demo-staging.serviceradar.cloud"
     metallb.universe.tf/allow-shared-ip: "true"
     metallb.universe.tf/address-pool: k3s-pool
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
+    nginx.ingress.kubernetes.io/proxy-busy-buffers-size: "256k"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
 spec:
   tls:
   - hosts:
-    - staging.serviceradar.cloud
-    secretName: serviceradar-staging-tls
+    - demo-staging.serviceradar.cloud
+    secretName: serviceradar-demo-staging-tls
   rules:
-  - host: staging.serviceradar.cloud
+  - host: demo-staging.serviceradar.cloud
     http:
       paths:
+      - path: /_next
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      - path: /api/stream
+        pathType: Exact
+        backend:
+          service:
+            name: serviceradar-kong
+            port:
+              number: 8000
+      - path: /api/auth
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      - path: /api/nodes
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      - path: /api/status
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      - path: /api/admin
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      - path: /api/pollers
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      - path: /api/devices
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      - path: /api/kv
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      - path: /api/config
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-kong
+            port:
+              number: 8000
+      - path: /auth
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-core
+            port:
+              number: 8090
       - path: /
         pathType: Prefix
         backend:
           service:
             name: serviceradar-web
             port:
-              name: http
+              number: 3000

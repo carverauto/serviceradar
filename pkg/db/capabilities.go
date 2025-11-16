@@ -67,7 +67,7 @@ INSERT INTO device_capabilities (
     $11, $12, $13
 	)`
 
-	if err := db.Conn.Exec(
+	if err := db.ExecCNPG(
 		ctx,
 		query,
 		event.EventID,
@@ -107,7 +107,7 @@ INSERT INTO device_capability_registry (
     $11, $12
 )`
 
-	if err := db.Conn.Exec(
+	if err := db.ExecCNPG(
 		ctx,
 		registryQuery,
 		event.DeviceID,

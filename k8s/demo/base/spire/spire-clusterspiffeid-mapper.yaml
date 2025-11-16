@@ -3,10 +3,10 @@ kind: ClusterSPIFFEID
 metadata:
   name: serviceradar-mapper
 spec:
-  spiffeIDTemplate: spiffe://carverauto.dev/ns/demo/sa/serviceradar-mapper
+  spiffeIDTemplate: spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-mapper
   namespaceSelector:
     matchLabels:
-      kubernetes.io/metadata.name: demo
+      kubernetes.io/metadata.name: $(SERVICERADAR_NAMESPACE)
   podSelector:
     matchLabels:
       app: serviceradar-mapper

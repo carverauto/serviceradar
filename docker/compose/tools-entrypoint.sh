@@ -10,6 +10,11 @@ if [ -f /etc/serviceradar/nats/setup-nats-context.sh ]; then
     /bin/sh /etc/serviceradar/nats/setup-nats-context.sh
 fi
 
+if [ -f /etc/serviceradar/cnpg/setup-cnpg-client.sh ]; then
+    echo "Configuring CNPG client context..."
+    /bin/sh /etc/serviceradar/cnpg/setup-cnpg-client.sh
+fi
+
 if [ $# -gt 0 ]; then
     exec "$@"
 else
