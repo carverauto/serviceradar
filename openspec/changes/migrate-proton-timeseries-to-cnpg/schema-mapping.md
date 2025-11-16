@@ -65,9 +65,9 @@ This document fulfills task **1.1** by enumerating every Proton stream/table tha
 
 | Proton object | Proton TTL | CNPG target | CNPG retention | Status | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `logs` | 3 days | `logs` hypertable | 3 days | Deferred | SRQL still emits Proton SQL for logs; these stay on Proton until we spec the SRQL migration. |
-| `otel_metrics` | 3 days | `otel_metrics` hypertable | 3 days | Deferred | Same as logs; requires SRQL translator work. |
-| `otel_traces` | 3 days | `otel_traces` hypertable | 3 days | Deferred | Requires OCaml translator rewrite; not in current scope. |
+| `logs` | 3 days | `logs` hypertable | 3 days | Existing | Added in `00000000000004_otel_observability.up.sql`; `cmd/consumers/db-event-writer` now writes OTEL logs via pgx. |
+| `otel_metrics` | 3 days | `otel_metrics` hypertable | 3 days | Existing | Same migration as above; fed exclusively by the CNPG-backed db-event-writer. |
+| `otel_traces` | 3 days | `otel_traces` hypertable | 3 days | Existing | Hypertable + ingestion wiring landed with the observability migration so gRPC traces bypass Proton. |
 | `otel_trace_summaries` | 3 days | `otel_trace_summaries` hypertable + views | 3 days | Deferred | Dependent on SRQL translator plans. |
 | `otel_spans_enriched` | 3 days | `otel_spans_enriched` hypertable + pipeline | 3 days | Deferred | Remains on Proton until SRQL is ported. |
 | `ocsf_device_inventory` | 30 days | Timescale table (one row per inventory event) | 30 days | Deferred | OCSF exports are not part of the timeseries-storage capability; Proton implementation continues until the OCSF alignment roadmap item is picked up. |

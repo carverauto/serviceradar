@@ -1,40 +1,5 @@
 package models
 
-type ProtonSettings struct {
-	MaxExecutionTime                    int `json:"max_execution_time"`
-	OutputFormatJSONQuote64bitInt       int `json:"output_format_json_quote_64bit_int"`
-	AllowExperimentalLiveViews          int `json:"allow_experimental_live_views"`
-	IdleConnectionTimeout               int `json:"idle_connection_timeout"`
-	JoinUseNulls                        int `json:"join_use_nulls"`
-	InputFormatDefaultsForOmittedFields int `json:"input_format_defaults_for_omitted_fields"`
-}
-
-type ProtonDatabase struct {
-	Addresses []string       `json:"addresses"`
-	Name      string         `json:"name"`
-	Username  string         `json:"username"`
-	Password  string         `json:"password" sensitive:"true"`
-	MaxConns  int            `json:"max_conns"`
-	IdleConns int            `json:"idle_conns"`
-	TLS       *TLSConfig     `json:"tls,omitempty"`
-	Settings  ProtonSettings `json:"settings"`
-}
-
-// StorageBackend enumerates the backend to use for persistence.
-type StorageBackend string
-
-const (
-	StorageBackendProton StorageBackend = "proton"
-	StorageBackendCNPG   StorageBackend = "cnpg"
-)
-
-// StorageRoutingConfig controls how reads/writes route between Proton and CNPG.
-type StorageRoutingConfig struct {
-	PrimaryBackend StorageBackend `json:"primary_backend"`
-	DualWrite      bool           `json:"dual_write,omitempty"`
-	MirrorReads    bool           `json:"mirror_reads,omitempty"`
-}
-
 // CNPGDatabase describes the Timescale/CloudNativePG connection.
 type CNPGDatabase struct {
 	Host               string            `json:"host"`
@@ -52,16 +17,6 @@ type CNPGDatabase struct {
 	HealthCheckPeriod  Duration          `json:"health_check_period,omitempty"`
 	StatementTimeout   Duration          `json:"statement_timeout,omitempty"`
 	ExtraRuntimeParams map[string]string `json:"runtime_params,omitempty"`
-}
-
-// Normalize ensures sane defaults.
-func (cfg *StorageRoutingConfig) Normalize() {
-	if cfg == nil {
-		return
-	}
-	if cfg.PrimaryBackend == "" {
-		cfg.PrimaryBackend = StorageBackendProton
-	}
 }
 
 type Metrics struct {

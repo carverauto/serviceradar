@@ -36,30 +36,25 @@
       "table": "otel_metrics"
     }
   ],
-  "database": {
-    "addresses": [
-      "127.0.0.1:9440"
-    ],
-    "name": "default",
-    "username": "default",
-    "password": "PLACEHOLDER_WILL_BE_REPLACED"
-  },
-  "security": {
-    "mode": "mtls",
+  "cnpg": {
+    "host": "cnpg-rw",
+    "port": 5432,
+    "database": "telemetry",
+    "username": "postgres",
+    "password": "",
+    "ssl_mode": "verify-full",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "127.0.0.1",
-    "role": "core",
     "tls": {
       "cert_file": "/etc/serviceradar/certs/core.pem",
       "key_file": "/etc/serviceradar/certs/core-key.pem",
       "ca_file": "/etc/serviceradar/certs/root.pem"
     }
   },
-  "db_security": {
+  "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "server_name": "127.0.0.1",
-    "role": "client",
+    "role": "core",
     "tls": {
       "cert_file": "/etc/serviceradar/certs/core.pem",
       "key_file": "/etc/serviceradar/certs/core-key.pem",

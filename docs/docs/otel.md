@@ -25,9 +25,11 @@ OpenTelemetry (OTEL) lets ServiceRadar receive traces, metrics, and logs from cl
 
 ## Storage and Querying
 
-- Metrics land in `otel.metrics_*` tables inside Proton. Retention defaults to 14 days; adjust in `config/proton/otel.toml`.
-- Traces are indexed for 7 days by default. Use SRQL joins (`JOIN traces ON`) to connect traces with device events.
-- Logs from OTEL exporters optionally flow through the syslog pipeline; enable this when you need unified retention.
+- Metrics land in the Timescale hypertable `otel_metrics` inside CNPG. Retention defaults to three days via the embedded migrations; extend it by editing `pkg/db/cnpg/migrations/00000000000004_otel_observability.up.sql` and rerunning `cnpg-migrate`.
+- Traces use the `otel_traces` hypertable. SRQL simply proxies the query to CNPG, so joins such as `SELECT * FROM otel_traces JOIN logs USING (trace_id)` stay performant.
+- Logs from OTEL exporters flow into the shared `logs` hypertable through the `serviceradar-db-event-writer`. The syslog pipeline can still mirror events if you need unified retention or GoRules enrichment.
+
+Use the [CNPG Monitoring dashboards](./cnpg-monitoring.md) to watch ingestion volume and Timescale retention jobs, or run ad-hoc SQL directly from the `serviceradar-tools` pod (`cnpg-sql "SELECT COUNT(*) FROM otel_traces WHERE created_at > now() - INTERVAL '5 minutes';"`).
 
 ## Troubleshooting
 

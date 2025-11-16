@@ -56,15 +56,19 @@ spec:
           value: "/etc/serviceradar/templates/db-event-writer.json"
         - name: WAIT_FOR_NATS
           value: "true"
-        - name: WAIT_FOR_PROTON
+        - name: WAIT_FOR_CNPG
           value: "true"
-        - name: LOG_LEVEL
-          value: "info"
-        - name: PROTON_PASSWORD
+        - name: CNPG_HOST
+          value: "cnpg-rw.{{ .Release.Namespace }}.svc.cluster.local"
+        - name: CNPG_PORT
+          value: "5432"
+        - name: CNPG_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: serviceradar-secrets
-              key: proton-password
+              name: cnpg-superuser
+              key: password
+        - name: LOG_LEVEL
+          value: "info"
         resources:
           limits:
             cpu: "500m"

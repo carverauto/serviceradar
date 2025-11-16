@@ -48,7 +48,7 @@ fi
 # Check deployments
 echo ""
 echo "🚀 Checking deployment status:"
-DEPLOYMENTS=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-datasvc" "serviceradar-agent" "serviceradar-poller" "serviceradar-snmp-checker")
+DEPLOYMENTS=("serviceradar-core" "serviceradar-web" "serviceradar-nats" "serviceradar-datasvc" "serviceradar-agent" "serviceradar-poller" "serviceradar-snmp-checker")
 ALL_READY=true
 
 for deployment in "${DEPLOYMENTS[@]}"; do
@@ -75,10 +75,24 @@ if [ "$ALL_READY" = false ]; then
     echo "   kubectl describe deployment <deployment-name> -n $NAMESPACE"
 fi
 
+echo ""
+echo "🗄 Checking CNPG pods:"
+CNPG_SELECTOR="cnpg.io/cluster=cnpg"
+if kubectl get pods -n $NAMESPACE -l "$CNPG_SELECTOR" >/dev/null 2>&1; then
+    if kubectl wait --for=condition=Ready --timeout=60s pod -l "$CNPG_SELECTOR" -n $NAMESPACE >/dev/null 2>&1; then
+        echo -e "   CNPG pods... ${GREEN}✓${NC}"
+    else
+        echo -e "   CNPG pods... ${YELLOW}⚠${NC}"
+        kubectl get pods -n $NAMESPACE -l "$CNPG_SELECTOR"
+    fi
+else
+    echo -e "   CNPG pods... ${RED}✗${NC} (selector $CNPG_SELECTOR not found)"
+fi
+
 # Check services
 echo ""
 echo "🌐 Checking services:"
-SERVICES=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-datasvc")
+SERVICES=("serviceradar-core" "serviceradar-web" "serviceradar-nats" "serviceradar-datasvc")
 for service in "${SERVICES[@]}"; do
     echo -n "   $service... "
     if kubectl get service $service -n $NAMESPACE >/dev/null 2>&1; then

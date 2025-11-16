@@ -3,10 +3,10 @@ kind: ClusterSPIFFEID
 metadata:
   name: serviceradar-snmp-checker
 spec:
-  spiffeIDTemplate: spiffe://carverauto.dev/ns/demo/sa/serviceradar-snmp-checker
+  spiffeIDTemplate: spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-snmp-checker
   namespaceSelector:
     matchLabels:
-      kubernetes.io/metadata.name: demo
+      kubernetes.io/metadata.name: $(SERVICERADAR_NAMESPACE)
   podSelector:
     matchLabels:
       app: serviceradar-snmp-checker

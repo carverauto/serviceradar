@@ -47,7 +47,6 @@ const (
 	defaultKeyPerms      = 0600
 	defaultDirPerms      = 0755
 	defaultLshShift      = 128
-	serviceProton        = "proton"
 	serviceNats          = "nats"
 	serviceDuskChecker   = "dusk-checker"
 	serviceRperf         = "rperf"
@@ -60,7 +59,6 @@ const (
 func defaultServices() []string {
 	return []string{
 		serviceNats,
-		serviceProton,
 		serviceRperf,
 		serviceRperfChecker,
 		serviceSysmonChecker,
@@ -84,7 +82,7 @@ func newLogStyles() logStyles {
 	}
 }
 
-// GenerateTLSCerts generates mTLS certificates for ServiceRadar and Proton.
+// GenerateTLSCerts generates mTLS certificates for ServiceRadar components.
 func GenerateTLSCerts(cfg *CmdConfig) error {
 	var err error
 
@@ -95,7 +93,7 @@ func GenerateTLSCerts(cfg *CmdConfig) error {
 		return err
 	}
 
-	err = createCertDirs(cfg.CertDir, cfg.ProtonDir, &styles)
+	err = createCertDirs(cfg.CertDir, &styles)
 	if err != nil {
 		return err
 	}
@@ -133,7 +131,7 @@ func selectComponents(cfg *CmdConfig) []string {
 	}
 
 	return append([]string{
-		"core", "proton", "agent", "poller", "kv", "sync", "nats", "web",
+		"core", "agent", "poller", "kv", "sync", "nats", "web",
 		"sysmon", "snmp", "rperf", "rperf-checker",
 	}, defaultServices()...)
 }
@@ -189,7 +187,6 @@ func generateComponentCerts(
 func getCertName(component string) string {
 	// certNames maps component names to their corresponding certificate file names.
 	certNames := map[string]string{
-		serviceProton:        "core",
 		serviceNats:          "nats-server",
 		serviceDuskChecker:   "checkers",
 		serviceRperf:         "rperf",
@@ -251,10 +248,10 @@ func validateIPs(ips string) error {
 }
 
 // createCertDirs creates necessary certificate directories.
-func createCertDirs(certDir, protonDir string, styles *logStyles) error {
+func createCertDirs(certDir string, styles *logStyles) error {
 	fmt.Println(styles.info.Render("[INFO] Creating certificate directories..."))
 
-	for _, dir := range []string{certDir, protonDir, defaultWorkDir} {
+	for _, dir := range []string{certDir, defaultWorkDir} {
 		if err := os.MkdirAll(dir, defaultDirPerms); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
@@ -318,7 +315,6 @@ func generateRootCA(cfg *CmdConfig, styles *logStyles) (*x509.Certificate, *ecds
 	for _, path := range []string{
 		filepath.Join(defaultWorkDir, "root.pem"),
 		filepath.Join(cfg.CertDir, "root.pem"),
-		filepath.Join(cfg.ProtonDir, "ca-cert.pem"),
 	} {
 		if err := saveCertificate(rootCert, path); err != nil {
 			return nil, nil, err
@@ -467,15 +463,12 @@ func copyCertificates(cfg *CmdConfig, components []string) error {
 func getCertificateCopies(cfg *CmdConfig, components []string) []struct{ src, dst string } {
 	copies := []struct{ src, dst string }{
 		{filepath.Join(defaultWorkDir, "root.pem"), filepath.Join(cfg.CertDir, "root.pem")},
-		{filepath.Join(defaultWorkDir, "core.pem"), filepath.Join(cfg.ProtonDir, "root.pem")},
-		{filepath.Join(defaultWorkDir, "core-key.pem"), filepath.Join(cfg.ProtonDir, "core-key.pem")},
 		{filepath.Join(defaultWorkDir, "core.pem"), filepath.Join(cfg.CertDir, "core.pem")},
 		{filepath.Join(defaultWorkDir, "core-key.pem"), filepath.Join(cfg.CertDir, "core-key.pem")},
-		{filepath.Join(defaultWorkDir, "root.pem"), filepath.Join(cfg.ProtonDir, "ca-cert.pem")},
 	}
 
 	for _, component := range components {
-		if component == serviceProton || component == serviceRperf {
+		if component == serviceRperf {
 			continue
 		}
 
@@ -493,16 +486,13 @@ func getCertificateCopies(cfg *CmdConfig, components []string) []struct{ src, ds
 // setCertificatePermissions sets the appropriate permissions for certificate files.
 func setCertificatePermissions(cfg *CmdConfig, components []string) error {
 	permSettings := map[string]os.FileMode{
-		filepath.Join(cfg.CertDir, "root.pem"):       defaultCertPerms,
-		filepath.Join(cfg.CertDir, "core.pem"):       defaultCertPerms,
-		filepath.Join(cfg.ProtonDir, "ca-cert.pem"):  defaultCertPerms,
-		filepath.Join(cfg.ProtonDir, "root.pem"):     defaultCertPerms,
-		filepath.Join(cfg.CertDir, "core-key.pem"):   defaultKeyPerms,
-		filepath.Join(cfg.ProtonDir, "core-key.pem"): defaultKeyPerms,
+		filepath.Join(cfg.CertDir, "root.pem"):     defaultCertPerms,
+		filepath.Join(cfg.CertDir, "core.pem"):     defaultCertPerms,
+		filepath.Join(cfg.CertDir, "core-key.pem"): defaultKeyPerms,
 	}
 
 	for _, component := range components {
-		if component == serviceProton || component == serviceRperf {
+		if component == serviceRperf {
 			continue
 		}
 
@@ -530,14 +520,6 @@ func setCertificateOwnership(cfg *CmdConfig, components []string) error {
 		files []string
 	}{
 		{
-			user: "proton",
-			files: []string{
-				filepath.Join(cfg.ProtonDir, "ca-cert.pem"),
-				filepath.Join(cfg.ProtonDir, "root.pem"),
-				filepath.Join(cfg.ProtonDir, "core-key.pem"),
-			},
-		},
-		{
 			user: "nats",
 			files: []string{
 				filepath.Join(cfg.CertDir, "nats-server.pem"),
@@ -556,7 +538,7 @@ func setCertificateOwnership(cfg *CmdConfig, components []string) error {
 
 	// Add component-specific files for serviceradar
 	for _, component := range components {
-		if component == serviceProton || component == serviceRperf || component == serviceNats {
+		if component == serviceRperf || component == serviceNats {
 			continue
 		}
 
@@ -599,10 +581,6 @@ func addIPsToCerts(cfg *CmdConfig, serviceIPs string, styles *logStyles, compone
 
 		certName := getCertName(component)
 		certPath := filepath.Join(cfg.CertDir, certName+".pem")
-
-		if component == serviceProton {
-			certPath = filepath.Join(cfg.ProtonDir, "root.pem")
-		}
 
 		existingCert, err := loadCertificate(certPath)
 		if err != nil {
@@ -883,14 +861,8 @@ func showPostInstallInfo(cfg *CmdConfig, serviceIPs string, styles *logStyles) {
 		}
 
 		certName := getCertName(component)
-		certPath := cfg.CertDir
-
-		if component == serviceProton {
-			certPath = cfg.ProtonDir
-		}
-
 		fmt.Println("  - " + component + ": " +
-			styles.info.Render(fmt.Sprintf("%s/%s.pem, %s/%s-key.pem", certPath, certName, certPath, certName)))
+			styles.info.Render(fmt.Sprintf("%s/%s.pem, %s/%s-key.pem", cfg.CertDir, certName, cfg.CertDir, certName)))
 	}
 
 	fmt.Println()

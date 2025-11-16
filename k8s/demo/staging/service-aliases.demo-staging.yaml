@@ -52,16 +52,6 @@ metadata:
 spec:
   type: ExternalName
   externalName: serviceradar-sync.demo-staging.svc.cluster.local
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: srql
-  namespace: demo-staging
-spec:
-  type: ExternalName
-  externalName: serviceradar-srql.demo-staging.svc.cluster.local
----
 apiVersion: v1
 kind: Service
 metadata:

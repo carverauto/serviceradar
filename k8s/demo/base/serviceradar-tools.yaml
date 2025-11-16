@@ -93,9 +93,6 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
-        - name: credentials
-          mountPath: /etc/serviceradar/credentials
-          readOnly: true
         - name: nats-context-config
           mountPath: /etc/serviceradar/nats/serviceradar.json
           subPath: serviceradar.json
@@ -143,16 +140,6 @@ spec:
           value: "https://serviceradar-core:8090"
         - name: SHOW_MOTD
           value: "1"
-        - name: PROTON_HOST
-          value: "serviceradar-proton"
-        - name: PROTON_PORT
-          value: "9440"
-        - name: PROTON_DATABASE
-          value: "default"
-        - name: PROTON_SECURE
-          value: "1"
-        - name: PROTON_PASSWORD_FILE
-          value: "/etc/serviceradar/credentials/proton-password"
         - name: CNPG_HOST
           value: "cnpg-rw"
         - name: CNPG_PORT
@@ -184,9 +171,6 @@ spec:
         - name: nats-context-config
           mountPath: /etc/serviceradar/nats/serviceradar.json
           subPath: serviceradar.json
-          readOnly: true
-        - name: credentials
-          mountPath: /etc/serviceradar/credentials
           readOnly: true
         - name: tools-config
           mountPath: /etc/serviceradar/nats/setup-nats-context.sh
@@ -233,12 +217,6 @@ spec:
         configMap:
           name: serviceradar-tools-config
           defaultMode: 0755
-      - name: credentials
-        secret:
-          secretName: serviceradar-secrets
-          items:
-          - key: proton-password
-            path: proton-password
       - name: cnpg-ca
         secret:
           secretName: cnpg-ca
@@ -314,22 +292,11 @@ data:
         test-grpc            - Health check all gRPC services
         nats-cert-check      - Diagnose NATS certificate issues
     
-    [*] PROTON HELPERS:
-        proton-cli           - Proton CLI wrapper (mTLS defaults)
-        proton-sql <SQL>     - Run SQL (ex: proton-sql "SELECT 1")
-        proton_sql <SQL>     - Bash helper (login shells only)
-        proton-version       - Print Proton server version via SQL
-        proton-info          - Show Proton host/port/password source
-    
     [*] CNPG HELPERS:
         cnpg-info            - Show Postgres connection metadata
         cnpg-sql <SQL>       - Run SQL via TLS-verified service profile
         cnpg-migrate         - Run Timescale migrations (env-driven)
 
-    [*] PASSWORD SOURCE:
-        /etc/serviceradar/credentials/proton-password (secret mount)
-        Override with PROTON_PASSWORD or PROTON_PASSWORD_FILE if required.
-    
     [*] NATS ALIASES:
         nats-info            - Show NATS server information
         nats-streams         - List all JetStream streams
@@ -356,7 +323,7 @@ data:
     
     [*] NATS CONTEXT: Auto-configured with proper FQDN and mTLS
     
-    [+] STATUS: TLS certs, Proton helpers, and JetStream aliases ready to use
+    [+] STATUS: TLS certs, CNPG helpers, and JetStream aliases ready to use
     
     [!] READY TO USE: MOTD appears on login; environment auto-loads helpers
     

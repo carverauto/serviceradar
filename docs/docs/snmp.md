@@ -22,7 +22,7 @@ Simple Network Management Protocol (SNMP) polling remains the fastest way to pop
 
 - Start with 60-second intervals for critical devices and 5-minute intervals for access-layer gear.
 - Group OIDs into logical bundles (interfaces, CPU/memory, trap status) to minimize round trips.
-- Track historical polls in Proton for long-term trend analysis; see the [Proton overview](./proton.md) for retention defaults.
+- Track historical polls in the CNPG/Timescale hypertables (`timeseries_metrics`, `cpu_metrics`, `interface_metrics`) for long-term trend analysis; see the [CNPG monitoring guide](./cnpg-monitoring.md) for queries you can reuse inside Grafana.
 
 ## Enable Traps
 
@@ -38,7 +38,7 @@ Traps complement polling by pushing urgent events:
 
 1. `serviceradar-trapd` publishes each decoded trap as JSON to the NATS JetStream stream `events`. The default subject is `snmp.traps`; if you prefer the zen defaults, set it to `events.snmp` so the decision group matches without additional rewrites.
 2. `serviceradar-zen` attaches to the same stream using the `zen-consumer` durable. The SNMP decision group listens for `events.snmp`, mutates the payload, and republishes it with the `.processed` suffix (`events.snmp.processed`).
-3. `serviceradar-db-event-writer` drains the `.processed` subjects and bulk loads the results into Proton. Keeping raw and processed subjects in one stream lets you replay traps after adjusting rules.
+3. `serviceradar-db-event-writer` drains the `.processed` subjects and bulk loads the results into the CNPG tables. Keeping raw and processed subjects in one stream lets you replay traps after adjusting rules.
 
 ## Default Trap Rules
 

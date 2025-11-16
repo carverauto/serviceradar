@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -36,18 +37,13 @@ import (
 var (
 	ErrDatabaseNotInitialized = errors.New("database connection not initialized")
 	ErrCNPGUnavailable        = errors.New("cnpg connection pool not configured")
-	ErrStreamingUnsupported   = errors.New("proton streaming connections are no longer supported")
 )
 
 // DB represents the CNPG-backed database connection.
 type DB struct {
 	pgPool *pgxpool.Pool
 	logger logger.Logger
-}
-
-// GetStreamingConnection returns the underlying proton connection for streaming queries
-func (db *DB) GetStreamingConnection() (interface{}, error) {
-	return nil, ErrStreamingUnsupported
+	Conn   *CompatConn
 }
 
 // New creates a new CNPG-backed database connection and initializes the schema.
@@ -74,10 +70,13 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 		log.Info().Msg("Skipping CNPG migrations (ENABLE_DB_MIGRATIONS=false)")
 	}
 
-	return &DB{
+	db := &DB{
 		pgPool: cnpgPool,
 		logger: log,
-	}, nil
+	}
+	db.Conn = newCompatConn(db)
+
+	return db, nil
 }
 
 func shouldRunDBMigrations() bool {
@@ -194,6 +193,187 @@ func normalizeCNPGValue(value interface{}) interface{} {
 	default:
 		return v
 	}
+}
+
+// CompatConn provides a minimal subset of the old Proton batch/Exec APIs backed by CNPG.
+type CompatConn struct {
+	db *DB
+}
+
+type compatBatch struct {
+	conn       *CompatConn
+	ctx        context.Context
+	columns    []string
+	insertSQL  string
+	rowBuffers [][]interface{}
+}
+
+type errorRow struct {
+	err error
+}
+
+func (r *errorRow) Scan(_ ...interface{}) error {
+	return r.err
+}
+
+func newCompatConn(db *DB) *CompatConn {
+	if db == nil {
+		return nil
+	}
+
+	return &CompatConn{db: db}
+}
+
+// PrepareBatch emulates the Proton driver's insert batch writes by parsing the simple
+// INSERT statement and replaying each appended row through ExecCNPG.
+func (c *CompatConn) PrepareBatch(ctx context.Context, query string) (*compatBatch, error) {
+	if c == nil || c.db == nil {
+		return nil, fmt.Errorf("cnpg connection not configured")
+	}
+
+	table, columns, err := parseInsertStatement(query)
+	if err != nil {
+		return nil, err
+	}
+
+	insertSQL := buildInsertStatement(table, columns)
+
+	return &compatBatch{
+		conn:       c,
+		ctx:        ctx,
+		columns:    columns,
+		insertSQL:  insertSQL,
+		rowBuffers: make([][]interface{}, 0),
+	}, nil
+}
+
+// Append buffers a single row worth of values that will be flushed when Send is invoked.
+func (b *compatBatch) Append(values ...interface{}) error {
+	if len(values) != len(b.columns) {
+		return fmt.Errorf("batch append: expected %d values, got %d", len(b.columns), len(values))
+	}
+
+	row := make([]interface{}, len(values))
+	copy(row, values)
+	b.rowBuffers = append(b.rowBuffers, row)
+	return nil
+}
+
+// Send executes the buffered INSERT statements against CNPG.
+func (b *compatBatch) Send() error {
+	if len(b.rowBuffers) == 0 {
+		return nil
+	}
+
+	for _, row := range b.rowBuffers {
+		if err := b.conn.db.ExecCNPG(b.ctx, b.insertSQL, row...); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// QueryRow rewrites '?' placeholders to '$n' and proxies to pgxpool.
+func (c *CompatConn) QueryRow(ctx context.Context, query string, args ...interface{}) pgx.Row {
+	if c == nil || c.db == nil {
+		return &errorRow{err: fmt.Errorf("cnpg connection not configured")}
+	}
+
+	rewritten, err := rewritePlaceholders(query, len(args))
+	if err != nil {
+		return &errorRow{err: err}
+	}
+
+	return c.db.pgPool.QueryRow(ctx, rewritten, args...)
+}
+
+// Query proxies Proton-style queries to CNPG.
+func (c *CompatConn) Query(ctx context.Context, query string, args ...interface{}) (Rows, error) {
+	if c == nil || c.db == nil {
+		return nil, fmt.Errorf("cnpg connection not configured")
+	}
+
+	rewritten, err := rewritePlaceholders(query, len(args))
+	if err != nil {
+		return nil, err
+	}
+
+	return c.db.QueryCNPGRows(ctx, rewritten, args...)
+}
+
+// Exec executes a single statement with Proton-style '?' placeholders.
+func (c *CompatConn) Exec(ctx context.Context, query string, args ...interface{}) error {
+	if c == nil || c.db == nil {
+		return fmt.Errorf("cnpg connection not configured")
+	}
+
+	rewritten, err := rewritePlaceholders(query, len(args))
+	if err != nil {
+		return err
+	}
+
+	return c.db.ExecCNPG(ctx, rewritten, args...)
+}
+
+var insertStmtRegex = regexp.MustCompile(`(?is)insert\s+into\s+([a-zA-Z0-9_\."]+)\s*\(([^)]+)\)`)
+
+func parseInsertStatement(query string) (string, []string, error) {
+	matches := insertStmtRegex.FindStringSubmatch(query)
+	if len(matches) != 3 {
+		return "", nil, fmt.Errorf("unsupported insert statement: %s", query)
+	}
+
+	table := strings.TrimSpace(matches[1])
+	rawColumns := strings.Split(matches[2], ",")
+	columns := make([]string, 0, len(rawColumns))
+	for _, col := range rawColumns {
+		col = strings.TrimSpace(col)
+		if col != "" {
+			columns = append(columns, col)
+		}
+	}
+
+	if len(columns) == 0 {
+		return "", nil, fmt.Errorf("no columns parsed from insert statement: %s", query)
+	}
+
+	return table, columns, nil
+}
+
+func buildInsertStatement(table string, columns []string) string {
+	placeholders := make([]string, len(columns))
+	for i := range columns {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+	}
+
+	return fmt.Sprintf(
+		"INSERT INTO %s (%s) VALUES (%s)",
+		table,
+		strings.Join(columns, ", "),
+		strings.Join(placeholders, ", "),
+	)
+}
+
+func rewritePlaceholders(query string, argCount int) (string, error) {
+	var builder strings.Builder
+	count := 0
+
+	for _, r := range query {
+		if r == '?' {
+			count++
+			builder.WriteString(fmt.Sprintf("$%d", count))
+			continue
+		}
+
+		builder.WriteRune(r)
+	}
+
+	if argCount >= 0 && count != argCount {
+		return "", fmt.Errorf("placeholder count mismatch: query expects %d args, got %d", count, argCount)
+	}
+
+	return builder.String(), nil
 }
 
 // GetAllMountPoints retrieves all unique mount points for a poller.

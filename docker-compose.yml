@@ -1013,9 +1013,11 @@ services:
       - KV_CERT_DIR=/etc/serviceradar/certs
       # Wait for dependencies
       - WAIT_FOR_NATS=true
-      - WAIT_FOR_PROTON=true
+      - WAIT_FOR_CNPG=true
+      - CNPG_HOST=${CNPG_HOST:-cnpg-rw}
+      - CNPG_PORT=${CNPG_PORT:-5432}
+      - CNPG_PASSWORD=${CNPG_PASSWORD:-}
       # Database password
-      - PROTON_PASSWORD=${PROTON_PASSWORD:-}
       # Disable duplicate migrations (Core handles them)
       - ENABLE_DB_MIGRATIONS=false
       # Logging

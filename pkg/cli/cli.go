@@ -789,7 +789,6 @@ func (GenerateTLSHandler) Parse(args []string, cfg *CmdConfig) error {
 	fs := flag.NewFlagSet("generate-tls", flag.ExitOnError)
 	ips := fs.String("ip", "", "IP addresses for the certificates (comma-separated)")
 	certDir := fs.String("cert-dir", "/etc/serviceradar/certs", "where to store ServiceRadar certificates")
-	protonDir := fs.String("proton-dir", "/etc/proton-server", "where to store Proton certificates")
 	addIPs := fs.Bool("add-ips", false, "add IPs to existing certificates")
 	nonInteractive := fs.Bool("non-interactive", false, "run in non-interactive mode (use 127.0.0.1)")
 	components := fs.String("component", "", "Comma-separated list of components to generate certificates for")
@@ -800,7 +799,6 @@ func (GenerateTLSHandler) Parse(args []string, cfg *CmdConfig) error {
 
 	cfg.IPS = *ips
 	cfg.CertDir = *certDir
-	cfg.ProtonDir = *protonDir
 	cfg.AddIPs = *addIPs
 	cfg.NonInteractive = *nonInteractive
 

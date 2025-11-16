@@ -46,7 +46,6 @@ OPTIONS:
   -p, --push           Push images after building (requires docker login)
   -a, --all            Build all images
   -c, --core           Build only core image
-  -d, --proton         Build only proton image
   -w, --web            Build only web image
   -g, --cert-gen       Build only cert-generator image
   --agent              Build only agent image
@@ -99,7 +98,6 @@ TAG="$DEFAULT_TAG"
 PUSH=false
 BUILD_ALL=false
 BUILD_CORE=false
-BUILD_PROTON=false
 BUILD_WEB=false
 BUILD_CERT_GEN=false
 BUILD_AGENT=false
@@ -139,10 +137,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         -c|--core)
             BUILD_CORE=true
-            shift
-            ;;
-        -d|--proton)
-            BUILD_PROTON=true
             shift
             ;;
         -w|--web)
@@ -246,7 +240,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # If no specific image is selected, build all
-if [[ "$BUILD_ALL" == false && "$BUILD_CORE" == false && "$BUILD_PROTON" == false && "$BUILD_WEB" == false && "$BUILD_CERT_GEN" == false && \
+if [[ "$BUILD_ALL" == false && "$BUILD_CORE" == false && "$BUILD_WEB" == false && "$BUILD_CERT_GEN" == false && \
       "$BUILD_AGENT" == false && "$BUILD_CONFIG_UPDATER" == false && "$BUILD_DB_EVENT_WRITER" == false && "$BUILD_FLOWGGER" == false && \
       "$BUILD_DATASVC" == false && "$BUILD_MAPPER" == false && "$BUILD_NGINX" == false && "$BUILD_OTEL" == false && "$BUILD_POLLER" == false && \
       "$BUILD_RPERF_CLIENT" == false && "$BUILD_SNMP_CHECKER" == false && "$BUILD_SYNC" == false && "$BUILD_TOOLS" == false && \
@@ -397,11 +391,6 @@ build_image() {
 # Build Core service
 if [[ "$BUILD_ALL" == true || "$BUILD_CORE" == true ]]; then
     build_image "core" "docker/compose/Dockerfile.core" "--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
-fi
-
-# Build Proton database
-if [[ "$BUILD_ALL" == true || "$BUILD_PROTON" == true ]]; then
-    build_image "proton" "docker/compose/Dockerfile.proton" ""
 fi
 
 # Build Web service

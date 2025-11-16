@@ -245,16 +245,6 @@ github.com/nats-io/nkeys
 # github.com/nats-io/nuid v1.0.1
 ## explicit
 github.com/nats-io/nuid
-# github.com/paulmach/orb v0.12.0
-## explicit; go 1.15
-github.com/paulmach/orb
-# github.com/pierrec/lz4/v4 v4.1.22
-## explicit; go 1.14
-github.com/pierrec/lz4/v4
-github.com/pierrec/lz4/v4/internal/lz4block
-github.com/pierrec/lz4/v4/internal/lz4errors
-github.com/pierrec/lz4/v4/internal/lz4stream
-github.com/pierrec/lz4/v4/internal/xxh32
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit
 github.com/pmezard/go-difflib/difflib
@@ -278,9 +268,6 @@ github.com/shirou/gopsutil/v3/internal/common
 # github.com/shoenig/go-m1cpu v0.1.6
 ## explicit; go 1.20
 github.com/shoenig/go-m1cpu
-# github.com/shopspring/decimal v1.4.0
-## explicit; go 1.10
-github.com/shopspring/decimal
 # github.com/spiffe/go-spiffe/v2 v2.6.0
 ## explicit; go 1.24.0
 github.com/spiffe/go-spiffe/v2/bundle/jwtbundle
@@ -317,21 +304,6 @@ github.com/swaggo/http-swagger
 # github.com/swaggo/swag v1.16.6
 ## explicit; go 1.18
 github.com/swaggo/swag
-# github.com/timeplus-io/proton-go-driver/v2 v2.1.2
-## explicit; go 1.18
-github.com/timeplus-io/proton-go-driver/v2
-github.com/timeplus-io/proton-go-driver/v2/contributors
-github.com/timeplus-io/proton-go-driver/v2/external
-github.com/timeplus-io/proton-go-driver/v2/lib/binary
-github.com/timeplus-io/proton-go-driver/v2/lib/chcol
-github.com/timeplus-io/proton-go-driver/v2/lib/cityhash102
-github.com/timeplus-io/proton-go-driver/v2/lib/column
-github.com/timeplus-io/proton-go-driver/v2/lib/compress
-github.com/timeplus-io/proton-go-driver/v2/lib/driver
-github.com/timeplus-io/proton-go-driver/v2/lib/io
-github.com/timeplus-io/proton-go-driver/v2/lib/proto
-github.com/timeplus-io/proton-go-driver/v2/lib/timezone
-github.com/timeplus-io/proton-go-driver/v2/types
 # github.com/tklauser/go-sysconf v0.3.12
 ## explicit; go 1.13
 github.com/tklauser/go-sysconf

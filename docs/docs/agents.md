@@ -5,7 +5,7 @@ title: Agents & Demo Operations
 
 # Agents & Demo Operations
 
-This runbook captures the operational steps we used while debugging the canonical device pipeline in the demo cluster. It focuses on the pieces that interact with the "agent" side of the world (faker → sync → core) and the backing Timeplus/Proton database.
+This runbook captures the operational steps we used while debugging the canonical device pipeline in the demo cluster. It focuses on the pieces that interact with the "agent" side of the world (faker → sync → core) and the backing CNPG/Timescale telemetry database.
 
 ## Rebuilding the SPIRE CNPG cluster (TimescaleDB + AGE)
 
@@ -160,6 +160,23 @@ Repeat the same sequence in any non-demo cluster (Helm or customer deployments)
 as part of the CNPG bootstrap so the telemetry schema and future AGE work share
 the same extension surface.
 
+## CNPG Smoke Test
+
+Run `./scripts/cnpg-smoke.sh demo-staging` (or `make cnpg-smoke`) to exercise
+the CNPG-backed API surface end-to-end. The helper:
+
+- Logs into `serviceradar-core` and calls `/api/devices`, `/api/services/tree`,
+  `/api/devices/metrics/status`, and the CNPG-backed metrics endpoints to prove
+  the registry + metrics APIs stay reachable.
+- Publishes a lifecycle CloudEvent to `events.devices.lifecycle` and polls the
+  Timescale `events` table to confirm the db-event-writer path processed the
+  payload (the script logs a warning instead of failing when the events table is
+  empty, which is the norm in quiet demo-staging windows).
+- Verifies the CNPG client wiring by running `SELECT COUNT(*) FROM events`
+  directly against the database when a fresh CloudEvent is not observable.
+
+Pass `NAMESPACE=<ns>` to target a different environment.
+
 ## Armis Faker Service
 
 - Deployment: `serviceradar-faker` (`k8s/demo/base/serviceradar-faker.yaml`).
@@ -175,50 +192,55 @@ kubectl exec -n demo deploy/serviceradar-faker -- ls /var/lib/serviceradar/faker
 
 ## Resetting the Device Pipeline
 
-This clears Timeplus/Proton and repopulates it with a fresh discovery crawl from the faker service.
+This clears the CNPG-backed telemetry tables and repopulates them with a fresh discovery crawl from the faker service.
 
-1. **Quiesce sync** – stop new writes while we clear the streams:
+1. **Quiesce sync** – stop new writes while we clear the tables:
 
    ```bash
    kubectl scale deployment/serviceradar-sync -n demo --replicas=0
    ```
 
-2. **Truncate Proton streams** – run the following against the `default` database (each command can be executed with `curl` from a toolbox pod):
+2. **Flush the telemetry tables** – use the toolbox pod’s `cnpg-sql` helper so credentials and TLS bundles are wired automatically:
 
-   ```sql
-   ALTER STREAM device_updates DELETE WHERE 1;
-   ALTER STREAM unified_devices DELETE WHERE 1;
-   ALTER STREAM unified_devices_registry DELETE WHERE 1;
+   ```bash
+   kubectl exec -n demo deploy/serviceradar-tools -- \
+     cnpg-sql <<'SQL'
+   TRUNCATE TABLE device_updates;
+   TRUNCATE TABLE unified_devices;
+   TRUNCATE TABLE sweep_host_states;
+   TRUNCATE TABLE discovered_interfaces;
+   TRUNCATE TABLE topology_discovery_events;
+   SQL
    ```
 
-   After the deletes, verify counts:
+   Add or remove tables depending on what needs to be rebuilt (for example, include `timeseries_metrics` if you also want to clear historical CPU samples). The `cnpg-sql` wrapper exports every statement before running it so you can audit the destructive step in the pod logs.
 
-   ```sql
-   SELECT count() FROM table(device_updates);
-   SELECT count() FROM table(unified_devices);
-   SELECT count() FROM table(unified_devices_registry);
+3. **Refresh aggregates (optional)** – the metrics dashboards rely on `device_metrics_summary_cagg`. Recompute it once the tables are empty so new inserts are visible immediately:
+
+   ```bash
+   kubectl exec -n demo deploy/serviceradar-tools -- \
+     cnpg-sql "CALL refresh_continuous_aggregate('device_metrics_summary_cagg', NULL, NULL);"
    ```
 
-3. **Ensure the materialized view exists** – drop and recreate `unified_device_pipeline_mv` so it reflects the current schema and filters tombstoned rows (`_merged_into`, `_deleted`):
+4. **Verify counts** – the faker dataset normally lands between 50–55k devices. Spot-check the tables directly so you can compare them with `/api/stats` later:
 
-The latest schemas can be found in @pkg/db/migrations
-
-5. **Verify counts** – typical numbers for the demo environment:
-
-   ```sql
-   SELECT count() FROM table(unified_devices);             -- ≈ 50–70k
-   SELECT uniq_exact(metadata['armis_device_id']) FROM table(unified_devices);
-   SELECT count() FROM table(unified_devices_registry);
+   ```bash
+   kubectl exec -n demo deploy/serviceradar-tools -- \
+     cnpg-sql <<'SQL'
+   SELECT COUNT(*) AS device_rows FROM unified_devices;
+   SELECT COUNT(*) AS update_rows FROM device_updates;
+   SELECT COUNT(*) AS sweep_rows FROM sweep_host_states;
+   SQL
    ```
 
-6. **Resume discovery** – start the sync pipeline again:
+5. **Resume discovery** – start the sync pipeline again:
 
    ```bash
    kubectl scale deployment/serviceradar-sync -n demo --replicas=1
    kubectl logs deployment/serviceradar-sync -n demo --tail 50
    ```
 
-Once the sync pod reports “Completed streaming results”, the canonical tables will match the faker dataset.
+Once the sync pod reports “Completed streaming results”, poll `/api/stats` and the `/api/devices` endpoints to confirm the registry reflects the rebuilt CNPG rows.
 
 ## Monitoring Non-Canonical Sweep Data
 
@@ -297,8 +319,8 @@ Once the sync pod reports “Completed streaming results”, the canonical table
 
 ## Device Registry Feature Flags
 
-- Set `features.require_device_registry` (in `serviceradar-config` → `core.json`) to `true` once the registry/search stack is stable. It blocks `/api/devices` and `/api/devices/{id}` from falling back to Proton so hot-path reads stay in-memory. Flip it back to `false` only if you need the legacy Proton endpoints during an incident.
-- Keep `features.use_device_search_planner` enabled alongside the web flag `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER` so inventory traffic routes through the planner instead of hitting Proton directly.
+- Keep `features.require_device_registry` (in `serviceradar-config` → `core.json`) set to `true`. CNPG is now the only backing store, so the flag forces `/api/devices` and `/api/devices/{id}` to fail fast if the registry cache has not hydrated instead of serving stale in-memory data. Flip it to `false` only when you deliberately want core to start in read-only “maintenance” mode.
+- Leave `features.use_device_search_planner` enabled alongside the web flag `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER`. The planner keeps device search traffic on the CNPG-backed registry path and only dispatches SRQL work when a query truly requires it, which prevents accidental OLAP scans from hammering Timescale.
 
 ### Post-Rollout Verification (demo)
 
@@ -309,7 +331,7 @@ Run these checks after flipping `require_device_registry` or deploying new core 
    kubectl logs deployment/serviceradar-core -n demo --tail=100 | \
      rg "Device registry hydrated"
    ```
-   Expect a log line with `device_count` matching Proton (`~50k` in demo).
+   Expect a log line with `device_count` matching the CNPG row count (`~50k` in demo).
 
 2. **Auth + API sanity**  
    ```bash
@@ -353,20 +375,21 @@ Run these checks after flipping `require_device_registry` or deploying new core 
    ```
    Expect `engine":"registry"` / `engine_reason":"query_supported"` and latency in the low ms.
 
-### Proton vs Registry Query Guidance
+### Registry Query Guidance
 
-- Treat `/api/devices/search` as the front door for inventory queries. The planner decides whether the in-memory registry or SRQL should execute the request and always includes `engine` + `engine_reason` diagnostics so you can verify the path that ran.
-- The web proxy at `/api/query` now runs the same planner first. Registry-capable queries (for example `in:devices status:online search:"core"`) return cached registry results; analytics-grade SRQL still flows through when the planner reports `engine:"srql"`.
-- Prefer the registry for hot-path lookups. Use the quick-reference table below when choosing a data source.
+- Treat `/api/devices/search` as the front door for inventory queries. The planner reports `engine` + `engine_reason` for every request so you can confirm whether the CNPG-backed registry cache or SRQL served the response.
+- The `/api/query` proxy now runs through the same planner. Registry-capable queries (for example `in:devices status:online search:"core"`) reuse the cached CNPG results; only analytics-grade SRQL runs when the planner reports `engine:"srql"`.
+- Prefer the registry for hot-path lookups and lean on SRQL only when a question truly needs long-range analytics. Use the quick-reference table below when choosing a data source.
 
 | Question | Endpoint / Engine |
 |----------|-------------------|
 | Does device `X` exist? | `/api/devices/search` → `engine:"registry"` |
-| How many devices have ICMP today? | `/api/stats` (registry snapshot) |
+| How many devices have ICMP today? | `/api/stats` (registry snapshot backed by CNPG) |
 | Search devices matching `foo` | `/api/devices/search` with `filters.search=foo` |
-| ICMP RTT for last 7d / historical analytics | Direct SRQL (`/api/query` with `mode:"srql_only"` if needed) |
+| ICMP RTT for last 7d / historical analytics | `/api/query` with `engine:"srql"` |
+
 - Force SRQL only when you truly need OLAP features: pass `"mode":"srql_only"` in the planner request or visit the SRQL service directly. Registry fallbacks (`engine_reason:"query_not_supported"`) usually mean the query contains aggregates, joins, or metadata fan-out that we have not cached yet.
-- When debugging unexpected SRQL load, inspect `/api/devices/search` diagnostics (`engine_reason`, `unsupported_tokens`) and confirm feature flags stay enabled (`features.use_device_search_planner` server side, `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER` in the web deployment).
+- When debugging unexpected SRQL load, inspect `/api/devices/search` diagnostics (`engine_reason`, `unsupported_tokens`) and confirm the feature flags stay enabled (`features.use_device_search_planner` server side, `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER` in the web deployment).
 
 ## SRQL Service Wiring
 
@@ -387,57 +410,54 @@ Run these checks after flipping `require_device_registry` or deploying new core 
   ```
 - Smoke test end-to-end: run `planner-smoke` and `web-query` checks from earlier to confirm `/api/devices/search` returns `engine:"srql"` for aggregate queries, and that `/api/query` forwards diagnostics showing `engine_reason:"query_not_supported"` when SRQL satisfies the request.
 
-## Proton Reset (PVC Rotation)
+## CNPG Reset (Cluster + PVC Rotation)
 
-If the telemetry tables balloon again, it is faster to rotate Proton’s volume than to hand-truncate every dependent stream. The helper script below scales Proton down, recreates the PVC, brings Proton back online, and restarts core so it can rebuild the schema from scratch:
+If the Timescale tables balloon or fall irreparably out of sync, rotate the CNPG cluster instead of hand-truncating every hypertable. The helper script below deletes the stateful set, recreates the PVCs, reapplies the manifests, runs migrations, and restarts the workloads so the schema is rebuilt from scratch:
 
 ```bash
 # from repo root; defaults to the demo namespace
-scripts/reset-proton.sh
+scripts/reset-cnpg.sh
 
 # or explicitly choose a namespace
-scripts/reset-proton.sh staging
+scripts/reset-cnpg.sh staging
 ```
 
 What the script does:
 
-- `kubectl scale deployment/serviceradar-proton --replicas=0`
-- Delete and recreate the `serviceradar-proton-data` PVC (512 Gi by default, override with `PVC_SIZE` and `STORAGE_CLASS`)
-- Scale Proton back up and wait for the rollout to finish
-- `kubectl rollout restart deployment/serviceradar-core` so the schema is reseeded immediately
+- `kubectl scale cluster cnpg --replicas=0` via the CloudNativePG CR (effectively deleting the StatefulSet)
+- Deletes PVCs labeled `cnpg.io/cluster=cnpg` so the next apply provisions clean volumes
+- Reapplies `k8s/demo/base/spire` to recreate the CNPG cluster and SPIRE dependencies
+- Waits for `cnpg-{0,1,2}` to become Ready and confirms the custom `serviceradar-cnpg` image is running
+- Runs `cnpg-migrate` (with the superuser secret mounted) to seed the telemetry schema
+- Restarts `serviceradar-core`, `serviceradar-sync`, and the writers so they reconnect to the new database
 
 After the reset:
 
-1. Spot-check counts with either `/api/query` or the Proton client (`SELECT count() FROM otel_traces`, `otel_spans_enriched`, `otel_metrics`, `otel_trace_summaries`).
-2. Tail `kubectl -n <ns> logs deploy/serviceradar-otel --tail=20` to confirm span batches stay in the single digits.
-3. Hard-refresh the dashboards so cached trace totals drop.
-4. If storage pressure was triggered by Proton's native log backlog, use the downtime to prune the large UUID folders under `/var/lib/proton/nativelog/log/default/`. This is a once-off recovery step; with the current retention caps the new pod will recreate lean segments automatically.
+1. Spot-check counts with `/api/stats` and a direct CNPG query (`SELECT COUNT(*) FROM unified_devices`).
+2. Tail `kubectl -n <ns> logs deploy/serviceradar-db-event-writer --tail=20` to confirm OTEL batches stay healthy.
+3. Hard-refresh the dashboards so cached device totals drop.
+4. If the issue stemmed from leftover WAL or chunk bloat, capture `timescaledb_information.hypertable_detailed_size('timeseries_metrics')` before and after to document the improvement.
 
-## Proton Client From `serviceradar-tools`
+Run the script in staging first; it is idempotent and leaves the namespace with a fully bootstrapped CNPG instance that matches the schema in `pkg/db/cnpg/migrations`.
 
-- Launch the toolbox with `kubectl exec -it -n demo deploy/serviceradar-tools -- bash`. The image ships the upstream Proton CLI (`/usr/local/bin/proton.bin`) plus a wrapper (`/usr/local/bin/proton-client`) that applies ServiceRadar TLS defaults and the new glibc runtime automatically.
-- The toolbox pod mounts the `serviceradar-secrets` secret at `/etc/serviceradar/credentials/proton-password`. `proton-client` reads this path (or `PROTON_PASSWORD[_FILE]`) before falling back to `/etc/proton-server/generated_password.txt`, so manual password entry is rarely required.
-- Helpful commands once you are inside the pod:
+## CNPG Client From `serviceradar-tools`
+
+- Launch the toolbox with `kubectl exec -it -n demo deploy/serviceradar-tools -- bash`. The pod mounts the CNPG CA + credentials at `/etc/serviceradar/cnpg` and exposes helper aliases in the MOTD.
+- `cnpg-info` prints the effective DSN, TLS mode, and username so you can quickly confirm which namespace you are targetting.
+- `cnpg-sql` wraps `psql` with the right certificates. A few handy snippets:
   ```bash
-  proton-info                        # show host/port/database/password source
-  proton-version                     # SELECT version() via the wrapper
-  proton-sql "SELECT 1"              # preferred SQL helper (runs proton-client)
-  proton_sql 'SELECT count() FROM table(unified_devices)'
-  proton-client --query 'SHOW STREAMS'
+  cnpg-info
+  cnpg-sql "SELECT count(*) FROM unified_devices"
+  cnpg-sql "SELECT hypertable_name, total_bytes/1024/1024 AS mb FROM timescaledb_information.hypertable_detailed_size ORDER BY total_bytes DESC LIMIT 5"
+  cnpg-migrate --app-name serviceradar-tools
   ```
-- To run a one-off query from outside the pod, export the secret directly and hand it to the wrapper:
-  ```bash
-  export PROTON_PASSWORD=$(kubectl -n demo get secret serviceradar-secrets \
-    -o jsonpath='{.data.proton-password}' | base64 -d)
-  kubectl -n demo exec deploy/serviceradar-tools -- \
-    env PROTON_PASSWORD="$PROTON_PASSWORD" proton_sql 'SELECT 1'
-  ```
-- The raw `proton` binary is also available as `/usr/local/bin/proton.bin` for advanced troubleshooting; pass `--config-file /etc/serviceradar/proton-client/config.xml` to reuse the ServiceRadar TLS material when bypassing the wrapper.
-- JetStream helpers share a context named `serviceradar`; either run the aliases from the MOTD (`nats-streams`, `nats-events`, …) or invoke the CLI directly:
+- You can run any of those without an interactive shell:
   ```bash
   kubectl exec -n demo deploy/serviceradar-tools -- \
-    nats --context serviceradar stream ls
+    cnpg-sql "SELECT NOW()"
   ```
+- Outside the cluster, port-forward the RW service and export the `CNPG_*` environment variables before running `make cnpg-migrate` or `psql`. The helpers respect `CNPG_PASSWORD_FILE`, so you can pass `/etc/serviceradar/cnpg/superuser-password` directly instead of copying secrets to your laptop.
+- JetStream helpers still share the `serviceradar` context; the same pod gives you `nats-streams`, `nats-events`, and `nats-kv` for quick config or replay checks.
 
 ## Sweep Config Distribution
 
@@ -457,19 +477,22 @@ After the reset:
     jq '.device_targets | length'
   ```
 
-## Proton Streaming Safeguards
+## Timescale Retention & Compression Checks
 
-- The demo Proton config now enforces conservative streaming thresholds: `queue_buffering_max_messages=50000`, `queue_buffering_max_kbytes=524288`, `fetch_message_max_bytes=524288`, `max_insert_block_size=2048` (with `max_block_size` matched in the server config), and JetStream flush caps of `shared_subscription_flush_threshold_count=2000`, `shared_subscription_flush_threshold_size=4194304 (4 MiB)`, `shared_subscription_flush_threshold_ms=500`.
-- These limits prevent `TOO_LARGE_RECORD` failures without raising `log_max_record_size`. The values live in `packaging/proton/config/config.yaml` and are propagated to the `serviceradar-proton` image and ConfigMap overlays.
-- Validate the active settings from the toolbox with:
+> Need a long-lived dashboard instead of ad-hoc SQL? Follow the [CNPG Monitoring guide](./cnpg-monitoring.md) to add Grafana panels for ingestion volume, job status, and pgx waiters. The queries below remain the fastest way to double-check results directly from the toolbox.
+
+- Every hypertable created by the migrations already registers a retention policy (3 days for most telemetry, 30 days for services). Confirm the jobs are firing with:
   ```bash
-  proton-sql "SELECT name, value FROM system.settings WHERE name IN \
-    ('queue_buffering_max_messages','queue_buffering_max_kbytes', \
-     'fetch_message_max_bytes','shared_subscription_flush_threshold_size', \
-     'shared_subscription_flush_threshold_count','max_insert_block_size')"
+  kubectl exec -n demo deploy/serviceradar-tools -- \
+    cnpg-sql "SELECT job_id, job_type, hypertable_name, last_successful_finish FROM timescaledb_information.job_stats ORDER BY job_id"
   ```
-- `max_block_size` currently exposes as a session-scoped setting; if you need to override it temporarily, run `proton-sql "SET max_block_size=2048"` before a large replay.
-- Any change for non-demo clusters should be mirrored in the shared config and rolled via `bazel run //docker/images:serviceradar-proton_push` followed by a `kubectl rollout restart deployment/serviceradar-proton -n <namespace>`.
+- Compression stays disabled by default. When you enable it for a table, follow up with a health check so we know chunks are being reordered/compressed: `SELECT hypertable_name, compression_enabled, compressed_chunks, uncompressed_chunks FROM timescaledb_information.hypertable_compression_stats`.
+- If retention falls behind, force a run with `SELECT alter_job(job_id => <id>, next_start => NOW());` or manually drop old chunks: `SELECT drop_chunks('timeseries_metrics', INTERVAL '3 days');`.
+- Run the quick `hypertable_detailed_size` query before and after maintenance to quantify the impact:
+  ```bash
+  cnpg-sql "SELECT hypertable_name, total_bytes/1024/1024 AS mb FROM timescaledb_information.hypertable_detailed_size ORDER BY total_bytes DESC LIMIT 10"
+  ```
+- Use `CALL refresh_continuous_aggregate('device_metrics_summary_cagg', NULL, NULL);` whenever you bulk load data or truncate telemetry so the dashboards immediately reflect the changes.
 
 ## Canonical Identity Flow
 
@@ -477,75 +500,74 @@ After the reset:
 - Expect `serviceradar-core` logs to show non-zero `canonicalized_by_*` counters once batches replay. If they stay at 0, recheck KV health via `nats-kv` (or the `nats-datasvc` alias) and ensure `serviceradar-core` pods run the latest image.
 - Toolbox helper to spot-check canonical entries:
   ```bash
-  proton-sql "SELECT count(), uniq_exact(metadata['armis_device_id']) FROM table(unified_devices)"
+  kubectl exec -n demo deploy/serviceradar-tools -- \
+    cnpg-sql "SELECT COUNT(*) AS devices, COUNT(DISTINCT metadata->>'armis_device_id') AS armis_ids FROM unified_devices"
   nats --context serviceradar kv get device_canonical_map/armis-id/<ARMIS_ID>
   ```
 
 ## Common Error Notes
 
 - `rpc error: code = Unimplemented desc =` – emitted by core when the poller is stopped; safe to ignore while the pipeline is paused.
-- `json: cannot unmarshal object into Go value of type []*models.DeviceUpdate` – happens if the discovery queue contains an object instead of an array. Clearing the streams and replaying new discovery data resolves it.
-- `TOO_LARGE_RECORD` when inserting into `unified_devices_registry` – confirm the streaming safeguards above are active, replay stuck data with `proton-sql "DROP VIEW IF EXISTS unified_device_pipeline_mv"` followed by the migration definition, and, when necessary, re-shard replays (hash on `device_id`) so every insert batch remains under ~4 MiB.
+- `json: cannot unmarshal object into Go value of type []*models.DeviceUpdate` – happens if the discovery queue contains an object instead of an array. Clearing the queue and replaying new discovery data resolves it.
+- `cnpg device_updates batch: invalid input syntax for type json` – indicates a writer emitted malformed metadata. Inspect the offending payload (`db.UpdateDevice.METADATA`) and patch the producer before replaying.
+- `ERROR: duplicate key value violates unique constraint "unified_devices_pkey"` – normally caused by reusing the same `device_id` + `_merged_into` metadata after a reset. Run the pipeline reset above to clear stale rows, then replay once so the merge helper can rebuild the canonical view cleanly.
 
-## Investigating Slow Proton Queries
+## Investigating Slow CNPG Queries
 
-Use the pre-authenticated `serviceradar-tools` deployment whenever you need to inspect ClickHouse load:
+Use the pre-authenticated `serviceradar-tools` deployment whenever you need to inspect Timescale load:
 
 ```bash
 # Shell into the toolbox (optional; commands below exec directly)
 kubectl exec -it -n demo deploy/serviceradar-tools -- bash
 ```
 
-- **Top queries by bytes read (last 30 m)**  
-  ```bash
+- **Top queries by mean runtime (pg_stat_statements)**    ```bash
   kubectl exec -n demo deploy/serviceradar-tools -- \
-    proton-sql "SELECT any(query) AS sample_query,
-                       sum(read_rows) AS total_rows,
-                       sum(read_bytes) AS total_bytes,
-                       round(sum(query_duration_ms)/1000,2) AS total_s,
-                       max(query_duration_ms) AS max_ms,
-                       count() AS executions
-                FROM system.query_log
-                WHERE event_time >= now() - INTERVAL 30 MINUTE
-                  AND type = 'QueryFinish'
-                GROUP BY normalized_query_hash
-                ORDER BY total_bytes DESC
-                LIMIT 12"
+    cnpg-sql "SELECT query, calls, round(mean_exec_time,2) AS ms, total_exec_time 
+              FROM pg_stat_statements
+              ORDER BY mean_exec_time DESC
+              LIMIT 10"
   ```
-  This surfaces the normalized query shape, aggregate row/byte counts, and peak duration so you can spot hot spots quickly.
-
-- **Same view ordered by total runtime or worst-case latency**  
-  Change the `ORDER BY` clause to `total_s DESC` or `max_ms DESC` to focus on slow queries rather than volume.
-
-- **Query volume by outcome**  
-  ```bash
+  Make sure the `pg_stat_statements` extension exists (`CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`).
+- **Active sessions + blocking chains**    ```bash
   kubectl exec -n demo deploy/serviceradar-tools -- \
-    proton-sql "SELECT type, count() AS total
-                FROM system.query_log
-                WHERE event_time >= now() - INTERVAL 30 MINUTE
-                GROUP BY type
-                ORDER BY total DESC"
+    cnpg-sql "SELECT pid, wait_event_type, wait_event, state, query
+              FROM pg_stat_activity
+              WHERE datname = current_database()
+              ORDER BY state, query_start"
   ```
-  Helpful for spotting spikes in `ExceptionWhileProcessing` or `ExceptionBeforeStart`.
+  Hung inserts almost always show up here with a `wait_event_type` of `Lock`.
+- **Explain a specific query**    ```bash
+  kubectl exec -n demo deploy/serviceradar-tools -- \
+    cnpg-sql "EXPLAIN (ANALYZE, BUFFERS, VERBOSE) \n              SELECT * FROM unified_devices ORDER BY last_seen DESC LIMIT 50"
+  ```
+  Attach the plan when filing perf bugs so we can see whether Timescale is hitting the new indexes.
+- **Chunk-level stats**    ```bash
+  cnpg-sql "SELECT hypertable_name, chunk_name, approx_row_count
+            FROM timescaledb_information.chunks
+            ORDER BY approx_row_count DESC LIMIT 10"
+  ```
+  Large, uncompressed chunks usually point to retention/compression jobs falling behind.
 
-- **Tighten the window**  
-  Swap `INTERVAL 30 MINUTE` for `10 MINUTE` / `2 MINUTE` to see how a deploy or feature flag change impacted load in near-real time.
-
-Once you have the offending normalized query hash, correlate it with the Go/UI code path and migrate the workload to the registry cache. This workflow kept Proton CPU near 4 % after we removed the sweep `device_id IN (...)` scans.
+Once you have the offending query, correlate it with the Go/UI call site and either add the missing index or route the workload through the registry cache.
 
 ## Quick Reference Commands
 
 ```bash
-# Run a SQL statement against Proton (default creds, database=default)
-kubectl run ch-sql --rm -i --tty --image=curlimages/curl:8.9.1 -n demo --restart=Never --command -- \
-  sh -c "echo <base64-sql> | base64 -d >/tmp/query.sql \
-  && curl -sk -u default:<password> --data-binary @/tmp/query.sql \
-     https://serviceradar-proton:8443/?database=default"
+# Run a SQL statement against CNPG from the toolbox
+kubectl exec -n demo deploy/serviceradar-tools -- \
+  cnpg-sql "SELECT COUNT(*) FROM unified_devices"
 
-# Check distinct Armis IDs
-curl -sk -u default:<password> --data-binary \
-  "SELECT uniq_exact(metadata['armis_device_id']) FROM table(unified_devices)" \
-  https://serviceradar-proton:8443/?database=default
+# Count devices per poller (helpful when validating faker replays)
+kubectl exec -n demo deploy/serviceradar-tools -- \
+  cnpg-sql "SELECT poller_id, COUNT(*) FROM unified_devices GROUP BY poller_id ORDER BY count DESC"
+
+# Port-forward CNPG locally and run migrations from your laptop
+kubectl port-forward -n demo svc/cnpg-rw 55432:5432 &
+export CNPG_HOST=127.0.0.1 CNPG_PORT=55432 CNPG_DATABASE=telemetry
+export CNPG_USERNAME=postgres
+export CNPG_PASSWORD=$(kubectl get secret -n demo cnpg-superuser -o jsonpath='{.data.password}' | base64 -d)
+make cnpg-migrate
 ```
 
 Keep this document up to date as we refine the tooling around the agents and the demo environment.

@@ -88,12 +88,14 @@ spec:
           mountPath: /var/lib/serviceradar
         - name: cert-data
           mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: cnpg-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
           readOnly: true
         env:
-        - name: WAIT_FOR_PROTON
-          value: "true"
         - name: INIT_DB
           value: "true"
         - name: CONFIG_SOURCE
@@ -107,22 +109,32 @@ spec:
         - name: CORE_TRUST_DOMAIN
           value: "carverauto.dev"
         - name: CORE_SERVER_SPIFFE_ID
-          value: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core"
+          value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-core"
         - name: CORE_WORKLOAD_SOCKET
           value: "unix:/run/spire/sockets/agent.sock"
         - name: CORE_CERT_DIR
           value: "/etc/serviceradar/certs"
-        - name: PROTON_HOST
-          value: "serviceradar-proton"
-        - name: PROTON_USER
-          value: "default"
-        - name: PROTON_DATABASE
-          value: "default"
-        - name: PROTON_PASSWORD
+        - name: KUBERNETES_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: CNPG_PORT
+          value: "5432"
+        - name: CNPG_DATABASE
+          value: "telemetry"
+        - name: CNPG_USERNAME
+          value: "postgres"
+        - name: CNPG_SSLMODE
+          value: "verify-full"
+        - name: CNPG_CERT_DIR
+          value: "/etc/serviceradar/certs"
+        - name: CNPG_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: serviceradar-secrets
-              key: proton-password
+              name: cnpg-superuser
+              key: password
+        - name: WAIT_FOR_CNPG
+          value: "true"
         - name: API_KEY
           valueFrom:
             secretKeyRef:
@@ -154,7 +166,7 @@ spec:
         - name: KV_TRUST_DOMAIN
           value: "carverauto.dev"
         - name: KV_SERVER_SPIFFE_ID
-          value: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc"
+          value: "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-datasvc"
         - name: KV_WORKLOAD_SOCKET
           value: "unix:/run/spire/sockets/agent.sock"
         - name: KV_CERT_DIR
@@ -190,6 +202,9 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      - name: cnpg-ca
+        secret:
+          secretName: cnpg-ca
       - name: spire-agent-socket
         hostPath:
           path: /run/spire/sockets

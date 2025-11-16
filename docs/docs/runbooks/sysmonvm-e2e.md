@@ -71,8 +71,8 @@ AlmaLinux VM + macOS host collectors running on the laptop.
    ```
    Expect poll attempts and frequency payloads.
 3. **Inspect core metrics**
-   - Proton DB (from the Linux server):\
-     `docker compose exec proton curl -sk -u default:$(cat /var/lib/proton/generated_password.txt) "https://localhost:8443/?database=default&query=SELECT%20*%20FROM%20cpu_metrics%20ORDER%20BY%20timestamp%20DESC%20LIMIT%205"`
+   - CNPG/Timescale (from the Linux server):\
+     `docker compose exec cnpg psql -U postgres -d telemetry -c "SELECT * FROM cpu_metrics ORDER BY timestamp DESC LIMIT 5"`
    - Core API (if exposed) at `http://localhost:8090` -> `/pollers/.../sysmon/cpu`.
 4. **Cross-check macOS checker**
    - `log show --predicate 'process == "serviceradar-sysmon-vm"' --last 5m`
