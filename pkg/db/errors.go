@@ -75,6 +75,7 @@ var (
 	ErrServiceStatusPollerIDMissing = errors.New("service status poller id is required")
 	ErrServiceNil                   = errors.New("service nil")
 	ErrServicePollerIDMissing       = errors.New("service poller id required")
+	ErrServiceRegistrationEventNil  = errors.New("service registration event is nil")
 
 	// Sweep validation errors.
 
@@ -83,14 +84,9 @@ var (
 	ErrSweepPollerIDMissing = errors.New("poller id is required")
 	ErrSweepAgentIDMissing  = errors.New("agent id is required")
 
-	// Compat connection helpers.
+	// Rows helpers.
 
-	ErrCNPGCompatUnconfigured     = errors.New("cnpg connection not configured")
-	ErrBatchValueCountMismatch    = errors.New("batch append value count mismatch")
-	ErrUnsupportedInsertStatement = errors.New("unsupported insert statement")
-	ErrInsertColumnsMissing       = errors.New("no columns parsed from insert statement")
-	ErrPlaceholderMismatch        = errors.New("placeholder count mismatch")
-	ErrCNPGRowsNotInitialized     = errors.New("cnpg rows not initialized")
+	ErrCNPGRowsNotInitialized = errors.New("cnpg rows not initialized")
 
 	// TLS helpers.
 

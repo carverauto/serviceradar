@@ -30,6 +30,7 @@ var (
 	// ErrCannotDeleteActiveService is returned when trying to delete an active service.
 	ErrCannotDeleteActiveService      = errors.New("cannot delete service: mark inactive/revoked/deleted first")
 	errServiceRegistryCNPGUnsupported = errors.New("cnpg querying is not supported by service registry db")
+	errRegistrationEventWriterMissing = errors.New("registration event writer is not configured")
 )
 
 const (
@@ -141,14 +142,19 @@ ON CONFLICT (checker_id) DO UPDATE SET
 // ServiceRegistry implements the ServiceManager interface.
 // It manages the lifecycle and registration of all services (pollers, agents, checkers).
 type ServiceRegistry struct {
-	db         *db.DB
-	logger     zerolog.Logger
-	cnpgClient cnpgRegistryClient
+	db          *db.DB
+	logger      zerolog.Logger
+	cnpgClient  cnpgRegistryClient
+	eventWriter registrationEventWriter
 
 	// Cache for IsKnownPoller() - invalidated on registration changes
 	pollerCacheMu sync.RWMutex
 	pollerCache   map[string]bool
 	cacheExpiry   time.Time
+}
+
+type registrationEventWriter interface {
+	InsertServiceRegistrationEvents(ctx context.Context, events []*db.ServiceRegistrationEvent) error
 }
 
 // NewServiceRegistry creates a new ServiceRegistry instance.
@@ -157,6 +163,7 @@ func NewServiceRegistry(database *db.DB, log logger.Logger) *ServiceRegistry {
 		db:          database,
 		logger:      log.WithComponent("service-registry"),
 		cnpgClient:  database,
+		eventWriter: database,
 		pollerCache: make(map[string]bool),
 	}
 }
@@ -599,37 +606,24 @@ func (r *ServiceRegistry) emitRegistrationEvent(ctx context.Context, eventType, 
 	if metadata == nil {
 		metadata = map[string]string{}
 	}
-	eventID := uuid.New().String()
-	now := time.Now().UTC()
-
-	metadataJSON, _ := json.Marshal(metadata)
-
-	// Use PrepareBatch/Append/Send pattern for Proton/ClickHouse streams
-	batch, err := r.db.Conn.PrepareBatch(ctx,
-		`INSERT INTO service_registration_events (
-			event_id, event_type, service_id, service_type, parent_id,
-			registration_source, actor, timestamp, metadata
-		)`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch for registration event: %w", err)
+	writer, ok := r.getRegistrationEventWriter()
+	if !ok {
+		return errRegistrationEventWriterMissing
 	}
 
-	err = batch.Append(
-		eventID,
-		eventType,
-		serviceID,
-		serviceType,
-		parentID,
-		string(source),
-		actor,
-		now,
-		string(metadataJSON),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to append registration event to batch: %w", err)
+	event := &db.ServiceRegistrationEvent{
+		EventID:            uuid.New().String(),
+		EventType:          eventType,
+		ServiceID:          serviceID,
+		ServiceType:        serviceType,
+		ParentID:           parentID,
+		RegistrationSource: string(source),
+		Actor:              actor,
+		Timestamp:          time.Now().UTC(),
+		Metadata:           metadata,
 	}
 
-	return batch.Send()
+	return writer.InsertServiceRegistrationEvents(ctx, []*db.ServiceRegistrationEvent{event})
 }
 
 // invalidatePollerCache clears the poller cache.
@@ -646,27 +640,43 @@ func (r *ServiceRegistry) invalidatePollerCache() {
 // Returns error if service is still active or pending.
 func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, serviceID string) error {
 	// Verify service is not active or pending
-	var status string
-	var query string
-	var source string
+	var (
+		status ServiceStatus
+		source RegistrationSource
+		err    error
+	)
 
 	switch serviceType {
 	case serviceTypePoller:
-		query = `SELECT status, registration_source FROM pollers WHERE poller_id = ? LIMIT 1`
+		var poller *RegisteredPoller
+		poller, err = r.GetPoller(ctx, serviceID)
+		if err == nil && poller != nil {
+			status = poller.Status
+			source = poller.RegistrationSource
+		}
 	case serviceTypeAgent:
-		query = `SELECT status, registration_source FROM agents WHERE agent_id = ? LIMIT 1`
+		var agent *RegisteredAgent
+		agent, err = r.GetAgent(ctx, serviceID)
+		if err == nil && agent != nil {
+			status = agent.Status
+			source = agent.RegistrationSource
+		}
 	case serviceTypeChecker:
-		query = `SELECT status, registration_source FROM checkers WHERE checker_id = ? LIMIT 1`
+		var checker *RegisteredChecker
+		checker, err = r.GetChecker(ctx, serviceID)
+		if err == nil && checker != nil {
+			status = checker.Status
+			source = checker.RegistrationSource
+		}
 	default:
 		return fmt.Errorf("%w: %s", ErrUnknownServiceType, serviceType)
 	}
 
-	row := r.db.Conn.QueryRow(ctx, query, serviceID)
-	if err := row.Scan(&status, &source); err != nil {
+	if err != nil {
 		return fmt.Errorf("service not found: %w", err)
 	}
 
-	if status == string(ServiceStatusActive) || status == string(ServiceStatusPending) {
+	if status == ServiceStatusActive || status == ServiceStatusPending {
 		return fmt.Errorf("%w: %s with status %s", ErrCannotDeleteActiveService, serviceID, status)
 	}
 
@@ -674,24 +684,8 @@ func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, servic
 	metadata := map[string]string{
 		"service_id": serviceID,
 	}
-	if err := r.emitRegistrationEvent(ctx, "deleted", serviceType, serviceID, "", RegistrationSource(source), "system", metadata); err != nil {
+	if err := r.emitRegistrationEvent(ctx, "deleted", serviceType, serviceID, "", source, "system", metadata); err != nil {
 		r.logger.Warn().Err(err).Msg("Failed to emit deletion event")
-	}
-
-	// Hard delete from stream
-	// Note: For versioned_kv streams in Timeplus/ClickHouse, we use DELETE FROM
-	var deleteQuery string
-	switch serviceType {
-	case serviceTypePoller:
-		deleteQuery = `DELETE FROM pollers WHERE poller_id = ?`
-	case serviceTypeAgent:
-		deleteQuery = `DELETE FROM agents WHERE agent_id = ?`
-	case serviceTypeChecker:
-		deleteQuery = `DELETE FROM checkers WHERE checker_id = ?`
-	}
-
-	if err := r.db.Conn.Exec(ctx, deleteQuery, serviceID); err != nil {
-		return fmt.Errorf("failed to delete service: %w", err)
 	}
 
 	if err := r.deleteServiceCNPG(ctx, serviceType, serviceID); err != nil {
@@ -706,7 +700,7 @@ func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, servic
 	r.logger.Info().
 		Str("service_type", serviceType).
 		Str("service_id", serviceID).
-		Str("status", status).
+		Str("status", string(status)).
 		Msg("Service permanently deleted from registry")
 
 	return nil
@@ -725,53 +719,52 @@ func (r *ServiceRegistry) PurgeInactive(ctx context.Context, retentionPeriod tim
 
 	// Find services to purge: inactive/revoked/deleted for > retention period
 	// Note: Using last_seen for inactive, first_registered for pending that never activated
-	query := `SELECT service_type, service_id
-              FROM (
-                  SELECT 'poller' AS service_type, poller_id AS service_id, last_seen, status
-                  FROM pollers
-                  WHERE status IN ('inactive', 'revoked', 'deleted')
-                  AND last_seen < ?
+	rows, err := r.queryCNPGRows(ctx, `
+		SELECT service_type, service_id
+		FROM (
+			SELECT 'poller' AS service_type, poller_id AS service_id, last_seen, status
+			FROM pollers
+			WHERE status IN ('inactive', 'revoked', 'deleted')
+			  AND last_seen < $1
 
-                  UNION ALL
+			UNION ALL
 
-                  SELECT 'poller', poller_id, first_registered AS last_seen, status
-                  FROM pollers
-                  WHERE status = 'pending'
-                  AND first_seen IS NULL
-                  AND first_registered < ?
+			SELECT 'poller', poller_id, first_registered AS last_seen, status
+			FROM pollers
+			WHERE status = 'pending'
+			  AND first_seen IS NULL
+			  AND first_registered < $2
 
-                  UNION ALL
+			UNION ALL
 
-                  SELECT 'agent', agent_id, last_seen, status
-                  FROM agents
-                  WHERE status IN ('inactive', 'revoked', 'deleted')
-                  AND last_seen < ?
+			SELECT 'agent', agent_id, last_seen, status
+			FROM agents
+			WHERE status IN ('inactive', 'revoked', 'deleted')
+			  AND last_seen < $3
 
-                  UNION ALL
+			UNION ALL
 
-                  SELECT 'agent', agent_id, first_registered AS last_seen, status
-                  FROM agents
-                  WHERE status = 'pending'
-                  AND first_seen IS NULL
-                  AND first_registered < ?
+			SELECT 'agent', agent_id, first_registered AS last_seen, status
+			FROM agents
+			WHERE status = 'pending'
+			  AND first_seen IS NULL
+			  AND first_registered < $4
 
-                  UNION ALL
+			UNION ALL
 
-                  SELECT 'checker', checker_id, last_seen, status
-                  FROM checkers
-                  WHERE status IN ('inactive', 'revoked', 'deleted')
-                  AND last_seen < ?
+			SELECT 'checker', checker_id, last_seen, status
+			FROM checkers
+			WHERE status IN ('inactive', 'revoked', 'deleted')
+			  AND last_seen < $5
 
-                  UNION ALL
+			UNION ALL
 
-                  SELECT 'checker', checker_id, first_registered AS last_seen, status
-                  FROM checkers
-                  WHERE status = 'pending'
-                  AND first_seen IS NULL
-                  AND first_registered < ?
-              )`
-
-	rows, err := r.db.Conn.Query(ctx, query, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff)
+			SELECT 'checker', checker_id, first_registered AS last_seen, status
+			FROM checkers
+			WHERE status = 'pending'
+			  AND first_seen IS NULL
+			  AND first_registered < $6
+		) AS stale_services`, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query stale services: %w", err)
 	}
@@ -833,13 +826,21 @@ func (r *ServiceRegistry) getCNPGClient() (cnpgRegistryClient, bool) {
 	return client, true
 }
 
-func (r *ServiceRegistry) useCNPGReads() bool {
-	client, ok := r.getCNPGClient()
-	if !ok {
-		return false
+func (r *ServiceRegistry) getRegistrationEventWriter() (registrationEventWriter, bool) {
+	if r == nil {
+		return nil, false
 	}
 
-	return client.UseCNPGReads()
+	if r.eventWriter != nil {
+		return r.eventWriter, true
+	}
+
+	if r.db == nil {
+		return nil, false
+	}
+
+	r.eventWriter = r.db
+	return r.eventWriter, true
 }
 
 func (r *ServiceRegistry) queryCNPGRows(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
@@ -848,7 +849,7 @@ func (r *ServiceRegistry) queryCNPGRows(ctx context.Context, query string, args 
 		return nil, errServiceRegistryCNPGUnsupported
 	}
 
-	return client.QueryCNPGRows(ctx, query, args...)
+	return client.QueryRegistryRows(ctx, query, args...)
 }
 
 func (r *ServiceRegistry) shouldWriteCNPG() bool {
