@@ -50,7 +50,15 @@ var maxSubLimitReportThreshold = defaultMaxSubLimitReportThreshold
 // Account are subject namespace definitions. By default no messages are shared between accounts.
 // You can share via Exports and Imports of Streams and Services.
 type Account struct {
-	stats
+	// Total stats for the account.
+	stats struct {
+		sync.Mutex
+		stats       // Totals
+		gw    stats // Gateways
+		rt    stats // Routes
+		ln    stats // Leafnodes
+	}
+
 	gwReplyMapping
 	Name         string
 	Nkey         string
@@ -370,6 +378,21 @@ func (a *Account) getClients() []*client {
 	return clients
 }
 
+// Returns a slice of external (non-internal) clients stored in the account, or nil if none is present.
+// Lock is held on entry.
+func (a *Account) getExternalClientsLocked() []*client {
+	if len(a.clients) == 0 {
+		return nil
+	}
+	var clients []*client
+	for c := range a.clients {
+		if !isInternalClient(c.kind) {
+			clients = append(clients, c)
+		}
+	}
+	return clients
+}
+
 // Called to track a remote server and connections and leafnodes it
 // has for this account.
 func (a *Account) updateRemoteServer(m *AccountNumConns) []*client {
@@ -390,8 +413,10 @@ func (a *Account) updateRemoteServer(m *AccountNumConns) []*client {
 	// conservative and bit harsh here. Clients will reconnect if we over compensate.
 	var clients []*client
 	if mtce {
-		clients = a.getClientsLocked()
-		slices.SortFunc(clients, func(i, j *client) int { return -i.start.Compare(j.start) }) // reserve
+		clients = a.getExternalClientsLocked()
+
+		// Sort in reverse chronological.
+		slices.SortFunc(clients, func(i, j *client) int { return -i.start.Compare(j.start) })
 		over := (len(a.clients) - int(a.sysclients) + int(a.nrclients)) - int(a.mconns)
 		if over < len(clients) {
 			clients = clients[:over]
@@ -3761,19 +3786,24 @@ func (s *Server) updateAccountClaimsWithRefresh(a *Account, ac *jwt.AccountClaim
 	ajs := a.js
 	a.mu.Unlock()
 
-	// Sort if we are over the limit.
+	// Sort in chronological order so that most recent connections over the limit are pruned.
 	if a.MaxTotalConnectionsReached() {
-		slices.SortFunc(clients, func(i, j *client) int { return -i.start.Compare(j.start) }) // sort in reverse order
+		slices.SortFunc(clients, func(i, j *client) int { return i.start.Compare(j.start) })
 	}
 
 	// If JetStream is enabled for this server we will call into configJetStream for the account
 	// regardless of enabled or disabled. It handles both cases.
 	if jsEnabled {
-		if err := s.configJetStream(a); err != nil {
+		if err := s.configJetStream(a, nil); err != nil {
 			s.Errorf("Error configuring jetstream for account [%s]: %v", tl, err.Error())
 			a.mu.Lock()
 			// Absent reload of js server cfg, this is going to be broken until js is disabled
 			a.incomplete = true
+			a.mu.Unlock()
+		} else {
+			a.mu.Lock()
+			// Refresh reference, we've just enabled JetStream, so it would have been nil before.
+			ajs = a.js
 			a.mu.Unlock()
 		}
 	} else if a.jsLimits != nil {
@@ -3803,6 +3833,7 @@ func (s *Server) updateAccountClaimsWithRefresh(a *Account, ac *jwt.AccountClaim
 		}
 	}
 
+	// client list is in chronological order (older cids at the beginning of the list).
 	count := 0
 	for _, c := range clients {
 		a.mu.RLock()
@@ -4340,7 +4371,7 @@ func (dr *DirAccResolver) Start(s *Server) error {
 							s.Warnf("DirResolver - Error checking for JetStream support for account %q: %v", pubKey, err)
 						}
 					} else if jsa == nil {
-						if err = s.configJetStream(acc); err != nil {
+						if err = s.configJetStream(acc, nil); err != nil {
 							s.Errorf("DirResolver - Error configuring JetStream for account %q: %v", pubKey, err)
 						}
 					}
@@ -4455,7 +4486,10 @@ func (dr *DirAccResolver) Start(s *Server) error {
 	}); err != nil {
 		return fmt.Errorf("error setting up list request handling: %v", err)
 	}
-	if _, err := s.sysSubscribe(accDeleteReqSubj, func(_ *subscription, _ *client, _ *Account, _, reply string, msg []byte) {
+	if _, err := s.sysSubscribe(accDeleteReqSubj, func(_ *subscription, c *client, _ *Account, _, reply string, msg []byte) {
+		// As this is a raw message, we need to extract payload and only decode claims from it,
+		// in case request is sent with headers.
+		_, msg = c.msgParts(msg)
 		handleDeleteRequest(dr.DirJWTStore, s, msg, reply)
 	}); err != nil {
 		return fmt.Errorf("error setting up delete request handling: %v", err)
@@ -4722,7 +4756,10 @@ func (dr *CacheDirAccResolver) Start(s *Server) error {
 	}); err != nil {
 		return fmt.Errorf("error setting up list request handling: %v", err)
 	}
-	if _, err := s.sysSubscribe(accDeleteReqSubj, func(_ *subscription, _ *client, _ *Account, _, reply string, msg []byte) {
+	if _, err := s.sysSubscribe(accDeleteReqSubj, func(_ *subscription, c *client, _ *Account, _, reply string, msg []byte) {
+		// As this is a raw message, we need to extract payload and only decode claims from it,
+		// in case request is sent with headers.
+		_, msg = c.msgParts(msg)
 		handleDeleteRequest(dr.DirJWTStore, s, msg, reply)
 	}); err != nil {
 		return fmt.Errorf("error setting up list request handling: %v", err)
