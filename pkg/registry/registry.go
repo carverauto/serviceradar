@@ -72,7 +72,7 @@ type DeviceRegistry struct {
 
 type cnpgRegistryClient interface {
 	UseCNPGReads() bool
-	QueryCNPGRows(ctx context.Context, query string, args ...interface{}) (db.Rows, error)
+	QueryRegistryRows(ctx context.Context, query string, args ...interface{}) (db.Rows, error)
 }
 
 // NewDeviceRegistry creates a new, authoritative device registry.
@@ -658,7 +658,7 @@ func (r *DeviceRegistry) queryCNPGRows(ctx context.Context, query string, args .
 		return nil, errCNPGQueryUnsupported
 	}
 
-	return client.QueryCNPGRows(ctx, query, args...)
+	return client.QueryRegistryRows(ctx, query, args...)
 }
 
 func filterIdentifierValues(values []string) []string {

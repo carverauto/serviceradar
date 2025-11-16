@@ -6,11 +6,25 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
+
+// ServiceRegistrationEvent represents an audit record stored in CNPG.
+type ServiceRegistrationEvent struct {
+	EventID            string
+	EventType          string
+	ServiceID          string
+	ServiceType        string
+	ParentID           string
+	RegistrationSource string
+	Actor              string
+	Timestamp          time.Time
+	Metadata           map[string]string
+}
 
 const (
 	upsertPollerStatusSQL = `
@@ -80,6 +94,21 @@ INSERT INTO services (
 	partition
 ) VALUES (
 	$1,$2,$3,$4,$5,$6,$7
+)`
+
+	insertServiceRegistrationEventSQL = `
+INSERT INTO service_registration_events (
+	event_id,
+	event_type,
+	service_id,
+	service_type,
+	parent_id,
+	registration_source,
+	actor,
+	timestamp,
+	metadata
+) VALUES (
+	$1,$2,$3,$4,$5,$6,$7,$8,$9
 )`
 )
 
@@ -168,6 +197,31 @@ func (db *DB) cnpgInsertServices(ctx context.Context, services []*models.Service
 	return db.sendCNPG(ctx, batch, "services")
 }
 
+// InsertServiceRegistrationEvents appends registration audit events to CNPG.
+func (db *DB) InsertServiceRegistrationEvents(ctx context.Context, events []*ServiceRegistrationEvent) error {
+	if len(events) == 0 || !db.useCNPGWrites() {
+		return nil
+	}
+
+	batch := &pgx.Batch{}
+	queued := 0
+
+	for _, event := range events {
+		args, err := buildCNPGServiceRegistrationEventArgs(event)
+		if err != nil {
+			return err
+		}
+		batch.Queue(insertServiceRegistrationEventSQL, args...)
+		queued++
+	}
+
+	if queued == 0 {
+		return nil
+	}
+
+	return db.sendCNPG(ctx, batch, "service registration event")
+}
+
 func buildCNPGPollerStatusArgs(status *models.PollerStatus) ([]interface{}, error) {
 	if status == nil {
 		return nil, ErrPollerStatusNil
@@ -248,6 +302,36 @@ func buildCNPGServiceArgs(service *models.Service) ([]interface{}, error) {
 		service.ServiceType,
 		config,
 		service.Partition,
+	}, nil
+}
+
+func buildCNPGServiceRegistrationEventArgs(event *ServiceRegistrationEvent) ([]interface{}, error) {
+	if event == nil {
+		return nil, ErrServiceRegistrationEventNil
+	}
+
+	timestamp := sanitizeTimestamp(event.Timestamp)
+
+	metadata := event.Metadata
+	if metadata == nil {
+		metadata = map[string]string{}
+	}
+
+	rawMetadata, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("marshal service registration metadata: %w", err)
+	}
+
+	return []interface{}{
+		strings.TrimSpace(event.EventID),
+		strings.TrimSpace(event.EventType),
+		strings.TrimSpace(event.ServiceID),
+		strings.TrimSpace(event.ServiceType),
+		strings.TrimSpace(event.ParentID),
+		strings.TrimSpace(event.RegistrationSource),
+		strings.TrimSpace(event.Actor),
+		timestamp,
+		json.RawMessage(rawMetadata),
 	}, nil
 }
 

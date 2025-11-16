@@ -31,7 +31,7 @@ type QueryExecutor interface {
 	ExecuteQuery(ctx context.Context, query string, params ...interface{}) ([]map[string]interface{}, error)
 }
 
-// Service represents all database operations for Timeplus Proton.
+// Service represents all CNPG-backed database operations.
 type Service interface {
 	Close() error
 

@@ -31,7 +31,7 @@ func (m *cnpgMockService) UseCNPGReads() bool {
 	return m.useCNPG
 }
 
-func (m *cnpgMockService) QueryCNPGRows(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
+func (m *cnpgMockService) QueryRegistryRows(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
 	if m.queryFn == nil {
 		return nil, errQueryFnNotConfigured
 	}
