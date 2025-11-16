@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,75 +25,6 @@ var (
 	errStubRowsIntType        = errors.New("unsupported int type")
 	errStubRowsScanDest       = errors.New("unsupported scan destination")
 )
-
-func TestEscapeLiteral(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "plain string unchanged",
-			input:    "poller-123",
-			expected: "poller-123",
-		},
-		{
-			name:     "single quote doubled",
-			input:    "O'Reilly",
-			expected: "O''Reilly",
-		},
-		{
-			name:     "sql injection attempt neutralised",
-			input:    "poller'); DROP TABLE pollers; --",
-			expected: "poller''); DROP TABLE pollers; --",
-		},
-	}
-
-	for _, tt := range tests {
-		tc := tt
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tc.expected, escapeLiteral(tc.input))
-		})
-	}
-}
-
-func TestQuoteStringSlice(t *testing.T) {
-	t.Parallel()
-
-	values := []string{
-		"active",
-		"", // should be skipped
-		"revoked'); DROP TABLE pollers; --",
-	}
-
-	quoted := quoteStringSlice(values)
-
-	require.NotEmpty(t, quoted)
-	require.Contains(t, quoted, "'active'")
-	require.Contains(t, quoted, "'revoked''); DROP TABLE pollers; --'")
-	require.NotContains(t, quoted, "'revoked'); DROP TABLE pollers; --'")
-	require.NotContains(t, quoted, ",''")
-}
-
-func TestGetPollerQueryEscapesUserInput(t *testing.T) {
-	t.Parallel()
-
-	malicious := "poller'); DROP TABLE pollers; --"
-	query := fmt.Sprintf(`SELECT
-		poller_id, component_id, status, registration_source,
-		first_registered, first_seen, last_seen, metadata,
-		spiffe_identity, created_by, agent_count, checker_count
-	FROM table(pollers)
-	WHERE poller_id = '%s'
-	ORDER BY _tp_time DESC
-	LIMIT 1`, escapeLiteral(malicious))
-
-	require.Contains(t, query, "poller''); DROP TABLE pollers; --")
-	require.NotContains(t, query, "poller'); DROP TABLE pollers; --")
-}
 
 func TestGetPollerCNPG(t *testing.T) {
 	t.Parallel()
@@ -199,6 +131,144 @@ func TestListPollersCNPGFilters(t *testing.T) {
 	require.Equal(t, 1, pollers[0].AgentCount)
 }
 
+func TestEmitRegistrationEventUsesWriter(t *testing.T) {
+	t.Parallel()
+
+	writer := &testRegistrationEventWriter{}
+	registry := NewServiceRegistry(nil, logger.NewTestLogger())
+	registry.eventWriter = writer
+
+	err := registry.emitRegistrationEvent(
+		context.Background(),
+		"registered",
+		serviceTypeAgent,
+		"agent-1",
+		"poller-1",
+		RegistrationSourceImplicit,
+		"system",
+		map[string]string{"component": "edge"},
+	)
+	require.NoError(t, err)
+	require.Len(t, writer.events, 1)
+
+	event := writer.events[0]
+	require.Equal(t, "registered", event.EventType)
+	require.Equal(t, "agent-1", event.ServiceID)
+	require.Equal(t, "poller-1", event.ParentID)
+	require.Equal(t, "implicit", event.RegistrationSource)
+	require.Equal(t, "system", event.Actor)
+	require.Equal(t, map[string]string{"component": "edge"}, event.Metadata)
+	require.False(t, event.Timestamp.IsZero())
+}
+
+func TestDeleteServiceEmitsEvent(t *testing.T) {
+	t.Parallel()
+
+	writer := &testRegistrationEventWriter{}
+	now := time.Now().UTC()
+
+	client := &testCNPGClient{
+		useReads: true,
+		queryFn: func(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
+			if strings.Contains(query, "FROM pollers") && strings.Contains(query, "WHERE poller_id = $1") {
+				require.Len(t, args, 1)
+				require.Equal(t, "poller-1", args[0])
+				return &stubRows{
+					rows: [][]interface{}{
+						{
+							"poller-1",
+							"component-1",
+							"revoked",
+							"implicit",
+							now,
+							(*time.Time)(nil),
+							&now,
+							[]byte(`{"env":"test"}`),
+							"",
+							"system",
+							0,
+							0,
+						},
+					},
+				}, nil
+			}
+			return &stubRows{}, nil
+		},
+	}
+
+	registry := NewServiceRegistry(nil, logger.NewTestLogger())
+	registry.cnpgClient = client
+	registry.eventWriter = writer
+
+	err := registry.DeleteService(context.Background(), serviceTypePoller, "poller-1")
+	require.NoError(t, err)
+	require.Len(t, writer.events, 1)
+	require.Equal(t, "deleted", writer.events[0].EventType)
+	require.Equal(t, "poller-1", writer.events[0].ServiceID)
+}
+
+func TestPurgeInactivePurgesServices(t *testing.T) {
+	t.Parallel()
+
+	writer := &testRegistrationEventWriter{}
+	now := time.Now().UTC()
+
+	client := &testCNPGClient{
+		useReads: true,
+		queryFn: func(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
+			switch {
+			case strings.Contains(query, "FROM pollers") && strings.Contains(query, "WHERE poller_id = $1"):
+				return &stubRows{
+					rows: [][]interface{}{
+						{
+							"poller-old",
+							"component-x",
+							"revoked",
+							"implicit",
+							now,
+							(*time.Time)(nil),
+							&now,
+							[]byte(`{"tier":"edge"}`),
+							"",
+							"system",
+							0,
+							0,
+						},
+					},
+				}, nil
+			case strings.Contains(query, "SELECT service_type, service_id"):
+				require.Len(t, args, 6)
+				return &stubRows{
+					rows: [][]interface{}{
+						{"poller", "poller-old"},
+					},
+				}, nil
+			default:
+				return &stubRows{}, nil
+			}
+		},
+	}
+
+	registry := NewServiceRegistry(nil, logger.NewTestLogger())
+	registry.cnpgClient = client
+	registry.eventWriter = writer
+
+	count, err := registry.PurgeInactive(context.Background(), time.Hour)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+	require.Len(t, writer.events, 1)
+	require.Equal(t, "poller-old", writer.events[0].ServiceID)
+}
+
+type testRegistrationEventWriter struct {
+	events []*db.ServiceRegistrationEvent
+}
+
+func (w *testRegistrationEventWriter) InsertServiceRegistrationEvents(_ context.Context, events []*db.ServiceRegistrationEvent) error {
+	w.events = append(w.events, events...)
+	return nil
+}
+
 type testCNPGClient struct {
 	useReads bool
 	queryFn  func(ctx context.Context, query string, args ...interface{}) (db.Rows, error)
@@ -208,7 +278,7 @@ func (c *testCNPGClient) UseCNPGReads() bool {
 	return c.useReads
 }
 
-func (c *testCNPGClient) QueryCNPGRows(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
+func (c *testCNPGClient) QueryRegistryRows(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
 	if c.queryFn == nil {
 		return nil, errTestQueryNotConfigured
 	}

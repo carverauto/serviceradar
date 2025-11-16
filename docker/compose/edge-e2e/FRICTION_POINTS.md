@@ -20,13 +20,15 @@ DELETE FROM table(pollers) WHERE poller_id = $1 VALUES
 
 **Original Code**:
 ```go
-batch, err := db.Conn.PrepareBatch(ctx, "DELETE FROM table(pollers) WHERE poller_id = $1")
+if err := db.ExecCNPG(ctx, "DELETE FROM table(pollers) WHERE poller_id = $1", pollerID); err != nil {
+    // ...
+}
 ```
 
 **Fix**:
 ```go
 query := "ALTER TABLE pollers DELETE WHERE poller_id = $1"
-if err := db.Conn.Exec(ctx, query, pollerID); err != nil {
+if err := db.ExecCNPG(ctx, query, pollerID); err != nil {
     return fmt.Errorf("%w: failed to delete poller: %w", ErrFailedToInsert, err)
 }
 ```
