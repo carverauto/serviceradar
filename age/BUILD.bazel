@@ -1,0 +1,11 @@
+load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
+
+package(default_visibility = ["//visibility:public"])
+
+# Provide the Apache AGE sources as a tree artifact for downstream build steps.
+copy_to_directory(
+    name = "source_tree",
+    srcs = ["@age_src//:all_srcs"],
+    out = "src",
+    include_external_repositories = ["**"],
+)
