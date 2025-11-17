@@ -10,6 +10,10 @@ pub enum Entity {
     Devices,
     Events,
     Logs,
+    Services,
+    OtelMetrics,
+    TraceSummaries,
+    Traces,
 }
 
 #[derive(Debug, Clone)]
@@ -19,6 +23,7 @@ pub struct QueryAst {
     pub order: Vec<OrderClause>,
     pub limit: Option<i64>,
     pub time_filter: Option<TimeFilterSpec>,
+    pub stats: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +87,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
     let mut order = Vec::new();
     let mut limit = None;
     let mut time_filter = None;
+    let mut stats = None;
 
     for token in tokenize(input) {
         let (raw_key, raw_value) = split_token(&token)?;
@@ -110,7 +116,11 @@ pub fn parse(input: &str) -> Result<QueryAst> {
             "time" | "timeframe" => {
                 time_filter = Some(parse_time_value(value.as_scalar()?)?);
             }
-            "stats" | "window" | "bounded" | "mode" => {
+            "stats" => {
+                let expr = value.as_scalar()?.to_string();
+                stats = Some(expr);
+            }
+            "window" | "bounded" | "mode" => {
                 // Aggregations and streaming hints are ignored for now.
                 continue;
             }
@@ -130,6 +140,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
         order,
         limit,
         time_filter,
+        stats,
     })
 }
 
@@ -139,6 +150,12 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "devices" | "device" | "device_inventory" => Ok(Entity::Devices),
         "events" | "activity" => Ok(Entity::Events),
         "logs" => Ok(Entity::Logs),
+        "services" | "service" => Ok(Entity::Services),
+        "otel_metrics" | "metrics" => Ok(Entity::OtelMetrics),
+        "otel_trace_summaries" | "trace_summaries" | "traces_summaries" => {
+            Ok(Entity::TraceSummaries)
+        }
+        "otel_traces" | "traces" | "trace_spans" => Ok(Entity::Traces),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),

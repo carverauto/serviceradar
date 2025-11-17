@@ -1,7 +1,9 @@
 //! Data models for CNPG-backed SRQL queries.
 
 use chrono::{DateTime, Utc};
+use diesel::deserialize::QueryableByName;
 use diesel::prelude::*;
+use diesel::sql_types::{Array, Float8, Int4, Int8, Nullable, Text, Timestamptz};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Queryable, Serialize)]
@@ -127,6 +129,195 @@ impl LogRow {
             "attributes": self.attributes.clone(),
             "resource_attributes": self.resource_attributes,
             "raw_data": self.attributes.unwrap_or_default(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::otel_traces)]
+pub struct TraceSpanRow {
+    pub timestamp: DateTime<Utc>,
+    pub trace_id: Option<String>,
+    pub span_id: String,
+    pub parent_span_id: Option<String>,
+    pub name: Option<String>,
+    pub kind: Option<i32>,
+    pub start_time_unix_nano: Option<i64>,
+    pub end_time_unix_nano: Option<i64>,
+    pub service_name: Option<String>,
+    pub service_version: Option<String>,
+    pub service_instance: Option<String>,
+    pub scope_name: Option<String>,
+    pub scope_version: Option<String>,
+    pub status_code: Option<i32>,
+    pub status_message: Option<String>,
+    pub attributes: Option<String>,
+    pub resource_attributes: Option<String>,
+    pub events: Option<String>,
+    pub links: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl TraceSpanRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "timestamp": self.timestamp,
+            "trace_id": self.trace_id,
+            "span_id": self.span_id,
+            "parent_span_id": self.parent_span_id,
+            "name": self.name,
+            "kind": self.kind,
+            "start_time_unix_nano": self.start_time_unix_nano,
+            "end_time_unix_nano": self.end_time_unix_nano,
+            "service_name": self.service_name,
+            "service_version": self.service_version,
+            "service_instance": self.service_instance,
+            "scope_name": self.scope_name,
+            "scope_version": self.scope_version,
+            "status_code": self.status_code,
+            "status_message": self.status_message,
+            "attributes": self.attributes.clone(),
+            "resource_attributes": self.resource_attributes,
+            "events": self.events,
+            "links": self.links,
+            "raw_data": self.attributes.unwrap_or_default(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::service_status)]
+pub struct ServiceStatusRow {
+    pub timestamp: DateTime<Utc>,
+    pub poller_id: String,
+    pub agent_id: Option<String>,
+    pub service_name: String,
+    pub service_type: Option<String>,
+    pub available: bool,
+    pub message: Option<String>,
+    pub details: Option<String>,
+    pub partition: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl ServiceStatusRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "timestamp": self.timestamp,
+            "last_seen": self.timestamp,
+            "created_at": self.created_at,
+            "poller_id": self.poller_id,
+            "agent_id": self.agent_id,
+            "service_name": self.service_name,
+            "service_type": self.service_type,
+            "name": self.service_name,
+            "type": self.service_type,
+            "available": self.available,
+            "message": self.message,
+            "details": self.details,
+            "partition": self.partition,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::otel_metrics)]
+pub struct OtelMetricRow {
+    pub timestamp: DateTime<Utc>,
+    pub trace_id: Option<String>,
+    pub span_id: Option<String>,
+    pub service_name: Option<String>,
+    pub span_name: Option<String>,
+    pub span_kind: Option<String>,
+    pub duration_ms: Option<f64>,
+    pub duration_seconds: Option<f64>,
+    pub metric_type: Option<String>,
+    pub http_method: Option<String>,
+    pub http_route: Option<String>,
+    pub http_status_code: Option<String>,
+    pub grpc_service: Option<String>,
+    pub grpc_method: Option<String>,
+    pub grpc_status_code: Option<String>,
+    pub is_slow: Option<bool>,
+    pub component: Option<String>,
+    pub level: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl OtelMetricRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "timestamp": self.timestamp,
+            "trace_id": self.trace_id,
+            "span_id": self.span_id,
+            "service_name": self.service_name,
+            "span_name": self.span_name,
+            "span_kind": self.span_kind,
+            "duration_ms": self.duration_ms,
+            "duration_seconds": self.duration_seconds,
+            "metric_type": self.metric_type,
+            "http_method": self.http_method,
+            "http_route": self.http_route,
+            "http_status_code": self.http_status_code,
+            "grpc_service": self.grpc_service,
+            "grpc_method": self.grpc_method,
+            "grpc_status_code": self.grpc_status_code,
+            "is_slow": self.is_slow,
+            "component": self.component,
+            "level": self.level,
+        })
+    }
+}
+
+#[derive(Debug, Clone, QueryableByName)]
+pub struct TraceSummaryRow {
+    #[diesel(sql_type = Timestamptz)]
+    pub timestamp: DateTime<Utc>,
+    #[diesel(sql_type = Text)]
+    pub trace_id: String,
+    #[diesel(sql_type = Nullable<Text>)]
+    pub root_span_id: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    pub root_span_name: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    pub root_service_name: Option<String>,
+    #[diesel(sql_type = Nullable<Int4>)]
+    pub root_span_kind: Option<i32>,
+    #[diesel(sql_type = Nullable<Int8>)]
+    pub start_time_unix_nano: Option<i64>,
+    #[diesel(sql_type = Nullable<Int8>)]
+    pub end_time_unix_nano: Option<i64>,
+    #[diesel(sql_type = Nullable<Float8>)]
+    pub duration_ms: Option<f64>,
+    #[diesel(sql_type = Nullable<Int4>)]
+    pub status_code: Option<i32>,
+    #[diesel(sql_type = Nullable<Text>)]
+    pub status_message: Option<String>,
+    #[diesel(sql_type = Nullable<Array<Text>>)]
+    pub service_set: Option<Vec<String>>,
+    #[diesel(sql_type = Nullable<Int8>)]
+    pub span_count: Option<i64>,
+    #[diesel(sql_type = Nullable<Int8>)]
+    pub error_count: Option<i64>,
+}
+
+impl TraceSummaryRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "timestamp": self.timestamp,
+            "trace_id": self.trace_id,
+            "root_span_id": self.root_span_id,
+            "root_span_name": self.root_span_name,
+            "root_service_name": self.root_service_name,
+            "root_span_kind": self.root_span_kind,
+            "start_time_unix_nano": self.start_time_unix_nano,
+            "end_time_unix_nano": self.end_time_unix_nano,
+            "duration_ms": self.duration_ms,
+            "status_code": self.status_code,
+            "status_message": self.status_message,
+            "service_set": self.service_set.unwrap_or_default(),
+            "span_count": self.span_count.unwrap_or(0),
+            "error_count": self.error_count.unwrap_or(0),
         })
     }
 }

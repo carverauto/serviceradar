@@ -97,46 +97,42 @@ fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Result<LogsQue
         "body" => {
             query = apply_text_filter!(query, filter, col_body)?;
         }
-        "severity_number" => {
-            match filter.op {
-                FilterOp::Eq | FilterOp::NotEq => {
-                    let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
-                        ServiceError::InvalidRequest("severity_number must be an integer".into())
-                    })?;
-                    query = match filter.op {
-                        FilterOp::Eq => query.filter(col_severity_number.eq(value)),
-                        FilterOp::NotEq => query.filter(col_severity_number.ne(value)),
-                        _ => unreachable!(),
-                    };
-                }
-                FilterOp::In | FilterOp::NotIn => {
-                    let values: Vec<i32> = filter
-                        .value
-                        .as_list()?
-                        .iter()
-                        .map(|v| v.parse::<i32>())
-                        .collect::<std::result::Result<Vec<_>, _>>()
-                        .map_err(|_| {
-                            ServiceError::InvalidRequest(
-                                "severity_number list must be integers".into(),
-                            )
-                        })?;
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    query = match filter.op {
-                        FilterOp::In => query.filter(col_severity_number.eq_any(values)),
-                        FilterOp::NotIn => query.filter(col_severity_number.ne_all(values)),
-                        _ => unreachable!(),
-                    };
-                }
-                _ => {
-                    return Err(ServiceError::InvalidRequest(
-                        "severity_number only supports equality and IN/NOT IN comparisons".into(),
-                    ))
-                }
+        "severity_number" => match filter.op {
+            FilterOp::Eq | FilterOp::NotEq => {
+                let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
+                    ServiceError::InvalidRequest("severity_number must be an integer".into())
+                })?;
+                query = match filter.op {
+                    FilterOp::Eq => query.filter(col_severity_number.eq(value)),
+                    FilterOp::NotEq => query.filter(col_severity_number.ne(value)),
+                    _ => unreachable!(),
+                };
             }
-        }
+            FilterOp::In | FilterOp::NotIn => {
+                let values: Vec<i32> = filter
+                    .value
+                    .as_list()?
+                    .iter()
+                    .map(|v| v.parse::<i32>())
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(|_| {
+                        ServiceError::InvalidRequest("severity_number list must be integers".into())
+                    })?;
+                if values.is_empty() {
+                    return Ok(query);
+                }
+                query = match filter.op {
+                    FilterOp::In => query.filter(col_severity_number.eq_any(values)),
+                    FilterOp::NotIn => query.filter(col_severity_number.ne_all(values)),
+                    _ => unreachable!(),
+                };
+            }
+            _ => {
+                return Err(ServiceError::InvalidRequest(
+                    "severity_number only supports equality and IN/NOT IN comparisons".into(),
+                ))
+            }
+        },
         _ => {}
     }
 

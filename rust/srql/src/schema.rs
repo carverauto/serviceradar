@@ -68,3 +68,73 @@ diesel::table! {
         created_at -> Timestamptz,
     }
 }
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    service_status (timestamp, poller_id, service_name) {
+        timestamp -> Timestamptz,
+        poller_id -> Text,
+        agent_id -> Nullable<Text>,
+        service_name -> Text,
+        service_type -> Nullable<Text>,
+        available -> Bool,
+        message -> Nullable<Text>,
+        details -> Nullable<Text>,
+        partition -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    otel_traces (timestamp, trace_id, span_id) {
+        timestamp -> Timestamptz,
+        trace_id -> Nullable<Text>,
+        span_id -> Text,
+        parent_span_id -> Nullable<Text>,
+        name -> Nullable<Text>,
+        kind -> Nullable<Int4>,
+        start_time_unix_nano -> Nullable<Int8>,
+        end_time_unix_nano -> Nullable<Int8>,
+        service_name -> Nullable<Text>,
+        service_version -> Nullable<Text>,
+        service_instance -> Nullable<Text>,
+        scope_name -> Nullable<Text>,
+        scope_version -> Nullable<Text>,
+        status_code -> Nullable<Int4>,
+        status_message -> Nullable<Text>,
+        attributes -> Nullable<Text>,
+        resource_attributes -> Nullable<Text>,
+        events -> Nullable<Text>,
+        links -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    otel_metrics (timestamp, span_name, service_name, span_id) {
+        timestamp -> Timestamptz,
+        trace_id -> Nullable<Text>,
+        span_id -> Nullable<Text>,
+        service_name -> Nullable<Text>,
+        span_name -> Nullable<Text>,
+        span_kind -> Nullable<Text>,
+        duration_ms -> Nullable<Float8>,
+        duration_seconds -> Nullable<Float8>,
+        metric_type -> Nullable<Text>,
+        http_method -> Nullable<Text>,
+        http_route -> Nullable<Text>,
+        http_status_code -> Nullable<Text>,
+        grpc_service -> Nullable<Text>,
+        grpc_method -> Nullable<Text>,
+        grpc_status_code -> Nullable<Text>,
+        is_slow -> Nullable<Bool>,
+        component -> Nullable<Text>,
+        level -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
