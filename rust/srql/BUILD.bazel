@@ -14,7 +14,7 @@ rust_library(
 rust_binary(
     name = "srql_bin",
     srcs = ["src/main.rs"],
-    crate = "srql",
+    crate_name = "srql",
     edition = "2021",
     deps = [
         ":srql_lib",

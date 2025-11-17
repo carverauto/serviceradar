@@ -1,9 +1,8 @@
 # syntax=docker/dockerfile:1
 
-# Stage to collect the released OCaml SRQL binary. We reuse the existing image
-# so we do not have to rebuild the compiler stack just to refresh the runtime
-# base.
-ARG SRQL_SOURCE_IMAGE=ghcr.io/carverauto/serviceradar-srql:v1.0.53
+# Stage to collect the released SRQL binary. We reuse the published Bazel image
+# so local Compose builds stay fast.
+ARG SRQL_SOURCE_IMAGE=ghcr.io/carverauto/serviceradar-srql:latest
 FROM ${SRQL_SOURCE_IMAGE} AS artifact
 
 # Runtime stage with a glibc >= 2.38 (Ubuntu 24.04 currently ships 2.39).

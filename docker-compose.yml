@@ -339,15 +339,18 @@ services:
     image: ghcr.io/carverauto/serviceradar-srql:latest
     container_name: serviceradar-srql
     environment:
-      - PROTON_HOST=proton
-      - PROTON_PORT=9440
-      - PROTON_TLS=1
-      - PROTON_INSECURE_SKIP_VERIFY=1
-      - PROTON_VERIFY_HOSTNAME=0
-      - PROTON_CLIENT_CERT=/etc/serviceradar/certs/srql.pem
-      - PROTON_CLIENT_KEY=/etc/serviceradar/certs/srql-key.pem
-      - PROTON_CA_CERT=/etc/serviceradar/certs/root.pem
       - AUTH_ENABLED=true
+      - SRQL_API_KEY=${SRQL_API_KEY:-changeme}
+      - SRQL_LISTEN_HOST=0.0.0.0
+      - SRQL_LISTEN_PORT=8080
+      - CNPG_HOST=${CNPG_HOST:-cnpg-rw}
+      - CNPG_PORT=${CNPG_PORT:-5432}
+      - CNPG_DATABASE=${CNPG_DATABASE:-telemetry}
+      - CNPG_USERNAME=${CNPG_USERNAME:-postgres}
+      - CNPG_SSLMODE=${CNPG_SSLMODE:-disable}
+      - CNPG_PASSWORD=${CNPG_PASSWORD:-}
+      - CNPG_PASSWORD_FILE=/etc/serviceradar/credentials/cnpg-password
+      - SRQL_DATABASE_URL=${SRQL_DATABASE_URL:-}
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - generated-config:/etc/serviceradar/config:ro
@@ -357,10 +360,8 @@ services:
         condition: service_completed_successfully
       credentials-permissions-fixer:
         condition: service_completed_successfully
-      proton:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 5s
       retries: 5

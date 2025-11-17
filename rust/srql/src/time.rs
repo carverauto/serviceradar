@@ -102,6 +102,11 @@ fn parse_relative_keyword(value: &str) -> Option<TimeFilterSpec> {
     }
 
     let normalized = value.replace('_', "").replace('-', "");
+    if let Some(stripped) = normalized.strip_prefix("last") {
+        if let Some(spec) = parse_numeric_suffix(stripped) {
+            return Some(spec);
+        }
+    }
     if let Some(spec) = parse_numeric_suffix(&normalized) {
         return Some(spec);
     }
@@ -160,4 +165,35 @@ fn parse_datetime(value: &str) -> Result<DateTime<Utc>> {
     Err(ServiceError::InvalidRequest(format!(
         "invalid time literal '{value}'"
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_relative_days() {
+        let spec = parse_time_value("last_7d").unwrap();
+        let now = Utc::now();
+        let range = spec.resolve(now).unwrap();
+        assert!(range.start < range.end);
+    }
+
+    #[test]
+    fn parses_absolute_range() {
+        let spec = parse_time_value("[2025-01-01 00:00:00,2025-01-02 00:00:00]").unwrap();
+        let range = spec.resolve(Utc::now()).unwrap();
+        assert_eq!(
+            range.start,
+            DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc)
+        );
+        assert_eq!(
+            range.end,
+            DateTime::parse_from_rfc3339("2025-01-02T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc)
+        );
+    }
 }

@@ -3,7 +3,6 @@
 import { Pagination } from './devices';
 
 export interface Event {
-    _tp_time: string;
     datacontenttype: string;
     event_timestamp: string;
     host: string;

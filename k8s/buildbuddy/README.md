@@ -161,3 +161,24 @@ If executors can't connect to remote.buildbuddy.io:
 Executors expose Prometheus metrics on port 9090:
 - Endpoint: `http://<pod-ip>:9090/metrics`
 - Annotations are set for automatic Prometheus scraping
+
+## Updating the Executor Image
+
+The custom BuildBuddy executors pull from `ghcr.io/carverauto/serviceradar/rbe-executor:<tag>`. After modifying `docker/Dockerfile.rbe`:
+
+1. Build and push the image (requires GH registry access):
+   ```bash
+   docker buildx build \
+     --platform linux/amd64 \
+     -f docker/Dockerfile.rbe \
+     -t ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.10 \
+     --push .
+   ```
+   (Alternatively, push via the `.github/workflows/build-rbe-image.yml` pipeline.)
+2. Bump the tag everywhere it is referenced (`docker/Dockerfile.rbe`, `MODULE.bazel`, `BUILD.bazel`, `build/rbe/BUILD`, `k8s/buildbuddy/values.yaml`, and `third_party/patches/rules_ocaml/...`).
+3. Reapply the Helm chart so the executors roll to the new digest:
+   ```bash
+   ./k8s/buildbuddy/deploy.sh
+   ```
+
+New builds (local Bazel + BuildBuddy RBE) will automatically pick up the refreshed executor image once the pods restart.

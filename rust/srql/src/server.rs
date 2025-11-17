@@ -1,7 +1,6 @@
 use crate::{
     config::AppConfig,
     db,
-    dual::DualRunner,
     error::{Result, ServiceError},
     query::{QueryEngine, QueryRequest, QueryResponse, TranslateRequest, TranslateResponse},
     state::AppState,
@@ -28,11 +27,7 @@ impl Server {
         let pool = db::connect_pool(&config).await?;
         let config = Arc::new(config);
         let query = QueryEngine::new(pool, Arc::clone(&config));
-        let dual_runner = match config.dual_run.clone() {
-            Some(cfg) => Some(DualRunner::new(cfg)?),
-            None => None,
-        };
-        let state = AppState::new(Arc::clone(&config), query, dual_runner);
+        let state = AppState::new(Arc::clone(&config), query);
 
         Ok(Self { config, state })
     }
@@ -64,19 +59,10 @@ impl Server {
         Json(request): Json<QueryRequest>,
     ) -> Result<Json<QueryResponse>> {
         enforce_api_key(&headers, &state.config)?;
-        let payload = serde_json::to_value(&request).unwrap_or_default();
-        let response = state.query.execute_query(request.clone()).await;
+        let response = state.query.execute_query(request).await;
 
         match response {
-            Ok(rows) => {
-                if let Some(runner) = state.dual_runner.clone() {
-                    let local_rows = rows.results.clone();
-                    tokio::spawn(async move {
-                        runner.compare(payload, &local_rows).await;
-                    });
-                }
-                Ok(Json(rows))
-            }
+            Ok(rows) => Ok(Json(rows)),
             Err(err) => Err(err),
         }
     }

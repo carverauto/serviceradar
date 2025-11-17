@@ -1,4 +1,3 @@
-use crate::dual::DualRunConfig;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::{
@@ -17,7 +16,6 @@ pub struct AppConfig {
     pub default_limit: i64,
     pub max_limit: i64,
     pub request_timeout: Duration,
-    pub dual_run: Option<DualRunConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,10 +42,6 @@ struct RawConfig {
     srql_max_limit: i64,
     #[serde(default = "default_timeout_secs")]
     srql_request_timeout_secs: u64,
-    #[serde(default)]
-    srql_dual_run_url: Option<String>,
-    #[serde(default)]
-    srql_dual_run_timeout_ms: Option<u64>,
 }
 
 const fn default_pool_size() -> u32 {
@@ -102,11 +96,6 @@ impl AppConfig {
             }
         });
 
-        let dual_run = raw.srql_dual_run_url.map(|url| DualRunConfig {
-            url,
-            timeout: Duration::from_millis(raw.srql_dual_run_timeout_ms.unwrap_or(2000)),
-        });
-
         Ok(Self {
             listen_addr,
             database_url,
@@ -116,7 +105,6 @@ impl AppConfig {
             default_limit: raw.srql_default_limit.max(1),
             max_limit: raw.srql_max_limit.max(raw.srql_default_limit),
             request_timeout: Duration::from_secs(raw.srql_request_timeout_secs.max(1)),
-            dual_run,
         })
     }
 }

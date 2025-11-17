@@ -2,7 +2,7 @@ use super::QueryPlan;
 use crate::{
     error::{Result, ServiceError},
     models::DeviceRow,
-    parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
+    parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
     schema::unified_devices::dsl::{
         agent_id as col_agent_id, device_id as col_device_id, device_type as col_device_type,
         first_seen as col_first_seen, hostname as col_hostname, ip as col_ip,
@@ -12,9 +12,11 @@ use crate::{
     },
     time::TimeRange,
 };
+use diesel::dsl::sql;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
+use diesel::sql_types::{Array, Bool, Text};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
@@ -208,10 +210,16 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
             };
         }
         "discovery_sources" => {
-            // TODO: implement array contains semantics.
-            return Err(ServiceError::InvalidRequest(
-                "discovery_sources filtering is not supported yet".into(),
-            ));
+            let values = match &filter.value {
+                FilterValue::Scalar(v) => vec![v.to_string()],
+                FilterValue::List(list) => list.clone(),
+            };
+            if values.is_empty() {
+                return Ok(query);
+            }
+            let expr = sql::<Bool>("coalesce(discovery_sources, ARRAY[]::text[]) @> ")
+                .bind::<Array<Text>, _>(values);
+            query = query.filter(expr);
         }
         other => {
             return Err(ServiceError::InvalidRequest(format!(

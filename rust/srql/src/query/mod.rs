@@ -1,4 +1,6 @@
 mod devices;
+mod events;
+mod logs;
 
 use crate::{
     config::AppConfig,
@@ -39,16 +41,8 @@ impl QueryEngine {
 
         let results = match plan.entity {
             Entity::Devices => devices::execute(&mut conn, &plan).await?,
-            Entity::Events => {
-                return Err(ServiceError::NotImplemented(
-                    "events queries are not available yet".into(),
-                ))
-            }
-            Entity::Logs => {
-                return Err(ServiceError::NotImplemented(
-                    "log queries are not available yet".into(),
-                ))
-            }
+            Entity::Events => events::execute(&mut conn, &plan).await?,
+            Entity::Logs => logs::execute(&mut conn, &plan).await?,
         };
 
         let pagination = self.build_pagination(&plan, results.len() as i64);
@@ -72,11 +66,8 @@ impl QueryEngine {
 
         let sql = match plan.entity {
             Entity::Devices => devices::to_debug_sql(&plan)?,
-            Entity::Events | Entity::Logs => {
-                return Err(ServiceError::NotImplemented(
-                    "translate is only available for device queries right now".into(),
-                ))
-            }
+            Entity::Events => events::to_debug_sql(&plan)?,
+            Entity::Logs => logs::to_debug_sql(&plan)?,
         };
 
         Ok(TranslateResponse {

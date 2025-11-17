@@ -1,6 +1,6 @@
 image:
-  repository: gcr.io/flame-public/buildbuddy-executor-enterprise
-  tag: enterprise-v2.206.0
+  repository: ghcr.io/carverauto/serviceradar/rbe-executor
+  tag: v1.0.10
   imagePullPolicy: IfNotPresent
 
 replicas: 3
