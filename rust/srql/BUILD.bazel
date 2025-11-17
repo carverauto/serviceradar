@@ -7,7 +7,9 @@ rust_library(
     crate_name = "srql",
     crate_root = "src/lib.rs",
     edition = "2021",
-    deps = all_crate_deps(normal = True),
+    deps = all_crate_deps(normal = True) + [
+        "//rust/kvutil:kvutil",
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -18,6 +20,7 @@ rust_binary(
     edition = "2021",
     deps = [
         ":srql_lib",
+        "//rust/kvutil:kvutil",
     ] + all_crate_deps(normal = True),
     visibility = ["//visibility:public"],
 )
