@@ -12,10 +12,13 @@ pub struct AppConfig {
     pub database_url: String,
     pub max_pool_size: u32,
     pub api_key: Option<String>,
+    pub api_key_kv_key: Option<String>,
     pub allowed_origins: Option<Vec<String>>,
     pub default_limit: i64,
     pub max_limit: i64,
     pub request_timeout: Duration,
+    pub rate_limit_max_requests: u64,
+    pub rate_limit_window: Duration,
 }
 
 #[derive(Debug, Deserialize)]
@@ -35,6 +38,8 @@ struct RawConfig {
     #[serde(default)]
     srql_api_key: Option<String>,
     #[serde(default)]
+    srql_api_key_kv_key: Option<String>,
+    #[serde(default)]
     srql_allowed_origins: Option<String>,
     #[serde(default = "default_limit")]
     srql_default_limit: i64,
@@ -42,6 +47,10 @@ struct RawConfig {
     srql_max_limit: i64,
     #[serde(default = "default_timeout_secs")]
     srql_request_timeout_secs: u64,
+    #[serde(default = "default_rate_limit_requests")]
+    srql_rate_limit_max: u64,
+    #[serde(default = "default_rate_limit_window_secs")]
+    srql_rate_limit_window_secs: u64,
 }
 
 const fn default_pool_size() -> u32 {
@@ -58,6 +67,14 @@ const fn default_max_limit() -> i64 {
 
 const fn default_timeout_secs() -> u64 {
     30
+}
+
+const fn default_rate_limit_requests() -> u64 {
+    120
+}
+
+const fn default_rate_limit_window_secs() -> u64 {
+    60
 }
 
 impl AppConfig {
@@ -101,10 +118,13 @@ impl AppConfig {
             database_url,
             max_pool_size: raw.srql_max_pool_size,
             api_key: raw.srql_api_key,
+            api_key_kv_key: raw.srql_api_key_kv_key,
             allowed_origins,
             default_limit: raw.srql_default_limit.max(1),
             max_limit: raw.srql_max_limit.max(raw.srql_default_limit),
             request_timeout: Duration::from_secs(raw.srql_request_timeout_secs.max(1)),
+            rate_limit_max_requests: raw.srql_rate_limit_max.max(1),
+            rate_limit_window: Duration::from_secs(raw.srql_rate_limit_window_secs.max(1)),
         })
     }
 }

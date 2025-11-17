@@ -37,4 +37,4 @@ Each deployment surfaces the `serviceradar.io/component` label; use it to filter
 - Persistent stores (`registry`, `kv`, `cnpg`, `faker`) rely on PVCs; confirm volume mounts before recycling pods.
 - The demo namespace is designed for experimentation. When you need a clean slate, follow the runbooks in `agents.md` to reset Faker, truncate the CNPG hypertables, and rebuild materialized views.
 
-For component-specific configuration, see the guides under **Deployment** and **Get Data In**.
+For component-specific configuration, see the guides under **Deployment** and **Get Data In**. SRQL-specific authentication and rate limit settings live in the [SRQL Service Configuration](./srql-service.md) guide.
