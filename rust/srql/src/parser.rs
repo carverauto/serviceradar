@@ -368,4 +368,18 @@ mod tests {
         let ast = parse("in:devices time:last_7d").unwrap();
         assert!(ast.time_filter.is_some());
     }
+
+    #[test]
+    fn parses_list_values() {
+        let ast = parse("in:devices discovery_sources:(sweep,armis)").unwrap();
+        assert_eq!(ast.filters.len(), 1);
+        match &ast.filters[0].value {
+            FilterValue::List(items) => {
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[0], "sweep");
+                assert_eq!(items[1], "armis");
+            }
+            _ => panic!("expected list value"),
+        }
+    }
 }

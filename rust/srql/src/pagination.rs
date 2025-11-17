@@ -25,3 +25,21 @@ pub fn encode_cursor(offset: i64) -> String {
     };
     URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap_or_default())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn round_trip_cursor() {
+        let encoded = encode_cursor(250);
+        let decoded = decode_cursor(&encoded).unwrap();
+        assert_eq!(decoded, 250);
+    }
+
+    #[test]
+    fn decode_rejects_bad_data() {
+        let err = decode_cursor("$$$").unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
+    }
+}

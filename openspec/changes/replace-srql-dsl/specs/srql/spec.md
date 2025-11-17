@@ -26,15 +26,15 @@ The new DSL MUST document and implement operators for selecting inventory, aggre
 - **WHEN** the Rust SRQL parser encounters those constructs
 - **THEN** it returns a descriptive error that the DSL is CNPG-backed and does not attempt to issue a Proton request.
 
-### Requirement: Migration controls and observability protect the cut-over
-We MUST be able to run the Rust and OCaml SRQL services side-by-side, compare results, and expose telemetry that shows query success/latency so operators can flip traffic to the new DSL without risking outages.
+### Requirement: Rust SRQL service is the sole `/api/query` backend
+The OCaml translator MUST be fully removed once the Rust implementation lands so every environment routes `/api/query` traffic exclusively to the CNPG-backed Rust service without any dual-run or Proton bridge modes.
 
-#### Scenario: Dual-run flag compares results
-- **GIVEN** the `SRQL_RUST_DUAL_RUN=true` configuration on the core/service
-- **WHEN** a query is processed
-- **THEN** the system executes it against both the Rust/CNPG backend and the existing OCaml service, logs the row/latency deltas, and emits metrics so engineers can decide when parity has been reached.
+#### Scenario: Kong routes only to the Rust translator
+- **GIVEN** the demo or prod Kong gateway forwarding `/api/query` calls
+- **WHEN** clients submit SRQL statements
+- **THEN** the request terminates on the `rust/srql` deployment (or its Docker Compose equivalent), there is no live OCaml SRQL pod to consult, and the response is produced solely by the CNPG-backed Diesel planner.
 
-#### Scenario: Rollout toggles and alerts
-- **GIVEN** a deploy wants to disable the OCaml translator entirely
-- **WHEN** the operator flips the corresponding feature flag or Kong route to point exclusively at the Rust service
-- **THEN** health metrics (p95 latency, error counts) remain available in Prometheus/OTEL, alerts trigger if thresholds are exceeded, and rollback instructions are documented to re-enable the OCaml service if needed.
+#### Scenario: Legacy dual-run toggles are gone
+- **GIVEN** operators rolling out new SRQL code or adjusting configs
+- **WHEN** they inspect environment variables, Helm values, or Docker Compose overrides
+- **THEN** there are no `SRQL_DUAL_*` flags or Proton passthrough settings to enable the OCaml translator; the only configurable backend is the Rust service’s CNPG connection.
