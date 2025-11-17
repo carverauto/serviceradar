@@ -101,6 +101,7 @@ export SRQL_LISTEN_PORT="${SRQL_LISTEN_PORT:-8080}"
 export PORT="$SRQL_LISTEN_PORT"
 
 # Build DATABASE_URL if not explicitly provided
+DB_TARGET_DESC="custom DATABASE_URL"
 if [ -z "$SRQL_DATABASE_URL" ]; then
     CNPG_HOST_VALUE="${CNPG_HOST:-cnpg-rw}"
     CNPG_PORT_VALUE="${CNPG_PORT:-5432}"
@@ -128,11 +129,13 @@ if [ -z "$SRQL_DATABASE_URL" ]; then
         echo "Warning: CNPG password not provided; SRQL will attempt passwordless connection" >&2
         SRQL_DATABASE_URL="postgresql://${CNPG_USERNAME_VALUE}@${CNPG_HOST_VALUE}:${CNPG_PORT_VALUE}/${CNPG_DATABASE_VALUE}?${SSL_PARAMS}"
     fi
+
+    DB_TARGET_DESC="${CNPG_HOST_VALUE}:${CNPG_PORT_VALUE}/${CNPG_DATABASE_VALUE}"
 fi
 
 export SRQL_DATABASE_URL
 export DATABASE_URL="$SRQL_DATABASE_URL"
 
-echo "SRQL listening on ${SRQL_LISTEN_HOST}:${SRQL_LISTEN_PORT}, targeting ${SRQL_DATABASE_URL%%\?*}"
+echo "SRQL listening on ${SRQL_LISTEN_HOST}:${SRQL_LISTEN_PORT} (database target: ${DB_TARGET_DESC})"
 
 exec "$@"
