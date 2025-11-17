@@ -219,17 +219,12 @@ pub struct QueryPlan {
     pub time_range: Option<TimeRange>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum QueryDirection {
+    #[default]
     Next,
     Prev,
-}
-
-impl Default for QueryDirection {
-    fn default() -> Self {
-        QueryDirection::Next
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -101,7 +101,7 @@ fn parse_relative_keyword(value: &str) -> Option<TimeFilterSpec> {
         return Some(TimeFilterSpec::Yesterday);
     }
 
-    let normalized = value.replace('_', "").replace('-', "");
+    let normalized = value.replace(['_', '-'], "");
     if let Some(stripped) = normalized.strip_prefix("last") {
         if let Some(spec) = parse_numeric_suffix(stripped) {
             return Some(spec);

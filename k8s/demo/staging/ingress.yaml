@@ -98,9 +98,9 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: serviceradar-web
+            name: serviceradar-kong
             port:
-              number: 3000
+              number: 8000
       - path: /api
         pathType: Prefix
         backend:
