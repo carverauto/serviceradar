@@ -162,23 +162,25 @@ Executors expose Prometheus metrics on port 9090:
 - Endpoint: `http://<pod-ip>:9090/metrics`
 - Annotations are set for automatic Prometheus scraping
 
-## Updating the Executor Image
+## Executor Pods vs. Bazel Action Image
 
-The custom BuildBuddy executors pull from `ghcr.io/carverauto/serviceradar/rbe-executor:<tag>`. After modifying `docker/Dockerfile.rbe`:
+Two different container images are involved in remote execution:
 
-1. Build and push the image (requires GH registry access):
+1. **BuildBuddy executor pods (Helm)** – run the BuildBuddy binary and should stay on the upstream image `gcr.io/flame-public/buildbuddy-executor-enterprise:<tag>` unless we intentionally rebuild the executor ourselves.
+2. **Bazel action image** – the toolchain container (`ghcr.io/carverauto/serviceradar/rbe-executor:<tag>`) that Bazel runs for each action via `exec_properties`. This is where we add compilers, Postgres libraries, etc.
+
+Only the Bazel action image is customized today. After updating `docker/Dockerfile.rbe`:
+
+1. Build and push the image (requires GHCR access):
    ```bash
    docker buildx build \
      --platform linux/amd64 \
      -f docker/Dockerfile.rbe \
-     -t ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.10 \
+     -t ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.11 \
      --push .
    ```
-   (Alternatively, push via the `.github/workflows/build-rbe-image.yml` pipeline.)
-2. Bump the tag everywhere it is referenced (`docker/Dockerfile.rbe`, `MODULE.bazel`, `BUILD.bazel`, `build/rbe/BUILD`, `k8s/buildbuddy/values.yaml`, and `third_party/patches/rules_ocaml/...`).
-3. Reapply the Helm chart so the executors roll to the new digest:
-   ```bash
-   ./k8s/buildbuddy/deploy.sh
-   ```
+   (Alternatively, push via `.github/workflows/build-rbe-image.yml`.)
+2. Bump the tag everywhere it is referenced for Bazel (`docker/Dockerfile.rbe`, `MODULE.bazel`, `BUILD.bazel`, `build/rbe/BUILD`, `build/platforms/BUILD.bazel`, and `buildbuddy.yaml`).
+3. (Optional) If we ever choose to run a custom executor pod image, update `k8s/buildbuddy/values.yaml` and redeploy via `./k8s/buildbuddy/deploy.sh`.
 
-New builds (local Bazel + BuildBuddy RBE) will automatically pick up the refreshed executor image once the pods restart.
+Remote builds automatically use the refreshed Bazel action image as soon as the new tag is referenced in the Bazel exec platform configs—no Helm redeploy is required for that step.

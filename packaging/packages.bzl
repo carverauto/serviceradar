@@ -768,15 +768,15 @@ PACKAGES = {
     },
     "srql": {
         "package_name": "serviceradar-srql",
-        "description": "ServiceRadar SRQL OCaml query service",
+        "description": "ServiceRadar SRQL Rust query service",
         "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
         "architecture": "amd64",
         "section": "net",
         "priority": "optional",
-        "deb_depends": ["systemd", "ca-certificates", "curl", "libev4", "libgmp10", "liblz4-1", "libzstd1", "libssl3"],
-        "rpm_requires": ["systemd", "ca-certificates", "curl", "libev", "gmp", "lz4", "zstd", "openssl"],
+        "deb_depends": ["systemd", "ca-certificates", "curl", "libpq5", "liblz4-1", "libzstd1", "libssl3"],
+        "rpm_requires": ["systemd", "ca-certificates", "curl", "libpq", "lz4", "zstd", "openssl"],
         "binary": {
-            "target": "//ocaml/srql:srql_server",
+            "target": "//rust/srql:srql_bin",
             "dest": "/usr/local/bin/serviceradar-srql",
         },
         "files": [

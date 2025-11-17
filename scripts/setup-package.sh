@@ -295,25 +295,6 @@ build_component() {
   "buildTime": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 }
 EOF
-        elif [ "$build_method" = "ocaml" ] && [ -n "$dockerfile" ]; then
-            local output_path docker_output_path
-            output_path=$(echo "$config" | jq -r '.binary.output_path')
-            docker_output_path=$(echo "$config" | jq -r '.binary.docker_output_path // "/output/${package_name}"')
-            echo "Building OCaml binary with Docker ($dockerfile)..."
-            docker build \
-                --platform linux/amd64 \
-                --build-arg VERSION="$version" \
-                --build-arg BUILD_ID="$BUILD_ID" \
-                -f "${BASE_DIR}/${dockerfile}" \
-                -t "${package_name}-builder" \
-                "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
-            container_id=$(docker create "${package_name}-builder" /bin/true) || { echo "Error: Failed to create container"; exit 1; }
-            echo "Creating directory for binary: $(dirname "${pkg_root}${output_path}")"
-            mkdir -p "$(dirname "${pkg_root}${output_path}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${output_path}")"; exit 1; }
-            docker cp "${container_id}:${docker_output_path}" "${pkg_root}${output_path}" || { echo "Error: Failed to copy OCaml binary from ${docker_output_path}"; exit 1; }
-            ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not copied to package root"; exit 1; }
-            test -s "${pkg_root}${output_path}" || { echo "Error: Binary is empty"; exit 1; }
-            docker rm "$container_id"
         elif [ "$build_method" = "rust" ] && [ -n "$dockerfile" ]; then
             local output_path docker_output_path
             output_path=$(echo "$config" | jq -r '.binary.output_path')
@@ -526,25 +507,6 @@ EOF
                         -ldflags "-X github.com/carverauto/serviceradar/pkg/version.version=$version -X github.com/carverauto/serviceradar/pkg/version.buildID=$BUILD_ID" \
                         -o "${RPMBUILD_DIR}/BUILD/$(basename $output_path)" \
                         "${BASE_DIR}/${src_path}" || { echo "Error: Go build failed"; exit 1; }
-                elif [ "$build_method" = "ocaml" ] && [ -n "$src_path" ]; then
-                    echo "Building OCaml binary with Bazel from $src_path..."
-                    bazel="${BASE_DIR}/tools/bazel/bazel"
-                    if [ ! -x "$bazel" ]; then
-                        echo "Error: Bazel not found at $bazel"
-                        exit 1
-                    fi
-                    # Build the srql_server target
-                    "$bazel" build //${src_path}:srql_server || { echo "Error: Bazel build failed"; exit 1; }
-                    # Get the bazel-bin output directory
-                    bazel_bin="$("$bazel" info bazel-bin)"
-                    built_binary="${bazel_bin}/${src_path}/srql_server"
-                    if [ ! -f "$built_binary" ]; then
-                        echo "Error: Built binary not found at $built_binary"
-                        exit 1
-                    fi
-                    # Copy to rpmbuild directory with the expected name
-                    output_path=$(echo "$config" | jq -r '.binary.output_path')
-                    cp "$built_binary" "${RPMBUILD_DIR}/BUILD/$(basename $output_path)" || { echo "Error: Failed to copy binary"; exit 1; }
                 elif [ "$build_method" = "none" ]; then
                     echo "No binary build required for $component"
                 else

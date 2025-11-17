@@ -13,4 +13,3 @@ release-artifacts
 !cmd/checkers/rperf-client/Cargo.lock
 !cmd/ebpf/profiler/profiler/Cargo.lock
 demo-staging
-ocaml/_build
