@@ -18,26 +18,26 @@ elif [ -f /etc/serviceradar/api.env ]; then
 fi
 
 urlencode() {
+    # Percent-encode arbitrary bytes (safe for UTF-8 secrets)
     local input="$1"
-    local length=${#input}
-    local i=1
-    local output=""
-    while [ $i -le $length ]; do
-        char=$(printf '%s' "$input" | cut -c $i)
+    local out=""
+    local i=0
+    local char hex
+    LC_ALL=C
+    while [ $i -lt ${#input} ]; do
+        char=${input:$i:1}
         case "$char" in
             [a-zA-Z0-9.~_-])
-                output="${output}${char}"
-                ;;
-            "")
+                out="${out}${char}"
                 ;;
             *)
-                hex=$(printf '%%%02X' "'$char")
-                output="${output}${hex}"
+                printf -v hex '%%%02X' "'$char"
+                out="${out}${hex}"
                 ;;
         esac
         i=$((i + 1))
     done
-    printf '%s' "$output"
+    printf '%s' "$out"
 }
 
 load_cnpg_password() {

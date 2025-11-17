@@ -97,6 +97,11 @@ pub fn parse(input: &str) -> Result<QueryAst> {
                     .as_scalar()?
                     .parse::<i64>()
                     .map_err(|_| ServiceError::InvalidRequest("invalid limit".into()))?;
+                if parsed <= 0 {
+                    return Err(ServiceError::InvalidRequest(
+                        "limit must be a positive integer".into(),
+                    ));
+                }
                 limit = Some(parsed);
             }
             "sort" | "order" => {
@@ -238,9 +243,7 @@ fn tokenize(input: &str) -> Vec<String> {
                 current.push(ch);
             }
             ')' => {
-                if depth > 0 {
-                    depth -= 1;
-                }
+                depth = depth.saturating_sub(1);
                 current.push(ch);
             }
             c if c.is_whitespace() && depth == 0 => {
@@ -322,9 +325,7 @@ fn split_list(value: &str) -> Vec<String> {
                 current.push(ch);
             }
             ')' => {
-                if depth > 0 {
-                    depth -= 1;
-                }
+                depth = depth.saturating_sub(1);
                 current.push(ch);
             }
             ',' if depth == 0 => {

@@ -57,10 +57,11 @@ COPY --chown=builder:builder packaging/${COMPONENT}/config/srql.env SOURCES/${CO
 COPY --chown=builder:builder packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
 COPY --from=rust_builder --chown=builder:builder /tmp/serviceradar-srql BUILD/serviceradar-${COMPONENT}
 
-RUN RPM_VERSION=$(echo ${VERSION} | sed 's/-/_/g') \
+RUN RPM_VERSION_RAW="${VERSION}" \
+    && RPM_VERSION_SANITIZED="$(printf '%s' "${RPM_VERSION_RAW}" | sed -E 's/[^0-9A-Za-z.]+/./g; s/^[^0-9A-Za-z]+//; s/[.]+/./g; s/[.]$//')" \
     && rpmbuild -bb SPECS/serviceradar-${COMPONENT}.spec \
         --define "_topdir ${RPMBUILD_DIR}" \
-        --define "version ${RPM_VERSION}" \
+        --define "version ${RPM_VERSION_SANITIZED}" \
         --define "release ${RELEASE}"
 
 USER root
