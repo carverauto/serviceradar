@@ -1,3 +1,0 @@
-#!/bin/sh
-
-opam switch --cli=2.1 --root ./.opam create obazl $1

@@ -247,8 +247,7 @@ const EventsDashboard = () => {
 
     const formatDate = useCallback((event: Event) => {
         const candidates: Array<string | undefined> = [
-            event.event_timestamp,
-            event._tp_time
+            event.event_timestamp
         ];
 
         const raw = parseEventRawData(event);

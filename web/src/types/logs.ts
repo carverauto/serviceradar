@@ -3,7 +3,6 @@
 import { Pagination } from './devices';
 
 export interface Log {
-    _tp_time: string;
     timestamp: string;
     trace_id: string;
     span_id: string;

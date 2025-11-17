@@ -10,6 +10,7 @@ members = [
     "cmd/consumers/zen",
     "cmd/checkers/rperf-client",
     "cmd/checkers/sysmon",
+    "rust/srql",
 ]
 
 [workspace.dependencies]

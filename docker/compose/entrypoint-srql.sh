@@ -1,5 +1,5 @@
 #!/bin/sh
-# Entrypoint for SRQL OCaml service
+# Entrypoint for the Rust-based SRQL service
 set -e
 
 echo "Starting ServiceRadar SRQL entrypoint..."
@@ -17,35 +17,41 @@ elif [ -f /etc/serviceradar/api.env ]; then
     set +a
 fi
 
-# Default Proton connectivity (align with docker network names)
-export PROTON_HOST="${PROTON_HOST:-proton}"
-export PROTON_PORT="${PROTON_PORT:-9440}"
-export PROTON_TLS="${PROTON_TLS:-1}"
-export PROTON_INSECURE_SKIP_VERIFY="${PROTON_INSECURE_SKIP_VERIFY:-1}"
-export PROTON_VERIFY_HOSTNAME="${PROTON_VERIFY_HOSTNAME:-0}"
-export PROTON_COMPRESSION="${PROTON_COMPRESSION:-lz4}"
+urlencode() {
+    # Percent-encode arbitrary bytes (safe for UTF-8 secrets)
+    local input="$1"
+    local out=""
+    local i=0
+    local char hex
+    LC_ALL=C
+    while [ $i -lt ${#input} ]; do
+        char=${input:$i:1}
+        case "$char" in
+            [a-zA-Z0-9.~_-])
+                out="${out}${char}"
+                ;;
+            *)
+                printf -v hex '%%%02X' "'$char"
+                out="${out}${hex}"
+                ;;
+        esac
+        i=$((i + 1))
+    done
+    printf '%s' "$out"
+}
 
-# Map certificate paths (generated bundle uses .pem files)
-if [ -z "$PROTON_CA_CERT" ] && [ -f /etc/serviceradar/certs/root.pem ]; then
-    export PROTON_CA_CERT="/etc/serviceradar/certs/root.pem"
-fi
+load_cnpg_password() {
+    if [ -n "$CNPG_PASSWORD" ]; then
+        printf '%s' "$CNPG_PASSWORD"
+        return
+    fi
 
-# Client auth is optional; skip unless explicitly provided
-if [ -z "$PROTON_CLIENT_CERT" ] && [ -f /etc/serviceradar/certs/srql.pem ]; then
-    export PROTON_CLIENT_CERT="/etc/serviceradar/certs/srql.pem"
-fi
-if [ -z "$PROTON_CLIENT_KEY" ] && [ -f /etc/serviceradar/certs/srql-key.pem ]; then
-    export PROTON_CLIENT_KEY="/etc/serviceradar/certs/srql-key.pem"
-fi
-
-# Load Proton password from shared credentials volume if present
-if [ -z "$PROTON_PASSWORD" ]; then
-    PASSWORD_FILE="${PROTON_PASSWORD_FILE:-/etc/serviceradar/credentials/proton-password}"
+    PASSWORD_FILE="${CNPG_PASSWORD_FILE:-/etc/serviceradar/credentials/cnpg-password}"
     if [ -n "$PASSWORD_FILE" ]; then
         if [ ! -r "$PASSWORD_FILE" ]; then
-            echo "Waiting for Proton credentials at ${PASSWORD_FILE}..."
+            echo "Waiting for CNPG password at ${PASSWORD_FILE}..."
             waited=0
-            max_wait="${PROTON_PASSWORD_WAIT_SECONDS:-60}"
+            max_wait="${CNPG_PASSWORD_WAIT_SECONDS:-60}"
             while [ $waited -lt "$max_wait" ]; do
                 if [ -r "$PASSWORD_FILE" ] && [ -s "$PASSWORD_FILE" ]; then
                     break
@@ -56,12 +62,14 @@ if [ -z "$PROTON_PASSWORD" ]; then
         fi
 
         if [ -r "$PASSWORD_FILE" ] && [ -s "$PASSWORD_FILE" ]; then
-            export PROTON_PASSWORD="$(cat "$PASSWORD_FILE")"
-        else
-            echo "Warning: Proton password file ${PASSWORD_FILE} not available; continuing without password"
+            CNPG_PASSWORD="$(cat "$PASSWORD_FILE")"
+            printf '%s' "$CNPG_PASSWORD"
+            return
         fi
     fi
-fi
+
+    printf ''
+}
 
 # API key enforcement for SRQL service
 if [ -z "$SRQL_API_KEY" ]; then
@@ -91,8 +99,43 @@ fi
 export SRQL_LISTEN_HOST="${SRQL_LISTEN_HOST:-0.0.0.0}"
 export SRQL_LISTEN_PORT="${SRQL_LISTEN_PORT:-8080}"
 export PORT="$SRQL_LISTEN_PORT"
-export DREAM_INTERFACE="$SRQL_LISTEN_HOST"
-export DREAM_PORT="$SRQL_LISTEN_PORT"
 
-# Launch service
+# Build DATABASE_URL if not explicitly provided
+DB_TARGET_DESC="custom DATABASE_URL"
+if [ -z "$SRQL_DATABASE_URL" ]; then
+    CNPG_HOST_VALUE="${CNPG_HOST:-cnpg-rw}"
+    CNPG_PORT_VALUE="${CNPG_PORT:-5432}"
+    CNPG_DATABASE_VALUE="${CNPG_DATABASE:-telemetry}"
+    CNPG_USERNAME_VALUE="${CNPG_USERNAME:-postgres}"
+    CNPG_SSLMODE_VALUE="${CNPG_SSLMODE:-require}"
+    CNPG_CERT_DIR_VALUE="${CNPG_CERT_DIR:-/etc/serviceradar/certs}"
+    CNPG_ROOT_CERT_VALUE="${CNPG_ROOT_CERT:-}"
+    if [ -z "$CNPG_ROOT_CERT_VALUE" ] && [ -n "$CNPG_CERT_DIR_VALUE" ]; then
+        if [ -f "${CNPG_CERT_DIR_VALUE}/root.pem" ]; then
+            CNPG_ROOT_CERT_VALUE="${CNPG_CERT_DIR_VALUE}/root.pem"
+        fi
+    fi
+    CNPG_PASSWORD_VALUE="$(load_cnpg_password)"
+
+    SSL_PARAMS="sslmode=${CNPG_SSLMODE_VALUE}"
+    if [ -n "$CNPG_ROOT_CERT_VALUE" ]; then
+        SSL_PARAMS="${SSL_PARAMS}&sslrootcert=$(urlencode "$CNPG_ROOT_CERT_VALUE")"
+    fi
+
+    if [ -n "$CNPG_PASSWORD_VALUE" ]; then
+        ENCODED_PASS="$(urlencode "$CNPG_PASSWORD_VALUE")"
+        SRQL_DATABASE_URL="postgresql://${CNPG_USERNAME_VALUE}:${ENCODED_PASS}@${CNPG_HOST_VALUE}:${CNPG_PORT_VALUE}/${CNPG_DATABASE_VALUE}?${SSL_PARAMS}"
+    else
+        echo "Warning: CNPG password not provided; SRQL will attempt passwordless connection" >&2
+        SRQL_DATABASE_URL="postgresql://${CNPG_USERNAME_VALUE}@${CNPG_HOST_VALUE}:${CNPG_PORT_VALUE}/${CNPG_DATABASE_VALUE}?${SSL_PARAMS}"
+    fi
+
+    DB_TARGET_DESC="${CNPG_HOST_VALUE}:${CNPG_PORT_VALUE}/${CNPG_DATABASE_VALUE}"
+fi
+
+export SRQL_DATABASE_URL
+export DATABASE_URL="$SRQL_DATABASE_URL"
+
+echo "SRQL listening on ${SRQL_LISTEN_HOST}:${SRQL_LISTEN_PORT} (database target: ${DB_TARGET_DESC})"
+
 exec "$@"

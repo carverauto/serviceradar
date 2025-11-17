@@ -52,6 +52,7 @@ metadata:
 spec:
   type: ExternalName
   externalName: serviceradar-sync.demo-staging.svc.cluster.local
+---
 apiVersion: v1
 kind: Service
 metadata:

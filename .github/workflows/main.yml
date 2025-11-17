@@ -28,5 +28,5 @@ jobs:
         run: |
           bazel test \
             --config=ci \
-            --test_tag_filters=-manual,-ocaml \
+            --test_tag_filters=-manual \
             //...

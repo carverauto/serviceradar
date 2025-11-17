@@ -6,7 +6,7 @@ ServiceRadar is a distributed monitoring platform for infrastructure that lives 
 ## Tech Stack
 - Go services (`cmd/core`, `cmd/poller`, `cmd/agent`, `cmd/sync`, `cmd/datasvc`, etc.) built with Bazel/Go modules power the control plane, discovery, and sync integrations.
 - Rust components (rule engine, collectors, flow/log agents) live under `rust/` and share bootstrap/config libraries for KV-backed hot reloads.
-- OCaml SRQL service (`ocaml/srql`) translates `/api/query` requests into Proton SQL and runs atop dune tooling.
+- Rust SRQL service (`rust/srql`) translates `/api/query` requests into CNPG queries using Diesel + pooled connections.
 - Next.js + React web UI (`web/`) is served through Nginx, fronted by Kong for API enforcement, and talks to the core API plus SRQL endpoints.
 - Timeplus Proton / ClickHouse-compatible streams store high-volume telemetry; SRQL and the core ingest layer both target Proton (docs/docs/architecture.md).
 - NATS JetStream backs the KV/datasvc configuration API that components use to watch and reload config (docs/docs/kv-configuration.md).
@@ -34,7 +34,7 @@ Kong decouples user/API policy from the core, while watchers + KV descriptors ke
 ### Testing Strategy
 - `make lint` / `make test` (or targeted `go test ./pkg/... ./cmd/...`) cover Go services; run `golangci-lint` locally when touching critical paths.
 - Bazel: `bazel test --config=remote //...` or scoped targets for multi-language integration before release builds.
-- SRQL: `cd ocaml && dune runtest srql/test` when editing translators/parsers.
+- SRQL: `cd rust/srql && cargo test` when editing the parser/planner.
 - Rust: `cargo test` by crate; collectors also run `cargo clippy --all-targets`.
 - Web UI: `cd web && npm install && npm run lint && npm run build` (CI mirrors this) plus component-level tests where present.
 - End-to-end: use Docker Compose (`docker-compose up -d`) for smoke tests; demo cluster changes require k8s rollouts per docs/docs/agents.md.

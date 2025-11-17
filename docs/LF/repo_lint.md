@@ -93,7 +93,7 @@ Excluded file type doesn't exist. (`**/*.exe,**/*.dll,!node_modules/**`).
 
 ### ✅ `test-directory-exists` <a href="#user-content--test-directory-exists" id="user-content--test-directory-exists">#</a>
 
-Found file (`ocaml/test_boolean_query.ml`).
+Found file (`rust/srql/src/lib.rs`).
 
 ### ✅ `integrates-with-ci` <a href="#user-content--integrates-with-ci" id="user-content--integrates-with-ci">#</a>
 
@@ -163,4 +163,3 @@ This rule was ignored for the following reason: ignored due to unsatisfied condi
 This rule was ignored for the following reason: ignored because level is "off"
 
 </details>
-

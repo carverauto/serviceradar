@@ -1,4 +1,4 @@
-# Custom RBE platform using BuildBuddy's Ubuntu base with OCaml/opam added
+# Custom RBE platform for Oracle Linux based BuildBuddy executor
 platform(
     name = "rbe_platform",
     constraint_values = [
@@ -10,31 +10,7 @@ platform(
         "OSFamily": "Linux",
         "Arch": "amd64",
         "dockerNetwork": "off",
-        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.9",
+        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.11",
     },
-    visibility = ["//visibility:public"],
-)
-
-# RBE execution platform specialized for rules_ocaml native toolchain actions.
-platform(
-    name = "ocaml_rbe_ocamlopt",
-    constraint_values = [
-        "@rules_ocaml//platform/arch:sys",
-        "@rules_ocaml//platform/executor:sys",
-        "@rules_ocaml//platform/emitter:sys",
-    ],
-    parents = [":rbe_platform"],
-    visibility = ["//visibility:public"],
-)
-
-# RBE execution platform specialized for rules_ocaml bytecode toolchain actions.
-platform(
-    name = "ocaml_rbe_ocamlc",
-    constraint_values = [
-        "@rules_ocaml//platform/arch:sys",
-        "@rules_ocaml//platform/executor:sys",
-        "@rules_ocaml//platform/emitter:vm",
-    ],
-    parents = [":rbe_platform"],
     visibility = ["//visibility:public"],
 )

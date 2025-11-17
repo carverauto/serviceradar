@@ -132,8 +132,6 @@ jspm_packages/
 .idea
 #.bin
 bin
-!ocaml/srql/bin/
-!ocaml/srql/bin/**
 
 pnpm-lock.yaml
 !web/pnpm-lock.yaml
@@ -218,15 +216,10 @@ docker/compose/certs/
 .gobuildcache/
 .gocache/
 
-# ocaml
-_build
-dune-workspace
-
 # Bazel local overrides
 .bazelrc.local
 .bazelrc.remote
 .bazel_output/
-third_party/ocaml_stdlib/
 k8s/buildbuddy/values.yaml
 #MODULE.bazel.lock
 

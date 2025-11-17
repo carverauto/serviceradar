@@ -1233,7 +1233,7 @@ oci_load(
 pkg_tar(
     name = "srql_layer_amd64",
     files = {
-        "//ocaml/srql:srql_server": "usr/local/bin/serviceradar-srql",
+        "//rust/srql:srql_bin": "usr/local/bin/serviceradar-srql",
         "//docker/compose:entrypoint-srql.sh": "usr/local/bin/entrypoint.sh",
     },
     modes = {
@@ -1248,16 +1248,15 @@ pkg_tar(
 
 oci_image(
     name = "srql_image_amd64",
-    base = "@serviceradar_srql_linux_amd64//:serviceradar_srql_linux_amd64",
+    base = "@ubuntu_noble//:ubuntu_noble",
     tars = [":srql_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["serviceradar-srql"],
     env = {
-        "HOSTNAME": "0.0.0.0",
-        "PORT": "8080",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
     },
-    workdir = "/app",
     exposed_ports = ["8080/tcp"],
+    workdir = "/app",
     labels = {
         "org.opencontainers.image.title": "serviceradar-srql",
     },
