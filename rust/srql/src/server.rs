@@ -82,9 +82,10 @@ fn enforce_api_key(headers: &HeaderMap, config: &AppConfig) -> Result<()> {
     if let Some(expected) = &config.api_key {
         let provided = headers
             .get("x-api-key")
-            .and_then(|value| value.to_str().ok());
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim);
 
-        if provided != Some(expected.as_str()) {
+        if provided != Some(expected.trim()) {
             return Err(ServiceError::Auth);
         }
     }

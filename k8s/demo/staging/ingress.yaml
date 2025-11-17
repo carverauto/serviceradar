@@ -94,6 +94,13 @@ spec:
             name: serviceradar-web
             port:
               number: 3000
+      - path: /api/query
+        pathType: Prefix
+        backend:
+          service:
+            name: serviceradar-web
+            port:
+              number: 3000
       - path: /api
         pathType: Prefix
         backend:
