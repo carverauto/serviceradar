@@ -12,7 +12,7 @@ use crate::{
     },
     time::TimeRange,
 };
-use diesel::dsl::sql;
+use diesel::dsl::{not, sql};
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
@@ -76,138 +76,85 @@ fn build_query(plan: &QueryPlan) -> Result<DeviceQuery<'static>> {
 fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<DeviceQuery<'a>> {
     match filter.field.as_str() {
         "device_id" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_device_id.eq(value)),
-                FilterOp::NotEq => query.filter(col_device_id.ne(value)),
-                FilterOp::Like => query.filter(col_device_id.ilike(value)),
-                FilterOp::NotLike => query.filter(col_device_id.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_device_id.eq_any(values))
-                    } else {
-                        query.filter(col_device_id.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_device_id)?;
         }
         "hostname" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_hostname.eq(value)),
-                FilterOp::NotEq => query.filter(col_hostname.ne(value)),
-                FilterOp::Like => query.filter(col_hostname.ilike(value)),
-                FilterOp::NotLike => query.filter(col_hostname.not_ilike(value)),
-                _ => {
-                    return Err(ServiceError::InvalidRequest(
-                        "hostname filter does not support lists".into(),
-                    ))
-                }
-            };
+            query = apply_text_filter_no_lists!(
+                query,
+                filter,
+                col_hostname,
+                "hostname filter does not support lists"
+            )?;
         }
         "ip" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_ip.eq(value)),
-                FilterOp::NotEq => query.filter(col_ip.ne(value)),
-                FilterOp::Like => query.filter(col_ip.ilike(value)),
-                FilterOp::NotLike => query.filter(col_ip.not_ilike(value)),
-                _ => {
-                    return Err(ServiceError::InvalidRequest(
-                        "ip filter does not support lists".into(),
-                    ))
-                }
-            };
+            query = apply_text_filter_no_lists!(
+                query,
+                filter,
+                col_ip,
+                "ip filter does not support lists"
+            )?;
         }
         "mac" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_mac.eq(value)),
-                FilterOp::NotEq => query.filter(col_mac.ne(value)),
-                FilterOp::Like => query.filter(col_mac.ilike(value)),
-                FilterOp::NotLike => query.filter(col_mac.not_ilike(value)),
-                _ => {
-                    return Err(ServiceError::InvalidRequest(
-                        "mac filter does not support lists".into(),
-                    ))
-                }
-            };
+            query = apply_text_filter_no_lists!(
+                query,
+                filter,
+                col_mac,
+                "mac filter does not support lists"
+            )?;
         }
         "poller_id" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_poller_id.eq(value)),
-                FilterOp::NotEq => query.filter(col_poller_id.ne(value)),
-                _ => {
-                    return Err(ServiceError::InvalidRequest(
-                        "poller filter only supports equality".into(),
-                    ))
-                }
-            };
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_poller_id,
+                filter.value.as_scalar()?.to_string(),
+                "poller filter only supports equality"
+            )?;
         }
         "agent_id" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_agent_id.eq(value)),
-                FilterOp::NotEq => query.filter(col_agent_id.ne(value)),
-                _ => {
-                    return Err(ServiceError::InvalidRequest(
-                        "agent filter only supports equality".into(),
-                    ))
-                }
-            };
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_agent_id,
+                filter.value.as_scalar()?.to_string(),
+                "agent filter only supports equality"
+            )?;
         }
         "is_available" => {
-            let value = parse_bool(filter.value.as_scalar()?)?;
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_is_available.eq(value)),
-                FilterOp::NotEq => query.filter(col_is_available.ne(value)),
-                _ => {
-                    return Err(ServiceError::InvalidRequest(
-                        "is_available only supports equality".into(),
-                    ))
-                }
-            };
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_is_available,
+                parse_bool(filter.value.as_scalar()?)?,
+                "is_available only supports equality"
+            )?;
         }
         "device_type" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_device_type.eq(value)),
-                FilterOp::NotEq => query.filter(col_device_type.ne(value)),
-                _ => {
-                    return Err(ServiceError::InvalidRequest(
-                        "device_type filter only supports equality".into(),
-                    ))
-                }
-            };
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_device_type,
+                filter.value.as_scalar()?.to_string(),
+                "device_type filter only supports equality"
+            )?;
         }
         "service_type" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_service_type.eq(value)),
-                FilterOp::NotEq => query.filter(col_service_type.ne(value)),
-                _ => {
-                    return Err(ServiceError::InvalidRequest(
-                        "service_type filter only supports equality".into(),
-                    ))
-                }
-            };
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_service_type,
+                filter.value.as_scalar()?.to_string(),
+                "service_type filter only supports equality"
+            )?;
         }
         "service_status" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_service_status.eq(value)),
-                FilterOp::NotEq => query.filter(col_service_status.ne(value)),
-                _ => {
-                    return Err(ServiceError::InvalidRequest(
-                        "service_status filter only supports equality".into(),
-                    ))
-                }
-            };
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_service_status,
+                filter.value.as_scalar()?.to_string(),
+                "service_status filter only supports equality"
+            )?;
         }
         "discovery_sources" => {
             let values = match &filter.value {
@@ -219,7 +166,11 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
             }
             let expr = sql::<Bool>("coalesce(discovery_sources, ARRAY[]::text[]) @> ")
                 .bind::<Array<Text>, _>(values);
-            query = query.filter(expr);
+            query = if matches!(filter.op, FilterOp::NotIn) {
+                query.filter(not(expr))
+            } else {
+                query.filter(expr)
+            };
         }
         other => {
             return Err(ServiceError::InvalidRequest(format!(

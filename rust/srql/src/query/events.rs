@@ -2,7 +2,7 @@ use super::QueryPlan;
 use crate::{
     error::{Result, ServiceError},
     models::EventRow,
-    parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
+    parser::{Entity, Filter, OrderClause, OrderDirection},
     schema::events::dsl::{
         datacontenttype as col_datacontenttype, event_timestamp as col_event_timestamp,
         event_type as col_event_type, events, host as col_host, id as col_id, level as col_level,
@@ -76,238 +76,52 @@ fn build_query(plan: &QueryPlan) -> Result<EventsQuery<'static>> {
 fn apply_filter<'a>(mut query: EventsQuery<'a>, filter: &Filter) -> Result<EventsQuery<'a>> {
     match filter.field.as_str() {
         "id" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_id.eq(value)),
-                FilterOp::NotEq => query.filter(col_id.ne(value)),
-                FilterOp::Like => query.filter(col_id.ilike(value)),
-                FilterOp::NotLike => query.filter(col_id.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_id.eq_any(values))
-                    } else {
-                        query.filter(col_id.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_id)?;
         }
         "type" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_event_type.eq(value)),
-                FilterOp::NotEq => query.filter(col_event_type.ne(value)),
-                FilterOp::Like => query.filter(col_event_type.ilike(value)),
-                FilterOp::NotLike => query.filter(col_event_type.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_event_type.eq_any(values))
-                    } else {
-                        query.filter(col_event_type.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_event_type)?;
         }
         "source" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_source.eq(value)),
-                FilterOp::NotEq => query.filter(col_source.ne(value)),
-                FilterOp::Like => query.filter(col_source.ilike(value)),
-                FilterOp::NotLike => query.filter(col_source.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_source.eq_any(values))
-                    } else {
-                        query.filter(col_source.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_source)?;
         }
         "subject" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_subject.eq(value)),
-                FilterOp::NotEq => query.filter(col_subject.ne(value)),
-                FilterOp::Like => query.filter(col_subject.ilike(value)),
-                FilterOp::NotLike => query.filter(col_subject.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_subject.eq_any(values))
-                    } else {
-                        query.filter(col_subject.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_subject)?;
         }
         "datacontenttype" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_datacontenttype.eq(value)),
-                FilterOp::NotEq => query.filter(col_datacontenttype.ne(value)),
-                FilterOp::Like => query.filter(col_datacontenttype.ilike(value)),
-                FilterOp::NotLike => query.filter(col_datacontenttype.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_datacontenttype.eq_any(values))
-                    } else {
-                        query.filter(col_datacontenttype.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_datacontenttype)?;
         }
         "remote_addr" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_remote_addr.eq(value)),
-                FilterOp::NotEq => query.filter(col_remote_addr.ne(value)),
-                FilterOp::Like => query.filter(col_remote_addr.ilike(value)),
-                FilterOp::NotLike => query.filter(col_remote_addr.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_remote_addr.eq_any(values))
-                    } else {
-                        query.filter(col_remote_addr.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_remote_addr)?;
         }
         "host" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_host.eq(value)),
-                FilterOp::NotEq => query.filter(col_host.ne(value)),
-                FilterOp::Like => query.filter(col_host.ilike(value)),
-                FilterOp::NotLike => query.filter(col_host.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_host.eq_any(values))
-                    } else {
-                        query.filter(col_host.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_host)?;
         }
         "specversion" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_specversion.eq(value)),
-                FilterOp::NotEq => query.filter(col_specversion.ne(value)),
-                FilterOp::Like => query.filter(col_specversion.ilike(value)),
-                FilterOp::NotLike => query.filter(col_specversion.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_specversion.eq_any(values))
-                    } else {
-                        query.filter(col_specversion.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_specversion)?;
         }
         "severity" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_severity.eq(value)),
-                FilterOp::NotEq => query.filter(col_severity.ne(value)),
-                FilterOp::Like => query.filter(col_severity.ilike(value)),
-                FilterOp::NotLike => query.filter(col_severity.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_severity.eq_any(values))
-                    } else {
-                        query.filter(col_severity.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_severity)?;
         }
         "short_message" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_short_message.eq(value)),
-                FilterOp::NotEq => query.filter(col_short_message.ne(value)),
-                FilterOp::Like => query.filter(col_short_message.ilike(value)),
-                FilterOp::NotLike => query.filter(col_short_message.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_short_message.eq_any(values))
-                    } else {
-                        query.filter(col_short_message.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_short_message)?;
         }
         "version" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_version.eq(value)),
-                FilterOp::NotEq => query.filter(col_version.ne(value)),
-                FilterOp::Like => query.filter(col_version.ilike(value)),
-                FilterOp::NotLike => query.filter(col_version.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_version.eq_any(values))
-                    } else {
-                        query.filter(col_version.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_version)?;
         }
         "level" => {
-            let value = parse_i32(filter.value.as_scalar()?)?;
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_level.eq(value)),
-                FilterOp::NotEq => query.filter(col_level.ne(value)),
-                _ => {
-                    return Err(ServiceError::InvalidRequest(
-                        "level only supports equality comparisons".into(),
-                    ))
-                }
-            };
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_level,
+                parse_i32(filter.value.as_scalar()?)?,
+                "level only supports equality comparisons"
+            )?;
         }
-        _ => {}
+        other => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported filter field for events: '{other}'"
+            )));
+        }
     }
 
     Ok(query)
