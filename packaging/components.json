@@ -133,7 +133,7 @@
     "name": "srql",
     "package_name": "serviceradar-srql",
     "version": "1.0.53",
-    "description": "ServiceRadar SRQL OCaml query service",
+    "description": "ServiceRadar SRQL Rust query service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "net",
@@ -143,21 +143,19 @@
         "systemd",
         "ca-certificates",
         "curl",
-        "libev4",
-        "libgmp10",
+        "libpq5",
         "liblz4-1",
         "libzstd1",
         "libssl3"
       ],
-      "dockerfile": "ocaml/srql/Dockerfile"
+      "dockerfile": "docker/builders/Dockerfile.srql-builder"
     },
     "rpm": {
       "depends": [
         "systemd",
         "ca-certificates",
         "curl",
-        "libev",
-        "gmp",
+        "libpq",
         "lz4",
         "zstd",
         "openssl"
@@ -166,8 +164,8 @@
       "release": "1"
     },
     "binary": {
-      "source_path": "ocaml/srql",
-      "build_method": "ocaml",
+      "source_path": "rust/srql",
+      "build_method": "rust",
       "output_path": "/usr/local/bin/serviceradar-srql",
       "docker_output_path": "/output/serviceradar-srql"
     },

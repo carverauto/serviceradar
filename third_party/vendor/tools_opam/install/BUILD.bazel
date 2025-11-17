@@ -1,8 +1,0 @@
-sh_binary(
-    name = "tools",
-    srcs = ["install.sh"],
-    data = [
-        "@bazel_tools//tools/bash/runfiles",
-        "@tools_opam//config/pkg",
-    ],
-)

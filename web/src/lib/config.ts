@@ -80,7 +80,8 @@ export function getPublicApiUrl(): string {
 
 // Get API key for server-side requests
 export function getApiKey(): string {
-  return process.env.API_KEY || process.env.NEXT_PUBLIC_API_KEY || "";
+  const raw = process.env.API_KEY || process.env.NEXT_PUBLIC_API_KEY || "";
+  return raw.trim();
 }
 
 // Get JWT secret for token validation

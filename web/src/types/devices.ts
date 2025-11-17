@@ -41,7 +41,6 @@ export interface CapabilitySnapshot {
 }
 
 export interface Device {
-    _tp_time: string;
     agent_id: string;
     device_id: string;
     discovery_sources: string[];

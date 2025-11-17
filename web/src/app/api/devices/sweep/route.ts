@@ -28,7 +28,6 @@ interface PaginationData {
 
 const TIMESTAMP_FIELDS = [
   "timestamp",
-  "_tp_time",
   "last_seen",
   "first_seen",
   "created_at",

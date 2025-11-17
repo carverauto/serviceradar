@@ -50,6 +50,8 @@ images:
   newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
 - name: ghcr.io/carverauto/serviceradar-sync
   newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
+- name: ghcr.io/carverauto/serviceradar-srql
+  newTag: latest
 patches:
 
 vars:

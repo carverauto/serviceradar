@@ -319,7 +319,6 @@ const LogsDashboard = () => {
                 // The data comes as a map[string]interface{} from the backend
                 // We need to ensure it has the required fields for the Log type
                 const log: Log = {
-                    _tp_time: (data._tp_time as string) || (data.timestamp as string) || '',
                     timestamp: (data.timestamp as string) || (data._tp_time as string) || '',
                     trace_id: (data.trace_id as string) || '',
                     span_id: (data.span_id as string) || '',

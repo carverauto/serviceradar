@@ -26,7 +26,6 @@ which bazel
 * openjdk-25-jdk
 * bubblewrap
 * rsync
-* ocaml 
 * libgmp-dev 
 * liblz4-dev 
 * libzstd-dev 
@@ -35,7 +34,7 @@ which bazel
 * libssl-dev
 
 `
-sudo apt install -y git clang-18 build-essential openjdk-25-jdk bubblewrap rsync ocaml libgmp-dev liblz4-dev libzstd-dev pkg-config libev-dev libssl-dev
+sudo apt install -y git clang-18 build-essential openjdk-25-jdk bubblewrap rsync libgmp-dev liblz4-dev libzstd-dev pkg-config libev-dev libssl-dev
 `
 
 ### Clone the project
@@ -48,4 +47,3 @@ git clone https://github.com/carverauto/serviceradar.git
 `
 bazel build //... 
 `
-

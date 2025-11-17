@@ -88,7 +88,6 @@ type TabName = 'overview' | 'discovery' | 'sweeps' | 'snmp' | 'applications' | '
 
 const TIMESTAMP_FIELDS = [
     'timestamp',
-    '_tp_time',
     'last_seen',
     'first_seen',
     'created_at',

@@ -22,7 +22,6 @@ import ReactJson from '@/components/Common/DynamicReactJson';
 import { normalizeTimestampString } from '@/utils/traceTimestamp';
 
 export interface SweepResult {
-    _tp_time: string;
     agent_id: string;
     available: boolean;
     discovery_source: string;
@@ -222,7 +221,7 @@ const SweepResultsTable: React.FC<SweepResultsTableProps> = ({
                                                     <div>
                                                         <span className="text-sm text-gray-400">Discovery Time:</span>
                                                         <span className="text-sm text-gray-200 ml-2">
-                                                            {formatTimestamp(result._tp_time)}
+                                                            {formatTimestamp(result.timestamp)}
                                                         </span>
                                                     </div>
                                                     <div>
