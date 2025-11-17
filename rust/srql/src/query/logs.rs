@@ -71,184 +71,31 @@ fn build_query(plan: &QueryPlan) -> Result<LogsQuery<'static>> {
 fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Result<LogsQuery<'a>> {
     match filter.field.as_str() {
         "trace_id" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_trace_id.eq(value)),
-                FilterOp::NotEq => query.filter(col_trace_id.ne(value)),
-                FilterOp::Like => query.filter(col_trace_id.ilike(value)),
-                FilterOp::NotLike => query.filter(col_trace_id.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_trace_id.eq_any(values))
-                    } else {
-                        query.filter(col_trace_id.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_trace_id)?;
         }
         "span_id" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_span_id.eq(value)),
-                FilterOp::NotEq => query.filter(col_span_id.ne(value)),
-                FilterOp::Like => query.filter(col_span_id.ilike(value)),
-                FilterOp::NotLike => query.filter(col_span_id.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_span_id.eq_any(values))
-                    } else {
-                        query.filter(col_span_id.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_span_id)?;
         }
         "service_name" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_service_name.eq(value)),
-                FilterOp::NotEq => query.filter(col_service_name.ne(value)),
-                FilterOp::Like => query.filter(col_service_name.ilike(value)),
-                FilterOp::NotLike => query.filter(col_service_name.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_service_name.eq_any(values))
-                    } else {
-                        query.filter(col_service_name.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_service_name)?;
         }
         "service_version" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_service_version.eq(value)),
-                FilterOp::NotEq => query.filter(col_service_version.ne(value)),
-                FilterOp::Like => query.filter(col_service_version.ilike(value)),
-                FilterOp::NotLike => query.filter(col_service_version.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_service_version.eq_any(values))
-                    } else {
-                        query.filter(col_service_version.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_service_version)?;
         }
         "service_instance" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_service_instance.eq(value)),
-                FilterOp::NotEq => query.filter(col_service_instance.ne(value)),
-                FilterOp::Like => query.filter(col_service_instance.ilike(value)),
-                FilterOp::NotLike => query.filter(col_service_instance.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_service_instance.eq_any(values))
-                    } else {
-                        query.filter(col_service_instance.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_service_instance)?;
         }
         "scope_name" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_scope_name.eq(value)),
-                FilterOp::NotEq => query.filter(col_scope_name.ne(value)),
-                FilterOp::Like => query.filter(col_scope_name.ilike(value)),
-                FilterOp::NotLike => query.filter(col_scope_name.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_scope_name.eq_any(values))
-                    } else {
-                        query.filter(col_scope_name.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_scope_name)?;
         }
         "scope_version" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_scope_version.eq(value)),
-                FilterOp::NotEq => query.filter(col_scope_version.ne(value)),
-                FilterOp::Like => query.filter(col_scope_version.ilike(value)),
-                FilterOp::NotLike => query.filter(col_scope_version.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_scope_version.eq_any(values))
-                    } else {
-                        query.filter(col_scope_version.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_scope_version)?;
         }
         "severity_text" | "severity" | "level" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_severity_text.eq(value)),
-                FilterOp::NotEq => query.filter(col_severity_text.ne(value)),
-                FilterOp::Like => query.filter(col_severity_text.ilike(value)),
-                FilterOp::NotLike => query.filter(col_severity_text.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_severity_text.eq_any(values))
-                    } else {
-                        query.filter(col_severity_text.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_severity_text)?;
         }
         "body" => {
-            let value = filter.value.as_scalar()?.to_string();
-            query = match filter.op {
-                FilterOp::Eq => query.filter(col_body.eq(value)),
-                FilterOp::NotEq => query.filter(col_body.ne(value)),
-                FilterOp::Like => query.filter(col_body.ilike(value)),
-                FilterOp::NotLike => query.filter(col_body.not_ilike(value)),
-                FilterOp::In | FilterOp::NotIn => {
-                    let values = filter.value.as_list()?.to_vec();
-                    if values.is_empty() {
-                        return Ok(query);
-                    }
-                    if matches!(filter.op, FilterOp::In) {
-                        query.filter(col_body.eq_any(values))
-                    } else {
-                        query.filter(col_body.ne_all(values))
-                    }
-                }
-            };
+            query = apply_text_filter!(query, filter, col_body)?;
         }
         "severity_number" => {
             let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {

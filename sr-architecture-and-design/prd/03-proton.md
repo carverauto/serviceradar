@@ -145,10 +145,10 @@ FROM cypher('topology_graph', $$
   UNWIND $snapshots AS snap
   MERGE (d:Device {tenant_id: snap.tenant_id, device_id: snap.device_id})
     SET d.hostname = snap.hostname, d.os = snap.os
-  FOREACH (svc IN snap.services |
-    MERGE (s:Service {tenant_id: snap.tenant_id, name: svc.name})
-    MERGE (d)-[:RUNS_ON]->(s)
-  )
+  WITH d, snap
+  UNWIND snap.services AS svc
+  MERGE (s:Service {tenant_id: snap.tenant_id, name: svc.name})
+  MERGE (d)-[:RUNS_ON]->(s)
 $$) AS (result agtype);
 ```
 

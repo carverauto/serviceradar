@@ -1,3 +1,84 @@
+macro_rules! apply_text_filter {
+    ($query:expr, $filter:expr, $column:expr) => {{
+        let __next = match $filter.op {
+            crate::parser::FilterOp::Eq => {
+                let value = $filter.value.as_scalar()?.to_string();
+                $query.filter($column.eq(value))
+            }
+            crate::parser::FilterOp::NotEq => {
+                let value = $filter.value.as_scalar()?.to_string();
+                $query.filter($column.ne(value))
+            }
+            crate::parser::FilterOp::Like => {
+                let value = $filter.value.as_scalar()?.to_string();
+                $query.filter($column.ilike(value))
+            }
+            crate::parser::FilterOp::NotLike => {
+                let value = $filter.value.as_scalar()?.to_string();
+                $query.filter($column.not_ilike(value))
+            }
+            crate::parser::FilterOp::In => {
+                let values = $filter.value.as_list()?.to_vec();
+                if values.is_empty() {
+                    $query
+                } else {
+                    $query.filter($column.eq_any(values))
+                }
+            }
+            crate::parser::FilterOp::NotIn => {
+                let values = $filter.value.as_list()?.to_vec();
+                if values.is_empty() {
+                    $query
+                } else {
+                    $query.filter($column.ne_all(values))
+                }
+            }
+        };
+        Ok::<_, crate::error::ServiceError>(__next)
+    }};
+}
+
+macro_rules! apply_text_filter_no_lists {
+    ($query:expr, $filter:expr, $column:expr, $error:expr) => {{
+        let __next = match $filter.op {
+            crate::parser::FilterOp::Eq => {
+                let value = $filter.value.as_scalar()?.to_string();
+                $query.filter($column.eq(value))
+            }
+            crate::parser::FilterOp::NotEq => {
+                let value = $filter.value.as_scalar()?.to_string();
+                $query.filter($column.ne(value))
+            }
+            crate::parser::FilterOp::Like => {
+                let value = $filter.value.as_scalar()?.to_string();
+                $query.filter($column.ilike(value))
+            }
+            crate::parser::FilterOp::NotLike => {
+                let value = $filter.value.as_scalar()?.to_string();
+                $query.filter($column.not_ilike(value))
+            }
+            crate::parser::FilterOp::In | crate::parser::FilterOp::NotIn => {
+                return Err(crate::error::ServiceError::InvalidRequest($error.into()));
+            }
+        };
+        Ok::<_, crate::error::ServiceError>(__next)
+    }};
+}
+
+macro_rules! apply_eq_filter {
+    ($query:expr, $filter:expr, $column:expr, $value:expr, $error:expr) => {{
+        let __value = $value;
+        let __next = match $filter.op {
+            crate::parser::FilterOp::Eq => $query.filter($column.eq(__value.clone())),
+            crate::parser::FilterOp::NotEq => $query.filter($column.ne(__value)),
+            _ => {
+                return Err(crate::error::ServiceError::InvalidRequest($error.into()));
+            }
+        };
+        Ok::<_, crate::error::ServiceError>(__next)
+    }};
+}
+
 mod devices;
 mod events;
 mod logs;
