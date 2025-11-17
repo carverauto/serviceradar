@@ -2,7 +2,7 @@
 
 ## Overview
 
-ServiceRadar Query Language (SRQL) now uses a key:value syntax that is parsed and executed by the OCaml-based SRQL engine (`ocaml/srql`). The engine plans queries against our OCSF-aligned streaming schema defined in `pkg/db/migrations`, translates them to Proton or ClickHouse SQL, and returns consistently shaped results. SRQL keeps its readable style while gaining better alignment with the Open Cybersecurity Schema Framework (OCSF) entities that underpin ServiceRadar.
+ServiceRadar Query Language (SRQL) now uses a key:value syntax that is parsed and executed by the Rust-based SRQL service (`rust/srql`). The engine plans queries against our OCSF-aligned streaming schema defined in `pkg/db/migrations`, translates them to CNPG SQL via Diesel, and returns consistently shaped results. SRQL keeps its readable style while gaining better alignment with the Open Cybersecurity Schema Framework (OCSF) entities that underpin ServiceRadar.
 
 Use SRQL to:
 - Select one or more OCSF data domains with `in:<entity>`
@@ -27,7 +27,7 @@ Target data with the `in:` selector. Each logical entity routes to one or more O
 | `in:cpu_metrics` / `in:disk_metrics` / `in:memory_metrics` / `in:process_metrics` / `in:snmp_metrics` | Time-series metrics aligned with OCSF telemetry categories | `cpu_metrics`, `disk_metrics`, `memory_metrics`, `process_metrics`, `timeseries_metrics` |
 | `in:otel_traces` | OpenTelemetry spans & summaries | `otel_trace_summaries_final`, `otel_spans_enriched` |
 
-`in:` accepts comma-separated targets (e.g. `in:devices,services`). SRQL resolves friendly field names to the correct OCSF column names using the entity mapping in `ocaml/srql/lib/entity_mapping.ml`; for example `device.os.name` maps to `device_os_name` and `boundary` is normalized to `partition`.
+`in:` accepts comma-separated targets (e.g. `in:devices,services`). SRQL resolves friendly field names to the correct OCSF column names via the Diesel query builders in `rust/srql/src/query`; for example `device.os.name` maps to `device_os_name` and `boundary` is normalized to `partition`.
 
 The migrations in `00000000000003_ocsf_entity_state_streams.up.sql` and `00000000000005_ocsf_materialized_views.up.sql` also provision current-state streams for users, vulnerabilities, and other OCSF classes. As those entities are surfaced through SRQL aliases they inherit the same key:value syntax described below—no query changes are required beyond swapping the `in:` target.
 
@@ -110,7 +110,7 @@ Set `stream:true` to subscribe to entity streams such as `ocsf_network_activity`
 - Prefer SRQL field aliases (e.g. `device.os.name`, `connection.dst_endpoint_ip`) over raw column names; the engine keeps them aligned with the OCSF migrations.
 - Use repeated keys for array containment checks and comma lists for scalar `IN` comparisons.
 - Inspect new OCSF columns in `pkg/db/migrations` before adding filters so names stay consistent with upstream schema revisions.
-- Validate complex queries with the `srql.validate` MCP tool or the SRQL CLI under `ocaml/srql/bin`.
+- Validate complex queries with the `srql.validate` MCP tool or the SRQL CLI under `rust/srql`.
 
 ## Error Handling
 

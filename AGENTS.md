@@ -23,13 +23,13 @@ This repository hosts the ServiceRadar monitoring platform. Use this file as the
 
 ## Project Overview
 
-ServiceRadar is a multi-component system made up of Go services (core, sync, registry, poller, faker), OCaml SRQL service, Proton/Timeplus database integrations, a Next.js web UI, and supporting tooling. The repo contains Bazel and Go module definitions alongside Docker/Bazel image targets.
+ServiceRadar is a multi-component system made up of Go services (core, sync, registry, poller, faker), a Rust-based SRQL service, Proton/Timeplus database integrations, a Next.js web UI, and supporting tooling. The repo contains Bazel and Go module definitions alongside Docker/Bazel image targets.
 
 ## Repository Layout
 
 - `cmd/` – Go binaries (core, sync, poller, faker, kv, etc.).
 - `pkg/` – Shared Go packages: identity map, registry, sync integrations, database clients.
-- `ocaml/srql/` – SRQL translator and Dream-based service.
+- `rust/srql/` – SRQL translator/service backed by Diesel + CNPG.
 - `docs/docs/` – User and architecture documentation (notably `architecture.md`, `agents.md`).
 - `k8s/demo/` – Demo cluster manifests (faker, core, sync, Proton, etc.).
 - `docker/`, `docker/images/` – Container builds and push targets.
@@ -40,16 +40,16 @@ ServiceRadar is a multi-component system made up of Go services (core, sync, reg
 
 - General Go lint/test: `make lint`, `make test`.
 - Focused Go packages: `go test ./pkg/...`.
-- OCaml SRQL tests: `cd ocaml && dune runtest srql/test`.
+- SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
 - Bazel tests/images: `bazel test --config=remote //...`, `bazel run //docker/images:<target>_push`.
 - Web (Next.js) lint/build: `cd web && npm install && npm run lint && npm run build` (if needed).
 
-Prefer Bazel targets when modifying code that already has BUILD files. Always run gofmt/dune fmt where applicable (Go formatting handled by `gofmt`, OCaml by dune).
+Prefer Bazel targets when modifying code that already has BUILD files. Always run gofmt/cargo fmt where applicable (Go formatting handled by `gofmt`, Rust by `cargo fmt`).
 
 ## Coding Guidelines
 
 - **Go**: run `gofmt` on modified files; keep imports organized; favor existing helper utilities in `pkg/`. Avoid introducing new dependencies without updating `go.mod` and Bazel `MODULE.bazel`/`MODULE.bazel.lock` if required.
-- **OCaml**: use dune formatting; reuse existing modules under `ocaml/srql/`; add tests in `ocaml/srql/test` when touching translator logic.
+- **Rust**: run `cargo fmt` + `cargo clippy` on touched crates (notably `rust/srql`); leverage existing Diesel helpers + CNPG pooling utilities before adding new abstractions.
 - **Docs**: place new operational runbooks under `docs/docs/`; keep Markdown ASCII only.
 
 ## Operational Runbooks

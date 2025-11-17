@@ -29,14 +29,14 @@ platform(
     exec_properties = {
         "OSFamily": "Linux",
         "dockerNetwork": "off",
-        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.10",
+        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.11",
     },
     visibility = ["//visibility:public"],
 )
 
 alias(
     name = "cwalk",
-    actual = "@@cwalk+//:cwalk",
+    actual = "//third_party/cwalk:cwalk",
     visibility = ["//visibility:public"],
 )
 

@@ -84,4 +84,4 @@ Use these to confirm registry latency stays sub-millisecond and to identify unex
 
 - **Unexpected SRQL traffic**: Check the planner diagnostics for `engine_reason: "query_not_supported"`. Queries containing aggregations (`count(`, `sum(`), joins, or metadata fan-out currently require SRQL.
 - **Empty registry results**: Confirm the device registry is hydrated (`core_device_stats_processed_records` gauge) and that the trigram index contains entries (`SearchDevices` unit tests cover expected behavior).
-- **Slow SRQL latency**: Use `search_srql_duration_seconds` to detect regressions and review the SRQL service logs (`ocaml/srql`). Consider increasing SRQL timeouts or scaling the service if demand spikes.
+- **Slow SRQL latency**: Use `search_srql_duration_seconds` to detect regressions and review the SRQL service logs (`rust/srql`). Consider increasing SRQL timeouts or scaling the service if demand spikes.
