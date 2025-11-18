@@ -353,6 +353,155 @@ impl OtelMetricRow {
     }
 }
 
+#[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::timeseries_metrics)]
+pub struct TimeseriesMetricRow {
+    pub timestamp: DateTime<Utc>,
+    pub poller_id: String,
+    pub agent_id: Option<String>,
+    pub metric_name: String,
+    pub metric_type: String,
+    pub device_id: Option<String>,
+    pub value: f64,
+    pub unit: Option<String>,
+    pub tags: Option<serde_json::Value>,
+    pub partition: Option<String>,
+    pub scale: Option<f64>,
+    pub is_delta: Option<bool>,
+    pub target_device_ip: Option<String>,
+    pub if_index: Option<i32>,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl TimeseriesMetricRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "timestamp": self.timestamp,
+            "poller_id": self.poller_id,
+            "agent_id": self.agent_id,
+            "metric_name": self.metric_name,
+            "metric_type": self.metric_type,
+            "device_id": self.device_id,
+            "value": self.value,
+            "unit": self.unit,
+            "tags": self.tags,
+            "partition": self.partition,
+            "scale": self.scale,
+            "is_delta": self.is_delta,
+            "target_device_ip": self.target_device_ip,
+            "if_index": self.if_index,
+            "metadata": self.metadata,
+            "created_at": self.created_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::cpu_metrics)]
+pub struct CpuMetricRow {
+    pub timestamp: DateTime<Utc>,
+    pub poller_id: String,
+    pub agent_id: Option<String>,
+    pub host_id: Option<String>,
+    pub core_id: Option<i32>,
+    pub usage_percent: Option<f64>,
+    pub frequency_hz: Option<f64>,
+    pub label: Option<String>,
+    pub cluster: Option<String>,
+    pub device_id: Option<String>,
+    pub partition: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl CpuMetricRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "timestamp": self.timestamp,
+            "poller_id": self.poller_id,
+            "agent_id": self.agent_id,
+            "host_id": self.host_id,
+            "core_id": self.core_id,
+            "usage_percent": self.usage_percent,
+            "frequency_hz": self.frequency_hz,
+            "label": self.label,
+            "cluster": self.cluster,
+            "device_id": self.device_id,
+            "partition": self.partition,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::memory_metrics)]
+pub struct MemoryMetricRow {
+    pub timestamp: DateTime<Utc>,
+    pub poller_id: Option<String>,
+    pub agent_id: Option<String>,
+    pub host_id: Option<String>,
+    pub total_bytes: Option<i64>,
+    pub used_bytes: Option<i64>,
+    pub available_bytes: Option<i64>,
+    pub usage_percent: Option<f64>,
+    pub device_id: Option<String>,
+    pub partition: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl MemoryMetricRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "timestamp": self.timestamp,
+            "poller_id": self.poller_id,
+            "agent_id": self.agent_id,
+            "host_id": self.host_id,
+            "total_bytes": self.total_bytes,
+            "used_bytes": self.used_bytes,
+            "available_bytes": self.available_bytes,
+            "usage_percent": self.usage_percent,
+            "device_id": self.device_id,
+            "partition": self.partition,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::disk_metrics)]
+pub struct DiskMetricRow {
+    pub timestamp: DateTime<Utc>,
+    pub poller_id: Option<String>,
+    pub agent_id: Option<String>,
+    pub host_id: Option<String>,
+    pub mount_point: Option<String>,
+    pub device_name: Option<String>,
+    pub total_bytes: Option<i64>,
+    pub used_bytes: Option<i64>,
+    pub available_bytes: Option<i64>,
+    pub usage_percent: Option<f64>,
+    pub device_id: Option<String>,
+    pub partition: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl DiskMetricRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "timestamp": self.timestamp,
+            "poller_id": self.poller_id,
+            "agent_id": self.agent_id,
+            "host_id": self.host_id,
+            "mount_point": self.mount_point,
+            "device_name": self.device_name,
+            "total_bytes": self.total_bytes,
+            "used_bytes": self.used_bytes,
+            "available_bytes": self.available_bytes,
+            "usage_percent": self.usage_percent,
+            "device_id": self.device_id,
+            "partition": self.partition,
+        })
+    }
+}
+
 #[derive(Debug, Clone, QueryableByName)]
 pub struct TraceSummaryRow {
     #[diesel(sql_type = Timestamptz)]

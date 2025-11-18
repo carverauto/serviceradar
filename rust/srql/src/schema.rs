@@ -183,3 +183,83 @@ diesel::table! {
         created_at -> Timestamptz,
     }
 }
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    timeseries_metrics (timestamp, poller_id, metric_name) {
+        timestamp -> Timestamptz,
+        poller_id -> Text,
+        agent_id -> Nullable<Text>,
+        metric_name -> Text,
+        metric_type -> Text,
+        device_id -> Nullable<Text>,
+        value -> Float8,
+        unit -> Nullable<Text>,
+        tags -> Nullable<Jsonb>,
+        partition -> Nullable<Text>,
+        scale -> Nullable<Float8>,
+        is_delta -> Nullable<Bool>,
+        target_device_ip -> Nullable<Text>,
+        if_index -> Nullable<Int4>,
+        metadata -> Nullable<Jsonb>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    cpu_metrics (timestamp, poller_id, core_id) {
+        timestamp -> Timestamptz,
+        poller_id -> Text,
+        agent_id -> Nullable<Text>,
+        host_id -> Nullable<Text>,
+        core_id -> Nullable<Int4>,
+        usage_percent -> Nullable<Float8>,
+        frequency_hz -> Nullable<Float8>,
+        label -> Nullable<Text>,
+        cluster -> Nullable<Text>,
+        device_id -> Nullable<Text>,
+        partition -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    disk_metrics (timestamp, poller_id, mount_point) {
+        timestamp -> Timestamptz,
+        poller_id -> Nullable<Text>,
+        agent_id -> Nullable<Text>,
+        host_id -> Nullable<Text>,
+        mount_point -> Nullable<Text>,
+        device_name -> Nullable<Text>,
+        total_bytes -> Nullable<Int8>,
+        used_bytes -> Nullable<Int8>,
+        available_bytes -> Nullable<Int8>,
+        usage_percent -> Nullable<Float8>,
+        device_id -> Nullable<Text>,
+        partition -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    memory_metrics (timestamp, poller_id) {
+        timestamp -> Timestamptz,
+        poller_id -> Nullable<Text>,
+        agent_id -> Nullable<Text>,
+        host_id -> Nullable<Text>,
+        total_bytes -> Nullable<Int8>,
+        used_bytes -> Nullable<Int8>,
+        available_bytes -> Nullable<Int8>,
+        usage_percent -> Nullable<Float8>,
+        device_id -> Nullable<Text>,
+        partition -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}

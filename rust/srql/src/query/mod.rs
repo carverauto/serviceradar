@@ -79,12 +79,16 @@ macro_rules! apply_eq_filter {
     }};
 }
 
+mod cpu_metrics;
 mod devices;
+mod disk_metrics;
 mod events;
 mod interfaces;
 mod logs;
+mod memory_metrics;
 mod otel_metrics;
 mod pollers;
+mod rperf_metrics;
 mod services;
 mod trace_summaries;
 mod traces;
@@ -133,6 +137,10 @@ impl QueryEngine {
             Entity::Logs => logs::execute(&mut conn, &plan).await?,
             Entity::Pollers => pollers::execute(&mut conn, &plan).await?,
             Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
+            Entity::RperfMetrics => rperf_metrics::execute(&mut conn, &plan).await?,
+            Entity::CpuMetrics => cpu_metrics::execute(&mut conn, &plan).await?,
+            Entity::MemoryMetrics => memory_metrics::execute(&mut conn, &plan).await?,
+            Entity::DiskMetrics => disk_metrics::execute(&mut conn, &plan).await?,
             Entity::Services => services::execute(&mut conn, &plan).await?,
             Entity::TraceSummaries => trace_summaries::execute(&mut conn, &plan).await?,
             Entity::Traces => traces::execute(&mut conn, &plan).await?,
@@ -164,6 +172,10 @@ impl QueryEngine {
             Entity::Logs => logs::to_debug_sql(&plan)?,
             Entity::Pollers => pollers::to_debug_sql(&plan)?,
             Entity::OtelMetrics => otel_metrics::to_debug_sql(&plan)?,
+            Entity::RperfMetrics => rperf_metrics::to_debug_sql(&plan)?,
+            Entity::CpuMetrics => cpu_metrics::to_debug_sql(&plan)?,
+            Entity::MemoryMetrics => memory_metrics::to_debug_sql(&plan)?,
+            Entity::DiskMetrics => disk_metrics::to_debug_sql(&plan)?,
             Entity::Services => services::to_debug_sql(&plan)?,
             Entity::TraceSummaries => trace_summaries::to_debug_sql(&plan)?,
             Entity::Traces => traces::to_debug_sql(&plan)?,
