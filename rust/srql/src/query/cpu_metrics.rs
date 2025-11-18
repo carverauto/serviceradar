@@ -567,3 +567,49 @@ fn rewrite_placeholders(sql: &str) -> String {
     }
     rewritten
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection};
+    use chrono::{Duration as ChronoDuration, TimeZone, Utc};
+
+    #[test]
+    fn stats_query_matches_cpu_language_reference() {
+        let plan = stats_plan(r#"avg(usage_percent) as avg_cpu by device_id"#, "demo-partition");
+        let spec = parse_stats_spec(plan.stats.as_deref()).unwrap().unwrap();
+        assert_eq!(spec.alias, "avg_cpu");
+
+        let sql = build_stats_query(&plan, &spec).expect("stats SQL should build");
+        assert!(
+            sql.sql.contains("AVG(usage_percent)")
+                && sql.sql.contains("GROUP BY device_id")
+                && sql.sql.contains("'avg_cpu'")
+                && sql.sql.contains("jsonb_build_object('device_id'"),
+            "unexpected stats SQL: {}",
+            sql.sql
+        );
+        assert_eq!(sql.binds.len(), 3, "expected time range + filter binds");
+    }
+
+    fn stats_plan(stats: &str, partition: &str) -> QueryPlan {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+        QueryPlan {
+            entity: Entity::CpuMetrics,
+            filters: vec![Filter {
+                field: "partition".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar(partition.to_string()),
+            }],
+            order: vec![OrderClause {
+                field: "avg_cpu".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(stats.to_string()),
+        }
+    }
+}
