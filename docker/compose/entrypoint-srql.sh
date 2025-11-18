@@ -21,23 +21,30 @@ urlencode() {
     # Percent-encode arbitrary bytes (safe for UTF-8 secrets)
     local input="$1"
     local out=""
-    local i=0
-    local char hex
+    local i=1
+    local len char hex
     LC_ALL=C
-    while [ $i -lt ${#input} ]; do
-        char=${input:$i:1}
+    len=$(printf '%s' "$input" | wc -c | tr -d '[:space:]')
+    while [ "$i" -le "$len" ]; do
+        char=$(printf '%s' "$input" | cut -c "$i")
         case "$char" in
             [a-zA-Z0-9.~_-])
                 out="${out}${char}"
                 ;;
             *)
-                printf -v hex '%%%02X' "'$char"
-                out="${out}${hex}"
+                hex=$(printf '%s' "$char" | od -An -tx1 | head -n 1 | tr -d ' \n')
+                hex=$(printf '%s' "$hex" | tr 'a-f' 'A-F')
+                out="${out}%${hex}"
                 ;;
         esac
         i=$((i + 1))
     done
     printf '%s' "$out"
+}
+
+escape_conn_value() {
+    # Escape single quotes for libpq keyword connection strings
+    printf '%s' "$1" | sed "s/'/''/g"
 }
 
 load_cnpg_password() {
@@ -117,18 +124,23 @@ if [ -z "$SRQL_DATABASE_URL" ]; then
     fi
     CNPG_PASSWORD_VALUE="$(load_cnpg_password)"
 
-    SSL_PARAMS="sslmode=${CNPG_SSLMODE_VALUE}"
     if [ -n "$CNPG_ROOT_CERT_VALUE" ]; then
-        SSL_PARAMS="${SSL_PARAMS}&sslrootcert=$(urlencode "$CNPG_ROOT_CERT_VALUE")"
+        export PGSSLROOTCERT="$CNPG_ROOT_CERT_VALUE"
+    fi
+    if [ -n "$CNPG_SSLMODE_VALUE" ]; then
+        export PGSSLMODE="$CNPG_SSLMODE_VALUE"
     fi
 
+    ENCODED_USER="$(urlencode "$CNPG_USERNAME_VALUE")"
     if [ -n "$CNPG_PASSWORD_VALUE" ]; then
         ENCODED_PASS="$(urlencode "$CNPG_PASSWORD_VALUE")"
-        SRQL_DATABASE_URL="postgresql://${CNPG_USERNAME_VALUE}:${ENCODED_PASS}@${CNPG_HOST_VALUE}:${CNPG_PORT_VALUE}/${CNPG_DATABASE_VALUE}?${SSL_PARAMS}"
+        AUTH_SEGMENT="${ENCODED_USER}:${ENCODED_PASS}"
     else
         echo "Warning: CNPG password not provided; SRQL will attempt passwordless connection" >&2
-        SRQL_DATABASE_URL="postgresql://${CNPG_USERNAME_VALUE}@${CNPG_HOST_VALUE}:${CNPG_PORT_VALUE}/${CNPG_DATABASE_VALUE}?${SSL_PARAMS}"
+        AUTH_SEGMENT="${ENCODED_USER}"
     fi
+
+    SRQL_DATABASE_URL="postgresql://${AUTH_SEGMENT}@${CNPG_HOST_VALUE}:${CNPG_PORT_VALUE}/${CNPG_DATABASE_VALUE}"
 
     DB_TARGET_DESC="${CNPG_HOST_VALUE}:${CNPG_PORT_VALUE}/${CNPG_DATABASE_VALUE}"
 fi
@@ -137,5 +149,6 @@ export SRQL_DATABASE_URL
 export DATABASE_URL="$SRQL_DATABASE_URL"
 
 echo "SRQL listening on ${SRQL_LISTEN_HOST}:${SRQL_LISTEN_PORT} (database target: ${DB_TARGET_DESC})"
+echo "SRQL DATABASE_URL=${SRQL_DATABASE_URL}"
 
 exec "$@"

@@ -75,6 +75,22 @@ function shouldUseDevicePlanner(query: unknown): boolean {
   return !!stream && DEVICE_PLANNER_STREAMS.has(stream);
 }
 
+function resolveAuthorizationHeader(req: NextRequest): string | null {
+  const header =
+    req.headers.get("Authorization") || req.headers.get("authorization") || "";
+  const trimmed = header.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+
+  const cookieToken = req.cookies.get("accessToken")?.value?.trim();
+  if (cookieToken) {
+    return `Bearer ${cookieToken}`;
+  }
+
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   const apiKey = getApiKey();
   const srqlUrl = getInternalSrqlUrl();
@@ -89,7 +105,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Query is required" }, { status: 400 });
     }
 
-    const authHeader = req.headers.get("Authorization") || req.headers.get("authorization");
+    const authHeader = resolveAuthorizationHeader(req);
     const cookieHeader = req.headers.get("cookie");
     const headersToSrql: HeadersInit = {
       "Content-Type": "application/json",

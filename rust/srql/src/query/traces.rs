@@ -1,0 +1,254 @@
+use super::QueryPlan;
+use crate::{
+    error::{Result, ServiceError},
+    models::TraceSpanRow,
+    parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
+    schema::otel_traces::dsl::{
+        end_time_unix_nano as col_end, kind as col_kind, name as col_name, otel_traces,
+        parent_span_id as col_parent_span_id, scope_name as col_scope_name,
+        scope_version as col_scope_version, service_instance as col_service_instance,
+        service_name as col_service_name, service_version as col_service_version,
+        span_id as col_span_id, start_time_unix_nano as col_start, status_code as col_status_code,
+        status_message as col_status_message, timestamp as col_timestamp, trace_id as col_trace_id,
+    },
+    time::TimeRange,
+};
+use diesel::pg::Pg;
+use diesel::prelude::*;
+use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
+use diesel::PgTextExpressionMethods;
+use diesel_async::{AsyncPgConnection, RunQueryDsl};
+
+type TracesTable = crate::schema::otel_traces::table;
+type TracesFromClause = FromClause<TracesTable>;
+type TracesQuery<'a> =
+    BoxedSelectStatement<'a, <TracesTable as AsQuery>::SqlType, TracesFromClause, Pg>;
+
+pub(super) async fn execute(
+    conn: &mut AsyncPgConnection,
+    plan: &QueryPlan,
+) -> Result<Vec<serde_json::Value>> {
+    ensure_entity(plan)?;
+    let query = build_query(plan)?;
+    let rows: Vec<TraceSpanRow> = query
+        .limit(plan.limit)
+        .offset(plan.offset)
+        .load(conn)
+        .await
+        .map_err(|err| ServiceError::Internal(err.into()))?;
+
+    Ok(rows.into_iter().map(TraceSpanRow::into_json).collect())
+}
+
+pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
+    ensure_entity(plan)?;
+    let query = build_query(plan)?;
+    Ok(diesel::debug_query::<Pg, _>(&query.limit(plan.limit).offset(plan.offset)).to_string())
+}
+
+fn ensure_entity(plan: &QueryPlan) -> Result<()> {
+    match plan.entity {
+        Entity::Traces => Ok(()),
+        _ => Err(ServiceError::InvalidRequest(
+            "entity not supported by traces query".into(),
+        )),
+    }
+}
+
+fn build_query(plan: &QueryPlan) -> Result<TracesQuery<'static>> {
+    let mut query = otel_traces.into_boxed::<Pg>();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        query = query.filter(col_timestamp.ge(*start).and(col_timestamp.le(*end)));
+    }
+
+    for filter in &plan.filters {
+        query = apply_filter(query, filter)?;
+    }
+
+    query = apply_ordering(query, &plan.order);
+    Ok(query)
+}
+
+fn apply_filter<'a>(mut query: TracesQuery<'a>, filter: &Filter) -> Result<TracesQuery<'a>> {
+    match filter.field.as_str() {
+        "trace_id" => {
+            query = apply_text_filter!(query, filter, col_trace_id)?;
+        }
+        "span_id" => {
+            query = apply_text_filter!(query, filter, col_span_id)?;
+        }
+        "parent_span_id" => {
+            query = apply_text_filter!(query, filter, col_parent_span_id)?;
+        }
+        "service_name" => {
+            query = apply_text_filter!(query, filter, col_service_name)?;
+        }
+        "service_version" => {
+            query = apply_text_filter!(query, filter, col_service_version)?;
+        }
+        "service_instance" => {
+            query = apply_text_filter!(query, filter, col_service_instance)?;
+        }
+        "scope_name" => {
+            query = apply_text_filter!(query, filter, col_scope_name)?;
+        }
+        "scope_version" => {
+            query = apply_text_filter!(query, filter, col_scope_version)?;
+        }
+        "name" | "span_name" => {
+            query = apply_text_filter!(query, filter, col_name)?;
+        }
+        "status_message" => {
+            query = apply_text_filter!(query, filter, col_status_message)?;
+        }
+        "status_code" => {
+            query = apply_status_code_filter(query, filter)?;
+        }
+        "kind" | "span_kind" => {
+            query = apply_kind_filter(query, filter)?;
+        }
+        _ => {}
+    }
+
+    Ok(query)
+}
+
+fn apply_status_code_filter<'a>(
+    mut query: TracesQuery<'a>,
+    filter: &Filter,
+) -> Result<TracesQuery<'a>> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => {
+            let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
+                ServiceError::InvalidRequest("status_code must be an integer".into())
+            })?;
+            query = match filter.op {
+                FilterOp::Eq => query.filter(col_status_code.eq(value)),
+                FilterOp::NotEq => query.filter(col_status_code.ne(value)),
+                _ => unreachable!(),
+            };
+            Ok(query)
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values: Vec<i32> = filter
+                .value
+                .as_list()?
+                .iter()
+                .map(|v| v.parse::<i32>())
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|_| {
+                    ServiceError::InvalidRequest("status_code list must be integers".into())
+                })?;
+            if values.is_empty() {
+                return Ok(query);
+            }
+            query = match filter.op {
+                FilterOp::In => query.filter(col_status_code.eq_any(values)),
+                FilterOp::NotIn => query.filter(col_status_code.ne_all(values)),
+                _ => unreachable!(),
+            };
+            Ok(query)
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "status_code filter only supports equality or list comparisons".into(),
+        )),
+    }
+}
+
+fn apply_kind_filter<'a>(mut query: TracesQuery<'a>, filter: &Filter) -> Result<TracesQuery<'a>> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => {
+            let value =
+                filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
+                    ServiceError::InvalidRequest("span kind must be an integer".into())
+                })?;
+            query = match filter.op {
+                FilterOp::Eq => query.filter(col_kind.eq(value)),
+                FilterOp::NotEq => query.filter(col_kind.ne(value)),
+                _ => unreachable!(),
+            };
+            Ok(query)
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values: Vec<i32> = filter
+                .value
+                .as_list()?
+                .iter()
+                .map(|v| v.parse::<i32>())
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|_| {
+                    ServiceError::InvalidRequest("span kind list must be integers".into())
+                })?;
+            if values.is_empty() {
+                return Ok(query);
+            }
+            query = match filter.op {
+                FilterOp::In => query.filter(col_kind.eq_any(values)),
+                FilterOp::NotIn => query.filter(col_kind.ne_all(values)),
+                _ => unreachable!(),
+            };
+            Ok(query)
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "kind filter only supports equality comparisons".into(),
+        )),
+    }
+}
+
+fn apply_ordering<'a>(mut query: TracesQuery<'a>, order: &[OrderClause]) -> TracesQuery<'a> {
+    let mut applied = false;
+    for clause in order {
+        query = if !applied {
+            applied = true;
+            match clause.field.as_str() {
+                "timestamp" => match clause.direction {
+                    OrderDirection::Asc => query.order(col_timestamp.asc()),
+                    OrderDirection::Desc => query.order(col_timestamp.desc()),
+                },
+                "start_time_unix_nano" => match clause.direction {
+                    OrderDirection::Asc => query.order(col_start.asc()),
+                    OrderDirection::Desc => query.order(col_start.desc()),
+                },
+                "end_time_unix_nano" => match clause.direction {
+                    OrderDirection::Asc => query.order(col_end.asc()),
+                    OrderDirection::Desc => query.order(col_end.desc()),
+                },
+                "service_name" => match clause.direction {
+                    OrderDirection::Asc => query.order(col_service_name.asc()),
+                    OrderDirection::Desc => query.order(col_service_name.desc()),
+                },
+                _ => {
+                    applied = false;
+                    query
+                }
+            }
+        } else {
+            match clause.field.as_str() {
+                "timestamp" => match clause.direction {
+                    OrderDirection::Asc => query.then_order_by(col_timestamp.asc()),
+                    OrderDirection::Desc => query.then_order_by(col_timestamp.desc()),
+                },
+                "start_time_unix_nano" => match clause.direction {
+                    OrderDirection::Asc => query.then_order_by(col_start.asc()),
+                    OrderDirection::Desc => query.then_order_by(col_start.desc()),
+                },
+                "end_time_unix_nano" => match clause.direction {
+                    OrderDirection::Asc => query.then_order_by(col_end.asc()),
+                    OrderDirection::Desc => query.then_order_by(col_end.desc()),
+                },
+                "service_name" => match clause.direction {
+                    OrderDirection::Asc => query.then_order_by(col_service_name.asc()),
+                    OrderDirection::Desc => query.then_order_by(col_service_name.desc()),
+                },
+                _ => query,
+            }
+        };
+    }
+
+    if !applied {
+        query = query.order(col_timestamp.desc());
+    }
+
+    query
+}

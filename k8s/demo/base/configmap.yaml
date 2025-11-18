@@ -30,15 +30,7 @@ data:
           proxy_set_header X-Forwarded-Proto $scheme;
         }
         location = /api-docs { proxy_pass http://serviceradar-core:8090; }
-        # SRQL queries must go through Kong for JWT enforcement
-    location ^~ /api/query {
-      proxy_pass http://serviceradar-kong:8000;
-      proxy_set_header Host $host;
-      proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-      proxy_set_header X-Forwarded-Proto $scheme;
-        }
-
+        # SRQL queries still go through Kong, but the web server handles JWT headers before proxying
         # Next.js API routes (keep hitting web)
         location ~ ^/api/(auth|nodes|status|pollers|devices|mcp|admin|config|kv|services) {
           proxy_pass http://serviceradar-web:3000;
@@ -241,12 +233,18 @@ data:
           "output": "stdout",
           "time_format": "",
           "otel": {
-            "enabled": false,
-            "endpoint": "127.0.0.1:4317",
+            "enabled": true,
+            "endpoint": "serviceradar-otel:4317",
             "service_name": "serviceradar-core",
             "batch_timeout": "5s",
-            "insecure": true,
-            "headers": {}
+            "insecure": false,
+            "headers": {},
+            "tls": {
+              "cert_file": "/etc/serviceradar/certs/core.pem",
+              "key_file": "/etc/serviceradar/certs/core-key.pem",
+              "ca_file": "/etc/serviceradar/certs/root.pem",
+              "server_name": "serviceradar-otel"
+            }
           }
         },
         "write_buffer": {
@@ -338,9 +336,7 @@ data:
             "service_name": "serviceradar-poller",
             "batch_timeout": "5s",
             "insecure": false,
-            "headers": {
-              "x-api-key": "your-collector-api-key"
-            },
+            "headers": {},
             "tls": {
               "cert_file": "/etc/serviceradar/certs/poller.pem",
               "key_file": "/etc/serviceradar/certs/poller-key.pem",
@@ -954,11 +950,15 @@ data:
               | .cnpg.cert_dir = $certdir
               | .auth.jwt_secret = $jwt
               | .auth.jwt_expiration = "24h"
-              | .auth.local_users.admin = $bcrypt
-              | .api_key = $api_key
-              | (if .srql != null then (.srql.api_key = $api_key) else . end)
-              | .edge_onboarding.encryption_key = $edge_key' \
-             "$CONFIG_PATH" > "$TMP_CONFIG"
+             | .auth.local_users.admin = $bcrypt
+             | .api_key = $api_key
+             | (if .srql != null then (.srql.api_key = $api_key) else . end)
+             | (if (.logging? // null) != null and (.logging.otel? // null) != null
+                then (.logging.otel.headers = ((.logging.otel.headers // {}) + {"x-api-key": $api_key}))
+                else .
+               end)
+             | .edge_onboarding.encryption_key = $edge_key' \
+            "$CONFIG_PATH" > "$TMP_CONFIG"
           mv "$TMP_CONFIG" "$CONFIG_PATH"
           echo "Configuration updated with secrets at $CONFIG_PATH"
       

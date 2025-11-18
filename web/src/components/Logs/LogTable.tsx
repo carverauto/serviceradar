@@ -18,9 +18,9 @@
 
 import React, { useState, Fragment } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import ReactJson from '@/components/Common/DynamicReactJson';
 import { Log } from '@/types/logs';
 import { parseOtelAttributes } from '@/utils/otelAttributes';
+import RawDataViewer from '@/components/Logs/RawDataViewer';
 
 interface LogTableProps {
     logs: Log[];
@@ -190,20 +190,7 @@ const LogTable: React.FC<LogTableProps> = ({
                                                         <h5 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
                                                             Raw Data
                                                         </h5>
-                                                        <ReactJson
-                                                            src={JSON.parse(log.raw_data)}
-                                                            theme={jsonViewTheme}
-                                                            collapsed={false}
-                                                            displayDataTypes={false}
-                                                            enableClipboard={true}
-                                                            style={{
-                                                                padding: '1rem',
-                                                                borderRadius: '0.375rem',
-                                                                backgroundColor: jsonViewTheme === 'pop' ? '#1C1B22' : '#f8f9fa',
-                                                                maxHeight: '400px',
-                                                                overflowY: 'auto'
-                                                            }}
-                                                        />
+                                                        <RawDataViewer raw={log.raw_data} theme={jsonViewTheme} />
                                                     </div>
                                                 )}
                                             </div>
