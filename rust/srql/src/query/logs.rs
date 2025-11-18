@@ -12,21 +12,33 @@ use crate::{
     },
     time::TimeRange,
 };
+use chrono::{DateTime, Utc};
+use diesel::deserialize::QueryableByName;
 use diesel::pg::Pg;
 use diesel::prelude::*;
-use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
+use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
+use diesel::sql_query;
+use diesel::sql_types::{Int4, Jsonb, Nullable, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use serde_json::Value;
 
 type LogsTable = crate::schema::logs::table;
 type LogsFromClause = FromClause<LogsTable>;
 type LogsQuery<'a> = BoxedSelectStatement<'a, <LogsTable as AsQuery>::SqlType, LogsFromClause, Pg>;
 
-pub(super) async fn execute(
-    conn: &mut AsyncPgConnection,
-    plan: &QueryPlan,
-) -> Result<Vec<serde_json::Value>> {
+pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
+
+    if let Some(stats_sql) = build_stats_query(plan)? {
+        let query = stats_sql.into_boxed_query();
+        let rows: Vec<LogsStatsPayload> = query
+            .load(conn)
+            .await
+            .map_err(|err| ServiceError::Internal(err.into()))?;
+        return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
+    }
+
     let query = build_query(plan)?;
     let rows: Vec<LogRow> = query
         .limit(plan.limit)
@@ -66,6 +78,91 @@ fn build_query(plan: &QueryPlan) -> Result<LogsQuery<'static>> {
 
     query = apply_ordering(query, &plan.order);
     Ok(query)
+}
+
+#[derive(Debug, Clone)]
+struct LogsStatsSql {
+    sql: String,
+    binds: Vec<SqlBindValue>,
+}
+
+impl LogsStatsSql {
+    fn into_boxed_query(&self) -> BoxedSqlQuery<'_, Pg, SqlQuery> {
+        let mut query = sql_query(rewrite_placeholders(&self.sql)).into_boxed::<Pg>();
+        for bind in &self.binds {
+            query = bind.apply(query);
+        }
+        query
+    }
+}
+
+#[derive(Debug, QueryableByName)]
+struct LogsStatsPayload {
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    payload: Option<Value>,
+}
+
+#[derive(Debug, Clone)]
+enum SqlBindValue {
+    Text(String),
+    Int(i32),
+    Timestamp(DateTime<Utc>),
+}
+
+impl SqlBindValue {
+    fn apply<'a>(&self, query: BoxedSqlQuery<'a, Pg, SqlQuery>) -> BoxedSqlQuery<'a, Pg, SqlQuery> {
+        match self {
+            SqlBindValue::Text(value) => query.bind::<Text, _>(value.clone()),
+            SqlBindValue::Int(value) => query.bind::<Int4, _>(*value),
+            SqlBindValue::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
+        }
+    }
+}
+
+fn build_stats_query(plan: &QueryPlan) -> Result<Option<LogsStatsSql>> {
+    let stats_raw = match plan.stats.as_ref() {
+        Some(raw) if !raw.trim().is_empty() => raw.trim(),
+        _ => return Ok(None),
+    };
+
+    let expressions = parse_stats_expressions(stats_raw)?;
+    if expressions.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "stats expression required for logs queries".into(),
+        ));
+    }
+
+    let mut binds = Vec::new();
+    let mut clauses = Vec::new();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        clauses.push("timestamp >= ?".to_string());
+        binds.push(SqlBindValue::Timestamp(*start));
+        clauses.push("timestamp <= ?".to_string());
+        binds.push(SqlBindValue::Timestamp(*end));
+    }
+
+    for filter in &plan.filters {
+        if let Some((clause, mut values)) = build_stats_filter_clause(filter)? {
+            clauses.push(clause);
+            binds.append(&mut values);
+        }
+    }
+
+    let mut parts = Vec::new();
+    for expr in expressions {
+        parts.push(expr.to_sql_fragment());
+    }
+
+    let mut sql = String::from("SELECT jsonb_build_object(");
+    sql.push_str(&parts.join(", "));
+    sql.push_str(") AS payload\nFROM logs");
+    if !clauses.is_empty() {
+        sql.push_str("\nWHERE ");
+        sql.push_str(&clauses.join(" AND "));
+    }
+
+    Ok(Some(LogsStatsSql { sql, binds }))
 }
 
 fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Result<LogsQuery<'a>> {
@@ -177,4 +274,271 @@ fn apply_ordering<'a>(mut query: LogsQuery<'a>, order: &[OrderClause]) -> LogsQu
     }
 
     query
+}
+
+#[derive(Debug, Clone)]
+enum LogsStatsExpr {
+    Count { alias: String },
+    GroupUniqArray { alias: String, column: &'static str },
+}
+
+impl LogsStatsExpr {
+    fn to_sql_fragment(&self) -> String {
+        match self {
+            LogsStatsExpr::Count { alias } => {
+                format!("'{}', coalesce(COUNT(*), 0)", alias)
+            }
+            LogsStatsExpr::GroupUniqArray { alias, column } => {
+                format!(
+                    "'{}', coalesce(jsonb_agg(DISTINCT {column}) FILTER (WHERE {column} IS NOT NULL), '[]'::jsonb)",
+                    alias
+                )
+            }
+        }
+    }
+}
+
+fn parse_stats_expressions(raw: &str) -> Result<Vec<LogsStatsExpr>> {
+    let segments = split_stats_segments(raw);
+    let mut expressions = Vec::new();
+    for segment in segments {
+        if segment.trim().is_empty() {
+            continue;
+        }
+        expressions.push(parse_stats_expr(&segment)?);
+    }
+    Ok(expressions)
+}
+
+fn split_stats_segments(raw: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0usize;
+    let mut in_string = None;
+
+    for ch in raw.chars() {
+        if let Some(q) = in_string {
+            current.push(ch);
+            if ch == q {
+                in_string = None;
+            }
+            continue;
+        }
+
+        match ch {
+            '(' => {
+                depth += 1;
+                current.push(ch);
+            }
+            ')' => {
+                if depth > 0 {
+                    depth -= 1;
+                }
+                current.push(ch);
+            }
+            '\'' | '"' | '`' => {
+                in_string = Some(ch);
+                current.push(ch);
+            }
+            ',' if depth == 0 => {
+                parts.push(current.trim().to_string());
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    if !current.trim().is_empty() {
+        parts.push(current.trim().to_string());
+    }
+
+    parts
+}
+
+fn parse_stats_expr(segment: &str) -> Result<LogsStatsExpr> {
+    let (expr_raw, alias_raw) = split_alias(segment)?;
+    let alias = sanitize_alias(alias_raw)?;
+    let expr = expr_raw.trim();
+
+    if expr.eq_ignore_ascii_case("count()") {
+        return Ok(LogsStatsExpr::Count { alias });
+    }
+
+    if expr.to_lowercase().starts_with("group_uniq_array(") && expr.ends_with(')') {
+        let start = expr.find('(').unwrap_or(0) + 1;
+        let inner = expr[start..expr.len() - 1].trim();
+        let column = resolve_group_field(inner)?;
+        return Ok(LogsStatsExpr::GroupUniqArray { alias, column });
+    }
+
+    Err(ServiceError::InvalidRequest(format!(
+        "unsupported stats expression '{expr}'"
+    )))
+}
+
+fn split_alias(segment: &str) -> Result<(String, String)> {
+    let lower = segment.to_lowercase();
+    if let Some(idx) = lower.rfind(" as ") {
+        let expr = segment[..idx].trim().to_string();
+        let alias = segment[idx + 4..]
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'');
+        return Ok((expr, alias.to_string()));
+    }
+    Err(ServiceError::InvalidRequest(
+        "stats expressions must include an alias".into(),
+    ))
+}
+
+fn sanitize_alias(raw: String) -> Result<String> {
+    let alias = raw.trim().to_lowercase();
+    if alias.is_empty()
+        || alias
+            .chars()
+            .any(|ch| !ch.is_ascii_alphanumeric() && ch != '_')
+    {
+        return Err(ServiceError::InvalidRequest(
+            "stats alias must be alphanumeric".into(),
+        ));
+    }
+    Ok(alias)
+}
+
+fn resolve_group_field(field: &str) -> Result<&'static str> {
+    match field.trim().to_lowercase().as_str() {
+        "service_name" | "service" | "name" => Ok("service_name"),
+        "service_version" | "version" => Ok("service_version"),
+        "service_instance" | "instance" => Ok("service_instance"),
+        "scope_name" | "scope" => Ok("scope_name"),
+        "scope_version" => Ok("scope_version"),
+        "severity_text" | "severity" | "level" => Ok("severity_text"),
+        "trace_id" => Ok("trace_id"),
+        "span_id" => Ok("span_id"),
+        "body" => Ok("body"),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported field '{other}' for group_uniq_array"
+        ))),
+    }
+}
+
+fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlBindValue>)>> {
+    match filter.field.as_str() {
+        "trace_id" => build_text_clause("trace_id", filter),
+        "span_id" => build_text_clause("span_id", filter),
+        "service_name" | "service" => build_text_clause("service_name", filter),
+        "service_version" => build_text_clause("service_version", filter),
+        "service_instance" => build_text_clause("service_instance", filter),
+        "scope_name" => build_text_clause("scope_name", filter),
+        "scope_version" => build_text_clause("scope_version", filter),
+        "severity_text" | "severity" | "level" => build_text_clause("severity_text", filter),
+        "body" => build_text_clause("body", filter),
+        "severity_number" => build_numeric_clause("severity_number", filter),
+        _ => Ok(None),
+    }
+}
+
+fn build_text_clause(column: &str, filter: &Filter) -> Result<Option<(String, Vec<SqlBindValue>)>> {
+    let mut binds = Vec::new();
+    let clause = match filter.op {
+        FilterOp::Eq => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            format!("{column} = ?")
+        }
+        FilterOp::NotEq => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            format!("{column} <> ?")
+        }
+        FilterOp::Like => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            format!("{column} ILIKE ?")
+        }
+        FilterOp::NotLike => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            format!("{column} NOT ILIKE ?")
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(None);
+            }
+            let mut placeholders = Vec::new();
+            for value in values {
+                placeholders.push("?".to_string());
+                binds.push(SqlBindValue::Text(value));
+            }
+            let operator = if matches!(filter.op, FilterOp::In) {
+                "IN"
+            } else {
+                "NOT IN"
+            };
+            format!("{column} {operator} ({})", placeholders.join(", "))
+        }
+    };
+
+    Ok(Some((clause, binds)))
+}
+
+fn build_numeric_clause(
+    column: &str,
+    filter: &Filter,
+) -> Result<Option<(String, Vec<SqlBindValue>)>> {
+    let mut binds = Vec::new();
+    let clause = match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => {
+            let value = filter
+                .value
+                .as_scalar()?
+                .parse::<i32>()
+                .map_err(|_| ServiceError::InvalidRequest("invalid integer value".into()))?;
+            binds.push(SqlBindValue::Int(value));
+            if matches!(filter.op, FilterOp::Eq) {
+                format!("{column} = ?")
+            } else {
+                format!("{column} <> ?")
+            }
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?;
+            if values.is_empty() {
+                return Ok(None);
+            }
+            let mut placeholders = Vec::new();
+            for raw in values {
+                let parsed = raw
+                    .parse::<i32>()
+                    .map_err(|_| ServiceError::InvalidRequest("invalid integer value".into()))?;
+                placeholders.push("?".to_string());
+                binds.push(SqlBindValue::Int(parsed));
+            }
+            let operator = if matches!(filter.op, FilterOp::In) {
+                "IN"
+            } else {
+                "NOT IN"
+            };
+            format!("{column} {operator} ({})", placeholders.join(", "))
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(
+                "severity_number only supports equality or IN comparisons".into(),
+            ))
+        }
+    };
+
+    Ok(Some((clause, binds)))
+}
+
+fn rewrite_placeholders(sql: &str) -> String {
+    let mut rewritten = String::with_capacity(sql.len());
+    let mut index = 1;
+    for ch in sql.chars() {
+        if ch == '?' {
+            rewritten.push('$');
+            rewritten.push_str(&index.to_string());
+            index += 1;
+        } else {
+            rewritten.push(ch);
+        }
+    }
+    rewritten
 }

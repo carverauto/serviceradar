@@ -8,6 +8,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Entity {
     Devices,
+    Interfaces,
     Events,
     Logs,
     Services,
@@ -148,6 +149,7 @@ fn parse_entity(raw: &str) -> Result<Entity> {
     let normalized = raw.trim_matches('"').trim_matches('\'').to_lowercase();
     match normalized.as_str() {
         "devices" | "device" | "device_inventory" => Ok(Entity::Devices),
+        "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
         "events" | "activity" => Ok(Entity::Events),
         "logs" => Ok(Entity::Logs),
         "services" | "service" => Ok(Entity::Services),
@@ -399,5 +401,17 @@ mod tests {
             }
             _ => panic!("expected list value"),
         }
+    }
+
+    #[test]
+    fn parses_stats_expression() {
+        let ast = parse("in:logs stats:\"count() as total\" time:last_24h").unwrap();
+        assert_eq!(ast.stats.as_deref(), Some("count() as total"));
+    }
+
+    #[test]
+    fn parses_interfaces_entity() {
+        let ast = parse("in:interfaces time:last_24h").unwrap();
+        assert!(matches!(ast.entity, Entity::Interfaces));
     }
 }

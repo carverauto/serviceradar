@@ -87,6 +87,30 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    discovered_interfaces (timestamp, device_id, if_index) {
+        timestamp -> Timestamptz,
+        agent_id -> Nullable<Text>,
+        poller_id -> Nullable<Text>,
+        device_ip -> Nullable<Text>,
+        device_id -> Nullable<Text>,
+        if_index -> Nullable<Int4>,
+        if_name -> Nullable<Text>,
+        if_descr -> Nullable<Text>,
+        if_alias -> Nullable<Text>,
+        if_speed -> Nullable<Int8>,
+        if_phys_address -> Nullable<Text>,
+        ip_addresses -> Nullable<Array<Text>>,
+        if_admin_status -> Nullable<Int4>,
+        if_oper_status -> Nullable<Int4>,
+        metadata -> Nullable<Jsonb>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
 
     otel_traces (timestamp, trace_id, span_id) {
