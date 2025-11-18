@@ -14,6 +14,10 @@ pub enum Entity {
     Services,
     Pollers,
     OtelMetrics,
+    RperfMetrics,
+    CpuMetrics,
+    MemoryMetrics,
+    DiskMetrics,
     TraceSummaries,
     Traces,
 }
@@ -156,6 +160,10 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "services" | "service" => Ok(Entity::Services),
         "pollers" | "poller" => Ok(Entity::Pollers),
         "otel_metrics" | "metrics" => Ok(Entity::OtelMetrics),
+        "rperf_metrics" | "rperf" => Ok(Entity::RperfMetrics),
+        "cpu_metrics" | "cpu" => Ok(Entity::CpuMetrics),
+        "memory_metrics" | "memory" => Ok(Entity::MemoryMetrics),
+        "disk_metrics" | "disk" => Ok(Entity::DiskMetrics),
         "otel_trace_summaries" | "trace_summaries" | "traces_summaries" => {
             Ok(Entity::TraceSummaries)
         }
