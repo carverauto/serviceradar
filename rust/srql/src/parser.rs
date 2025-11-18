@@ -12,6 +12,7 @@ pub enum Entity {
     Events,
     Logs,
     Services,
+    Pollers,
     OtelMetrics,
     TraceSummaries,
     Traces,
@@ -153,6 +154,7 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "events" | "activity" => Ok(Entity::Events),
         "logs" => Ok(Entity::Logs),
         "services" | "service" => Ok(Entity::Services),
+        "pollers" | "poller" => Ok(Entity::Pollers),
         "otel_metrics" | "metrics" => Ok(Entity::OtelMetrics),
         "otel_trace_summaries" | "trace_summaries" | "traces_summaries" => {
             Ok(Entity::TraceSummaries)

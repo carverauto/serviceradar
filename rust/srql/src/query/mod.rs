@@ -84,6 +84,7 @@ mod events;
 mod interfaces;
 mod logs;
 mod otel_metrics;
+mod pollers;
 mod services;
 mod trace_summaries;
 mod traces;
@@ -130,6 +131,7 @@ impl QueryEngine {
             Entity::Events => events::execute(&mut conn, &plan).await?,
             Entity::Interfaces => interfaces::execute(&mut conn, &plan).await?,
             Entity::Logs => logs::execute(&mut conn, &plan).await?,
+            Entity::Pollers => pollers::execute(&mut conn, &plan).await?,
             Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
             Entity::Services => services::execute(&mut conn, &plan).await?,
             Entity::TraceSummaries => trace_summaries::execute(&mut conn, &plan).await?,
@@ -160,6 +162,7 @@ impl QueryEngine {
             Entity::Events => events::to_debug_sql(&plan)?,
             Entity::Interfaces => interfaces::to_debug_sql(&plan)?,
             Entity::Logs => logs::to_debug_sql(&plan)?,
+            Entity::Pollers => pollers::to_debug_sql(&plan)?,
             Entity::OtelMetrics => otel_metrics::to_debug_sql(&plan)?,
             Entity::Services => services::to_debug_sql(&plan)?,
             Entity::TraceSummaries => trace_summaries::to_debug_sql(&plan)?,

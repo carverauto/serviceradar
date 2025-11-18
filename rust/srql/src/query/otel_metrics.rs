@@ -33,7 +33,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     ensure_entity(plan)?;
 
     if let Some(stats_sql) = build_stats_query(plan)? {
-        let query = stats_sql.into_boxed_query();
+        let query = stats_sql.to_boxed_query();
         let rows: Vec<MetricsStatsPayload> = query
             .load(conn)
             .await
@@ -211,7 +211,7 @@ struct MetricsStatsSql {
 }
 
 impl MetricsStatsSql {
-    fn into_boxed_query(&self) -> BoxedSqlQuery<'_, Pg, SqlQuery> {
+    fn to_boxed_query(&self) -> BoxedSqlQuery<'_, Pg, SqlQuery> {
         let mut query = sql_query(rewrite_placeholders(&self.sql)).into_boxed::<Pg>();
         for bind in &self.binds {
             query = bind.apply(query);
