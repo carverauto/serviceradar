@@ -553,3 +553,51 @@ fn enforce_list_limit(field: &str, len: usize) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::{Entity, Filter, FilterOp, FilterValue};
+    use chrono::{Duration as ChronoDuration, TimeZone, Utc};
+
+    #[test]
+    fn stats_query_counts_logs_for_service() {
+        let plan = stats_plan(
+            r#"count() as total, group_uniq_array(service_name) as services"#,
+            "serviceradar-core",
+        );
+        let stats_sql = build_stats_query(&plan).expect("stats query should parse");
+        let stats_sql = stats_sql.expect("stats SQL expected");
+
+        let lower = stats_sql.sql.to_lowercase();
+        assert!(
+            lower.contains("count(") && lower.contains("jsonb_agg"),
+            "unexpected stats SQL: {}",
+            stats_sql.sql
+        );
+        assert!(
+            lower.contains("jsonb_build_object('total'") && lower.contains("'services'"),
+            "payload should be shaped as JSON object: {}",
+            stats_sql.sql
+        );
+        assert_eq!(stats_sql.binds.len(), 3, "time range + filter binds expected");
+    }
+
+    fn stats_plan(stats: &str, service_name: &str) -> QueryPlan {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(24);
+        QueryPlan {
+            entity: Entity::Logs,
+            filters: vec![Filter {
+                field: "service_name".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar(service_name.to_string()),
+            }],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(stats.to_string()),
+        }
+    }
+}

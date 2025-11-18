@@ -350,3 +350,47 @@ fn parse_i64(raw: &str) -> Result<i64> {
     raw.parse::<i64>()
         .map_err(|_| ServiceError::InvalidRequest(format!("expected integer value for '{raw}'")))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection};
+    use chrono::{Duration as ChronoDuration, TimeZone, Utc};
+
+    #[test]
+    fn stats_count_interfaces_emits_count_query() {
+        let plan = stats_plan("count() as interface_count");
+        let spec = parse_stats_spec(plan.stats.as_deref())
+            .expect("stats parse should succeed")
+            .expect("stats expected");
+        assert_eq!(spec.alias, "interface_count");
+
+        let sql = to_debug_sql(&plan).expect("stats SQL should be generated");
+        assert!(
+            sql.to_lowercase().contains("count("),
+            "unexpected stats SQL: {}",
+            sql
+        );
+    }
+
+    fn stats_plan(stats: &str) -> QueryPlan {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+        QueryPlan {
+            entity: Entity::Interfaces,
+            filters: vec![Filter {
+                field: "device_id".into(),
+                value: FilterValue::Scalar("dev-1".into()),
+                op: FilterOp::Eq,
+            }],
+            order: vec![OrderClause {
+                field: "timestamp".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 50,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some(stats.to_string()),
+        }
+    }
+}

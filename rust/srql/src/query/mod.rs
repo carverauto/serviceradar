@@ -124,7 +124,7 @@ impl QueryEngine {
 
     pub async fn execute_query(&self, request: QueryRequest) -> Result<QueryResponse> {
         let ast = parser::parse(&request.query)?;
-        let plan = self.plan(&request, ast)?;
+        let plan = build_query_plan(&self.config, &request, ast)?;
         let mut conn = self.pool.get().await.map_err(|err| {
             error!(error = ?err, "failed to acquire database connection");
             ServiceError::Internal(anyhow::anyhow!("{err:?}"))
@@ -163,7 +163,7 @@ impl QueryEngine {
             direction: QueryDirection::Next,
             mode: None,
         };
-        let plan = self.plan(&synthetic, ast)?;
+        let plan = build_query_plan(&self.config, &synthetic, ast)?;
 
         let sql = match plan.entity {
             Entity::Devices => devices::to_debug_sql(&plan)?,
@@ -187,37 +187,6 @@ impl QueryEngine {
         })
     }
 
-    fn plan(&self, request: &QueryRequest, ast: QueryAst) -> Result<QueryPlan> {
-        let limit = self.determine_limit(request.limit.or(ast.limit));
-        let offset = request
-            .cursor
-            .as_deref()
-            .map(decode_cursor)
-            .transpose()?
-            .unwrap_or(0)
-            .max(0);
-        let time_range = ast
-            .time_filter
-            .map(|spec| spec.resolve(Utc::now()))
-            .transpose()?;
-
-        Ok(QueryPlan {
-            entity: ast.entity,
-            filters: ast.filters,
-            order: ast.order,
-            limit,
-            offset,
-            time_range,
-            stats: ast.stats,
-        })
-    }
-
-    fn determine_limit(&self, candidate: Option<i64>) -> i64 {
-        let default = self.config.default_limit;
-        let max = self.config.max_limit;
-        candidate.unwrap_or(default).clamp(1, max)
-    }
-
     fn build_pagination(&self, plan: &QueryPlan, fetched: i64) -> PaginationMeta {
         let next_cursor = if fetched >= plan.limit {
             Some(encode_cursor(plan.offset.saturating_add(plan.limit)))
@@ -236,6 +205,227 @@ impl QueryEngine {
             next_cursor,
             prev_cursor,
             limit: Some(plan.limit),
+        }
+    }
+}
+
+fn build_query_plan(
+    config: &AppConfig,
+    request: &QueryRequest,
+    ast: QueryAst,
+) -> Result<QueryPlan> {
+    let limit = determine_limit(config, request.limit.or(ast.limit));
+    let offset = request
+        .cursor
+        .as_deref()
+        .map(decode_cursor)
+        .transpose()?
+        .unwrap_or(0)
+        .max(0);
+    let time_range = ast
+        .time_filter
+        .map(|spec| spec.resolve(Utc::now()))
+        .transpose()?;
+
+    Ok(QueryPlan {
+        entity: ast.entity,
+        filters: ast.filters,
+        order: ast.order,
+        limit,
+        offset,
+        time_range,
+        stats: ast.stats,
+    })
+}
+
+fn determine_limit(config: &AppConfig, candidate: Option<i64>) -> i64 {
+    let default = config.default_limit;
+    let max = config.max_limit;
+    candidate.unwrap_or(default).clamp(1, max)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{devices, interfaces, pollers, *};
+    use crate::parser::{self, FilterOp, FilterValue, OrderDirection};
+    use chrono::Duration as ChronoDuration;
+    use std::time::Duration as StdDuration;
+
+    #[test]
+    fn devices_docs_example_available_true() {
+        let query =
+            "in:devices time:last_7d sort:last_seen:desc limit:20 is_available:true";
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::Devices));
+        assert_eq!(plan.limit, 20);
+        assert_eq!(plan.offset, 0);
+        assert!(plan.time_range.is_some());
+        assert_eq!(plan.order.len(), 1);
+        assert_eq!(plan.order[0].field, "last_seen");
+        assert!(matches!(plan.order[0].direction, OrderDirection::Desc));
+        assert!(has_availability_filter(&plan, true));
+
+        let sql = devices::to_debug_sql(&plan).expect("should build SQL for docs query");
+        assert!(
+            sql.to_lowercase()
+                .contains("\"unified_devices\".\"is_available\" = $3"),
+            "expected SQL to include availability predicate, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn devices_docs_example_available_false() {
+        let query =
+            "in:devices time:last_7d sort:last_seen:desc limit:20 is_available:false";
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::Devices));
+        assert_eq!(plan.limit, 20);
+        assert!(plan.time_range.is_some());
+        assert!(has_availability_filter(&plan, false));
+
+        let sql = devices::to_debug_sql(&plan).expect("should build SQL for docs query");
+        assert!(
+            sql.to_lowercase()
+                .contains("\"unified_devices\".\"is_available\" = $3"),
+            "expected SQL to include availability predicate, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn devices_docs_example_discovery_sources_contains_all() {
+        let query = "in:devices discovery_sources:(sweep) discovery_sources:(armis) time:last_7d sort:last_seen:desc";
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::Devices));
+        assert_eq!(plan.order[0].field, "last_seen");
+        let range = plan
+            .time_range
+            .expect("docs example includes explicit time window");
+        let span = range.end.signed_duration_since(range.start);
+        assert_eq!(span, ChronoDuration::days(7));
+
+        let discovery_filters: Vec<_> = plan
+            .filters
+            .iter()
+            .filter(|filter| filter.field == "discovery_sources")
+            .collect();
+        assert_eq!(discovery_filters.len(), 2, "expected repeated discovery_sources filters");
+        let seen_values = discovery_filters
+            .iter()
+            .map(|filter| match &filter.value {
+                FilterValue::List(items) => items.clone(),
+                _ => panic!("discovery_sources filters should be list-valued"),
+            })
+            .collect::<Vec<_>>();
+        assert!(seen_values.iter().any(|values| values == &vec!["sweep".to_string()]));
+        assert!(seen_values.iter().any(|values| values == &vec!["armis".to_string()]));
+    }
+
+    #[test]
+    fn services_docs_example_service_type_timeframe() {
+        let query =
+            r#"in:services service_type:(ssh,sftp) timeFrame:"14 Days" sort:timestamp:desc"#;
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::Services));
+        let filter = plan
+            .filters
+            .iter()
+            .find(|filter| filter.field == "service_type")
+            .expect("query must contain service_type filter");
+        assert!(matches!(filter.op, FilterOp::In));
+        match &filter.value {
+            FilterValue::List(values) => {
+                assert_eq!(values, &vec!["ssh".to_string(), "sftp".to_string()]);
+            }
+            _ => panic!("service_type filter must be a list"),
+        }
+
+        let range = plan
+            .time_range
+            .expect("timeFrame should resolve to a time range");
+        let span = range.end.signed_duration_since(range.start);
+        assert_eq!(span, ChronoDuration::days(14));
+
+        assert_eq!(plan.order[0].field, "timestamp");
+        assert!(matches!(plan.order[0].direction, OrderDirection::Desc));
+    }
+
+    #[test]
+    fn interfaces_docs_example_ip_addresses_contains_any() {
+        let query =
+            "in:interfaces time:last_24h ip_addresses:(10.0.0.1,10.0.0.2) sort:timestamp:asc limit:5";
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::Interfaces));
+        assert_eq!(plan.limit, 5);
+        let sql = interfaces::to_debug_sql(&plan).expect("should build interfaces SQL");
+        let lower = sql.to_lowercase();
+        assert!(
+            lower.contains("coalesce(") && lower.contains("ip_addresses"),
+            "expected coalesce ip_addresses containment, got: {sql}"
+        );
+        assert!(lower.contains("order by \"discovered_interfaces\".\"timestamp\" asc"));
+    }
+
+    #[test]
+    fn pollers_docs_example_health_and_status() {
+        let query = "in:pollers is_healthy:true status:ready sort:agent_count:desc limit:10";
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::Pollers));
+        assert_eq!(plan.limit, 10);
+        assert_eq!(plan.order[0].field, "agent_count");
+        let sql = pollers::to_debug_sql(&plan).expect("should build pollers SQL");
+        let lower = sql.to_lowercase();
+        assert!(
+            lower.contains("\"pollers\".\"is_healthy\" =")
+                && lower.contains("\"pollers\".\"status\" ="),
+            "expected bool + status filters in SQL, got: {sql}"
+        );
+    }
+
+    fn plan_for(query: &str) -> QueryPlan {
+        let config = test_config();
+        let ast = parser::parse(query).expect("docs query should parse");
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+        build_query_plan(&config, &request, ast).expect("should build plan for docs query")
+    }
+
+    fn has_availability_filter(plan: &QueryPlan, expected: bool) -> bool {
+        plan.filters.iter().any(|filter| {
+            filter.field == "is_available"
+                && matches!(
+                    &filter.value,
+                    FilterValue::Scalar(value) if value.eq_ignore_ascii_case(
+                        if expected { "true" } else { "false" }
+                    )
+                )
+        })
+    }
+
+    fn test_config() -> AppConfig {
+        AppConfig {
+            listen_addr: "127.0.0.1:0".parse().unwrap(),
+            database_url: "postgres://example/db".to_string(),
+            max_pool_size: 1,
+            pg_ssl_root_cert: None,
+            api_key: None,
+            api_key_kv_key: None,
+            allowed_origins: None,
+            default_limit: 100,
+            max_limit: 500,
+            request_timeout: StdDuration::from_secs(30),
+            rate_limit_max_requests: 120,
+            rate_limit_window: StdDuration::from_secs(60),
         }
     }
 }
