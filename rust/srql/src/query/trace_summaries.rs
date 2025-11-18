@@ -16,6 +16,7 @@ use serde_json::Value;
 use tracing::error;
 
 const ROOT_PREDICATE: &str = "coalesce(parent_span_id, '') = ''";
+const MAX_TRACE_STATS_EXPRESSIONS: usize = 25;
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
@@ -504,6 +505,11 @@ fn parse_stats(raw: &str) -> Result<Vec<TraceStatsExpr>> {
     for segment in segments {
         if segment.trim().is_empty() {
             continue;
+        }
+        if exprs.len() >= MAX_TRACE_STATS_EXPRESSIONS {
+            return Err(ServiceError::InvalidRequest(format!(
+                "stats supports at most {MAX_TRACE_STATS_EXPRESSIONS} expressions"
+            )));
         }
         exprs.push(parse_stats_expr(&segment)?);
     }

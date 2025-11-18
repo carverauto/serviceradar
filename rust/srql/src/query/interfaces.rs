@@ -27,6 +27,8 @@ type InterfacesFromClause = FromClause<InterfacesTable>;
 type InterfacesQuery<'a> =
     BoxedSelectStatement<'a, <InterfacesTable as AsQuery>::SqlType, InterfacesFromClause, Pg>;
 
+const MAX_IP_ADDRESS_FILTER_VALUES: usize = 64;
+
 #[derive(Debug, Clone)]
 struct CountStatsSpec {
     alias: String,
@@ -191,6 +193,11 @@ fn apply_filter<'a>(
             };
             if values.is_empty() {
                 return Ok(query);
+            }
+            if values.len() > MAX_IP_ADDRESS_FILTER_VALUES {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "ip_addresses filter supports at most {MAX_IP_ADDRESS_FILTER_VALUES} values"
+                )));
             }
             let expr = sql::<Bool>("coalesce(ip_addresses, ARRAY[]::text[]) @> ")
                 .bind::<Array<Text>, _>(values);

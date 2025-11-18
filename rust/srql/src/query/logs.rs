@@ -27,6 +27,8 @@ type LogsTable = crate::schema::logs::table;
 type LogsFromClause = FromClause<LogsTable>;
 type LogsQuery<'a> = BoxedSelectStatement<'a, <LogsTable as AsQuery>::SqlType, LogsFromClause, Pg>;
 
+const MAX_LIST_FILTER_VALUES: usize = 200;
+
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
 
@@ -460,6 +462,7 @@ fn build_text_clause(column: &str, filter: &Filter) -> Result<Option<(String, Ve
             if values.is_empty() {
                 return Ok(None);
             }
+            enforce_list_limit(&filter.field, values.len())?;
             let mut placeholders = Vec::new();
             for value in values {
                 placeholders.push("?".to_string());
@@ -501,6 +504,7 @@ fn build_numeric_clause(
             if values.is_empty() {
                 return Ok(None);
             }
+            enforce_list_limit(&filter.field, values.len())?;
             let mut placeholders = Vec::new();
             for raw in values {
                 let parsed = raw
@@ -539,4 +543,13 @@ fn rewrite_placeholders(sql: &str) -> String {
         }
     }
     rewritten
+}
+
+fn enforce_list_limit(field: &str, len: usize) -> Result<()> {
+    if len > MAX_LIST_FILTER_VALUES {
+        return Err(ServiceError::InvalidRequest(format!(
+            "{field} filters support at most {MAX_LIST_FILTER_VALUES} values"
+        )));
+    }
+    Ok(())
 }
