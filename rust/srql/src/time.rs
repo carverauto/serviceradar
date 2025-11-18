@@ -29,6 +29,7 @@ pub enum TimeFilterSpec {
 
 impl TimeFilterSpec {
     pub fn resolve(&self, now: DateTime<Utc>) -> Result<TimeRange> {
+        let max_duration = Duration::days(MAX_TIME_RANGE_DAYS);
         let range = match self {
             TimeFilterSpec::RelativeHours(hours) => TimeRange {
                 start: now - Duration::hours(*hours),
@@ -73,10 +74,12 @@ impl TimeFilterSpec {
                     end: now,
                 }
             }
-            TimeFilterSpec::AbsoluteOpenStart { end } => TimeRange {
-                start: DateTime::<Utc>::MIN_UTC,
-                end: *end,
-            },
+            TimeFilterSpec::AbsoluteOpenStart { end } => {
+                let start = end
+                    .checked_sub_signed(max_duration)
+                    .unwrap_or(DateTime::<Utc>::MIN_UTC);
+                TimeRange { start, end: *end }
+            }
         };
 
         if range.start > range.end {
@@ -84,9 +87,17 @@ impl TimeFilterSpec {
                 "time range start must be before end".to_string(),
             ));
         }
+        let span = range.end.signed_duration_since(range.start);
+        if span > max_duration {
+            return Err(ServiceError::InvalidRequest(format!(
+                "time range cannot exceed {MAX_TIME_RANGE_DAYS} days"
+            )));
+        }
         Ok(range)
     }
 }
+
+const MAX_TIME_RANGE_DAYS: i64 = 90;
 
 pub fn parse_time_value(raw: &str) -> Result<TimeFilterSpec> {
     let value = raw
@@ -264,6 +275,27 @@ mod tests {
                 .unwrap()
                 .with_timezone(&Utc)
         );
-        assert_eq!(range.start, DateTime::<Utc>::MIN_UTC);
+        let expected_start = range.end - Duration::days(MAX_TIME_RANGE_DAYS);
+        assert_eq!(range.start, expected_start);
+    }
+
+    #[test]
+    fn rejects_absolute_range_exceeding_limit() {
+        let spec = parse_time_value("[2024-01-01T00:00:00Z,2025-11-16T09:06:34.543Z]").unwrap();
+        let now = DateTime::parse_from_rfc3339("2025-11-17T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let err = spec.resolve(now).unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn rejects_open_end_range_exceeding_limit() {
+        let spec = parse_time_value("[2024-01-01T00:00:00Z,]").unwrap();
+        let now = DateTime::parse_from_rfc3339("2025-11-17T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let err = spec.resolve(now).unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
     }
 }
