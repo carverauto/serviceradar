@@ -26,7 +26,6 @@ import {
     ChevronRight as ChevronRightIcon,
     ChevronsDown
 } from 'lucide-react';
-import ReactJson from '@/components/Common/DynamicReactJson';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
 import { createStreamingClient, StreamingClient } from '@/lib/streaming-client';
@@ -37,6 +36,7 @@ import { DEFAULT_LOGS_QUERY } from '@/lib/srqlQueries';
 import { fetchCanonicalServiceNames, getServiceQueryValues } from '@/utils/logServiceOptions';
 import ServiceFilterSelect from '@/components/Common/ServiceFilterSelect';
 import { usePathname, useSearchParams } from 'next/navigation';
+import RawDataViewer from '@/components/Logs/RawDataViewer';
 
 const StatCard = ({
     title,
@@ -883,20 +883,7 @@ const LogsDashboard = () => {
                                                             <h5 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
                                                                 Raw Data
                                                             </h5>
-                                                            <ReactJson
-                                                                src={JSON.parse(log.raw_data)}
-                                                                theme="pop"
-                                                                collapsed={false}
-                                                                displayDataTypes={false}
-                                                                enableClipboard={true}
-                                                                style={{
-                                                                    padding: '1rem',
-                                                                    borderRadius: '0.375rem',
-                                                                    backgroundColor: '#1C1B22',
-                                                                    maxHeight: '400px',
-                                                                    overflowY: 'auto'
-                                                                }}
-                                                            />
+                                                            <RawDataViewer raw={log.raw_data} theme="pop" />
                                                         </div>
                                                     )}
                                                 </div>

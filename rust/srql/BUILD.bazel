@@ -10,6 +10,7 @@ rust_library(
     deps = all_crate_deps(normal = True) + [
         "//rust/kvutil:kvutil",
     ],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],
 )
 
@@ -22,5 +23,6 @@ rust_binary(
         ":srql_lib",
         "//rust/kvutil:kvutil",
     ] + all_crate_deps(normal = True),
+    proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],
 )

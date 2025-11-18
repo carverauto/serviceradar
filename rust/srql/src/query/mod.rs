@@ -79,9 +79,19 @@ macro_rules! apply_eq_filter {
     }};
 }
 
+mod cpu_metrics;
 mod devices;
+mod disk_metrics;
 mod events;
+mod interfaces;
 mod logs;
+mod memory_metrics;
+mod otel_metrics;
+mod pollers;
+mod rperf_metrics;
+mod services;
+mod trace_summaries;
+mod traces;
 
 use crate::{
     config::AppConfig,
@@ -95,6 +105,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use tracing::error;
 
 #[derive(Clone)]
 pub struct QueryEngine {
@@ -114,16 +125,25 @@ impl QueryEngine {
     pub async fn execute_query(&self, request: QueryRequest) -> Result<QueryResponse> {
         let ast = parser::parse(&request.query)?;
         let plan = self.plan(&request, ast)?;
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|err| ServiceError::Internal(err.into()))?;
+        let mut conn = self.pool.get().await.map_err(|err| {
+            error!(error = ?err, "failed to acquire database connection");
+            ServiceError::Internal(anyhow::anyhow!("{err:?}"))
+        })?;
 
         let results = match plan.entity {
             Entity::Devices => devices::execute(&mut conn, &plan).await?,
             Entity::Events => events::execute(&mut conn, &plan).await?,
+            Entity::Interfaces => interfaces::execute(&mut conn, &plan).await?,
             Entity::Logs => logs::execute(&mut conn, &plan).await?,
+            Entity::Pollers => pollers::execute(&mut conn, &plan).await?,
+            Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
+            Entity::RperfMetrics => rperf_metrics::execute(&mut conn, &plan).await?,
+            Entity::CpuMetrics => cpu_metrics::execute(&mut conn, &plan).await?,
+            Entity::MemoryMetrics => memory_metrics::execute(&mut conn, &plan).await?,
+            Entity::DiskMetrics => disk_metrics::execute(&mut conn, &plan).await?,
+            Entity::Services => services::execute(&mut conn, &plan).await?,
+            Entity::TraceSummaries => trace_summaries::execute(&mut conn, &plan).await?,
+            Entity::Traces => traces::execute(&mut conn, &plan).await?,
         };
 
         let pagination = self.build_pagination(&plan, results.len() as i64);
@@ -148,7 +168,17 @@ impl QueryEngine {
         let sql = match plan.entity {
             Entity::Devices => devices::to_debug_sql(&plan)?,
             Entity::Events => events::to_debug_sql(&plan)?,
+            Entity::Interfaces => interfaces::to_debug_sql(&plan)?,
             Entity::Logs => logs::to_debug_sql(&plan)?,
+            Entity::Pollers => pollers::to_debug_sql(&plan)?,
+            Entity::OtelMetrics => otel_metrics::to_debug_sql(&plan)?,
+            Entity::RperfMetrics => rperf_metrics::to_debug_sql(&plan)?,
+            Entity::CpuMetrics => cpu_metrics::to_debug_sql(&plan)?,
+            Entity::MemoryMetrics => memory_metrics::to_debug_sql(&plan)?,
+            Entity::DiskMetrics => disk_metrics::to_debug_sql(&plan)?,
+            Entity::Services => services::to_debug_sql(&plan)?,
+            Entity::TraceSummaries => trace_summaries::to_debug_sql(&plan)?,
+            Entity::Traces => traces::to_debug_sql(&plan)?,
         };
 
         Ok(TranslateResponse {
@@ -178,6 +208,7 @@ impl QueryEngine {
             limit,
             offset,
             time_range,
+            stats: ast.stats,
         })
     }
 
@@ -217,6 +248,7 @@ pub struct QueryPlan {
     pub limit: i64,
     pub offset: i64,
     pub time_range: Option<TimeRange>,
+    pub stats: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]

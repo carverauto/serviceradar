@@ -51,6 +51,10 @@ spec:
                 secretKeyRef:
                   name: cnpg-superuser
                   key: password
+            - name: RUST_BACKTRACE
+              value: "1"
+            - name: RUST_LOG
+              value: "srql=debug"
           volumeMounts:
             - name: cert-data
               mountPath: /etc/serviceradar/certs

@@ -46,7 +46,7 @@ images:
 - name: ghcr.io/carverauto/serviceradar-core
   newTag: latest
 - name: ghcr.io/carverauto/serviceradar-web
-  newTag: latest
+  newTag: sha-cb1dc02c4a3148becae6efd920624297154abc13
 - name: ghcr.io/carverauto/serviceradar-agent
   newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
 - name: ghcr.io/carverauto/serviceradar-poller
@@ -60,7 +60,7 @@ images:
 - name: ghcr.io/carverauto/serviceradar-tools
   newTag: sha-285e1d25a57f
 - name: ghcr.io/carverauto/serviceradar-srql
-  newTag: sha-49b3464f3510554cbd1e5090f7b1f3f7b31b18d9
+  newTag: sha-cb1dc02c4a3148becae6efd920624297154abc13
 
 vars:
 - name: SERVICERADAR_NAMESPACE

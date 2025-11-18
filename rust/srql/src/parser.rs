@@ -8,8 +8,18 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Entity {
     Devices,
+    Interfaces,
     Events,
     Logs,
+    Services,
+    Pollers,
+    OtelMetrics,
+    RperfMetrics,
+    CpuMetrics,
+    MemoryMetrics,
+    DiskMetrics,
+    TraceSummaries,
+    Traces,
 }
 
 #[derive(Debug, Clone)]
@@ -19,7 +29,11 @@ pub struct QueryAst {
     pub order: Vec<OrderClause>,
     pub limit: Option<i64>,
     pub time_filter: Option<TimeFilterSpec>,
+    pub stats: Option<String>,
 }
+
+const MAX_STATS_EXPR_LEN: usize = 1024;
+const MAX_FILTER_LIST_VALUES: usize = 200;
 
 #[derive(Debug, Clone)]
 pub struct Filter {
@@ -82,6 +96,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
     let mut order = Vec::new();
     let mut limit = None;
     let mut time_filter = None;
+    let mut stats = None;
 
     for token in tokenize(input) {
         let (raw_key, raw_value) = split_token(&token)?;
@@ -110,11 +125,27 @@ pub fn parse(input: &str) -> Result<QueryAst> {
             "time" | "timeframe" => {
                 time_filter = Some(parse_time_value(value.as_scalar()?)?);
             }
-            "stats" | "window" | "bounded" | "mode" => {
+            "stats" => {
+                let expr = value.as_scalar()?.to_string();
+                if expr.trim().len() > MAX_STATS_EXPR_LEN {
+                    return Err(ServiceError::InvalidRequest(format!(
+                        "stats expression must be <= {MAX_STATS_EXPR_LEN} characters"
+                    )));
+                }
+                stats = Some(expr);
+            }
+            "window" | "bounded" | "mode" => {
                 // Aggregations and streaming hints are ignored for now.
                 continue;
             }
             _ => {
+                if let FilterValue::List(ref items) = value {
+                    if items.len() > MAX_FILTER_LIST_VALUES {
+                        return Err(ServiceError::InvalidRequest(format!(
+                            "list filters support at most {MAX_FILTER_LIST_VALUES} values"
+                        )));
+                    }
+                }
                 filters.push(build_filter(raw_key, value));
             }
         }
@@ -130,6 +161,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
         order,
         limit,
         time_filter,
+        stats,
     })
 }
 
@@ -137,8 +169,20 @@ fn parse_entity(raw: &str) -> Result<Entity> {
     let normalized = raw.trim_matches('"').trim_matches('\'').to_lowercase();
     match normalized.as_str() {
         "devices" | "device" | "device_inventory" => Ok(Entity::Devices),
+        "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
         "events" | "activity" => Ok(Entity::Events),
         "logs" => Ok(Entity::Logs),
+        "services" | "service" => Ok(Entity::Services),
+        "pollers" | "poller" => Ok(Entity::Pollers),
+        "otel_metrics" | "metrics" => Ok(Entity::OtelMetrics),
+        "rperf_metrics" | "rperf" => Ok(Entity::RperfMetrics),
+        "cpu_metrics" | "cpu" => Ok(Entity::CpuMetrics),
+        "memory_metrics" | "memory" => Ok(Entity::MemoryMetrics),
+        "disk_metrics" | "disk" => Ok(Entity::DiskMetrics),
+        "otel_trace_summaries" | "trace_summaries" | "traces_summaries" => {
+            Ok(Entity::TraceSummaries)
+        }
+        "otel_traces" | "traces" | "trace_spans" => Ok(Entity::Traces),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),
@@ -346,6 +390,7 @@ fn split_list(value: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::ServiceError;
 
     #[test]
     fn parses_basic_query() {
@@ -382,5 +427,35 @@ mod tests {
             }
             _ => panic!("expected list value"),
         }
+    }
+
+    #[test]
+    fn parses_stats_expression() {
+        let ast = parse("in:logs stats:\"count() as total\" time:last_24h").unwrap();
+        assert_eq!(ast.stats.as_deref(), Some("count() as total"));
+    }
+
+    #[test]
+    fn parses_interfaces_entity() {
+        let ast = parse("in:interfaces time:last_24h").unwrap();
+        assert!(matches!(ast.entity, Entity::Interfaces));
+    }
+
+    #[test]
+    fn rejects_overly_long_stats_expression() {
+        let query = format!("in:logs stats:{}", "x".repeat(MAX_STATS_EXPR_LEN + 1));
+        let err = parse(&query).unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn rejects_list_filters_over_limit() {
+        let values = (0..=MAX_FILTER_LIST_VALUES)
+            .map(|i| format!("value{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let query = format!("in:logs service:({values})");
+        let err = parse(&query).unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
     }
 }

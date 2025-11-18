@@ -1,4 +1,4 @@
-#![recursion_limit = "256"]
+#![recursion_limit = "4096"]
 
 pub mod config;
 pub mod db;
