@@ -265,6 +265,46 @@ impl ServiceStatusRow {
 }
 
 #[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::pollers)]
+pub struct PollerRow {
+    pub poller_id: String,
+    pub component_id: Option<String>,
+    pub registration_source: Option<String>,
+    pub status: Option<String>,
+    pub spiffe_identity: Option<String>,
+    pub first_registered: Option<DateTime<Utc>>,
+    pub first_seen: Option<DateTime<Utc>>,
+    pub last_seen: Option<DateTime<Utc>>,
+    pub metadata: Option<serde_json::Value>,
+    pub created_by: Option<String>,
+    pub is_healthy: Option<bool>,
+    pub agent_count: Option<i32>,
+    pub checker_count: Option<i32>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+impl PollerRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "poller_id": self.poller_id,
+            "component_id": self.component_id,
+            "registration_source": self.registration_source,
+            "status": self.status,
+            "spiffe_identity": self.spiffe_identity,
+            "first_registered": self.first_registered,
+            "first_seen": self.first_seen,
+            "last_seen": self.last_seen,
+            "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "created_by": self.created_by,
+            "is_healthy": self.is_healthy,
+            "agent_count": self.agent_count.unwrap_or(0),
+            "checker_count": self.checker_count.unwrap_or(0),
+            "updated_at": self.updated_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Serialize)]
 #[diesel(table_name = crate::schema::otel_metrics)]
 pub struct OtelMetricRow {
     pub timestamp: DateTime<Utc>,

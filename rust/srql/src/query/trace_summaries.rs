@@ -25,7 +25,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
         SummaryMode::Data => {
             let sql_debug = summary_query.sql.clone();
             let binds_debug = summary_query.binds.clone();
-            let query = summary_query.into_boxed();
+            let query = summary_query.to_boxed_query();
             let rows: Vec<TraceSummaryRow> = query.load(conn).await.map_err(|err| {
                 error!(
                     error = ?err,
@@ -40,7 +40,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
         SummaryMode::Stats => {
             let sql_debug = summary_query.sql.clone();
             let binds_debug = summary_query.binds.clone();
-            let query = summary_query.into_boxed();
+            let query = summary_query.to_boxed_query();
             let rows: Vec<TraceStatsPayload> = query.load(conn).await.map_err(|err| {
                 error!(
                     error = ?err,
@@ -83,7 +83,7 @@ struct TraceSummarySql {
 }
 
 impl TraceSummarySql {
-    fn into_boxed(&self) -> BoxedSqlQuery<'_, Pg, SqlQuery> {
+    fn to_boxed_query(&self) -> BoxedSqlQuery<'_, Pg, SqlQuery> {
         let mut query = sql_query(rewrite_placeholders(&self.sql)).into_boxed::<Pg>();
         for bind in &self.binds {
             query = bind.bind(query);
@@ -282,6 +282,7 @@ fn add_text_condition(
         FilterOp::In => {
             let values = filter.value.as_list()?.to_vec();
             if values.is_empty() {
+                clauses.push("1=0".to_string());
                 return Ok(());
             }
             clauses.push(format!("{column} = ANY(?)"));
@@ -520,9 +521,7 @@ fn split_segments(raw: &str) -> Vec<String> {
                 current.push(ch);
             }
             ')' => {
-                if depth > 0 {
-                    depth -= 1;
-                }
+                depth = depth.saturating_sub(1);
                 current.push(ch);
             }
             ',' if depth == 0 => {
@@ -619,9 +618,7 @@ fn split_stats_args(raw: &str, expected: usize) -> Result<Vec<String>> {
                 current.push(ch);
             }
             ')' => {
-                if depth > 0 {
-                    depth -= 1;
-                }
+                depth = depth.saturating_sub(1);
                 current.push(ch);
             }
             ',' if depth == 0 => {

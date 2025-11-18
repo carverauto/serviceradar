@@ -28,6 +28,27 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    pollers (poller_id) {
+        poller_id -> Text,
+        component_id -> Nullable<Text>,
+        registration_source -> Nullable<Text>,
+        status -> Nullable<Text>,
+        spiffe_identity -> Nullable<Text>,
+        first_registered -> Nullable<Timestamptz>,
+        first_seen -> Nullable<Timestamptz>,
+        last_seen -> Nullable<Timestamptz>,
+        metadata -> Nullable<Jsonb>,
+        created_by -> Nullable<Text>,
+        is_healthy -> Nullable<Bool>,
+        agent_count -> Nullable<Int4>,
+        checker_count -> Nullable<Int4>,
+        updated_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     events (event_timestamp, id) {
         event_timestamp -> Timestamptz,
         specversion -> Nullable<Text>,
