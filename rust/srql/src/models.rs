@@ -72,6 +72,50 @@ pub struct EventRow {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::discovered_interfaces)]
+pub struct DiscoveredInterfaceRow {
+    pub timestamp: DateTime<Utc>,
+    pub agent_id: Option<String>,
+    pub poller_id: Option<String>,
+    pub device_ip: Option<String>,
+    pub device_id: Option<String>,
+    pub if_index: Option<i32>,
+    pub if_name: Option<String>,
+    pub if_descr: Option<String>,
+    pub if_alias: Option<String>,
+    pub if_speed: Option<i64>,
+    pub if_phys_address: Option<String>,
+    pub ip_addresses: Option<Vec<String>>,
+    pub if_admin_status: Option<i32>,
+    pub if_oper_status: Option<i32>,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl DiscoveredInterfaceRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "timestamp": self.timestamp,
+            "agent_id": self.agent_id,
+            "poller_id": self.poller_id,
+            "device_ip": self.device_ip,
+            "device_id": self.device_id,
+            "if_index": self.if_index,
+            "if_name": self.if_name,
+            "if_descr": self.if_descr,
+            "if_alias": self.if_alias,
+            "if_speed": self.if_speed,
+            "if_phys_address": self.if_phys_address,
+            "ip_addresses": self.ip_addresses.unwrap_or_default(),
+            "if_admin_status": self.if_admin_status,
+            "if_oper_status": self.if_oper_status,
+            "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "created_at": self.created_at,
+        })
+    }
+}
+
 impl EventRow {
     pub fn into_json(self) -> serde_json::Value {
         serde_json::json!({
