@@ -80,7 +80,10 @@ impl Server {
 
         match response {
             Ok(rows) => Ok(Json(rows)),
-            Err(err) => Err(err),
+            Err(err) => {
+                error!(error = ?err, "srql query failed");
+                Err(err)
+            }
         }
     }
 
