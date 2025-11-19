@@ -20,9 +20,9 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 - **Real-time Monitoring**: Monitor services and infrastructure in hard-to-reach places
 - **Distributed Architecture**: Components can be installed across different hosts to suit your needs
 - **SRQL**: ServiceRadar Query Language -- intuitive key:value syntax for querying data
-- **Stream Processing**: Timeplus stream processing engine -- streaming OLAP w/ ClickHouse
+- **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, and Apache AGE for relational, time-series, and graph data
 - **Observability**: Collect metrics, logs, and traces from SNMP, OTEL, and SYSLOG
-- **Network Mapper**: Discovery Engine uses SNMP/LLDP/CDP and API to discover devices, interfaces, and topology
+- **Graph Network Mapper**: Advanced discovery engine using Apache AGE to map devices, interfaces, and topology relationships via SNMP/LLDP/CDP
 - **Security**: Support for mTLS to secure communications between components and API key authentication for web UI
 - **Rule Engine**: Blazing fast rust-based rule processing engine
 - **Specialized Monitoring**: Support for specific node types like Dusk Network nodes
@@ -94,10 +94,10 @@ ServiceRadar provides a complete Docker Compose stack with all components pre-co
 
 The Docker Compose deployment includes:
 
-- **Proton Database** - Timeplus stream processing engine with ClickHouse compatibility
+- **Unified Database** - PostgreSQL managed by CloudNativePG with TimescaleDB (metrics) and Apache AGE (graph topology) extensions
 - **Core API** - Main ServiceRadar API and business logic
 - **API Gateway** - Polyglot APIs or Bring Your Own API, easily extend SR
-- **Web UI** - Modern React-based dashboard  
+- **Web UI** - Modern React-based dashboard
 - **Nginx** - Reverse proxy and load balancer
 - **Agent** - Host monitoring service
 - **Poller** - Network and service polling coordinator
@@ -106,14 +106,6 @@ The Docker Compose deployment includes:
 - **Observability Stack** - OTEL, logging, and telemetry collection
 - **Network Discovery** - SNMP/LLDP network mapping
 - **Performance Testing** - Built-in network performance monitoring
-
-### Multi-Platform Support
-
-All Docker images are built for both **AMD64** and **ARM64** architectures, ensuring compatibility with:
-- Intel/AMD servers
-- Apple Silicon Macs (M1/M2/M3)
-- ARM-based cloud instances
-- Raspberry Pi (4GB+ recommended)
 
 ### Configuration
 
@@ -141,7 +133,8 @@ docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d
 
 ## Performance
 
-ServiceRadar powered by [Timeplus Proton](https://github.com/timeplus-io/proton) can deliver 90 million EPS, 4 millisecond end-to-end latency, and high cardinality aggregation with 1 million unique keys on an Apple Macbook Pro with M2 MAX.
+ServiceRadar utilizes a modern PostgreSQL ecosystem to deliver robust performance across different data types. By leveraging **TimescaleDB** for high-cardinality time-series ingestion and **Apache AGE** for complex graph traversals, ServiceRadar efficiently correlates network topology with performance metrics in real-time. This architecture ensures scalable storage and fast query execution for both historical analysis and live network mapping.
+
 
 ## Documentation
 
