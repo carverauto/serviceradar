@@ -66,15 +66,6 @@ docker-compose logs config-updater
 docker-compose down
 ```
 
-### Option 2: Native Installation
-
-ServiceRadar provides a simple installation script for deploying components natively:
-
-```bash
-# All-in-One Installation (non-interactive mode)
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/install-serviceradar.sh | bash -s -- --all --non-interactive
-```
-
 For detailed installation options including component-specific deployments and optional checkers, see [INSTALL.md](INSTALL.md).
 
 ## Architecture Overview
