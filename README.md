@@ -118,7 +118,7 @@ docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d
 
 ## Performance
 
-ServiceRadar utilizes a modern PostgreSQL ecosystem to deliver robust performance across different data types. By leveraging **TimescaleDB** for high-cardinality time-series ingestion and **Apache AGE** for complex graph traversals, ServiceRadar efficiently correlates network topology with performance metrics in real-time. This architecture ensures scalable storage and fast query execution for both historical analysis and live network mapping.
+[ServiceRadar](https://serviceradar.cloud/) utilizes a modern PostgreSQL ecosystem to deliver robust performance across different data types. By leveraging [TimescaleDB](https://github.com/timescale/timescaledb) for high-cardinality time-series ingestion and [Apache AGE](https://age.apache.org/) for complex graph traversals, ServiceRadar efficiently correlates network topology with performance metrics in real-time. This architecture ensures scalable storage and fast query execution for both historical analysis and live network mapping.
 
 
 ## Documentation
