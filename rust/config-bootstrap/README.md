@@ -8,9 +8,10 @@ This crate mirrors the functionality of Go's `pkg/config/bootstrap` to provide a
 
 - **Load from disk**: Read JSON or TOML configuration files
 - **KV overlay**: Merge configuration from NATS KV store
+- **Pinned overlay**: Apply a filesystem overlay that always wins over KV (for sensitive defaults)
 - **Sanitization**: Automatically filter sensitive fields before writing to KV
 - **Auto-seeding**: Seed sanitized defaults to KV when missing
-- **Watch support**: Monitor KV for configuration changes (partial implementation)
+- **Watch support**: Monitor KV for configuration changes
 
 ## Usage
 
@@ -31,6 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config_path: "/etc/serviceradar/my-service.toml".to_string(),
         format: ConfigFormat::Toml,
         kv_key: Some("config/my-service.toml".to_string()),
+        pinned_path: config_bootstrap::pinned_path_from_env(),
         seed_kv: true,
         watch_kv: false,
     };
@@ -48,7 +50,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 1. **Load from disk**: Read the config file specified in `config_path`
 2. **Overlay KV**: If KV is available and the key exists, merge KV values on top
 3. **Seed KV**: If KV key doesn't exist and `seed_kv` is true, write sanitized config to KV
-4. **Watch** (optional): If `watch_kv` is true, monitor KV for changes
+4. **Apply pinned overlay**: If `pinned_path` is set, overlay it last so it wins over KV values
+5. **Watch** (optional): If `watch_kv` is true, monitor KV for changes
 
 ## Sanitization
 
@@ -86,6 +89,7 @@ To integrate this crate into an existing Rust service:
        config_path: path.to_string(),
        format: ConfigFormat::Toml,
        kv_key: Some("config/my-service.toml".to_string()),
+       pinned_path: config_bootstrap::pinned_path_from_env(),
        seed_kv: true,
        watch_kv: false,
    }).await?;

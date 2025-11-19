@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -243,6 +244,56 @@ func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
 	case <-reloads:
 		t.Fatalf("unexpected reload when config payload did not change")
 	case <-time.After(75 * time.Millisecond):
+	}
+}
+
+func TestKVManagerStartWatchReappliesPinnedOverlay(t *testing.T) {
+	initialKV := []byte(`{"listen_addr":":8080","logging":{"level":"info"}}`)
+	store := newWatchKVStore(initialKV)
+	manager := &KVManager{client: store}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cfg := &watcherTestConfig{
+		ListenAddr: ":8080",
+		Logging: &logger.Config{
+			Level: "info",
+		},
+	}
+
+	pinnedDir := t.TempDir()
+	pinnedPath := filepath.Join(pinnedDir, "pinned.json")
+	pinnedPayload := []byte(`{"listen_addr":":6060","logging":{"level":"warn"}}`)
+	if err := os.WriteFile(pinnedPath, pinnedPayload, 0o600); err != nil {
+		t.Fatalf("failed to write pinned config: %v", err)
+	}
+
+	cfgLoader := NewConfig(nil)
+	if err := cfgLoader.OverlayPinned(ctx, pinnedPath, cfg); err != nil {
+		t.Fatalf("failed to seed pinned config: %v", err)
+	}
+
+	reloads := make(chan struct{}, 1)
+	manager.StartWatchWithPinned(ctx, "config/agent/test.json", cfg, logger.NewTestLogger(), pinnedPath, cfgLoader, func() {
+		reloads <- struct{}{}
+	})
+
+	store.waitForWatch(t)
+
+	store.emit([]byte(`{"listen_addr":":9090","logging":{"level":"debug"}}`))
+
+	select {
+	case <-reloads:
+		t.Fatalf("pinned overlay should keep the effective config stable; reload not expected")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	if cfg.ListenAddr != ":6060" {
+		t.Fatalf("expected pinned listen_addr to remain, got %q", cfg.ListenAddr)
+	}
+	if cfg.Logging == nil || strings.ToLower(cfg.Logging.Level) != "warn" {
+		t.Fatalf("expected pinned logging.level of warn, got %#v", cfg.Logging)
 	}
 }
 

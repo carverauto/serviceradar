@@ -244,7 +244,7 @@ core.json: |
         "enabled": false,
         "url": "https://discord.com/api/webhooks/PLACEHOLDER_WEBHOOK_URL",
         "cooldown": "15m",
-        "template": "{"embeds":[{"title":"{{.alert.Title}}","description":"{{.alert.Message}}","color":{{if eq .alert.Level "error"}}15158332{{else if eq .alert.Level "warning"}}16776960{{else}}3447003{{end}},"timestamp":"{{.alert.Timestamp}}","fields":[{"name":"Node ID","value":"{{.alert.NodeID}}","inline":true}{{range $key, $value := .alert.Details}},{"name":"{{$key}}","value":"{{$value}}","inline":true}{{end}}]}]}"
+        "template": "{\"embeds\":[{\"title\":\"{{$lb}}.alert.Title{{$rb}}\",\"description\":\"{{$lb}}.alert.Message{{$rb}}\",\"color\":{{$lb}}if eq .alert.Level \\\"error\\\"{{$rb}}15158332{{$lb}}else if eq .alert.Level \\\"warning\\\"{{$rb}}16776960{{$lb}}else{{$rb}}3447003{{$lb}}end{{$rb}},\"timestamp\":\"{{$lb}}.alert.Timestamp{{$rb}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{$lb}}.alert.NodeID{{$rb}}\",\"inline\":true}{{$lb}}range $key, $value := .alert.Details{{$rb}}, {\"name\":\"{{$lb}}$key{{$rb}}\",\"value\":\"{{$lb}}$value{{$rb}}\",\"inline\":true}{{$lb}}end{{$rb}}]}]}"
       }
     ]
   }

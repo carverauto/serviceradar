@@ -17,3 +17,9 @@ Currently, `serviceradar` components do not automatically seed the KV store with
     - Shared configuration libraries in Go (`pkg/config` or similar) and Rust (`rust/crates/config_bootstrap`).
     - Kubernetes manifests and Helm charts (to mount default config files).
     - CI/CD pipeline (new NATS fixture).
+
+## Status / Next Steps
+- Done: sr-testing NATS JetStream fixture (TLS + LoadBalancer) deployed; Bazel/BuildBuddy env wiring for NATS certs; integration tests covering packaged default seeding and KV-vs-default precedence; Go/Rust bootstrap support for a pinned file overlay; Go/Rust config bootstraps now enforce Default -> KV -> Pinned precedence and seed missing KV entries automatically.
+- Done: Helm + kustomize defaults aligned to mount configs at `/etc/serviceradar/<component>.json`, db-event-writer mounts fixed for runtime copy flow.
+- Done: CNPG operator/webhooks installed once per cluster (cnpg-system) so CNPG `Cluster` CRs reconcile while still pointing at our custom Postgres image; demo-staging apply is clean/idempotent and CNPG clusters untouched.
+- Next: add service-specific startup tests exercising seeding + pinned precedence end-to-end.

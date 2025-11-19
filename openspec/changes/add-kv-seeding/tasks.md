@@ -1,9 +1,10 @@
 ## 1. Implementation
-- [ ] 1.1 Define configuration loading interface in Go `pkg/config` supporting Default (FS) -> KV -> Pinned (FS) precedence.
-- [ ] 1.2 Implement automatic KV seeding in Go `pkg/config`: if KV key is missing, read from Default FS and write to KV.
-- [ ] 1.3 Define configuration loading interface in Rust `config_bootstrap` supporting Default (FS) -> KV -> Pinned (FS) precedence.
-- [ ] 1.4 Implement automatic KV seeding in Rust `config_bootstrap`: if KV key is missing, read from Default FS and write to KV.
-- [ ] 1.5 Update Helm charts to mount default configuration files to `/etc/serviceradar/<component>.json`.
+- [x] 1.1 Define configuration loading interface in Go `pkg/config` supporting Default (FS) -> KV -> Pinned (FS) precedence.
+- [x] 1.2 Implement automatic KV seeding in Go `pkg/config`: if KV key is missing, read from Default FS and write to KV.
+- [x] 1.3 Define configuration loading interface in Rust `config_bootstrap` supporting Default (FS) -> KV -> Pinned (FS) precedence.
+- [x] 1.4 Implement automatic KV seeding in Rust `config_bootstrap`: if KV key is missing, read from Default FS and write to KV.
+- [x] 1.5 Update Helm charts to mount default configuration files to `/etc/serviceradar/<component>.json`.
+- [x] 1.5a Ensure CNPG operator/webhook is present so kustomize applies succeed without manual CRD/webhook drift (cluster-scoped prereq, not bundled into chart/overlay).
 - [x] 1.6 Add NATS JetStream container to `srql-fixtures` or similar test namespace for CI/CD integration testing.
 - [x] 1.7 Create integration test verifying seeding behavior (start service with empty KV, verify KV is populated).
-- [ ] 1.8 Create integration test verifying precedence (KV overrides Default, Pinned overrides KV).
+- [x] 1.8 Create integration test verifying precedence (KV overrides Default, Pinned overrides KV).
