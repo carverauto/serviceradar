@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: oracle
+    runs-on: arc-runner-set
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       GHCR_DOCKER_AUTH: ${{ secrets.GHCR_DOCKER_AUTH }}
