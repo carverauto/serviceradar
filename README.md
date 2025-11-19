@@ -101,20 +101,11 @@ The Docker Compose deployment includes:
 - **Nginx** - Reverse proxy and load balancer
 - **Agent** - Host monitoring service
 - **Poller** - Network and service polling coordinator
-- **Sync Service** - Data synchronization between components
-- **Key-Value Store** - Configuration and state management
+- **Sync Service** - Data synchronization between integrations (Armis, NetBox, etc.)
+- **Data Svc (Messaging, KV, and Object Store)** - Configuration and state management
 - **Observability Stack** - OTEL, logging, and telemetry collection
 - **Network Discovery** - SNMP/LLDP network mapping
 - **Performance Testing** - Built-in network performance monitoring
-
-### Configuration
-
-Default configuration includes:
-- **Database**: Automatic setup with optimized settings
-- **Security**: mTLS between services, API key authentication
-- **Networking**: All services communicate via internal Docker network
-- **Storage**: Persistent volumes for database and configuration
-- **Monitoring**: Built-in health checks and metrics collection
 
 ### Custom Configuration
 
