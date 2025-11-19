@@ -36,11 +36,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Install dependencies
-        run: |
-          sudo dnf install -y gcc gcc-c++ make protobuf-compiler
-          protoc --version || (echo "protoc installation failed" && exit 1)
-
       - name: Setup Bazel
         uses: bazelbuild/setup-bazelisk@v3
 
