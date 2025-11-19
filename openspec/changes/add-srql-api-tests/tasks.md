@@ -9,5 +9,5 @@
 - [x] 2.4 Mirror the SRQL language reference examples (e.g., `in:devices time:last_7d sort:last_seen:desc limit:20 is_available:true/false`) as translator-level unit tests so key:value semantics stay validated without spinning up the HTTP harness. *(Added doc-driven unit tests under `rust/srql/src/query/mod.rs`, plus module-level stats tests for `devices`, `interfaces`, `pollers`, `logs`, and `cpu_metrics` so documented flows stay hermetic.)*
 
 ## 3. CI + docs updates
-- [ ] 3.1 Wire the new SRQL API tests into `cargo test` / Bazel / CI workflows so PRs cannot merge without passing them.
+- [ ] 3.1 Wire the new SRQL API tests into `cargo test` / Bazel / CI workflows so PRs cannot merge without passing them. *(GitHub `tests-rust.yml` now runs on ARC-hosted runners and installs GCC/Clang + `protoc` via whatever package manager is present (apt/dnf/yum/microdnf) so SRQL + other Rust crates link successfully in both Ubuntu and Oracle Linux images.)*
 - [ ] 3.2 Update contributor docs (e.g., `docs/docs/agents.md` or README) with steps for running the SRQL tests locally, including prerequisites for the fixture database.

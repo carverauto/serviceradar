@@ -36,6 +36,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Install dependencies
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential protobuf-compiler
+          elif command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y gcc gcc-c++ make protobuf-compiler
+          elif command -v yum >/dev/null 2>&1; then
+            sudo yum install -y gcc gcc-c++ make protobuf-compiler
+          elif command -v microdnf >/dev/null 2>&1; then
+            sudo microdnf install -y gcc gcc-c++ make protobuf-compiler
+          else
+            echo "Unsupported package manager; please install gcc, g++ (or clang), make, and protoc manually." >&2
+            exit 1
+          fi
+          protoc --version || (echo "protoc installation failed" && exit 1)
+
       - name: Setup Bazel
         uses: bazelbuild/setup-bazelisk@v3
 
