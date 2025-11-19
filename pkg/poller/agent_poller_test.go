@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"testing"
 	"time"
@@ -41,6 +42,8 @@ var (
 	errStreamError = errors.New("stream error")
 	// errConnectionFailed is used in tests to simulate connection failures
 	errConnectionFailed = errors.New("connection failed")
+	// errLookupFailed is used to simulate DNS failures
+	errLookupFailed = errors.New("lookup failed")
 )
 
 func TestNewAgentPoller(t *testing.T) {
@@ -747,7 +750,7 @@ func TestResolveAgentHostMetadata_EnvOverride(t *testing.T) {
 		require.NoError(t, os.Unsetenv(envKey))
 	})
 
-	ip, host := resolveAgentHostMetadata("test-agent", &AgentConfig{Address: "test-agent:50051"}, "10.1.2.3", log)
+	ip, host := resolveAgentHostMetadata("test-agent", &AgentConfig{Address: "test-agent:50051"}, "10.1.2.3", log, lookupHostIPs)
 
 	assert.Equal(t, "198.51.100.25", ip)
 	assert.Equal(t, "198.51.100.25", host)
@@ -755,7 +758,9 @@ func TestResolveAgentHostMetadata_EnvOverride(t *testing.T) {
 
 func TestResolveAgentHostMetadata_FallbackToPollerIP(t *testing.T) {
 	log := logger.NewTestLogger()
-	ip, host := resolveAgentHostMetadata("lonely-agent", &AgentConfig{Address: ":50051"}, "203.0.113.77", log)
+	ip, host := resolveAgentHostMetadata("lonely-agent", &AgentConfig{Address: ":50051"}, "203.0.113.77", log, func(host string) ([]net.IP, error) {
+		return nil, errLookupFailed
+	})
 
 	assert.Equal(t, "203.0.113.77", ip)
 	assert.Equal(t, "lonely-agent", host)

@@ -196,7 +196,6 @@ func lookupHostIPs(host string) ([]net.IP, error) {
 			ips = append(ips, addr.IP)
 		}
 	}
-
 	return ips, nil
 }
 

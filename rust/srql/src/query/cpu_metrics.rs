@@ -164,13 +164,19 @@ fn apply_filter<'a>(mut query: CpuQuery<'a>, filter: &Filter) -> Result<CpuQuery
         }
         "usage_percent" => {
             let value = parse_f64(filter.value.as_scalar()?)?;
-            query = apply_eq_filter!(
-                query,
-                filter,
-                col_usage_percent,
-                value,
-                "usage_percent filter only supports equality"
-            )?;
+            match filter.op {
+                FilterOp::Eq => query = query.filter(col_usage_percent.eq(value)),
+                FilterOp::NotEq => query = query.filter(col_usage_percent.ne(value)),
+                FilterOp::Gt => query = query.filter(col_usage_percent.gt(value)),
+                FilterOp::Gte => query = query.filter(col_usage_percent.ge(value)),
+                FilterOp::Lt => query = query.filter(col_usage_percent.lt(value)),
+                FilterOp::Lte => query = query.filter(col_usage_percent.le(value)),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "usage_percent filter does not support this operator".into(),
+                    ))
+                }
+            }
         }
         "frequency_hz" => {
             let value = parse_f64(filter.value.as_scalar()?)?;
@@ -405,6 +411,12 @@ fn build_text_clause(column: &str, filter: &Filter) -> Result<(String, Vec<SqlBi
             binds.push(SqlBindValue::TextArray(values));
             format!("{column} <> ALL(?)")
         }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "text filter {column} does not support operator {:?}",
+                filter.op
+            )))
+        }
     };
     Ok((clause, binds))
 }
@@ -432,9 +444,41 @@ fn build_numeric_clause(
             }
             format!("{column} <> ?")
         }
+        FilterOp::Gt => {
+            if integer {
+                binds.push(SqlBindValue::Int(parse_i32(filter.value.as_scalar()?)?));
+            } else {
+                binds.push(SqlBindValue::Float(parse_f64(filter.value.as_scalar()?)?));
+            }
+            format!("{column} > ?")
+        }
+        FilterOp::Gte => {
+            if integer {
+                binds.push(SqlBindValue::Int(parse_i32(filter.value.as_scalar()?)?));
+            } else {
+                binds.push(SqlBindValue::Float(parse_f64(filter.value.as_scalar()?)?));
+            }
+            format!("{column} >= ?")
+        }
+        FilterOp::Lt => {
+            if integer {
+                binds.push(SqlBindValue::Int(parse_i32(filter.value.as_scalar()?)?));
+            } else {
+                binds.push(SqlBindValue::Float(parse_f64(filter.value.as_scalar()?)?));
+            }
+            format!("{column} < ?")
+        }
+        FilterOp::Lte => {
+            if integer {
+                binds.push(SqlBindValue::Int(parse_i32(filter.value.as_scalar()?)?));
+            } else {
+                binds.push(SqlBindValue::Float(parse_f64(filter.value.as_scalar()?)?));
+            }
+            format!("{column} <= ?")
+        }
         _ => {
             return Err(ServiceError::InvalidRequest(format!(
-                "{column} filter only supports equality comparisons"
+                "{column} filter only supports equality and range comparisons"
             )))
         }
     };

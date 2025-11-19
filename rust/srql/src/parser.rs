@@ -50,6 +50,10 @@ pub enum FilterOp {
     NotLike,
     In,
     NotIn,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
 }
 
 #[derive(Debug, Clone)]
@@ -197,25 +201,33 @@ fn build_filter(key: &str, value: FilterValue) -> Filter {
         negated = true;
     }
 
-    let op = match &value {
+    let (op, final_value) = match value {
         FilterValue::Scalar(v) => {
-            if v.contains('%') {
+            if let Some(stripped) = v.strip_prefix(">=") {
+                (FilterOp::Gte, FilterValue::Scalar(stripped.to_string()))
+            } else if let Some(stripped) = v.strip_prefix('>') {
+                (FilterOp::Gt, FilterValue::Scalar(stripped.to_string()))
+            } else if let Some(stripped) = v.strip_prefix("<=") {
+                (FilterOp::Lte, FilterValue::Scalar(stripped.to_string()))
+            } else if let Some(stripped) = v.strip_prefix('<') {
+                (FilterOp::Lt, FilterValue::Scalar(stripped.to_string()))
+            } else if v.contains('%') {
                 if negated {
-                    FilterOp::NotLike
+                    (FilterOp::NotLike, FilterValue::Scalar(v))
                 } else {
-                    FilterOp::Like
+                    (FilterOp::Like, FilterValue::Scalar(v))
                 }
             } else if negated {
-                FilterOp::NotEq
+                (FilterOp::NotEq, FilterValue::Scalar(v))
             } else {
-                FilterOp::Eq
+                (FilterOp::Eq, FilterValue::Scalar(v))
             }
         }
         FilterValue::List(_) => {
             if negated {
-                FilterOp::NotIn
+                (FilterOp::NotIn, value)
             } else {
-                FilterOp::In
+                (FilterOp::In, value)
             }
         }
     };
@@ -223,7 +235,7 @@ fn build_filter(key: &str, value: FilterValue) -> Filter {
     Filter {
         field: field.to_lowercase(),
         op,
-        value,
+        value: final_value,
     }
 }
 

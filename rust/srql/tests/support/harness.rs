@@ -226,6 +226,7 @@ impl SrqlTestHarness {
         self.request("/api/query", &request, true).await
     }
 
+    #[allow(dead_code)]
     pub async fn query_without_api_key(&self, request: QueryRequest) -> http::Response<Body> {
         self.request("/api/query", &request, false).await
     }
