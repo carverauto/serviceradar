@@ -475,6 +475,12 @@ fn build_text_clause(column: &str, filter: &Filter) -> Result<Option<(String, Ve
             };
             format!("{column} {operator} ({})", placeholders.join(", "))
         }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "text filter {column} does not support operator {:?}",
+                filter.op
+            )))
+        }
     };
 
     Ok(Some((clause, binds)))
