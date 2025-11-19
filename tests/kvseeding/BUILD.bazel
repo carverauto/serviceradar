@@ -1,0 +1,11 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+
+go_test(
+    name = "kvseeding_test",
+    srcs = ["kv_seeding_test.go"],
+    deps = [
+        "//pkg/config",
+        "@com_github_nats_io_nats_go//:go_default_library",
+        "@com_github_stretchr_testify//require",
+    ],
+)
