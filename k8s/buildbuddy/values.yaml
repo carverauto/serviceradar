@@ -54,6 +54,7 @@ config:
   executor:
     app_target: grpcs://remote.buildbuddy.io:443
     enable_oci: true
+    default_isolation_type: docker
     local_cache_directory: /cache
     local_cache_size_bytes: 50000000000
     root_directory: /cache/remotebuilds/

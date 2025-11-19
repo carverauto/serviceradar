@@ -45,7 +45,7 @@ impl Server {
         Ok(Self { config, state })
     }
 
-    fn router(&self) -> Router {
+    pub fn router(&self) -> Router {
         Router::new()
             .route("/healthz", get(Self::health))
             .route("/api/query", post(Self::query))
