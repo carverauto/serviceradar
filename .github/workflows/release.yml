@@ -56,7 +56,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: oracle
+    runs-on: arc-runner-set
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
