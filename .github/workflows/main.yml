@@ -20,6 +20,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Bazel
+        uses: bazelbuild/setup-bazelisk@v3
+
       - name: Configure remote cache
         if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
         run: |
