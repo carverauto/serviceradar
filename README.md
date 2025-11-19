@@ -36,7 +36,7 @@ The fastest way to get ServiceRadar running is with Docker Compose. This deploys
 **Prerequisites:**
 - Docker and Docker Compose installed
 - 8GB+ available RAM
-- Ports 80, 8090, 8123, 9440 available
+- Ports 80, 8090, 5423 available
 
 ```bash
 # Clone the repository
