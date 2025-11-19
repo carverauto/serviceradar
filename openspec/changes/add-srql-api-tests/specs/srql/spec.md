@@ -13,6 +13,19 @@ ServiceRadar MUST ship automated tests that exercise the SRQL DSL end-to-end by 
 - **WHEN** a test issues an aggregation query with `GROUP BY` buckets and a `LIMIT/OFFSET`
 - **THEN** the translator returns consistent totals/page counts across runs so dashboards relying on those semantics cannot regress silently.
 
+### Requirement: SRQL API fixtures are accessible from CI runners
+The SRQL API suite MUST run in our Kubernetes-backed CI environment (BuildBuddy RBE + GitHub custom runners) without shelling out to a local Docker daemon. Tests use a shared CNPG fixture (TimescaleDB + Apache AGE) hosted in the cluster and receive a per-run database that is seeded/reset before executing.
+
+#### Scenario: BuildBuddy Bazel runs leverage shared CNPG
+- **GIVEN** the BuildBuddy executor exposes secrets/environment variables with the CNPG hostname, credentials, and target schema
+- **WHEN** `bazel test //rust/srql:srql_api_test` runs remotely
+- **THEN** the harness connects to the shared CNPG instance, re-seeds the fixture tables before each case, and finishes without needing Docker or outbound registry access.
+
+#### Scenario: GitHub custom runners reuse the same fixture
+- **GIVEN** our GitHub Actions workflow runs on the self-hosted runners in the cluster and mounts the same CNPG connection secrets
+- **WHEN** `cargo test --test api` runs as part of CI
+- **THEN** the suite connects to the shared fixture, resets the seed data, and produces deterministic results so CI is consistent regardless of runner location.
+
 ### Requirement: SRQL `/api/query` tests enforce error handling
 The automated suite MUST also assert that invalid DSL or unauthorized requests trigger the documented 400/401 responses so error handling does not regress when evolving the translator.
 
@@ -35,6 +48,6 @@ Unit tests MUST exercise the SRQL language primitives documented in `docs/docs/s
 - **THEN** the translator plans both statements into the expected Diesel AST, and the assertions confirm the selected IDs / ordering / row counts, proving availability filters continue matching the DSL semantics.
 
 #### Scenario: Aggregation example queries emit expected plans
-- **GIVEN** a unit test that mirrors the SRQL example `in:activity time:last_24h stats:"count() as total_flows by connection.src_endpoint_ip" sort:total_flows:desc having:"total_flows>100" limit:20` (`docs/docs/srql-language-reference.md:82-84`)
-- **WHEN** the translator parses and plans the DSL
-- **THEN** the test asserts that grouped columns, aliases, and sort order match the documented semantics so future parser refactors cannot silently change field mapping or alias propagation.
+- **GIVEN** translator-level unit tests that mirror the SRQL examples `in:devices discovery_sources:(sweep) discovery_sources:(armis) time:last_7d sort:last_seen:desc`, `in:services service_type:(ssh,sftp) timeFrame:"14 Days" sort:timestamp:desc`, and doc-driven stats queries (`docs/docs/srql-language-reference.md:93-104`)
+- **WHEN** the translator parses and plans those DSL statements and the module-level stats helpers (devices, interfaces, pollers, cpu_metrics, logs) build SQL via `to_debug_sql`
+- **THEN** the tests assert that filter semantics, order clauses, and stats SQL (e.g., `avg(usage_percent) as avg_cpu by device_id`) match the documented behavior so future parser refactors cannot silently change field mapping, alias propagation, or JSON payload structure.

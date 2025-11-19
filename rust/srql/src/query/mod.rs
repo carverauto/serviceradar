@@ -253,8 +253,7 @@ mod tests {
 
     #[test]
     fn devices_docs_example_available_true() {
-        let query =
-            "in:devices time:last_7d sort:last_seen:desc limit:20 is_available:true";
+        let query = "in:devices time:last_7d sort:last_seen:desc limit:20 is_available:true";
         let plan = plan_for(query);
 
         assert!(matches!(plan.entity, Entity::Devices));
@@ -276,8 +275,7 @@ mod tests {
 
     #[test]
     fn devices_docs_example_available_false() {
-        let query =
-            "in:devices time:last_7d sort:last_seen:desc limit:20 is_available:false";
+        let query = "in:devices time:last_7d sort:last_seen:desc limit:20 is_available:false";
         let plan = plan_for(query);
 
         assert!(matches!(plan.entity, Entity::Devices));
@@ -311,7 +309,11 @@ mod tests {
             .iter()
             .filter(|filter| filter.field == "discovery_sources")
             .collect();
-        assert_eq!(discovery_filters.len(), 2, "expected repeated discovery_sources filters");
+        assert_eq!(
+            discovery_filters.len(),
+            2,
+            "expected repeated discovery_sources filters"
+        );
         let seen_values = discovery_filters
             .iter()
             .map(|filter| match &filter.value {
@@ -319,8 +321,12 @@ mod tests {
                 _ => panic!("discovery_sources filters should be list-valued"),
             })
             .collect::<Vec<_>>();
-        assert!(seen_values.iter().any(|values| values == &vec!["sweep".to_string()]));
-        assert!(seen_values.iter().any(|values| values == &vec!["armis".to_string()]));
+        assert!(seen_values
+            .iter()
+            .any(|values| values == &vec!["sweep".to_string()]));
+        assert!(seen_values
+            .iter()
+            .any(|values| values == &vec!["armis".to_string()]));
     }
 
     #[test]

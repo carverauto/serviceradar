@@ -12,6 +12,13 @@ RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
     && dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm \
     && dnf -qy module disable postgresql \
     && dnf install -y \
+        skopeo \
+        podman \
+        podman-docker \
+        slirp4netns \
+        fuse-overlayfs \
+        containernetworking-plugins \
+        iptables \
         gcc-toolset-13 \
         bpftool \
         ca-certificates \
@@ -54,12 +61,27 @@ RUN ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/gcc /usr/bin/gcc \
 
 ENV CC=/usr/bin/gcc \
     CXX=/usr/bin/g++ \
+    XDG_RUNTIME_DIR=/run/user/0 \
     RUSTUP_HOME=/opt/rustup \
     CARGO_HOME=/opt/cargo \
     PATH=/opt/cargo/bin:/opt/rh/gcc-toolset-13/root/usr/bin:$PATH \
-    LIBRARY_PATH=/usr/pgsql-16/lib:$LIBRARY_PATH \
-    LD_LIBRARY_PATH=/usr/pgsql-16/lib:$LD_LIBRARY_PATH \
-    PKG_CONFIG_PATH=/usr/pgsql-16/lib/pkgconfig:$PKG_CONFIG_PATH
+    LIBRARY_PATH=/usr/pgsql-16/lib \
+    LD_LIBRARY_PATH=/usr/pgsql-16/lib \
+    PKG_CONFIG_PATH=/usr/pgsql-16/lib/pkgconfig
+
+RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
+
+ARG GHCR_CNPG_IMAGE="ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr1"
+ARG GHCR_USERNAME=""
+
+# Fetch the CNPG test fixture image into a local docker-archive so Bazel
+# executors can load it without network access.
+RUN --mount=type=secret,id=ghcr_token,required=true <<EOF
+set -euo pipefail
+TOKEN_FILE="/run/secrets/ghcr_token"
+TOKEN_VALUE=$(cat "$TOKEN_FILE")
+skopeo copy --src-creds "$GHCR_USERNAME:$TOKEN_VALUE" "docker://$GHCR_CNPG_IMAGE" "docker-archive:/opt/cnpg_image.tar:$GHCR_CNPG_IMAGE"
+EOF
 
 # Install Rust toolchains for native builds.
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init \

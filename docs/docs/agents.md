@@ -410,6 +410,28 @@ Run these checks after flipping `require_device_registry` or deploying new core 
   ```
 - Smoke test end-to-end: run `planner-smoke` and `web-query` checks from earlier to confirm `/api/devices/search` returns `engine:"srql"` for aggregate queries, and that `/api/query` forwards diagnostics showing `engine_reason:"query_not_supported"` when SRQL satisfies the request.
 
+## SRQL API Tests
+
+- The SRQL crate now ships deterministic `/api/query` tests that boot a Dockerized CNPG instance (TimescaleDB + Apache AGE) and run `cargo test` against it. You need Docker running locally plus Bazel/Bazelisk available. Remote builds reuse the BuildBuddy config you use elsewhere; otherwise run `bazel run --config=no_remote //docker/images:cnpg_image_amd64_tar`.
+- Prime the CNPG image once (or whenever the Docker cache is wiped). You can either pull the published build or rebuild via Bazel:
+  ```bash
+  docker pull ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr1
+  # or, if you need to refresh the image artifacts locally:
+  bazel run //docker/images:cnpg_image_amd64_tar
+  ```
+- Execute the API suite from the repo root (or `rust/srql` directory) and expect ~60s per run while the container boots and seeds:
+  ```bash
+  cd rust/srql
+  cargo test --test api -- --nocapture
+  ```
+  The harness will build the CNPG image automatically if it is missing, but doing so up front keeps test runs predictable.
+- Bazel users can run the same suite via the `//rust/srql:srql_api_test` target. Our BuildBuddy RBE executors expose Docker, so the standard workflow is:
+  ```bash
+  bazel test --config=remote //rust/srql:srql_api_test
+  ```
+  When hacking offline (or if you prefer the local Docker daemon), drop back to `--config=no_remote` instead.
+- GitHub Actions runs `cargo test` for `rust/srql` on every change touching the crate, so keep the suite green locally before pushing large parser or planner updates.
+
 ## CNPG Reset (Cluster + PVC Rotation)
 
 If the Timescale tables balloon or fall irreparably out of sync, rotate the CNPG cluster instead of hand-truncating every hypertable. The helper script below deletes the stateful set, recreates the PVCs, reapplies the manifests, runs migrations, and restarts the workloads so the schema is rebuilt from scratch:

@@ -576,7 +576,10 @@ mod tests {
 
     #[test]
     fn stats_query_matches_cpu_language_reference() {
-        let plan = stats_plan(r#"avg(usage_percent) as avg_cpu by device_id"#, "demo-partition");
+        let plan = stats_plan(
+            r#"avg(usage_percent) as avg_cpu by device_id"#,
+            "demo-partition",
+        );
         let spec = parse_stats_spec(plan.stats.as_deref()).unwrap().unwrap();
         assert_eq!(spec.alias, "avg_cpu");
 

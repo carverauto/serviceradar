@@ -13,6 +13,8 @@ build --keep_going
 build --jobs=auto
 build --show_timestamps
 build --action_env=OPENSSL_NO_PKG_CONFIG=1
+build --action_env=SRQL_TEST_DATABASE_URL
+build --action_env=SRQL_TEST_ADMIN_URL
 build --java_runtime_version=local_jdk
 build --tool_java_runtime_version=local_jdk
 build --@io_bazel_rules_go//go/config:pure
@@ -21,6 +23,8 @@ build --@io_bazel_rules_go//go/config:pure
 # Standard test ergonomics: show failing logs and retry known flaky tests once.
 test --test_output=errors
 test --action_env=OPENSSL_NO_PKG_CONFIG=1
+test --action_env=SRQL_TEST_DATABASE_URL
+test --action_env=SRQL_TEST_ADMIN_URL
 test --@io_bazel_rules_go//go/config:pure
 test --flaky_test_attempts=2
 
