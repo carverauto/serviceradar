@@ -19,7 +19,7 @@ use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
 use diesel::sql_query;
-use diesel::sql_types::{Bool, Jsonb, Nullable, Text, Timestamptz};
+use diesel::sql_types::{Array, Bool, Jsonb, Nullable, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
@@ -223,6 +223,7 @@ impl MetricsStatsSql {
 #[derive(Debug, Clone)]
 enum SqlBindValue {
     Text(String),
+    TextArray(Vec<String>),
     Bool(bool),
     Timestamp(DateTime<Utc>),
 }
@@ -231,6 +232,7 @@ impl SqlBindValue {
     fn apply<'a>(&self, query: BoxedSqlQuery<'a, Pg, SqlQuery>) -> BoxedSqlQuery<'a, Pg, SqlQuery> {
         match self {
             SqlBindValue::Text(value) => query.bind::<Text, _>(value.clone()),
+            SqlBindValue::TextArray(values) => query.bind::<Array<Text>, _>(values.clone()),
             SqlBindValue::Bool(value) => query.bind::<Bool, _>(*value),
             SqlBindValue::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
         }
@@ -409,21 +411,28 @@ fn build_text_clause(
             Ok(format!("{column} NOT ILIKE ?"))
         }
         FilterOp::In | FilterOp::NotIn => {
-            let values = filter.value.as_list()?.to_vec();
+            let values: Vec<String> = filter
+                .value
+                .as_list()?
+                .iter()
+                .map(|v| v.to_string())
+                .collect();
             if values.is_empty() {
                 return Ok("1=1".into());
             }
-            let mut placeholders = Vec::new();
-            for value in values {
-                placeholders.push("?".to_string());
-                binds.push(SqlBindValue::Text(value));
-            }
+            binds.push(SqlBindValue::TextArray(values));
             let operator = if matches!(filter.op, FilterOp::In) {
-                "IN"
+                "= ANY(?)"
             } else {
-                "NOT IN"
+                "<> ALL(?)"
             };
-            Ok(format!("{column} {operator} ({})", placeholders.join(", ")))
+            Ok(format!("{column} {operator}"))
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "text filter {column} does not support operator {:?}",
+                filter.op
+            )))
         }
     }
 }
