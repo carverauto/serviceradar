@@ -49,13 +49,13 @@ jobs:
 
           if command -v apt-get >/dev/null 2>&1; then
             sudo apt-get update
-            sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler
+            sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler cmake
           elif command -v dnf >/dev/null 2>&1; then
-            sudo dnf install -y gcc gcc-c++ make openssl-devel protobuf-compiler
+            sudo dnf install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake
           elif command -v yum >/dev/null 2>&1; then
-            sudo yum install -y gcc gcc-c++ make openssl-devel protobuf-compiler
+            sudo yum install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake
           elif command -v microdnf >/dev/null 2>&1; then
-            sudo microdnf install -y gcc gcc-c++ make openssl-devel protobuf-compiler
+            sudo microdnf install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake
           else
             echo "Unsupported package manager; please install gcc, g++ (or clang), make, OpenSSL headers, pkg-config, and protoc manually." >&2
             exit 1
