@@ -134,16 +134,6 @@ fn apply_filter<'a>(
         "agent_id" => {
             query = apply_text_filter!(query, filter, col_agent_id)?;
         }
-        "if_index" => {
-            let value = parse_i32(filter.value.as_scalar()?)?;
-            query = apply_eq_filter!(
-                query,
-                filter,
-                col_if_index,
-                value,
-                "if_index filter only supports equality"
-            )?;
-        }
         "if_name" => {
             query = apply_text_filter!(query, filter, col_if_name)?;
         }
@@ -212,6 +202,12 @@ fn apply_filter<'a>(
                     return Err(ServiceError::InvalidRequest(
                         "ip_addresses filter does not support pattern matching".into(),
                     ));
+                }
+                _ => {
+                    return Err(ServiceError::InvalidRequest(format!(
+                        "ip_addresses filter does not support operator {:?}",
+                        filter.op
+                    )));
                 }
             }
         }

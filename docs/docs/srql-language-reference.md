@@ -38,6 +38,11 @@ The migrations in `00000000000003_ocsf_entity_state_streams.up.sql` and `0000000
 - Values are case-sensitive unless the underlying column is normalized. Use quotes for values with spaces: `device.location:"Building A"`.
 - SRQL maps lists with commas to SQL `IN`/`NOT IN`: `device_type_id:(1,7)`.
 
+### Range Queries
+- Use standard comparison operators for numeric fields: `usage_percent:>80`, `latency_ms:>=500`.
+- Supported operators: `>`, `>=`, `<`, `<=`.
+- Combine multiple filters for ranges: `usage_percent:>80 usage_percent:<90`.
+
 ### Nested Attributes
 Wrap a nested group in parentheses to drill into OCSF objects:
 ```

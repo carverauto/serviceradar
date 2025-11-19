@@ -292,10 +292,17 @@ fn add_text_condition(
         FilterOp::NotIn => {
             let values = filter.value.as_list()?.to_vec();
             if values.is_empty() {
+                // If "NOT IN" an empty list, it's always true, so no condition needed.
                 return Ok(());
             }
             clauses.push(format!("{column} <> ALL(?)"));
             binds.push(SqlBindValue::TextArray(values));
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "text filter {column} does not support operator {:?}",
+                filter.op
+            )))
         }
     }
 
