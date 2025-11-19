@@ -20,6 +20,50 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install build dependencies
+        run: |
+          ensure_pkg_config() {
+            if command -v pkg-config >/dev/null 2>&1; then
+              return
+            fi
+
+            if command -v apt-get >/dev/null 2>&1; then
+              sudo apt-get install -y pkg-config
+            elif command -v dnf >/dev/null 2>&1; then
+              if ! sudo dnf install -y pkgconfig; then
+                sudo dnf install -y pkgconf-pkg-config
+              fi
+            elif command -v yum >/dev/null 2>&1; then
+              if ! sudo yum install -y pkgconfig; then
+                sudo yum install -y pkgconf-pkg-config
+              fi
+            elif command -v microdnf >/dev/null 2>&1; then
+              if ! sudo microdnf install -y pkgconfig; then
+                sudo microdnf install -y pkgconf-pkg-config
+              fi
+            else
+              echo "pkg-config is required but no supported package manager was found." >&2
+              exit 1
+            fi
+          }
+
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler
+          elif command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y gcc gcc-c++ make openssl-devel protobuf-compiler
+          elif command -v yum >/dev/null 2>&1; then
+            sudo yum install -y gcc gcc-c++ make openssl-devel protobuf-compiler
+          elif command -v microdnf >/dev/null 2>&1; then
+            sudo microdnf install -y gcc gcc-c++ make openssl-devel protobuf-compiler
+          else
+            echo "Unsupported package manager; please install gcc, g++ (or clang), make, OpenSSL headers, pkg-config, and protoc manually." >&2
+            exit 1
+          fi
+
+          ensure_pkg_config
+          protoc --version || (echo "protoc installation failed" && exit 1)
+
       - name: Setup Bazel
         uses: bazelbuild/setup-bazelisk@v3
 
