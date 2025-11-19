@@ -17,12 +17,12 @@ build_event_streaming:
 
 execution_config:
   platform_properties:
-    container-image: "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.11"
+    container-image: "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.13"
     OSFamily: "linux"
     Arch: "amd64"
   max_execution_timeout_seconds: 3600
   default_exec_properties:
-    dockerNetwork: "off"
+    dockerNetwork: "host"
     Pool: "default"
 
 # Authentication - set via environment variables:
