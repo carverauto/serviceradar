@@ -49,6 +49,9 @@ docker-compose up -d
 # Check status
 docker-compose ps
 
+# Bring up Kong API Gateway + NGINX
+docker compose up -d nginx kong
+
 # View logs
 docker-compose logs -f web
 
