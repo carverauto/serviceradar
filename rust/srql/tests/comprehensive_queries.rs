@@ -1,12 +1,14 @@
 mod support;
 
-use support::{read_json, with_srql_harness};
 use srql::query::{QueryDirection, QueryRequest};
+use support::{read_json, with_srql_harness};
+
+type BodyValidator = Box<dyn Fn(&serde_json::Value) + Send + Sync>;
 
 struct TestCase<'a> {
     query: &'a str,
     expected_count: usize,
-    validator: Option<Box<dyn Fn(&serde_json::Value) + Send + Sync>>,
+    validator: Option<BodyValidator>,
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -68,7 +70,10 @@ async fn comprehensive_queries_match_fixtures() {
                 body
             );
             let rows = body["results"].as_array().unwrap_or_else(|| {
-                panic!("'results' field is not an array or is missing. Body: {}", body)
+                panic!(
+                    "'results' field is not an array or is missing. Body: {}",
+                    body
+                )
             });
             assert_eq!(
                 rows.len(),

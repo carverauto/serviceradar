@@ -181,7 +181,7 @@ func detectLocalIPv4() (string, error) {
 	return "", errNoNonLoopbackInterface
 }
 
-var lookupHostIPs = func(host string) ([]net.IP, error) {
+func lookupHostIPs(host string) ([]net.IP, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -196,7 +196,6 @@ var lookupHostIPs = func(host string) ([]net.IP, error) {
 			ips = append(ips, addr.IP)
 		}
 	}
-
 	return ips, nil
 }
 

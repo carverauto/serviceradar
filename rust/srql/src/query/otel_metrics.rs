@@ -428,12 +428,10 @@ fn build_text_clause(
             };
             Ok(format!("{column} {operator}"))
         }
-        _ => {
-            return Err(ServiceError::InvalidRequest(format!(
-                "text filter {column} does not support operator {:?}",
-                filter.op
-            )))
-        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "text filter {column} does not support operator {:?}",
+            filter.op
+        ))),
     }
 }
 
