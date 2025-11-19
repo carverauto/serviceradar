@@ -47,6 +47,70 @@ async fn comprehensive_queries_match_fixtures() {
                 assert_eq!(body["results"][0]["name"], "handle_request")
             })),
         },
+        // Device Query Tests
+        TestCase {
+            // device-delta is 8 days old, so last_7d should exclude it.
+            // device-alpha (30m), device-beta (3h), device-gamma (2h) should be included.
+            query: "in:devices time:last_7d",
+            expected_count: 3,
+            validator: None,
+        },
+        TestCase {
+            // Only device-alpha (30m) is within the last hour.
+            query: "in:devices time:last_1h",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["device_id"], "device-alpha")
+            })),
+        },
+        TestCase {
+            // Sort by last_seen desc. device-alpha (30m) > gamma (2h) > beta (3h) > delta (8d)
+            query: "in:devices sort:last_seen:desc",
+            expected_count: 4,
+            validator: Some(Box::new(|body| {
+                let results = body["results"].as_array().unwrap();
+                assert_eq!(results[0]["device_id"], "device-alpha");
+                assert_eq!(results[1]["device_id"], "device-gamma");
+                assert_eq!(results[2]["device_id"], "device-beta");
+                assert_eq!(results[3]["device_id"], "device-delta");
+            })),
+        },
+        TestCase {
+            // Sort by last_seen asc. delta (8d) < beta (3h) < gamma (2h) < alpha (30m)
+            query: "in:devices sort:last_seen:asc",
+            expected_count: 4,
+            validator: Some(Box::new(|body| {
+                let results = body["results"].as_array().unwrap();
+                assert_eq!(results[0]["device_id"], "device-delta");
+                assert_eq!(results[1]["device_id"], "device-beta");
+                assert_eq!(results[2]["device_id"], "device-gamma");
+                assert_eq!(results[3]["device_id"], "device-alpha");
+            })),
+        },
+        TestCase {
+            // Limit 2. Should return top 2 based on default sort (last_seen desc) -> alpha, gamma
+            query: "in:devices limit:2",
+            expected_count: 2,
+            validator: Some(Box::new(|body| {
+                let results = body["results"].as_array().unwrap();
+                assert_eq!(results[0]["device_id"], "device-alpha");
+                assert_eq!(results[1]["device_id"], "device-gamma");
+            })),
+        },
+        TestCase {
+            // is_available:true -> alpha, gamma, delta
+            query: "in:devices is_available:true",
+            expected_count: 3,
+            validator: None,
+        },
+        TestCase {
+            // is_available:false -> beta
+            query: "in:devices is_available:false",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["device_id"], "device-beta")
+            })),
+        },
     ];
 
     with_srql_harness(|harness| async move {
