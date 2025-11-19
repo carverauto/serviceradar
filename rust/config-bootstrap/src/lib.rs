@@ -6,7 +6,8 @@
 //! 1. Load config from disk (JSON or TOML)
 //! 2. Overlay KV values (if present)
 //! 3. Seed sanitized defaults to KV (when missing)
-//! 4. Watch for KV changes and trigger reload hooks
+//! 4. Overlay a pinned filesystem config (if provided) so sensitive values win over KV
+//! 5. Watch for KV changes and trigger reload hooks
 //!
 //! # Example
 //!
@@ -27,6 +28,7 @@
 //!         config_path: "/etc/serviceradar/my-service.toml".to_string(),
 //!         format: ConfigFormat::Toml,
 //!         kv_key: Some("config/my-service.toml".to_string()),
+//!         pinned_path: config_bootstrap::pinned_path_from_env(),
 //!         seed_kv: true,
 //!         watch_kv: false,
 //!     };
@@ -49,6 +51,8 @@ pub use watch::ConfigWatcher;
 
 use kvutil::{KvClient, KvError};
 use serde::{Deserialize, Serialize};
+use std::env;
+use std::fs;
 use std::path::Path;
 use thiserror::Error;
 
@@ -96,6 +100,14 @@ impl ConfigFormat {
     }
 }
 
+/// Derive a trimmed pinned config path from the `PINNED_CONFIG_PATH` environment variable.
+pub fn pinned_path_from_env() -> Option<String> {
+    env::var("PINNED_CONFIG_PATH")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// Options for bootstrapping a service configuration.
 #[derive(Debug, Clone)]
 pub struct BootstrapOptions {
@@ -110,6 +122,9 @@ pub struct BootstrapOptions {
 
     /// Optional KV key (if None, KV is not used)
     pub kv_key: Option<String>,
+
+    /// Optional pinned config path to overlay last (overrides KV + defaults)
+    pub pinned_path: Option<String>,
 
     /// Whether to seed sanitized config to KV when missing
     pub seed_kv: bool,
@@ -130,7 +145,13 @@ impl Bootstrap {
     ///
     /// If KV_ADDRESS is set, this will attempt to connect to the KV service.
     /// Connection failures are logged but not fatal (service can run from disk config only).
-    pub async fn new(opts: BootstrapOptions) -> Result<Self> {
+    pub async fn new(mut opts: BootstrapOptions) -> Result<Self> {
+        opts.pinned_path = opts
+            .pinned_path
+            .as_ref()
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty());
+
         let kv_client = if opts.kv_key.is_some() {
             match KvClient::connect_from_env().await {
                 Ok(client) => {
@@ -177,6 +198,7 @@ impl Bootstrap {
     /// 1. Load from disk
     /// 2. Overlay KV (if present)
     /// 3. Seed to KV (if missing and seed_kv is true)
+    /// 4. Overlay pinned file (if provided)
     pub async fn load<T>(&mut self) -> Result<T>
     where
         T: Serialize + for<'de> Deserialize<'de>,
@@ -243,6 +265,18 @@ impl Bootstrap {
             }
         }
 
+        // Step 4: Overlay pinned file last so it wins over KV and seeding does not persist it.
+        if let Some(ref pinned) = self.opts.pinned_path {
+            if !pinned.is_empty() {
+                tracing::info!(
+                    service = %self.opts.service_name,
+                    pinned = %pinned,
+                    "applying pinned config"
+                );
+                self.overlay_pinned(&mut config, pinned)?;
+            }
+        }
+
         Ok(config)
     }
 
@@ -272,6 +306,7 @@ impl Bootstrap {
             kv_key.clone(),
             self.opts.format,
             self.opts.service_name.clone(),
+            self.opts.pinned_path.clone(),
         )
         .await
         .map(Some)
@@ -303,6 +338,27 @@ impl Bootstrap {
                 Ok(config)
             }
         }
+    }
+
+    fn overlay_pinned<T>(&self, config: &mut T, pinned_path: &str) -> Result<()>
+    where
+        T: Serialize + for<'de> Deserialize<'de>,
+    {
+        let data = fs::read(pinned_path).map_err(|e| {
+            tracing::warn!(pinned = %pinned_path, error = %e, "failed to read pinned config");
+            e
+        })?;
+
+        match self.opts.format {
+            ConfigFormat::Json => {
+                kvutil::overlay_json(config, &data)?;
+            }
+            ConfigFormat::Toml => {
+                kvutil::overlay_toml(config, &data)?;
+            }
+        }
+
+        Ok(())
     }
 
     fn overlay_kv<T>(&self, config: &mut T, kv_data: &[u8]) -> Result<()>
@@ -377,6 +433,7 @@ mod tests {
             config_path: file.path().to_str().unwrap().to_string(),
             format: ConfigFormat::Json,
             kv_key: None,
+            pinned_path: None,
             seed_kv: false,
             watch_kv: false,
         };
@@ -405,6 +462,7 @@ log_level = "debug"
             config_path: file.path().to_str().unwrap().to_string(),
             format: ConfigFormat::Toml,
             kv_key: None,
+            pinned_path: None,
             seed_kv: false,
             watch_kv: false,
         };
@@ -423,6 +481,7 @@ log_level = "debug"
             config_path: "/nonexistent/path.json".to_string(),
             format: ConfigFormat::Json,
             kv_key: None,
+            pinned_path: None,
             seed_kv: false,
             watch_kv: false,
         };

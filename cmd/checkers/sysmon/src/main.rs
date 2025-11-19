@@ -68,6 +68,7 @@ async fn main() -> Result<()> {
         config_path: config_path_str.clone(),
         format: ConfigFormat::Json,
         kv_key,
+        pinned_path: config_bootstrap::pinned_path_from_env(),
         seed_kv: use_kv,
         watch_kv: use_kv,
     })

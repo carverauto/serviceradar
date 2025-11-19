@@ -463,8 +463,18 @@ func isEncryptedPEMBlock(block *pem.Block) bool {
 	return strings.EqualFold(procType, "4,ENCRYPTED")
 }
 
-// StartWatch sets up KV watching with hot-reload functionality
+// StartWatch sets up KV watching with hot-reload functionality.
 func (m *KVManager) StartWatch(ctx context.Context, kvKey string, cfg interface{}, logger logger.Logger, onReload func()) {
+	m.startWatch(ctx, kvKey, cfg, logger, "", nil, onReload)
+}
+
+// StartWatchWithPinned watches KV updates and reapplies the pinned config on every change.
+// pinnedPath should point to the pinned overlay file; cfgLoader is used for validation/normalization.
+func (m *KVManager) StartWatchWithPinned(ctx context.Context, kvKey string, cfg interface{}, logger logger.Logger, pinnedPath string, cfgLoader *Config, onReload func()) {
+	m.startWatch(ctx, kvKey, cfg, logger, pinnedPath, cfgLoader, onReload)
+}
+
+func (m *KVManager) startWatch(ctx context.Context, kvKey string, cfg interface{}, logger logger.Logger, pinnedPath string, cfgLoader *Config, onReload func()) {
 	if m == nil || m.client == nil {
 		return
 	}
@@ -475,6 +485,19 @@ func (m *KVManager) StartWatch(ctx context.Context, kvKey string, cfg interface{
 	}
 
 	StartKVWatchOverlay(ctx, m.client, kvKey, cfg, logger, func() {
+		if pinnedPath != "" && cfgLoader != nil {
+			if err := cfgLoader.OverlayPinned(ctx, pinnedPath, cfg); err != nil {
+				if logger != nil {
+					logger.Warn().
+						Err(err).
+						Str("key", kvKey).
+						Str("pinned_path", pinnedPath).
+						Msg("Failed to apply pinned overlay during KV watch")
+				}
+				return
+			}
+		}
+
 		currSnapshot, snapErr := newConfigSnapshot(cfg)
 		if snapErr != nil {
 			if logger != nil {

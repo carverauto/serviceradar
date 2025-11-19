@@ -8,6 +8,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"os"
+	"strings"
 )
 
 var (
@@ -34,6 +36,8 @@ type Result struct {
 	manager    *config.KVManager
 	descriptor config.ServiceDescriptor
 	instanceID string
+	cfgLoader  *config.Config
+	pinnedPath string
 }
 
 // Close closes the underlying KV manager if it was created.
@@ -80,6 +84,11 @@ func (r *Result) StartWatch(ctx context.Context, log logger.Logger, cfg interfac
 		}
 	}
 
+	if r.pinnedPath != "" && r.cfgLoader != nil {
+		r.manager.StartWatchWithPinned(watchCtx, r.descriptor.KVKey, cfg, log, r.pinnedPath, r.cfgLoader, wrappedReload)
+		return
+	}
+
 	r.manager.StartWatch(watchCtx, r.descriptor.KVKey, cfg, log, wrappedReload)
 }
 
@@ -123,6 +132,7 @@ func Service(ctx context.Context, desc config.ServiceDescriptor, cfg interface{}
 	}
 
 	cfgLoader := config.NewConfig(opts.Logger)
+	pinnedPath := strings.TrimSpace(os.Getenv("PINNED_CONFIG_PATH"))
 
 	var kvMgr *config.KVManager
 	if opts.Role != "" {
@@ -179,6 +189,13 @@ func Service(ctx context.Context, desc config.ServiceDescriptor, cfg interface{}
 		}
 	}
 
+	// Apply pinned config last: pinned > KV > default.
+	if pinnedPath != "" {
+		if err := cfgLoader.OverlayPinned(ctx, pinnedPath, cfg); err != nil {
+			return nil, err
+		}
+	}
+
 	instanceID := opts.InstanceID
 	if instanceID == "" {
 		instanceID = desc.Name
@@ -188,6 +205,8 @@ func Service(ctx context.Context, desc config.ServiceDescriptor, cfg interface{}
 		manager:    kvMgr,
 		descriptor: desc,
 		instanceID: instanceID,
+		cfgLoader:  cfgLoader,
+		pinnedPath: pinnedPath,
 	}
 
 	if kvMgr != nil {

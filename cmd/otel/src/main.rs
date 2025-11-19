@@ -33,6 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .to_string(),
         format: ConfigFormat::Toml,
         kv_key,
+        pinned_path: config_bootstrap::pinned_path_from_env(),
         seed_kv: use_kv,
         watch_kv: use_kv,
     })
