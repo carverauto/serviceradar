@@ -21,7 +21,7 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 - **Distributed Architecture**: Components can be installed across different hosts to suit your needs
 - **SRQL**: ServiceRadar Query Language -- intuitive key:value syntax for querying data
 - **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, and Apache AGE for relational, time-series, and graph data
-- **Observability**: Collect metrics, logs, and traces from SNMP, OTEL, and SYSLOG
+- **Observability**: Collect metrics, logs and traces (OTEL, GELF, Syslog), SNMP (polling or traps), NetFlow (coming soon), RPerf (iperf3-clone), BGP (BMP collector planned), gNMI (planned)
 - **Graph Network Mapper**: Advanced discovery engine using Apache AGE to map devices, interfaces, and topology relationships via SNMP/LLDP/CDP
 - **Security**: Support for mTLS to secure communications between components and API key authentication for web UI
 - **Rule Engine**: Blazing fast rust-based rule processing engine
