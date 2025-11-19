@@ -52,7 +52,7 @@ func newAgentPoller(
 		deviceHost: "",
 	}
 
-	deviceIP, deviceHost := resolveAgentHostMetadata(name, config, poller.resolvedSourceIP, poller.logger)
+	deviceIP, deviceHost := resolveAgentHostMetadata(name, config, poller.resolvedSourceIP, poller.logger, lookupHostIPs)
 	ap.deviceIP = deviceIP
 	ap.deviceHost = deviceHost
 
@@ -93,7 +93,11 @@ func newAgentPoller(
 	return ap
 }
 
-func resolveAgentHostMetadata(agentName string, config *AgentConfig, fallbackIP string, log logger.Logger) (ip string, host string) {
+func resolveAgentHostMetadata(agentName string, config *AgentConfig, fallbackIP string, log logger.Logger, lookup func(string) ([]net.IP, error)) (ip string, host string) {
+	if lookup == nil {
+		lookup = lookupHostIPs
+	}
+
 	candidates := make([]string, 0, 4)
 
 	// Environment override takes precedence (allowing explicit configuration per agent)
@@ -141,7 +145,7 @@ func resolveAgentHostMetadata(agentName string, config *AgentConfig, fallbackIP 
 			break
 		}
 
-		addrs, err := lookupHostIPs(cleaned)
+		addrs, err := lookup(cleaned)
 		if err != nil {
 			log.Debug().
 				Str("agent", agentName).

@@ -34,9 +34,10 @@ macro_rules! apply_text_filter {
                 }
             }
             _ => {
-                return Err(crate::error::ServiceError::InvalidRequest(
-                    format!("unsupported operator for text filter: {:?}", $filter.op)
-                ));
+                return Err(crate::error::ServiceError::InvalidRequest(format!(
+                    "unsupported operator for text filter: {:?}",
+                    $filter.op
+                )));
             }
         };
         Ok::<_, crate::error::ServiceError>(__next)
@@ -66,9 +67,10 @@ macro_rules! apply_text_filter_no_lists {
                 return Err(crate::error::ServiceError::InvalidRequest($error.into()));
             }
             _ => {
-                return Err(crate::error::ServiceError::InvalidRequest(
-                    format!("unsupported operator for text filter: {:?}", $filter.op)
-                ));
+                return Err(crate::error::ServiceError::InvalidRequest(format!(
+                    "unsupported operator for text filter: {:?}",
+                    $filter.op
+                )));
             }
         };
         Ok::<_, crate::error::ServiceError>(__next)
