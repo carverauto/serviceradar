@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"testing"
 	"time"
@@ -754,6 +755,13 @@ func TestResolveAgentHostMetadata_EnvOverride(t *testing.T) {
 }
 
 func TestResolveAgentHostMetadata_FallbackToPollerIP(t *testing.T) {
+	// Mock lookupHostIPs to avoid network calls and timeouts
+	originalLookup := lookupHostIPs
+	defer func() { lookupHostIPs = originalLookup }()
+	lookupHostIPs = func(host string) ([]net.IP, error) {
+		return nil, errors.New("lookup failed")
+	}
+
 	log := logger.NewTestLogger()
 	ip, host := resolveAgentHostMetadata("lonely-agent", &AgentConfig{Address: ":50051"}, "203.0.113.77", log)
 
