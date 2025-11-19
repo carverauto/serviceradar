@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   test-rust:
-    runs-on: oracle
+    runs-on: arc-runner-set
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
