@@ -771,15 +771,12 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 }
 
 // configReadySignal ensures the channel is only closed once even if multiple goroutines race to signal readiness.
-func newConfigReadySignal(ch chan<- struct{}) func() {
+func newConfigReadySignal(ch chan struct{}) func() {
 	var once sync.Once
 
 	return func() {
 		once.Do(func() {
-			select {
-			case ch <- struct{}{}:
-			default:
-			}
+			close(ch)
 		})
 	}
 }
