@@ -60,9 +60,7 @@ docker-compose logs config-updater
 ```
 
 **Access ServiceRadar:**
-- **Web UI**: http://localhost (login: admin / serviceradar2025)
-- **API**: http://localhost/api/status
-- **Database**: localhost:8123 (HTTP) / localhost:9440 (HTTPS)
+- **Web UI**: http://localhost (login: admin / randomPW)
 
 **Stop Services:**
 ```bash
