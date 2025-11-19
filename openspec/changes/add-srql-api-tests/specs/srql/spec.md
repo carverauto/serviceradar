@@ -51,3 +51,11 @@ Unit tests MUST exercise the SRQL language primitives documented in `docs/docs/s
 - **GIVEN** translator-level unit tests that mirror the SRQL examples `in:devices discovery_sources:(sweep) discovery_sources:(armis) time:last_7d sort:last_seen:desc`, `in:services service_type:(ssh,sftp) timeFrame:"14 Days" sort:timestamp:desc`, and doc-driven stats queries (`docs/docs/srql-language-reference.md:93-104`)
 - **WHEN** the translator parses and plans those DSL statements and the module-level stats helpers (devices, interfaces, pollers, cpu_metrics, logs) build SQL via `to_debug_sql`
 - **THEN** the tests assert that filter semantics, order clauses, and stats SQL (e.g., `avg(usage_percent) as avg_cpu by device_id`) match the documented behavior so future parser refactors cannot silently change field mapping, alias propagation, or JSON payload structure.
+
+### Requirement: Comprehensive Entity Coverage
+The test suite MUST cover all primary SRQL entities to ensure consistent behavior across the entire DSL surface area.
+
+#### Scenario: All entities queryable via harness
+- **GIVEN** the SRQL test harness with a fully seeded fixture containing data for all entities
+- **WHEN** tests issue queries for `pollers`, `services`, `cpu_metrics`, `logs`, and `otel_traces`
+- **THEN** the system returns correct results for each entity type, validating that the DSL implementation correctly maps to the underlying CNPG tables for all supported domains.

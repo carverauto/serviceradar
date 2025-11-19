@@ -46,3 +46,23 @@ rust_test(
     ] + all_crate_deps(normal = True, normal_dev = True),
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
+
+rust_test(
+    name = "srql_comprehensive_test",
+    srcs = [
+        "tests/comprehensive_queries.rs",
+        "tests/support/harness.rs",
+        "tests/support/mod.rs",
+    ],
+    data = [
+        "tests/fixtures/schema.sql",
+        "tests/fixtures/seed.sql",
+    ],
+    crate_name = "srql_comprehensive_tests",
+    crate_root = "tests/comprehensive_queries.rs",
+    edition = "2021",
+    deps = [
+        ":srql_lib",
+    ] + all_crate_deps(normal = True, normal_dev = True),
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)
