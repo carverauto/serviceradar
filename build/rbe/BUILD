@@ -9,8 +9,8 @@ platform(
     exec_properties = {
         "OSFamily": "Linux",
         "Arch": "amd64",
-        "dockerNetwork": "off",
-        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.11",
+        "dockerNetwork": "host",
+        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.13",
     },
     visibility = ["//visibility:public"],
 )

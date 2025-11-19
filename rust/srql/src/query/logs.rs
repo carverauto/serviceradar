@@ -580,7 +580,11 @@ mod tests {
             "payload should be shaped as JSON object: {}",
             stats_sql.sql
         );
-        assert_eq!(stats_sql.binds.len(), 3, "time range + filter binds expected");
+        assert_eq!(
+            stats_sql.binds.len(),
+            3,
+            "time range + filter binds expected"
+        );
     }
 
     fn stats_plan(stats: &str, service_name: &str) -> QueryPlan {

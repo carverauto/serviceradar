@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: srql-fixture-rw-ext
+  namespace: srql-fixtures
+  labels:
+    app: srql-fixture
+  annotations:
+    metallb.universe.tf/address-pool: k3s-pool
+    metallb.universe.tf/ip-addr-pool: k3s-pool
+    metallb.universe.tf/allow-shared-ip: serviceradar-public
+    external-dns.alpha.kubernetes.io/hostname: srql-fixture.serviceradar.cloud.
+spec:
+  type: LoadBalancer
+  selector:
+    cnpg.io/cluster: srql-fixture
+    cnpg.io/instanceRole: primary
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

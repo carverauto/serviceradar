@@ -1,4 +1,4 @@
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 load("@rust_crates//:defs.bzl", "all_crate_deps")
 
 rust_library(
@@ -25,4 +25,24 @@ rust_binary(
     ] + all_crate_deps(normal = True),
     proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],
+)
+
+rust_test(
+    name = "srql_api_test",
+    srcs = [
+        "tests/api.rs",
+        "tests/support/harness.rs",
+        "tests/support/mod.rs",
+    ],
+    data = [
+        "tests/fixtures/schema.sql",
+        "tests/fixtures/seed.sql",
+    ],
+    crate_name = "srql_api_tests",
+    crate_root = "tests/api.rs",
+    edition = "2021",
+    deps = [
+        ":srql_lib",
+    ] + all_crate_deps(normal = True, normal_dev = True),
+    proc_macro_deps = all_crate_deps(proc_macro = True),
 )

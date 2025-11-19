@@ -1,0 +1,50 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: srql-fixture
+  namespace: srql-fixtures
+spec:
+  description: Shared CNPG instance for SRQL API tests (Timescale + Apache AGE)
+  instances: 2
+  imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr1@sha256:68f2c4e55b553e7f5f710b28c9c19a56dc37de467543e9b31d4afe002df9d2ac
+  imagePullSecrets:
+    - name: ghcr-io-cred
+
+  storage:
+    size: 20Gi
+    storageClass: local-path
+
+  bootstrap:
+    initdb:
+      database: srql_fixture
+      owner: srql
+      secret:
+        name: srql-test-db-credentials
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS timescaledb;
+        - CREATE EXTENSION IF NOT EXISTS age;
+
+  postgresql:
+    shared_preload_libraries:
+      - timescaledb
+      - age
+    parameters:
+      max_connections: "200"
+      shared_buffers: 512MB
+
+  managed:
+    roles:
+      - name: srql
+        ensure: present
+        login: true
+        passwordSecret:
+          name: srql-test-db-credentials
+      - name: srql_hydra
+        ensure: present
+        login: true
+        superuser: true
+        passwordSecret:
+          name: srql-test-admin-credentials
+
+  monitoring:
+    enablePodMonitor: true
