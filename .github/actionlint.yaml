@@ -1,0 +1,4 @@
+# Self-hosted runner configuration for actionlint
+self-hosted-runner:
+  labels:
+    - arc-runner-set
