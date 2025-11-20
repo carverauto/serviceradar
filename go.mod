@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/atotto/clipboard v0.1.4
-	github.com/bazelbuild/rules_go v0.58.3
+	github.com/bazelbuild/rules_go v0.59.0
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
