@@ -57,7 +57,6 @@ func TestDefaultsCanBeStoredInJetStreamKV(t *testing.T) {
 	})
 
 	for _, tc := range defaultConfigs(t) {
-		tc := tc
 		t.Run(tc.Service, func(t *testing.T) {
 			desc, ok := config.ServiceDescriptorFor(tc.Service)
 			require.True(t, ok, "service descriptor not found")

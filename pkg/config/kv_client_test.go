@@ -212,12 +212,12 @@ func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cfg := &watcherTestConfig{
+	cfg := newThreadSafeWatcherConfig(watcherTestConfig{
 		ListenAddr: ":8080",
 		Logging: &logger.Config{
 			Level: "info",
 		},
-	}
+	})
 
 	reloads := make(chan struct{}, 2)
 	manager.StartWatch(ctx, "config/agent/test.json", cfg, logger.NewTestLogger(), func() {
@@ -234,8 +234,8 @@ func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
 		t.Fatalf("timed out waiting for reload triggered by listen_addr change")
 	}
 
-	if cfg.ListenAddr != ":9090" {
-		t.Fatalf("expected config to apply listen_addr change, got %q", cfg.ListenAddr)
+	if snap := cfg.snapshot(); snap.ListenAddr != ":9090" {
+		t.Fatalf("expected config to apply listen_addr change, got %q", snap.ListenAddr)
 	}
 
 	store.emit([]byte(`{"listen_addr":":9090"}`))
@@ -255,12 +255,12 @@ func TestKVManagerStartWatchReappliesPinnedOverlay(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cfg := &watcherTestConfig{
+	cfg := newThreadSafeWatcherConfig(watcherTestConfig{
 		ListenAddr: ":8080",
 		Logging: &logger.Config{
 			Level: "info",
 		},
-	}
+	})
 
 	pinnedDir := t.TempDir()
 	pinnedPath := filepath.Join(pinnedDir, "pinned.json")
@@ -289,17 +289,51 @@ func TestKVManagerStartWatchReappliesPinnedOverlay(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	if cfg.ListenAddr != ":6060" {
-		t.Fatalf("expected pinned listen_addr to remain, got %q", cfg.ListenAddr)
+	snap := cfg.snapshot()
+	if snap.ListenAddr != ":6060" {
+		t.Fatalf("expected pinned listen_addr to remain, got %q", snap.ListenAddr)
 	}
-	if cfg.Logging == nil || strings.ToLower(cfg.Logging.Level) != "warn" {
-		t.Fatalf("expected pinned logging.level of warn, got %#v", cfg.Logging)
+	if snap.Logging == nil || strings.ToLower(snap.Logging.Level) != "warn" {
+		t.Fatalf("expected pinned logging.level of warn, got %#v", snap.Logging)
 	}
 }
 
 type watcherTestConfig struct {
 	ListenAddr string         `json:"listen_addr"`
 	Logging    *logger.Config `json:"logging,omitempty" hot:"reload"`
+}
+
+type threadSafeWatcherConfig struct {
+	mu sync.RWMutex
+	watcherTestConfig
+}
+
+func newThreadSafeWatcherConfig(cfg watcherTestConfig) *threadSafeWatcherConfig {
+	return &threadSafeWatcherConfig{watcherTestConfig: cfg}
+}
+
+func (c *threadSafeWatcherConfig) MarshalJSON() ([]byte, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return json.Marshal(c.watcherTestConfig)
+}
+
+func (c *threadSafeWatcherConfig) UnmarshalJSON(data []byte) error {
+	var tmp watcherTestConfig
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	c.watcherTestConfig = tmp
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *threadSafeWatcherConfig) snapshot() watcherTestConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.watcherTestConfig
 }
 
 type watchKVStore struct {
