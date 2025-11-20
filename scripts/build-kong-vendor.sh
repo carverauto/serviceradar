@@ -179,6 +179,46 @@ ensure_zlib() {
   exit 1
 }
 
+ensure_libyaml() {
+  if pkg-config --exists yaml-0.1 2>/dev/null || [[ -f /usr/include/yaml.h || -f /usr/local/include/yaml.h ]]; then
+    info "Found libyaml development files" >&2
+    return
+  fi
+
+  if command -v apt-get >/dev/null 2>&1; then
+    info "Installing libyaml via apt-get (libyaml-dev)" >&2
+    if command -v sudo >/dev/null 2>&1; then
+      sudo apt-get update -y >/dev/null
+      sudo apt-get install -y libyaml-dev >/dev/null
+    else
+      apt-get update -y >/dev/null
+      apt-get install -y libyaml-dev >/dev/null
+    fi
+    return
+  fi
+
+  if command -v yum >/dev/null 2>&1; then
+    info "Installing libyaml via yum (libyaml-devel)" >&2
+    yum install -y libyaml-devel >/dev/null
+    return
+  fi
+
+  if command -v dnf >/dev/null 2>&1; then
+    info "Installing libyaml via dnf (libyaml-devel)" >&2
+    dnf install -y libyaml-devel >/dev/null
+    return
+  fi
+
+  if command -v apk >/dev/null 2>&1; then
+    info "Installing libyaml via apk (yaml-dev)" >&2
+    apk add --no-progress --update yaml-dev >/dev/null
+    return
+  fi
+
+  echo "[kong] libyaml development headers not found. Install libyaml-dev (or equivalent) before running." >&2
+  exit 1
+}
+
 configure_remote_exec() {
   if [[ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]]; then
     return
@@ -397,6 +437,7 @@ main() {
   ensure_clone
   ensure_cc
   ensure_zlib
+  ensure_libyaml
   configure_remote_exec
   local bazel_bin
   bazel_bin=$(ensure_bazel)
