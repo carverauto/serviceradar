@@ -168,11 +168,28 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          cmd=(bazel run --config=remote --stamp //docker/images:push_all)
+          run_bazel() {
+            local -a bazel_flags=("$@"); shift $#
+            bazel "${bazel_flags[@]}" //docker/images:push_all "${@}"
+          }
+
+          extra_args=()
           if [[ -n "${RELEASE_TAG}" ]]; then
-            cmd+=(-- --tag "${RELEASE_TAG}")
+            extra_args+=(-- --tag "${RELEASE_TAG}")
           fi
-          "${cmd[@]}"
+
+          if ! bazel run --config=remote --stamp //docker/images:push_all "${extra_args[@]}"; then
+            echo "Remote bazel run failed; retrying locally without remote executor/cache" >&2
+            bazel run \
+              --remote_executor= \
+              --remote_cache= \
+              --noremote_accept_cached \
+              --noremote_upload_local_results \
+              --jobs=8 \
+              --stamp \
+              //docker/images:push_all \
+              "${extra_args[@]}"
+          fi
 
       - name: Publish Debian and RPM packages
         env:
