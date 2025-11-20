@@ -1,3 +1,12 @@
+# ServiceRadar v1.0.54
+
+TimescaleDB extension rebuild for CNPG image.
+
+## Whats New
+
+**1.0.54**
+- Bundled a hermetic CMake into the TimescaleDB extension layer build so Bazel releases succeed even when executors lack cmake, re-cutting the v1.0.54 tag.
+
 # ServiceRadar v1.0.54-pre6
 
 Core admin UI polish and onboarding fixes.
