@@ -14,9 +14,20 @@
  * limitations under the License.
  */
 
+// Force webpack for Bazel builds to avoid Turbopack symlink checks in the sandbox.
+if (!process.env.TURBOPACK) {
+  process.env.TURBOPACK = "0";
+}
+if (!process.env.NEXT_PRIVATE_SKIP_TURBOPACK) {
+  process.env.NEXT_PRIVATE_SKIP_TURBOPACK = "1";
+}
+
 const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
+  experimental: {
+    turbo: false,
+  },
   env: {
     NEXT_PUBLIC_API_URL:
       process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090",
