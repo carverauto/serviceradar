@@ -1524,6 +1524,7 @@ genrule(
         "//docker/images:extract_rootfs.py",
         "//docker/images:overlay_deb_packages.py",
         "//docker/images:pg_config_rewrite.py",
+        "@cmake_linux_amd64_prebuilt//:cmake_bin",
     ],
     cmd = """
 set -euo pipefail
@@ -1553,9 +1554,12 @@ cp "$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wra
 chmod +x "$${OUT_DIR}/pg_config_wrapper_ts.sh"
 cp "$(location //docker/images:pg_config_rewrite.py)" "$${OUT_DIR}/pg_config_rewrite.py"
 
+CMAKE_BIN="$(location @cmake_linux_amd64_prebuilt//:cmake_bin)"
+chmod +x "$${CMAKE_BIN}"
+CMAKE_DIR="$$(dirname "$${CMAKE_BIN}")"
 export CNPG_ROOT="$${ROOT_DIR}"
 export CNPG_REAL_PG_CONFIG="$${ROOT_DIR}/usr/lib/postgresql/16/bin/pg_config"
-export PATH="$${ROOT_DIR}/usr/lib/postgresql/16/bin:$${ROOT_DIR}/usr/bin:/usr/bin:/bin"
+export PATH="$${CMAKE_DIR}:$${ROOT_DIR}/usr/lib/postgresql/16/bin:$${ROOT_DIR}/usr/bin:/usr/bin:/bin"
 export PKG_CONFIG_PATH="$${ROOT_DIR}/usr/lib/pkgconfig:$${ROOT_DIR}/usr/lib/x86_64-linux-gnu/pkgconfig"
 cd "$${OUT_DIR}/timescaledb"
 BUILD_FORCE_REMOVE=true ./bootstrap -DREGRESS_CHECKS=OFF -DPROJECT_INSTALL_METHOD=docker -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPG_CONFIG="$${OUT_DIR}/pg_config_wrapper_ts.sh"
