@@ -53,6 +53,7 @@ var (
 	errDecodePrivateKeyPEM   = errors.New("failed to decode private key PEM")
 	errUnsupportedPrivateKey = errors.New("unsupported private key type")
 	errUnsupportedConfigType = errors.New("unsupported config type")
+	errFailedToParseCACert   = errors.New("failed to parse CA cert")
 )
 
 const (
@@ -633,7 +634,7 @@ func NewNATSClientFromEnv(ctx context.Context, role models.ServiceRole) (kv.KVSt
 	}
 
 	secMode := strings.ToLower(strings.TrimSpace(os.Getenv("KV_SEC_MODE")))
-	if secMode == "mtls" {
+	if secMode == string(models.SecurityModeMTLS) {
 		certFile := os.Getenv("KV_CERT_FILE")
 		keyFile := os.Getenv("KV_KEY_FILE")
 		caFile := os.Getenv("KV_CA_FILE")
@@ -653,7 +654,7 @@ func NewNATSClientFromEnv(ctx context.Context, role models.ServiceRole) (kv.KVSt
 			}
 			caPool := x509.NewCertPool()
 			if !caPool.AppendCertsFromPEM(caCert) {
-				return nil, fmt.Errorf("failed to parse CA cert")
+				return nil, errFailedToParseCACert
 			}
 
 			tlsConfig := &tls.Config{
@@ -692,7 +693,7 @@ func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (pr
 	var sec *models.SecurityConfig
 
 	switch secMode {
-	case "mtls":
+	case string(models.SecurityModeMTLS):
 		cert := strings.TrimSpace(os.Getenv("KV_CERT_FILE"))
 		key := strings.TrimSpace(os.Getenv("KV_KEY_FILE"))
 		ca := strings.TrimSpace(os.Getenv("KV_CA_FILE"))
@@ -701,7 +702,7 @@ func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (pr
 		}
 
 		sec = &models.SecurityConfig{
-			Mode: "mtls",
+			Mode: models.SecurityModeMTLS,
 			TLS: models.TLSConfig{
 				CertFile: cert,
 				KeyFile:  key,
@@ -710,7 +711,7 @@ func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (pr
 			ServerName: strings.TrimSpace(os.Getenv("KV_SERVER_NAME")),
 			Role:       role,
 		}
-	case "spiffe":
+	case string(models.SecurityModeSPIFFE):
 		trustDomain := strings.TrimSpace(os.Getenv("KV_TRUST_DOMAIN"))
 		serverID := strings.TrimSpace(os.Getenv("KV_SERVER_SPIFFE_ID"))
 		workloadSocket := strings.TrimSpace(os.Getenv("KV_WORKLOAD_SOCKET"))
@@ -719,16 +720,16 @@ func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (pr
 		}
 
 		sec = &models.SecurityConfig{
-			Mode:           "spiffe",
+			Mode:           models.SecurityModeSPIFFE,
 			CertDir:        strings.TrimSpace(os.Getenv("KV_CERT_DIR")),
 			Role:           role,
 			TrustDomain:    trustDomain,
 			ServerSPIFFEID: serverID,
 			WorkloadSocket: workloadSocket,
 		}
-	case "none":
+	case string(models.SecurityModeNone):
 		sec = &models.SecurityConfig{
-			Mode: "none",
+			Mode: models.SecurityModeNone,
 			Role: role,
 		}
 	default:
@@ -768,11 +769,11 @@ func ShouldUseKVFromEnv() bool {
 
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("KV_SEC_MODE")))
 	switch mode {
-	case "mtls":
+	case string(models.SecurityModeMTLS):
 		return allEnvSet("KV_CERT_FILE", "KV_KEY_FILE", "KV_CA_FILE")
-	case "spiffe":
+	case string(models.SecurityModeSPIFFE):
 		return allEnvSet("KV_TRUST_DOMAIN", "KV_SERVER_SPIFFE_ID")
-	case "none":
+	case string(models.SecurityModeNone):
 		return true
 	default:
 		return false

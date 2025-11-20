@@ -48,3 +48,9 @@ type SecurityConfig struct {
 
 // SecurityMode defines the type of security to use.
 type SecurityMode string
+
+const (
+	SecurityModeMTLS   SecurityMode = "mtls"
+	SecurityModeSPIFFE SecurityMode = "spiffe"
+	SecurityModeNone   SecurityMode = "none"
+)

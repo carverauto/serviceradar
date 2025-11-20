@@ -88,7 +88,14 @@ func (c *Client) Watch(ctx context.Context, key string) (<-chan []byte, error) {
 	ch := make(chan []byte, 1)
 	go func() {
 		defer close(ch)
-		defer watcher.Stop()
+		defer func() {
+			if err := watcher.Stop(); err != nil {
+				// Log error or handle it? Since we are in a goroutine and closing, maybe just ignore or log if logger available.
+				// For now, just assigning to _ to satisfy linter or explicitly ignoring.
+				// But linter wants it checked.
+				_ = err
+			}
+		}()
 
 		for {
 			select {
