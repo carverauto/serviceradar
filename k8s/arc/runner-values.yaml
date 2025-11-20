@@ -1,5 +1,5 @@
 # Overrides for gha-runner-scale-set to pin a custom runner image with build tooling.
-runnerScaleSetName: serviceradar
+runnerScaleSetName: arc-runner-set
 
 template:
   spec:
