@@ -254,6 +254,10 @@ nextjs_standalone_build(
     config = "next.config.bazel.mjs",
     srcs = NEXT_APP_SRCS + [":next_env_d_ts"],
     next_js_binary = ":next_js_binary",
+    env = {
+        "TURBOPACK": "0",
+        "NEXT_PRIVATE_SKIP_TURBOPACK": "1",
+    },
     visibility = ["//visibility:public"],
     data = [
         ":node_modules",
