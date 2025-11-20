@@ -20,7 +20,7 @@ cargo_build_script(
     ]),
     data = ["@bazel_tools//tools/proto:protoc"] + genrule_proto_srcs,
     build_script_env = {
-        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+        "PROTOC": "$(rootpath @bazel_tools//tools/proto:protoc)",
     },
 )
 

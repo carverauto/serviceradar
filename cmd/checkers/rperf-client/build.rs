@@ -22,12 +22,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rperf_descriptor_path = Path::new(&out_dir).join("rperf_descriptor.bin");
     let monitoring_descriptor_path = Path::new(&out_dir).join("monitoring_descriptor.bin");
 
-    // Force tonic/prost to use the system-installed protoc
-    // Use Linux paths for RBE, macOS paths for local development
+    // Force tonic/prost to use a known protoc: prefer an injected PROTOC (from Bazel)
+    // then fall back to platform defaults.
+    let protoc_env = env::var("PROTOC").ok();
+    let resolved_protoc = match protoc_env {
+        Some(candidate) => normalize_exe(&candidate)
+            .or_else(|_| resolve_in_runfiles(&candidate))
+            .or_else(|_| which::which(&candidate))
+            .ok(),
+        None => None,
+    };
+
+    if let Some(protoc) = resolved_protoc {
+        env::set_var("PROTOC", protoc);
+    } else if let Ok(protoc) = which::which("protoc") {
+        env::set_var("PROTOC", protoc);
+    } else if !cfg!(target_os = "macos") {
+        env::set_var("PROTOC", "/usr/bin/protoc");
+    }
+
     if cfg!(target_os = "macos") {
-        if let Ok(protoc) = which::which("protoc") {
-            env::set_var("PROTOC", protoc);
-        }
         // For macOS with Homebrew
         if Path::new("/opt/homebrew/opt/protobuf/include").exists() {
             env::set_var("PROTOC_INCLUDE", "/opt/homebrew/opt/protobuf/include");
@@ -35,9 +49,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             env::set_var("PROTOC_INCLUDE", "/usr/local/opt/protobuf/include");
         }
     } else {
-        // Linux paths for RBE
-        env::set_var("PROTOC", "/usr/bin/protoc");
         env::set_var("PROTOC_INCLUDE", "/usr/include");
+    }
+
+    if let Ok(protoc) = env::var("PROTOC") {
+        println!("cargo:warning=PROTOC={}", protoc);
+        if !Path::new(&protoc).exists() {
+            return Err(format!("protoc not found at {}", protoc).into());
+        }
     }
 
     tonic_build::configure()
@@ -55,4 +74,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=src/proto/rperf.proto");
     println!("cargo:rerun-if-changed=src/proto/monitoring.proto");
     Ok(())
+}
+
+fn normalize_exe(path: &str) -> Result<std::path::PathBuf, std::io::Error> {
+    let p = Path::new(path);
+    if p.is_absolute() {
+        std::fs::canonicalize(p)
+    } else {
+        let cwd = env::current_dir()?;
+        std::fs::canonicalize(cwd.join(p))
+    }
+}
+
+fn resolve_in_runfiles(path: &str) -> Result<std::path::PathBuf, std::io::Error> {
+    let runfiles = match env::var("RUNFILES_DIR") {
+        Ok(dir) => dir,
+        Err(_) => return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "RUNFILES_DIR unset")),
+    };
+    std::fs::canonicalize(Path::new(&runfiles).join(path))
 }
