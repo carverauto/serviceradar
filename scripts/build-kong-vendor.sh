@@ -212,11 +212,25 @@ ensure_bazel() {
     return
   fi
 
-  if command -v make >/dev/null 2>&1; then
-    info "Installing bazelisk wrapper via make check-bazel" >&2
-    (cd "${KONG_CLONE_DIR}" && make check-bazel >/dev/null)
-  else
-    local os machine version url
+  if command -v bazelisk >/dev/null 2>&1; then
+    info "Using bazelisk from PATH" >&2
+    mkdir -p "$(dirname "${bazel_bin}")"
+    ln -sf "$(command -v bazelisk)" "${bazel_bin}"
+    printf '%s\n' "${bazel_bin}"
+    return
+  fi
+
+  if command -v bazel >/dev/null 2>&1; then
+    info "Using bazel from PATH" >&2
+    mkdir -p "$(dirname "${bazel_bin}")"
+    ln -sf "$(command -v bazel)" "${bazel_bin}"
+    printf '%s\n' "${bazel_bin}"
+    return
+  fi
+
+  download_bazelisk() {
+    local dest="$1"
+    local os machine version url attempt
     os=$(uname | tr '[:upper:]' '[:lower:]')
     machine=$(uname -m)
     case "$machine" in
@@ -225,10 +239,29 @@ ensure_bazel() {
     esac
     version=$(bazelisk_version_from_kong)
     url="https://github.com/bazelbuild/bazelisk/releases/download/v${version}/bazelisk-${os}-${machine}"
-    info "Installing bazelisk v${version} for ${os}/${machine} (make not available)" >&2
-    mkdir -p "$(dirname "${bazel_bin}")"
-    curl -sSfL "${url}" -o "${bazel_bin}"
-    chmod +x "${bazel_bin}"
+    mkdir -p "$(dirname "${dest}")"
+    for attempt in {1..4}; do
+      info "Downloading bazelisk v${version} for ${os}/${machine} (attempt ${attempt})" >&2
+      if curl -sSfL "${url}" -o "${dest}"; then
+        chmod +x "${dest}"
+        return 0
+      fi
+      sleep $((attempt * 2))
+    done
+    return 1
+  }
+
+  if command -v make >/dev/null 2>&1; then
+    info "Installing bazelisk wrapper via make check-bazel" >&2
+    if (cd "${KONG_CLONE_DIR}" && make check-bazel >/dev/null); then
+      :
+    else
+      info "make check-bazel failed, falling back to direct bazelisk download" >&2
+      download_bazelisk "${bazel_bin}"
+    fi
+  else
+    info "Installing bazelisk (make not available)" >&2
+    download_bazelisk "${bazel_bin}"
   fi
   if [[ ! -x "${bazel_bin}" ]]; then
     echo "[kong] Failed to provision kong/bin/bazel" >&2
