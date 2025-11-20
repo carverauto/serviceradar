@@ -159,6 +159,12 @@ jobs:
         run: ./scripts/build-kong-vendor.sh
 
       - name: Authenticate Docker for GHCR
+        env:
+          GHCR_DOCKER_AUTH: ${{ secrets.GHCR_DOCKER_AUTH }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
           bazel run --config=remote //:buildbuddy_setup_docker_auth
