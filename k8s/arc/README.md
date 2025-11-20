@@ -1,0 +1,39 @@
+# ARC runner notes
+
+We hit missing host tools (cmake, flex, protoc, perl/OpenSSL) when publishing images on the GitHub Actions ARC runners. Use a custom runner image with the needed packages and point the scale set at it.
+
+## Build/push runner image
+
+```
+docker build -t ghcr.io/carverauto/serviceradar/arc-runner:latest -f docker/arc-runner/Dockerfile .
+docker push ghcr.io/carverauto/serviceradar/arc-runner:latest
+```
+
+## Helm install override (gha-runner-scale-set)
+
+Pass a small values override that pins the runner image; for example:
+
+```yaml
+runnerScaleSetName: serviceradar
+githubConfigUrl: <REPO_URL>
+githubConfigSecret:
+  github_token: <PAT>
+template:
+  spec:
+    containers:
+    - name: runner
+      image: ghcr.io/carverauto/serviceradar/arc-runner:latest
+```
+
+Then install with:
+
+```
+helm install <name> \
+  --namespace <ns> \
+  --create-namespace \
+  -f ./k8s/arc/values.yaml \
+  -f ./k8s/arc/runner-values.yaml \
+  oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
+```
+
+Adjust secrets/labels as needed; the key is ensuring the runner image has the tooling above so Bazel `genrule` work that must run locally can succeed.

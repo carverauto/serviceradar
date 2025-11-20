@@ -16758,7 +16758,7 @@
     "@@toolchains_buildbuddy+//:extensions.bzl%buildbuddy": {
       "general": {
         "bzlTransitiveDigest": "u7Z+AlfJgGgFZGxPEfZkeEkTzEkgIYkIxgokZ5953dE=",
-        "usagesDigest": "syanIvXgQeN0uL/MI8JPIIxCkarflpUa6qNo1WFk8pU=",
+        "usagesDigest": "bbMUwxSGytTR3k5I/o126wLj/2DbwSbHSrCLiNL9AeI=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -16780,7 +16780,9 @@
                 "/opt/rh/gcc-toolset-13/root/usr/include/c++/13/x86_64-redhat-linux",
                 "/opt/rh/gcc-toolset-13/root/usr/include/c++/13/backward",
                 "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include",
-                "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include-fixed"
+                "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include-fixed",
+                "/usr/lib/gcc/x86_64-linux-gnu/11/include",
+                "/usr/lib/gcc/x86_64-linux-gnu/11/include-fixed"
               ]
             }
           }

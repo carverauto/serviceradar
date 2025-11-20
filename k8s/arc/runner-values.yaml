@@ -1,0 +1,8 @@
+# Overrides for gha-runner-scale-set to pin a custom runner image with build tooling.
+runnerScaleSetName: serviceradar
+
+template:
+  spec:
+    containers:
+      - name: runner
+        image: ghcr.io/carverauto/serviceradar/arc-runner:latest
