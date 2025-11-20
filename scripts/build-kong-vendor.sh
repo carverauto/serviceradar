@@ -19,6 +19,7 @@ COMMON_FLAGS=(
   "--//:skip_webui=true"
   "--action_env=BUILD_NAME=${BUILD_NAME}"
   "--action_env=INSTALL_DESTDIR=${INSTALL_DESTDIR}"
+  "--repo_env=PATH=${PATH}"
 )
 
 info() {
@@ -54,6 +55,87 @@ ensure_clone() {
 
   git -C "${KONG_CLONE_DIR}" reset --hard "${KONG_COMMIT}" >/dev/null
   git -C "${KONG_CLONE_DIR}" clean -fdx >/dev/null
+}
+
+ensure_cc() {
+  if command -v "${CC:-}" >/dev/null 2>&1; then
+    info "Using C compiler from CC=${CC}" >&2
+    return
+  fi
+
+  if command -v gcc >/dev/null 2>&1; then
+    CC="$(command -v gcc)"
+    export CC
+    info "Using gcc at ${CC}" >&2
+    return
+  fi
+
+  if command -v clang >/dev/null 2>&1; then
+    CC="$(command -v clang)"
+    export CC
+    info "Using clang at ${CC}" >&2
+    return
+  fi
+
+  if command -v cc >/dev/null 2>&1; then
+    CC="$(command -v cc)"
+    export CC
+    info "Using cc at ${CC}" >&2
+    return
+  fi
+
+  if command -v apt-get >/dev/null 2>&1; then
+    info "Installing gcc via apt-get (build-essential)" >&2
+    if command -v sudo >/dev/null 2>&1; then
+      sudo apt-get update -y >/dev/null
+      sudo apt-get install -y build-essential >/dev/null
+    else
+      apt-get update -y >/dev/null
+      apt-get install -y build-essential >/dev/null
+    fi
+    if command -v gcc >/dev/null 2>&1; then
+      CC="$(command -v gcc)"
+      export CC
+      info "Using gcc at ${CC}" >&2
+      return
+    fi
+  fi
+
+  if command -v yum >/dev/null 2>&1; then
+    info "Installing gcc via yum" >&2
+    yum install -y gcc >/dev/null
+    if command -v gcc >/dev/null 2>&1; then
+      CC="$(command -v gcc)"
+      export CC
+      info "Using gcc at ${CC}" >&2
+      return
+    fi
+  fi
+
+  if command -v dnf >/dev/null 2>&1; then
+    info "Installing gcc via dnf" >&2
+    dnf install -y gcc >/dev/null
+    if command -v gcc >/dev/null 2>&1; then
+      CC="$(command -v gcc)"
+      export CC
+      info "Using gcc at ${CC}" >&2
+      return
+    fi
+  fi
+
+  if command -v apk >/dev/null 2>&1; then
+    info "Installing gcc via apk" >&2
+    apk add --no-progress --update gcc build-base >/dev/null
+    if command -v gcc >/dev/null 2>&1; then
+      CC="$(command -v gcc)"
+      export CC
+      info "Using gcc at ${CC}" >&2
+      return
+    fi
+  fi
+
+  echo "[kong] No C compiler found (gcc/clang/cc). Install one or set CC before running this script." >&2
+  exit 1
 }
 
 configure_remote_exec() {
@@ -187,9 +269,14 @@ stage_artifacts() {
 
 main() {
   ensure_clone
+  ensure_cc
   configure_remote_exec
   local bazel_bin
   bazel_bin=$(ensure_bazel)
+
+  if [[ -n "${CC:-}" ]]; then
+    COMMON_FLAGS+=("--repo_env=CC=${CC}")
+  fi
 
   if [[ -n "${KONG_EXTRA_BAZEL_FLAGS:-}" ]]; then
     # shellcheck disable=SC2206
