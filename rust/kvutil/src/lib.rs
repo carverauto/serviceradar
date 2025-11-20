@@ -152,12 +152,40 @@ where
     let overlay_str = std::str::from_utf8(overlay).map_err(|e| KvError::Other(e.into()))?;
     let overlay_cfg: T = toml::from_str(overlay_str).map_err(|e| KvError::Other(e.into()))?;
     let base_json = serde_json::to_value(&mut *dst).map_err(|e| KvError::Other(e.into()))?;
-    let overlay_json_val =
+    let mut overlay_json_val =
         serde_json::to_value(&overlay_cfg).map_err(|e| KvError::Other(e.into()))?;
+    prune_nulls(&mut overlay_json_val);
     let mut merged = base_json;
     merge_values(&mut merged, &overlay_json_val);
     *dst = serde_json::from_value(merged).map_err(|e| KvError::Other(e.into()))?;
     Ok(())
+}
+
+fn prune_nulls(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            let null_keys: Vec<String> = map
+                .iter_mut()
+                .filter_map(|(k, v)| {
+                    prune_nulls(v);
+                    if v.is_null() {
+                        Some(k.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            for k in null_keys {
+                map.remove(&k);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                prune_nulls(v);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -180,6 +208,6 @@ mod tests {
         overlay_toml(&mut cfg, br#"foo = "world""#).expect("overlay should apply");
 
         assert_eq!(cfg.foo, "world");
-        assert_eq!(cfg.bar, None);
+        assert_eq!(cfg.bar, Some(7));
     }
 }

@@ -15,23 +15,6 @@ spec:
     spec:
       serviceAccountName: {{ .Values.spire.dbEventWriterServiceAccount | default "serviceradar-db-event-writer" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
-      initContainers:
-      - name: setup-config
-        image: alpine:latest
-        command: ["/bin/sh", "-c"]
-        args:
-        - |
-          mkdir -p /etc/serviceradar/templates
-          mkdir -p /etc/serviceradar/consumers
-          cp /tmp/config/db-event-writer.json /etc/serviceradar/templates/db-event-writer.json
-          chmod 777 /etc/serviceradar/consumers
-          ls -la /etc/serviceradar/templates/
-          ls -la /etc/serviceradar/consumers/
-        volumeMounts:
-        - name: db-event-writer-config
-          mountPath: /tmp/config
-        - name: shared-config
-          mountPath: /etc/serviceradar
       containers:
       - name: db-event-writer
         image: ghcr.io/carverauto/serviceradar-db-event-writer:{{ .Values.image.tags.dbEventWriter }}
@@ -39,11 +22,14 @@ spec:
         - containerPort: 50041
           name: grpc
         volumeMounts:
-        - name: shared-config
-          mountPath: /etc/serviceradar
+        - name: db-event-writer-config
+          mountPath: /etc/serviceradar/templates
+          readOnly: true
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        - name: db-event-writer-consumers
+          mountPath: /etc/serviceradar/consumers
         - name: db-event-writer-data
           mountPath: /var/lib/serviceradar
         - name: spire-agent-socket
@@ -53,7 +39,7 @@ spec:
 {{ include "serviceradar.kvEnv" . | indent 8 }}
 {{ include "serviceradar.coreEnv" . | indent 8 }}
         - name: CONFIG_PATH
-          value: "/etc/serviceradar/templates/db-event-writer.json"
+          value: "/etc/serviceradar/consumers/db-event-writer.json"
         - name: WAIT_FOR_NATS
           value: "true"
         - name: WAIT_FOR_CNPG
@@ -94,7 +80,7 @@ spec:
       - name: db-event-writer-config
         configMap:
           name: serviceradar-db-event-writer-config
-      - name: shared-config
+      - name: db-event-writer-consumers
         emptyDir: {}
       - name: cert-data
         persistentVolumeClaim:

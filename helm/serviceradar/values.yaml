@@ -1,5 +1,4 @@
 namespace: serviceradar-staging
-
 image:
   registryPullSecret: ghcr-io-cred
   tags:
@@ -22,7 +21,6 @@ image:
     faker: latest
     rperfChecker: latest
     tools: latest
-
 kv:
   enabled: true
   configSource: kv
@@ -32,7 +30,6 @@ kv:
   serverSPIFFEID: ""
   workloadSocket: unix:/run/spire/sockets/agent.sock
   certDir: /etc/serviceradar/certs
-
 coreClient:
   address: serviceradar-core:50052
   secMode: spiffe
@@ -40,7 +37,6 @@ coreClient:
   serverSPIFFEID: ""
   workloadSocket: unix:/run/spire/sockets/agent.sock
   certDir: /etc/serviceradar/certs
-
 configSync:
   flowgger:
     enabled: true
@@ -74,7 +70,6 @@ configSync:
     role: ""
     extraArgs: ""
     extraEnv: {}
-
 spire:
   enabled: true
   namespace: ""
@@ -190,19 +185,16 @@ spire:
       requests:
         cpu: 50m
         memory: 128Mi
-
 ingress:
   enabled: true
   host: staging.serviceradar.cloud
   tls:
     enabled: true
     secretName: serviceradar-staging-tls
-
 secrets:
   existingSecretName: serviceradar-secrets
   # Provide adminBcryptHash to avoid in-cluster generation.
   adminBcryptHash: ""
-
 # Proton (TimeStream DB) configuration
 proton:
   resources:
@@ -214,7 +206,6 @@ proton:
       memory: "16Gi"
   storage:
     size: "150Gi"
-
 # Network sweep defaults (can be tuned per-deploy)
 sweep:
   # Target networks and ports to scan

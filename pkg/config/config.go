@@ -173,6 +173,31 @@ func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface
 	return nil
 }
 
+// OverlayPinned applies a pinned configuration file on top of the existing config.
+// Fields present in the pinned file take precedence over both defaults and KV overlays.
+func (c *Config) OverlayPinned(ctx context.Context, pinnedPath string, cfg interface{}) error {
+	if pinnedPath == "" || cfg == nil {
+		return nil
+	}
+
+	data, err := os.ReadFile(pinnedPath)
+	if err != nil {
+		return fmt.Errorf("failed to read pinned config %q: %w", pinnedPath, err)
+	}
+
+	if err := MergeOverlayBytes(cfg, data); err != nil {
+		return fmt.Errorf("failed to merge pinned config %q: %w", pinnedPath, err)
+	}
+
+	if c != nil {
+		if err := c.normalizeSecurityConfig(cfg); err != nil {
+			return err
+		}
+	}
+
+	return ValidateConfig(cfg)
+}
+
 // SetKVStore sets the KV store to be used when CONFIG_SOURCE=kv.
 func (c *Config) SetKVStore(store kv.KVStore) {
 	c.kvStore = store

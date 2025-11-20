@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -33,10 +34,12 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/config/kvgrpc"
+	"github.com/carverauto/serviceradar/pkg/config/kvnats"
 	coregrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/nats-io/nats.go"
 )
 
 // KVManager handles KV store operations for configuration management
@@ -50,6 +53,7 @@ var (
 	errDecodePrivateKeyPEM   = errors.New("failed to decode private key PEM")
 	errUnsupportedPrivateKey = errors.New("unsupported private key type")
 	errUnsupportedConfigType = errors.New("unsupported config type")
+	errFailedToParseCACert   = errors.New("failed to parse CA cert")
 )
 
 const (
@@ -253,15 +257,39 @@ func (m *KVManager) BootstrapConfig(ctx context.Context, kvKey string, configPat
 		return nil
 	}
 
-	value, found, err := m.client.Get(ctx, kvKey)
-	if err != nil {
+	merged := data
+	if existing, found, err := m.client.Get(ctx, kvKey); err != nil {
 		return err
-	}
-	if found && len(value) > 0 {
-		return nil
+	} else if found && len(existing) > 0 {
+		merged, err = mergeBootstrapPayloads(cfg, data, existing)
+		if err != nil {
+			return err
+		}
 	}
 
-	return m.client.Put(ctx, kvKey, data, 0)
+	_, err = m.PutIfAbsent(ctx, kvKey, merged, 0)
+	return err
+}
+
+func mergeBootstrapPayloads(cfg interface{}, defaults, kvPayload []byte) ([]byte, error) {
+	clone, err := cloneConfigValue(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if clone == nil {
+		return defaults, nil
+	}
+
+	if err := json.Unmarshal(defaults, clone); err != nil {
+		return nil, err
+	}
+	if len(kvPayload) > 0 {
+		if err := MergeOverlayBytes(clone, kvPayload); err != nil {
+			return nil, err
+		}
+	}
+
+	return json.Marshal(clone)
 }
 
 // Put writes arbitrary data to the backing KV store using the manager's credentials.
@@ -463,8 +491,18 @@ func isEncryptedPEMBlock(block *pem.Block) bool {
 	return strings.EqualFold(procType, "4,ENCRYPTED")
 }
 
-// StartWatch sets up KV watching with hot-reload functionality
+// StartWatch sets up KV watching with hot-reload functionality.
 func (m *KVManager) StartWatch(ctx context.Context, kvKey string, cfg interface{}, logger logger.Logger, onReload func()) {
+	m.startWatch(ctx, kvKey, cfg, logger, "", nil, onReload)
+}
+
+// StartWatchWithPinned watches KV updates and reapplies the pinned config on every change.
+// pinnedPath should point to the pinned overlay file; cfgLoader is used for validation/normalization.
+func (m *KVManager) StartWatchWithPinned(ctx context.Context, kvKey string, cfg interface{}, logger logger.Logger, pinnedPath string, cfgLoader *Config, onReload func()) {
+	m.startWatch(ctx, kvKey, cfg, logger, pinnedPath, cfgLoader, onReload)
+}
+
+func (m *KVManager) startWatch(ctx context.Context, kvKey string, cfg interface{}, logger logger.Logger, pinnedPath string, cfgLoader *Config, onReload func()) {
 	if m == nil || m.client == nil {
 		return
 	}
@@ -475,6 +513,19 @@ func (m *KVManager) StartWatch(ctx context.Context, kvKey string, cfg interface{
 	}
 
 	StartKVWatchOverlay(ctx, m.client, kvKey, cfg, logger, func() {
+		if pinnedPath != "" && cfgLoader != nil {
+			if err := cfgLoader.OverlayPinned(ctx, pinnedPath, cfg); err != nil {
+				if logger != nil {
+					logger.Warn().
+						Err(err).
+						Str("key", kvKey).
+						Str("pinned_path", pinnedPath).
+						Msg("Failed to apply pinned overlay during KV watch")
+				}
+				return
+			}
+		}
+
 		currSnapshot, snapErr := newConfigSnapshot(cfg)
 		if snapErr != nil {
 			if logger != nil {
@@ -571,6 +622,11 @@ func (m *KVManager) Close() error {
 
 // createKVClientFromEnv creates a KV client from environment variables
 func createKVClientFromEnv(ctx context.Context, role models.ServiceRole) (kv.KVStore, error) {
+	driver := strings.ToLower(os.Getenv("KV_DRIVER"))
+	if driver == "nats" {
+		return NewNATSClientFromEnv(ctx, role)
+	}
+
 	client, closer, err := NewKVServiceClientFromEnv(ctx, role)
 	if err != nil {
 		if closer != nil {
@@ -587,6 +643,68 @@ func createKVClientFromEnv(ctx context.Context, role models.ServiceRole) (kv.KVS
 	return kvgrpc.New(client, closer), nil
 }
 
+// NewNATSClientFromEnv creates a direct NATS KV client from environment variables.
+func NewNATSClientFromEnv(ctx context.Context, role models.ServiceRole) (kv.KVStore, error) {
+	addr := os.Getenv("KV_ADDRESS")
+	if addr == "" {
+		return nil, nil
+	}
+
+	// Basic NATS connection
+	opts := []nats.Option{
+		nats.Name("serviceradar-kv-client"),
+		nats.MaxReconnects(5),
+		nats.ReconnectWait(2 * time.Second),
+	}
+
+	secMode := strings.ToLower(strings.TrimSpace(os.Getenv("KV_SEC_MODE")))
+	if secMode == string(models.SecurityModeMTLS) {
+		certFile := os.Getenv("KV_CERT_FILE")
+		keyFile := os.Getenv("KV_KEY_FILE")
+		caFile := os.Getenv("KV_CA_FILE")
+		serverName := os.Getenv("KV_SERVER_NAME")
+
+		if certFile != "" && keyFile != "" && caFile != "" {
+			// Load client cert
+			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load client cert: %w", err)
+			}
+
+			// Load CA cert
+			caCert, err := os.ReadFile(caFile)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read CA cert: %w", err)
+			}
+			caPool := x509.NewCertPool()
+			if !caPool.AppendCertsFromPEM(caCert) {
+				return nil, errFailedToParseCACert
+			}
+
+			tlsConfig := &tls.Config{
+				Certificates: []tls.Certificate{cert},
+				RootCAs:      caPool,
+				MinVersion:   tls.VersionTLS12,
+				ServerName:   serverName,
+			}
+
+			opts = append(opts, nats.Secure(tlsConfig))
+		}
+	}
+
+	nc, err := nats.Connect(addr, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	bucket := os.Getenv("KV_BUCKET")
+	if bucket == "" {
+		bucket = "serviceradar"
+	}
+
+	return kvnats.New(nc, bucket)
+}
+
 // NewKVServiceClientFromEnv dials the remote KV service using environment variables suitable for the given role.
 // Returns nil without error when the environment is not configured for KV access.
 func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (proto.KVServiceClient, func() error, error) {
@@ -599,7 +717,7 @@ func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (pr
 	var sec *models.SecurityConfig
 
 	switch secMode {
-	case "mtls":
+	case string(models.SecurityModeMTLS):
 		cert := strings.TrimSpace(os.Getenv("KV_CERT_FILE"))
 		key := strings.TrimSpace(os.Getenv("KV_KEY_FILE"))
 		ca := strings.TrimSpace(os.Getenv("KV_CA_FILE"))
@@ -608,7 +726,7 @@ func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (pr
 		}
 
 		sec = &models.SecurityConfig{
-			Mode: "mtls",
+			Mode: models.SecurityModeMTLS,
 			TLS: models.TLSConfig{
 				CertFile: cert,
 				KeyFile:  key,
@@ -617,7 +735,7 @@ func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (pr
 			ServerName: strings.TrimSpace(os.Getenv("KV_SERVER_NAME")),
 			Role:       role,
 		}
-	case "spiffe":
+	case string(models.SecurityModeSPIFFE):
 		trustDomain := strings.TrimSpace(os.Getenv("KV_TRUST_DOMAIN"))
 		serverID := strings.TrimSpace(os.Getenv("KV_SERVER_SPIFFE_ID"))
 		workloadSocket := strings.TrimSpace(os.Getenv("KV_WORKLOAD_SOCKET"))
@@ -626,12 +744,17 @@ func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (pr
 		}
 
 		sec = &models.SecurityConfig{
-			Mode:           "spiffe",
+			Mode:           models.SecurityModeSPIFFE,
 			CertDir:        strings.TrimSpace(os.Getenv("KV_CERT_DIR")),
 			Role:           role,
 			TrustDomain:    trustDomain,
 			ServerSPIFFEID: serverID,
 			WorkloadSocket: workloadSocket,
+		}
+	case string(models.SecurityModeNone):
+		sec = &models.SecurityConfig{
+			Mode: models.SecurityModeNone,
+			Role: role,
 		}
 	default:
 		return nil, nil, nil
@@ -670,10 +793,12 @@ func ShouldUseKVFromEnv() bool {
 
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("KV_SEC_MODE")))
 	switch mode {
-	case "mtls":
+	case string(models.SecurityModeMTLS):
 		return allEnvSet("KV_CERT_FILE", "KV_KEY_FILE", "KV_CA_FILE")
-	case "spiffe":
+	case string(models.SecurityModeSPIFFE):
 		return allEnvSet("KV_TRUST_DOMAIN", "KV_SERVER_SPIFFE_ID")
+	case string(models.SecurityModeNone):
+		return true
 	default:
 		return false
 	}
