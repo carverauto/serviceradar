@@ -277,7 +277,9 @@ nextjs_standalone_build(
         "tailwind.config.ts",
         "tsconfig.json",
     ],
-    allow_execroot_entry_point_with_no_copy_data_to_bin = True,
+    # Copy sources into the runfiles/bin tree so Turbopack sees an in-tree package.json
+    # instead of a symlink pointing outside the filesystem root.
+    allow_execroot_entry_point_with_no_copy_data_to_bin = False,
 )
 
 nextjs_standalone_server(
