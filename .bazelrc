@@ -22,6 +22,16 @@ build --action_env=NATS_KEY_FILE
 build --action_env=NATS_CA_B64
 build --action_env=NATS_CERT_B64
 build --action_env=NATS_KEY_B64
+build --action_env=OPENSSL_DIR=/usr
+build --action_env=OPENSSL_LIB_DIR=/usr/lib64
+build --action_env=OPENSSL_INCLUDE_DIR=/usr/include
+build --action_env=OPENSSL_NO_VENDOR=
+build --action_env=OPENSSL_NO_PKG_CONFIG=
+build --repo_env=OPENSSL_DIR=/usr
+build --repo_env=OPENSSL_LIB_DIR=/usr/lib64
+build --repo_env=OPENSSL_INCLUDE_DIR=/usr/include
+build --repo_env=OPENSSL_NO_VENDOR=
+build --repo_env=OPENSSL_NO_PKG_CONFIG=
 build --java_runtime_version=local_jdk
 build --tool_java_runtime_version=local_jdk
 build --@io_bazel_rules_go//go/config:pure
