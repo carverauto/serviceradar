@@ -38,6 +38,10 @@ var (
 	errDatasvcUnavailable = errors.New("datasvc unavailable")
 )
 
+type testBootstrapConfig struct {
+	Logging logger.Config `json:"logging"`
+}
+
 func TestSanitizeBootstrapSourceAddsJWTPublicKey(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "core-config-*.json")
 	if err != nil {
@@ -102,6 +106,61 @@ func TestSanitizeBootstrapSourceAddsJWTPublicKey(t *testing.T) {
 
 	if pub, ok := auth["jwt_public_key_pem"].(string); !ok || pub == "" {
 		t.Fatalf("expected jwt_public_key_pem to be populated")
+	}
+}
+
+func TestBootstrapConfigUsesAtomicCreate(t *testing.T) {
+	ctx := context.Background()
+	defaultCfg := testBootstrapConfig{
+		Logging: logger.Config{
+			Level: "info",
+			OTel: logger.OTelConfig{
+				Endpoint: "127.0.0.1:4317",
+				TLS: &logger.TLSConfig{
+					CertFile: "/etc/serviceradar/certs/core.pem",
+					KeyFile:  "/etc/serviceradar/certs/core-key.pem",
+					CAFile:   "/etc/serviceradar/certs/root.pem",
+				},
+			},
+		},
+	}
+	defaultBytes, err := json.Marshal(defaultCfg)
+	if err != nil {
+		t.Fatalf("marshal defaults: %v", err)
+	}
+
+	cfgPath := filepath.Join(t.TempDir(), "defaults.json")
+	if err := os.WriteFile(cfgPath, defaultBytes, 0o600); err != nil {
+		t.Fatalf("write defaults: %v", err)
+	}
+
+	store := &fakeKVStore{}
+	manager := &KVManager{client: store}
+
+	if err := manager.BootstrapConfig(ctx, "config/test.json", cfgPath, &testBootstrapConfig{}); err != nil {
+		t.Fatalf("bootstrap config: %v", err)
+	}
+
+	var stored testBootstrapConfig
+	if err := json.Unmarshal(store.values["config/test.json"], &stored); err != nil {
+		t.Fatalf("unmarshal stored config: %v", err)
+	}
+	if strings.ToLower(stored.Logging.Level) != "info" {
+		t.Fatalf("expected default log level, got %s", stored.Logging.Level)
+	}
+	if stored.Logging.OTel.Endpoint != defaultCfg.Logging.OTel.Endpoint {
+		t.Fatalf("expected default OTel endpoint to persist, got %s", stored.Logging.OTel.Endpoint)
+	}
+
+	seed := []byte(`{"logging":{"level":"debug"}}`)
+	store.values["config/test.json"] = seed
+
+	if err := manager.BootstrapConfig(ctx, "config/test.json", cfgPath, &testBootstrapConfig{}); err != nil {
+		t.Fatalf("second bootstrap: %v", err)
+	}
+
+	if got := store.values["config/test.json"]; string(got) != string(seed) {
+		t.Fatalf("expected existing KV value to remain, got: %s", string(got))
 	}
 }
 

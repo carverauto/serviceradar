@@ -257,15 +257,39 @@ func (m *KVManager) BootstrapConfig(ctx context.Context, kvKey string, configPat
 		return nil
 	}
 
-	value, found, err := m.client.Get(ctx, kvKey)
-	if err != nil {
+	merged := data
+	if existing, found, err := m.client.Get(ctx, kvKey); err != nil {
 		return err
-	}
-	if found && len(value) > 0 {
-		return nil
+	} else if found && len(existing) > 0 {
+		merged, err = mergeBootstrapPayloads(cfg, data, existing)
+		if err != nil {
+			return err
+		}
 	}
 
-	return m.client.Put(ctx, kvKey, data, 0)
+	_, err = m.PutIfAbsent(ctx, kvKey, merged, 0)
+	return err
+}
+
+func mergeBootstrapPayloads(cfg interface{}, defaults, kvPayload []byte) ([]byte, error) {
+	clone, err := cloneConfigValue(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if clone == nil {
+		return defaults, nil
+	}
+
+	if err := json.Unmarshal(defaults, clone); err != nil {
+		return nil, err
+	}
+	if len(kvPayload) > 0 {
+		if err := MergeOverlayBytes(clone, kvPayload); err != nil {
+			return nil, err
+		}
+	}
+
+	return json.Marshal(clone)
 }
 
 // Put writes arbitrary data to the backing KV store using the manager's credentials.

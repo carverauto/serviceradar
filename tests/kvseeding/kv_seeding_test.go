@@ -17,6 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/config/kvnats"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 type defaultConfig struct {
@@ -127,6 +129,60 @@ func TestPrecedenceOverlay(t *testing.T) {
 	entry, err := kv.Get(key)
 	require.NoError(t, err)
 	require.Contains(t, string(entry.Value()), "debug", "overlay should be reflected in KV content")
+}
+
+func TestKVDeepMergeOverlayPreservesNestedDefaults(t *testing.T) {
+	t.Parallel()
+
+	cfgEnv := loadNATSEnvOrSkip(t)
+
+	certs := mustLoadTLSConfig(t, cfgEnv)
+	nc, err := nats.Connect(cfgEnv.URL,
+		nats.Secure(certs),
+		nats.MaxReconnects(2),
+		nats.RetryOnFailedConnect(true),
+	)
+	require.NoError(t, err, "connect to test NATS")
+	t.Cleanup(nc.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+
+	js, err := nc.JetStream(nats.Context(ctx))
+	require.NoError(t, err, "create JetStream context")
+
+	bucket := fmt.Sprintf("kv-deep-merge-%d", time.Now().UnixNano())
+	client, err := kvnats.New(nc, bucket)
+	require.NoError(t, err, "create kvnats client")
+	t.Cleanup(func() { _ = js.DeleteKeyValue(bucket) })
+
+	desc, ok := config.ServiceDescriptorFor("core")
+	require.True(t, ok, "service descriptor not found")
+
+	key, err := desc.ResolveKVKey(config.KeyContext{})
+	require.NoError(t, err, "resolve KV key for core")
+
+	overlay := []byte(`{"logging":{"level":"debug"}}`)
+	require.NoError(t, client.Put(ctx, key, overlay, 0), "seed KV overlay")
+
+	cfgLoader := config.NewConfig(nil)
+	var coreCfg models.CoreServiceConfig
+	require.NoError(t, cfgLoader.LoadAndValidate(ctx, "packaging/core/config/core.json", &coreCfg), "load default core config")
+
+	origEndpoint := coreCfg.Logging.OTel.Endpoint
+	origTLS := coreCfg.Logging.OTel.TLS
+	origHeaders := coreCfg.Logging.OTel.Headers
+
+	data, found, err := client.Get(ctx, key)
+	require.NoError(t, err, "read overlay from KV")
+	require.True(t, found, "KV overlay not found")
+
+	require.NoError(t, config.MergeOverlayBytes(&coreCfg, data), "apply KV overlay with deep merge")
+
+	require.Equal(t, "debug", strings.ToLower(coreCfg.Logging.Level), "overlay should update log level")
+	require.Equal(t, origEndpoint, coreCfg.Logging.OTel.Endpoint, "deep merge should retain nested endpoint")
+	require.Equal(t, origTLS, coreCfg.Logging.OTel.TLS, "deep merge should retain nested TLS config")
+	require.Equal(t, origHeaders, coreCfg.Logging.OTel.Headers, "deep merge should retain nested headers")
 }
 
 func defaultConfigs(t *testing.T) []defaultConfig {
