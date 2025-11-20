@@ -110,6 +110,9 @@ buildbuddy_toolchain_ext.gcc_toolchain(
         "/opt/rh/gcc-toolset-13/root/usr/include/c++/13/backward",
         "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include",
         "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include-fixed",
+        # Allow Debian/Ubuntu GCC 11 built-ins when remote execution falls back to distro toolchain.
+        "/usr/lib/gcc/x86_64-linux-gnu/11/include",
+        "/usr/lib/gcc/x86_64-linux-gnu/11/include-fixed",
     ],
     gcc_major_version = "13",
 )
