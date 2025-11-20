@@ -715,6 +715,22 @@ http_file(
     ],
 )
 
+http_archive(
+    name = "cmake_linux_amd64_prebuilt",
+    sha256 = "c959e6d15714f798424960cd296632634f3ef57c2712559a7945170f0bcad205",
+    strip_prefix = "cmake-3.30.4-linux-x86_64",
+    urls = [
+        "https://github.com/Kitware/CMake/releases/download/v3.30.4/cmake-3.30.4-linux-x86_64.tar.gz",
+    ],
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+filegroup(
+    name = "cmake_bin",
+    srcs = ["bin/cmake"],
+)
+""",
+)
+
 http_file(
     name = "postgresql_server_dev_16_deb",
     sha256 = "032956e4539bbfb9ba56734cb6d28b3e1227c27543e54df02fb172e97b169c09",
