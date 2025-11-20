@@ -235,23 +235,22 @@ jobs:
             args+=("--overwrite_assets=${OVERWRITE_ASSETS}")
           fi
 
-          # Prefer remote RBE for speed, but fall back to local execution (no remote cache/exec)
-          # when toolchain binaries (e.g., copy_directory) are unavailable on the executor.
-          if ! bazel run --config=remote --stamp //release:publish_packages -- "${args[@]}"; then
-            echo "Remote bazel run failed; retrying locally without remote executor/cache" >&2
-            bazel run \
-              --config=no_remote \
-              --host_platform=@local_config_platform//:host \
-              --platforms=@local_config_platform//:host \
-              --remote_executor= \
-              --remote_cache= \
-              --noremote_accept_cached \
-              --noremote_upload_local_results \
-              --jobs=8 \
-              --stamp \
-              //release:publish_packages \
-              -- "${args[@]}"
-          fi
+          sudo apt-get update -y
+          sudo apt-get install -y rpm
+
+          # Run locally to ensure rpmbuild is available and avoid executor-specific tool gaps.
+          bazel run \
+            --config=no_remote \
+            --host_platform=@local_config_platform//:host \
+            --platforms=@local_config_platform//:host \
+            --remote_executor= \
+            --remote_cache= \
+            --noremote_accept_cached \
+            --noremote_upload_local_results \
+            --jobs=8 \
+            --stamp \
+            //release:publish_packages \
+            -- "${args[@]}"
 
       - name: Verify uploaded release assets via API
         env:
