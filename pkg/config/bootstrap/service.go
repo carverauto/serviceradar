@@ -218,6 +218,27 @@ func attachWatcherHooks(ctx context.Context, kvMgr *config.KVManager, result *Re
 	}(ctx)
 }
 
+func logMergedConfig(log logger.Logger, desc config.ServiceDescriptor, cfg interface{}) {
+	if log == nil || cfg == nil {
+		return
+	}
+
+	filtered, err := models.FilterSensitiveFields(cfg)
+	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("service", desc.Name).
+			Msg("failed to filter sensitive fields for config snapshot")
+		return
+	}
+
+	log.Info().
+		Str("service", desc.Name).
+		Str("kv_key", desc.KVKey).
+		Interface("config", filtered).
+		Msg("loaded service configuration")
+}
+
 // Service loads, overlays, seeds, and optionally watches configuration for a managed service.
 func Service(ctx context.Context, desc config.ServiceDescriptor, cfg interface{}, opts ServiceOptions) (*Result, error) {
 	if ctx == nil {
@@ -256,6 +277,12 @@ func Service(ctx context.Context, desc config.ServiceDescriptor, cfg interface{}
 		}
 	}
 
+	log := opts.Logger
+	if log == nil {
+		log = logger.NewTestLogger()
+	}
+	logMergedConfig(log, desc, cfg)
+
 	instanceID := opts.InstanceID
 	if instanceID == "" {
 		instanceID = desc.Name
@@ -270,11 +297,6 @@ func Service(ctx context.Context, desc config.ServiceDescriptor, cfg interface{}
 	}
 
 	if kvMgr != nil {
-		log := opts.Logger
-		if log == nil {
-			log = logger.NewTestLogger()
-		}
-
 		attachWatcherHooks(ctx, kvMgr, result, log)
 
 		if !opts.DisableWatch {

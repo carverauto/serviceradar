@@ -44,3 +44,12 @@ Services SHALL resolve configuration values by deeply merging sources in a speci
 - **WHEN** the service resolves its configuration
 - **THEN** the effective `logging.level` is "DEBUG"
 - **AND** the effective `logging.format` remains "json" inherited from the default filesystem config
+
+### Requirement: Configuration Observability
+Services SHALL expose the final, merged configuration for diagnostics via a startup log (with sensitive values redacted) and/or a read-only administrative endpoint.
+
+#### Scenario: Merged configuration is observable
+- **GIVEN** a service completes configuration resolution (Default + KV + Pinned)
+- **WHEN** the service starts
+- **THEN** it emits a log entry or exposes a read-only endpoint showing the merged configuration
+- **AND** sensitive values remain redacted in the emitted configuration
