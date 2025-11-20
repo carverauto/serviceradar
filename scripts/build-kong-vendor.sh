@@ -138,6 +138,46 @@ ensure_cc() {
   exit 1
 }
 
+ensure_zlib() {
+  if pkg-config --exists zlib 2>/dev/null || [[ -f /usr/include/zlib.h || -f /usr/local/include/zlib.h ]]; then
+    info "Found zlib development files" >&2
+    return
+  fi
+
+  if command -v apt-get >/dev/null 2>&1; then
+    info "Installing zlib via apt-get (zlib1g-dev)" >&2
+    if command -v sudo >/dev/null 2>&1; then
+      sudo apt-get update -y >/dev/null
+      sudo apt-get install -y zlib1g-dev >/dev/null
+    else
+      apt-get update -y >/dev/null
+      apt-get install -y zlib1g-dev >/dev/null
+    fi
+    return
+  fi
+
+  if command -v yum >/dev/null 2>&1; then
+    info "Installing zlib via yum (zlib-devel)" >&2
+    yum install -y zlib-devel >/dev/null
+    return
+  fi
+
+  if command -v dnf >/dev/null 2>&1; then
+    info "Installing zlib via dnf (zlib-devel)" >&2
+    dnf install -y zlib-devel >/dev/null
+    return
+  fi
+
+  if command -v apk >/dev/null 2>&1; then
+    info "Installing zlib via apk (zlib-dev)" >&2
+    apk add --no-progress --update zlib-dev >/dev/null
+    return
+  fi
+
+  echo "[kong] zlib development headers not found. Install zlib-dev (or equivalent) or supply pkg-config zlib before running." >&2
+  exit 1
+}
+
 configure_remote_exec() {
   if [[ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]]; then
     return
@@ -270,6 +310,7 @@ stage_artifacts() {
 main() {
   ensure_clone
   ensure_cc
+  ensure_zlib
   configure_remote_exec
   local bazel_bin
   bazel_bin=$(ensure_bazel)
