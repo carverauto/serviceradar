@@ -5,6 +5,7 @@ platform(
         "@platforms//cpu:x86_64",
         "@platforms//os:linux",
         "@bazel_tools//tools/cpp:gcc",
+        "@rules_pkg//pkg:not_compatible",
     ],
     exec_properties = {
         "OSFamily": "Linux",
