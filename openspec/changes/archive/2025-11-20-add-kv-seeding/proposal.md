@@ -9,6 +9,8 @@ Currently, `serviceradar` components do not automatically seed the KV store with
     - **Defaults**: Loaded from filesystem (e.g., `config.default.json`).
     - **KV**: Overrides defaults via deep merge (nested objects preserved unless explicitly overridden).
     - **Pinned**: (Optional) Specific filesystem configuration that overrides KV via deep merge (e.g., `config.pinned.json` or specific keys), primarily for security-sensitive settings.
+- **Atomic Seeding**: Services deep-merge defaults with any existing KV payload and use an atomic create to avoid races when multiple instances start together.
+- **Configuration Observability**: The final merged configuration is emitted (with sensitive fields redacted) via startup logging and/or exposed through a read-only diagnostic endpoint.
 - **Test Infrastructure**: A NATS JetStream container will be added to the Kubernetes test environment (outside `demo` namespaces) to support CI/CD integration tests for this behavior.
 
 ## Impact
@@ -19,7 +21,8 @@ Currently, `serviceradar` components do not automatically seed the KV store with
     - CI/CD pipeline (new NATS fixture).
 
 ## Status / Next Steps
-- Done: sr-testing NATS JetStream fixture (TLS + LoadBalancer) deployed; Bazel/BuildBuddy env wiring for NATS certs; integration tests covering packaged default seeding and KV-vs-default precedence; Go/Rust bootstrap support for a pinned file overlay; Go/Rust config bootstraps now enforce Default -> KV -> Pinned precedence and seed missing KV entries automatically.
+- Done: sr-testing NATS JetStream fixture (TLS + LoadBalancer) deployed; Bazel/BuildBuddy env wiring for NATS certs; integration tests covering packaged default seeding, KV-vs-default precedence, and deep-merge nested retention; Go/Rust bootstrap support for a pinned file overlay; Go/Rust config bootstraps now enforce Default -> KV -> Pinned precedence and seed missing KV entries automatically with atomic create.
 - Done: Helm + kustomize defaults aligned to mount configs at `/etc/serviceradar/<component>.json`, db-event-writer mounts fixed for runtime copy flow.
 - Done: CNPG operator/webhooks installed once per cluster (cnpg-system) so CNPG `Cluster` CRs reconcile while still pointing at our custom Postgres image; demo-staging apply is clean/idempotent and CNPG clusters untouched.
-- Next: add service-specific startup tests exercising seeding + pinned precedence end-to-end.
+- Done: Added config observability via startup logging with sensitive-field redaction in Go bootstrap.
+- Next: Optional read-only admin exposure of merged config (where appropriate) to complement logging.
