@@ -1,3 +1,14 @@
+# ServiceRadar v1.0.55
+
+ARC runner and release hardening.
+
+## Whats New
+
+**1.0.55**
+- Published a custom ARC runner image with cmake, flex/bison, perl, protoc, and OpenSSL headers so Bazel genrules no longer depend on GitHub runner OS packages.
+- Wired TimescaleDB/AGE builds to use bundled toolchain binaries and resolved Bazel protoc selection in the rperf checker build script for reliable remote execution.
+- Defaulted release builds to skip Turbopack and vendored OpenSSL to reduce host coupling on ephemeral runners.
+
 # ServiceRadar v1.0.54
 
 TimescaleDB extension rebuild for CNPG image.
