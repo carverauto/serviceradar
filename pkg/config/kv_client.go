@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -33,10 +34,12 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/config/kvgrpc"
+	"github.com/carverauto/serviceradar/pkg/config/kvnats"
 	coregrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/nats-io/nats.go"
 )
 
 // KVManager handles KV store operations for configuration management
@@ -594,6 +597,11 @@ func (m *KVManager) Close() error {
 
 // createKVClientFromEnv creates a KV client from environment variables
 func createKVClientFromEnv(ctx context.Context, role models.ServiceRole) (kv.KVStore, error) {
+	driver := strings.ToLower(os.Getenv("KV_DRIVER"))
+	if driver == "nats" {
+		return NewNATSClientFromEnv(ctx, role)
+	}
+
 	client, closer, err := NewKVServiceClientFromEnv(ctx, role)
 	if err != nil {
 		if closer != nil {
@@ -608,6 +616,68 @@ func createKVClientFromEnv(ctx context.Context, role models.ServiceRole) (kv.KVS
 		return nil, nil
 	}
 	return kvgrpc.New(client, closer), nil
+}
+
+// NewNATSClientFromEnv creates a direct NATS KV client from environment variables.
+func NewNATSClientFromEnv(ctx context.Context, role models.ServiceRole) (kv.KVStore, error) {
+	addr := os.Getenv("KV_ADDRESS")
+	if addr == "" {
+		return nil, nil
+	}
+
+	// Basic NATS connection
+	opts := []nats.Option{
+		nats.Name("serviceradar-kv-client"),
+		nats.MaxReconnects(5),
+		nats.ReconnectWait(2 * time.Second),
+	}
+
+	secMode := strings.ToLower(strings.TrimSpace(os.Getenv("KV_SEC_MODE")))
+	if secMode == "mtls" {
+		certFile := os.Getenv("KV_CERT_FILE")
+		keyFile := os.Getenv("KV_KEY_FILE")
+		caFile := os.Getenv("KV_CA_FILE")
+		serverName := os.Getenv("KV_SERVER_NAME")
+
+		if certFile != "" && keyFile != "" && caFile != "" {
+			// Load client cert
+			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load client cert: %w", err)
+			}
+
+			// Load CA cert
+			caCert, err := os.ReadFile(caFile)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read CA cert: %w", err)
+			}
+			caPool := x509.NewCertPool()
+			if !caPool.AppendCertsFromPEM(caCert) {
+				return nil, fmt.Errorf("failed to parse CA cert")
+			}
+
+			tlsConfig := &tls.Config{
+				Certificates: []tls.Certificate{cert},
+				RootCAs:      caPool,
+				MinVersion:   tls.VersionTLS12,
+				ServerName:   serverName,
+			}
+
+			opts = append(opts, nats.Secure(tlsConfig))
+		}
+	}
+
+	nc, err := nats.Connect(addr, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	bucket := os.Getenv("KV_BUCKET")
+	if bucket == "" {
+		bucket = "serviceradar"
+	}
+
+	return kvnats.New(nc, bucket)
 }
 
 // NewKVServiceClientFromEnv dials the remote KV service using environment variables suitable for the given role.
@@ -656,6 +726,11 @@ func NewKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (pr
 			ServerSPIFFEID: serverID,
 			WorkloadSocket: workloadSocket,
 		}
+	case "none":
+		sec = &models.SecurityConfig{
+			Mode: "none",
+			Role: role,
+		}
 	default:
 		return nil, nil, nil
 	}
@@ -697,6 +772,8 @@ func ShouldUseKVFromEnv() bool {
 		return allEnvSet("KV_CERT_FILE", "KV_KEY_FILE", "KV_CA_FILE")
 	case "spiffe":
 		return allEnvSet("KV_TRUST_DOMAIN", "KV_SERVER_SPIFFE_ID")
+	case "none":
+		return true
 	default:
 		return false
 	}

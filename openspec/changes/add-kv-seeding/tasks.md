@@ -8,3 +8,4 @@
 - [x] 1.6 Add NATS JetStream container to `srql-fixtures` or similar test namespace for CI/CD integration testing.
 - [x] 1.7 Create integration test verifying seeding behavior (start service with empty KV, verify KV is populated).
 - [x] 1.8 Create integration test verifying precedence (KV overrides Default, Pinned overrides KV).
+- [ ] 1.9 Implement service-specific startup tests exercising seeding + pinned precedence end-to-end.
