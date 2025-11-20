@@ -6,6 +6,7 @@ TimescaleDB extension rebuild for CNPG image.
 
 **1.0.54**
 - Bundled a hermetic CMake into the TimescaleDB extension layer build so Bazel releases succeed even when executors lack cmake, re-cutting the v1.0.54 tag.
+- Added Debian/Ubuntu GCC 11 built-in include directories to the BuildBuddy toolchain so protobuf/utf8_range builds stop failing with absolute include path checks during artifact publishing.
 
 # ServiceRadar v1.0.54-pre6
 
