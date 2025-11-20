@@ -19,6 +19,7 @@ COMMON_FLAGS=(
   "--//:skip_webui=true"
   "--action_env=BUILD_NAME=${BUILD_NAME}"
   "--action_env=INSTALL_DESTDIR=${INSTALL_DESTDIR}"
+  "--verbose_failures"
   "--repo_env=PATH=${PATH}"
 )
 
@@ -183,6 +184,7 @@ configure_remote_exec() {
     return
   fi
 
+  REMOTE_CONFIGURED=1
   local remote_rc="${KONG_CLONE_DIR}/.bazelrc.remote"
   info "Configuring BuildBuddy remote execution for Kong build" >&2
   umask 077
@@ -235,11 +237,62 @@ ensure_bazel() {
   printf '%s\n' "${bazel_bin}"
 }
 
-run_bazel() {
+dump_luarocks_logs() {
+  local -a candidates=()
+  if [[ -d "${KONG_CLONE_DIR}/bazel-out" ]]; then
+    while IFS= read -r -d '' path; do
+      candidates+=("$path")
+    done < <(find "${KONG_CLONE_DIR}/bazel-out" -name 'luarocks_make.log' -print0 2>/dev/null || true)
+  fi
+  if [[ -d "${HOME}/.cache/bazel" ]]; then
+    while IFS= read -r -d '' path; do
+      candidates+=("$path")
+    done < <(find "${HOME}/.cache/bazel" -name 'luarocks_make.log' -print0 2>/dev/null || true)
+  fi
+
+  if (( ${#candidates[@]} > 0 )); then
+    info "Dumping luarocks_make.log from failed build for debugging" >&2
+    for candidate in "${candidates[@]}"; do
+      printf '---- %s ----\n' "$candidate"
+      tail -n 200 "$candidate" || true
+    done
+  fi
+}
+
+run_bazel_once() {
   local bazel_bin="$1"; shift
   local desc="$1"; shift
   info "$desc"
   (cd "${KONG_CLONE_DIR}" && "${bazel_bin}" build "${COMMON_FLAGS[@]}" "$@")
+}
+
+run_bazel() {
+  local bazel_bin="$1"; shift
+  local desc="$1"; shift
+  if run_bazel_once "$bazel_bin" "$desc" "$@"; then
+    return
+  fi
+
+  dump_luarocks_logs
+
+  if [[ "${REMOTE_CONFIGURED:-0}" == "1" && "${KONG_DISABLE_REMOTE_FALLBACK:-}" != "1" ]]; then
+    info "Retrying Bazel build locally without remote execution" >&2
+    local saved_flags=("${COMMON_FLAGS[@]}")
+    COMMON_FLAGS+=(
+      "--remote_executor="
+      "--remote_cache="
+      "--noremote_accept_cached"
+      "--noremote_upload_local_results"
+      "--jobs=8"
+    )
+    if run_bazel_once "$bazel_bin" "$desc (local fallback)" "$@"; then
+      return
+    fi
+    COMMON_FLAGS=("${saved_flags[@]}")
+    dump_luarocks_logs
+  fi
+
+  return 1
 }
 
 kong_version() {
