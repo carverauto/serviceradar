@@ -240,6 +240,9 @@ jobs:
           if ! bazel run --config=remote --stamp //release:publish_packages -- "${args[@]}"; then
             echo "Remote bazel run failed; retrying locally without remote executor/cache" >&2
             bazel run \
+              --config=no_remote \
+              --host_platform=@local_config_platform//:host \
+              --platforms=@local_config_platform//:host \
               --remote_executor= \
               --remote_cache= \
               --noremote_accept_cached \
