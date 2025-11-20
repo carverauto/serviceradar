@@ -11,6 +11,7 @@ KONG_CLONE_DIR="${KONG_CLONE_DIR:-${ROOT_DIR}/.cache/kong-source}"
 VENDOR_DIR="${KONG_VENDOR_DIR:-${ROOT_DIR}/packaging/kong/vendor}"
 BUILD_NAME="${KONG_BUILD_NAME:-kong-release}"
 INSTALL_DESTDIR="${KONG_INSTALL_DESTDIR:-/usr/local}"
+DEFAULT_BAZELISK_VERSION="1.25.0"
 
 COMMON_FLAGS=(
   "--config" "release"
@@ -29,6 +30,15 @@ trim() {
   value="${value#"${value%%[![:space:]]*}"}"
   value="${value%"${value##*[![:space:]]}"}"
   printf '%s' "$value"
+}
+
+bazelisk_version_from_kong() {
+  local version_line version
+  version_line=$(grep -Em1 '^[[:space:]]*BAZEL?ISK_VERSION' "${KONG_CLONE_DIR}/Makefile" 2>/dev/null || true)
+  if [[ -n "$version_line" ]]; then
+    version=$(trim "${version_line#*=}")
+  fi
+  printf '%s' "${version:-${DEFAULT_BAZELISK_VERSION}}"
 }
 
 ensure_clone() {
@@ -78,12 +88,24 @@ ensure_bazel() {
     return
   fi
 
-  if ! command -v make >/dev/null 2>&1; then
-    echo "[kong] make is required to bootstrap bazelisk" >&2
-    exit 1
+  if command -v make >/dev/null 2>&1; then
+    info "Installing bazelisk wrapper via make check-bazel" >&2
+    (cd "${KONG_CLONE_DIR}" && make check-bazel >/dev/null)
+  else
+    local os machine version url
+    os=$(uname | tr '[:upper:]' '[:lower:]')
+    machine=$(uname -m)
+    case "$machine" in
+      aarch64) machine="arm64" ;;
+      x86_64) machine="amd64" ;;
+    esac
+    version=$(bazelisk_version_from_kong)
+    url="https://github.com/bazelbuild/bazelisk/releases/download/v${version}/bazelisk-${os}-${machine}"
+    info "Installing bazelisk v${version} for ${os}/${machine} (make not available)" >&2
+    mkdir -p "$(dirname "${bazel_bin}")"
+    curl -sSfL "${url}" -o "${bazel_bin}"
+    chmod +x "${bazel_bin}"
   fi
-  info "Installing bazelisk wrapper via make check-bazel" >&2
-  (cd "${KONG_CLONE_DIR}" && make check-bazel >/dev/null)
   if [[ ! -x "${bazel_bin}" ]]; then
     echo "[kong] Failed to provision kong/bin/bazel" >&2
     exit 1
