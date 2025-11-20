@@ -56,6 +56,46 @@ ensure_clone() {
   git -C "${KONG_CLONE_DIR}" clean -fdx >/dev/null
 }
 
+ensure_cc() {
+  if command -v "${CC:-}" >/dev/null 2>&1; then
+    info "Using C compiler from CC=${CC}" >&2
+    return
+  fi
+
+  if command -v gcc >/dev/null 2>&1; then
+    CC="$(command -v gcc)"
+    export CC
+    info "Using gcc at ${CC}" >&2
+    return
+  fi
+
+  if command -v clang >/dev/null 2>&1; then
+    CC="$(command -v clang)"
+    export CC
+    info "Using clang at ${CC}" >&2
+    return
+  fi
+
+  if command -v apt-get >/dev/null 2>&1; then
+    info "Installing gcc via apt-get (build-essential)" >&2
+    if command -v sudo >/dev/null 2>&1; then
+      sudo apt-get update -y >/dev/null
+      sudo apt-get install -y build-essential >/dev/null
+    else
+      apt-get update -y >/dev/null
+      apt-get install -y build-essential >/dev/null
+    fi
+    if command -v gcc >/dev/null 2>&1; then
+      CC="$(command -v gcc)"
+      export CC
+      return
+    fi
+  fi
+
+  echo "[kong] No C compiler found (gcc/clang). Install one or set CC before running this script." >&2
+  exit 1
+}
+
 configure_remote_exec() {
   if [[ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]]; then
     return
@@ -187,6 +227,7 @@ stage_artifacts() {
 
 main() {
   ensure_clone
+  ensure_cc
   configure_remote_exec
   local bazel_bin
   bazel_bin=$(ensure_bazel)
