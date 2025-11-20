@@ -237,8 +237,9 @@ jobs:
 
           sudo apt-get update -y
           sudo apt-get install -y rpm
-          # Force module/extensions to re-evaluate after installing rpmbuild.
-          bazel clean --expunge_external
+          # Force module/extensions to re-evaluate after installing rpmbuild. Bazel 8+ honors
+          # --configure on sync; older versions fall back to plain sync.
+          bazel sync --configure || bazel sync
 
           # Run locally to ensure rpmbuild is available and avoid executor-specific tool gaps.
           bazel run \
