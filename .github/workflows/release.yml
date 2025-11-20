@@ -121,13 +121,15 @@ jobs:
             exit 1
           fi
 
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "dry_run=${INPUT_DRY_RUN}" >> "$GITHUB_OUTPUT"
-          echo "append_notes=${INPUT_APPEND_NOTES}" >> "$GITHUB_OUTPUT"
-          echo "prerelease=${INPUT_PRERELEASE}" >> "$GITHUB_OUTPUT"
-          echo "draft=${INPUT_DRAFT}" >> "$GITHUB_OUTPUT"
-          echo "overwrite_assets=${INPUT_OVERWRITE}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=${tag}"
+            echo "version=${version}"
+            echo "dry_run=${INPUT_DRY_RUN}"
+            echo "append_notes=${INPUT_APPEND_NOTES}"
+            echo "prerelease=${INPUT_PRERELEASE}"
+            echo "draft=${INPUT_DRAFT}"
+            echo "overwrite_assets=${INPUT_OVERWRITE}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Generate release notes from CHANGELOG
         id: notes
