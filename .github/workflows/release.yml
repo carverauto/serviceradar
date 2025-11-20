@@ -89,6 +89,9 @@ jobs:
           EOF
           printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" >> .bazelrc.remote
 
+      - name: Setup Bazelisk
+        uses: bazelbuild/setup-bazelisk@v3
+
       - name: Resolve release metadata
         id: release
         env:
