@@ -1,0 +1,13 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "kvnats",
+    srcs = ["client.go"],
+    importpath = "github.com/carverauto/serviceradar/pkg/config/kvnats",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/config/kv",
+        "@com_github_nats_io_nats_go//:nats_go",
+        "@com_github_nats_io_nats_go//jetstream:jetstream",
+    ],
+)

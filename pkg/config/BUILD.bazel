@@ -22,11 +22,13 @@ go_library(
     deps = [
         "//pkg/config/kv",
         "//pkg/config/kvgrpc",
+        "//pkg/config/kvnats",
         "//pkg/grpc",
         "//pkg/logger",
         "//pkg/models",
         "//proto",
         "@com_github_google_uuid//:uuid",
+        "@com_github_nats_io_nats_go//:nats_go",
         "@com_github_rs_zerolog//:zerolog",
     ],
 )

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -36,6 +37,10 @@ var (
 	errKVNotReady         = errors.New("kv not ready")
 	errDatasvcUnavailable = errors.New("datasvc unavailable")
 )
+
+type testBootstrapConfig struct {
+	Logging logger.Config `json:"logging"`
+}
 
 func TestSanitizeBootstrapSourceAddsJWTPublicKey(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "core-config-*.json")
@@ -101,6 +106,61 @@ func TestSanitizeBootstrapSourceAddsJWTPublicKey(t *testing.T) {
 
 	if pub, ok := auth["jwt_public_key_pem"].(string); !ok || pub == "" {
 		t.Fatalf("expected jwt_public_key_pem to be populated")
+	}
+}
+
+func TestBootstrapConfigUsesAtomicCreate(t *testing.T) {
+	ctx := context.Background()
+	defaultCfg := testBootstrapConfig{
+		Logging: logger.Config{
+			Level: "info",
+			OTel: logger.OTelConfig{
+				Endpoint: "127.0.0.1:4317",
+				TLS: &logger.TLSConfig{
+					CertFile: "/etc/serviceradar/certs/core.pem",
+					KeyFile:  "/etc/serviceradar/certs/core-key.pem",
+					CAFile:   "/etc/serviceradar/certs/root.pem",
+				},
+			},
+		},
+	}
+	defaultBytes, err := json.Marshal(defaultCfg)
+	if err != nil {
+		t.Fatalf("marshal defaults: %v", err)
+	}
+
+	cfgPath := filepath.Join(t.TempDir(), "defaults.json")
+	if err := os.WriteFile(cfgPath, defaultBytes, 0o600); err != nil {
+		t.Fatalf("write defaults: %v", err)
+	}
+
+	store := &fakeKVStore{}
+	manager := &KVManager{client: store}
+
+	if err := manager.BootstrapConfig(ctx, "config/test.json", cfgPath, &testBootstrapConfig{}); err != nil {
+		t.Fatalf("bootstrap config: %v", err)
+	}
+
+	var stored testBootstrapConfig
+	if err := json.Unmarshal(store.values["config/test.json"], &stored); err != nil {
+		t.Fatalf("unmarshal stored config: %v", err)
+	}
+	if strings.ToLower(stored.Logging.Level) != "info" {
+		t.Fatalf("expected default log level, got %s", stored.Logging.Level)
+	}
+	if stored.Logging.OTel.Endpoint != defaultCfg.Logging.OTel.Endpoint {
+		t.Fatalf("expected default OTel endpoint to persist, got %s", stored.Logging.OTel.Endpoint)
+	}
+
+	seed := []byte(`{"logging":{"level":"debug"}}`)
+	store.values["config/test.json"] = seed
+
+	if err := manager.BootstrapConfig(ctx, "config/test.json", cfgPath, &testBootstrapConfig{}); err != nil {
+		t.Fatalf("second bootstrap: %v", err)
+	}
+
+	if got := store.values["config/test.json"]; string(got) != string(seed) {
+		t.Fatalf("expected existing KV value to remain, got: %s", string(got))
 	}
 }
 
@@ -211,12 +271,12 @@ func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cfg := &watcherTestConfig{
+	cfg := newThreadSafeWatcherConfig(watcherTestConfig{
 		ListenAddr: ":8080",
 		Logging: &logger.Config{
 			Level: "info",
 		},
-	}
+	})
 
 	reloads := make(chan struct{}, 2)
 	manager.StartWatch(ctx, "config/agent/test.json", cfg, logger.NewTestLogger(), func() {
@@ -233,8 +293,8 @@ func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
 		t.Fatalf("timed out waiting for reload triggered by listen_addr change")
 	}
 
-	if cfg.ListenAddr != ":9090" {
-		t.Fatalf("expected config to apply listen_addr change, got %q", cfg.ListenAddr)
+	if snap := cfg.snapshot(); snap.ListenAddr != ":9090" {
+		t.Fatalf("expected config to apply listen_addr change, got %q", snap.ListenAddr)
 	}
 
 	store.emit([]byte(`{"listen_addr":":9090"}`))
@@ -246,9 +306,93 @@ func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
 	}
 }
 
+func TestKVManagerStartWatchReappliesPinnedOverlay(t *testing.T) {
+	initialKV := []byte(`{"listen_addr":":8080","logging":{"level":"info"}}`)
+	store := newWatchKVStore(initialKV)
+	manager := &KVManager{client: store}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cfg := newThreadSafeWatcherConfig(watcherTestConfig{
+		ListenAddr: ":8080",
+		Logging: &logger.Config{
+			Level: "info",
+		},
+	})
+
+	pinnedDir := t.TempDir()
+	pinnedPath := filepath.Join(pinnedDir, "pinned.json")
+	pinnedPayload := []byte(`{"listen_addr":":6060","logging":{"level":"warn"}}`)
+	if err := os.WriteFile(pinnedPath, pinnedPayload, 0o600); err != nil {
+		t.Fatalf("failed to write pinned config: %v", err)
+	}
+
+	cfgLoader := NewConfig(nil)
+	if err := cfgLoader.OverlayPinned(ctx, pinnedPath, cfg); err != nil {
+		t.Fatalf("failed to seed pinned config: %v", err)
+	}
+
+	reloads := make(chan struct{}, 1)
+	manager.StartWatchWithPinned(ctx, "config/agent/test.json", cfg, logger.NewTestLogger(), pinnedPath, cfgLoader, func() {
+		reloads <- struct{}{}
+	})
+
+	store.waitForWatch(t)
+
+	store.emit([]byte(`{"listen_addr":":9090","logging":{"level":"debug"}}`))
+
+	select {
+	case <-reloads:
+		t.Fatalf("pinned overlay should keep the effective config stable; reload not expected")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	snap := cfg.snapshot()
+	if snap.ListenAddr != ":6060" {
+		t.Fatalf("expected pinned listen_addr to remain, got %q", snap.ListenAddr)
+	}
+	if snap.Logging == nil || strings.ToLower(snap.Logging.Level) != "warn" {
+		t.Fatalf("expected pinned logging.level of warn, got %#v", snap.Logging)
+	}
+}
+
 type watcherTestConfig struct {
 	ListenAddr string         `json:"listen_addr"`
 	Logging    *logger.Config `json:"logging,omitempty" hot:"reload"`
+}
+
+type threadSafeWatcherConfig struct {
+	mu sync.RWMutex
+	watcherTestConfig
+}
+
+func newThreadSafeWatcherConfig(cfg watcherTestConfig) *threadSafeWatcherConfig {
+	return &threadSafeWatcherConfig{watcherTestConfig: cfg}
+}
+
+func (c *threadSafeWatcherConfig) MarshalJSON() ([]byte, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return json.Marshal(c.watcherTestConfig)
+}
+
+func (c *threadSafeWatcherConfig) UnmarshalJSON(data []byte) error {
+	var tmp watcherTestConfig
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	c.watcherTestConfig = tmp
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *threadSafeWatcherConfig) snapshot() watcherTestConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.watcherTestConfig
 }
 
 type watchKVStore struct {

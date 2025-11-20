@@ -52,6 +52,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         config_path: config_file.to_string(),
         format: ConfigFormat::Toml,
         kv_key,
+        pinned_path: config_bootstrap::pinned_path_from_env(),
         seed_kv: use_kv,
         watch_kv: use_kv,
     })

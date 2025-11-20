@@ -15,6 +15,14 @@ build --show_timestamps
 build --action_env=OPENSSL_NO_PKG_CONFIG=1
 build --action_env=SRQL_TEST_DATABASE_URL
 build --action_env=SRQL_TEST_ADMIN_URL
+build --action_env=NATS_URL
+build --action_env=NATS_SERVER_NAME
+build --action_env=NATS_CA_FILE
+build --action_env=NATS_CERT_FILE
+build --action_env=NATS_KEY_FILE
+build --action_env=NATS_CA_B64
+build --action_env=NATS_CERT_B64
+build --action_env=NATS_KEY_B64
 build --java_runtime_version=local_jdk
 build --tool_java_runtime_version=local_jdk
 build --@io_bazel_rules_go//go/config:pure
@@ -25,6 +33,14 @@ test --test_output=errors
 test --action_env=OPENSSL_NO_PKG_CONFIG=1
 test --action_env=SRQL_TEST_DATABASE_URL
 test --action_env=SRQL_TEST_ADMIN_URL
+test --action_env=NATS_URL
+test --action_env=NATS_SERVER_NAME
+test --action_env=NATS_CA_FILE
+test --action_env=NATS_CERT_FILE
+test --action_env=NATS_KEY_FILE
+test --action_env=NATS_CA_B64
+test --action_env=NATS_CERT_B64
+test --action_env=NATS_KEY_B64
 test --@io_bazel_rules_go//go/config:pure
 test --flaky_test_attempts=2
 

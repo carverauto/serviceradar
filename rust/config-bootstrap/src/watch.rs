@@ -1,8 +1,9 @@
 //! Configuration watching functionality for hot-reload support.
 
 use crate::{ConfigFormat, Result};
-use kvutil::KvClient;
+use kvutil::{self, KvClient};
 use serde::{Deserialize, Serialize};
+use std::fs;
 use tokio::sync::mpsc;
 
 /// Watches a KV key for changes and provides updates to the service.
@@ -20,22 +21,36 @@ where
         kv_key: String,
         format: ConfigFormat,
         service_name: String,
+        pinned_path: Option<String>,
     ) -> Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
+        let pinned_path = pinned_path.filter(|s| !s.is_empty());
+        let service_name_clone = service_name.clone();
         kv_client
             .watch_apply(&kv_key, {
+                let pinned_path = pinned_path.clone();
                 move |bytes| match parse_config::<T>(bytes, format) {
-                    Ok(cfg) => {
+                    Ok(mut cfg) => {
+                        if let Err(err) =
+                            apply_pinned_overlay(&mut cfg, pinned_path.as_deref(), format)
+                        {
+                            tracing::warn!(
+                                service = %service_name_clone,
+                                error = %err,
+                                "failed to apply pinned config to KV update"
+                            );
+                            return;
+                        }
                         if tx.send(cfg).is_err() {
                             tracing::debug!(
-                                service = %service_name,
+                                service = %service_name_clone,
                                 "config watcher receiver dropped; stopping watch task"
                             );
                         }
                     }
                     Err(err) => {
                         tracing::warn!(
-                            service = %service_name,
+                            service = %service_name_clone,
                             error = %err,
                             "failed to parse config update from KV"
                         );
@@ -74,6 +89,31 @@ where
             Ok(config)
         }
     }
+}
+
+fn apply_pinned_overlay<T>(
+    cfg: &mut T,
+    pinned_path: Option<&str>,
+    format: ConfigFormat,
+) -> Result<()>
+where
+    T: Serialize + for<'de> Deserialize<'de>,
+{
+    let Some(path) = pinned_path else {
+        return Ok(());
+    };
+
+    if path.is_empty() {
+        return Ok(());
+    }
+
+    let data = fs::read(path)?;
+    match format {
+        ConfigFormat::Json => kvutil::overlay_json(cfg, &data)?,
+        ConfigFormat::Toml => kvutil::overlay_toml(cfg, &data)?,
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

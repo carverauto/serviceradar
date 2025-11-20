@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sr-testing-nats
+  labels:
+    app: sr-testing-nats
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sr-testing-nats
+  template:
+    metadata:
+      labels:
+        app: sr-testing-nats
+    spec:
+      containers:
+        - name: nats
+          image: nats:2.11.4-alpine
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-c"
+            - "/etc/nats/nats-server.conf"
+            - "--jetstream"
+          ports:
+            - name: client
+              containerPort: 4222
+            - name: monitoring
+              containerPort: 8222
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: monitoring
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: monitoring
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          volumeMounts:
+            - name: nats-data
+              mountPath: /data
+            - name: nats-config
+              mountPath: /etc/nats/nats-server.conf
+              subPath: nats-server.conf
+            - name: nats-tls
+              mountPath: /etc/nats/certs
+      volumes:
+        - name: nats-data
+          emptyDir: {}
+        - name: nats-config
+          configMap:
+            name: sr-testing-nats-config
+        - name: nats-tls
+          secret:
+            secretName: sr-testing-nats-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sr-testing-nats
+  labels:
+    app: sr-testing-nats
+spec:
+  selector:
+    app: sr-testing-nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: client
+    - name: monitoring
+      port: 8222
+      targetPort: monitoring
