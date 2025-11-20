@@ -22,6 +22,8 @@ build --action_env=NATS_KEY_FILE
 build --action_env=NATS_CA_B64
 build --action_env=NATS_CERT_B64
 build --action_env=NATS_KEY_B64
+build --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
+build --action_env=TURBOPACK=0
 build --action_env=OPENSSL_DIR=/usr
 build --action_env=OPENSSL_LIB_DIR=/usr/lib64
 build --action_env=OPENSSL_INCLUDE_DIR=/usr/include
