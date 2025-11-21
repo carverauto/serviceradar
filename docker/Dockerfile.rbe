@@ -75,12 +75,23 @@ ARG GHCR_CNPG_IMAGE="ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr1"
 ARG GHCR_USERNAME=""
 
 # Fetch the CNPG test fixture image into a local docker-archive so Bazel
-# executors can load it without network access.
-RUN --mount=type=secret,id=ghcr_token,required=true <<EOF
+# executors can load it without network access. If no secret is provided,
+# skip the pull (the image remains optional).
+RUN --mount=type=secret,id=ghcr_token <<'EOF'
 set -euo pipefail
 TOKEN_FILE="/run/secrets/ghcr_token"
-TOKEN_VALUE=$(cat "$TOKEN_FILE")
-skopeo copy --src-creds "$GHCR_USERNAME:$TOKEN_VALUE" "docker://$GHCR_CNPG_IMAGE" "docker-archive:/opt/cnpg_image.tar:$GHCR_CNPG_IMAGE"
+if [[ -z "${GHCR_CNPG_IMAGE:-}" ]]; then
+  echo "CNPG image not set; skipping preload"
+  exit 0
+fi
+if [[ -f "$TOKEN_FILE" && -s "$TOKEN_FILE" && -n "${GHCR_USERNAME:-}" ]]; then
+  TOKEN_VALUE=$(cat "$TOKEN_FILE")
+  skopeo copy --src-creds "$GHCR_USERNAME:$TOKEN_VALUE" "docker://$GHCR_CNPG_IMAGE" "docker-archive:/opt/cnpg_image.tar:$GHCR_CNPG_IMAGE"
+elif skopeo copy "docker://$GHCR_CNPG_IMAGE" "docker-archive:/opt/cnpg_image.tar:$GHCR_CNPG_IMAGE"; then
+  echo "Pulled CNPG image without auth"
+else
+  echo "Warning: CNPG preload skipped (missing credentials or pull failed)" >&2
+fi
 EOF
 
 # Install Rust toolchains for native builds.
