@@ -238,6 +238,14 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y rpm
 
+          sudo apt-get update -y
+          sudo apt-get install -y rpm rpm2cpio || true
+          if ! command -v rpmbuild >/dev/null 2>&1; then
+            echo "rpmbuild not found after installation" >&2
+            exit 1
+          fi
+          rpmbuild --version
+
           # Nuking externals so the rpmbuild toolchain repo is regenerated with rpmbuild present.
           bazel clean --expunge
 
