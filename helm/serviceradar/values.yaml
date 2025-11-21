@@ -142,6 +142,8 @@ spire:
     image: ghcr.io/spiffe/spire-agent:1.11.2
     logLevel: DEBUG
     waitForImage: cgr.dev/chainguard/wait-for-it
+  tokenAudience: spire-server
+  additionalAgentNamespaces: []
   postgres:
     enabled: true
     clusterName: cnpg
@@ -197,6 +199,8 @@ secrets:
   existingSecretName: serviceradar-secrets
   # Provide adminBcryptHash to avoid in-cluster generation.
   adminBcryptHash: ""
+  # Base64-encoded 32-byte key for edge onboarding; used by core and seeded into config.
+  edgeOnboardingKey: "5yV33bvFfRKBz5y20XPVnxyysYhXc/LXdG4jtrvrkN0="
 # Proton (TimeStream DB) configuration
 proton:
   resources:

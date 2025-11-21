@@ -30,8 +30,8 @@ data:
       "cnpg": {
         "host": "",
         "port": 5432,
-        "database": "telemetry",
-        "username": "postgres",
+        "database": "spire",
+        "username": "spire",
         "password": "",
         "application_name": "serviceradar-core",
         "ssl_mode": "verify-full",
@@ -42,7 +42,7 @@ data:
         "tls": {
           "cert_file": "/etc/serviceradar/certs/core.pem",
           "key_file": "/etc/serviceradar/certs/core-key.pem",
-          "ca_file": "/etc/serviceradar/certs/root.pem"
+          "ca_file": "/etc/serviceradar/cnpg/ca.crt"
         }
       },
       "alert_threshold": "5m",
@@ -104,7 +104,7 @@ data:
       },
       "edge_onboarding": {
         "enabled": true,
-        "encryption_key": "",
+        "encryption_key": "{{ default "" .Values.secrets.edgeOnboardingKey }}",
         "default_selectors": [
           "unix:uid:0",
           "unix:gid:0",
@@ -933,6 +933,8 @@ data:
       CNPG_USERNAME_VALUE="${CNPG_USERNAME:-postgres}"
       CNPG_SSLMODE_VALUE="${CNPG_SSLMODE:-verify-full}"
       CNPG_CERT_DIR_VALUE="${CNPG_CERT_DIR:-/etc/serviceradar/certs}"
+      CNPG_CA_FILE_VALUE="${CNPG_CA_FILE:-/etc/serviceradar/cnpg/ca.crt}"
+      EDGE_ONBOARDING_KEY_VALUE="${EDGE_ONBOARDING_ENCRYPTION_KEY:-}"
   
       if [ -z "$CNPG_PASSWORD" ]; then
           echo "Warning: CNPG_PASSWORD environment variable not found"
@@ -949,30 +951,34 @@ data:
               mv "$TMP_CONFIG" "$CONFIG_PATH"
           fi
   
-          echo "Updating configuration with secrets..."
-          TMP_CONFIG=$(mktemp)
-          jq --arg host "$CNPG_HOST_VALUE" \
-             --arg port "$CNPG_PORT_VALUE" \
-             --arg db "$CNPG_DATABASE_VALUE" \
-             --arg user "$CNPG_USERNAME_VALUE" \
-             --arg pwd "$CNPG_PASSWORD" \
-             --arg ssl "$CNPG_SSLMODE_VALUE" \
-             --arg certdir "$CNPG_CERT_DIR_VALUE" \
-             --arg jwt "$JWT_SECRET" \
-             --arg api_key "$API_KEY" \
-             --arg bcrypt "$ADMIN_BCRYPT_HASH" \
-             '.cnpg.host = $host
-              | .cnpg.port = ($port | tonumber)
-              | .cnpg.database = $db
-              | .cnpg.username = $user
-              | .cnpg.password = $pwd
-              | .cnpg.ssl_mode = $ssl
-              | .cnpg.cert_dir = $certdir
-              | .auth.jwt_secret = $jwt
-              | .auth.jwt_expiration = "24h"
-              | .auth.local_users.admin = $bcrypt
-              | .api_key = $api_key' \
-             "$CONFIG_PATH" > "$TMP_CONFIG"
+      echo "Updating configuration with secrets..."
+      TMP_CONFIG=$(mktemp)
+      jq --arg host "$CNPG_HOST_VALUE" \
+         --arg port "$CNPG_PORT_VALUE" \
+         --arg db "$CNPG_DATABASE_VALUE" \
+         --arg user "$CNPG_USERNAME_VALUE" \
+         --arg pwd "$CNPG_PASSWORD" \
+         --arg ssl "$CNPG_SSLMODE_VALUE" \
+         --arg certdir "$CNPG_CERT_DIR_VALUE" \
+         --arg jwt "$JWT_SECRET" \
+         --arg api_key "$API_KEY" \
+         --arg bcrypt "$ADMIN_BCRYPT_HASH" \
+         --arg edge_key "$EDGE_ONBOARDING_KEY_VALUE" \
+         --arg ca_file "$CNPG_CA_FILE_VALUE" \
+         '.cnpg.host = $host
+          | .cnpg.port = ($port | tonumber)
+          | .cnpg.database = $db
+          | .cnpg.username = $user
+          | .cnpg.password = $pwd
+          | .cnpg.ssl_mode = $ssl
+          | .cnpg.cert_dir = $certdir
+          | .auth.jwt_secret = $jwt
+          | .auth.jwt_expiration = "24h"
+          | .auth.local_users.admin = $bcrypt
+          | .api_key = $api_key
+          | .cnpg.tls.ca_file = $ca_file
+          | (if ($edge_key | length) > 0 then .edge_onboarding.encryption_key = $edge_key else . end)' \
+        "$CONFIG_PATH" > "$TMP_CONFIG"
           mv "$TMP_CONFIG" "$CONFIG_PATH"
           echo "Configuration updated with secrets at $CONFIG_PATH"
   
@@ -1509,6 +1515,18 @@ data:
       {
         "listen_addr": "0.0.0.0:50057",
         "nats_url": "tls://serviceradar-nats:4222",
+        "nats_security": {
+          "mode": "mtls",
+          "cert_dir": "/etc/serviceradar/certs",
+          "server_name": "nats.serviceradar",
+          "role": "datasvc",
+          "tls": {
+            "cert_file": "kv.pem",
+            "key_file": "kv-key.pem",
+            "ca_file": "root.pem",
+            "client_ca_file": "root.pem"
+          }
+        },
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
@@ -1516,8 +1534,8 @@ data:
           "trust_domain": "{{$trustDomain}}",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
           "tls": {
-            "cert_file": "datasvc.pem",
-            "key_file": "datasvc-key.pem",
+            "cert_file": "kv.pem",
+            "key_file": "kv-key.pem",
             "ca_file": "root.pem",
             "client_ca_file": "root.pem"
           }
