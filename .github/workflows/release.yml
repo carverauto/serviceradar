@@ -255,6 +255,10 @@ jobs:
           bazel clean --expunge
 
           # Run locally to ensure rpmbuild is available and avoid executor-specific tool gaps.
+          export OPENSSL_DIR=/usr
+          export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+          export OPENSSL_INCLUDE_DIR=/usr/include
+
           bazel run \
             --config=no_remote \
             --host_platform=@local_config_platform//:host \
@@ -263,6 +267,12 @@ jobs:
             --remote_cache= \
             --noremote_accept_cached \
             --noremote_upload_local_results \
+            --action_env=OPENSSL_DIR=/usr \
+            --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu \
+            --action_env=OPENSSL_INCLUDE_DIR=/usr/include \
+            --repo_env=OPENSSL_DIR=/usr \
+            --repo_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu \
+            --repo_env=OPENSSL_INCLUDE_DIR=/usr/include \
             --jobs=8 \
             --stamp \
             //release:publish_packages \
