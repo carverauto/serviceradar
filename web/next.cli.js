@@ -7,9 +7,5 @@ if (!process.env.NEXT_PRIVATE_SKIP_TURBOPACK) {
 if (!process.env.TURBOPACK) {
   process.env.TURBOPACK = "0";
 }
-if (!process.argv.includes("--turbo") && !process.argv.includes("--no-turbo")) {
-  // Insert --no-turbo after the script name (argv[1])
-  process.argv.splice(2, 0, "--no-turbo");
-}
 
 require('./node_modules/next/dist/bin/next');
