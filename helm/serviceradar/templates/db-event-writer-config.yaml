@@ -1,5 +1,5 @@
 # Rendered as-is from staging overlay
-{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{ $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:

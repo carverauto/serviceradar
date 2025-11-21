@@ -163,6 +163,7 @@ spire:
       - CREATE EXTENSION IF NOT EXISTS timescaledb;
       - CREATE EXTENSION IF NOT EXISTS age;
   controllerManager:
+    enabled: true
     image: ghcr.io/spiffe/spire-controller-manager
     tag: 0.6.3
     configMapName: spire-controller-manager-config
@@ -192,6 +193,7 @@ ingress:
     enabled: true
     secretName: serviceradar-staging-tls
 secrets:
+  autoGenerate: true
   existingSecretName: serviceradar-secrets
   # Provide adminBcryptHash to avoid in-cluster generation.
   adminBcryptHash: ""

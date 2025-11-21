@@ -15,7 +15,7 @@ metadata:
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: spire-agent-cluster-role
+  name: {{ include "serviceradar.spireAgentClusterRoleName" . }}
 rules:
   - apiGroups: [""]
     resources: ["pods", "nodes", "nodes/proxy"]
@@ -24,7 +24,7 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: spire-agent-cluster-role-binding
+  name: {{ include "serviceradar.spireAgentClusterRoleBindingName" . }}
 subjects:
   - kind: ServiceAccount
     name: {{ .Values.spire.agentServiceAccount }}
@@ -36,7 +36,7 @@ subjects:
   {{- end }}
 roleRef:
   kind: ClusterRole
-  name: spire-agent-cluster-role
+  name: {{ include "serviceradar.spireAgentClusterRoleName" . }}
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: v1
