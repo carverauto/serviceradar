@@ -70,6 +70,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install rpmbuild tooling
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y rpm rpm2cpio
+
       - name: Configure BuildBuddy remote cache
         if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
         run: |
