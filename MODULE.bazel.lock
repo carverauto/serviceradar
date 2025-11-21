@@ -16766,7 +16766,7 @@
           "buildbuddy_toolchain": {
             "repoRuleId": "@@toolchains_buildbuddy+//:rules.bzl%_buildbuddy_toolchain",
             "attributes": {
-              "container_image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.13",
+              "container_image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.14",
               "llvm": false,
               "java_version": "",
               "gcc_version": "13",

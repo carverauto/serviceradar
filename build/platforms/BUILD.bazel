@@ -44,7 +44,7 @@ platform(
         "@platforms//cpu:x86_64",
     ],
     exec_properties = {
-        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.13",
+        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.14",
         "OSFamily": "linux",
         "Arch": "amd64",
         "dockerNetwork": "host",
@@ -60,7 +60,7 @@ platform(
         "@platforms//cpu:aarch64",
     ],
     exec_properties = {
-        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.13",
+        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.14",
         "OSFamily": "linux",
         "Arch": "arm64",
         "dockerNetwork": "host",
