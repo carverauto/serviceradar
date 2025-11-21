@@ -1,3 +1,4 @@
+{{- if not (eq .Values.proton.enabled false) }}
 # ServiceRadar Proton (ClickHouse) Deployment, Service, PVC
 apiVersion: apps/v1
 kind: Deployment
@@ -134,3 +135,4 @@ spec:
   resources:
     requests:
       storage: {{ .Values.proton.storage.size }}
+{{- end }}

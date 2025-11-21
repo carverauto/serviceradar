@@ -207,3 +207,14 @@ spec:
   - name: metrics
     port: 9090
     targetPort: metrics
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-core-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

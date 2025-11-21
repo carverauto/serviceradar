@@ -31,6 +31,16 @@ stringData:
   username: {{ default "spire" $pg.username }}
   password: {{ default "changeme" $pg.password | quote }}
 ---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cnpg-superuser
+  namespace: {{ $ns }}
+type: Opaque
+stringData:
+  password: {{ default "changeme" $pg.password | quote }}
+  username: postgres
+---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
