@@ -47,6 +47,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=sha,prefix={{branch}}-
+            type=raw,value=v1.0.14
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
