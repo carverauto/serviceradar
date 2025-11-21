@@ -20,7 +20,7 @@
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
-  name: {{ .name }}
+  name: {{ printf "%s-%s" .name $ns }}
 spec:
   spiffeIDTemplate: spiffe://{{ $trustDomain }}/ns/{{ $ns }}/sa/{{ .sa }}
 {{- if .admin }}
@@ -39,7 +39,7 @@ spec:
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
-  name: serviceradar-poller-nested
+  name: {{ printf "serviceradar-poller-nested-%s" $ns }}
 spec:
   spiffeIDTemplate: {{ $nestedSpiffe }}
   admin: true

@@ -4,7 +4,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: spire-controller-manager
+  name: {{ include "serviceradar.spireControllerManagerRoleName" . }}
 rules:
   - apiGroups:
       - ""
@@ -62,11 +62,11 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: spire-controller-manager
+  name: {{ include "serviceradar.spireControllerManagerRoleBindingName" . }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: spire-controller-manager
+  name: {{ include "serviceradar.spireControllerManagerRoleName" . }}
 subjects:
   - kind: ServiceAccount
     name: spire-server

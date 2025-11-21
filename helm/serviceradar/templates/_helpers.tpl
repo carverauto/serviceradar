@@ -81,3 +81,28 @@ imagePullSecrets:
 - name: CORE_CERT_DIR
   value: "{{ default "/etc/serviceradar/certs" $vals.coreClient.certDir }}"
 {{- end -}}
+
+{{- /* RBAC helper names to avoid clashes across namespaces */ -}}
+{{- define "serviceradar.spireAgentClusterRoleName" -}}
+{{- printf "%s-%s-%s" (include "serviceradar.fullname" .) .Release.Namespace "spire-agent-cluster-role" -}}
+{{- end -}}
+
+{{- define "serviceradar.spireAgentClusterRoleBindingName" -}}
+{{- printf "%s-%s-%s" (include "serviceradar.fullname" .) .Release.Namespace "spire-agent-cluster-role-binding" -}}
+{{- end -}}
+
+{{- define "serviceradar.spireServerTrustRoleName" -}}
+{{- printf "%s-%s-%s" (include "serviceradar.fullname" .) .Release.Namespace "spire-server-trust-role" -}}
+{{- end -}}
+
+{{- define "serviceradar.spireServerTrustRoleBindingName" -}}
+{{- printf "%s-%s-%s" (include "serviceradar.fullname" .) .Release.Namespace "spire-server-trust-role-binding" -}}
+{{- end -}}
+
+{{- define "serviceradar.spireControllerManagerRoleName" -}}
+{{- printf "%s-%s-%s" (include "serviceradar.fullname" .) .Release.Namespace "spire-controller-manager" -}}
+{{- end -}}
+
+{{- define "serviceradar.spireControllerManagerRoleBindingName" -}}
+{{- printf "%s-%s-%s" (include "serviceradar.fullname" .) .Release.Namespace "spire-controller-manager-binding" -}}
+{{- end -}}

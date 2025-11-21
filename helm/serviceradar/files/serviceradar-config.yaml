@@ -71,8 +71,8 @@ core.json: |
       "mode": "spiffe",
       "cert_dir": "/etc/serviceradar/certs",
       "role": "core",
-      "trust_domain": "carverauto.dev",
-      "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core",
+      "trust_domain": "{{$trustDomain}}",
+      "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-core",
       "workload_socket": "unix:/run/spire/sockets/agent.sock",
       "tls": {
         "cert_file": "/etc/serviceradar/certs/core.pem",
@@ -86,8 +86,8 @@ core.json: |
       "mode": "spiffe",
       "cert_dir": "/etc/serviceradar/certs",
       "role": "core",
-      "trust_domain": "carverauto.dev",
-      "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc",
+      "trust_domain": "{{$trustDomain}}",
+      "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-datasvc",
       "workload_socket": "unix:/run/spire/sockets/agent.sock",
       "tls": {
         "cert_file": "/etc/serviceradar/certs/core.pem",
@@ -97,8 +97,8 @@ core.json: |
     },
     "spire_admin": {
       "enabled": true,
-      "server_address": "spire-server.demo.svc.cluster.local:8081",
-      "server_spiffe_id": "spiffe://carverauto.dev/spire/server",
+      "server_address": "spire-server.{{$spireNamespace}}.svc.cluster.local:8081",
+      "server_spiffe_id": "spiffe://{{$trustDomain}}/spire/server",
       "workload_socket": "unix:/run/spire/sockets/agent.sock",
       "join_token_ttl": "15m"
     },
@@ -114,14 +114,14 @@ core.json: |
       "default_metadata": {
         "poller": {
           "core_address": "serviceradar-core:50052",
-          "core_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core",
+          "core_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-core",
           "kv_address": "serviceradar-datasvc:50057",
-          "kv_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc",
-          "spire_upstream_address": "spire-server.demo.svc.cluster.local",
+          "kv_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-datasvc",
+          "spire_upstream_address": "spire-server.{{$spireNamespace}}.svc.cluster.local",
           "spire_upstream_port": "8081",
-          "spire_parent_id": "spiffe://carverauto.dev/ns/edge/poller-nested-spire",
+          "spire_parent_id": "spiffe://{{$trustDomain}}/ns/edge/poller-nested-spire",
           "agent_address": "agent:50051",
-          "agent_spiffe_id": "spiffe://carverauto.dev/services/agent",
+          "agent_spiffe_id": "spiffe://{{$trustDomain}}/services/agent",
           "nested_spire_wait_attempts": "120",
           "log_level": "info",
           "logs_dir": "./logs"
@@ -293,8 +293,8 @@ core.json: |
         "mode": "spiffe",
         "cert_dir": "/etc/serviceradar/certs",
         "role": "poller",
-        "trust_domain": "carverauto.dev",
-        "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core",
+        "trust_domain": "{{$trustDomain}}",
+        "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-core",
         "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "poller.pem",
@@ -313,8 +313,8 @@ core.json: |
         "mode": "spiffe",
         "cert_dir": "/etc/serviceradar/certs",
         "role": "poller",
-        "trust_domain": "carverauto.dev",
-        "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core",
+        "trust_domain": "{{$trustDomain}}",
+        "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-core",
         "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "poller.pem",
@@ -926,7 +926,7 @@ core.json: |
 
     echo "Using runtime configuration at $CONFIG_PATH"
 
-    EFFECTIVE_NAMESPACE="${KUBERNETES_NAMESPACE:-demo}"
+    EFFECTIVE_NAMESPACE="${KUBERNETES_NAMESPACE:-{{$spireNamespace}}}"
     CNPG_HOST_VALUE="${CNPG_HOST:-cnpg-rw.${EFFECTIVE_NAMESPACE}.svc.cluster.local}"
     CNPG_PORT_VALUE="${CNPG_PORT:-5432}"
     CNPG_DATABASE_VALUE="${CNPG_DATABASE:-telemetry}"

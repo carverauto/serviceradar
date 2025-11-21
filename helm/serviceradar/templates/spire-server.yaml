@@ -15,6 +15,10 @@
 {{- $cmImageTag := default "0.6.3" $cmVals.tag }}
 {{- $cmImage := printf "%s:%s" $cmImageRepo $cmImageTag }}
 {{- $cmConfigName := default "spire-controller-manager-config" $cmVals.configMapName }}
+{{- $cmEnabled := true }}
+{{- if hasKey $cmVals "enabled" }}
+{{- $cmEnabled = $cmVals.enabled }}
+{{- end }}
 {{- $cmSocketPath := default "/spire-server/api.sock" $cmVals.spireServerSocketPath }}
 {{- $cmMetricsAddr := default "127.0.0.1:8082" $cmVals.metricsBindAddress }}
 {{- $cmHealthAddr := default "0.0.0.0:8083" $cmVals.healthProbeBindAddress }}
@@ -64,7 +68,7 @@ roleRef:
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: spire-server-trust-role
+  name: {{ include "serviceradar.spireServerTrustRoleName" . }}
 rules:
   - apiGroups: ["authentication.k8s.io"]
     resources: ["tokenreviews"]
@@ -79,14 +83,14 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: spire-server-trust-role-binding
+  name: {{ include "serviceradar.spireServerTrustRoleBindingName" . }}
 subjects:
   - kind: ServiceAccount
     name: spire-server
     namespace: {{ $ns }}
 roleRef:
   kind: ClusterRole
-  name: spire-server-trust-role
+  name: {{ include "serviceradar.spireServerTrustRoleName" . }}
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: v1
@@ -267,6 +271,7 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
+{{- if $cmEnabled }}
         - name: spire-controller-manager
           image: {{ $cmImage }}
           args:
@@ -299,6 +304,7 @@ spec:
 {{- with $cmResources }}
           resources:
 {{ toYaml . | indent 12 }}
+{{- end }}
 {{- end }}
       volumes:
         - name: spire-config-template
