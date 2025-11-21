@@ -23,7 +23,8 @@ build --action_env=NATS_CA_B64
 build --action_env=NATS_CERT_B64
 build --action_env=NATS_KEY_B64
 build --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
-build --action_env=TURBOPACK=0
+build --action_env=TURBOPACK=
+build --action_env=NEXT_SKIP_TURBO=1
 build --action_env=OPENSSL_DIR=/usr
 build --action_env=OPENSSL_LIB_DIR=/usr/lib64
 build --action_env=OPENSSL_INCLUDE_DIR=/usr/include
@@ -34,6 +35,9 @@ build --repo_env=OPENSSL_LIB_DIR=/usr/lib64
 build --repo_env=OPENSSL_INCLUDE_DIR=/usr/include
 build --repo_env=OPENSSL_NO_VENDOR=
 build --repo_env=OPENSSL_NO_PKG_CONFIG=
+build --repo_env=NEXT_SKIP_TURBO=1
+build --repo_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
+build --repo_env=TURBOPACK=
 build --java_runtime_version=local_jdk
 build --tool_java_runtime_version=local_jdk
 build --@io_bazel_rules_go//go/config:pure
@@ -111,13 +115,15 @@ build:remote_base --action_env=OPENSSL_DIR=/usr
 build:remote_base --action_env=OPENSSL_LIB_DIR=/usr/lib64
 build:remote_base --action_env=OPENSSL_INCLUDE_DIR=/usr/include
 build:remote_base --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
-build:remote_base --action_env=TURBOPACK=0
+build:remote_base --action_env=TURBOPACK=
+build:remote_base --action_env=NEXT_SKIP_TURBO=1
 test:remote --copt=-Wno-use-after-free
 test:remote --action_env=OPENSSL_DIR=/usr
 test:remote --action_env=OPENSSL_LIB_DIR=/usr/lib64
 test:remote --action_env=OPENSSL_INCLUDE_DIR=/usr/include
 test:remote --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
-test:remote --action_env=TURBOPACK=0
+test:remote --action_env=TURBOPACK=
+test:remote --action_env=NEXT_SKIP_TURBO=1
 
 # Remote execution profile (opt-in via --config=remote).
 build:remote --config=remote_base

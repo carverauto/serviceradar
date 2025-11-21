@@ -150,6 +150,7 @@ genrule(
         "cat <<'EOF' > $@",
         "/// <reference types=\"next\" />",
         "/// <reference types=\"next/image-types/global\" />",
+        "import \"./.next/types/routes.d.ts\";",
         "",
         "// NOTE: This file should not be edited",
         "// see https://nextjs.org/docs/app/api-reference/config/typescript for more information.",
@@ -255,7 +256,7 @@ nextjs_standalone_build(
     srcs = NEXT_APP_SRCS + [":next_env_d_ts"],
     next_js_binary = ":next_js_binary",
     env = {
-        "TURBOPACK": "0",
+        "TURBOPACK": "",
         "NEXT_PRIVATE_SKIP_TURBOPACK": "1",
     },
     visibility = ["//visibility:public"],
