@@ -1,3 +1,10 @@
+{{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $datasvcSA }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,6 +20,7 @@ spec:
         app: serviceradar-datasvc
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ $datasvcSA }}
       containers:
       - name: datasvc
         image: ghcr.io/carverauto/serviceradar-datasvc:{{ .Values.image.tags.datasvc }}

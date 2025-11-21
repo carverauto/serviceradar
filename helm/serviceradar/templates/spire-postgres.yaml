@@ -1,6 +1,17 @@
 {{- if and .Values.spire.enabled .Values.spire.postgres.enabled }}
 {{- $ns := default .Release.Namespace .Values.spire.namespace }}
 {{- $pg := .Values.spire.postgres }}
+{{- $existingSpire := (lookup "v1" "Secret" $ns ($pg.secretName | default "spire-db-credentials")) }}
+{{- $existingSuper := (lookup "v1" "Secret" $ns "cnpg-superuser") }}
+{{- $spireUser := default "spire" $pg.username }}
+{{- $spirePass := default "changeme" $pg.password }}
+{{- if and $existingSpire $existingSpire.data.password }}
+  {{- $spirePass = (b64dec $existingSpire.data.password) }}
+{{- end }}
+{{- $superPass := default "changeme" $pg.password }}
+{{- if and $existingSuper $existingSuper.data.password }}
+  {{- $superPass = (b64dec $existingSuper.data.password) }}
+{{- end }}
 {{- $imageName := $pg.imageName }}
 {{- if not $imageName }}
   {{- $imageRepo := default "ghcr.io/carverauto/serviceradar-cnpg" $pg.image }}
@@ -28,8 +39,8 @@ metadata:
   namespace: {{ $ns }}
 type: Opaque
 stringData:
-  username: {{ default "spire" $pg.username }}
-  password: {{ default "changeme" $pg.password | quote }}
+  username: {{ $spireUser }}
+  password: {{ $spirePass | quote }}
 ---
 apiVersion: v1
 kind: Secret
@@ -38,7 +49,7 @@ metadata:
   namespace: {{ $ns }}
 type: Opaque
 stringData:
-  password: {{ default "changeme" $pg.password | quote }}
+  password: {{ $superPass | quote }}
   username: postgres
 ---
 apiVersion: postgresql.cnpg.io/v1

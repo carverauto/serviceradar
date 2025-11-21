@@ -1,4 +1,11 @@
--- CPU rollup (single hypertable to satisfy Timescale CAGG constraints)
+-- Rebuild device_metrics_summary to match single-hypertable CAGGs, covering clusters that already recorded version 0003.
+
+DROP VIEW IF EXISTS device_metrics_summary;
+DROP MATERIALIZED VIEW IF EXISTS device_metrics_summary_memory;
+DROP MATERIALIZED VIEW IF EXISTS device_metrics_summary_disk;
+DROP MATERIALIZED VIEW IF EXISTS device_metrics_summary_cpu;
+
+-- CPU rollup
 CREATE MATERIALIZED VIEW IF NOT EXISTS device_metrics_summary_cpu
 WITH (timescaledb.continuous) AS
 SELECT
