@@ -37,6 +37,18 @@ coreClient:
   serverSPIFFEID: ""
   workloadSocket: unix:/run/spire/sockets/agent.sock
   certDir: /etc/serviceradar/certs
+cnpg:
+  host: ""
+  port: 5432
+  database: telemetry
+  username: spire
+  credentialsSecret: spire-db-credentials
+  sslmode: verify-full
+  certDir: /etc/serviceradar/certs
+  caFile: /etc/serviceradar/cnpg/ca.crt
+dbEventWriter:
+  kvBootstrap:
+    enabled: true
 configSync:
   flowgger:
     enabled: true

@@ -2,6 +2,7 @@
 {{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
 {{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
 {{- $coreSA := .Values.spire.coreServiceAccount | default "serviceradar-core" -}}
+{{- $cnpg := default (dict) .Values.cnpg -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -115,23 +116,27 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: CNPG_HOST
+          value: {{ default "" $cnpg.host | quote }}
         - name: CNPG_PORT
-          value: "5432"
+          value: {{ default 5432 $cnpg.port | quote }}
         - name: CNPG_DATABASE
-          value: "spire"
+          value: {{ default "telemetry" $cnpg.database | quote }}
         - name: CNPG_USERNAME
           valueFrom:
             secretKeyRef:
-              name: spire-db-credentials
+              name: {{ default "spire-db-credentials" $cnpg.credentialsSecret | quote }}
               key: username
         - name: CNPG_SSLMODE
-          value: "verify-full"
+          value: {{ default "verify-full" $cnpg.sslmode | quote }}
         - name: CNPG_CERT_DIR
-          value: "/etc/serviceradar/certs"
+          value: {{ default "/etc/serviceradar/certs" $cnpg.certDir | quote }}
+        - name: CNPG_CA_FILE
+          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
         - name: CNPG_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: spire-db-credentials
+              name: {{ default "spire-db-credentials" $cnpg.credentialsSecret | quote }}
               key: password
         - name: API_KEY
           valueFrom:
