@@ -18,6 +18,7 @@ spec:
     spec:
       serviceAccountName: {{ $agentSA }}
       hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       initContainers:
         - name: init-checkers
