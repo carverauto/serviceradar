@@ -39,8 +39,15 @@ pub async fn load_server_credentials(
         .map_err(|e| anyhow!("invalid trust domain {trust_domain}: {e}"))?;
 
     let retry_delay = Duration::from_secs(2);
+    let max_retries = std::env::var("SPIFFE_MAX_RETRIES")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(60);
+    let mut attempts: u32 = 0;
 
     loop {
+        attempts += 1;
         let client = WorkloadApiClient::new_from_path(workload_socket)
             .await
             .map_err(|err| {
@@ -50,7 +57,7 @@ pub async fn load_server_credentials(
         let source = match X509SourceBuilder::new().with_client(client).build().await {
             Ok(source) => source,
             Err(X509SourceError::GrpcError(grpc_err)) => {
-                if should_retry_grpc(&grpc_err) {
+                if should_retry_grpc(&grpc_err) && attempts < max_retries {
                     sleep(retry_delay).await;
                     continue;
                 }
@@ -61,12 +68,12 @@ pub async fn load_server_credentials(
                 ));
             }
             Err(other) => {
-                if is_retryable_source_error(&other) {
+                if is_retryable_source_error(&other) && attempts < max_retries {
                     sleep(retry_delay).await;
                     continue;
                 }
                 return Err(anyhow!(
-                    "failed to initialize SPIFFE X.509 source via {workload_socket}: {other}"
+                    "failed to initialize SPIFFE X.509 source via {workload_socket} after {attempts} attempts: {other}"
                 ));
             }
         };
@@ -79,6 +86,11 @@ pub async fn load_server_credentials(
         match guard.tls_materials() {
             Ok(_) => return Ok(ServerCredentials { guard }),
             Err(err) if is_retryable_tls_error(&err) => {
+                if attempts >= max_retries {
+                    return Err(anyhow!(
+                        "failed to fetch SPIFFE TLS materials after {attempts} attempts: {err}"
+                    ));
+                }
                 sleep(retry_delay).await;
                 continue;
             }

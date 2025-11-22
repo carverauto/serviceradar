@@ -29,6 +29,9 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        - name: db-credentials
+          mountPath: /etc/serviceradar/credentials
+          readOnly: true
         - name: cnpg-ca
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
@@ -59,11 +62,8 @@ spec:
             secretKeyRef:
               name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
               key: username
-        - name: CNPG_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
-              key: password
+        - name: CNPG_PASSWORD_FILE
+          value: "/etc/serviceradar/credentials/password"
         - name: CNPG_CERT_DIR
           value: {{ default "/etc/serviceradar/certs" $cnpg.certDir | quote }}
         - name: CNPG_CA_FILE
@@ -128,6 +128,9 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      - name: db-credentials
+        secret:
+          secretName: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
       - name: cnpg-ca
         secret:
           secretName: cnpg-ca

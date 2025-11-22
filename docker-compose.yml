@@ -934,7 +934,7 @@ services:
       - WAIT_FOR_CNPG=true
       - CNPG_HOST=${CNPG_HOST:-cnpg-rw}
       - CNPG_PORT=${CNPG_PORT:-5432}
-      - CNPG_PASSWORD=${CNPG_PASSWORD:-}
+      - CNPG_PASSWORD_FILE=/etc/serviceradar/credentials/cnpg-password
       # Database password
       # Disable duplicate migrations (Core handles them)
       - ENABLE_DB_MIGRATIONS=false
