@@ -41,7 +41,7 @@ spec:
           readOnly: true
         env:
         - name: CONFIG_SOURCE
-          value: "{{ default "kv" .Values.kv.configSource }}"
+          value: "{{ default (default "kv" .Values.kv.configSource) .Values.dbEventWriter.configSource }}"
         - name: CONFIG_PATH
           value: "/etc/serviceradar/consumers/db-event-writer.json"
         - name: WAIT_FOR_NATS

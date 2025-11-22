@@ -54,6 +54,8 @@ agent:
       cpu: 200m
       memory: 512Mi
 dbEventWriter:
+  # Use on-disk config to avoid storing DB secrets in KV; passwords come from the secret env vars.
+  configSource: file
   kvBootstrap:
     enabled: true
 configSync:
