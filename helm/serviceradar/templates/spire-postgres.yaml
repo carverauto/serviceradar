@@ -12,13 +12,33 @@
 {{- if and $existingSuper $existingSuper.data.password }}
   {{- $superPass = (b64dec $existingSuper.data.password) }}
 {{- end }}
+{{- $cnpg := default (dict) .Values.cnpg }}
+{{- $existingAppCreds := (lookup "v1" "Secret" $ns "serviceradar-db-credentials") }}
+{{- $appUser := default "serviceradar" $cnpg.username }}
+{{- $appPass := default "" $cnpg.password }}
+{{- if and $existingAppCreds $existingAppCreds.data.password }}
+  {{- $appPass = (b64dec $existingAppCreds.data.password) }}
+{{- end }}
+{{- if eq $appPass "" }}
+  {{- $appPass = randAlphaNum 32 }}
+{{- end }}
 {{- $imageName := $pg.imageName }}
 {{- if not $imageName }}
   {{- $imageRepo := default "ghcr.io/carverauto/serviceradar-cnpg" $pg.image }}
   {{- $imageTag := default "latest" $pg.imageTag }}
   {{- $imageName = printf "%s:%s" $imageRepo $imageTag }}
 {{- end }}
-{{- $postInitSQL := default (list "CREATE EXTENSION IF NOT EXISTS timescaledb;" "CREATE EXTENSION IF NOT EXISTS age;") $pg.extensionsSQL }}
+{{- $baseSQL := default (list "CREATE EXTENSION IF NOT EXISTS timescaledb;" "CREATE EXTENSION IF NOT EXISTS age;") $pg.extensionsSQL }}
+{{- $serviceradarSQL := list
+  "CREATE DATABASE serviceradar OWNER serviceradar;"
+  "\\c serviceradar"
+  "GRANT ALL PRIVILEGES ON SCHEMA public TO serviceradar;"
+  "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO serviceradar;"
+  "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO serviceradar;"
+  "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO serviceradar;"
+  "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO serviceradar;"
+}}
+{{- $postInitSQL := concat $baseSQL $serviceradarSQL }}
 {{- $sharedPreload := $pg.sharedPreloadLibraries }}
 {{- if not $sharedPreload }}
   {{- $sharedPreload = list "timescaledb" "age" }}
@@ -51,6 +71,18 @@ type: Opaque
 stringData:
   password: {{ $superPass | quote }}
   username: postgres
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: serviceradar-db-credentials
+  namespace: {{ $ns }}
+  annotations:
+    "helm.sh/resource-policy": "keep"
+type: Opaque
+stringData:
+  username: {{ $appUser | quote }}
+  password: {{ $appPass | quote }}
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -101,6 +133,11 @@ spec:
         login: true
         passwordSecret:
           name: {{ $pg.secretName }}
+      - name: serviceradar
+        ensure: present
+        login: true
+        passwordSecret:
+          name: serviceradar-db-credentials
   monitoring:
     enablePodMonitor: true
   enableSuperuserAccess: true
