@@ -13,7 +13,7 @@ This document specifies the requirements for an LLDP (Link Layer Discovery Proto
 To design and implement an LLDP discovery engine that can:
 *   Identify devices advertising LLDP information.
 *   Collect detailed information about LLDP neighbors, including their chassis ID, port ID, system name, capabilities, and management addresses.
-*   Publish this neighbor relationship data to ServiceRadar's `topology_discovery_events` Proton stream.
+*   Publish this neighbor relationship data to ServiceRadar's `topology_discovery_events` CNPG stream.
 
 **1.2 Goals**
 *   Develop a module using `gosnmp` to query LLDP-MIBs (and relevant extension MIBs) on network devices.
@@ -82,8 +82,8 @@ To design and implement an LLDP discovery engine that can:
     *   `lldpRemManAddrIfId` (LLDP-MIB::lldpRemManAddrIfId)
     *   (Need to select the most relevant management address if multiple are advertised).
 
-**4.4 Data Output and Storage (Proton Integration)**
-*   FR4.1: Discovered LLDP neighbor relationships must be published to the `topology_discovery_events` Proton stream. Data must conform to the existing schema:
+**4.4 Data Output and Storage (CNPG Integration)**
+*   FR4.1: Discovered LLDP neighbor relationships must be published to the `topology_discovery_events` CNPG stream. Data must conform to the existing schema:
     *   `timestamp`: Time of discovery.
     *   `agent_id`: ID of the discovery engine instance.
     *   `poller_id`: (If applicable) ID of poller tasking discovery.
@@ -136,7 +136,7 @@ To design and implement an LLDP discovery engine that can:
     2.  If configured, the LLDP module is invoked for that device.
     3.  LLDP module uses SNMP to query `LLDP-MIB` and related MIBs.
     4.  Collected LLDP neighbor data is formatted.
-    5.  Formatted data is published primarily to the `topology_discovery_events` Proton stream.
+    5.  Formatted data is published primarily to the `topology_discovery_events` CNPG stream.
 
 ```mermaid
 graph TD
@@ -145,21 +145,21 @@ graph TD
         SNMPAuth -->|SNMP Session| TargetDevice[Network Device]
         TargetDevice -->|LLDP MIB Data via SNMP| LLDPQueryLogic[LLDP MIB Query Logic<br>(gosnmp)]
         LLDPQueryLogic --> DataProcessor[Data Processor/Formatter]
-        DataProcessor --> TopologyEventsPublisher[Proton: topology_discovery_events]
-        DataProcessor -->|Local Device Context| OtherProtonPublishers[Proton: snmp_results, discovered_interfaces]
+        DataProcessor --> TopologyEventsPublisher[CNPG: topology_discovery_events]
+        DataProcessor -->|Local Device Context| OtherCNPGPublishers[CNPG: snmp_results, discovered_interfaces]
     end
 
-    TopologyEventsPublisher --> ProtonStreams[Timeplus Proton Streams]
-    OtherProtonPublishers --> ProtonStreams
+    TopologyEventsPublisher --> CNPGStreams[CNPG/Timescale Streams]
+    OtherCNPGPublishers --> CNPGStreams
 
     %% This part is outside the scope of this PRD but shows context
     subgraph "Downstream (ADR-02)"
-      ProtonStreams --> ArangoSync[ArangoDB Sync Service]
+      CNPGStreams --> ArangoSync[ArangoDB Sync Service]
       ArangoSync --> ArangoDB[ArangoDB Graph]
     end
 ```
 
-**7. Data Models (Output to Proton)**
+**7. Data Models (Output to CNPG)**
 
 *   **Primary Output:** `topology_discovery_events` (as defined in `db.go` and FR4.1).
     *   Example `metadata` for LLDP:

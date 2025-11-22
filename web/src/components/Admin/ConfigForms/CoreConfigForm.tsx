@@ -952,7 +952,7 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
       <Section
         title="CNPG Configuration"
         id="cnpg-config"
-        description="Configure the Timescale/CloudNativePG connection that replaces Proton."
+        description="Configure the Timescale/CloudNativePG connection that backs the platform."
       >
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -2043,7 +2043,7 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
           id="write-buffer"
           collapsible
           defaultCollapsed
-          description="Buffers telemetry writes before flushing to Proton. See docs/docs/kv-configuration.md#write-buffer."
+          description="Buffers telemetry writes before flushing to CNPG. See docs/docs/kv-configuration.md#write-buffer."
         >
         <label className="flex items-center gap-2">
           <input

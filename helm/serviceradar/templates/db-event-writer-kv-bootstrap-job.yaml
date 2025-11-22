@@ -1,0 +1,57 @@
+{{- $job := default (dict) .Values.dbEventWriter.kvBootstrap -}}
+{{- if and $job.enabled .Values.kv.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "serviceradar-db-event-writer-kv-bootstrap-%s" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    app: serviceradar-db-event-writer-kv-bootstrap
+    app.kubernetes.io/part-of: serviceradar
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        app: serviceradar-db-event-writer-kv-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.spire.dbEventWriterServiceAccount | default "serviceradar-db-event-writer" }}
+      containers:
+        - name: kv-bootstrap
+          image: ghcr.io/carverauto/serviceradar-tools:{{ .Values.image.tags.tools }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NATS_URL
+              value: "tls://serviceradar-nats.{{ .Release.Namespace }}.svc.cluster.local:4222"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              CONFIG_FILE=/etc/serviceradar/templates/db-event-writer.json
+              if [ ! -s "${CONFIG_FILE}" ]; then
+                echo "Config template missing at ${CONFIG_FILE}" >&2
+                exit 1
+              fi
+              cat "${CONFIG_FILE}" | nats --tlscert /etc/serviceradar/certs/kv.pem \
+                   --tlskey /etc/serviceradar/certs/kv-key.pem \
+                   --tlsca /etc/serviceradar/certs/root.pem \
+                   -s "${NATS_URL}" \
+                   kv put serviceradar-datasvc config/db-event-writer.json
+          volumeMounts:
+            - name: db-event-writer-config
+              mountPath: /etc/serviceradar/templates
+              readOnly: true
+            - name: cert-data
+              mountPath: /etc/serviceradar/certs
+              readOnly: true
+      volumes:
+        - name: db-event-writer-config
+          configMap:
+            name: serviceradar-db-event-writer-config
+        - name: cert-data
+          persistentVolumeClaim:
+            claimName: serviceradar-cert-data
+{{- end }}

@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"fmt"
 	"log"
+	"os"
+	"strings"
 
 	"google.golang.org/grpc"
 
@@ -16,6 +20,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+)
+
+var (
+	ErrCNPGPasswordRequired = errors.New("CNPG password is required; set it in config or provide CNPG_PASSWORD_FILE from a mounted secret")
+	ErrCNPGPasswordEmpty    = errors.New("CNPG password file is empty")
 )
 
 func main() {
@@ -63,9 +72,14 @@ func main() {
 		config.NormalizeTLSPaths(cfg.CNPG.TLS, cfg.CNPG.CertDir)
 	}
 
-	if err := cfg.Validate(); err != nil {
+	if err := applyCNPGPassword(&cfg); err != nil {
 		_ = bootstrapResult.Close()
 		log.Fatalf("DB event writer config validation failed: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
+	}
+
+	if err := cfg.Validate(); err != nil {
+		_ = bootstrapResult.Close()
+		log.Fatalf("DB event writer config validation failed: %v", err)
 	}
 
 	dbConfig := &models.CoreServiceConfig{
@@ -105,6 +119,10 @@ func main() {
 	agentService := dbeventwriter.NewAgentService(svc)
 
 	bootstrapResult.StartWatch(ctx, serviceLogger, &cfg, func() {
+		if err := applyCNPGPassword(&cfg); err != nil {
+			serviceLogger.Error().Err(err).Msg("Skipping config update; CNPG password unavailable")
+			return
+		}
 		_ = svc.UpdateConfig(ctx, &cfg)
 	})
 
@@ -125,4 +143,32 @@ func main() {
 	if err := lifecycle.RunServer(ctx, opts); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+// applyCNPGPassword ensures the CNPG password is sourced from a mounted secret file, not env.
+func applyCNPGPassword(cfg *dbeventwriter.DBEventWriterConfig) error {
+	if cfg == nil || cfg.CNPG == nil {
+		return nil
+	}
+	if cfg.CNPG.Password != "" {
+		return nil
+	}
+
+	pwPath := os.Getenv("CNPG_PASSWORD_FILE")
+	if pwPath == "" {
+		return ErrCNPGPasswordRequired
+	}
+
+	data, err := os.ReadFile(pwPath)
+	if err != nil {
+		return fmt.Errorf("read CNPG password file: %w", err)
+	}
+
+	pwd := strings.TrimSpace(string(data))
+	if pwd == "" {
+		return fmt.Errorf("%w: %s", ErrCNPGPasswordEmpty, pwPath)
+	}
+
+	cfg.CNPG.Password = pwd
+	return nil
 }

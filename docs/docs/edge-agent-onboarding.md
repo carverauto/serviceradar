@@ -31,7 +31,7 @@ Key rules:
 - **Edge site owner** – installs the poller/agent/checker containers on remote
   hosts using the generated archive.
 - **Security reviewer** – audits package lineage and parent-child associations
-  in Proton (`edge_onboarding_packages` and `edge_onboarding_events` tables).
+  in CNPG (`edge_onboarding_packages` and `edge_onboarding_events` tables).
 
 ---
 
@@ -171,7 +171,7 @@ fold those steps into the API updates.
 
 ## 8. Monitoring & Troubleshooting
 
-- Proton dashboards: filter `edge_onboarding_packages` by `component_type` to
+- CNPG dashboards: filter `edge_onboarding_packages` by `component_type` to
   spot large pending queues.
 - Core metrics:
   - `edge_onboarding_packages_total{component_type}` – total packages issued.
@@ -203,7 +203,7 @@ Failure modes:
 ## 10. Implementation Plan (Draft)
 
 ### Backend (Core + DB)
-- Extend `edge_onboarding_packages` schema with `component_type`, `parent_type`, `parent_id`, `checker_kind`, `checker_config_json`, and `kv_revision` columns. Update Proton migrations + Bazel targets.
+- Extend `edge_onboarding_packages` schema with `component_type`, `parent_type`, `parent_id`, `checker_kind`, `checker_config_json`, and `kv_revision` columns. Update CNPG migrations + Bazel targets.
 - Update `models.EdgeOnboardingPackage` and related request structs to carry the new fields. Introduce enumerations for component/parent types.
 - Adjust `edgeOnboardingService.CreatePackage` to validate parent existence via KV/cache, derive default IDs, and perform KV writes through `pkg/kv`.
 - API payloads now include `component_id` (the new component identifier) and `parent_id` for agent/checker relationships.

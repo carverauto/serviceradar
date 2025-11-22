@@ -1,5 +1,8 @@
 {{- $agentVals := default (dict) .Values.agent -}}
 {{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
+{{- $agentResources := default (dict) $agentVals.resources -}}
+{{- $agentLimits := default (dict) $agentResources.limits -}}
+{{- $agentRequests := default (dict) $agentResources.requests -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,6 +21,7 @@ spec:
     spec:
       serviceAccountName: {{ $agentSA }}
       hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       initContainers:
         - name: init-checkers
@@ -56,11 +60,11 @@ spec:
             privileged: true
           resources:
             limits:
-              cpu: "200m"
-              memory: "128Mi"
+              cpu: {{ default "500m" $agentLimits.cpu | quote }}
+              memory: {{ default "512Mi" $agentLimits.memory | quote }}
             requests:
-              cpu: "100m"
-              memory: "64Mi"
+              cpu: {{ default "200m" $agentRequests.cpu | quote }}
+              memory: {{ default "256Mi" $agentRequests.memory | quote }}
       volumes:
       - name: serviceradar-config
         configMap:

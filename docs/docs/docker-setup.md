@@ -71,7 +71,7 @@ ServiceRadar consists of these main components:
 - **Core**: Main API and business logic service
 - **Web**: Next.js web interface
 - **Nginx**: Reverse proxy and load balancer
-- **Proton**: Time-series database (TimeBase fork)
+- **CNPG**: Time-series database (TimeBase fork)
 
 ### Data Collection Services
 - **Poller**: Device polling and monitoring service
@@ -115,7 +115,6 @@ ServiceRadar uses the following Docker volumes:
 - `cert-data`: mTLS certificates and API keys
 - `credentials`: Database passwords and secrets
 - `generated-config`: Generated configuration files
-- `proton-data`: Time-series database storage
 - `*-data`: Service-specific data storage
 
 ### Ports
@@ -126,7 +125,6 @@ Default exposed ports:
 |---------|------|----------|---------|
 | Nginx | 80 | HTTP | Web interface and API |
 | Core | 8090 | HTTP | Direct API access |
-| Proton | 8123, 8463, 9440 | TCP | Database connections |
 | NATS | 4222, 8222 | TCP | Message bus |
 | Flowgger | 514 | UDP | Syslog collection |
 | Trapd | 162 | UDP | SNMP trap collection |
@@ -138,7 +136,7 @@ Docker Compose mounts `docker/compose/mapper.docker.json` into `/etc/servicerada
 - Set **`workers`**, **`max_active_jobs`**, and timeouts to match how many concurrent SNMP sessions your network can handle.
 - Populate **`default_credentials`** for blanket SNMP access, then add **`credentials[]`** entries for per-CIDR overrides (v2c or v3). Place the most specific subnets first.
 - Extend the **`oids`** blocks if you want Mapper to gather vendor-specific identifiers during `basic`, `interfaces`, or `topology` runs.
-- Use **`stream_config`** to tag events and, if needed, rename the Proton streams used for devices (`device_stream`), interfaces, and topology discovery. The defaults align with the pipelines described in the [Discovery guide](./discovery.md#mapper-service-overview).
+- Use **`stream_config`** to tag events and, if needed, rename the CNPG streams used for devices (`device_stream`), interfaces, and topology discovery. The defaults align with the pipelines described in the [Discovery guide](./discovery.md#mapper-service-overview).
 - Configure **`scheduled_jobs[]`** with `seeds`, discovery `type`, interval, concurrency, and retries. Jobs start immediately on boot and then honor their interval.
 - Add optional **`unifi_apis[]`** entries to poll UniFi Network controllers as part of discovery. Provide `base_url`, `api_key`, and only set `insecure_skip_verify` for lab testing.
 
@@ -360,49 +358,14 @@ docker-compose logs
 
 # View specific service logs
 docker-compose logs core
-docker-compose logs proton
 docker-compose logs web
 ```
 
 ### Database Maintenance
 
-Access the Proton database directly:
+Use Postgres tooling (psql/pg_dump) against CNPG (default host `cnpg-rw:5432`, database `serviceradar`). Example health check:
 ```bash
-# Connect to database
-docker-compose exec proton proton-client --host localhost --port 8463
-
-# Run queries
-SELECT count() FROM devices;
-SELECT * FROM events ORDER BY _tp_time DESC LIMIT 10;
-```
-
-### Backup and Restore
-
-#### Backup
-
-```bash
-# Create backup directory
-mkdir -p backups/$(date +%Y%m%d)
-
-# Backup database
-docker-compose exec proton proton-client --query "BACKUP DATABASE TO '/backups/$(date +%Y%m%d)/serviceradar.backup'"
-
-# Backup configuration
-docker cp serviceradar-core:/etc/serviceradar/config ./backups/$(date +%Y%m%d)/
-docker cp serviceradar-core:/etc/serviceradar/certs ./backups/$(date +%Y%m%d)/
-```
-
-#### Restore
-
-```bash
-# Stop services
-docker-compose down
-
-# Restore volumes
-docker run --rm -v serviceradar_proton-data:/data -v ./backups/20241201:/backup alpine cp -r /backup/data/* /data/
-
-# Start services
-docker-compose up -d
+psql "postgres://serviceradar:<password>@cnpg-rw:5432/serviceradar?sslmode=verify-full" -c "SELECT 1;"
 ```
 
 ## Security Considerations
@@ -460,11 +423,10 @@ docker-compose restart core
 
 #### Database Connection Issues
 
-1. **Check Proton status**: `docker-compose ps proton`
-2. **Check Proton logs**: `docker-compose logs proton`
-3. **Test database connection**:
+1. **Check CNPG status** (cluster or managed DB)
+2. **Test database connection**:
    ```bash
-   docker-compose exec proton proton-client --host localhost --port 8463 --query "SELECT 1"
+   psql "postgres://serviceradar:<password>@cnpg-rw:5432/serviceradar?sslmode=verify-full" -c "SELECT 1;"
    ```
 
 #### Certificate Issues
@@ -491,9 +453,6 @@ If you see certificate-related errors:
 # Core service logs
 docker-compose logs core | grep ERROR
 
-# Database logs
-docker-compose logs proton | grep -E "(ERROR|FATAL)"
-
 # Web interface logs
 docker-compose logs web | grep -E "(error|Error)"
 
@@ -511,7 +470,7 @@ docker-compose logs -f
 docker-compose logs -f core
 
 # Follow multiple services
-docker-compose logs -f core proton web
+docker-compose logs -f core web
 ```
 
 ### Performance Tuning
@@ -524,12 +483,6 @@ For production deployments, consider:
 # docker-compose.override.yml
 version: '3.8'
 services:
-  proton:
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-          cpus: '2.0'
   core:
     deploy:
       resources:
@@ -541,7 +494,7 @@ services:
 #### Database Optimization
 
 ```sql
--- Optimize Proton database settings
+-- Optimize CNPG database settings
 ALTER SETTINGS max_memory_usage = 4000000000;
 ALTER SETTINGS max_threads = 8;
 ```
@@ -554,7 +507,7 @@ ServiceRadar supports horizontal scaling of certain components:
 
 1. **Multiple Pollers**: Deploy additional poller instances for load distribution
 2. **Multiple Agents**: Deploy agents across different network segments
-3. **Database Clustering**: Configure Proton in cluster mode (Enterprise feature)
+3. **Database Clustering**: Configure CNPG in cluster mode (Enterprise feature)
 
 ### Load Balancing
 
@@ -626,14 +579,13 @@ Default configuration files are available in the `docker/compose/` directory:
 graph TD
     A[cert-generator] --> B[config-updater]
     B --> C[cert-permissions-fixer]
-    C --> D[proton]
-    C --> E[nats]
-    D --> F[core]
-    E --> G[kv]
-    F --> H[web]
-    H --> I[nginx]
-    G --> J[sync]
-    E --> K[db-event-writer]
+    C --> D[nats]
+    C --> E[core]
+    D --> F[kv]
+    E --> G[web]
+    G --> H[nginx]
+    F --> I[sync]
+    D --> J[db-event-writer]
 ```
 
 ### API Reference

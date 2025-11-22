@@ -167,79 +167,6 @@ services:
     networks:
       - serviceradar-net
 
-  # Proton (TimeBase) Database with custom configuration
-  proton:
-    image: ghcr.io/carverauto/serviceradar-proton:latest
-    container_name: serviceradar-proton
-    user: "0:0"
-    mem_limit: 8g
-    mem_reservation: 6g
-    ports:
-      - "8123:8123"  # HTTP port for JDBC driver, batch mode
-      - "8463:8463"  # Native TCP port
-      - "8443:8443"  # HTTPS port (with TLS)
-      - "9440:9440"  # Native TCP secure port (with TLS)
-    volumes:
-      - proton-data:/var/lib/proton
-      - cert-data:/etc/serviceradar/certs:ro
-      - cert-data:/etc/proton-server/certs:ro
-      - credentials:/etc/serviceradar/credentials
-      - ./docker/compose/proton-init.sh:/usr/local/bin/proton-init.sh:ro
-    environment:
-      - PROTON_PASSWORD=${PROTON_PASSWORD:-}  # Will generate if not set
-      - PROTON_LOG_LEVEL=${PROTON_LOG_LEVEL:-error}
-      - PROTON_DISABLE_TASKSTATS=1
-      # Align Proton memory usage with container limits to reduce OOM risk
-      - PROTON_MAX_SERVER_MEMORY=6g
-      - PROTON_MAX_QUERY_MEMORY=4g
-      - PROTON_MAX_PARTITION_BYTES=256m
-    ulimits:
-      nofile:
-        soft: 1048576
-        hard: 1048576
-      nproc:
-        soft: 65535
-        hard: 65535
-    # sysctls disabled for Docker Desktop compatibility
-    # In production Linux environments, you can enable these:
-    # sysctls:
-    #   - kernel.threads-max=100000  
-    #   - kernel.pid_max=100000
-    #   - vm.nr_hugepages=0
-    cap_add:
-      - NET_ADMIN
-      - IPC_LOCK
-      - SYS_NICE
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8123/?query=SELECT%201 || curl -sf http://default:$$(cat /etc/proton-server/generated_password.txt)@localhost:8123/?query=SELECT%201 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-    networks:
-      serviceradar-net:
-        aliases:
-          - proton.serviceradar
-    restart: unless-stopped
-
-  # Ensure Proton credentials are readable by application containers
-  credentials-permissions-fixer:
-    image: alpine:3.20
-    container_name: serviceradar-credentials-permissions-fixer
-    volumes:
-      - credentials:/etc/serviceradar/credentials
-      - ./docker/compose/fix-credentials-permissions.sh:/fix-credentials-permissions.sh:ro
-    command: sh /fix-credentials-permissions.sh
-    depends_on:
-      proton:
-        condition: service_healthy
-    restart: "no"
-    networks:
-      - serviceradar-net
-
   # ServiceRadar Core Service
   core:
     image: ghcr.io/carverauto/serviceradar-core:latest
@@ -261,11 +188,7 @@ services:
       - spire-agent-sockets:/run/spire/sockets:ro
     environment:
       # Wait for dependencies
-      - WAIT_FOR_PROTON=true
       - INIT_DB=true
-      
-      # Database password (will be set by init script)
-      - PROTON_PASSWORD=${PROTON_PASSWORD:-}
       
       # Config source
       - CONFIG_SOURCE=kv
@@ -285,10 +208,6 @@ services:
         condition: service_completed_successfully
       cert-permissions-fixer:
         condition: service_completed_successfully
-      credentials-permissions-fixer:
-        condition: service_completed_successfully
-      proton:
-        condition: service_healthy
       spire-agent:
         condition: service_healthy
     healthcheck:
@@ -345,7 +264,7 @@ services:
       - SRQL_LISTEN_PORT=8080
       - CNPG_HOST=${CNPG_HOST:-cnpg-rw}
       - CNPG_PORT=${CNPG_PORT:-5432}
-      - CNPG_DATABASE=${CNPG_DATABASE:-telemetry}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-postgres}
       - CNPG_SSLMODE=${CNPG_SSLMODE:-disable}
       - CNPG_PASSWORD=${CNPG_PASSWORD:-}
@@ -357,8 +276,6 @@ services:
       - credentials:/etc/serviceradar/credentials:ro
     depends_on:
       config-updater:
-        condition: service_completed_successfully
-      credentials-permissions-fixer:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz"]
@@ -1017,7 +934,7 @@ services:
       - WAIT_FOR_CNPG=true
       - CNPG_HOST=${CNPG_HOST:-cnpg-rw}
       - CNPG_PORT=${CNPG_PORT:-5432}
-      - CNPG_PASSWORD=${CNPG_PASSWORD:-}
+      - CNPG_PASSWORD_FILE=/etc/serviceradar/credentials/cnpg-password
       # Database password
       # Disable duplicate migrations (Core handles them)
       - ENABLE_DB_MIGRATIONS=false
@@ -1028,10 +945,6 @@ services:
         condition: service_completed_successfully
       nats:
         condition: service_started
-      proton:
-        condition: service_healthy
-      credentials-permissions-fixer:
-        condition: service_completed_successfully
       spire-agent:
         condition: service_healthy
     healthcheck:
@@ -1172,8 +1085,6 @@ volumes:
   credentials:
     driver: local
   generated-config:
-    driver: local
-  proton-data:
     driver: local
   core-data:
     driver: local

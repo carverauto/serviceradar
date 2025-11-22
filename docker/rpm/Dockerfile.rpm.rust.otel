@@ -34,7 +34,6 @@ COPY rust/kvutil ./rust/kvutil/
 COPY cmd/otel ./cmd/otel/
 COPY cmd/flowgger ./cmd/flowgger/
 COPY cmd/trapd ./cmd/trapd/
-COPY cmd/poller-ng ./cmd/poller-ng/
 COPY cmd/consumers/zen ./cmd/consumers/zen
 
 # Build the Rust binary with cache mounts and copy artifacts out

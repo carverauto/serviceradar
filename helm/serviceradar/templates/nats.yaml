@@ -15,7 +15,7 @@ spec:
       containers:
       - name: nats
         image: nats:{{ .Values.image.tags.nats | default "latest" }}
-        command: ["/nats-server", "--config", "/etc/nats/nats-server.conf", "--jetstream"]
+        args: ["--config", "/etc/nats-config/nats-server.conf", "--jetstream"]
         ports:
         - containerPort: 4222
           name: client
@@ -26,19 +26,18 @@ spec:
         volumeMounts:
         - name: nats-data
           mountPath: /data
-        - name: serviceradar-config
-          mountPath: /etc/nats/nats-server.conf
-          subPath: nats.conf
+        - name: serviceradar-nats-config
+          mountPath: /etc/nats-config
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
         resources:
           limits:
-            cpu: "1"
-            memory: "1Gi"
+            cpu: "2"
+            memory: "2Gi"
           requests:
             cpu: "100m"
-            memory: "256Mi"
+            memory: "512Mi"
         livenessProbe:
           httpGet:
             path: /
@@ -55,9 +54,12 @@ spec:
       - name: nats-data
         persistentVolumeClaim:
           claimName: serviceradar-nats-data
-      - name: serviceradar-config
+      - name: serviceradar-nats-config
         configMap:
           name: serviceradar-config
+          items:
+            - key: nats.conf
+              path: nats-server.conf
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data

@@ -50,7 +50,7 @@ When a service failure is detected, ServiceRadar will use DeepCausality to analy
     *   **Configuration & Inventory Context:** A model of the intended state of the network and services. This context will be populated by the ServiceRadar Sync Service, which integrates with external sources of truth, including:
         *   **IPAM and DCIM platforms:** such as NetBox, providing device roles, IP information, and physical/virtual topology.
         *   **Network Configuration Management (NCM) platforms:** such as OpenText Network Automation, providing data on recent configuration pushes, compliance status, and detected config drift.
-    *   **Control/Feedback Context:** A model of service dependencies and control loops (e.g., Web UI -> Core API -> Proton DB; Quota Rightsizer -> Monitoring Feedback -> Quota Service).
+    *   **Control/Feedback Context:** A model of service dependencies and control loops (e.g., Web UI -> Core API -> CNPG DB; Quota Rightsizer -> Monitoring Feedback -> Quota Service).
 *   **Hypergraph-based Topology:** The relationships between components across different contexts will be modeled as a **hypergraph**. This allows the system to represent both simple dependencies (`A -> B`) and complex, multi-factor causal events `(A + B + C) -> D`, which is critical for accurately modeling real-world failure domains.
 *   **Deterministic Causal Model Execution:** Upon detecting a service failure, the Core Service will trigger a causal analysis model based on **pre-defined, deterministic rules.**
 *   **Enriched Alerting:** The resulting alert will be enriched with the identified **causal scenario**.
@@ -65,7 +65,7 @@ Leverage DeepCausality to identify **system-level hazard states**—conditions w
 
 #### Requirements
 
-*   **Temporal Pattern Recognition:** The system will analyze time-series data from the Proton database to build causal models of **known hazard states.**
+*   **Temporal Pattern Recognition:** The system will analyze time-series data from the CNPG database to build causal models of **known hazard states.**
 *   **Predictive Alerting:** When a known hazard state is detected, a new type of "Hazard" or "Pre-Failure" alert will be generated.
     *   **Example Alert:** "**HAZARD DETECTED:** Service 'API-Gateway' has entered a hazardous state. Memory usage is steadily increasing while response latency is degrading. **This condition, if left unmitigated, will lead to a service failure.**"
 *   **Configurable Models:** Provide a mechanism (e.g., a JSON configuration) to define the causaloids or patterns that constitute a hazard state.

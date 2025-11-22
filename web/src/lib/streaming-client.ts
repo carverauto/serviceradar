@@ -96,7 +96,7 @@ export class StreamingClient {
       this.websocket.onclose = (event) => {
         // Provide context-aware logging for WebSocket closures
         if (event.code === 1006 && this.completionReceived) {
-          console.log('✅ [StreamingClient] WebSocket closed normally after server completion (1006 is expected for Proton batch completion)');
+          console.log('✅ [StreamingClient] WebSocket closed normally after server completion (1006 is expected for legacy batch completion)');
         } else if (event.code === 1000) {
           console.log('✅ [StreamingClient] WebSocket closed normally (1000)');
         } else if (event.code === 1006) {

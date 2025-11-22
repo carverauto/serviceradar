@@ -12,14 +12,9 @@
 
 ✅ Licence file
 
-✅ Dependency and license scan 
+✅ Dependency scans (weekly Dependabot for Go/Rust/Actions; syft-generated SPDX at `docs/LF/SBOM.spdx`; third-party attribution in `docs/LF/third-party-deps.html`)
 
-✅ OpenSSF badge added to README
-
-Open topic:
-* Roadmap needs to be written
-* General Technical Review (GTR) questions need to be answered
+⚠️ OpenSSF badge (not yet applied)
 
 Progress tracked under issue:
 https://github.com/carverauto/serviceradar/issues/1731
-

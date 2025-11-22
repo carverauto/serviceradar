@@ -325,7 +325,7 @@ func WithDeviceRegistry(dr DeviceRegistryService) func(server *APIServer) {
 	}
 }
 
-// WithDeviceRegistryEnforcement controls whether the API should refuse Proton-based
+// WithDeviceRegistryEnforcement controls whether the API should refuse legacy
 // fallbacks when the device registry is unavailable.
 func WithDeviceRegistryEnforcement(require bool) func(server *APIServer) {
 	return func(server *APIServer) {
@@ -1955,7 +1955,7 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 		if s.requireDeviceRegistry {
 			s.logger.Error().
 				Str("search_term", params["searchTerm"].(string)).
-				Msg("Device registry lookup failed and Proton fallback disabled")
+				Msg("Device registry lookup failed and legacy fallback disabled")
 			writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
 			return
 		}
@@ -2332,7 +2332,7 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error().
 				Err(err).
 				Str("device_id", deviceID).
-				Msg("Device registry lookup failed and Proton fallback disabled")
+				Msg("Device registry lookup failed and legacy fallback disabled")
 			writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
 			return
 		}

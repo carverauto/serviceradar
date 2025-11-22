@@ -5,6 +5,7 @@
 {{- $bundle := default "spire-bundle" .Values.spire.bundleConfigMap }}
 {{- $trustDomain := .Values.spire.trustDomain }}
 {{- $clusterName := .Values.spire.clusterName }}
+{{- $tokenAudience := .Values.spire.tokenAudience | default "https://kubernetes.default.svc" }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -15,7 +16,7 @@ metadata:
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: spire-agent-cluster-role
+  name: {{ include "serviceradar.spireAgentClusterRoleName" . }}
 rules:
   - apiGroups: [""]
     resources: ["pods", "nodes", "nodes/proxy"]
@@ -24,7 +25,7 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: spire-agent-cluster-role-binding
+  name: {{ include "serviceradar.spireAgentClusterRoleBindingName" . }}
 subjects:
   - kind: ServiceAccount
     name: {{ .Values.spire.agentServiceAccount }}
@@ -36,7 +37,7 @@ subjects:
   {{- end }}
 roleRef:
   kind: ClusterRole
-  name: spire-agent-cluster-role
+  name: {{ include "serviceradar.spireAgentClusterRoleName" . }}
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: v1
@@ -57,9 +58,12 @@ data:
     }
 
     plugins {
-      NodeAttestor "k8s_sat" {
+      NodeAttestor "k8s_psat" {
         plugin_data {
           cluster = "{{ $clusterName }}"
+{{- if $tokenAudience }}
+          audience = "{{ $tokenAudience }}"
+{{- end }}
         }
       }
 
@@ -107,7 +111,17 @@ spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       serviceAccountName: {{ .Values.spire.agentServiceAccount }}
+      automountServiceAccountToken: true
       initContainers:
+        - name: cleanup-agent-socket
+          image: {{ default "busybox:1.36.1" $agentVals.cleanupImage }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              rm -f /run/spire/sockets/agent.sock
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
         - name: wait-for-server
           image: {{ default "cgr.dev/chainguard/wait-for-it" $agentVals.waitForImage }}
           args: ["-t", "30", "{{ $serverName }}:8081"]
@@ -119,7 +133,7 @@ spec:
             - name: MY_NODE_NAME
               valueFrom:
                 fieldRef:
-                  fieldPath: status.podIP
+                  fieldPath: spec.nodeName
           volumeMounts:
             - name: spire-config
               mountPath: /run/spire/config
@@ -128,6 +142,10 @@ spec:
               mountPath: /run/spire/bundle
             - name: spire-agent-socket
               mountPath: /run/spire/sockets
+              readOnly: false
+            - name: spire-agent-token
+              mountPath: /var/run/secrets/tokens
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /live
@@ -153,4 +171,11 @@ spec:
           hostPath:
             path: /run/spire/sockets
             type: DirectoryOrCreate
+        - name: spire-agent-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: {{ $tokenAudience }}
+                  expirationSeconds: 3600
+                  path: spire-agent
 {{- end }}

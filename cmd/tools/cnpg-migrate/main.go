@@ -177,7 +177,7 @@ func parseFlags() *migrateConfig {
 
 	flag.StringVar(&cfg.host, "host", envString("CNPG_HOST", "127.0.0.1"), "CNPG host or IP address")
 	flag.IntVar(&cfg.port, "port", envInt("CNPG_PORT", 5432), "CNPG port")
-	flag.StringVar(&cfg.database, "database", envString("CNPG_DATABASE", "telemetry"), "Target database name")
+	flag.StringVar(&cfg.database, "database", envString("CNPG_DATABASE", "serviceradar"), "Target database name")
 	flag.StringVar(&cfg.username, "username", envStringAny([]string{"CNPG_USERNAME", "CNPG_USER"}, "postgres"), "Database username")
 	flag.StringVar(&cfg.password, "password", envString("CNPG_PASSWORD", ""), "Database password (prefer env or --password-file)")
 	flag.StringVar(&cfg.passwordFile, "password-file", envString("CNPG_PASSWORD_FILE", ""), "Path to a file that contains the database password")

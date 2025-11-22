@@ -1,6 +1,6 @@
 -- CloudEvents + rperf metrics + user management tables for CNPG/Timescale
 
--- CloudEvents table mirrors the Proton `events` stream but stores rows in a hypertable.
+-- CloudEvents table mirrors the legacy `events` stream but stores rows in a hypertable.
 CREATE TABLE IF NOT EXISTS events (
     event_timestamp    TIMESTAMPTZ   NOT NULL,
     specversion        TEXT,
@@ -25,7 +25,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_events_id_unique ON events (id, event_time
 CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events (event_timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_events_subject ON events (subject);
 
--- RPerf metrics hypertable (3-day retention to match Proton).
+-- RPerf metrics hypertable (3-day retention to match prior defaults).
 CREATE TABLE IF NOT EXISTS rperf_metrics (
     timestamp      TIMESTAMPTZ   NOT NULL,
     poller_id      TEXT          NOT NULL,

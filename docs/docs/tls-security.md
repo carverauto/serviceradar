@@ -5,7 +5,7 @@ title: TLS Security
 
 # TLS Security
 
-ServiceRadar supports mutual TLS (mTLS) authentication to secure communications between its components, including the Timeplus Proton server used by ServiceRadar-core for data storage. This guide provides instructions for generating and configuring mTLS certificates for all ServiceRadar components using OpenSSL, tailored for environments without DNS resolution. Certificates use IP-based Subject Alternative Names (SANs) to ensure compatibility with Proton, ServiceRadar-core, Poller, Agent, NATS JetStream, and serviceradar-datasvc.
+ServiceRadar supports mutual TLS (mTLS) authentication to secure communications between its components, including the CNPG/Timescale server used by ServiceRadar-core for data storage. This guide provides instructions for generating and configuring mTLS certificates for all ServiceRadar components using OpenSSL, tailored for environments without DNS resolution. Certificates use IP-based Subject Alternative Names (SANs) to ensure compatibility with CNPG, ServiceRadar-core, Poller, Agent, NATS JetStream, and serviceradar-datasvc.
 
 ## Security Architecture
 
@@ -29,7 +29,7 @@ graph TB
 
     subgraph "Core Service"
         CL[Core Service<br/>Role: Client+Server<br/>:50052]
-        DB[Proton DB<br/>:9440]
+        DB[CNPG DB<br/>:9440]
         API[HTTP API<br/>:8090]
         CL --> DB
         CL --> API
@@ -66,16 +66,13 @@ graph TB
 
 ## Certificate Overview
 
-ServiceRadar and Proton use the following certificate files:
+ServiceRadar and CNPG use the following certificate files:
 
 - **root.pem**: Root CA certificate, shared across all components.
 - **\<component\>.pem**: Component-specific certificate (e.g., core.pem, poller.pem).
 - **\<component\>-key.pem**: Component-specific private key.
 
-Certificates are stored in:
-
-- `/etc/proton-server/` for Proton (ca-cert.pem, root.pem, core-key.pem).
-- `/etc/serviceradar/certs/` for ServiceRadar components (root.pem, \<component\>.pem, \<component\>-key.pem).
+Certificates are stored in `/etc/serviceradar/certs/` for ServiceRadar components (root.pem, \<component\>.pem, \<component\>-key.pem).
 
 ## Prerequisites
 
@@ -87,7 +84,7 @@ Certificates are stored in:
 
 - **Root or sudo access**: Required for creating directories and deploying certificates.
 - **Network information**: IP addresses for each component:
-    - ServiceRadar-core and Proton: 192.168.2.23 (plus internal IPs like 192.168.2.x).
+    - ServiceRadar-core and CNPG: 192.168.2.23 (plus internal IPs like 192.168.2.x).
     - Poller: \<poller-ip\> (e.g., 192.168.2.100 for dusk01, replace with actual IP).
     - Agent, NATS, KV: Respective IPs.
 
@@ -136,9 +133,9 @@ Issuer: C=US, ST=Your State, L=Your Location, O=ServiceRadar, OU=Operations, CN=
 
 Generate certificates for each component with IP-based SANs.
 
-#### Proton and ServiceRadar-core Certificate (core.pem)
+#### CNPG and ServiceRadar-core Certificate (core.pem)
 
-Proton (server) and ServiceRadar-core (client to Proton, server to Poller) share the same certificate (CN=core.serviceradar) with SANs covering all relevant IPs.
+CNPG (server) and ServiceRadar-core (client to CNPG, server to Poller) share the same certificate (CN=core.serviceradar) with SANs covering all relevant IPs.
 
 Create SAN Configuration:
 
@@ -403,7 +400,6 @@ sudo chmod 600 /path/to/secure/location/root-key.pem
 
 | Component | Role | Certificates Needed | Location |
 |-----------|------|---------------------|----------|
-| Proton | Server | ca-cert.pem, root.pem, core-key.pem | /etc/proton-server/ |
 | ServiceRadar-core | Client+Server | root.pem, core.pem, core-key.pem | /etc/serviceradar/certs/ |
 | Poller | Client+Server | root.pem, poller.pem, poller-key.pem | /etc/serviceradar/certs/ |
 | Agent | Client+Server | root.pem, agent.pem, agent-key.pem | /etc/serviceradar/certs/ |
@@ -414,12 +410,11 @@ sudo chmod 600 /path/to/secure/location/root-key.pem
 
 #### Create Directories:
 
-On serviceradar-cloud (core and Proton host):
+On serviceradar-cloud (core host):
 ```bash
-sudo mkdir -p /etc/proton-server /etc/serviceradar/certs
-sudo chown proton:proton /etc/proton-server
+sudo mkdir -p /etc/serviceradar/certs
 sudo chown serviceradar:serviceradar /etc/serviceradar/certs
-sudo chmod 700 /etc/proton-server /etc/serviceradar/certs
+sudo chmod 700 /etc/serviceradar/certs
 ```
 
 On dusk01 (Poller host):
@@ -437,16 +432,6 @@ sudo chmod 700 /etc/serviceradar/certs
 ```
 
 #### Deploy Certificates:
-
-##### Proton (on serviceradar-cloud):
-```bash
-sudo cp /path/to/tls/root.pem /etc/proton-server/ca-cert.pem
-sudo cp /path/to/tls/core.pem /etc/proton-server/root.pem
-sudo cp /path/to/tls/core-key.pem /etc/proton-server/core-key.pem
-sudo chown proton:proton /etc/proton-server/*
-sudo chmod 644 /etc/proton-server/*.pem
-sudo chmod 600 /etc/proton-server/*-key.pem
-```
 
 ##### ServiceRadar-core (on serviceradar-cloud):
 ```bash
@@ -495,76 +480,6 @@ sudo chmod 600 /etc/serviceradar/certs/*-key.pem
 ```
 
 ## Component Configuration
-
-### Proton Configuration (on serviceradar-cloud)
-
-Update `/etc/proton-server/config.yaml`:
-
-```yaml
-openSSL:
-  server:
-    certificateFile: /etc/proton-server/root.pem
-    privateKeyFile: /etc/proton-server/core-key.pem
-    caConfig: /etc/proton-server/ca-cert.pem
-    dhParamsFile: /etc/proton-server/dhparam.pem
-    verificationMode: strict
-    loadDefaultCAFile: false
-    cacheSessions: true
-    disableProtocols: 'sslv2,sslv3'
-    preferServerCiphers: true
-  client:
-    loadDefaultCAFile: true
-    cacheSessions: true
-    disableProtocols: 'sslv2,sslv3'
-    preferServerCiphers: true
-    invalidCertificateHandler:
-      name: AcceptCertificateHandler
-```
-
-Update `/etc/proton-server/users.yaml`:
-
-```yaml
-users:
-  default:
-    password: ''
-    networks:
-      - ip: '192.168.2.23/32'
-    profile: default
-    quota: default
-    allow_databases:
-      - database: default
-    default_database: default
-    auth_type: ssl_certificates
-    auth_params:
-      common_names:
-        - "core.serviceradar"
-  system:
-    password: 'sys@t+'
-    allow_databases:
-      - database: system
-    default_database: system
-  pgadmin:
-    allow_databases:
-      - database: default
-    default_database: default
-    password: 'pgadmin'
-    networks:
-      ip: '::/0'
-  neutron:
-    allow_databases:
-      - database: neutron
-    default_database: neutron
-    password: 'neutron@t+'
-    networks:
-      ip: '::/0'
-  proton:
-    default_database: default
-    password: 'proton@t+'
-    networks:
-      - ip: '::1'
-      - ip: 127.0.0.1
-    access_management: 1
-```
 
 ### ServiceRadar-core Configuration (on serviceradar-cloud)
 
@@ -740,11 +655,6 @@ Update `/etc/serviceradar/datasvc.json`:
 
 On serviceradar-cloud:
 ```bash
-# Proton
-openssl x509 -in /etc/proton-server/ca-cert.pem -text -noout | grep -E "Subject:|Issuer:"
-openssl x509 -in /etc/proton-server/root.pem -text -noout | grep Subject
-openssl verify -CAfile /etc/proton-server/ca-cert.pem /etc/proton-server/root.pem
-
 # ServiceRadar-core
 openssl x509 -in /etc/serviceradar/certs/root.pem -text -noout | grep -E "Subject:|Issuer:"
 openssl x509 -in /etc/serviceradar/certs/core.pem -text -noout | grep Subject
@@ -762,7 +672,6 @@ openssl verify -CAfile /etc/serviceradar/certs/root.pem /etc/serviceradar/certs/
 
 On serviceradar-cloud:
 ```bash
-sudo systemctl restart proton-server
 sudo systemctl restart serviceradar-core
 sudo systemctl restart nats
 sudo systemctl restart serviceradar-datasvc
@@ -787,13 +696,6 @@ openssl s_client -connect 192.168.2.23:50052 -cert /etc/serviceradar/certs/polle
 
 Verify: CN=core.serviceradar, IP:192.168.2.23 in SANs, Verify return code: 0 (ok).
 
-#### Core to Proton (on serviceradar-cloud):
-```bash
-proton-client --host 192.168.2.23 --port 9440 --secure --certificate-file /etc/serviceradar/certs/core.pem --private-key-file /etc/serviceradar/certs/core-key.pem -q "SELECT currentUser()"
-```
-
-Expected: default.
-
 #### Agent to KV (on Agent host):
 Test from the Agent host if applicable.
 
@@ -802,11 +704,6 @@ Test from the Agent host if applicable.
 ### Certificate Verification Failure:
 
 - Ensure CA certificates (root.pem) are identical across all hosts:
-  ```bash
-  md5sum /etc/serviceradar/certs/root.pem /etc/proton-server/ca-cert.pem
-  ```
-
-- Verify component certificates are signed by the CA:
   ```bash
   openssl verify -CAfile /etc/serviceradar/certs/root.pem /etc/serviceradar/certs/<component>.pem
   ```
@@ -829,30 +726,15 @@ Test from the Agent host if applicable.
 
 - Check logs:
   ```bash
-  # On serviceradar-cloud
-  tail -f /var/log/proton-server/proton-server.err.log
   journalctl -u serviceradar-core -f
   # On dusk01
   journalctl -u serviceradar-poller -f
   ```
 
-- Enable debug logging in `/etc/proton-server/config.yaml`:
-  ```yaml
-  logger:
-    level: debug
-    log: /var/log/proton-server/proton-server.log
-    errorlog: /var/log/proton-server/proton-server.err.log
-  ```
-
 - Verify network connectivity:
   ```bash
   nc -zv 192.168.2.23 50052
-  nc -zv 192.168.2.23 9440
   ```
-
-### Proton Configuration:
-
-- Ensure `auth_type: ssl_certificates` in users.yaml is correct.
 - Test with ssl_certificates format if parsing fails:
   ```yaml
   default:
@@ -1184,6 +1066,6 @@ If you encounter certificate issues with checkers (like the "certificate specifi
   sudo ufw allow 50052/tcp  # Core
   sudo ufw allow 50053/tcp  # Poller
   sudo ufw allow 50057/tcp  # KV
-  sudo ufw allow 9440/tcp   # Proton
+  sudo ufw allow 9440/tcp   # CNPG
   ```
 - **Backup Certificates**: Store a copy of `/path/to/tls/` in a secure location.

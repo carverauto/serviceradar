@@ -7,7 +7,7 @@
 help:
 	@echo "ServiceRadar Docker Commands:"
 	@echo "  make -f Makefile.docker start      - 🚀 One command: generate certs, build, start (RECOMMENDED)"
-	@echo "  make -f Makefile.docker up         - Start services (core + proton)"
+	@echo "  make -f Makefile.docker up         - Start core service"
 	@echo "  make -f Makefile.docker up-full    - Start all services (includes NATS, Redpanda)"
 	@echo "  make -f Makefile.docker down       - Stop services"
 	@echo "  make -f Makefile.docker logs       - View logs"
@@ -15,7 +15,7 @@ help:
 	@echo "  make -f Makefile.docker rebuild    - Rebuild and restart services"
 	@echo "  make -f Makefile.docker status     - Show service status"
 	@echo "  make -f Makefile.docker shell      - Shell into core container"
-	@echo "  make -f Makefile.docker db-shell   - Shell into Proton database"
+	@echo "  make -f Makefile.docker db-shell   - Shell into CNPG database"
 	@echo ""
 	@echo "Manual commands:"
 	@echo "  make -f Makefile.docker certs      - Generate mTLS certificates manually"
@@ -41,9 +41,9 @@ build:
 start:
 	docker-compose up -d
 
-# Start core services (Proton + Core)
+# Start core service
 up:
-	docker-compose up -d proton core
+	docker-compose up -d core
 	@echo "Waiting for services to be healthy..."
 	@sleep 5
 	@make -f Makefile.docker status
@@ -66,9 +66,6 @@ logs:
 # View logs for specific service
 logs-core:
 	docker-compose logs -f core
-
-logs-proton:
-	docker-compose logs -f proton
 
 # Clean up everything (containers, volumes, networks)
 clean:
@@ -96,15 +93,6 @@ status:
 shell:
 	docker-compose exec core /bin/bash
 
-# Shell into Proton database
-db-shell:
-	docker-compose exec proton clickhouse-client --host localhost --port 8463
-
-# Run database queries
-db-query:
-	@read -p "Enter SQL query: " query; \
-	docker-compose exec proton clickhouse-client --host localhost --port 8463 --query "$$query"
-
 # Initialize database tables
 db-init:
 	docker-compose exec core serviceradar-core init-db --config /etc/serviceradar/core.json
@@ -131,9 +119,6 @@ test:
 	@echo "Testing Core API..."
 	@curl -sf http://localhost:8090/health && echo "✓ Core API is healthy" || echo "✗ Core API is not responding"
 	@echo ""
-	@echo "Testing Proton..."
-	@curl -sf http://localhost:8123/ping && echo "✓ Proton is healthy" || echo "✗ Proton is not responding"
-	@echo ""
 	@echo "Testing gRPC..."
 	@nc -zv localhost 50051 2>&1 | grep -q succeeded && echo "✓ gRPC port is open" || echo "✗ gRPC port is not accessible"
 	@echo ""
@@ -157,9 +142,6 @@ docker-push:
 # Build specific image
 docker-build-core:
 	@./scripts/build-and-push-docker.sh --core --tag local
-
-docker-build-proton:
-	@./scripts/build-and-push-docker.sh --proton --tag local
 
 docker-build-cert-gen:
 	@./scripts/build-and-push-docker.sh --cert-gen --tag local

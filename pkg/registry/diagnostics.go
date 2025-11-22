@@ -7,9 +7,9 @@ import (
 
 const maxSampleScanBatches = 64
 
-// SampleMissingDeviceIDs returns up to sampleLimit device IDs that exist in Proton but are absent
-// from the provided knownIDs set (typically the current registry snapshot). This is intended for
-// diagnostics and should only be called when discrepancies are detected.
+// SampleMissingDeviceIDs returns up to sampleLimit device IDs that exist in the database but are
+// absent from the provided knownIDs set (typically the current registry snapshot). This is intended
+// for diagnostics and should only be called when discrepancies are detected.
 func (r *DeviceRegistry) SampleMissingDeviceIDs(ctx context.Context, knownIDs map[string]struct{}, sampleLimit int) ([]string, error) {
 	if sampleLimit <= 0 {
 		return nil, nil

@@ -38,8 +38,8 @@
       "poller_id": "docker-poller",
       "partition": "default",
       "credentials": {
-        "username": "test",
-        "password": "test"
+        "username": "${ARMIS_USERNAME:-}",
+        "password": "${ARMIS_PASSWORD:-}"
       },
       "page_size": 1000,
       "network_blacklist": [],

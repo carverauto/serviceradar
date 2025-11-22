@@ -6,6 +6,7 @@
   (dict "name" "serviceradar-poller" "label" "serviceradar-poller" "sa" (.Values.spire.pollerServiceAccount | default "serviceradar-poller"))
   (dict "name" "serviceradar-datasvc" "label" "serviceradar-datasvc" "sa" (.Values.spire.datasvcServiceAccount | default "serviceradar-datasvc"))
   (dict "name" "serviceradar-agent" "label" "serviceradar-agent" "sa" (.Values.spire.serviceradarAgentServiceAccount | default "serviceradar-agent"))
+  (dict "name" "serviceradar-otel" "label" "serviceradar-otel" "sa" (.Values.spire.otelServiceAccount | default "serviceradar-otel"))
   (dict "name" "serviceradar-sync" "label" "serviceradar-sync" "sa" (.Values.spire.syncServiceAccount | default "serviceradar-sync"))
   (dict "name" "serviceradar-zen" "label" "serviceradar-zen" "sa" (.Values.spire.zenServiceAccount | default "serviceradar-zen"))
   (dict "name" "serviceradar-mapper" "label" "serviceradar-mapper" "sa" (.Values.spire.mapperServiceAccount | default "serviceradar-mapper"))
@@ -20,7 +21,7 @@
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
-  name: {{ .name }}
+  name: {{ printf "%s-%s" .name $ns }}
 spec:
   spiffeIDTemplate: spiffe://{{ $trustDomain }}/ns/{{ $ns }}/sa/{{ .sa }}
 {{- if .admin }}
@@ -39,7 +40,7 @@ spec:
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
-  name: serviceradar-poller-nested
+  name: {{ printf "serviceradar-poller-nested-%s" $ns }}
 spec:
   spiffeIDTemplate: {{ $nestedSpiffe }}
   admin: true
