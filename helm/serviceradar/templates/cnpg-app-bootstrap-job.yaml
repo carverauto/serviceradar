@@ -12,6 +12,7 @@
 {{- if and $existingCreds $existingCreds.data.password }}
   {{- $appPassword = (b64dec $existingCreds.data.password) }}
 {{- end }}
+{{- /* pragma: allowlist secret: templated random password generated at install time when no existing secret is present */}}
 {{- if eq $appPassword "" }}
   {{- $appPassword = randAlphaNum 32 }}
 {{- end }}
