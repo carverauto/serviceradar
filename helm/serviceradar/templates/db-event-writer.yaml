@@ -42,17 +42,26 @@ spec:
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
           readOnly: true
+        - name: cnpg-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
         env:
         - name: CONFIG_SOURCE
           value: "{{ default (default "kv" .Values.kv.configSource) .Values.dbEventWriter.configSource }}"
         - name: CONFIG_PATH
-          value: "/etc/serviceradar/consumers/db-event-writer.json"
+          value: "/etc/serviceradar/templates/db-event-writer.json"
+        - name: CNPG_SSLMODE
+          value: "verify-full"
         - name: WAIT_FOR_NATS
           value: "true"
+        - name: CNPG_CA_FILE
+          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+        - name: CNPG_DATABASE
+          value: {{ default "serviceradar" $cnpg.database | quote }}
         - name: WAIT_FOR_CNPG
           value: "true"
         - name: CNPG_HOST
-          value: {{ default (printf "cnpg-rw.%s.svc" (default .Release.Namespace .Values.spire.namespace)) $cnpg.host | quote }}
+          value: {{ default (printf "cnpg-rw.%s.svc.cluster.local" .Release.Namespace) $cnpg.host | quote }}
         - name: CNPG_PORT
           value: {{ default 5432 $cnpg.port | quote }}
         - name: CNPG_DATABASE
@@ -137,6 +146,9 @@ spec:
       - name: db-event-writer-data
         persistentVolumeClaim:
           claimName: serviceradar-db-event-writer-data
+      - name: cnpg-ca
+        secret:
+          secretName: cnpg-ca
       - name: spire-agent-socket
         hostPath:
           path: /run/spire/sockets
