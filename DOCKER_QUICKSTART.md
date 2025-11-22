@@ -19,8 +19,7 @@ Builds images locally from source. Best for development and testing changes.
 ## What happens with one command:
 - ✅ Generate mTLS certificates automatically
 - ✅ Pull/Build Docker images  
-- ✅ Start Proton database with security
-- ✅ Start ServiceRadar Core service
+- ✅ Start the ServiceRadar core stack (CNPG, NATS, web, API)
 - ✅ Set up networking and persistent volumes
 
 ## Alternative Commands
@@ -57,8 +56,6 @@ make -f Makefile.docker test
 - **Web UI**: http://localhost:8090
 - **Core API**: http://localhost:8090/swagger  
 - **Metrics**: http://localhost:9090/metrics
-- **Proton HTTP**: http://localhost:8123
-- **Proton Native**: localhost:8463 (insecure) / localhost:9440 (mTLS)
 
 ## Stop Services
 
@@ -79,7 +76,6 @@ All values have sensible defaults, so the `.env` file is optional.
 ## What's Running?
 
 - **cert-generator**: One-time container that generates mTLS certificates
-- **proton**: Time-series database with mTLS security
 - **core**: ServiceRadar API and business logic
 
 For full documentation, see [docker/README.md](docker/README.md).

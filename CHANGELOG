@@ -1,3 +1,15 @@
+# ServiceRadar v1.0.56
+
+Helm demo hardening: flowgger OpenSSL fix, agent/poller stability.
+
+## Whats New
+
+**1.0.56**
+- Rebuilt flowgger on a Debian testing base so OpenSSL 3.2 symbols are present, removed the init-container hack, and switched probes to TCP on 50044. Published as `ghcr.io/carverauto/serviceradar-flowgger:1.0.56`.
+- Bumped agent defaults to 200m/512Mi requests and 500m/1Gi limits to avoid OOMs during sweep workloads; poller probes now use TCP instead of netcat to drop libbsd dependency.
+- Added CNPG app bootstrap job to create/own the `serviceradar` DB/user with charted credentials and grant privileges automatically on install/upgrade.
+- Ensured poller ServiceAccount is rendered so the deployment can schedule cleanly.
+
 # ServiceRadar v1.0.55
 
 ARC runner and release hardening.
@@ -28,7 +40,6 @@ Core admin UI polish and onboarding fixes.
 
 **1.0.54-pre6**
 - Added a sticky navigation rail plus mobile jump links for the Core Admin configuration form, and defaulted the heaviest panels (RBAC, Webhooks, Write Buffer) to collapsed view for faster scanning.
-- Masked both legacy and primary Proton database credentials with click-to-show/copy fields, expanded helper text across ambiguous sections, and constrained NATS/security inputs to the supported modes.
 - Reworked edge onboarding to surface decoded key length/hex, support editing raw hex with automatic re-encoding, and generally structure default metadata inputs so operators can edit settings without dropping to JSON.
 - Removed the SRQL editor in favor of the managed srql service; the integrations panel now only exposes MCP credentials with masked/copyable input.
 
@@ -52,17 +63,6 @@ Release automation updates.
 **1.0.54-pre4**
 - Updated the GitHub release workflow to provide full BuildBuddy remote execution settings so release builds publish from the RBE cluster instead of the runner.
 - Ensured supporting scripts respect remote BuildBuddy configuration during artifact packaging.
-
-# ServiceRadar v1.0.54-pre3
-
-Proton logstore retention fix and release packaging.
-
-## Whats New
-
-**1.0.54-pre3**
-- Capped Proton native log retention at 3 days/~50 GiB and shrank segment size to prevent PVC exhaustion in Kubernetes and Docker installs.
-- Rebuilt and published the Proton container image (`ghcr.io/carverauto/serviceradar-proton:sha-385b06cbd38c`) with the new defaults.
-- Added recovery guidance to the demo runbook covering one-time nativelog cleanup during resync.
 
 # ServiceRadar v1.0.54-pre2
 
@@ -91,19 +91,8 @@ Stability and packaging cleanup for the Compose stack.
 ## Whats New
 
 **1.0.53**
-- Relaxed Proton password secret permissions so SRQL and tooling pods can authenticate without running as root.
 - Republished every GHCR image and updated the release workflow to push containers before packages, eliminating `manifest unknown` pull failures.
 - Refreshed Docker quick start guidance (explicit `docker compose pull`, removed `:local` override) to keep fresh installs aligned with published tags.
-
-# ServiceRadar v1.0.53-pre21
-
-SRQL credential fix for Proton access.
-
-## Whats New
-
-**1.0.53-pre21**
-- Relaxed permissions on the shared Proton password secret so non-root services (SRQL, tools) can read it during startup.
-- Updated all deployment paths (Docker Compose, Helm demo, K8s demo) to use the new permissions, keeping Proton’s internal copy locked down.
 
 # ServiceRadar v1.0.53-pre20
 
@@ -276,7 +265,6 @@ Release of ServiceRadar network management, observability, and stream processing
 - serviceradar-agent: Agent performs checks, collects information from external checkers
 - serviceradar-poller: Network poller for collecting monitoring data from Agent
 - serviceradar-core: Core service (API)
-- serviceradar-proton: Stream Processing Engine
 - serviceradar-web: Core service (UI)
 - serviceradar-trapd: SNMP receiver trap service
 - serviceradar-flowgger: SYSLOG receiver service

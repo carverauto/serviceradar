@@ -4,7 +4,7 @@ title: CNPG Monitoring
 
 # CNPG Monitoring and Dashboards
 
-ServiceRadar now stores every telemetry signal (events, OTEL logs/metrics/traces, registry tables) inside the CloudNativePG (CNPG) cluster running TimescaleDB. This guide captures the dashboards and SQL checks operators should wire into Grafana or the toolbox so they can confirm ingestion, retention, and pgx pool health without relying on the retired Proton parity checks.
+ServiceRadar now stores every telemetry signal (events, OTEL logs/metrics/traces, registry tables) inside the CloudNativePG (CNPG) cluster running TimescaleDB. This guide captures the dashboards and SQL checks operators should wire into Grafana or the toolbox so they can confirm ingestion, retention, and pgx pool health without relying on the retired CNPG parity checks.
 
 ## Data Source Setup
 

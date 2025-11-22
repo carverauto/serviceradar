@@ -256,11 +256,11 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 				s.logger.Error().
 					Err(err).
 					Str("device_id", deviceID).
-					Msg("Device registry lookup failed and Proton fallback disabled; aborting delete")
+					Msg("Device registry lookup failed and legacy fallback disabled; aborting delete")
 				writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
 				return
 			}
-			s.logger.Warn().Err(err).Str("device_id", deviceID).Msg("Failed to load device from registry before tombstone; falling back to Proton")
+			s.logger.Warn().Err(err).Str("device_id", deviceID).Msg("Failed to load device from registry before tombstone; falling back to legacy store")
 		}
 	}
 

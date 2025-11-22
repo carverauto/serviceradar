@@ -10,7 +10,7 @@ const TIMEZONE_REGEX = /(Z|[+-]\d{2}:?\d{2})$/i;
 
 /**
  * Normalizes a timestamp string into an ISO-8601 representation that can be parsed by
- * JavaScript's Date constructor. Handles values returned from Proton such as
+ * JavaScript's Date constructor. Handles legacy DateTime64-style values such as
  * "2025-10-16 05:30:59.123456789" by truncating the fractional component to milliseconds
  * and defaulting to UTC when no timezone info is present.
  */

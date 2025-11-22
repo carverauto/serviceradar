@@ -8,13 +8,6 @@ fi
 if [ -d /usr/glibc-compat/lib64 ]; then
     export LD_LIBRARY_PATH="/usr/glibc-compat/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
-export PROTON_HOST=${PROTON_HOST:-serviceradar-proton}
-export PROTON_PORT=${PROTON_PORT:-9440}
-export PROTON_DATABASE=${PROTON_DATABASE:-default}
-export PROTON_SECURE=${PROTON_SECURE:-1}
-if [ -f /etc/serviceradar/credentials/proton-password ]; then
-    export PROTON_PASSWORD_FILE=${PROTON_PASSWORD_FILE:-/etc/serviceradar/credentials/proton-password}
-fi
 export NATS_HOST=${NATS_HOST:-serviceradar-nats}
 export NATS_CA=${NATS_CA:-/etc/serviceradar/certs/root.pem}
 export NATS_CERT=${NATS_CERT:-/etc/serviceradar/certs/client.pem}
@@ -24,7 +17,7 @@ unset NATS_URL
 
 export CNPG_HOST=${CNPG_HOST:-cnpg-rw}
 export CNPG_PORT=${CNPG_PORT:-5432}
-export CNPG_DATABASE=${CNPG_DATABASE:-telemetry}
+export CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
 export CNPG_SSLMODE=${CNPG_SSLMODE:-verify-full}
 export CNPG_CA_FILE=${CNPG_CA_FILE:-/etc/serviceradar/cnpg/ca.crt}
 export CNPG_SERVICE_NAME=${CNPG_SERVICE_NAME:-serviceradar}
@@ -60,18 +53,12 @@ alias sr='serviceradar-cli'
 alias sr-devices='serviceradar-cli devices list'
 alias sr-events='serviceradar-cli events list'
 
-alias proton-cli='proton-client'
-alias proton-cli-tls='PROTON_SECURE=1 PROTON_CONFIG=/etc/serviceradar/proton-client/config.xml proton-client'
-alias proton-bin='/usr/local/bin/proton.bin'
-alias proton-version='proton-client --query "SELECT version()"'
-alias proton-shell='proton-client'
-
 cnpg_info() {
     local service="${PGSERVICE:-${CNPG_SERVICE_NAME:-}}"
     echo "CNPG target:"
     echo "  host: ${CNPG_HOST:-cnpg-rw}"
     echo "  port: ${CNPG_PORT:-5432}"
-    echo "  database: ${CNPG_DATABASE:-telemetry}"
+    echo "  database: ${CNPG_DATABASE:-serviceradar}"
     echo "  service: ${service:-<unset>}"
     echo "  sslmode: ${CNPG_SSLMODE:-verify-full}"
     if [ -n "${CNPG_PASSWORD_FILE:-}" ]; then
@@ -89,32 +76,6 @@ cnpg_sql() {
 }
 alias cnpg-sql='cnpg_sql'
 
-proton_info() {
-    echo "Proton target:"
-    echo "  host: ${PROTON_HOST:-serviceradar-proton}"
-    echo "  port: ${PROTON_PORT:-9440}"
-    echo "  database: ${PROTON_DATABASE:-default}"
-    if [ -n "${PROTON_PASSWORD_FILE:-}" ]; then
-        echo "  password file: ${PROTON_PASSWORD_FILE}"
-    elif [ -n "${PROTON_PASSWORD:-}" ]; then
-        echo "  password: (set via PROTON_PASSWORD env)"
-    else
-        echo "  password: <not set>"
-    fi
-}
-
-proton_sql() {
-    # Usage: proton_sql SELECT count() FROM table(unified_devices)
-    query="$*"
-    if [ -z "$query" ]; then
-        echo "Usage: proton_sql <SQL...>" >&2
-        return 1
-    fi
-    PROTON_SECURE=${PROTON_SECURE:-1} \
-    PROTON_CONFIG=${PROTON_CONFIG:-/etc/serviceradar/proton-client/config.xml} \
-    proton-client --query "$query"
-}
-
 alias ping-nats='ping -c 3 serviceradar-nats'
 alias ping-core='ping -c 3 serviceradar-core'
 alias telnet-nats='telnet serviceradar-nats 4222'
@@ -130,9 +91,7 @@ test_connectivity() {
     nc -zv serviceradar-core 50052 || echo "  Core gRPC connection failed"
     echo "Testing CNPG..."
     nc -zv "${CNPG_HOST:-cnpg-rw}" "${CNPG_PORT:-5432}" || echo "  CNPG connection failed"
-    echo "Testing Proton..."
-    nc -zv serviceradar-proton 9440 || echo "  Proton TLS connection failed"
-    nc -zv serviceradar-proton 8123 || echo "  Proton HTTP connection failed"
+    echo "Legacy streaming DB removed; skipping legacy connectivity checks."
 }
 
 nats_js_status() {

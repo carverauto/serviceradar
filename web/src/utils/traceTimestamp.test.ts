@@ -28,7 +28,7 @@ const makeTrace = (overrides: Partial<TraceSummary>): TraceSummary => ({
 });
 
 describe('normalizeTimestampString', () => {
-    it('converts Proton DateTime64 with nanoseconds into ISO format', () => {
+    it('converts legacy DateTime64 with nanoseconds into ISO format', () => {
         const result = normalizeTimestampString('2025-10-16 05:30:59.123456789');
         expect(result).toBe('2025-10-16T05:30:59.123Z');
         expect(Date.parse(result!)).not.toBeNaN();
@@ -114,7 +114,7 @@ describe('resolveTraceTimestampMs', () => {
 });
 
 describe('normalizeTraceSummaryTimestamp', () => {
-    it('produces an ISO timestamp derived from Proton-formatted data', () => {
+    it('produces an ISO timestamp derived from legacy formatted data', () => {
         const trace = makeTrace({
             timestamp: '2025-10-16 05:30:59.123456789',
             start_time_unix_nano: 0,

@@ -4,7 +4,7 @@ title: OTEL Ingest Guide
 
 # OTEL Ingest Guide
 
-OpenTelemetry (OTEL) lets ServiceRadar receive traces, metrics, and logs from cloud-native workloads. The platform includes an OTLP gateway that normalizes telemetry before it lands in Proton and the ServiceRadar registry.
+OpenTelemetry (OTEL) lets ServiceRadar receive traces, metrics, and logs from cloud-native workloads. The platform includes an OTLP gateway that normalizes telemetry before it lands in CNPG and the ServiceRadar registry.
 
 ## Endpoint Overview
 
@@ -41,7 +41,7 @@ Use the [CNPG Monitoring dashboards](./cnpg-monitoring.md) to watch ingestion vo
 
 ServiceRadar emits capability lifecycle metrics whenever the core service records a capability event:
 
-- `serviceradar_core_capability_events_total` (counter) – increments on every capability snapshot written to Proton. Key attributes:
+- `serviceradar_core_capability_events_total` (counter) – increments on every capability snapshot written to CNPG. Key attributes:
   - `capability`: logical capability string (`icmp`, `snmp`, `sysmon`, `poller`, …)
   - `service_type`: poller/agent/checker service type (if available)
   - `recorded_by`: poller ID or component that produced the event

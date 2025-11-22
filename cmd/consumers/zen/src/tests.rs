@@ -42,3 +42,30 @@ fn test_host_switch_testdata_parses() {
     let parsed: zen_engine::model::DecisionContent = serde_json::from_str(&data).unwrap();
     assert!(!parsed.nodes.is_empty());
 }
+
+#[test]
+fn packaging_rules_parse() {
+    let rules_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../packaging/zen/rules");
+    assert!(
+        rules_dir.is_dir(),
+        "packaging rules directory missing: {}",
+        rules_dir.display()
+    );
+
+    for entry in fs::read_dir(&rules_dir).expect("list packaging rules") {
+        let entry = entry.expect("read dir entry");
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let data = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+        let parsed: zen_engine::model::DecisionContent = serde_json::from_str(&data)
+            .unwrap_or_else(|e| panic!("{} failed to parse: {e}", path.display()));
+        assert!(
+            !parsed.nodes.is_empty(),
+            "{} parsed but contained no nodes",
+            path.display()
+        );
+    }
+}

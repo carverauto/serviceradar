@@ -11,53 +11,6 @@ services:
     networks:
       - serviceradar-net
 
-  # Proton (TimeBase) Database with custom configuration
-  proton:
-    image: ghcr.io/carverauto/serviceradar-proton:v1.0.53
-    container_name: serviceradar-proton
-    ports:
-      - "8123:8123"  # HTTP port for JDBC driver, batch mode
-      - "8463:8463"  # Native TCP port
-      - "8443:8443"  # HTTPS port (with TLS)
-      - "9440:9440"  # Native TCP secure port (with TLS)
-    volumes:
-      - proton-data:/var/lib/proton
-      - cert-data:/etc/serviceradar/certs:ro
-      - cert-data:/etc/proton-server/certs:ro
-    environment:
-      - PROTON_PASSWORD=${PROTON_PASSWORD:-}  # Will generate if not set
-      - PROTON_LOG_LEVEL=${PROTON_LOG_LEVEL:-error}
-    ulimits:
-      nofile:
-        soft: 1048576
-        hard: 1048576
-      nproc:
-        soft: 65535
-        hard: 65535
-    # sysctls disabled for Docker Desktop compatibility
-    # In production Linux environments, you can enable these:
-    # sysctls:
-    #   - kernel.threads-max=100000  
-    #   - kernel.pid_max=100000
-    #   - vm.nr_hugepages=0
-    cap_add:
-      - NET_ADMIN
-      - IPC_LOCK
-      - SYS_NICE
-    healthcheck:
-      test: ["CMD", "proton-client", "--host", "localhost", "--port", "8463", "--query", "SELECT 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-    networks:
-      serviceradar-net:
-        ipv4_address: 172.28.0.2
-    restart: unless-stopped
-
   # ServiceRadar Core Service
   core:
     image: ghcr.io/carverauto/serviceradar-core:v1.0.53
@@ -68,7 +21,7 @@ services:
       - "9090:9090"  # Metrics (Prometheus)
     volumes:
       # Mount the actual config files from packaging
-      # Using core.docker.json which has the correct Proton connection details for Docker
+      # Using core.docker.json which has the correct CNPG connection details for Docker
       - ./packaging/core/config/core.docker.json:/etc/serviceradar/core.json:ro
       - ./packaging/core/config/api.env:/etc/serviceradar/api.env:ro
       - cert-data:/etc/serviceradar/certs:ro
@@ -76,11 +29,7 @@ services:
       - ./logs:/var/log/serviceradar
     environment:
       # Wait for dependencies
-      - WAIT_FOR_PROTON=true
       - INIT_DB=true
-      
-      # Database password (will be set by init script)
-      - PROTON_PASSWORD=${PROTON_PASSWORD:-}
       
       # Override api.env values if needed
       - API_KEY=${API_KEY:-changeme}
@@ -93,8 +42,6 @@ services:
     depends_on:
       cert-generator:
         condition: service_completed_successfully
-      proton:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
       interval: 30s
@@ -156,8 +103,6 @@ networks:
 
 volumes:
   cert-data:
-    driver: local
-  proton-data:
     driver: local
   core-data:
     driver: local

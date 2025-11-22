@@ -34,13 +34,23 @@ pub async fn process_message(
         let resp = match engine.evaluate(&dkey, context.clone().into()).await {
             Ok(r) => r,
             Err(e) => {
-                if let zen_engine::EvaluationError::LoaderError(le) = e.as_ref() {
-                    if let zen_engine::loader::LoaderError::NotFound(_) = le.as_ref() {
-                        debug!("rule {dkey} not found, skipping");
-                        continue;
-                    }
+                if matches!(
+                    e.as_ref(),
+                    zen_engine::EvaluationError::LoaderError(le)
+                        if matches!(le.as_ref(), zen_engine::loader::LoaderError::NotFound(_))
+                ) {
+                    debug!("rule {dkey} not found, skipping");
+                    continue;
                 }
-                return Err(anyhow::anyhow!(e.to_string()));
+
+                let message = match e.as_ref() {
+                    zen_engine::EvaluationError::LoaderError(le) => {
+                        format!("failed to load rule {dkey}: {le}")
+                    }
+                    _ => format!("failed to evaluate rule {dkey}"),
+                };
+
+                return Err(anyhow::Error::new(e).context(message));
             }
         };
         debug!("decision {dkey} evaluated");

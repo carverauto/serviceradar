@@ -44,7 +44,6 @@ make -f Makefile.docker docker-login
 # Build locally (no push)
 make -f Makefile.docker docker-build
 make -f Makefile.docker docker-build-core
-make -f Makefile.docker docker-build-proton
 make -f Makefile.docker docker-build-cert-gen
 
 # Build and push
@@ -144,7 +143,6 @@ docker pull ghcr.io/carverauto/serviceradar-core:latest
 Images follow this naming convention:
 
 - `ghcr.io/carverauto/serviceradar-core:TAG`
-- `ghcr.io/carverauto/serviceradar-proton:TAG`
 - `ghcr.io/carverauto/serviceradar-cert-generator:TAG`
 
 Where TAG can be:

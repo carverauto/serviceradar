@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	// maxMetadataValueBytes limits a single metadata entry to 64KiB to stay well under Proton row limits.
+	// maxMetadataValueBytes limits a single metadata entry to 64KiB to stay well under CNPG row limits.
 	maxMetadataValueBytes = 64 * 1024
 	// maxMetadataTotalBytes caps total metadata payload to 512KiB per device sighting.
 	maxMetadataTotalBytes = 512 * 1024
