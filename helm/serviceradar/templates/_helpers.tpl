@@ -64,8 +64,8 @@ imagePullSecrets:
 {{- define "serviceradar.kvServerSPIFFEID" -}}
 {{- $vals := .Values -}}
 {{- $ns := default .Release.Namespace $vals.spire.namespace -}}
-{{- $trustDomain := default $vals.spire.trustDomain $vals.kv.trustDomain -}}
 {{- $datasvcSA := default "serviceradar-datasvc" $vals.spire.datasvcServiceAccount -}}
+{{- $trustDomain := default $vals.spire.trustDomain $vals.kv.trustDomain -}}
 {{- default (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $datasvcSA) $vals.kv.serverSPIFFEID -}}
 {{- end -}}
 

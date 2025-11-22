@@ -29,7 +29,7 @@ data:
       "grpc_addr": ":50052",
       "api_key": "",
       "cnpg": {
-        "host": "{{ default "" .Values.cnpg.host }}",
+        "host": "{{ default (printf "cnpg-rw.%s.svc.cluster.local" .Release.Namespace) .Values.cnpg.host }}",
         "port": {{ default 5432 .Values.cnpg.port }},
         "database": "{{ default "serviceradar" .Values.cnpg.database }}",
         "username": "{{ default "serviceradar" .Values.cnpg.username }}",

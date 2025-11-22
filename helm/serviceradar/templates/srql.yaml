@@ -1,6 +1,6 @@
 {{- $cnpg := default (dict) .Values.cnpg -}}
 {{- $ns := .Release.Namespace -}}
-{{- $cnpgHost := default (printf "cnpg-rw.%s.svc" $ns) $cnpg.host -}}
+{{- $cnpgHost := default (printf "cnpg-rw.%s.svc.cluster.local" $ns) $cnpg.host -}}
 {{- if or (not (hasKey .Values "srql")) (.Values.srql.enabled | default true) -}}
 apiVersion: apps/v1
 kind: Deployment

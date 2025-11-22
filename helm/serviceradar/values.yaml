@@ -30,6 +30,7 @@ kong:
 kv:
   enabled: true
   configSource: kv
+  bucket: serviceradar-datasvc
   address: serviceradar-datasvc:50057
   secMode: spiffe
   trustDomain: ""
