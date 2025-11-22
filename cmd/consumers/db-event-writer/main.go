@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"os"
 
 	"google.golang.org/grpc"
 
@@ -61,6 +62,13 @@ func main() {
 
 	if cfg.CNPG != nil && cfg.CNPG.TLS != nil && cfg.CNPG.CertDir != "" {
 		config.NormalizeTLSPaths(cfg.CNPG.TLS, cfg.CNPG.CertDir)
+	}
+
+	// If the password is omitted from file config to keep it out of KV, pull it from the secret env.
+	if cfg.CNPG != nil && cfg.CNPG.Password == "" {
+		if pwd := os.Getenv("CNPG_PASSWORD"); pwd != "" {
+			cfg.CNPG.Password = pwd
+		}
 	}
 
 	if err := cfg.Validate(); err != nil {

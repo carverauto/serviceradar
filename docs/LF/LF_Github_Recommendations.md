@@ -6,7 +6,7 @@ new recommendations or update existing ones.
 
 1. ✅ Use the [REPOLINTER](https://github.com/todogroup/repolinter) tool created by the TODO Group to identify common
    issues in GitHub repos.
-    * [Repolinter Report](repo_lint.md)
+    * [Repolinter Report](repo_lint.md) (2025-11-22 run; warning: missing license headers in vendored `node_modules`/`web/next.cli.js`)
 
 2. ✅ Secure your GitHub account with two-factor authentication.
 
@@ -35,8 +35,8 @@ new recommendations or update existing ones.
 8. ✅ Provide documentation on the release methodology, cadence, criteria, etc.
     * [RELEASE](../../RELEASE.md)
 
-9. ❌️ Document your project governance and make it available on the project’s repo.
-    * TODO
+9. ✅ Document your project governance and make it available on the project’s repo.
+    * [GOVERNANCE](../../GOVERNANCE.md)
 
 10. ✅ Add a SUPPORT file to let users and developers know about ways to get help with your project. You can either add
     in this file how and where security issues are handled, or put it at the top level readme for the project, or
@@ -53,18 +53,18 @@ new recommendations or update existing ones.
 
 13. ❌ Achieve and maintain the [OpenSSF Best Practices Badge](https://bestpractices.coreinfrastructure.org/en) (
     previousely called the Core Infrastructure Initiative Best Practices Badge) for your project.
-    * TODO
+    * TODO (badge not yet filed)
 
 14. ✅ Identify who on the project will be handling security issues (could be a team) and set up a separate email
     account. Consider having the project become a CNA (CVE Numbering Authority).
     * [SECURITY](../../SECURITY.md)
 
-15. ❌Include an SPDX short-form identifier in a comment at the top of each file in the repo, wherever reasonably
+15. ❌ Include an SPDX short-form identifier in a comment at the top of each file in the repo, wherever reasonably
     possible.
     * TODO
 
 16. ❌ Depending on whether your project uses the DCO and/or CLAs:
-    * DCO: TODO
+    * DCO: TODO (no enforced signoff workflow yet)
 
 17. ✅ Use English as the default universal language for anything you publish on GitHub. You can support a second
     language but English should be the primary language of communication towards a universal audience.
