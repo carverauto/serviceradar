@@ -164,11 +164,11 @@ spec:
               key: admin-bcrypt-hash
         resources:
           limits:
-            cpu: "2"
-            memory: "2Gi"
+            cpu: "4"
+            memory: "4Gi"
           requests:
             cpu: "500m"
-            memory: "512Mi"
+            memory: "1Gi"
         livenessProbe:
           tcpSocket:
             port: 8090
