@@ -103,4 +103,6 @@ spec:
           name: {{ $pg.secretName }}
   monitoring:
     enablePodMonitor: true
+  enableSuperuserAccess: true
+  failoverDelay: 0
 {{- end }}
