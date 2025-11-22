@@ -19,7 +19,7 @@ CERT_DIR="/certs"
 DAYS_VALID=3650
 
 # Check if ALL certificates exist - including checker and other services
-if [ -f "$CERT_DIR/root.pem" ] && [ -f "$CERT_DIR/core.pem" ] && [ -f "$CERT_DIR/proton.pem" ] && \
+if [ -f "$CERT_DIR/root.pem" ] && [ -f "$CERT_DIR/core.pem" ] && \
    [ -f "$CERT_DIR/nats.pem" ] && [ -f "$CERT_DIR/datasvc.pem" ] && [ -f "$CERT_DIR/sync.pem" ] && \
    [ -f "$CERT_DIR/otel.pem" ] && [ -f "$CERT_DIR/flowgger.pem" ] && [ -f "$CERT_DIR/trapd.pem" ] && \
    [ -f "$CERT_DIR/zen.pem" ] && [ -f "$CERT_DIR/db-event-writer.pem" ] && \
@@ -110,7 +110,6 @@ EOF
 
 # Generate certificates for components (using NATS-compatible Common Names)
 generate_cert "core" "core.serviceradar" "DNS:core,DNS:serviceradar-core,DNS:localhost,IP:127.0.0.1,IP:172.28.0.3"
-generate_cert "proton" "proton.serviceradar" "DNS:proton,DNS:serviceradar-proton,DNS:localhost,IP:127.0.0.1,IP:172.28.0.2"
 generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:serviceradar-nats,DNS:localhost,IP:127.0.0.1,IP:172.28.0.4"
 generate_cert "datasvc" "datasvc.serviceradar" "DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc,DNS:localhost,IP:127.0.0.1,IP:172.28.0.5"
 generate_cert "sync" "sync.serviceradar" "DNS:sync,DNS:serviceradar-sync,DNS:localhost,IP:127.0.0.1,IP:172.28.0.6"
@@ -129,13 +128,6 @@ generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:s
 generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"
 generate_cert "poller" "poller.serviceradar" "DNS:poller,DNS:serviceradar-poller,DNS:localhost,IP:127.0.0.1"
 generate_cert "web" "web.serviceradar" "DNS:web,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
-
-# Copy core certificate for Proton to use
-cp core.pem proton-core.pem
-cp core-key.pem proton-core-key.pem
-
-# Set standard permissions on copied certificates
-chmod 644 proton-core.pem proton-core-key.pem
 
 echo "Certificates generated successfully!"
 ls -la *.pem

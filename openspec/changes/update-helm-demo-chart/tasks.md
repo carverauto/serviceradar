@@ -12,9 +12,9 @@
 - [x] Helm upgrade applies cleanly with the new ConfigMap (check `serviceradar-config` contains `nats.conf`)
 - [x] NATS pod ready; dependent pods restartable (but still blocked on SPIRE SVIDs)
 - [x] Core pod bound to its PVC and starts without Pending/Init errors (datasvc now obtains SVIDs and is Running; core unblocked by CAGG rebuild in demo; staging has the rebuilt CAGGs via migration 0005)
-- [ ] Agent pod starts and reaches KV (currently crashlooping: `failed to load config: ... name resolver error: produced zero addresses` in demo)
-- [ ] DB event writer starts with SPIFFE TLS (currently `x509svid: could not verify leaf certificate` when connecting in demo)
-- [ ] Flowgger image fixed to run on cluster OpenSSL (currently `libcrypto.so.3: OPENSSL_3.2.0 not found`)
+- [x] Agent pod starts and reaches KV (currently crashlooping: `failed to load config: ... name resolver error: produced zero addresses` in demo)
+- [x] DB event writer starts with SPIFFE TLS (currently `x509svid: could not verify leaf certificate` when connecting in demo)
+- [x] Flowgger image fixed to run on cluster OpenSSL (currently `libcrypto.so.3: OPENSSL_3.2.0 not found`)
 
 ## 3. Cleanup
 - [x] Remove Proton pod/RS from demo namespace (disabled by values)
@@ -24,15 +24,15 @@
 - [x] Fixed SPIFFE bundle delivery: Added `SPIFFE_ENDPOINT_SOCKET` to `serviceradar-datasvc` deployment to ensure `go-spiffe` initializes correctly.
 - [x] Aligned SPIFFE client envs: Helm now sets `SPIFFE_ENDPOINT_SOCKET` for `db-event-writer` so the workload API uses the mounted host socket; mirror this for any other SPIFFE clients if they land on hostNetwork nodes.
 - [x] Fixed DB Authentication: Enabled `enableSuperuserAccess: true` in `spire-postgres.yaml` (CNPG Cluster) to allow `postgres` user authentication.
-- [x] Fixed DB Configuration: Updated `db-event-writer` to use the correct `spire` database (via `CNPG_DATABASE` env var and ConfigMap update) instead of the non-existent `telemetry` database.
+- [x] Fixed DB Configuration: Updated `db-event-writer` to use the correct `spire` database (via `CNPG_DATABASE` env var and ConfigMap update) instead of the old `telemetry` placeholder.
 
 ## Notes / Current Blockers
 - SPIRE chart mirrors k8s/demo settings (k8s_psat, token audience `spire-server`, projected SA tokens, controller manager on). Agents issue SVIDs; datasvc healthy with SPIFFE.
 - Edge onboarding key now auto-generated/seeded via secret-generator job (and settable via values); core picks it up from `serviceradar-secrets`.
 - Core connects to CNPG using `spire` user/DB with CNPG CA mounted; the device metrics CAGG SQL is now split into three single-hypertable CAGGs (`device_metrics_summary_cpu|disk|memory`) plus a joining view so Timescale 2.24 accepts it. Need to roll core with the updated migration bundle to clear the CrashLoop.
-- Flowgger still crashlooping due to OpenSSL 3.2 dependency mismatch in the image.
+- Flowgger fixed by shipping a Debian testing-based image (`1.0.56`) with OpenSSL 3.2; liveness/readiness probes use TCP 50044 and the init hack was removed.
 - `db-event-writer` is now healthy and processing messages.
-- Agent uses `hostNetwork`; set `dnsPolicy: ClusterFirstWithHostNet` so cluster DNS resolves KV/Core endpoints when pulling config.
+- Agent uses `hostNetwork`; set `dnsPolicy: ClusterFirstWithHostNet` so cluster DNS resolves KV/Core endpoints when pulling config. Memory limits increased to 1Gi to avoid OOM.
 - DB event writer now mounts the `cnpg-ca` secret and points its CNPG TLS CA file to `Values.cnpg.caFile` (defaults to `/etc/serviceradar/cnpg/ca.crt`) so SPIFFE Postgres connections can verify the CNPG server cert.
 - Added a post-install/upgrade hook job to reseed the db-event-writer KV entry from the charted template using the KV certs, so the CNPG CA path in KV is corrected without manual edits.
 - App database separation: Helm now defaults CNPG credentials to an app-specific `serviceradar` database/user/secret (no longer sharing `spire`/`postgres`). Manual psql was used to create `serviceradar` DB/user in demo; need idempotent Helm bootstrap (CNPG init SQL) so fresh installs provision the DB/user with the charted secret and grant schema privileges automatically.

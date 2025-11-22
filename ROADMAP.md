@@ -15,7 +15,7 @@ ServiceRadar is a distributed network monitoring and observability platform that
 ### Core Platform
 - **Multi-Environment Support**: Bare metal, Docker, and Kubernetes deployments
 - **Distributed Architecture**: Agent-Poller-Core design for scalability and reliability
-- **Stream Processing**: Powered by Timeplus Proton (90M EPS, 4ms latency)
+- **Stream Processing**: Timescale/CNPG-backed hypertables for high-ingest telemetry
 - **Multi-Platform**: AMD64 and ARM64 support (including Apple Silicon, Raspberry Pi)
 
 ### Data Collection & Observability
@@ -70,7 +70,7 @@ ServiceRadar is a distributed network monitoring and observability platform that
 ### Q3 2026: Data Platform Evolution
 - [ ] **NetFlow Support**: NetFlow/IPFIX data collection and analysis
 - [ ] **BGP BMP Integration**: BGP monitoring protocol support
-- [ ] **ClickHouse Integration**: Direct ClickHouse integration alongside Timeplus Proton
+- [ ] **ClickHouse Integration**: Optional ClickHouse compatibility alongside the CNPG core
 - [ ] **Graph Database Integration**: dgraph/equivalent for network topology and discovery
 - [ ] **Enhanced Mapper/Discovery**: Improved network discovery engine with AI/ML-assisted topology mapping
 

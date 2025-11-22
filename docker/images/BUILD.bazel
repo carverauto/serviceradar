@@ -618,7 +618,7 @@ pkg_tar(
 
 oci_image(
     name = "flowgger_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    base = "@debian_testing_slim_linux_amd64//:debian_testing_slim_linux_amd64",
     tars = [":common_tools_amd64", ":flowgger_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["serviceradar-flowgger"],
@@ -1335,16 +1335,9 @@ pkg_tar(
         "//docker/compose:tools-entrypoint.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:tools-profile.sh": "etc/profile.d/serviceradar-tools.sh",
         "//docker/compose:tools-motd.txt": "etc/motd",
-        "//docker/compose:proton-wrapper.sh": "usr/local/bin/proton",
-        "//docker/compose:proton-client.sh": "usr/local/bin/proton-client",
-        "//docker/compose:proton-client-config.xml": "etc/serviceradar/proton-client/config.xml",
-        "//docker/compose:proton-info.sh": "usr/local/bin/proton-info",
-        "//docker/compose:proton-sql.sh": "usr/local/bin/proton-sql",
-        "//docker/compose:proton-cli.sh": "usr/local/bin/proton-cli",
         "@natscli_linux_amd64//:nats": "usr/local/bin/nats",
         "@spire_linux_amd64//:bin/spire-agent": "usr/local/bin/spire-agent",
         "@spire_linux_amd64//:bin/spire-server": "usr/local/bin/spire-server",
-        "@timeplus_proton_linux_x86_64//file": "usr/local/bin/proton.bin",
     },
     modes = {
         "usr/local/bin/serviceradar-cli": "0755",
@@ -1352,13 +1345,6 @@ pkg_tar(
         "usr/local/bin/entrypoint.sh": "0755",
         "etc/profile.d/serviceradar-tools.sh": "0644",
         "etc/motd": "0644",
-        "usr/local/bin/proton": "0755",
-        "usr/local/bin/proton-client": "0755",
-        "usr/local/bin/proton-info": "0755",
-        "usr/local/bin/proton-sql": "0755",
-        "usr/local/bin/proton-cli": "0755",
-        "etc/serviceradar/proton-client/config.xml": "0644",
-        "usr/local/bin/proton.bin": "0755",
         "usr/local/bin/nats": "0755",
         "usr/local/bin/spire-agent": "0755",
         "usr/local/bin/spire-server": "0755",
@@ -1366,9 +1352,7 @@ pkg_tar(
     empty_dirs = [
         "etc/serviceradar/certs",
         "etc/serviceradar/nats",
-        "etc/serviceradar/proton-client",
         "root/.config/nats/context",
-        "root/.config/proton-client",
     ],
     package_dir = "/",
 )
@@ -1428,61 +1412,6 @@ oci_load(
     name = "tools_image_amd64_tar",
     image = ":tools_image_amd64",
     repo_tags = ["ghcr.io/carverauto/serviceradar-tools:local"],
-)
-
-pkg_tar(
-    name = "proton_layer_amd64",
-    files = {
-        "//docker/compose:proton_config_docker": "etc/proton-server/config.yaml",
-        "//packaging/proton/config:users.yaml": "etc/proton-server/users.yaml",
-        "//packaging/proton/config:grok-patterns": "etc/proton-server/grok-patterns",
-        "//docker/compose:proton-openssl.xml": "etc/proton-server/config.d/openssl.xml",
-        "//docker/compose:proton-limits.conf": "etc/security/limits.d/serviceradar.conf",
-        "//docker/compose:proton-sysctl.conf": "etc/sysctl.d/99-clickhouse.conf",
-        "//docker/compose:proton-init.sh": "usr/local/bin/proton-init.sh",
-    },
-    modes = {
-        "etc/proton-server/config.yaml": "0644",
-        "etc/proton-server/users.yaml": "0644",
-        "etc/proton-server/grok-patterns": "0644",
-        "etc/proton-server/config.d/openssl.xml": "0644",
-        "etc/security/limits.d/serviceradar.conf": "0644",
-        "etc/sysctl.d/99-clickhouse.conf": "0644",
-        "usr/local/bin/proton-init.sh": "0755",
-    },
-    symlinks = {
-        "etc/proton-server/server.crt": "certs/proton.pem",
-        "etc/proton-server/server.key": "certs/proton-key.pem",
-    },
-    empty_dirs = [
-        "etc/proton-server/certs",
-        "etc/proton-server/config.d",
-        "etc/proton-server/users.d",
-        "etc/serviceradar/certs",
-        "etc/serviceradar/credentials",
-        "var/lib/proton",
-        "var/log/proton-server",
-        "var/run/proton-server",
-    ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "proton_image_amd64",
-    base = "@timeplus_proton_linux_amd64//:timeplus_proton_linux_amd64",
-    tars = [":common_tools_amd64", ":proton_layer_amd64"],
-    entrypoint = ["/usr/local/bin/proton-init.sh"],
-    workdir = "/var/lib/proton",
-    exposed_ports = ["8123/tcp", "8463/tcp", "8443/tcp", "9440/tcp", "7587/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-proton",
-    },
-)
-
-oci_load(
-    name = "proton_image_amd64_tar",
-    image = ":proton_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-proton:local"],
 )
 
 genrule(

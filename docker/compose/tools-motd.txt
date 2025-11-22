@@ -8,17 +8,6 @@
     test-grpc            - Health check all gRPC services
     nats-cert-check      - Diagnose NATS certificate issues
 
-[*] PROTON HELPERS:
-    proton-cli           - Proton client wrapper (mTLS defaults)
-    proton-sql <SQL>     - Run SQL (e.g. proton-sql "SELECT 1")
-    proton_sql <SQL>     - Bash helper (login shells only)
-    proton-version       - Print Proton server version via SQL
-    proton-info          - Show host/port/database/password source
-
-[*] PASSWORD SOURCE:
-    /etc/serviceradar/credentials/proton-password (secret mount)
-    Override with PROTON_PASSWORD or PROTON_PASSWORD_FILE if required.
-
 [*] NATS ALIASES:
     nats-info            - Show NATS server information
     nats-streams         - List all JetStream streams
@@ -45,7 +34,7 @@
 
 [*] NATS CONTEXT: Auto-configured with proper FQDN and mTLS
 
-[+] STATUS: TLS certs, Proton helpers, JetStream aliases all ready to use
+[+] STATUS: TLS certs and JetStream aliases ready to use
 
 [!] READY TO USE: MOTD appears on login; environment auto-loads helpers
 

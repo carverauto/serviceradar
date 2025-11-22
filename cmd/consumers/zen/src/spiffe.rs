@@ -1,12 +1,15 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use log::{info, warn};
 use pem::Pem;
 use spiffe::cert::Certificate as SpiffeCertificate;
+use spiffe::error::GrpcClientError;
+use spiffe::workload_api::x509_source::X509SourceError;
 use spiffe::{
     BundleSource, SvidSource, TrustDomain, WorkloadApiClient, X509Source, X509SourceBuilder,
 };
 use std::sync::Arc;
 use tokio::sync::watch;
+use tokio::time::{sleep, Duration};
 use tonic::transport::{Certificate, Identity};
 
 const CERT_TAG: &str = "CERTIFICATE";
@@ -16,31 +19,73 @@ pub async fn load_server_credentials(
     workload_socket: &str,
     trust_domain: &str,
 ) -> Result<ServerCredentials> {
-    let client = WorkloadApiClient::new_from_path(workload_socket)
-        .await
-        .with_context(|| {
-            format!("failed to connect to SPIFFE Workload API at {workload_socket}")
-        })?;
-
-    let source = X509SourceBuilder::new()
-        .with_client(client)
-        .build()
-        .await
-        .context("failed to initialize SPIFFE X.509 source")?;
-
     let trust_domain = TrustDomain::try_from(trust_domain)
         .map_err(|e| anyhow!("invalid trust domain {trust_domain}: {e}"))?;
+    let retry_delay = Duration::from_secs(2);
 
-    let guard = SpiffeSourceGuard {
-        source,
-        trust_domain,
-    };
+    loop {
+        let client = match WorkloadApiClient::new_from_path(workload_socket).await {
+            Ok(client) => client,
+            Err(err) => {
+                let mapped = map_grpc_error("connect to SPIFFE Workload API", workload_socket, err);
+                warn!("{mapped}; retrying in {}s", retry_delay.as_secs());
+                sleep(retry_delay).await;
+                continue;
+            }
+        };
 
-    // Validate that we can build TLS materials up front so we fail fast if the
-    // Workload API does not have an SVID yet.
-    let _ = guard.tls_materials()?;
+        let source = match X509SourceBuilder::new().with_client(client).build().await {
+            Ok(source) => source,
+            Err(X509SourceError::GrpcError(grpc_err)) => {
+                if should_retry_grpc(&grpc_err) {
+                    warn!(
+                        "SPIFFE Workload API unavailable ({grpc_err:?}); retrying in {}s",
+                        retry_delay.as_secs()
+                    );
+                    sleep(retry_delay).await;
+                    continue;
+                }
+                return Err(map_grpc_error(
+                    "initialize SPIFFE X.509 source",
+                    workload_socket,
+                    grpc_err,
+                ));
+            }
+            Err(other) => {
+                if is_retryable_source_error(&other) {
+                    warn!(
+                        "SPIFFE source not ready ({other}); retrying in {}s",
+                        retry_delay.as_secs()
+                    );
+                    sleep(retry_delay).await;
+                    continue;
+                }
+                return Err(anyhow!(
+                    "failed to initialize SPIFFE X.509 source via {workload_socket}: {other}"
+                ));
+            }
+        };
 
-    Ok(ServerCredentials { guard })
+        let guard = SpiffeSourceGuard {
+            source,
+            trust_domain: trust_domain.clone(),
+        };
+
+        // Validate TLS materials up front; if the Workload API is not yet returning an
+        // SVID/bundle we wait and retry instead of failing the gRPC server permanently.
+        match guard.tls_materials() {
+            Ok(_) => return Ok(ServerCredentials { guard }),
+            Err(err) if is_retryable_tls_error(&err) => {
+                warn!(
+                    "SPIFFE materials unavailable ({err}); retrying in {}s",
+                    retry_delay.as_secs()
+                );
+                sleep(retry_delay).await;
+                continue;
+            }
+            Err(err) => return Err(err),
+        }
+    }
 }
 
 fn encode_chain(items: &[SpiffeCertificate]) -> String {
@@ -105,6 +150,36 @@ impl SpiffeSourceGuard {
     fn updated(&self) -> watch::Receiver<()> {
         self.source.updated()
     }
+}
+
+fn map_grpc_error(action: &str, socket: &str, err: GrpcClientError) -> anyhow::Error {
+    match &err {
+        GrpcClientError::Grpc(status) => anyhow!(
+            "failed to {action} at {socket}: gRPC status {:?} ({})",
+            status.code(),
+            status.message()
+        ),
+        GrpcClientError::Transport(transport) => {
+            anyhow!("failed to {action} at {socket}: transport error {transport}")
+        }
+        _ => anyhow!(err),
+    }
+}
+
+fn should_retry_grpc(err: &GrpcClientError) -> bool {
+    matches!(err, GrpcClientError::Grpc(_)) || matches!(err, GrpcClientError::Transport(_))
+}
+
+fn is_retryable_source_error(err: &X509SourceError) -> bool {
+    matches!(err, X509SourceError::NoSuitableSvid)
+}
+
+fn is_retryable_tls_error(err: &anyhow::Error) -> bool {
+    let message = err.to_string();
+    message.contains("no default X.509 SVID")
+        || message.contains("failed to fetch default X.509 SVID")
+        || message.contains("no X.509 bundle available")
+        || message.contains("failed to fetch X.509 bundle")
 }
 
 impl Drop for SpiffeSourceGuard {

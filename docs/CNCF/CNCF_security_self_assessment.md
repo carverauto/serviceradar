@@ -49,7 +49,6 @@ ServiceRadar offers traditional network management functionality and features, s
 ### Actors
 
 serviceradar-core: Core API services -- authentication, device registry, service coordination. The Core is also our monolithic gRPC API service and accepts unary or streaming gRPC connections, and can re-assemble chunked streams received from the poller for large messages.
-serviceradar-proton: Timeplus Proton streaming OLAP database
 serviceradar-agent: Agents provide minimal functionality (TCP/ICMP scanning) and primarily serve as a pass-through between the pollers and the checkers, designed for multi-tenancy and overlapping IP space challenges.
 serviceradar-poller: Pollers ask the agents to collect data from checkers and forwards to the core, using unary or streaming gRPC calls and has built-in chunking for large payloads.
 serviceradar-kong: API gateway, gets JWKS information from the Core via API and all API calls are routed and authorized before reaching their final destination. This allows us to easily bring in new APIs using shared AAA.
@@ -59,12 +58,12 @@ serviceradar-datasvc: gRPC API for the NATS JetStream Data (KV/Object Store) ser
 serviceradar-nginx: nginx ingress configured to route /api calls through kong API gateway
 serviceradar-otel: lightweight OTEL processor, receives OTEL logs, traces, and metrics, puts messages on the NATS JetStream message bus for processing by consumers.
 serviceradar-zen: GoRules/zenEngine based stateless rule engine -- used to transform syslog messages and other events, transformed messages are turned into CloudEvents and placed into a new NATS JetStream stream to be processed by database consumers.
-serviceradar-db-event-writer: NATS JetStream consumer, processes messages off of the message queues and inserts data in batches into proton database. Scales horizontally due to use of subscription queue groups in NATS JetStream.
+serviceradar-db-event-writer: NATS JetStream consumer, processes messages off of the message queues and inserts data in batches into the CNPG database. Scales horizontally due to use of subscription queue groups in NATS JetStream.
 serviceradar-flowgger: SYSLOG/Gelf receiver, receives messages and places them on NATS JetStream stream for processing by serviceradar-zen.
-serviceradar-rperf-checker: RPerf bandwidth (iperf3 clone) measurement tool. Client/server model, servers live on remote systems and serve as endpoints for rperf-client (serviceradar-rperf-checker). Bandwidth measurements are collected through agent/poller and forwarded to the Core and stored in proton database.
+serviceradar-rperf-checker: RPerf bandwidth (iperf3 clone) measurement tool. Client/server model, servers live on remote systems and serve as endpoints for rperf-client (serviceradar-rperf-checker). Bandwidth measurements are collected through agent/poller and forwarded to the Core and stored in the CNPG database.
 serviceradar-snmp-checker: Periodically polls SNMP OIDs to collect metrics, data is collected through agent/poller system and forwarded to the Core, then saved in the database.
 serviceradar-srql: ServiceRadar Query Language (SRQL) is our API and SQL translator that provides an intuitive key-based query language for retrieving data from the database. Used to create composable dashboards in web-ui.
-serviceradar-tools: Utility container/image service that is pre-configured with mTLS certificates and other configuration items needed to easily connect to and manage NATS JetStream, Timeplus Proton, and also includes the serviceradar-cli tool, where users can easily generate new bcrypt strings for local-auth users.
+serviceradar-tools: Utility container/image service that is pre-configured with mTLS certificates and other configuration items needed to easily connect to and manage NATS JetStream and CNPG, and also includes the serviceradar-cli tool, where users can easily generate new bcrypt strings for local-auth users.
 serviceradar-trapd: SNMP trap receiver, receives SNMP traps and forwards to NATS JetStream message broker for processing.
 serviceradar-web: Web-UI, react/nextjs+SSR -- API calls are all proxied through SSR middleware and done on the server side for improved security.
 
@@ -98,7 +97,7 @@ This document provides the CNCF TAG-Security with an initial understanding of **
 
 * serviceradar-core: gRPC API and core API services with tenant isolation via RBAC and mTLS
 * serviceradar-srql: SRQL Query Engine API with tenant-scoped query validation
-* serviceradar-proton: Timeplus Proton database with subscription-based access controls
+* CNPG: Timescale-backed telemetry database with subscription-based access controls
 * serviceradar-kong: Kong API gateway with JWT validation and rate limiting
 * serviceradar-web: Web UI with server-side API proxying through Kong
 

@@ -86,7 +86,7 @@ Use these constructs together:
 ```
 in:activity time:last_24h stats:"count() as total_flows by connection.src_endpoint_ip" sort:total_flows:desc having:"total_flows>100" limit:20
 ```
-The planner converts aggregations into valid Proton SQL, handling `count_distinct`, percentile helpers (`p95(bytes)`), and alias propagation.
+The planner converts aggregations into valid CNPG SQL, handling `count_distinct`, percentile helpers (`p95(bytes)`), and alias propagation.
 
 ## Streaming Queries
 

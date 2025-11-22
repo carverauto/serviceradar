@@ -21,7 +21,7 @@ var (
 	errMissingDeviceCapability     = errors.New("missing device_id or capability")
 )
 
-// HydrateFromStore loads the current device snapshot from Proton into the in-memory registry.
+// HydrateFromStore loads the current device snapshot from the database into the in-memory registry.
 // It returns the number of records loaded.
 func (r *DeviceRegistry) HydrateFromStore(ctx context.Context) (int, error) {
 	if r.db == nil {
@@ -61,7 +61,7 @@ func (r *DeviceRegistry) HydrateFromStore(ctx context.Context) (int, error) {
 	r.replaceAll(records)
 
 	if err := r.hydrateCapabilitySnapshots(ctx); err != nil && r.logger != nil {
-		r.logger.Warn().Err(err).Msg("Failed to hydrate capability matrix from Proton")
+		r.logger.Warn().Err(err).Msg("Failed to hydrate capability matrix from database")
 	}
 
 	r.reportHydrationDiscrepancy(ctx, records)
@@ -98,14 +98,14 @@ func (r *DeviceRegistry) reportHydrationDiscrepancy(ctx context.Context, records
 		return
 	}
 
-	protonCount, err := r.db.CountUnifiedDevices(ctx)
+	dbCount, err := r.db.CountUnifiedDevices(ctx)
 	if err != nil {
-		r.logger.Warn().Err(err).Msg("Failed to count Proton devices during registry hydration diagnostics")
+		r.logger.Warn().Err(err).Msg("Failed to count database devices during registry hydration diagnostics")
 		return
 	}
 
 	registryCount := len(records)
-	if int64(registryCount) == protonCount {
+	if int64(registryCount) == dbCount {
 		return
 	}
 
@@ -123,7 +123,7 @@ func (r *DeviceRegistry) reportHydrationDiscrepancy(ctx context.Context, records
 
 	event := r.logger.Warn().
 		Int("registry_devices", registryCount).
-		Int64("proton_devices", protonCount)
+		Int64("db_devices", dbCount)
 
 	if len(missingIDs) > 0 {
 		event = event.Strs("missing_device_ids", missingIDs)

@@ -54,7 +54,7 @@ ServiceRadar provides secure-by-design network management for cloud-native envir
 - **Multi-tenant isolation**: Agent/poller/checker architecture supporting overlapping IP spaces and separate security domains
 - **Cloud-native deployment**: Kubernetes-native with Helm charts, microservices secured by mTLS via SPIFFE/SPIRE
 - **Event-driven architecture**: NATS JetStream for reliable message delivery and horizontal scalability, using CloudEvents for event standardization
-- **Stream processing**: Timeplus Proton for real-time data processing and analysis
+- **Stream processing**: CNPG/Timescale for real-time data processing and analysis
 - **Stateless rules**: ZenEngine-based rule editor (web UI) for event transformation without service restarts
 - **Centralized configuration**: NATS KV-based fleet management (ETA: November 2025)
 - **Memory-safe implementation**: Network-facing systems written in Rust; core logic in Go/OCaml
@@ -195,15 +195,15 @@ docker compose up -d
 **Observability ecosystem:**
 
 ```
-External Sources → serviceradar-otel (OTLP collector) → NATS JetStream → Proton DB
+External Sources → serviceradar-otel (OTLP collector) → NATS JetStream → CNPG DB
                 ↓
-Syslog/GELF    → serviceradar-flowgger → NATS JetStream → serviceradar-zen (rules) → Proton DB
+Syslog/GELF    → serviceradar-flowgger → NATS JetStream → serviceradar-zen (rules) → CNPG DB
 ```
 
 ServiceRadar provides its own:
 - **serviceradar-otel**: Lightweight OTEL collector for traces, logs, and metrics (OTLP protocol)
 - **serviceradar-flowgger**: High-performance syslog/GELF receiver
-- Both forward to NATS JetStream for processing and storage in Timeplus Proton
+- Both forward to NATS JetStream for processing and storage in CNPG/Timescale
 
 **Multi-tenant architecture:**
 - RBAC with tenant-scoped queries
@@ -255,7 +255,7 @@ ServiceRadar provides its own:
                     ┌────────────┼────────────┐
                     ▼            ▼            ▼
               ┌──────────┐ ┌─────────┐ ┌──────────┐
-              │   NATS   │ │ Proton  │ │ SPIFFE/  │
+              │   NATS   │ │ CNPG  │ │ SPIFFE/  │
               │JetStream │ │   DB    │ │  SPIRE   │
               └──────────┘ └─────────┘ └──────────┘
                     ▲
@@ -277,7 +277,7 @@ ServiceRadar provides its own:
 | Service | Purpose | Impact if Unavailable | HA Strategy |
 |---------|---------|----------------------|-------------|
 | **NATS JetStream** | Message broker, KV store | Data ingestion halted | 3-node cluster, R3 replication |
-| **Timeplus Proton** | Stream processing DB | Queries fail, data buffered | OSS→Enterprise clustering upgrade |
+| **CNPG/Timescale** | Stream processing DB | Queries fail, data buffered | OSS→Enterprise clustering upgrade |
 | **Kong Gateway** | API gateway, auth | API access denied | Multiple replicas, shared cache |
 | **SPIFFE/SPIRE** | Cert management | New pods fail auth | Server HA, agent per node |
 
@@ -366,7 +366,7 @@ Device → Checker (plugin) → Agent (proxy) → Poller (aggregator) → NATS �
 
 | Deployment | Configuration | Availability |
 |------------|---------------|--------------|
-| **OSS** | Single Proton instance + backups | 99.5% (planned downtime) |
+| **OSS** | Single CNPG instance + backups | 99.5% (planned downtime) |
 | **Enterprise** | Timeplus Enterprise 3-node cluster | 99.9% |
 | **Long-term Storage** | ClickHouse integration for historical data | 99.95% (managed) |
 
@@ -396,7 +396,7 @@ Device → Checker (plugin) → Agent (proxy) → Poller (aggregator) → NATS �
 
 | Component | CPU | RAM | Storage | Scaling |
 |-----------|-----|-----|---------|---------|
-| **Timeplus Proton** | 4 cores | 8 GB | 60 GB | Vertical (CPU/RAM) |
+| **CNPG/Timescale** | 4 cores | 8 GB | 60 GB | Vertical (CPU/RAM) |
 | **NATS JetStream** | 2 cores | 8 GB | 60 GB | Vertical (RAM/disk) |
 | **Core API** | 2 cores | 4 GB | 30 GB | Horizontal (replicas) |
 | **Kong Gateway** | 1 core | 2 GB | 10 GB | Horizontal (replicas) |
@@ -423,7 +423,7 @@ Device → Checker (plugin) → Agent (proxy) → Poller (aggregator) → NATS �
 
 | Storage Type | Purpose | Performance | Backup |
 |--------------|---------|-------------|--------|
-| **Block Storage (PVC)** | NATS, Proton database | 1000+ IOPS, low latency | Daily snapshots |
+| **Block Storage (PVC)** | NATS, CNPG database | 1000+ IOPS, low latency | Daily snapshots |
 | **Object Storage** | Config backups, SBOM | Standard | Versioned |
 | **Ephemeral** | Logs, temp files | Local SSD | N/A |
 
@@ -557,7 +557,6 @@ helm install serviceradar serviceradar/serviceradar --namespace serviceradar --c
 helm install serviceradar serviceradar/serviceradar \
   --namespace serviceradar \
   --create-namespace \
-  --set proton.resources.memory=16Gi \
   --set core.replicas=3
 ```
 
@@ -1012,7 +1011,7 @@ features:
 | Signal | Format | Storage | Retention | Access |
 |--------|--------|---------|-----------|--------|
 | **Metrics** | Prometheus (OpenMetrics) | Prometheus TSDB | 7 days | Grafana dashboards |
-| **Logs** | JSON (structured) | Timeplus Proton | 30 days | Web UI, CLI |
+| **Logs** | JSON (structured) | CNPG/Timescale | 30 days | Web UI, CLI |
 | **Traces** | OpenTelemetry (OTLP) | Jaeger | 7 days | Jaeger UI |
 | **Profiles** | pprof | Ephemeral | N/A | Debug endpoints (disabled in prod) |
 
@@ -1063,7 +1062,7 @@ All API mutations logged with:
 
 **Audit log storage:**
 - Written to immutable NATS JetStream stream
-- Replicated to Timeplus Proton for querying
+- Replicated to CNPG/Timescale for querying
 - Retention: 1 year (configurable per compliance requirements)
 - Export API available for SIEM integration
 
@@ -1083,7 +1082,7 @@ All API mutations logged with:
 Exported metrics for cost tracking:
 ```promql
 # Database storage consumption
-serviceradar_proton_storage_bytes
+cnpg_pg_database_size_bytes
 
 # NATS message broker storage
 nats_jetstream_storage_bytes
@@ -1108,7 +1107,7 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 - `/healthz/detailed`: Extended health check with dependency status
 
 **Health checks verify:**
-- Database connectivity (Proton query succeeds)
+- Database connectivity (CNPG query succeeds)
 - NATS JetStream cluster status (all nodes connected)
 - SPIFFE certificate validity (not expired)
 - Disk space availability (> 10% free)
@@ -1153,7 +1152,7 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 | Service | Version | Purpose | Criticality |
 |---------|---------|---------|-------------|
 | **NATS JetStream** | v2.10+ | Message broker, KV store | Critical (data loss if down) |
-| **Timeplus Proton** | v1.5+ | Stream processing database | Critical (queries fail) |
+| **CNPG/Timescale** | v1.5+ | Stream processing database | Critical (queries fail) |
 | **SPIFFE/SPIRE** | v1.8+ | Workload identity, mTLS | Critical (auth fails) |
 | **Kong Gateway** | v3.4+ | API gateway | High (API access denied) |
 | **Kubernetes** | 1.25+ | Orchestration | Critical (entire system) |
@@ -1163,7 +1162,7 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 | Dependency Down | Immediate Impact | Mitigation | Recovery |
 |-----------------|------------------|------------|----------|
 | **NATS** | Data ingestion halted | Pollers buffer locally (5min) | Automatic retry, drain buffer |
-| **Proton** | Queries fail, writes buffered | NATS retains messages | Replay from NATS on recovery |
+| **CNPG** | Queries fail, writes buffered | NATS retains messages | Replay from NATS on recovery |
 | **SPIRE** | New pods fail auth | Existing services continue | Restart SPIRE, pods self-heal |
 | **Kong** | API access denied | Direct Core API access possible | Restart Kong, routes restored |
 
@@ -1211,7 +1210,7 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 - **Recovery**: ServiceRadar services unaffected, queue operations until API available
 - **Testing**: Chaos engineering simulates API server downtime
 
-**Database (Timeplus Proton) failure:**
+**Database (CNPG/Timescale) failure:**
 - **Impact**: Queries fail, new data cannot be written
 - **Recovery**:
   1. Pollers buffer data in NATS (automatic)
@@ -1353,7 +1352,7 @@ docker save ghcr.io/carverauto/serviceradar-core:v1.0.53 | \
 | **API Gateway** | Kong JWT validation, rate limiting | External traffic entry |
 | **Service Mesh** | mTLS certificate validation | Every gRPC call |
 | **RBAC Engine** | Tenant-scoped permission checks | Core API middleware |
-| **Database** | Query scoping (`WHERE tenant_id = $1`) | Timeplus Proton |
+| **Database** | Query scoping (`WHERE tenant_id = $1`) | CNPG/Timescale |
 
 **Policy enforcement:**
 

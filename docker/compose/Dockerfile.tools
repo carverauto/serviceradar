@@ -122,9 +122,7 @@ test-connectivity() {
     nc -zv serviceradar-core 8090 || echo "  Core API connection failed"
     echo "Testing Core gRPC..."
     nc -zv serviceradar-core 50052 || echo "  Core gRPC connection failed"
-    echo "Testing Proton..."
-    nc -zv serviceradar-proton 9440 || echo "  Proton TLS connection failed"
-    nc -zv serviceradar-proton 8123 || echo "  Proton HTTP connection failed"
+    echo "Legacy streaming DB removed; skipping legacy connectivity checks."
 }
 
 # Function to show NATS JetStream status

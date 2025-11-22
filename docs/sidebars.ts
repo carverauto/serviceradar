@@ -43,7 +43,6 @@ const sidebars: SidebarsConfig = {
           label: 'Showcases',
           items: [
             {type: 'doc', id: 'rperf-monitoring'},
-            {type: 'doc', id: 'proton'},
           ],
         },
         {

@@ -4,7 +4,6 @@ image:
   tags:
     core: latest
     web: latest
-    proton: latest
     nats: latest
     datasvc: latest
     agent: latest
@@ -14,7 +13,7 @@ image:
     otel: latest
     mapper: latest
     trapd: latest
-    flowgger: latest
+    flowgger: "1.0.56"
     zen: latest
     sync: latest
     rperfClient: latest
@@ -102,6 +101,7 @@ spire:
   datasvcServiceAccount: serviceradar-datasvc
   serviceradarAgentServiceAccount: serviceradar-agent
   joinTokenTTL: 15m
+  otelServiceAccount: serviceradar-otel
   syncServiceAccount: serviceradar-sync
   zenServiceAccount: serviceradar-zen
   mapperServiceAccount: serviceradar-mapper
@@ -221,17 +221,6 @@ secrets:
   adminBcryptHash: ""
   # Base64-encoded 32-byte key for edge onboarding; used by core and seeded into config.
   edgeOnboardingKey: "5yV33bvFfRKBz5y20XPVnxyysYhXc/LXdG4jtrvrkN0="
-# Proton (TimeStream DB) configuration
-proton:
-  resources:
-    requests:
-      cpu: "1"
-      memory: "8Gi"
-    limits:
-      cpu: "4"
-      memory: "16Gi"
-  storage:
-    size: "150Gi"
 # Network sweep defaults (can be tuned per-deploy)
 sweep:
   # Target networks and ports to scan

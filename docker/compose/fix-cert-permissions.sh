@@ -7,7 +7,7 @@ chmod 755 /etc/serviceradar/certs/
 chmod 644 /etc/serviceradar/certs/*.pem
 chmod 644 /etc/serviceradar/certs/*-key.pem  # Make private keys readable by owner and group
 
-# Make certificates readable by group (for Proton which runs as uid=999, gid=999)  
+# Make certificates readable by group (for database containers that run as uid=999, gid=999)  
 chgrp -R 1000 /etc/serviceradar/certs/
 chmod 755 /etc/serviceradar/certs/
 chmod 644 /etc/serviceradar/certs/*.pem

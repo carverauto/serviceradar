@@ -83,15 +83,15 @@ spec:
           value: "info"
         {{- include "serviceradar.configSyncEnv" (dict "cfg" (default (dict) .Values.configSync.flowgger)) | nindent 8 }}
         livenessProbe:
-          exec:
-            command: ["/bin/sh", "-c", "pgrep -f flowgger > /dev/null"]
+          tcpSocket:
+            port: 50044
           initialDelaySeconds: 30
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
-          exec:
-            command: ["/bin/sh", "-c", "pgrep -f flowgger > /dev/null"]
+          tcpSocket:
+            port: 50044
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5

@@ -21,7 +21,7 @@ Use this guide as a first stop when onboarding ServiceRadar or operating the dem
 ## Syslog
 
 - **No events**: Ensure devices forward to the correct address and protocol (`UDP/TCP 514`). Validate listener status via `kubectl logs deploy/serviceradar-syslog -n demo`.
-- **Parsing issues**: Update Proton grok rules when new vendors join; refer to the [Syslog ingest guide](./syslog.md).
+- **Parsing issues**: Update CNPG grok rules when new vendors join; refer to the [Syslog ingest guide](./syslog.md).
 - **Clock drift**: Systems with unsynchronized NTP create out-of-order events; align to UTC.
 
 ## NetFlow
@@ -59,7 +59,7 @@ Use this guide as a first stop when onboarding ServiceRadar or operating the dem
 ## Dashboards and UI
 
 - **Login problems**: Ensure local users exist (`admin` role) and JWT secrets are configured as described in [Authentication configuration](./auth-configuration.md).
-- **Missing charts**: Import default dashboards from the [Web UI configuration](./web-ui.md) and double-check Proton retention windows.
+- **Missing charts**: Import default dashboards from the [Web UI configuration](./web-ui.md) and double-check CNPG retention windows.
 - **SRQL errors**: Reference the [SRQL language guide](./srql-language-reference.md) when writing complex joins.
 
 ## Still Stuck?

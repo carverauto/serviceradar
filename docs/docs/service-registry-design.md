@@ -432,7 +432,7 @@ func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, servic
 }
 ```
 
-**Important**: In ClickHouse/Timeplus Proton:
+**Important**: In ClickHouse/CNPG/Timescale:
 - `ALTER TABLE DELETE` is asynchronous - rows marked for deletion but not immediately removed
 - Deleted rows still counted in table size until merge happens
 - Use `OPTIMIZE TABLE FINAL` to force merge (expensive operation)

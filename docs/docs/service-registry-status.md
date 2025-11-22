@@ -58,7 +58,7 @@ This document tracks the implementation status of the service registry extension
 - [x] All streams use versioned_kv mode for automatic version management
 
 **Design Decision**: Used **versioned_kv streams** instead of ReplacingMergeTree tables
-- ✅ **Better choice for Proton** - native versioned key-value support
+- ✅ **Better choice for CNPG** - native versioned key-value support
 - ✅ Automatic version management via `_tp_time`
 - ✅ Simpler updates (just INSERT, engine handles deduplication)
 - ✅ Better integration with streaming architecture
@@ -82,10 +82,10 @@ SETTINGS mode='versioned_kv', version_column='_tp_time';
 ```
 
 **Why This is Better:**
-1. Proton's versioned_kv is purpose-built for this use case
+1. CNPG's versioned_kv is purpose-built for this use case
 2. No manual `updated_at` management - handled by `_tp_time`
 3. Automatic deduplication on PRIMARY KEY
-4. Consistent with existing Proton patterns (services, service_status)
+4. Consistent with existing CNPG patterns (services, service_status)
 5. Better query performance with `FINAL` modifier
 
 ---

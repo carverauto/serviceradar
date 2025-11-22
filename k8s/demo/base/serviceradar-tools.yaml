@@ -376,7 +376,7 @@ data:
 
     CNPG_HOST="${CNPG_HOST:-cnpg-rw}"
     CNPG_PORT="${CNPG_PORT:-5432}"
-    CNPG_DATABASE="${CNPG_DATABASE:-telemetry}"
+    CNPG_DATABASE="${CNPG_DATABASE:-serviceradar}"
     CNPG_USERNAME="${CNPG_USERNAME:-postgres}"
     CNPG_SSLMODE="${CNPG_SSLMODE:-verify-full}"
     CNPG_CA_FILE="${CNPG_CA_FILE:-/etc/serviceradar/cnpg/ca.crt}"

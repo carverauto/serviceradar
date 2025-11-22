@@ -2,7 +2,7 @@
 
 ## 1. Executive Summary
 
-ServiceRadar’s next-generation telemetry platform moves away from the legacy Proton/ClickHouse stack and standardizes on **CloudNativePG (CNPG)** running **PostgreSQL 16** with the **TimescaleDB** and **Apache AGE** extensions enabled. Timescale hypertables handle all time-series metrics, events, and logs with tiered compression/retention, while Apache AGE keeps a native property graph of devices, collections, and discovered relationships. SRQL (Rust) becomes the single query surface, compiling into SQL that targets hypertables for metrics/logs and AGE graph traversals for topology queries.
+ServiceRadar’s next-generation telemetry platform moves away from the legacy CNPG/ClickHouse stack and standardizes on **CloudNativePG (CNPG)** running **PostgreSQL 16** with the **TimescaleDB** and **Apache AGE** extensions enabled. Timescale hypertables handle all time-series metrics, events, and logs with tiered compression/retention, while Apache AGE keeps a native property graph of devices, collections, and discovered relationships. SRQL (Rust) becomes the single query surface, compiling into SQL that targets hypertables for metrics/logs and AGE graph traversals for topology queries.
 
 This PRD describes how telemetry flows into CNPG, which hypertables we create, how continuous aggregates feed dashboards/alerts, and how AGE models relationships between devices, services, agents, pollers, metrics, and mapper/discovery outputs. The end state delivers one operational data store for streaming + historical analytics, consistent graph semantics, and simpler failover/backups through CNPG.
 
@@ -178,7 +178,7 @@ $$) AS (result agtype);
 | M2 – Hypertable ingest | Update core ingestion paths + compression/retention policies | +4 weeks |
 | M3 – Graph loader | Build snapshot ingestion + AGE merge jobs, expose SRQL graph syntax | +6 weeks |
 | M4 – SRQL GA | SRQL powering dashboards against hypertables + graph | +8 weeks |
-| M5 – Cleanup | Remove leftover Proton artifacts, finalize docs/runbooks | +9 weeks |
+| M5 – Cleanup | Remove leftover CNPG artifacts, finalize docs/runbooks | +9 weeks |
 
 ## 9. Risks & Mitigations
 
@@ -193,6 +193,6 @@ $$) AS (result agtype);
 
 1. All telemetry metrics/logs/events land in Timescale hypertables with retention/compression active.
 2. Mapper/discovery outputs visible via AGE vertices/edges and queryable through SRQL.
-3. Dashboards/alerts run solely against CNPG (no Proton dependence).
+3. Dashboards/alerts run solely against CNPG (no CNPG dependence).
 4. Operational runbooks cover backups, failover, and schema evolution.
 5. SRQL trending + topology queries run within SLA (<1s P95 for aggregated metrics, <2s P95 for graph traversals).
