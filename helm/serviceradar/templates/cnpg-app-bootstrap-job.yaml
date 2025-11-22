@@ -1,0 +1,159 @@
+{{- if and .Values.spire.enabled .Values.spire.postgres.enabled }}
+{{- $ns := default .Release.Namespace .Values.spire.namespace }}
+{{- $cnpg := default (dict) .Values.cnpg }}
+{{- $pg := default (dict) .Values.spire.postgres }}
+{{- $credsSecret := default "serviceradar-db-credentials" $cnpg.credentialsSecret }}
+{{- $existingCreds := (lookup "v1" "Secret" .Release.Namespace $credsSecret) }}
+{{- $appUser := default "serviceradar" $cnpg.username }}
+{{- $appPassword := default "" $cnpg.password }}
+{{- if and $existingCreds $existingCreds.data.username }}
+  {{- $appUser = (b64dec $existingCreds.data.username) }}
+{{- end }}
+{{- if and $existingCreds $existingCreds.data.password }}
+  {{- $appPassword = (b64dec $existingCreds.data.password) }}
+{{- end }}
+{{- if eq $appPassword "" }}
+  {{- $appPassword = randAlphaNum 32 }}
+{{- end }}
+{{- $cnpgHost := default (printf "cnpg-rw.%s.svc.cluster.local" $ns) $cnpg.host }}
+{{- $cnpgPort := default 5432 $cnpg.port }}
+{{- $cnpgSSLMode := default "verify-full" $cnpg.sslmode }}
+{{- $cnpgCAFile := default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile }}
+{{- $imageName := $pg.imageName }}
+{{- if not $imageName }}
+  {{- $imageRepo := default "ghcr.io/carverauto/serviceradar-cnpg" $pg.image }}
+  {{- $imageTag := default "latest" $pg.imageTag }}
+  {{- $imageName = printf "%s:%s" $imageRepo $imageTag }}
+{{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $credsSecret }}
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+stringData:
+  username: {{ $appUser | quote }}
+  password: {{ $appPassword | quote }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-cnpg-app-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cnpg-app-bootstrap
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "15"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: serviceradar-cnpg-app-bootstrap
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: cnpg-app-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: bootstrap
+        image: {{ $imageName }}
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: PGHOST
+          value: {{ $cnpgHost | quote }}
+        - name: PGPORT
+          value: {{ $cnpgPort | quote }}
+        - name: PGDATABASE
+          value: "postgres"
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: cnpg-superuser
+              key: username
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: cnpg-superuser
+              key: password
+        - name: PGSSLMODE
+          value: {{ $cnpgSSLMode | quote }}
+        - name: PGSSLROOTCERT
+          value: {{ $cnpgCAFile | quote }}
+        - name: CNPG_APP_DB
+          value: {{ default "serviceradar" $cnpg.database | quote }}
+        - name: CNPG_APP_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ $credsSecret }}
+              key: username
+        - name: CNPG_APP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ $credsSecret }}
+              key: password
+        volumeMounts:
+        - name: cnpg-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+
+          echo "Waiting for CNPG to accept connections..."
+          for i in $(seq 1 60); do
+            if psql -qAt -c "select 1" >/dev/null 2>&1; then
+              break
+            fi
+            echo "CNPG not ready yet (${i}/60); sleeping..."
+            sleep 5
+          done
+
+          if ! psql -qAt -c "select 1" >/dev/null 2>&1; then
+            echo "CNPG not reachable after waiting; giving up" >&2
+            exit 1
+          fi
+
+          echo "Ensuring application role exists..."
+          psql -v "APP_USER=${CNPG_APP_USER}" -v "APP_PASSWORD=${CNPG_APP_PASSWORD}" <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'APP_USER') THEN
+              EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', :'APP_USER', :'APP_PASSWORD');
+            ELSE
+              EXECUTE format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'APP_USER', :'APP_PASSWORD');
+            END IF;
+          END$$;
+          SQL
+
+          echo "Ensuring application database exists..."
+          psql -v "APP_DB=${CNPG_APP_DB}" -v "APP_USER=${CNPG_APP_USER}" <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_database WHERE datname = :'APP_DB') THEN
+              EXECUTE format('CREATE DATABASE %I OWNER %I', :'APP_DB', :'APP_USER');
+            END IF;
+          END$$;
+          SQL
+
+          echo "Granting privileges on application database..."
+          psql -v "APP_DB=${CNPG_APP_DB}" -v "APP_USER=${CNPG_APP_USER}" <<'SQL'
+          \\connect :'APP_DB'
+          ALTER DATABASE :"APP_DB" OWNER TO :"APP_USER";
+          GRANT CONNECT ON DATABASE :"APP_DB" TO :"APP_USER";
+          GRANT ALL PRIVILEGES ON SCHEMA public TO :"APP_USER";
+          GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO :"APP_USER";
+          GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO :"APP_USER";
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO :"APP_USER";
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO :"APP_USER";
+          SQL
+      volumes:
+      - name: cnpg-ca
+        secret:
+          secretName: cnpg-ca
+{{- end }}

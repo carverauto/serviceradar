@@ -121,11 +121,11 @@ spec:
         - name: CNPG_PORT
           value: {{ default 5432 $cnpg.port | quote }}
         - name: CNPG_DATABASE
-          value: {{ default "telemetry" $cnpg.database | quote }}
+          value: {{ default "serviceradar" $cnpg.database | quote }}
         - name: CNPG_USERNAME
           valueFrom:
             secretKeyRef:
-              name: {{ default "spire-db-credentials" $cnpg.credentialsSecret | quote }}
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
               key: username
         - name: CNPG_SSLMODE
           value: {{ default "verify-full" $cnpg.sslmode | quote }}
@@ -136,7 +136,7 @@ spec:
         - name: CNPG_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ default "spire-db-credentials" $cnpg.credentialsSecret | quote }}
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
               key: password
         - name: API_KEY
           valueFrom:

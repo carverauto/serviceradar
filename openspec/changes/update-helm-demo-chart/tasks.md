@@ -22,6 +22,7 @@
 
 ## 4. Recent Fixes (db-event-writer)
 - [x] Fixed SPIFFE bundle delivery: Added `SPIFFE_ENDPOINT_SOCKET` to `serviceradar-datasvc` deployment to ensure `go-spiffe` initializes correctly.
+- [x] Aligned SPIFFE client envs: Helm now sets `SPIFFE_ENDPOINT_SOCKET` for `db-event-writer` so the workload API uses the mounted host socket; mirror this for any other SPIFFE clients if they land on hostNetwork nodes.
 - [x] Fixed DB Authentication: Enabled `enableSuperuserAccess: true` in `spire-postgres.yaml` (CNPG Cluster) to allow `postgres` user authentication.
 - [x] Fixed DB Configuration: Updated `db-event-writer` to use the correct `spire` database (via `CNPG_DATABASE` env var and ConfigMap update) instead of the non-existent `telemetry` database.
 
@@ -34,3 +35,7 @@
 - Agent uses `hostNetwork`; set `dnsPolicy: ClusterFirstWithHostNet` so cluster DNS resolves KV/Core endpoints when pulling config.
 - DB event writer now mounts the `cnpg-ca` secret and points its CNPG TLS CA file to `Values.cnpg.caFile` (defaults to `/etc/serviceradar/cnpg/ca.crt`) so SPIFFE Postgres connections can verify the CNPG server cert.
 - Added a post-install/upgrade hook job to reseed the db-event-writer KV entry from the charted template using the KV certs, so the CNPG CA path in KV is corrected without manual edits.
+- App database separation: Helm now defaults CNPG credentials to an app-specific `serviceradar` database/user/secret (no longer sharing `spire`/`postgres`). Manual psql was used to create `serviceradar` DB/user in demo; need idempotent Helm bootstrap (CNPG init SQL) so fresh installs provision the DB/user with the charted secret and grant schema privileges automatically.
+
+## 5. TODO (App DB bootstrap)
+- [x] Add CNPG init SQL (or Helm job) that creates/owns the `serviceradar` database and user using `serviceradar-db-credentials`, grants schema/table/sequence privileges, and is idempotent on install/upgrade.

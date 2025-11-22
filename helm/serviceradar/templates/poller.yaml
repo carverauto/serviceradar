@@ -207,23 +207,15 @@ spec:
             cpu: "100m"
             memory: "128Mi"
         livenessProbe:
-          exec:
-            command:
-            - nc
-            - -z
-            - localhost
-            - "50053"
+          tcpSocket:
+            port: 50053
           initialDelaySeconds: 60
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
-          exec:
-            command:
-            - nc
-            - -z
-            - localhost
-            - "50053"
+          tcpSocket:
+            port: 50053
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 3
@@ -457,3 +449,12 @@ spec:
       - name: poller-join-token
         emptyDir: {}
 {{- end }}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ default "serviceradar-poller" .Values.spire.pollerServiceAccount }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: poller
