@@ -15,10 +15,16 @@
 
 ## 3. Cleanup
 - [x] Remove Proton pod/RS from demo namespace (disabled by values)
-- [ ] Document the change in the proposal for review/approval
+- [x] Document the change in the proposal for review/approval
+
+## 4. Recent Fixes (db-event-writer)
+- [x] Fixed SPIFFE bundle delivery: Added `SPIFFE_ENDPOINT_SOCKET` to `serviceradar-datasvc` deployment to ensure `go-spiffe` initializes correctly.
+- [x] Fixed DB Authentication: Enabled `enableSuperuserAccess: true` in `spire-postgres.yaml` (CNPG Cluster) to allow `postgres` user authentication.
+- [x] Fixed DB Configuration: Updated `db-event-writer` to use the correct `spire` database (via `CNPG_DATABASE` env var and ConfigMap update) instead of the non-existent `telemetry` database.
 
 ## Notes / Current Blockers
 - SPIRE chart mirrors k8s/demo settings (k8s_psat, token audience `spire-server`, projected SA tokens, controller manager on). Agents issue SVIDs; datasvc healthy with SPIFFE.
 - Edge onboarding key now auto-generated/seeded via secret-generator job (and settable via values); core picks it up from `serviceradar-secrets`.
 - Core connects to CNPG using `spire` user/DB with CNPG CA mounted; the device metrics CAGG SQL is now split into three single-hypertable CAGGs (`device_metrics_summary_cpu|disk|memory`) plus a joining view so Timescale 2.24 accepts it. Need to roll core with the updated migration bundle to clear the CrashLoop.
 - Flowgger still crashlooping due to OpenSSL 3.2 dependency mismatch in the image.
+- `db-event-writer` is now healthy and processing messages.
