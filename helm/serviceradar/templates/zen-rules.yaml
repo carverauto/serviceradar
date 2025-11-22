@@ -74,17 +74,26 @@ data:
     }
   passthrough.json: |
     {
-      "name": "Passthrough Rule",
-      "description": "Pass events through without modification",
-      "version": "1.0.0",
-      "rules": [
+      "nodes": [
         {
-          "condition": {
-            "operator": "always"
-          },
-          "action": {
-            "pass": true
-          }
+          "id": "inputNode",
+          "type": "inputNode",
+          "name": "Request",
+          "position": { "x": 80, "y": 150 }
+        },
+        {
+          "id": "outputNode",
+          "type": "outputNode",
+          "name": "Response",
+          "position": { "x": 300, "y": 150 }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge_1",
+          "sourceId": "inputNode",
+          "targetId": "outputNode",
+          "type": "edge"
         }
       ]
     }
