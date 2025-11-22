@@ -40,12 +40,20 @@ coreClient:
 cnpg:
   host: ""
   port: 5432
-  database: telemetry
-  username: spire
-  credentialsSecret: spire-db-credentials
+  database: serviceradar
+  username: serviceradar
+  credentialsSecret: serviceradar-db-credentials
   sslmode: verify-full
   certDir: /etc/serviceradar/certs
   caFile: /etc/serviceradar/cnpg/ca.crt
+agent:
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
 dbEventWriter:
   kvBootstrap:
     enabled: true
