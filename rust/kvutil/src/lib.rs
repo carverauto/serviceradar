@@ -141,35 +141,58 @@ impl KvClient {
 
 async fn load_spiffe_tls(workload_socket: &str, trust_domain: &str) -> Result<ClientTlsConfig> {
     let retry_delay = Duration::from_secs(2);
+    let max_retries = std::env::var("KV_SPIFFE_MAX_RETRIES")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(60);
     let trust_domain = TrustDomain::try_from(trust_domain).map_err(|e| KvError::Other(e.into()))?;
 
+    let mut attempts: u32 = 0;
     loop {
+        attempts += 1;
+
         let client = match WorkloadApiClient::new_from_path(workload_socket).await {
             Ok(client) => client,
             Err(err) => {
-                if should_retry_grpc(&err) {
+                if should_retry_grpc(&err) && attempts < max_retries {
                     sleep(retry_delay).await;
                     continue;
                 }
-                return Err(KvError::Other(err.into()));
+                return Err(KvError::Other(
+                    anyhow::anyhow!(
+                        "failed to connect to SPIFFE Workload API after {attempts} attempts: {err}"
+                    )
+                    .into(),
+                ));
             }
         };
 
         let source = match X509SourceBuilder::new().with_client(client).build().await {
             Ok(source) => source,
             Err(X509SourceError::GrpcError(grpc_err)) => {
-                if should_retry_grpc(&grpc_err) {
+                if should_retry_grpc(&grpc_err) && attempts < max_retries {
                     sleep(retry_delay).await;
                     continue;
                 }
-                return Err(KvError::Other(grpc_err.into()));
+                return Err(KvError::Other(
+                    anyhow::anyhow!(
+                        "failed to initialize SPIFFE X.509 source after {attempts} attempts: {grpc_err}"
+                    )
+                    .into(),
+                ));
             }
             Err(other) => {
-                if is_retryable_source_error(&other) {
+                if is_retryable_source_error(&other) && attempts < max_retries {
                     sleep(retry_delay).await;
                     continue;
                 }
-                return Err(KvError::Other(other.into()));
+                return Err(KvError::Other(
+                    anyhow::anyhow!(
+                        "failed to initialize SPIFFE X.509 source after {attempts} attempts: {other}"
+                    )
+                    .into(),
+                ));
             }
         };
 
@@ -189,6 +212,14 @@ async fn load_spiffe_tls(workload_socket: &str, trust_domain: &str) -> Result<Cl
                 return Ok(tls);
             }
             Err(err) if is_retryable_tls_error(&err) => {
+                if attempts >= max_retries {
+                    return Err(KvError::Other(
+                        anyhow::anyhow!(
+                            "failed to load SPIFFE TLS materials after {attempts} attempts: {err}"
+                        )
+                        .into(),
+                    ));
+                }
                 sleep(retry_delay).await;
                 continue;
             }

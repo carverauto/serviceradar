@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"google.golang.org/grpc"
 
@@ -64,11 +66,9 @@ func main() {
 		config.NormalizeTLSPaths(cfg.CNPG.TLS, cfg.CNPG.CertDir)
 	}
 
-	// If the password is omitted from file config to keep it out of KV, pull it from the secret env.
-	if cfg.CNPG != nil && cfg.CNPG.Password == "" {
-		if pwd := os.Getenv("CNPG_PASSWORD"); pwd != "" {
-			cfg.CNPG.Password = pwd
-		}
+	if err := applyCNPGPassword(&cfg); err != nil {
+		_ = bootstrapResult.Close()
+		log.Fatalf("DB event writer config validation failed: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -113,6 +113,10 @@ func main() {
 	agentService := dbeventwriter.NewAgentService(svc)
 
 	bootstrapResult.StartWatch(ctx, serviceLogger, &cfg, func() {
+		if err := applyCNPGPassword(&cfg); err != nil {
+			serviceLogger.Error().Err(err).Msg("Skipping config update; CNPG password unavailable")
+			return
+		}
 		_ = svc.UpdateConfig(ctx, &cfg)
 	})
 
@@ -133,4 +137,32 @@ func main() {
 	if err := lifecycle.RunServer(ctx, opts); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+// applyCNPGPassword ensures the CNPG password is sourced from a mounted secret file, not env.
+func applyCNPGPassword(cfg *dbeventwriter.DBEventWriterConfig) error {
+	if cfg == nil || cfg.CNPG == nil {
+		return nil
+	}
+	if cfg.CNPG.Password != "" {
+		return nil
+	}
+
+	pwPath := os.Getenv("CNPG_PASSWORD_FILE")
+	if pwPath == "" {
+		return fmt.Errorf("CNPG password is required; set it in config or provide CNPG_PASSWORD_FILE from a mounted secret")
+	}
+
+	data, err := os.ReadFile(pwPath)
+	if err != nil {
+		return fmt.Errorf("read CNPG password file: %w", err)
+	}
+
+	pwd := strings.TrimSpace(string(data))
+	if pwd == "" {
+		return fmt.Errorf("CNPG password file %s is empty", pwPath)
+	}
+
+	cfg.CNPG.Password = pwd
+	return nil
 }

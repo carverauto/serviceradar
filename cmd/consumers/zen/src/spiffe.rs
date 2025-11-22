@@ -22,12 +22,24 @@ pub async fn load_server_credentials(
     let trust_domain = TrustDomain::try_from(trust_domain)
         .map_err(|e| anyhow!("invalid trust domain {trust_domain}: {e}"))?;
     let retry_delay = Duration::from_secs(2);
+    let max_retries = std::env::var("SPIFFE_MAX_RETRIES")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(60);
+    let mut attempts: u32 = 0;
 
     loop {
+        attempts += 1;
         let client = match WorkloadApiClient::new_from_path(workload_socket).await {
             Ok(client) => client,
             Err(err) => {
                 let mapped = map_grpc_error("connect to SPIFFE Workload API", workload_socket, err);
+                if attempts >= max_retries {
+                    return Err(anyhow!(
+                        "{mapped}; exceeded {max_retries} attempts connecting to SPIFFE Workload API"
+                    ));
+                }
                 warn!("{mapped}; retrying in {}s", retry_delay.as_secs());
                 sleep(retry_delay).await;
                 continue;
@@ -37,7 +49,7 @@ pub async fn load_server_credentials(
         let source = match X509SourceBuilder::new().with_client(client).build().await {
             Ok(source) => source,
             Err(X509SourceError::GrpcError(grpc_err)) => {
-                if should_retry_grpc(&grpc_err) {
+                if should_retry_grpc(&grpc_err) && attempts < max_retries {
                     warn!(
                         "SPIFFE Workload API unavailable ({grpc_err:?}); retrying in {}s",
                         retry_delay.as_secs()
@@ -52,7 +64,7 @@ pub async fn load_server_credentials(
                 ));
             }
             Err(other) => {
-                if is_retryable_source_error(&other) {
+                if is_retryable_source_error(&other) && attempts < max_retries {
                     warn!(
                         "SPIFFE source not ready ({other}); retrying in {}s",
                         retry_delay.as_secs()
@@ -61,7 +73,7 @@ pub async fn load_server_credentials(
                     continue;
                 }
                 return Err(anyhow!(
-                    "failed to initialize SPIFFE X.509 source via {workload_socket}: {other}"
+                    "failed to initialize SPIFFE X.509 source via {workload_socket} after {attempts} attempts: {other}"
                 ));
             }
         };
@@ -76,6 +88,11 @@ pub async fn load_server_credentials(
         match guard.tls_materials() {
             Ok(_) => return Ok(ServerCredentials { guard }),
             Err(err) if is_retryable_tls_error(&err) => {
+                if attempts >= max_retries {
+                    return Err(anyhow!(
+                        "failed to fetch SPIFFE TLS materials after {attempts} attempts: {err}"
+                    ));
+                }
                 warn!(
                     "SPIFFE materials unavailable ({err}); retrying in {}s",
                     retry_delay.as_secs()

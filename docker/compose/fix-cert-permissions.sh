@@ -1,16 +1,16 @@
 #!/bin/sh
+set -euo pipefail
+
 echo "Fixing certificate permissions..."
 
-# Fix permissions for ServiceRadar components (user 1000)
-chown -R 1000:1000 /etc/serviceradar/certs/
-chmod 755 /etc/serviceradar/certs/
-chmod 644 /etc/serviceradar/certs/*.pem
-chmod 644 /etc/serviceradar/certs/*-key.pem  # Make private keys readable by owner and group
+CERT_DIR="/etc/serviceradar/certs"
 
-# Make certificates readable by group (for database containers that run as uid=999, gid=999)  
-chgrp -R 1000 /etc/serviceradar/certs/
-chmod 755 /etc/serviceradar/certs/
-chmod 644 /etc/serviceradar/certs/*.pem
-chmod 644 /etc/serviceradar/certs/*-key.pem  # Make private keys readable by all for container use
+# Owner: app user (uid 1000), group: db user (gid 999) so both can read; no world access
+chown -R 1000:999 "${CERT_DIR}"
+find "${CERT_DIR}" -type d -exec chmod 750 {} \;
 
-echo "✅ Certificate permissions fixed for ServiceRadar components (1000:1000)"
+# Public certs are non-sensitive; private keys stay owner/group readable only
+find "${CERT_DIR}" -type f -name '*.pem' ! -name '*-key.pem' -exec chmod 644 {} \;
+find "${CERT_DIR}" -type f -name '*-key.pem' -exec chmod 640 {} \;
+
+echo "✅ Certificate permissions fixed (uid 1000, gid 999, keys 640)"
