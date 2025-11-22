@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   generate-sbom:
@@ -14,20 +14,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Create syft config
+        run: |
+          cat > .syft.yaml <<EOF
+          exclude:
+            - "**/node_modules/**"
+            - "**/vendor/**"
+            - "**/target/**"
+            - "**/.git/**"
+            - "**/build/**"
+            - "**/release/**"
+          EOF
+
       - name: Generate SPDX SBOM (syft)
         uses: anchore/sbom-action@v0
         with:
           path: .
           format: spdx-json
           output-file: SBOM.spdx
-          exclude: |
-            ./docs/node_modules
-            ./web/node_modules
-            ./vendor
-            ./target
-            ./.git
-            ./build
-            ./release
+          config: .syft.yaml
+          upload-release-assets: ${{ github.event_name == 'release' }}
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
