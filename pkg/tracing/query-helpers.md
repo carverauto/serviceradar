@@ -228,7 +228,7 @@ This implementation replaces the previous query-time duration calculations with 
 
 - **Performance**: Pre-calculated durations and aggregations
 - **Consistency**: Standardized trace metrics across all queries
-- **Reliability**: Works within Timeplus/Proton streaming constraints
+- **Reliability**: Works within CNPG/Timescale constraints
 - **Scalability**: Handles high-volume trace data efficiently
 
 The migration creates several streams:

@@ -1,4 +1,4 @@
-# Querying Service Configuration in Proton/ClickHouse
+# Querying Service Configuration in CNPG/ClickHouse
 
 With the JSON column type for the `config` field in the `services` stream, you can now perform powerful searches and analytics on service configuration metadata.
 
@@ -188,7 +188,7 @@ WHERE service_type = 'grpc'
 
 ## JSON Path Expressions
 
-Proton/ClickHouse supports various JSON functions:
+CNPG/ClickHouse supports various JSON functions:
 
 - `json_extract_string(json, 'path')` - Extract string value
 - `json_extract_int(json, 'path')` - Extract integer value

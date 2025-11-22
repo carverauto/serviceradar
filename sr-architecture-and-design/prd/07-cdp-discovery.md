@@ -15,7 +15,7 @@ This document outlines the requirements for a Cisco Discovery Protocol (CDP) NNe
 To design and implement a CDP discovery engine that can:
 *   Identify Cisco devices that are CDP neighbors to a queried device.
 *   Collect detailed information about these CDP neighbors, including their device ID, platform, capabilities, and connected interface.
-*   Publish this neighbor relationship data to ServiceRadar's `topology_discovery_events` Proton stream, enriching the network graph.
+*   Publish this neighbor relationship data to ServiceRadar's `topology_discovery_events` CNPG stream, enriching the network graph.
 
 **1.2 Goals**
 *   Develop a module that uses `gosnmp` to query CDP-specific MIBs on network devices.
@@ -69,8 +69,8 @@ To design and implement a CDP discovery engine that can:
     *   `cdpCacheDuplex` (CISCO-CDP-MIB::cdpCacheDuplex) - (Optional but useful)
     *   The entry is indexed by `cdpCacheIfIndex` (local interface index) and `cdpCacheDeviceIndex` (an arbitrary index for multiple neighbors on one interface, though rare for point-to-point).
 
-**4.4 Data Output and Storage (Proton Integration)**
-*   FR4.1: Discovered CDP neighbor relationships must be published to the `topology_discovery_events` Proton stream. Data must conform to the existing schema:
+**4.4 Data Output and Storage (CNPG Integration)**
+*   FR4.1: Discovered CDP neighbor relationships must be published to the `topology_discovery_events` CNPG stream. Data must conform to the existing schema:
     *   `timestamp`: Time of discovery.
     *   `agent_id`: ID of the discovery engine instance.
     *   `poller_id`: (If applicable) ID of poller tasking discovery.
@@ -118,7 +118,7 @@ To design and implement a CDP discovery engine that can:
     2.  If configured, the CDP module is invoked for that device.
     3.  CDP module uses SNMP to query `CISCO-CDP-MIB`.
     4.  Collected CDP neighbor data is formatted.
-    5.  Formatted data is published primarily to the `topology_discovery_events` Proton stream.
+    5.  Formatted data is published primarily to the `topology_discovery_events` CNPG stream.
 
 ```mermaid
 graph TD
@@ -127,21 +127,21 @@ graph TD
         SNMPAuth -->|SNMP Session| TargetDevice[Network Device (Cisco)]
         TargetDevice -->|CDP MIB Data via SNMP| CDPQueryLogic[CDP MIB Query Logic<br>(gosnmp)]
         CDPQueryLogic --> DataProcessor[Data Processor/Formatter]
-        DataProcessor --> TopologyEventsPublisher[Proton: topology_discovery_events]
-        DataProcessor -->|Local Device Context| OtherProtonPublishers[Proton: snmp_results, discovered_interfaces]
+        DataProcessor --> TopologyEventsPublisher[CNPG: topology_discovery_events]
+        DataProcessor -->|Local Device Context| OtherCNPGPublishers[CNPG: snmp_results, discovered_interfaces]
     end
 
-    TopologyEventsPublisher --> ProtonStreams[Timeplus Proton Streams]
-    OtherProtonPublishers --> ProtonStreams
+    TopologyEventsPublisher --> CNPGStreams[CNPG/Timescale Streams]
+    OtherCNPGPublishers --> CNPGStreams
 
     %% This part is outside the scope of this PRD but shows context
     subgraph "Downstream (ADR-02)"
-      ProtonStreams --> ArangoSync[ArangoDB Sync Service]
+      CNPGStreams --> ArangoSync[ArangoDB Sync Service]
       ArangoSync --> ArangoDB[ArangoDB Graph]
     end
 ```
 
-**7. Data Models (Output to Proton)**
+**7. Data Models (Output to CNPG)**
 
 *   **Primary Output:** `topology_discovery_events` (as defined in `db.go` and FR4.1).
     *   Example `metadata` for CDP:

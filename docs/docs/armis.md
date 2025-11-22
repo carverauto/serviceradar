@@ -36,7 +36,7 @@ ServiceRadar ingests Armis device intelligence to enrich inventory, surface unma
 ## Demo and Testing
 
 - The [Armis Faker](./agents.md#armis-faker-service) synthesizes data sets for local or CI demos. Mount the `serviceradar-faker-data` PVC to persist generated inventories.
-- Resetting Faker? Follow the Agents runbook to truncate Proton tables and replay canonical devices.
+- Resetting Faker? Follow the Agents runbook to truncate CNPG tables and replay canonical devices.
 
 ## Alerting and Enrichment
 

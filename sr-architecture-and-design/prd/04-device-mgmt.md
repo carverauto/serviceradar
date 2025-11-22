@@ -2,7 +2,7 @@
 
 ## Overview
 
-ServiceRadar requires a unified device management system that consolidates device information from various sources into a single source of truth in the core Proton database. The system leverages existing raw data streams from edge services, flowing through agents and pollers to the core service, where a materialized view derives the devices stream. It ensures traceability of `agent_id` and `poller_id` for each device, efficiently tracking thousands of devices across the network without increasing the agent's memory footprint.
+ServiceRadar requires a unified device management system that consolidates device information from various sources into a single source of truth in the core CNPG database. The system leverages existing raw data streams from edge services, flowing through agents and pollers to the core service, where a materialized view derives the devices stream. It ensures traceability of `agent_id` and `poller_id` for each device, efficiently tracking thousands of devices across the network without increasing the agent's memory footprint.
 
 ## Background
 
@@ -21,7 +21,7 @@ The ServiceRadar architecture follows a hierarchical flow:
 1. **Edge Services** (Sweep, ICMP, SNMP, etc.) run monitoring and discovery functions, producing raw data.
 2. **Agent** coordinates with edge services to collect raw status and device data, forwarding it to pollers without local caching.
 3. **Poller** collects raw data from multiple agents at regular intervals and forwards it to the core.
-4. **Core Service** processes raw data, persists it to Proton streams, and derives the devices stream using a materialized view.
+4. **Core Service** processes raw data, persists it to CNPG streams, and derives the devices stream using a materialized view.
 
 **Key Constraints**:
 - Edge services and agents lack direct database access; all data flows through the agent → poller → core pipeline.
@@ -31,7 +31,7 @@ The ServiceRadar architecture follows a hierarchical flow:
 
 ## Objectives
 
-1. Create a unified device inventory in the core Proton database with `agent_id` and `poller_id` tracking.
+1. Create a unified device inventory in the core CNPG database with `agent_id` and `poller_id` tracking.
 2. Leverage existing edge service data to derive device information without agent-side caching.
 3. Maintain the existing data pipeline from edge to core, adding only `agent_id` and `poller_id` propagation.
 4. Support deduplication using `IP`, `agent_id`, and `poller_id` as a composite key in the core.
@@ -86,7 +86,7 @@ type DeviceInfo struct {
 
 ### 2. Device Model (Core/Database level)
 
-This model is used for storing device information in the Proton devices stream:
+This model is used for storing device information in the CNPG devices stream:
 
 ```go
 type Device struct {
@@ -122,7 +122,7 @@ type Device struct {
 - Raw data is forwarded to the core in `PollerStatusRequest` messages, preserving `agent_id` and `poller_id`.
 
 ### 4. Core to Database
-- The core service parses raw data from `ServiceStatus` messages (e.g., JSON in `Message`) and writes it to Proton streams (`sweep_results`, `icmp_results`, `snmp_results`), including `agent_id` and `poller_id`.
+- The core service parses raw data from `ServiceStatus` messages (e.g., JSON in `Message`) and writes it to CNPG streams (`sweep_results`, `icmp_results`, `snmp_results`), including `agent_id` and `poller_id`.
 - A materialized view aggregates and deduplicates data from these streams into the `devices` stream, using `IP`, `agent_id`, and `poller_id` as a composite key.
 - The view preserves `first_seen` timestamps, updates `last_seen` and `is_available`, and merges metadata intelligently.
 
@@ -139,7 +139,7 @@ type Device struct {
     - Add `poller_id` to `ServiceStatus` in `PollerStatusRequest`.
     - Remove `DeviceStatusRequest`, `DeviceStatusResponse`, and `devices` from `PollerStatusRequest`, as device reporting is handled via raw data streams.
 
-### Proton Database Streams
+### CNPG Database Streams
 - Maintain existing streams (`sweep_results`, `icmp_results`, `snmp_results`) with fields for `ip`, `mac`, `hostname`, `open_ports`, `available`, `timestamp`, `agent_id`, `poller_id`, and `metadata`.
 - Create a `devices` stream with fields for `device_id`, `agent_id`, `poller_id`, `discovery_sources`, `ip`, `mac`, `hostname`, `first_seen`, `last_seen`, `is_available`, and `metadata`.
 - Implement a materialized view to derive `devices` from raw streams, supporting efficient querying by `IP`, `agent_id`, and `poller_id`.
@@ -148,7 +148,7 @@ type Device struct {
 ### Deduplication Strategy
 - Use `IP`, `agent_id`, and `poller_id` as a composite key for deduplication in the materialized view.
 - Consolidate multi-source data, preserving `first_seen` and updating `last_seen` and `is_available`.
-- Merge metadata using Proton's `MAP_AGG` function, prioritizing newer data for conflicts.
+- Merge metadata using CNPG's `MAP_AGG` function, prioritizing newer data for conflicts.
 
 ### Context-Based ID Management
 - Agents store `AgentID` in `context.Context` at startup, retrieved from `ServerConfig.AgentID`.
@@ -211,8 +211,8 @@ The device management system is successful if it:
 - Update poller to propagate `PollerID` and attach it to raw data records.
 - Validate existing raw data collection for consistency.
 
-### Phase 3: Proton Stream Processing
-- Create `devices` stream and materialized view in Proton.
+### Phase 3: CNPG Stream Processing
+- Create `devices` stream and materialized view in CNPG.
 - Implement deduplication and multi-source merging in the view.
 - Optimize stream writes for large volumes.
 

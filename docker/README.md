@@ -19,7 +19,7 @@ This directory contains Docker configurations for ServiceRadar components.
    This automatically:
    - Pulls pre-built images from GitHub Container Registry (GHCR)
    - Generates mTLS certificates
-   - Starts Proton and Core services
+   - Starts the core services stack
    - Sets up networking and volumes
 
 ### Option 2: Development (Local Build)
@@ -31,12 +31,12 @@ This directory contains Docker configurations for ServiceRadar components.
    This automatically:
    - Generates mTLS certificates
    - Builds Docker images from source
-   - Starts Proton and Core services
+   - Starts Core services
    - Sets up networking and volumes
 
 2. **Or use the Makefile shortcuts:**
    ```bash
-   # Start core services (Proton + Core)
+   # Start core service
    make -f Makefile.docker up
    
    # Start all services including optional components
@@ -59,7 +59,6 @@ This directory contains Docker configurations for ServiceRadar components.
 ServiceRadar provides pre-built multi-architecture (amd64/arm64) container images:
 
 - **Core Service**: `ghcr.io/carverauto/serviceradar-core:latest`
-- **Proton Database**: `ghcr.io/carverauto/serviceradar-proton:latest`  
 - **Certificate Generator**: `ghcr.io/carverauto/serviceradar-cert-generator:latest`
 
 Images are automatically built and published via GitHub Actions on every push to main/develop branches and tagged releases.
@@ -75,11 +74,6 @@ Images are automatically built and published via GitHub Actions on every push to
 
 The Docker setup consists of:
 
-- **Proton** (TimeBase): Time-series database based on ClickHouse with:
-  - Automatic password generation
-  - mTLS authentication
-  - Proper ulimits and sysctls for performance
-  - Required capabilities (NET_ADMIN, IPC_LOCK, SYS_NICE)
 - **ServiceRadar Core**: Main service handling API, gRPC, and business logic
 - **Optional Services**:
   - NATS: Messaging system (profile: full)
@@ -92,18 +86,9 @@ All inter-service communication uses mTLS for authentication and encryption:
 - Individual certificates for each component
 - Certificates valid for 10 years (development only)
 - Proper SAN (Subject Alternative Names) for Docker networking
-- **Core ↔ Proton**: Uses port 9440 (secure TCP) with client certificate verification
-- **Proton**: Requires client certificates for secure connections
 - **Core**: Configured with security mode "mtls" and proper certificate paths
 
-### Database Security
-- Proton password is auto-generated if not provided
-- Password stored securely in container
-- SHA256 password hashing
-- Restricted file permissions (600) on sensitive files
-
 ### Container Security
-- Non-root user execution (proton user)
 - Minimal required capabilities
 - Read-only volume mounts for configs
 - Network isolation with dedicated subnet
@@ -111,7 +96,7 @@ All inter-service communication uses mTLS for authentication and encryption:
 ## Configuration
 
 ServiceRadar uses configuration files from `packaging/core/config/`:
-- `core.docker.json` - Main configuration (Docker-specific with correct Proton connection)
+- `core.docker.json` - Main configuration (Docker-specific with correct CNPG connection)
 - `api.env` - Environment variables for authentication and API settings
 
 ### Default Setup
@@ -164,7 +149,7 @@ data:
     {
       "listen_addr": ":8090",
       "database": {
-        "host": "proton-service",
+        "host": "cnpg-rw",
         ...
       }
     }
@@ -237,24 +222,17 @@ Services communicate on a dedicated bridge network `serviceradar-net` with subne
 | Core | 8090 | 8090 | HTTP API |
 | Core | 50051 | 50051 | gRPC |
 | Core | 9090 | 9090 | Metrics |
-| Proton | 8123 | 8123 | HTTP/JDBC |
-| Proton | 8463 | 8463 | Native TCP |
 | Redpanda | 9092 | 19092 | Kafka API |
 | NATS | 4222 | 4222 | Client connections |
 
 ## Health Checks
 
-All services include health checks:
-
-- **Core**: `GET /health` endpoint
-- **Proton**: `GET /ping` endpoint
-- Services won't start dependent services until health checks pass
+All services include health checks (Core exposes `GET /health`).
 
 ## Volumes
 
 Persistent data is stored in named volumes:
 
-- `proton-data`: Proton database files
 - `core-data`: ServiceRadar persistent data
 - `redpanda-data`: Redpanda streaming data
 - `nats-data`: NATS message store
@@ -276,11 +254,9 @@ make -f Makefile.docker dev
 ```bash
 # Shell into containers
 make -f Makefile.docker shell      # Core container
-make -f Makefile.docker db-shell   # Proton database
 
 # View specific service logs
 docker-compose logs -f core
-docker-compose logs -f proton
 ```
 
 ## Production Considerations
@@ -292,7 +268,7 @@ docker-compose logs -f proton
    - Implement proper authentication
 
 2. **Performance**:
-   - Tune Proton for your workload
+   - Tune CNPG/Postgres for your workload
    - Configure appropriate resource limits
    - Use connection pooling
    - Enable write buffering
@@ -305,7 +281,6 @@ docker-compose logs -f proton
 
 4. **High Availability**:
    - Run multiple Core replicas
-   - Use Proton cluster mode
    - Implement proper load balancing
    - Configure automatic failover
 
@@ -316,14 +291,13 @@ docker-compose logs -f proton
 Check logs:
 ```bash
 docker-compose logs core
-docker-compose logs proton
 ```
 
 ### Database connection issues
 
-Verify Proton is healthy:
+Verify CNPG is reachable:
 ```bash
-curl http://localhost:8123/ping
+psql "postgres://serviceradar:<password>@cnpg-rw:5432/serviceradar?sslmode=verify-full" -c "SELECT 1;"
 ```
 
 ### Configuration not loading

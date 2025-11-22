@@ -13,6 +13,7 @@ spec:
         app: serviceradar-otel
         app.kubernetes.io/part-of: serviceradar
     spec:
+      serviceAccountName: {{ .Values.spire.otelServiceAccount | default "serviceradar-otel" }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: otel-collector
@@ -112,3 +113,8 @@ spec:
   resources:
     requests:
       storage: 10Gi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.spire.otelServiceAccount | default "serviceradar-otel" }}

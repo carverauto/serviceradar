@@ -49,7 +49,7 @@ func (db *DB) InsertEvents(ctx context.Context, rows []*models.EventRow) error {
 				version,
 				raw_data
 			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-			ON CONFLICT (id) DO UPDATE SET
+			ON CONFLICT (id, event_timestamp) DO UPDATE SET
 				event_timestamp = EXCLUDED.event_timestamp,
 				specversion     = EXCLUDED.specversion,
 				source          = EXCLUDED.source,

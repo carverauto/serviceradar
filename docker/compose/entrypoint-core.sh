@@ -82,46 +82,6 @@ fi
 
 echo "Using configuration from $CONFIG_PATH"
 
-# Check for Proton password in shared credentials volume
-if [ -f "/etc/serviceradar/credentials/proton-password" ]; then
-    PROTON_PASSWORD=$(cat /etc/serviceradar/credentials/proton-password)
-    echo "Found Proton password from shared credentials"
-fi
-
-# If PROTON_PASSWORD is available, update the config file
-if [ -n "$PROTON_PASSWORD" ] && [ -f "$CONFIG_PATH" ]; then
-    echo "Updating configuration with Proton password..."
-    # Create a copy of the config with the password injected
-    cp "$CONFIG_PATH" /tmp/core-original.json
-    jq --arg pwd "$PROTON_PASSWORD" '.database.password = $pwd' /tmp/core-original.json > /tmp/core.json
-    CONFIG_PATH="/tmp/core.json"
-fi
-
-# Wait for Proton to be ready if configured
-if [ -n "$WAIT_FOR_PROTON" ]; then
-    PROTON_HOST_VALUE=$(resolve_service_host "serviceradar-proton" PROTON_HOST "proton")
-    PROTON_PORT_VALUE=$(resolve_service_port PROTON_PORT "8123")
-    PROTON_ADDR="${PROTON_HOST_VALUE}:${PROTON_PORT_VALUE}"
-    echo "Waiting for Proton at $PROTON_ADDR..."
-    
-    for i in {1..30}; do
-        # Try connectivity with authentication if password is set
-        if [ -n "$PROTON_PASSWORD" ]; then
-            if curl -sf "http://default:${PROTON_PASSWORD}@$PROTON_ADDR/?query=SELECT%201" > /dev/null 2>&1; then
-                echo "Proton is ready on HTTP port!"
-                break
-            fi
-        else
-            if curl -sf "http://$PROTON_ADDR/?query=SELECT%201" > /dev/null 2>&1; then
-                echo "Proton is ready on HTTP port!"
-                break
-            fi
-        fi
-        echo "Waiting for Proton... ($i/30)"
-        sleep 2
-    done
-fi
-
 # Initialize database tables if needed
 if [ "$INIT_DB" = "true" ]; then
     echo "Initializing database tables..."

@@ -35,7 +35,7 @@ var (
 	errMockDB = errors.New("mock db error")
 )
 
-func TestNewProtonPublisher(t *testing.T) {
+func TestNewRegistryPublisher(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -74,7 +74,7 @@ func TestNewProtonPublisher(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			publisher, err := NewProtonPublisher(tt.deviceRegistry, tt.dbService, tt.config)
+			publisher, err := NewRegistryPublisher(tt.deviceRegistry, tt.dbService, tt.config)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -98,7 +98,7 @@ func TestPublishDevice(t *testing.T) {
 		PollerID: "test-poller",
 	}
 
-	publisher, err := NewProtonPublisher(mockRegistry, mockDB, config)
+	publisher, err := NewRegistryPublisher(mockRegistry, mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
@@ -166,7 +166,7 @@ func TestPublishInterface(t *testing.T) {
 		PollerID: "test-poller",
 	}
 
-	publisher, err := NewProtonPublisher(mockRegistry, mockDB, config)
+	publisher, err := NewRegistryPublisher(mockRegistry, mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
@@ -240,7 +240,7 @@ func TestPublishTopologyLink(t *testing.T) {
 		PollerID: "test-poller",
 	}
 
-	publisher, err := NewProtonPublisher(mockRegistry, mockDB, config)
+	publisher, err := NewRegistryPublisher(mockRegistry, mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
@@ -310,17 +310,17 @@ func TestPublishBatchDevices(t *testing.T) {
 		PollerID: "test-poller",
 	}
 
-	publisher, err := NewProtonPublisher(mockRegistry, mockDB, config)
+	publisher, err := NewRegistryPublisher(mockRegistry, mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
 	// Cast to concrete type to access batch methods
-	protonPublisher := publisher.(*ProtonPublisher)
+	registryPublisher := publisher.(*RegistryPublisher)
 
 	ctx := context.Background()
 
 	// Test with empty batch
-	err = protonPublisher.PublishBatchDevices(ctx, []*DiscoveredDevice{})
+	err = registryPublisher.PublishBatchDevices(ctx, []*DiscoveredDevice{})
 	require.NoError(t, err)
 
 	// Test with devices
@@ -368,13 +368,13 @@ func TestPublishBatchDevices(t *testing.T) {
 		},
 	)
 
-	err = protonPublisher.PublishBatchDevices(ctx, devices)
+	err = registryPublisher.PublishBatchDevices(ctx, devices)
 	require.NoError(t, err)
 
 	// Test error case
 	mockRegistry.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Any()).Return(errMockDB)
 
-	err = protonPublisher.PublishBatchDevices(ctx, devices)
+	err = registryPublisher.PublishBatchDevices(ctx, devices)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to publish batch devices via registry")
@@ -390,12 +390,12 @@ func TestPublishBatchInterfaces(t *testing.T) {
 		PollerID: "test-poller",
 	}
 
-	publisher, err := NewProtonPublisher(registry.NewMockManager(ctrl), mockDB, config)
+	publisher, err := NewRegistryPublisher(registry.NewMockManager(ctrl), mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
 	// Cast to concrete type to access batch methods
-	protonPublisher := publisher.(*ProtonPublisher)
+	registryPublisher := publisher.(*RegistryPublisher)
 
 	ctx := context.Background()
 
@@ -441,13 +441,13 @@ func TestPublishBatchInterfaces(t *testing.T) {
 		},
 	)
 
-	err = protonPublisher.PublishBatchInterfaces(ctx, interfaces)
+	err = registryPublisher.PublishBatchInterfaces(ctx, interfaces)
 	require.NoError(t, err)
 
 	// Test error case
 	mockDB.EXPECT().PublishBatchDiscoveredInterfaces(gomock.Any(), gomock.Any()).Return(errMockDB)
 
-	err = protonPublisher.PublishBatchInterfaces(ctx, interfaces)
+	err = registryPublisher.PublishBatchInterfaces(ctx, interfaces)
 
 	assert.Error(t, err)
 }
@@ -462,12 +462,12 @@ func TestPublishBatchTopologyLinks(t *testing.T) {
 		PollerID: "test-poller",
 	}
 
-	publisher, err := NewProtonPublisher(registry.NewMockManager(ctrl), mockDB, config)
+	publisher, err := NewRegistryPublisher(registry.NewMockManager(ctrl), mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
 	// Cast to concrete type to access batch methods
-	protonPublisher := publisher.(*ProtonPublisher)
+	registryPublisher := publisher.(*RegistryPublisher)
 
 	ctx := context.Background()
 
@@ -517,13 +517,13 @@ func TestPublishBatchTopologyLinks(t *testing.T) {
 		},
 	)
 
-	err = protonPublisher.PublishBatchTopologyLinks(ctx, links)
+	err = registryPublisher.PublishBatchTopologyLinks(ctx, links)
 	require.NoError(t, err)
 
 	// Test error case
 	mockDB.EXPECT().PublishBatchTopologyDiscoveryEvents(gomock.Any(), gomock.Any()).Return(errMockDB)
 
-	err = protonPublisher.PublishBatchTopologyLinks(ctx, links)
+	err = registryPublisher.PublishBatchTopologyLinks(ctx, links)
 
 	assert.Error(t, err)
 }

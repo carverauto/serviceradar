@@ -3,7 +3,7 @@ package registry
 import "time"
 
 // DeviceRecord captures the authoritative in-memory view of a device.
-// It mirrors the core fields we previously hydrated from Proton so the
+// It mirrors the core fields we hydrate from the CNPG store so the
 // registry can answer state queries without touching the warehouse.
 type DeviceRecord struct {
 	DeviceID         string

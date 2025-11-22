@@ -5,7 +5,7 @@ module(
 )
 
 # --- Bazel dependencies  ----------------------------------
-bazel_dep(name = "rules_go", version = "0.57.0", repo_name = "io_bazel_rules_go")
+bazel_dep(name = "rules_go", version = "0.59.0", repo_name = "io_bazel_rules_go")
 bazel_dep(name = "gazelle", version = "0.45.0", repo_name = "bazel_gazelle")
 bazel_dep(name = "rules_rust", version = "0.65.0")
 bazel_dep(name = "rules_python", version = "1.6.1")
@@ -166,6 +166,14 @@ oci_ext.pull(
     ],
 )
 oci_ext.pull(
+    name = "debian_testing_slim",
+    digest = "sha256:80381085775a6e69f0f8d09dd9a39495063e348382eb8d4881ba6f142d24b8ab",
+    image = "debian:testing-slim",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
     name = "node_20_alpine",
     digest = "sha256:6a91081a440be0b57336fbc4ee87f3dab1a2fd6f80cdb355dcf960e13bda3b59",
     image = "node:20-alpine",
@@ -198,17 +206,6 @@ oci_ext.pull(
     ],
 )
 oci_ext.pull(
-    name = "timeplus_proton",
-    digest = "sha256:9ddbd0172ef8d24dfcafe4f0236b367e533af9a1e25831439b1bbb122cc19404",
-    image = "d.timeplus.com/timeplus-io/proton",
-    platforms = [
-        "linux/amd64",
-    ],
-    www_authenticate_challenges = {
-        "d.timeplus.com": "Bearer realm=\"https://ghcr.io/token\",service=\"ghcr.io\",scope=\"repository:{repository}:pull\"",
-    },
-)
-oci_ext.pull(
     name = "cloudnativepg_postgresql_16_6",
     image = "ghcr.io/cloudnative-pg/postgresql",
     platforms = [
@@ -225,6 +222,8 @@ use_repo(
     "cloudnativepg_postgresql_16_6_linux_amd64",
     "debian_bookworm_slim",
     "debian_bookworm_slim_linux_amd64",
+    "debian_testing_slim",
+    "debian_testing_slim_linux_amd64",
     "nginx_alpine",
     "nginx_alpine_linux_amd64",
     "node_20_alpine",
@@ -233,8 +232,6 @@ use_repo(
     "serviceradar_cert_generator_linux_amd64",
     "serviceradar_tools",
     "serviceradar_tools_linux_amd64",
-    "timeplus_proton",
-    "timeplus_proton_linux_amd64",
     "ubuntu_jammy",
     "ubuntu_jammy_linux_amd64",
     "ubuntu_noble",
@@ -720,11 +717,6 @@ http_file(
 
 http_archive(
     name = "cmake_linux_amd64_prebuilt",
-    sha256 = "c959e6d15714f798424960cd296632634f3ef57c2712559a7945170f0bcad205",
-    strip_prefix = "cmake-3.30.4-linux-x86_64",
-    urls = [
-        "https://github.com/Kitware/CMake/releases/download/v3.30.4/cmake-3.30.4-linux-x86_64.tar.gz",
-    ],
     build_file_content = """
 package(default_visibility = ["//visibility:public"])
 filegroup(
@@ -732,6 +724,11 @@ filegroup(
     srcs = ["bin/cmake"],
 )
 """,
+    sha256 = "c959e6d15714f798424960cd296632634f3ef57c2712559a7945170f0bcad205",
+    strip_prefix = "cmake-3.30.4-linux-x86_64",
+    urls = [
+        "https://github.com/Kitware/CMake/releases/download/v3.30.4/cmake-3.30.4-linux-x86_64.tar.gz",
+    ],
 )
 
 http_file(
@@ -929,16 +926,6 @@ http_archive(
     sha256 = "aab349130118497d86bc79e3f735f026d3c36e7d38529063e91da1c29cc2ea47",
     urls = [
         "https://mirror.bazel.build/bazel_coverage_output_generator/releases/coverage_output_generator-v2.9.zip",
-    ],
-)
-
-http_file(
-    name = "timeplus_proton_linux_x86_64",
-    downloaded_file_path = "proton",
-    executable = True,
-    sha256 = "41250d599d635077dbc0a46e7e388b0cfc6bc96f2781da657e42455d672bfb33",
-    urls = [
-        "https://github.com/timeplus-io/proton/releases/download/v1.6.16/proton-v1.6.16-Linux-x86_64",
     ],
 )
 

@@ -1,3 +1,4 @@
+{{- $cnpg := default (dict) .Values.cnpg -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,6 +29,12 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        - name: db-credentials
+          mountPath: /etc/serviceradar/credentials
+          readOnly: true
+        - name: cnpg-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
         - name: db-event-writer-consumers
           mountPath: /etc/serviceradar/consumers
         - name: db-event-writer-data
@@ -35,24 +42,69 @@ spec:
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
           readOnly: true
+        - name: cnpg-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
         env:
-{{ include "serviceradar.kvEnv" . | indent 8 }}
-{{ include "serviceradar.coreEnv" . | indent 8 }}
+        - name: CONFIG_SOURCE
+          value: "{{ default (default "kv" .Values.kv.configSource) .Values.dbEventWriter.configSource }}"
         - name: CONFIG_PATH
-          value: "/etc/serviceradar/consumers/db-event-writer.json"
+          value: "/etc/serviceradar/templates/db-event-writer.json"
+        - name: CNPG_SSLMODE
+          value: "verify-full"
         - name: WAIT_FOR_NATS
           value: "true"
+        - name: CNPG_CA_FILE
+          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+        - name: CNPG_DATABASE
+          value: {{ default "serviceradar" $cnpg.database | quote }}
         - name: WAIT_FOR_CNPG
           value: "true"
         - name: CNPG_HOST
-          value: "cnpg-rw.{{ .Release.Namespace }}.svc.cluster.local"
+          value: {{ default (printf "cnpg-rw.%s.svc.cluster.local" .Release.Namespace) $cnpg.host | quote }}
         - name: CNPG_PORT
-          value: "5432"
-        - name: CNPG_PASSWORD
+          value: {{ default 5432 $cnpg.port | quote }}
+        - name: CNPG_DATABASE
+          value: {{ default "serviceradar" $cnpg.database | quote }}
+        - name: CNPG_USERNAME
           valueFrom:
             secretKeyRef:
-              name: cnpg-superuser
-              key: password
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: username
+        - name: CNPG_PASSWORD_FILE
+          value: "/etc/serviceradar/credentials/password"
+        - name: CNPG_CERT_DIR
+          value: {{ default "/etc/serviceradar/certs" $cnpg.certDir | quote }}
+        - name: CNPG_CA_FILE
+          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+        - name: KV_ADDRESS
+          value: {{ default "serviceradar-datasvc:50057" .Values.kv.address | quote }}
+        - name: KV_SEC_MODE
+          value: {{ default "spiffe" .Values.kv.secMode | quote }}
+        - name: KV_TRUST_DOMAIN
+          value: {{ default .Values.spire.trustDomain .Values.kv.trustDomain | quote }}
+        - name: KV_SERVER_SPIFFE_ID
+          value: {{ include "serviceradar.kvServerSPIFFEID" . }}
+        - name: KV_WORKLOAD_SOCKET
+          value: {{ default "unix:/run/spire/sockets/agent.sock" .Values.kv.workloadSocket | quote }}
+        - name: KV_CERT_DIR
+          value: {{ default "/etc/serviceradar/certs" .Values.kv.certDir | quote }}
+        - name: SPIFFE_ENDPOINT_SOCKET
+          value: "unix:/run/spire/sockets/agent.sock"
+        - name: CORE_ADDRESS
+          value: {{ include "serviceradar.coreAddress" . | quote }}
+        - name: CORE_SEC_MODE
+          value: {{ default "spiffe" .Values.coreClient.secMode | quote }}
+        - name: CORE_TRUST_DOMAIN
+          value: {{ default .Values.spire.trustDomain .Values.coreClient.trustDomain | quote }}
+        - name: CORE_SERVER_SPIFFE_ID
+          value: {{ include "serviceradar.coreServerSPIFFEID" . }}
+        - name: CORE_WORKLOAD_SOCKET
+          value: {{ default "unix:/run/spire/sockets/agent.sock" .Values.coreClient.workloadSocket | quote }}
+        - name: CORE_CERT_DIR
+          value: {{ default "/etc/serviceradar/certs" .Values.coreClient.certDir | quote }}
+        - name: ENABLE_DB_MIGRATIONS
+          value: "false"
         - name: LOG_LEVEL
           value: "info"
         resources:
@@ -85,9 +137,18 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      - name: db-credentials
+        secret:
+          secretName: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+      - name: cnpg-ca
+        secret:
+          secretName: cnpg-ca
       - name: db-event-writer-data
         persistentVolumeClaim:
           claimName: serviceradar-db-event-writer-data
+      - name: cnpg-ca
+        secret:
+          secretName: cnpg-ca
       - name: spire-agent-socket
         hostPath:
           path: /run/spire/sockets

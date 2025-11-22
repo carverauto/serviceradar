@@ -11,7 +11,7 @@ type PartitionStats struct {
 }
 
 // DeviceStatsSnapshot aggregates system-wide device metrics that are expensive to
-// compute directly from Proton. The core Service publishes updates at a fixed cadence.
+// compute directly from the warehouse. The core Service publishes updates at a fixed cadence.
 type DeviceStatsSnapshot struct {
 	Timestamp             time.Time        `json:"timestamp"`
 	TotalDevices          int              `json:"total_devices"`

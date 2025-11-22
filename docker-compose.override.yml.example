@@ -7,7 +7,7 @@ version: '3.8'
 services:
   core:
     volumes:
-      # Override with a custom config for Docker that points to the Docker Proton instance
+      # Override with a custom config for Docker that points to the local CNPG instance
       - ./packaging/core/config/core.docker.json:/etc/serviceradar/core.json:ro
     environment:
       # Additional environment overrides for development

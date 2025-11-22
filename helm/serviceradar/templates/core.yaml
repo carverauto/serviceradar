@@ -1,6 +1,14 @@
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 {{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
 {{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
+{{- $coreSA := .Values.spire.coreServiceAccount | default "serviceradar-core" -}}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $coreSA }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,6 +26,7 @@ spec:
         app: serviceradar-core
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ $coreSA }}
       initContainers:
       - name: init-core-jwks
         image: ghcr.io/carverauto/serviceradar-kong-config:latest
@@ -34,8 +43,13 @@ spec:
           PRESERVE_PRIV=""
           PRESERVE_KID=""
           if [ -f "$TARGET" ]; then
-            PRESERVE_PRIV=$(jq -r '.auth.jwt_private_key_pem // empty' "$TARGET")
-            PRESERVE_KID=$(jq -r '.auth.jwt_key_id // empty' "$TARGET")
+            if jq -e . "$TARGET" >/dev/null 2>&1; then
+              PRESERVE_PRIV=$(jq -r '.auth.jwt_private_key_pem // empty' "$TARGET")
+              PRESERVE_KID=$(jq -r '.auth.jwt_key_id // empty' "$TARGET")
+            else
+              echo "Existing $TARGET contains invalid JSON; replacing with template contents"
+              rm -f "$TARGET"
+            fi
           fi
 
           cp "$TEMPLATE" "${TARGET}.tmp"
@@ -83,6 +97,10 @@ spec:
           mountPath: /var/lib/serviceradar
         - name: cert-data
           mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: cnpg-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
           readOnly: true
@@ -98,20 +116,27 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: CNPG_HOST
+          value: {{ default (printf "cnpg-rw.%s.svc.cluster.local" .Release.Namespace) $cnpg.host | quote }}
         - name: CNPG_PORT
-          value: "5432"
+          value: {{ default 5432 $cnpg.port | quote }}
         - name: CNPG_DATABASE
-          value: "telemetry"
+          value: {{ default "serviceradar" $cnpg.database | quote }}
         - name: CNPG_USERNAME
-          value: "postgres"
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: username
         - name: CNPG_SSLMODE
-          value: "verify-full"
+          value: {{ default "verify-full" $cnpg.sslmode | quote }}
         - name: CNPG_CERT_DIR
-          value: "/etc/serviceradar/certs"
+          value: {{ default "/etc/serviceradar/certs" $cnpg.certDir | quote }}
+        - name: CNPG_CA_FILE
+          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
         - name: CNPG_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: cnpg-superuser
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
               key: password
         - name: API_KEY
           valueFrom:
@@ -123,6 +148,11 @@ spec:
             secretKeyRef:
               name: serviceradar-secrets
               key: jwt-secret
+        - name: EDGE_ONBOARDING_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-secrets
+              key: edge-onboarding-key
         - name: AUTH_PROVIDER
           value: "local"
         - name: OAUTH_ENABLED
@@ -134,43 +164,21 @@ spec:
               key: admin-bcrypt-hash
         resources:
           limits:
-            cpu: "2"
-            memory: "2Gi"
+            cpu: "4"
+            memory: "4Gi"
           requests:
             cpu: "500m"
-            memory: "512Mi"
+            memory: "1Gi"
         livenessProbe:
-          exec:
-            command:
-            - grpcurl
-            - -cacert
-            - /etc/serviceradar/certs/root.pem
-            - -cert
-            - /etc/serviceradar/certs/core.pem
-            - -key
-            - /etc/serviceradar/certs/core-key.pem
-            - -servername
-            - core.serviceradar
-            - localhost:50052
-            - grpc.health.v1.Health/Check
+          tcpSocket:
+            port: 8090
           initialDelaySeconds: 180
           periodSeconds: 30
           timeoutSeconds: 10
           failureThreshold: 3
         readinessProbe:
-          exec:
-            command:
-            - grpcurl
-            - -cacert
-            - /etc/serviceradar/certs/root.pem
-            - -cert
-            - /etc/serviceradar/certs/core.pem
-            - -key
-            - /etc/serviceradar/certs/core-key.pem
-            - -servername
-            - core.serviceradar
-            - localhost:50052
-            - grpc.health.v1.Health/Check
+          tcpSocket:
+            port: 8090
           initialDelaySeconds: 60
           periodSeconds: 10
           timeoutSeconds: 5
@@ -185,6 +193,9 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      - name: cnpg-ca
+        secret:
+          secretName: cnpg-ca
       - name: spire-agent-socket
         hostPath:
           path: /run/spire/sockets
@@ -207,3 +218,14 @@ spec:
   - name: metrics
     port: 9090
     targetPort: metrics
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-core-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

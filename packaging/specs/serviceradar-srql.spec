@@ -17,8 +17,8 @@ Requires:       openssl
 %description
 ServiceRadar SRQL provides the OCaml implementation of the ServiceRadar Query Language
 (SRQL) and exposes REST endpoints for translating and executing SRQL queries against
-Proton. The service relies on Proton's certificates for secure connectivity and uses a
-configurable API key for request authentication.
+the CNPG/Timescale database. The service relies on CNPG certificates for secure
+connectivity and uses a configurable API key for request authentication.
 
 %install
 mkdir -p %{buildroot}/usr/local/bin

@@ -23,7 +23,7 @@ This repository hosts the ServiceRadar monitoring platform. Use this file as the
 
 ## Project Overview
 
-ServiceRadar is a multi-component system made up of Go services (core, sync, registry, poller, faker), a Rust-based SRQL service, Proton/Timeplus database integrations, a Next.js web UI, and supporting tooling. The repo contains Bazel and Go module definitions alongside Docker/Bazel image targets.
+ServiceRadar is a multi-component system made up of Go services (core, sync, registry, poller, faker), a Rust-based SRQL service, CNPG/Timescale storage, a Next.js web UI, and supporting tooling. The repo contains Bazel and Go module definitions alongside Docker/Bazel image targets.
 
 ## Repository Layout
 
@@ -31,7 +31,7 @@ ServiceRadar is a multi-component system made up of Go services (core, sync, reg
 - `pkg/` – Shared Go packages: identity map, registry, sync integrations, database clients.
 - `rust/srql/` – SRQL translator/service backed by Diesel + CNPG.
 - `docs/docs/` – User and architecture documentation (notably `architecture.md`, `agents.md`).
-- `k8s/demo/` – Demo cluster manifests (faker, core, sync, Proton, etc.).
+- `k8s/demo/` – Demo cluster manifests (faker, core, sync, CNPG, etc.).
 - `docker/`, `docker/images/` – Container builds and push targets.
 - `web/` – Next.js UI and API routes.
 - `proto/` – Protobuf definitions and generated Go code.
@@ -54,20 +54,12 @@ Prefer Bazel targets when modifying code that already has BUILD files. Always ru
 
 ## Operational Runbooks
 
-Reference `docs/docs/agents.md` for: faker deployment details, Proton truncate/reseed steps, materialized view recreation, and stream replay commands. Use those instructions whenever resetting the demo environment or investigating canonical device counts.
+Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/reseed steps, materialized view recreation, and stream replay commands. Use those instructions whenever resetting the demo environment or investigating canonical device counts.
 
 ## Common Commands & Tips
 
 - Check demo pods: `kubectl get pods -n demo`.
 - Scale sync: `kubectl scale deployment/serviceradar-sync -n demo --replicas=<n>`.
-- Proton SQL helper (start toolbox pod with curl):
-  ```bash
-  kubectl run sql --rm -i --tty \
-    --image=curlimages/curl:8.9.1 -n demo --restart=Never --command -- \
-    sh -c "echo <BASE64_SQL> | base64 -d >/tmp/query.sql && \
-           curl -sk -u default:<PASSWORD> --data-binary @/tmp/query.sql \
-           https://serviceradar-proton:8443/?database=default"
-  ```
 - GH client is installed and authenticated
 - 'bb' (BuildBuddy) client is available for any build issues
 - bazel is our build system, we use it to build and push images

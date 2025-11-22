@@ -6,7 +6,6 @@ members = [
     "cmd/flowgger",
     "cmd/trapd",
     "cmd/otel",
-    "cmd/poller-ng",
     "cmd/consumers/zen",
     "cmd/checkers/rperf-client",
     "cmd/checkers/sysmon",

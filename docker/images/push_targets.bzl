@@ -26,7 +26,6 @@ GHCR_PUSH_TARGETS = [
     {"image": "kong_config_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-kong-config"},
     {"image": "cert_generator_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-cert-generator"},
     {"image": "tools_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-tools"},
-    {"image": "proton_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-proton"},
     {
         "image": "cnpg_image_amd64",
         "repository": "ghcr.io/carverauto/serviceradar-cnpg",

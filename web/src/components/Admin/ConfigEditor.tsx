@@ -290,9 +290,9 @@ export default function ConfigEditor({ service, kvStore, onSave, onClose }: Conf
             max_pollers: 10000
           },
           database: {
-            addresses: ['proton:9440'],
-            name: 'default',
-            username: 'default',
+            addresses: ['cnpg-rw:5432'],
+            name: 'serviceradar',
+            username: 'serviceradar',
             password: '',
             max_conns: 10,
             idle_conns: 5
@@ -357,7 +357,7 @@ export default function ConfigEditor({ service, kvStore, onSave, onClose }: Conf
       case 'db-event-writer':
         return {
           listen_addr: ':50061',
-          database: { addresses: ['proton:9440'], name: 'default', username: 'default', password: '' },
+          database: { addresses: ['cnpg-rw:5432'], name: 'serviceradar', username: 'serviceradar', password: '' },
           logging: { level: 'info', output: 'stdout' },
           security: null,
         };

@@ -27,16 +27,16 @@ import (
 	"github.com/carverauto/serviceradar/pkg/registry"
 )
 
-// ProtonPublisher implements the Publisher interface using the device registry for devices
+// RegistryPublisher implements the Publisher interface using the device registry for devices
 // and direct database access for interfaces and topology (until registry supports them)
-type ProtonPublisher struct {
+type RegistryPublisher struct {
 	deviceRegistry registry.Manager
 	dbService      db.Service // TODO: Remove when registry handles interfaces/topology
 	config         *StreamConfig
 }
 
-// NewProtonPublisher creates a new Proton publisher
-func NewProtonPublisher(deviceRegistry registry.Manager, dbService db.Service, config *StreamConfig) (Publisher, error) {
+// NewRegistryPublisher creates a new publisher backed by the registry and db service.
+func NewRegistryPublisher(deviceRegistry registry.Manager, dbService db.Service, config *StreamConfig) (Publisher, error) {
 	if deviceRegistry == nil {
 		return nil, ErrDeviceRegistryRequired
 	}
@@ -45,7 +45,7 @@ func NewProtonPublisher(deviceRegistry registry.Manager, dbService db.Service, c
 		return nil, ErrDatabaseServiceRequired
 	}
 
-	return &ProtonPublisher{
+	return &RegistryPublisher{
 		deviceRegistry: deviceRegistry,
 		dbService:      dbService,
 		config:         config,
@@ -53,7 +53,7 @@ func NewProtonPublisher(deviceRegistry registry.Manager, dbService db.Service, c
 }
 
 // convertDiscoveredDeviceToUpdate converts a DiscoveredDevice to a DeviceUpdate
-func (p *ProtonPublisher) convertDiscoveredDeviceToUpdate(device *DiscoveredDevice) *models.DeviceUpdate {
+func (p *RegistryPublisher) convertDiscoveredDeviceToUpdate(device *DiscoveredDevice) *models.DeviceUpdate {
 	// Build metadata from device fields
 	metadata := make(map[string]string)
 	metadata["sys_descr"] = device.SysDescr
@@ -117,7 +117,7 @@ func (p *ProtonPublisher) convertDiscoveredDeviceToUpdate(device *DiscoveredDevi
 }
 
 // PublishDevice publishes a discovered device via the device registry
-func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredDevice) error {
+func (p *RegistryPublisher) PublishDevice(ctx context.Context, device *DiscoveredDevice) error {
 	update := p.convertDiscoveredDeviceToUpdate(device)
 
 	// Publish via the device registry
@@ -131,7 +131,7 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 // In pkg/discovery/publisher.go
 
 // PublishInterface publishes a discovered interface to the discovered_interfaces stream
-func (p *ProtonPublisher) PublishInterface(ctx context.Context, iface *DiscoveredInterface) error {
+func (p *RegistryPublisher) PublishInterface(ctx context.Context, iface *DiscoveredInterface) error {
 	// Convert metadata to a JSON representation
 	metadata := make(map[string]string)
 
@@ -180,7 +180,7 @@ func (p *ProtonPublisher) PublishInterface(ctx context.Context, iface *Discovere
 }
 
 // PublishTopologyLink publishes a discovered topology link to the topology_discovery_events stream
-func (p *ProtonPublisher) PublishTopologyLink(ctx context.Context, link *TopologyLink) error {
+func (p *RegistryPublisher) PublishTopologyLink(ctx context.Context, link *TopologyLink) error {
 	// Build metadata
 	metadata := make(map[string]string)
 
@@ -223,7 +223,7 @@ func (p *ProtonPublisher) PublishTopologyLink(ctx context.Context, link *Topolog
 }
 
 // PublishBatchDevices publishes multiple devices in a batch via the device registry
-func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*DiscoveredDevice) error {
+func (p *RegistryPublisher) PublishBatchDevices(ctx context.Context, devices []*DiscoveredDevice) error {
 	if len(devices) == 0 {
 		return nil
 	}
@@ -243,7 +243,7 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 }
 
 // PublishBatchInterfaces publishes multiple interfaces in a batch
-func (p *ProtonPublisher) PublishBatchInterfaces(ctx context.Context, interfaces []*DiscoveredInterface) error {
+func (p *RegistryPublisher) PublishBatchInterfaces(ctx context.Context, interfaces []*DiscoveredInterface) error {
 	// Convert discovery types to models types
 	modelInterfaces := make([]*models.DiscoveredInterface, len(interfaces))
 	for i, iface := range interfaces {
@@ -277,7 +277,7 @@ func (p *ProtonPublisher) PublishBatchInterfaces(ctx context.Context, interfaces
 }
 
 // PublishBatchTopologyLinks publishes multiple topology links in a batch
-func (p *ProtonPublisher) PublishBatchTopologyLinks(ctx context.Context, links []*TopologyLink) error {
+func (p *RegistryPublisher) PublishBatchTopologyLinks(ctx context.Context, links []*TopologyLink) error {
 	// Convert discovery types to models types
 	modelEvents := make([]*models.TopologyDiscoveryEvent, len(links))
 	for i, link := range links {

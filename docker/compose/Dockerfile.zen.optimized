@@ -18,17 +18,16 @@ COPY Cargo.lock ./
 
 # Create minimal stub files to satisfy cargo build dependencies
 # This allows Docker to cache the dependency compilation layer
-RUN mkdir -p rust/kvutil/src cmd/flowgger/src cmd/trapd/src cmd/otel/src cmd/poller-ng/src cmd/consumers/zen/src cmd/consumers/zen/src/bin && \
+RUN mkdir -p rust/kvutil/src cmd/flowgger/src cmd/trapd/src cmd/otel/src cmd/consumers/zen/src cmd/consumers/zen/src/bin && \
     echo "fn main() {}" > cmd/consumers/zen/src/main.rs && \
     echo "fn main() {}" > cmd/consumers/zen/src/bin/put_rule.rs && \
-    touch rust/kvutil/src/lib.rs cmd/flowgger/src/lib.rs cmd/trapd/src/lib.rs cmd/otel/src/lib.rs cmd/poller-ng/src/lib.rs
+    touch rust/kvutil/src/lib.rs cmd/flowgger/src/lib.rs cmd/trapd/src/lib.rs cmd/otel/src/lib.rs
 
 # Copy cargo manifests for individual packages
 COPY rust/kvutil/Cargo.toml ./rust/kvutil/
 COPY cmd/flowgger/Cargo.toml ./cmd/flowgger/
 COPY cmd/trapd/Cargo.toml ./cmd/trapd/
 COPY cmd/otel/Cargo.toml ./cmd/otel/
-COPY cmd/poller-ng/Cargo.toml ./cmd/poller-ng/
 COPY cmd/consumers/zen/Cargo.toml ./cmd/consumers/zen/
 
 # Build dependencies only (this layer will be cached)
@@ -40,7 +39,6 @@ COPY rust/kvutil ./rust/kvutil
 COPY cmd/flowgger ./cmd/flowgger
 COPY cmd/trapd ./cmd/trapd
 COPY cmd/otel ./cmd/otel
-COPY cmd/poller-ng ./cmd/poller-ng
 COPY cmd/consumers/zen ./cmd/consumers/zen
 COPY cmd/otel/proto ./cmd/otel/proto
 COPY proto ./proto

@@ -1,5 +1,7 @@
 # Rendered as-is from staging overlay
+# Rendered as-is from staging overlay
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- $cnpg := default (dict) .Values.cnpg }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -26,15 +28,15 @@ data:
       "cnpg": {
         "host": "cnpg-rw.{{ .Release.Namespace }}.svc.cluster.local",
         "port": 5432,
-        "database": "telemetry",
-        "username": "postgres",
+        "database": {{ default "serviceradar" .Values.cnpg.database | quote }},
+        "username": {{ default "serviceradar" .Values.cnpg.username | quote }},
         "password": "",
         "ssl_mode": "verify-full",
-        "cert_dir": "/etc/serviceradar/certs",
+        "cert_dir": {{ default "/etc/serviceradar/certs" $cnpg.certDir | quote }},
         "tls": {
           "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
           "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
-          "ca_file": "/etc/serviceradar/certs/root.pem"
+          "ca_file": {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
         }
       },
       "security": {

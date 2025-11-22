@@ -10,30 +10,30 @@
     "retention": 100,
     "max_pollers": 10000
   },
-  "database": {
-    "addresses": [
-      "proton:9440"
-    ],
-    "name": "default",
-    "username": "default",
-    "password": "",
-    "max_conns": 10,
-    "idle_conns": 5,
-    "tls": {
-      "cert_file": "/etc/serviceradar/certs/core.pem",
-      "key_file": "/etc/serviceradar/certs/core-key.pem",
-      "ca_file": "/etc/serviceradar/certs/root.pem",
-      "server_name": "proton.serviceradar"
+    "database": {
+        "addresses": [
+            "cnpg-rw:5432"
+        ],
+        "name": "serviceradar",
+        "username": "serviceradar",
+        "password": "",
+        "max_conns": 10,
+        "idle_conns": 5,
+        "tls": {
+            "cert_file": "/etc/serviceradar/certs/core.pem",
+            "key_file": "/etc/serviceradar/certs/core-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem",
+            "server_name": "cnpg-rw.serviceradar"
+        },
+        "settings": {
+            "max_execution_time": 60,
+            "output_format_json_quote_64bit_int": 0,
+            "allow_experimental_live_view": 1,
+            "idle_connection_timeout": 600,
+            "join_use_nulls": 1,
+            "input_format_defaults_for_omitted_fields": 1
+        }
     },
-    "settings": {
-      "max_execution_time": 60,
-      "output_format_json_quote_64bit_int": 0,
-      "allow_experimental_live_view": 1,
-      "idle_connection_timeout": 600,
-      "join_use_nulls": 1,
-      "input_format_defaults_for_omitted_fields": 1
-    }
-  },
   "security": {
     "mode": "spiffe",
     "cert_dir": "/etc/serviceradar/certs",

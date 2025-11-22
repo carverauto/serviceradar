@@ -7,7 +7,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-// DeviceRecordFromUnified creates a DeviceRecord snapshot from a Proton unified device row.
+// DeviceRecordFromUnified creates a DeviceRecord snapshot from a unified device row.
 func DeviceRecordFromUnified(device *models.UnifiedDevice) *DeviceRecord {
 	if device == nil {
 		return nil

@@ -4,7 +4,6 @@ image:
   tags:
     core: latest
     web: latest
-    proton: latest
     nats: latest
     datasvc: latest
     agent: latest
@@ -14,16 +13,24 @@ image:
     otel: latest
     mapper: latest
     trapd: latest
-    flowgger: latest
+    flowgger: "1.0.56"
     zen: latest
     sync: latest
     rperfClient: latest
     faker: latest
     rperfChecker: latest
     tools: latest
+    srql: latest
+    kong: "3.7"
+    kongConfig: latest
+srql:
+  enabled: true
+kong:
+  enabled: true
 kv:
   enabled: true
   configSource: kv
+  bucket: serviceradar-datasvc
   address: serviceradar-datasvc:50057
   secMode: spiffe
   trustDomain: ""
@@ -31,12 +38,34 @@ kv:
   workloadSocket: unix:/run/spire/sockets/agent.sock
   certDir: /etc/serviceradar/certs
 coreClient:
-  address: serviceradar-core:50052
+  address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
   secMode: spiffe
   trustDomain: ""
   serverSPIFFEID: ""
   workloadSocket: unix:/run/spire/sockets/agent.sock
   certDir: /etc/serviceradar/certs
+cnpg:
+  host: ""
+  port: 5432
+  database: serviceradar
+  username: serviceradar
+  credentialsSecret: serviceradar-db-credentials
+  sslmode: verify-full
+  certDir: /etc/serviceradar/certs
+  caFile: /etc/serviceradar/cnpg/ca.crt
+agent:
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+dbEventWriter:
+  # Use on-disk config to avoid storing DB secrets in KV; passwords come from the secret env vars.
+  configSource: file
+  kvBootstrap:
+    enabled: true
 configSync:
   flowgger:
     enabled: true
@@ -82,6 +111,7 @@ spire:
   datasvcServiceAccount: serviceradar-datasvc
   serviceradarAgentServiceAccount: serviceradar-agent
   joinTokenTTL: 15m
+  otelServiceAccount: serviceradar-otel
   syncServiceAccount: serviceradar-sync
   zenServiceAccount: serviceradar-zen
   mapperServiceAccount: serviceradar-mapper
@@ -142,6 +172,8 @@ spire:
     image: ghcr.io/spiffe/spire-agent:1.11.2
     logLevel: DEBUG
     waitForImage: cgr.dev/chainguard/wait-for-it
+  tokenAudience: spire-server
+  additionalAgentNamespaces: []
   postgres:
     enabled: true
     clusterName: cnpg
@@ -163,6 +195,7 @@ spire:
       - CREATE EXTENSION IF NOT EXISTS timescaledb;
       - CREATE EXTENSION IF NOT EXISTS age;
   controllerManager:
+    enabled: true
     image: ghcr.io/spiffe/spire-controller-manager
     tag: 0.6.3
     configMapName: spire-controller-manager-config
@@ -192,20 +225,12 @@ ingress:
     enabled: true
     secretName: serviceradar-staging-tls
 secrets:
+  autoGenerate: true
   existingSecretName: serviceradar-secrets
   # Provide adminBcryptHash to avoid in-cluster generation.
   adminBcryptHash: ""
-# Proton (TimeStream DB) configuration
-proton:
-  resources:
-    requests:
-      cpu: "1"
-      memory: "8Gi"
-    limits:
-      cpu: "4"
-      memory: "16Gi"
-  storage:
-    size: "150Gi"
+  # Base64-encoded 32-byte key for edge onboarding; used by core and seeded into config.
+  edgeOnboardingKey: "5yV33bvFfRKBz5y20XPVnxyysYhXc/LXdG4jtrvrkN0="
 # Network sweep defaults (can be tuned per-deploy)
 sweep:
   # Target networks and ports to scan

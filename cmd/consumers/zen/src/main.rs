@@ -80,21 +80,50 @@ async fn main() -> Result<()> {
     }
 
     let (_client, js) = connect_nats(&cfg).await?;
+
+    // Build the complete list of subjects we need (input + result subjects)
+    let mut required_subjects = cfg.subjects.clone();
+    if let Some(res) = &cfg.result_subject {
+        required_subjects.push(res.clone());
+    }
+    if let Some(suffix) = &cfg.result_subject_suffix {
+        for s in &cfg.subjects {
+            required_subjects.push(format!("{}.{}", s, suffix.trim_start_matches('.')));
+        }
+    }
+
     let stream = match js.get_stream(&cfg.stream_name).await {
-        Ok(s) => s,
-        Err(_) => {
-            let mut subjects = cfg.subjects.clone();
-            if let Some(res) = &cfg.result_subject {
-                subjects.push(res.clone());
-            }
-            if let Some(suffix) = &cfg.result_subject_suffix {
-                for s in &cfg.subjects {
-                    subjects.push(format!("{}.{}", s, suffix.trim_start_matches('.')));
+        Ok(mut existing_stream) => {
+            // Stream exists - check if it has all required subjects
+            let info = existing_stream.info().await?;
+            let mut current_subjects = info.config.subjects.clone();
+            let mut needs_update = false;
+
+            for required in &required_subjects {
+                if !current_subjects.contains(required) {
+                    info!(
+                        "adding missing subject {} to stream {}",
+                        required, cfg.stream_name
+                    );
+                    current_subjects.push(required.clone());
+                    needs_update = true;
                 }
             }
+
+            if needs_update {
+                let mut updated_config = info.config.clone();
+                updated_config.subjects = current_subjects;
+                js.update_stream(updated_config).await?;
+                js.get_stream(&cfg.stream_name).await?
+            } else {
+                existing_stream
+            }
+        }
+        Err(_) => {
+            // Stream doesn't exist - create it with all required subjects
             let sc = StreamConfig {
                 name: cfg.stream_name.clone(),
-                subjects,
+                subjects: required_subjects.clone(),
                 storage: StorageType::File,
                 ..Default::default()
             };

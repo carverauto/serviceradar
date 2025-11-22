@@ -13,7 +13,7 @@ This document defines the requirements for a BGP NNetworkServicee as part of Ser
 To design and implement a BGP discovery engine that can:
 *   Identify BGP-speaking devices and their configured BGP parameters (local AS, Router ID).
 *   Discover BGP peers, including their IP address, AS number, and current session state.
-*   Publish this BGP peering information to ServiceRadar's `topology_discovery_events` Proton stream.
+*   Publish this BGP peering information to ServiceRadar's `topology_discovery_events` CNPG stream.
 
 **1.2 Goals**
 *   Develop a module using `gosnmp` to query standard BGP MIBs (e.g., BGP4-MIB) on network devices.
@@ -64,8 +64,8 @@ To design and implement a BGP discovery engine that can:
     *   `bgpPeerAdminStatus` (BGP4-MIB::bgpPeerAdminStatus) - Desired state (start, stop).
     *   (Optional but useful for metadata): `bgpPeerInUpdates`, `bgpPeerOutUpdates`, `bgpPeerFsmEstablishedTime`.
 
-**4.4 Data Output and Storage (Proton Integration)**
-*   FR4.1: Discovered BGP peer relationships must be published to the `topology_discovery_events` Proton stream. Data must conform to the existing schema:
+**4.4 Data Output and Storage (CNPG Integration)**
+*   FR4.1: Discovered BGP peer relationships must be published to the `topology_discovery_events` CNPG stream. Data must conform to the existing schema:
     *   `timestamp`: Time of discovery.
     *   `agent_id`: ID of the discovery engine instance.
     *   `poller_id`: (If applicable) ID of poller tasking discovery.
@@ -122,7 +122,7 @@ To design and implement a BGP discovery engine that can:
     2.  If configured, the BGP module is invoked for that device.
     3.  BGP module uses SNMP to query `BGP4-MIB`.
     4.  Collected BGP peer data is formatted.
-    5.  Formatted data is published primarily to the `topology_discovery_events` Proton stream.
+    5.  Formatted data is published primarily to the `topology_discovery_events` CNPG stream.
 
 ```mermaid
 graph TD
@@ -131,21 +131,21 @@ graph TD
         SNMPAuth -->|SNMP Session| TargetDevice[Network Device (Router)]
         TargetDevice -->|BGP MIB Data via SNMP| BGPQueryLogic[BGP MIB Query Logic<br>(gosnmp)]
         BGPQueryLogic --> DataProcessor[Data Processor/Formatter]
-        DataProcessor --> TopologyEventsPublisher[Proton: topology_discovery_events]
-        DataProcessor -->|Local Device Context| OtherProtonPublishers[Proton: snmp_results]
+        DataProcessor --> TopologyEventsPublisher[CNPG: topology_discovery_events]
+        DataProcessor -->|Local Device Context| OtherCNPGPublishers[CNPG: snmp_results]
     end
 
-    TopologyEventsPublisher --> ProtonStreams[Timeplus Proton Streams]
-    OtherProtonPublishers --> ProtonStreams
+    TopologyEventsPublisher --> CNPGStreams[CNPG/Timescale Streams]
+    OtherCNPGPublishers --> CNPGStreams
 
     %% This part is outside the scope of this PRD but shows context
     subgraph "Downstream (ADR-02)"
-      ProtonStreams --> ArangoSync[ArangoDB Sync Service]
+      CNPGStreams --> ArangoSync[ArangoDB Sync Service]
       ArangoSync --> ArangoDB[ArangoDB Graph]
     end
 ```
 
-**7. Data Models (Output to Proton)**
+**7. Data Models (Output to CNPG)**
 
 *   **Primary Output:** `topology_discovery_events` (as defined in `db.go` and FR4.1).
     *   Example `metadata` for BGP:

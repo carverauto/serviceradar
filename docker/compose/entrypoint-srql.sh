@@ -112,7 +112,7 @@ DB_TARGET_DESC="custom DATABASE_URL"
 if [ -z "$SRQL_DATABASE_URL" ]; then
     CNPG_HOST_VALUE="${CNPG_HOST:-cnpg-rw}"
     CNPG_PORT_VALUE="${CNPG_PORT:-5432}"
-    CNPG_DATABASE_VALUE="${CNPG_DATABASE:-telemetry}"
+    CNPG_DATABASE_VALUE="${CNPG_DATABASE:-serviceradar}"
     CNPG_USERNAME_VALUE="${CNPG_USERNAME:-postgres}"
     CNPG_SSLMODE_VALUE="${CNPG_SSLMODE:-require}"
     CNPG_CERT_DIR_VALUE="${CNPG_CERT_DIR:-/etc/serviceradar/certs}"

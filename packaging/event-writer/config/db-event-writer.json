@@ -39,8 +39,8 @@
   "cnpg": {
     "host": "cnpg-rw",
     "port": 5432,
-    "database": "telemetry",
-    "username": "postgres",
+    "database": "serviceradar",
+    "username": "serviceradar",
     "password": "",
     "ssl_mode": "verify-full",
     "cert_dir": "/etc/serviceradar/certs",
