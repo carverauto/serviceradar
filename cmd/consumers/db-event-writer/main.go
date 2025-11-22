@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -19,6 +20,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+)
+
+var (
+	ErrCNPGPasswordRequired = errors.New("CNPG password is required; set it in config or provide CNPG_PASSWORD_FILE from a mounted secret")
+	ErrCNPGPasswordEmpty    = errors.New("CNPG password file is empty")
 )
 
 func main() {
@@ -73,7 +79,7 @@ func main() {
 
 	if err := cfg.Validate(); err != nil {
 		_ = bootstrapResult.Close()
-		log.Fatalf("DB event writer config validation failed: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
+		log.Fatalf("DB event writer config validation failed: %v", err)
 	}
 
 	dbConfig := &models.CoreServiceConfig{
@@ -150,7 +156,7 @@ func applyCNPGPassword(cfg *dbeventwriter.DBEventWriterConfig) error {
 
 	pwPath := os.Getenv("CNPG_PASSWORD_FILE")
 	if pwPath == "" {
-		return fmt.Errorf("CNPG password is required; set it in config or provide CNPG_PASSWORD_FILE from a mounted secret")
+		return ErrCNPGPasswordRequired
 	}
 
 	data, err := os.ReadFile(pwPath)
@@ -160,7 +166,7 @@ func applyCNPGPassword(cfg *dbeventwriter.DBEventWriterConfig) error {
 
 	pwd := strings.TrimSpace(string(data))
 	if pwd == "" {
-		return fmt.Errorf("CNPG password file %s is empty", pwPath)
+		return fmt.Errorf("%w: %s", ErrCNPGPasswordEmpty, pwPath)
 	}
 
 	cfg.CNPG.Password = pwd
