@@ -77,6 +77,12 @@ imagePullSecrets:
 {{- default (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $coreSA) $vals.coreClient.serverSPIFFEID -}}
 {{- end -}}
 
+{{- define "serviceradar.coreAddress" -}}
+{{- $vals := .Values -}}
+{{- $ns := default .Release.Namespace $vals.spire.namespace -}}
+{{- default (printf "serviceradar-core.%s.svc.cluster.local:50052" $ns) $vals.coreClient.address -}}
+{{- end -}}
+
 {{- define "serviceradar.coreEnv" -}}
 {{- $vals := .Values -}}
 {{- $ns := default .Release.Namespace $vals.spire.namespace -}}
@@ -84,7 +90,7 @@ imagePullSecrets:
 {{- $coreSA := default "serviceradar-core" $vals.spire.coreServiceAccount -}}
 {{- $serverID := default (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $coreSA) $vals.coreClient.serverSPIFFEID -}}
 - name: CORE_ADDRESS
-  value: "{{ default "serviceradar-core:50052" $vals.coreClient.address }}"
+  value: "{{ include "serviceradar.coreAddress" . }}"
 - name: CORE_SEC_MODE
   value: "{{ default "spiffe" $vals.coreClient.secMode }}"
 - name: CORE_TRUST_DOMAIN
