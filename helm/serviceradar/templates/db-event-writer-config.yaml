@@ -26,7 +26,7 @@ data:
       "cnpg": {
         "host": "cnpg-rw.{{ .Release.Namespace }}.svc.cluster.local",
         "port": 5432,
-        "database": "telemetry",
+        "database": "{{ .Values.spire.postgres.database | default "spire" }}",
         "username": "postgres",
         "password": "",
         "ssl_mode": "verify-full",
