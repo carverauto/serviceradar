@@ -42,6 +42,12 @@ spec:
           value: "/etc/serviceradar/consumers/db-event-writer.json"
         - name: WAIT_FOR_NATS
           value: "true"
+        - name: CNPG_CA_FILE
+          value: /etc/serviceradar/cnpg/ca.crt
+        - name: CNPG_DATABASE
+          value: "{{ .Values.spire.postgres.database | default "spire" }}"
+        - name: KV_ADDRESS
+          value: "{{ include "serviceradar.kvAddress" . }}"
         - name: WAIT_FOR_CNPG
           value: "true"
         - name: CNPG_HOST
