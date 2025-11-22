@@ -114,7 +114,7 @@ data:
         ],
         "default_metadata": {
           "poller": {
-            "core_address": "serviceradar-core:50052",
+            "core_address": "{{ include "serviceradar.coreAddress" . }}",
             "core_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-core",
             "kv_address": "serviceradar-datasvc:50057",
             "kv_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-datasvc",
@@ -289,7 +289,7 @@ data:
             ]
           }
         },
-        "core_address": "serviceradar-core:50052",
+        "core_address": "{{ include "serviceradar.coreAddress" . }}",
         "core_security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
@@ -1136,8 +1136,8 @@ data:
             "poller_id": "k8s-poller",
             "partition": "default",
             "credentials": {
-              "username": "test",
-              "password": "test"
+              "username": "${kv:secrets/armis/username}",
+              "password": "${kv:secrets/armis/password}"
             },
             "page_size": 1000,
             "network_blacklist": [],

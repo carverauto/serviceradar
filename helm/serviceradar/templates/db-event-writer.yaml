@@ -83,7 +83,7 @@ spec:
         - name: SPIFFE_ENDPOINT_SOCKET
           value: "unix:/run/spire/sockets/agent.sock"
         - name: CORE_ADDRESS
-          value: {{ default "serviceradar-core:50052" .Values.coreClient.address | quote }}
+          value: {{ include "serviceradar.coreAddress" . | quote }}
         - name: CORE_SEC_MODE
           value: {{ default "spiffe" .Values.coreClient.secMode | quote }}
         - name: CORE_TRUST_DOMAIN

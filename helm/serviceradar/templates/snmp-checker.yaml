@@ -47,7 +47,7 @@ spec:
         - name: SERVICERADAR_CONFIG_PATH
           value: "/etc/serviceradar/snmp.json"
         - name: SERVICERADAR_CLOUD_ADDR
-          value: "serviceradar-core:50052"
+          value: "{{ include "serviceradar.coreAddress" . }}"
         - name: SERVICERADAR_NODE_ID
           valueFrom:
             fieldRef:

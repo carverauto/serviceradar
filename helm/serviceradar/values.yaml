@@ -20,6 +20,13 @@ image:
     faker: latest
     rperfChecker: latest
     tools: latest
+    srql: latest
+    kong: "3.7"
+    kongConfig: latest
+srql:
+  enabled: true
+kong:
+  enabled: true
 kv:
   enabled: true
   configSource: kv
@@ -30,7 +37,7 @@ kv:
   workloadSocket: unix:/run/spire/sockets/agent.sock
   certDir: /etc/serviceradar/certs
 coreClient:
-  address: serviceradar-core:50052
+  address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
   secMode: spiffe
   trustDomain: ""
   serverSPIFFEID: ""
