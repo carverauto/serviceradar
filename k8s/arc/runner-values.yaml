@@ -5,4 +5,4 @@ template:
   spec:
     containers:
       - name: runner
-        image: ghcr.io/carverauto/arc-runner:latest
+        image: ghcr.io/carverauto/arc-runner@sha256:65747d9c69dbd85e37b9105496cf8b410fdadb9022a2d0877e8c6062ddd95a6c
