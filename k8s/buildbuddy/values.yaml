@@ -45,16 +45,27 @@ extraVolumes:
           resources:
             requests:
               storage: 50Gi
+  # Mount a Docker config with auth (secret must be created separately, e.g.
+  # kubectl -n buildbuddy create secret docker-registry dockerhub-auth ...).
+  - name: dockerhub-auth
+    secret:
+      secretName: dockerhub-auth
+      items:
+        - key: .dockerconfigjson
+          path: config.json
 
 extraVolumeMounts:
   - name: cache-volume
     mountPath: /cache
+  - name: dockerhub-auth
+    mountPath: /root/.docker
+    readOnly: true
 
 config:
   executor:
     app_target: grpcs://remote.buildbuddy.io:443
     enable_oci: true
-    default_isolation_type: docker
+    default_isolation_type: oci
     local_cache_directory: /cache
     local_cache_size_bytes: 50000000000
     root_directory: /cache/remotebuilds/

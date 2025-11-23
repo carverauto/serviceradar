@@ -1334,7 +1334,7 @@
     "@@rules_oci+//oci:extensions.bzl%oci": {
       "general": {
         "bzlTransitiveDigest": "anfgzQokiHri4FJRiW4KvwSfiR7ComgkDZBoR/2HI1I=",
-        "usagesDigest": "WEFPRJ6c5ltrakakfdHe3QuxRx2y38pWs189LAlvtT4=",
+        "usagesDigest": "5sahfR5mL4L1qKcYM2NdxEg0ByVoNBrDoW7pNvi/3NA=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -1365,6 +1365,35 @@
                 "@@platforms//cpu:x86_64": "@ubuntu_jammy_linux_amd64"
               },
               "bzlmod_repository": "ubuntu_jammy",
+              "reproducible": true
+            }
+          },
+          "actions_runner_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "actions/actions-runner",
+              "identifier": "sha256:25e5339f41c8511899dff6d9d1ee3d29d0aaca085f24b967f486e153e4368cc6",
+              "platform": "linux/amd64",
+              "target_name": "actions_runner_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "actions_runner": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "actions_runner",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "actions/actions-runner",
+              "identifier": "sha256:25e5339f41c8511899dff6d9d1ee3d29d0aaca085f24b967f486e153e4368cc6",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@actions_runner_linux_amd64"
+              },
+              "bzlmod_repository": "actions_runner",
               "reproducible": true
             }
           },
@@ -1747,6 +1776,8 @@
           "explicitRootModuleDirectDeps": [
             "ubuntu_jammy",
             "ubuntu_jammy_linux_amd64",
+            "actions_runner",
+            "actions_runner_linux_amd64",
             "alpine_3_20",
             "alpine_3_20_linux_amd64",
             "ubuntu_noble",

@@ -142,6 +142,14 @@ oci_ext.pull(
     ],
 )
 oci_ext.pull(
+    name = "actions_runner",
+    digest = "sha256:25e5339f41c8511899dff6d9d1ee3d29d0aaca085f24b967f486e153e4368cc6",
+    image = "ghcr.io/actions/actions-runner",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
     name = "alpine_3_20",
     digest = "sha256:f25ebd2af60b9de8e26e5100fe6f493beb81bff010f27e84f223ad19886a78f0",
     image = "alpine:3.20",
@@ -232,6 +240,8 @@ use_repo(
     "serviceradar_cert_generator_linux_amd64",
     "serviceradar_tools",
     "serviceradar_tools_linux_amd64",
+    "actions_runner",
+    "actions_runner_linux_amd64",
     "ubuntu_jammy",
     "ubuntu_jammy_linux_amd64",
     "ubuntu_noble",
