@@ -73,6 +73,13 @@ jobs:
           umask 077
           printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
 
+      - name: Configure Docker auth for Bazel pulls
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: ./buildbuddy_setup_docker_auth.sh
+
       - name: Test
         run: |
           bazel test \
