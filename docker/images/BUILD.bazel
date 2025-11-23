@@ -1540,9 +1540,9 @@ genrule(
         ":cnpg_postgresql_16_6_rootfs_tar",
         "@postgresql_server_dev_16_deb//file",
         "@debian_libpq_dev_amd64_deb//file",
-        "//bison:source_tree",
-        "//gperf:source_tree",
-        "//flex:source_tree",
+        "//third_party/pg_extension_toolchain/bison:source_tree",
+        "//third_party/pg_extension_toolchain/gperf:source_tree",
+        "//third_party/pg_extension_toolchain/flex:source_tree",
         "//age:source_tree",
         "//docker/images:pg_config_wrapper.sh",
     ],
@@ -1575,7 +1575,7 @@ cp -R "$${AGE_TREE}/." "$${OUT_DIR}/age"
 chmod -R u+w "$${OUT_DIR}/age"
 
 # Build flex from source so the toolchain matches the RBE glibc
-FLEX_SRC="$$(pwd)/$(execpath //flex:source_tree)"
+FLEX_SRC="$$(pwd)/$(execpath //third_party/pg_extension_toolchain/flex:source_tree)"
 if [[ -d "$${OUT_DIR}/flex_src" ]]; then
   chmod -R u+w "$${OUT_DIR}/flex_src"
   rm -rf "$${OUT_DIR}/flex_src"
@@ -1595,7 +1595,7 @@ make -C src -j4
 make -C src DESTDIR="$${OUT_DIR}/flex_install" install
 FLEX_ROOT="$${OUT_DIR}/flex_install/usr"
 
-GPERF_SRC="$${REPO_ROOT}/$(execpath //gperf:source_tree)"
+GPERF_SRC="$${REPO_ROOT}/$(execpath //third_party/pg_extension_toolchain/gperf:source_tree)"
 if [[ -d "$${OUT_DIR}/gperf_src" ]]; then
   chmod -R u+w "$${OUT_DIR}/gperf_src"
   rm -rf "$${OUT_DIR}/gperf_src"
@@ -1615,7 +1615,7 @@ make -C src -j4
 make -C src DESTDIR="$${OUT_DIR}/gperf_install" install
 GPERF_ROOT="$${OUT_DIR}/gperf_install/usr"
 
-BISON_SRC="$${REPO_ROOT}/$(execpath //bison:source_tree)"
+BISON_SRC="$${REPO_ROOT}/$(execpath //third_party/pg_extension_toolchain/bison:source_tree)"
 if [[ -d "$${OUT_DIR}/bison_src" ]]; then
   chmod -R u+w "$${OUT_DIR}/bison_src"
   rm -rf "$${OUT_DIR}/bison_src"
