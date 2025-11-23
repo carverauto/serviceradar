@@ -1441,10 +1441,14 @@ genrule(
     outs = ["cnpg_postgresql_16_6_rootfs.tar"],
     cmd = """
 set -euo pipefail
-LAYOUT="$(location @cloudnativepg_postgresql_16_6_linux_amd64//:cloudnativepg_postgresql_16_6_linux_amd64)"
-if [[ "$${LAYOUT}" != /* ]]; then
-  LAYOUT="$$(pwd)/$${LAYOUT}"
+LAYOUT_RELATIVE="$(location @cloudnativepg_postgresql_16_6_linux_amd64//:cloudnativepg_postgresql_16_6_linux_amd64)"
+if [[ "$${LAYOUT_RELATIVE}" != /* ]]; then
+  LAYOUT="$$(pwd)/$${LAYOUT_RELATIVE}"
+else
+  LAYOUT="$${LAYOUT_RELATIVE}"
 fi
+# Normalize the path to remove any .. or .
+LAYOUT="$$(cd "$$(dirname "$${LAYOUT}")" && pwd)/$$(basename "$${LAYOUT}")"
 if ! "$(location //third_party/binaries:crane_linux_amd64)" export "layout:$${LAYOUT}" "$@"; then
   python3 "$(location //docker/images:export_rootfs_from_layout.py)" --layout "$${LAYOUT}" --output "$@"
 fi
@@ -1500,12 +1504,15 @@ chmod +x "$${OUT_DIR}/pg_config_wrapper_ts.sh"
 cp "$(location //docker/images:pg_config_rewrite.py)" "$${OUT_DIR}/pg_config_rewrite.py"
 
 CMAKE_BIN="$(location @cmake_linux_amd64_prebuilt//:cmake_bin)"
-chmod +x "$${CMAKE_BIN}"
-CMAKE_DIR="$$(dirname "$${CMAKE_BIN}")"
-export CMAKE="$${CMAKE_BIN}"
+CMAKE_ABSOLUTE_PATH="$$(readlink -f "$${CMAKE_BIN}")"
+chmod +x "$${CMAKE_ABSOLUTE_PATH}"
+CMAKE_DIR="$$(dirname "$${CMAKE_ABSOLUTE_PATH}")"
+mkdir -p "$${OUT_DIR}/bin"
+ln -sf "$${CMAKE_ABSOLUTE_PATH}" "$${OUT_DIR}/bin/cmake"
+export CMAKE="$${CMAKE_ABSOLUTE_PATH}"
 export CNPG_ROOT="$${ROOT_DIR}"
 export CNPG_REAL_PG_CONFIG="$${ROOT_DIR}/usr/lib/postgresql/16/bin/pg_config"
-export PATH="$${CMAKE_DIR}:$${ROOT_DIR}/usr/lib/postgresql/16/bin:$${ROOT_DIR}/usr/bin:/usr/bin:/bin"
+export PATH="$${OUT_DIR}/bin:$${CMAKE_DIR}:$${ROOT_DIR}/usr/lib/postgresql/16/bin:$${ROOT_DIR}/usr/bin:/usr/bin:/bin"
 export PKG_CONFIG_PATH="$${ROOT_DIR}/usr/lib/pkgconfig:$${ROOT_DIR}/usr/lib/x86_64-linux-gnu/pkgconfig"
 cd "$${OUT_DIR}/timescaledb"
 BUILD_FORCE_REMOVE=true ./bootstrap -DREGRESS_CHECKS=OFF -DPROJECT_INSTALL_METHOD=docker -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPG_CONFIG="$${OUT_DIR}/pg_config_wrapper_ts.sh"
