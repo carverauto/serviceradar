@@ -216,15 +216,6 @@ jobs:
               "${extra_args[@]}"
           fi
 
-      - name: Disable remote exec/cache for packaging
-        run: |
-          # Clear remote settings so packaging runs entirely on the runner.
-          cat > .bazelrc.remote <<'EOF'
-          build --remote_executor=
-          build --remote_cache=
-          build --remote_download_minimal
-          EOF
-
       - name: Publish Debian and RPM packages
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -263,14 +254,31 @@ jobs:
             args+=("--overwrite_assets=${OVERWRITE_ASSETS}")
           fi
 
-          bazel run \
-            --config=remote \
-            --host_platform=@local_config_platform//:host \
-            --platforms=//build/platforms:linux_pkg_local \
-            --//toolchains/rpm:is_rpmbuild_available=1 \
-            --stamp \
-            //release:publish_packages \
-            -- "${args[@]}"
+          run_remote() {
+            bazel run \
+              --config=remote \
+              --platforms=//build/platforms:linux_pkg_local \
+              --@rules_pkg//toolchains/rpm:is_rpmbuild_available=1 \
+              --stamp \
+              //release:publish_packages \
+              -- "${args[@]}"
+          }
+
+          run_local() {
+            bazel run \
+              --config=no_remote \
+              --host_platform=@local_config_platform//:host \
+              --platforms=//build/platforms:linux_pkg_local \
+              --@rules_pkg//toolchains/rpm:is_rpmbuild_available=1 \
+              --stamp \
+              //release:publish_packages \
+              -- "${args[@]}"
+          }
+
+          if ! run_remote; then
+            echo "Remote packaging failed; retrying locally without remote executor/cache" >&2
+            run_local
+          fi
 
       - name: Verify uploaded release assets via API
         env:
