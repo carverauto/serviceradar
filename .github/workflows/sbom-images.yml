@@ -66,12 +66,15 @@ jobs:
 
       - name: Determine image tag
         id: tag
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+            echo "tag=${INPUT_TAG}" >> $GITHUB_OUTPUT
           else
-            # Extract tag from the triggering workflow
-            TAG=$(echo "${{ github.event.workflow_run.head_branch }}" | sed 's/refs\/tags\///')
+            # Extract tag from the triggering workflow (sanitized via env var)
+            TAG=$(echo "${HEAD_BRANCH}" | sed 's|refs/tags/||')
             echo "tag=${TAG:-latest}" >> $GITHUB_OUTPUT
           fi
 
