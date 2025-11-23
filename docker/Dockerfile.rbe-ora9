@@ -1,0 +1,123 @@
+# syntax=docker/dockerfile:1
+
+# Custom RBE executor image based on Oracle Linux 9 with development tooling.
+# This image provides a hermetic build environment for BuildBuddy RBE with RPM building support.
+
+FROM --platform=linux/amd64 oraclelinux:9
+SHELL ["/bin/bash", "-lc"]
+
+# Install build dependencies
+RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
+    && dnf config-manager --enable ol9_codeready_builder \
+    && dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm \
+    && dnf -qy module disable postgresql \
+    && dnf install -y \
+        skopeo \
+        podman \
+        podman-docker \
+        slirp4netns \
+        fuse-overlayfs \
+        containernetworking-plugins \
+        iptables \
+        gcc-toolset-13 \
+        bpftool \
+        ca-certificates \
+        clang \
+        curl \
+        createrepo_c \
+        git \
+        gmp-devel \
+        libbpf-devel \
+        libev-devel \
+        libzstd-devel \
+        llvm \
+        llvm-libs \
+        lz4-devel \
+        m4 \
+        make \
+        openssl-devel \
+        patch \
+        perl \
+        pkgconfig \
+        postgresql16-devel \
+        protobuf-compiler \
+        protobuf-devel \
+        rpm-build \
+        rpm-sign \
+        rpmdevtools \
+        redhat-rpm-config \
+        rsync \
+        tar \
+        unzip \
+        which \
+        zlib-devel \
+    && dnf clean all \
+    && ldconfig
+
+# Ensure the newer GCC toolchain is seen via the conventional /usr/bin paths so
+# Bazel toolchains that invoke /usr/bin/gcc use the upgraded compiler.
+RUN ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/gcc /usr/bin/gcc \
+    && ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/g++ /usr/bin/g++
+
+ENV CC=/usr/bin/gcc \
+    CXX=/usr/bin/g++ \
+    XDG_RUNTIME_DIR=/run/user/0 \
+    RUSTUP_HOME=/opt/rustup \
+    CARGO_HOME=/opt/cargo \
+    PATH=/opt/cargo/bin:/opt/rh/gcc-toolset-13/root/usr/bin:$PATH \
+    LIBRARY_PATH=/usr/pgsql-16/lib \
+    LD_LIBRARY_PATH=/usr/pgsql-16/lib \
+    PKG_CONFIG_PATH=/usr/pgsql-16/lib/pkgconfig
+
+RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
+
+ARG GHCR_CNPG_IMAGE="ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr1"
+ARG GHCR_USERNAME=""
+
+# Fetch the CNPG test fixture image into a local docker-archive so Bazel
+# executors can load it without network access. If no secret is provided,
+# skip the pull (the image remains optional).
+RUN --mount=type=secret,id=ghcr_token <<'EOF'
+set -euo pipefail
+TOKEN_FILE="/run/secrets/ghcr_token"
+if [[ -z "${GHCR_CNPG_IMAGE:-}" ]]; then
+  echo "CNPG image not set; skipping preload"
+  exit 0
+fi
+if [[ -f "$TOKEN_FILE" && -s "$TOKEN_FILE" && -n "${GHCR_USERNAME:-}" ]]; then
+  TOKEN_VALUE=$(cat "$TOKEN_FILE")
+  skopeo copy --src-creds "$GHCR_USERNAME:$TOKEN_VALUE" "docker://$GHCR_CNPG_IMAGE" "docker-archive:/opt/cnpg_image.tar:$GHCR_CNPG_IMAGE"
+elif skopeo copy "docker://$GHCR_CNPG_IMAGE" "docker-archive:/opt/cnpg_image.tar:$GHCR_CNPG_IMAGE"; then
+  echo "Pulled CNPG image without auth"
+else
+  echo "Warning: CNPG preload skipped (missing credentials or pull failed)" >&2
+fi
+EOF
+
+# Install Rust toolchains for native builds.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init \
+    && chmod +x /tmp/rustup-init \
+    && /tmp/rustup-init -y --profile minimal --default-toolchain stable --no-modify-path \
+    && rm -f /tmp/rustup-init \
+    && rustup default stable \
+    && cargo install --locked bpf-linker
+
+# Install cosign for container signing/attestation
+ARG COSIGN_VERSION=2.4.1
+RUN curl -sSfL https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64 \
+    -o /usr/local/bin/cosign \
+    && chmod +x /usr/local/bin/cosign \
+    && cosign version
+
+# Install syft for SBOM generation
+ARG SYFT_VERSION=1.38.0
+RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | \
+    sh -s -- -b /usr/local/bin v${SYFT_VERSION} \
+    && syft version
+
+# Set up work directory
+RUN mkdir -p /workspace
+
+WORKDIR /workspace
+
+# Important: Do not set ENTRYPOINT or CMD as BuildBuddy will provide commands
