@@ -1468,7 +1468,6 @@ genrule(
         "//docker/images:pg_config_wrapper.sh",
     ],
     outs = ["timescaledb_extension_layer.tar"],
-    local = True,
     tools = [
         "//docker/images:extract_rootfs.py",
         "//docker/images:overlay_deb_packages.py",
@@ -1541,7 +1540,6 @@ genrule(
         "//docker/images:pg_config_wrapper.sh",
     ],
     outs = ["age_extension_layer.tar"],
-    local = True,
     tools = [
         "//docker/images:extract_rootfs.py",
         "//docker/images:overlay_deb_packages.py",
