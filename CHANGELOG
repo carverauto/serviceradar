@@ -1,3 +1,13 @@
+# ServiceRadar v1.0.57
+
+Demo messaging/poller stability.
+
+## Whats New
+
+**1.0.57**
+- Increased NATS defaults to 1Gi/4Gi and rebuilt the JetStream pod to avoid OOM loops during KV/events recovery in the demo release.
+- Raised poller defaults to 512Mi/1Gi so sweep workloads streaming ~50k devices no longer OOMKill; chart values now persist the fix.
+
 # ServiceRadar v1.0.56
 
 Helm demo hardening: flowgger OpenSSL fix, agent/poller stability.
