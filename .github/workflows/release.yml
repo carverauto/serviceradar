@@ -83,7 +83,11 @@ jobs:
       - name: Refresh Bazel externals after rpm install
         run: |
           # Force the rules_pkg rpmbuild toolchain to re-detect the system rpmbuild binary.
-          bazel clean --expunge
+          if command -v bazel >/dev/null 2>&1; then
+            bazel clean --expunge
+          else
+            echo "bazel not yet installed; skipping clean (Bazelisk step will follow)" >&2
+          fi
 
       - name: Configure BuildBuddy remote cache
         if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
