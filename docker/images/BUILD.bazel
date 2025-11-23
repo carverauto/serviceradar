@@ -1533,8 +1533,6 @@ genrule(
     srcs = [
         ":cnpg_postgresql_16_6_rootfs_tar",
         "@postgresql_server_dev_16_deb//file",
-        "@debian_bison_amd64_deb//file",
-        "@debian_flex_amd64_deb//file",
         "@debian_libpq_dev_amd64_deb//file",
         "//age:source_tree",
         "//docker/images:pg_config_wrapper.sh",
@@ -1553,8 +1551,6 @@ ROOT_DIR="$${OUT_DIR}/rootfs_age"
 python3 "$(location //docker/images:extract_rootfs.py)" "$(location :cnpg_postgresql_16_6_rootfs_tar)" "$${ROOT_DIR}"
 python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
   "$(location @postgresql_server_dev_16_deb//file)" \
-  "$(location @debian_bison_amd64_deb//file)" \
-  "$(location @debian_flex_amd64_deb//file)" \
   "$(location @debian_libpq_dev_amd64_deb//file)"
 sed -i 's|^CLANG = .*|CLANG = clang|' "$${ROOT_DIR}/usr/lib/postgresql/16/lib/pgxs/src/Makefile.global"
 sed -i 's|^with_llvm\t= .*|with_llvm\t= no|' "$${ROOT_DIR}/usr/lib/postgresql/16/lib/pgxs/src/Makefile.global"
@@ -1572,23 +1568,15 @@ cp "$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wra
 chmod +x "$${OUT_DIR}/pg_config_wrapper_age.sh"
 cp "$(location //docker/images:pg_config_rewrite.py)" "$${OUT_DIR}/pg_config_rewrite.py"
 
-# Create symlinks for flex and bison so they can be found by make
-mkdir -p "$${OUT_DIR}/bin"
-ln -sf "$${ROOT_DIR}/usr/bin/flex" "$${OUT_DIR}/bin/flex"
-ln -sf "$${ROOT_DIR}/usr/bin/bison" "$${OUT_DIR}/bin/bison"
-chmod +x "$${ROOT_DIR}/usr/bin/flex" "$${ROOT_DIR}/usr/bin/bison" || true
-
+# Use system flex and bison from RBE container (not Debian packages due to glibc incompatibility)
 export CNPG_ROOT="$${ROOT_DIR}"
 export CNPG_REAL_PG_CONFIG="$${ROOT_DIR}/usr/lib/postgresql/16/bin/pg_config"
-export PATH="$${OUT_DIR}/bin:$${ROOT_DIR}/usr/lib/postgresql/16/bin:$${ROOT_DIR}/usr/bin:/usr/bin:/bin"
+export PATH="$${ROOT_DIR}/usr/lib/postgresql/16/bin:/usr/bin:/bin"
 export PKG_CONFIG_PATH="$${ROOT_DIR}/usr/lib/pkgconfig:$${ROOT_DIR}/usr/lib/x86_64-linux-gnu/pkgconfig"
-export YACC="$${OUT_DIR}/bin/bison -y"
-export FLEX="$${OUT_DIR}/bin/flex"
-export LEX="$${OUT_DIR}/bin/flex"
 cd "$${OUT_DIR}/age"
-make PG_CONFIG="$${OUT_DIR}/pg_config_wrapper_age.sh" -j4
+make PG_CONFIG="$${OUT_DIR}/pg_config_wrapper_age.sh" FLEX=flex LEX=flex BISON=bison YACC="bison -y" -j4
 mkdir -p "$${OUT_DIR}/install_age"
-make PG_CONFIG="$${OUT_DIR}/pg_config_wrapper_age.sh" DESTDIR="$${OUT_DIR}/install_age" install
+make PG_CONFIG="$${OUT_DIR}/pg_config_wrapper_age.sh" FLEX=flex LEX=flex BISON=bison YACC="bison -y" DESTDIR="$${OUT_DIR}/install_age" install
 INSTALL_PREFIX="$${OUT_DIR}/install_age$${CNPG_ROOT}"
 if [[ ! -d "$${INSTALL_PREFIX}" ]]; then
   echo "AGE install prefix $${INSTALL_PREFIX} not found" >&2
