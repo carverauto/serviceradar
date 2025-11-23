@@ -14,6 +14,22 @@ exports_files([
 
 package(default_visibility = ["//visibility:public"])
 
+# ARC runner image -----------------------------------------------------------
+
+oci_image(
+    name = "arc_runner_image_amd64",
+    base = "@actions_runner_linux_amd64//:actions_runner_linux_amd64",
+    labels = {
+        "org.opencontainers.image.title": "arc-runner",
+    },
+)
+
+oci_load(
+    name = "arc_runner_image_amd64_tar",
+    image = ":arc_runner_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/arc-runner:local"],
+)
+
 pkg_tar(
     name = "common_tools_amd64",
     files = {

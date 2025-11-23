@@ -102,6 +102,19 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-ini
     && rustup default stable \
     && cargo install --locked bpf-linker
 
+# Install cosign for container signing/attestation
+ARG COSIGN_VERSION=2.4.1
+RUN curl -sSfL https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64 \
+    -o /usr/local/bin/cosign \
+    && chmod +x /usr/local/bin/cosign \
+    && cosign version
+
+# Install syft for SBOM generation
+ARG SYFT_VERSION=1.38.0
+RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | \
+    sh -s -- -b /usr/local/bin v${SYFT_VERSION} \
+    && syft version
+
 # Set up work directory
 RUN mkdir -p /workspace
 
