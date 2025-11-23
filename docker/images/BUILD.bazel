@@ -1473,6 +1473,7 @@ genrule(
         "//docker/images:overlay_deb_packages.py",
         "//docker/images:pg_config_rewrite.py",
         "@cmake_linux_amd64_prebuilt//:cmake_bin",
+        "@cmake_linux_amd64_prebuilt//:cmake_share",
     ],
     cmd = """
 set -euo pipefail
@@ -1502,7 +1503,12 @@ cp "$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wra
 chmod +x "$${OUT_DIR}/pg_config_wrapper_ts.sh"
 cp "$(location //docker/images:pg_config_rewrite.py)" "$${OUT_DIR}/pg_config_rewrite.py"
 
-CMAKE_BIN="$(location @cmake_linux_amd64_prebuilt//:cmake_bin)"
+CMAKE_RELATIVE="$(location @cmake_linux_amd64_prebuilt//:cmake_bin)"
+if [[ "$${CMAKE_RELATIVE}" != /* ]]; then
+  CMAKE_BIN="$$(pwd)/$${CMAKE_RELATIVE}"
+else
+  CMAKE_BIN="$${CMAKE_RELATIVE}"
+fi
 # Don't use readlink -f - cmake needs the original path to find its modules
 chmod +x "$${CMAKE_BIN}"
 CMAKE_DIR="$$(dirname "$${CMAKE_BIN}")"
@@ -1534,6 +1540,9 @@ genrule(
         ":cnpg_postgresql_16_6_rootfs_tar",
         "@postgresql_server_dev_16_deb//file",
         "@debian_libpq_dev_amd64_deb//file",
+        "//third_party/pg_extension_toolchain/bison:source_tree",
+        "//third_party/pg_extension_toolchain/gperf:source_tree",
+        "//third_party/pg_extension_toolchain/flex:source_tree",
         "//age:source_tree",
         "//docker/images:pg_config_wrapper.sh",
     ],
@@ -1545,6 +1554,7 @@ genrule(
     ],
     cmd = """
 set -euo pipefail
+REPO_ROOT="$$(pwd)"
 OUT_DIR="$$(pwd)/$(@D)"
 OUT_TAR="$$(pwd)/$@"
 ROOT_DIR="$${OUT_DIR}/rootfs_age"
@@ -1564,15 +1574,80 @@ mkdir -p "$${OUT_DIR}/age"
 cp -R "$${AGE_TREE}/." "$${OUT_DIR}/age"
 chmod -R u+w "$${OUT_DIR}/age"
 
-cp "$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wrapper_age.sh"
-chmod +x "$${OUT_DIR}/pg_config_wrapper_age.sh"
-cp "$(location //docker/images:pg_config_rewrite.py)" "$${OUT_DIR}/pg_config_rewrite.py"
+# Build flex from source so the toolchain matches the RBE glibc
+FLEX_SRC="$$(pwd)/$(execpath //third_party/pg_extension_toolchain/flex:source_tree)"
+if [[ -d "$${OUT_DIR}/flex_src" ]]; then
+  chmod -R u+w "$${OUT_DIR}/flex_src"
+  rm -rf "$${OUT_DIR}/flex_src"
+fi
+mkdir -p "$${OUT_DIR}/flex_src"
+cp -a "$${FLEX_SRC}/." "$${OUT_DIR}/flex_src"
+chmod -R u+w "$${OUT_DIR}/flex_src"
+touch "$${OUT_DIR}/flex_src/src/parse.c" "$${OUT_DIR}/flex_src/src/parse.h" "$${OUT_DIR}/flex_src/src/scan.c" "$${OUT_DIR}/flex_src/src/scan.h"
+cd "$${OUT_DIR}/flex_src"
+export ACLOCAL=true
+export AUTOCONF=true
+export AUTOHEADER=true
+export AUTOMAKE=true
+export MAKEINFO=true
+./configure --prefix=/usr --disable-nls
+make -C src -j4
+make -C src DESTDIR="$${OUT_DIR}/flex_install" install
+FLEX_ROOT="$${OUT_DIR}/flex_install/usr"
 
-# Use system flex and bison from RBE container (not Debian packages due to glibc incompatibility)
+GPERF_SRC="$${REPO_ROOT}/$(execpath //third_party/pg_extension_toolchain/gperf:source_tree)"
+if [[ -d "$${OUT_DIR}/gperf_src" ]]; then
+  chmod -R u+w "$${OUT_DIR}/gperf_src"
+  rm -rf "$${OUT_DIR}/gperf_src"
+fi
+mkdir -p "$${OUT_DIR}/gperf_src"
+cp -a "$${GPERF_SRC}/." "$${OUT_DIR}/gperf_src"
+chmod -R u+w "$${OUT_DIR}/gperf_src"
+cd "$${OUT_DIR}/gperf_src"
+export HELP2MAN=true
+export MAKEINFO=true
+export TEXI2DVI=true
+export TEXI2PDF=true
+export INFO_DEPS=""
+./configure --prefix=/usr --disable-nls
+make -C lib -j4
+make -C src -j4
+make -C src DESTDIR="$${OUT_DIR}/gperf_install" install
+GPERF_ROOT="$${OUT_DIR}/gperf_install/usr"
+
+BISON_SRC="$${REPO_ROOT}/$(execpath //third_party/pg_extension_toolchain/bison:source_tree)"
+if [[ -d "$${OUT_DIR}/bison_src" ]]; then
+  chmod -R u+w "$${OUT_DIR}/bison_src"
+  rm -rf "$${OUT_DIR}/bison_src"
+fi
+mkdir -p "$${OUT_DIR}/bison_src"
+cp -a "$${BISON_SRC}/." "$${OUT_DIR}/bison_src"
+chmod -R u+w "$${OUT_DIR}/bison_src"
+cd "$${OUT_DIR}/bison_src"
+export PATH="$${GPERF_ROOT}/bin:$${FLEX_ROOT}/bin:$${PATH}"
+export HELP2MAN=true
+export MAKEINFO=true
+export TEXI2DVI=true
+export TEXI2PDF=true
+export INFO_DEPS=""
+./configure --prefix=/usr --disable-nls
+make INFO_DEPS="" -j4
+make INFO_DEPS="" DESTDIR="$${OUT_DIR}/bison_install" install
+BISON_ROOT="$${OUT_DIR}/bison_install/usr"
+cd "$${OUT_DIR}/age"
+
+cp "$${REPO_ROOT}/$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wrapper_age.sh"
+chmod +x "$${OUT_DIR}/pg_config_wrapper_age.sh"
+cp "$${REPO_ROOT}/$(location //docker/images:pg_config_rewrite.py)" "$${OUT_DIR}/pg_config_rewrite.py"
+
 export CNPG_ROOT="$${ROOT_DIR}"
 export CNPG_REAL_PG_CONFIG="$${ROOT_DIR}/usr/lib/postgresql/16/bin/pg_config"
-export PATH="$${ROOT_DIR}/usr/lib/postgresql/16/bin:/usr/bin:/bin"
-export PKG_CONFIG_PATH="$${ROOT_DIR}/usr/lib/pkgconfig:$${ROOT_DIR}/usr/lib/x86_64-linux-gnu/pkgconfig"
+export PATH="$${BISON_ROOT}/bin:$${FLEX_ROOT}/bin:$${ROOT_DIR}/usr/lib/postgresql/16/bin:$${ROOT_DIR}/usr/bin:/usr/bin:/bin"
+export PKG_CONFIG_PATH="$${ROOT_DIR}/usr/lib/pkgconfig:$${ROOT_DIR}/usr/lib/x86_64-linux-gnu/pkgconfig:$${FLEX_ROOT}/lib/pkgconfig"
+export LD_LIBRARY_PATH="$${FLEX_ROOT}/lib:$${LD_LIBRARY_PATH:-}"
+export LIBRARY_PATH="$${FLEX_ROOT}/lib:$${LIBRARY_PATH:-}"
+export LDFLAGS="-L$${FLEX_ROOT}/lib $${LDFLAGS:-}"
+export BISON_PKGDATADIR="$${BISON_ROOT}/share/bison"
 cd "$${OUT_DIR}/age"
 make PG_CONFIG="$${OUT_DIR}/pg_config_wrapper_age.sh" FLEX=flex LEX=flex BISON=bison YACC="bison -y" -j4
 mkdir -p "$${OUT_DIR}/install_age"
@@ -1582,6 +1657,8 @@ if [[ ! -d "$${INSTALL_PREFIX}" ]]; then
   echo "AGE install prefix $${INSTALL_PREFIX} not found" >&2
   exit 1
 fi
+mkdir -p "$${INSTALL_PREFIX}/usr/lib"
+cp -a "$${FLEX_ROOT}/lib/." "$${INSTALL_PREFIX}/usr/lib/" || true
 tar -C "$${INSTALL_PREFIX}" -cf "$${OUT_TAR}" .
 """,
 )

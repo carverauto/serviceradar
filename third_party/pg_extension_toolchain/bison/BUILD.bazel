@@ -1,0 +1,10 @@
+load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
+
+package(default_visibility = ["//visibility:public"])
+
+copy_to_directory(
+    name = "source_tree",
+    srcs = ["@bison_src//:all_srcs"],
+    out = "src",
+    include_external_repositories = ["**"],
+)
