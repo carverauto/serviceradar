@@ -13,7 +13,22 @@ RUN set -eux; \
       perl \
       pkg-config \
       protobuf-compiler \
-      libssl-dev; \
+      libssl-dev \
+      curl \
+      jq; \
     rm -rf /var/lib/apt/lists/*
+
+# Install cosign for container signing/attestation
+ARG COSIGN_VERSION=v2.4.1
+RUN curl -sSfL https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64 \
+    -o /usr/local/bin/cosign && \
+    chmod +x /usr/local/bin/cosign && \
+    cosign version
+
+# Install syft for SBOM generation
+ARG SYFT_VERSION=v1.38.0
+RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | \
+    sh -s -- -b /usr/local/bin ${SYFT_VERSION} && \
+    syft version
 
 USER runner

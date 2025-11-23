@@ -1,0 +1,138 @@
+name: Generate Container Image SBOMs
+
+on:
+  workflow_run:
+    workflows: ["Publish Release Artifacts"]
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to generate SBOMs for"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write  # For cosign keyless signing
+
+jobs:
+  generate-image-sboms:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    strategy:
+      matrix:
+        image:
+          - name: serviceradar-core
+            repo: ghcr.io/carverauto/serviceradar-core
+          - name: serviceradar-agent
+            repo: ghcr.io/carverauto/serviceradar-agent
+          - name: serviceradar-zen
+            repo: ghcr.io/carverauto/serviceradar-zen
+          - name: serviceradar-mapper
+            repo: ghcr.io/carverauto/serviceradar-mapper
+          - name: serviceradar-datasvc
+            repo: ghcr.io/carverauto/serviceradar-datasvc
+          - name: serviceradar-poller
+            repo: ghcr.io/carverauto/serviceradar-poller
+          - name: serviceradar-sync
+            repo: ghcr.io/carverauto/serviceradar-sync
+          - name: serviceradar-flowgger
+            repo: ghcr.io/carverauto/serviceradar-flowgger
+          - name: serviceradar-trapd
+            repo: ghcr.io/carverauto/serviceradar-trapd
+          - name: serviceradar-otel
+            repo: ghcr.io/carverauto/serviceradar-otel
+          - name: serviceradar-web
+            repo: ghcr.io/carverauto/serviceradar-web
+          - name: serviceradar-srql
+            repo: ghcr.io/carverauto/serviceradar-srql
+          - name: serviceradar-db-event-writer
+            repo: ghcr.io/carverauto/serviceradar-db-event-writer
+    steps:
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            # Extract tag from the triggering workflow
+            TAG=$(echo "${{ github.event.workflow_run.head_branch }}" | sed 's/refs\/tags\///')
+            echo "tag=${TAG:-latest}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate SBOM for ${{ matrix.image.name }}
+        run: |
+          IMAGE="${{ matrix.image.repo }}:${{ steps.tag.outputs.tag }}"
+          echo "Generating SBOM for ${IMAGE}"
+
+          syft "${IMAGE}" -o spdx-json > ${{ matrix.image.name }}.spdx.json
+
+          # Also generate human-readable table format
+          syft "${IMAGE}" -o table > ${{ matrix.image.name }}.sbom.txt
+
+      - name: Attach SBOM as attestation
+        run: |
+          IMAGE="${{ matrix.image.repo }}:${{ steps.tag.outputs.tag }}"
+          echo "Attaching SBOM attestation to ${IMAGE}"
+
+          # Use keyless signing (OIDC)
+          cosign attest --yes \
+            --predicate ${{ matrix.image.name }}.spdx.json \
+            --type spdx \
+            "${IMAGE}"
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.image.name }}-sbom
+          path: |
+            ${{ matrix.image.name }}.spdx.json
+            ${{ matrix.image.name }}.sbom.txt
+          retention-days: 90
+
+      - name: Attach SBOM to release
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag, 'v'))
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          gh release upload "${TAG}" \
+            ${{ matrix.image.name }}.spdx.json \
+            ${{ matrix.image.name }}.sbom.txt \
+            --clobber || echo "Failed to upload to release, continuing..."
+
+  summary:
+    needs: generate-image-sboms
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Container Image SBOM Generation Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "SBOMs generated for all ServiceRadar container images." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Verify Attestations" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "# Example: Verify SBOM attestation" >> $GITHUB_STEP_SUMMARY
+          echo "cosign verify-attestation \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --type spdx \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --certificate-identity-regexp='.*' \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --certificate-oidc-issuer-regexp='.*' \\" >> $GITHUB_STEP_SUMMARY
+          echo "  ghcr.io/carverauto/serviceradar-core:latest" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
