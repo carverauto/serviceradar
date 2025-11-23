@@ -79,44 +79,60 @@ jobs:
           fi
 
       - name: Generate SBOM for ${{ matrix.image.name }}
+        env:
+          IMAGE_REPO: ${{ matrix.image.repo }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          IMAGE_NAME: ${{ matrix.image.name }}
         run: |
-          IMAGE="${{ matrix.image.repo }}:${{ steps.tag.outputs.tag }}"
+          IMAGE="${IMAGE_REPO}:${TAG}"
           echo "Generating SBOM for ${IMAGE}"
 
-          syft "${IMAGE}" -o spdx-json > ${{ matrix.image.name }}.spdx.json
+          syft "${IMAGE}" -o spdx-json > "${IMAGE_NAME}.spdx.json"
 
           # Also generate human-readable table format
-          syft "${IMAGE}" -o table > ${{ matrix.image.name }}.sbom.txt
+          syft "${IMAGE}" -o table > "${IMAGE_NAME}.sbom.txt"
 
       - name: Attach SBOM as attestation
+        env:
+          IMAGE_REPO: ${{ matrix.image.repo }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          IMAGE_NAME: ${{ matrix.image.name }}
         run: |
-          IMAGE="${{ matrix.image.repo }}:${{ steps.tag.outputs.tag }}"
+          IMAGE="${IMAGE_REPO}:${TAG}"
           echo "Attaching SBOM attestation to ${IMAGE}"
 
           # Use keyless signing (OIDC)
           cosign attest --yes \
-            --predicate ${{ matrix.image.name }}.spdx.json \
+            --predicate "${IMAGE_NAME}.spdx.json" \
             --type spdx \
             "${IMAGE}"
 
       - name: Upload SBOM artifacts
+        env:
+          IMAGE_NAME: ${{ matrix.image.name }}
+        run: |
+          # Create artifact directory
+          mkdir -p sbom-artifacts
+          mv "${IMAGE_NAME}.spdx.json" "sbom-artifacts/"
+          mv "${IMAGE_NAME}.sbom.txt" "sbom-artifacts/"
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.image.name }}-sbom
-          path: |
-            ${{ matrix.image.name }}.spdx.json
-            ${{ matrix.image.name }}.sbom.txt
+          path: sbom-artifacts/
           retention-days: 90
 
       - name: Attach SBOM to release
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag, 'v'))
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          IMAGE_NAME: ${{ matrix.image.name }}
         run: |
-          TAG="${{ steps.tag.outputs.tag }}"
           gh release upload "${TAG}" \
-            ${{ matrix.image.name }}.spdx.json \
-            ${{ matrix.image.name }}.sbom.txt \
+            "sbom-artifacts/${IMAGE_NAME}.spdx.json" \
+            "sbom-artifacts/${IMAGE_NAME}.sbom.txt" \
             --clobber || echo "Failed to upload to release, continuing..."
 
   summary:
