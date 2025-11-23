@@ -1,82 +1,93 @@
 # syntax=docker/dockerfile:1
 
-# Custom RBE executor image based on Oracle Linux 9 with development tooling.
-# This image provides a hermetic build environment for BuildBuddy RBE with RPM building support.
+# Custom RBE executor image based on Ubuntu 24.04 with development tooling.
+# This image provides a hermetic build environment for BuildBuddy RBE.
 
-FROM --platform=linux/amd64 oraclelinux:9
+FROM --platform=linux/amd64 ubuntu:24.04
+
+# Set non-interactive frontend for apt to prevent prompts
+ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-lc"]
 
-# Install build dependencies
-RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
-    && dnf config-manager --enable ol9_codeready_builder \
-    && dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm \
-    && dnf -qy module disable postgresql \
-    && dnf install -y \
+# 1. Install basic setup tools, repository handling, and common dependencies
+# 2. Setup PostgreSQL official repo for version 16
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        gnupg \
+        lsb-release \
+        wget \
+        software-properties-common \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    && sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list' \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        # Build Tools & Compilers
+        build-essential \
+        gcc \
+        g++ \
+        clang \
+        llvm \
+        llvm-dev \
+        make \
+        cmake \
+        pkg-config \
+        # Container Tools
         skopeo \
         podman \
         podman-docker \
         slirp4netns \
         fuse-overlayfs \
-        containernetworking-plugins \
         iptables \
-        gcc-toolset-13 \
-        bpftool \
-        ca-certificates \
-        clang \
-        curl \
-        createrepo_c \
-        git \
-        gmp-devel \
-        libbpf-devel \
-        libev-devel \
-        libzstd-devel \
-        llvm \
-        llvm-libs \
-        lz4-devel \
-        m4 \
-        make \
-        openssl-devel \
-        patch \
-        perl \
-        pkgconfig \
-        postgresql16-devel \
+        # Database / Libs
+        postgresql-server-dev-16 \
+        libpq-dev \
+        libssl-dev \
+        zlib1g-dev \
+        liblz4-dev \
+        libzstd-dev \
+        libgmp-dev \
+        libev-dev \
+        libbpf-dev \
+        linux-tools-generic \
         protobuf-compiler \
-        protobuf-devel \
-        rpm-build \
-        rpm-sign \
-        rpmdevtools \
-        redhat-rpm-config \
+        libprotobuf-dev \
+        # Utils
+        git \
+        patch \
+        unzip \
         rsync \
         tar \
-        unzip \
-        which \
-        zlib-devel \
-    && dnf clean all \
-    && ldconfig
+        m4 \
+        perl \
+        # RPM Building on Debian
+        rpm \
+        createrepo-c \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Ensure the newer GCC toolchain is seen via the conventional /usr/bin paths so
-# Bazel toolchains that invoke /usr/bin/gcc use the upgraded compiler.
-RUN ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/gcc /usr/bin/gcc \
-    && ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/g++ /usr/bin/g++
+# Ubuntu 24.04 defaults to GCC 13+, so we do not need the 'ln -sf' hacks 
+# that were required for Oracle Linux gcc-toolset-13.
 
+# Set Environment Variables
+# Note: On Ubuntu, Postgres libraries are usually in standard paths or /usr/lib/postgresql/16/lib
 ENV CC=/usr/bin/gcc \
     CXX=/usr/bin/g++ \
     XDG_RUNTIME_DIR=/run/user/0 \
     RUSTUP_HOME=/opt/rustup \
     CARGO_HOME=/opt/cargo \
-    PATH=/opt/cargo/bin:/opt/rh/gcc-toolset-13/root/usr/bin:$PATH \
-    LIBRARY_PATH=/usr/pgsql-16/lib \
-    LD_LIBRARY_PATH=/usr/pgsql-16/lib \
-    PKG_CONFIG_PATH=/usr/pgsql-16/lib/pkgconfig
+    PATH=/opt/cargo/bin:$PATH \
+    # Ubuntu places pg_config headers in standard locations or specific include dirs.
+    # We add the specific pgsql pkgconfig path just in case, though often not strictly needed on Debian.
+    PKG_CONFIG_PATH=/usr/lib/postgresql/16/lib/pkgconfig:$PKG_CONFIG_PATH
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
 
 ARG GHCR_CNPG_IMAGE="ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr1"
 ARG GHCR_USERNAME=""
 
-# Fetch the CNPG test fixture image into a local docker-archive so Bazel
-# executors can load it without network access. If no secret is provided,
-# skip the pull (the image remains optional).
+# Fetch the CNPG test fixture image into a local docker-archive.
+# This logic remains identical to the original, relying on skopeo.
 RUN --mount=type=secret,id=ghcr_token <<'EOF'
 set -euo pipefail
 TOKEN_FILE="/run/secrets/ghcr_token"
