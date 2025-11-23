@@ -263,12 +263,11 @@ jobs:
             args+=("--overwrite_assets=${OVERWRITE_ASSETS}")
           fi
 
-          # Build and upload packages locally so rpmbuild is guaranteed to be present on the runner.
           bazel run \
-            --config=no_remote \
+            --config=remote \
             --host_platform=@local_config_platform//:host \
             --platforms=//build/platforms:linux_pkg_local \
-            --@rules_pkg//toolchains/rpm:is_rpmbuild_available=1 \
+            --@rules_pkg//toolchains/rpm \
             --stamp \
             //release:publish_packages \
             -- "${args[@]}"
