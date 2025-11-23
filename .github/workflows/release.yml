@@ -70,11 +70,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install rpmbuild tooling
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y rpm rpm2cpio
-
       - name: Configure BuildBuddy remote cache
         if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
         run: |
@@ -240,40 +235,9 @@ jobs:
             args+=("--overwrite_assets=${OVERWRITE_ASSETS}")
           fi
 
-          sudo apt-get update -y
-          sudo apt-get install -y rpm
-
-          sudo apt-get update -y
-          sudo apt-get install -y rpm rpm2cpio || true
-          if ! command -v rpmbuild >/dev/null 2>&1; then
-            echo "rpmbuild not found after installation" >&2
-            exit 1
-          fi
-          rpmbuild --version
-
-          # Nuking externals so the rpmbuild toolchain repo is regenerated with rpmbuild present.
-          bazel clean --expunge
-
-          # Run locally to ensure rpmbuild is available and avoid executor-specific tool gaps.
-          export OPENSSL_DIR=/usr
-          export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
-          export OPENSSL_INCLUDE_DIR=/usr/include
-
+          # Build and upload packages using the RBE executor (rpmbuild is baked into the toolchain image).
           bazel run \
-            --config=no_remote \
-            --host_platform=@local_config_platform//:host \
-            --platforms=@local_config_platform//:host \
-            --remote_executor= \
-            --remote_cache= \
-            --noremote_accept_cached \
-            --noremote_upload_local_results \
-            --action_env=OPENSSL_DIR=/usr \
-            --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu \
-            --action_env=OPENSSL_INCLUDE_DIR=/usr/include \
-            --repo_env=OPENSSL_DIR=/usr \
-            --repo_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu \
-            --repo_env=OPENSSL_INCLUDE_DIR=/usr/include \
-            --jobs=8 \
+            --config=remote \
             --stamp \
             //release:publish_packages \
             -- "${args[@]}"
