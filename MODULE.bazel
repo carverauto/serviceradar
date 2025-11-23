@@ -730,6 +730,10 @@ http_archive(
     build_file_content = """
 package(default_visibility = ["//visibility:public"])
 filegroup(
+    name = "cmake_share",
+    srcs = glob(["share/**"]),
+)
+filegroup(
     name = "cmake_bin",
     srcs = ["bin/cmake"],
 )
@@ -738,6 +742,54 @@ filegroup(
     strip_prefix = "cmake-3.30.4-linux-x86_64",
     urls = [
         "https://github.com/Kitware/CMake/releases/download/v3.30.4/cmake-3.30.4-linux-x86_64.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "flex_src",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
+)
+""",
+    sha256 = "e87aae032bf07c26f85ac0ed3250998c37621d95f8bd748b31f15b33c45ee995",
+    strip_prefix = "flex-2.6.4",
+    urls = [
+        "https://github.com/westes/flex/releases/download/v2.6.4/flex-2.6.4.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "bison_src",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
+)
+""",
+    sha256 = "06c9e13bdf7eb24d4ceb6b59205a4f67c2c7e7213119644430fe82fbd14a0abb",
+    strip_prefix = "bison-3.8.2",
+    urls = [
+        "https://ftp.gnu.org/gnu/bison/bison-3.8.2.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "gperf_src",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
+)
+""",
+    sha256 = "588546b945bba4b70b6a3a616e80b4ab466e3f33024a352fc2198112cdbb3ae2",
+    strip_prefix = "gperf-3.1",
+    urls = [
+        "https://ftp.gnu.org/gnu/gperf/gperf-3.1.tar.gz",
     ],
 )
 
