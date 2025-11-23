@@ -70,6 +70,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Ensure rpmbuild available for rules_pkg toolchain
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y rpm rpm2cpio
+          if ! command -v rpmbuild >/dev/null 2>&1; then
+            echo "rpmbuild not found after install" >&2
+            exit 1
+          fi
+          rpmbuild --version
+
+      - name: Refresh Bazel externals after rpm install
+        run: |
+          # Force the rules_pkg rpmbuild toolchain to re-detect the system rpmbuild binary.
+          bazel clean --expunge
+
       - name: Configure BuildBuddy remote cache
         if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
         run: |
@@ -197,6 +212,15 @@ jobs:
               "${extra_args[@]}"
           fi
 
+      - name: Disable remote exec/cache for packaging
+        run: |
+          # Clear remote settings so packaging runs entirely on the runner.
+          cat > .bazelrc.remote <<'EOF'
+          build --remote_executor=
+          build --remote_cache=
+          build --remote_download_minimal
+          EOF
+
       - name: Publish Debian and RPM packages
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -235,9 +259,12 @@ jobs:
             args+=("--overwrite_assets=${OVERWRITE_ASSETS}")
           fi
 
-          # Build and upload packages using the RBE executor (rpmbuild is baked into the toolchain image).
+          # Build and upload packages locally so rpmbuild is guaranteed to be present on the runner.
           bazel run \
-            --config=remote \
+            --config=no_remote \
+            --host_platform=@local_config_platform//:host \
+            --platforms=//build/platforms:linux_pkg_local \
+            --@rules_pkg//toolchains/rpm:is_rpmbuild_available=1 \
             --stamp \
             //release:publish_packages \
             -- "${args[@]}"
