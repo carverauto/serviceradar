@@ -264,7 +264,7 @@ jobs:
           fi
 
           bazel run \
-            --config=no_remote \
+            --config=remote \
             --host_platform=@local_config_platform//:host \
             --platforms=//build/platforms:linux_pkg_local \
             --//toolchains/rpm:is_rpmbuild_available=1 \
