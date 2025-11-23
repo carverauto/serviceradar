@@ -267,7 +267,7 @@ jobs:
             --config=remote \
             --host_platform=@local_config_platform//:host \
             --platforms=//build/platforms:linux_pkg_local \
-            --@rules_pkg//toolchains/rpm \
+            --//toolchains/rpm:is_rpmbuild_available=1 \
             --stamp \
             //release:publish_packages \
             -- "${args[@]}"
