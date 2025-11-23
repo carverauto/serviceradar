@@ -6,3 +6,12 @@ template:
     containers:
       - name: runner
         image: ghcr.io/carverauto/arc-runner@sha256:65747d9c69dbd85e37b9105496cf8b410fdadb9022a2d0877e8c6062ddd95a6c
+        command:
+          - /home/runner/run.sh
+        args:
+          - --jitconfig
+          - $(ACTIONS_RUNNER_INPUT_JITCONFIG)
+          - --once
+        env:
+          - name: ACTIONS_RUNNER_LABELS
+            value: self-hosted,Linux,X64,arc-runner-set

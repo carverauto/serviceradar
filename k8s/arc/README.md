@@ -24,7 +24,16 @@ template:
   spec:
     containers:
     - name: runner
-      image: ghcr.io/carverauto/arc-runner:latest
+      image: ghcr.io/carverauto/arc-runner@sha256:65747d9c69dbd85e37b9105496cf8b410fdadb9022a2d0877e8c6062ddd95a6c
+      command:
+        - /home/runner/run.sh
+      args:
+        - --jitconfig
+        - $(ACTIONS_RUNNER_INPUT_JITCONFIG)
+        - --once
+      env:
+        - name: ACTIONS_RUNNER_LABELS
+          value: self-hosted,Linux,X64,arc-runner-set
 ```
 
 Then install with:
@@ -39,3 +48,6 @@ helm install <name> \
 ```
 
 Adjust secrets/labels as needed; the key is ensuring the runner image has the tooling above so Bazel `genrule` work that must run locally can succeed.
+
+Symptom/resolution note:
+- If runners start and immediately exit/Complete, ensure the command/args above are set so the runner actually launches `/home/runner/run.sh --jitconfig ... --once` with the desired labels.
