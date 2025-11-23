@@ -1574,13 +1574,19 @@ cp "$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wra
 chmod +x "$${OUT_DIR}/pg_config_wrapper_age.sh"
 cp "$(location //docker/images:pg_config_rewrite.py)" "$${OUT_DIR}/pg_config_rewrite.py"
 
+# Create symlinks for flex and bison so they can be found by make
+mkdir -p "$${OUT_DIR}/bin"
+ln -sf "$${ROOT_DIR}/usr/bin/flex" "$${OUT_DIR}/bin/flex"
+ln -sf "$${ROOT_DIR}/usr/bin/bison" "$${OUT_DIR}/bin/bison"
+chmod +x "$${ROOT_DIR}/usr/bin/flex" "$${ROOT_DIR}/usr/bin/bison" || true
+
 export CNPG_ROOT="$${ROOT_DIR}"
 export CNPG_REAL_PG_CONFIG="$${ROOT_DIR}/usr/lib/postgresql/16/bin/pg_config"
-export PATH="$${ROOT_DIR}/usr/lib/postgresql/16/bin:$${ROOT_DIR}/usr/bin:/usr/bin:/bin"
+export PATH="$${OUT_DIR}/bin:$${ROOT_DIR}/usr/lib/postgresql/16/bin:$${ROOT_DIR}/usr/bin:/usr/bin:/bin"
 export PKG_CONFIG_PATH="$${ROOT_DIR}/usr/lib/pkgconfig:$${ROOT_DIR}/usr/lib/x86_64-linux-gnu/pkgconfig"
-export YACC="bison -y"
-export FLEX="$${ROOT_DIR}/usr/bin/flex"
-export LEX="$${ROOT_DIR}/usr/bin/flex"
+export YACC="$${OUT_DIR}/bin/bison -y"
+export FLEX="$${OUT_DIR}/bin/flex"
+export LEX="$${OUT_DIR}/bin/flex"
 cd "$${OUT_DIR}/age"
 make PG_CONFIG="$${OUT_DIR}/pg_config_wrapper_age.sh" -j4
 mkdir -p "$${OUT_DIR}/install_age"
