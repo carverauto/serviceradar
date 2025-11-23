@@ -14,6 +14,67 @@ exports_files([
 
 package(default_visibility = ["//visibility:public"])
 
+# ARC runner image -----------------------------------------------------------
+
+genrule(
+    name = "arc_runner_rootfs_tar",
+    srcs = ["//docker/arc-runner:Dockerfile"],
+    outs = ["arc_runner_rootfs.tar"],
+    local = True,
+    cmd = """
+set -euo pipefail
+DOCKERFILE="$(location //docker/arc-runner:Dockerfile)"
+if [[ "$${DOCKERFILE}" != /* ]]; then
+  DOCKERFILE="$$(pwd)/$${DOCKERFILE}"
+fi
+CONTEXT="$${DOCKERFILE%/*}"
+IMAGE="arc-runner-bazel-$${RANDOM}-$${RANDOM}"
+CID=""
+DOCKER="docker"
+cleanup() {
+  if [[ -n "$${CID}" ]]; then
+    "$${DOCKER}" rm -f "$${CID}" >/dev/null 2>&1 || true
+  fi
+  "$${DOCKER}" rmi -f "$${IMAGE}" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+"$${DOCKER}" build -t "$${IMAGE}" -f "$${DOCKERFILE}" "$${CONTEXT}"
+CID="$$( "$${DOCKER}" create "$${IMAGE}" )"
+OUT="$$(pwd)/$@"
+"$${DOCKER}" export "$${CID}" -o "$${OUT}"
+cleanup
+""",
+)
+
+oci_image(
+    name = "arc_runner_image_amd64",
+    tars = [":arc_runner_rootfs_tar"],
+    os = "linux",
+    architecture = "amd64",
+    cmd = ["/bin/bash"],
+    env = {
+        "ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT": "1",
+        "APP_UID": "1654",
+        "ASPNETCORE_HTTP_PORTS": "8080",
+        "DEBIAN_FRONTEND": "noninteractive",
+        "DOTNET_RUNNING_IN_CONTAINER": "true",
+        "ImageOS": "ubuntu22",
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "RUNNER_MANUALLY_TRAP_SIG": "1",
+    },
+    user = "runner",
+    workdir = "/home/runner",
+    labels = {
+        "org.opencontainers.image.title": "arc-runner",
+    },
+)
+
+oci_load(
+    name = "arc_runner_image_amd64_tar",
+    image = ":arc_runner_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/arc-runner:local"],
+)
+
 pkg_tar(
     name = "common_tools_amd64",
     files = {

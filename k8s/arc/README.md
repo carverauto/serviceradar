@@ -4,9 +4,11 @@ We hit missing host tools (cmake, flex, protoc, perl/OpenSSL) when publishing im
 
 ## Build/push runner image
 
+Use Bazel to build/push the runner so it stays aligned with the rest of the
+image pipeline:
+
 ```
-docker build -t ghcr.io/carverauto/serviceradar/arc-runner:latest -f docker/arc-runner/Dockerfile .
-docker push ghcr.io/carverauto/serviceradar/arc-runner:latest
+bazel run //docker/images:arc_runner_image_amd64_push
 ```
 
 ## Helm install override (gha-runner-scale-set)
@@ -22,7 +24,7 @@ template:
   spec:
     containers:
     - name: runner
-      image: ghcr.io/carverauto/serviceradar/arc-runner:latest
+      image: ghcr.io/carverauto/arc-runner:latest
 ```
 
 Then install with:
