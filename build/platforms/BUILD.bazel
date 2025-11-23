@@ -36,6 +36,17 @@ platform(
     visibility = ["//visibility:public"],
 )
 
+# Local Linux platform that explicitly satisfies rules_pkg's rpm compatibility gate.
+platform(
+    name = "linux_pkg_local",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+        "@rules_pkg//pkg:not_compatible",
+    ],
+    visibility = ["//visibility:public"],
+)
+
 # Remote execution platforms for BuildBuddy
 platform(
     name = "rbe_linux_amd64",
