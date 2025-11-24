@@ -4,7 +4,7 @@ image:
   tags:
     core: latest
     web: latest
-    nats: latest
+    nats: "2.12.2-alpine"
     datasvc: latest
     agent: latest
     poller: latest
