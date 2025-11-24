@@ -676,7 +676,7 @@ pkg_tar(
 
 oci_image(
     name = "trapd_image_amd64",
-    base = "@ubuntu_jammy_linux_amd64//:ubuntu_jammy_linux_amd64",
+    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
     tars = [":common_tools_amd64", ":trapd_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["serviceradar-trapd"],
@@ -718,7 +718,7 @@ pkg_tar(
 
 oci_image(
     name = "otel_image_amd64",
-    base = "@ubuntu_jammy_linux_amd64//:ubuntu_jammy_linux_amd64",
+    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
     tars = [":common_tools_amd64", ":otel_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["serviceradar-otel"],
@@ -804,7 +804,7 @@ pkg_tar(
 
 oci_image(
     name = "rperf_client_image_amd64",
-    base = "@debian_bookworm_slim_linux_amd64//:debian_bookworm_slim_linux_amd64",
+    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
     tars = [":common_tools_amd64", ":rperf_client_layer_amd64"],
     entrypoint = ["/usr/local/bin/entrypoint.sh"],
     cmd = ["/usr/local/bin/serviceradar-rperf-checker", "--config", "/etc/serviceradar/checkers/rperf.json"],
