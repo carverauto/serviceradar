@@ -1,4 +1,4 @@
-// Copyright 2012-2024 The NATS Authors
+// Copyright 2012-2025 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -245,6 +245,10 @@ func (s *Server) RateLimitDebugf(format string, v ...any) {
 
 // Fatalf logs a fatal error
 func (s *Server) Fatalf(format string, v ...any) {
+	if s.isShuttingDown() {
+		s.Errorf(format, v)
+		return
+	}
 	s.executeLogCall(func(logger Logger, format string, v ...any) {
 		logger.Fatalf(format, v...)
 	}, format, v...)
