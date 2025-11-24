@@ -895,10 +895,10 @@ http_archive(
     build_file_content = """
 exports_files(["nats"])
 """,
-    sha256 = "7c94cbee0295a828615fb4e0ffa730c3939fc3139db085a4e158592abb4bd5f0",
-    strip_prefix = "nats-0.1.3-linux-amd64",
+    sha256 = "965a1a68a67a20cf9513f6e3fec612bbef81d25d519177c460afddbcf72e1d4b",
+    strip_prefix = "nats-0.3.0-linux-amd64",
     urls = [
-        "https://github.com/nats-io/natscli/releases/download/v0.1.3/nats-0.1.3-linux-amd64.zip",
+        "https://github.com/nats-io/natscli/releases/download/v0.3.0/nats-0.3.0-linux-amd64.zip",
     ],
 )
 
@@ -962,10 +962,10 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 """,
-    sha256 = "84192cee46c62760d9c259a97f373b73bccadc41be779c26ef676542ae15daf6",
-    strip_prefix = "nats-server-v2.11.4-linux-amd64",
+    sha256 = "db587fd8b36ac732a8434e748b026ef77ed9cb714a4e57bd010b1de93c2f3801",
+    strip_prefix = "nats-server-v2.12.2-linux-amd64",
     urls = [
-        "https://github.com/nats-io/nats-server/releases/download/v2.11.4/nats-server-v2.11.4-linux-amd64.tar.gz",
+        "https://github.com/nats-io/nats-server/releases/download/v2.12.2/nats-server-v2.12.2-linux-amd64.tar.gz",
     ],
 )
 
