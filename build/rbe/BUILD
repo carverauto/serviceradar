@@ -10,7 +10,7 @@ platform(
         "OSFamily": "Linux",
         "Arch": "amd64",
         "dockerNetwork": "host",
-        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.16",
+        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.17",
     },
     visibility = ["//visibility:public"],
 )
