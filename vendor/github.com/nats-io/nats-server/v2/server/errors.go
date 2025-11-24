@@ -1,4 +1,4 @@
-// Copyright 2012-2024 The NATS Authors
+// Copyright 2012-2025 The NATS Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -30,6 +30,14 @@ var (
 
 	// ErrAuthExpired represents an expired authorization due to timeout.
 	ErrAuthExpired = errors.New("authentication expired")
+
+	// ErrAuthProxyNotTrusted represents an error condition on failed authentication
+	// due to a connection from a proxy not in the list of trusted proxies.
+	ErrAuthProxyNotTrusted = errors.New("proxy is not trusted")
+
+	// ErrAuthProxyRequired represents an error condition on failed authentication
+	// due to a connection not coming from a proxy.
+	ErrAuthProxyRequired = errors.New("proxy connection required")
 
 	// ErrMaxPayload represents an error condition when the payload is too big.
 	ErrMaxPayload = errors.New("maximum payload exceeded")

@@ -556,8 +556,8 @@
     },
     "build_method": "external",
     "external_binary": {
-      "source_url": "https://github.com/nats-io/nats-server/releases/download/v2.11.4/nats-server-v2.11.4-linux-amd64.tar.gz",
-      "extract_path": "nats-server-v2.11.4-linux-amd64/nats-server",
+      "source_url": "https://github.com/nats-io/nats-server/releases/download/v2.12.2/nats-server-v2.12.2-linux-amd64.tar.gz",
+      "extract_path": "nats-server-v2.12.2-linux-amd64/nats-server",
       "output_path": "/usr/bin/nats-server"
     },
     "config_files": [

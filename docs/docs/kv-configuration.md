@@ -362,7 +362,7 @@ If the KV service can't connect to NATS:
 
 ```bash
 # Install the NATS CLI if needed
-go install github.com/nats-io/natscli/nats@latest
+go install github.com/nats-io/natscli/nats@v0.3.0
 
 # Test the NATS connection with mTLS
 nats server check --server nats://localhost:4222 \
