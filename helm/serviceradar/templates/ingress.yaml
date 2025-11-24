@@ -5,7 +5,16 @@ metadata:
   name: {{ include "serviceradar.fullname" . }}
   annotations:
     external-dns.alpha.kubernetes.io/hostname: {{ .Values.ingress.host | quote }}
+    {{- if and .Values.ingress.tls.enabled .Values.ingress.tls.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.tls.clusterIssuer | quote }}
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
   {{- if .Values.ingress.tls.enabled }}
   tls:
     - secretName: {{ .Values.ingress.tls.secretName | quote }}

@@ -1,0 +1,7 @@
+# Overrides for the demo-staging environment.
+ingress:
+  host: demo-staging.serviceradar.cloud
+  className: nginx
+  tls:
+    secretName: serviceradar-staging-tls
+    clusterIssuer: carverauto-issuer
