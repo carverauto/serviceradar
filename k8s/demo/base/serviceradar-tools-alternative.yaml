@@ -45,7 +45,7 @@ spec:
           
           # Install Go tools
           go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
-          go install github.com/nats-io/natscli/nats@latest
+          go install github.com/nats-io/natscli/nats@v0.3.0
           
           # Copy tools to shared volume
           cp /usr/local/go/bin/go /shared/

@@ -58,7 +58,7 @@ RUN mkdir -p /go/bin /go/src /go/pkg
 
 # Install Go-based debugging tools
 RUN go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest && \
-    go install github.com/nats-io/natscli/nats@latest
+    go install github.com/nats-io/natscli/nats@v0.3.0
 
 # Copy serviceradar-cli from builder stage
 COPY --from=builder /src/serviceradar-cli /usr/local/bin/serviceradar-cli
