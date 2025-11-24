@@ -10,6 +10,7 @@ RUN set -eux; \
       cmake \
       flex \
       bison \
+      gperf \
       perl \
       pkg-config \
       protobuf-compiler \
