@@ -16513,7 +16513,7 @@
     "@@toolchains_buildbuddy+//:extensions.bzl%buildbuddy": {
       "general": {
         "bzlTransitiveDigest": "u7Z+AlfJgGgFZGxPEfZkeEkTzEkgIYkIxgokZ5953dE=",
-        "usagesDigest": "BJrSjrYTPhF49we7IEJ2SGqbO1fg7++1udHDcsWvcPs=",
+        "usagesDigest": "yOL0yIQrzP2BGeHnvG78i6X1XIhBsgj+Cycia5uL0PM=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -16521,7 +16521,7 @@
           "buildbuddy_toolchain": {
             "repoRuleId": "@@toolchains_buildbuddy+//:rules.bzl%_buildbuddy_toolchain",
             "attributes": {
-              "container_image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.14",
+              "container_image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.15",
               "llvm": false,
               "java_version": "",
               "gcc_version": "13",
