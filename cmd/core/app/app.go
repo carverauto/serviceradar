@@ -36,6 +36,7 @@ type Options struct {
 	BackfillSeedKV    bool
 	BackfillIPs       bool
 	BackfillNamespace string
+	DisableWatch      bool
 }
 
 // Run boots the core service using the provided options.
@@ -53,7 +54,7 @@ func Run(ctx context.Context, opts Options) error {
 	bootstrapResult, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, &cfg, defaultConfig, cfgbootstrap.ServiceOptions{
 		Role:         models.RoleCore,
 		ConfigPath:   opts.ConfigPath,
-		DisableWatch: true,
+		DisableWatch: opts.DisableWatch,
 	})
 	if err != nil {
 		return err

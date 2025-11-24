@@ -263,6 +263,48 @@ func TestKVManagerOverlayConfigNormalizesSecurity(t *testing.T) {
 	}
 }
 
+func TestKVManagerOverlayConfigStripsAuthSecrets(t *testing.T) {
+	manager := &KVManager{
+		client: &fakeKVStore{
+			values: map[string][]byte{
+				"config/service.json": []byte(`{
+					"listen_addr": ":9090",
+					"auth": {
+						"local_users": {"admin": "kv-hash"},
+						"jwt_secret": "kv-secret"
+					}
+				}`),
+			},
+		},
+	}
+
+	cfg := struct {
+		ListenAddr string `json:"listen_addr"`
+		Auth       struct {
+			LocalUsers map[string]string `json:"local_users"`
+			JWTSecret  string            `json:"jwt_secret"`
+		} `json:"auth"`
+	}{
+		ListenAddr: ":8080",
+	}
+	cfg.Auth.LocalUsers = map[string]string{"admin": "secret-hash"}
+	cfg.Auth.JWTSecret = "secret-value"
+
+	if err := manager.OverlayConfig(context.Background(), "config/service.json", &cfg); err != nil {
+		t.Fatalf("OverlayConfig returned error: %v", err)
+	}
+
+	if cfg.ListenAddr != ":9090" {
+		t.Fatalf("expected listen_addr to overlay, got %q", cfg.ListenAddr)
+	}
+	if got := cfg.Auth.LocalUsers["admin"]; got != "secret-hash" {
+		t.Fatalf("expected local_users to stay at secret value, got %q", got)
+	}
+	if cfg.Auth.JWTSecret != "secret-value" {
+		t.Fatalf("expected jwt_secret to stay at secret value, got %q", cfg.Auth.JWTSecret)
+	}
+}
+
 func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
 	initialKV := []byte(`{"listen_addr":":8080","logging":{"level":"info"}}`)
 	store := newWatchKVStore(initialKV)

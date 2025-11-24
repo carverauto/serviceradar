@@ -58,6 +58,7 @@ func StartKVWatchOverlay(ctx context.Context, kvStore cfgkv.KVStore, key string,
 		}()
 
 		if data, found, err := kvStore.Get(ctx, key); err == nil && found && len(data) > 0 {
+			data = dropSensitiveAuthFields(data)
 			if err := MergeOverlayBytes(dst, data); err != nil {
 				if watcherID != "" {
 					MarkWatcherEvent(watcherID, err)
@@ -97,6 +98,7 @@ func StartKVWatchOverlay(ctx context.Context, kvStore cfgkv.KVStore, key string,
 					continue
 				}
 
+				data = dropSensitiveAuthFields(data)
 				if err := MergeOverlayBytes(dst, data); err != nil {
 					if watcherID != "" {
 						MarkWatcherEvent(watcherID, err)
