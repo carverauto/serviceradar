@@ -180,7 +180,7 @@ spire:
     database: spire
     instances: 3
     storageClass: local-path
-    storageSize: 5Gi
+    storageSize: 100Gi
     secretName: spire-db-credentials
     username: spire
     password: changeme

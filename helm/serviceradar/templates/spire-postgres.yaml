@@ -103,7 +103,7 @@ spec:
     {{- end }}
   {{- end }}
   storage:
-    size: {{ default "5Gi" $pg.storageSize }}
+    size: {{ default "100Gi" $pg.storageSize }}
     {{- if $pg.storageClass }}
     storageClass: {{ $pg.storageClass }}
     {{- end }}
