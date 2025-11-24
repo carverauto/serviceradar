@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:latest AS builder
+FROM rust:1.78-bullseye AS builder
 
 WORKDIR /usr/src/serviceradar-rperf-checker
 

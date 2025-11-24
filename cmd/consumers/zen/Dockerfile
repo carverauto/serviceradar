@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:latest AS builder
+FROM rust:1.78-bullseye AS builder
 
 # Build from workspace root so path deps resolve
 WORKDIR /usr/src/serviceradar
