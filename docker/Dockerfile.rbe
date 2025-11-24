@@ -85,10 +85,7 @@ ENV CC=/usr/bin/gcc \
     PATH=/opt/cargo/bin:$PATH \
     # Ubuntu places pg_config headers in standard locations or specific include dirs.
     # We add the specific pgsql pkgconfig path just in case, though often not strictly needed on Debian.
-    PKG_CONFIG_PATH=/usr/lib/postgresql/16/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH \
-    OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu \
-    OPENSSL_INCLUDE_DIR=/usr/include \
-    OPENSSL_DIR=/usr
+    PKG_CONFIG_PATH=/usr/lib/postgresql/16/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
 
