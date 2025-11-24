@@ -1334,7 +1334,7 @@
     "@@rules_oci+//oci:extensions.bzl%oci": {
       "general": {
         "bzlTransitiveDigest": "anfgzQokiHri4FJRiW4KvwSfiR7ComgkDZBoR/2HI1I=",
-        "usagesDigest": "5sahfR5mL4L1qKcYM2NdxEg0ByVoNBrDoW7pNvi/3NA=",
+        "usagesDigest": "2eioN4h1so9Y5D+xtX9vNXjdZT3O2tnmpjXYFaDRN7k=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -1394,6 +1394,35 @@
                 "@@platforms//cpu:x86_64": "@actions_runner_linux_amd64"
               },
               "bzlmod_repository": "actions_runner",
+              "reproducible": true
+            }
+          },
+          "arc_runner_linux_amd64": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
+            "attributes": {
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "carverauto/arc-runner",
+              "identifier": "sha256:4d98cb36fc9a2dd82636e790d2be8c0d14de76584e90c91b7325fb811b8ef9fc",
+              "platform": "linux/amd64",
+              "target_name": "arc_runner_linux_amd64",
+              "bazel_tags": []
+            }
+          },
+          "arc_runner": {
+            "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
+            "attributes": {
+              "target_name": "arc_runner",
+              "www_authenticate_challenges": {},
+              "scheme": "https",
+              "registry": "ghcr.io",
+              "repository": "carverauto/arc-runner",
+              "identifier": "sha256:4d98cb36fc9a2dd82636e790d2be8c0d14de76584e90c91b7325fb811b8ef9fc",
+              "platforms": {
+                "@@platforms//cpu:x86_64": "@arc_runner_linux_amd64"
+              },
+              "bzlmod_repository": "arc_runner",
               "reproducible": true
             }
           },
@@ -1778,6 +1807,8 @@
             "ubuntu_jammy_linux_amd64",
             "actions_runner",
             "actions_runner_linux_amd64",
+            "arc_runner",
+            "arc_runner_linux_amd64",
             "alpine_3_20",
             "alpine_3_20_linux_amd64",
             "ubuntu_noble",
@@ -16513,7 +16544,7 @@
     "@@toolchains_buildbuddy+//:extensions.bzl%buildbuddy": {
       "general": {
         "bzlTransitiveDigest": "u7Z+AlfJgGgFZGxPEfZkeEkTzEkgIYkIxgokZ5953dE=",
-        "usagesDigest": "yOL0yIQrzP2BGeHnvG78i6X1XIhBsgj+Cycia5uL0PM=",
+        "usagesDigest": "CRQp51j7xEAwgkSPdBgPpNTSYxO1/tCVis3NHA8lpSM=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -16521,7 +16552,7 @@
           "buildbuddy_toolchain": {
             "repoRuleId": "@@toolchains_buildbuddy+//:rules.bzl%_buildbuddy_toolchain",
             "attributes": {
-              "container_image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.15",
+              "container_image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.16",
               "llvm": false,
               "java_version": "",
               "gcc_version": "13",

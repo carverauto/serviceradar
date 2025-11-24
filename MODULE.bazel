@@ -119,7 +119,7 @@ buildbuddy_toolchain_ext.gcc_toolchain(
 
 # Make the generated platform default to our custom executor image.
 buildbuddy_toolchain_ext.platform(
-    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.15",
+    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.16",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
@@ -145,6 +145,14 @@ oci_ext.pull(
     name = "actions_runner",
     digest = "sha256:25e5339f41c8511899dff6d9d1ee3d29d0aaca085f24b967f486e153e4368cc6",
     image = "ghcr.io/actions/actions-runner",
+    platforms = [
+        "linux/amd64",
+    ],
+)
+oci_ext.pull(
+    name = "arc_runner",
+    digest = "sha256:4d98cb36fc9a2dd82636e790d2be8c0d14de76584e90c91b7325fb811b8ef9fc",
+    image = "ghcr.io/carverauto/arc-runner",
     platforms = [
         "linux/amd64",
     ],
@@ -224,8 +232,12 @@ oci_ext.pull(
 )
 use_repo(
     oci_ext,
+    "actions_runner",
+    "actions_runner_linux_amd64",
     "alpine_3_20",
     "alpine_3_20_linux_amd64",
+    "arc_runner",
+    "arc_runner_linux_amd64",
     "cloudnativepg_postgresql_16_6",
     "cloudnativepg_postgresql_16_6_linux_amd64",
     "debian_bookworm_slim",
@@ -240,8 +252,6 @@ use_repo(
     "serviceradar_cert_generator_linux_amd64",
     "serviceradar_tools",
     "serviceradar_tools_linux_amd64",
-    "actions_runner",
-    "actions_runner_linux_amd64",
     "ubuntu_jammy",
     "ubuntu_jammy_linux_amd64",
     "ubuntu_noble",
@@ -742,54 +752,6 @@ filegroup(
     strip_prefix = "cmake-3.30.4-linux-x86_64",
     urls = [
         "https://github.com/Kitware/CMake/releases/download/v3.30.4/cmake-3.30.4-linux-x86_64.tar.gz",
-    ],
-)
-
-http_archive(
-    name = "flex_src",
-    build_file_content = """
-package(default_visibility = ["//visibility:public"])
-filegroup(
-    name = "all_srcs",
-    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
-)
-""",
-    sha256 = "e87aae032bf07c26f85ac0ed3250998c37621d95f8bd748b31f15b33c45ee995",
-    strip_prefix = "flex-2.6.4",
-    urls = [
-        "https://github.com/westes/flex/releases/download/v2.6.4/flex-2.6.4.tar.gz",
-    ],
-)
-
-http_archive(
-    name = "bison_src",
-    build_file_content = """
-package(default_visibility = ["//visibility:public"])
-filegroup(
-    name = "all_srcs",
-    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
-)
-""",
-    sha256 = "06c9e13bdf7eb24d4ceb6b59205a4f67c2c7e7213119644430fe82fbd14a0abb",
-    strip_prefix = "bison-3.8.2",
-    urls = [
-        "https://ftp.gnu.org/gnu/bison/bison-3.8.2.tar.gz",
-    ],
-)
-
-http_archive(
-    name = "gperf_src",
-    build_file_content = """
-package(default_visibility = ["//visibility:public"])
-filegroup(
-    name = "all_srcs",
-    srcs = glob(["**"], exclude = ["BUILD", "BUILD.bazel"]),
-)
-""",
-    sha256 = "588546b945bba4b70b6a3a616e80b4ab466e3f33024a352fc2198112cdbb3ae2",
-    strip_prefix = "gperf-3.1",
-    urls = [
-        "https://ftp.gnu.org/gnu/gperf/gperf-3.1.tar.gz",
     ],
 )
 
