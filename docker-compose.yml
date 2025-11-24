@@ -193,6 +193,7 @@ services:
       # Config source
       - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/config/core.json
+      - CONFIG_WATCH_ENABLED=${CONFIG_WATCH_ENABLED:-true}
       - KV_ADDRESS=serviceradar-datasvc:50057
       - KV_SEC_MODE=spiffe
       - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}

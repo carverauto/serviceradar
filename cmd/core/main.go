@@ -48,6 +48,9 @@ import (
 	"context"
 	"flag"
 	"log"
+	"os"
+	"strconv"
+	"strings"
 
 	"github.com/carverauto/serviceradar/cmd/core/app"
 )
@@ -85,6 +88,7 @@ func main() {
 
 func run() error {
 	opts := parseFlags()
+	watchEnabled := parseEnvBool("CONFIG_WATCH_ENABLED", true)
 	appOptions := app.Options{
 		ConfigPath:        opts.ConfigPath,
 		BackfillEnabled:   opts.Backfill,
@@ -92,7 +96,19 @@ func run() error {
 		BackfillSeedKV:    opts.BackfillSeedKV,
 		BackfillIPs:       opts.BackfillIPs,
 		BackfillNamespace: "",
+		DisableWatch:      !watchEnabled,
 	}
 
 	return app.Run(context.Background(), appOptions)
+}
+
+func parseEnvBool(key string, defaultVal bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return defaultVal
+	}
+	if val, err := strconv.ParseBool(raw); err == nil {
+		return val
+	}
+	return defaultVal
 }
