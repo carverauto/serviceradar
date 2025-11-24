@@ -198,7 +198,7 @@ kubectl scale deployment serviceradar-web --replicas=2 -n <namespace>
 ## Persistence
 
 ### Persistent Volumes
-- **CNPG Data**: 5Gi per instance (local-path by default); resize via `k8s/demo/resize-cnpg-pvc.sh` which patches the `Cluster` storage size
+- **CNPG Data**: 100Gi per instance (local-path by default); resize via `k8s/demo/resize-cnpg-pvc.sh` which patches the `Cluster` storage size
 - **Core Data**: 5Gi for application metadata
 - **NATS Data**: 30Gi for message persistence
 - **Certificates**: 1Gi shared TLS material
