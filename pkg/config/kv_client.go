@@ -202,6 +202,8 @@ func (m *KVManager) OverlayConfig(ctx context.Context, kvKey string, cfg interfa
 		return err
 	}
 
+	data = dropSensitiveAuthFields(data)
+
 	var overlay interface{}
 	if err := json.Unmarshal(data, &overlay); err != nil {
 		return err
@@ -489,6 +491,44 @@ func isEncryptedPEMBlock(block *pem.Block) bool {
 	}
 	procType := block.Headers["Proc-Type"]
 	return strings.EqualFold(procType, "4,ENCRYPTED")
+}
+
+// dropSensitiveAuthFields strips auth secrets (local_users, jwt_secret) from KV overlays so
+// env/secret-derived values continue to take precedence over stale KV copies.
+func dropSensitiveAuthFields(data []byte) []byte {
+	if len(data) == 0 {
+		return data
+	}
+
+	var doc map[string]interface{}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return data
+	}
+
+	auth, ok := doc["auth"].(map[string]interface{})
+	if !ok {
+		return data
+	}
+
+	changed := false
+	for _, key := range []string{"local_users", "jwt_secret"} {
+		if _, exists := auth[key]; exists {
+			delete(auth, key)
+			changed = true
+		}
+	}
+
+	if !changed {
+		return data
+	}
+
+	doc["auth"] = auth
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return data
+	}
+
+	return out
 }
 
 // StartWatch sets up KV watching with hot-reload functionality.

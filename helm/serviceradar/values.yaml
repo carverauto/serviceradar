@@ -37,6 +37,9 @@ kv:
   serverSPIFFEID: ""
   workloadSocket: unix:/run/spire/sockets/agent.sock
   certDir: /etc/serviceradar/certs
+core:
+  # Enable or disable KV watch/reload in the core service
+  configWatchEnabled: true
 coreClient:
   address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
   secMode: spiffe

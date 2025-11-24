@@ -109,6 +109,8 @@ spec:
           value: "true"
         - name: INIT_DB
           value: "true"
+        - name: CONFIG_WATCH_ENABLED
+          value: {{ ternary "true" "false" (default true .Values.core.configWatchEnabled) | quote }}
 {{ include "serviceradar.kvEnv" . | indent 8 }}
         - name: CONFIG_PATH
           value: "/var/lib/serviceradar/core.json"
