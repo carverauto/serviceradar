@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: nats
-        image: nats:latest
+        image: nats:2.12.2-alpine
         imagePullPolicy: Always
         command: ["/nats-server", "--config", "/etc/nats/nats-server.conf", "--jetstream"]
         ports:
