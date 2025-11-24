@@ -220,10 +220,13 @@ spire:
         memory: 128Mi
 ingress:
   enabled: true
-  host: staging.serviceradar.cloud
+  host: demo.serviceradar.cloud
+  className: nginx
+  annotations: {}
   tls:
     enabled: true
-    secretName: serviceradar-staging-tls
+    secretName: serviceradar-prod-tls
+    clusterIssuer: carverauto-issuer
 secrets:
   autoGenerate: true
   existingSecretName: serviceradar-secrets
