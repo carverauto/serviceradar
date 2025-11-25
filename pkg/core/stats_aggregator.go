@@ -386,42 +386,6 @@ func shouldCountRecord(record *registry.DeviceRecord) bool {
 	return record != nil
 }
 
-func isSweepOnlyRecord(record *registry.DeviceRecord) bool {
-	if record == nil || len(record.DiscoverySources) == 0 {
-		return false
-	}
-	for _, source := range record.DiscoverySources {
-		if !strings.EqualFold(strings.TrimSpace(source), string(models.DiscoverySourceSweep)) {
-			return false
-		}
-	}
-	return true
-}
-
-func recordHasStrongIdentity(record *registry.DeviceRecord) bool {
-	if record == nil {
-		return false
-	}
-
-	if record.MAC != nil && strings.TrimSpace(*record.MAC) != "" {
-		return true
-	}
-
-	if metadata := record.Metadata; metadata != nil {
-		for _, key := range []string{"armis_device_id", "integration_id", "netbox_device_id"} {
-			if value := strings.TrimSpace(metadata[key]); value != "" {
-				return true
-			}
-		}
-		if canonical := strings.TrimSpace(metadata["canonical_device_id"]); canonical != "" {
-			if !strings.EqualFold(canonical, strings.TrimSpace(record.DeviceID)) {
-				return true
-			}
-		}
-	}
-
-	return false
-}
 
 func isCanonicalRecord(record *registry.DeviceRecord) bool {
 	if record == nil {

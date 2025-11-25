@@ -629,12 +629,16 @@ func TestStatsAggregatorCountsServiceComponentsEvenWithFallbackRecords(t *testin
 	assert.Equal(t, 3, snapshot.TotalDevices, "Should count canonical + fallback + service component")
 }
 
-func TestStatsAggregatorSkipsSweepOnlyRecordsWithoutIdentity(t *testing.T) {
+func TestStatsAggregatorCountsAllSweepDevices(t *testing.T) {
+	// This test verifies that all devices are counted regardless of discovery source
+	// or whether they have strong identity markers. The database (unified_devices)
+	// is the source of truth - if a device is in the registry, it should be counted.
 	log := logger.NewTestLogger()
 	reg := registry.NewDeviceRegistry(nil, log)
 
 	base := time.Date(2025, 5, 1, 12, 0, 0, 0, time.UTC)
 
+	// Sweep-only device without strong identity - should still be counted
 	reg.UpsertDeviceRecord(&registry.DeviceRecord{
 		DeviceID:         "default:10.0.0.10",
 		LastSeen:         base,
@@ -644,6 +648,7 @@ func TestStatsAggregatorSkipsSweepOnlyRecordsWithoutIdentity(t *testing.T) {
 		},
 	})
 
+	// Sweep-only device with strong identity (armis_device_id)
 	reg.UpsertDeviceRecord(&registry.DeviceRecord{
 		DeviceID:         "default:10.0.0.11",
 		LastSeen:         base,
@@ -659,12 +664,14 @@ func TestStatsAggregatorSkipsSweepOnlyRecordsWithoutIdentity(t *testing.T) {
 
 	snapshot := agg.Snapshot()
 	require.NotNil(t, snapshot)
-	assert.Equal(t, 1, snapshot.TotalDevices)
+	// Both devices should be counted - we no longer filter sweep-only devices
+	assert.Equal(t, 2, snapshot.TotalDevices)
 
 	meta := agg.Meta()
-	assert.Equal(t, 1, meta.RawRecords)
-	assert.Equal(t, 1, meta.ProcessedRecords)
-	assert.Equal(t, 1, meta.SkippedSweepOnlyRecords)
+	assert.Equal(t, 2, meta.RawRecords)
+	assert.Equal(t, 2, meta.ProcessedRecords)
+	// No devices should be skipped for being sweep-only
+	assert.Equal(t, 0, meta.SkippedSweepOnlyRecords)
 }
 
 func TestStatsAggregatorAlertsOnNonCanonicalIncrease(t *testing.T) {
