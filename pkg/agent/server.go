@@ -1736,17 +1736,29 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 			checkSecurity = s.config.KVSecurity
 		}
 
-		if conf, exists := s.checkerConfs[req.ServiceName]; exists && conf.Security != nil {
-			s.logger.Info().
-				Str("service", req.ServiceName).
-				Str("service_type", req.ServiceType).
-				Str("security_mode", string(conf.Security.Mode)).
-				Msg("Using checker-specific security configuration")
+		// Look up checker configuration for this service
+		details := req.Details
+		if conf, exists := s.checkerConfs[req.ServiceName]; exists {
+			if conf.Security != nil {
+				s.logger.Info().
+					Str("service", req.ServiceName).
+					Str("service_type", req.ServiceType).
+					Str("security_mode", string(conf.Security.Mode)).
+					Msg("Using checker-specific security configuration")
 
-			checkSecurity = conf.Security
+				checkSecurity = conf.Security
+			}
+			// Use the checker config's Address if the request doesn't provide details
+			if details == "" && conf.Address != "" {
+				details = conf.Address
+				s.logger.Info().
+					Str("service", req.ServiceName).
+					Str("address", conf.Address).
+					Msg("Using checker config address as details")
+			}
 		}
 
-		check, err = s.registry.Get(ctx, req.ServiceType, req.ServiceName, req.Details, checkSecurity)
+		check, err = s.registry.Get(ctx, req.ServiceType, req.ServiceName, details, checkSecurity)
 	}
 
 	if err != nil {

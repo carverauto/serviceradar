@@ -90,6 +90,7 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 			arbitrarySource = "unknown"
 		}
 
+		// Insert into device_updates log (hypertable for history)
 		batch.Queue(
 			`INSERT INTO device_updates (
 				observed_at,
@@ -114,6 +115,51 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 			toNullableString(update.MAC),
 			toNullableString(update.Hostname),
 			update.IsAvailable,
+			metaBytes,
+		)
+
+		// Upsert into unified_devices (current state table)
+		// This maintains the source of truth for device inventory
+		discoverySources := []string{arbitrarySource}
+		batch.Queue(
+			`INSERT INTO unified_devices (
+				device_id,
+				ip,
+				poller_id,
+				agent_id,
+				hostname,
+				mac,
+				discovery_sources,
+				is_available,
+				first_seen,
+				last_seen,
+				metadata,
+				updated_at
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10::jsonb,NOW())
+			ON CONFLICT (device_id) DO UPDATE SET
+				ip = COALESCE(NULLIF(EXCLUDED.ip, ''), unified_devices.ip),
+				poller_id = COALESCE(NULLIF(EXCLUDED.poller_id, ''), unified_devices.poller_id),
+				agent_id = COALESCE(NULLIF(EXCLUDED.agent_id, ''), unified_devices.agent_id),
+				hostname = COALESCE(EXCLUDED.hostname, unified_devices.hostname),
+				mac = COALESCE(EXCLUDED.mac, unified_devices.mac),
+				discovery_sources = (
+					SELECT array_agg(DISTINCT src) FROM unnest(
+						array_cat(unified_devices.discovery_sources, EXCLUDED.discovery_sources)
+					) AS src WHERE src IS NOT NULL
+				),
+				is_available = EXCLUDED.is_available,
+				last_seen = EXCLUDED.last_seen,
+				metadata = unified_devices.metadata || EXCLUDED.metadata,
+				updated_at = NOW()`,
+			update.DeviceID,
+			update.IP,
+			update.PollerID,
+			update.AgentID,
+			toNullableString(update.Hostname),
+			toNullableString(update.MAC),
+			discoverySources,
+			update.IsAvailable,
+			observed,
 			metaBytes,
 		)
 	}
@@ -366,4 +412,22 @@ func toNullableString(value *string) interface{} {
 	} else {
 		return trimmed
 	}
+}
+
+// CleanupStaleUnifiedDevices removes devices not seen within the retention period.
+// This should be called periodically (e.g., daily) to prevent unbounded table growth.
+func (db *DB) CleanupStaleUnifiedDevices(ctx context.Context, retention time.Duration) (int64, error) {
+	if !db.useCNPGWrites() {
+		return 0, nil
+	}
+
+	result, err := db.pgPool.Exec(ctx,
+		`DELETE FROM unified_devices WHERE last_seen < $1`,
+		time.Now().UTC().Add(-retention),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to cleanup stale unified devices: %w", err)
+	}
+
+	return result.RowsAffected(), nil
 }
