@@ -489,6 +489,17 @@ func (s *Server) runMetricsCleanup(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
+	// Get device retention from config (defaults to 3 days in normalizeConfig)
+	deviceRetentionDays := s.config.Metrics.DeviceRetentionDays
+	if deviceRetentionDays <= 0 {
+		deviceRetentionDays = defaultDeviceRetentionDays
+	}
+	unifiedDevicesRetention := time.Duration(deviceRetentionDays) * 24 * time.Hour
+
+	s.logger.Info().
+		Int32("device_retention_days", deviceRetentionDays).
+		Msg("Starting metrics cleanup goroutine")
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -498,6 +509,16 @@ func (s *Server) runMetricsCleanup(ctx context.Context) {
 				s.metrics.CleanupStalePollers(oneWeek)
 			} else {
 				s.logger.Error().Msg("Metrics manager is nil")
+			}
+
+			// Cleanup stale unified devices
+			if s.DB != nil {
+				deleted, err := s.DB.CleanupStaleUnifiedDevices(ctx, unifiedDevicesRetention)
+				if err != nil {
+					s.logger.Error().Err(err).Msg("Failed to cleanup stale unified devices")
+				} else if deleted > 0 {
+					s.logger.Info().Int64("deleted_count", deleted).Msg("Cleaned up stale unified devices")
+				}
 			}
 		}
 	}

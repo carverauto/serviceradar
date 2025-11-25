@@ -263,3 +263,22 @@ diesel::table! {
         created_at -> Timestamptz,
     }
 }
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    device_updates (observed_at, device_id) {
+        observed_at -> Timestamptz,
+        agent_id -> Text,
+        poller_id -> Text,
+        partition -> Text,
+        device_id -> Text,
+        discovery_source -> Text,
+        ip -> Nullable<Text>,
+        mac -> Nullable<Text>,
+        hostname -> Nullable<Text>,
+        available -> Nullable<Bool>,
+        metadata -> Nullable<Jsonb>,
+        created_at -> Timestamptz,
+    }
+}
