@@ -138,6 +138,42 @@ impl EventRow {
 }
 
 #[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::device_updates)]
+pub struct DeviceUpdateRow {
+    pub observed_at: DateTime<Utc>,
+    pub agent_id: String,
+    pub poller_id: String,
+    pub partition: String,
+    pub device_id: String,
+    pub discovery_source: String,
+    pub ip: Option<String>,
+    pub mac: Option<String>,
+    pub hostname: Option<String>,
+    pub available: Option<bool>,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl DeviceUpdateRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "observed_at": self.observed_at,
+            "agent_id": self.agent_id,
+            "poller_id": self.poller_id,
+            "partition": self.partition,
+            "device_id": self.device_id,
+            "discovery_source": self.discovery_source,
+            "ip": self.ip,
+            "mac": self.mac,
+            "hostname": self.hostname,
+            "available": self.available,
+            "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "created_at": self.created_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Serialize)]
 #[diesel(table_name = crate::schema::logs)]
 pub struct LogRow {
     pub timestamp: DateTime<Utc>,

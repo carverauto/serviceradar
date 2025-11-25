@@ -34,9 +34,10 @@ import (
 )
 
 const (
-	defaultMetricsRetention  = 100
-	defaultMetricsMaxPollers = 10000
-	jwtAlgorithmRS256        = "RS256"
+	defaultMetricsRetention        = 100
+	defaultMetricsMaxPollers       = 10000
+	defaultDeviceRetentionDays     = 3
+	jwtAlgorithmRS256              = "RS256"
 )
 
 var (
@@ -56,6 +57,10 @@ func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig
 
 	if normalized.Metrics.MaxPollers == 0 {
 		normalized.Metrics.MaxPollers = defaultMetricsMaxPollers
+	}
+
+	if normalized.Metrics.DeviceRetentionDays == 0 {
+		normalized.Metrics.DeviceRetentionDays = defaultDeviceRetentionDays
 	}
 
 	if normalized.SpireAdmin != nil && normalized.SpireAdmin.Enabled {

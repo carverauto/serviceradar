@@ -285,6 +285,11 @@ data:
                 "service_name": "network_sweep",
                 "details": "",
                 "results_interval": "2m"
+              },
+              {
+                "service_type": "grpc",
+                "service_name": "sync",
+                "results_interval": "5m"
               }
             ]
           }
