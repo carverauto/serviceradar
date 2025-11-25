@@ -379,13 +379,11 @@ func isTombstonedRecord(record *registry.DeviceRecord) bool {
 }
 
 func shouldCountRecord(record *registry.DeviceRecord) bool {
-	if record == nil {
-		return false
-	}
-	if !isSweepOnlyRecord(record) {
-		return true
-	}
-	return recordHasStrongIdentity(record)
+	// Count all non-nil records. The database (unified_devices) is the source of truth
+	// and already filters merged/deleted devices. If a device made it into the registry,
+	// it should be counted in stats - even sweep-only devices without strong identity.
+	// This prevents legitimate discovered devices from being hidden in the UI.
+	return record != nil
 }
 
 func isSweepOnlyRecord(record *registry.DeviceRecord) bool {
