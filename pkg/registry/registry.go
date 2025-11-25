@@ -59,6 +59,7 @@ type DeviceRegistry struct {
 	logger                   logger.Logger
 	identityPublisher        *identityPublisher
 	identityResolver         *identityResolver
+	cnpgIdentityResolver     *cnpgIdentityResolver
 	firstSeenLookupChunkSize int
 
 	mu           sync.RWMutex
@@ -148,8 +149,12 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		return nil
 	}
 
-	// Hydrate canonical metadata via KV if available
-	if r.identityResolver != nil {
+	// Hydrate canonical metadata from CNPG (preferred) or KV (legacy fallback)
+	if r.cnpgIdentityResolver != nil {
+		if err := r.cnpgIdentityResolver.hydrateCanonical(ctx, valid); err != nil {
+			r.logger.Warn().Err(err).Msg("CNPG canonical hydration failed")
+		}
+	} else if r.identityResolver != nil {
 		if err := r.identityResolver.hydrateCanonical(ctx, valid); err != nil {
 			r.logger.Warn().Err(err).Msg("KV canonical hydration failed")
 		}
@@ -757,34 +762,36 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 		return nil
 	}
 
-	var kvErr error
-	if r.identityResolver != nil {
-		candidates := make([]string, 0, len(unresolved))
-		for ip := range unresolved {
-			candidates = append(candidates, ip)
-		}
+	// Resolve IPs using CNPG (preferred) or KV (legacy fallback)
+	var resolveErr error
+	candidates := make([]string, 0, len(unresolved))
+	for ip := range unresolved {
+		candidates = append(candidates, ip)
+	}
 
-		resolved, err := r.identityResolver.resolveCanonicalIPs(ctx, candidates)
-		if err != nil {
-			kvErr = err
+	var resolved map[string]string
+	if r.cnpgIdentityResolver != nil {
+		resolved, resolveErr = r.cnpgIdentityResolver.resolveCanonicalIPs(ctx, candidates)
+	} else if r.identityResolver != nil {
+		resolved, resolveErr = r.identityResolver.resolveCanonicalIPs(ctx, candidates)
+	}
+
+	for ip, deviceID := range resolved {
+		ip = strings.TrimSpace(ip)
+		deviceID = strings.TrimSpace(deviceID)
+		if ip == "" || deviceID == "" {
+			continue
 		}
-		for ip, deviceID := range resolved {
-			ip = strings.TrimSpace(ip)
-			deviceID = strings.TrimSpace(deviceID)
-			if ip == "" || deviceID == "" {
-				continue
+		if out != nil {
+			if _, exists := out[ip]; !exists {
+				out[ip] = deviceID
 			}
-			if out != nil {
-				if _, exists := out[ip]; !exists {
-					out[ip] = deviceID
-				}
-			}
-			delete(unresolved, ip)
 		}
+		delete(unresolved, ip)
 	}
 
 	if len(unresolved) == 0 {
-		return kvErr
+		return resolveErr
 	}
 
 	fallbackIPs := make([]string, 0, len(unresolved))
@@ -794,7 +801,7 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 
 	if r.useCNPGReads() {
 		cnpgErr := r.resolveIPsToCanonicalCNPG(ctx, fallbackIPs, out)
-		return errors.Join(kvErr, cnpgErr)
+		return errors.Join(resolveErr, cnpgErr)
 	}
 
 	buildQuery := func(list string) string {
@@ -815,7 +822,7 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 	}
 
 	fallbackErr := r.resolveIdentifiers(ctx, fallbackIPs, out, buildQuery, extract)
-	return errors.Join(kvErr, fallbackErr)
+	return errors.Join(resolveErr, fallbackErr)
 }
 
 func (r *DeviceRegistry) lookupCanonicalFromMaps(u *models.DeviceUpdate, maps *identityMaps) (string, string) {

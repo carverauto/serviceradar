@@ -33,7 +33,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/core/templateregistry"
 	"github.com/carverauto/serviceradar/pkg/db"
-	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
@@ -119,25 +118,24 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 
 	metricsManager := metrics.NewManager(metricsConfig, database, log)
 
-	// Initialize the NEW authoritative device registry
-	registryOpts := make([]registry.Option, 0, 1)
+	// Initialize KV client for features that still need it (edge onboarding, identity lookups)
+	// Note: The identity map PUBLISHER is disabled - we no longer write identity keys to KV
+	// because it caused massive write amplification (5-6 keys per device = 300 writes/sec).
+	// Identity RESOLUTION now uses CNPG (unified_devices table) instead.
 	var (
 		kvClient         proto.KVServiceClient
 		identityKVCloser func() error
 	)
 	if client, closer, err := cfgutil.NewKVServiceClientFromEnv(ctx, models.RoleCore); err != nil {
-		log.Warn().Err(err).Msg("Failed to initialize identity map KV client")
+		log.Warn().Err(err).Msg("Failed to initialize KV client")
 	} else if client != nil {
 		kvClient = client
-		registryOpts = append(
-			registryOpts,
-			registry.WithIdentityPublisher(kvClient, identitymap.DefaultNamespace, 0),
-			registry.WithIdentityResolver(kvClient, identitymap.DefaultNamespace),
-		)
 		identityKVCloser = closer
 	}
 
-	deviceRegistry := registry.NewDeviceRegistry(database, log, registryOpts...)
+	// Initialize the NEW authoritative device registry
+	// Identity resolution uses CNPG (unified_devices table) with caching
+	deviceRegistry := registry.NewDeviceRegistry(database, log, registry.WithCNPGIdentityResolver(database))
 
 	if count, err := deviceRegistry.HydrateFromStore(ctx); err != nil {
 		log.Warn().Err(err).Msg("Failed to hydrate device registry from CNPG; continuing with cold cache")

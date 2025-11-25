@@ -1113,7 +1113,11 @@ func (a *ArmisIntegration) createDeviceUpdateEventWithAllIPs(
 		macCopy := rawMAC
 		macPtr = &macCopy
 	}
-	deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, primaryIP)
+	// Use Armis device ID as the stable canonical device ID to prevent
+	// duplicate devices when IP addresses change (DHCP churn).
+	// Format: armis:<partition>:<armis_device_id>
+	deviceID := fmt.Sprintf("armis:%s:%d", a.Config.Partition, d.ID)
+	_ = "BUILD_V1" // cache buster
 
 	event := &models.DeviceUpdate{
 		AgentID:   a.Config.AgentID,
