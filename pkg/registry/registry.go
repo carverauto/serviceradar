@@ -60,6 +60,7 @@ type DeviceRegistry struct {
 	identityPublisher        *identityPublisher
 	identityResolver         *identityResolver
 	cnpgIdentityResolver     *cnpgIdentityResolver
+	deviceIdentityResolver   *DeviceIdentityResolver
 	firstSeenLookupChunkSize int
 
 	mu           sync.RWMutex
@@ -147,6 +148,14 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 
 	if len(valid) == 0 {
 		return nil
+	}
+
+	// Resolve device IDs to canonical ServiceRadar UUIDs
+	// This ensures devices are identified by stable IDs rather than ephemeral IPs
+	if r.deviceIdentityResolver != nil {
+		if err := r.deviceIdentityResolver.ResolveDeviceIDs(ctx, valid); err != nil {
+			r.logger.Warn().Err(err).Msg("Device identity resolution failed")
+		}
 	}
 
 	// Hydrate canonical metadata from CNPG (preferred) or KV (legacy fallback)
@@ -456,19 +465,26 @@ func canonicalIDCandidate(update *models.DeviceUpdate) string {
 	if update == nil {
 		return ""
 	}
+
+	// Check canonical_device_id from metadata, but skip legacy partition:IP format IDs
 	if update.Metadata != nil {
 		if canonical := strings.TrimSpace(update.Metadata["canonical_device_id"]); canonical != "" {
-			return canonical
+			// Skip legacy partition:IP format IDs - they should be migrated to ServiceRadar UUIDs
+			if !isLegacyIPBasedID(canonical) {
+				return canonical
+			}
 		}
 	}
+
+	// Use the current DeviceID, but skip legacy partition:IP format IDs
 	deviceID := strings.TrimSpace(update.DeviceID)
-	if deviceID != "" {
+	if deviceID != "" && !isLegacyIPBasedID(deviceID) {
 		return deviceID
 	}
-	if update.Partition != "" && update.IP != "" {
-		return fmt.Sprintf("%s:%s", strings.TrimSpace(update.Partition), strings.TrimSpace(update.IP))
-	}
-	return strings.TrimSpace(update.IP)
+
+	// For legacy IDs or empty IDs, return empty to signal that a new UUID is needed
+	// Don't fall back to partition:IP format
+	return ""
 }
 
 func setIfMissing(dst map[string]string, key, value string) {
@@ -640,6 +656,11 @@ func (r *DeviceRegistry) scanIdentifierRows(rows db.Rows, out map[string]string)
 			continue
 		}
 
+		// Skip legacy partition:IP format IDs - they should be migrated to ServiceRadar UUIDs
+		if isLegacyIPBasedID(deviceID) {
+			continue
+		}
+
 		if _, exists := out[key]; !exists {
 			out[key] = deviceID
 		}
@@ -780,6 +801,10 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 		ip = strings.TrimSpace(ip)
 		deviceID = strings.TrimSpace(deviceID)
 		if ip == "" || deviceID == "" {
+			continue
+		}
+		// Skip legacy partition:IP format IDs - they should be migrated to ServiceRadar UUIDs
+		if isLegacyIPBasedID(deviceID) {
 			continue
 		}
 		if out != nil {

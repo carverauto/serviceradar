@@ -133,9 +133,14 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		identityKVCloser = closer
 	}
 
-	// Initialize the NEW authoritative device registry
-	// Identity resolution uses CNPG (unified_devices table) with caching
-	deviceRegistry := registry.NewDeviceRegistry(database, log, registry.WithCNPGIdentityResolver(database))
+	// Initialize the NEW authoritative device registry with:
+	// 1. DeviceIdentityResolver - generates stable ServiceRadar UUIDs for devices
+	//    using strong identifiers (MAC, Armis ID) for merging, IP as weak identifier
+	// 2. CNPGIdentityResolver - enriches device updates with canonical metadata from CNPG
+	deviceRegistry := registry.NewDeviceRegistry(database, log,
+		registry.WithDeviceIdentityResolver(database),
+		registry.WithCNPGIdentityResolver(database),
+	)
 
 	if count, err := deviceRegistry.HydrateFromStore(ctx); err != nil {
 		log.Warn().Err(err).Msg("Failed to hydrate device registry from CNPG; continuing with cold cache")

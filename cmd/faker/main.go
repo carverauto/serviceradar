@@ -183,10 +183,11 @@ type Config struct {
 	Simulation struct {
 		TotalDevices int `json:"total_devices"`
 		IPShuffle    struct {
-			Enabled    bool   `json:"enabled"`
-			Interval   string `json:"interval"`
-			Percentage int    `json:"percentage"`
-			LogChanges bool   `json:"log_changes"`
+			Enabled      bool   `json:"enabled"`
+			Interval     string `json:"interval"`
+			Percentage   int    `json:"percentage"`
+			WarmupCycles int    `json:"warmup_cycles"`
+			LogChanges   bool   `json:"log_changes"`
 		} `json:"ip_shuffle"`
 	} `json:"simulation"`
 	Storage struct {
@@ -231,6 +232,9 @@ func (c *Config) Validate() error {
 	if c.Simulation.IPShuffle.Percentage <= 0 {
 		return errIPShufflePercentageInvalid
 	}
+	if c.Simulation.IPShuffle.WarmupCycles < 0 {
+		c.Simulation.IPShuffle.WarmupCycles = 0
+	}
 	if c.Storage.DataDir == "" {
 		return errDataDirRequired
 	}
@@ -250,6 +254,7 @@ func (c *Config) applyDefaults() {
 	c.Simulation.IPShuffle.Enabled = true
 	c.Simulation.IPShuffle.Interval = "60s"
 	c.Simulation.IPShuffle.Percentage = 5
+	c.Simulation.IPShuffle.WarmupCycles = 5
 	c.Simulation.IPShuffle.LogChanges = true
 	c.Storage.DataDir = "/var/lib/serviceradar/faker"
 	c.Storage.DevicesFile = "fake_armis_devices.json"
@@ -358,7 +363,21 @@ func shuffleIPs() {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	warmupCycles := config.Simulation.IPShuffle.WarmupCycles
+	if warmupCycles < 0 {
+		warmupCycles = 0
+	}
+	cycleCount := 0
+
 	for range ticker.C {
+		cycleCount++
+		if cycleCount <= warmupCycles {
+			if config.Simulation.IPShuffle.LogChanges {
+				log.Printf("--> SIMULATING IP CHANGE: warmup cycle %d/%d, skipping shuffle", cycleCount, warmupCycles)
+			}
+			continue
+		}
+
 		// Acquire a full write lock to modify the device list
 		deviceGen.mu.Lock()
 

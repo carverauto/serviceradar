@@ -1035,7 +1035,7 @@ func TestProcessDevices(t *testing.T) {
 	assert.Equal(t, "test-agent", events[0].AgentID)
 	assert.Equal(t, "poller", events[0].PollerID)
 	assert.Equal(t, "192.168.1.1", events[0].IP)
-	assert.Equal(t, "armis:part:1", events[0].DeviceID)
+	assert.Equal(t, "", events[0].DeviceID) // Empty - registry will generate ServiceRadar UUID
 	assert.Equal(t, "part", events[0].Partition)
 	assert.Equal(t, models.DiscoverySourceArmis, events[0].Source)
 	assert.False(t, events[0].IsAvailable) // Defaults to false in discovery, actual availability comes from sweep
@@ -1053,7 +1053,7 @@ func TestProcessDevices(t *testing.T) {
 	assert.Equal(t, "test-agent", events[1].AgentID)
 	assert.Equal(t, "poller", events[1].PollerID)
 	assert.Equal(t, "192.168.1.2", events[1].IP)
-	assert.Equal(t, "armis:part:2", events[1].DeviceID)
+	assert.Equal(t, "", events[1].DeviceID) // Empty - registry will generate ServiceRadar UUID
 	assert.Equal(t, "part", events[1].Partition)
 	assert.Equal(t, models.DiscoverySourceArmis, events[1].Source)
 	assert.False(t, events[1].IsAvailable) // Defaults to false in discovery, actual availability comes from sweep
