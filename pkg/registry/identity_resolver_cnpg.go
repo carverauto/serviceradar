@@ -104,28 +104,6 @@ func (c *identityResolverCache) setIPMapping(ip, deviceID string) {
 	}
 }
 
-func (c *identityResolverCache) getDeviceMeta(deviceID string) (*models.UnifiedDevice, bool) {
-	c.mu.RLock()
-	item, ok := c.deviceIDToMeta[deviceID]
-	c.mu.RUnlock()
-
-	if !ok {
-		return nil, false
-	}
-
-	if time.Now().After(item.expiresAt) {
-		c.mu.Lock()
-		delete(c.deviceIDToMeta, deviceID)
-		c.mu.Unlock()
-		return nil, false
-	}
-
-	if device, ok := item.value.(*models.UnifiedDevice); ok {
-		return device, true
-	}
-	return nil, false
-}
-
 func (c *identityResolverCache) setDeviceMeta(deviceID string, device *models.UnifiedDevice) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

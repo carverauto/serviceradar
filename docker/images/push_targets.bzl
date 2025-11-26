@@ -19,6 +19,7 @@ GHCR_PUSH_TARGETS = [
     {"image": "rperf_client_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-rperf-client"},
     {"image": "poller_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-poller"},
     {"image": "sync_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-sync"},
+    {"image": "faker_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-faker"},
     {"image": "zen_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-zen"},
     {"image": "config_updater_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-config-updater"},
     {"image": "nginx_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-nginx"},

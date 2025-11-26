@@ -29,6 +29,11 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
+var (
+	errTestDB     = errors.New("db error")
+	errTestDelete = errors.New("delete error")
+)
+
 func TestStaleDeviceReaper_Reap(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -63,23 +68,21 @@ func TestStaleDeviceReaper_Reap(t *testing.T) {
 
 	t.Run("error_getting_stale_devices", func(t *testing.T) {
 		ctx := context.Background()
-		expectedErr := errors.New("db error")
 
-		mockDB.EXPECT().GetStaleIPOnlyDevices(ctx, ttl).Return(nil, expectedErr)
+		mockDB.EXPECT().GetStaleIPOnlyDevices(ctx, ttl).Return(nil, errTestDB)
 
 		err := reaper.reap(ctx)
-		assert.ErrorIs(t, err, expectedErr)
+		assert.ErrorIs(t, err, errTestDB)
 	})
 
 	t.Run("error_deleting_devices", func(t *testing.T) {
 		ctx := context.Background()
 		staleIDs := []string{"device-1"}
-		expectedErr := errors.New("delete error")
 
 		mockDB.EXPECT().GetStaleIPOnlyDevices(ctx, ttl).Return(staleIDs, nil)
-		mockDB.EXPECT().SoftDeleteDevices(ctx, staleIDs).Return(expectedErr)
+		mockDB.EXPECT().SoftDeleteDevices(ctx, staleIDs).Return(errTestDelete)
 
 		err := reaper.reap(ctx)
-		assert.ErrorIs(t, err, expectedErr)
+		assert.ErrorIs(t, err, errTestDelete)
 	})
 }

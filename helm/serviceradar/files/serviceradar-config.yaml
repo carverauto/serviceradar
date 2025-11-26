@@ -1193,7 +1193,7 @@ data:
           "total_devices": 50000,
           "ip_shuffle": {
             "enabled": true,
-            "interval": "60s",
+            "interval": "10m",
             "percentage": 5,
             "log_changes": true
           }

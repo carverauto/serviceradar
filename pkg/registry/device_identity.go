@@ -135,11 +135,7 @@ func (r *DeviceIdentityResolver) ResolveDeviceID(ctx context.Context, update *mo
 	}
 
 	// Query database for existing devices matching our identifiers
-	existingDeviceID, err := r.findExistingDevice(ctx, identifiers, true)
-	if err != nil {
-		r.logger.Debug().Err(err).Msg("Failed to find existing device, will generate new ID")
-	}
-
+	existingDeviceID := r.findExistingDevice(ctx, identifiers)
 	if existingDeviceID != "" {
 		// Cache the mapping for future lookups
 		r.cacheIdentifierMappings(identifiers, existingDeviceID)
@@ -237,7 +233,7 @@ func (r *DeviceIdentityResolver) ResolveDeviceIDs(ctx context.Context, updates [
 	}
 
 	// Batch query database for existing devices
-	existingMappings, err := r.batchFindExistingDevices(ctx, uncachedUpdates, updateIdentifiers, true)
+	existingMappings, err := r.batchFindExistingDevices(ctx, uncachedUpdates, updateIdentifiers)
 	if err != nil && r.logger != nil {
 		r.logger.Warn().Err(err).Msg("Failed to batch find existing devices")
 	}
@@ -387,7 +383,7 @@ func (r *DeviceIdentityResolver) checkCacheForStrongIdentifiers(ids *deviceIdent
 // findExistingDevice queries the database to find an existing device matching the identifiers.
 // IMPORTANT: Only returns devices that already have ServiceRadar UUIDs.
 // Legacy partition:IP format devices are NOT returned - they will get new ServiceRadar UUIDs.
-func (r *DeviceIdentityResolver) findExistingDevice(ctx context.Context, ids *deviceIdentifiers, allowIPFallback bool) (string, error) {
+func (r *DeviceIdentityResolver) findExistingDevice(ctx context.Context, ids *deviceIdentifiers) string {
 	if len(ids.IPs) == 0 && ids.IP != "" {
 		ids.IPs = []string{ids.IP}
 	}
@@ -405,7 +401,7 @@ func (r *DeviceIdentityResolver) findExistingDevice(ctx context.Context, ids *de
 						continue
 					}
 					if device.MAC != nil && normalizeMAC(device.MAC.Value) == ids.MAC {
-						return device.DeviceID, nil
+						return device.DeviceID
 					}
 				}
 			}
@@ -419,7 +415,7 @@ func (r *DeviceIdentityResolver) findExistingDevice(ctx context.Context, ids *de
 					}
 					if device.Metadata != nil && device.Metadata.Value != nil {
 						if device.Metadata.Value["armis_device_id"] == ids.ArmisID {
-							return device.DeviceID, nil
+							return device.DeviceID
 						}
 					}
 				}
@@ -432,24 +428,22 @@ func (r *DeviceIdentityResolver) findExistingDevice(ctx context.Context, ids *de
 				if isLegacyIPBasedID(device.DeviceID) {
 					continue
 				}
-				return device.DeviceID, nil
+				return device.DeviceID
 			}
 		}
 	}
 
-	return "", nil
+	return ""
 }
 
 // batchFindExistingDevices queries the database for existing devices matching a batch of updates.
 // IMPORTANT: This now only returns matches for devices that already have ServiceRadar UUIDs.
 // Legacy partition:IP format IDs are NOT returned - those devices will get new ServiceRadar UUIDs.
-// allowIPFallbackForStrong controls whether updates that contain strong identifiers are still allowed
-// to merge with existing devices purely by IP (useful when the existing device was created by sweep data).
+// Always allows IP fallback to merge with existing devices (useful when the existing device was created by sweep data).
 func (r *DeviceIdentityResolver) batchFindExistingDevices(
 	ctx context.Context,
 	updates []*models.DeviceUpdate,
 	updateIdentifiers map[*models.DeviceUpdate]*deviceIdentifiers,
-	allowIPFallbackForStrong bool,
 ) (map[*models.DeviceUpdate]string, error) {
 	result := make(map[*models.DeviceUpdate]string)
 
@@ -857,7 +851,7 @@ func generateServiceRadarDeviceID(update *models.DeviceUpdate) string {
 
 	// UUID is ALWAYS based on IP + partition
 	// This ensures determinism regardless of discovery order
-	h.Write([]byte(fmt.Sprintf("partition:%s:ip:%s", partition, ip)))
+	_, _ = fmt.Fprintf(h, "partition:%s:ip:%s", partition, ip)
 
 	// Add timestamp for uniqueness if no identifiers
 	hashBytes := h.Sum(nil)
@@ -946,30 +940,6 @@ func normalizeMAC(mac string) string {
 	mac = strings.ReplaceAll(mac, "-", "")
 	mac = strings.ReplaceAll(mac, ".", "")
 	return mac
-}
-
-// hasAnyStrongIdentifier checks if the identifiers contain any strong identifier
-func hasAnyStrongIdentifier(ids *deviceIdentifiers) bool {
-	return ids.MAC != "" || ids.ArmisID != "" || ids.NetboxID != ""
-}
-
-// deviceHasStrongIdentifiers checks if a unified device has any strong identifiers
-func deviceHasStrongIdentifiers(device *models.UnifiedDevice) bool {
-	if device == nil {
-		return false
-	}
-	if device.MAC != nil && device.MAC.Value != "" {
-		return true
-	}
-	if device.Metadata != nil && device.Metadata.Value != nil {
-		if device.Metadata.Value["armis_device_id"] != "" {
-			return true
-		}
-		if device.Metadata.Value["netbox_device_id"] != "" {
-			return true
-		}
-	}
-	return false
 }
 
 // WithDeviceIdentityResolver configures the device registry to use the new identity resolver

@@ -35,7 +35,7 @@ func TestCNPGIdentityResolverResolveCanonicalIPs(t *testing.T) {
 	// Setup test data
 	testDevices := []*models.UnifiedDevice{
 		{
-			DeviceID: "device-1",
+			DeviceID: testDeviceID1,
 			IP:       "192.168.1.1",
 			Hostname: &models.DiscoveredField[string]{Value: "host1"},
 		},
@@ -65,8 +65,8 @@ func TestCNPGIdentityResolverResolveCanonicalIPs(t *testing.T) {
 		t.Fatalf("expected 2 resolved IPs, got %d", len(resolved))
 	}
 
-	if resolved["192.168.1.1"] != "device-1" {
-		t.Errorf("expected device-1 for 192.168.1.1, got %s", resolved["192.168.1.1"])
+	if resolved["192.168.1.1"] != testDeviceID1 {
+		t.Errorf("expected %s for 192.168.1.1, got %s", testDeviceID1, resolved["192.168.1.1"])
 	}
 
 	if resolved["192.168.1.2"] != "device-2" {
@@ -82,7 +82,7 @@ func TestCNPGIdentityResolverUsesCache(t *testing.T) {
 
 	testDevices := []*models.UnifiedDevice{
 		{
-			DeviceID: "device-1",
+			DeviceID: testDeviceID1,
 			IP:       "192.168.1.1",
 		},
 	}
@@ -103,8 +103,8 @@ func TestCNPGIdentityResolverUsesCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resolved1["192.168.1.1"] != "device-1" {
-		t.Errorf("expected device-1, got %s", resolved1["192.168.1.1"])
+	if resolved1["192.168.1.1"] != testDeviceID1 {
+		t.Errorf("expected %s, got %s", testDeviceID1, resolved1["192.168.1.1"])
 	}
 
 	// Second call - should use cache, DB not called
@@ -112,8 +112,8 @@ func TestCNPGIdentityResolverUsesCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resolved2["192.168.1.1"] != "device-1" {
-		t.Errorf("expected device-1 from cache, got %s", resolved2["192.168.1.1"])
+	if resolved2["192.168.1.1"] != testDeviceID1 {
+		t.Errorf("expected %s from cache, got %s", testDeviceID1, resolved2["192.168.1.1"])
 	}
 }
 

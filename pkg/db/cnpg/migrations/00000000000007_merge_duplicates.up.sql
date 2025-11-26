@@ -78,13 +78,7 @@ SET metadata = u.metadata || jsonb_build_object('_merged_into', c.canonical_id)
 FROM duplicates d
     JOIN canonical_map c ON d.ip = c.ip
 WHERE u.device_id = d.device_id;
--- 4. Log results
-DO $$
-DECLARE merged_count INTEGER;
-BEGIN
-SELECT COUNT(*) INTO merged_count
-FROM duplicates;
-RAISE NOTICE 'Merged % duplicate devices',
-merged_count;
-END $$;
+-- 4. Cleanup temp tables
+DROP TABLE IF EXISTS duplicates;
+DROP TABLE IF EXISTS canonical_map;
 COMMIT;
