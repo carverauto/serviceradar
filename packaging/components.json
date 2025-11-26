@@ -31,7 +31,7 @@
   {
     "name": "kong",
     "package_name": "serviceradar-kong",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "Wrapper package bundling Kong Gateway OSS 3.10.0 for air-gapped installs (falls back to enterprise if provided)",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -77,7 +77,7 @@
   {
     "name": "core",
     "package_name": "serviceradar-core",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar Core API service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -132,7 +132,7 @@
   {
     "name": "srql",
     "package_name": "serviceradar-srql",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar SRQL Rust query service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -192,7 +192,7 @@
   {
     "name": "event-writer",
     "package_name": "serviceradar-event-writer",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar DB Event Writer Service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -241,7 +241,7 @@
   {
     "name": "goflow2",
     "package_name": "serviceradar-goflow2",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "goflow2 with NATS JetStream support",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -282,7 +282,7 @@
   {
     "name": "web",
     "package_name": "serviceradar-web",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar web interface",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -336,7 +336,7 @@
   {
     "name": "faker",
     "package_name": "serviceradar-faker",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar Fake Armis API Service for Testing",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -386,7 +386,7 @@
   {
     "name": "agent",
     "package_name": "serviceradar-agent",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar Agent Service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -439,7 +439,7 @@
   {
     "name": "poller",
     "package_name": "serviceradar-poller",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar Poller Service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -487,7 +487,7 @@
   {
     "name": "mapper",
     "package_name": "serviceradar-mapper",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar Mapper Service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -535,7 +535,7 @@
   {
     "name": "nats",
     "package_name": "serviceradar-nats",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar NATS JetStream service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -595,7 +595,7 @@
   {
     "name": "datasvc",
     "package_name": "serviceradar-datasvc",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar data service (KV + object store)",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -642,7 +642,7 @@
   {
     "name": "sync",
     "package_name": "serviceradar-sync",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar Key-Value store Sync service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -689,7 +689,7 @@
   {
     "name": "dusk-checker",
     "package_name": "serviceradar-dusk",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar Dusk node checker",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -729,7 +729,7 @@
   {
     "name": "snmp-checker",
     "package_name": "serviceradar-snmp-checker",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar SNMP poller",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -776,7 +776,7 @@
   {
     "name": "zen",
     "package_name": "serviceradar-zen",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar Zen Consumer Service",
     "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -847,7 +847,7 @@
   {
     "name": "rperf",
     "package_name": "serviceradar-rperf",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar RPerf Network Performance Testing Tool",
     "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -889,7 +889,7 @@
   {
     "name": "rperf-checker",
     "package_name": "serviceradar-rperf-checker",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar RPerf Network Performance Test Checker",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
     "architecture": "amd64",
@@ -938,7 +938,7 @@
   {
     "name": "flowgger",
     "package_name": "serviceradar-flowgger",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar Flowgger log ingestion service",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
     "architecture": "amd64",
@@ -987,7 +987,7 @@
   {
     "name": "trapd",
     "package_name": "serviceradar-trapd",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar SNMP trap receiver service",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
     "architecture": "amd64",
@@ -1036,7 +1036,7 @@
   {
     "name": "cli",
     "package_name": "serviceradar-cli",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar CLI tool",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -1069,7 +1069,7 @@
   {
     "name": "otel",
     "package_name": "serviceradar-otel",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar OTEL Collector",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -1114,7 +1114,7 @@
   {
     "name": "profiler",
     "package_name": "serviceradar-profiler",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar Profiler agent",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -1159,7 +1159,7 @@
   {
     "name": "sysmon",
     "package_name": "serviceradar-sysmon-checker",
-    "version": "1.0.53",
+    "version": "1.0.58",
     "description": "ServiceRadar System Monitor checker",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
     "architecture": "amd64",
