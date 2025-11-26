@@ -253,6 +253,10 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		batch = append(batch, tombstones...)
 	}
 
+	// Deduplicate batch before publishing
+	// This ensures we don't try to create duplicate devices within the same batch
+	batch = r.deduplicateBatch(batch)
+
 	// Publish directly to the device_updates stream
 	if err := r.db.PublishBatchDeviceUpdates(ctx, batch); err != nil {
 		return fmt.Errorf("failed to publish device updates: %w", err)
@@ -275,6 +279,57 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		Msg("Registry batch processed")
 
 	return nil
+}
+
+// deduplicateBatch removes duplicate updates for the same IP within a batch
+// It merges metadata from duplicates into the first occurrence
+func (r *DeviceRegistry) deduplicateBatch(updates []*models.DeviceUpdate) []*models.DeviceUpdate {
+	if len(updates) <= 1 {
+		return updates
+	}
+
+	// Track IPs seen in this batch
+	seenIPs := make(map[string]*models.DeviceUpdate)
+	result := make([]*models.DeviceUpdate, 0, len(updates))
+
+	for _, update := range updates {
+		// Skip updates without IP or with service component IDs
+		if update.IP == "" || isServiceDeviceID(update.DeviceID) {
+			result = append(result, update)
+			continue
+		}
+
+		if existing, ok := seenIPs[update.IP]; ok {
+			// Same IP twice in batch - merge into first occurrence
+			r.mergeUpdateMetadata(existing, update)
+		} else {
+			seenIPs[update.IP] = update
+			result = append(result, update)
+		}
+	}
+
+	return result
+}
+
+// mergeUpdateMetadata merges metadata from source update into target update
+func (r *DeviceRegistry) mergeUpdateMetadata(target, source *models.DeviceUpdate) {
+	if source.Metadata == nil {
+		return
+	}
+	if target.Metadata == nil {
+		target.Metadata = make(map[string]string)
+	}
+
+	for k, v := range source.Metadata {
+		if _, exists := target.Metadata[k]; !exists {
+			target.Metadata[k] = v
+		}
+	}
+
+	// Also merge strong identifiers if present in source but missing in target
+	if source.MAC != nil && (target.MAC == nil || *target.MAC == "") {
+		target.MAC = source.MAC
+	}
 }
 
 // SetCollectorCapabilities stores or updates the collector capability record for a device.

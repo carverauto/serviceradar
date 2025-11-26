@@ -381,6 +381,11 @@ func (s *Server) Start(ctx context.Context) error {
 	go s.runMetricsCleanup(ctx)
 	go s.monitorPollers(ctx)
 
+	// Start stale device reaper
+	// TODO: Make interval and TTL configurable via config
+	reaper := NewStaleDeviceReaper(s.DB, s.logger, 1*time.Hour, 24*time.Hour)
+	go reaper.Start(ctx)
+
 	return nil
 }
 

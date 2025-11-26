@@ -68,7 +68,7 @@ func (s *Server) processHostResults(
 			AgentID:     agentID,
 			PollerID:    pollerID,
 			Partition:   partition,
-			DeviceID:    fmt.Sprintf("%s:%s", partition, host.Host),
+			DeviceID:    "", // Let DeviceIdentityResolver generate sr: UUID
 			Source:      models.DiscoverySourceSweep,
 			IP:          host.Host,
 			MAC:         nil, // HostResult doesn't have MAC field

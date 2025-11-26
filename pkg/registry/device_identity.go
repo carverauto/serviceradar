@@ -152,12 +152,12 @@ func (r *DeviceIdentityResolver) ResolveDeviceID(ctx context.Context, update *mo
 		return update.DeviceID, nil
 	}
 
-	// Check cache for weak identifier (IP) only if no strong identifiers
-	if !hasAnyStrongIdentifier(identifiers) {
-		for _, ip := range identifiers.IPs {
-			if deviceID := r.cache.getIPMapping(ip); deviceID != "" {
-				return deviceID, nil
-			}
+	// Check cache for weak identifier (IP)
+	// We check this even if strong identifiers are present, because we want to
+	// reuse the existing UUID for this IP if one exists.
+	for _, ip := range identifiers.IPs {
+		if deviceID := r.cache.getIPMapping(ip); deviceID != "" {
+			return deviceID, nil
 		}
 	}
 
@@ -209,8 +209,10 @@ func (r *DeviceIdentityResolver) ResolveDeviceIDs(ctx context.Context, updates [
 			continue
 		}
 
-		// Check weak identifier cache if no strong identifiers
-		if !hasAnyStrongIdentifier(identifiers) && len(identifiers.IPs) > 0 {
+		// Check weak identifier cache
+		// We check this even if strong identifiers are present, because we want to
+		// reuse the existing UUID for this IP if one exists.
+		if len(identifiers.IPs) > 0 {
 			for _, ip := range identifiers.IPs {
 				if deviceID := r.cache.getIPMapping(ip); deviceID != "" {
 					update.DeviceID = deviceID
@@ -423,20 +425,14 @@ func (r *DeviceIdentityResolver) findExistingDevice(ctx context.Context, ids *de
 				}
 			}
 
-			// Priority 3: Weak identifier (IP) - allow fallback when strong identifiers are absent
-			// or when we want to merge strong-identifier sources into pre-existing sweep devices.
-			if !hasAnyStrongIdentifier(ids) || allowIPFallback {
-				for _, device := range devices {
-					// Skip legacy IDs - they need migration
-					if isLegacyIPBasedID(device.DeviceID) {
-						continue
-					}
-					// Normally avoid merging into an existing device that already has strong identifiers,
-					// but allow it when IP fallback is explicitly enabled (sweep data).
-					if allowIPFallback || !deviceHasStrongIdentifiers(device) {
-						return device.DeviceID, nil
-					}
+			// Priority 3: Weak identifier (IP) - always allow fallback to find existing device by IP
+			// This ensures we reuse the existing UUID for this IP, even if we're adding strong identifiers.
+			for _, device := range devices {
+				// Skip legacy IDs - they need migration
+				if isLegacyIPBasedID(device.DeviceID) {
+					continue
 				}
+				return device.DeviceID, nil
 			}
 		}
 	}
@@ -524,13 +520,12 @@ func (r *DeviceIdentityResolver) batchFindExistingDevices(
 			}
 
 			// Try IP match when we have no strong identifiers or when configured to allow fallback
-			if (!hasAnyStrongIdentifier(ids) || allowIPFallbackForStrong) && len(ids.IPs) > 0 {
+			// Actually, we ALWAYS want to try IP match if strong ID match failed, because we want to
+			// attach to the existing device at this IP.
+			if len(ids.IPs) > 0 {
 				for _, ip := range ids.IPs {
 					if device := deviceByIP[ip]; device != nil {
-						// Allow attaching to devices with strong identifiers when IP fallback is enabled
-						if allowIPFallbackForStrong || !deviceHasStrongIdentifiers(device) {
-							result[update] = device.DeviceID
-						}
+						result[update] = device.DeviceID
 						break
 					}
 				}
@@ -851,36 +846,18 @@ func (c *deviceIdentityCache) evictOldest(m map[string]deviceIdentityCacheEntry,
 func generateServiceRadarDeviceID(update *models.DeviceUpdate) string {
 	// Create a deterministic seed from available identifiers
 	h := sha256.New()
-	h.Write([]byte("serviceradar-device-v1:"))
+	h.Write([]byte("serviceradar-device-v2:"))
 
-	hasStrong := false
-
-	// Include strong identifiers in hash (order matters for consistency)
-	if update.MAC != nil && *update.MAC != "" {
-		h.Write([]byte("mac:" + normalizeMAC(*update.MAC) + ":"))
-		hasStrong = true
-	}
-	if update.Metadata != nil {
-		if armisID := update.Metadata["armis_device_id"]; armisID != "" {
-			h.Write([]byte("armis:" + armisID + ":"))
-			hasStrong = true
-		}
-		if netboxID := update.Metadata["netbox_device_id"]; netboxID != "" {
-			h.Write([]byte("netbox:" + netboxID + ":"))
-			hasStrong = true
-		}
+	// Primary identity anchor
+	ip := strings.TrimSpace(update.IP)
+	partition := strings.TrimSpace(update.Partition)
+	if partition == "" {
+		partition = "default"
 	}
 
-	// Include weak identifiers only when no strong identifiers are present.
-	// This keeps UUIDs stable across IP churn for devices that provide strong identifiers.
-	if !hasStrong {
-		if update.IP != "" {
-			h.Write([]byte("ip:" + update.IP + ":"))
-		}
-		if update.Partition != "" {
-			h.Write([]byte("partition:" + update.Partition + ":"))
-		}
-	}
+	// UUID is ALWAYS based on IP + partition
+	// This ensures determinism regardless of discovery order
+	h.Write([]byte(fmt.Sprintf("partition:%s:ip:%s", partition, ip)))
 
 	// Add timestamp for uniqueness if no identifiers
 	hashBytes := h.Sum(nil)
