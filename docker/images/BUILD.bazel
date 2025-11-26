@@ -917,6 +917,43 @@ oci_load(
 )
 
 pkg_tar(
+    name = "faker_layer_amd64",
+    files = {
+        "//cmd/faker:faker": "usr/local/bin/serviceradar-faker",
+    },
+    modes = {
+        "usr/local/bin/serviceradar-faker": "0755",
+    },
+    empty_dirs = [
+        "etc/serviceradar",
+        "var/log/serviceradar",
+        "var/lib/serviceradar/faker",
+    ],
+    package_dir = "/",
+)
+
+oci_image(
+    name = "faker_image_amd64",
+    base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
+    tars = [":common_tools_amd64", ":faker_layer_amd64"],
+    cmd = ["/usr/local/bin/serviceradar-faker", "-config", "/etc/serviceradar/faker.json"],
+    env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+    },
+    workdir = "/var/lib/serviceradar",
+    exposed_ports = ["8080/tcp"],
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-faker",
+    },
+)
+
+oci_load(
+    name = "faker_image_amd64_tar",
+    image = ":faker_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-faker:local"],
+)
+
+pkg_tar(
     name = "zen_layer_amd64",
     files = {
         "//cmd/consumers/zen:zen": "usr/local/bin/serviceradar-zen",

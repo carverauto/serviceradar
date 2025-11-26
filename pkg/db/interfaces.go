@@ -131,6 +131,8 @@ type Service interface {
 	ListUnifiedDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
 	CountUnifiedDevices(ctx context.Context) (int64, error)
 	CleanupStaleUnifiedDevices(ctx context.Context, retention time.Duration) (int64, error)
+	GetStaleIPOnlyDevices(ctx context.Context, ttl time.Duration) ([]string, error)
+	SoftDeleteDevices(ctx context.Context, deviceIDs []string) error
 
 	// DeviceUpdate operations (modern materialized view approach).
 

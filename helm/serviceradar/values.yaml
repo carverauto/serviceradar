@@ -2,7 +2,8 @@ namespace: serviceradar-staging
 image:
   registryPullSecret: ghcr-io-cred
   tags:
-    core: latest
+    # ServiceRadar UUID identity system - generates stable device IDs based on strong identifiers
+    core: "sha-492cb7f79988"
     web: latest
     nats: "2.12.2-alpine"
     datasvc: latest
@@ -15,7 +16,8 @@ image:
     trapd: latest
     flowgger: "1.0.56"
     zen: latest
-    sync: latest
+    # Armis sync uses empty DeviceID - registry generates ServiceRadar UUIDs
+    sync: "sha-0ebaddb1871c"
     rperfClient: latest
     faker: latest
     rperfChecker: latest

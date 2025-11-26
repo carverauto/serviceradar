@@ -59,6 +59,8 @@ type DeviceRegistry struct {
 	logger                   logger.Logger
 	identityPublisher        *identityPublisher
 	identityResolver         *identityResolver
+	cnpgIdentityResolver     *cnpgIdentityResolver
+	deviceIdentityResolver   *DeviceIdentityResolver
 	firstSeenLookupChunkSize int
 
 	mu           sync.RWMutex
@@ -148,8 +150,20 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		return nil
 	}
 
-	// Hydrate canonical metadata via KV if available
-	if r.identityResolver != nil {
+	// Resolve device IDs to canonical ServiceRadar UUIDs
+	// This ensures devices are identified by stable IDs rather than ephemeral IPs
+	if r.deviceIdentityResolver != nil {
+		if err := r.deviceIdentityResolver.ResolveDeviceIDs(ctx, valid); err != nil {
+			r.logger.Warn().Err(err).Msg("Device identity resolution failed")
+		}
+	}
+
+	// Hydrate canonical metadata from CNPG (preferred) or KV (legacy fallback)
+	if r.cnpgIdentityResolver != nil {
+		if err := r.cnpgIdentityResolver.hydrateCanonical(ctx, valid); err != nil {
+			r.logger.Warn().Err(err).Msg("CNPG canonical hydration failed")
+		}
+	} else if r.identityResolver != nil {
 		if err := r.identityResolver.hydrateCanonical(ctx, valid); err != nil {
 			r.logger.Warn().Err(err).Msg("KV canonical hydration failed")
 		}
@@ -239,6 +253,10 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		batch = append(batch, tombstones...)
 	}
 
+	// Deduplicate batch before publishing
+	// This ensures we don't try to create duplicate devices within the same batch
+	batch = r.deduplicateBatch(batch)
+
 	// Publish directly to the device_updates stream
 	if err := r.db.PublishBatchDeviceUpdates(ctx, batch); err != nil {
 		return fmt.Errorf("failed to publish device updates: %w", err)
@@ -261,6 +279,57 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		Msg("Registry batch processed")
 
 	return nil
+}
+
+// deduplicateBatch removes duplicate updates for the same IP within a batch
+// It merges metadata from duplicates into the first occurrence
+func (r *DeviceRegistry) deduplicateBatch(updates []*models.DeviceUpdate) []*models.DeviceUpdate {
+	if len(updates) <= 1 {
+		return updates
+	}
+
+	// Track IPs seen in this batch
+	seenIPs := make(map[string]*models.DeviceUpdate)
+	result := make([]*models.DeviceUpdate, 0, len(updates))
+
+	for _, update := range updates {
+		// Skip updates without IP or with service component IDs
+		if update.IP == "" || isServiceDeviceID(update.DeviceID) {
+			result = append(result, update)
+			continue
+		}
+
+		if existing, ok := seenIPs[update.IP]; ok {
+			// Same IP twice in batch - merge into first occurrence
+			r.mergeUpdateMetadata(existing, update)
+		} else {
+			seenIPs[update.IP] = update
+			result = append(result, update)
+		}
+	}
+
+	return result
+}
+
+// mergeUpdateMetadata merges metadata from source update into target update
+func (r *DeviceRegistry) mergeUpdateMetadata(target, source *models.DeviceUpdate) {
+	if source.Metadata == nil {
+		return
+	}
+	if target.Metadata == nil {
+		target.Metadata = make(map[string]string)
+	}
+
+	for k, v := range source.Metadata {
+		if _, exists := target.Metadata[k]; !exists {
+			target.Metadata[k] = v
+		}
+	}
+
+	// Also merge strong identifiers if present in source but missing in target
+	if source.MAC != nil && (target.MAC == nil || *target.MAC == "") {
+		target.MAC = source.MAC
+	}
 }
 
 // SetCollectorCapabilities stores or updates the collector capability record for a device.
@@ -451,19 +520,26 @@ func canonicalIDCandidate(update *models.DeviceUpdate) string {
 	if update == nil {
 		return ""
 	}
+
+	// Check canonical_device_id from metadata, but skip legacy partition:IP format IDs
 	if update.Metadata != nil {
 		if canonical := strings.TrimSpace(update.Metadata["canonical_device_id"]); canonical != "" {
-			return canonical
+			// Skip legacy partition:IP format IDs - they should be migrated to ServiceRadar UUIDs
+			if !isLegacyIPBasedID(canonical) {
+				return canonical
+			}
 		}
 	}
+
+	// Use the current DeviceID, but skip legacy partition:IP format IDs
 	deviceID := strings.TrimSpace(update.DeviceID)
-	if deviceID != "" {
+	if deviceID != "" && !isLegacyIPBasedID(deviceID) {
 		return deviceID
 	}
-	if update.Partition != "" && update.IP != "" {
-		return fmt.Sprintf("%s:%s", strings.TrimSpace(update.Partition), strings.TrimSpace(update.IP))
-	}
-	return strings.TrimSpace(update.IP)
+
+	// For legacy IDs or empty IDs, return empty to signal that a new UUID is needed
+	// Don't fall back to partition:IP format
+	return ""
 }
 
 func setIfMissing(dst map[string]string, key, value string) {
@@ -635,6 +711,11 @@ func (r *DeviceRegistry) scanIdentifierRows(rows db.Rows, out map[string]string)
 			continue
 		}
 
+		// Skip legacy partition:IP format IDs - they should be migrated to ServiceRadar UUIDs
+		if isLegacyIPBasedID(deviceID) {
+			continue
+		}
+
 		if _, exists := out[key]; !exists {
 			out[key] = deviceID
 		}
@@ -757,34 +838,40 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 		return nil
 	}
 
-	var kvErr error
-	if r.identityResolver != nil {
-		candidates := make([]string, 0, len(unresolved))
-		for ip := range unresolved {
-			candidates = append(candidates, ip)
-		}
+	// Resolve IPs using CNPG (preferred) or KV (legacy fallback)
+	var resolveErr error
+	candidates := make([]string, 0, len(unresolved))
+	for ip := range unresolved {
+		candidates = append(candidates, ip)
+	}
 
-		resolved, err := r.identityResolver.resolveCanonicalIPs(ctx, candidates)
-		if err != nil {
-			kvErr = err
+	var resolved map[string]string
+	if r.cnpgIdentityResolver != nil {
+		resolved, resolveErr = r.cnpgIdentityResolver.resolveCanonicalIPs(ctx, candidates)
+	} else if r.identityResolver != nil {
+		resolved, resolveErr = r.identityResolver.resolveCanonicalIPs(ctx, candidates)
+	}
+
+	for ip, deviceID := range resolved {
+		ip = strings.TrimSpace(ip)
+		deviceID = strings.TrimSpace(deviceID)
+		if ip == "" || deviceID == "" {
+			continue
 		}
-		for ip, deviceID := range resolved {
-			ip = strings.TrimSpace(ip)
-			deviceID = strings.TrimSpace(deviceID)
-			if ip == "" || deviceID == "" {
-				continue
-			}
-			if out != nil {
-				if _, exists := out[ip]; !exists {
-					out[ip] = deviceID
-				}
-			}
-			delete(unresolved, ip)
+		// Skip legacy partition:IP format IDs - they should be migrated to ServiceRadar UUIDs
+		if isLegacyIPBasedID(deviceID) {
+			continue
 		}
+		if out != nil {
+			if _, exists := out[ip]; !exists {
+				out[ip] = deviceID
+			}
+		}
+		delete(unresolved, ip)
 	}
 
 	if len(unresolved) == 0 {
-		return kvErr
+		return resolveErr
 	}
 
 	fallbackIPs := make([]string, 0, len(unresolved))
@@ -794,7 +881,7 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 
 	if r.useCNPGReads() {
 		cnpgErr := r.resolveIPsToCanonicalCNPG(ctx, fallbackIPs, out)
-		return errors.Join(kvErr, cnpgErr)
+		return errors.Join(resolveErr, cnpgErr)
 	}
 
 	buildQuery := func(list string) string {
@@ -815,7 +902,7 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 	}
 
 	fallbackErr := r.resolveIdentifiers(ctx, fallbackIPs, out, buildQuery, extract)
-	return errors.Join(kvErr, fallbackErr)
+	return errors.Join(resolveErr, fallbackErr)
 }
 
 func (r *DeviceRegistry) lookupCanonicalFromMaps(u *models.DeviceUpdate, maps *identityMaps) (string, string) {

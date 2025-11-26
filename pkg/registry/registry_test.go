@@ -19,6 +19,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +39,10 @@ const testDeviceID = "default:172.18.0.2"
 func allowCanonicalizationQueries(mockDB *db.MockService) {
 	mockDB.EXPECT().
 		ExecuteQuery(gomock.Any(), gomock.Any()).
+		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return([]map[string]interface{}{}, nil).
 		AnyTimes()
 	mockDB.EXPECT().
@@ -211,7 +216,9 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 	mockDB := db.NewMockService(ctrl)
 	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
-	registry := NewDeviceRegistry(mockDB, testLogger)
+	registry := NewDeviceRegistry(mockDB, testLogger, WithDeviceIdentityResolver(mockDB))
+	require.NotNil(t, registry.deviceIdentityResolver)
+	require.NotNil(t, registry.deviceIdentityResolver)
 
 	tests := []struct {
 		name        string
@@ -244,7 +251,7 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 				t.Helper()
 				assert.Len(t, publishedUpdates, 1, "Should publish exactly one update")
 				result := publishedUpdates[0]
-				assert.Equal(t, "default:216.17.46.98", result.DeviceID)
+				assert.True(t, strings.HasPrefix(result.DeviceID, "sr:"), "expected ServiceRadar UUID")
 				assert.Equal(t, "216.17.46.98", result.IP)
 				assert.Equal(t, "default", result.Partition)
 				assert.Equal(t, models.DiscoverySourceSNMP, result.Source)
@@ -276,7 +283,7 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 				t.Helper()
 				assert.Len(t, publishedUpdates, 1, "Should publish exactly one update")
 				result := publishedUpdates[0]
-				assert.Equal(t, "default:192.168.1.100", result.DeviceID, "Should generate DeviceID from IP")
+				assert.True(t, strings.HasPrefix(result.DeviceID, "sr:"), "Should generate ServiceRadar ID")
 				assert.Equal(t, "192.168.1.100", result.IP)
 				assert.Equal(t, "default", result.Partition)
 			},
@@ -304,7 +311,7 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 				assert.Len(t, publishedUpdates, 1, "Should publish exactly one update")
 				result := publishedUpdates[0]
 				assert.Equal(t, "default", result.Partition, "Should extract partition from DeviceID")
-				assert.Equal(t, "default:192.168.10.5", result.DeviceID)
+				assert.True(t, strings.HasPrefix(result.DeviceID, "sr:"), "Should generate ServiceRadar ID")
 			},
 		},
 		{
@@ -341,7 +348,7 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 
 				// Check first device
 				result1 := publishedUpdates[0]
-				assert.Equal(t, "default:192.168.1.1", result1.DeviceID)
+				assert.True(t, strings.HasPrefix(result1.DeviceID, "sr:"), "Should generate ServiceRadar ID")
 				assert.Equal(t, "192.168.1.1", result1.IP)
 				assert.Equal(t, "device1", *result1.Hostname)
 				assert.True(t, result1.IsAvailable)
@@ -349,7 +356,8 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 
 				// Check second device
 				result2 := publishedUpdates[1]
-				assert.Equal(t, "default:192.168.1.2", result2.DeviceID)
+				assert.True(t, strings.HasPrefix(result2.DeviceID, "sr:"), "Should generate ServiceRadar ID")
+				assert.NotEqual(t, result1.DeviceID, result2.DeviceID, "Different devices should not share IDs")
 				assert.Equal(t, "192.168.1.2", result2.IP)
 				assert.Equal(t, "device2", *result2.Hostname)
 				assert.False(t, result2.IsAvailable)
@@ -407,7 +415,7 @@ func TestDeviceRegistry_ProcessDeviceUpdate(t *testing.T) {
 	mockDB := db.NewMockService(ctrl)
 	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
-	registry := NewDeviceRegistry(mockDB, testLogger)
+	registry := NewDeviceRegistry(mockDB, testLogger, WithDeviceIdentityResolver(mockDB))
 
 	// Test single device update (should call ProcessBatchDeviceUpdates internally)
 	update := &models.DeviceUpdate{
@@ -428,7 +436,7 @@ func TestDeviceRegistry_ProcessDeviceUpdate(t *testing.T) {
 	).DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
 		assert.Len(t, updates, 1, "Should publish exactly one update")
 		update = updates[0]
-		assert.Equal(t, "default:192.168.1.1", update.DeviceID)
+		assert.True(t, strings.HasPrefix(update.DeviceID, "sr:"), "Should generate ServiceRadar ID")
 		assert.Equal(t, "192.168.1.1", update.IP)
 		assert.Equal(t, "single-device", *update.Hostname)
 		assert.Equal(t, "value", update.Metadata["test"])
@@ -453,7 +461,7 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 	mockDB := db.NewMockService(ctrl)
 	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
-	registry := NewDeviceRegistry(mockDB, testLogger)
+	registry := NewDeviceRegistry(mockDB, testLogger, WithDeviceIdentityResolver(mockDB))
 
 	tests := []struct {
 		name        string
@@ -476,7 +484,7 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 			validate: func(t *testing.T, normalized *models.DeviceUpdate) {
 				t.Helper()
 
-				assert.Equal(t, "default:192.168.1.100", normalized.DeviceID)
+				assert.True(t, strings.HasPrefix(normalized.DeviceID, "sr:"), "Should generate ServiceRadar ID")
 				assert.Equal(t, "default", normalized.Partition)
 			},
 		},
@@ -495,7 +503,7 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 			validate: func(t *testing.T, normalized *models.DeviceUpdate) {
 				t.Helper()
 
-				assert.Equal(t, "custom:192.168.1.101", normalized.DeviceID)
+				assert.True(t, strings.HasPrefix(normalized.DeviceID, "sr:"), "Should canonicalize device ID")
 				assert.Equal(t, "custom", normalized.Partition)
 			},
 		},
@@ -514,7 +522,7 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 			validate: func(t *testing.T, normalized *models.DeviceUpdate) {
 				t.Helper()
 
-				assert.Equal(t, "default:192.168.1.102", normalized.DeviceID)
+				assert.True(t, strings.HasPrefix(normalized.DeviceID, "sr:"), "Should canonicalize malformed device ID")
 				assert.Equal(t, "default", normalized.Partition)
 			},
 		},
@@ -725,7 +733,7 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates_CanonicalizesDuplicatesWithinB
 	mockDB := db.NewMockService(ctrl)
 	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
-	registry := NewDeviceRegistry(mockDB, testLogger)
+	registry := NewDeviceRegistry(mockDB, testLogger, WithDeviceIdentityResolver(mockDB))
 
 	primaryID := "default:10.0.0.1"
 	updates := []*models.DeviceUpdate{
@@ -763,23 +771,18 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates_CanonicalizesDuplicatesWithinB
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, updates)
 	require.NoError(t, err)
-	require.Len(t, published, 3, "expected two canonical updates plus tombstone")
+	require.Len(t, published, 2, "expected canonical updates without tombstone when strong identifiers match")
 
 	first := published[0]
 	second := published[1]
-	tombstone := published[2]
+	t.Logf("published device IDs: %s, %s", first.DeviceID, second.DeviceID)
 
-	assert.Equal(t, primaryID, first.DeviceID)
+	require.True(t, strings.HasPrefix(first.DeviceID, "sr:"), "device IDs should be canonical UUIDs")
+	assert.Equal(t, first.DeviceID, second.DeviceID, "duplicate should re-use canonical id from batch")
 	assert.Equal(t, "10.0.0.1", first.IP)
 
-	assert.Equal(t, primaryID, second.DeviceID, "duplicate should re-use canonical id from batch")
 	assert.Equal(t, "10.0.0.2", second.IP)
-	assert.Contains(t, second.Metadata, "alt_ip:10.0.0.2")
 	assert.Equal(t, "armis-123", second.Metadata["armis_device_id"])
-
-	require.Contains(t, tombstone.Metadata, "_merged_into")
-	assert.Equal(t, primaryID, tombstone.Metadata["_merged_into"])
-	assert.Equal(t, "default:10.0.0.2", tombstone.DeviceID)
 }
 
 func TestLookupCanonicalPrefersMACOverIP(t *testing.T) {

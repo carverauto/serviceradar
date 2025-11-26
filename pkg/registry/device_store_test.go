@@ -7,7 +7,10 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
-const testRegionUSEast1 = "us-east-1"
+const (
+	testRegionUSEast1 = "us-east-1"
+	testDeviceID1     = "device-1"
+)
 
 func newTestDeviceRegistry() *DeviceRegistry {
 	return NewDeviceRegistry(nil, logger.NewTestLogger())
@@ -25,7 +28,7 @@ func TestUpsertAndGetDeviceRecord(t *testing.T) {
 	lastSeen := time.Unix(1700003600, 0).UTC()
 
 	reg.UpsertDeviceRecord(&DeviceRecord{
-		DeviceID:         "device-1",
+		DeviceID:         testDeviceID1,
 		IP:               "10.0.0.10",
 		PollerID:         "poller-a",
 		AgentID:          "agent-a",
@@ -41,12 +44,12 @@ func TestUpsertAndGetDeviceRecord(t *testing.T) {
 		Metadata:         metadata,
 	})
 
-	got, ok := reg.GetDeviceRecord("device-1")
+	got, ok := reg.GetDeviceRecord(testDeviceID1)
 	if !ok {
 		t.Fatalf("expected device to be found")
 	}
 
-	if got == nil || got.DeviceID != "device-1" {
+	if got == nil || got.DeviceID != testDeviceID1 {
 		t.Fatalf("unexpected device returned: %#v", got)
 	}
 
@@ -60,7 +63,7 @@ func TestUpsertAndGetDeviceRecord(t *testing.T) {
 	newHostname := "mutated"
 	got.Hostname = &newHostname
 
-	original, ok := reg.GetDeviceRecord("device-1")
+	original, ok := reg.GetDeviceRecord(testDeviceID1)
 	if !ok {
 		t.Fatalf("expected device to remain in registry")
 	}

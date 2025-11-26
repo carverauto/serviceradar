@@ -20,8 +20,8 @@ spec:
         - containerPort: 8080
           name: http
         env:
-{{ include "serviceradar.kvEnv" . | indent 8 }}
-{{ include "serviceradar.coreEnv" . | indent 8 }}
+        - name: CONFIG_SOURCE
+          value: "file"
         - name: CONFIG_PATH
           value: "/etc/serviceradar/faker.json"
         - name: LOG_LEVEL

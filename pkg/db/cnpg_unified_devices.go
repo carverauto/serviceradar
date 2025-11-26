@@ -431,3 +431,64 @@ func (db *DB) CleanupStaleUnifiedDevices(ctx context.Context, retention time.Dur
 
 	return result.RowsAffected(), nil
 }
+
+// GetStaleIPOnlyDevices returns IDs of devices that have no strong identifiers
+// and have not been seen for the specified TTL.
+func (db *DB) GetStaleIPOnlyDevices(ctx context.Context, ttl time.Duration) ([]string, error) {
+	if !db.useCNPGWrites() {
+		return nil, nil
+	}
+
+	// Query for devices where:
+	// 1. Not deleted
+	// 2. No strong identifiers (MAC, Armis ID, Netbox ID)
+	// 3. Last seen older than TTL
+	const query = `
+	SELECT device_id
+	FROM unified_devices
+	WHERE (metadata->>'_merged_into' IS NULL OR metadata->>'_merged_into' = '' OR metadata->>'_merged_into' = device_id)
+	  AND COALESCE(lower(metadata->>'_deleted'),'false') <> 'true'
+	  AND COALESCE(lower(metadata->>'deleted'),'false') <> 'true'
+	  AND mac IS NULL
+	  AND metadata->>'armis_device_id' IS NULL
+	  AND metadata->>'netbox_device_id' IS NULL
+	  AND last_seen < $1`
+
+	rows, err := db.pgPool.Query(ctx, query, time.Now().UTC().Add(-ttl))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query stale IP-only devices: %w", err)
+	}
+	defer rows.Close()
+
+	var deviceIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan device ID: %w", err)
+		}
+		deviceIDs = append(deviceIDs, id)
+	}
+
+	return deviceIDs, rows.Err()
+}
+
+// SoftDeleteDevices marks the specified devices as deleted in the database.
+func (db *DB) SoftDeleteDevices(ctx context.Context, deviceIDs []string) error {
+	if len(deviceIDs) == 0 || !db.useCNPGWrites() {
+		return nil
+	}
+
+	// Update metadata to set _deleted = true
+	const query = `
+	UPDATE unified_devices
+	SET metadata = metadata || '{"_deleted": "true"}'::jsonb,
+	    updated_at = NOW()
+	WHERE device_id = ANY($1)`
+
+	_, err := db.pgPool.Exec(ctx, query, deviceIDs)
+	if err != nil {
+		return fmt.Errorf("failed to soft-delete devices: %w", err)
+	}
+
+	return nil
+}
