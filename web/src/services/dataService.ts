@@ -61,6 +61,7 @@ export interface AnalyticsData {
   highEvents: number;
   mediumEvents: number;
   lowEvents: number;
+  infoEvents: number;
   recentCriticalEvents: unknown[];
 
   // Log stats
@@ -623,22 +624,26 @@ export class DataService {
     const last7DaysIso = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const slowTraceListQuery = 'in:otel_trace_summaries time:last_24h sort:duration_ms:desc limit:25';
+    // Query for both capitalized and lowercase severity values to handle legacy events
     const queryConfigs: Array<{ query: string; limit?: number }> = [
       { query: `in:events time:[${last24HoursIso},] stats:"count() as total" sort:total:desc` },
       {
-        query: `in:events severity:Critical time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`
+        query: `in:events severity:(Critical,critical,error) time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`
       },
       {
-        query: `in:events severity:High time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`
+        query: `in:events severity:(High,high) time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`
       },
       {
-        query: `in:events severity:Medium time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`
+        query: `in:events severity:(Medium,medium,notice) time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`
       },
       {
-        query: `in:events severity:Low time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`
+        query: `in:events severity:(Low,low) time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`
       },
       {
-        query: `in:events severity:(Critical,High) time:[${last24HoursIso},] sort:event_timestamp:desc limit:50`,
+        query: `in:events severity:(Info,info) time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`
+      },
+      {
+        query: `in:events severity:(Critical,critical,error,High,high) time:[${last24HoursIso},] sort:event_timestamp:desc limit:50`,
         limit: 50
       },
       { query: 'in:otel_metrics stats:"count() as total" sort:total:desc time:last_24h' },
@@ -677,6 +682,7 @@ export class DataService {
       highEventsRes,
       mediumEventsRes,
       lowEventsRes,
+      infoEventsRes,
       recentCriticalEventsRes,
       totalMetricsRes,
       traceAggregatesRes,
@@ -777,6 +783,7 @@ export class DataService {
     const highEvents = this.extractTotal(highEventsRes);
     const mediumEvents = this.extractTotal(mediumEventsRes);
     const lowEvents = this.extractTotal(lowEventsRes);
+    const infoEvents = this.extractTotal(infoEventsRes);
     const totalMetrics = this.extractTotal(totalMetricsRes);
     const totalTraces = this.extractField(traceAggregatesRes, 'total');
     const slowTraces = this.extractField(traceAggregatesRes, 'slow_traces');
@@ -795,6 +802,7 @@ export class DataService {
       highEvents,
       mediumEvents,
       lowEvents,
+      infoEvents,
       recentCriticalEvents: this.sliceResults(recentCriticalEventsRes, 5),
       totalLogs,
       fatalLogs,
@@ -865,6 +873,7 @@ export class DataService {
       highEvents: 0,
       mediumEvents: 0,
       lowEvents: 0,
+      infoEvents: 0,
       recentCriticalEvents: [],
       totalLogs: 0,
       fatalLogs: 0,

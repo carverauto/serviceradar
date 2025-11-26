@@ -14,7 +14,8 @@ import {
     AlertCircle,
     ArrowUp,
     ArrowDown,
-    Activity
+    Activity,
+    Info
 } from 'lucide-react';
 import ReactJson from '@/components/Common/DynamicReactJson';
 import { useDebounce } from 'use-debounce';
@@ -64,14 +65,16 @@ const EventsDashboard = () => {
         total: 0,
         critical: 0,
         high: 0,
-        low: 0
+        medium: 0,
+        low: 0,
+        info: 0
     });
     const [statsLoading, setStatsLoading] = useState(true);
     const [eventsLoading, setEventsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [debouncedSearchTerm] = useDebounce(searchTerm, 300);
-    const [filterSeverity, setFilterSeverity] = useState<'all' | 'Low' | 'Medium' | 'High' | 'Critical'>('all');
+    const [filterSeverity, setFilterSeverity] = useState<'all' | 'Info' | 'Low' | 'Medium' | 'High' | 'Critical'>('all');
     const [sortBy, setSortBy] = useState<SortableKeys>('event_timestamp');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
@@ -112,19 +115,24 @@ const EventsDashboard = () => {
 
         try {
             // Use cached queries to prevent duplicates
+            // Query for both capitalized and lowercase severity values to handle legacy events
             const last24HoursIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-            const [totalRes, criticalRes, highRes, lowRes] = await Promise.all([
+            const [totalRes, criticalRes, highRes, mediumRes, lowRes, infoRes] = await Promise.all([
                 cachedQuery<{ results: [{ total: number }] }>(`in:events time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
-                cachedQuery<{ results: [{ total: number }] }>(`in:events severity:Critical time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
-                cachedQuery<{ results: [{ total: number }] }>(`in:events severity:High time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
-                cachedQuery<{ results: [{ total: number }] }>(`in:events severity:Low time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:events severity:(Critical,critical,error) time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:events severity:(High,high) time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:events severity:(Medium,medium,notice) time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:events severity:(Low,low) time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
+                cachedQuery<{ results: [{ total: number }] }>(`in:events severity:(Info,info) time:[${last24HoursIso},] stats:"count() as total" sort:total:desc`, token || undefined, 30000),
             ]);
 
             setStats({
                 total: totalRes.results[0]?.total || 0,
                 critical: criticalRes.results[0]?.total || 0,
                 high: highRes.results[0]?.total || 0,
+                medium: mediumRes.results[0]?.total || 0,
                 low: lowRes.results[0]?.total || 0,
+                info: infoRes.results[0]?.total || 0,
             });
         } catch (e) {
             console.error("Failed to fetch event stats:", e);
@@ -207,6 +215,8 @@ const EventsDashboard = () => {
                 return 'bg-yellow-100 dark:bg-yellow-500/50 text-yellow-800 dark:text-yellow-200 border border-yellow-300 dark:border-yellow-400/60';
             case 'low':
                 return 'bg-sky-100 dark:bg-sky-600/50 text-sky-800 dark:text-sky-200 border border-sky-300 dark:border-sky-500/60';
+            case 'info':
+                return 'bg-blue-100 dark:bg-blue-600/50 text-blue-800 dark:text-blue-200 border border-blue-300 dark:border-blue-500/60';
             default:
                 return 'bg-gray-100 dark:bg-gray-600/50 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-500/60';
         }
@@ -313,7 +323,7 @@ const EventsDashboard = () => {
 
     return (
         <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 <StatCard
                     title="Total Events"
                     value={stats.total.toLocaleString()}
@@ -333,9 +343,21 @@ const EventsDashboard = () => {
                     isLoading={statsLoading}
                 />
                 <StatCard
+                    title="Medium"
+                    value={stats.medium.toLocaleString()}
+                    icon={<AlertCircle className="h-6 w-6 text-yellow-400" />}
+                    isLoading={statsLoading}
+                />
+                <StatCard
                     title="Low"
                     value={stats.low.toLocaleString()}
                     icon={<Activity className="h-6 w-6 text-sky-400" />}
+                    isLoading={statsLoading}
+                />
+                <StatCard
+                    title="Info"
+                    value={stats.info.toLocaleString()}
+                    icon={<Info className="h-6 w-6 text-blue-400" />}
                     isLoading={statsLoading}
                 />
             </div>
@@ -360,7 +382,7 @@ const EventsDashboard = () => {
                         <select
                             id="severityFilter"
                             value={filterSeverity}
-                            onChange={(e) => setFilterSeverity(e.target.value as 'all' | 'Low' | 'Medium' | 'High' | 'Critical')}
+                            onChange={(e) => setFilterSeverity(e.target.value as 'all' | 'Info' | 'Low' | 'Medium' | 'High' | 'Critical')}
                             className="border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
                         >
                             <option value="all">All</option>
@@ -368,6 +390,7 @@ const EventsDashboard = () => {
                             <option value="High">High</option>
                             <option value="Medium">Medium</option>
                             <option value="Low">Low</option>
+                            <option value="Info">Info</option>
                         </select>
                     </div>
                 </div>

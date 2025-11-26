@@ -33,21 +33,22 @@ const CriticalEventsWidget: React.FC = () => {
     const { stats, recentEvents } = useMemo(() => {
         if (!analyticsData) {
             return {
-                stats: { critical: 0, high: 0, medium: 0, low: 0, total: 0 },
+                stats: { critical: 0, high: 0, medium: 0, low: 0, info: 0, total: 0 },
                 recentEvents: []
             };
         }
-        
+
         const stats = {
             total: analyticsData.totalEvents,
             critical: analyticsData.criticalEvents,
             high: analyticsData.highEvents,
             medium: analyticsData.mediumEvents,
-            low: analyticsData.lowEvents
+            low: analyticsData.lowEvents,
+            info: analyticsData.infoEvents
         };
-        
+
         const recentEvents = (analyticsData.recentCriticalEvents as Event[] || []).slice(0, 5);
-        
+
         return { stats, recentEvents };
     }, [analyticsData]);
 
@@ -61,6 +62,8 @@ const CriticalEventsWidget: React.FC = () => {
             case 'medium':
                 return <AlertCircle size={14} className="text-yellow-600 dark:text-yellow-400" />;
             case 'low':
+                return <AlertCircle size={14} className="text-sky-600 dark:text-sky-400" />;
+            case 'info':
                 return <Info size={14} className="text-blue-600 dark:text-blue-400" />;
             default:
                 return <AlertCircle size={14} className="text-gray-600 dark:text-gray-400" />;
@@ -77,6 +80,8 @@ const CriticalEventsWidget: React.FC = () => {
             case 'medium':
                 return 'text-yellow-600 dark:text-yellow-400';
             case 'low':
+                return 'text-sky-600 dark:text-sky-400';
+            case 'info':
                 return 'text-blue-600 dark:text-blue-400';
             default:
                 return 'text-gray-600 dark:text-gray-400';
@@ -109,7 +114,7 @@ const CriticalEventsWidget: React.FC = () => {
         const eventWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const baseClauses = ['in:events', `time:[${eventWindowStart},]`, 'sort:event_timestamp:desc', 'limit:100'];
         const normalized = severity.toLowerCase();
-        if (['critical', 'high', 'medium', 'low'].includes(normalized)) {
+        if (['critical', 'high', 'medium', 'low', 'info'].includes(normalized)) {
             baseClauses.push(`severity:${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`);
         }
         const query = baseClauses.join(' ');
@@ -226,15 +231,26 @@ const CriticalEventsWidget: React.FC = () => {
                                     {stats.total > 0 ? Math.round((stats.medium / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
-                            <tr 
-                                className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-colors"
+                            <tr
+                                className="border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-sky-50 dark:hover:bg-sky-900/10 transition-colors"
                                 onClick={() => handleEventSeverityClick('low')}
                                 title="Click to view low severity events"
                             >
-                                <td className="py-1 text-blue-600 dark:text-blue-400">Low</td>
-                                <td className="text-center text-blue-600 dark:text-blue-400 font-bold">{formatNumber(stats.low)}</td>
-                                <td className="text-center text-blue-600 dark:text-blue-400 text-xs">
+                                <td className="py-1 text-sky-600 dark:text-sky-400">Low</td>
+                                <td className="text-center text-sky-600 dark:text-sky-400 font-bold">{formatNumber(stats.low)}</td>
+                                <td className="text-center text-sky-600 dark:text-sky-400 text-xs">
                                     {stats.total > 0 ? Math.round((stats.low / stats.total) * 100) : 0}%
+                                </td>
+                            </tr>
+                            <tr
+                                className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-colors"
+                                onClick={() => handleEventSeverityClick('info')}
+                                title="Click to view info severity events"
+                            >
+                                <td className="py-1 text-blue-600 dark:text-blue-400">Info</td>
+                                <td className="text-center text-blue-600 dark:text-blue-400 font-bold">{formatNumber(stats.info)}</td>
+                                <td className="text-center text-blue-600 dark:text-blue-400 text-xs">
+                                    {stats.total > 0 ? Math.round((stats.info / stats.total) * 100) : 0}%
                                 </td>
                             </tr>
                         </tbody>

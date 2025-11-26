@@ -519,16 +519,17 @@ func getLogLevelForState(state string) int32 {
 }
 
 // getSeverityForState maps poller states to severity strings
+// Uses standard severity levels: Critical, High, Medium, Low, Info
 func getSeverityForState(state string) string {
 	switch state {
 	case "unhealthy":
-		return "error"
+		return "High"
 	case "healthy":
-		return "info"
+		return "Info"
 	case unknownString:
-		return "notice"
+		return "Medium"
 	default:
-		return "info"
+		return "Info"
 	}
 }
 
