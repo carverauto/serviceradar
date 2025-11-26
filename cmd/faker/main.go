@@ -183,10 +183,11 @@ type Config struct {
 	Simulation struct {
 		TotalDevices int `json:"total_devices"`
 		IPShuffle    struct {
-			Enabled    bool   `json:"enabled"`
-			Interval   string `json:"interval"`
-			Percentage int    `json:"percentage"`
-			LogChanges bool   `json:"log_changes"`
+			Enabled      bool   `json:"enabled"`
+			Interval     string `json:"interval"`
+			Percentage   int    `json:"percentage"`
+			WarmupCycles int    `json:"warmup_cycles"`
+			LogChanges   bool   `json:"log_changes"`
 		} `json:"ip_shuffle"`
 	} `json:"simulation"`
 	Storage struct {
@@ -231,6 +232,9 @@ func (c *Config) Validate() error {
 	if c.Simulation.IPShuffle.Percentage <= 0 {
 		return errIPShufflePercentageInvalid
 	}
+	if c.Simulation.IPShuffle.WarmupCycles < 0 {
+		c.Simulation.IPShuffle.WarmupCycles = 0
+	}
 	if c.Storage.DataDir == "" {
 		return errDataDirRequired
 	}
@@ -250,6 +254,7 @@ func (c *Config) applyDefaults() {
 	c.Simulation.IPShuffle.Enabled = true
 	c.Simulation.IPShuffle.Interval = "60s"
 	c.Simulation.IPShuffle.Percentage = 5
+	c.Simulation.IPShuffle.WarmupCycles = 5
 	c.Simulation.IPShuffle.LogChanges = true
 	c.Storage.DataDir = "/var/lib/serviceradar/faker"
 	c.Storage.DevicesFile = "fake_armis_devices.json"
@@ -358,7 +363,21 @@ func shuffleIPs() {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	warmupCycles := config.Simulation.IPShuffle.WarmupCycles
+	if warmupCycles < 0 {
+		warmupCycles = 0
+	}
+	cycleCount := 0
+
 	for range ticker.C {
+		cycleCount++
+		if cycleCount <= warmupCycles {
+			if config.Simulation.IPShuffle.LogChanges {
+				log.Printf("--> SIMULATING IP CHANGE: warmup cycle %d/%d, skipping shuffle", cycleCount, warmupCycles)
+			}
+			continue
+		}
+
 		// Acquire a full write lock to modify the device list
 		deviceGen.mu.Lock()
 
@@ -744,55 +763,34 @@ func generateUniqueIPs(index int) string {
 	return strings.Join(ips, ",")
 }
 
-// generateSingleIP generates a single unique IP from different ranges
+// generateSingleIP generates a single unique IP from the 172.16.0.0/12 range
+// This range (172.16.0.0 - 172.31.255.255) provides over 1 million unique addresses
 func generateSingleIP(index, offset int) string {
 	// Apply offset to simulate different network interfaces
 	effectiveIndex := index + offset
 
-	// Define network ranges with different sizes to simulate realistic environments
-	networkRanges := []struct {
-		base string
-		size int // approximate number of devices to allocate to this range
-	}{
-		{"192.168.1", 254},    // Real network range - /24
-		{"192.168.2", 254},    // Real network range - /24
-		{"10.0.0", 254},       // Real network range - /24
-		{"10.0.1", 1024},      // Larger corporate range
-		{"10.1", 5000},        // Large corporate range
-		{"172.16", 8000},      // Medium corporate range
-		{"172.17", 10000},     // Large corporate range
-		{"192.168.100", 2000}, // VPN/remote range
-		{"192.168.200", 3000}, // Guest network range
-		{"10.10", 15000},      // Very large corporate range
+	// Use 172.16.0.0/12 range (172.16.0.0 - 172.31.255.255)
+	// Each /24 has 254 usable IPs (1-254, skip 0 and 255)
+	// 16 class B networks * 256 subnets * 254 hosts = 1,040,384 unique IPs
+
+	// Calculate which /24 subnet we're in
+	subnetIndex := effectiveIndex / 254
+	// Calculate host within subnet (1-254)
+	hostIndex := (effectiveIndex % 254) + 1
+
+	// Calculate octets:
+	// octet2: 16-31 (16 values from the /12 range)
+	// octet3: 0-255 (256 subnets per class B)
+	octet2 := 16 + (subnetIndex / 256) // 16-31
+	octet3 := subnetIndex % 256        // 0-255
+	octet4 := hostIndex                // 1-254
+
+	// Safety check - wrap around if we somehow exceed the range
+	if octet2 > 31 {
+		octet2 = 16 + (octet2-16)%16
 	}
 
-	// Distribute devices across ranges
-	currentIndex := 0
-	for _, netRange := range networkRanges {
-		if effectiveIndex < currentIndex+netRange.size {
-			localIndex := effectiveIndex - currentIndex
-
-			if strings.Count(netRange.base, ".") == 2 {
-				// /24 network (e.g., "192.168.1")
-				octet4 := (localIndex % 254) + 1 // 1-254 (skip 0 and 255)
-				return fmt.Sprintf("%s.%d", netRange.base, octet4)
-			}
-			// Larger network (e.g., "10.1")
-			octet3 := (localIndex / 254) % 256
-			octet4 := (localIndex % 254) + 1
-
-			return fmt.Sprintf("%s.%d.%d", netRange.base, octet3, octet4)
-		}
-
-		currentIndex += netRange.size
-	}
-
-	// Fallback for any remaining devices
-	octet2 := ((effectiveIndex - currentIndex) / 65536) % 256
-	octet3 := ((effectiveIndex - currentIndex) / 256) % 256
-	octet4 := ((effectiveIndex - currentIndex) % 254) + 1 // Use 254 instead of 256 to avoid 255+1=256
-
-	return fmt.Sprintf("10.%d.%d.%d", octet2, octet3, octet4)
+	return fmt.Sprintf("172.%d.%d.%d", octet2, octet3, octet4)
 }
 
 // generateMACCount determines how many MAC addresses a device should have

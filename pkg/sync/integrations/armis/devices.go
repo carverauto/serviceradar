@@ -1113,13 +1113,17 @@ func (a *ArmisIntegration) createDeviceUpdateEventWithAllIPs(
 		macCopy := rawMAC
 		macPtr = &macCopy
 	}
-	deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, primaryIP)
+
+	// Device ID is left empty - the registry's DeviceIdentityResolver will generate
+	// a stable ServiceRadar UUID based on strong identifiers (MAC, armis_device_id).
+	// This prevents duplicate devices when IP addresses change (DHCP churn).
+	// The Armis device ID is stored in metadata as a strong identifier for merging.
 
 	event := &models.DeviceUpdate{
 		AgentID:   a.Config.AgentID,
 		PollerID:  a.Config.PollerID,
 		Source:    models.DiscoverySourceArmis,
-		DeviceID:  deviceID,
+		DeviceID:  "", // Let registry generate ServiceRadar UUID
 		Partition: a.Config.Partition,
 		IP:        primaryIP,
 		MAC:       macPtr,
@@ -1128,7 +1132,7 @@ func (a *ArmisIntegration) createDeviceUpdateEventWithAllIPs(
 		Metadata: map[string]string{
 			"integration_type": "armis",
 			"integration_id":   fmt.Sprintf("%d", d.ID),
-			"armis_device_id":  fmt.Sprintf("%d", d.ID),
+			"armis_device_id":  fmt.Sprintf("%d", d.ID), // Strong identifier for merging
 			"tag":              tag,
 			"query_label":      queryLabel,
 			"primary_ip":       primaryIP,
