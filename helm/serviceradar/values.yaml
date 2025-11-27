@@ -3,28 +3,28 @@ image:
   registryPullSecret: ghcr-io-cred
   tags:
     # ServiceRadar UUID identity system - generates stable device IDs based on strong identifiers
-    core: "sha-492cb7f79988"
-    web: latest
+    core: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
+    web: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
     nats: "2.12.2-alpine"
-    datasvc: latest
-    agent: latest
-    poller: latest
-    snmpChecker: latest
-    dbEventWriter: latest
-    otel: latest
-    mapper: latest
-    trapd: latest
+    datasvc: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
+    agent: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
+    poller: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
+    snmpChecker: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
+    dbEventWriter: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
+    otel: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
+    mapper: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
+    trapd: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
     flowgger: "1.0.56"
-    zen: latest
+    zen: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
     # Armis sync uses empty DeviceID - registry generates ServiceRadar UUIDs
-    sync: "sha-0ebaddb1871c"
-    rperfClient: latest
-    faker: latest
-    rperfChecker: latest
-    tools: latest
-    srql: latest
+    sync: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
+    rperfClient: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
+    faker: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
+    rperfChecker: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
+    tools: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
+    srql: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
     kong: "3.7"
-    kongConfig: latest
+    kongConfig: "sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024"
 srql:
   enabled: true
 kong:
@@ -42,6 +42,45 @@ kv:
 core:
   # Enable or disable KV watch/reload in the core service
   configWatchEnabled: true
+  # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
+  reaper:
+    # How often to run the reaper job
+    interval: "1h"
+    # How long a device without strong identity (IP-only) must be unseen before deletion
+    ttl: "24h"
+  identity:
+    enabled: true
+    # Enable promotion so sightings are turned into devices automatically.
+    sightingsOnlyMode: false
+    promotion:
+      enabled: true
+      shadowMode: false
+      minPersistence: "1h"
+      requireHostname: false
+      requireFingerprint: false
+    fingerprinting:
+      enabled: false
+      portBudget: 32
+      timeout: "2s"
+    reaper:
+      interval: "1m"
+      profiles:
+        default:
+          ttl: "24h"
+        dynamic:
+          ttl: "6h"
+        guest:
+          ttl: "1h"
+        static:
+          ttl: "72h"
+          allowIPAsID: true
+faker:
+  simulation:
+    totalDevices: 50000
+    ipShuffle:
+      enabled: true
+      interval: "10m"
+      percentage: 5
 coreClient:
   address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
   secMode: spiffe

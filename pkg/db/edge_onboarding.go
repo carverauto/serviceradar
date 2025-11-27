@@ -249,7 +249,7 @@ func (db *DB) DeleteEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeO
 	pkg.DeletedAt = &now
 	pkg.DeletedBy = strings.TrimSpace(pkg.DeletedBy)
 	if pkg.DeletedBy == "" {
-		pkg.DeletedBy = "system"
+		pkg.DeletedBy = systemActor
 	}
 
 	return db.UpsertEdgeOnboardingPackage(ctx, pkg)

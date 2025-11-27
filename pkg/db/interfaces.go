@@ -156,6 +156,20 @@ type Service interface {
 	GetICMPMetricsForDevice(ctx context.Context, deviceID, deviceIP string, start, end time.Time) ([]models.TimeseriesMetric, error)
 	GetMetricsForPartition(ctx context.Context, partition string, start, end time.Time) ([]models.TimeseriesMetric, error)
 	GetDeviceMetricTypes(ctx context.Context, deviceIDs []string, since time.Time) (map[string][]string, error)
+
+	// Identity reconciliation operations.
+	ExpireNetworkSightings(ctx context.Context, now time.Time) ([]*models.NetworkSighting, error)
+	ListPromotableSightings(ctx context.Context, cutoff time.Time) ([]*models.NetworkSighting, error)
+	MarkSightingsPromoted(ctx context.Context, ids []string) (int64, error)
+	GetNetworkSighting(ctx context.Context, sightingID string) (*models.NetworkSighting, error)
+	UpdateSightingStatus(ctx context.Context, sightingID string, status models.NetworkSightingStatus) (int64, error)
+	UpsertDeviceIdentifiers(ctx context.Context, identifiers []*models.DeviceIdentifier) error
+	InsertSightingEvents(ctx context.Context, events []*models.SightingEvent) error
+	ListActiveSightings(ctx context.Context, partition string, limit, offset int) ([]*models.NetworkSighting, error)
+	CountActiveSightings(ctx context.Context, partition string) (int64, error)
+	ListSightingEvents(ctx context.Context, sightingID string, limit int) ([]*models.SightingEvent, error)
+	ListSubnetPolicies(ctx context.Context, limit int) ([]*models.SubnetPolicy, error)
+	ListMergeAuditEvents(ctx context.Context, deviceID string, limit int) ([]*models.MergeAuditEvent, error)
 }
 
 // SysmonMetricsProvider interface defines operations for system monitoring metrics.

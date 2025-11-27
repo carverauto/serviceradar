@@ -139,6 +139,49 @@ type MCPConfigRef struct {
 	APIKey  string `json:"api_key" sensitive:"true"`
 }
 
+// ReaperConfig configures the stale device reaper.
+type ReaperConfig struct {
+	Interval Duration `json:"interval"`
+	TTL      Duration `json:"ttl"`
+}
+
+// IdentityReaperProfile configures TTL and policy toggles for a subnet class.
+type IdentityReaperProfile struct {
+	TTL         Duration `json:"ttl"`
+	AllowIPAsID bool     `json:"allow_ip_as_id,omitempty"`
+}
+
+// IdentityReaperConfig configures the sightings/low-confidence reaper.
+type IdentityReaperConfig struct {
+	Interval Duration                         `json:"interval,omitempty"`
+	Profiles map[string]IdentityReaperProfile `json:"profiles,omitempty"`
+}
+
+// PromotionConfig configures automated promotion thresholds.
+type PromotionConfig struct {
+	Enabled            bool     `json:"enabled"`
+	ShadowMode         bool     `json:"shadow_mode,omitempty"`
+	MinPersistence     Duration `json:"min_persistence,omitempty"`
+	RequireHostname    bool     `json:"require_hostname,omitempty"`
+	RequireFingerprint bool     `json:"require_fingerprint,omitempty"`
+}
+
+// FingerprintingConfig configures lightweight fingerprinting probes.
+type FingerprintingConfig struct {
+	Enabled    bool     `json:"enabled"`
+	PortBudget int      `json:"port_budget,omitempty"`
+	Timeout    Duration `json:"timeout,omitempty"`
+}
+
+// IdentityReconciliationConfig gates the new IRE pipeline.
+type IdentityReconciliationConfig struct {
+	Enabled        bool                 `json:"enabled"`
+	SightingsOnly  bool                 `json:"sightings_only_mode,omitempty"`
+	Promotion      PromotionConfig      `json:"promotion,omitempty"`
+	Fingerprinting FingerprintingConfig `json:"fingerprinting,omitempty"`
+	Reaper         IdentityReaperConfig `json:"reaper,omitempty"`
+}
+
 // CoreServiceConfig represents the configuration for the core service.
 // This was previously named DBConfig but contains much more than database configuration.
 type CoreServiceConfig struct {
@@ -163,10 +206,12 @@ type CoreServiceConfig struct {
 	MCP            *MCPConfigRef          `json:"mcp,omitempty"`
 	SRQL           *SRQLConfig            `json:"srql,omitempty"`
 	// KV endpoints for admin config operations (hub/leaf mappings)
-	KVEndpoints    []KVEndpoint          `json:"kv_endpoints,omitempty"`
-	SpireAdmin     *SpireAdminConfig     `json:"spire_admin,omitempty"`
-	EdgeOnboarding *EdgeOnboardingConfig `json:"edge_onboarding,omitempty"`
-	Features       FeatureFlags          `json:"features,omitempty"`
+	KVEndpoints    []KVEndpoint                  `json:"kv_endpoints,omitempty"`
+	SpireAdmin     *SpireAdminConfig             `json:"spire_admin,omitempty"`
+	EdgeOnboarding *EdgeOnboardingConfig         `json:"edge_onboarding,omitempty"`
+	Features       FeatureFlags                  `json:"features,omitempty"`
+	Reaper         *ReaperConfig                 `json:"reaper,omitempty"`
+	Identity       *IdentityReconciliationConfig `json:"identity_reconciliation,omitempty"`
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint and its JetStream domain.
@@ -235,6 +280,10 @@ func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
 			SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
 			RBAC          RBACConfig           `json:"rbac,omitempty"`
 		} `json:"auth,omitempty"`
+		Reaper *struct {
+			Interval string `json:"interval,omitempty"`
+			TTL      string `json:"ttl,omitempty"`
+		} `json:"reaper,omitempty"`
 		*Alias
 	}{
 		Alias: (*Alias)(c),
@@ -273,6 +322,19 @@ func (c *CoreServiceConfig) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if c.Reaper != nil {
+		aux.Reaper = &struct {
+			Interval string `json:"interval,omitempty"`
+			TTL      string `json:"ttl,omitempty"`
+		}{}
+		if c.Reaper.Interval != 0 {
+			aux.Reaper.Interval = time.Duration(c.Reaper.Interval).String()
+		}
+		if c.Reaper.TTL != 0 {
+			aux.Reaper.TTL = time.Duration(c.Reaper.TTL).String()
+		}
+	}
+
 	return json.Marshal(aux)
 }
 
@@ -293,6 +355,10 @@ func (c *CoreServiceConfig) UnmarshalJSON(data []byte) error {
 			SSOProviders  map[string]SSOConfig `json:"sso_providers,omitempty"`
 			RBAC          RBACConfig           `json:"rbac,omitempty"`
 		} `json:"auth"`
+		Reaper *struct {
+			Interval string `json:"interval,omitempty"`
+			TTL      string `json:"ttl,omitempty"`
+		} `json:"reaper,omitempty"`
 		*Alias
 	}{
 		Alias: (*Alias)(c),
@@ -331,6 +397,24 @@ func (c *CoreServiceConfig) UnmarshalJSON(data []byte) error {
 			}
 
 			c.Auth.JWTExpiration = duration
+		}
+	}
+
+	if aux.Reaper != nil {
+		c.Reaper = &ReaperConfig{}
+		if aux.Reaper.Interval != "" {
+			dur, err := time.ParseDuration(aux.Reaper.Interval)
+			if err != nil {
+				return fmt.Errorf("invalid reaper interval: %w", err)
+			}
+			c.Reaper.Interval = Duration(dur)
+		}
+		if aux.Reaper.TTL != "" {
+			dur, err := time.ParseDuration(aux.Reaper.TTL)
+			if err != nil {
+				return fmt.Errorf("invalid reaper ttl: %w", err)
+			}
+			c.Reaper.TTL = Duration(dur)
 		}
 	}
 

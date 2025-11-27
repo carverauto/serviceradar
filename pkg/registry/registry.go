@@ -35,8 +35,14 @@ import (
 
 var (
 	// ErrDeviceNotFound is returned when a device is not found
-	ErrDeviceNotFound       = errors.New("device not found")
-	errCNPGQueryUnsupported = errors.New("cnpg querying is not supported by db.Service")
+	ErrDeviceNotFound                 = errors.New("device not found")
+	errCNPGQueryUnsupported           = errors.New("cnpg querying is not supported by db.Service")
+	errDatabaseNotConfigured          = errors.New("database not configured")
+	errIdentityReconciliationDisabled = errors.New("identity reconciliation disabled")
+	errSightingNotFound               = errors.New("sighting not found")
+	errSightingNotActive              = errors.New("sighting is not active")
+	errSightingNotUpdated             = errors.New("sighting not updated")
+	errUnableToBuildUpdate            = errors.New("unable to build device update from sighting")
 )
 
 const (
@@ -62,6 +68,8 @@ type DeviceRegistry struct {
 	cnpgIdentityResolver     *cnpgIdentityResolver
 	deviceIdentityResolver   *DeviceIdentityResolver
 	firstSeenLookupChunkSize int
+	identityCfg              *models.IdentityReconciliationConfig
+	reconcileInterval        time.Duration
 
 	mu           sync.RWMutex
 	devices      map[string]*DeviceRecord
@@ -108,6 +116,22 @@ func WithFirstSeenLookupChunkSize(size int) Option {
 	}
 }
 
+// WithIdentityReconciliationConfig wires identity reconciliation feature gates and defaults.
+func WithIdentityReconciliationConfig(cfg *models.IdentityReconciliationConfig) Option {
+	return func(r *DeviceRegistry) {
+		r.identityCfg = cfg
+	}
+}
+
+// WithReconcileInterval configures how often background reconciliation should run.
+func WithReconcileInterval(interval time.Duration) Option {
+	return func(r *DeviceRegistry) {
+		if interval > 0 {
+			r.reconcileInterval = interval
+		}
+	}
+}
+
 // ProcessDeviceUpdate is the single entry point for a new device discovery event.
 func (r *DeviceRegistry) ProcessDeviceUpdate(ctx context.Context, update *models.DeviceUpdate) error {
 	return r.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
@@ -115,7 +139,7 @@ func (r *DeviceRegistry) ProcessDeviceUpdate(ctx context.Context, update *models
 
 // ProcessBatchDeviceUpdates processes a batch of discovery events (DeviceUpdates).
 // It publishes them directly to the device_updates stream for the materialized view.
-func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error {
+func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error { //nolint:gocyclo
 	if len(updates) == 0 {
 		return nil
 	}
@@ -148,6 +172,34 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 
 	if len(valid) == 0 {
 		return nil
+	}
+
+	if r.identityCfg != nil && r.identityCfg.Enabled {
+		var sightings []*models.DeviceUpdate
+		filtered := make([]*models.DeviceUpdate, 0, len(valid))
+
+		for _, u := range valid {
+			if u.Source == models.DiscoverySourceSighting {
+				filtered = append(filtered, u)
+				continue
+			}
+			if r.identityCfg.SightingsOnly || !hasStrongIdentity(u) {
+				sightings = append(sightings, u)
+				continue
+			}
+			filtered = append(filtered, u)
+		}
+
+		if len(sightings) > 0 {
+			if err := r.ingestSightings(ctx, sightings); err != nil {
+				r.logger.Warn().Err(err).Int("count", len(sightings)).Msg("Failed to ingest network sightings")
+			}
+		}
+
+		valid = filtered
+		if len(valid) == 0 {
+			return nil
+		}
 	}
 
 	// Resolve device IDs to canonical ServiceRadar UUIDs
@@ -309,6 +361,485 @@ func (r *DeviceRegistry) deduplicateBatch(updates []*models.DeviceUpdate) []*mod
 	}
 
 	return result
+}
+
+type sightingStore interface {
+	StoreNetworkSightings(ctx context.Context, sightings []*models.NetworkSighting) error
+}
+
+func (r *DeviceRegistry) ingestSightings(ctx context.Context, updates []*models.DeviceUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	store, ok := r.db.(sightingStore)
+	if !ok {
+		return nil
+	}
+
+	sightings := make([]*models.NetworkSighting, 0, len(updates))
+
+	for _, u := range updates {
+		if u == nil {
+			continue
+		}
+
+		ts := u.Timestamp
+		if ts.IsZero() {
+			ts = time.Now()
+		}
+
+		ttl := r.resolveSightingTTL(u, ts)
+
+		sighting := &models.NetworkSighting{
+			Partition:    u.Partition,
+			IP:           strings.TrimSpace(u.IP),
+			Source:       u.Source,
+			Status:       models.SightingStatusActive,
+			FirstSeen:    ts,
+			LastSeen:     ts,
+			TTLExpiresAt: ttl,
+			Metadata:     copySightingMetadata(u),
+		}
+		sightings = append(sightings, sighting)
+	}
+
+	if len(sightings) == 0 {
+		return nil
+	}
+
+	return store.StoreNetworkSightings(ctx, sightings)
+}
+
+func (r *DeviceRegistry) resolveSightingTTL(update *models.DeviceUpdate, ts time.Time) *time.Time {
+	if r.identityCfg == nil || r.identityCfg.Reaper.Profiles == nil {
+		return nil
+	}
+
+	profileName := "default"
+	if update != nil && update.Metadata != nil {
+		if cls := strings.TrimSpace(update.Metadata["subnet_class"]); cls != "" {
+			profileName = cls
+		} else if cls := strings.TrimSpace(update.Metadata["subnet_profile"]); cls != "" {
+			profileName = cls
+		}
+	}
+
+	profile, ok := r.identityCfg.Reaper.Profiles[profileName]
+	if !ok {
+		profile = r.identityCfg.Reaper.Profiles["default"]
+	}
+
+	if profile.TTL <= 0 {
+		return nil
+	}
+
+	expiry := ts.Add(time.Duration(profile.TTL))
+	return &expiry
+}
+
+func copySightingMetadata(u *models.DeviceUpdate) map[string]string {
+	if u == nil {
+		return nil
+	}
+
+	meta := make(map[string]string)
+	for k, v := range u.Metadata {
+		meta[k] = v
+	}
+
+	if u.Hostname != nil && strings.TrimSpace(*u.Hostname) != "" {
+		meta["hostname"] = strings.TrimSpace(*u.Hostname)
+	}
+
+	if u.MAC != nil && strings.TrimSpace(*u.MAC) != "" {
+		meta["mac"] = strings.TrimSpace(*u.MAC)
+	}
+
+	if u.ServiceType != nil {
+		meta["service_type"] = string(*u.ServiceType)
+	}
+
+	return meta
+}
+
+// buildUpdateFromNetworkSighting normalizes a stored sighting into a DeviceUpdate for promotion.
+func buildUpdateFromNetworkSighting(s *models.NetworkSighting) *models.DeviceUpdate {
+	if s == nil {
+		return nil
+	}
+
+	meta := make(map[string]string)
+	for k, v := range s.Metadata {
+		meta[k] = v
+	}
+
+	meta["_promoted_sighting"] = "true"
+	meta["sighting_id"] = s.SightingID
+
+	var (
+		hostname *string
+		mac      *string
+	)
+
+	if h := strings.TrimSpace(meta["hostname"]); h != "" {
+		hostname = &h
+	}
+	if m := strings.TrimSpace(meta["mac"]); m != "" {
+		mac = &m
+	}
+
+	return &models.DeviceUpdate{
+		DeviceID:    "",
+		IP:          s.IP,
+		Partition:   s.Partition,
+		Source:      models.DiscoverySourceSighting,
+		Timestamp:   s.LastSeen,
+		Hostname:    hostname,
+		MAC:         mac,
+		Metadata:    meta,
+		IsAvailable: true,
+	}
+}
+
+// ReconcileSightings promotes eligible network sightings into device updates based on policy.
+func (r *DeviceRegistry) ReconcileSightings(ctx context.Context) error {
+	if r.identityCfg == nil || !r.identityCfg.Enabled {
+		return nil
+	}
+
+	promoCfg := r.identityCfg.Promotion
+	if !promoCfg.Enabled && !promoCfg.ShadowMode {
+		return nil
+	}
+
+	now := time.Now()
+	cutoff := now.Add(-time.Duration(promoCfg.MinPersistence))
+	sightings, err := r.db.ListPromotableSightings(ctx, cutoff)
+	if err != nil {
+		return fmt.Errorf("list promotable sightings: %w", err)
+	}
+
+	if len(sightings) == 0 {
+		recordIdentityPromotionMetrics(0, 0, 0, 0, 0, promoCfg.ShadowMode, now)
+		return nil
+	}
+
+	promotable := make([]*models.NetworkSighting, 0, len(sightings))
+	var shadowReady int
+	var eligibleAuto int
+	var blockedPolicy int
+
+	for _, s := range sightings {
+		status := r.promotionStatusForSighting(now, s)
+		s.Promotion = status
+		if status == nil || !status.MeetsPolicy {
+			blockedPolicy++
+			continue
+		}
+
+		if promoCfg.ShadowMode {
+			shadowReady++
+			continue
+		}
+
+		if !status.Eligible {
+			continue
+		}
+
+		eligibleAuto++
+		promotable = append(promotable, s)
+	}
+
+	if len(promotable) == 0 {
+		recordIdentityPromotionMetrics(len(sightings), 0, eligibleAuto, shadowReady, blockedPolicy, promoCfg.ShadowMode, now)
+		if promoCfg.ShadowMode && shadowReady > 0 {
+			r.logger.Info().
+				Int("shadow_ready", shadowReady).
+				Int("blocked_policy", blockedPolicy).
+				Msg("Identity reconciliation promotion shadow summary")
+		}
+		return nil
+	}
+
+	if promoCfg.ShadowMode {
+		recordIdentityPromotionMetrics(len(sightings), 0, eligibleAuto, shadowReady, blockedPolicy, true, now)
+		r.logger.Info().
+			Int("promotable_shadow", shadowReady).
+			Int("blocked_policy", blockedPolicy).
+			Msg("Identity reconciliation promotion shadow pass")
+		return nil
+	}
+
+	updates := make([]*models.DeviceUpdate, 0, len(promotable))
+	var identifiers []*models.DeviceIdentifier
+	events := make([]*models.SightingEvent, 0, len(promotable))
+	promotedPartitions := make(map[string]int)
+
+	for _, s := range promotable {
+		update := buildUpdateFromNetworkSighting(s)
+		if update == nil {
+			continue
+		}
+
+		updates = append(updates, update)
+		promotedPartitions[update.Partition]++
+	}
+
+	if err := r.ProcessBatchDeviceUpdates(ctx, updates); err != nil {
+		return fmt.Errorf("process promoted sightings: %w", err)
+	}
+
+	ids := make([]string, 0, len(promotable))
+	for _, s := range promotable {
+		ids = append(ids, s.SightingID)
+	}
+
+	for _, u := range updates {
+		if u.DeviceID == "" {
+			continue
+		}
+
+		identifiers = append(identifiers, buildIdentifiersFromUpdate(u, now)...)
+		events = append(events, &models.SightingEvent{
+			SightingID: u.Metadata["sighting_id"],
+			DeviceID:   u.DeviceID,
+			EventType:  "promoted",
+			Actor:      "system",
+			Details: map[string]string{
+				"ip":        u.IP,
+				"partition": u.Partition,
+				"source":    string(u.Source),
+			},
+			CreatedAt: now,
+		})
+	}
+
+	if _, err := r.db.MarkSightingsPromoted(ctx, ids); err != nil {
+		return fmt.Errorf("mark sightings promoted: %w", err)
+	}
+
+	if len(identifiers) > 0 {
+		if err := r.db.UpsertDeviceIdentifiers(ctx, identifiers); err != nil {
+			r.logger.Warn().Err(err).Msg("Failed to upsert device identifiers for promoted sightings")
+		}
+	}
+
+	if len(events) > 0 {
+		if err := r.db.InsertSightingEvents(ctx, events); err != nil {
+			r.logger.Warn().Err(err).Msg("Failed to record sighting promotion events")
+		}
+	}
+
+	recordIdentityPromotionMetrics(len(sightings), len(promotable), eligibleAuto, shadowReady, blockedPolicy, false, now)
+
+	r.logger.Info().
+		Int("promoted", len(promotable)).
+		Int("eligible_auto", eligibleAuto).
+		Int("shadow_ready", shadowReady).
+		Int("blocked_policy", blockedPolicy).
+		Msg("Promoted network sightings to unified devices")
+
+	return nil
+}
+
+// PromoteSighting manually promotes a single sighting, bypassing policy gating.
+func (r *DeviceRegistry) PromoteSighting(ctx context.Context, sightingID, actor string) (*models.DeviceUpdate, error) {
+	if r.db == nil {
+		return nil, errDatabaseNotConfigured
+	}
+	if r.identityCfg == nil || !r.identityCfg.Enabled {
+		return nil, errIdentityReconciliationDisabled
+	}
+
+	sighting, err := r.db.GetNetworkSighting(ctx, sightingID)
+	if err != nil {
+		return nil, err
+	}
+	if sighting == nil {
+		return nil, errSightingNotFound
+	}
+	if sighting.Status != models.SightingStatusActive {
+		return nil, fmt.Errorf("%w: %s", errSightingNotActive, sighting.SightingID)
+	}
+
+	update := buildUpdateFromNetworkSighting(sighting)
+	if update == nil {
+		return nil, errUnableToBuildUpdate
+	}
+
+	if err := r.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update}); err != nil {
+		return nil, fmt.Errorf("promote sighting: %w", err)
+	}
+
+	if _, err := r.db.MarkSightingsPromoted(ctx, []string{sighting.SightingID}); err != nil {
+		return nil, fmt.Errorf("mark sighting promoted: %w", err)
+	}
+
+	now := time.Now()
+	if update.DeviceID != "" {
+		if err := r.db.UpsertDeviceIdentifiers(ctx, buildIdentifiersFromUpdate(update, now)); err != nil {
+			r.logger.Warn().Err(err).Msg("Failed to upsert device identifiers for manual promotion")
+		}
+	}
+
+	promotedBy := strings.TrimSpace(actor)
+	if promotedBy == "" {
+		promotedBy = "system"
+	}
+
+	event := &models.SightingEvent{
+		SightingID: sighting.SightingID,
+		DeviceID:   update.DeviceID,
+		EventType:  "promoted",
+		Actor:      promotedBy,
+		Details: map[string]string{
+			"ip":        sighting.IP,
+			"partition": sighting.Partition,
+			"mode":      "manual",
+		},
+		CreatedAt: now,
+	}
+
+	if err := r.db.InsertSightingEvents(ctx, []*models.SightingEvent{event}); err != nil {
+		r.logger.Warn().Err(err).Msg("Failed to record manual promotion event")
+	}
+
+	return update, nil
+}
+
+// DismissSighting marks a sighting dismissed and records an audit event.
+func (r *DeviceRegistry) DismissSighting(ctx context.Context, sightingID, actor, reason string) error {
+	if r.db == nil {
+		return errDatabaseNotConfigured
+	}
+	if r.identityCfg == nil || !r.identityCfg.Enabled {
+		return errIdentityReconciliationDisabled
+	}
+
+	sighting, err := r.db.GetNetworkSighting(ctx, sightingID)
+	if err != nil {
+		return err
+	}
+	if sighting == nil {
+		return errSightingNotFound
+	}
+	if sighting.Status != models.SightingStatusActive {
+		return fmt.Errorf("%w: %s", errSightingNotActive, sighting.SightingID)
+	}
+
+	affected, err := r.db.UpdateSightingStatus(ctx, sighting.SightingID, models.SightingStatusDismissed)
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return fmt.Errorf("%w: %s", errSightingNotUpdated, sighting.SightingID)
+	}
+
+	dismissedBy := strings.TrimSpace(actor)
+	if dismissedBy == "" {
+		dismissedBy = "system"
+	}
+
+	details := map[string]string{
+		"ip":        sighting.IP,
+		"partition": sighting.Partition,
+		"mode":      "manual",
+		"action":    "dismissed",
+	}
+	if trimmed := strings.TrimSpace(reason); trimmed != "" {
+		details["reason"] = trimmed
+	}
+
+	event := &models.SightingEvent{
+		SightingID: sighting.SightingID,
+		EventType:  "dismissed",
+		Actor:      dismissedBy,
+		Details:    details,
+		CreatedAt:  time.Now(),
+	}
+
+	if err := r.db.InsertSightingEvents(ctx, []*models.SightingEvent{event}); err != nil {
+		r.logger.Warn().Err(err).Msg("Failed to record dismissal event")
+	}
+
+	return nil
+}
+
+// ListSightingEvents returns audit entries for a sighting.
+func (r *DeviceRegistry) ListSightingEvents(ctx context.Context, sightingID string, limit int) ([]*models.SightingEvent, error) {
+	if r.db == nil {
+		return nil, errDatabaseNotConfigured
+	}
+	return r.db.ListSightingEvents(ctx, sightingID, limit)
+}
+
+// ListSightings returns active sightings for the given partition.
+func (r *DeviceRegistry) ListSightings(ctx context.Context, partition string, limit, offset int) ([]*models.NetworkSighting, error) {
+	if r.db == nil {
+		return nil, errDatabaseNotConfigured
+	}
+	sightings, err := r.db.ListActiveSightings(ctx, partition, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	for _, s := range sightings {
+		s.Promotion = r.promotionStatusForSighting(now, s)
+	}
+
+	return sightings, nil
+}
+
+// CountSightings returns the total active sightings.
+func (r *DeviceRegistry) CountSightings(ctx context.Context, partition string) (int64, error) {
+	if r.db == nil {
+		return 0, errDatabaseNotConfigured
+	}
+	return r.db.CountActiveSightings(ctx, partition)
+}
+
+func buildIdentifiersFromUpdate(u *models.DeviceUpdate, now time.Time) []*models.DeviceIdentifier {
+	var ids []*models.DeviceIdentifier
+
+	addID := func(idType, value, confidence string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		ids = append(ids, &models.DeviceIdentifier{
+			DeviceID:   u.DeviceID,
+			IDType:     idType,
+			IDValue:    value,
+			Confidence: confidence,
+			Source:     string(u.Source),
+			FirstSeen:  now,
+			LastSeen:   now,
+			Metadata:   map[string]string{"partition": u.Partition},
+		})
+	}
+
+	addID("ip", u.IP, "weak")
+
+	if u.MAC != nil {
+		for _, mac := range parseMACList(*u.MAC) {
+			addID("mac", mac, "strong")
+		}
+	}
+
+	if u.Hostname != nil && strings.TrimSpace(*u.Hostname) != "" {
+		addID("hostname", *u.Hostname, "medium")
+	}
+
+	if fp := strings.TrimSpace(u.Metadata["fingerprint_hash"]); fp != "" {
+		addID("fingerprint_hash", fp, "medium")
+	}
+	if fpID := strings.TrimSpace(u.Metadata["fingerprint_id"]); fpID != "" {
+		addID("fingerprint_id", fpID, "medium")
+	}
+
+	return ids
 }
 
 // mergeUpdateMetadata merges metadata from source update into target update

@@ -24,7 +24,7 @@ func (db *DB) InsertDeviceCapabilityEvent(ctx context.Context, event *models.Dev
 		event.EventID = uuid.NewString()
 	}
 	if event.RecordedBy == "" {
-		event.RecordedBy = "system"
+		event.RecordedBy = systemActor
 	}
 	if event.LastChecked.IsZero() {
 		event.LastChecked = time.Now().UTC()

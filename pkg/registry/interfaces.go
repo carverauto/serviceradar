@@ -54,6 +54,28 @@ type Manager interface {
 
 	// ListDevicesWithCapability returns the device IDs that currently expose the provided capability.
 	ListDevicesWithCapability(ctx context.Context, capability string) []string
+
+	// DeleteLocal removes a device from the local in-memory registry without emitting tombstones.
+	// This is used for cleaning up stale or ephemeral devices (e.g. from sweep).
+	DeleteLocal(deviceID string)
+
+	// ReconcileSightings promotes eligible network sightings into unified devices per policy.
+	ReconcileSightings(ctx context.Context) error
+
+	// ListSightings returns active sightings for the given partition (empty for all).
+	ListSightings(ctx context.Context, partition string, limit, offset int) ([]*models.NetworkSighting, error)
+
+	// CountSightings returns the total active sightings for pagination.
+	CountSightings(ctx context.Context, partition string) (int64, error)
+
+	// PromoteSighting manually promotes a specific sighting.
+	PromoteSighting(ctx context.Context, sightingID, actor string) (*models.DeviceUpdate, error)
+
+	// DismissSighting marks a sighting dismissed and records audit.
+	DismissSighting(ctx context.Context, sightingID, actor, reason string) error
+
+	// ListSightingEvents returns audit history for a sighting.
+	ListSightingEvents(ctx context.Context, sightingID string, limit int) ([]*models.SightingEvent, error)
 }
 
 // ServiceManager manages the lifecycle and registration of all services

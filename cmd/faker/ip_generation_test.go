@@ -22,7 +22,10 @@ import (
 )
 
 func TestGenerateSingleIP_UniqueFor50kDevices(t *testing.T) {
-	const numDevices = 50000
+	numDevices := 50000
+	if testing.Short() {
+		numDevices = 5000
+	}
 	seen := make(map[string]int, numDevices)
 
 	for i := 0; i < numDevices; i++ {
@@ -60,7 +63,7 @@ func TestGenerateSingleIP_ValidFormat(t *testing.T) {
 
 	for _, idx := range testCases {
 		ip := generateSingleIP(idx, 0)
-		
+
 		// Basic validation - should have 4 octets
 		var o1, o2, o3, o4 int
 		n, err := fmt.Sscanf(ip, "%d.%d.%d.%d", &o1, &o2, &o3, &o4)

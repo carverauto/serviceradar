@@ -367,6 +367,13 @@ func WithSpireAdmin(client spireadmin.Client, cfg *models.SpireAdminConfig) func
 	}
 }
 
+// WithIdentityConfig exposes the identity reconciliation config to API responses.
+func WithIdentityConfig(cfg *models.IdentityReconciliationConfig) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.identityConfig = cfg
+	}
+}
+
 func WithTemplateRegistry(registry TemplateRegistry) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.templateRegistry = registry
@@ -847,6 +854,13 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/stats", s.handleDeviceStats).Methods("GET")
 	protected.HandleFunc("/logs/critical", s.handleCriticalLogs).Methods("GET")
 	protected.HandleFunc("/logs/critical/counters", s.handleCriticalLogCounters).Methods("GET")
+	protected.HandleFunc("/identity/sightings", s.handleListSightings).Methods("GET")
+	protected.HandleFunc("/identity/sightings/{id}/events", s.handleSightingEvents).Methods("GET")
+	protected.HandleFunc("/identity/sightings/{id}/promote", s.handlePromoteSighting).Methods("POST")
+	protected.HandleFunc("/identity/sightings/{id}/dismiss", s.handleDismissSighting).Methods("POST")
+	protected.HandleFunc("/identity/policies", s.handleListSubnetPolicies).Methods("GET")
+	protected.HandleFunc("/identity/merge-audit", s.handleMergeAuditHistory).Methods("GET")
+	protected.HandleFunc("/identity/reconcile", s.handleReconcileSightings).Methods("POST")
 
 	// Store reference to protected router for MCP routes
 	s.protectedRouter = protected

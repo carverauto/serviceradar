@@ -331,7 +331,7 @@ func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
 
 	select {
 	case <-reloads:
-	case <-time.After(150 * time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
 		t.Fatalf("timed out waiting for reload triggered by listen_addr change")
 	}
 
@@ -344,7 +344,7 @@ func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
 	select {
 	case <-reloads:
 		t.Fatalf("unexpected reload when config payload did not change")
-	case <-time.After(75 * time.Millisecond):
+	case <-time.After(25 * time.Millisecond):
 	}
 }
 
@@ -387,7 +387,7 @@ func TestKVManagerStartWatchReappliesPinnedOverlay(t *testing.T) {
 	select {
 	case <-reloads:
 		t.Fatalf("pinned overlay should keep the effective config stable; reload not expected")
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(30 * time.Millisecond):
 	}
 
 	snap := cfg.snapshot()
@@ -624,7 +624,7 @@ func TestNewKVManagerFromEnvWithRetryTimesOut(t *testing.T) {
 	t.Setenv("KV_SEC_MODE", "spiffe")
 	t.Setenv("KV_TRUST_DOMAIN", "carverauto.dev")
 	t.Setenv("KV_SERVER_SPIFFE_ID", "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc")
-	t.Setenv("KV_CONNECT_TIMEOUT", "50ms")
+	t.Setenv("KV_CONNECT_TIMEOUT", "25ms")
 	t.Setenv("KV_CONNECT_RETRY_BASE", "5ms")
 	t.Setenv("KV_CONNECT_RETRY_MAX", "5ms")
 
