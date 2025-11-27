@@ -183,11 +183,13 @@ type Config struct {
 	Simulation struct {
 		TotalDevices int `json:"total_devices"`
 		IPShuffle    struct {
-			Enabled      bool   `json:"enabled"`
-			Interval     string `json:"interval"`
-			Percentage   int    `json:"percentage"`
-			WarmupCycles int    `json:"warmup_cycles"`
-			LogChanges   bool   `json:"log_changes"`
+			Enabled             bool   `json:"enabled"`
+			Interval            string `json:"interval"`
+			Percentage          int    `json:"percentage"`
+			WarmupCycles        int    `json:"warmup_cycles"`
+			LogChanges          bool   `json:"log_changes"`
+			AllowExpansion      bool   `json:"allow_expansion,omitempty"`
+			PoolHeadroomPercent int    `json:"pool_headroom_percent,omitempty"`
 		} `json:"ip_shuffle"`
 	} `json:"simulation"`
 	Storage struct {
@@ -235,6 +237,9 @@ func (c *Config) Validate() error {
 	if c.Simulation.IPShuffle.WarmupCycles < 0 {
 		c.Simulation.IPShuffle.WarmupCycles = 0
 	}
+	if c.Simulation.IPShuffle.PoolHeadroomPercent < 0 {
+		c.Simulation.IPShuffle.PoolHeadroomPercent = defaultShufflePoolHeadroom
+	}
 	if c.Storage.DataDir == "" {
 		return errDataDirRequired
 	}
@@ -256,6 +261,8 @@ func (c *Config) applyDefaults() {
 	c.Simulation.IPShuffle.Percentage = 5
 	c.Simulation.IPShuffle.WarmupCycles = 5
 	c.Simulation.IPShuffle.LogChanges = true
+	c.Simulation.IPShuffle.AllowExpansion = true
+	c.Simulation.IPShuffle.PoolHeadroomPercent = defaultShufflePoolHeadroom
 	c.Storage.DataDir = "/var/lib/serviceradar/faker"
 	c.Storage.DevicesFile = "fake_armis_devices.json"
 	c.Storage.PersistChanges = true
@@ -266,14 +273,15 @@ const (
 	// File permission constants
 	deviceFilePermissions = 0o600
 	// Magic number constants
-	daysInThreeYears     = 1095
-	daysInMonth          = 30
-	maxDellOptiPlexBase  = 3000
-	maxDellOptiPlexRange = 9000
-	maxHPEliteDeskBase   = 800
-	maxHPEliteDeskRange  = 1000
-	byteMaxValue         = 0xFF
-	hexByteShift         = 8
+	daysInThreeYears           = 1095
+	daysInMonth                = 30
+	maxDellOptiPlexBase        = 3000
+	maxDellOptiPlexRange       = 9000
+	maxHPEliteDeskBase         = 800
+	maxHPEliteDeskRange        = 1000
+	byteMaxValue               = 0xFF
+	hexByteShift               = 8
+	defaultShufflePoolHeadroom = 20
 	// String constants
 	appleManufacturer = "Apple"
 )
@@ -284,6 +292,9 @@ type DeviceGenerator struct {
 	deviceTypes   []string
 	osTypes       []string
 	manufacturers []string
+	primaryIPs    []string
+	usedIPs       map[string]struct{}
+	freeIPs       []string
 	mu            sync.RWMutex // Add this mutex for safe concurrent access
 }
 
@@ -390,26 +401,14 @@ func shuffleIPs() {
 				numToShuffle, percentage*100)
 		}
 
-		for i := 0; i < numToShuffle; i++ {
-			// Pick a random device to modify
-			deviceIndex := randInt(0, len(deviceGen.allDevices)-1)
-			device := &deviceGen.allDevices[deviceIndex]
-
-			// Generate a new primary IP address.
-			// We use the current nanosecond as an offset to ensure the IP is different.
-			newPrimaryIP := generateSingleIP(deviceIndex, time.Now().Nanosecond())
-
-			// Update the device's IP address list
-			ipList := strings.Split(device.IPAddress, ",")
-			oldPrimaryIP := ipList[0]
-			ipList[0] = newPrimaryIP
-			device.IPAddress = strings.Join(ipList, ",")
-			device.LastSeen = time.Now() // Update LastSeen to reflect the change
-
-			if config.Simulation.IPShuffle.LogChanges {
-				log.Printf("    Device ID %d (Name: %s) IP changed from %s to %s",
-					device.ID, device.Name, oldPrimaryIP, newPrimaryIP)
-			}
+		var changed int
+		if shouldAllowIPExpansion() {
+			changed = reassignIPsFromPool(deviceGen, numToShuffle, config.Simulation.IPShuffle.LogChanges)
+		} else {
+			changed = swapDevicePrimaryIPs(deviceGen, numToShuffle, config.Simulation.IPShuffle.LogChanges)
+		}
+		if config.Simulation.IPShuffle.LogChanges {
+			log.Printf("    Completed IP changes for %d devices", changed)
 		}
 
 		// Release the lock
@@ -420,6 +419,172 @@ func shuffleIPs() {
 			deviceGen.saveToStorage()
 		}
 	}
+}
+
+// swapDevicePrimaryIPs swaps primary IPs between random device pairs without expanding the IP set.
+func swapDevicePrimaryIPs(gen *DeviceGenerator, swaps int, logChanges bool) int {
+	if gen == nil || len(gen.allDevices) == 0 || swaps <= 0 {
+		return 0
+	}
+
+	swapped := 0
+	n := len(gen.allDevices)
+
+	for i := 0; i < swaps; i++ {
+		a := randInt(0, n-1)
+		b := randInt(0, n-1)
+		if a == b {
+			continue
+		}
+
+		devA := &gen.allDevices[a]
+		devB := &gen.allDevices[b]
+
+		ipA := primaryIP(devA.IPAddress)
+		ipB := primaryIP(devB.IPAddress)
+		if ipA == "" || ipB == "" || ipA == ipB {
+			continue
+		}
+
+		devA.IPAddress = replacePrimaryIP(devA.IPAddress, ipB)
+		devB.IPAddress = replacePrimaryIP(devB.IPAddress, ipA)
+		devA.LastSeen = time.Now()
+		devB.LastSeen = time.Now()
+		swapped++
+
+		if logChanges {
+			log.Printf("    Device ID %d (Name: %s) IP swapped %s -> %s; Device ID %d (Name: %s) IP swapped %s -> %s",
+				devA.ID, devA.Name, ipA, ipB,
+				devB.ID, devB.Name, ipB, ipA)
+		}
+	}
+
+	return swapped
+}
+
+// reassignIPsFromPool assigns new IPs from a bounded pool and recycles old ones,
+// keeping overall uniqueness while allowing churn beyond the initial assignment.
+func reassignIPsFromPool(gen *DeviceGenerator, count int, logChanges bool) int {
+	if gen == nil || len(gen.allDevices) == 0 || count <= 0 {
+		return 0
+	}
+
+	changed := 0
+	n := len(gen.allDevices)
+
+	for i := 0; i < count; i++ {
+		newIP, ok := gen.allocateFreeIP()
+		if !ok {
+			break
+		}
+
+		deviceIndex := randInt(0, n-1)
+		device := &gen.allDevices[deviceIndex]
+
+		oldIP := primaryIP(device.IPAddress)
+		if oldIP == "" || oldIP == newIP {
+			gen.releaseIP(newIP)
+			continue
+		}
+
+		device.IPAddress = replacePrimaryIP(device.IPAddress, newIP)
+		device.LastSeen = time.Now()
+		gen.releaseIP(oldIP)
+		changed++
+
+		if logChanges {
+			log.Printf("    Device ID %d (Name: %s) IP changed from %s to %s",
+				device.ID, device.Name, oldIP, newIP)
+		}
+	}
+
+	return changed
+}
+
+func shouldAllowIPExpansion() bool {
+	if config == nil {
+		return true
+	}
+	return config.Simulation.IPShuffle.AllowExpansion
+}
+
+func (dg *DeviceGenerator) allocateFreeIP() (string, bool) {
+	if len(dg.freeIPs) == 0 {
+		return "", false
+	}
+
+	last := len(dg.freeIPs) - 1
+	ip := dg.freeIPs[last]
+	dg.freeIPs = dg.freeIPs[:last]
+	dg.usedIPs[ip] = struct{}{}
+	return ip, true
+}
+
+func (dg *DeviceGenerator) releaseIP(ip string) {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return
+	}
+
+	delete(dg.usedIPs, ip)
+	dg.freeIPs = append(dg.freeIPs, ip)
+}
+
+func buildFreeIPPool(currentCount, headroomPercent int, used map[string]struct{}) []string {
+	if headroomPercent <= 0 {
+		return nil
+	}
+
+	needed := (currentCount * headroomPercent) / 100
+	free := make([]string, 0, needed)
+	usedIndex := currentCount
+	existing := make(map[string]struct{}, needed)
+
+	for len(free) < needed {
+		ip := generateSingleIP(usedIndex, 0)
+		if _, dup := existing[ip]; dup {
+			usedIndex++
+			continue
+		}
+		if used != nil {
+			if _, inUse := used[ip]; inUse {
+				usedIndex++
+				continue
+			}
+		}
+		existing[ip] = struct{}{}
+		free = append(free, ip)
+		usedIndex++
+	}
+
+	return free
+}
+
+func resolveIPPoolHeadroom() int {
+	if config != nil && config.Simulation.IPShuffle.PoolHeadroomPercent > 0 {
+		return config.Simulation.IPShuffle.PoolHeadroomPercent
+	}
+	return defaultShufflePoolHeadroom
+}
+
+// primaryIP returns the first IP in a comma-separated list.
+func primaryIP(ips string) string {
+	parts := strings.Split(strings.TrimSpace(ips), ",")
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(parts[0])
+}
+
+// replacePrimaryIP swaps the first IP with the provided value while leaving any tail entries intact.
+func replacePrimaryIP(ips, newPrimary string) string {
+	if strings.TrimSpace(ips) == "" {
+		return strings.TrimSpace(newPrimary)
+	}
+
+	parts := strings.Split(ips, ",")
+	parts[0] = strings.TrimSpace(newPrimary)
+	return strings.Join(parts, ",")
 }
 
 func main() {
@@ -690,11 +855,15 @@ func devicesHandler(w http.ResponseWriter, r *http.Request) {
 // generateAllDevices generates all fake devices at startup
 func (dg *DeviceGenerator) generateAllDevices() []ArmisDevice {
 	devices := make([]ArmisDevice, totalDevices)
+	dg.primaryIPs = make([]string, totalDevices)
+	dg.usedIPs = make(map[string]struct{}, totalDevices)
 	now := time.Now()
 
 	for i := 0; i < totalDevices; i++ {
-		// Generate multiple unique IPs for multi-homed devices
+		// Generate a single unique IP per device to keep cardinality fixed at 50k.
 		ips := generateUniqueIPs(i)
+		dg.primaryIPs[i] = ips
+		dg.usedIPs[ips] = struct{}{}
 
 		// Generate variable number of MAC addresses (1-200, with weighted distribution)
 		macCount := generateMACCount(i)
@@ -708,7 +877,7 @@ func (dg *DeviceGenerator) generateAllDevices() []ArmisDevice {
 			IPAddress:       ips,
 			MacAddress:      strings.Join(macAddresses, ","), // Create the comma-separated string for JSON
 			MacAddresses:    macAddresses,                    // Store the internal slice
-			Name:            generateDeviceName(deviceType, manufacturer, i),
+			Name:            generateUniqueHostname(i, deviceType, manufacturer),
 			Type:            deviceType,
 			Category:        generateCategory(deviceType),
 			Manufacturer:    manufacturer,
@@ -727,40 +896,16 @@ func (dg *DeviceGenerator) generateAllDevices() []ArmisDevice {
 		}
 	}
 
+	dg.freeIPs = buildFreeIPPool(len(devices), resolveIPPoolHeadroom(), dg.usedIPs)
+
 	return devices
 }
 
 // generateUniqueIPs generates multiple unique IPs for a device
-// Returns a comma-separated string of IP addresses
+// Returns a comma-separated string of IP addresses.
+// The current policy enforces a single IP per device to keep total cardinality fixed.
 func generateUniqueIPs(index int) string {
-	// Determine how many IPs this device should have
-	// 60% have 1 IP, 25% have 2-3 IPs, 10% have 4-5 IPs, 5% have 6+ IPs
-	mod := index % percentageBase
-
-	var numIPs int
-
-	switch {
-	case mod < singleIPPercent:
-		numIPs = 1
-	case mod < doubleIPPercent:
-		numIPs = minAdditionalIPs + randInt(minRandomRange, 1) // 2-3 IPs
-	case mod < multipleIPPercent:
-		numIPs = minMultipleIPs + randInt(minRandomRange, 1) // 4-5 IPs
-	default:
-		numIPs = minManyIPs + randInt(minRandomRange, maxRandomRange) // 6-10 IPs
-	}
-
-	ips := make([]string, numIPs)
-	// Generate primary IP
-	ips[0] = generateSingleIP(index, 0)
-
-	// Generate additional IPs for multi-homed devices
-	for i := 1; i < numIPs; i++ {
-		// Use a different offset to get IPs from different ranges
-		ips[i] = generateSingleIP(index, i*ipRangeOffset)
-	}
-
-	return strings.Join(ips, ",")
+	return generateSingleIP(index, 0)
 }
 
 // generateSingleIP generates a single unique IP from the 172.16.0.0/12 range
@@ -954,6 +1099,36 @@ func generateDeviceName(deviceType, manufacturer string, index int) string {
 	default:
 		return fmt.Sprintf("DEV-%05d", index)
 	}
+}
+
+// generateUniqueHostname provides a deterministic, unique hostname bound to the device index
+// while retaining some device-type context for readability.
+func generateUniqueHostname(index int, deviceType, manufacturer string) string {
+	const prefixLength = 3
+
+	typePrefix := strings.ToUpper(deviceType)
+	if len(typePrefix) > prefixLength {
+		typePrefix = typePrefix[:prefixLength]
+	}
+
+	manPrefix := strings.ToUpper(manufacturer)
+	if len(manPrefix) > prefixLength {
+		manPrefix = manPrefix[:prefixLength]
+	}
+
+	return fmt.Sprintf("FAKER-%s-%s-%05d", manPrefix, typePrefix, index+1)
+}
+
+func (dg *DeviceGenerator) rebuildIPState() {
+	dg.usedIPs = make(map[string]struct{}, len(dg.allDevices))
+	for i := range dg.allDevices {
+		ip := primaryIP(dg.allDevices[i].IPAddress)
+		if ip == "" {
+			continue
+		}
+		dg.usedIPs[ip] = struct{}{}
+	}
+	dg.freeIPs = buildFreeIPPool(len(dg.allDevices), resolveIPPoolHeadroom(), dg.usedIPs)
 }
 
 // generateCategory determines device category based on type
@@ -1238,6 +1413,7 @@ func (dg *DeviceGenerator) loadFromStorage() bool {
 	}
 
 	dg.allDevices = storedDevices
+	dg.rebuildIPState()
 	log.Printf("Successfully loaded %d devices from persistent storage", len(dg.allDevices))
 
 	return true

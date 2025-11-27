@@ -74,6 +74,11 @@ core:
         static:
           ttl: "72h"
           allowIPAsID: true
+    drift:
+      baselineDevices: 50000
+      tolerancePercent: 2
+      pauseOnDrift: true
+      alertOnDrift: true
 faker:
   simulation:
     totalDevices: 50000
@@ -81,6 +86,9 @@ faker:
       enabled: true
       interval: "10m"
       percentage: 5
+      warmupCycles: 2
+      allowExpansion: true
+      poolHeadroomPercent: 20
 coreClient:
   address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
   secMode: spiffe

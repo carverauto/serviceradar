@@ -83,6 +83,12 @@ data:
               "allow_ip_as_id": {{ default true .Values.core.identity.reaper.profiles.static.allowIPAsID }}
             }
           }
+        },
+        "drift": {
+          "baseline_devices": {{ default 0 .Values.core.identity.drift.baselineDevices }},
+          "tolerance_percent": {{ default 0 .Values.core.identity.drift.tolerancePercent }},
+          "pause_on_drift": {{ default true .Values.core.identity.drift.pauseOnDrift }},
+          "alert_on_drift": {{ default true .Values.core.identity.drift.alertOnDrift }}
         }
       },
       "alert_threshold": "5m",
@@ -1234,6 +1240,9 @@ data:
             "enabled": {{ .Values.faker.simulation.ipShuffle.enabled | default true }},
             "interval": "{{ .Values.faker.simulation.ipShuffle.interval | default "10m" }}",
             "percentage": {{ .Values.faker.simulation.ipShuffle.percentage | default 5 }},
+            "warmup_cycles": {{ .Values.faker.simulation.ipShuffle.warmupCycles | default 0 }},
+            "allow_expansion": {{ .Values.faker.simulation.ipShuffle.allowExpansion | default true }},
+            "pool_headroom_percent": {{ .Values.faker.simulation.ipShuffle.poolHeadroomPercent | default 20 }},
             "log_changes": true
           }
         },

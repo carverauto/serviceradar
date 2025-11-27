@@ -1078,3 +1078,272 @@ func TestProcessBatchDeviceUpdates_AllowsFreshNonSelfReportedAfterDelete(t *test
 	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{freshUpdate})
 	require.NoError(t, err)
 }
+
+func TestEndToEndIngestWithChurnKeepsCardinality(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+
+	type deviceStats struct {
+		deviceIDs []string
+		available []bool
+		strongID  string
+		seenIPs   []string
+	}
+
+	published := make(map[string]*deviceStats) // armis_device_id -> stats
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			for _, u := range updates {
+				strong := strings.TrimSpace(u.Metadata["armis_device_id"])
+				if strong == "" {
+					strong = strings.TrimSpace(u.Metadata["canonical_device_id"])
+				}
+				stats, ok := published[strong]
+				if !ok {
+					stats = &deviceStats{strongID: strong}
+					published[strong] = stats
+				}
+				stats.deviceIDs = append(stats.deviceIDs, u.DeviceID)
+				stats.available = append(stats.available, u.IsAvailable)
+				stats.seenIPs = append(stats.seenIPs, u.IP)
+			}
+			return nil
+		}).
+		Times(2) // initial ingest + churn batch
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithDeviceIdentityResolver(mockDB))
+
+	const total = 20
+	initial := make([]*models.DeviceUpdate, 0, total)
+	for i := 0; i < total; i++ {
+		mac := fmt.Sprintf("aa:bb:cc:dd:ee:%02x", i)
+		armisID := fmt.Sprintf("armis-%d", i)
+		initial = append(initial, &models.DeviceUpdate{
+			IP:          fmt.Sprintf("10.10.0.%d", i+1),
+			Partition:   "default",
+			Source:      models.DiscoverySourceArmis,
+			MAC:         stringPtr(mac),
+			IsAvailable: false,
+			Metadata: map[string]string{
+				"armis_device_id": armisID,
+			},
+		})
+	}
+
+	require.NoError(t, registry.ProcessBatchDeviceUpdates(ctx, initial))
+
+	churned := make([]*models.DeviceUpdate, 0, total)
+	for i := 0; i < total; i++ {
+		mac := fmt.Sprintf("aa:bb:cc:dd:ee:%02x", i)
+		armisID := fmt.Sprintf("armis-%d", i)
+		churned = append(churned, &models.DeviceUpdate{
+			IP:          fmt.Sprintf("10.20.0.%d", i+10),
+			Partition:   "default",
+			Source:      models.DiscoverySourceArmis,
+			MAC:         stringPtr(mac),
+			IsAvailable: false,
+			Metadata: map[string]string{
+				"armis_device_id": armisID,
+			},
+		})
+	}
+
+	require.NoError(t, registry.ProcessBatchDeviceUpdates(ctx, churned))
+
+	require.Len(t, published, total, "should track each strong ID")
+	for armisID, stats := range published {
+		require.Lenf(t, stats.deviceIDs, 2, "expected two updates per strong ID %s", armisID)
+		require.NotEmpty(t, stats.deviceIDs[0])
+		assert.Equalf(t, stats.deviceIDs[0], stats.deviceIDs[1], "strong ID %s must keep the same device across IP churn", armisID)
+		for idx, avail := range stats.available {
+			assert.Falsef(t, avail, "ingest should not mark availability true (strong ID %s update %d)", armisID, idx)
+		}
+	}
+}
+
+func TestAvailabilityRemainsUnknownUntilPositiveProbe(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+
+	var published []*models.DeviceUpdate
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			published = append(published, updates...)
+			return nil
+		}).
+		Times(2) // initial sighting promotion + positive probe
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithDeviceIdentityResolver(mockDB))
+
+	mac := "aa:bb:cc:dd:ee:11"
+	initial := &models.DeviceUpdate{
+		IP:          "10.30.0.1",
+		Partition:   "default",
+		Source:      models.DiscoverySourceSighting,
+		MAC:         &mac,
+		IsAvailable: false,
+		Metadata: map[string]string{
+			"armis_device_id": "armis-availability",
+			"sighting_id":     "s-1",
+		},
+	}
+
+	require.NoError(t, registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{initial}))
+
+	positiveProbe := &models.DeviceUpdate{
+		IP:          "10.30.0.1",
+		Partition:   "default",
+		Source:      models.DiscoverySourceSweep,
+		MAC:         &mac,
+		IsAvailable: true,
+	}
+
+	require.NoError(t, registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{positiveProbe}))
+
+	require.Len(t, published, 2)
+	require.Equal(t, published[0].DeviceID, published[1].DeviceID, "same device should be updated by probe")
+	assert.False(t, published[0].IsAvailable, "initial sighting-derived update should remain unavailable")
+	assert.True(t, published[1].IsAvailable, "positive probe should flip availability")
+}
+
+func TestDeviceIngestEndToEnd_StrongIDsSurviveIPChurn(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+
+	published := make(map[string][]string) // armis_device_id -> []device_id
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			for _, u := range updates {
+				id := strings.TrimSpace(u.Metadata["armis_device_id"])
+				published[id] = append(published[id], u.DeviceID)
+			}
+			return nil
+		}).
+		Times(2) // initial ingest + churn
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithDeviceIdentityResolver(mockDB))
+
+	batch1 := []*models.DeviceUpdate{
+		{
+			IP:        "10.10.0.1",
+			Partition: "default",
+			Source:    models.DiscoverySourceArmis,
+			MAC:       stringPtr("aa:bb:cc:dd:ee:01"),
+			Metadata: map[string]string{
+				"armis_device_id": "armis-1",
+			},
+		},
+		{
+			IP:        "10.10.0.2",
+			Partition: "default",
+			Source:    models.DiscoverySourceArmis,
+			MAC:       stringPtr("aa:bb:cc:dd:ee:02"),
+			Metadata: map[string]string{
+				"armis_device_id": "armis-2",
+			},
+		},
+		{
+			IP:        "10.10.0.3",
+			Partition: "default",
+			Source:    models.DiscoverySourceArmis,
+			MAC:       stringPtr("aa:bb:cc:dd:ee:03"),
+			Metadata: map[string]string{
+				"armis_device_id": "armis-3",
+			},
+		},
+	}
+
+	require.NoError(t, registry.ProcessBatchDeviceUpdates(ctx, batch1))
+
+	batch2 := []*models.DeviceUpdate{
+		{
+			IP:        "10.20.0.10",
+			Partition: "default",
+			Source:    models.DiscoverySourceArmis,
+			MAC:       stringPtr("aa:bb:cc:dd:ee:01"),
+			Metadata: map[string]string{
+				"armis_device_id": "armis-1",
+			},
+		},
+		{
+			IP:        "10.20.0.20",
+			Partition: "default",
+			Source:    models.DiscoverySourceArmis,
+			MAC:       stringPtr("aa:bb:cc:dd:ee:02"),
+			Metadata: map[string]string{
+				"armis_device_id": "armis-2",
+			},
+		},
+		{
+			IP:        "10.20.0.30",
+			Partition: "default",
+			Source:    models.DiscoverySourceArmis,
+			MAC:       stringPtr("aa:bb:cc:dd:ee:03"),
+			Metadata: map[string]string{
+				"armis_device_id": "armis-3",
+			},
+		},
+	}
+
+	require.NoError(t, registry.ProcessBatchDeviceUpdates(ctx, batch2))
+
+	require.Len(t, published, 3)
+	for armisID, ids := range published {
+		require.Lenf(t, ids, 2, "expected two updates for %s", armisID)
+		require.NotEmpty(t, ids[0])
+		assert.Equalf(t, ids[0], ids[1], "strong IDs must map to the same device across IP churn for %s", armisID)
+	}
+}
+
+func TestReconcileSightingsBlocksOnCardinalityDrift(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().
+		CountUnifiedDevices(gomock.Any()).
+		Return(int64(52000), nil)
+	mockDB.EXPECT().
+		ListPromotableSightings(gomock.Any(), gomock.Any()).
+		Times(0)
+
+	cfg := &models.IdentityReconciliationConfig{
+		Enabled:       true,
+		SightingsOnly: false,
+		Promotion: models.PromotionConfig{
+			Enabled:        true,
+			ShadowMode:     false,
+			MinPersistence: 0,
+		},
+		Drift: models.IdentityDriftConfig{
+			BaselineDevices:  50000,
+			TolerancePercent: 0,
+			PauseOnDrift:     true,
+			AlertOnDrift:     false,
+		},
+	}
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithIdentityReconciliationConfig(cfg))
+
+	err := registry.ReconcileSightings(ctx)
+	require.NoError(t, err)
+}

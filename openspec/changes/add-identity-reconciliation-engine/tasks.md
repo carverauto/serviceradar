@@ -10,6 +10,9 @@
 - [ ] 1.9 Tests: unit, integration, and load for ingestion → promotion/merge flow; shadow-mode validation in demo before enabling automation.
 - [ ] 1.10 Expose identity reconciliation config via API/UI with KV-backed edits (flags, promotion, reaper, fingerprinting) and validation.
 - [x] 1.11 Improve sightings UX: show why each sighting is pending (policy state/identifiers), add pagination/totals, and capture device promotion lineage in device detail views.
+- [x] 1.12 Clamp faker/DIRE inputs: enforce deterministic 50k IP/hostname pairs with persisted dataset reuse, prevent IP shuffle from expanding the address set, and alert when cardinality drifts beyond tolerance.
+- [x] 1.13 Fix promotion availability semantics: promoted sightings must start unavailable/unknown until probes report health; wire metrics to catch false-positive availability.
+- [ ] 1.14 Add regression tests that ingest the faker dataset end-to-end (sightings → promotion) and assert device counts stay at 50k (+internal) with unreachable devices remaining unavailable.
 
 ## Deployment status
 - Built all OCI images with `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')`.

@@ -48,6 +48,27 @@ The system SHALL surface on device detail views when and how a device was promot
 - **WHEN** an operator opens a device detail page
 - **THEN** they can see promotion metadata including the originating sighting (if applicable), promotion timestamp, and whether it was auto, policy-driven, or manual override
 
+### Requirement: Strong-ID Merge Under IP Churn
+The system SHALL treat strong identifiers (e.g., MAC, Armis ID, NetBox ID) as canonical across IP churn, merging repeated sightings/updates that share those identifiers into a single device and keeping inventory within the expected strong-ID cardinality (e.g., 50k faker devices plus internal services).
+
+#### Scenario: Faker IP shuffle does not inflate inventory
+- **WHEN** multiple sightings arrive over time for the same `armis_device_id` or MAC but with different IPs/hostnames
+- **THEN** the reconciliation engine attaches them to the existing canonical device instead of creating new devices, and total device inventory stays within the configured strong-ID baseline tolerance
+
+### Requirement: Promotion Availability Defaults
+The system SHALL mark devices promoted from sightings as unavailable/unknown until a successful health probe is ingested and SHALL NOT mark them available solely because a sighting was promoted.
+
+#### Scenario: Unreachable faker devices stay unavailable
+- **WHEN** a sighting with no successful sweep/agent availability is promoted to a device
+- **THEN** the resulting device remains unavailable (or unknown) and only flips to available after a positive probe result is processed
+
+### Requirement: Cardinality Drift Detection
+The system SHALL surface metrics/alerts when reconciled device counts deviate beyond a configurable tolerance from the strong-identifier baseline and SHALL block or rate-limit further promotion when drift is detected until operators acknowledge/override.
+
+#### Scenario: Device count exceeds baseline tolerance
+- **WHEN** the reconciled device inventory exceeds the configured baseline (e.g., 50k faker devices) by more than the tolerance for a sustained window
+- **THEN** an alert is emitted and promotion is paused or gated until the drift is addressed or explicitly overridden
+
 ## MODIFIED Requirements
 ### Requirement: Sightings UI/API Separation and Overrides
 The system SHALL expose API/UI views that list sightings separately from device inventory, SHALL show why each sighting remains unpromoted (policy state, identifiers present), SHALL support paginated navigation with totals, and SHALL allow authorized operators to promote, dismiss, or override policy for individual sightings with audit logging.
