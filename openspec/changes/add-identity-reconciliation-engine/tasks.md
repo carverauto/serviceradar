@@ -13,6 +13,7 @@
 - [x] 1.12 Clamp faker/DIRE inputs: enforce deterministic 50k IP/hostname pairs with persisted dataset reuse, prevent IP shuffle from expanding the address set, and alert when cardinality drifts beyond tolerance.
 - [x] 1.13 Fix promotion availability semantics: promoted sightings must start unavailable/unknown until probes report health; wire metrics to catch false-positive availability.
 - [ ] 1.14 Add regression tests that ingest the faker dataset end-to-end (sightings → promotion) and assert device counts stay at 50k (+internal) with unreachable devices remaining unavailable.
+- [ ] 1.15 Publish Prometheus alert templates for identity drift/promotion metrics and include in monitoring bridge change to keep identity telemetry consumable.
 
 ## Deployment status
 - Built all OCI images with `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')`.

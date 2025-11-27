@@ -80,7 +80,7 @@ data:
             },
             "static": {
               "ttl": "{{ default "72h" .Values.core.identity.reaper.profiles.static.ttl }}",
-              "allow_ip_as_id": {{ default true .Values.core.identity.reaper.profiles.static.allowIPAsID }}
+              "allow_ip_as_id": {{- $static := .Values.core.identity.reaper.profiles.static -}} {{- if and $static (hasKey $static "allowIPAsID") -}}{{ $static.allowIPAsID }}{{- else -}}true{{- end }}
             }
           }
         },

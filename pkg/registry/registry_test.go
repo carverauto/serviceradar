@@ -1218,6 +1218,130 @@ func TestAvailabilityRemainsUnknownUntilPositiveProbe(t *testing.T) {
 	assert.True(t, published[1].IsAvailable, "positive probe should flip availability")
 }
 
+func TestIngestHarnessWithProbesKeepsCardinalityAndAvailability(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+
+	type deviceStats struct {
+		deviceIDs []string
+		updates   []*models.DeviceUpdate
+	}
+
+	published := make(map[string]*deviceStats)
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			for _, u := range updates {
+				key := strings.TrimSpace(u.Metadata["armis_device_id"])
+				stats, ok := published[key]
+				if !ok {
+					stats = &deviceStats{}
+					published[key] = stats
+				}
+				stats.deviceIDs = append(stats.deviceIDs, u.DeviceID)
+				stats.updates = append(stats.updates, u)
+			}
+			return nil
+		}).
+		Times(3) // initial ingest + churn + probes
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithDeviceIdentityResolver(mockDB))
+
+	const total = 30
+	initial := make([]*models.DeviceUpdate, 0, total)
+	for i := 0; i < total; i++ {
+		mac := fmt.Sprintf("aa:bb:cc:dd:ee:%02x", i)
+		armisID := fmt.Sprintf("armis-%d", i)
+		initial = append(initial, &models.DeviceUpdate{
+			IP:          fmt.Sprintf("10.40.0.%d", i+1),
+			Partition:   "default",
+			Source:      models.DiscoverySourceArmis,
+			MAC:         stringPtr(mac),
+			IsAvailable: false,
+			Metadata: map[string]string{
+				"armis_device_id": armisID,
+			},
+		})
+	}
+
+	require.NoError(t, registry.ProcessBatchDeviceUpdates(ctx, initial))
+
+	churn := make([]*models.DeviceUpdate, 0, total)
+	for i := 0; i < total; i++ {
+		mac := fmt.Sprintf("aa:bb:cc:dd:ee:%02x", i)
+		armisID := fmt.Sprintf("armis-%d", i)
+		churn = append(churn, &models.DeviceUpdate{
+			IP:          fmt.Sprintf("10.41.0.%d", i+50),
+			Partition:   "default",
+			Source:      models.DiscoverySourceArmis,
+			MAC:         stringPtr(mac),
+			IsAvailable: false,
+			Metadata: map[string]string{
+				"armis_device_id": armisID,
+			},
+		})
+	}
+
+	require.NoError(t, registry.ProcessBatchDeviceUpdates(ctx, churn))
+
+	probes := make([]*models.DeviceUpdate, 0, total/2)
+	for i := 0; i < total; i += 2 {
+		mac := fmt.Sprintf("aa:bb:cc:dd:ee:%02x", i)
+		armisID := fmt.Sprintf("armis-%d", i)
+		probes = append(probes, &models.DeviceUpdate{
+			IP:          fmt.Sprintf("10.41.0.%d", i+50),
+			Partition:   "default",
+			Source:      models.DiscoverySourceSweep,
+			MAC:         stringPtr(mac),
+			IsAvailable: true,
+			Metadata: map[string]string{
+				"armis_device_id": armisID,
+			},
+		})
+	}
+
+	require.NoError(t, registry.ProcessBatchDeviceUpdates(ctx, probes))
+
+	require.Len(t, published, total, "should have stats per strong ID")
+
+	uniqueDevices := make(map[string]struct{})
+	for armisID, stats := range published {
+		probed := strings.HasSuffix(armisID, "0") ||
+			strings.HasSuffix(armisID, "2") ||
+			strings.HasSuffix(armisID, "4") ||
+			strings.HasSuffix(armisID, "6") ||
+			strings.HasSuffix(armisID, "8")
+
+		expectedCount := 2
+		if probed {
+			expectedCount = 3
+		}
+
+		require.Lenf(t, stats.deviceIDs, expectedCount, "unexpected update count for %s", armisID)
+		require.NotEmpty(t, stats.deviceIDs[0])
+		require.Equalf(t, stats.deviceIDs[0], stats.deviceIDs[1], "strong ID %s must keep same device across churn", armisID)
+		if probed {
+			require.Equalf(t, stats.deviceIDs[1], stats.deviceIDs[2], "strong ID %s must keep same device after probe", armisID)
+		}
+
+		last := stats.updates[len(stats.updates)-1]
+		uniqueDevices[last.DeviceID] = struct{}{}
+
+		if probed {
+			assert.Truef(t, last.IsAvailable, "probed strong ID %s should be available", armisID)
+		} else {
+			assert.Falsef(t, last.IsAvailable, "unprobed strong ID %s should remain unavailable", armisID)
+		}
+	}
+
+	assert.Len(t, uniqueDevices, total, "device count should match strong ID cardinality")
+}
+
 func TestDeviceIngestEndToEnd_StrongIDsSurviveIPChurn(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
