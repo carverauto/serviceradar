@@ -18,6 +18,7 @@ go_library(
         "cnpg_pool.go",
         "cnpg_unified_devices.go",
         "cnpg_sweep.go",
+        "constants.go",
         "db.go",
         "devices.go",
         "discovery.go",
