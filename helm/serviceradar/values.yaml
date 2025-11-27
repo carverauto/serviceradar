@@ -55,7 +55,7 @@ core:
     promotion:
       enabled: true
       shadowMode: false
-      minPersistence: "0s"
+      minPersistence: "1h"
       requireHostname: false
       requireFingerprint: false
     fingerprinting:
