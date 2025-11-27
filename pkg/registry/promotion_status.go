@@ -60,11 +60,8 @@ func (r *DeviceRegistry) promotionStatusForSighting(now time.Time, s *models.Net
 		}
 	}
 
-	hasFingerprint := false
-	if s.FingerprintID != nil && strings.TrimSpace(*s.FingerprintID) != "" {
-		hasFingerprint = true
-	}
-	if metadata != nil {
+	hasFingerprint := s.FingerprintID != nil && strings.TrimSpace(*s.FingerprintID) != ""
+	if metadata != nil && !hasFingerprint {
 		if strings.TrimSpace(metadata["fingerprint_id"]) != "" || strings.TrimSpace(metadata["fingerprint_hash"]) != "" {
 			hasFingerprint = true
 		}

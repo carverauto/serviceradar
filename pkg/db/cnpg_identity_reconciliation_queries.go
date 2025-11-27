@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -152,10 +153,16 @@ ORDER BY created_at DESC
 LIMIT $2
 `
 
+var (
+	errCNPGReadsUnavailable  = errors.New("cnpg reads not available")
+	errSightingIDRequired    = errors.New("sighting_id is required")
+	errSightingStatusMissing = errors.New("status is required")
+)
+
 // ListPromotableSightings returns active sightings that have persisted beyond the provided cutoff.
 func (db *DB) ListPromotableSightings(ctx context.Context, cutoff time.Time) ([]*models.NetworkSighting, error) {
 	if !db.UseCNPGReads() {
-		return nil, fmt.Errorf("cnpg reads not available")
+		return nil, errCNPGReadsUnavailable
 	}
 
 	rows, err := db.pgPool.Query(ctx, selectPromotableSightingsSQL, cutoff.UTC())
@@ -222,7 +229,7 @@ func (db *DB) MarkSightingsPromoted(ctx context.Context, ids []string) (int64, e
 // ListActiveSightings returns active sightings optionally filtered by partition.
 func (db *DB) ListActiveSightings(ctx context.Context, partition string, limit, offset int) ([]*models.NetworkSighting, error) {
 	if !db.UseCNPGReads() {
-		return nil, fmt.Errorf("cnpg reads not available")
+		return nil, errCNPGReadsUnavailable
 	}
 	if limit <= 0 {
 		limit = 100
@@ -281,7 +288,7 @@ func (db *DB) ListActiveSightings(ctx context.Context, partition string, limit, 
 // CountActiveSightings returns the total number of active sightings for the optional partition filter.
 func (db *DB) CountActiveSightings(ctx context.Context, partition string) (int64, error) {
 	if !db.UseCNPGReads() {
-		return 0, fmt.Errorf("cnpg reads not available")
+		return 0, errCNPGReadsUnavailable
 	}
 
 	var count int64
@@ -294,12 +301,12 @@ func (db *DB) CountActiveSightings(ctx context.Context, partition string) (int64
 // GetNetworkSighting returns a single sighting by ID.
 func (db *DB) GetNetworkSighting(ctx context.Context, sightingID string) (*models.NetworkSighting, error) {
 	if !db.UseCNPGReads() {
-		return nil, fmt.Errorf("cnpg reads not available")
+		return nil, errCNPGReadsUnavailable
 	}
 
 	id := strings.TrimSpace(sightingID)
 	if id == "" {
-		return nil, fmt.Errorf("sighting_id is required")
+		return nil, errSightingIDRequired
 	}
 
 	row := db.pgPool.QueryRow(ctx, getSightingByIDSQL, id)
@@ -342,12 +349,12 @@ func (db *DB) UpdateSightingStatus(ctx context.Context, sightingID string, statu
 	}
 	id := strings.TrimSpace(sightingID)
 	if id == "" {
-		return 0, fmt.Errorf("sighting_id is required")
+		return 0, errSightingIDRequired
 	}
 
 	statusValue := strings.TrimSpace(string(status))
 	if statusValue == "" {
-		return 0, fmt.Errorf("status is required")
+		return 0, errSightingStatusMissing
 	}
 
 	tag, err := db.pgPool.Exec(ctx, updateSightingStatusSQL, id, statusValue)
@@ -361,11 +368,11 @@ func (db *DB) UpdateSightingStatus(ctx context.Context, sightingID string, statu
 // ListSightingEvents returns audit events for a sighting ordered newest first.
 func (db *DB) ListSightingEvents(ctx context.Context, sightingID string, limit int) ([]*models.SightingEvent, error) {
 	if !db.UseCNPGReads() {
-		return nil, fmt.Errorf("cnpg reads not available")
+		return nil, errCNPGReadsUnavailable
 	}
 	id := strings.TrimSpace(sightingID)
 	if id == "" {
-		return nil, fmt.Errorf("sighting_id is required")
+		return nil, errSightingIDRequired
 	}
 	if limit <= 0 {
 		limit = 50
@@ -407,7 +414,7 @@ func (db *DB) ListSightingEvents(ctx context.Context, sightingID string, limit i
 // ListSubnetPolicies returns configured subnet policies ordered by creation time.
 func (db *DB) ListSubnetPolicies(ctx context.Context, limit int) ([]*models.SubnetPolicy, error) {
 	if !db.UseCNPGReads() {
-		return nil, fmt.Errorf("cnpg reads not available")
+		return nil, errCNPGReadsUnavailable
 	}
 	if limit <= 0 {
 		limit = 100
@@ -459,7 +466,7 @@ func (db *DB) ListSubnetPolicies(ctx context.Context, limit int) ([]*models.Subn
 // ListMergeAuditEvents returns merge audit events optionally filtered by device involvement.
 func (db *DB) ListMergeAuditEvents(ctx context.Context, deviceID string, limit int) ([]*models.MergeAuditEvent, error) {
 	if !db.UseCNPGReads() {
-		return nil, fmt.Errorf("cnpg reads not available")
+		return nil, errCNPGReadsUnavailable
 	}
 
 	if limit <= 0 {

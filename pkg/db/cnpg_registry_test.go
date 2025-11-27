@@ -91,7 +91,7 @@ func TestBuildCNPGServiceRegistrationEventArgs(t *testing.T) {
 		ServiceType:        "checker",
 		ParentID:           "agent-1",
 		RegistrationSource: "implicit",
-		Actor:              "system",
+		Actor:              systemActor,
 		Timestamp:          now,
 		Metadata: map[string]string{
 			"reason": "purged",

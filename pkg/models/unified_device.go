@@ -131,6 +131,8 @@ func GetSourceConfidence(source DiscoverySource) int {
 		return ConfidenceMediumTraffic // Medium confidence - traffic analysis
 	case DiscoverySourceSweep:
 		return ConfidenceMediumSweep // Medium confidence - network sweep
+	case DiscoverySourceSighting:
+		return ConfidenceMediumSweep // Medium confidence - promoted sighting
 	case DiscoverySourceSelfReported:
 		return ConfidenceHighSelfReported // High confidence - device reported itself
 	case DiscoverySourceManual:

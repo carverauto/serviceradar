@@ -245,7 +245,7 @@ func buildCNPGPollerStatusArgs(status *models.PollerStatus) ([]interface{}, erro
 		firstSeen,  // first_seen
 		lastSeen,   // last_seen
 		json.RawMessage(`{}`),
-		"system",
+		systemActor,
 		status.IsHealthy,
 		int32(0),
 		int32(0),

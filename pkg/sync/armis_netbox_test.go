@@ -210,6 +210,8 @@ func TestArmisNetBoxStreamResults(t *testing.T) {
 			// Not expected in this test
 		case models.DiscoverySourceSweep:
 			// Not expected in this test
+		case models.DiscoverySourceSighting:
+			// Not expected in this test
 		case models.DiscoverySourceSelfReported:
 			// Not expected in this test
 		case models.DiscoverySourceSysmon:

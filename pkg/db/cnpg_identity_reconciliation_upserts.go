@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -47,6 +48,16 @@ INSERT INTO sighting_events (
 ) VALUES ($1,$2,$3,$4,$5,$6)
 `
 
+var (
+	errIdentifierNil     = errors.New("identifier is nil")
+	errDeviceIDMissing   = errors.New("device_id missing")
+	errIDTypeMissing     = errors.New("id_type missing")
+	errIDValueMissing    = errors.New("id_value missing")
+	errSightingEventNil  = errors.New("event is nil")
+	errSightingIDMissing = errors.New("sighting_id missing")
+	errEventTypeMissing  = errors.New("event_type missing")
+)
+
 // UpsertDeviceIdentifiers writes identifier rows for devices.
 func (db *DB) UpsertDeviceIdentifiers(ctx context.Context, identifiers []*models.DeviceIdentifier) error {
 	if len(identifiers) == 0 || !db.useCNPGWrites() {
@@ -79,22 +90,22 @@ func (db *DB) UpsertDeviceIdentifiers(ctx context.Context, identifiers []*models
 
 func buildDeviceIdentifierArgs(id *models.DeviceIdentifier) ([]interface{}, error) {
 	if id == nil {
-		return nil, fmt.Errorf("identifier is nil")
+		return nil, errIdentifierNil
 	}
 
 	devID := strings.TrimSpace(id.DeviceID)
 	if devID == "" {
-		return nil, fmt.Errorf("device_id missing")
+		return nil, errDeviceIDMissing
 	}
 
 	idType := strings.TrimSpace(id.IDType)
 	if idType == "" {
-		return nil, fmt.Errorf("id_type missing")
+		return nil, errIDTypeMissing
 	}
 
 	idValue := strings.TrimSpace(id.IDValue)
 	if idValue == "" {
-		return nil, fmt.Errorf("id_value missing")
+		return nil, errIDValueMissing
 	}
 
 	confidence := strings.TrimSpace(id.Confidence)
@@ -160,22 +171,22 @@ func (db *DB) InsertSightingEvents(ctx context.Context, events []*models.Sightin
 
 func buildSightingEventArgs(ev *models.SightingEvent) ([]interface{}, error) {
 	if ev == nil {
-		return nil, fmt.Errorf("event is nil")
+		return nil, errSightingEventNil
 	}
 
 	sightingID := strings.TrimSpace(ev.SightingID)
 	if sightingID == "" {
-		return nil, fmt.Errorf("sighting_id missing")
+		return nil, errSightingIDMissing
 	}
 
 	eventType := strings.TrimSpace(ev.EventType)
 	if eventType == "" {
-		return nil, fmt.Errorf("event_type missing")
+		return nil, errEventTypeMissing
 	}
 
 	actor := strings.TrimSpace(ev.Actor)
 	if actor == "" {
-		actor = "system"
+		actor = systemActor
 	}
 
 	createdAt := ev.CreatedAt

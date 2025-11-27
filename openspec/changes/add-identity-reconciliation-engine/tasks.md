@@ -15,3 +15,4 @@
 - Built all OCI images with `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')`.
 - Pushed all images via `bazel run --config=remote //docker/images:push_all` (tags `sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024`).
 - Deployed to `demo` with Helm overriding core/web/poller/sync/agent/datasvc/tools tags to the above SHA; most pods healthy, CrashLoop pending on otel, legacy rperf-client, and trapd needing follow-up.
+- Helm rev 168 applied with promotion enabled (shadow off, 1h minPersistence) and identity reaper interval at 1m; CNPG tables truncated (devices/sightings/updates/etc.) then sync/poller rerun, resulting in ~48.8k sightings promoted to ~46.6k devices on the new SHA.

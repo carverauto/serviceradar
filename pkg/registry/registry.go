@@ -35,8 +35,14 @@ import (
 
 var (
 	// ErrDeviceNotFound is returned when a device is not found
-	ErrDeviceNotFound       = errors.New("device not found")
-	errCNPGQueryUnsupported = errors.New("cnpg querying is not supported by db.Service")
+	ErrDeviceNotFound                 = errors.New("device not found")
+	errCNPGQueryUnsupported           = errors.New("cnpg querying is not supported by db.Service")
+	errDatabaseNotConfigured          = errors.New("database not configured")
+	errIdentityReconciliationDisabled = errors.New("identity reconciliation disabled")
+	errSightingNotFound               = errors.New("sighting not found")
+	errSightingNotActive              = errors.New("sighting is not active")
+	errSightingNotUpdated             = errors.New("sighting not updated")
+	errUnableToBuildUpdate            = errors.New("unable to build device update from sighting")
 )
 
 const (
@@ -133,7 +139,7 @@ func (r *DeviceRegistry) ProcessDeviceUpdate(ctx context.Context, update *models
 
 // ProcessBatchDeviceUpdates processes a batch of discovery events (DeviceUpdates).
 // It publishes them directly to the device_updates stream for the materialized view.
-func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error {
+func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error { //nolint:gocyclo
 	if len(updates) == 0 {
 		return nil
 	}
@@ -519,7 +525,7 @@ func (r *DeviceRegistry) ReconcileSightings(ctx context.Context) error {
 		return nil
 	}
 
-	var promotable []*models.NetworkSighting
+	promotable := make([]*models.NetworkSighting, 0, len(sightings))
 	var shadowReady int
 	var eligibleAuto int
 	var blockedPolicy int
@@ -567,7 +573,7 @@ func (r *DeviceRegistry) ReconcileSightings(ctx context.Context) error {
 
 	updates := make([]*models.DeviceUpdate, 0, len(promotable))
 	var identifiers []*models.DeviceIdentifier
-	var events []*models.SightingEvent
+	events := make([]*models.SightingEvent, 0, len(promotable))
 	promotedPartitions := make(map[string]int)
 
 	for _, s := range promotable {
@@ -640,10 +646,10 @@ func (r *DeviceRegistry) ReconcileSightings(ctx context.Context) error {
 // PromoteSighting manually promotes a single sighting, bypassing policy gating.
 func (r *DeviceRegistry) PromoteSighting(ctx context.Context, sightingID, actor string) (*models.DeviceUpdate, error) {
 	if r.db == nil {
-		return nil, fmt.Errorf("database not configured")
+		return nil, errDatabaseNotConfigured
 	}
 	if r.identityCfg == nil || !r.identityCfg.Enabled {
-		return nil, fmt.Errorf("identity reconciliation disabled")
+		return nil, errIdentityReconciliationDisabled
 	}
 
 	sighting, err := r.db.GetNetworkSighting(ctx, sightingID)
@@ -651,15 +657,15 @@ func (r *DeviceRegistry) PromoteSighting(ctx context.Context, sightingID, actor 
 		return nil, err
 	}
 	if sighting == nil {
-		return nil, fmt.Errorf("sighting not found")
+		return nil, errSightingNotFound
 	}
 	if sighting.Status != models.SightingStatusActive {
-		return nil, fmt.Errorf("sighting %s is not active", sighting.SightingID)
+		return nil, fmt.Errorf("%w: %s", errSightingNotActive, sighting.SightingID)
 	}
 
 	update := buildUpdateFromNetworkSighting(sighting)
 	if update == nil {
-		return nil, fmt.Errorf("unable to build device update from sighting")
+		return nil, errUnableToBuildUpdate
 	}
 
 	if err := r.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update}); err != nil {
@@ -705,10 +711,10 @@ func (r *DeviceRegistry) PromoteSighting(ctx context.Context, sightingID, actor 
 // DismissSighting marks a sighting dismissed and records an audit event.
 func (r *DeviceRegistry) DismissSighting(ctx context.Context, sightingID, actor, reason string) error {
 	if r.db == nil {
-		return fmt.Errorf("database not configured")
+		return errDatabaseNotConfigured
 	}
 	if r.identityCfg == nil || !r.identityCfg.Enabled {
-		return fmt.Errorf("identity reconciliation disabled")
+		return errIdentityReconciliationDisabled
 	}
 
 	sighting, err := r.db.GetNetworkSighting(ctx, sightingID)
@@ -716,10 +722,10 @@ func (r *DeviceRegistry) DismissSighting(ctx context.Context, sightingID, actor,
 		return err
 	}
 	if sighting == nil {
-		return fmt.Errorf("sighting not found")
+		return errSightingNotFound
 	}
 	if sighting.Status != models.SightingStatusActive {
-		return fmt.Errorf("sighting %s is not active", sighting.SightingID)
+		return fmt.Errorf("%w: %s", errSightingNotActive, sighting.SightingID)
 	}
 
 	affected, err := r.db.UpdateSightingStatus(ctx, sighting.SightingID, models.SightingStatusDismissed)
@@ -727,7 +733,7 @@ func (r *DeviceRegistry) DismissSighting(ctx context.Context, sightingID, actor,
 		return err
 	}
 	if affected == 0 {
-		return fmt.Errorf("sighting %s not updated", sighting.SightingID)
+		return fmt.Errorf("%w: %s", errSightingNotUpdated, sighting.SightingID)
 	}
 
 	dismissedBy := strings.TrimSpace(actor)
@@ -763,7 +769,7 @@ func (r *DeviceRegistry) DismissSighting(ctx context.Context, sightingID, actor,
 // ListSightingEvents returns audit entries for a sighting.
 func (r *DeviceRegistry) ListSightingEvents(ctx context.Context, sightingID string, limit int) ([]*models.SightingEvent, error) {
 	if r.db == nil {
-		return nil, fmt.Errorf("database not configured")
+		return nil, errDatabaseNotConfigured
 	}
 	return r.db.ListSightingEvents(ctx, sightingID, limit)
 }
@@ -771,7 +777,7 @@ func (r *DeviceRegistry) ListSightingEvents(ctx context.Context, sightingID stri
 // ListSightings returns active sightings for the given partition.
 func (r *DeviceRegistry) ListSightings(ctx context.Context, partition string, limit, offset int) ([]*models.NetworkSighting, error) {
 	if r.db == nil {
-		return nil, fmt.Errorf("database not configured")
+		return nil, errDatabaseNotConfigured
 	}
 	sightings, err := r.db.ListActiveSightings(ctx, partition, limit, offset)
 	if err != nil {
@@ -789,7 +795,7 @@ func (r *DeviceRegistry) ListSightings(ctx context.Context, partition string, li
 // CountSightings returns the total active sightings.
 func (r *DeviceRegistry) CountSightings(ctx context.Context, partition string) (int64, error) {
 	if r.db == nil {
-		return 0, fmt.Errorf("database not configured")
+		return 0, errDatabaseNotConfigured
 	}
 	return r.db.CountActiveSightings(ctx, partition)
 }

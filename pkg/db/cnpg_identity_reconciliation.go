@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -46,6 +47,11 @@ WHERE status = 'active'
 RETURNING sighting_id, partition, ip, ttl_expires_at;
 `
 
+var (
+	errNetworkSightingNil       = errors.New("sighting is nil")
+	errNetworkSightingIPMissing = errors.New("sighting ip missing")
+)
+
 // StoreNetworkSightings upserts active sightings for partition+IP, refreshing last_seen/TTL.
 func (db *DB) StoreNetworkSightings(ctx context.Context, sightings []*models.NetworkSighting) error {
 	if len(sightings) == 0 || !db.useCNPGWrites() {
@@ -78,12 +84,12 @@ func (db *DB) StoreNetworkSightings(ctx context.Context, sightings []*models.Net
 
 func buildNetworkSightingArgs(s *models.NetworkSighting) ([]interface{}, error) {
 	if s == nil {
-		return nil, fmt.Errorf("sighting is nil")
+		return nil, errNetworkSightingNil
 	}
 
 	ip := strings.TrimSpace(s.IP)
 	if ip == "" {
-		return nil, fmt.Errorf("sighting ip missing")
+		return nil, errNetworkSightingIPMissing
 	}
 
 	partition := strings.TrimSpace(s.Partition)
