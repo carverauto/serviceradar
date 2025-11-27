@@ -50,12 +50,12 @@ core:
     ttl: "24h"
   identity:
     enabled: true
-    # Start in sightings-only mode to keep promotions gated until policies are tuned.
-    sightingsOnlyMode: true
+    # Enable promotion so sightings are turned into devices automatically.
+    sightingsOnlyMode: false
     promotion:
-      enabled: false
-      shadowMode: true
-      minPersistence: "24h"
+      enabled: true
+      shadowMode: false
+      minPersistence: "0s"
       requireHostname: false
       requireFingerprint: false
     fingerprinting:
@@ -63,7 +63,7 @@ core:
       portBudget: 32
       timeout: "2s"
     reaper:
-      interval: "1h"
+      interval: "1m"
       profiles:
         default:
           ttl: "24h"
