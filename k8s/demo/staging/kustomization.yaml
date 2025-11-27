@@ -44,23 +44,23 @@ replacements:
 
 images:
 - name: ghcr.io/carverauto/serviceradar-core
-  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
+  newTag: sha-88d3a8af915b167407b36d991f757864c09dfeb5a4180de539f99498f650ebcf
 - name: ghcr.io/carverauto/serviceradar-web
-  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
+  newTag: sha-ea0415aa1069be6420d2d4a80a21b2a8c835f4ca8daed27000cea23e710a70a6
 - name: ghcr.io/carverauto/serviceradar-agent
-  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
+  newTag: sha-9c92617fce5fa5570786c3f3f43b298726b7ee0ceb02c857f3940623bdc60954
 - name: ghcr.io/carverauto/serviceradar-poller
-  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
+  newTag: sha-bccc4567ef2a27492ccb98a9310c6cf82c931bb497275f5e0b015219efd98ad7
 - name: ghcr.io/carverauto/serviceradar-snmp-checker
-  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
+  newTag: sha-b32c3d1c9923b85d6fa04517785701a44c2172fcc0a04c8b613951498d9859c2
 - name: ghcr.io/carverauto/serviceradar-datasvc
-  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
+  newTag: sha-bdc0057ce88c9f275f700f573a989947ab5b7ff78903ee7ea3108c1b003feb80
 - name: ghcr.io/carverauto/serviceradar-sync
-  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
+  newTag: sha-022d570f8aeb461a2a105ed2065e77f0a5aaf41843c045e1199dadc4a2bedbb3
 - name: ghcr.io/carverauto/serviceradar-tools
-  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
+  newTag: sha-36d2645dd651d05d25ec1fb427f27578948cb4c6b985cf1fb65982c1635fb9df
 - name: ghcr.io/carverauto/serviceradar-srql
-  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
+  newTag: sha-1a10f7b7285e325fdec698dac3be7a74ac918841ce5e25de530f56af01235ddd
 
 vars:
 - name: SERVICERADAR_NAMESPACE

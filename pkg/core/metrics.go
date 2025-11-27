@@ -586,6 +586,13 @@ func (s *Server) processICMPMetrics(
 	serviceName := strings.TrimSpace(svc.ServiceName)
 	serviceType := strings.TrimSpace(svc.ServiceType)
 
+	if agentID == "" {
+		s.logger.Warn().
+			Str("poller_id", pollerID).
+			Msg("Skipping ICMP metrics without agent ID to avoid poller device attribution")
+		return nil
+	}
+
 	var pingResult struct {
 		Host         string  `json:"host"`
 		ResponseTime int64   `json:"response_time"`
@@ -606,32 +613,60 @@ func (s *Server) processICMPMetrics(
 	targetHost := strings.TrimSpace(pingResult.Host)
 	deviceID := strings.TrimSpace(pingResult.DeviceID)
 
+	collectorIP := normalizeHostIP(s.resolveServiceHostIP(ctx, pollerID, agentID, sourceIP))
+	if collectorIP == "" {
+		collectorIP = normalizeHostIP(sourceIP)
+	}
+	if collectorIP != "" && net.ParseIP(collectorIP) == nil {
+		collectorIP = ""
+	}
+
 	if deviceID == "" {
-		deviceID = models.GenerateNetworkDeviceID(partition, sourceIP)
+		switch {
+		case agentID != "":
+			deviceID = models.GenerateServiceDeviceID(models.ServiceTypeAgent, agentID)
+		case collectorIP != "":
+			deviceID = models.GenerateNetworkDeviceID(partition, collectorIP)
+		default:
+			s.logger.Warn().
+				Str("service_name", serviceName).
+				Str("poller_id", pollerID).
+				Str("agent_id", agentID).
+				Msg("Skipping ICMP device registration due to missing identifiers and collector IP")
+			return nil
+		}
 	}
 
-	resolution := s.resolveCanonicalDevice(ctx, sourceIP, deviceID)
-	if strings.TrimSpace(resolution.DeviceID) != "" {
-		deviceID = strings.TrimSpace(resolution.DeviceID)
-	}
+	hostDeviceID := ""
+	updateIP := ""
 
-	updateIP := strings.TrimSpace(resolution.IP)
-	if updateIP == "" {
-		updateIP = ipFromDeviceID(deviceID)
-	}
-	if updateIP == "" {
-		updateIP = sourceIP
-	}
-
-	hostDeviceID := strings.TrimSpace(resolution.DeviceID)
-	if hostDeviceID == "" {
+	if agentID != "" {
+		// When an agent is present, keep the ICMP capability attached to the agent service device.
 		hostDeviceID = deviceID
+		updateIP = collectorIP
+	} else {
+		resolution := s.resolveCanonicalDevice(ctx, collectorIP, deviceID)
+		if strings.TrimSpace(resolution.DeviceID) != "" {
+			deviceID = strings.TrimSpace(resolution.DeviceID)
+		}
+
+		updateIP = strings.TrimSpace(resolution.IP)
+		if updateIP == "" {
+			updateIP = ipFromDeviceID(deviceID)
+		}
+		if updateIP == "" {
+			updateIP = collectorIP
+		}
+
+		hostDeviceID = strings.TrimSpace(resolution.DeviceID)
+		if hostDeviceID == "" {
+			hostDeviceID = deviceID
+		}
 	}
 
 	// Create metadata map
 	metadata := map[string]string{
 		"device_id":         deviceID,
-		"collector_ip":      sourceIP,
 		"response_time":     fmt.Sprintf("%d", pingResult.ResponseTime),
 		"packet_loss":       fmt.Sprintf("%f", pingResult.PacketLoss),
 		"available":         fmt.Sprintf("%t", pingResult.Available),
@@ -639,6 +674,9 @@ func (s *Server) processICMPMetrics(
 		"host_device_id":    hostDeviceID,
 		"host_last_seen_ip": updateIP,
 		"host_last_seen_at": now.Format(time.RFC3339Nano),
+	}
+	if collectorIP != "" {
+		metadata["collector_ip"] = collectorIP
 	}
 	if targetHost != "" {
 		metadata["target_host"] = targetHost
@@ -705,9 +743,11 @@ func (s *Server) processICMPMetrics(
 			"icmp_round_trip_ns":   fmt.Sprintf("%d", pingResult.ResponseTime),
 			"collector_agent_id":   agentID,
 			"collector_poller_id":  pollerID,
-			"collector_ip":         sourceIP,
 			"icmp_service_name":    serviceName,
 			"_last_icmp_update_at": now.Format(time.RFC3339Nano),
+		}
+		if collectorIP != "" {
+			deviceMetadata["collector_ip"] = collectorIP
 		}
 		if targetHost != "" {
 			deviceMetadata["icmp_target"] = targetHost

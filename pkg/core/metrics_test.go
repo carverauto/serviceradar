@@ -303,3 +303,129 @@ func TestProcessServicePayload_SyncService_HealthCheckNotProcessed(t *testing.T)
 	err := server.processServicePayload(ctx, pollerID, partition, sourceIP, svc, healthCheckMessage, timestamp)
 	require.NoError(t, err)
 }
+
+func TestProcessICMPMetricsPrefersAgentDeviceWhenSourceIPInvalid(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRegistry := registry.NewMockManager(ctrl)
+	mockRegistry.EXPECT().GetCollectorCapabilities(gomock.Any(), gomock.Any()).Return(nil, false).AnyTimes()
+	mockRegistry.EXPECT().SetCollectorCapabilities(gomock.Any(), gomock.Any()).AnyTimes()
+	mockRegistry.EXPECT().SetDeviceCapabilitySnapshot(gomock.Any(), gomock.Any()).AnyTimes()
+
+	server := &Server{
+		metricBuffers:  make(map[string][]*models.TimeseriesMetric),
+		DeviceRegistry: mockRegistry,
+		logger:         logger.NewTestLogger(),
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	svc := &proto.ServiceStatus{
+		ServiceName: "ping",
+		ServiceType: "icmp",
+		Available:   true,
+	}
+
+	payload := []byte(`{"host":"8.8.8.8","response_time":10,"packet_loss":0,"available":true}`)
+
+	err := server.processICMPMetrics(ctx, "k8s-poller", "default", "poller", "k8s-agent", svc, payload, now)
+	require.NoError(t, err)
+
+	server.serviceDeviceMu.Lock()
+	defer server.serviceDeviceMu.Unlock()
+
+	update, ok := server.serviceDeviceBuffer["serviceradar:agent:k8s-agent"]
+	require.True(t, ok, "expected ICMP update to attach to agent service device")
+	assert.Equal(t, "serviceradar:agent:k8s-agent", update.DeviceID)
+	assert.Equal(t, "default", update.Partition)
+	assert.Equal(t, "", update.IP, "collector IP should be resolved or empty, not a placeholder")
+	assert.Equal(t, "", update.Metadata["collector_ip"], "collector_ip should not contain non-IP placeholders")
+}
+
+func TestProcessICMPMetricsIgnoresCanonicalRemapWhenAgentPresent(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRegistry := registry.NewMockManager(ctrl)
+	mockRegistry.EXPECT().GetCollectorCapabilities(gomock.Any(), gomock.Any()).Return(nil, false).AnyTimes()
+	mockRegistry.EXPECT().SetCollectorCapabilities(gomock.Any(), gomock.Any()).AnyTimes()
+	mockRegistry.EXPECT().SetDeviceCapabilitySnapshot(gomock.Any(), gomock.Any()).AnyTimes()
+
+	server := &Server{
+		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
+		logger:              logger.NewTestLogger(),
+		DeviceRegistry:      mockRegistry,
+		canonicalCache:      newCanonicalCache(time.Minute),
+		serviceDeviceBuffer: make(map[string]*models.DeviceUpdate),
+	}
+
+	// Seed canonical cache to map collector IP to poller device, which should be ignored for agent ICMP.
+	server.canonicalCache.store("10.0.0.10", canonicalSnapshot{
+		DeviceID: models.GenerateServiceDeviceID(models.ServiceTypePoller, "k8s-poller"),
+		IP:       "10.0.0.10",
+	})
+
+	ctx := context.Background()
+	now := time.Now()
+
+	svc := &proto.ServiceStatus{
+		ServiceName: "ping",
+		ServiceType: "icmp",
+		Available:   true,
+	}
+
+	payload := []byte(`{"host":"8.8.8.8","response_time":10,"packet_loss":0,"available":true}`)
+
+	err := server.processICMPMetrics(ctx, "k8s-poller", "default", "10.0.0.10", "k8s-agent", svc, payload, now)
+	require.NoError(t, err)
+
+	server.serviceDeviceMu.Lock()
+	defer server.serviceDeviceMu.Unlock()
+
+	update, ok := server.serviceDeviceBuffer["serviceradar:agent:k8s-agent"]
+	require.True(t, ok, "expected ICMP update to stay on agent service device")
+	assert.Equal(t, "serviceradar:agent:k8s-agent", update.DeviceID)
+	assert.Equal(t, "default", update.Partition)
+}
+
+func TestProcessICMPMetricsSkipsWhenAgentMissing(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRegistry := registry.NewMockManager(ctrl)
+
+	server := &Server{
+		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
+		logger:              logger.NewTestLogger(),
+		DeviceRegistry:      mockRegistry,
+		canonicalCache:      newCanonicalCache(time.Minute),
+		serviceDeviceBuffer: make(map[string]*models.DeviceUpdate),
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	svc := &proto.ServiceStatus{
+		ServiceName: "ping",
+		ServiceType: "icmp",
+		Available:   true,
+	}
+
+	payload := []byte(`{"host":"8.8.8.8","response_time":10,"packet_loss":0,"available":true}`)
+
+	err := server.processICMPMetrics(ctx, "k8s-poller", "default", "10.0.0.10", "", svc, payload, now)
+	require.NoError(t, err)
+
+	server.serviceDeviceMu.Lock()
+	defer server.serviceDeviceMu.Unlock()
+
+	assert.Empty(t, server.serviceDeviceBuffer, "no device updates should be recorded without agent")
+}
