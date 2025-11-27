@@ -1569,13 +1569,6 @@ func (s *Server) registerCheckerAsDevice(ctx context.Context, checkerID, checker
 	return nil
 }
 
-// getHostIP returns the host IP address for this service
-func (s *Server) getHostIP() string {
-	// In Kubernetes, this will typically be the pod IP
-	// For now, return empty string and let the device registry handle it
-	return ""
-}
-
 // ensurePollerRegistered ensures a poller is registered in the service registry.
 // This is called on first heartbeat to auto-register pollers that are configured
 // but not yet in the registry (e.g., k8s, docker-compose services).

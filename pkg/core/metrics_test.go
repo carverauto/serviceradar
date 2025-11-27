@@ -342,8 +342,8 @@ func TestProcessICMPMetricsPrefersAgentDeviceWhenSourceIPInvalid(t *testing.T) {
 	require.True(t, ok, "expected ICMP update to attach to agent service device")
 	assert.Equal(t, "serviceradar:agent:k8s-agent", update.DeviceID)
 	assert.Equal(t, "default", update.Partition)
-	assert.Equal(t, "", update.IP, "collector IP should be resolved or empty, not a placeholder")
-	assert.Equal(t, "", update.Metadata["collector_ip"], "collector_ip should not contain non-IP placeholders")
+	assert.Empty(t, update.IP, "collector IP should be resolved or empty, not a placeholder")
+	assert.Empty(t, update.Metadata["collector_ip"], "collector_ip should not contain non-IP placeholders")
 }
 
 func TestProcessICMPMetricsIgnoresCanonicalRemapWhenAgentPresent(t *testing.T) {

@@ -34,6 +34,7 @@ import (
 var (
 	ErrRperfTestFailed             = errors.New("rperf test failed")
 	errICMPServiceMetadataRequired = errors.New("icmp service metadata is required")
+	errICMPDeviceIdentifiersMissing = errors.New("icmp device identifiers missing")
 )
 
 // createSNMPMetric creates a new timeseries metric from SNMP data
@@ -613,21 +614,9 @@ func (s *Server) processICMPMetrics(
 	targetHost := strings.TrimSpace(pingResult.Host)
 	deviceID := strings.TrimSpace(pingResult.DeviceID)
 
-	collectorIP := normalizeHostIP(s.resolveServiceHostIP(ctx, pollerID, agentID, sourceIP))
-	if collectorIP == "" {
-		collectorIP = normalizeHostIP(sourceIP)
-	}
-	if collectorIP != "" && net.ParseIP(collectorIP) == nil {
-		collectorIP = ""
-	}
-
-	if deviceID == "" {
-		switch {
-		case agentID != "":
-			deviceID = models.GenerateServiceDeviceID(models.ServiceTypeAgent, agentID)
-		case collectorIP != "":
-			deviceID = models.GenerateNetworkDeviceID(partition, collectorIP)
-		default:
+	deviceID, hostDeviceID, collectorIP, updateIP, err := s.resolveICMPDevice(ctx, pollerID, partition, agentID, sourceIP, deviceID)
+	if err != nil {
+		if errors.Is(err, errICMPDeviceIdentifiersMissing) {
 			s.logger.Warn().
 				Str("service_name", serviceName).
 				Str("poller_id", pollerID).
@@ -635,33 +624,8 @@ func (s *Server) processICMPMetrics(
 				Msg("Skipping ICMP device registration due to missing identifiers and collector IP")
 			return nil
 		}
-	}
 
-	hostDeviceID := ""
-	updateIP := ""
-
-	if agentID != "" {
-		// When an agent is present, keep the ICMP capability attached to the agent service device.
-		hostDeviceID = deviceID
-		updateIP = collectorIP
-	} else {
-		resolution := s.resolveCanonicalDevice(ctx, collectorIP, deviceID)
-		if strings.TrimSpace(resolution.DeviceID) != "" {
-			deviceID = strings.TrimSpace(resolution.DeviceID)
-		}
-
-		updateIP = strings.TrimSpace(resolution.IP)
-		if updateIP == "" {
-			updateIP = ipFromDeviceID(deviceID)
-		}
-		if updateIP == "" {
-			updateIP = collectorIP
-		}
-
-		hostDeviceID = strings.TrimSpace(resolution.DeviceID)
-		if hostDeviceID == "" {
-			hostDeviceID = deviceID
-		}
+		return err
 	}
 
 	// Create metadata map
@@ -832,6 +796,65 @@ func (s *Server) processICMPMetrics(
 	}
 
 	return nil
+}
+
+func (s *Server) resolveICMPDevice(
+	ctx context.Context,
+	pollerID string,
+	partition string,
+	agentID string,
+	sourceIP string,
+	deviceID string,
+) (string, string, string, string, error) {
+	collectorIP := normalizeHostIP(s.resolveServiceHostIP(ctx, pollerID, agentID, sourceIP))
+	if collectorIP == "" {
+		collectorIP = normalizeHostIP(sourceIP)
+	}
+	if collectorIP != "" && net.ParseIP(collectorIP) == nil {
+		collectorIP = ""
+	}
+
+	resolvedDeviceID := strings.TrimSpace(deviceID)
+	if resolvedDeviceID == "" {
+		switch {
+		case agentID != "":
+			resolvedDeviceID = models.GenerateServiceDeviceID(models.ServiceTypeAgent, agentID)
+		case collectorIP != "":
+			resolvedDeviceID = models.GenerateNetworkDeviceID(partition, collectorIP)
+		default:
+			return "", "", collectorIP, "", errICMPDeviceIdentifiersMissing
+		}
+	}
+
+	hostDeviceID := ""
+	updateIP := ""
+
+	if agentID != "" {
+		// When an agent is present, keep the ICMP capability attached to the agent service device.
+		hostDeviceID = resolvedDeviceID
+		updateIP = collectorIP
+		return resolvedDeviceID, hostDeviceID, collectorIP, updateIP, nil
+	}
+
+	resolution := s.resolveCanonicalDevice(ctx, collectorIP, resolvedDeviceID)
+	if trimmed := strings.TrimSpace(resolution.DeviceID); trimmed != "" {
+		resolvedDeviceID = trimmed
+	}
+
+	updateIP = strings.TrimSpace(resolution.IP)
+	if updateIP == "" {
+		updateIP = ipFromDeviceID(resolvedDeviceID)
+	}
+	if updateIP == "" {
+		updateIP = collectorIP
+	}
+
+	hostDeviceID = strings.TrimSpace(resolution.DeviceID)
+	if hostDeviceID == "" {
+		hostDeviceID = resolvedDeviceID
+	}
+
+	return resolvedDeviceID, hostDeviceID, collectorIP, updateIP, nil
 }
 
 func (s *Server) processSysmonMetrics(
