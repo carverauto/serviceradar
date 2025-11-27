@@ -44,23 +44,23 @@ replacements:
 
 images:
 - name: ghcr.io/carverauto/serviceradar-core
-  newTag: latest
+  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
 - name: ghcr.io/carverauto/serviceradar-web
-  newTag: sha-cb1dc02c4a3148becae6efd920624297154abc13
+  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
 - name: ghcr.io/carverauto/serviceradar-agent
-  newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
+  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
 - name: ghcr.io/carverauto/serviceradar-poller
-  newTag: latest
+  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
 - name: ghcr.io/carverauto/serviceradar-snmp-checker
-  newTag: latest
+  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
 - name: ghcr.io/carverauto/serviceradar-datasvc
-  newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
+  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
 - name: ghcr.io/carverauto/serviceradar-sync
-  newTag: sha-e3362976f763c5b26744ccd100dead2ed09e7810
+  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
 - name: ghcr.io/carverauto/serviceradar-tools
-  newTag: sha-285e1d25a57f
+  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
 - name: ghcr.io/carverauto/serviceradar-srql
-  newTag: sha-cb1dc02c4a3148becae6efd920624297154abc13
+  newTag: sha-3994c6a9632eb88840c3be3d1755f27a1f444fd4
 
 vars:
 - name: SERVICERADAR_NAMESPACE

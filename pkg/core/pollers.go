@@ -38,6 +38,8 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+const defaultPartition = "default"
+
 func (s *Server) MonitorPollers(ctx context.Context) {
 	ticker := time.NewTicker(monitorInterval)
 	defer ticker.Stop()
@@ -322,7 +324,7 @@ func (s *Server) handlePollerRecovery(
 		partition := ""
 
 		if req != nil {
-			sourceIP = req.SourceIp
+			sourceIP = s.resolveServiceHostIP(ctx, req.PollerId, req.AgentId, req.SourceIp)
 			partition = req.Partition
 		}
 
@@ -415,8 +417,12 @@ func normalizeHostIP(raw string) string {
 	return ip
 }
 
-func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealthy bool, hostIP string, now time.Time) error {
+func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealthy bool, hostIP, partition string, now time.Time) error {
 	normIP := normalizeHostIP(hostIP)
+	normalizedPartition := strings.TrimSpace(partition)
+	if normalizedPartition == "" {
+		normalizedPartition = defaultPartition
+	}
 
 	pollerStatus := &models.PollerStatus{
 		PollerID:  pollerID,
@@ -430,7 +436,7 @@ func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealt
 	}
 
 	// Register poller as a device for inventory tracking (best-effort)
-	if err := s.registerPollerAsDevice(ctx, pollerID, normIP); err != nil {
+	if err := s.registerPollerAsDevice(ctx, pollerID, normIP, normalizedPartition); err != nil {
 		s.logger.Warn().
 			Err(err).
 			Str("poller_id", pollerID).
@@ -463,7 +469,7 @@ func (s *Server) updatePollerStatus(ctx context.Context, pollerID string, isHeal
 	}
 
 	// Register poller as a device for inventory tracking
-	if err := s.registerPollerAsDevice(ctx, pollerID, ""); err != nil {
+	if err := s.registerPollerAsDevice(ctx, pollerID, "", defaultPartition); err != nil {
 		// Log but don't fail - device registration is best-effort
 		s.logger.Warn().
 			Err(err).
@@ -481,7 +487,9 @@ func (s *Server) updatePollerState(
 	wasHealthy bool,
 	now time.Time,
 	req *proto.PollerStatusRequest) error {
-	if err := s.storePollerStatus(ctx, pollerID, apiStatus.IsHealthy, req.SourceIp, now); err != nil {
+	sourceIP := s.resolveServiceHostIP(ctx, pollerID, req.AgentId, req.SourceIp)
+
+	if err := s.storePollerStatus(ctx, pollerID, apiStatus.IsHealthy, sourceIP, req.Partition, now); err != nil {
 		return err
 	}
 
@@ -590,13 +598,13 @@ func (s *Server) sendUnreportedPollersAlert(ctx context.Context, pollerIDs []str
 }
 
 func (s *Server) processStatusReport(
-	ctx context.Context, req *proto.PollerStatusRequest, now time.Time) (*api.PollerStatus, error) {
+	ctx context.Context, req *proto.PollerStatusRequest, now time.Time, resolvedSourceIP string) (*api.PollerStatus, error) {
 	pollerStatus := &models.PollerStatus{
 		PollerID:  req.PollerId,
 		IsHealthy: true,
 		LastSeen:  now,
 	}
-	normSourceIP := normalizeHostIP(req.SourceIp)
+	normSourceIP := normalizeHostIP(resolvedSourceIP)
 
 	existingStatus, err := s.DB.GetPollerStatus(ctx, req.PollerId)
 	if err == nil {
@@ -613,7 +621,7 @@ func (s *Server) processStatusReport(
 		}
 
 		// Register poller as a device for inventory tracking
-		if err := s.registerPollerAsDevice(ctx, req.PollerId, normSourceIP); err != nil {
+		if err := s.registerPollerAsDevice(ctx, req.PollerId, normSourceIP, req.Partition); err != nil {
 			// Log but don't fail - device registration is best-effort
 			s.logger.Warn().
 				Err(err).
@@ -622,7 +630,7 @@ func (s *Server) processStatusReport(
 		}
 
 		apiStatus := s.createPollerStatus(req, now)
-		s.processServices(ctx, req.PollerId, req.Partition, req.SourceIp, apiStatus, req.Services, now)
+		s.processServices(ctx, req.PollerId, req.Partition, normSourceIP, apiStatus, req.Services, now)
 
 		if err := s.updatePollerState(ctx, req.PollerId, apiStatus, currentState, now, req); err != nil {
 			s.logger.Error().
@@ -673,7 +681,7 @@ func (s *Server) processStatusReport(
 		// TODO: Extract remote address from gRPC context if needed
 		remoteAddr := ""
 
-		if err := s.eventPublisher.PublishPollerFirstSeenEvent(ctx, req.PollerId, req.SourceIp, req.Partition, remoteAddr, now); err != nil {
+		if err := s.eventPublisher.PublishPollerFirstSeenEvent(ctx, req.PollerId, normSourceIP, req.Partition, remoteAddr, now); err != nil {
 			s.logger.Error().
 				Err(err).
 				Str("poller_id", req.PollerId).
@@ -687,7 +695,7 @@ func (s *Server) processStatusReport(
 	}
 
 	apiStatus := s.createPollerStatus(req, now)
-	s.processServices(ctx, req.PollerId, req.Partition, req.SourceIp, apiStatus, req.Services, now)
+	s.processServices(ctx, req.PollerId, req.Partition, normSourceIP, apiStatus, req.Services, now)
 
 	// Register the poller/agent as a device for new pollers too
 	go func(normalizedIP string) {
@@ -888,11 +896,14 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	ctx, span := s.tracer.Start(ctx, "ReportStatus")
 	defer span.End()
 
+	resolvedSourceIP := s.resolveServiceHostIP(ctx, req.PollerId, req.AgentId, req.SourceIp)
+
 	// Add span attributes for the request
 	span.SetAttributes(
 		attribute.String("poller_id", req.PollerId),
 		attribute.String("partition", req.Partition),
-		attribute.String("source_ip", req.SourceIp),
+		attribute.String("source_ip", resolvedSourceIP),
+		attribute.String("source_ip_raw", req.SourceIp),
 		attribute.Int("service_count", len(req.Services)),
 	)
 
@@ -925,11 +936,12 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	}
 
 	// Validate required location fields - critical for device registration
-	if req.Partition == "" || req.SourceIp == "" {
+	if req.Partition == "" || resolvedSourceIP == "" {
 		s.logger.Warn().
 			Str("poller_id", req.PollerId).
 			Str("partition", req.Partition).
-			Str("source_ip", req.SourceIp).
+			Str("source_ip", resolvedSourceIP).
+			Str("source_ip_raw", req.SourceIp).
 			Msg("CRITICAL: Status report missing required location data, device registration will be skipped")
 	}
 
@@ -942,7 +954,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	}
 
 	// Auto-register poller if not already in service registry
-	if err := s.ensurePollerRegistered(ctx, req.PollerId, req.SourceIp); err != nil {
+	if err := s.ensurePollerRegistered(ctx, req.PollerId, resolvedSourceIP); err != nil {
 		s.logger.Warn().Err(err).
 			Str("poller_id", req.PollerId).
 			Msg("Failed to auto-register poller in service registry")
@@ -950,7 +962,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 	now := time.Unix(req.Timestamp, 0)
 
-	apiStatus, err := s.processStatusReport(ctx, req, now)
+	apiStatus, err := s.processStatusReport(ctx, req, now, resolvedSourceIP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process status report: %w", err)
 	}
@@ -1182,6 +1194,9 @@ func (s *Server) processStreamedStatus(
 		return errEmptyPollerID
 	}
 
+	resolvedSourceIP := s.resolveServiceHostIP(ctx, metadata.pollerID, metadata.agentID, metadata.sourceIP)
+	metadata.sourceIP = resolvedSourceIP
+
 	s.validateLocationData(metadata)
 
 	// Auto-register poller if not already in service registry
@@ -1210,7 +1225,7 @@ func (s *Server) processStreamedStatus(
 
 	now := time.Unix(metadata.timestamp, 0)
 
-	apiStatus, err := s.processStatusReport(ctx, req, now)
+	apiStatus, err := s.processStatusReport(ctx, req, now, resolvedSourceIP)
 	if err != nil {
 		return fmt.Errorf("failed to process streaming status report: %w", err)
 	}
@@ -1309,8 +1324,56 @@ func (s *Server) copyPollerStatusCache() map[string]*models.PollerStatus {
 	return result
 }
 
+func (s *Server) resolveServiceHostIP(ctx context.Context, pollerID, agentID, hostIP string) string {
+	resolvedIP := normalizeHostIP(hostIP)
+
+	resolveFromMetadata := func(metadata map[string]string) string {
+		if metadata == nil {
+			return ""
+		}
+
+		if ip := normalizeHostIP(metadata["source_ip"]); ip != "" {
+			return ip
+		}
+
+		if ip := normalizeHostIP(metadata["host_ip"]); ip != "" {
+			return ip
+		}
+
+		return ""
+	}
+
+	if resolvedIP == "" && s.ServiceRegistry != nil {
+		if agentID != "" {
+			if agent, err := s.ServiceRegistry.GetAgent(ctx, agentID); err == nil && agent != nil {
+				if ip := resolveFromMetadata(agent.Metadata); ip != "" {
+					resolvedIP = ip
+				}
+			}
+		}
+
+		if resolvedIP == "" && pollerID != "" {
+			if poller, err := s.ServiceRegistry.GetPoller(ctx, pollerID); err == nil && poller != nil {
+				if ip := resolveFromMetadata(poller.Metadata); ip != "" {
+					resolvedIP = ip
+				}
+			}
+		}
+	}
+
+	if resolvedIP == "" && pollerID != "" && s.DB != nil {
+		if status, err := s.DB.GetPollerStatus(ctx, pollerID); err == nil && status != nil {
+			if ip := normalizeHostIP(status.HostIP); ip != "" {
+				resolvedIP = ip
+			}
+		}
+	}
+
+	return resolvedIP
+}
+
 // registerPollerAsDevice registers a poller as a device in the inventory
-func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID, hostIP string) error {
+func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID, hostIP, partition string) error {
 	if s.DeviceRegistry == nil {
 		s.logger.Debug().
 			Str("poller_id", pollerID).
@@ -1318,31 +1381,25 @@ func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID, hostIP st
 		return nil // Registry not available
 	}
 
-	resolvedIP := normalizeHostIP(hostIP)
-
-	if resolvedIP == "" && s.ServiceRegistry != nil {
-		if poller, err := s.ServiceRegistry.GetPoller(ctx, pollerID); err == nil && poller != nil {
-			if poller.Metadata != nil {
-				if ip := normalizeHostIP(poller.Metadata["source_ip"]); ip != "" {
-					resolvedIP = ip
-				} else if ip := normalizeHostIP(poller.Metadata["host_ip"]); ip != "" {
-					resolvedIP = ip
-				}
-			}
-		}
-	}
-
-	if resolvedIP == "" {
-		if fallback := normalizeHostIP(s.getHostIP()); fallback != "" {
-			resolvedIP = fallback
-		}
+	resolvedIP := s.resolveServiceHostIP(ctx, pollerID, "", hostIP)
+	normalizedPartition := strings.TrimSpace(partition)
+	if normalizedPartition == "" {
+		normalizedPartition = defaultPartition
 	}
 
 	metadata := map[string]string{
 		"last_heartbeat": time.Now().Format(time.RFC3339),
 	}
+	if resolvedIP != "" {
+		metadata["host_ip"] = resolvedIP
+	}
 
-	deviceUpdate := models.CreatePollerDeviceUpdate(pollerID, resolvedIP, metadata)
+	deviceUpdate := models.CreatePollerDeviceUpdate(pollerID, resolvedIP, normalizedPartition, metadata)
+
+	if hostname := s.getServiceHostname(pollerID, resolvedIP); hostname != "" {
+		deviceUpdate.Hostname = &hostname
+		deviceUpdate.Metadata["hostname"] = hostname
+	}
 
 	logger := s.logger.Info().
 		Str("poller_id", pollerID).
@@ -1386,16 +1443,30 @@ func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID, hostIP st
 }
 
 // registerAgentAsDevice registers an agent as a device in the inventory
-func (s *Server) registerAgentAsDevice(ctx context.Context, agentID, pollerID, hostIP string) error {
+func (s *Server) registerAgentAsDevice(ctx context.Context, agentID, pollerID, hostIP, partition string) error {
 	if s.DeviceRegistry == nil {
 		return nil // Registry not available
+	}
+
+	resolvedIP := s.resolveServiceHostIP(ctx, pollerID, agentID, hostIP)
+	normalizedPartition := strings.TrimSpace(partition)
+	if normalizedPartition == "" {
+		normalizedPartition = defaultPartition
 	}
 
 	metadata := map[string]string{
 		"last_heartbeat": time.Now().Format(time.RFC3339),
 	}
+	if resolvedIP != "" {
+		metadata["host_ip"] = resolvedIP
+	}
 
-	deviceUpdate := models.CreateAgentDeviceUpdate(agentID, pollerID, hostIP, metadata)
+	deviceUpdate := models.CreateAgentDeviceUpdate(agentID, pollerID, resolvedIP, normalizedPartition, metadata)
+
+	if hostname := s.getServiceHostname(agentID, resolvedIP); hostname != "" {
+		deviceUpdate.Hostname = &hostname
+		deviceUpdate.Metadata["hostname"] = hostname
+	}
 
 	if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate}); err != nil {
 		return err
@@ -1407,8 +1478,11 @@ func (s *Server) registerAgentAsDevice(ctx context.Context, agentID, pollerID, h
 		"agent_id":  agentID,
 		"poller_id": pollerID,
 	}
-	if hostIP != "" {
-		eventMetadata["host_ip"] = hostIP
+	if normalizedPartition != "" {
+		eventMetadata["partition"] = normalizedPartition
+	}
+	if resolvedIP != "" {
+		eventMetadata["host_ip"] = resolvedIP
 	}
 
 	s.recordCapabilityEvent(ctx, &capabilityEventInput{
@@ -1427,16 +1501,30 @@ func (s *Server) registerAgentAsDevice(ctx context.Context, agentID, pollerID, h
 }
 
 // registerCheckerAsDevice registers a checker as a device in the inventory
-func (s *Server) registerCheckerAsDevice(ctx context.Context, checkerID, checkerKind, agentID, pollerID, hostIP string) error {
+func (s *Server) registerCheckerAsDevice(ctx context.Context, checkerID, checkerKind, agentID, pollerID, hostIP, partition string) error {
 	if s.DeviceRegistry == nil {
 		return nil // Registry not available
+	}
+
+	resolvedIP := s.resolveServiceHostIP(ctx, pollerID, agentID, hostIP)
+	normalizedPartition := strings.TrimSpace(partition)
+	if normalizedPartition == "" {
+		normalizedPartition = defaultPartition
 	}
 
 	metadata := map[string]string{
 		"last_heartbeat": time.Now().Format(time.RFC3339),
 	}
+	if resolvedIP != "" {
+		metadata["host_ip"] = resolvedIP
+	}
 
-	deviceUpdate := models.CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP, metadata)
+	deviceUpdate := models.CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, resolvedIP, normalizedPartition, metadata)
+
+	if hostname := s.getServiceHostname(agentID, resolvedIP); hostname != "" {
+		deviceUpdate.Hostname = &hostname
+		deviceUpdate.Metadata["hostname"] = hostname
+	}
 
 	if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate}); err != nil {
 		return err
@@ -1457,8 +1545,11 @@ func (s *Server) registerCheckerAsDevice(ctx context.Context, checkerID, checker
 		"agent_id":   agentID,
 		"poller_id":  pollerID,
 	}
-	if hostIP != "" {
-		eventMetadata["host_ip"] = hostIP
+	if normalizedPartition != "" {
+		eventMetadata["partition"] = normalizedPartition
+	}
+	if resolvedIP != "" {
+		eventMetadata["host_ip"] = resolvedIP
 	}
 
 	for _, capability := range capabilities {
