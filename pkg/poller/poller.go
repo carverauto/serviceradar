@@ -83,8 +83,13 @@ func formatBytes(bytes int) string {
 }
 
 func resolveSourceIP(raw string, log logger.Logger) string {
-	if override := strings.TrimSpace(os.Getenv("SERVICERADAR_SOURCE_IP")); override != "" {
-		if ip := parseSourceCandidate(override, log); ip != "" {
+	for _, candidate := range []string{
+		os.Getenv("SERVICERADAR_SOURCE_IP"),
+		os.Getenv("POD_IP"),
+		os.Getenv("HOST_IP"),
+		os.Getenv("NODE_IP"),
+	} {
+		if ip := parseSourceCandidate(candidate, log); ip != "" {
 			return ip
 		}
 	}
@@ -181,6 +186,30 @@ func detectLocalIPv4() (string, error) {
 	return "", errNoNonLoopbackInterface
 }
 
+func (p *Poller) sourceIP() string {
+	if ip := parseSourceCandidate(p.resolvedSourceIP, p.logger); ip != "" {
+		if p.resolvedSourceIP != ip {
+			p.resolvedSourceIP = ip
+		}
+		if p.config.SourceIP != ip {
+			p.config.SourceIP = ip
+		}
+		return ip
+	}
+
+	resolved := resolveSourceIP(p.config.SourceIP, p.logger)
+	if resolved != "" {
+		p.resolvedSourceIP = resolved
+		p.config.SourceIP = resolved
+		return resolved
+	}
+
+	p.resolvedSourceIP = ""
+	p.config.SourceIP = ""
+
+	return ""
+}
+
 func lookupHostIPs(host string) ([]net.IP, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -214,15 +243,15 @@ func New(ctx context.Context, config *Config, clock Clock, log logger.Logger) (*
 		reloadCh: make(chan time.Duration, 1),
 	}
 
-	if resolved := resolveSourceIP(p.config.SourceIP, log); resolved != "" {
-		if resolved != p.config.SourceIP {
-			log.Info().Str("source_ip", resolved).Msg("Resolved poller source IP")
-		}
-		p.config.SourceIP = resolved
-		p.resolvedSourceIP = resolved
-	} else {
-		p.resolvedSourceIP = p.config.SourceIP
+	resolved := resolveSourceIP(p.config.SourceIP, log)
+	if resolved == "" {
+		resolved = parseSourceCandidate(p.config.SourceIP, log)
 	}
+	if resolved != "" && resolved != p.config.SourceIP {
+		log.Info().Str("source_ip", resolved).Msg("Resolved poller source IP")
+	}
+	p.config.SourceIP = resolved
+	p.resolvedSourceIP = resolved
 
 	if p.config.KVDomain != "" {
 		p.logger.Info().Str("kv_domain", p.config.KVDomain).Msg("Poller configured KV JetStream domain")
@@ -604,6 +633,7 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 	}
 
 	useStreaming := totalDataSize > maxSafeMessageSize || len(statuses) > streamingServiceCountThreshold
+	resolvedSourceIP := p.sourceIP()
 
 	sendReport := func() error {
 		coreClient := p.getCoreClient()
@@ -618,6 +648,7 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 				Int("max_safe_size_bytes", maxSafeMessageSize).
 				Msg("Using streaming to report large dataset to core")
 
+			p.resolvedSourceIP = resolvedSourceIP
 			return p.reportToCoreStreaming(ctx, coreClient, statuses)
 		}
 
@@ -626,7 +657,7 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 			PollerId:  p.config.PollerID,
 			Timestamp: time.Now().Unix(),
 			Partition: p.config.Partition,
-			SourceIp:  p.config.SourceIP,
+			SourceIp:  resolvedSourceIP,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to report serviceStatus to core: %w", err)
@@ -1007,6 +1038,7 @@ func (p *Poller) createChunk(services []*proto.ServiceStatus, plan chunkPlan, ch
 	if len(services) > 0 {
 		agentID = services[0].AgentId
 	}
+	sourceIP := p.sourceIP()
 
 	return &proto.PollerStatusChunk{
 		Services:    services,
@@ -1014,7 +1046,7 @@ func (p *Poller) createChunk(services []*proto.ServiceStatus, plan chunkPlan, ch
 		AgentId:     agentID,
 		Timestamp:   plan.timestamp,
 		Partition:   p.config.Partition,
-		SourceIp:    p.config.SourceIP,
+		SourceIp:    sourceIP,
 		IsFinal:     chunkIndex == plan.totalChunks-1,
 		ChunkIndex:  safeIntToInt32(chunkIndex),
 		TotalChunks: safeIntToInt32(plan.totalChunks),

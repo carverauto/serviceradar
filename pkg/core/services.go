@@ -531,7 +531,7 @@ func (s *Server) processIndividualServices(
 
 		// Register agent as a device if AgentId is present
 		if svc.AgentId != "" {
-			if err := s.registerAgentAsDevice(serviceCtx, svc.AgentId, pollerID, sourceIP); err != nil {
+			if err := s.registerAgentAsDevice(serviceCtx, svc.AgentId, pollerID, sourceIP, partition); err != nil {
 				s.logger.Warn().
 					Err(err).
 					Str("agent_id", svc.AgentId).
@@ -551,7 +551,7 @@ func (s *Server) processIndividualServices(
 		if s.isCheckerService(svc.ServiceType) && svc.AgentId != "" {
 			// Generate checker ID from service name or use a combination
 			checkerID := s.generateCheckerID(svc.ServiceName, svc.AgentId)
-			if err := s.registerCheckerAsDevice(serviceCtx, checkerID, svc.ServiceType, svc.AgentId, pollerID, sourceIP); err != nil {
+			if err := s.registerCheckerAsDevice(serviceCtx, checkerID, svc.ServiceType, svc.AgentId, pollerID, sourceIP, partition); err != nil {
 				s.logger.Warn().
 					Err(err).
 					Str("checker_id", checkerID).

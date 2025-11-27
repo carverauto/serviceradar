@@ -1,15 +1,23 @@
 package models
 
 import (
+	"strings"
 	"time"
 )
 
+const defaultServicePartition = "default"
+
 // CreatePollerDeviceUpdate creates a DeviceUpdate for a poller to register itself as a device
-func CreatePollerDeviceUpdate(pollerID, hostIP string, metadata map[string]string) *DeviceUpdate {
+func CreatePollerDeviceUpdate(pollerID, hostIP, partition string, metadata map[string]string) *DeviceUpdate {
 	serviceType := ServiceTypePoller
 
 	if metadata == nil {
 		metadata = make(map[string]string)
+	}
+
+	normalizedPartition := strings.TrimSpace(partition)
+	if normalizedPartition == "" {
+		normalizedPartition = defaultServicePartition
 	}
 
 	// Add poller-specific metadata
@@ -26,7 +34,7 @@ func CreatePollerDeviceUpdate(pollerID, hostIP string, metadata map[string]strin
 		IP:          hostIP,
 		Source:      DiscoverySourceServiceRadar,
 		PollerID:    pollerID,
-		Partition:   ServiceDevicePartition,
+		Partition:   normalizedPartition,
 		Timestamp:   time.Now(),
 		Metadata:    metadata,
 		IsAvailable: true,
@@ -35,11 +43,16 @@ func CreatePollerDeviceUpdate(pollerID, hostIP string, metadata map[string]strin
 }
 
 // CreateAgentDeviceUpdate creates a DeviceUpdate for an agent to register itself as a device
-func CreateAgentDeviceUpdate(agentID, pollerID, hostIP string, metadata map[string]string) *DeviceUpdate {
+func CreateAgentDeviceUpdate(agentID, pollerID, hostIP, partition string, metadata map[string]string) *DeviceUpdate {
 	serviceType := ServiceTypeAgent
 
 	if metadata == nil {
 		metadata = make(map[string]string)
+	}
+
+	normalizedPartition := strings.TrimSpace(partition)
+	if normalizedPartition == "" {
+		normalizedPartition = defaultServicePartition
 	}
 
 	// Add agent-specific metadata
@@ -58,7 +71,7 @@ func CreateAgentDeviceUpdate(agentID, pollerID, hostIP string, metadata map[stri
 		Source:      DiscoverySourceServiceRadar,
 		AgentID:     agentID,
 		PollerID:    pollerID,
-		Partition:   ServiceDevicePartition,
+		Partition:   normalizedPartition,
 		Timestamp:   time.Now(),
 		Metadata:    metadata,
 		IsAvailable: true,
@@ -67,11 +80,16 @@ func CreateAgentDeviceUpdate(agentID, pollerID, hostIP string, metadata map[stri
 }
 
 // CreateCheckerDeviceUpdate creates a DeviceUpdate for a checker to register itself as a device
-func CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP string, metadata map[string]string) *DeviceUpdate {
+func CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP, partition string, metadata map[string]string) *DeviceUpdate {
 	serviceType := ServiceTypeChecker
 
 	if metadata == nil {
 		metadata = make(map[string]string)
+	}
+
+	normalizedPartition := strings.TrimSpace(partition)
+	if normalizedPartition == "" {
+		normalizedPartition = defaultServicePartition
 	}
 
 	// Add checker-specific metadata
@@ -92,7 +110,7 @@ func CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP
 		Source:      DiscoverySourceServiceRadar,
 		AgentID:     agentID,
 		PollerID:    pollerID,
-		Partition:   ServiceDevicePartition,
+		Partition:   normalizedPartition,
 		Timestamp:   time.Now(),
 		Metadata:    metadata,
 		IsAvailable: true,

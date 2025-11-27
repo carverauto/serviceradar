@@ -85,10 +85,7 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
    - Watch for readiness: `kubectl get pods -n demo` until all pods are `1/1` and `Running`.
 5. Close out: verify the demo web UI reports the new version, file follow-up docs, and proceed with GitHub release packaging if required.
 
-We track work in Beads instead of Markdown. Run `bd quickstart` to see how.
-
 ## When Updating This File
 
 - Add new build/test commands when tooling changes.
-- Document any new services, runbooks, or operational quirks using `bd`.
 - Keep instructions synchronized with the latest bead notes and related documentation updates.

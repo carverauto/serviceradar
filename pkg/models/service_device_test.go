@@ -184,7 +184,7 @@ func TestCreatePollerDeviceUpdate(t *testing.T) {
 		"env":    "production",
 	}
 
-	result := CreatePollerDeviceUpdate(pollerID, hostIP, metadata)
+	result := CreatePollerDeviceUpdate(pollerID, hostIP, "", metadata)
 
 	require.NotNil(t, result)
 	assert.Equal(t, "serviceradar:poller:"+testPollerID, result.DeviceID)
@@ -194,7 +194,7 @@ func TestCreatePollerDeviceUpdate(t *testing.T) {
 	assert.Equal(t, hostIP, result.IP)
 	assert.Equal(t, DiscoverySourceServiceRadar, result.Source)
 	assert.Equal(t, pollerID, result.PollerID)
-	assert.Equal(t, ServiceDevicePartition, result.Partition)
+	assert.Equal(t, defaultServicePartition, result.Partition)
 	assert.True(t, result.IsAvailable)
 	assert.Equal(t, ConfidenceHighSelfReported, result.Confidence)
 
@@ -212,7 +212,7 @@ func TestCreatePollerDeviceUpdate_NilMetadata(t *testing.T) {
 	pollerID := testPollerID
 	hostIP := testPollerHostIP
 
-	result := CreatePollerDeviceUpdate(pollerID, hostIP, nil)
+	result := CreatePollerDeviceUpdate(pollerID, hostIP, "", nil)
 
 	require.NotNil(t, result)
 	require.NotNil(t, result.Metadata)
@@ -228,7 +228,7 @@ func TestCreateAgentDeviceUpdate(t *testing.T) {
 		"version": "1.0.0",
 	}
 
-	result := CreateAgentDeviceUpdate(agentID, pollerID, hostIP, metadata)
+	result := CreateAgentDeviceUpdate(agentID, pollerID, hostIP, "", metadata)
 
 	require.NotNil(t, result)
 	assert.Equal(t, "serviceradar:agent:"+testAgentID, result.DeviceID)
@@ -239,7 +239,7 @@ func TestCreateAgentDeviceUpdate(t *testing.T) {
 	assert.Equal(t, DiscoverySourceServiceRadar, result.Source)
 	assert.Equal(t, agentID, result.AgentID)
 	assert.Equal(t, pollerID, result.PollerID)
-	assert.Equal(t, ServiceDevicePartition, result.Partition)
+	assert.Equal(t, defaultServicePartition, result.Partition)
 	assert.True(t, result.IsAvailable)
 	assert.Equal(t, ConfidenceHighSelfReported, result.Confidence)
 
@@ -255,7 +255,7 @@ func TestCreateAgentDeviceUpdate_NilMetadata(t *testing.T) {
 	pollerID := testPollerID
 	hostIP := testAgentHostIP
 
-	result := CreateAgentDeviceUpdate(agentID, pollerID, hostIP, nil)
+	result := CreateAgentDeviceUpdate(agentID, pollerID, hostIP, "", nil)
 
 	require.NotNil(t, result)
 	require.NotNil(t, result.Metadata)
@@ -274,7 +274,7 @@ func TestCreateCheckerDeviceUpdate(t *testing.T) {
 		"check_interval": "30s",
 	}
 
-	result := CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP, metadata)
+	result := CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP, "", metadata)
 
 	require.NotNil(t, result)
 	assert.Equal(t, "serviceradar:checker:sysmon@test-agent", result.DeviceID)
@@ -285,7 +285,7 @@ func TestCreateCheckerDeviceUpdate(t *testing.T) {
 	assert.Equal(t, DiscoverySourceServiceRadar, result.Source)
 	assert.Equal(t, agentID, result.AgentID)
 	assert.Equal(t, pollerID, result.PollerID)
-	assert.Equal(t, ServiceDevicePartition, result.Partition)
+	assert.Equal(t, defaultServicePartition, result.Partition)
 	assert.True(t, result.IsAvailable)
 	assert.Equal(t, ConfidenceHighSelfReported, result.Confidence)
 
@@ -305,7 +305,7 @@ func TestCreateCheckerDeviceUpdate_NilMetadata(t *testing.T) {
 	pollerID := testPollerID
 	hostIP := "192.168.1.102"
 
-	result := CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP, nil)
+	result := CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP, "", nil)
 
 	require.NotNil(t, result)
 	require.NotNil(t, result.Metadata)
@@ -370,7 +370,7 @@ func TestHighCardinalityCheckerIDs(t *testing.T) {
 		agentID := fmt.Sprintf("agent-%d", i)
 		for _, checkerType := range checkerTypes {
 			checkerID := checkerType + "@" + agentID
-			result := CreateCheckerDeviceUpdate(checkerID, checkerType, agentID, pollerID, hostIP, nil)
+			result := CreateCheckerDeviceUpdate(checkerID, checkerType, agentID, pollerID, hostIP, "", nil)
 
 			// Ensure each device ID is unique
 			assert.False(t, deviceIDs[result.DeviceID], "Duplicate device ID: %s", result.DeviceID)
@@ -386,9 +386,9 @@ func TestMultipleServicesOnSameIP(t *testing.T) {
 	// Test that multiple services on the same IP get unique device IDs
 	hostIP := testPollerHostIP
 
-	pollerUpdate := CreatePollerDeviceUpdate("poller-1", hostIP, nil)
-	agentUpdate := CreateAgentDeviceUpdate("agent-1", "poller-1", hostIP, nil)
-	checkerUpdate := CreateCheckerDeviceUpdate("sysmon@agent-1", "sysmon", "agent-1", "poller-1", hostIP, nil)
+	pollerUpdate := CreatePollerDeviceUpdate("poller-1", hostIP, "", nil)
+	agentUpdate := CreateAgentDeviceUpdate("agent-1", "poller-1", hostIP, "", nil)
+	checkerUpdate := CreateCheckerDeviceUpdate("sysmon@agent-1", "sysmon", "agent-1", "poller-1", hostIP, "", nil)
 
 	// All have the same IP
 	assert.Equal(t, hostIP, pollerUpdate.IP)

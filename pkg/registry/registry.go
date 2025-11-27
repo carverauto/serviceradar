@@ -183,6 +183,10 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 				filtered = append(filtered, u)
 				continue
 			}
+			if isAuthoritativeServiceUpdate(u) {
+				filtered = append(filtered, u)
+				continue
+			}
 			if r.identityCfg.SightingsOnly || !hasStrongIdentity(u) {
 				sightings = append(sightings, u)
 				continue
@@ -238,6 +242,11 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	var sweepNoIdentity int
 
 	for _, u := range valid {
+		if isAuthoritativeServiceUpdate(u) {
+			canonicalized = append(canonicalized, u)
+			continue
+		}
+
 		origID := u.DeviceID
 		canonicalID, via := r.lookupCanonicalFromMaps(u, maps)
 
@@ -2013,6 +2022,11 @@ func hasStrongIdentity(update *models.DeviceUpdate) bool {
 	if update == nil {
 		return false
 	}
+
+	if isAuthoritativeServiceUpdate(update) {
+		return true
+	}
+
 	if update.Metadata != nil {
 		if strings.TrimSpace(update.Metadata["armis_device_id"]) != "" {
 			return true
@@ -2031,6 +2045,22 @@ func hasStrongIdentity(update *models.DeviceUpdate) bool {
 		return true
 	}
 	return false
+}
+
+func isAuthoritativeServiceUpdate(update *models.DeviceUpdate) bool {
+	if update == nil {
+		return false
+	}
+
+	if update.Source == models.DiscoverySourceServiceRadar || update.Source == models.DiscoverySourceSelfReported {
+		return true
+	}
+
+	if update.ServiceType != nil {
+		return true
+	}
+
+	return isServiceDeviceID(update.DeviceID)
 }
 
 func (r *DeviceRegistry) GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
