@@ -1048,3 +1048,181 @@ func (mr *MockServiceMockRecorder) UpsertEdgeOnboardingPackage(ctx, pkg any) *go
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertEdgeOnboardingPackage", reflect.TypeOf((*MockService)(nil).UpsertEdgeOnboardingPackage), ctx, pkg)
 }
+
+// ExpireNetworkSightings mocks base method.
+func (m *MockService) ExpireNetworkSightings(ctx context.Context, now time.Time) ([]*models.NetworkSighting, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExpireNetworkSightings", ctx, now)
+	ret0, _ := ret[0].([]*models.NetworkSighting)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExpireNetworkSightings indicates an expected call of ExpireNetworkSightings.
+func (mr *MockServiceMockRecorder) ExpireNetworkSightings(ctx, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExpireNetworkSightings", reflect.TypeOf((*MockService)(nil).ExpireNetworkSightings), ctx, now)
+}
+
+// ListPromotableSightings mocks base method.
+func (m *MockService) ListPromotableSightings(ctx context.Context, cutoff time.Time) ([]*models.NetworkSighting, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPromotableSightings", ctx, cutoff)
+	ret0, _ := ret[0].([]*models.NetworkSighting)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPromotableSightings indicates an expected call of ListPromotableSightings.
+func (mr *MockServiceMockRecorder) ListPromotableSightings(ctx, cutoff any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPromotableSightings", reflect.TypeOf((*MockService)(nil).ListPromotableSightings), ctx, cutoff)
+}
+
+// MarkSightingsPromoted mocks base method.
+func (m *MockService) MarkSightingsPromoted(ctx context.Context, ids []string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkSightingsPromoted", ctx, ids)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkSightingsPromoted indicates an expected call of MarkSightingsPromoted.
+func (mr *MockServiceMockRecorder) MarkSightingsPromoted(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSightingsPromoted", reflect.TypeOf((*MockService)(nil).MarkSightingsPromoted), ctx, ids)
+}
+
+// GetNetworkSighting mocks base method.
+func (m *MockService) GetNetworkSighting(ctx context.Context, sightingID string) (*models.NetworkSighting, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNetworkSighting", ctx, sightingID)
+	ret0, _ := ret[0].(*models.NetworkSighting)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNetworkSighting indicates an expected call of GetNetworkSighting.
+func (mr *MockServiceMockRecorder) GetNetworkSighting(ctx, sightingID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNetworkSighting", reflect.TypeOf((*MockService)(nil).GetNetworkSighting), ctx, sightingID)
+}
+
+// UpdateSightingStatus mocks base method.
+func (m *MockService) UpdateSightingStatus(ctx context.Context, sightingID string, status models.NetworkSightingStatus) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSightingStatus", ctx, sightingID, status)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateSightingStatus indicates an expected call of UpdateSightingStatus.
+func (mr *MockServiceMockRecorder) UpdateSightingStatus(ctx, sightingID, status any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSightingStatus", reflect.TypeOf((*MockService)(nil).UpdateSightingStatus), ctx, sightingID, status)
+}
+
+// UpsertDeviceIdentifiers mocks base method.
+func (m *MockService) UpsertDeviceIdentifiers(ctx context.Context, identifiers []*models.DeviceIdentifier) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertDeviceIdentifiers", ctx, identifiers)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertDeviceIdentifiers indicates an expected call of UpsertDeviceIdentifiers.
+func (mr *MockServiceMockRecorder) UpsertDeviceIdentifiers(ctx, identifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDeviceIdentifiers", reflect.TypeOf((*MockService)(nil).UpsertDeviceIdentifiers), ctx, identifiers)
+}
+
+// InsertSightingEvents mocks base method.
+func (m *MockService) InsertSightingEvents(ctx context.Context, events []*models.SightingEvent) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertSightingEvents", ctx, events)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertSightingEvents indicates an expected call of InsertSightingEvents.
+func (mr *MockServiceMockRecorder) InsertSightingEvents(ctx, events any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSightingEvents", reflect.TypeOf((*MockService)(nil).InsertSightingEvents), ctx, events)
+}
+
+// ListActiveSightings mocks base method.
+func (m *MockService) ListActiveSightings(ctx context.Context, partition string, limit, offset int) ([]*models.NetworkSighting, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActiveSightings", ctx, partition, limit, offset)
+	ret0, _ := ret[0].([]*models.NetworkSighting)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActiveSightings indicates an expected call of ListActiveSightings.
+func (mr *MockServiceMockRecorder) ListActiveSightings(ctx, partition, limit, offset any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveSightings", reflect.TypeOf((*MockService)(nil).ListActiveSightings), ctx, partition, limit, offset)
+}
+
+// CountActiveSightings mocks base method.
+func (m *MockService) CountActiveSightings(ctx context.Context, partition string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountActiveSightings", ctx, partition)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountActiveSightings indicates an expected call of CountActiveSightings.
+func (mr *MockServiceMockRecorder) CountActiveSightings(ctx, partition any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountActiveSightings", reflect.TypeOf((*MockService)(nil).CountActiveSightings), ctx, partition)
+}
+
+// ListSightingEvents mocks base method.
+func (m *MockService) ListSightingEvents(ctx context.Context, sightingID string, limit int) ([]*models.SightingEvent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSightingEvents", ctx, sightingID, limit)
+	ret0, _ := ret[0].([]*models.SightingEvent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSightingEvents indicates an expected call of ListSightingEvents.
+func (mr *MockServiceMockRecorder) ListSightingEvents(ctx, sightingID, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSightingEvents", reflect.TypeOf((*MockService)(nil).ListSightingEvents), ctx, sightingID, limit)
+}
+
+// ListSubnetPolicies mocks base method.
+func (m *MockService) ListSubnetPolicies(ctx context.Context, limit int) ([]*models.SubnetPolicy, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSubnetPolicies", ctx, limit)
+	ret0, _ := ret[0].([]*models.SubnetPolicy)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSubnetPolicies indicates an expected call of ListSubnetPolicies.
+func (mr *MockServiceMockRecorder) ListSubnetPolicies(ctx, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSubnetPolicies", reflect.TypeOf((*MockService)(nil).ListSubnetPolicies), ctx, limit)
+}
+
+// ListMergeAuditEvents mocks base method.
+func (m *MockService) ListMergeAuditEvents(ctx context.Context, deviceID string, limit int) ([]*models.MergeAuditEvent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListMergeAuditEvents", ctx, deviceID, limit)
+	ret0, _ := ret[0].([]*models.MergeAuditEvent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListMergeAuditEvents indicates an expected call of ListMergeAuditEvents.
+func (mr *MockServiceMockRecorder) ListMergeAuditEvents(ctx, deviceID, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMergeAuditEvents", reflect.TypeOf((*MockService)(nil).ListMergeAuditEvents), ctx, deviceID, limit)
+}

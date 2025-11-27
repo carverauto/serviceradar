@@ -27,6 +27,7 @@ go_library(
         "poller_recovery.go",
         "pollers.go",
         "reaper.go",
+        "identity_reaper.go",
         "result_processor.go",
         "server.go",
         "service_registry_adapter.go",

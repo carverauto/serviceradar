@@ -137,10 +137,16 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 	// 1. DeviceIdentityResolver - generates stable ServiceRadar UUIDs for devices
 	//    using strong identifiers (MAC, Armis ID) for merging, IP as weak identifier
 	// 2. CNPGIdentityResolver - enriches device updates with canonical metadata from CNPG
-	deviceRegistry := registry.NewDeviceRegistry(database, log,
+	registryOpts := []registry.Option{
 		registry.WithDeviceIdentityResolver(database),
 		registry.WithCNPGIdentityResolver(database),
-	)
+		registry.WithIdentityReconciliationConfig(normalizedConfig.Identity),
+	}
+	if normalizedConfig.Identity != nil {
+		registryOpts = append(registryOpts, registry.WithReconcileInterval(time.Duration(normalizedConfig.Identity.Reaper.Interval)))
+	}
+
+	deviceRegistry := registry.NewDeviceRegistry(database, log, registryOpts...)
 
 	if count, err := deviceRegistry.HydrateFromStore(ctx); err != nil {
 		log.Warn().Err(err).Msg("Failed to hydrate device registry from CNPG; continuing with cold cache")
@@ -382,9 +388,54 @@ func (s *Server) Start(ctx context.Context) error {
 	go s.monitorPollers(ctx)
 
 	// Start stale device reaper
-	// TODO: Make interval and TTL configurable via config
-	reaper := NewStaleDeviceReaper(s.DB, s.logger, 1*time.Hour, 24*time.Hour)
+	reaperInterval := 1 * time.Hour
+	reaperTTL := 24 * time.Hour
+
+	if s.config.Reaper != nil {
+		if s.config.Reaper.Interval > 0 {
+			reaperInterval = time.Duration(s.config.Reaper.Interval)
+		}
+		if s.config.Reaper.TTL > 0 {
+			reaperTTL = time.Duration(s.config.Reaper.TTL)
+		}
+	}
+
+	s.logger.Info().
+		Dur("interval", reaperInterval).
+		Dur("ttl", reaperTTL).
+		Msg("Initializing stale device reaper")
+
+	reaper := NewStaleDeviceReaper(s.DB, s.DeviceRegistry, s.logger, reaperInterval, reaperTTL)
 	go reaper.Start(ctx)
+
+	// Start identity reconciliation reaper for network sightings if enabled.
+	if s.config.Identity != nil && s.config.Identity.Enabled && s.config.Identity.Reaper.Interval > 0 {
+		identityInterval := time.Duration(s.config.Identity.Reaper.Interval)
+		s.logger.Info().
+			Dur("interval", identityInterval).
+			Msg("Initializing identity reconciliation reaper")
+		identityReaper := NewIdentityReaper(s.DB, s.logger, identityInterval)
+		go identityReaper.Start(ctx)
+
+		// Background promotion/merge reconciliation
+		go func() {
+			ticker := time.NewTicker(identityInterval)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if s.DeviceRegistry != nil {
+						if err := s.DeviceRegistry.ReconcileSightings(ctx); err != nil {
+							s.logger.Warn().Err(err).Msg("Identity reconciliation promotion failed")
+						}
+					}
+				}
+			}
+		}()
+	}
 
 	return nil
 }

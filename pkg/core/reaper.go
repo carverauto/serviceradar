@@ -22,6 +22,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/registry"
 )
 
 // StaleDeviceReaper is responsible for cleaning up stale, IP-only devices.
@@ -30,15 +31,17 @@ import (
 // This helps prevent unlimited growth of orphaned devices due to DHCP churn.
 type StaleDeviceReaper struct {
 	db       db.Service
+	registry registry.Manager
 	logger   logger.Logger
 	interval time.Duration
 	ttl      time.Duration
 }
 
 // NewStaleDeviceReaper creates a new StaleDeviceReaper.
-func NewStaleDeviceReaper(database db.Service, log logger.Logger, interval, ttl time.Duration) *StaleDeviceReaper {
+func NewStaleDeviceReaper(database db.Service, reg registry.Manager, log logger.Logger, interval, ttl time.Duration) *StaleDeviceReaper {
 	return &StaleDeviceReaper{
 		db:       database,
+		registry: reg,
 		logger:   log,
 		interval: interval,
 		ttl:      ttl,
@@ -84,9 +87,16 @@ func (r *StaleDeviceReaper) reap(ctx context.Context) error {
 		Int("count", len(staleIDs)).
 		Msg("Found stale IP-only devices to reap")
 
-	// 2. Soft-delete them
+	// 2. Soft-delete them from DB
 	if err := r.db.SoftDeleteDevices(ctx, staleIDs); err != nil {
 		return err
+	}
+
+	// 3. Remove them from in-memory registry
+	if r.registry != nil {
+		for _, id := range staleIDs {
+			r.registry.DeleteLocal(id)
+		}
 	}
 
 	r.logger.Info().

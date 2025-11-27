@@ -10,6 +10,7 @@ go_library(
         "edge_onboarding.go",
         "edge_onboarding_archive.go",
         "collectors.go",
+        "identity.go",
         "interfaces.go",
         "mock_api_server.go",
         "rperf.go",

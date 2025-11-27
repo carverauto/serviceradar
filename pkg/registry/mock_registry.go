@@ -224,3 +224,103 @@ func (mr *MockManagerMockRecorder) ListDevicesWithCapability(ctx, capability any
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDevicesWithCapability", reflect.TypeOf((*MockManager)(nil).ListDevicesWithCapability), ctx, capability)
 }
+
+// DeleteLocal mocks base method.
+func (m *MockManager) DeleteLocal(deviceID string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "DeleteLocal", deviceID)
+}
+
+// DeleteLocal indicates an expected call of DeleteLocal.
+func (mr *MockManagerMockRecorder) DeleteLocal(deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteLocal", reflect.TypeOf((*MockManager)(nil).DeleteLocal), deviceID)
+}
+
+// ReconcileSightings mocks base method.
+func (m *MockManager) ReconcileSightings(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReconcileSightings", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReconcileSightings indicates an expected call of ReconcileSightings.
+func (mr *MockManagerMockRecorder) ReconcileSightings(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileSightings", reflect.TypeOf((*MockManager)(nil).ReconcileSightings), ctx)
+}
+
+// ListSightings mocks base method.
+func (m *MockManager) ListSightings(ctx context.Context, partition string, limit, offset int) ([]*models.NetworkSighting, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSightings", ctx, partition, limit, offset)
+	ret0, _ := ret[0].([]*models.NetworkSighting)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSightings indicates an expected call of ListSightings.
+func (mr *MockManagerMockRecorder) ListSightings(ctx, partition, limit, offset any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSightings", reflect.TypeOf((*MockManager)(nil).ListSightings), ctx, partition, limit, offset)
+}
+
+// CountSightings mocks base method.
+func (m *MockManager) CountSightings(ctx context.Context, partition string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountSightings", ctx, partition)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountSightings indicates an expected call of CountSightings.
+func (mr *MockManagerMockRecorder) CountSightings(ctx, partition any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountSightings", reflect.TypeOf((*MockManager)(nil).CountSightings), ctx, partition)
+}
+
+// PromoteSighting mocks base method.
+func (m *MockManager) PromoteSighting(ctx context.Context, sightingID, actor string) (*models.DeviceUpdate, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PromoteSighting", ctx, sightingID, actor)
+	ret0, _ := ret[0].(*models.DeviceUpdate)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PromoteSighting indicates an expected call of PromoteSighting.
+func (mr *MockManagerMockRecorder) PromoteSighting(ctx, sightingID, actor any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromoteSighting", reflect.TypeOf((*MockManager)(nil).PromoteSighting), ctx, sightingID, actor)
+}
+
+// DismissSighting mocks base method.
+func (m *MockManager) DismissSighting(ctx context.Context, sightingID, actor, reason string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DismissSighting", ctx, sightingID, actor, reason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DismissSighting indicates an expected call of DismissSighting.
+func (mr *MockManagerMockRecorder) DismissSighting(ctx, sightingID, actor, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DismissSighting", reflect.TypeOf((*MockManager)(nil).DismissSighting), ctx, sightingID, actor, reason)
+}
+
+// ListSightingEvents mocks base method.
+func (m *MockManager) ListSightingEvents(ctx context.Context, sightingID string, limit int) ([]*models.SightingEvent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSightingEvents", ctx, sightingID, limit)
+	ret0, _ := ret[0].([]*models.SightingEvent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSightingEvents indicates an expected call of ListSightingEvents.
+func (mr *MockManagerMockRecorder) ListSightingEvents(ctx, sightingID, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSightingEvents", reflect.TypeOf((*MockManager)(nil).ListSightingEvents), ctx, sightingID, limit)
+}

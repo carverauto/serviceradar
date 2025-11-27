@@ -46,6 +46,45 @@ data:
           "ca_file": "/etc/serviceradar/cnpg/ca.crt"
         }
       },
+      "reaper": {
+        "interval": "{{ .Values.core.reaper.interval | default "1h" }}",
+        "ttl": "{{ .Values.core.reaper.ttl | default "24h" }}"
+      },
+      "identity_reconciliation": {
+        {{- $promo := default (dict) .Values.core.identity.promotion -}}
+        "enabled": {{ default false .Values.core.identity.enabled }},
+        "sightings_only_mode": {{ default false .Values.core.identity.sightingsOnlyMode }},
+        "promotion": {
+          "enabled": {{ default false .Values.core.identity.promotion.enabled }},
+          "shadow_mode": {{ if hasKey $promo "shadowMode" }}{{ $promo.shadowMode }}{{ else }}true{{ end }},
+          "min_persistence": "{{ default "24h" .Values.core.identity.promotion.minPersistence }}",
+          "require_hostname": {{ default false .Values.core.identity.promotion.requireHostname }},
+          "require_fingerprint": {{ default false .Values.core.identity.promotion.requireFingerprint }}
+        },
+        "fingerprinting": {
+          "enabled": {{ default false .Values.core.identity.fingerprinting.enabled }},
+          "port_budget": {{ default 32 .Values.core.identity.fingerprinting.portBudget }},
+          "timeout": "{{ default "2s" .Values.core.identity.fingerprinting.timeout }}"
+        },
+        "reaper": {
+          "interval": "{{ default "1h" .Values.core.identity.reaper.interval }}",
+          "profiles": {
+            "default": {
+              "ttl": "{{ default "24h" .Values.core.identity.reaper.profiles.default.ttl }}"
+            },
+            "dynamic": {
+              "ttl": "{{ default "6h" .Values.core.identity.reaper.profiles.dynamic.ttl }}"
+            },
+            "guest": {
+              "ttl": "{{ default "1h" .Values.core.identity.reaper.profiles.guest.ttl }}"
+            },
+            "static": {
+              "ttl": "{{ default "72h" .Values.core.identity.reaper.profiles.static.ttl }}",
+              "allow_ip_as_id": {{ default true .Values.core.identity.reaper.profiles.static.allowIPAsID }}
+            }
+          }
+        }
+      },
       "alert_threshold": "5m",
       "known_pollers": [
         "k8s-poller",
@@ -1190,11 +1229,11 @@ data:
           "idle_timeout": "30s"
         },
         "simulation": {
-          "total_devices": 50000,
+          "total_devices": {{ .Values.faker.simulation.totalDevices | default 50000 }},
           "ip_shuffle": {
-            "enabled": true,
-            "interval": "10m",
-            "percentage": 5,
+            "enabled": {{ .Values.faker.simulation.ipShuffle.enabled | default true }},
+            "interval": "{{ .Values.faker.simulation.ipShuffle.interval | default "10m" }}",
+            "percentage": {{ .Values.faker.simulation.ipShuffle.percentage | default 5 }},
             "log_changes": true
           }
         },

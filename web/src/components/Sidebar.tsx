@@ -27,11 +27,13 @@ import {
     Globe,
     Activity,
     Settings,
+    Fingerprint,
 } from 'lucide-react';
 
 const navItems = [
     { href: '/analytics', label: 'Analytics', icon: BarChart3 },
     { href: '/devices', label: 'Devices', icon: Server },
+    { href: '/identity', label: 'Identity', icon: Fingerprint },
     { href: '/network', label: 'Network', icon: Globe },
     { href: '/events', label: 'Events', icon: MessageSquareCode },
     { href: '/observability', label: 'Observability', icon: Activity },
