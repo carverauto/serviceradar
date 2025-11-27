@@ -1,0 +1,50 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: serviceradar-identity-rules
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  groups:
+    - name: identity-reconciliation
+      rules:
+        - alert: IdentityPromotionPolicyBlocked
+          expr: identity_promotions_blocked_policy_last_batch > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Identity promotions blocked by policy"
+            description: "Latest reconciliation batch had {{ $value }} policy-blocked sightings. Check promotion thresholds or missing identifiers (hostname/fingerprint/persistence)."
+        - alert: IdentityPromotionShadowBacklog
+          expr: identity_promotions_shadow_ready_last_batch > 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Shadow backlog accumulating"
+            description: "Shadow mode has {{ $value }} policy-ready sightings. Enable auto-promotion or adjust policy for the affected subnets."
+        - alert: IdentityPromotionStalled
+          expr: identity_promotion_run_age_ms > 900000
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Identity reconciliation not running"
+            description: "Last promotion run is older than {{ $value }} ms. Check core reconciliation scheduler/reaper health."
+        - alert: IdentityPromotionThroughputDrop
+          expr: (identity_promotions_last_batch == 0) and (identity_promotions_blocked_policy_last_batch > 0)
+          for: 20m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Promotions halted due to policy"
+            description: "No promotions occurred while policy blocks persist. Likely misconfiguration or missing identifiers."
+        - alert: IdentityPromotionVolumeSurge
+          expr: identity_promotions_attempted_last_batch > (2 * clamp_min(identity_promotions_attempted_last_batch offset 1h, 1))
+          for: 10m
+          labels:
+            severity: info
+          annotations:
+            summary: "Sighting volume surge"
+            description: "Attempted promotions jumped above 2x the 1h baseline. Investigate replay or discovery floods."

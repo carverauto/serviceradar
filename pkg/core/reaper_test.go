@@ -27,6 +27,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/registry"
 )
 
 var (
@@ -39,10 +40,11 @@ func TestStaleDeviceReaper_Reap(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockRegistry := registry.NewMockManager(ctrl)
 	log := logger.NewTestLogger()
 	ttl := 24 * time.Hour
 
-	reaper := NewStaleDeviceReaper(mockDB, log, 1*time.Hour, ttl)
+	reaper := NewStaleDeviceReaper(mockDB, mockRegistry, log, 1*time.Hour, ttl)
 
 	t.Run("success_with_stale_devices", func(t *testing.T) {
 		ctx := context.Background()
@@ -50,6 +52,9 @@ func TestStaleDeviceReaper_Reap(t *testing.T) {
 
 		mockDB.EXPECT().GetStaleIPOnlyDevices(ctx, ttl).Return(staleIDs, nil)
 		mockDB.EXPECT().SoftDeleteDevices(ctx, staleIDs).Return(nil)
+		for _, id := range staleIDs {
+			mockRegistry.EXPECT().DeleteLocal(id)
+		}
 
 		err := reaper.reap(ctx)
 		assert.NoError(t, err)

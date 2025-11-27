@@ -140,7 +140,7 @@ func (r *DeviceRegistry) hydrateCapabilitySnapshots(ctx context.Context) error {
 		return errRegistryDatabaseUnavailable
 	}
 
-	const query = `
+const query = `
 SELECT
     device_id,
     capability,
@@ -154,7 +154,7 @@ SELECT
     failure_reason,
     metadata,
     recorded_by
-FROM table(device_capability_registry)`
+FROM device_capability_registry`
 
 	rows, err := r.db.ExecuteQuery(ctx, query)
 	if err != nil {

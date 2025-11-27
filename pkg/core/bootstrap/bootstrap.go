@@ -81,5 +81,9 @@ func BuildAPIServerOptions(cfg *models.CoreServiceConfig, log logger.Logger, spi
 		}
 	}
 
+	if cfg.Identity != nil {
+		apiOptions = append(apiOptions, api.WithIdentityConfig(cfg.Identity))
+	}
+
 	return apiOptions
 }

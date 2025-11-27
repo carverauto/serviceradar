@@ -30,6 +30,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   TrendingUp,
+  Info,
 } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -50,6 +51,7 @@ import ServiceRegistryPanel from "./ServiceRegistryPanel";
 import DeleteDeviceButton from "./DeleteDeviceButton";
 import type { DeviceAliasHistory, DeviceAliasRecord } from "@/types/devices";
 import { buildAliasHistoryFromMetadata } from "@/lib/alias";
+import type { SightingEvent } from "@/types/identity";
 
 interface SrqlResponse<T> {
   results?: T[];
@@ -528,6 +530,9 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
   );
   const [aliasLoading, setAliasLoading] = useState(false);
   const [aliasError, setAliasError] = useState<string | null>(null);
+  const [promotionEvents, setPromotionEvents] = useState<SightingEvent[]>([]);
+  const [promotionLoading, setPromotionLoading] = useState(false);
+  const [promotionError, setPromotionError] = useState<string | null>(null);
 
   const timeWindow = useMemo(() => {
     const config =
@@ -917,23 +922,6 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
     };
   }, [metrics]);
 
-  const metadataEntries = useMemo(() => {
-    if (!device || !device.metadata) return [];
-    const ALIAS_PREFIXES = ["_alias_", "service_alias:", "ip_alias:"];
-    return Object.entries(device.metadata)
-      .filter(
-        ([key]) => !ALIAS_PREFIXES.some((prefix) => key.startsWith(prefix)),
-      )
-      .map(
-        ([key, value]) =>
-          [
-            key,
-            typeof value === "object" ? JSON.stringify(value) : String(value),
-          ] as [string, string],
-      )
-      .sort((a, b) => a[0].localeCompare(b[0]));
-  }, [device]);
-
   const chartData = useMemo(() => {
     if (!metrics.length) return [];
     const grouped = new Map<number, Record<string, number | string>>();
@@ -966,6 +954,101 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
     return keys.slice(0, 10);
   }, [metrics]);
 
+  const metadata = useMemo(() => {
+    if (device && device.metadata && typeof device.metadata === "object") {
+      return device.metadata as Record<string, unknown>;
+    }
+    return {};
+  }, [device]);
+
+  const metadataFlag = useCallback(
+    (keys: string[]): boolean =>
+      keys.some((key) => {
+        const value = metadata[key];
+        if (typeof value === "string") {
+          return value.toLowerCase() === "true";
+        }
+        if (typeof value === "boolean") {
+          return value;
+        }
+        return false;
+      }),
+    [metadata],
+  );
+
+  const metadataValue = useCallback(
+    (keys: string[]): string | undefined => {
+      for (const key of keys) {
+        const value = metadata[key];
+        if (typeof value === "string" && value.trim() !== "") {
+          return value;
+        }
+      }
+      return undefined;
+    },
+    [metadata],
+  );
+
+  const promotionSightingId = useMemo(
+    () => metadataValue(["sighting_id", "promotion_sighting_id"]) ?? null,
+    [metadataValue],
+  );
+  const promotedViaSighting = useMemo(
+    () =>
+      metadataFlag([
+        "_promoted_sighting",
+        "promoted_sighting",
+      ]),
+    [metadataFlag],
+  );
+
+  useEffect(() => {
+    const fetchPromotionEvents = async () => {
+      if (!promotionSightingId) {
+        setPromotionEvents([]);
+        setPromotionError(null);
+        return;
+      }
+      setPromotionLoading(true);
+      setPromotionError(null);
+      try {
+        const resp = await fetchAPI<{ items: SightingEvent[] }>(
+          `/api/identity/sightings/${promotionSightingId}/events?limit=25`,
+          {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          },
+        );
+        setPromotionEvents(resp.items ?? []);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to load promotion audit";
+        setPromotionError(message);
+        setPromotionEvents([]);
+      } finally {
+        setPromotionLoading(false);
+      }
+    };
+
+    void fetchPromotionEvents();
+  }, [promotionSightingId, token]);
+
+  const metadataEntries = useMemo(() => {
+    if (!device || !metadata) return [];
+    const ALIAS_PREFIXES = ["_alias_", "service_alias:", "ip_alias:"];
+    return Object.entries(metadata)
+      .filter(
+        ([key]) => !ALIAS_PREFIXES.some((prefix) => key.startsWith(prefix)),
+      )
+      .map(
+        ([key, value]) =>
+          [
+            key,
+            typeof value === "object" ? JSON.stringify(value) : String(value),
+          ] as [string, string],
+      )
+      .sort((a, b) => a[0].localeCompare(b[0]));
+  }, [device, metadata]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -989,33 +1072,6 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
       </div>
     );
   }
-
-  const metadata =
-    device.metadata && typeof device.metadata === "object"
-      ? (device.metadata as Record<string, unknown>)
-      : {};
-
-  const metadataFlag = (keys: string[]): boolean =>
-    keys.some((key) => {
-      const value = metadata[key];
-      if (typeof value === "string") {
-        return value.toLowerCase() === "true";
-      }
-      if (typeof value === "boolean") {
-        return value;
-      }
-      return false;
-    });
-
-  const metadataValue = (keys: string[]): string | undefined => {
-    for (const key of keys) {
-      const value = metadata[key];
-      if (typeof value === "string" && value.trim() !== "") {
-        return value;
-      }
-    }
-    return undefined;
-  };
 
   const isDeleted = metadataFlag(["_deleted", "deleted"]);
   const deletedAtRaw = metadataValue(["_deleted_at", "deleted_at"]);
@@ -1174,6 +1230,113 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
           </div>
         )}
       </div>
+
+      {(promotionSightingId || promotedViaSighting) && (
+        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Promotion lineage
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Origin and audit trail for this device&apos;s promotion from a sighting
+              </p>
+            </div>
+            {promotionSightingId && (
+              <Link
+                href={`/identity?sighting=${promotionSightingId}`}
+                className="inline-flex items-center gap-2 rounded-md border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+              >
+                <Info className="h-4 w-4" />
+                View in sightings
+              </Link>
+            )}
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="rounded-md bg-gray-50 dark:bg-gray-900/40 px-3 py-2">
+              <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                Sighting
+              </p>
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 break-all">
+                {promotionSightingId ?? "Unknown"}
+              </p>
+              {promotedViaSighting && (
+                <p className="text-xs text-emerald-600 dark:text-emerald-300 mt-1">
+                  Promoted from sighting
+                </p>
+              )}
+            </div>
+            <div className="rounded-md bg-gray-50 dark:bg-gray-900/40 px-3 py-2">
+              <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                Promotion mode
+              </p>
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                {promotionEvents.find((ev) => ev.event_type === "promoted")
+                  ? promotionEvents.find((ev) => ev.event_type === "promoted")?.details?.mode ??
+                    promotionEvents.find((ev) => ev.event_type === "promoted")?.actor ??
+                    "Promotion recorded"
+                  : "Unknown"}
+              </p>
+            </div>
+            <div className="rounded-md bg-gray-50 dark:bg-gray-900/40 px-3 py-2">
+              <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                Promotion time
+              </p>
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                {promotionEvents.find((ev) => ev.event_type === "promoted")
+                  ? formatTimestampForDisplay(
+                      promotionEvents.find((ev) => ev.event_type === "promoted")?.created_at ?? "",
+                    )
+                  : "Not available"}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4">
+            <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">
+              Promotion audit events
+            </p>
+            {promotionLoading ? (
+              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading promotion history…
+              </div>
+            ) : promotionError ? (
+              <div className="rounded-md border border-dashed border-red-300 dark:border-red-700 bg-red-50/60 dark:bg-red-900/20 p-3 text-sm text-red-600 dark:text-red-300">
+                {promotionError}
+              </div>
+            ) : promotionEvents.length === 0 ? (
+              <div className="rounded-md border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3 text-sm text-gray-600 dark:text-gray-300">
+                No promotion audit events recorded.
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-200 dark:divide-gray-700 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
+                {promotionEvents.map((event) => (
+                  <div key={event.event_id ?? event.created_at} className="px-3 py-2 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 capitalize">
+                        {event.event_type}
+                      </span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {formatTimestampForDisplay(event.created_at)}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-600 dark:text-gray-300">
+                      Actor: {event.actor || "system"}
+                    </div>
+                    {event.details && Object.keys(event.details).length > 0 && (
+                      <div className="text-xs text-gray-600 dark:text-gray-300">
+                        {Object.entries(event.details)
+                          .map(([k, v]) => `${k}: ${v}`)
+                          .join(" • ")}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Service Registry Panel - only shows for pollers, agents, and checkers */}
       <ServiceRegistryPanel deviceId={deviceId} />

@@ -38,6 +38,14 @@ const (
 	defaultMetricsMaxPollers       = 10000
 	defaultDeviceRetentionDays     = 3
 	jwtAlgorithmRS256              = "RS256"
+	defaultIREReaperInterval       = time.Hour
+	defaultIREDefaultTTL           = 24 * time.Hour
+	defaultIREDynamicTTL           = 6 * time.Hour
+	defaultIREGuestTTL             = time.Hour
+	defaultIREStaticTTL            = 72 * time.Hour
+	defaultIREPromotionPersistence = 24 * time.Hour
+	defaultIREFingerprintBudget    = 32
+	defaultIREFingerprintTimeout   = 2 * time.Second
 )
 
 var (
@@ -84,6 +92,8 @@ func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig
 	if normalized.Features.RequireDeviceRegistry == nil {
 		normalized.Features.RequireDeviceRegistry = boolPtr(false)
 	}
+
+	normalized.Identity = applyIdentityDefaults(normalized.Identity)
 
 	return &normalized
 }
@@ -191,6 +201,77 @@ func applyDefaultAdminUser(authConfig *models.AuthConfig) {
 	if adminHash := os.Getenv("ADMIN_PASSWORD_HASH"); adminHash != "" {
 		authConfig.LocalUsers["admin"] = adminHash
 	}
+}
+
+func applyIdentityDefaults(cfg *models.IdentityReconciliationConfig) *models.IdentityReconciliationConfig {
+	if cfg == nil {
+		return &models.IdentityReconciliationConfig{
+			Enabled:       false,
+			SightingsOnly: false,
+			Promotion: models.PromotionConfig{
+				Enabled:        false,
+				ShadowMode:     true,
+				MinPersistence: models.Duration(defaultIREPromotionPersistence),
+			},
+			Fingerprinting: models.FingerprintingConfig{
+				Enabled:    false,
+				PortBudget: defaultIREFingerprintBudget,
+				Timeout:    models.Duration(defaultIREFingerprintTimeout),
+			},
+			Reaper: models.IdentityReaperConfig{
+				Interval: models.Duration(defaultIREReaperInterval),
+				Profiles: map[string]models.IdentityReaperProfile{
+					"default": {TTL: models.Duration(defaultIREDefaultTTL)},
+					"dynamic": {TTL: models.Duration(defaultIREDynamicTTL)},
+					"guest":   {TTL: models.Duration(defaultIREGuestTTL)},
+					"static":  {TTL: models.Duration(defaultIREStaticTTL), AllowIPAsID: true},
+				},
+			},
+		}
+	}
+
+	if cfg.Promotion.MinPersistence == 0 {
+		cfg.Promotion.MinPersistence = models.Duration(defaultIREPromotionPersistence)
+	}
+
+	if cfg.Fingerprinting.PortBudget == 0 {
+		cfg.Fingerprinting.PortBudget = defaultIREFingerprintBudget
+	}
+	if cfg.Fingerprinting.Timeout == 0 {
+		cfg.Fingerprinting.Timeout = models.Duration(defaultIREFingerprintTimeout)
+	}
+
+	if cfg.Reaper.Interval == 0 {
+		cfg.Reaper.Interval = models.Duration(defaultIREReaperInterval)
+	}
+	if cfg.Reaper.Profiles == nil {
+		cfg.Reaper.Profiles = make(map[string]models.IdentityReaperProfile)
+	}
+
+	defaultProfiles := map[string]models.IdentityReaperProfile{
+		"default": {TTL: models.Duration(defaultIREDefaultTTL)},
+		"dynamic": {TTL: models.Duration(defaultIREDynamicTTL)},
+		"guest":   {TTL: models.Duration(defaultIREGuestTTL)},
+		"static":  {TTL: models.Duration(defaultIREStaticTTL), AllowIPAsID: true},
+	}
+
+	for name, profile := range defaultProfiles {
+		current, ok := cfg.Reaper.Profiles[name]
+		if !ok {
+			cfg.Reaper.Profiles[name] = profile
+			continue
+		}
+
+		if current.TTL == 0 {
+			current.TTL = profile.TTL
+		}
+		if profile.AllowIPAsID && !current.AllowIPAsID {
+			current.AllowIPAsID = true
+		}
+		cfg.Reaper.Profiles[name] = current
+	}
+
+	return cfg
 }
 
 func hydrateJWTKeys(authConfig *models.AuthConfig) error {

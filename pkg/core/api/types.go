@@ -128,6 +128,7 @@ type APIServer struct {
 	searchPlanner         *search.Planner
 	requireDeviceRegistry bool
 	templateRegistry      TemplateRegistry
+	identityConfig        *models.IdentityReconciliationConfig
 }
 
 // KVEndpoint describes a reachable KV gRPC endpoint that fronts a specific JetStream domain.
@@ -149,6 +150,12 @@ type DeviceRegistryService interface {
 	FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error)
 	GetCollectorCapabilities(ctx context.Context, deviceID string) (*models.CollectorCapability, bool)
 	ListDeviceCapabilitySnapshots(ctx context.Context, deviceID string) []*models.DeviceCapabilitySnapshot
+	ReconcileSightings(ctx context.Context) error
+	ListSightings(ctx context.Context, partition string, limit, offset int) ([]*models.NetworkSighting, error)
+	CountSightings(ctx context.Context, partition string) (int64, error)
+	PromoteSighting(ctx context.Context, sightingID, actor string) (*models.DeviceUpdate, error)
+	DismissSighting(ctx context.Context, sightingID, actor, reason string) error
+	ListSightingEvents(ctx context.Context, sightingID string, limit int) ([]*models.SightingEvent, error)
 }
 
 // LogDigestService exposes cached critical log data for the API layer.
