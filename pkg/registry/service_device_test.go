@@ -51,7 +51,7 @@ func TestServiceDeviceRegistration_PollerDeviceUpdate(t *testing.T) {
 		}).
 		AnyTimes()
 
-	pollerUpdate := models.CreatePollerDeviceUpdate("k8s-poller", "", nil)
+	pollerUpdate := models.CreatePollerDeviceUpdate("k8s-poller", "", "default", nil)
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{pollerUpdate})
 	require.NoError(t, err)
@@ -62,7 +62,7 @@ func TestServiceDeviceRegistration_PollerDeviceUpdate(t *testing.T) {
 	assert.Equal(t, "serviceradar:poller:k8s-poller", result.DeviceID)
 	assert.Equal(t, models.ServiceTypePoller, *result.ServiceType)
 	assert.Equal(t, "k8s-poller", result.ServiceID)
-	assert.Equal(t, models.ServiceDevicePartition, result.Partition)
+	assert.Equal(t, "default", result.Partition)
 	assert.Equal(t, models.DiscoverySourceServiceRadar, result.Source)
 	assert.True(t, result.IsAvailable)
 	assert.Equal(t, "poller", result.Metadata["component_type"])
@@ -88,7 +88,7 @@ func TestServiceDeviceRegistration_AgentDeviceUpdate(t *testing.T) {
 		}).
 		AnyTimes()
 
-	agentUpdate := models.CreateAgentDeviceUpdate("agent-123", "k8s-poller", "", nil)
+	agentUpdate := models.CreateAgentDeviceUpdate("agent-123", "k8s-poller", "", "default", nil)
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{agentUpdate})
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestServiceDeviceRegistration_AgentDeviceUpdate(t *testing.T) {
 	assert.Equal(t, "agent-123", result.ServiceID)
 	assert.Equal(t, "agent-123", result.AgentID)
 	assert.Equal(t, "k8s-poller", result.PollerID)
-	assert.Equal(t, models.ServiceDevicePartition, result.Partition)
+	assert.Equal(t, "default", result.Partition)
 	assert.Equal(t, models.DiscoverySourceServiceRadar, result.Source)
 	assert.True(t, result.IsAvailable)
 	assert.Equal(t, "agent", result.Metadata["component_type"])
@@ -128,7 +128,7 @@ func TestServiceDeviceRegistration_CheckerDeviceUpdate(t *testing.T) {
 		}).
 		AnyTimes()
 
-	checkerUpdate := models.CreateCheckerDeviceUpdate("sysmon@agent-123", "sysmon", "agent-123", "k8s-poller", "", nil)
+	checkerUpdate := models.CreateCheckerDeviceUpdate("sysmon@agent-123", "sysmon", "agent-123", "k8s-poller", "", "default", nil)
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{checkerUpdate})
 	require.NoError(t, err)
@@ -141,7 +141,7 @@ func TestServiceDeviceRegistration_CheckerDeviceUpdate(t *testing.T) {
 	assert.Equal(t, "sysmon@agent-123", result.ServiceID)
 	assert.Equal(t, "agent-123", result.AgentID)
 	assert.Equal(t, "k8s-poller", result.PollerID)
-	assert.Equal(t, models.ServiceDevicePartition, result.Partition)
+	assert.Equal(t, "default", result.Partition)
 	assert.Equal(t, models.DiscoverySourceServiceRadar, result.Source)
 	assert.True(t, result.IsAvailable)
 	assert.Equal(t, "checker", result.Metadata["component_type"])
@@ -173,10 +173,10 @@ func TestServiceDeviceRegistration_MultipleServicesOnSameIP(t *testing.T) {
 	// Create multiple services all running on the same IP
 	hostIP := "192.168.1.100"
 	updates := []*models.DeviceUpdate{
-		models.CreatePollerDeviceUpdate("poller-1", hostIP, nil),
-		models.CreateAgentDeviceUpdate("agent-1", "poller-1", hostIP, nil),
-		models.CreateCheckerDeviceUpdate("sysmon@agent-1", "sysmon", "agent-1", "poller-1", hostIP, nil),
-		models.CreateCheckerDeviceUpdate("rperf@agent-1", "rperf", "agent-1", "poller-1", hostIP, nil),
+		models.CreatePollerDeviceUpdate("poller-1", hostIP, "default", nil),
+		models.CreateAgentDeviceUpdate("agent-1", "poller-1", hostIP, "default", nil),
+		models.CreateCheckerDeviceUpdate("sysmon@agent-1", "sysmon", "agent-1", "poller-1", hostIP, "default", nil),
+		models.CreateCheckerDeviceUpdate("rperf@agent-1", "rperf", "agent-1", "poller-1", hostIP, "default", nil),
 	}
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, updates)
@@ -233,7 +233,7 @@ func TestServiceDeviceRegistration_EmptyIPAllowed(t *testing.T) {
 		AnyTimes()
 
 	// Service devices with empty IPs should be allowed
-	pollerUpdate := models.CreatePollerDeviceUpdate("k8s-poller", "", nil)
+	pollerUpdate := models.CreatePollerDeviceUpdate("k8s-poller", "", "default", nil)
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{pollerUpdate})
 	require.NoError(t, err)
@@ -373,7 +373,7 @@ func TestServiceDeviceRegistration_HighCardinalityCheckers(t *testing.T) {
 	for i := 0; i < 25; i++ {
 		for _, checkerType := range checkerTypes {
 			checkerID := fmt.Sprintf("%s-%d@%s", checkerType, checkerIndex, agentID)
-			updates = append(updates, models.CreateCheckerDeviceUpdate(checkerID, checkerType, agentID, pollerID, hostIP, nil))
+			updates = append(updates, models.CreateCheckerDeviceUpdate(checkerID, checkerType, agentID, pollerID, hostIP, "default", nil))
 			checkerIndex++
 		}
 	}
@@ -415,8 +415,8 @@ func TestServiceDeviceRegistration_MixedBatch(t *testing.T) {
 	// Create a batch with both service devices and network devices
 	updates := []*models.DeviceUpdate{
 		// Service devices
-		models.CreatePollerDeviceUpdate("poller-1", "", nil),
-		models.CreateAgentDeviceUpdate("agent-1", "poller-1", "192.168.1.100", nil),
+		models.CreatePollerDeviceUpdate("poller-1", "", "default", nil),
+		models.CreateAgentDeviceUpdate("agent-1", "poller-1", "192.168.1.100", "default", nil),
 		// Network devices
 		{
 			IP:          "192.168.1.10",
@@ -449,7 +449,7 @@ func TestServiceDeviceRegistration_MixedBatch(t *testing.T) {
 	for _, update := range publishedUpdates {
 		if models.IsServiceDevice(update.DeviceID) {
 			serviceDeviceCount++
-			assert.Equal(t, models.ServiceDevicePartition, update.Partition)
+			assert.Equal(t, "default", update.Partition)
 			assert.Equal(t, models.DiscoverySourceServiceRadar, update.Source)
 		} else {
 			networkDeviceCount++
@@ -459,4 +459,100 @@ func TestServiceDeviceRegistration_MixedBatch(t *testing.T) {
 
 	assert.Equal(t, 2, serviceDeviceCount, "Should have 2 service devices")
 	assert.Equal(t, 2, networkDeviceCount, "Should have 2 network devices")
+}
+
+func TestServiceDevicesBypassSightingsWhenIdentityEnabled(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+	testLogger := logger.NewTestLogger()
+
+	var publishedUpdates []*models.DeviceUpdate
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			publishedUpdates = append(publishedUpdates, updates...)
+			return nil
+		}).
+		Times(1)
+
+	registry := NewDeviceRegistry(
+		mockDB,
+		testLogger,
+		WithIdentityReconciliationConfig(&models.IdentityReconciliationConfig{
+			Enabled:       true,
+			SightingsOnly: true,
+		}),
+	)
+
+	pollerUpdate := models.CreatePollerDeviceUpdate("k8s-poller", "10.20.30.40", "default", nil)
+
+	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{pollerUpdate})
+	require.NoError(t, err)
+
+	require.Len(t, publishedUpdates, 1, "service devices should bypass sighting ingest")
+	result := publishedUpdates[0]
+
+	assert.Equal(t, pollerUpdate.DeviceID, result.DeviceID)
+	assert.Equal(t, "10.20.30.40", result.IP)
+	assert.Equal(t, models.DiscoverySourceServiceRadar, result.Source)
+	assert.Equal(t, "default", result.Partition)
+}
+
+func TestSelfReportedHostBypassesSightings(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+	testLogger := logger.NewTestLogger()
+
+	var publishedUpdates []*models.DeviceUpdate
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			publishedUpdates = append(publishedUpdates, updates...)
+			return nil
+		}).
+		Times(1)
+
+	registry := NewDeviceRegistry(
+		mockDB,
+		testLogger,
+		WithIdentityReconciliationConfig(&models.IdentityReconciliationConfig{
+			Enabled: true,
+		}),
+	)
+
+	hostname := "edge-host"
+	update := &models.DeviceUpdate{
+		DeviceID:    "default:10.0.0.50",
+		IP:          "10.0.0.50",
+		Partition:   "default",
+		Source:      models.DiscoverySourceSelfReported,
+		Timestamp:   time.Now(),
+		Hostname:    &hostname,
+		IsAvailable: true,
+		Metadata: map[string]string{
+			"device_type": "host",
+		},
+	}
+
+	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
+	require.NoError(t, err)
+
+	require.Len(t, publishedUpdates, 1, "self-reported hosts should not be demoted to sightings")
+	assert.Equal(t, update.DeviceID, publishedUpdates[0].DeviceID)
+	assert.Equal(t, hostname, derefString(publishedUpdates[0].Hostname))
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
