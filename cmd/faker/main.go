@@ -63,11 +63,6 @@ const (
 	tokenStringLength    = 32
 	tokenExpirationHours = 24
 
-	// Device distribution percentages
-	singleIPPercent   = 60
-	doubleIPPercent   = 85
-	multipleIPPercent = 95
-
 	// MAC address generation constants
 	maxRetryAttempts = 3
 	maxByteValue     = 255
@@ -95,14 +90,6 @@ const (
 	maxMACsInfra          = 100
 	minMACsEnterprise     = 101
 	maxMACsEnterprise     = 200
-
-	// IP count ranges
-	minAdditionalIPs = 2
-	maxAdditionalIPs = 3
-	minMultipleIPs   = 4
-	maxMultipleIPs   = 5
-	minManyIPs       = 6
-	maxManyIPs       = 10
 
 	// Random string lengths (removed unused constants)
 
@@ -269,7 +256,7 @@ func (c *Config) applyDefaults() {
 }
 
 const (
-	totalDevices = 50000
+	defaultTotalDevices = 50000
 	// File permission constants
 	deviceFilePermissions = 0o600
 	// Magic number constants
@@ -285,6 +272,8 @@ const (
 	// String constants
 	appleManufacturer = "Apple"
 )
+
+var totalDevices = defaultTotalDevices
 
 // DeviceGenerator holds all the data and methods for generating fake devices
 type DeviceGenerator struct {
@@ -541,7 +530,7 @@ func buildFreeIPPool(currentCount, headroomPercent int, used map[string]struct{}
 	existing := make(map[string]struct{}, needed)
 
 	for len(free) < needed {
-		ip := generateSingleIP(usedIndex, 0)
+		ip := generateSingleIP(usedIndex)
 		if _, dup := existing[ip]; dup {
 			usedIndex++
 			continue
@@ -905,23 +894,20 @@ func (dg *DeviceGenerator) generateAllDevices() []ArmisDevice {
 // Returns a comma-separated string of IP addresses.
 // The current policy enforces a single IP per device to keep total cardinality fixed.
 func generateUniqueIPs(index int) string {
-	return generateSingleIP(index, 0)
+	return generateSingleIP(index)
 }
 
 // generateSingleIP generates a single unique IP from the 172.16.0.0/12 range
 // This range (172.16.0.0 - 172.31.255.255) provides over 1 million unique addresses
-func generateSingleIP(index, offset int) string {
-	// Apply offset to simulate different network interfaces
-	effectiveIndex := index + offset
-
+func generateSingleIP(index int) string {
 	// Use 172.16.0.0/12 range (172.16.0.0 - 172.31.255.255)
 	// Each /24 has 254 usable IPs (1-254, skip 0 and 255)
 	// 16 class B networks * 256 subnets * 254 hosts = 1,040,384 unique IPs
 
 	// Calculate which /24 subnet we're in
-	subnetIndex := effectiveIndex / 254
+	subnetIndex := index / 254
 	// Calculate host within subnet (1-254)
-	hostIndex := (effectiveIndex % 254) + 1
+	hostIndex := (index % 254) + 1
 
 	// Calculate octets:
 	// octet2: 16-31 (16 values from the /12 range)
@@ -1058,47 +1044,6 @@ func generateMACAddresses(seed, count int) []string {
 	}
 
 	return macs
-}
-
-// generateDeviceName creates realistic device names based on type and manufacturer
-func generateDeviceName(deviceType, manufacturer string, index int) string {
-	// Helper function to safely get prefix from manufacturer name
-	getManufacturerPrefix := func(name string) string {
-		const prefixLength = 3
-		if len(name) >= prefixLength {
-			return strings.ToUpper(name[:prefixLength])
-		}
-
-		return strings.ToUpper(name)
-	}
-
-	switch {
-	case strings.Contains(deviceType, "Server"):
-		return fmt.Sprintf("%s-SRV-%03d", getManufacturerPrefix(manufacturer), index%1000)
-	case strings.Contains(deviceType, "Router") || strings.Contains(deviceType, "Switch"):
-		return fmt.Sprintf("%s-NET-%03d", getManufacturerPrefix(manufacturer), index%1000)
-	case strings.Contains(deviceType, "Printer"):
-		return fmt.Sprintf("%s-PRT-%03d", getManufacturerPrefix(manufacturer), index%1000)
-	case strings.Contains(deviceType, "Phone"):
-		return fmt.Sprintf("%s-PHN-%03d", getManufacturerPrefix(manufacturer), index%1000)
-	case strings.Contains(deviceType, "Camera"):
-		return fmt.Sprintf("CAM-%03d", index%1000)
-	case strings.Contains(deviceType, "Mobile") || strings.Contains(deviceType, "Tablet"):
-		usernames := []string{"jdoe", "msmith", "bwilson", "lgarcia", "alee", "kbrown", "sjohnson", "dwhite"}
-		devicePrefix := deviceType
-
-		const prefixLength = 3
-
-		if len(deviceType) > prefixLength {
-			devicePrefix = deviceType[:prefixLength]
-		}
-
-		return fmt.Sprintf("%s-%s", usernames[index%len(usernames)], devicePrefix)
-	case strings.Contains(deviceType, "Computer") || strings.Contains(deviceType, "Laptop") || strings.Contains(deviceType, "Desktop"):
-		return fmt.Sprintf("WS-%03d", index%1000)
-	default:
-		return fmt.Sprintf("DEV-%05d", index)
-	}
 }
 
 // generateUniqueHostname provides a deterministic, unique hostname bound to the device index

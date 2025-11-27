@@ -8,6 +8,16 @@ import (
 )
 
 func TestGenerateAllDevicesHasUniqueIPsAndHostnames(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping full device generation in short mode")
+	}
+
+	originalTotal := totalDevices
+	t.Cleanup(func() {
+		totalDevices = originalTotal
+	})
+	totalDevices = 5000
+
 	gen := NewDeviceGenerator()
 	deviceGen = gen
 	devices := gen.generateAllDevices()
@@ -53,7 +63,7 @@ func TestSwapDevicePrimaryIPsPreservesCardinality(t *testing.T) {
 
 	before := collectPrimaryIPSet(gen.allDevices)
 	swapped := swapDevicePrimaryIPs(gen, 5, false)
-	require.Greater(t, swapped, 0)
+	require.Positive(t, swapped)
 
 	after := collectPrimaryIPSet(gen.allDevices)
 	require.Equal(t, before, after, "IP shuffle must not create or drop IPs")
@@ -74,7 +84,7 @@ func TestReassignIPsFromPoolPreservesUniqueness(t *testing.T) {
 
 	before := collectPrimaryIPSet(gen.allDevices)
 	changed := reassignIPsFromPool(gen, 2, false)
-	require.Greater(t, changed, 0)
+	require.Positive(t, changed)
 
 	after := collectPrimaryIPSet(gen.allDevices)
 	require.Len(t, after, len(before))
