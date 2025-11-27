@@ -273,7 +273,8 @@ const (
 	appleManufacturer = "Apple"
 )
 
-var totalDevices = defaultTotalDevices
+// totalDevices is mutable in tests/config to keep generation controllable.
+var totalDevices = defaultTotalDevices //nolint:gochecknoglobals
 
 // DeviceGenerator holds all the data and methods for generating fake devices
 type DeviceGenerator struct {
