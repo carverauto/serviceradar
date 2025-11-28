@@ -17,7 +17,8 @@
 - [x] 1.16 Drift mitigations: disable fingerprint gating when fingerprinting is off, pin faker Helm values to non-expanding IP shuffle defaults, and retag demo images (sha-13d9cc627541190980bbad253ae6b3484a2648a0) to keep counts anchored.
 
 ## Deployment status
-- Built all OCI images with `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')`.
-- Pushed all images via `bazel run --config=remote //docker/images:push_all` (tags `sha-5f2efea89b08a34b93757be1fbe22fa31ec7c024`).
-- Deployed to `demo` with Helm overriding core/web/poller/sync/agent/datasvc/tools tags to the above SHA; most pods healthy, CrashLoop pending on otel, legacy rperf-client, and trapd needing follow-up.
-- Helm rev 168 applied with promotion enabled (shadow off, 1h minPersistence) and identity reaper interval at 1m; CNPG tables truncated (devices/sightings/updates/etc.) then sync/poller rerun, resulting in ~48.8k sightings promoted to ~46.6k devices on the new SHA.
+- Built/pushed faker with non-expanding IP shuffle: `ghcr.io/carverauto/serviceradar-faker:sha-f29d4f40c12c4a560dfa5703d451352829637a1f` (digest `sha256:70248044ebb68d0a5dd32959cd089f06494c101b830777bae5af6c13090628f3`) and updated Helm to pin it.
+- Added identity config API/UI and warning logs when RequireFingerprint is auto-disabled.
+- Helm values now use an `appTag` anchor and promotion is currently disabled with `sightingsOnlyMode=true` to hold sweep data as sightings until sync delivers strong IDs.
+- CNPG was truncated (sightings/identifiers/fingerprints/device_updates/unified_devices/etc.) to reset state; sync/poller/faker/core restarted for clean ingest. Need to keep sync paused or enforce sightings-only ingest to avoid rehydrating unified_devices from sweep before strong IDs arrive.
+- Demo drift persists: after truncation and restart, `unified_devices` repopulated to ~16,386 (first sync chunk size + 2 internal) and stalled there. With promotion off + sightings-only, only authoritative updates should bypass sightings, so investigate whether sync payloads are still marked authoritative (service_type/device_id) or if only the first sync chunk is flowing. Next steps: pause sync/poller, log DeviceUpdate Source/ServiceType when sightings-only is enabled, force sync results into sightings, then re-truncate and confirm counts hold at 2 before letting faker/sync repopulate to 50,002.
