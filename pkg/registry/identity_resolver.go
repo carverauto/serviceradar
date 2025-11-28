@@ -298,6 +298,10 @@ func attachCanonicalMetadataToUpdate(update *models.DeviceUpdate, record *identi
 		return
 	}
 
+	if update.Metadata != nil && strings.EqualFold(update.Metadata["integration_type"], "armis") {
+		return
+	}
+
 	if update.Partition == "" && record.Partition != "" {
 		update.Partition = record.Partition
 	}

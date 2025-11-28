@@ -14,11 +14,11 @@
     "total_devices": 50000,
     "ip_shuffle": {
       "enabled": true,
-      "interval": "60s",
+      "interval": "10m",
       "percentage": 5,
-      "warmup_cycles": 2,
-      "allow_expansion": true,
-      "pool_headroom_percent": 20,
+      "warmup_cycles": 0,
+      "allow_expansion": false,
+      "pool_headroom_percent": 0,
       "log_changes": true
     }
   },

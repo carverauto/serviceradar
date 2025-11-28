@@ -35,6 +35,33 @@ export interface IdentityConfigMeta {
     require_hostname?: boolean;
     require_fingerprint?: boolean;
   };
+  fingerprinting?: {
+    enabled?: boolean;
+    port_budget?: number;
+    timeout?: string;
+  };
+}
+
+export interface IdentityReaperProfile {
+  ttl?: string;
+  allow_ip_as_id?: boolean;
+}
+
+export interface IdentityReaperConfig {
+  interval?: string;
+  profiles?: Record<string, IdentityReaperProfile>;
+}
+
+export interface IdentityDriftConfig {
+  baseline_devices?: number;
+  tolerance_percent?: number;
+  pause_on_drift?: boolean;
+  alert_on_drift?: boolean;
+}
+
+export interface IdentityConfig extends IdentityConfigMeta {
+  reaper?: IdentityReaperConfig;
+  drift?: IdentityDriftConfig;
 }
 
 export interface SightingPromotionStatus {
@@ -86,4 +113,9 @@ export interface SubnetPoliciesResponse {
 
 export interface MergeAuditResponse {
   items: MergeAuditEvent[];
+}
+
+export interface IdentityConfigResponse {
+  identity?: IdentityConfig;
+  revision?: number;
 }

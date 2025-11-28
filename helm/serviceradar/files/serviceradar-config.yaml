@@ -1241,8 +1241,8 @@ data:
             "interval": "{{ .Values.faker.simulation.ipShuffle.interval | default "10m" }}",
             "percentage": {{ .Values.faker.simulation.ipShuffle.percentage | default 5 }},
             "warmup_cycles": {{ .Values.faker.simulation.ipShuffle.warmupCycles | default 0 }},
-            "allow_expansion": {{ .Values.faker.simulation.ipShuffle.allowExpansion | default true }},
-            "pool_headroom_percent": {{ .Values.faker.simulation.ipShuffle.poolHeadroomPercent | default 20 }},
+            "allow_expansion": {{ .Values.faker.simulation.ipShuffle.allowExpansion | default false }},
+            "pool_headroom_percent": {{ .Values.faker.simulation.ipShuffle.poolHeadroomPercent | default 0 }},
             "log_changes": true
           }
         },

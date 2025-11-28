@@ -861,6 +861,8 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/identity/policies", s.handleListSubnetPolicies).Methods("GET")
 	protected.HandleFunc("/identity/merge-audit", s.handleMergeAuditHistory).Methods("GET")
 	protected.HandleFunc("/identity/reconcile", s.handleReconcileSightings).Methods("POST")
+	protected.HandleFunc("/identity/config", s.handleGetIdentityConfig).Methods("GET")
+	protected.HandleFunc("/identity/config", s.handleUpdateIdentityConfig).Methods("PUT")
 
 	// Store reference to protected router for MCP routes
 	s.protectedRouter = protected

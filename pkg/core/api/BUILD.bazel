@@ -58,6 +58,7 @@ go_test(
     srcs = [
         "collectors_test.go",
         "edge_onboarding_test.go",
+        "identity_test.go",
     ],
     embed = [":api"],
     deps = [

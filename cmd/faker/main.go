@@ -392,11 +392,12 @@ func shuffleIPs() {
 		}
 
 		var changed int
-		if shouldAllowIPExpansion() {
-			changed = reassignIPsFromPool(deviceGen, numToShuffle, config.Simulation.IPShuffle.LogChanges)
-		} else {
-			changed = swapDevicePrimaryIPs(deviceGen, numToShuffle, config.Simulation.IPShuffle.LogChanges)
+		if config.Simulation.IPShuffle.AllowExpansion {
+			log.Printf("IP expansion requested but disabled to preserve fixed device cardinality")
+			config.Simulation.IPShuffle.AllowExpansion = false
+			config.Simulation.IPShuffle.PoolHeadroomPercent = 0
 		}
+		changed = swapDevicePrimaryIPs(deviceGen, numToShuffle, config.Simulation.IPShuffle.LogChanges)
 		if config.Simulation.IPShuffle.LogChanges {
 			log.Printf("    Completed IP changes for %d devices", changed)
 		}
@@ -489,13 +490,6 @@ func reassignIPsFromPool(gen *DeviceGenerator, count int, logChanges bool) int {
 	}
 
 	return changed
-}
-
-func shouldAllowIPExpansion() bool {
-	if config == nil {
-		return true
-	}
-	return config.Simulation.IPShuffle.AllowExpansion
 }
 
 func (dg *DeviceGenerator) allocateFreeIP() (string, bool) {
