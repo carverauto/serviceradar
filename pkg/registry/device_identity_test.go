@@ -53,7 +53,7 @@ func TestGenerateServiceRadarDeviceID_Determinism(t *testing.T) {
 			Source:    models.DiscoverySourceArmis,
 			MAC:       &mac,
 			Metadata: map[string]string{
-				"armis_device_id": "12345",
+				"armis_device_id":  "12345",
 				"netbox_device_id": "nb-999",
 			},
 		}
@@ -185,4 +185,59 @@ func TestDeviceIdentityResolver_IPFallbackWhenStrongUnknown(t *testing.T) {
 	require.Len(t, updates, 1)
 
 	assert.Equal(t, "sr:existing-1234", updates[0].DeviceID)
+}
+
+func TestDeviceIdentityResolver_StrongIDMergesAcrossIPChurn(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any()).
+		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Nil()).
+		Return([]*models.UnifiedDevice{}, nil).
+		AnyTimes()
+
+	resolver := NewDeviceIdentityResolver(mockDB, logger.NewTestLogger())
+
+	mac := "aa:bb:cc:dd:ee:ff"
+	armisID := "armis-42"
+
+	updates := []*models.DeviceUpdate{
+		{
+			IP:        "10.0.0.10",
+			Partition: "default",
+			Source:    models.DiscoverySourceArmis,
+			MAC:       &mac,
+			Metadata: map[string]string{
+				"armis_device_id": armisID,
+			},
+		},
+		{
+			IP:        "10.0.1.20",
+			Partition: "default",
+			Source:    models.DiscoverySourceArmis,
+			MAC:       &mac,
+			Metadata: map[string]string{
+				"armis_device_id": armisID,
+			},
+		},
+	}
+
+	err := resolver.ResolveDeviceIDs(ctx, updates)
+	require.NoError(t, err)
+	require.Len(t, updates, 2)
+
+	require.NotEmpty(t, updates[0].DeviceID)
+	assert.Equal(t, updates[0].DeviceID, updates[1].DeviceID, "Strong identifiers must anchor the same device across IP churn")
 }

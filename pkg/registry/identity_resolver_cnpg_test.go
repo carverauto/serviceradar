@@ -176,7 +176,7 @@ func TestCNPGIdentityResolverHydrateCanonical(t *testing.T) {
 }
 
 func TestIdentityResolverCacheExpiry(t *testing.T) {
-	cache := newIdentityResolverCache(50*time.Millisecond, 1000)
+	cache := newIdentityResolverCache(10*time.Millisecond, 1000)
 
 	cache.setIPMapping("192.168.1.1", "device-1")
 
@@ -190,7 +190,7 @@ func TestIdentityResolverCacheExpiry(t *testing.T) {
 	}
 
 	// Wait for expiry
-	time.Sleep(60 * time.Millisecond)
+	time.Sleep(15 * time.Millisecond)
 
 	// Should not find in cache after expiry
 	_, ok = cache.getIPMapping("192.168.1.1")
