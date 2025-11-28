@@ -16,6 +16,9 @@
       "enabled": true,
       "interval": "10m",
       "percentage": 5,
+      "warmup_cycles": 2,
+      "allow_expansion": true,
+      "pool_headroom_percent": 20,
       "log_changes": true
     }
   },

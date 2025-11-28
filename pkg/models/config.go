@@ -157,6 +157,14 @@ type IdentityReaperConfig struct {
 	Profiles map[string]IdentityReaperProfile `json:"profiles,omitempty"`
 }
 
+// IdentityDriftConfig configures gating based on device cardinality drift.
+type IdentityDriftConfig struct {
+	BaselineDevices  int  `json:"baseline_devices,omitempty"`
+	TolerancePercent int  `json:"tolerance_percent,omitempty"`
+	PauseOnDrift     bool `json:"pause_on_drift,omitempty"`
+	AlertOnDrift     bool `json:"alert_on_drift,omitempty"`
+}
+
 // PromotionConfig configures automated promotion thresholds.
 type PromotionConfig struct {
 	Enabled            bool     `json:"enabled"`
@@ -180,6 +188,7 @@ type IdentityReconciliationConfig struct {
 	Promotion      PromotionConfig      `json:"promotion,omitempty"`
 	Fingerprinting FingerprintingConfig `json:"fingerprinting,omitempty"`
 	Reaper         IdentityReaperConfig `json:"reaper,omitempty"`
+	Drift          IdentityDriftConfig  `json:"drift,omitempty"`
 }
 
 // CoreServiceConfig represents the configuration for the core service.

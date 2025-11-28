@@ -243,6 +243,7 @@ func (r *DeviceIdentityResolver) ResolveDeviceIDs(ctx context.Context, updates [
 	var existingMatchCount int
 	var strongMatchCount int
 	var alreadyUUIDCount int
+	batchStrongAssignments := make(map[string]string)
 
 	for _, update := range uncachedUpdates {
 		identifiers := updateIdentifiers[update]
@@ -252,6 +253,7 @@ func (r *DeviceIdentityResolver) ResolveDeviceIDs(ctx context.Context, updates [
 		if deviceID, ok := strongMatches[update]; ok && deviceID != "" {
 			update.DeviceID = deviceID
 			r.cacheIdentifierMappings(identifiers, deviceID)
+			recordBatchStrongAssignment(identifiers.StrongIDKeys, deviceID, batchStrongAssignments)
 			strongMatchCount++
 			continue
 		}
@@ -259,7 +261,16 @@ func (r *DeviceIdentityResolver) ResolveDeviceIDs(ctx context.Context, updates [
 		if deviceID, ok := existingMappings[update]; ok && deviceID != "" {
 			update.DeviceID = deviceID
 			r.cacheIdentifierMappings(identifiers, deviceID)
+			recordBatchStrongAssignment(identifiers.StrongIDKeys, deviceID, batchStrongAssignments)
 			existingMatchCount++
+			continue
+		}
+
+		// Honor batch-level strong identifier assignments to keep churned IPs together.
+		if deviceID := findBatchStrongAssignment(identifiers.StrongIDKeys, batchStrongAssignments); deviceID != "" {
+			update.DeviceID = deviceID
+			r.cacheIdentifierMappings(identifiers, deviceID)
+			strongMatchCount++
 			continue
 		}
 
@@ -276,6 +287,7 @@ func (r *DeviceIdentityResolver) ResolveDeviceIDs(ctx context.Context, updates [
 		newDeviceID := generateServiceRadarDeviceID(update)
 		update.DeviceID = newDeviceID
 		r.cacheIdentifierMappings(identifiers, newDeviceID)
+		recordBatchStrongAssignment(identifiers.StrongIDKeys, newDeviceID, batchStrongAssignments)
 		generatedCount++
 
 		if r.logger != nil && generatedCount <= 5 {
@@ -931,6 +943,32 @@ func setToList(set map[string]struct{}) []string {
 		out = append(out, v)
 	}
 	return out
+}
+
+func findBatchStrongAssignment(keys []string, assigned map[string]string) string {
+	if len(keys) == 0 || len(assigned) == 0 {
+		return ""
+	}
+	for _, k := range keys {
+		if deviceID := assigned[k]; deviceID != "" {
+			return deviceID
+		}
+	}
+	return ""
+}
+
+func recordBatchStrongAssignment(keys []string, deviceID string, assigned map[string]string) {
+	if len(keys) == 0 || deviceID == "" || assigned == nil {
+		return
+	}
+	for _, k := range keys {
+		if k == "" {
+			continue
+		}
+		if _, exists := assigned[k]; !exists {
+			assigned[k] = deviceID
+		}
+	}
 }
 
 // normalizeMAC normalizes a MAC address to uppercase without separators

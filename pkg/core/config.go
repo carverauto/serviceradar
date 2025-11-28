@@ -227,6 +227,12 @@ func applyIdentityDefaults(cfg *models.IdentityReconciliationConfig) *models.Ide
 					"static":  {TTL: models.Duration(defaultIREStaticTTL), AllowIPAsID: true},
 				},
 			},
+			Drift: models.IdentityDriftConfig{
+				BaselineDevices:  0,
+				TolerancePercent: 0,
+				PauseOnDrift:     true,
+				AlertOnDrift:     true,
+			},
 		}
 	}
 
@@ -269,6 +275,10 @@ func applyIdentityDefaults(cfg *models.IdentityReconciliationConfig) *models.Ide
 			current.AllowIPAsID = true
 		}
 		cfg.Reaper.Profiles[name] = current
+	}
+
+	if cfg.Drift.TolerancePercent < 0 {
+		cfg.Drift.TolerancePercent = 0
 	}
 
 	return cfg
