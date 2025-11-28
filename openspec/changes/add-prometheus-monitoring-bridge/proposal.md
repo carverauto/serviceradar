@@ -1,13 +1,14 @@
-# Change: Add Prometheus Monitoring Bridge
+# Change: Add Prometheus Monitoring Bridge for ServiceRadar
 
 ## Why
-We need a cohesive Prometheus story so operators can scrape ServiceRadar metrics (including new identity drift gauges) without bespoke collectors. Today metrics are OTEL-only and ad hoc; we want a consistent pull endpoint, Helm wiring, and docs/runbooks for alerts.
+Operators run kube-prometheus-stack in the `monitoring` namespace and want to scrape ServiceRadar's internal OTEL metrics (identity reconciliation, pollers, sync, collectors) without replacing our built-in lightweight OTEL pipeline. We need first-class Prometheus/ Grafana surfaces so teams can reuse their standard monitoring while keeping the edge-friendly OTEL path for on-site deployments.
 
 ## What Changes
-- Add a Prometheus exporter/bridge to expose OTEL metrics from core/poller/sync/faker at a standard `/metrics` endpoint, configurable per service.
-- Helm values/ServiceMonitor annotations to enable scraping in demo/prod clusters with TLS/mtls/namespace scoping.
-- Document supported metrics (identity drift, promotions, core stats), scrape targets, and alert templates.
+- Expose ServiceRadar metrics to Prometheus (ServiceMonitors/PodMonitors and scrapeable `/metrics` endpoints) across core, poller, sync, otel-collector, and registry identity metrics.
+- Add dual-telemetry support so OTEL exporters can fan out to both our internal collector and external Prometheus/remote-write targets without losing current behavior.
+- Ship Grafana dashboards (identity reconciliation, ingestion/poller throughput, OTEL collector health) consumable by kube-prom-stack.
+- Provide Helm/kustomize wiring so monitoring artifacts live in the `monitoring` namespace with labels compatible with kube-prom-stack discovery.
 
 ## Impact
-- Affected specs: `monitoring-bridge`
-- Affected code: core/poller/sync/faker metric exporters, Helm chart values/templates for metrics scraping, docs/runbooks for Prometheus integration and alerts.
+- Affected specs: `observability-integration`
+- Affected code: `pkg/registry/identity_metrics.go`, `pkg/logger/otel.go`, OTEL collector config (`k8s/demo/base/serviceradar-otel.yaml`, Helm charts), Service/ServiceMonitor manifests, Grafana dashboards assets.
