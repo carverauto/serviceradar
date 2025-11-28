@@ -248,8 +248,8 @@ func (c *Config) applyDefaults() {
 	c.Simulation.IPShuffle.Percentage = 5
 	c.Simulation.IPShuffle.WarmupCycles = 5
 	c.Simulation.IPShuffle.LogChanges = true
-	c.Simulation.IPShuffle.AllowExpansion = true
-	c.Simulation.IPShuffle.PoolHeadroomPercent = defaultShufflePoolHeadroom
+	c.Simulation.IPShuffle.AllowExpansion = false
+	c.Simulation.IPShuffle.PoolHeadroomPercent = 0
 	c.Storage.DataDir = "/var/lib/serviceradar/faker"
 	c.Storage.DevicesFile = "fake_armis_devices.json"
 	c.Storage.PersistChanges = true
@@ -551,7 +551,10 @@ func buildFreeIPPool(currentCount, headroomPercent int, used map[string]struct{}
 }
 
 func resolveIPPoolHeadroom() int {
-	if config != nil && config.Simulation.IPShuffle.PoolHeadroomPercent > 0 {
+	if config != nil && !config.Simulation.IPShuffle.AllowExpansion {
+		return 0
+	}
+	if config != nil && config.Simulation.IPShuffle.AllowExpansion && config.Simulation.IPShuffle.PoolHeadroomPercent > 0 {
 		return config.Simulation.IPShuffle.PoolHeadroomPercent
 	}
 	return defaultShufflePoolHeadroom
