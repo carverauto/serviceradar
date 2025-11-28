@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
+
+const defaultSightingActor = "system"
 
 func (s *APIServer) handleListSightings(w http.ResponseWriter, r *http.Request) {
 	if s.deviceRegistry == nil {
@@ -94,7 +97,7 @@ func (s *APIServer) handlePromoteSighting(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	actor := "system"
+	actor := defaultSightingActor
 	if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil && user.Email != "" {
 		actor = user.Email
 	}
@@ -139,7 +142,7 @@ func (s *APIServer) handleDismissSighting(w http.ResponseWriter, r *http.Request
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
-	actor := "system"
+	actor := defaultSightingActor
 	if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil && user.Email != "" {
 		actor = user.Email
 	}
@@ -245,4 +248,178 @@ func (s *APIServer) handleMergeAuditHistory(w http.ResponseWriter, r *http.Reque
 	}
 
 	s.writeJSON(w, http.StatusOK, payload)
+}
+
+func (s *APIServer) handleGetIdentityConfig(w http.ResponseWriter, r *http.Request) {
+	kvStoreID := r.URL.Query().Get("kv_store_id")
+	coreKey, ok := serviceLevelKeyFor("core")
+	if !ok {
+		s.writeAPIError(w, http.StatusInternalServerError, "core config key unresolved")
+		return
+	}
+
+	resolvedKey := s.qualifyKVKey(kvStoreID, coreKey)
+	entry, _, err := s.loadConfigEntry(r.Context(), kvStoreID, resolvedKey)
+	if err != nil {
+		s.writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	identity := &models.IdentityReconciliationConfig{}
+
+	if entry != nil && entry.Found && len(entry.Value) > 0 {
+		if parsed, parseErr := extractIdentityConfig(entry.Value); parseErr == nil && parsed != nil {
+			identity = parsed
+		}
+	}
+
+	if identity == nil && s.identityConfig != nil {
+		identity = s.identityConfig
+	}
+
+	response := map[string]interface{}{
+		"identity": identity,
+	}
+	if entry != nil {
+		response["revision"] = entry.Revision
+	}
+
+	s.writeJSON(w, http.StatusOK, response)
+}
+
+func (s *APIServer) handleUpdateIdentityConfig(w http.ResponseWriter, r *http.Request) {
+	kvStoreID := r.URL.Query().Get("kv_store_id")
+	coreKey, ok := serviceLevelKeyFor("core")
+	if !ok {
+		s.writeAPIError(w, http.StatusInternalServerError, "core config key unresolved")
+		return
+	}
+
+	var payload struct {
+		Identity *models.IdentityReconciliationConfig `json:"identity"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+	if payload.Identity == nil {
+		s.writeAPIError(w, http.StatusBadRequest, "identity payload is required")
+		return
+	}
+
+	normalized := normalizeIdentityConfig(payload.Identity)
+
+	resolvedKey := s.qualifyKVKey(kvStoreID, coreKey)
+	entry, _, err := s.loadConfigEntry(r.Context(), kvStoreID, resolvedKey)
+	if err != nil {
+		s.writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if kvEntryMissing(entry) || len(entry.Value) == 0 {
+		s.writeAPIError(w, http.StatusNotFound, "core configuration not found in KV")
+		return
+	}
+
+	configMap := make(map[string]interface{})
+	if err := json.Unmarshal(entry.Value, &configMap); err != nil {
+		s.writeAPIError(w, http.StatusBadRequest, "failed to parse existing core configuration")
+		return
+	}
+
+	identityBytes, _ := json.Marshal(normalized)
+	var identityAny interface{}
+	_ = json.Unmarshal(identityBytes, &identityAny)
+	configMap["identity_reconciliation"] = identityAny
+
+	updated, err := json.MarshalIndent(configMap, "", "  ")
+	if err != nil {
+		s.writeAPIError(w, http.StatusInternalServerError, "failed to serialize identity configuration")
+		return
+	}
+
+	if err := s.putConfigToKV(r.Context(), kvStoreID, resolvedKey, updated); err != nil {
+		s.writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	actor := defaultSightingActor
+	if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil && strings.TrimSpace(user.Email) != "" {
+		actor = user.Email
+	}
+	s.recordConfigMetadata(r.Context(), kvStoreID, resolvedKey, configOriginUser, actor)
+
+	s.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":   "updated",
+		"revision": entry.Revision + 1,
+	})
+}
+
+func extractIdentityConfig(raw []byte) (*models.IdentityReconciliationConfig, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return nil, err
+	}
+
+	section, ok := cfg["identity_reconciliation"]
+	if !ok {
+		return nil, nil
+	}
+
+	sectionBytes, err := json.Marshal(section)
+	if err != nil {
+		return nil, err
+	}
+
+	var identity models.IdentityReconciliationConfig
+	if err := json.Unmarshal(sectionBytes, &identity); err != nil {
+		return nil, err
+	}
+
+	return &identity, nil
+}
+
+func normalizeIdentityConfig(cfg *models.IdentityReconciliationConfig) *models.IdentityReconciliationConfig {
+	if cfg == nil {
+		return &models.IdentityReconciliationConfig{}
+	}
+
+	if cfg.Promotion.MinPersistence < 0 {
+		cfg.Promotion.MinPersistence = 0
+	}
+	if cfg.Fingerprinting.PortBudget < 0 {
+		cfg.Fingerprinting.PortBudget = 0
+	}
+	if cfg.Fingerprinting.Timeout < 0 {
+		cfg.Fingerprinting.Timeout = 0
+	}
+	if cfg.Reaper.Interval < 0 {
+		cfg.Reaper.Interval = 0
+	}
+
+	if cfg.Reaper.Profiles == nil {
+		cfg.Reaper.Profiles = make(map[string]models.IdentityReaperProfile)
+	}
+	for name, profile := range cfg.Reaper.Profiles {
+		if profile.TTL < 0 {
+			profile.TTL = 0
+		}
+		cfg.Reaper.Profiles[name] = profile
+	}
+
+	if cfg.Drift.BaselineDevices < 0 {
+		cfg.Drift.BaselineDevices = 0
+	}
+	if cfg.Drift.TolerancePercent < 0 {
+		cfg.Drift.TolerancePercent = 0
+	}
+
+	if !cfg.Fingerprinting.Enabled && cfg.Promotion.RequireFingerprint {
+		cfg.Promotion.RequireFingerprint = false
+	}
+
+	return cfg
 }

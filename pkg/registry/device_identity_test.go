@@ -14,30 +14,13 @@ import (
 )
 
 // TestGenerateServiceRadarDeviceID_Determinism verifies that UUID generation is deterministic
-// based only on IP + partition, regardless of what strong identifiers are present.
-// This is the core fix for the device count growth issue.
+// and anchored to strong identifiers when present (so IP churn doesn't merge strong IDs),
+// falling back to IP + partition only when no strong identifiers exist.
 func TestGenerateServiceRadarDeviceID_Determinism(t *testing.T) {
 	t.Parallel()
 
-	t.Run("same IP and partition always produces same UUID", func(t *testing.T) {
-		// Base case: IP only
+	t.Run("strong identifiers anchor the UUID across IP churn", func(t *testing.T) {
 		update1 := &models.DeviceUpdate{
-			IP:        "10.0.0.1",
-			Partition: "default",
-			Source:    models.DiscoverySourceSweep,
-		}
-
-		// With MAC address (strong identifier)
-		mac := "AA:BB:CC:DD:EE:FF"
-		update2 := &models.DeviceUpdate{
-			IP:        "10.0.0.1",
-			Partition: "default",
-			Source:    models.DiscoverySourceArmis,
-			MAC:       &mac,
-		}
-
-		// With Armis ID (strong identifier)
-		update3 := &models.DeviceUpdate{
 			IP:        "10.0.0.1",
 			Partition: "default",
 			Source:    models.DiscoverySourceArmis,
@@ -45,34 +28,60 @@ func TestGenerateServiceRadarDeviceID_Determinism(t *testing.T) {
 				"armis_device_id": "12345",
 			},
 		}
-
-		// With both MAC and Armis ID
-		update4 := &models.DeviceUpdate{
+		update2 := &models.DeviceUpdate{
+			IP:        "10.0.0.99",
+			Partition: "default",
+			Source:    models.DiscoverySourceArmis,
+			Metadata: map[string]string{
+				"armis_device_id": "12345",
+			},
+		}
+		updateOther := &models.DeviceUpdate{
 			IP:        "10.0.0.1",
 			Partition: "default",
 			Source:    models.DiscoverySourceArmis,
-			MAC:       &mac,
 			Metadata: map[string]string{
-				"armis_device_id":  "12345",
-				"netbox_device_id": "nb-999",
+				"armis_device_id": "99999",
 			},
 		}
 
 		uuid1 := generateServiceRadarDeviceID(update1)
 		uuid2 := generateServiceRadarDeviceID(update2)
-		uuid3 := generateServiceRadarDeviceID(update3)
-		uuid4 := generateServiceRadarDeviceID(update4)
+		uuidOther := generateServiceRadarDeviceID(updateOther)
 
-		// All UUIDs should be identical because IP + partition are the same
-		assert.Equal(t, uuid1, uuid2, "UUID should be same regardless of MAC")
-		assert.Equal(t, uuid1, uuid3, "UUID should be same regardless of armis_device_id")
-		assert.Equal(t, uuid1, uuid4, "UUID should be same regardless of all strong identifiers")
-
-		// Verify it's a valid ServiceRadar UUID
+		assert.Equal(t, uuid1, uuid2, "Same strong ID should stay stable even if IP changes")
+		assert.NotEqual(t, uuid1, uuidOther, "Different strong IDs must not collapse on shared IP")
 		assert.True(t, isServiceRadarUUID(uuid1), "Should be a valid sr: UUID")
 	})
 
-	t.Run("different IPs produce different UUIDs", func(t *testing.T) {
+	t.Run("MAC anchors when no other strong IDs are present", func(t *testing.T) {
+		mac1 := "AA:BB:CC:DD:EE:FF"
+		mac2 := "11:22:33:44:55:66"
+		update1 := &models.DeviceUpdate{
+			IP:        "10.0.0.1",
+			Partition: "default",
+			MAC:       &mac1,
+		}
+		update2 := &models.DeviceUpdate{
+			IP:        "10.0.0.2",
+			Partition: "default",
+			MAC:       &mac1,
+		}
+		updateOther := &models.DeviceUpdate{
+			IP:        "10.0.0.1",
+			Partition: "default",
+			MAC:       &mac2,
+		}
+
+		uuid1 := generateServiceRadarDeviceID(update1)
+		uuid2 := generateServiceRadarDeviceID(update2)
+		uuidOther := generateServiceRadarDeviceID(updateOther)
+
+		assert.Equal(t, uuid1, uuid2, "Same MAC should stay stable across IPs")
+		assert.NotEqual(t, uuid1, uuidOther, "Different MACs should not collide")
+	})
+
+	t.Run("weak-only updates still use IP+partition deterministically", func(t *testing.T) {
 		update1 := &models.DeviceUpdate{
 			IP:        "10.0.0.1",
 			Partition: "default",
@@ -81,43 +90,23 @@ func TestGenerateServiceRadarDeviceID_Determinism(t *testing.T) {
 			IP:        "10.0.0.2",
 			Partition: "default",
 		}
-
-		uuid1 := generateServiceRadarDeviceID(update1)
-		uuid2 := generateServiceRadarDeviceID(update2)
-
-		assert.NotEqual(t, uuid1, uuid2, "Different IPs should produce different UUIDs")
-	})
-
-	t.Run("different partitions produce different UUIDs", func(t *testing.T) {
-		update1 := &models.DeviceUpdate{
-			IP:        "10.0.0.1",
-			Partition: "default",
-		}
-		update2 := &models.DeviceUpdate{
+		update3 := &models.DeviceUpdate{
 			IP:        "10.0.0.1",
 			Partition: "production",
 		}
-
-		uuid1 := generateServiceRadarDeviceID(update1)
-		uuid2 := generateServiceRadarDeviceID(update2)
-
-		assert.NotEqual(t, uuid1, uuid2, "Different partitions should produce different UUIDs")
-	})
-
-	t.Run("empty partition defaults to 'default'", func(t *testing.T) {
-		update1 := &models.DeviceUpdate{
+		update4 := &models.DeviceUpdate{
 			IP:        "10.0.0.1",
 			Partition: "",
 		}
-		update2 := &models.DeviceUpdate{
-			IP:        "10.0.0.1",
-			Partition: "default",
-		}
 
 		uuid1 := generateServiceRadarDeviceID(update1)
 		uuid2 := generateServiceRadarDeviceID(update2)
+		uuid3 := generateServiceRadarDeviceID(update3)
+		uuid4 := generateServiceRadarDeviceID(update4)
 
-		assert.Equal(t, uuid1, uuid2, "Empty partition should default to 'default'")
+		assert.NotEqual(t, uuid1, uuid2, "Different IPs should produce different UUIDs")
+		assert.NotEqual(t, uuid1, uuid3, "Different partitions should produce different UUIDs")
+		assert.Equal(t, uuid1, uuid4, "Empty partition should default to 'default'")
 	})
 
 	t.Run("UUID is stable across multiple calls", func(t *testing.T) {
@@ -139,7 +128,7 @@ func TestGenerateServiceRadarDeviceID_Determinism(t *testing.T) {
 	})
 }
 
-func TestDeviceIdentityResolver_IPFallbackWhenStrongUnknown(t *testing.T) {
+func TestDeviceIdentityResolver_IPFallbackWhenWeakOnly(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -173,6 +162,57 @@ func TestDeviceIdentityResolver_IPFallbackWhenStrongUnknown(t *testing.T) {
 			IP:        "10.0.0.1",
 			DeviceID:  "",
 			Partition: "default",
+			Source:    models.DiscoverySourceSweep,
+		},
+	}
+
+	err := resolver.ResolveDeviceIDs(ctx, updates)
+	require.NoError(t, err)
+	require.Len(t, updates, 1)
+
+	assert.Equal(t, "sr:existing-1234", updates[0].DeviceID)
+}
+
+func TestDeviceIdentityResolver_StrongIDSkipsIPFallback(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any()).
+		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
+
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Nil()).
+		Return([]*models.UnifiedDevice{
+			{
+				DeviceID: "sr:existing-1234",
+				IP:       "10.0.0.1",
+				Metadata: &models.DiscoveredField[map[string]string]{
+					Value: map[string]string{
+						"armis_device_id": "armis-existing",
+					},
+				},
+			},
+		}, nil).
+		AnyTimes()
+
+	resolver := NewDeviceIdentityResolver(mockDB, logger.NewTestLogger())
+
+	updates := []*models.DeviceUpdate{
+		{
+			IP:        "10.0.0.1",
+			DeviceID:  "",
+			Partition: "default",
 			Source:    models.DiscoverySourceArmis,
 			Metadata: map[string]string{
 				"armis_device_id": "armis-1",
@@ -184,7 +224,8 @@ func TestDeviceIdentityResolver_IPFallbackWhenStrongUnknown(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, updates, 1)
 
-	assert.Equal(t, "sr:existing-1234", updates[0].DeviceID)
+	assert.True(t, isServiceRadarUUID(updates[0].DeviceID))
+	assert.NotEqual(t, "sr:existing-1234", updates[0].DeviceID)
 }
 
 func TestDeviceIdentityResolver_StrongIDMergesAcrossIPChurn(t *testing.T) {

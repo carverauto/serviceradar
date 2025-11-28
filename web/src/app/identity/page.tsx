@@ -15,6 +15,7 @@
 */
 
 import { Suspense } from "react";
+import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import SightingsDashboard from "@/components/Identity/SightingsDashboard";
 
@@ -41,11 +42,19 @@ export default async function IdentityPage({ searchParams }: IdentityPageProps) 
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Identity &amp; Sightings</h1>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          Review network sightings before promotion, trigger reconciliation, and audit override actions.
-        </p>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Identity &amp; Sightings</h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Review network sightings before promotion, trigger reconciliation, and audit override actions.
+          </p>
+        </div>
+        <Link
+          href="/identity/config"
+          className="inline-flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-100"
+        >
+          Manage identity config
+        </Link>
       </div>
       <Suspense
         fallback={<div className="text-center p-6 text-gray-600 dark:text-gray-400">Loading identity data...</div>}

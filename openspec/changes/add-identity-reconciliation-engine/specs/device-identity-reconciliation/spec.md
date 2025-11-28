@@ -41,6 +41,14 @@ The system SHALL expose API/UI views that list sightings separately from device 
 - **WHEN** an operator issues a promotion action on a sighting via API/UI
 - **THEN** the system creates/attaches to the appropriate device per identifiers, records the override in audit logs, and updates listings so the sighting no longer appears active
 
+#### Scenario: Operator sees promotion context
+- **WHEN** a sighting is displayed in the UI
+- **THEN** the UI highlights the identifiers present (hostname/MAC/fingerprint), shows the active policy state (e.g., promotion disabled or awaiting thresholds), and explains why it remains a sighting
+
+#### Scenario: Paginate through active sightings
+- **WHEN** an operator has more active sightings than the current page size
+- **THEN** the API/UI return total counts and support `limit`/`offset` pagination so the operator can page through all sightings
+
 ### Requirement: Promotion Lineage Visibility
 The system SHALL surface on device detail views when and how a device was promoted (source sighting ID, time, policy/override) so operators can audit identity assignment.
 
@@ -55,6 +63,13 @@ The system SHALL treat strong identifiers (e.g., MAC, Armis ID, NetBox ID) as ca
 - **WHEN** multiple sightings arrive over time for the same `armis_device_id` or MAC but with different IPs/hostnames
 - **THEN** the reconciliation engine attaches them to the existing canonical device instead of creating new devices, and total device inventory stays within the configured strong-ID baseline tolerance
 
+### Requirement: Sweep Sightings Enrich Strong-ID Devices
+The system SHALL merge sweep/poller sightings whose IP matches an existing Tier 1 UnifiedDevice anchored by strong identifiers, treating the sighting as availability/port enrichment instead of leaving it pending in the sightings store.
+
+#### Scenario: Sweep sighting attaches to canonical device
+- **WHEN** a sweep sighting arrives for an IP that maps to exactly one canonical device in the partition (keyed by strong identifiers and without conflicting identifiers)
+- **THEN** the sighting is absorbed into that device, availability/port data is recorded on the device, an audit entry is written, and the sighting no longer remains active
+
 ### Requirement: Promotion Availability Defaults
 The system SHALL mark devices promoted from sightings as unavailable/unknown until a successful health probe is ingested and SHALL NOT mark them available solely because a sighting was promoted.
 
@@ -68,15 +83,3 @@ The system SHALL surface metrics/alerts when reconciled device counts deviate be
 #### Scenario: Device count exceeds baseline tolerance
 - **WHEN** the reconciled device inventory exceeds the configured baseline (e.g., 50k faker devices) by more than the tolerance for a sustained window
 - **THEN** an alert is emitted and promotion is paused or gated until the drift is addressed or explicitly overridden
-
-## MODIFIED Requirements
-### Requirement: Sightings UI/API Separation and Overrides
-The system SHALL expose API/UI views that list sightings separately from device inventory, SHALL show why each sighting remains unpromoted (policy state, identifiers present), SHALL support paginated navigation with totals, and SHALL allow authorized operators to promote, dismiss, or override policy for individual sightings with audit logging.
-
-#### Scenario: Operator sees promotion context
-- **WHEN** a sighting is displayed in the UI
-- **THEN** the UI highlights the identifiers present (hostname/MAC/fingerprint), shows the active policy state (e.g., promotion disabled or awaiting thresholds), and explains why it remains a sighting
-
-#### Scenario: Paginate through active sightings
-- **WHEN** an operator has more active sightings than the current page size
-- **THEN** the API/UI return total counts and support `limit`/`offset` pagination so the operator can page through all sightings

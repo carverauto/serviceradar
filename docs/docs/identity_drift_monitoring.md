@@ -13,10 +13,10 @@ Use the identity reconciliation gauges to detect device cardinality drift and pa
 groups:
   - name: identity-drift
     rules:
-      - record: servicerdar:identity_cardinality_drift_over_baseline
+      - record: serviceradar:identity_cardinality_drift_over_baseline
         expr: max by (job) (identity_cardinality_drift_percent) > 0
       - alert: IdentityDriftExceeded
-        expr: servicerdar:identity_cardinality_drift_over_baseline > 0
+        expr: serviceradar:identity_cardinality_drift_over_baseline > 0
         for: 10m
         labels:
           severity: warning
@@ -42,3 +42,4 @@ groups:
 - Keep `pauseOnDrift` enabled in demo/labs; in prod, pair alerts with runbooks before disabling pause.
 - Correlate with `identity_cardinality_blocked` and promotion run metrics (`identity_promotions_*`) to see if drift coincides with blocked promotions.
 - If drift is intentional (e.g., temporary load), raise baseline and restart core with updated config; otherwise, investigate faker/sync sources for duplicate strong IDs or promotion misconfig.
+- If scraping via the Prometheus bridge, confirm `/metrics` is enabled on core and scraped successfully before trusting drift alerts.
