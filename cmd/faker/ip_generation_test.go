@@ -29,7 +29,7 @@ func TestGenerateSingleIP_UniqueFor50kDevices(t *testing.T) {
 	seen := make(map[string]int, numDevices)
 
 	for i := 0; i < numDevices; i++ {
-		ip := generateSingleIP(i, 0)
+		ip := generateSingleIP(i)
 		if prevIndex, exists := seen[ip]; exists {
 			t.Errorf("IP collision: %s generated for device index %d and %d", ip, prevIndex, i)
 		}
@@ -42,19 +42,14 @@ func TestGenerateSingleIP_UniqueFor50kDevices(t *testing.T) {
 }
 
 func TestGenerateSingleIP_UniqueWithOffsets(t *testing.T) {
-	// Test that different offsets produce unique IPs for multi-homed devices
-	// Note: Offsets are designed to work within the total range capacity
-	// The primary use case (offset=0) is tested separately for 50k uniqueness
-	const numDevices = 1000 // Smaller set to test offset behavior
-	seen := make(map[string]struct{})
+	// Generating the same index twice should always return the same IP.
+	const index = 42
 
-	// Test just primary IPs with offset 0
-	for i := 0; i < numDevices; i++ {
-		ip := generateSingleIP(i, 0)
-		if _, exists := seen[ip]; exists {
-			t.Errorf("IP collision: %s (device %d)", ip, i)
-		}
-		seen[ip] = struct{}{}
+	ip1 := generateSingleIP(index)
+	ip2 := generateSingleIP(index)
+
+	if ip1 != ip2 {
+		t.Fatalf("expected deterministic IP generation for index %d, got %s and %s", index, ip1, ip2)
 	}
 }
 
@@ -62,7 +57,7 @@ func TestGenerateSingleIP_ValidFormat(t *testing.T) {
 	testCases := []int{0, 100, 1000, 10000, 49999}
 
 	for _, idx := range testCases {
-		ip := generateSingleIP(idx, 0)
+		ip := generateSingleIP(idx)
 
 		// Basic validation - should have 4 octets
 		var o1, o2, o3, o4 int

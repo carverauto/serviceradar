@@ -20,6 +20,10 @@ const (
 	metricPromotionRunTimestampName    = "identity_promotion_run_timestamp_ms"
 	metricPromotionShadowOnlyRunName   = "identity_promotion_shadow_only_last_batch"
 	metricPromotionAttemptsLastRunName = "identity_promotions_attempted_last_batch"
+	metricDriftCurrentDevicesName      = "identity_cardinality_current"
+	metricDriftBaselineDevicesName     = "identity_cardinality_baseline"
+	metricDriftPercentName             = "identity_cardinality_drift_percent"
+	metricDriftBlockedName             = "identity_cardinality_blocked"
 )
 
 // identityMetricsObservatory stores the latest promotion reconciliation measurements.
@@ -32,6 +36,10 @@ type identityMetricsObservatory struct {
 	attemptedLastRun     atomic.Int64
 	runTimestampMs       atomic.Int64
 	runAgeMs             atomic.Int64
+	driftCurrentDevices  atomic.Int64
+	driftBaselineDevices atomic.Int64
+	driftPercent         atomic.Int64
+	driftBlocked         atomic.Int64
 }
 
 var (
@@ -49,6 +57,10 @@ var (
 		attemptedLastRun     metric.Int64ObservableGauge
 		runTimestampMs       metric.Int64ObservableGauge
 		runAgeMs             metric.Int64ObservableGauge
+		driftCurrentDevices  metric.Int64ObservableGauge
+		driftBaselineDevices metric.Int64ObservableGauge
+		driftPercent         metric.Int64ObservableGauge
+		driftBlocked         metric.Int64ObservableGauge
 	}
 	identityMetricsRegistration metric.Registration //nolint:unused,gochecknoglobals // kept to retain callback
 )
@@ -121,6 +133,38 @@ func initIdentityMetrics() {
 		otel.Handle(err)
 		return
 	}
+	identityMetricsGauges.driftCurrentDevices, err = meter.Int64ObservableGauge(
+		metricDriftCurrentDevicesName,
+		metric.WithDescription("Current unified device count used for identity drift detection"),
+	)
+	if err != nil {
+		otel.Handle(err)
+		return
+	}
+	identityMetricsGauges.driftBaselineDevices, err = meter.Int64ObservableGauge(
+		metricDriftBaselineDevicesName,
+		metric.WithDescription("Baseline device count configured for identity drift detection"),
+	)
+	if err != nil {
+		otel.Handle(err)
+		return
+	}
+	identityMetricsGauges.driftPercent, err = meter.Int64ObservableGauge(
+		metricDriftPercentName,
+		metric.WithDescription("Percentage drift from baseline (positive means over baseline)"),
+	)
+	if err != nil {
+		otel.Handle(err)
+		return
+	}
+	identityMetricsGauges.driftBlocked, err = meter.Int64ObservableGauge(
+		metricDriftBlockedName,
+		metric.WithDescription("1 when promotion is blocked due to identity cardinality drift, otherwise 0"),
+	)
+	if err != nil {
+		otel.Handle(err)
+		return
+	}
 
 	registration, err := meter.RegisterCallback(func(ctx context.Context, observer metric.Observer) error {
 		observer.ObserveInt64(identityMetricsGauges.promotedLastRun, identityMetricsData.promotedLastRun.Load())
@@ -131,6 +175,10 @@ func initIdentityMetrics() {
 		observer.ObserveInt64(identityMetricsGauges.attemptedLastRun, identityMetricsData.attemptedLastRun.Load())
 		observer.ObserveInt64(identityMetricsGauges.runTimestampMs, identityMetricsData.runTimestampMs.Load())
 		observer.ObserveInt64(identityMetricsGauges.runAgeMs, identityMetricsData.runAgeMs.Load())
+		observer.ObserveInt64(identityMetricsGauges.driftCurrentDevices, identityMetricsData.driftCurrentDevices.Load())
+		observer.ObserveInt64(identityMetricsGauges.driftBaselineDevices, identityMetricsData.driftBaselineDevices.Load())
+		observer.ObserveInt64(identityMetricsGauges.driftPercent, identityMetricsData.driftPercent.Load())
+		observer.ObserveInt64(identityMetricsGauges.driftBlocked, identityMetricsData.driftBlocked.Load())
 		return nil
 	},
 		identityMetricsGauges.promotedLastRun,
@@ -141,6 +189,10 @@ func initIdentityMetrics() {
 		identityMetricsGauges.attemptedLastRun,
 		identityMetricsGauges.runTimestampMs,
 		identityMetricsGauges.runAgeMs,
+		identityMetricsGauges.driftCurrentDevices,
+		identityMetricsGauges.driftBaselineDevices,
+		identityMetricsGauges.driftPercent,
+		identityMetricsGauges.driftBlocked,
 	)
 	if err != nil {
 		otel.Handle(err)
@@ -173,4 +225,29 @@ func recordIdentityPromotionMetrics(attempted, promoted, eligibleAuto, shadowRea
 		age = 0
 	}
 	identityMetricsData.runAgeMs.Store(age.Milliseconds())
+}
+
+// recordIdentityDriftMetrics captures cardinality drift metrics and whether promotion is blocked.
+func recordIdentityDriftMetrics(current, baseline int64, tolerancePercent int, blocked bool) {
+	identityMetricsOnce.Do(initIdentityMetrics)
+
+	identityMetricsData.driftCurrentDevices.Store(current)
+	identityMetricsData.driftBaselineDevices.Store(baseline)
+
+	var percent int64
+	if baseline > 0 {
+		percent = ((current - baseline) * 100) / baseline
+	}
+	identityMetricsData.driftPercent.Store(percent)
+
+	if blocked {
+		identityMetricsData.driftBlocked.Store(1)
+	} else {
+		identityMetricsData.driftBlocked.Store(0)
+	}
+
+	// Preserve tolerance as a baseline in the percent gauge when baseline is zero to avoid division by zero; zero indicates disabled.
+	if baseline == 0 && tolerancePercent > 0 {
+		identityMetricsData.driftPercent.Store(int64(tolerancePercent))
+	}
 }

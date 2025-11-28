@@ -507,7 +507,7 @@ func buildUpdateFromNetworkSighting(s *models.NetworkSighting) *models.DeviceUpd
 		Hostname:    hostname,
 		MAC:         mac,
 		Metadata:    meta,
-		IsAvailable: true,
+		IsAvailable: false,
 	}
 }
 
@@ -519,6 +519,10 @@ func (r *DeviceRegistry) ReconcileSightings(ctx context.Context) error {
 
 	promoCfg := r.identityCfg.Promotion
 	if !promoCfg.Enabled && !promoCfg.ShadowMode {
+		return nil
+	}
+
+	if blocked := r.blockPromotionForCardinalityDrift(ctx); blocked {
 		return nil
 	}
 
@@ -807,6 +811,50 @@ func (r *DeviceRegistry) CountSightings(ctx context.Context, partition string) (
 		return 0, errDatabaseNotConfigured
 	}
 	return r.db.CountActiveSightings(ctx, partition)
+}
+
+func (r *DeviceRegistry) blockPromotionForCardinalityDrift(ctx context.Context) bool {
+	if r.db == nil || r.identityCfg == nil {
+		return false
+	}
+
+	drift := r.identityCfg.Drift
+	if drift.BaselineDevices <= 0 {
+		recordIdentityDriftMetrics(0, 0, drift.TolerancePercent, false)
+		return false
+	}
+
+	current, err := r.db.CountUnifiedDevices(ctx)
+	if err != nil {
+		r.logger.Warn().Err(err).Msg("Failed to count devices for identity drift check")
+		recordIdentityDriftMetrics(0, int64(drift.BaselineDevices), drift.TolerancePercent, false)
+		return false
+	}
+
+	baseline := int64(drift.BaselineDevices)
+	limit := baseline
+	if drift.TolerancePercent > 0 {
+		limit = baseline + (baseline*int64(drift.TolerancePercent))/100
+	}
+
+	blocked := drift.PauseOnDrift && current > limit
+	recordIdentityDriftMetrics(current, baseline, drift.TolerancePercent, blocked)
+
+	if blocked {
+		r.logger.Warn().
+			Int64("device_count", current).
+			Int64("baseline_devices", baseline).
+			Int("tolerance_percent", drift.TolerancePercent).
+			Msg("Identity reconciliation promotion paused due to cardinality drift")
+	} else if drift.AlertOnDrift && current > limit {
+		r.logger.Info().
+			Int64("device_count", current).
+			Int64("baseline_devices", baseline).
+			Int("tolerance_percent", drift.TolerancePercent).
+			Msg("Identity reconciliation device count exceeds baseline tolerance")
+	}
+
+	return blocked
 }
 
 func buildIdentifiersFromUpdate(u *models.DeviceUpdate, now time.Time) []*models.DeviceIdentifier {
