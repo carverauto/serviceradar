@@ -2,29 +2,30 @@ namespace: demo
 image:
   registryPullSecret: ghcr-io-cred
   tags:
+    appTag: &appTag "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
     # ServiceRadar UUID identity system - generates stable device IDs based on strong identifiers
-    core: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    web: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    core: *appTag
+    web: *appTag
     nats: "2.12.2-alpine"
-    datasvc: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    agent: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    poller: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    snmpChecker: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    dbEventWriter: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    otel: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    mapper: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    trapd: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    flowgger: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    zen: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    datasvc: *appTag
+    agent: *appTag
+    poller: *appTag
+    snmpChecker: *appTag
+    dbEventWriter: *appTag
+    otel: *appTag
+    mapper: *appTag
+    trapd: *appTag
+    flowgger: *appTag
+    zen: *appTag
     # Armis sync uses empty DeviceID - registry generates ServiceRadar UUIDs
-    sync: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    rperfClient: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    faker: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    rperfChecker: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    tools: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
-    srql: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    sync: *appTag
+    rperfClient: *appTag
+    faker: "sha-f29d4f40c12c4a560dfa5703d451352829637a1f"
+    rperfChecker: *appTag
+    tools: *appTag
+    srql: *appTag
     kong: "3.7"
-    kongConfig: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    kongConfig: *appTag
 srql:
   enabled: true
 kong:
@@ -51,9 +52,9 @@ core:
   identity:
     enabled: true
     # Enable promotion so sightings are turned into devices automatically.
-    sightingsOnlyMode: false
+    sightingsOnlyMode: true
     promotion:
-      enabled: true
+      enabled: false
       shadowMode: false
       minPersistence: "1h"
       requireHostname: true

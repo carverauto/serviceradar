@@ -1471,3 +1471,70 @@ func TestReconcileSightingsBlocksOnCardinalityDrift(t *testing.T) {
 	err := registry.ReconcileSightings(ctx)
 	require.NoError(t, err)
 }
+
+func TestReconcileSightingsPromotesEligibleSightings(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+
+	now := time.Now().UTC()
+	sighting := &models.NetworkSighting{
+		SightingID: "s-123",
+		Partition:  "default",
+		IP:         "10.50.0.5",
+		Source:     models.DiscoverySourceSweep,
+		Status:     models.SightingStatusActive,
+		FirstSeen:  now.Add(-2 * time.Hour),
+		LastSeen:   now,
+		Metadata: map[string]string{
+			"hostname":         "demo-host",
+			"mac":              "aa:bb:cc:dd:ee:ff",
+			"armis_device_id":  "armis-eligible",
+			"fingerprint_hash": "fp-123",
+		},
+	}
+
+	mockDB.EXPECT().
+		ListPromotableSightings(gomock.Any(), gomock.Any()).
+		Return([]*models.NetworkSighting{sighting}, nil)
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			for _, u := range updates {
+				if u.DeviceID == "" {
+					u.DeviceID = "default:" + u.IP
+				}
+			}
+			return nil
+		})
+
+	mockDB.EXPECT().
+		MarkSightingsPromoted(gomock.Any(), gomock.Any()).
+		Return(int64(1), nil)
+
+	mockDB.EXPECT().
+		UpsertDeviceIdentifiers(gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	mockDB.EXPECT().
+		InsertSightingEvents(gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	cfg := &models.IdentityReconciliationConfig{
+		Enabled: true,
+		Promotion: models.PromotionConfig{
+			Enabled:        true,
+			ShadowMode:     false,
+			MinPersistence: 0,
+		},
+	}
+
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithIdentityReconciliationConfig(cfg))
+
+	err := registry.ReconcileSightings(ctx)
+	require.NoError(t, err)
+}

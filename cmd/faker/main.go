@@ -493,9 +493,14 @@ func reassignIPsFromPool(gen *DeviceGenerator, count int, logChanges bool) int {
 
 func shouldAllowIPExpansion() bool {
 	if config == nil {
-		return true
+		return false
 	}
-	return config.Simulation.IPShuffle.AllowExpansion
+	if config.Simulation.IPShuffle.AllowExpansion {
+		log.Printf("IP expansion requested but disabled to preserve fixed device cardinality")
+		config.Simulation.IPShuffle.AllowExpansion = false
+		config.Simulation.IPShuffle.PoolHeadroomPercent = 0
+	}
+	return false
 }
 
 func (dg *DeviceGenerator) allocateFreeIP() (string, bool) {

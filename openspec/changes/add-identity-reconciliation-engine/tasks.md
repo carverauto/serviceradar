@@ -8,12 +8,12 @@
 - [x] 1.7 Add metrics, logs, and alerts for sightings, promotions, merges, reaper actions, and cache health; update dashboards.
 - [ ] 1.8 Migration/backfill: seed subnet policies, reconcile/merge existing duplicates with audit, and ensure rollback plan.
 - [ ] 1.9 Tests: unit, integration, and load for ingestion → promotion/merge flow; shadow-mode validation in demo before enabling automation.
-- [ ] 1.10 Expose identity reconciliation config via API/UI with KV-backed edits (flags, promotion, reaper, fingerprinting) and validation.
+- [x] 1.10 Expose identity reconciliation config via API/UI with KV-backed edits (flags, promotion, reaper, fingerprinting) and validation.
 - [x] 1.11 Improve sightings UX: show why each sighting is pending (policy state/identifiers), add pagination/totals, and capture device promotion lineage in device detail views.
 - [x] 1.12 Clamp faker/DIRE inputs: enforce deterministic 50k IP/hostname pairs with persisted dataset reuse, prevent IP shuffle from expanding the address set, and alert when cardinality drifts beyond tolerance.
 - [x] 1.13 Fix promotion availability semantics: promoted sightings must start unavailable/unknown until probes report health; wire metrics to catch false-positive availability.
 - [ ] 1.14 Add regression tests that ingest the faker dataset end-to-end (sightings → promotion) and assert device counts stay at 50k (+internal) with unreachable devices remaining unavailable.
-- [ ] 1.15 Publish Prometheus alert templates for identity drift/promotion metrics and include in monitoring bridge change to keep identity telemetry consumable.
+- [x] 1.15 Publish Prometheus alert templates for identity drift/promotion metrics and include in monitoring bridge change to keep identity telemetry consumable.
 - [x] 1.16 Drift mitigations: disable fingerprint gating when fingerprinting is off, pin faker Helm values to non-expanding IP shuffle defaults, and retag demo images (sha-13d9cc627541190980bbad253ae6b3484a2648a0) to keep counts anchored.
 
 ## Deployment status

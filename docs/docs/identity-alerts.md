@@ -1,6 +1,6 @@
 # Identity Reconciliation Alert Rules (Prometheus examples)
 
-Use the gauges from `identity-metrics.md` to wire alerts. Replace label selectors to match your OTEL→Prometheus pipeline.
+Use the gauges from `identity-metrics.md` to wire alerts. Replace label selectors to match your OTEL→Prometheus pipeline (or the Prometheus `/metrics` bridge when enabled via the monitoring bridge change).
 
 ```yaml
 groups:
@@ -55,9 +55,40 @@ groups:
         annotations:
           summary: "Sighting volume surge"
           description: "Attempted promotions jumped above 2x the 1h baseline. Check for replay or discovery floods."
+
+      # Drift over baseline (50k demo default; adjust per env)
+      - alert: IdentityDriftExceeded
+        expr: identity_cardinality_drift_percent > 3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Identity drift above tolerance"
+          description: "Device inventory is {{ printf \"%.0f\" $value }}%% over baseline. Check faker inputs, promotion policy, and blocked merges."
+
+      # Promotion paused because drift guard is on
+      - alert: IdentityPromotionPausedOnDrift
+        expr: identity_cardinality_blocked == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Identity promotion paused due to drift"
+          description: "Promotion is paused because drift exceeded tolerance. Review baseline, unblock intentional growth, or investigate duplicate strong IDs."
+
+      # Missing scrapes (bridge or OTEL pipeline broken/disabled)
+      - alert: IdentityMetricsMissing
+        expr: absent(identity_promotions_attempted_last_batch)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Identity metrics not present"
+          description: "Prometheus cannot find identity promotion metrics. Confirm identity reconciliation is enabled and `/metrics` is being scraped via OTEL bridge."
 ```
 
 ### Dashboard suggestions
 - Single-stat panels for attempted, promoted, eligible-auto, shadow-ready, blocked-policy.
 - Time-series for attempted/promoted/blocked to visualize trends after policy changes.
 - Run age/timestamp side by side with a 15m threshold line.
+- Drift panels: `identity_cardinality_drift_percent` with tolerance lines and a single-stat for `identity_cardinality_blocked`.
