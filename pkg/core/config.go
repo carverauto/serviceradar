@@ -281,6 +281,11 @@ func applyIdentityDefaults(cfg *models.IdentityReconciliationConfig) *models.Ide
 		cfg.Drift.TolerancePercent = 0
 	}
 
+	// Avoid impossible promotion policies: fingerprint cannot be required when fingerprinting is disabled.
+	if !cfg.Fingerprinting.Enabled && cfg.Promotion.RequireFingerprint {
+		cfg.Promotion.RequireFingerprint = false
+	}
+
 	return cfg
 }
 

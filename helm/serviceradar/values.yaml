@@ -3,28 +3,28 @@ image:
   registryPullSecret: ghcr-io-cred
   tags:
     # ServiceRadar UUID identity system - generates stable device IDs based on strong identifiers
-    core: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    web: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
+    core: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    web: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
     nats: "2.12.2-alpine"
-    datasvc: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    agent: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    poller: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    snmpChecker: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    dbEventWriter: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    otel: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    mapper: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    trapd: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    flowgger: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    zen: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
+    datasvc: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    agent: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    poller: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    snmpChecker: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    dbEventWriter: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    otel: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    mapper: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    trapd: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    flowgger: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    zen: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
     # Armis sync uses empty DeviceID - registry generates ServiceRadar UUIDs
-    sync: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    rperfClient: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    faker: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    rperfChecker: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    tools: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
-    srql: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
+    sync: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    rperfClient: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    faker: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    rperfChecker: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    tools: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
+    srql: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
     kong: "3.7"
-    kongConfig: "sha-a1fdcc5f31710310451c98d868c6db193cba174c"
+    kongConfig: "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
 srql:
   enabled: true
 kong:
@@ -57,7 +57,7 @@ core:
       shadowMode: false
       minPersistence: "1h"
       requireHostname: true
-      requireFingerprint: true
+      requireFingerprint: false
     fingerprinting:
       enabled: false
       portBudget: 32

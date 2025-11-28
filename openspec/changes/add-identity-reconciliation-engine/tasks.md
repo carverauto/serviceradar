@@ -14,6 +14,7 @@
 - [x] 1.13 Fix promotion availability semantics: promoted sightings must start unavailable/unknown until probes report health; wire metrics to catch false-positive availability.
 - [ ] 1.14 Add regression tests that ingest the faker dataset end-to-end (sightings → promotion) and assert device counts stay at 50k (+internal) with unreachable devices remaining unavailable.
 - [ ] 1.15 Publish Prometheus alert templates for identity drift/promotion metrics and include in monitoring bridge change to keep identity telemetry consumable.
+- [x] 1.16 Drift mitigations: disable fingerprint gating when fingerprinting is off, pin faker Helm values to non-expanding IP shuffle defaults, and retag demo images (sha-13d9cc627541190980bbad253ae6b3484a2648a0) to keep counts anchored.
 
 ## Deployment status
 - Built all OCI images with `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')`.
