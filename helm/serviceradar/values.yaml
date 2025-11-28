@@ -4,7 +4,7 @@ image:
   tags:
     appTag: &appTag "sha-13d9cc627541190980bbad253ae6b3484a2648a0"
     # ServiceRadar UUID identity system - generates stable device IDs based on strong identifiers
-    core: *appTag
+    core: "sha-a8d4913e1788"
     web: *appTag
     nats: "2.12.2-alpine"
     datasvc: *appTag

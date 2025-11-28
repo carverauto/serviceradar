@@ -115,6 +115,7 @@ func (r *DeviceIdentityResolver) ResolveDeviceID(ctx context.Context, update *mo
 
 	// Extract identifiers from update
 	identifiers := r.extractIdentifiers(update)
+	hasStrongIdentifier := len(identifiers.StrongIDKeys) > 0
 
 	// Check cache first for strong identifiers
 	if deviceID := r.checkCacheForStrongIdentifiers(identifiers); deviceID != "" {
@@ -148,12 +149,12 @@ func (r *DeviceIdentityResolver) ResolveDeviceID(ctx context.Context, update *mo
 		return update.DeviceID, nil
 	}
 
-	// Check cache for weak identifier (IP)
-	// We check this even if strong identifiers are present, because we want to
-	// reuse the existing UUID for this IP if one exists.
-	for _, ip := range identifiers.IPs {
-		if deviceID := r.cache.getIPMapping(ip); deviceID != "" {
-			return deviceID, nil
+	// Check cache for weak identifier (IP) when no strong identifiers are present.
+	if !hasStrongIdentifier {
+		for _, ip := range identifiers.IPs {
+			if deviceID := r.cache.getIPMapping(ip); deviceID != "" {
+				return deviceID, nil
+			}
 		}
 	}
 
@@ -197,6 +198,7 @@ func (r *DeviceIdentityResolver) ResolveDeviceIDs(ctx context.Context, updates [
 		}
 
 		identifiers := r.extractIdentifiers(update)
+		hasStrongIdentifier := len(identifiers.StrongIDKeys) > 0
 		updateIdentifiers[update] = identifiers
 
 		// Check cache first
@@ -205,10 +207,8 @@ func (r *DeviceIdentityResolver) ResolveDeviceIDs(ctx context.Context, updates [
 			continue
 		}
 
-		// Check weak identifier cache
-		// We check this even if strong identifiers are present, because we want to
-		// reuse the existing UUID for this IP if one exists.
-		if len(identifiers.IPs) > 0 {
+		// Check weak identifier cache when no strong identifiers are present
+		if !hasStrongIdentifier && len(identifiers.IPs) > 0 {
 			for _, ip := range identifiers.IPs {
 				if deviceID := r.cache.getIPMapping(ip); deviceID != "" {
 					update.DeviceID = deviceID
@@ -382,6 +382,59 @@ func (r *DeviceIdentityResolver) extractIdentifiers(update *models.DeviceUpdate)
 	return ids
 }
 
+func deviceMatchesStrongIdentifiers(device *models.UnifiedDevice, ids *deviceIdentifiers) bool {
+	if device == nil || ids == nil {
+		return false
+	}
+
+	if ids.MAC != "" && device.MAC != nil && normalizeMAC(device.MAC.Value) == ids.MAC {
+		return true
+	}
+
+	meta := map[string]string{}
+	if device.Metadata != nil && device.Metadata.Value != nil {
+		meta = device.Metadata.Value
+	}
+
+	if ids.ArmisID != "" && strings.TrimSpace(meta["armis_device_id"]) == ids.ArmisID {
+		return true
+	}
+
+	if ids.NetboxID != "" {
+		if strings.TrimSpace(meta["integration_id"]) == ids.NetboxID {
+			return true
+		}
+		if strings.TrimSpace(meta["netbox_device_id"]) == ids.NetboxID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func unifiedDeviceHasStrongIdentifiers(device *models.UnifiedDevice) bool {
+	if device == nil {
+		return false
+	}
+
+	if device.MAC != nil && strings.TrimSpace(device.MAC.Value) != "" {
+		return true
+	}
+
+	if device.Metadata == nil || device.Metadata.Value == nil {
+		return false
+	}
+
+	meta := device.Metadata.Value
+	for _, key := range []string{"armis_device_id", "integration_id", "netbox_device_id", "canonical_device_id"} {
+		if strings.TrimSpace(meta[key]) != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
 // checkCacheForStrongIdentifiers checks the cache for any strong identifier match
 func (r *DeviceIdentityResolver) checkCacheForStrongIdentifiers(ids *deviceIdentifiers) string {
 	for _, key := range ids.StrongIDKeys {
@@ -396,6 +449,7 @@ func (r *DeviceIdentityResolver) checkCacheForStrongIdentifiers(ids *deviceIdent
 // IMPORTANT: Only returns devices that already have ServiceRadar UUIDs.
 // Legacy partition:IP format devices are NOT returned - they will get new ServiceRadar UUIDs.
 func (r *DeviceIdentityResolver) findExistingDevice(ctx context.Context, ids *deviceIdentifiers) string {
+	hasStrongIdentifier := len(ids.StrongIDKeys) > 0
 	if len(ids.IPs) == 0 && ids.IP != "" {
 		ids.IPs = []string{ids.IP}
 	}
@@ -433,13 +487,22 @@ func (r *DeviceIdentityResolver) findExistingDevice(ctx context.Context, ids *de
 				}
 			}
 
-			// Priority 3: Weak identifier (IP) - always allow fallback to find existing device by IP
-			// This ensures we reuse the existing UUID for this IP, even if we're adding strong identifiers.
 			for _, device := range devices {
 				// Skip legacy IDs - they need migration
 				if isLegacyIPBasedID(device.DeviceID) {
 					continue
 				}
+
+				if hasStrongIdentifier {
+					if deviceMatchesStrongIdentifiers(device, ids) {
+						return device.DeviceID
+					}
+					if unifiedDeviceHasStrongIdentifiers(device) {
+						continue
+					}
+					return device.DeviceID
+				}
+
 				return device.DeviceID
 			}
 		}
@@ -451,7 +514,7 @@ func (r *DeviceIdentityResolver) findExistingDevice(ctx context.Context, ids *de
 // batchFindExistingDevices queries the database for existing devices matching a batch of updates.
 // IMPORTANT: This now only returns matches for devices that already have ServiceRadar UUIDs.
 // Legacy partition:IP format IDs are NOT returned - those devices will get new ServiceRadar UUIDs.
-// Always allows IP fallback to merge with existing devices (useful when the existing device was created by sweep data).
+// Allows IP fallback only when no strong identifiers are present (useful when the existing device was created by sweep data).
 func (r *DeviceIdentityResolver) batchFindExistingDevices(
 	ctx context.Context,
 	updates []*models.DeviceUpdate,
@@ -516,6 +579,7 @@ func (r *DeviceIdentityResolver) batchFindExistingDevices(
 		// Match updates to existing devices (prioritize MAC over IP)
 		for _, update := range updates {
 			ids := updateIdentifiers[update]
+			hasStrongIdentifier := len(ids.StrongIDKeys) > 0
 
 			// Try MAC match first (strong identifier)
 			if ids.MAC != "" {
@@ -525,15 +589,27 @@ func (r *DeviceIdentityResolver) batchFindExistingDevices(
 				}
 			}
 
-			// Try IP match when we have no strong identifiers or when configured to allow fallback
-			// Actually, we ALWAYS want to try IP match if strong ID match failed, because we want to
-			// attach to the existing device at this IP.
 			if len(ids.IPs) > 0 {
 				for _, ip := range ids.IPs {
-					if device := deviceByIP[ip]; device != nil {
-						result[update] = device.DeviceID
-						break
+					device := deviceByIP[ip]
+					if device == nil {
+						continue
 					}
+
+					if hasStrongIdentifier {
+						if deviceMatchesStrongIdentifiers(device, ids) {
+							result[update] = device.DeviceID
+							break
+						}
+						if !unifiedDeviceHasStrongIdentifiers(device) {
+							result[update] = device.DeviceID
+							break
+						}
+						continue
+					}
+
+					result[update] = device.DeviceID
+					break
 				}
 			}
 		}
@@ -854,16 +930,39 @@ func generateServiceRadarDeviceID(update *models.DeviceUpdate) string {
 	h := sha256.New()
 	h.Write([]byte("serviceradar-device-v2:"))
 
-	// Primary identity anchor
-	ip := strings.TrimSpace(update.IP)
 	partition := strings.TrimSpace(update.Partition)
 	if partition == "" {
 		partition = "default"
 	}
 
-	// UUID is ALWAYS based on IP + partition
-	// This ensures determinism regardless of discovery order
-	_, _ = fmt.Fprintf(h, "partition:%s:ip:%s", partition, ip)
+	addSeed := func(prefix, value string, seeds *[]string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		*seeds = append(*seeds, prefix+":"+value)
+	}
+
+	var seeds []string
+	if update.Metadata != nil {
+		addSeed("armis", update.Metadata["armis_device_id"], &seeds)
+		addSeed("integration", update.Metadata["integration_id"], &seeds)
+		addSeed("netbox", update.Metadata["netbox_device_id"], &seeds)
+	}
+	if update.MAC != nil {
+		addSeed("mac", normalizeMAC(*update.MAC), &seeds)
+	}
+
+	if len(seeds) > 0 {
+		_, _ = fmt.Fprintf(h, "partition:%s:", partition)
+		for _, seed := range seeds {
+			h.Write([]byte(seed))
+		}
+	} else {
+		// Fallback: anchor on IP when no strong identifiers are present.
+		ip := strings.TrimSpace(update.IP)
+		_, _ = fmt.Fprintf(h, "partition:%s:ip:%s", partition, ip)
+	}
 
 	// Add timestamp for uniqueness if no identifiers
 	hashBytes := h.Sum(nil)

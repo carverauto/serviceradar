@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -85,7 +86,7 @@ func TestHandleUpdateIdentityConfigMergesAndPersists(t *testing.T) {
 
 	var saved map[string]interface{}
 	var putKeys []string
-	server.kvPutFn = func(ctx context.Context, key string, value []byte, _ uint64) error {
+	server.kvPutFn = func(ctx context.Context, key string, value []byte, _ int64) error {
 		putKeys = append(putKeys, key)
 		if key == "config/core.json" {
 			require.NoError(t, json.Unmarshal(value, &saved))
@@ -110,7 +111,11 @@ func TestHandleUpdateIdentityConfigMergesAndPersists(t *testing.T) {
 	promoRaw, ok := identityRaw["promotion"].(map[string]interface{})
 	require.True(t, ok)
 	require.Equal(t, true, promoRaw["enabled"])
-	require.Equal(t, "12h", promoRaw["min_persistence"])
+	persistence, ok := promoRaw["min_persistence"].(string)
+	require.True(t, ok)
+	duration, err := time.ParseDuration(persistence)
+	require.NoError(t, err)
+	require.Equal(t, 12*time.Hour, duration)
 
 	driftRaw, ok := identityRaw["drift"].(map[string]interface{})
 	require.True(t, ok)

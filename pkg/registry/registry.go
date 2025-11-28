@@ -158,6 +158,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	// Batch metrics
 	var droppedEmptyIP int
 	for _, u := range updates {
+		scrubArmisCanonical(u)
 		r.normalizeUpdate(u)
 		deviceupdate.SanitizeMetadata(u)
 		// Allow empty IPs for service components (pollers, agents, checkers)
@@ -183,11 +184,15 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 				filtered = append(filtered, u)
 				continue
 			}
+			if u.Source == models.DiscoverySourceSweep {
+				sightings = append(sightings, u)
+				continue
+			}
 			if isAuthoritativeServiceUpdate(u) {
 				filtered = append(filtered, u)
 				continue
 			}
-			if r.identityCfg.SightingsOnly || !hasStrongIdentity(u) {
+			if !hasStrongIdentity(u) {
 				sightings = append(sightings, u)
 				continue
 			}
@@ -349,8 +354,8 @@ func (r *DeviceRegistry) deduplicateBatch(updates []*models.DeviceUpdate) []*mod
 		return updates
 	}
 
-	// Track IPs seen in this batch
-	seenIPs := make(map[string]*models.DeviceUpdate)
+	// Track weak (IP-only) updates seen in this batch; strong-identity updates are not deduplicated.
+	seenWeakByIP := make(map[string]*models.DeviceUpdate)
 	result := make([]*models.DeviceUpdate, 0, len(updates))
 
 	for _, update := range updates {
@@ -360,13 +365,20 @@ func (r *DeviceRegistry) deduplicateBatch(updates []*models.DeviceUpdate) []*mod
 			continue
 		}
 
-		if existing, ok := seenIPs[update.IP]; ok {
-			// Same IP twice in batch - merge into first occurrence
-			r.mergeUpdateMetadata(existing, update)
-		} else {
-			seenIPs[update.IP] = update
+		// If the update has a strong identity (e.g., Armis ID/MAC), do not deduplicate on IP.
+		if hasStrongIdentity(update) {
 			result = append(result, update)
+			continue
 		}
+
+		if existing, ok := seenWeakByIP[update.IP]; ok {
+			// Same IP twice in batch for weak sightings - merge into first occurrence
+			r.mergeUpdateMetadata(existing, update)
+			continue
+		}
+
+		seenWeakByIP[update.IP] = update
+		result = append(result, update)
 	}
 
 	return result
@@ -1109,8 +1121,11 @@ func canonicalIDCandidate(update *models.DeviceUpdate) string {
 		return ""
 	}
 
-	// Check canonical_device_id from metadata, but skip legacy partition:IP format IDs
-	if update.Metadata != nil {
+	// If this update carries an Armis strong ID, ignore any provided canonical_device_id
+	// to avoid collapsing distinct Armis devices that happen to share a canonical hint.
+	if update.Metadata != nil && strings.TrimSpace(update.Metadata["armis_device_id"]) != "" {
+		// Fall through to DeviceID handling below.
+	} else if update.Metadata != nil {
 		if canonical := strings.TrimSpace(update.Metadata["canonical_device_id"]); canonical != "" {
 			// Skip legacy partition:IP format IDs - they should be migrated to ServiceRadar UUIDs
 			if !isLegacyIPBasedID(canonical) {
@@ -1119,6 +1134,7 @@ func canonicalIDCandidate(update *models.DeviceUpdate) string {
 		}
 	}
 
+	// Check canonical_device_id from metadata, but skip legacy partition:IP format IDs
 	// Use the current DeviceID, but skip legacy partition:IP format IDs
 	deviceID := strings.TrimSpace(update.DeviceID)
 	if deviceID != "" && !isLegacyIPBasedID(deviceID) {
@@ -1998,6 +2014,27 @@ func shouldBypassDeletionFilter(update *models.DeviceUpdate) bool {
 	}
 
 	return false
+}
+
+// scrubArmisCanonical removes Armis-provided canonical hints so strong Armis identifiers
+// are treated as authoritative even when Armis reuses canonical_device_id across devices.
+func scrubArmisCanonical(update *models.DeviceUpdate) {
+	if update == nil || update.Metadata == nil {
+		return
+	}
+
+	if !strings.EqualFold(update.Metadata["integration_type"], "armis") {
+		return
+	}
+
+	delete(update.Metadata, "canonical_device_id")
+	delete(update.Metadata, "canonical_partition")
+	delete(update.Metadata, "canonical_metadata_hash")
+	delete(update.Metadata, "canonical_revision")
+
+	if update.DeviceID != "" && !isServiceDeviceID(update.DeviceID) {
+		update.DeviceID = ""
+	}
 }
 
 // normalizeUpdate ensures a DeviceUpdate has the minimum required information.
