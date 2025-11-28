@@ -1447,6 +1447,9 @@ func TestReconcileSightingsBlocksOnCardinalityDrift(t *testing.T) {
 		CountUnifiedDevices(gomock.Any()).
 		Return(int64(52000), nil)
 	mockDB.EXPECT().
+		ListActiveSightings(gomock.Any(), "", sweepSightingMergeBatchSize, 0).
+		Return([]*models.NetworkSighting{}, nil)
+	mockDB.EXPECT().
 		ListPromotableSightings(gomock.Any(), gomock.Any()).
 		Times(0)
 
@@ -1467,6 +1470,173 @@ func TestReconcileSightingsBlocksOnCardinalityDrift(t *testing.T) {
 	}
 
 	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithIdentityReconciliationConfig(cfg))
+
+	err := registry.ReconcileSightings(ctx)
+	require.NoError(t, err)
+}
+
+func TestProcessBatchDeviceUpdates_MergesSweepIntoCanonicalDevice(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+
+	cfg := &models.IdentityReconciliationConfig{Enabled: true}
+	registry := NewDeviceRegistry(
+		mockDB,
+		logger.NewTestLogger(),
+		WithIdentityReconciliationConfig(cfg),
+		WithCNPGIdentityResolver(mockDB),
+	)
+
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any()).
+		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
+
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, ips []string, deviceIDs []string) ([]*models.UnifiedDevice, error) {
+			if len(ips) > 0 {
+				return []*models.UnifiedDevice{
+					{
+						DeviceID: "sr:canonical",
+						IP:       ips[0],
+						MAC:      &models.DiscoveredField[string]{Value: "aa:bb:cc:dd:ee:ff"},
+					},
+				}, nil
+			}
+			if len(deviceIDs) > 0 {
+				return []*models.UnifiedDevice{
+					{
+						DeviceID: deviceIDs[0],
+						IP:       "10.1.1.1",
+						MAC:      &models.DiscoveredField[string]{Value: "aa:bb:cc:dd:ee:ff"},
+					},
+				}, nil
+			}
+			return []*models.UnifiedDevice{}, nil
+		}).
+		AnyTimes()
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			require.Len(t, updates, 1)
+			assert.Equal(t, "sr:canonical", updates[0].DeviceID)
+			assert.Equal(t, models.DiscoverySourceSweep, updates[0].Source)
+			assert.True(t, updates[0].IsAvailable)
+			return nil
+		})
+
+	sweepUpdate := &models.DeviceUpdate{
+		IP:          "10.1.1.1",
+		Partition:   "default",
+		Source:      models.DiscoverySourceSweep,
+		Timestamp:   time.Now().UTC(),
+		IsAvailable: true,
+	}
+
+	require.NoError(t, registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{sweepUpdate}))
+}
+
+func TestReconcileSightingsMergesSweepSightingsByIP(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+
+	cfg := &models.IdentityReconciliationConfig{
+		Enabled: true,
+		Promotion: models.PromotionConfig{
+			Enabled:    false,
+			ShadowMode: false,
+		},
+	}
+
+	registry := NewDeviceRegistry(
+		mockDB,
+		logger.NewTestLogger(),
+		WithIdentityReconciliationConfig(cfg),
+		WithCNPGIdentityResolver(mockDB),
+	)
+
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any()).
+		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
+
+	sighting := &models.NetworkSighting{
+		SightingID: "s-merge",
+		Partition:  "default",
+		IP:         "10.2.2.2",
+		Source:     models.DiscoverySourceSweep,
+		Status:     models.SightingStatusActive,
+		FirstSeen:  time.Now().Add(-30 * time.Minute),
+		LastSeen:   time.Now(),
+		Metadata: map[string]string{
+			"hostname":     "sweep-host",
+			"is_available": "true",
+		},
+	}
+
+	mockDB.EXPECT().
+		ListActiveSightings(gomock.Any(), "", sweepSightingMergeBatchSize, 0).
+		Return([]*models.NetworkSighting{sighting}, nil)
+
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, ips []string, deviceIDs []string) ([]*models.UnifiedDevice, error) {
+			if len(ips) > 0 {
+				return []*models.UnifiedDevice{
+					{
+						DeviceID: "sr:merge-target",
+						IP:       ips[0],
+						MAC:      &models.DiscoveredField[string]{Value: "AA:BB:CC:DD:EE:11"},
+					},
+				}, nil
+			}
+			if len(deviceIDs) > 0 {
+				return []*models.UnifiedDevice{
+					{
+						DeviceID: deviceIDs[0],
+						IP:       "10.2.2.2",
+						MAC:      &models.DiscoveredField[string]{Value: "AA:BB:CC:DD:EE:11"},
+					},
+				}, nil
+			}
+			return []*models.UnifiedDevice{}, nil
+		}).
+		AnyTimes()
+
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
+			require.Len(t, updates, 1)
+			assert.Equal(t, "sr:merge-target", updates[0].DeviceID)
+			assert.Equal(t, models.DiscoverySourceSweep, updates[0].Source)
+			assert.True(t, updates[0].IsAvailable)
+			assert.Equal(t, "s-merge", updates[0].Metadata["sighting_id"])
+			return nil
+		})
+
+	mockDB.EXPECT().
+		MarkSightingsPromoted(gomock.Any(), gomock.Any()).
+		Return(int64(1), nil)
+
+	mockDB.EXPECT().
+		InsertSightingEvents(gomock.Any(), gomock.AssignableToTypeOf([]*models.SightingEvent{})).
+		Return(nil)
 
 	err := registry.ReconcileSightings(ctx)
 	require.NoError(t, err)
@@ -1496,6 +1666,10 @@ func TestReconcileSightingsPromotesEligibleSightings(t *testing.T) {
 			"fingerprint_hash": "fp-123",
 		},
 	}
+
+	mockDB.EXPECT().
+		ListActiveSightings(gomock.Any(), "", sweepSightingMergeBatchSize, 0).
+		Return([]*models.NetworkSighting{}, nil)
 
 	mockDB.EXPECT().
 		ListPromotableSightings(gomock.Any(), gomock.Any()).

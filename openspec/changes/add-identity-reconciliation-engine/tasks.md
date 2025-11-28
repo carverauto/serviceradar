@@ -15,6 +15,7 @@
 - [ ] 1.14 Add regression tests that ingest the faker dataset end-to-end (sightings → promotion) and assert device counts stay at 50k (+internal) with unreachable devices remaining unavailable.
 - [x] 1.15 Publish Prometheus alert templates for identity drift/promotion metrics and include in monitoring bridge change to keep identity telemetry consumable.
 - [x] 1.16 Drift mitigations: disable fingerprint gating when fingerprinting is off, pin faker Helm values to non-expanding IP shuffle defaults, and retag demo images (sha-13d9cc627541190980bbad253ae6b3484a2648a0) to keep counts anchored.
+- [ ] 1.17 Sweep sighting enrichment merge: when a sweep sighting IP matches a Tier 1 canonical device, merge it instead of leaving it pending, apply availability/port data, emit audit/metrics, and drain the existing ~50k backlog of sweep sightings.
 
 ## Deployment status
 - Built/pushed faker with non-expanding IP shuffle: `ghcr.io/carverauto/serviceradar-faker:sha-f29d4f40c12c4a560dfa5703d451352829637a1f` (digest `sha256:70248044ebb68d0a5dd32959cd089f06494c101b830777bae5af6c13090628f3`) and updated Helm to pin it.

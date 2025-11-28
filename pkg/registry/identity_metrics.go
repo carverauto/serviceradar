@@ -24,6 +24,7 @@ const (
 	metricDriftBaselineDevicesName     = "identity_cardinality_baseline"
 	metricDriftPercentName             = "identity_cardinality_drift_percent"
 	metricDriftBlockedName             = "identity_cardinality_blocked"
+	metricSweepMergesLastRunName       = "identity_sweep_merges_last_batch"
 )
 
 // identityMetricsObservatory stores the latest promotion reconciliation measurements.
@@ -40,6 +41,7 @@ type identityMetricsObservatory struct {
 	driftBaselineDevices atomic.Int64
 	driftPercent         atomic.Int64
 	driftBlocked         atomic.Int64
+	sweepMergesLastRun   atomic.Int64
 }
 
 var (
@@ -61,6 +63,7 @@ var (
 		driftBaselineDevices metric.Int64ObservableGauge
 		driftPercent         metric.Int64ObservableGauge
 		driftBlocked         metric.Int64ObservableGauge
+		sweepMergesLastRun   metric.Int64ObservableGauge
 	}
 	identityMetricsRegistration metric.Registration //nolint:unused,gochecknoglobals // kept to retain callback
 )
@@ -165,6 +168,14 @@ func initIdentityMetrics() {
 		otel.Handle(err)
 		return
 	}
+	identityMetricsGauges.sweepMergesLastRun, err = meter.Int64ObservableGauge(
+		metricSweepMergesLastRunName,
+		metric.WithDescription("Number of sweep sightings merged directly into canonical devices in the latest batch"),
+	)
+	if err != nil {
+		otel.Handle(err)
+		return
+	}
 
 	registration, err := meter.RegisterCallback(func(ctx context.Context, observer metric.Observer) error {
 		observer.ObserveInt64(identityMetricsGauges.promotedLastRun, identityMetricsData.promotedLastRun.Load())
@@ -179,6 +190,7 @@ func initIdentityMetrics() {
 		observer.ObserveInt64(identityMetricsGauges.driftBaselineDevices, identityMetricsData.driftBaselineDevices.Load())
 		observer.ObserveInt64(identityMetricsGauges.driftPercent, identityMetricsData.driftPercent.Load())
 		observer.ObserveInt64(identityMetricsGauges.driftBlocked, identityMetricsData.driftBlocked.Load())
+		observer.ObserveInt64(identityMetricsGauges.sweepMergesLastRun, identityMetricsData.sweepMergesLastRun.Load())
 		return nil
 	},
 		identityMetricsGauges.promotedLastRun,
@@ -193,6 +205,7 @@ func initIdentityMetrics() {
 		identityMetricsGauges.driftBaselineDevices,
 		identityMetricsGauges.driftPercent,
 		identityMetricsGauges.driftBlocked,
+		identityMetricsGauges.sweepMergesLastRun,
 	)
 	if err != nil {
 		otel.Handle(err)
@@ -250,4 +263,20 @@ func recordIdentityDriftMetrics(current, baseline int64, tolerancePercent int, b
 	if baseline == 0 && tolerancePercent > 0 {
 		identityMetricsData.driftPercent.Store(int64(tolerancePercent))
 	}
+}
+
+// recordSweepMergeMetrics tracks sweep sighting merges into canonical devices.
+func recordSweepMergeMetrics(merged int, runTime time.Time) {
+	identityMetricsOnce.Do(initIdentityMetrics)
+
+	identityMetricsData.sweepMergesLastRun.Store(int64(merged))
+
+	timestampMs := runTime.UnixMilli()
+	identityMetricsData.runTimestampMs.Store(timestampMs)
+
+	age := time.Since(runTime)
+	if age < 0 {
+		age = 0
+	}
+	identityMetricsData.runAgeMs.Store(age.Milliseconds())
 }

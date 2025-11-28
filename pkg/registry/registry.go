@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +55,7 @@ const (
 	integrationTypeNetbox           = "netbox"
 	defaultFirstSeenLookupChunkSize = 512
 	cnpgIdentifierChunkSize         = 1000
+	sweepSightingMergeBatchSize     = 1000
 )
 
 // Option configures DeviceRegistry behaviour.
@@ -177,6 +179,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 
 	if r.identityCfg != nil && r.identityCfg.Enabled {
 		var sightings []*models.DeviceUpdate
+		var sweepCandidates []*models.DeviceUpdate
 		filtered := make([]*models.DeviceUpdate, 0, len(valid))
 
 		for _, u := range valid {
@@ -185,7 +188,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 				continue
 			}
 			if u.Source == models.DiscoverySourceSweep {
-				sightings = append(sightings, u)
+				sweepCandidates = append(sweepCandidates, u)
 				continue
 			}
 			if isAuthoritativeServiceUpdate(u) {
@@ -197,6 +200,16 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 				continue
 			}
 			filtered = append(filtered, u)
+		}
+
+		if len(sweepCandidates) > 0 {
+			attached, pending := r.attachSweepSightings(ctx, sweepCandidates)
+			if len(attached) > 0 {
+				filtered = append(filtered, attached...)
+			}
+			if len(pending) > 0 {
+				sightings = append(sightings, pending...)
+			}
 		}
 
 		if len(sightings) > 0 {
@@ -384,6 +397,60 @@ func (r *DeviceRegistry) deduplicateBatch(updates []*models.DeviceUpdate) []*mod
 	return result
 }
 
+func (r *DeviceRegistry) attachSweepSightings(ctx context.Context, sweeps []*models.DeviceUpdate) ([]*models.DeviceUpdate, []*models.DeviceUpdate) {
+	if len(sweeps) == 0 {
+		return nil, nil
+	}
+
+	ips := make([]string, 0, len(sweeps))
+	for _, s := range sweeps {
+		if s == nil {
+			continue
+		}
+		if ip := strings.TrimSpace(s.IP); ip != "" {
+			ips = append(ips, ip)
+		}
+	}
+
+	resolved := make(map[string]string, len(ips))
+	if err := r.resolveIPsToCanonical(ctx, ips, resolved); err != nil {
+		r.logger.Warn().Err(err).Int("count", len(ips)).Msg("Failed to resolve sweep IPs for canonical merge")
+	}
+
+	attached := make([]*models.DeviceUpdate, 0, len(sweeps))
+	pending := make([]*models.DeviceUpdate, 0, len(sweeps))
+	merged := 0
+
+	for _, s := range sweeps {
+		if s == nil {
+			continue
+		}
+
+		canonical := strings.TrimSpace(resolved[strings.TrimSpace(s.IP)])
+		if canonical == "" {
+			pending = append(pending, s)
+			continue
+		}
+
+		if s.Metadata == nil {
+			s.Metadata = map[string]string{}
+		}
+		s.Metadata["canonical_device_id"] = canonical
+		s.DeviceID = canonical
+		attached = append(attached, s)
+		merged++
+	}
+
+	if merged > 0 {
+		r.logger.Info().
+			Int("merged", merged).
+			Int("pending", len(pending)).
+			Msg("Merged sweep updates into canonical devices by IP")
+	}
+
+	return attached, pending
+}
+
 type sightingStore interface {
 	StoreNetworkSightings(ctx context.Context, sightings []*models.NetworkSighting) error
 }
@@ -481,7 +548,27 @@ func copySightingMetadata(u *models.DeviceUpdate) map[string]string {
 		meta["service_type"] = string(*u.ServiceType)
 	}
 
+	meta["is_available"] = strconv.FormatBool(u.IsAvailable)
+
 	return meta
+}
+
+func parseAvailabilityFromMetadata(meta map[string]string) bool {
+	if len(meta) == 0 {
+		return false
+	}
+
+	raw := strings.TrimSpace(meta["is_available"])
+	if raw == "" {
+		return false
+	}
+
+	parsed, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false
+	}
+
+	return parsed
 }
 
 // buildUpdateFromNetworkSighting normalizes a stored sighting into a DeviceUpdate for promotion.
@@ -523,10 +610,167 @@ func buildUpdateFromNetworkSighting(s *models.NetworkSighting) *models.DeviceUpd
 	}
 }
 
+func (r *DeviceRegistry) mergeSweepSightingsByIP(ctx context.Context, batchSize int) (int, error) {
+	if r.identityCfg == nil || !r.identityCfg.Enabled {
+		return 0, nil
+	}
+	if r.db == nil {
+		return 0, errDatabaseNotConfigured
+	}
+	if batchSize <= 0 {
+		batchSize = sweepSightingMergeBatchSize
+	}
+
+	var merged int
+	idsToMark := make([]string, 0)
+	events := make([]*models.SightingEvent, 0)
+
+	offset := 0
+
+	for {
+		sightings, err := r.db.ListActiveSightings(ctx, "", batchSize, offset)
+		if err != nil {
+			return merged, fmt.Errorf("list active sightings: %w", err)
+		}
+		if len(sightings) == 0 {
+			break
+		}
+
+		sweeps := make([]*models.NetworkSighting, 0, len(sightings))
+		for _, s := range sightings {
+			if s == nil || s.Source != models.DiscoverySourceSweep || s.Status != models.SightingStatusActive {
+				continue
+			}
+			sweeps = append(sweeps, s)
+		}
+
+		if len(sweeps) > 0 {
+			ips := make([]string, 0, len(sweeps))
+			for _, s := range sweeps {
+				if ip := strings.TrimSpace(s.IP); ip != "" {
+					ips = append(ips, ip)
+				}
+			}
+
+			resolved := make(map[string]string, len(ips))
+			if err := r.resolveIPsToCanonical(ctx, ips, resolved); err != nil {
+				r.logger.Warn().Err(err).Int("count", len(ips)).Msg("Failed to resolve sweep sightings for canonical merge")
+			}
+
+			updates := make([]*models.DeviceUpdate, 0, len(sweeps))
+			idsBatch := make([]string, 0, len(sweeps))
+			eventsBatch := make([]*models.SightingEvent, 0, len(sweeps))
+			now := time.Now()
+
+			for _, s := range sweeps {
+				canonical := strings.TrimSpace(resolved[strings.TrimSpace(s.IP)])
+				if canonical == "" {
+					continue
+				}
+
+				update := buildUpdateFromNetworkSighting(s)
+				if update == nil {
+					continue
+				}
+
+				if update.Metadata == nil {
+					update.Metadata = map[string]string{}
+				}
+				delete(update.Metadata, "_promoted_sighting")
+				update.Metadata["canonical_device_id"] = canonical
+				update.Source = models.DiscoverySourceSweep
+				update.DeviceID = canonical
+				update.IsAvailable = parseAvailabilityFromMetadata(update.Metadata)
+
+				updates = append(updates, update)
+				idsBatch = append(idsBatch, s.SightingID)
+				eventsBatch = append(eventsBatch, &models.SightingEvent{
+					SightingID: s.SightingID,
+					DeviceID:   canonical,
+					EventType:  "merged",
+					Actor:      "system",
+					Details: map[string]string{
+						"ip":        s.IP,
+						"partition": s.Partition,
+						"source":    string(s.Source),
+					},
+					CreatedAt: now,
+				})
+			}
+
+			if len(updates) > 0 {
+				if err := r.ProcessBatchDeviceUpdates(ctx, updates); err != nil {
+					return merged, fmt.Errorf("process merged sweep sightings: %w", err)
+				}
+				merged += len(updates)
+				idsToMark = append(idsToMark, idsBatch...)
+				events = append(events, eventsBatch...)
+			}
+		}
+
+		if len(sightings) < batchSize {
+			break
+		}
+		offset += batchSize
+	}
+
+	if merged == 0 {
+		recordSweepMergeMetrics(0, time.Now())
+		return 0, nil
+	}
+
+	if err := r.markSightingsPromotedChunked(ctx, idsToMark); err != nil {
+		return merged, fmt.Errorf("mark sweep sightings promoted: %w", err)
+	}
+
+	if len(events) > 0 {
+		if err := r.db.InsertSightingEvents(ctx, events); err != nil {
+			r.logger.Warn().Err(err).Msg("Failed to record sweep sighting merge events")
+		}
+	}
+
+	recordSweepMergeMetrics(merged, time.Now())
+
+	r.logger.Info().
+		Int("merged_sweep_sightings", merged).
+		Msg("Merged sweep sightings into canonical devices")
+
+	return merged, nil
+}
+
+func (r *DeviceRegistry) markSightingsPromotedChunked(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	const chunkSize = 1000
+
+	for start := 0; start < len(ids); start += chunkSize {
+		end := start + chunkSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+
+		if _, err := r.db.MarkSightingsPromoted(ctx, ids[start:end]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // ReconcileSightings promotes eligible network sightings into device updates based on policy.
 func (r *DeviceRegistry) ReconcileSightings(ctx context.Context) error {
 	if r.identityCfg == nil || !r.identityCfg.Enabled {
 		return nil
+	}
+
+	if merged, err := r.mergeSweepSightingsByIP(ctx, sweepSightingMergeBatchSize); err != nil {
+		r.logger.Warn().Err(err).Msg("Failed to merge sweep sightings by IP")
+	} else if merged > 0 {
+		r.logger.Debug().
+			Int("merged_sweep_sightings", merged).
+			Msg("Merged sweep sightings before promotion pass")
 	}
 
 	promoCfg := r.identityCfg.Promotion
