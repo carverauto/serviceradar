@@ -10,97 +10,94 @@ ServiceRadar uses a distributed, multi-layered architecture designed for flexibi
 ## Architecture Overview
 
 ```mermaid
-graph TD
-    subgraph "User Edge"
-        Browser[Web Browser]
-        WebUI[Web UI<br/>Next.js + Nginx]
-        Kong[Kong API Gateway<br/>:9080]
-        JWKS[Core JWKS<br/>/auth/jwks.json]
-
-        Browser -->|HTTPS| WebUI
-        WebUI -->|REST + JWT| Kong
-        Kong -->|Fetch keys| JWKS
+flowchart TB
+    subgraph External["External Access"]
+        User([User Browser])
+        EdgeAgent([Edge Agents])
     end
 
-    subgraph "Service Layer"
-        CoreAPI[Core Service<br/>:8090/:50052]
-        SRQL[SRQL Service<br/>:8080/:api/query]
-        Datasvc[Datasvc<br/>:50057]
-        Kong -->|Validated request| CoreAPI
-        Kong -->|Validated request| SRQL
-        Datasvc -->|KV API| CoreAPI
+    subgraph Cluster["Kubernetes Cluster"]
+        subgraph Ingress["Edge Layer"]
+            ING[Ingress Controller]
+            WEB[Web UI<br/>Next.js :3000]
+            KONG[Kong Gateway<br/>:8000]
+        end
+
+        subgraph API["API Layer"]
+            CORE[Core Service<br/>REST :8090 / gRPC :50052]
+            SRQL[SRQL Service<br/>:8080]
+        end
+
+        subgraph Monitoring["Monitoring Layer"]
+            POLLER[Poller<br/>:50053]
+            AGENT[In-Cluster Agent<br/>:50051]
+        end
+
+        subgraph DataPlane["Data Plane"]
+            NATS[NATS JetStream<br/>:4222]
+            DATASVC[Datasvc<br/>KV Store]
+            CNPG[(TimescaleDB<br/>CloudNativePG)]
+        end
+
+        subgraph Collectors["Telemetry Collectors"]
+            OTEL[OTel Collector]
+            ZEN[Zen Rules Engine]
+            DBWRITER[DB Event Writer]
+        end
+
+        subgraph Identity["Identity & Security"]
+            SPIRE[SPIRE Server]
+            SPIREAGENT[SPIRE Agents<br/>DaemonSet]
+        end
     end
 
-    subgraph "Monitoring Layer"
-        Poller1[Poller 1<br/>:50053]
-        Poller2[Poller 2<br/>:50053]
-        CoreAPI ---|gRPC<br/>bidirectional| Poller1
-        CoreAPI ---|gRPC<br/>bidirectional| Poller2
-    end
+    %% User traffic flow
+    User -->|HTTPS| ING
+    ING --> WEB
+    WEB -->|SSR API| CORE
+    WEB -->|/api/*| KONG
+    KONG -->|JWT validated| CORE
+    KONG -->|/api/query| SRQL
 
-    subgraph "Target Infrastructure"
-        Agent1[Agent 1<br/>:50051]
-        Agent2[Agent 2<br/>:50051]
-        Agent3[Agent 3<br/>:50051]
+    %% Edge agent flow
+    EdgeAgent <-->|gRPC mTLS| POLLER
 
-        Poller1 ---|gRPC<br/>checks| Agent1
-        Poller1 ---|gRPC<br/>checks| Agent2
-        Poller2 ---|gRPC<br/>checks| Agent3
+    %% Internal monitoring
+    POLLER --> CORE
+    POLLER <--> AGENT
 
-        Agent1 --- Service1[Services<br/>Processes<br/>Ports]
-        Agent2 --- Service2[Services<br/>Processes<br/>Ports]
-        Agent3 --- Service3[Services<br/>Processes<br/>Ports]
-    end
+    %% Data flow
+    CORE --> CNPG
+    SRQL --> CNPG
+    CORE <--> NATS
+    DATASVC <--> NATS
+    OTEL --> NATS
+    ZEN --> NATS
+    DBWRITER --> NATS
+    DBWRITER --> CNPG
 
-    subgraph "Identity Plane"
-        SPIREServer[SPIRE Server
-(StatefulSet)]
-        SPIREController[Controller Manager
-Sidecar]
-        SPIREWorkloadAgent[SPIRE Workload Agent
-(DaemonSet)]
-
-        SPIREController --- SPIREServer
-        SPIREServer --- SPIREWorkloadAgent
-    end
-
-    subgraph "Data Layer"
-        CNPG[CNPG / Timescale]
-        CoreAPI -->|Ingest + Queries| CNPG
-        SRQL -->|SQL Translation| CNPG
-    end
-
-    subgraph "Alerting"
-        CoreAPI -->|Webhooks| Discord[Discord]
-        CoreAPI -->|Webhooks| Other[Other<br/>Services]
-    end
-
-    CoreAPI -. |Workload API| -> SPIREWorkloadAgent
-    Poller1 -. |Workload API| -> SPIREWorkloadAgent
-    Datasvc -. |Workload API| -> SPIREWorkloadAgent
-    Agent1 -. |Workload API| -> SPIREWorkloadAgent
-
-    style Browser fill:#f9f,stroke:#333,stroke-width:1px
-    style WebUI fill:#b9c,stroke:#333,stroke-width:1px
-    style Kong fill:#f5b,stroke:#333,stroke-width:1px
-    style JWKS fill:#ffd,stroke:#333,stroke-width:1px
-    style CoreAPI fill:#9bc,stroke:#333,stroke-width:2px
-    style SRQL fill:#9bc,stroke:#333,stroke-width:1px
-    style Datasvc fill:#9bc,stroke:#333,stroke-width:1px
-    style Poller1 fill:#adb,stroke:#333,stroke-width:1px
-    style Poller2 fill:#adb,stroke:#333,stroke-width:1px
-    style Agent1 fill:#fd9,stroke:#333,stroke-width:1px
-    style Agent2 fill:#fd9,stroke:#333,stroke-width:1px
-    style Agent3 fill:#fd9,stroke:#333,stroke-width:1px
-    style SPIREServer fill:#d6c9ff,stroke:#333,stroke-width:1px
-    style SPIREController fill:#d6c9ff,stroke:#333,stroke-width:1px
-    style SPIREWorkloadAgent fill:#d6c9ff,stroke:#333,stroke-width:1px
-    style CNPG fill:#cfc,stroke:#333,stroke-width:1px
-    style Discord fill:#c9d,stroke:#333,stroke-width:1px
-    style Other fill:#c9d,stroke:#333,stroke-width:1px
+    %% Identity (simplified - all services use SPIRE)
+    SPIREAGENT -.->|workload certs| SPIRE
 ```
 
-Kong now sits between the Web UI and the backend APIs as the policy enforcement point. It validates RS256-signed JWTs against the Core’s JWKS endpoint before forwarding traffic to either the Core service or the dedicated SRQL microservice. Downstream, SRQL translates `/api/query` requests into CNPG/Timescale SQL while the Core continues handling control-plane APIs. Pollers and agents still rely on mTLS for gRPC communication, keeping user traffic, edge policy, and service-to-service links cleanly separated.
+**Traffic flow summary:**
+- **User requests** → Ingress → Web UI (static/SSR) or Kong (API)
+- **Kong** validates JWTs and routes to Core (control plane) or SRQL (queries)
+- **Edge agents** connect via gRPC mTLS to the Poller
+- **NATS JetStream** provides pub/sub messaging and KV storage for all services
+- **SPIRE** issues X.509 certificates to all workloads via DaemonSet agents
+
+### Cluster requirements
+
+- **Ingress**: Required for the web UI and API. Default host/class/TLS come from `helm/serviceradar/values.yaml` (`ingress.enabled=true`, `host=demo.serviceradar.cloud`, `className=nginx`, `tls.secretName=serviceradar-prod-tls`, `tls.clusterIssuer=carverauto-issuer`). If you use nginx, mirror the demo annotations (`nginx.ingress.kubernetes.io/proxy-body-size: 100m`, `proxy-buffer-size: 128k`, `proxy-buffers-number: 4`, `proxy-busy-buffers-size: 256k`, `proxy-read-timeout: 86400`, `proxy-send-timeout: 86400`, `proxy-connect-timeout: 60`) to keep SRQL streams and large asset uploads stable (`k8s/demo/prod/ingress.yaml`).
+
+- **Persistent storage (~150GiB/node baseline)**: CNPG consumes the majority (3×100Gi PVCs from `k8s/demo/base/spire/cnpg-cluster.yaml`). JetStream adds 30Gi (`k8s/demo/base/serviceradar-nats.yaml`), OTEL 10Gi (`k8s/demo/base/serviceradar-otel.yaml`), and several 5Gi claims for Core, Datasvc, Mapper, Zen, DB event writer, plus 1Gi claims for Faker/Flowgger/Cert jobs. Spread the CNPG replicas across at least three nodes with SSD-class volumes; the extra PVCs lift per-node needs to roughly 150Gi of usable capacity when co-scheduled with CNPG.
+
+- **CPU / memory (requested)**: Core 1 CPU / 4Gi, Poller 0.5 CPU / 2Gi (`k8s/demo/base/serviceradar-core.yaml`, `serviceradar-poller.yaml`); Kong 0.5 CPU / 1Gi; Web 0.2 CPU / 512Mi; Datasvc 0.5 CPU / 128Mi; SRQL 0.1 CPU / 128Mi; NATS 1 CPU / 8Gi; OTEL 0.2 CPU / 256Mi. The steady-state floor is ~4 vCPU and ~16 GiB for the core path, before adding optional sync/checker pods or horizontal scaling.
+
+- **Identity plane**: SPIRE server (StatefulSet) and daemonset agents must be running; services expect the workload socket at `/run/spire/sockets/agent.sock` and SPIFFE IDs derived from `spire.trustDomain` in `values.yaml`.
+
+- **TLS artifacts**: Pods mount `serviceradar-cert-data` for inter-service TLS and `cnpg-ca` for database verification; ensure these secrets/PVCs are provisioned before rolling workloads.
 
 ## Key Components
 
@@ -162,7 +159,7 @@ The Web UI provides a modern dashboard interface that:
 
 **Technical Details:**
 - Built with Next.js in SSR mode for security and performance
-- Uses Nginx as a reverse proxy on port 80
+- Exposed through the cluster ingress to `serviceradar-web` (port 3000)
 - Exchanges JWTs with Kong, which validates them against the Core JWKS endpoint
 - Supports responsive design for mobile and desktop
 
@@ -195,7 +192,7 @@ The SRQL microservice executes ServiceRadar Query Language requests:
 
 ## Device Identity Canonicalization
 
-Modern environments discover the same device from multiple angles—Armis inventory pushes metadata, KV sweep configurations create synthetic device IDs per partition, and Pollers learn about live status through TCP/ICMP sweeps. Because Timeplus streams are versioned and append-only, every new IP address or partition shuffle historically produced a brand-new `device_id`. That broke history stitching and created duplicate monitors whenever DHCP reassigned an address.
+Modern environments discover the same device from multiple angles—Armis inventory pushes metadata, KV sweep configurations create synthetic device IDs per partition, and Pollers learn about live status through TCP/ICMP sweeps. Because the Timescale hypertables are append-only, every new IP address or partition shuffle historically produced a brand-new `device_id`. That broke history stitching and created duplicate monitors whenever DHCP reassigned an address.
 
 To fix this, the Device Registry now picks a canonical identity per real-world device and keeps all telemetry flowing into that record:
 
@@ -207,7 +204,7 @@ JetStream key/value buckets disallow characters such as `:` in key segments, so 
 
 ### Why the backfill exists
 
-Before the canonicalization rules were introduced, the database already contained duplicate `device_id`s—some with long-running poller history. The new registry logic keeps things clean going forward, but we still need to reconcile the backlog so reporting and alerting stay accurate. The one-off backfill job walks the existing Timeplus tables, identifies duplicate identities, and emits tombstone `DeviceUpdate` messages to fold the old IDs into their canonical equivalents.
+Before the canonicalization rules were introduced, the database already contained duplicate `device_id`s—some with long-running poller history. The new registry logic keeps things clean going forward, but we still need to reconcile the backlog so reporting and alerting stay accurate. The one-off backfill job walks the existing Timescale tables, identifies duplicate identities, and emits tombstone `DeviceUpdate` messages to fold the old IDs into their canonical equivalents.
 
 Run the backfill from the `serviceradar-core` binary when you are ready to migrate historical data:
 
