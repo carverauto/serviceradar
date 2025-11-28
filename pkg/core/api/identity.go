@@ -12,6 +12,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+const defaultSightingActor = "system"
+
 func (s *APIServer) handleListSightings(w http.ResponseWriter, r *http.Request) {
 	if s.deviceRegistry == nil {
 		s.writeAPIError(w, http.StatusServiceUnavailable, "device registry unavailable")
@@ -95,7 +97,7 @@ func (s *APIServer) handlePromoteSighting(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	actor := "system"
+	actor := defaultSightingActor
 	if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil && user.Email != "" {
 		actor = user.Email
 	}
@@ -140,7 +142,7 @@ func (s *APIServer) handleDismissSighting(w http.ResponseWriter, r *http.Request
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
-	actor := "system"
+	actor := defaultSightingActor
 	if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil && user.Email != "" {
 		actor = user.Email
 	}
@@ -340,7 +342,7 @@ func (s *APIServer) handleUpdateIdentityConfig(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	actor := "system"
+	actor := defaultSightingActor
 	if user, ok := auth.GetUserFromContext(r.Context()); ok && user != nil && strings.TrimSpace(user.Email) != "" {
 		actor = user.Email
 	}

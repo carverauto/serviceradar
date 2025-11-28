@@ -14,6 +14,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+const coreConfigKey = "config/core.json"
+
 func TestHandleGetIdentityConfigReadsFromCoreConfig(t *testing.T) {
 	server := &APIServer{
 		identityConfig: &models.IdentityReconciliationConfig{
@@ -36,7 +38,7 @@ func TestHandleGetIdentityConfigReadsFromCoreConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	server.kvGetFn = func(ctx context.Context, key string) ([]byte, bool, uint64, error) {
-		if key == "config/core.json" {
+		if key == coreConfigKey {
 			return payload, true, 3, nil
 		}
 		return nil, false, 0, nil
@@ -78,7 +80,7 @@ func TestHandleUpdateIdentityConfigMergesAndPersists(t *testing.T) {
 	require.NoError(t, err)
 
 	server.kvGetFn = func(ctx context.Context, key string) ([]byte, bool, uint64, error) {
-		if key == "config/core.json" {
+		if key == coreConfigKey {
 			return payload, true, 2, nil
 		}
 		return nil, false, 0, nil
@@ -88,7 +90,7 @@ func TestHandleUpdateIdentityConfigMergesAndPersists(t *testing.T) {
 	var putKeys []string
 	server.kvPutFn = func(ctx context.Context, key string, value []byte, _ int64) error {
 		putKeys = append(putKeys, key)
-		if key == "config/core.json" {
+		if key == coreConfigKey {
 			require.NoError(t, json.Unmarshal(value, &saved))
 		}
 		return nil

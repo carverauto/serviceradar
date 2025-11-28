@@ -1343,6 +1343,10 @@ func TestIngestHarnessWithProbesKeepsCardinalityAndAvailability(t *testing.T) {
 }
 
 func TestDeviceIngestEndToEnd_StrongIDsSurviveIPChurn(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping end-to-end churn test in short mode")
+	}
+
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
