@@ -200,7 +200,7 @@ spec:
           secretName: cnpg-ca
       - name: spire-agent-socket
         hostPath:
-          path: /run/spire/sockets
+          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
           type: DirectoryOrCreate
 ---
 apiVersion: v1

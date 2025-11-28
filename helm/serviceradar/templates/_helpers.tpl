@@ -103,6 +103,16 @@ imagePullSecrets:
   value: "{{ default "/etc/serviceradar/certs" $vals.coreClient.certDir }}"
 {{- end -}}
 
+{{- define "serviceradar.spireSocketHostPath" -}}
+{{- $vals := .Values -}}
+{{- $ns := default .Release.Namespace $vals.spire.namespace -}}
+{{- if $vals.spire.socketHostPath }}
+{{- $vals.spire.socketHostPath }}
+{{- else }}
+{{- printf "/run/spire/%s/sockets" $ns }}
+{{- end -}}
+{{- end -}}
+
 {{- /* RBAC helper names to avoid clashes across namespaces */ -}}
 {{- define "serviceradar.spireAgentClusterRoleName" -}}
 {{- printf "%s-%s-%s" (include "serviceradar.fullname" .) .Release.Namespace "spire-agent-cluster-role" -}}

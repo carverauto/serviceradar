@@ -266,6 +266,30 @@ function buildStructuredToken(packageId: string, downloadToken: string, coreApiU
   return `edgepkg-v1:${base64UrlEncode(JSON.stringify(payload))}`;
 }
 
+function parseErrorMessage(raw: string | null | undefined): string {
+  if (!raw) {
+    return '';
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return '';
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object') {
+      if ('message' in parsed && typeof parsed.message === 'string') {
+        return parsed.message;
+      }
+      if ('error' in parsed && typeof parsed.error === 'string') {
+        return parsed.error;
+      }
+    }
+  } catch {
+    // fall through to return the raw string
+  }
+  return trimmed;
+}
+
 export default function EdgePackagesPage() {
   const [packages, setPackages] = useState<EdgePackage[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -285,6 +309,7 @@ export default function EdgePackagesPage() {
   const [defaults, setDefaults] = useState<EdgePackageDefaults | null>(null);
   const [metadataTouched, setMetadataTouched] = useState<boolean>(false);
   const [selectorsTouched, setSelectorsTouched] = useState<boolean>(false);
+  const [pollerTouched, setPollerTouched] = useState<boolean>(false);
   const [registeredAgents, setRegisteredAgents] = useState<AgentInfo[]>([]);
   const coreApiBase = useMemo(() => getPublicApiUrl(), []);
 
@@ -329,6 +354,27 @@ export default function EdgePackagesPage() {
 
   const parentPollerListId = 'edge-parent-poller-options';
   const parentAgentListId = 'edge-parent-agent-options';
+  const agentPollerMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const agent of registeredAgents) {
+      const agentID = agent.agent_id?.trim();
+      const pollerID = agent.poller_id?.trim();
+      if (agentID && pollerID && !map.has(agentID)) {
+        map.set(agentID, pollerID);
+      }
+    }
+    for (const pkg of packages) {
+      if ((pkg.component_type ?? '') !== 'agent') {
+        continue;
+      }
+      const agentID = pkg.component_id?.trim();
+      const pollerID = pkg.poller_id?.trim() || pkg.parent_id?.trim();
+      if (agentID && pollerID && !map.has(agentID)) {
+        map.set(agentID, pollerID);
+      }
+    }
+    return map;
+  }, [packages, registeredAgents]);
 
   const loadPackages = useCallback(async () => {
     setLoading(true);
@@ -469,12 +515,38 @@ export default function EdgePackagesPage() {
     });
   }, [defaults, metadataTouched, selectorsTouched, formState.componentType]);
 
+  useEffect(() => {
+    if (formState.componentType !== 'checker') {
+      return;
+    }
+    const parentAgent = formState.parentId.trim();
+    if (!parentAgent) {
+      return;
+    }
+    const derivedPoller = agentPollerMap.get(parentAgent);
+    if (!derivedPoller) {
+      return;
+    }
+    const currentPoller = formState.pollerId.trim();
+    if (pollerTouched && currentPoller) {
+      return;
+    }
+    if (currentPoller === derivedPoller) {
+      return;
+    }
+    setFormState((prev) => ({
+      ...prev,
+      pollerId: derivedPoller,
+    }));
+  }, [agentPollerMap, formState.componentType, formState.parentId, formState.pollerId, pollerTouched]);
+
   const resetForm = useCallback(() => {
     setFormState(defaultFormState);
     setFormError(null);
     setFormSubmitting(false);
     setMetadataTouched(false);
     setSelectorsTouched(false);
+    setPollerTouched(false);
   }, []);
 
   const openFormFor = useCallback(
@@ -488,8 +560,9 @@ export default function EdgePackagesPage() {
       });
       setFormError(null);
       setFormSubmitting(false);
-       setMetadataTouched(false);
-       setSelectorsTouched(false);
+      setMetadataTouched(false);
+      setSelectorsTouched(false);
+      setPollerTouched(false);
       setFormOpen(true);
     },
     [],
@@ -500,6 +573,8 @@ export default function EdgePackagesPage() {
       setMetadataTouched(true);
     } else if (field === 'selectors') {
       setSelectorsTouched(true);
+    } else if (field === 'pollerId') {
+      setPollerTouched(true);
     }
     setFormState((prev) => ({ ...prev, [field]: value }));
   };
@@ -517,6 +592,7 @@ export default function EdgePackagesPage() {
     if (!metadataTouched) {
       setMetadataTouched(false);
     }
+    setPollerTouched(false);
   };
 
   const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -606,7 +682,8 @@ export default function EdgePackagesPage() {
       });
       if (!response.ok) {
         const message = await response.text();
-        throw new Error(message || 'Failed to create edge package');
+        const parsedMessage = parseErrorMessage(message) || 'Failed to create edge package';
+        throw new Error(parsedMessage);
       }
 
       const result = await response.json();
@@ -630,7 +707,8 @@ export default function EdgePackagesPage() {
       resetForm();
     } catch (err) {
       console.error('Failed to create edge package', err);
-      setFormError(err instanceof Error ? err.message : 'Failed to create package');
+      const message = err instanceof Error ? err.message : 'Failed to create package';
+      setFormError(parseErrorMessage(message) || message);
     } finally {
       setFormSubmitting(false);
     }
