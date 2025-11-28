@@ -1,3 +1,14 @@
+# ServiceRadar v1.0.59
+
+Identity reconciliation sweep merge and demo rollout.
+
+## Whats New
+
+**1.0.59**
+- Merged sweep sightings directly into canonical devices when IPs map to strong-ID inventory, draining the ~50k backlog and surfacing sweep availability/port data on unified devices.
+- Rebuilt and deployed demo images (app tag `sha-6a68e409931e4b148541b6a8eb221f4bfeb60a14`) with helm values updated and pods rolled in `demo`.
+- Locked faker IP shuffle to fixed cardinality and adjusted short CI to skip long churn simulation to keep pipelines stable.
+
 # ServiceRadar v1.0.57
 
 Demo messaging/poller stability.
