@@ -71,12 +71,14 @@ type edgePackageCreateAPIResponse struct {
 	JoinToken     string          `json:"join_token"`
 	DownloadToken string          `json:"download_token"`
 	BundlePEM     string          `json:"bundle_pem"`
+	MTLSBundle    *mtlsBundleView `json:"mtls_bundle,omitempty"`
 }
 
 type edgePackageDeliverAPIResponse struct {
-	Package   edgePackageView `json:"package"`
-	JoinToken string          `json:"join_token"`
-	BundlePEM string          `json:"bundle_pem"`
+	Package    edgePackageView `json:"package"`
+	JoinToken  string          `json:"join_token"`
+	BundlePEM  string          `json:"bundle_pem"`
+	MTLSBundle *mtlsBundleView `json:"mtls_bundle,omitempty"`
 }
 
 type edgePackageRevokeAPIResponse struct {
@@ -85,6 +87,16 @@ type edgePackageRevokeAPIResponse struct {
 	PollerID  string    `json:"poller_id"`
 	UpdatedAt time.Time `json:"updated_at"`
 	RevokedAt time.Time `json:"revoked_at"`
+}
+
+type mtlsBundleView struct {
+	CACertPEM   string            `json:"ca_cert_pem"`
+	ClientCert  string            `json:"client_cert_pem"`
+	ClientKey   string            `json:"client_key_pem"`
+	ServerName  string            `json:"server_name,omitempty"`
+	Endpoints   map[string]string `json:"endpoints,omitempty"`
+	GeneratedAt time.Time         `json:"generated_at,omitempty"`
+	ExpiresAt   time.Time         `json:"expires_at,omitempty"`
 }
 
 // RunEdgeCommand dispatches multi-level `edge ...` invocations.
@@ -111,6 +123,15 @@ func runEdgePackageCommand(cfg *CmdConfig) error {
 		return RunEdgePackageRevoke(cfg)
 	case "token":
 		return RunEdgePackageToken(cfg)
+	case "mtls":
+		// Shorthand for sysmon-vm mTLS package creation
+		if cfg.EdgePackageComponentType == "" {
+			cfg.EdgePackageComponentType = "checker:sysmon-vm"
+		}
+		if strings.TrimSpace(cfg.EdgePackageMetadata) == "" && len(cfg.EdgePackageMetadataMap) == 0 {
+			cfg.EdgePackageMetadata = `{"security_mode":"mtls"}`
+		}
+		return RunEdgePackageCreate(cfg)
 	default:
 		return fmt.Errorf("%w: %s", errEdgeUnknownAction, cfg.EdgePackageAction)
 	}
@@ -120,6 +141,13 @@ func runEdgePackageCommand(cfg *CmdConfig) error {
 func RunEdgePackageCreate(cfg *CmdConfig) error {
 	if strings.TrimSpace(cfg.EdgePackageLabel) == "" {
 		return errEdgePackageLabel
+	}
+
+	// Inject inlined metadata map if present
+	if len(cfg.EdgePackageMetadataMap) > 0 && strings.TrimSpace(cfg.EdgePackageMetadata) == "" {
+		if err := loadMetadataPayload(nil, nil, cfg); err != nil {
+			return err
+		}
 	}
 
 	outputFormat, err := normalizeOutputFormat(cfg.EdgeOutputFormat)
@@ -164,7 +192,13 @@ func RunEdgePackageCreate(cfg *CmdConfig) error {
 	if len(cfg.EdgePackageSelectors) > 0 {
 		payload["selectors"] = trimValues(cfg.EdgePackageSelectors)
 	}
-	if cfg.EdgePackageMetadata != "" {
+	if len(cfg.EdgePackageMetadataMap) > 0 {
+		encoded, err := json.Marshal(cfg.EdgePackageMetadataMap)
+		if err != nil {
+			return fmt.Errorf("encode metadata map: %w", err)
+		}
+		payload["metadata_json"] = string(encoded)
+	} else if cfg.EdgePackageMetadata != "" {
 		payload["metadata_json"] = cfg.EdgePackageMetadata
 	}
 	if trimmed := strings.TrimSpace(cfg.EdgePackageCheckerKind); trimmed != "" {

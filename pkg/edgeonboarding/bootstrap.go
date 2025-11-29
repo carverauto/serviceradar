@@ -114,7 +114,6 @@ type Bootstrapper struct {
 	generatedConfigs map[string][]byte
 	tokenInfo        *tokenPayload
 	httpClient       *http.Client
-	embeddedAgent    *embeddedAgentProcess
 }
 
 // NewBootstrapper creates a new bootstrapper instance.

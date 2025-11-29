@@ -1,0 +1,45 @@
+{
+  "listen_addr": "0.0.0.0:50041",
+  "nats_url": "tls://nats:4222",
+  "partition": "docker",
+  "stream_name": "events",
+  "consumer_name": "db-event-writer",
+  "agent_id": "docker-db-event-writer",
+  "poller_id": "docker-poller",
+  "streams": [
+    {"subject": "events.poller.health", "table": "events"},
+    {"subject": "events.syslog.processed", "table": "events"},
+    {"subject": "events.snmp.processed", "table": "events"},
+    {"subject": "events.otel.logs", "table": "logs"},
+    {"subject": "events.otel.traces", "table": "otel_traces"},
+    {"subject": "events.otel.metrics", "table": "otel_metrics"},
+    {"subject": "events.otel.metrics.raw", "table": "otel_metrics"}
+  ],
+  "cnpg": {
+    "host": "cnpg",
+    "port": 5432,
+    "database": "serviceradar",
+    "username": "serviceradar",
+    "password": "serviceradar",
+    "ssl_mode": "require",
+    "cert_dir": "/etc/serviceradar/certs",
+    "tls": {
+      "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
+      "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
+      "ca_file": "/etc/serviceradar/certs/root.pem"
+    }
+  },
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "db-event-writer.serviceradar",
+    "role": "core",
+    "tls": {
+      "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
+      "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
+      "ca_file": "/etc/serviceradar/certs/root.pem",
+      "client_ca_file": "/etc/serviceradar/certs/root.pem",
+      "skip_verify": false
+    }
+  }
+}

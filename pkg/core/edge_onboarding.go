@@ -43,7 +43,6 @@ type ServiceManager interface {
 	RegisterPoller(ctx context.Context, reg *PollerRegistration) error
 	RegisterAgent(ctx context.Context, reg *AgentRegistration) error
 	RegisterChecker(ctx context.Context, reg *CheckerRegistration) error
-	GetAgentPollerID(ctx context.Context, agentID string) (string, error)
 }
 
 // Service registration types - mirror registry package to avoid import cycle
@@ -1599,15 +1598,6 @@ func (s *edgeOnboardingService) lookupPollerForAgent(ctx context.Context, agentI
 		return "", fmt.Errorf("edge onboarding: lookup agent %s: %w", agentID, err)
 	}
 	if len(pkgs) == 0 {
-		if s.serviceRegistry != nil {
-			pollerID, regErr := s.serviceRegistry.GetAgentPollerID(ctx, agentID)
-			if regErr == nil && strings.TrimSpace(pollerID) != "" {
-				return strings.TrimSpace(pollerID), nil
-			}
-			if regErr != nil {
-				return "", fmt.Errorf("%w: parent agent %s lookup failed: %v", models.ErrEdgeOnboardingInvalidRequest, agentID, regErr)
-			}
-		}
 		return "", fmt.Errorf("%w: parent agent %s not found", models.ErrEdgeOnboardingInvalidRequest, agentID)
 	}
 	return pkgs[0].PollerID, nil

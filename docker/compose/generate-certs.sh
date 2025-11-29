@@ -147,6 +147,10 @@ generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:r
 generate_cert "otel" "otel.serviceradar" "DNS:otel,DNS:otel.serviceradar,DNS:serviceradar-otel,DNS:localhost,IP:127.0.0.1"
 generate_cert "flowgger" "flowgger.serviceradar" "DNS:flowgger,DNS:flowgger.serviceradar,DNS:serviceradar-flowgger,DNS:localhost,IP:127.0.0.1"
 
+# Edge / checker
+generate_cert "sysmon-vm" "sysmon-vm.serviceradar" "DNS:sysmon-vm,DNS:sysmon-vm.serviceradar,DNS:serviceradar-sysmon-vm,DNS:sysmon-vm-checker,DNS:localhost,IP:127.0.0.1"
+generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"
+
 # Generate JWT secret for authentication
 JWT_SECRET_FILE="$CERT_DIR/jwt-secret"
 if [ ! -f "$JWT_SECRET_FILE" ]; then
