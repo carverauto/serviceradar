@@ -16,7 +16,18 @@ services:
     image: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr1
     container_name: serviceradar-cnpg-mtls
     user: "0:0"
-    command: ["postgres","-c","shared_preload_libraries=timescaledb,age"]
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=timescaledb,age"
+      - "-c"
+      - "ssl=on"
+      - "-c"
+      - "ssl_cert_file=/etc/serviceradar/certs/cnpg.pem"
+      - "-c"
+      - "ssl_key_file=/etc/serviceradar/certs/cnpg-key.pem"
+      - "-c"
+      - "ssl_ca_file=/etc/serviceradar/certs/root.pem"
     environment:
       - POSTGRES_USER=${CNPG_USERNAME:-serviceradar}
       - POSTGRES_PASSWORD=${CNPG_PASSWORD:-serviceradar}
@@ -25,8 +36,13 @@ services:
     volumes:
       - cnpg-data:/var/lib/postgresql/data
       - ./docker/compose/cnpg-init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+      - cert-data:/etc/serviceradar/certs:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar}"]
+      test:
+        [
+          "CMD-SHELL",
+          "PGSSLMODE=require PGSSLROOTCERT=/etc/serviceradar/certs/root.pem pg_isready -h localhost -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar}"
+        ]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -57,7 +73,7 @@ services:
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
       - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
-      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-disable}
+      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
     depends_on:
       cert-generator:
         condition: service_completed_successfully
@@ -113,7 +129,7 @@ services:
       - ./logs:/var/log/serviceradar
     environment:
       - INIT_DB=true
-      - CONFIG_SOURCE=kv
+      - CONFIG_SOURCE=file
       - CONFIG_PATH=/etc/serviceradar/config/core.json
       - CONFIG_WATCH_ENABLED=${CONFIG_WATCH_ENABLED:-true}
       - CNPG_HOST=${CNPG_HOST:-cnpg}
@@ -121,7 +137,7 @@ services:
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
       - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
-      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-disable}
+      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
       - KV_ADDRESS=datasvc:50057
       - KV_SEC_MODE=mtls
       - KV_CERT_DIR=/etc/serviceradar/certs
@@ -325,7 +341,8 @@ services:
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
       - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
-      - CNPG_SSLMODE=${CNPG_SSL_MODE:-disable}
+      - CNPG_SSLMODE=${CNPG_SSL_MODE:-verify-full}
+      - CNPG_CERT_DIR=/etc/serviceradar/certs
       - SRQL_DATABASE_URL=${SRQL_DATABASE_URL:-}
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
@@ -492,6 +509,16 @@ services:
       - CONFIG_SOURCE=file
       - CONFIG_PATH=/etc/serviceradar/templates/db-event-writer.json
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - CNPG_HOST=${CNPG_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_PORT:-5432}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
+      - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
+      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
+      - CNPG_CERT_DIR=/etc/serviceradar/certs
+      - CNPG_CA_FILE=/etc/serviceradar/certs/root.pem
+      - CNPG_CERT_FILE=/etc/serviceradar/certs/db-event-writer.pem
+      - CNPG_KEY_FILE=/etc/serviceradar/certs/db-event-writer-key.pem
     depends_on:
       cert-permissions-fixer:
         condition: service_completed_successfully
@@ -663,7 +690,7 @@ services:
     container_name: serviceradar-web-mtls
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://localhost/api
+      - NEXT_PUBLIC_API_URL=${PUBLIC_API_URL:-http://localhost/api}
       - NEXT_INTERNAL_API_URL=http://core:8090
       - NEXT_INTERNAL_SRQL_URL=http://kong:8000
       - AUTH_ENABLED=true

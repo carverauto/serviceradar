@@ -25,3 +25,5 @@
 - OTEL collector publishes logs/metrics/traces to NATS; db-event-writer now ingests into CNPG after mTLS fix and NATS client config.
 - KV config fetches fixed by regenerating datasvc cert SAN and reseeding configs (datasvc, otel, trapd, zen-consumer, netflow-consumer).
 - Poller/agent now register against core after restarting with the regenerated mTLS config; service tree/admin watchers now show `docker-poller` with child `docker-agent` (agent watcher snapshot timestamp is still the older seed value).
+- CNPG now runs with TLS (server cert from compose CA) and compose clients default to `sslmode=verify-full`; cert generator SAN now includes `cnpg` and `cnpg-rw` with/without `.serviceradar`.
+- Proton references removed from core config; compose rewrites the DB block to CNPG + mTLS. Core is still crashing during migrations with TLS enabled (`failed to create migrations table: EOF` even after `cnpg-migrate` succeeds), so web/Nginx report 502/500 until core is healthy.

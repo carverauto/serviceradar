@@ -170,57 +170,9 @@ func RunEdgePackageCreate(cfg *CmdConfig) error {
 	coreURL := normaliseCoreURL(cfg.CoreAPIURL)
 	cfg.CoreAPIURL = coreURL
 
-	payload := map[string]interface{}{
-		"label":          strings.TrimSpace(cfg.EdgePackageLabel),
-		"component_type": componentType,
-	}
-	if trimmed := strings.TrimSpace(cfg.EdgePackageComponentID); trimmed != "" {
-		payload["component_id"] = trimmed
-	}
-	if parentType != "" {
-		payload["parent_type"] = parentType
-	}
-	if trimmed := strings.TrimSpace(cfg.EdgePackageParentID); trimmed != "" {
-		payload["parent_id"] = trimmed
-	}
-	if trimmed := strings.TrimSpace(cfg.EdgePackagePollerID); trimmed != "" {
-		payload["poller_id"] = trimmed
-	}
-	if trimmed := strings.TrimSpace(cfg.EdgePackageSite); trimmed != "" {
-		payload["site"] = trimmed
-	}
-	if len(cfg.EdgePackageSelectors) > 0 {
-		payload["selectors"] = trimValues(cfg.EdgePackageSelectors)
-	}
-	if len(cfg.EdgePackageMetadataMap) > 0 {
-		encoded, err := json.Marshal(cfg.EdgePackageMetadataMap)
-		if err != nil {
-			return fmt.Errorf("encode metadata map: %w", err)
-		}
-		payload["metadata_json"] = string(encoded)
-	} else if cfg.EdgePackageMetadata != "" {
-		payload["metadata_json"] = cfg.EdgePackageMetadata
-	}
-	if trimmed := strings.TrimSpace(cfg.EdgePackageCheckerKind); trimmed != "" {
-		payload["checker_kind"] = trimmed
-	}
-	if trimmed := strings.TrimSpace(cfg.EdgePackageCheckerConfig); trimmed != "" {
-		payload["checker_config_json"] = trimmed
-	}
-	if trimmed := strings.TrimSpace(cfg.EdgePackageNotes); trimmed != "" {
-		payload["notes"] = trimmed
-	}
-	if cfg.EdgeJoinTTLSeconds > 0 {
-		payload["join_token_ttl_seconds"] = cfg.EdgeJoinTTLSeconds
-	}
-	if cfg.EdgeDownloadTTLSeconds > 0 {
-		payload["download_token_ttl_seconds"] = cfg.EdgeDownloadTTLSeconds
-	}
-	if trimmed := strings.TrimSpace(cfg.EdgePackageDownstreamID); trimmed != "" {
-		payload["downstream_spiffe_id"] = trimmed
-	}
-	if trimmed := strings.TrimSpace(cfg.EdgePackageDataSvc); trimmed != "" {
-		payload["datasvc_endpoint"] = trimmed
+	payload, err := buildEdgePackageCreatePayload(cfg, componentType, parentType)
+	if err != nil {
+		return err
 	}
 
 	body, err := json.Marshal(payload)
@@ -228,13 +180,79 @@ func RunEdgePackageCreate(cfg *CmdConfig) error {
 		return fmt.Errorf("encode request: %w", err)
 	}
 
+	result, err := executeEdgePackageCreate(cfg, coreURL, body)
+	if err != nil {
+		return err
+	}
+
+	token, err := edgeonboarding.EncodeToken(result.Package.PackageID, result.DownloadToken, cfg.CoreAPIURL)
+	if err != nil {
+		return fmt.Errorf("encode onboarding token: %w", err)
+	}
+
+	return outputEdgePackageCreateResult(outputFormat, result, token, cfg)
+}
+
+func buildEdgePackageCreatePayload(cfg *CmdConfig, componentType, parentType string) (map[string]interface{}, error) {
+	payload := map[string]interface{}{
+		"label":          strings.TrimSpace(cfg.EdgePackageLabel),
+		"component_type": componentType,
+	}
+
+	// Add optional string fields
+	addOptionalString(payload, "component_id", cfg.EdgePackageComponentID)
+	addOptionalString(payload, "parent_id", cfg.EdgePackageParentID)
+	addOptionalString(payload, "poller_id", cfg.EdgePackagePollerID)
+	addOptionalString(payload, "site", cfg.EdgePackageSite)
+	addOptionalString(payload, "checker_kind", cfg.EdgePackageCheckerKind)
+	addOptionalString(payload, "checker_config_json", cfg.EdgePackageCheckerConfig)
+	addOptionalString(payload, "notes", cfg.EdgePackageNotes)
+	addOptionalString(payload, "downstream_spiffe_id", cfg.EdgePackageDownstreamID)
+	addOptionalString(payload, "datasvc_endpoint", cfg.EdgePackageDataSvc)
+
+	if parentType != "" {
+		payload["parent_type"] = parentType
+	}
+	if len(cfg.EdgePackageSelectors) > 0 {
+		payload["selectors"] = trimValues(cfg.EdgePackageSelectors)
+	}
+
+	// Handle metadata
+	if len(cfg.EdgePackageMetadataMap) > 0 {
+		encoded, err := json.Marshal(cfg.EdgePackageMetadataMap)
+		if err != nil {
+			return nil, fmt.Errorf("encode metadata map: %w", err)
+		}
+		payload["metadata_json"] = string(encoded)
+	} else if cfg.EdgePackageMetadata != "" {
+		payload["metadata_json"] = cfg.EdgePackageMetadata
+	}
+
+	// Add optional TTL fields
+	if cfg.EdgeJoinTTLSeconds > 0 {
+		payload["join_token_ttl_seconds"] = cfg.EdgeJoinTTLSeconds
+	}
+	if cfg.EdgeDownloadTTLSeconds > 0 {
+		payload["download_token_ttl_seconds"] = cfg.EdgeDownloadTTLSeconds
+	}
+
+	return payload, nil
+}
+
+func addOptionalString(payload map[string]interface{}, key, value string) {
+	if trimmed := strings.TrimSpace(value); trimmed != "" {
+		payload[key] = trimmed
+	}
+}
+
+func executeEdgePackageCreate(cfg *CmdConfig, coreURL string, body []byte) (*edgePackageCreateAPIResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	endpoint := fmt.Sprintf("%s/api/admin/edge-packages", coreURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("create package request: %w", err)
+		return nil, fmt.Errorf("create package request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -242,7 +260,7 @@ func RunEdgePackageCreate(cfg *CmdConfig) error {
 
 	resp, err := newHTTPClient(cfg.TLSSkipVerify).Do(req)
 	if err != nil {
-		return fmt.Errorf("request edge package create: %w", err)
+		return nil, fmt.Errorf("request edge package create: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -251,21 +269,19 @@ func RunEdgePackageCreate(cfg *CmdConfig) error {
 		if message == "" {
 			message = resp.Status
 		}
-		return fmt.Errorf("%w: %s", errCoreAPIError, message)
+		return nil, fmt.Errorf("%w: %s", errCoreAPIError, message)
 	}
 
 	var result edgePackageCreateAPIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("decode create response: %w", err)
+		return nil, fmt.Errorf("decode create response: %w", err)
 	}
 
-	token, err := edgeonboarding.EncodeToken(result.Package.PackageID, result.DownloadToken, cfg.CoreAPIURL)
-	if err != nil {
-		return fmt.Errorf("encode onboarding token: %w", err)
-	}
+	return &result, nil
+}
 
-	switch outputFormat {
-	case outputFormatJSON:
+func outputEdgePackageCreateResult(outputFormat string, result *edgePackageCreateAPIResponse, token string, cfg *CmdConfig) error {
+	if outputFormat == outputFormatJSON {
 		payload := map[string]interface{}{
 			"package":          result.Package,
 			"join_token":       result.JoinToken,
@@ -279,10 +295,10 @@ func RunEdgePackageCreate(cfg *CmdConfig) error {
 			return fmt.Errorf("encode output: %w", err)
 		}
 		fmt.Println(string(data))
-	default:
-		printCreateResult(result, token, cfg.EdgePackageDataSvc)
+		return nil
 	}
 
+	printCreateResult(*result, token, cfg.EdgePackageDataSvc)
 	return nil
 }
 

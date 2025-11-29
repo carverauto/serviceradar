@@ -27,7 +27,7 @@ CNPG_PORT="${CNPG_PORT:-5432}"
 CNPG_DATABASE="${CNPG_DATABASE:-serviceradar}"
 CNPG_USERNAME="${CNPG_USERNAME:-serviceradar}"
 CNPG_PASSWORD="${CNPG_PASSWORD:-serviceradar}"
-CNPG_SSL_MODE="${CNPG_SSL_MODE:-disable}"
+CNPG_SSL_MODE="${CNPG_SSL_MODE:-verify-full}"
 
 # Create config directory
 mkdir -p "$CONFIG_DIR"
@@ -208,6 +208,7 @@ if [ -f "$CORE_CONFIG" ]; then
        --arg user "$CNPG_USERNAME" \
        --arg pwd "$CNPG_PASSWORD" \
        --arg ssl "$CNPG_SSL_MODE" \
+       --arg cd "$CERT_DIR" \
        '
        .cnpg = (.cnpg // {})
        | .cnpg.host = $host
@@ -216,6 +217,33 @@ if [ -f "$CORE_CONFIG" ]; then
        | .cnpg.username = $user
        | .cnpg.password = $pwd
        | .cnpg.ssl_mode = $ssl
+       | .cnpg.tls = (if $ssl != "disable" then {
+           ca_file: ($cd + "/root.pem"),
+           cert_file: ($cd + "/core.pem"),
+           key_file: ($cd + "/core-key.pem")
+         } else .cnpg.tls end)
+       | .database = {
+           addresses: [($host + ":" + ($port|tostring))],
+           name: $db,
+           username: $user,
+           password: $pwd,
+           max_conns: 10,
+           idle_conns: 5,
+           tls: {
+             ca_file: ($cd + "/root.pem"),
+             cert_file: ($cd + "/core.pem"),
+             key_file: ($cd + "/core-key.pem"),
+             server_name: ($host + ".serviceradar")
+           },
+           settings: {
+             max_execution_time: 60,
+             output_format_json_quote_64bit_int: 0,
+             allow_experimental_live_view: 1,
+             idle_connection_timeout: 600,
+             join_use_nulls: 1,
+             input_format_defaults_for_omitted_fields: 1
+           }
+         }
        ' "$CORE_CONFIG" > "$CORE_CONFIG.tmp"
     mv "$CORE_CONFIG.tmp" "$CORE_CONFIG"
     echo "✅ Ensured CNPG config for core.json (host $CNPG_HOST:$CNPG_PORT, ssl_mode $CNPG_SSL_MODE)"

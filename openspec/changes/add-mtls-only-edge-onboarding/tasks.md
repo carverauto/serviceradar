@@ -12,3 +12,8 @@
 ## 3. Validation
 - [ ] 3.1 E2E: start Compose with generated CA, issue mTLS edge token, run sysmon-vm on darwin/arm64 against `192.168.1.218:<checker-port>`, and verify mTLS connection to poller/core succeeds.
 - [ ] 3.2 Rotation/regeneration sanity: regenerate an edge bundle/token and confirm sysmon-vm can re-enroll without manual cleanup.
+
+### Notes on current blockers
+- Compose mTLS stack now generates CNPG server certs and pushes sslmode=verify-full to core/db-event-writer/srql; cert SANs now include cnpg/cnpg-rw with/without `.serviceradar`, but core still fails DB migrations under TLS (`failed to create migrations table: EOF`), leaving web/nginx 502 until resolved.
+- DB-event-writer continues to restart with “database configuration is required” even after the compose entrypoint injects CNPG TLS settings; binary may be rejecting the config shape/version.
+- Core config in KV no longer references proton; DB block is rewritten to CNPG+mTLS.

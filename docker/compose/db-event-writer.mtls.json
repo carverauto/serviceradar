@@ -32,7 +32,12 @@
     "database": "serviceradar",
     "username": "serviceradar",
     "password": "serviceradar",
-    "ssl_mode": "disable"
+    "ssl_mode": "verify-full",
+    "tls": {
+      "ca_file": "/etc/serviceradar/certs/root.pem",
+      "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
+      "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem"
+    }
   },
   "security": {
     "mode": "mtls",
