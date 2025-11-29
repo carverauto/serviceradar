@@ -221,6 +221,28 @@ if [ -f "$CORE_CONFIG" ]; then
     echo "✅ Ensured CNPG config for core.json (host $CNPG_HOST:$CNPG_PORT, ssl_mode $CNPG_SSL_MODE)"
 fi
 
+    # Ensure NATS security is set for mTLS compose (core publishes/consumes)
+    jq --arg cd "$CERT_DIR" \
+       '
+       .nats = (.nats // {})
+       | .nats.url = (.nats.url // "nats://nats:4222")
+       | .nats.domain = (.nats.domain // "")
+       | .nats.security = (.nats.security // {
+           mode: "mtls",
+           cert_dir: $cd,
+           role: "core",
+           server_name: "nats.serviceradar",
+           tls: {
+             cert_file: ($cd + "/core.pem"),
+             key_file: ($cd + "/core-key.pem"),
+             ca_file: ($cd + "/root.pem"),
+             client_ca_file: ($cd + "/root.pem")
+           }
+         })
+       ' "$CORE_CONFIG" > "$CORE_CONFIG.tmp"
+    mv "$CORE_CONFIG.tmp" "$CORE_CONFIG"
+    echo "✅ Applied NATS mTLS settings in core.json"
+
     # Seed edge_onboarding defaults when missing (enables web/CLI issuance)
     jq --arg key "$EDGE_ONBOARDING_KEY" \
        --arg meta "$EDGE_DEFAULT_META" \

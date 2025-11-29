@@ -17,3 +17,11 @@
 - Do we constrain tokens by IP/SAN to reduce bundle leakage, or rely on short TTL + revocation?
 - Should bundle issuance live behind Core’s edge-package API or a lightweight enrollment handler in Compose?
 - What is the default poller endpoint/port advertised to edge nodes (static in env vs. derived from compose metadata)?
+
+## Status (2025-11-29)
+- mTLS compose stack is up with shared CA; SPIRE bits removed from sysmon-vm.
+- Kong/web/auth are working; admin login succeeds with generated credentials.
+- Events stream subjects now auto-managed by zen (removed manual stream init).
+- OTEL collector publishes logs/metrics/traces to NATS; db-event-writer now ingests into CNPG after mTLS fix and NATS client config.
+- KV config fetches fixed by regenerating datasvc cert SAN and reseeding configs (datasvc, otel, trapd, zen-consumer, netflow-consumer).
+- Poller/agent now register against core after restarting with the regenerated mTLS config; service tree/admin watchers now show `docker-poller` with child `docker-agent` (agent watcher snapshot timestamp is still the older seed value).
