@@ -917,6 +917,22 @@ exports_files([
     ],
 )
 
+http_archive(
+    name = "spire_linux_arm64",
+    build_file_content = """
+exports_files([
+    "bin/spire-agent",
+    "bin/spire-server",
+])
+""",
+    sha256 = "23ee6b4aa628aecad8381a8086f1b6d02493b37f4bced1a52bc5986da311f44c",
+    strip_prefix = "spire-1.11.2",
+    urls = [
+        "https://github.com/spiffe/spire/releases/download/v1.11.2/spire-1.11.2-linux-arm64-musl.tar.gz",
+    ],
+)
+
+
 http_file(
     name = "kubectl_linux_amd64",
     downloaded_file_path = "kubectl",

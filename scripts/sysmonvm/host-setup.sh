@@ -199,17 +199,29 @@ ensure_spire_agent() {
   fi
 
   tmp_dir="$(mktemp -d)"
-  log "info" "downloading SPIRE agent ${version} to ${agent_path}"
+  log "info" "attempting to download SPIRE agent ${version} to ${agent_path}"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "${url}" -o "${tmp_dir}/${archive}" || die "failed to download SPIRE agent from ${url}"
+    if ! curl -fsSL "${url}" -o "${tmp_dir}/${archive}"; then
+      log "warn" "could not download SPIRE agent from ${url} (likely not published for darwin/arm64); set SPIRE_AGENT_PATH manually if needed"
+      rm -rf "${tmp_dir}"
+      return
+    fi
   else
-    die "curl is required to download SPIRE agent"
+    log "warn" "curl is required to download SPIRE agent; skipping download"
+    rm -rf "${tmp_dir}"
+    return
   fi
 
-  tar -xzf "${tmp_dir}/${archive}" -C "${tmp_dir}" || die "failed to extract SPIRE agent archive"
+  if ! tar -xzf "${tmp_dir}/${archive}" -C "${tmp_dir}" >/dev/null 2>&1; then
+    log "warn" "failed to extract SPIRE agent archive ${archive}; set SPIRE_AGENT_PATH manually if needed"
+    rm -rf "${tmp_dir}"
+    return
+  fi
   found="$(find "${tmp_dir}" -name spire-agent -type f | head -n1 || true)"
   if [[ -z "${found}" ]]; then
-    die "could not locate spire-agent inside archive ${archive}"
+    log "warn" "could not locate spire-agent inside archive ${archive}; set SPIRE_AGENT_PATH manually if needed"
+    rm -rf "${tmp_dir}"
+    return
   fi
 
   cp "${found}" "${agent_path}"

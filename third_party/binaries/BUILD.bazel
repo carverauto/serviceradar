@@ -11,3 +11,15 @@ filegroup(
     srcs = ["@crane_linux_amd64//:crane"],
     visibility = ["//visibility:public"],
 )
+
+filegroup(
+    name = "spire_agent_linux_amd64",
+    srcs = ["@spire_linux_amd64//:bin/spire-agent"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "spire_agent_linux_arm64",
+    srcs = ["@spire_linux_arm64//:bin/spire-agent"],
+    visibility = ["//visibility:public"],
+)
