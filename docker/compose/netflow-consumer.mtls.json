@@ -1,0 +1,17 @@
+{
+  "listen_addr": "0.0.0.0:50120",
+  "nats_url": "tls://nats:4222",
+  "stream_name": "events",
+  "consumer_name": "netflow-consumer",
+  "enabled_fields": [],
+  "disabled_fields": [],
+  "dictionaries": [],
+  "cnpg": {
+    "host": "cnpg",
+    "port": 5432,
+    "database": "serviceradar",
+    "username": "serviceradar",
+    "password": "serviceradar",
+    "ssl_mode": "disable"
+  }
+}

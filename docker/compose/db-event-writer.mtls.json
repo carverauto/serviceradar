@@ -6,6 +6,17 @@
   "consumer_name": "db-event-writer",
   "agent_id": "docker-db-event-writer",
   "poller_id": "docker-poller",
+  "nats_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats",
+    "role": "client",
+    "tls": {
+      "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
+      "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
+      "ca_file": "/etc/serviceradar/certs/root.pem"
+    }
+  },
   "streams": [
     {"subject": "events.poller.health", "table": "events"},
     {"subject": "events.syslog.processed", "table": "events"},
@@ -21,13 +32,7 @@
     "database": "serviceradar",
     "username": "serviceradar",
     "password": "serviceradar",
-    "ssl_mode": "require",
-    "cert_dir": "/etc/serviceradar/certs",
-    "tls": {
-      "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
-      "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
-      "ca_file": "/etc/serviceradar/certs/root.pem"
-    }
+    "ssl_mode": "disable"
   },
   "security": {
     "mode": "mtls",
