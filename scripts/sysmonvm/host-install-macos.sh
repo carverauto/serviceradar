@@ -16,7 +16,6 @@ CHECKER_PLIST="/Library/LaunchDaemons/com.serviceradar.sysmonvm.plist"
 LOG_DIR="/var/log/serviceradar"
 CONFIG_SRC="${DIST_DIR}/sysmon-vm.json"
 CONFIG_DEST="${CONFIG_PREFIX}/sysmon-vm.json"
-AGENT_SRC="${DIST_DIR}/bin/spire-agent"
 
 mkdir -p "${DIST_DIR}"
 make -C "${REPO_ROOT}" sysmonvm-build-checker-darwin
@@ -39,13 +38,6 @@ fi
 
 install -d "${LOG_DIR}"
 install -m 0644 "${REPO_ROOT}/cmd/checkers/sysmon-vm/hostmac/com.serviceradar.sysmonvm.plist" "${CHECKER_PLIST}"
-
-if [[ -x "${AGENT_SRC}" ]]; then
-  install -m 0755 "${AGENT_SRC}" "${INSTALL_PREFIX}/spire-agent"
-  echo "[info] installed SPIRE agent to ${INSTALL_PREFIX}/spire-agent for embedded sysmon-vm onboarding"
-else
-  echo "[warn] SPIRE agent not found at ${AGENT_SRC}; embedded onboarding will require SPIRE_AGENT_PATH or manual agent install" >&2
-fi
 
 launchctl bootout system/com.serviceradar.sysmonvm >/dev/null 2>&1 || true
 launchctl bootstrap system "${CHECKER_PLIST}"
