@@ -2,7 +2,7 @@ namespace: demo
 image:
   registryPullSecret: ghcr-io-cred
   tags:
-    appTag: &appTag "sha-5d95511c9a046b26c19e57e7ee3b1ea71be026fa"
+    appTag: &appTag "sha-e2ff5b7348276cd8e64f90b578e88dfcef450c56"
     # ServiceRadar UUID identity system - generates stable device IDs based on strong identifiers
     core: *appTag
     web: *appTag

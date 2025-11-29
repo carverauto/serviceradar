@@ -24,7 +24,11 @@ The install script copies the checker to
 `/usr/local/libexec/serviceradar/serviceradar-sysmon-vm`, installs the launchd
 unit `com.serviceradar.sysmonvm`, and ensures `/usr/local/etc/serviceradar`
 contains `sysmon-vm.json`. Because the frequency sampler is built in, there is
-no companion `hostfreq` daemon to manage.
+no companion `hostfreq` daemon to manage. `scripts/sysmonvm/host-setup.sh`
+also fetches a `spire-agent` binary (arm64 macOS) into `dist/sysmonvm/bin`, and
+`sysmonvm-host-install` copies it to `/usr/local/libexec/serviceradar/spire-agent`
+so the embedded onboarding flow can join the demo SPIRE server without extra
+install steps.
 
 ## Troubleshooting
 

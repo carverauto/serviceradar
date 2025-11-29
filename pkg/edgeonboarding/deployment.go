@@ -18,14 +18,10 @@ package edgeonboarding
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"os"
 	"strings"
-)
-
-var (
-	// ErrSPIREAddressResolutionNotImplemented is returned when SPIRE address resolution is attempted.
-	ErrSPIREAddressResolutionNotImplemented = errors.New("not implemented: SPIRE address resolution")
+	"time"
 )
 
 // detectDeploymentType determines the deployment environment.
@@ -146,11 +142,56 @@ func (b *Bootstrapper) getAddressForDeployment(serviceName, defaultAddr string) 
 
 // getSPIREAddressesForDeployment returns SPIRE server addresses based on deployment type.
 func (b *Bootstrapper) getSPIREAddressesForDeployment() (address string, port string, err error) {
-	// TODO: Extract SPIRE addresses from package metadata
-	// For Docker: Use LoadBalancer IP
-	// For Kubernetes: Use service DNS
-	// For Bare-metal: Use configured address
+	metadata, _ := b.parseMetadata()
 
-	// For now, return placeholder
-	return "", "", ErrSPIREAddressResolutionNotImplemented
+	addr := firstNonEmpty(
+		os.Getenv("SPIRE_UPSTREAM_ADDRESS"),
+		getStringFromMetadata(metadata, "spire_upstream_address"),
+	)
+
+	prt := firstNonEmpty(
+		os.Getenv("SPIRE_UPSTREAM_PORT"),
+		getStringFromMetadata(metadata, "spire_upstream_port"),
+	)
+
+	if addr == "" {
+		return "", "", ErrSPIREUpstreamAddressNotFound
+	}
+	if prt == "" {
+		return "", "", ErrSPIREUpstreamPortNotFound
+	}
+
+	return addr, prt, nil
+}
+
+// waitForSocket polls for a Unix socket path to appear.
+func waitForSocket(ctx context.Context, socketPath string, attempts int, delay time.Duration) error {
+	for i := 0; i < attempts; i++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		if info, err := os.Stat(socketPath); err == nil && info.Mode()&os.ModeSocket != 0 {
+			return nil
+		}
+		time.Sleep(delay)
+	}
+
+	return fmt.Errorf("socket %s not available after %d attempts", socketPath, attempts)
+}
+
+func getStringFromMetadata(metadata map[string]interface{}, key string) string {
+	if metadata == nil {
+		return ""
+	}
+
+	if raw, ok := metadata[key]; ok {
+		if s, ok := raw.(string); ok {
+			return strings.TrimSpace(s)
+		}
+	}
+
+	return ""
 }

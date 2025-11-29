@@ -101,6 +101,8 @@ type CreateFormState = {
   componentType: EdgeComponentType;
   componentId: string;
   parentId: string;
+  checkerKind: string;
+  checkerConfigJSON: string;
   label: string;
   pollerId: string;
   site: string;
@@ -116,6 +118,8 @@ const defaultFormState: CreateFormState = {
   componentType: 'poller',
   componentId: '',
   parentId: '',
+  checkerKind: '',
+  checkerConfigJSON: '',
   label: '',
   pollerId: '',
   site: '',
@@ -354,6 +358,19 @@ export default function EdgePackagesPage() {
 
   const parentPollerListId = 'edge-parent-poller-options';
   const parentAgentListId = 'edge-parent-agent-options';
+  const checkerKindListId = 'edge-checker-kind-options';
+  const checkerKinds = useMemo(() => {
+    const seen = new Set<string>();
+    return packages
+      .map((pkg) => pkg.checker_kind?.trim() ?? '')
+      .filter((kind) => {
+        if (!kind || seen.has(kind)) {
+          return false;
+        }
+        seen.add(kind);
+        return true;
+      });
+  }, [packages]);
   const agentPollerMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const agent of registeredAgents) {
@@ -491,6 +508,7 @@ export default function EdgePackagesPage() {
     setFormState((prev) => {
       let next = prev;
       let changed = false;
+      const metaDefaults = getMetadataDefaults(defaults, prev.componentType);
 
       if (!selectorsTouched && (!prev.selectors || prev.selectors.trim().length === 0)) {
         const defaultSelectors = defaults.selectors ?? [];
@@ -502,13 +520,23 @@ export default function EdgePackagesPage() {
       }
 
       if (!metadataTouched && (!prev.metadataJSON || prev.metadataJSON.trim().length === 0)) {
-        const metaDefaults = getMetadataDefaults(defaults, prev.componentType);
         const formatted = formatMetadata(metaDefaults);
         if (formatted) {
           next = changed ? next : { ...prev };
           next.metadataJSON = formatted;
           changed = true;
         }
+      }
+
+      if (
+        prev.componentType === 'checker' &&
+        !prev.checkerKind.trim() &&
+        metaDefaults?.checker_kind &&
+        metaDefaults.checker_kind.trim().length > 0
+      ) {
+        next = changed ? next : { ...prev };
+        next.checkerKind = metaDefaults.checker_kind.trim();
+        changed = true;
       }
 
       return changed ? next : prev;
@@ -557,6 +585,8 @@ export default function EdgePackagesPage() {
         pollerId: type === 'poller' ? '' : '',
         parentId: '',
         componentId: '',
+        checkerKind: '',
+        checkerConfigJSON: '',
       });
       setFormError(null);
       setFormSubmitting(false);
@@ -588,6 +618,8 @@ export default function EdgePackagesPage() {
       parentId: '',
       pollerId: nextType === 'poller' ? prev.pollerId : '',
       metadataJSON: !metadataTouched ? '' : prev.metadataJSON,
+      checkerKind: nextType === 'checker' ? prev.checkerKind : '',
+      checkerConfigJSON: nextType === 'checker' ? prev.checkerConfigJSON : '',
     }));
     if (!metadataTouched) {
       setMetadataTouched(false);
@@ -613,6 +645,9 @@ export default function EdgePackagesPage() {
         : 'poller';
     const componentId = formState.componentId.trim();
     const parentId = formState.parentId.trim();
+    const checkerKind = formState.checkerKind.trim();
+    const checkerConfigJSON = formState.checkerConfigJSON.trim();
+    const metadataJSON = formState.metadataJSON.trim();
 
     if (componentType === 'agent' && !parentId) {
       setFormError('Parent poller is required for agent packages');
@@ -621,6 +656,33 @@ export default function EdgePackagesPage() {
     if (componentType === 'checker' && !parentId) {
       setFormError('Parent agent is required for checker packages');
       return;
+    }
+    if (componentType === 'checker' && !checkerKind) {
+      setFormError('Checker kind is required for checker packages');
+      setActionError('Checker kind is required for checker packages');
+      return;
+    }
+
+    if (metadataJSON) {
+      try {
+        JSON.parse(metadataJSON);
+      } catch {
+        const message = 'Metadata JSON must be valid JSON';
+        setFormError(message);
+        setActionError(message);
+        return;
+      }
+    }
+
+    if (checkerConfigJSON) {
+      try {
+        JSON.parse(checkerConfigJSON);
+      } catch {
+        const message = 'Checker config JSON must be valid JSON';
+        setFormError(message);
+        setActionError(message);
+        return;
+      }
     }
 
     setFormSubmitting(true);
@@ -650,6 +712,8 @@ export default function EdgePackagesPage() {
         site?: string;
         selectors?: string[];
         metadata_json?: string;
+        checker_kind?: string;
+        checker_config_json?: string;
         notes?: string;
         downstream_spiffe_id?: string;
         join_token_ttl_seconds?: number;
@@ -662,7 +726,9 @@ export default function EdgePackagesPage() {
         poller_id: pollerIdForPayload,
         site: formState.site.trim() || undefined,
         selectors: selectors.length > 0 ? selectors : undefined,
-        metadata_json: formState.metadataJSON.trim() || undefined,
+        metadata_json: metadataJSON || undefined,
+        checker_kind: componentType === 'checker' ? checkerKind : undefined,
+        checker_config_json: componentType === 'checker' && checkerConfigJSON ? checkerConfigJSON : undefined,
         notes: formState.notes.trim() || undefined,
         downstream_spiffe_id: formState.downstreamSPIFFEID.trim() || undefined,
         join_token_ttl_seconds: joinMinutes ? Math.max(0, Math.round(Number(joinMinutes) * 60)) : undefined,
@@ -708,7 +774,9 @@ export default function EdgePackagesPage() {
     } catch (err) {
       console.error('Failed to create edge package', err);
       const message = err instanceof Error ? err.message : 'Failed to create package';
-      setFormError(parseErrorMessage(message) || message);
+      const parsed = parseErrorMessage(message) || message;
+      setFormError(parsed);
+      setActionError(parsed);
     } finally {
       setFormSubmitting(false);
     }
@@ -900,7 +968,7 @@ export default function EdgePackagesPage() {
 
   return (
     <RoleGuard requiredRoles={['admin']}>
-      <div className="flex h-full flex-col p-6 space-y-6 overflow-hidden">
+      <div className="flex min-h-screen flex-col p-6 space-y-6 overflow-auto">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="rounded-full bg-blue-100 p-2 dark:bg-blue-900/40">
@@ -1071,6 +1139,42 @@ export default function EdgePackagesPage() {
                       paste an identifier to reference a component that has not been onboarded yet.
                     </p>
                   </div>
+                </div>
+              )}
+
+              {formState.componentType === 'checker' && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="font-medium">
+                      Checker kind <span className="text-red-500">*</span>
+                    </span>
+                    <input
+                      required
+                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                      value={formState.checkerKind}
+                      onChange={(event) => handleFormChange('checkerKind', event.target.value)}
+                      placeholder="sysmon, snmp, rperf"
+                      list={checkerKindListId}
+                    />
+                    {checkerKinds.length > 0 && (
+                      <datalist id={checkerKindListId}>
+                        {checkerKinds.map((kind) => (
+                          <option value={kind} key={`checker-kind-${kind}`} />
+                        ))}
+                      </datalist>
+                    )}
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="font-medium">Checker config JSON (optional)</span>
+                    <textarea
+                      rows={3}
+                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                      value={formState.checkerConfigJSON}
+                      onChange={(event) => handleFormChange('checkerConfigJSON', event.target.value)}
+                      placeholder='{"template": "sysmon"}'
+                    />
+                  </label>
                 </div>
               )}
 

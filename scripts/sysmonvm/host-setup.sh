@@ -65,6 +65,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 mkdir -p "${workspace}"
+mkdir -p "${workspace}/bin"
 
 uname_s="$(uname -s)"
 case "${uname_s}" in
@@ -182,6 +183,43 @@ if [[ -f "${service_template}" ]]; then
   fi
 else
   log "warn" "systemd service template not found at ${service_template}"
+fi
+
+# Fetch a SPIRE agent binary for the embedded-agent flow (macOS only for now).
+ensure_spire_agent() {
+  local version archive url tmp_dir agent_path
+  version="${SPIRE_AGENT_VERSION:-1.11.2}"
+  archive="spire-${version}-darwin-arm64.tar.gz"
+  url="${SPIRE_AGENT_DOWNLOAD_URL:-https://github.com/spiffe/spire/releases/download/v${version}/${archive}}"
+  agent_path="${workspace}/bin/spire-agent"
+
+  if [[ -x "${agent_path}" ]]; then
+    log "info" "SPIRE agent already present at ${agent_path}"
+    return
+  fi
+
+  tmp_dir="$(mktemp -d)"
+  log "info" "downloading SPIRE agent ${version} to ${agent_path}"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "${url}" -o "${tmp_dir}/${archive}" || die "failed to download SPIRE agent from ${url}"
+  else
+    die "curl is required to download SPIRE agent"
+  fi
+
+  tar -xzf "${tmp_dir}/${archive}" -C "${tmp_dir}" || die "failed to extract SPIRE agent archive"
+  found="$(find "${tmp_dir}" -name spire-agent -type f | head -n1 || true)"
+  if [[ -z "${found}" ]]; then
+    die "could not locate spire-agent inside archive ${archive}"
+  fi
+
+  cp "${found}" "${agent_path}"
+  chmod +x "${agent_path}"
+  rm -rf "${tmp_dir}"
+  log "info" "SPIRE agent installed at ${agent_path}"
+}
+
+if [[ "${uname_s}" == "Darwin" ]]; then
+  ensure_spire_agent
 fi
 
 # Emit final summary.

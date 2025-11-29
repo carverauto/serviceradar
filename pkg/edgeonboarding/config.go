@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -272,7 +273,57 @@ func (b *Bootstrapper) generateCheckerConfig(ctx context.Context, metadata map[s
 		checkerConfig = make(map[string]interface{})
 	}
 
-	// Generate checker config JSON
+	workloadSocket := string(b.generatedConfigs["spire-workload-api-socket"])
+	if workloadSocket == "" {
+		workloadSocket = "/run/spire/workload/agent.sock"
+	}
+
+	if b.pkg.CheckerKind == "sysmon-vm" || strings.EqualFold(b.pkg.ComponentID, "sysmon-vm") {
+		// Emit sysmon-vm compatible config (matches pkg/checker/sysmonvm.Config)
+		listenAddr := getStringFromMetadata(metadata, "listen_addr")
+		if listenAddr == "" {
+			listenAddr = "0.0.0.0:50110"
+		}
+
+		sampleInterval := getStringFromMetadata(metadata, "sample_interval")
+		if sampleInterval == "" {
+			sampleInterval = "250ms"
+		}
+
+		security := map[string]interface{}{
+			"mode":            "spiffe",
+			"role":            "checker",
+			"trust_domain":    extractTrustDomain(b.pkg.DownstreamSPIFFEID),
+			"workload_socket": workloadSocket,
+		}
+		if serverSPIFFE := getStringFromMetadata(metadata, "server_spiffe_id"); serverSPIFFE != "" {
+			security["server_spiffe_id"] = serverSPIFFE
+		}
+
+		config := map[string]interface{}{
+			"listen_addr":     listenAddr,
+			"sample_interval": sampleInterval,
+			"security":        security,
+		}
+
+		configJSON, err := json.MarshalIndent(config, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal sysmon-vm checker config: %w", err)
+		}
+
+		b.generatedConfigs["checker.json"] = configJSON
+
+		b.logger.Debug().
+			Str("checker_id", b.pkg.ComponentID).
+			Str("checker_kind", b.pkg.CheckerKind).
+			Str("listen_addr", listenAddr).
+			Str("workload_socket", workloadSocket).
+			Msg("Generated sysmon-vm checker configuration")
+
+		return nil
+	}
+
+	// Fallback: generic checker envelope
 	config := map[string]interface{}{
 		"checker_id":   b.pkg.ComponentID,
 		"checker_kind": b.pkg.CheckerKind,
@@ -284,7 +335,7 @@ func (b *Bootstrapper) generateCheckerConfig(ctx context.Context, metadata map[s
 		"checker_spiffe_id": b.pkg.DownstreamSPIFFEID,
 
 		// SPIRE workload API
-		"spire_workload_api_socket": "/run/spire/workload/agent.sock",
+		"spire_workload_api_socket": workloadSocket,
 
 		// Checker-specific configuration
 		"checker_config": checkerConfig,

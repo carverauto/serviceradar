@@ -143,18 +143,56 @@ func (b *Bootstrapper) configureAgentSPIRE(ctx context.Context, spireDir string)
 // configureCheckerSPIRE configures SPIRE access for checkers.
 // Checkers also use the workload API, either from local agent or shared poller.
 func (b *Bootstrapper) configureCheckerSPIRE(ctx context.Context, spireDir string) error {
-	_ = ctx
-
 	b.logger.Debug().Msg("Configuring SPIRE access for checker")
 
-	// Similar to agents, checkers use workload API
-	// TODO: Determine if checker has dedicated SPIRE agent or shares with agent/poller
-	workloadAPIPath := filepath.Join(spireDir, "workload", "agent.sock")
-	b.generatedConfigs["spire-workload-api-socket"] = []byte(workloadAPIPath)
+	// Explicit override wins (e.g., docker reuse of poller agent socket)
+	override := strings.TrimSpace(os.Getenv("SPIRE_WORKLOAD_API"))
+	if override != "" {
+		b.logger.Info().
+			Str("workload_api_override", override).
+			Msg("Using provided SPIRE workload API endpoint for checker")
+		b.generatedConfigs["spire-workload-api-socket"] = []byte(override)
+		return nil
+	}
 
-	b.logger.Debug().
-		Str("workload_api_socket", workloadAPIPath).
-		Msg("Configured SPIRE workload API access for checker")
+	metadata, _ := b.parseMetadata()
+	if socket := strings.TrimSpace(getStringFromMetadata(metadata, "spire_workload_api_socket")); socket != "" {
+		b.logger.Info().
+			Str("workload_api_socket", socket).
+			Msg("Using metadata-provided SPIRE workload API endpoint for checker")
+		b.generatedConfigs["spire-workload-api-socket"] = []byte(socket)
+		return nil
+	}
+
+	// Docker: prefer existing workload sockets if mounted (poller/poller-nested)
+	if b.deploymentType == DeploymentTypeDocker {
+		candidates := []string{
+			"unix:/run/spire/nested/workload/agent.sock",
+			"unix:/run/spire/sockets/agent.sock",
+		}
+		for _, candidate := range candidates {
+			path := strings.TrimPrefix(candidate, "unix:")
+			if _, err := os.Stat(path); err == nil {
+				b.logger.Info().
+					Str("workload_api_socket", candidate).
+					Msg("Detected existing SPIRE workload socket; using docker-mounted socket")
+				b.generatedConfigs["spire-workload-api-socket"] = []byte(candidate)
+				return nil
+			}
+		}
+	}
+
+	workloadAPIPath := filepath.Join(spireDir, "workload", "agent.sock")
+	socket, err := b.startEmbeddedSPIREAgent(ctx, spireDir, workloadAPIPath)
+	if err != nil {
+		return fmt.Errorf("start embedded spire agent: %w", err)
+	}
+
+	b.generatedConfigs["spire-workload-api-socket"] = []byte(socket)
+
+	b.logger.Info().
+		Str("workload_api_socket", socket).
+		Msg("Started embedded SPIRE agent for checker")
 
 	return nil
 }
