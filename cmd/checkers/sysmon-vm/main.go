@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"google.golang.org/grpc"
 
@@ -71,6 +73,7 @@ func run() error {
 		}
 		forcedSecurity = mtlsCfg
 		log.Printf("mTLS bundle installed to %s", *mtlsCertDir)
+		persistMTLSConfig(*configPath, forcedSecurity)
 	} else {
 		// Try edge onboarding first (checks env vars if flags not set)
 		onboardingResult, err := edgeonboarding.TryOnboard(ctx, models.EdgeOnboardingComponentTypeChecker, nil)
@@ -167,6 +170,52 @@ func resolveConfigPath(configPath string, userProvided bool) string {
 	}
 
 	return configPath
+}
+
+func persistMTLSConfig(path string, sec *models.SecurityConfig) {
+	if sec == nil {
+		return
+	}
+
+	cfg := loadConfigOrDefault(path)
+	cfg.Security = sec
+
+	if _, err := cfg.Normalize(); err != nil {
+		log.Printf("unable to normalize config for persistence: %v", err)
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		log.Printf("unable to create config directory %s: %v", filepath.Dir(path), err)
+		return
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		log.Printf("unable to marshal config for persistence: %v", err)
+		return
+	}
+
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		log.Printf("unable to write mTLS config to %s: %v", path, err)
+		return
+	}
+
+	log.Printf("persisted mTLS config to %s", path)
+}
+
+func loadConfigOrDefault(path string) *sysmonvm.Config {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return &sysmonvm.Config{}
+	}
+
+	var cfg sysmonvm.Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return &sysmonvm.Config{}
+	}
+
+	return &cfg
 }
 
 func (samplerService) Start(ctx context.Context) error {
