@@ -475,6 +475,11 @@ func (w *responseWriterWrapper) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 // authenticationMiddleware provides flexible authentication, allowing either a Bearer token or an API key.
 func (s *APIServer) authenticationMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if allowUnauthenticatedEdgePackageDownload(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Try Bearer token authentication
 		if handled := s.handleBearerTokenAuth(w, r, next); handled {
 			return
@@ -2052,6 +2057,23 @@ func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWr
 	s.sendDeviceRegistryResponse(ctx, w, filteredDevices, metricSummary)
 
 	return true
+}
+
+// allowUnauthenticatedEdgePackageDownload permits token-gated edge package downloads
+// to proceed without API key or bearer auth. The handler still validates the download
+// token, so this only loosens the API surface for the mTLS/SPIFEE bootstrap flow.
+func allowUnauthenticatedEdgePackageDownload(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+
+	path := strings.TrimSpace(r.URL.Path)
+	if path == "" {
+		return false
+	}
+
+	// Exact route used by the mTLS bootstrapper: /api/admin/edge-packages/{id}/download
+	return strings.HasPrefix(path, "/api/admin/edge-packages/") && strings.HasSuffix(path, "/download")
 }
 
 // sendDeviceRegistryResponse formats and sends the response for device registry path
