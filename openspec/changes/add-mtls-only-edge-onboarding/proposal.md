@@ -12,9 +12,9 @@
 - Build/publish new images (amd64) and wire an mTLS compose variant using tagged images.
 
 ## Status (2025-11-30)
-- Built/pushed all images with `APP_TAG=sha-811f8732636f1a7569614850f560c74f706f8c4b` and restarted the mTLS compose stack.
-- sysmon-vm mTLS config is generated via config-updater, sysmon-vm at `192.168.1.218:50110` onlines successfully, and sysmon metrics are ingesting under device `default:192.168.1.218`.
-- UI was unreachable due to nginx not resolving `web`; restarting web/nginx cleared 502s. Remaining open item: rotation/regeneration validation.
+- Built/pushed all images with `APP_TAG=sha-0bc21e5ee79be0eb143cddd6fc7601f739c39f21` and restarted the mTLS compose stack.
+- sysmon-vm mTLS config is generated via config-updater; sysmon-vm at `192.168.1.218:50110` onlines successfully and sysmon metrics are now ingested under the canonical device `sr:88239dc2-7208-4c24-a396-3f868c2c9419` (UI sysmon CPU panel returns data).
+- UI connectivity is healthy after the restart. Remaining open item: rotation/regeneration validation.
 
 ## Impact
 - Affected specs: edge-onboarding.
