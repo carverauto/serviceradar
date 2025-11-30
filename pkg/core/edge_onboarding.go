@@ -122,6 +122,9 @@ var (
 
 	// ErrCAKeyUnsupportedType is returned when a CA key has an unsupported type.
 	ErrCAKeyUnsupportedType = errors.New("ca key: unsupported key type")
+
+	// ErrPathOutsideAllowedDir is returned when a path traversal is attempted.
+	ErrPathOutsideAllowedDir = errors.New("path is outside allowed directory")
 )
 
 type edgeOnboardingService struct {
@@ -1961,10 +1964,10 @@ func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboard
 	}
 	// Ensure CA cert and key paths are within the allowed certDir
 	if !strings.HasPrefix(absCaPath, absCertDir+string(filepath.Separator)) {
-		return nil, fmt.Errorf("ca_cert_path %q is outside allowed directory %q", caPath, certDir)
+		return nil, fmt.Errorf("ca_cert_path %q outside %q: %w", caPath, certDir, ErrPathOutsideAllowedDir)
 	}
 	if !strings.HasPrefix(absCaKeyPath, absCertDir+string(filepath.Separator)) {
-		return nil, fmt.Errorf("ca_key_path %q is outside allowed directory %q", caKeyPath, certDir)
+		return nil, fmt.Errorf("ca_key_path %q outside %q: %w", caKeyPath, certDir, ErrPathOutsideAllowedDir)
 	}
 
 	caPEM, err := os.ReadFile(absCaPath)
