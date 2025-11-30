@@ -10,7 +10,8 @@
 - [x] 2.5 Build and push amd64 images and update mTLS compose variant to consume tagged images.
 
 ## 3. Validation
-- [ ] 3.1 E2E: start Compose with generated CA, issue mTLS edge token, run sysmon-vm on darwin/arm64 against `192.168.1.218:<checker-port>`, and verify mTLS connection to poller/core succeeds.
+- [x] 3.1 E2E: start Compose with generated CA, issue mTLS edge token, run sysmon-vm on darwin/arm64 against `192.168.1.218:<checker-port>`, and verify mTLS connection to poller/core succeeds.
+- Notes: Images pushed with `APP_TAG=sha-811f8732636f1a7569614850f560c74f706f8c4b`; mTLS compose stack up; sysmon-vm at `192.168.1.218:50110` is ingesting metrics into device `default:192.168.1.218` after restarting web/nginx.
 - [ ] 3.2 Rotation/regeneration sanity: regenerate an edge bundle/token and confirm sysmon-vm can re-enroll without manual cleanup.
 
 ### Notes on current blockers

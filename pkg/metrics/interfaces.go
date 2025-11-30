@@ -40,7 +40,7 @@ type MetricCollector interface {
 }
 
 type StructuredMetricCollector interface {
-	StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID string, metrics *models.SysmonMetrics, timestamp time.Time) error
+	StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID, partition, hostIP, deviceID string, metrics *models.SysmonMetrics, timestamp time.Time) error
 	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
 	GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
 	GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error)

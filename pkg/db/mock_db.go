@@ -966,17 +966,17 @@ func (mr *MockServiceMockRecorder) StoreSweepHostStates(ctx, states any) *gomock
 }
 
 // StoreSysmonMetrics mocks base method.
-func (m *MockService) StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID, partition, hostIP string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+func (m *MockService) StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID, partition, hostIP, deviceID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreSysmonMetrics", ctx, pollerID, agentID, hostID, partition, hostIP, metrics, timestamp)
+	ret := m.ctrl.Call(m, "StoreSysmonMetrics", ctx, pollerID, agentID, hostID, partition, hostIP, deviceID, metrics, timestamp)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // StoreSysmonMetrics indicates an expected call of StoreSysmonMetrics.
-func (mr *MockServiceMockRecorder) StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, metrics, timestamp any) *gomock.Call {
+func (mr *MockServiceMockRecorder) StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, deviceID, metrics, timestamp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSysmonMetrics", reflect.TypeOf((*MockService)(nil).StoreSysmonMetrics), ctx, pollerID, agentID, hostID, partition, hostIP, metrics, timestamp)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSysmonMetrics", reflect.TypeOf((*MockService)(nil).StoreSysmonMetrics), ctx, pollerID, agentID, hostID, partition, hostIP, deviceID, metrics, timestamp)
 }
 
 // StoreUser mocks base method.

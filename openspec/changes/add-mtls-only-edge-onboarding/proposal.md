@@ -11,6 +11,11 @@
 - Document the Linux Compose + darwin/arm64 sysmon-vm flow (e.g., target poller at `192.168.1.218:<checker-port>`), while keeping SPIRE ingress/agent experimentation as an optional path.
 - Build/publish new images (amd64) and wire an mTLS compose variant using tagged images.
 
+## Status (2025-11-30)
+- Built/pushed all images with `APP_TAG=sha-811f8732636f1a7569614850f560c74f706f8c4b` and restarted the mTLS compose stack.
+- sysmon-vm mTLS config is generated via config-updater, sysmon-vm at `192.168.1.218:50110` onlines successfully, and sysmon metrics are ingesting under device `default:192.168.1.218`.
+- UI was unreachable due to nginx not resolving `web`; restarting web/nginx cleared 502s. Remaining open item: rotation/regeneration validation.
+
 ## Impact
 - Affected specs: edge-onboarding.
 - Affected code: Core edge package/bundle delivery, sysmon-vm bootstrap CLI, Docker Compose TLS bootstrap/scripts and docs.

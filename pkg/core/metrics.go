@@ -32,8 +32,8 @@ import (
 
 // Static errors for err113 compliance
 var (
-	ErrRperfTestFailed             = errors.New("rperf test failed")
-	errICMPServiceMetadataRequired = errors.New("icmp service metadata is required")
+	ErrRperfTestFailed              = errors.New("rperf test failed")
+	errICMPServiceMetadataRequired  = errors.New("icmp service metadata is required")
 	errICMPDeviceIdentifiersMissing = errors.New("icmp device identifiers missing")
 )
 
@@ -871,8 +871,11 @@ func (s *Server) processSysmonMetrics(
 
 	// Create device_id for logging and device registration
 	deviceID := fmt.Sprintf("%s:%s", partition, sysmonPayload.Status.HostIP)
+	if snap := s.resolveCanonicalDevice(ctx, sysmonPayload.Status.HostIP, deviceID); strings.TrimSpace(snap.DeviceID) != "" {
+		deviceID = snap.DeviceID
+	}
 
-	s.bufferSysmonMetrics(pollerID, partition, m)
+	s.bufferSysmonMetrics(pollerID, partition, deviceID, m)
 
 	memoryCount := 0
 	if sysmonPayload.Status.Memory.TotalBytes > 0 || sysmonPayload.Status.Memory.UsedBytes > 0 {
@@ -1234,11 +1237,12 @@ func (*Server) buildSysmonMetrics(
 	return m
 }
 
-func (s *Server) bufferSysmonMetrics(pollerID, partition string, metrics *models.SysmonMetrics) {
+func (s *Server) bufferSysmonMetrics(pollerID, partition, deviceID string, metrics *models.SysmonMetrics) {
 	s.sysmonBufferMu.Lock()
 	s.sysmonBuffers[pollerID] = append(s.sysmonBuffers[pollerID], &sysmonMetricBuffer{
 		Metrics:   metrics,
 		Partition: partition,
+		DeviceID:  deviceID,
 	})
 	s.sysmonBufferMu.Unlock()
 }
