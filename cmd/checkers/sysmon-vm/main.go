@@ -48,6 +48,7 @@ func run() error {
 	mtlsBundlePath := flag.String("bundle", "", "Path to a pre-fetched mTLS bundle (tar.gz or JSON)")
 	mtlsCertDir := flag.String("cert-dir", "/etc/serviceradar/certs", "Directory to write mTLS certs/keys")
 	mtlsServerName := flag.String("server-name", "sysmon-vm.serviceradar", "Server name to present in mTLS")
+	mtlsBootstrapOnly := flag.Bool("mtls-bootstrap-only", false, "Run mTLS bootstrap, persist config, then exit without starting the service")
 	flag.Parse()
 
 	configFlag := flag.CommandLine.Lookup("config")
@@ -74,6 +75,10 @@ func run() error {
 		forcedSecurity = mtlsCfg
 		log.Printf("mTLS bundle installed to %s", *mtlsCertDir)
 		persistMTLSConfig(*configPath, forcedSecurity)
+		if *mtlsBootstrapOnly {
+			log.Printf("mTLS bootstrap-only mode enabled; exiting after writing config")
+			return nil
+		}
 	} else {
 		// Try edge onboarding first (checks env vars if flags not set)
 		onboardingResult, err := edgeonboarding.TryOnboard(ctx, models.EdgeOnboardingComponentTypeChecker, nil)

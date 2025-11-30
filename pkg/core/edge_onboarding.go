@@ -1946,18 +1946,39 @@ func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboard
 	caPath := firstNonEmpty(strings.TrimSpace(metadata["ca_cert_path"]), filepath.Join(certDir, "root.pem"))
 	caKeyPath := firstNonEmpty(strings.TrimSpace(metadata["ca_key_path"]), filepath.Join(certDir, "root-key.pem"))
 
-	caPEM, err := os.ReadFile(caPath)
+	// Validate paths to prevent path traversal attacks
+	absCertDir, err := filepath.Abs(certDir)
 	if err != nil {
-		return nil, fmt.Errorf("read ca cert from %s: %w", caPath, err)
+		return nil, fmt.Errorf("invalid cert_dir path: %w", err)
+	}
+	absCaPath, err := filepath.Abs(caPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ca_cert_path: %w", err)
+	}
+	absCaKeyPath, err := filepath.Abs(caKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid ca_key_path: %w", err)
+	}
+	// Ensure CA cert and key paths are within the allowed certDir
+	if !strings.HasPrefix(absCaPath, absCertDir+string(filepath.Separator)) {
+		return nil, fmt.Errorf("ca_cert_path %q is outside allowed directory %q", caPath, certDir)
+	}
+	if !strings.HasPrefix(absCaKeyPath, absCertDir+string(filepath.Separator)) {
+		return nil, fmt.Errorf("ca_key_path %q is outside allowed directory %q", caKeyPath, certDir)
+	}
+
+	caPEM, err := os.ReadFile(absCaPath)
+	if err != nil {
+		return nil, fmt.Errorf("read ca cert from %s: %w", absCaPath, err)
 	}
 	caCert, err := parseCACertificate(caPEM)
 	if err != nil {
 		return nil, fmt.Errorf("parse ca certificate: %w", err)
 	}
 
-	caKeyBytes, err := os.ReadFile(caKeyPath)
+	caKeyBytes, err := os.ReadFile(absCaKeyPath)
 	if err != nil {
-		return nil, fmt.Errorf("read ca key from %s: %w", caKeyPath, err)
+		return nil, fmt.Errorf("read ca key from %s: %w", absCaKeyPath, err)
 	}
 	caKey, err := parsePrivateKey(caKeyBytes)
 	if err != nil {
@@ -2062,10 +2083,12 @@ func mintClientCertificate(caCert *x509.Certificate, caKey crypto.Signer, client
 			CommonName:   clientName,
 			Organization: []string{"ServiceRadar Edge"},
 		},
-		NotBefore:             notBefore,
-		NotAfter:              notAfter,
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		NotBefore: notBefore,
+		NotAfter:  notAfter,
+		KeyUsage:  x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		// sysmon-vm acts as both mTLS server (polled by agent) and client (if it ever calls back),
+		// so keep both usages to satisfy TLS handshakes.
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		DNSNames:              dnsNames,
 		IPAddresses:           ipAddresses,
 		BasicConstraintsValid: true,
