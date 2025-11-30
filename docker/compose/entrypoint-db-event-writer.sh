@@ -46,6 +46,17 @@ resolve_service_port() {
     printf '%s' "$default_value"
 }
 
+# CNPG connection defaults (TLS/mTLS)
+CNPG_HOST_VALUE=$(resolve_service_host "cnpg" CNPG_HOST "cnpg")
+CNPG_PORT_VALUE=$(resolve_service_port CNPG_PORT "5432")
+CNPG_DATABASE_VALUE="${CNPG_DATABASE:-serviceradar}"
+CNPG_USERNAME_VALUE="${CNPG_USERNAME:-serviceradar}"
+CNPG_SSL_MODE_VALUE="${CNPG_SSL_MODE:-${CNPG_SSLMODE:-verify-full}}"
+CNPG_CERT_DIR_VALUE="${CNPG_CERT_DIR:-/etc/serviceradar/certs}"
+CNPG_CA_FILE_VALUE="${CNPG_CA_FILE:-$CNPG_CERT_DIR_VALUE/root.pem}"
+CNPG_CERT_FILE_VALUE="${CNPG_CERT_FILE:-$CNPG_CERT_DIR_VALUE/db-event-writer.pem}"
+CNPG_KEY_FILE_VALUE="${CNPG_KEY_FILE:-$CNPG_CERT_DIR_VALUE/db-event-writer-key.pem}"
+
 # Wait for dependencies to be ready
 if [ -n "${WAIT_FOR_NATS:-}" ]; then
     NATS_HOST_VALUE=$(resolve_service_host "serviceradar-nats" NATS_HOST "nats")
@@ -67,8 +78,6 @@ if [ -n "${WAIT_FOR_NATS:-}" ]; then
 fi
 
 if [ -n "${WAIT_FOR_CNPG:-}" ]; then
-    CNPG_HOST_VALUE=$(resolve_service_host "cnpg-rw" CNPG_HOST "cnpg-rw")
-    CNPG_PORT_VALUE=$(resolve_service_port CNPG_PORT "5432")
     echo "Waiting for CNPG database at ${CNPG_HOST_VALUE}:${CNPG_PORT_VALUE}..."
 
     CNPG_ATTEMPTS="${WAIT_FOR_CNPG_ATTEMPTS:-$DEFAULT_WAIT_ATTEMPTS}"
@@ -125,6 +134,31 @@ if [ -n "$CNPG_PASSWORD_VALUE" ]; then
 else
     echo "⚠️  Warning: No CNPG password provided; config will rely on existing settings"
 fi
+
+# Enforce CNPG TLS/mTLS settings to avoid stale configs
+jq --arg host "$CNPG_HOST_VALUE" \
+   --argjson port "${CNPG_PORT_VALUE:-5432}" \
+   --arg db "$CNPG_DATABASE_VALUE" \
+   --arg user "$CNPG_USERNAME_VALUE" \
+   --arg ssl "$CNPG_SSL_MODE_VALUE" \
+   --arg ca "$CNPG_CA_FILE_VALUE" \
+   --arg cert "$CNPG_CERT_FILE_VALUE" \
+   --arg key "$CNPG_KEY_FILE_VALUE" \
+   '
+   .cnpg = (.cnpg // {})
+   | .cnpg.host = $host
+   | .cnpg.port = ($port | tonumber)
+   | .cnpg.database = $db
+   | .cnpg.username = $user
+   | .cnpg.ssl_mode = $ssl
+   | .cnpg.tls = {
+       ca_file: $ca,
+       cert_file: $cert,
+       key_file: $key
+     }
+   ' "$CONFIG_PATH" > /tmp/config-updated.json
+mv /tmp/config-updated.json "$CONFIG_PATH"
+echo "✅ Ensured CNPG TLS config (host=$CNPG_HOST_VALUE port=$CNPG_PORT_VALUE ssl_mode=$CNPG_SSL_MODE_VALUE)"
 
 echo "Starting ServiceRadar DB Event Writer with config: $CONFIG_PATH"
 

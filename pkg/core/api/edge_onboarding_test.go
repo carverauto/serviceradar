@@ -163,6 +163,7 @@ func TestHandleCreateEdgePackageSuccess(t *testing.T) {
 				CreatedBy:              "tester@example.com",
 				CreatedAt:              time.Now(),
 				UpdatedAt:              time.Now(),
+				SecurityMode:           "spire",
 			},
 			JoinToken:     "join-token",
 			DownloadToken: "download-token",
@@ -192,6 +193,7 @@ func TestHandleCreateEdgePackageSuccess(t *testing.T) {
 	assert.Equal(t, "PEM", payload.BundlePEM)
 	assert.Equal(t, "Edge Poller", payload.Package.Label)
 	assert.Equal(t, "edge-poller", payload.Package.ComponentID)
+	assert.Equal(t, "spire", payload.Package.SecurityMode)
 }
 
 func TestHandleCreateEdgePackageInvalid(t *testing.T) {
@@ -370,6 +372,7 @@ func TestHandleDownloadEdgePackageJSONResponse(t *testing.T) {
 				ComponentType:      models.EdgeOnboardingComponentTypePoller,
 				PollerID:           "json-poller",
 				Status:             models.EdgeOnboardingStatusIssued,
+				SecurityMode:       "spire",
 				DownstreamSPIFFEID: "spiffe://example.org/ns/edge/json-poller",
 				MetadataJSON:       `{"core_address":"core:50052"}`,
 				JoinTokenExpiresAt: now.Add(5 * time.Minute),
@@ -401,6 +404,88 @@ func TestHandleDownloadEdgePackageJSONResponse(t *testing.T) {
 	assert.Equal(t, "pkg-json", payload.Package.PackageID)
 	assert.Equal(t, "join-json", payload.JoinToken)
 	assert.Equal(t, "bundle-json", payload.BundlePEM)
+}
+
+func TestHandleDownloadEdgePackageMTLSJSON(t *testing.T) {
+	now := time.Now()
+	mtlsBundle := json.RawMessage(`{"ca_cert_pem":"ca","client_cert_pem":"cert","client_key_pem":"key","server_name":"core.serviceradar"}`)
+	service := &stubEdgeOnboardingService{
+		deliverResult: &models.EdgeOnboardingDeliverResult{
+			Package: &models.EdgeOnboardingPackage{
+				PackageID:              "pkg-mtls",
+				Label:                  "mTLS Checker",
+				ComponentID:            "sysmon-vm",
+				ComponentType:          models.EdgeOnboardingComponentTypeChecker,
+				ParentType:             models.EdgeOnboardingComponentTypeAgent,
+				ParentID:               "agent-1",
+				PollerID:               "edge-poller",
+				Status:                 models.EdgeOnboardingStatusIssued,
+				SecurityMode:           "mtls",
+				MetadataJSON:           `{"security_mode":"mtls","poller_endpoint":"edge:50053"}`,
+				JoinTokenExpiresAt:     now.Add(5 * time.Minute),
+				DownloadTokenExpiresAt: now.Add(15 * time.Minute),
+				CreatedAt:              now,
+				UpdatedAt:              now,
+			},
+			MTLSBundle: mtlsBundle,
+		},
+	}
+	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service))
+
+	body, _ := json.Marshal(edgePackageDownloadRequest{DownloadToken: "token-mtls"})
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/edge-packages/pkg-mtls/download?format=json", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"id": "pkg-mtls"})
+
+	rec := httptest.NewRecorder()
+	server.handleDownloadEdgePackage(rec, req)
+
+	resp := rec.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+
+	var payload edgePackageDeliverResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&payload))
+	assert.Equal(t, "pkg-mtls", payload.Package.PackageID)
+	assert.Equal(t, "mtls", payload.Package.SecurityMode)
+	assert.Empty(t, payload.JoinToken)
+	assert.Empty(t, payload.BundlePEM)
+	require.JSONEq(t, string(mtlsBundle), string(payload.MTLSBundle))
+}
+
+func TestHandleDownloadEdgePackageMTLSTarRejected(t *testing.T) {
+	now := time.Now()
+	service := &stubEdgeOnboardingService{
+		deliverResult: &models.EdgeOnboardingDeliverResult{
+			Package: &models.EdgeOnboardingPackage{
+				PackageID:          "pkg-mtls",
+				Label:              "mTLS Checker",
+				ComponentID:        "sysmon-vm",
+				ComponentType:      models.EdgeOnboardingComponentTypeChecker,
+				Status:             models.EdgeOnboardingStatusIssued,
+				SecurityMode:       "mtls",
+				MetadataJSON:       `{"security_mode":"mtls"}`,
+				JoinTokenExpiresAt: now.Add(5 * time.Minute),
+				CreatedAt:          now,
+				UpdatedAt:          now,
+			},
+			MTLSBundle: json.RawMessage(`{"ca_cert_pem":"ca"}`),
+		},
+	}
+	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service))
+
+	body, _ := json.Marshal(edgePackageDownloadRequest{DownloadToken: "token-mtls"})
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/edge-packages/pkg-mtls/download", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"id": "pkg-mtls"})
+
+	rec := httptest.NewRecorder()
+	server.handleDownloadEdgePackage(rec, req)
+
+	resp := rec.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestHandleRevokeEdgePackageSuccess(t *testing.T) {

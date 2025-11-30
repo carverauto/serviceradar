@@ -49,6 +49,7 @@ type edgePackageView struct {
 	CheckerConfigJSON  string     `json:"checker_config_json,omitempty"`
 	KVRevision         uint64     `json:"kv_revision,omitempty"`
 	Notes              string     `json:"notes,omitempty"`
+	SecurityMode       string     `json:"security_mode,omitempty"`
 }
 
 type edgeEventView struct {
@@ -67,6 +68,7 @@ type edgePackageCreateRequest struct {
 	ParentID                string   `json:"parent_id,omitempty"`
 	PollerID                string   `json:"poller_id,omitempty"`
 	Site                    string   `json:"site,omitempty"`
+	SecurityMode            string   `json:"security_mode,omitempty"`
 	Selectors               []string `json:"selectors,omitempty"`
 	MetadataJSON            string   `json:"metadata_json,omitempty"`
 	CheckerKind             string   `json:"checker_kind,omitempty"`
@@ -83,6 +85,7 @@ type edgePackageCreateResponse struct {
 	JoinToken     string          `json:"join_token"`
 	DownloadToken string          `json:"download_token"`
 	BundlePEM     string          `json:"bundle_pem"`
+	MTLSBundle    json.RawMessage `json:"mtls_bundle,omitempty"`
 }
 
 type edgePackageDownloadRequest struct {
@@ -99,9 +102,10 @@ type edgePackageDefaultsResponse struct {
 }
 
 type edgePackageDeliverResponse struct {
-	Package   edgePackageView `json:"package"`
-	JoinToken string          `json:"join_token"`
-	BundlePEM string          `json:"bundle_pem"`
+	Package    edgePackageView `json:"package"`
+	JoinToken  string          `json:"join_token"`
+	BundlePEM  string          `json:"bundle_pem"`
+	MTLSBundle json.RawMessage `json:"mtls_bundle,omitempty"`
 }
 
 const (
@@ -409,6 +413,7 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 		ParentID:           parentID,
 		PollerID:           strings.TrimSpace(req.PollerID),
 		Site:               req.Site,
+		SecurityMode:       strings.TrimSpace(req.SecurityMode),
 		Selectors:          req.Selectors,
 		MetadataJSON:       req.MetadataJSON,
 		CheckerKind:        strings.TrimSpace(req.CheckerKind),
@@ -453,6 +458,9 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 		JoinToken:     result.JoinToken,
 		DownloadToken: result.DownloadToken,
 		BundlePEM:     string(result.BundlePEM),
+	}
+	if result.MTLSBundle != nil {
+		response.MTLSBundle = json.RawMessage(result.MTLSBundle)
 	}
 
 	s.writeJSON(w, http.StatusCreated, response)
@@ -525,7 +533,15 @@ func (s *APIServer) handleDownloadEdgePackage(w http.ResponseWriter, r *http.Req
 			JoinToken: result.JoinToken,
 			BundlePEM: string(result.BundlePEM),
 		}
+		if result.MTLSBundle != nil {
+			payload.MTLSBundle = json.RawMessage(result.MTLSBundle)
+		}
 		s.writeJSON(w, http.StatusOK, payload)
+		return
+	}
+
+	if result.MTLSBundle != nil {
+		writeError(w, "mTLS packages must be downloaded with format=json", http.StatusBadRequest)
 		return
 	}
 
@@ -668,6 +684,7 @@ func toEdgePackageView(pkg *models.EdgeOnboardingPackage) edgePackageView {
 		PollerID:           pkg.PollerID,
 		Site:               pkg.Site,
 		Status:             string(pkg.Status),
+		SecurityMode:       pkg.SecurityMode,
 		DownstreamSPIFFEID: pkg.DownstreamSPIFFEID,
 		Selectors:          pkg.Selectors,
 		JoinTokenExpiresAt: pkg.JoinTokenExpiresAt,

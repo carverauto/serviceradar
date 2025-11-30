@@ -52,3 +52,11 @@ func (a *serviceRegistryAdapter) RegisterChecker(ctx context.Context, reg *Check
 		CreatedBy:          reg.CreatedBy,
 	})
 }
+
+func (a *serviceRegistryAdapter) GetAgentPollerID(ctx context.Context, agentID string) (string, error) {
+	agent, err := a.registry.GetAgent(ctx, agentID)
+	if err != nil {
+		return "", err
+	}
+	return agent.PollerID, nil
+}

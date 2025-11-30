@@ -51,6 +51,7 @@ type EdgeOnboardingPackage struct {
 	PollerID               string                      `json:"poller_id"`
 	Site                   string                      `json:"site,omitempty"`
 	Status                 EdgeOnboardingStatus        `json:"status"`
+	SecurityMode           string                      `json:"security_mode,omitempty"`
 	DownstreamEntryID      string                      `json:"downstream_entry_id,omitempty"`
 	DownstreamSPIFFEID     string                      `json:"downstream_spiffe_id"`
 	Selectors              []string                    `json:"selectors,omitempty"`
@@ -103,6 +104,7 @@ type EdgeOnboardingCreateRequest struct {
 	ComponentID        string
 	ComponentType      EdgeOnboardingComponentType
 	ParentType         EdgeOnboardingComponentType
+	SecurityMode       string
 	ParentID           string
 	PollerID           string
 	Site               string
@@ -124,6 +126,7 @@ type EdgeOnboardingCreateResult struct {
 	JoinToken         string
 	DownloadToken     string
 	BundlePEM         []byte
+	MTLSBundle        []byte
 	DownstreamEntryID string
 }
 
@@ -137,9 +140,10 @@ type EdgeOnboardingDeliverRequest struct {
 
 // EdgeOnboardingDeliverResult contains decrypted artifacts for installers.
 type EdgeOnboardingDeliverResult struct {
-	Package   *EdgeOnboardingPackage
-	JoinToken string
-	BundlePEM []byte
+	Package    *EdgeOnboardingPackage
+	JoinToken  string
+	BundlePEM  []byte
+	MTLSBundle []byte
 }
 
 // EdgeOnboardingRevokeRequest describes a package revocation.

@@ -25,8 +25,8 @@ use tower::ServiceExt;
 
 const API_KEY: &str = "test-api-key";
 const CNPG_IMAGE: &str = "ghcr.io/carverauto/serviceradar-cnpg";
-const CNPG_TAG: &str = "16.6.0-sr1";
-const CNPG_IMAGE_REF: &str = "ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr1";
+const CNPG_TAG: &str = "16.6.0-sr2";
+const CNPG_IMAGE_REF: &str = "ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2";
 const CNPG_ARCHIVE: &str = "/opt/cnpg_image.tar";
 const DB_CONNECT_RETRIES: usize = 240;
 const DB_CONNECT_DELAY_MS: u64 = 250;

@@ -26,6 +26,9 @@ unit `com.serviceradar.sysmonvm`, and ensures `/usr/local/etc/serviceradar`
 contains `sysmon-vm.json`. Because the frequency sampler is built in, there is
 no companion `hostfreq` daemon to manage.
 
+If you want to use SPIFFE-based authentication, you must manually configure a
+SPIRE agent on the host and onboard it with the SPIRE server running in k8s.
+
 ## Troubleshooting
 
 - The sampler still depends on private IOReport APIs, so the launchd service

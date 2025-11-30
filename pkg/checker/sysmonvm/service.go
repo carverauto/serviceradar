@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -201,6 +202,11 @@ func hostIdentifier() string {
 }
 
 func localIP(ctx context.Context) string {
+	// Prefer a stable, non-docker, non-loopback IPv4 before falling back to a dial trick.
+	if ip := firstUsableIPv4(); ip != "" {
+		return ip
+	}
+
 	dialer := &net.Dialer{
 		Timeout: time.Second,
 	}
@@ -219,4 +225,56 @@ func localIP(ctx context.Context) string {
 	}
 
 	return localAddr.IP.String()
+}
+
+func firstUsableIPv4() string {
+	dockerCIDRs := []net.IPNet{
+		{IP: net.IPv4(172, 17, 0, 0), Mask: net.CIDRMask(16, 32)},
+		{IP: net.IPv4(172, 18, 0, 0), Mask: net.CIDRMask(16, 32)},
+		{IP: net.IPv4(172, 19, 0, 0), Mask: net.CIDRMask(16, 32)},
+	}
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		name := strings.ToLower(iface.Name)
+		if strings.HasPrefix(name, "docker") || strings.HasPrefix(name, "br-") || strings.HasPrefix(name, "veth") {
+			continue
+		}
+
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok || ipNet == nil {
+				continue
+			}
+			ip := ipNet.IP.To4()
+			if ip == nil || !ip.IsGlobalUnicast() {
+				continue
+			}
+			skip := false
+			for _, cidr := range dockerCIDRs {
+				if cidr.Contains(ip) {
+					skip = true
+					break
+				}
+			}
+			if skip {
+				continue
+			}
+			return ip.String()
+		}
+	}
+
+	return ""
 }

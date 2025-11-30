@@ -65,7 +65,11 @@ generate_cert() {
     local san=$3
     
     if [ -f "$CERT_DIR/$component.pem" ]; then
-        echo "Certificate for $component already exists, skipping."
+        echo "Certificate for $component already exists, ensuring permissions."
+        chmod 600 "$CERT_DIR/$component-key.pem" 2>/dev/null || true
+        if [ "$component" = "cnpg" ]; then
+            chown 26:999 "$CERT_DIR/$component-key.pem" "$CERT_DIR/$component.pem" 2>/dev/null || true
+        fi
         return
     fi
     
@@ -112,7 +116,10 @@ EOF
         chown serviceradar:serviceradar "$CERT_DIR/$component.pem" "$CERT_DIR/$component-key.pem" || true
     fi
     chmod 644 "$CERT_DIR/$component.pem"
-    chmod 644 "$CERT_DIR/$component-key.pem"
+    chmod 600 "$CERT_DIR/$component-key.pem"
+    if [ "$component" = "cnpg" ]; then
+        chown 26:999 "$CERT_DIR/$component.pem" "$CERT_DIR/$component-key.pem" 2>/dev/null || true
+    fi
     
     echo "Certificate for $component generated."
 }
@@ -128,7 +135,7 @@ generate_cert "core" "core.serviceradar" "DNS:core,DNS:core.serviceradar,DNS:ser
 generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats,DNS:datasvc.serviceradar,DNS:sync.serviceradar,DNS:zen.serviceradar,DNS:trapd.serviceradar,DNS:flowgger.serviceradar,DNS:otel.serviceradar,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Services that agent connects to
-generate_cert "datasvc" "datasvc.serviceradar" "DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc,DNS:agent.serviceradar,DNS:sync.serviceradar,DNS:zen.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "datasvc" "datasvc.serviceradar" "DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc,DNS:agent.serviceradar,DNS:sync.serviceradar,DNS:zen.serviceradar,DNS:core.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "sync" "sync.serviceradar" "DNS:sync,DNS:sync.serviceradar,DNS:serviceradar-sync,DNS:agent.serviceradar,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "zen" "zen.serviceradar" "DNS:zen,DNS:zen.serviceradar,DNS:serviceradar-zen,DNS:agent.serviceradar,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "trapd" "trapd.serviceradar" "DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd,DNS:agent.serviceradar,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
@@ -140,12 +147,17 @@ generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent.serviceradar,DNS
 generate_cert "web" "web.serviceradar" "DNS:web,DNS:web.serviceradar,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
 generate_cert "db-event-writer" "db-event-writer.serviceradar" "DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:serviceradar-db-event-writer,DNS:localhost,IP:127.0.0.1"
 generate_cert "srql" "srql.serviceradar" "DNS:srql,DNS:srql.serviceradar,DNS:serviceradar-srql,DNS:localhost,IP:127.0.0.1"
+generate_cert "cnpg" "cnpg.serviceradar" "DNS:cnpg,DNS:cnpg-rw,DNS:cnpg.serviceradar,DNS:cnpg-rw.serviceradar,DNS:serviceradar-cnpg,DNS:localhost,IP:127.0.0.1"
 
 # Other services
 generate_cert "snmp-checker" "snmp-checker.serviceradar" "DNS:snmp-checker,DNS:snmp-checker.serviceradar,DNS:serviceradar-snmp-checker,DNS:agent.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:rperf-client.serviceradar,DNS:serviceradar-rperf-client,DNS:agent.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "otel" "otel.serviceradar" "DNS:otel,DNS:otel.serviceradar,DNS:serviceradar-otel,DNS:localhost,IP:127.0.0.1"
 generate_cert "flowgger" "flowgger.serviceradar" "DNS:flowgger,DNS:flowgger.serviceradar,DNS:serviceradar-flowgger,DNS:localhost,IP:127.0.0.1"
+
+# Edge / checker
+generate_cert "sysmon-vm" "sysmon-vm.serviceradar" "DNS:sysmon-vm,DNS:sysmon-vm.serviceradar,DNS:serviceradar-sysmon-vm,DNS:sysmon-vm-checker,DNS:localhost,IP:127.0.0.1"
+generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"
 
 # Generate JWT secret for authentication
 JWT_SECRET_FILE="$CERT_DIR/jwt-secret"

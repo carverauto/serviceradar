@@ -829,25 +829,17 @@ pkg_tar(
     files = {
         "//cmd/poller:poller": "usr/local/bin/serviceradar-poller",
         "//docker/compose:poller.docker.json": "etc/serviceradar/poller.json",
-        "//docker/compose:bootstrap-nested-spire.sh": "usr/local/bin/bootstrap-nested-spire",
         "//docker/compose:entrypoint-poller.sh": "usr/local/bin/poller-entrypoint.sh",
-        "@spire_linux_amd64//:bin/spire-agent": "usr/local/bin/spire-agent",
-        "@spire_linux_amd64//:bin/spire-server": "usr/local/bin/spire-server",
     },
     modes = {
         "usr/local/bin/serviceradar-poller": "0755",
         "etc/serviceradar/poller.json": "0644",
-        "usr/local/bin/bootstrap-nested-spire": "0755",
         "usr/local/bin/poller-entrypoint.sh": "0755",
-        "usr/local/bin/spire-agent": "0755",
-        "usr/local/bin/spire-server": "0755",
     },
     empty_dirs = [
         "etc/serviceradar/certs",
-        "etc/serviceradar/config/poller-spire",
         "var/log/serviceradar",
         "var/lib/serviceradar",
-        "run/spire/nested",
     ],
     package_dir = "/",
 )
@@ -1389,8 +1381,6 @@ pkg_tar(
         "//docker/compose:tools-profile.sh": "etc/profile.d/serviceradar-tools.sh",
         "//docker/compose:tools-motd.txt": "etc/motd",
         "@natscli_linux_amd64//:nats": "usr/local/bin/nats",
-        "@spire_linux_amd64//:bin/spire-agent": "usr/local/bin/spire-agent",
-        "@spire_linux_amd64//:bin/spire-server": "usr/local/bin/spire-server",
     },
     modes = {
         "usr/local/bin/serviceradar-cli": "0755",
@@ -1399,8 +1389,6 @@ pkg_tar(
         "etc/profile.d/serviceradar-tools.sh": "0644",
         "etc/motd": "0644",
         "usr/local/bin/nats": "0755",
-        "usr/local/bin/spire-agent": "0755",
-        "usr/local/bin/spire-server": "0755",
     },
     empty_dirs = [
         "etc/serviceradar/certs",
@@ -1494,6 +1482,31 @@ fi
 )
 
 genrule(
+    name = "glibc_runtime_layer",
+    srcs = [
+        "@debian_gcc_15_base_amd64_deb//file",
+        "@debian_libgcc_s1_amd64_deb//file",
+        "@debian_libc6_amd64_deb//file",
+    ],
+    outs = ["glibc_runtime_layer.tar"],
+    tools = [
+        "//docker/images:overlay_deb_packages.py",
+    ],
+    cmd = """
+set -euo pipefail
+OUT_DIR="$$(pwd)/$(@D)"
+ROOT_DIR="$${OUT_DIR}/rootfs_glibc"
+OUT_TAR="$$(pwd)/$@"
+mkdir -p "$${ROOT_DIR}"
+python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
+  "$(location @debian_gcc_15_base_amd64_deb//file)" \
+  "$(location @debian_libgcc_s1_amd64_deb//file)" \
+  "$(location @debian_libc6_amd64_deb//file)"
+tar -C "$${ROOT_DIR}" -cf "$${OUT_TAR}" .
+""",
+)
+
+genrule(
     name = "timescaledb_extension_layer",
     srcs = [
         ":cnpg_postgresql_16_6_rootfs_tar",
@@ -1501,6 +1514,9 @@ genrule(
         "@debian_bison_amd64_deb//file",
         "@debian_flex_amd64_deb//file",
         "@debian_libpq_dev_amd64_deb//file",
+        "@debian_gcc_15_base_amd64_deb//file",
+        "@debian_libgcc_s1_amd64_deb//file",
+        "@debian_libc6_amd64_deb//file",
         "//timescaledb:source_tree",
         "//docker/images:pg_config_wrapper.sh",
     ],
@@ -1522,7 +1538,10 @@ python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
   "$(location @postgresql_server_dev_16_deb//file)" \
   "$(location @debian_bison_amd64_deb//file)" \
   "$(location @debian_flex_amd64_deb//file)" \
-  "$(location @debian_libpq_dev_amd64_deb//file)"
+  "$(location @debian_libpq_dev_amd64_deb//file)" \
+  "$(location @debian_gcc_15_base_amd64_deb//file)" \
+  "$(location @debian_libgcc_s1_amd64_deb//file)" \
+  "$(location @debian_libc6_amd64_deb//file)"
 sed -i 's|^CLANG = .*|CLANG = clang|' "$${ROOT_DIR}/usr/lib/postgresql/16/lib/pgxs/src/Makefile.global"
 sed -i 's|^with_llvm\t= .*|with_llvm\t= no|' "$${ROOT_DIR}/usr/lib/postgresql/16/lib/pgxs/src/Makefile.global"
 
@@ -1577,6 +1596,9 @@ genrule(
         ":cnpg_postgresql_16_6_rootfs_tar",
         "@postgresql_server_dev_16_deb//file",
         "@debian_libpq_dev_amd64_deb//file",
+        "@debian_gcc_15_base_amd64_deb//file",
+        "@debian_libgcc_s1_amd64_deb//file",
+        "@debian_libc6_amd64_deb//file",
         "//age:source_tree",
         "//docker/images:pg_config_wrapper.sh",
     ],
@@ -1595,7 +1617,10 @@ ROOT_DIR="$${OUT_DIR}/rootfs_age"
 python3 "$(location //docker/images:extract_rootfs.py)" "$(location :cnpg_postgresql_16_6_rootfs_tar)" "$${ROOT_DIR}"
 python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
   "$(location @postgresql_server_dev_16_deb//file)" \
-  "$(location @debian_libpq_dev_amd64_deb//file)"
+  "$(location @debian_libpq_dev_amd64_deb//file)" \
+  "$(location @debian_gcc_15_base_amd64_deb//file)" \
+  "$(location @debian_libgcc_s1_amd64_deb//file)" \
+  "$(location @debian_libc6_amd64_deb//file)"
 sed -i 's|^CLANG = .*|CLANG = clang|' "$${ROOT_DIR}/usr/lib/postgresql/16/lib/pgxs/src/Makefile.global"
 sed -i 's|^with_llvm\t= .*|with_llvm\t= no|' "$${ROOT_DIR}/usr/lib/postgresql/16/lib/pgxs/src/Makefile.global"
 
@@ -1640,6 +1665,7 @@ oci_image(
     name = "cnpg_image_amd64",
     base = "@cloudnativepg_postgresql_16_6_linux_amd64//:cloudnativepg_postgresql_16_6_linux_amd64",
     tars = [
+        ":glibc_runtime_layer",
         ":timescaledb_extension_layer",
         ":age_extension_layer",
     ],

@@ -171,6 +171,11 @@ data:
               "nested_spire_wait_attempts": "120",
               "log_level": "info",
               "logs_dir": "./logs"
+            },
+            "checker": {
+              "spire_upstream_address": "23.138.124.18",
+              "spire_upstream_port": "18081",
+              "trust_domain": "carverauto.dev"
             }
           },
           "join_token_ttl": "15m",

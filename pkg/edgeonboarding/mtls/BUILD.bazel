@@ -1,0 +1,30 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "mtls",
+    srcs = [
+        "bootstrap.go",
+        "bundle.go",
+        "token.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/pkg/edgeonboarding/mtls",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/models",
+    ],
+)
+
+go_test(
+    name = "mtls_test",
+    srcs = [
+        "bootstrap_test.go",
+        "bundle_test.go",
+        "token_test.go",
+    ],
+    embed = [":mtls"],
+    deps = [
+        "//pkg/models",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)

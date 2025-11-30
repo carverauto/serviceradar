@@ -15,7 +15,7 @@ import (
 const (
 	defaultEdgeOnboardingPackageLimit = 100
 	edgePackageProjection             = "package_id,label,component_id,component_type,parent_type,parent_id,poller_id," +
-		"site,status,downstream_entry_id,downstream_spiffe_id,selectors,checker_kind,checker_config_json," +
+		"site,status,security_mode,downstream_entry_id,downstream_spiffe_id,selectors,checker_kind,checker_config_json," +
 		"join_token_ciphertext,join_token_expires_at,bundle_ciphertext,download_token_hash," +
 		"download_token_expires_at,created_by,created_at,updated_at,delivered_at,activated_at," +
 		"activated_from_ip,last_seen_spiffe_id,revoked_at,deleted_at,deleted_by,deleted_reason," +
@@ -283,6 +283,7 @@ func scanEdgeOnboardingPackage(row pgx.Row) (*models.EdgeOnboardingPackage, erro
 		&pkg.PollerID,
 		&pkg.Site,
 		&status,
+		&pkg.SecurityMode,
 		&pkg.DownstreamEntryID,
 		&pkg.DownstreamSPIFFEID,
 		&selectors,
@@ -315,6 +316,7 @@ func scanEdgeOnboardingPackage(row pgx.Row) (*models.EdgeOnboardingPackage, erro
 	pkg.ComponentType = models.EdgeOnboardingComponentType(strings.TrimSpace(componentType))
 	pkg.ParentType = models.EdgeOnboardingComponentType(strings.TrimSpace(parentType))
 	pkg.Status = models.EdgeOnboardingStatus(strings.TrimSpace(status))
+	pkg.SecurityMode = strings.TrimSpace(pkg.SecurityMode)
 	pkg.Selectors = selectors
 	pkg.CheckerConfigJSON = string(checkerConfig)
 	pkg.MetadataJSON = string(metadataJSON)
