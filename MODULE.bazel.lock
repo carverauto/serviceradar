@@ -1334,7 +1334,7 @@
     "@@rules_oci+//oci:extensions.bzl%oci": {
       "general": {
         "bzlTransitiveDigest": "anfgzQokiHri4FJRiW4KvwSfiR7ComgkDZBoR/2HI1I=",
-        "usagesDigest": "2eioN4h1so9Y5D+xtX9vNXjdZT3O2tnmpjXYFaDRN7k=",
+        "usagesDigest": "pa/r7VF519Rwub+fAAtzos2Xrea12SRw75NFO9tFYdA=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -1665,7 +1665,7 @@
               "scheme": "https",
               "registry": "ghcr.io",
               "repository": "cloudnative-pg/postgresql",
-              "identifier": "16.6",
+              "identifier": "16.6-bookworm",
               "platform": "linux/amd64",
               "target_name": "cloudnativepg_postgresql_16_6_linux_amd64",
               "bazel_tags": []
@@ -1679,7 +1679,7 @@
               "scheme": "https",
               "registry": "ghcr.io",
               "repository": "cloudnative-pg/postgresql",
-              "identifier": "16.6",
+              "identifier": "16.6-bookworm",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@cloudnativepg_postgresql_16_6_linux_amd64"
               },

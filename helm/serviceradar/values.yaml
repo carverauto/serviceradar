@@ -2,7 +2,7 @@ namespace: demo
 image:
   registryPullSecret: ghcr-io-cred
   tags:
-    appTag: &appTag "sha-6a68e409931e4b148541b6a8eb221f4bfeb60a14"
+    appTag: &appTag "sha-e2ff5b7348276cd8e64f90b578e88dfcef450c56"
     # ServiceRadar UUID identity system - generates stable device IDs based on strong identifiers
     core: *appTag
     web: *appTag
@@ -20,7 +20,7 @@ image:
     # Armis sync uses empty DeviceID - registry generates ServiceRadar UUIDs
     sync: *appTag
     rperfClient: *appTag
-    faker: "sha-f29d4f40c12c4a560dfa5703d451352829637a1f"
+    faker: *appTag
     rperfChecker: *appTag
     tools: *appTag
     srql: *appTag
@@ -163,6 +163,7 @@ spire:
   pollerServiceAccount: serviceradar-poller
   datasvcServiceAccount: serviceradar-datasvc
   serviceradarAgentServiceAccount: serviceradar-agent
+  socketHostPath: ""
   joinTokenTTL: 15m
   otelServiceAccount: serviceradar-otel
   syncServiceAccount: serviceradar-sync
@@ -239,7 +240,7 @@ spire:
     password: changeme
     image: ghcr.io/carverauto/serviceradar-cnpg
     imageTag: ""
-    imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr1@sha256:68f2c4e55b553e7f5f710b28c9c19a56dc37de467543e9b31d4afe002df9d2ac
+    imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2@sha256:aa49dec4057652983bfbb134d561c5461093da80a0b256804a8e5a79481f3b88
     imagePullSecrets: []
     sharedPreloadLibraries:
       - timescaledb

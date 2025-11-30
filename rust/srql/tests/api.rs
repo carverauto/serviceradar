@@ -1,10 +1,12 @@
 mod support;
 
+use serial_test::serial;
 use support::{read_json, with_srql_harness};
 
 use srql::query::{QueryDirection, QueryRequest};
 
 #[tokio::test(flavor = "multi_thread")]
+#[serial]
 async fn devices_inventory_query_matches_fixture() {
     with_srql_harness(|harness| async move {
         let request = QueryRequest {
@@ -58,6 +60,7 @@ async fn devices_inventory_query_matches_fixture() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[serial]
 async fn invalid_field_returns_400() {
     with_srql_harness(|harness| async move {
         let request = QueryRequest {
@@ -81,6 +84,7 @@ async fn invalid_field_returns_400() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[serial]
 async fn missing_api_key_returns_401() {
     with_srql_harness(|harness| async move {
         let request = QueryRequest {

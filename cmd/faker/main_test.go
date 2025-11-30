@@ -53,16 +53,30 @@ func TestSwapDevicePrimaryIPsPreservesCardinality(t *testing.T) {
 			{ID: 1, IPAddress: "10.0.0.1"},
 			{ID: 2, IPAddress: "10.0.0.2"},
 			{ID: 3, IPAddress: "10.0.0.3"},
+			{ID: 4, IPAddress: "10.0.0.4"},
+			{ID: 5, IPAddress: "10.0.0.5"},
+			{ID: 6, IPAddress: "10.0.0.6"},
+			{ID: 7, IPAddress: "10.0.0.7"},
+			{ID: 8, IPAddress: "10.0.0.8"},
+			{ID: 9, IPAddress: "10.0.0.9"},
+			{ID: 10, IPAddress: "10.0.0.10"},
 		},
 		usedIPs: map[string]struct{}{
-			"10.0.0.1": {},
-			"10.0.0.2": {},
-			"10.0.0.3": {},
+			"10.0.0.1":  {},
+			"10.0.0.2":  {},
+			"10.0.0.3":  {},
+			"10.0.0.4":  {},
+			"10.0.0.5":  {},
+			"10.0.0.6":  {},
+			"10.0.0.7":  {},
+			"10.0.0.8":  {},
+			"10.0.0.9":  {},
+			"10.0.0.10": {},
 		},
 	}
 
 	before := collectPrimaryIPSet(gen.allDevices)
-	swapped := swapDevicePrimaryIPs(gen, 5, false)
+	swapped := swapDevicePrimaryIPs(gen, 20, false)
 	require.Positive(t, swapped)
 
 	after := collectPrimaryIPSet(gen.allDevices)

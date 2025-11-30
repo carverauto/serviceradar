@@ -442,6 +442,7 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 		for _, metricBuffer := range sysmonMetrics {
 			metric := metricBuffer.Metrics
 			partition := metricBuffer.Partition
+			deviceID := strings.TrimSpace(metricBuffer.DeviceID)
 
 			var ts time.Time
 
@@ -466,8 +467,12 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 				hostIP = metric.Memory.HostIP
 			}
 
+			if deviceID == "" {
+				deviceID = fmt.Sprintf("%s:%s", partition, hostIP)
+			}
+
 			if err := s.DB.StoreSysmonMetrics(
-				ctx, pollerID, agentID, hostID, partition, hostIP, metric, ts); err != nil {
+				ctx, pollerID, agentID, hostID, partition, hostIP, deviceID, metric, ts); err != nil {
 				s.logger.Error().
 					Err(err).
 					Str("poller_id", pollerID).

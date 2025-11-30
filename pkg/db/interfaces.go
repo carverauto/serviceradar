@@ -75,7 +75,7 @@ type Service interface {
 
 	StoreSysmonMetrics(
 		ctx context.Context,
-		pollerID, agentID, hostID, partition, hostIP string,
+		pollerID, agentID, hostID, partition, hostIP, deviceID string,
 		metrics *models.SysmonMetrics,
 		timestamp time.Time) error
 	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)

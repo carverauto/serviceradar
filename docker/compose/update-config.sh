@@ -21,6 +21,13 @@ CORE_CONFIG="$CONFIG_DIR/core.json"
 API_ENV="$CONFIG_DIR/api.env"
 CHECKERS_DIR="$CONFIG_DIR/checkers"
 SYSMON_VM_ADDRESS="${SYSMON_VM_ADDRESS:-192.168.1.219:50110}"
+SYSMON_VM_SECURITY_MODE="${SYSMON_VM_SECURITY_MODE:-none}"
+CNPG_HOST="${CNPG_HOST:-cnpg}"
+CNPG_PORT="${CNPG_PORT:-5432}"
+CNPG_DATABASE="${CNPG_DATABASE:-serviceradar}"
+CNPG_USERNAME="${CNPG_USERNAME:-serviceradar}"
+CNPG_PASSWORD="${CNPG_PASSWORD:-serviceradar}"
+CNPG_SSL_MODE="${CNPG_SSL_MODE:-verify-full}"
 
 # Create config directory
 mkdir -p "$CONFIG_DIR"
@@ -127,6 +134,23 @@ EOF
     echo "✅ Created .env file for Docker Compose"
 fi
 
+# Ensure edge onboarding config exists (used by web/CLI issuance)
+EDGE_KEY_FILE="$CERT_DIR/edge-onboarding.key"
+if [ ! -s "$EDGE_KEY_FILE" ]; then
+    EDGE_ONBOARDING_KEY="$(random_base64 32)"
+    printf "%s" "$EDGE_ONBOARDING_KEY" > "$EDGE_KEY_FILE"
+    echo "✅ Generated edge onboarding encryption key"
+fi
+EDGE_ONBOARDING_KEY=$(cat "$EDGE_KEY_FILE")
+
+EDGE_DEFAULT_META="{}"
+if [ "$SYSMON_VM_SECURITY_MODE" = "mtls" ]; then
+    EDGE_DEFAULT_META=$(cat <<EOF
+{"security_mode":"mtls","poller_endpoint":"$SYSMON_VM_ADDRESS","core_address":"core:50052","kv_address":"datasvc:50057"}
+EOF
+)
+fi
+
 # Ensure core security configuration matches the desired mode (default: SPIFFE)
 CORE_SECURITY_MODE="${CORE_SECURITY_MODE:-spiffe}"
 SPIRE_TRUST_DOMAIN_DEFAULT="${SPIRE_TRUST_DOMAIN:-carverauto.dev}"
@@ -141,25 +165,127 @@ CORE_WORKLOAD_SOCKET="${CORE_WORKLOAD_SOCKET:-$DEFAULT_CORE_WORKLOAD_SOCKET}"
 CORE_SERVER_NAME="${CORE_SERVER_NAME:-core.serviceradar}"
 
 if [ -f "$CORE_CONFIG" ]; then
-    case "$CORE_SECURITY_MODE" in
-        spiffe)
-            jq --arg mode "spiffe" \
-               --arg td "$CORE_TRUST_DOMAIN" \
-               --arg socket "$CORE_WORKLOAD_SOCKET" \
+case "$CORE_SECURITY_MODE" in
+    spiffe)
+        jq --arg mode "spiffe" \
+           --arg td "$CORE_TRUST_DOMAIN" \
+           --arg socket "$CORE_WORKLOAD_SOCKET" \
                --arg server "$CORE_SERVER_NAME" \
                '.security.mode = $mode
                 | .security.trust_domain = $td
                 | .security.workload_socket = $socket
-                | .security.server_name = $server
-                | .security.role = "core"' \
-                "$CORE_CONFIG" > "$CORE_CONFIG.tmp"
-            mv "$CORE_CONFIG.tmp" "$CORE_CONFIG"
-            echo "✅ Applied SPIFFE security settings to core.json"
-            ;;
-        *)
-            echo "ℹ️  CORE_SECURITY_MODE set to $CORE_SECURITY_MODE; leaving existing security block in place"
-            ;;
-    esac
+            | .security.server_name = $server
+            | .security.role = "core"' \
+            "$CORE_CONFIG" > "$CORE_CONFIG.tmp"
+        mv "$CORE_CONFIG.tmp" "$CORE_CONFIG"
+        echo "✅ Applied SPIFFE security settings to core.json"
+        ;;
+    mtls)
+        jq --arg mode "mtls" \
+           --arg cd "$CERT_DIR" \
+           --arg server "$CORE_SERVER_NAME" \
+           '
+           .security.mode = $mode
+           | .security.cert_dir = $cd
+           | .security.server_name = $server
+           | .security.role = "core"
+           | del(.security.trust_domain)
+           | del(.security.workload_socket)
+           ' "$CORE_CONFIG" > "$CORE_CONFIG.tmp"
+        mv "$CORE_CONFIG.tmp" "$CORE_CONFIG"
+        echo "✅ Applied mTLS security settings to core.json"
+        ;;
+    *)
+        echo "ℹ️  CORE_SECURITY_MODE set to $CORE_SECURITY_MODE; leaving existing security block in place"
+        ;;
+esac
+
+# Ensure CNPG configuration is present for core (Compose uses local Timescale/Postgres)
+if [ -f "$CORE_CONFIG" ]; then
+    jq --arg host "$CNPG_HOST" \
+       --argjson port "${CNPG_PORT:-5432}" \
+       --arg db "$CNPG_DATABASE" \
+       --arg user "$CNPG_USERNAME" \
+       --arg pwd "$CNPG_PASSWORD" \
+       --arg ssl "$CNPG_SSL_MODE" \
+       --arg cd "$CERT_DIR" \
+       '
+       .cnpg = (.cnpg // {})
+       | .cnpg.host = $host
+       | .cnpg.port = ($port | tonumber)
+       | .cnpg.database = $db
+       | .cnpg.username = $user
+       | .cnpg.password = $pwd
+       | .cnpg.ssl_mode = $ssl
+       | .cnpg.tls = (if $ssl != "disable" then {
+           ca_file: ($cd + "/root.pem"),
+           cert_file: ($cd + "/core.pem"),
+           key_file: ($cd + "/core-key.pem")
+         } else .cnpg.tls end)
+       | .database = {
+           addresses: [($host + ":" + ($port|tostring))],
+           name: $db,
+           username: $user,
+           password: $pwd,
+           max_conns: 10,
+           idle_conns: 5,
+           tls: {
+             ca_file: ($cd + "/root.pem"),
+             cert_file: ($cd + "/core.pem"),
+             key_file: ($cd + "/core-key.pem"),
+             server_name: ($host + ".serviceradar")
+           },
+           settings: {
+             max_execution_time: 60,
+             output_format_json_quote_64bit_int: 0,
+             allow_experimental_live_view: 1,
+             idle_connection_timeout: 600,
+             join_use_nulls: 1,
+             input_format_defaults_for_omitted_fields: 1
+           }
+         }
+       ' "$CORE_CONFIG" > "$CORE_CONFIG.tmp"
+    mv "$CORE_CONFIG.tmp" "$CORE_CONFIG"
+    echo "✅ Ensured CNPG config for core.json (host $CNPG_HOST:$CNPG_PORT, ssl_mode $CNPG_SSL_MODE)"
+fi
+
+    # Ensure NATS security is set for mTLS compose (core publishes/consumes)
+    jq --arg cd "$CERT_DIR" \
+       '
+       .nats = (.nats // {})
+       | .nats.url = (.nats.url // "nats://nats:4222")
+       | .nats.domain = (.nats.domain // "")
+       | .nats.security = (.nats.security // {
+           mode: "mtls",
+           cert_dir: $cd,
+           role: "core",
+           server_name: "nats.serviceradar",
+           tls: {
+             cert_file: ($cd + "/core.pem"),
+             key_file: ($cd + "/core-key.pem"),
+             ca_file: ($cd + "/root.pem"),
+             client_ca_file: ($cd + "/root.pem")
+           }
+         })
+       ' "$CORE_CONFIG" > "$CORE_CONFIG.tmp"
+    mv "$CORE_CONFIG.tmp" "$CORE_CONFIG"
+    echo "✅ Applied NATS mTLS settings in core.json"
+
+    # Seed edge_onboarding defaults when missing (enables web/CLI issuance)
+    jq --arg key "$EDGE_ONBOARDING_KEY" \
+       --arg meta "$EDGE_DEFAULT_META" \
+       '
+       .edge_onboarding = (.edge_onboarding // {})
+       | .edge_onboarding.enabled = true
+       | .edge_onboarding.encryption_key = $key
+       | .edge_onboarding.default_selectors = (.edge_onboarding.default_selectors // ["unix:uid:0","unix:gid:0","unix:user:root","unix:group:root"])
+       | .edge_onboarding.default_metadata = (.edge_onboarding.default_metadata // {})
+       | .edge_onboarding.default_metadata.checker = (if $meta != "{}" then ($meta|fromjson) else (.edge_onboarding.default_metadata.checker // {}) end)
+       | .edge_onboarding.join_token_ttl = (.edge_onboarding.join_token_ttl // "15m")
+       | .edge_onboarding.download_token_ttl = (.edge_onboarding.download_token_ttl // "10m")
+       ' "$CORE_CONFIG" > "$CORE_CONFIG.tmp"
+    mv "$CORE_CONFIG.tmp" "$CORE_CONFIG"
+    echo "✅ Ensured edge_onboarding config with mTLS defaults"
 fi
 
 # Display important setup information to the user
@@ -192,7 +318,33 @@ fi
 echo "🎉 Configuration update complete!"
 
 # Generate sysmon-vm checker configuration with runtime overrides
-cat > "$CHECKERS_DIR/sysmon-vm.json" <<EOF
+SYSMON_VM_CERT_FILE="${SYSMON_VM_CERT_FILE:-sysmon-vm.pem}"
+SYSMON_VM_KEY_FILE="${SYSMON_VM_KEY_FILE:-sysmon-vm-key.pem}"
+SYSMON_VM_CA_FILE="${SYSMON_VM_CA_FILE:-root.pem}"
+
+if [ "$SYSMON_VM_SECURITY_MODE" = "mtls" ]; then
+    cat > "$CHECKERS_DIR/sysmon-vm.json" <<EOF
+{
+  "name": "sysmon-vm",
+  "type": "grpc",
+  "address": "$SYSMON_VM_ADDRESS",
+  "security": {
+    "mode": "mtls",
+    "role": "checker",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "sysmon-vm.serviceradar",
+    "tls": {
+      "cert_file": "$SYSMON_VM_CERT_FILE",
+      "key_file": "$SYSMON_VM_KEY_FILE",
+      "ca_file": "$SYSMON_VM_CA_FILE",
+      "client_ca_file": "$SYSMON_VM_CA_FILE"
+    }
+  }
+}
+EOF
+    echo "✅ Generated sysmon-vm checker config (mTLS) with address $SYSMON_VM_ADDRESS"
+else
+    cat > "$CHECKERS_DIR/sysmon-vm.json" <<EOF
 {
   "name": "sysmon-vm",
   "type": "grpc",
@@ -203,7 +355,8 @@ cat > "$CHECKERS_DIR/sysmon-vm.json" <<EOF
   }
 }
 EOF
-echo "✅ Generated sysmon-vm checker config with address $SYSMON_VM_ADDRESS"
+    echo "✅ Generated sysmon-vm checker config (no security) with address $SYSMON_VM_ADDRESS"
+fi
 
 POLLERS_SECURITY_MODE="${POLLERS_SECURITY_MODE:-mtls}"
 POLLERS_TRUST_DOMAIN="${POLLERS_TRUST_DOMAIN:-carverauto.dev}"
@@ -227,8 +380,15 @@ POLLERS_SPIRE_SERVER_KEYS_PATH="${POLLERS_SPIRE_SERVER_KEYS_PATH:-/run/spire/nes
 POLLERS_SPIRE_SERVER_SOCKET="${POLLERS_SPIRE_SERVER_SOCKET:-/run/spire/nested/server/api.sock}"
 
 # Prepare poller configuration with sysmon-vm override
+POLLERS_TEMPLATE="/templates/poller.docker.json"
 if [ "$POLLERS_SECURITY_MODE" = "spiffe" ] && [ -f /templates/poller.spiffe.json ]; then
-    cp /templates/poller.spiffe.json "$CONFIG_DIR/poller.json"
+    POLLERS_TEMPLATE="/templates/poller.spiffe.json"
+elif [ "$POLLERS_SECURITY_MODE" != "spiffe" ] && [ -f /templates/poller.docker.json.orig ]; then
+    POLLERS_TEMPLATE="/templates/poller.docker.json.orig"
+fi
+
+if [ "$POLLERS_SECURITY_MODE" = "spiffe" ]; then
+    cp "$POLLERS_TEMPLATE" "$CONFIG_DIR/poller.json"
     jq --arg addr "$SYSMON_VM_ADDRESS" \
        --arg td "$POLLERS_TRUST_DOMAIN" \
        --arg agentId "$POLLERS_AGENT_SPIFFE_ID" \
@@ -375,11 +535,11 @@ NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID="$POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID"
 NESTED_SPIRE_SERVER_SOCKET="$POLLERS_SPIRE_SERVER_SOCKET"
 EOF
     echo "✅ Generated nested SPIRE configuration under $POLLERS_SPIRE_CONFIG_DIR"
-elif [ -f /templates/poller.docker.json ]; then
-    cp /templates/poller.docker.json "$CONFIG_DIR/poller.json"
+elif [ -f "$POLLERS_TEMPLATE" ]; then
+    cp "$POLLERS_TEMPLATE" "$CONFIG_DIR/poller.json"
     jq --arg addr "$SYSMON_VM_ADDRESS" '
         (.agents[]?.checks[]? | select(.service_name == "sysmon-vm")).details = $addr
     ' "$CONFIG_DIR/poller.json" > "$CONFIG_DIR/poller.json.tmp"
     mv "$CONFIG_DIR/poller.json.tmp" "$CONFIG_DIR/poller.json"
-    echo "✅ Generated poller.json with sysmon-vm address $SYSMON_VM_ADDRESS"
+    echo "✅ Generated poller.json with sysmon-vm address $SYSMON_VM_ADDRESS (security mode: ${POLLERS_SECURITY_MODE:-mtls})"
 fi

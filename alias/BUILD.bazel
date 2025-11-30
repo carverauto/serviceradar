@@ -99,6 +99,11 @@ alias(
     actual = "//pkg/edgeonboarding:edgeonboarding",
 )
 
+alias(
+    name = "edgeonboarding-mtls",
+    actual = "//pkg/edgeonboarding/mtls:mtls",
+)
+
 # pkg/deviceupdate
 alias(
     name = "deviceupdate",

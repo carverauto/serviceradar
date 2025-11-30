@@ -197,7 +197,7 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 // StoreSysmonMetrics stores sysmon metrics for CPU, disk, and memory.
 func (db *DB) StoreSysmonMetrics(
 	ctx context.Context,
-	pollerID, agentID, hostID, partition, hostIP string,
+	pollerID, agentID, hostID, partition, hostIP, deviceID string,
 	sysmon *models.SysmonMetrics,
 	timestamp time.Time,
 ) error {
@@ -205,7 +205,9 @@ func (db *DB) StoreSysmonMetrics(
 		return nil
 	}
 
-	deviceID := fmt.Sprintf("%s:%s", partition, hostIP)
+	if deviceID == "" {
+		deviceID = fmt.Sprintf("%s:%s", partition, hostIP)
+	}
 
 	if err := db.cnpgInsertCPUMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, sysmon.CPUs, timestamp); err != nil {
 		return fmt.Errorf("failed to store CPU metrics: %w", err)

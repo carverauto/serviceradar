@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 
 	"google.golang.org/grpc"
 
@@ -13,6 +16,7 @@ import (
 	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/cpufreq"
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
+	"github.com/carverauto/serviceradar/pkg/edgeonboarding/mtls"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -23,6 +27,11 @@ var (
 	errSysmonDescriptorMissing = fmt.Errorf("sysmon-vm-checker descriptor missing")
 )
 
+const (
+	defaultConfigPath = "/etc/serviceradar/checkers/sysmon-vm.json"
+	macOSConfigPath   = "/usr/local/etc/serviceradar/sysmon-vm.json"
+)
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatalf("sysmon-vm checker failed: %v", err)
@@ -30,24 +39,59 @@ func main() {
 }
 
 func run() error {
-	configPath := flag.String("config", "/etc/serviceradar/checkers/sysmon-vm.json", "Path to sysmon-vm config file")
-	_ = flag.String("onboarding-token", "", "Edge onboarding token (if provided, triggers edge onboarding)")
+	configPath := flag.String("config", defaultConfigPath, "Path to sysmon-vm config file")
+	_ = flag.String("onboarding-token", "", "Edge onboarding token (SPIFFE path; triggers edge onboarding)")
 	_ = flag.String("kv-endpoint", "", "KV service endpoint (required for edge onboarding)")
+	mtlsMode := flag.Bool("mtls", false, "Enable mTLS bootstrap (token or bundle required)")
+	mtlsToken := flag.String("token", "", "mTLS onboarding token (edgepkg-v1)")
+	mtlsHost := flag.String("host", "", "Core API host for mTLS bundle download (e.g. http://core:8090)")
+	mtlsBundlePath := flag.String("bundle", "", "Path to a pre-fetched mTLS bundle (tar.gz or JSON)")
+	mtlsCertDir := flag.String("cert-dir", "/etc/serviceradar/certs", "Directory to write mTLS certs/keys")
+	mtlsServerName := flag.String("server-name", "sysmon-vm.serviceradar", "Server name to present in mTLS")
+	mtlsBootstrapOnly := flag.Bool("mtls-bootstrap-only", false, "Run mTLS bootstrap, persist config, then exit without starting the service")
 	flag.Parse()
+
+	configFlag := flag.CommandLine.Lookup("config")
+	userProvidedConfig := configFlag != nil && configFlag.Value.String() != configFlag.DefValue
+	*configPath = resolveConfigPath(*configPath, userProvidedConfig)
 
 	ctx := context.Background()
 
-	// Try edge onboarding first (checks env vars if flags not set)
-	onboardingResult, err := edgeonboarding.TryOnboard(ctx, models.EdgeOnboardingComponentTypeChecker, nil)
-	if err != nil {
-		return fmt.Errorf("edge onboarding failed: %w", err)
-	}
+	var forcedSecurity *models.SecurityConfig
 
-	// If onboarding was performed, use the generated config
-	if onboardingResult != nil {
-		*configPath = onboardingResult.ConfigPath
-		log.Printf("Using edge-onboarded configuration from: %s", *configPath)
-		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
+	if *mtlsMode {
+		mtlsCfg, err := mtls.Bootstrap(ctx, &mtls.BootstrapConfig{
+			Token:       *mtlsToken,
+			Host:        *mtlsHost,
+			BundlePath:  *mtlsBundlePath,
+			CertDir:     *mtlsCertDir,
+			ServerName:  *mtlsServerName,
+			ServiceName: "sysmon-vm",
+			Role:        models.RoleChecker,
+		})
+		if err != nil {
+			return fmt.Errorf("mTLS bootstrap failed: %w", err)
+		}
+		forcedSecurity = mtlsCfg
+		log.Printf("mTLS bundle installed to %s", *mtlsCertDir)
+		persistMTLSConfig(*configPath, forcedSecurity)
+		if *mtlsBootstrapOnly {
+			log.Printf("mTLS bootstrap-only mode enabled; exiting after writing config")
+			return nil
+		}
+	} else {
+		// Try edge onboarding first (checks env vars if flags not set)
+		onboardingResult, err := edgeonboarding.TryOnboard(ctx, models.EdgeOnboardingComponentTypeChecker, nil)
+		if err != nil {
+			return fmt.Errorf("edge onboarding failed: %w", err)
+		}
+
+		// If onboarding was performed, use the generated config
+		if onboardingResult != nil {
+			*configPath = onboardingResult.ConfigPath
+			log.Printf("Using edge-onboarded configuration from: %s", *configPath)
+			log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
+		}
 	}
 
 	var cfg sysmonvm.Config
@@ -64,6 +108,10 @@ func run() error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	defer func() { _ = bootstrapResult.Close() }()
+
+	if forcedSecurity != nil {
+		cfg.Security = forcedSecurity
+	}
 
 	sampleInterval, err := cfg.Normalize()
 	if err != nil {
@@ -108,6 +156,72 @@ func run() error {
 }
 
 type samplerService struct{}
+
+func resolveConfigPath(configPath string, userProvided bool) string {
+	if _, err := os.Stat(configPath); err == nil {
+		return configPath
+	}
+
+	if userProvided {
+		return configPath
+	}
+
+	fallbacks := []string{macOSConfigPath}
+	for _, candidate := range fallbacks {
+		if _, err := os.Stat(candidate); err == nil {
+			log.Printf("config not found at %s; using %s", configPath, candidate)
+			return candidate
+		}
+	}
+
+	return configPath
+}
+
+func persistMTLSConfig(path string, sec *models.SecurityConfig) {
+	if sec == nil {
+		return
+	}
+
+	cfg := loadConfigOrDefault(path)
+	cfg.Security = sec
+
+	if _, err := cfg.Normalize(); err != nil {
+		log.Printf("unable to normalize config for persistence: %v", err)
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		log.Printf("unable to create config directory %s: %v", filepath.Dir(path), err)
+		return
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		log.Printf("unable to marshal config for persistence: %v", err)
+		return
+	}
+
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		log.Printf("unable to write mTLS config to %s: %v", path, err)
+		return
+	}
+
+	log.Printf("persisted mTLS config to %s", path)
+}
+
+func loadConfigOrDefault(path string) *sysmonvm.Config {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return &sysmonvm.Config{}
+	}
+
+	var cfg sysmonvm.Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return &sysmonvm.Config{}
+	}
+
+	return &cfg
+}
 
 func (samplerService) Start(ctx context.Context) error {
 	return cpufreq.StartHostfreqSampler(ctx)

@@ -65,6 +65,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 mkdir -p "${workspace}"
+mkdir -p "${workspace}/bin"
 
 uname_s="$(uname -s)"
 case "${uname_s}" in

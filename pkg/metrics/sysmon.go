@@ -8,7 +8,7 @@ import (
 )
 
 func (m *Manager) StoreSysmonMetrics(
-	ctx context.Context, pollerID, agentID, hostID, partition, hostIP string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+	ctx context.Context, pollerID, agentID, hostID, partition, hostIP, deviceID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	dbMetrics := &models.SysmonMetrics{
 		CPUs:      make([]models.CPUMetric, len(metrics.CPUs)),
 		Clusters:  make([]models.CPUClusterMetric, len(metrics.Clusters)),
@@ -79,7 +79,7 @@ func (m *Manager) StoreSysmonMetrics(
 		}
 	}
 
-	if err := m.db.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, dbMetrics, timestamp); err != nil {
+	if err := m.db.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, deviceID, dbMetrics, timestamp); err != nil {
 		m.logger.Error().Str("pollerID", pollerID).Err(err).Msg("Failed to store sysmon metrics")
 		return err
 	}

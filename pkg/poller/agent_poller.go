@@ -391,14 +391,14 @@ func enrichServiceMessageWithAddress(message []byte, check Check, deviceIP, devi
 	sanitizedHost := sanitizeTelemetryString(deviceHost)
 
 	detailsHost := extractHostFromCheck(check)
-	if sanitizedHost == "" {
-		sanitizedHost = detailsHost
-	}
-
-	normalizedIP := pickBestIP(sanitizedIP, sanitizedHost, detailsHost)
+	normalizedIP := pickBestIP(detailsHost, sanitizedIP, sanitizedHost)
 
 	if normalizedIP == "" {
 		return message
+	}
+
+	if sanitizedHost == "" || normalizedIP == detailsHost {
+		sanitizedHost = detailsHost
 	}
 
 	if sanitizedHost == "" {
@@ -448,11 +448,11 @@ func extractHostFromCheck(check Check) string {
 	return candidate
 }
 
-func pickBestIP(deviceIP, deviceHost, detailsHost string) string {
+func pickBestIP(detailsHost, deviceIP, deviceHost string) string {
 	candidates := []string{
+		detailsHost,
 		deviceIP,
 		deviceHost,
-		detailsHost,
 	}
 
 	for _, candidate := range candidates {

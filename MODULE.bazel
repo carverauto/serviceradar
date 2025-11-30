@@ -228,7 +228,7 @@ oci_ext.pull(
         "linux/amd64",
     ],
     reproducible = False,
-    tag = "16.6",
+    tag = "16.6-bookworm",
 )
 use_repo(
     oci_ext,
@@ -787,6 +787,30 @@ http_file(
     ],
 )
 
+http_file(
+    name = "debian_gcc_15_base_amd64_deb",
+    sha256 = "34ea21b3311a1b9f16b8d0965d29bd3bcfb3229d4ef2a1dffbb2df39f3dee826",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/g/gcc-15/gcc-15-base_15.2.0-7_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libgcc_s1_amd64_deb",
+    sha256 = "0d56299901b686d451936c268745a30ecff508d2eb9f0960e6a1fa84e60c4f0f",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/g/gcc-15/libgcc-s1_15.2.0-7_amd64.deb",
+    ],
+)
+
+http_file(
+    name = "debian_libc6_amd64_deb",
+    sha256 = "6cff801097cd0eb2126b60e533f37afdc78456efacdf2bfae62877f00c795d0b",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/g/glibc/libc6_2.41-12_amd64.deb",
+    ],
+)
+
 http_archive(
     name = "crane_linux_amd64",
     build_file_content = """
@@ -899,21 +923,6 @@ exports_files(["nats"])
     strip_prefix = "nats-0.3.0-linux-amd64",
     urls = [
         "https://github.com/nats-io/natscli/releases/download/v0.3.0/nats-0.3.0-linux-amd64.zip",
-    ],
-)
-
-http_archive(
-    name = "spire_linux_amd64",
-    build_file_content = """
-exports_files([
-    "bin/spire-agent",
-    "bin/spire-server",
-])
-""",
-    sha256 = "ac53853d478175f15cec8a3757d71638d0821126c0d69583ed4141399e01c49f",
-    strip_prefix = "spire-1.11.2",
-    urls = [
-        "https://github.com/spiffe/spire/releases/download/v1.11.2/spire-1.11.2-linux-amd64-musl.tar.gz",
     ],
 )
 
