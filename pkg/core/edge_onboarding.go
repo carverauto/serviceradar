@@ -113,6 +113,15 @@ var (
 
 	// ErrUnsupportedComponentType is returned when an unknown component type is encountered during onboarding.
 	ErrUnsupportedComponentType = errors.New("unsupported component type")
+
+	// ErrCACertNoPEMBlock is returned when no PEM block is found in a CA certificate.
+	ErrCACertNoPEMBlock = errors.New("ca certificate: no pem block found")
+
+	// ErrCAKeyNoPEMBlock is returned when no PEM block is found in a CA key.
+	ErrCAKeyNoPEMBlock = errors.New("ca key: no pem block found")
+
+	// ErrCAKeyUnsupportedType is returned when a CA key has an unsupported type.
+	ErrCAKeyUnsupportedType = errors.New("ca key: unsupported key type")
 )
 
 type edgeOnboardingService struct {
@@ -1958,7 +1967,7 @@ func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboard
 		switch componentType {
 		case models.EdgeOnboardingComponentTypeChecker:
 			serverName = "poller.serviceradar"
-		default:
+		case models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeAgent, models.EdgeOnboardingComponentTypeNone:
 			serverName = "core.serviceradar"
 		}
 	}
@@ -2066,7 +2075,7 @@ func mintClientCertificate(caCert *x509.Certificate, caKey crypto.Signer, client
 func parseCACertificate(pemBytes []byte) (*x509.Certificate, error) {
 	block, _ := pem.Decode(pemBytes)
 	if block == nil {
-		return nil, errors.New("ca certificate: no pem block found")
+		return nil, ErrCACertNoPEMBlock
 	}
 
 	cert, err := x509.ParseCertificate(block.Bytes)
@@ -2080,7 +2089,7 @@ func parseCACertificate(pemBytes []byte) (*x509.Certificate, error) {
 func parsePrivateKey(pemBytes []byte) (crypto.Signer, error) {
 	block, _ := pem.Decode(pemBytes)
 	if block == nil {
-		return nil, errors.New("ca key: no pem block found")
+		return nil, ErrCAKeyNoPEMBlock
 	}
 
 	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
@@ -2100,7 +2109,7 @@ func parsePrivateKey(pemBytes []byte) (crypto.Signer, error) {
 	case *ecdsa.PrivateKey:
 		return key, nil
 	default:
-		return nil, fmt.Errorf("ca key: unsupported type %T", key)
+		return nil, fmt.Errorf("%w: %T", ErrCAKeyUnsupportedType, key)
 	}
 }
 

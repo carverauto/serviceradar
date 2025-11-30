@@ -2,6 +2,7 @@ package db
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -11,6 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/carverauto/serviceradar/pkg/models"
+)
+
+var (
+	errFakeEdgePkgRowScanMismatch    = errors.New("fake edge package row scan mismatch")
+	errFakeEdgePkgRowUnexpectedType  = errors.New("unexpected type in fake edge package row")
+	errFakeEdgePkgRowUnsupportedDest = errors.New("unsupported scan destination in fake edge package row")
 )
 
 func TestBuildEdgeOnboardingPackageArgs(t *testing.T) {
@@ -130,7 +137,7 @@ type fakeEdgePackageRow struct {
 
 func (r *fakeEdgePackageRow) Scan(dest ...interface{}) error {
 	if len(dest) != len(r.values) {
-		return fmt.Errorf("fake edge package row scan mismatch: dest=%d values=%d", len(dest), len(r.values))
+		return fmt.Errorf("%w: dest=%d values=%d", errFakeEdgePkgRowScanMismatch, len(dest), len(r.values))
 	}
 
 	for i, d := range dest {
@@ -138,13 +145,13 @@ func (r *fakeEdgePackageRow) Scan(dest ...interface{}) error {
 		case *uuid.UUID:
 			val, ok := r.values[i].(uuid.UUID)
 			if !ok {
-				return fmt.Errorf("expected uuid.UUID at %d, got %T", i, r.values[i])
+				return fmt.Errorf("%w: expected uuid.UUID at %d, got %T", errFakeEdgePkgRowUnexpectedType, i, r.values[i])
 			}
 			*ptr = val
 		case *string:
 			val, ok := r.values[i].(string)
 			if !ok {
-				return fmt.Errorf("expected string at %d, got %T", i, r.values[i])
+				return fmt.Errorf("%w: expected string at %d, got %T", errFakeEdgePkgRowUnexpectedType, i, r.values[i])
 			}
 			*ptr = val
 		case *[]string:
@@ -154,7 +161,7 @@ func (r *fakeEdgePackageRow) Scan(dest ...interface{}) error {
 			case nil:
 				*ptr = nil
 			default:
-				return fmt.Errorf("expected []string at %d, got %T", i, r.values[i])
+				return fmt.Errorf("%w: expected []string at %d, got %T", errFakeEdgePkgRowUnexpectedType, i, r.values[i])
 			}
 		case *[]byte:
 			switch v := r.values[i].(type) {
@@ -165,12 +172,12 @@ func (r *fakeEdgePackageRow) Scan(dest ...interface{}) error {
 			case nil:
 				*ptr = nil
 			default:
-				return fmt.Errorf("expected []byte at %d, got %T", i, r.values[i])
+				return fmt.Errorf("%w: expected []byte at %d, got %T", errFakeEdgePkgRowUnexpectedType, i, r.values[i])
 			}
 		case *time.Time:
 			val, ok := r.values[i].(time.Time)
 			if !ok {
-				return fmt.Errorf("expected time.Time at %d, got %T", i, r.values[i])
+				return fmt.Errorf("%w: expected time.Time at %d, got %T", errFakeEdgePkgRowUnexpectedType, i, r.values[i])
 			}
 			*ptr = val
 		case **time.Time:
@@ -183,7 +190,7 @@ func (r *fakeEdgePackageRow) Scan(dest ...interface{}) error {
 			case nil:
 				*ptr = nil
 			default:
-				return fmt.Errorf("expected *time.Time at %d, got %T", i, r.values[i])
+				return fmt.Errorf("%w: expected *time.Time at %d, got %T", errFakeEdgePkgRowUnexpectedType, i, r.values[i])
 			}
 		case **string:
 			switch v := r.values[i].(type) {
@@ -195,7 +202,7 @@ func (r *fakeEdgePackageRow) Scan(dest ...interface{}) error {
 			case nil:
 				*ptr = nil
 			default:
-				return fmt.Errorf("expected *string at %d, got %T", i, r.values[i])
+				return fmt.Errorf("%w: expected *string at %d, got %T", errFakeEdgePkgRowUnexpectedType, i, r.values[i])
 			}
 		case *int64:
 			switch v := r.values[i].(type) {
@@ -204,7 +211,7 @@ func (r *fakeEdgePackageRow) Scan(dest ...interface{}) error {
 			case uint64:
 				*ptr = int64(v)
 			default:
-				return fmt.Errorf("expected int64 at %d, got %T", i, r.values[i])
+				return fmt.Errorf("%w: expected int64 at %d, got %T", errFakeEdgePkgRowUnexpectedType, i, r.values[i])
 			}
 		case *uint64:
 			switch v := r.values[i].(type) {
@@ -213,10 +220,10 @@ func (r *fakeEdgePackageRow) Scan(dest ...interface{}) error {
 			case int64:
 				*ptr = uint64(v)
 			default:
-				return fmt.Errorf("expected uint64 at %d, got %T", i, r.values[i])
+				return fmt.Errorf("%w: expected uint64 at %d, got %T", errFakeEdgePkgRowUnexpectedType, i, r.values[i])
 			}
 		default:
-			return fmt.Errorf("unsupported scan destination %T at %d", d, i)
+			return fmt.Errorf("%w: %T at %d", errFakeEdgePkgRowUnsupportedDest, d, i)
 		}
 	}
 
@@ -279,7 +286,7 @@ func TestScanEdgeOnboardingPackageIncludesSecurityMode(t *testing.T) {
 	assert.Equal(t, models.EdgeOnboardingStatusDelivered, pkg.Status)
 	assert.Equal(t, "mtls", pkg.SecurityMode)
 	assert.Equal(t, []string{"role:edge"}, pkg.Selectors)
-	assert.Equal(t, `{"security_mode":"mtls","poller_endpoint":"poller:50053"}`, pkg.MetadataJSON)
+	assert.JSONEq(t, `{"security_mode":"mtls","poller_endpoint":"poller:50053"}`, pkg.MetadataJSON)
 	assert.Equal(t, `{"interval":30}`, pkg.CheckerConfigJSON)
 	require.NotNil(t, pkg.DeliveredAt)
 	assert.WithinDuration(t, delivered, *pkg.DeliveredAt, time.Second)
