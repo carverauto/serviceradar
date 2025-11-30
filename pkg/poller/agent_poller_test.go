@@ -786,6 +786,24 @@ func TestEnrichServiceMessageWithAddress_UsesDeviceMetadata(t *testing.T) {
 	assert.Equal(t, "k8s-agent", statusNode["hostname"])
 }
 
+func TestEnrichServiceMessageWithAddress_PrefersDetailsHostOverDeviceIP(t *testing.T) {
+	check := Check{Type: "grpc", Name: "sysmon-vm", Details: "192.0.2.10:50110"}
+	message := []byte(`{"status":{"state":"ok"}}`)
+
+	enriched := enrichServiceMessageWithAddress(message, check, "172.18.0.7", "agent")
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(enriched, &payload))
+
+	assert.Equal(t, "192.0.2.10", payload["host_ip"])
+
+	statusNode, ok := payload["status"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "192.0.2.10", statusNode["host_ip"])
+	assert.Equal(t, "192.0.2.10", statusNode["host_name"])
+	assert.Equal(t, "192.0.2.10", statusNode["hostname"])
+}
+
 func TestEnrichServiceMessageWithAddress_FallsBackToDetails(t *testing.T) {
 	check := Check{Type: "grpc", Name: "external-service", Details: "192.168.99.12:5000"}
 	message := []byte(`{"status":{"state":"ok"}}`)
