@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -24,6 +26,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/crypto/secrets"
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/edgeonboarding/mtls"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
@@ -36,6 +39,12 @@ var onboardingAllowedStatuses = []models.EdgeOnboardingStatus{
 	models.EdgeOnboardingStatusDelivered,
 	models.EdgeOnboardingStatusActivated,
 }
+
+const (
+	securityModeSPIRE = "spire"
+	securityModeMTLS  = "mtls"
+	defaultCertDir    = "/etc/serviceradar/certs"
+)
 
 // ServiceManager provides service registration operations for edge onboarding.
 // Defined here to avoid import cycles with pkg/registry.
@@ -152,6 +161,25 @@ type ActivationCacheStats struct {
 	Misses       int64
 	StaleEvicted int64
 	TTL          time.Duration
+}
+
+type mtlsPackageParams struct {
+	Now           time.Time
+	Label         string
+	ComponentID   string
+	ComponentType models.EdgeOnboardingComponentType
+	ParentID      string
+	ParentType    models.EdgeOnboardingComponentType
+	PollerID      string
+	Site          string
+	MetadataJSON  string
+	MetadataMap   map[string]string
+	CheckerKind   string
+	CheckerConfig string
+	CreatedBy     string
+	DownloadToken time.Duration
+	JoinToken     time.Duration
+	Notes         string
 }
 
 func cloneEdgeOnboardingPackage(src *models.EdgeOnboardingPackage) *models.EdgeOnboardingPackage {
@@ -714,9 +742,6 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 	if s == nil {
 		return nil, models.ErrEdgeOnboardingDisabled
 	}
-	if s.spire == nil {
-		return nil, models.ErrEdgeOnboardingSpireUnavailable
-	}
 	if req == nil {
 		return nil, models.ErrEdgeOnboardingInvalidRequest
 	}
@@ -746,6 +771,13 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 	metadataMap, err := parseEdgeMetadataMap(normalizedMetadata)
 	if err != nil {
 		return nil, fmt.Errorf("%w: metadata_json must be valid JSON: %w", models.ErrEdgeOnboardingInvalidRequest, err)
+	}
+
+	securityMode := normalizeSecurityMode(strings.TrimSpace(req.SecurityMode), metadataMap)
+	metadataMap["security_mode"] = securityMode
+
+	if securityMode != securityModeMTLS && s.spire == nil {
+		return nil, models.ErrEdgeOnboardingSpireUnavailable
 	}
 
 	// Inject datasvc_endpoint into metadata if provided
@@ -838,6 +870,27 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		pollerID = componentID
 	}
 
+	if securityMode == securityModeMTLS {
+		return s.createMTLSPackage(ctx, &mtlsPackageParams{
+			Now:           now,
+			Label:         label,
+			ComponentID:   componentID,
+			ComponentType: componentType,
+			ParentID:      parentID,
+			ParentType:    parentType,
+			PollerID:      pollerID,
+			Site:          strings.TrimSpace(req.Site),
+			MetadataJSON:  metadata,
+			MetadataMap:   metadataMap,
+			CheckerKind:   checkerKind,
+			CheckerConfig: checkerConfig,
+			CreatedBy:     createdBy,
+			DownloadToken: req.DownloadTokenTTL,
+			JoinToken:     req.JoinTokenTTL,
+			Notes:         strings.TrimSpace(req.Notes),
+		})
+	}
+
 	downstreamID, err := s.deriveDownstreamSPIFFEID(componentID, strings.TrimSpace(req.DownstreamSPIFFEID))
 	if err != nil {
 		return nil, fmt.Errorf("edge onboarding: derive downstream spiffe id: %w", err)
@@ -916,6 +969,7 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		ParentID:               parentID,
 		PollerID:               pollerID,
 		Site:                   strings.TrimSpace(req.Site),
+		SecurityMode:           securityMode,
 		Status:                 models.EdgeOnboardingStatusIssued,
 		DownstreamEntryID:      entryID,
 		DownstreamSPIFFEID:     downstreamID,
@@ -1032,13 +1086,28 @@ func (s *edgeOnboardingService) DeliverPackage(ctx context.Context, req *models.
 		return nil, models.ErrEdgeOnboardingDownloadExpired
 	}
 
-	joinTokenPlain, err := s.cipher.Decrypt(pkg.JoinTokenCiphertext)
-	if err != nil {
-		return nil, fmt.Errorf("edge onboarding: decrypt join token: %w", err)
-	}
-	bundlePlain, err := s.cipher.Decrypt(pkg.BundleCiphertext)
-	if err != nil {
-		return nil, fmt.Errorf("edge onboarding: decrypt bundle: %w", err)
+	metadataMap, _ := parseEdgeMetadataMap(pkg.MetadataJSON)
+	securityMode := normalizeSecurityMode("", metadataMap)
+
+	var joinTokenPlain []byte
+	var bundlePlain []byte
+	var mtlsBundle []byte
+
+	if securityMode == securityModeMTLS {
+		bundlePlain, err = s.cipher.Decrypt(pkg.BundleCiphertext)
+		if err != nil {
+			return nil, fmt.Errorf("edge onboarding: decrypt mTLS bundle: %w", err)
+		}
+		mtlsBundle = bundlePlain
+	} else {
+		joinTokenPlain, err = s.cipher.Decrypt(pkg.JoinTokenCiphertext)
+		if err != nil {
+			return nil, fmt.Errorf("edge onboarding: decrypt join token: %w", err)
+		}
+		bundlePlain, err = s.cipher.Decrypt(pkg.BundleCiphertext)
+		if err != nil {
+			return nil, fmt.Errorf("edge onboarding: decrypt bundle: %w", err)
+		}
 	}
 
 	deliveredAt := now
@@ -1085,9 +1154,10 @@ func (s *edgeOnboardingService) DeliverPackage(ctx context.Context, req *models.
 	}
 
 	return &models.EdgeOnboardingDeliverResult{
-		Package:   pkg,
-		JoinToken: string(joinTokenPlain),
-		BundlePEM: bundlePlain,
+		Package:    pkg,
+		JoinToken:  string(joinTokenPlain),
+		BundlePEM:  bundlePlain,
+		MTLSBundle: mtlsBundle,
 	}, nil
 }
 
@@ -1755,6 +1825,157 @@ func parseEdgeMetadataMap(raw string) (map[string]string, error) {
 	}
 
 	return meta, nil
+}
+
+func normalizeSecurityMode(raw string, metadata map[string]string) string {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	if mode == "" && metadata != nil {
+		if candidate, ok := metadata["security_mode"]; ok {
+			mode = strings.ToLower(strings.TrimSpace(candidate))
+		}
+	}
+	if mode == securityModeMTLS {
+		return securityModeMTLS
+	}
+	return securityModeSPIRE
+}
+
+func (s *edgeOnboardingService) createMTLSPackage(ctx context.Context, params *mtlsPackageParams) (*models.EdgeOnboardingCreateResult, error) {
+	if params == nil {
+		return nil, models.ErrEdgeOnboardingInvalidRequest
+	}
+
+	downloadTTL := s.effectiveDownloadTokenTTL(params.DownloadToken)
+	downloadToken, err := s.generateDownloadToken()
+	if err != nil {
+		return nil, fmt.Errorf("edge onboarding: generate download token: %w", err)
+	}
+	downloadExpires := params.Now.Add(downloadTTL)
+
+	bundle, err := s.buildMTLSBundle(params.ComponentType, params.ComponentID, params.MetadataMap)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to build mTLS bundle: %w", models.ErrEdgeOnboardingInvalidRequest, err)
+	}
+
+	bundleBytes, err := json.Marshal(bundle)
+	if err != nil {
+		return nil, fmt.Errorf("edge onboarding: marshal mTLS bundle: %w", err)
+	}
+	bundleCiphertext, err := s.cipher.Encrypt(bundleBytes)
+	if err != nil {
+		return nil, fmt.Errorf("edge onboarding: encrypt mTLS bundle: %w", err)
+	}
+
+	pkgModel := &models.EdgeOnboardingPackage{
+		PackageID:              uuid.NewString(),
+		Label:                  params.Label,
+		ComponentID:            params.ComponentID,
+		ComponentType:          params.ComponentType,
+		ParentType:             params.ParentType,
+		ParentID:               params.ParentID,
+		PollerID:               params.PollerID,
+		Site:                   params.Site,
+		SecurityMode:           securityModeMTLS,
+		Status:                 models.EdgeOnboardingStatusIssued,
+		Selectors:              []string{},
+		CheckerKind:            params.CheckerKind,
+		CheckerConfigJSON:      params.CheckerConfig,
+		JoinTokenCiphertext:    "",
+		JoinTokenExpiresAt:     params.Now,
+		BundleCiphertext:       bundleCiphertext,
+		DownloadTokenHash:      hashDownloadToken(downloadToken),
+		DownloadTokenExpiresAt: downloadExpires,
+		CreatedBy:              params.CreatedBy,
+		CreatedAt:              params.Now,
+		UpdatedAt:              params.Now,
+		MetadataJSON:           params.MetadataJSON,
+		Notes:                  params.Notes,
+	}
+
+	if err := s.applyComponentKVUpdates(ctx, pkgModel); err != nil {
+		return nil, fmt.Errorf("edge onboarding: apply kv updates: %w", err)
+	}
+
+	if err := s.db.UpsertEdgeOnboardingPackage(ctx, pkgModel); err != nil {
+		return nil, fmt.Errorf("edge onboarding: persist package: %w", err)
+	}
+
+	s.activationCacheStorePackage(pkgModel)
+
+	return &models.EdgeOnboardingCreateResult{
+		Package:       pkgModel,
+		DownloadToken: downloadToken,
+		BundlePEM:     bundleBytes,
+		MTLSBundle:    bundleBytes,
+	}, nil
+}
+
+func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboardingComponentType, componentID string, metadata map[string]string) (*mtls.Bundle, error) {
+	certDir := strings.TrimSpace(metadata["cert_dir"])
+	if certDir == "" {
+		certDir = defaultCertDir
+	}
+
+	serviceName := strings.TrimSpace(metadata["client_cert_name"])
+	if serviceName == "" {
+		serviceName = strings.TrimSpace(componentID)
+	}
+	if serviceName == "" {
+		serviceName = "edge-client"
+	}
+
+	caPath := filepath.Join(certDir, "root.pem")
+	certPath := filepath.Join(certDir, fmt.Sprintf("%s.pem", serviceName))
+	keyPath := filepath.Join(certDir, fmt.Sprintf("%s-key.pem", serviceName))
+
+	read := func(path string) (string, error) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		return string(data), nil
+	}
+
+	caPEM, err := read(caPath)
+	if err != nil {
+		return nil, fmt.Errorf("read ca cert: %w", err)
+	}
+	clientCert, err := read(certPath)
+	if err != nil {
+		return nil, fmt.Errorf("read client cert: %w", err)
+	}
+	clientKey, err := read(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("read client key: %w", err)
+	}
+
+	serverName := strings.TrimSpace(metadata["server_name"])
+	if serverName == "" {
+		serverName = fmt.Sprintf("%s.serviceradar", serviceName)
+	}
+
+	endpoints := make(map[string]string)
+	if poller := strings.TrimSpace(metadata["poller_endpoint"]); poller != "" {
+		endpoints["poller"] = poller
+	}
+	if core := strings.TrimSpace(metadata["core_endpoint"]); core != "" {
+		endpoints["core"] = core
+	}
+
+	bundle := &mtls.Bundle{
+		CACertPEM:  caPEM,
+		ClientCert: clientCert,
+		ClientKey:  clientKey,
+		ServerName: serverName,
+		Endpoints:  endpoints,
+	}
+
+	// Provide a sensible default for checkers if no poller endpoint set
+	if componentType == models.EdgeOnboardingComponentTypeChecker && endpoints["poller"] == "" {
+		endpoints["poller"] = "localhost:50053"
+	}
+
+	return bundle, nil
 }
 
 func validatePollerMetadata(meta map[string]string) error {

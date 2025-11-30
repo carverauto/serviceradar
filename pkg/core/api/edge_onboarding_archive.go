@@ -37,6 +37,9 @@ func buildEdgePackageArchive(result *models.EdgeOnboardingDeliverResult, now tim
 	if result == nil || result.Package == nil {
 		return nil, "", fmt.Errorf("%w: package payload missing", errEdgePackageArchive)
 	}
+	if result.MTLSBundle != nil {
+		return nil, "", fmt.Errorf("%w: mTLS packages must be downloaded as JSON", errEdgePackageArchive)
+	}
 
 	meta := parseEdgeMetadata(result.Package.MetadataJSON)
 

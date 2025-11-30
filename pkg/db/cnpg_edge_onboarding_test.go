@@ -30,6 +30,7 @@ func TestBuildEdgeOnboardingPackageArgs(t *testing.T) {
 		PollerID:               "poller-1",
 		Site:                   "site-a",
 		Status:                 models.EdgeOnboardingStatusActivated,
+		SecurityMode:           "mtls",
 		DownstreamEntryID:      "entry-123",
 		DownstreamSPIFFEID:     "spiffe://downstream",
 		Selectors:              []string{"env:demo"},
@@ -58,39 +59,40 @@ func TestBuildEdgeOnboardingPackageArgs(t *testing.T) {
 
 	args, err := buildEdgeOnboardingPackageArgs(pkg)
 	require.NoError(t, err)
-	require.Len(t, args, 33)
+	require.Len(t, args, 34)
 
 	assert.Equal(t, pkg.Label, args[1])
 	assert.Equal(t, pkg.ComponentID, args[2])
 	assert.Equal(t, string(pkg.ComponentType), args[3])
 	assert.Equal(t, pkg.PollerID, args[6])
 	assert.Equal(t, pkg.Site, args[7])
-	assert.Equal(t, string(pkg.Status), args[8])
-	assert.Equal(t, pkg.DownstreamEntryID, args[9])
-	assert.Equal(t, pkg.DownstreamSPIFFEID, args[10])
-	assert.Equal(t, pkg.Selectors, args[11])
-	assert.Equal(t, pkg.CheckerKind, args[12])
+	assert.Equal(t, pkg.SecurityMode, args[8])
+	assert.Equal(t, string(pkg.Status), args[9])
+	assert.Equal(t, pkg.DownstreamEntryID, args[10])
+	assert.Equal(t, pkg.DownstreamSPIFFEID, args[11])
+	assert.Equal(t, pkg.Selectors, args[12])
+	assert.Equal(t, pkg.CheckerKind, args[13])
 
-	assertJSONRawEquals(t, map[string]int{"interval": 10}, args[13])
-	assert.Equal(t, pkg.JoinTokenCiphertext, args[14])
-	assert.Equal(t, now.UTC(), args[15])
-	assert.Equal(t, pkg.BundleCiphertext, args[16])
-	assert.Equal(t, pkg.DownloadTokenHash, args[17])
-	assert.Equal(t, pkg.DownloadTokenExpiresAt.UTC(), args[18])
-	assert.Equal(t, pkg.CreatedBy, args[19])
-	assert.Equal(t, pkg.CreatedAt.UTC(), args[20])
-	assert.Equal(t, pkg.UpdatedAt.UTC(), args[21])
-	assert.Equal(t, delivered.UTC(), args[22])
-	assert.Equal(t, activated.UTC(), args[23])
-	assert.Equal(t, ip, args[24])
-	assert.Equal(t, lastSeen, args[25])
-	assert.Equal(t, revoked.UTC(), args[26])
-	assert.Equal(t, deleted.UTC(), args[27])
-	assert.Equal(t, "deleter", args[28])
-	assert.Equal(t, "cleanup", args[29])
-	assertJSONRawEquals(t, map[string]string{"env": "demo"}, args[30])
-	assert.Equal(t, int64(42), args[31])
-	assert.Equal(t, pkg.Notes, args[32])
+	assertJSONRawEquals(t, map[string]int{"interval": 10}, args[14])
+	assert.Equal(t, pkg.JoinTokenCiphertext, args[15])
+	assert.Equal(t, now.UTC(), args[16])
+	assert.Equal(t, pkg.BundleCiphertext, args[17])
+	assert.Equal(t, pkg.DownloadTokenHash, args[18])
+	assert.Equal(t, pkg.DownloadTokenExpiresAt.UTC(), args[19])
+	assert.Equal(t, pkg.CreatedBy, args[20])
+	assert.Equal(t, pkg.CreatedAt.UTC(), args[21])
+	assert.Equal(t, pkg.UpdatedAt.UTC(), args[22])
+	assert.Equal(t, delivered.UTC(), args[23])
+	assert.Equal(t, activated.UTC(), args[24])
+	assert.Equal(t, ip, args[25])
+	assert.Equal(t, lastSeen, args[26])
+	assert.Equal(t, revoked.UTC(), args[27])
+	assert.Equal(t, deleted.UTC(), args[28])
+	assert.Equal(t, "deleter", args[29])
+	assert.Equal(t, "cleanup", args[30])
+	assertJSONRawEquals(t, map[string]string{"env": "demo"}, args[31])
+	assert.Equal(t, int64(42), args[32])
+	assert.Equal(t, pkg.Notes, args[33])
 }
 
 func TestBuildEdgeOnboardingPackageArgsMissingID(t *testing.T) {
