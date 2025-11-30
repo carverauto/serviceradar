@@ -1686,6 +1686,15 @@ func (s *edgeOnboardingService) lookupPollerForAgent(ctx context.Context, agentI
 		return "", fmt.Errorf("edge onboarding: lookup agent %s: %w", agentID, err)
 	}
 	if len(pkgs) == 0 {
+		agents, svcErr := s.db.ListAgentsWithPollers(ctx)
+		if svcErr != nil {
+			return "", fmt.Errorf("edge onboarding: lookup agent %s from services: %w", agentID, svcErr)
+		}
+		for _, agent := range agents {
+			if strings.TrimSpace(agent.AgentID) == agentID {
+				return agent.PollerID, nil
+			}
+		}
 		return "", fmt.Errorf("%w: parent agent %s not found", models.ErrEdgeOnboardingInvalidRequest, agentID)
 	}
 	return pkgs[0].PollerID, nil

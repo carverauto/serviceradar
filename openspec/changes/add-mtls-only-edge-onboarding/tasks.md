@@ -14,6 +14,5 @@
 - [ ] 3.2 Rotation/regeneration sanity: regenerate an edge bundle/token and confirm sysmon-vm can re-enroll without manual cleanup.
 
 ### Notes on current blockers
-- Compose mTLS stack now generates CNPG server certs and pushes sslmode=verify-full to core/db-event-writer/srql; cert SANs now include cnpg/cnpg-rw with/without `.serviceradar`, but core still fails DB migrations under TLS (`failed to create migrations table: EOF`), leaving web/nginx 502 until resolved.
-- DB-event-writer continues to restart with “database configuration is required” even after the compose entrypoint injects CNPG TLS settings; binary may be rejecting the config shape/version.
-- Core config in KV no longer references proton; DB block is rewritten to CNPG+mTLS.
+- CNPG base rebuilt to 16.6 bookworm with glibc 2.41 and a runtime layer; new tag `16.6.0-sr2` removes the `GLIBC_2.38` Timescale/AGE load failure and the mTLS Compose stack now comes up cleanly with APP_TAG `sha-e5b9b615c9c17d104391d4847e1cfb757163ae15`.
+- Compose CNPG logs show collation version warnings (DB created on glibc 2.31); refresh collation or wipe/reseed volume when convenient.
