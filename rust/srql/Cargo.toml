@@ -35,4 +35,5 @@ rustls-pemfile = "2.2"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
+serial_test = "3.2"
 testcontainers = "0.15"

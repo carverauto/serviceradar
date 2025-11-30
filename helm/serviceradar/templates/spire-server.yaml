@@ -150,6 +150,8 @@ data:
 {{- if $.Values.spire.nestedPoller.enabled }}
                 "{{ . }}:{{ default "serviceradar-poller" $.Values.spire.pollerServiceAccount }}",
 {{- end }}
+                "{{ . }}:serviceradar-core",
+                "{{ . }}:serviceradar-datasvc",
 {{- end }}
               ]
               token_review_audience = "{{ $tokenAudience }}"

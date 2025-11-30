@@ -169,7 +169,7 @@ spec:
             name: {{ $bundle }}
         - name: spire-agent-socket
           hostPath:
-            path: /run/spire/sockets
+            path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
             type: DirectoryOrCreate
         - name: spire-agent-token
           projected:

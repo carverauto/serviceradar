@@ -374,6 +374,7 @@ CREATE TABLE IF NOT EXISTS edge_onboarding_packages (
     poller_id              TEXT,
     site                   TEXT,
     status                 TEXT             DEFAULT 'pending',
+    security_mode          TEXT             DEFAULT 'spire',
     downstream_entry_id    TEXT             DEFAULT '',
     downstream_spiffe_id   TEXT             DEFAULT '',
     selectors              TEXT[]           DEFAULT '{}',

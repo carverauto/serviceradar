@@ -50,6 +50,7 @@ type EdgePackage = {
   poller_id: string;
   site?: string;
   status: string;
+  security_mode?: string;
   downstream_spiffe_id: string;
   selectors: string[];
   join_token_expires_at: string;
@@ -90,6 +91,8 @@ type EdgePackageDefaults = {
   metadata?: Record<string, Record<string, string>>;
 };
 
+type SecurityMode = 'spire' | 'mtls';
+
 type AgentInfo = {
   agent_id: string;
   poller_id: string;
@@ -101,6 +104,8 @@ type CreateFormState = {
   componentType: EdgeComponentType;
   componentId: string;
   parentId: string;
+  checkerKind: string;
+  checkerConfigJSON: string;
   label: string;
   pollerId: string;
   site: string;
@@ -110,12 +115,15 @@ type CreateFormState = {
   joinTTLMinutes: string;
   downloadTTLMinutes: string;
   downstreamSPIFFEID: string;
+  securityMode: SecurityMode;
 };
 
 const defaultFormState: CreateFormState = {
   componentType: 'poller',
   componentId: '',
   parentId: '',
+  checkerKind: '',
+  checkerConfigJSON: '',
   label: '',
   pollerId: '',
   site: '',
@@ -125,6 +133,7 @@ const defaultFormState: CreateFormState = {
   joinTTLMinutes: '30',
   downloadTTLMinutes: '15',
   downstreamSPIFFEID: '',
+  securityMode: 'spire',
 };
 
 const statusStyles: Record<string, string> = {
@@ -163,6 +172,59 @@ function formatMetadata(metadata?: Record<string, string> | null): string {
     ordered[key] = value;
   }
   return JSON.stringify(ordered, null, 2);
+}
+
+function deriveSecurityMode(metadataOrMode?: string | Record<string, string>): SecurityMode {
+  if (!metadataOrMode) {
+    return 'spire';
+  }
+  try {
+    const metaObj: Record<string, unknown> =
+      typeof metadataOrMode === 'string'
+        ? (JSON.parse(metadataOrMode) as Record<string, unknown>)
+        : (metadataOrMode as Record<string, unknown>);
+    const raw = String(metaObj['security_mode'] ?? '').toLowerCase().trim();
+    if (raw === 'mtls') {
+      return 'mtls';
+    }
+  } catch {
+    // ignore parse errors and fall back to SPIRE
+  }
+  return 'spire';
+}
+
+function parseMetadataObject(metadata?: string | null): Record<string, string> {
+  if (!metadata) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(metadata) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object') {
+      return {};
+    }
+    const result: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      const k = key.trim();
+      if (!k) continue;
+      const v = typeof value === 'string' ? value.trim() : String(value ?? '');
+      if (v) {
+        result[k] = v;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function packageSecurityMode(pkg: EdgePackage | null): SecurityMode {
+  if (!pkg) {
+    return 'spire';
+  }
+  if (pkg.security_mode && pkg.security_mode.trim().toLowerCase() === 'mtls') {
+    return 'mtls';
+  }
+  return deriveSecurityMode(pkg.metadata_json);
 }
 
 function getMetadataDefaults(defaults: EdgePackageDefaults | null, componentType: EdgeComponentType): Record<string, string> | undefined {
@@ -266,6 +328,30 @@ function buildStructuredToken(packageId: string, downloadToken: string, coreApiU
   return `edgepkg-v1:${base64UrlEncode(JSON.stringify(payload))}`;
 }
 
+function parseErrorMessage(raw: string | null | undefined): string {
+  if (!raw) {
+    return '';
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return '';
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object') {
+      if ('message' in parsed && typeof parsed.message === 'string') {
+        return parsed.message;
+      }
+      if ('error' in parsed && typeof parsed.error === 'string') {
+        return parsed.error;
+      }
+    }
+  } catch {
+    // fall through to return the raw string
+  }
+  return trimmed;
+}
+
 export default function EdgePackagesPage() {
   const [packages, setPackages] = useState<EdgePackage[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -285,6 +371,7 @@ export default function EdgePackagesPage() {
   const [defaults, setDefaults] = useState<EdgePackageDefaults | null>(null);
   const [metadataTouched, setMetadataTouched] = useState<boolean>(false);
   const [selectorsTouched, setSelectorsTouched] = useState<boolean>(false);
+  const [pollerTouched, setPollerTouched] = useState<boolean>(false);
   const [registeredAgents, setRegisteredAgents] = useState<AgentInfo[]>([]);
   const coreApiBase = useMemo(() => getPublicApiUrl(), []);
 
@@ -329,6 +416,40 @@ export default function EdgePackagesPage() {
 
   const parentPollerListId = 'edge-parent-poller-options';
   const parentAgentListId = 'edge-parent-agent-options';
+  const checkerKindListId = 'edge-checker-kind-options';
+  const checkerKinds = useMemo(() => {
+    const seen = new Set<string>();
+    return packages
+      .map((pkg) => pkg.checker_kind?.trim() ?? '')
+      .filter((kind) => {
+        if (!kind || seen.has(kind)) {
+          return false;
+        }
+        seen.add(kind);
+        return true;
+      });
+  }, [packages]);
+  const agentPollerMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const agent of registeredAgents) {
+      const agentID = agent.agent_id?.trim();
+      const pollerID = agent.poller_id?.trim();
+      if (agentID && pollerID && !map.has(agentID)) {
+        map.set(agentID, pollerID);
+      }
+    }
+    for (const pkg of packages) {
+      if ((pkg.component_type ?? '') !== 'agent') {
+        continue;
+      }
+      const agentID = pkg.component_id?.trim();
+      const pollerID = pkg.poller_id?.trim() || pkg.parent_id?.trim();
+      if (agentID && pollerID && !map.has(agentID)) {
+        map.set(agentID, pollerID);
+      }
+    }
+    return map;
+  }, [packages, registeredAgents]);
 
   const loadPackages = useCallback(async () => {
     setLoading(true);
@@ -445,8 +566,16 @@ export default function EdgePackagesPage() {
     setFormState((prev) => {
       let next = prev;
       let changed = false;
+      const metaDefaults = getMetadataDefaults(defaults, prev.componentType);
+      const derivedMode = metadataTouched ? prev.securityMode : deriveSecurityMode(metaDefaults ?? prev.metadataJSON);
 
-      if (!selectorsTouched && (!prev.selectors || prev.selectors.trim().length === 0)) {
+      if (derivedMode !== prev.securityMode) {
+        next = changed ? next : { ...prev };
+        next.securityMode = derivedMode;
+        changed = true;
+      }
+
+      if (derivedMode !== 'mtls' && !selectorsTouched && (!prev.selectors || prev.selectors.trim().length === 0)) {
         const defaultSelectors = defaults.selectors ?? [];
         if (defaultSelectors.length > 0) {
           next = changed ? next : { ...prev };
@@ -456,7 +585,6 @@ export default function EdgePackagesPage() {
       }
 
       if (!metadataTouched && (!prev.metadataJSON || prev.metadataJSON.trim().length === 0)) {
-        const metaDefaults = getMetadataDefaults(defaults, prev.componentType);
         const formatted = formatMetadata(metaDefaults);
         if (formatted) {
           next = changed ? next : { ...prev };
@@ -465,9 +593,45 @@ export default function EdgePackagesPage() {
         }
       }
 
+      if (
+        prev.componentType === 'checker' &&
+        !prev.checkerKind.trim() &&
+        metaDefaults?.checker_kind &&
+        metaDefaults.checker_kind.trim().length > 0
+      ) {
+        next = changed ? next : { ...prev };
+        next.checkerKind = metaDefaults.checker_kind.trim();
+        changed = true;
+      }
+
       return changed ? next : prev;
     });
   }, [defaults, metadataTouched, selectorsTouched, formState.componentType]);
+
+  useEffect(() => {
+    if (formState.componentType !== 'checker') {
+      return;
+    }
+    const parentAgent = formState.parentId.trim();
+    if (!parentAgent) {
+      return;
+    }
+    const derivedPoller = agentPollerMap.get(parentAgent);
+    if (!derivedPoller) {
+      return;
+    }
+    const currentPoller = formState.pollerId.trim();
+    if (pollerTouched && currentPoller) {
+      return;
+    }
+    if (currentPoller === derivedPoller) {
+      return;
+    }
+    setFormState((prev) => ({
+      ...prev,
+      pollerId: derivedPoller,
+    }));
+  }, [agentPollerMap, formState.componentType, formState.parentId, formState.pollerId, pollerTouched]);
 
   const resetForm = useCallback(() => {
     setFormState(defaultFormState);
@@ -475,6 +639,7 @@ export default function EdgePackagesPage() {
     setFormSubmitting(false);
     setMetadataTouched(false);
     setSelectorsTouched(false);
+    setPollerTouched(false);
   }, []);
 
   const openFormFor = useCallback(
@@ -485,11 +650,14 @@ export default function EdgePackagesPage() {
         pollerId: type === 'poller' ? '' : '',
         parentId: '',
         componentId: '',
+        checkerKind: '',
+        checkerConfigJSON: '',
       });
       setFormError(null);
       setFormSubmitting(false);
-       setMetadataTouched(false);
-       setSelectorsTouched(false);
+      setMetadataTouched(false);
+      setSelectorsTouched(false);
+      setPollerTouched(false);
       setFormOpen(true);
     },
     [],
@@ -500,6 +668,8 @@ export default function EdgePackagesPage() {
       setMetadataTouched(true);
     } else if (field === 'selectors') {
       setSelectorsTouched(true);
+    } else if (field === 'pollerId') {
+      setPollerTouched(true);
     }
     setFormState((prev) => ({ ...prev, [field]: value }));
   };
@@ -513,10 +683,31 @@ export default function EdgePackagesPage() {
       parentId: '',
       pollerId: nextType === 'poller' ? prev.pollerId : '',
       metadataJSON: !metadataTouched ? '' : prev.metadataJSON,
+      checkerKind: nextType === 'checker' ? prev.checkerKind : '',
+      checkerConfigJSON: nextType === 'checker' ? prev.checkerConfigJSON : '',
     }));
     if (!metadataTouched) {
       setMetadataTouched(false);
     }
+    setPollerTouched(false);
+  };
+
+  const handleSecurityModeChange = (mode: SecurityMode) => {
+    const nextMode: SecurityMode = mode === 'mtls' ? 'mtls' : 'spire';
+    setFormState((prev) => {
+      const next = { ...prev, securityMode: nextMode };
+      if (!metadataTouched) {
+        if (nextMode === 'mtls') {
+          next.metadataJSON = JSON.stringify({ security_mode: 'mtls' }, null, 2);
+        } else if (deriveSecurityMode(prev.metadataJSON) === 'mtls') {
+          next.metadataJSON = '';
+        }
+      }
+      if (nextMode === 'mtls' && !selectorsTouched) {
+        next.selectors = '';
+      }
+      return next;
+    });
   };
 
   const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -535,8 +726,12 @@ export default function EdgePackagesPage() {
       formState.componentType === 'agent' || formState.componentType === 'checker'
         ? formState.componentType
         : 'poller';
+    const securityMode: SecurityMode = formState.securityMode === 'mtls' ? 'mtls' : 'spire';
     const componentId = formState.componentId.trim();
     const parentId = formState.parentId.trim();
+    const checkerKind = formState.checkerKind.trim();
+    const checkerConfigJSON = formState.checkerConfigJSON.trim();
+    const metadataJSON = formState.metadataJSON.trim();
 
     if (componentType === 'agent' && !parentId) {
       setFormError('Parent poller is required for agent packages');
@@ -546,13 +741,44 @@ export default function EdgePackagesPage() {
       setFormError('Parent agent is required for checker packages');
       return;
     }
+    if (componentType === 'checker' && !checkerKind) {
+      setFormError('Checker kind is required for checker packages');
+      setActionError('Checker kind is required for checker packages');
+      return;
+    }
+
+    let metadataObject: Record<string, unknown> = {};
+    if (metadataJSON) {
+      try {
+        metadataObject = JSON.parse(metadataJSON) as Record<string, unknown>;
+      } catch {
+        const message = 'Metadata JSON must be valid JSON';
+        setFormError(message);
+        setActionError(message);
+        return;
+      }
+    }
+
+    if (checkerConfigJSON) {
+      try {
+        JSON.parse(checkerConfigJSON);
+      } catch {
+        const message = 'Checker config JSON must be valid JSON';
+        setFormError(message);
+        setActionError(message);
+        return;
+      }
+    }
 
     setFormSubmitting(true);
     try {
-      const selectors = formState.selectors
+      let selectors = formState.selectors
         .split(/[\n,]/)
         .map((token) => token.trim())
         .filter((token) => token.length > 0);
+      if (securityMode === 'mtls') {
+        selectors = [];
+      }
 
       const joinMinutes = formState.joinTTLMinutes.trim();
       const downloadMinutes = formState.downloadTTLMinutes.trim();
@@ -563,6 +789,13 @@ export default function EdgePackagesPage() {
           : componentType === 'checker' && pollerOverride
             ? pollerOverride
             : undefined;
+      if (securityMode === 'mtls') {
+        metadataObject['security_mode'] = 'mtls';
+      } else if (metadataObject['security_mode'] === 'mtls') {
+        delete metadataObject['security_mode'];
+      }
+
+      const metadataValue = Object.keys(metadataObject).length > 0 ? JSON.stringify(metadataObject) : undefined;
 
       const payload: {
         label: string;
@@ -574,6 +807,8 @@ export default function EdgePackagesPage() {
         site?: string;
         selectors?: string[];
         metadata_json?: string;
+        checker_kind?: string;
+        checker_config_json?: string;
         notes?: string;
         downstream_spiffe_id?: string;
         join_token_ttl_seconds?: number;
@@ -586,9 +821,11 @@ export default function EdgePackagesPage() {
         poller_id: pollerIdForPayload,
         site: formState.site.trim() || undefined,
         selectors: selectors.length > 0 ? selectors : undefined,
-        metadata_json: formState.metadataJSON.trim() || undefined,
+        metadata_json: metadataValue,
+        checker_kind: componentType === 'checker' ? checkerKind : undefined,
+        checker_config_json: componentType === 'checker' && checkerConfigJSON ? checkerConfigJSON : undefined,
         notes: formState.notes.trim() || undefined,
-        downstream_spiffe_id: formState.downstreamSPIFFEID.trim() || undefined,
+        downstream_spiffe_id: securityMode === 'mtls' ? undefined : formState.downstreamSPIFFEID.trim() || undefined,
         join_token_ttl_seconds: joinMinutes ? Math.max(0, Math.round(Number(joinMinutes) * 60)) : undefined,
         download_token_ttl_seconds: downloadMinutes ? Math.max(0, Math.round(Number(downloadMinutes) * 60)) : undefined,
       };
@@ -606,7 +843,8 @@ export default function EdgePackagesPage() {
       });
       if (!response.ok) {
         const message = await response.text();
-        throw new Error(message || 'Failed to create edge package');
+        const parsedMessage = parseErrorMessage(message) || 'Failed to create edge package';
+        throw new Error(parsedMessage);
       }
 
       const result = await response.json();
@@ -630,7 +868,10 @@ export default function EdgePackagesPage() {
       resetForm();
     } catch (err) {
       console.error('Failed to create edge package', err);
-      setFormError(err instanceof Error ? err.message : 'Failed to create package');
+      const message = err instanceof Error ? err.message : 'Failed to create package';
+      const parsed = parseErrorMessage(message) || message;
+      setFormError(parsed);
+      setActionError(parsed);
     } finally {
       setFormSubmitting(false);
     }
@@ -661,16 +902,58 @@ export default function EdgePackagesPage() {
       return;
     }
 
+    const securityMode = packageSecurityMode(pkg);
+    const expectJSON = securityMode === 'mtls';
+
     setActionLoading(true);
     try {
-      const response = await fetch(`/api/admin/edge-packages/${pkg.package_id}/download`, {
+      const requestUrl = expectJSON
+        ? `/api/admin/edge-packages/${pkg.package_id}/download?format=json`
+        : `/api/admin/edge-packages/${pkg.package_id}/download`;
+      const response = await fetch(requestUrl, {
         method: 'POST',
-        headers: buildHeaders('application/json', 'application/gzip'),
+        headers: buildHeaders('application/json', expectJSON ? 'application/json' : 'application/gzip'),
         body: JSON.stringify({ download_token: downloadToken }),
       });
       if (!response.ok) {
         const message = await response.text();
-        throw new Error(message || 'Failed to download package archive');
+        throw new Error(message || 'Failed to download package');
+      }
+
+      if (expectJSON) {
+        const body = (await response.json()) as { mtls_bundle?: unknown; package?: EdgePackage };
+        if (!body?.mtls_bundle) {
+          throw new Error('mTLS bundle missing from response');
+        }
+        const downloadBlob = new Blob([JSON.stringify(body, null, 2)], {
+          type: 'application/json',
+        });
+        const filename = `edge-package-${pkg.package_id}-mtls.json`;
+        const urlObject = URL.createObjectURL(downloadBlob);
+        const anchor = document.createElement('a');
+        anchor.href = urlObject;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(urlObject);
+        setActionMessage(`mTLS bundle downloaded for ${pkg.label} (${filename}). Token consumed.`);
+        setSecrets((prev) => {
+          const next = { ...prev };
+          if (next[pkg.package_id]) {
+            next[pkg.package_id] = {
+              ...next[pkg.package_id],
+              downloadToken: '',
+              structuredToken: '',
+            };
+          }
+          return next;
+        });
+        await loadPackages();
+        if (pkg.package_id === selectedId) {
+          await loadEvents(pkg.package_id);
+        }
+        return;
       }
 
       const blob = await response.blob();
@@ -678,14 +961,14 @@ export default function EdgePackagesPage() {
         parseContentDisposition(response.headers.get('Content-Disposition')) ??
         `edge-package-${pkg.package_id}.tar.gz`;
 
-      const url = URL.createObjectURL(blob);
+      const blobUrl = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
-      anchor.href = url;
+      anchor.href = blobUrl;
       anchor.download = filename;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(blobUrl);
 
       setActionMessage(`Package ${pkg.label} archive downloaded. Token consumed.`);
       setSecrets((prev) => {
@@ -809,8 +1092,24 @@ export default function EdgePackagesPage() {
   };
 
   const copyToClipboard = async (text: string, description: string) => {
+    if (!text) {
+      setActionError(`Nothing to copy for ${description}.`);
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(text);
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
       setActionMessage(`${description} copied to clipboard.`);
     } catch (err) {
       console.error('Copy failed', err);
@@ -819,10 +1118,15 @@ export default function EdgePackagesPage() {
   };
 
   const selectedSecrets = selectedPackage ? secrets[selectedPackage.package_id] : null;
+  const selectedSecurityMode = packageSecurityMode(selectedPackage);
+  const selectedMetadata = useMemo(
+    () => parseMetadataObject(selectedPackage?.metadata_json),
+    [selectedPackage],
+  );
 
   return (
     <RoleGuard requiredRoles={['admin']}>
-      <div className="flex h-full flex-col p-6 space-y-6 overflow-hidden">
+      <div className="flex min-h-screen flex-col p-6 space-y-6 overflow-auto">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="rounded-full bg-blue-100 p-2 dark:bg-blue-900/40">
@@ -831,7 +1135,7 @@ export default function EdgePackagesPage() {
             <div>
               <h1 className="text-2xl font-semibold">Edge Onboarding Packages</h1>
               <p className="text-sm text-muted-foreground">
-                Issue, download, and revoke poller, agent, and checker installers backed by nested SPIRE.
+                Issue, download, and revoke poller, agent, and checker installers with SPIRE (k8s) or mTLS (Docker/edge).
               </p>
             </div>
           </div>
@@ -877,17 +1181,17 @@ export default function EdgePackagesPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <PackageIcon className="h-5 w-5 text-blue-500" />
-                  <h2 className="text-lg font-semibold">Issue new installer</h2>
+                    <h2 className="text-lg font-semibold">Issue new installer</h2>
+                  </div>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-2 self-start rounded-md border border-transparent bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-70 sm:self-auto"
+                    disabled={formSubmitting}
+                  >
+                    {formSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                    Issue package
+                  </button>
                 </div>
-                <button
-                  type="submit"
-                  className="inline-flex items-center gap-2 self-start rounded-md border border-transparent bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-70 sm:self-auto"
-                  disabled={formSubmitting}
-                >
-                  {formSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                  Issue package
-                </button>
-              </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-sm">
@@ -918,6 +1222,37 @@ export default function EdgePackagesPage() {
                   </select>
                 </label>
               </div>
+
+              <fieldset className="flex flex-col gap-2 rounded-md border border-dashed border-gray-200 p-3 text-sm dark:border-gray-700">
+                <span className="font-medium">Security mode</span>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="securityMode"
+                      value="spire"
+                      checked={formState.securityMode === 'spire'}
+                      onChange={() => handleSecurityModeChange('spire')}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>SPIRE (default for Kubernetes)</span>
+                  </label>
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="securityMode"
+                      value="mtls"
+                      checked={formState.securityMode === 'mtls'}
+                      onChange={() => handleSecurityModeChange('mtls')}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>mTLS (Docker/edge Compose)</span>
+                  </label>
+                </div>
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  SPIRE is preferred for Kubernetes. Select mTLS to issue Docker/Compose onboarding bundles (hides SPIFFE selectors and downstream IDs).
+                </p>
+              </fieldset>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-sm">
@@ -996,6 +1331,42 @@ export default function EdgePackagesPage() {
                 </div>
               )}
 
+              {formState.componentType === 'checker' && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="font-medium">
+                      Checker kind <span className="text-red-500">*</span>
+                    </span>
+                    <input
+                      required
+                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                      value={formState.checkerKind}
+                      onChange={(event) => handleFormChange('checkerKind', event.target.value)}
+                      placeholder="sysmon, snmp, rperf"
+                      list={checkerKindListId}
+                    />
+                    {checkerKinds.length > 0 && (
+                      <datalist id={checkerKindListId}>
+                        {checkerKinds.map((kind) => (
+                          <option value={kind} key={`checker-kind-${kind}`} />
+                        ))}
+                      </datalist>
+                    )}
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="font-medium">Checker config JSON (optional)</span>
+                    <textarea
+                      rows={3}
+                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                      value={formState.checkerConfigJSON}
+                      onChange={(event) => handleFormChange('checkerConfigJSON', event.target.value)}
+                      placeholder='{"template": "sysmon"}'
+                    />
+                  </label>
+                </div>
+              )}
+
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">Site (optional)</span>
@@ -1007,15 +1378,17 @@ export default function EdgePackagesPage() {
                   />
                 </label>
 
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="font-medium">Downstream SPIFFE ID (optional)</span>
-                  <input
-                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
-                    value={formState.downstreamSPIFFEID}
-                    onChange={(event) => handleFormChange('downstreamSPIFFEID', event.target.value)}
-                    placeholder="Override default template"
-                  />
-                </label>
+                {formState.securityMode !== 'mtls' && (
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="font-medium">Downstream SPIFFE ID (optional)</span>
+                    <input
+                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                      value={formState.downstreamSPIFFEID}
+                      onChange={(event) => handleFormChange('downstreamSPIFFEID', event.target.value)}
+                      placeholder="Override default template"
+                    />
+                  </label>
+                )}
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
@@ -1042,16 +1415,22 @@ export default function EdgePackagesPage() {
                 </label>
               </div>
 
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="font-medium">SPIRE selectors (newline or comma separated)</span>
-                <textarea
-                  rows={3}
-                  className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
-                  value={formState.selectors}
-                  onChange={(event) => handleFormChange('selectors', event.target.value)}
-                  placeholder="k8s_psat:cluster:demo&#10;unix:group:root"
-                />
-              </label>
+              {formState.securityMode !== 'mtls' ? (
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium">SPIRE selectors (newline or comma separated)</span>
+                  <textarea
+                    rows={3}
+                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                    value={formState.selectors}
+                    onChange={(event) => handleFormChange('selectors', event.target.value)}
+                    placeholder="k8s_psat:cluster:demo&#10;unix:group:root"
+                  />
+                </label>
+              ) : (
+                <div className="rounded-md border border-dashed border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-100">
+                  mTLS selected: SPIFFE selectors and downstream IDs are not required. The issued package will include an mTLS bundle (CA, client cert/key, endpoints).
+                </div>
+              )}
 
               <label className="flex flex-col gap-1 text-sm">
                 <span className="font-medium">Metadata JSON (optional)</span>
@@ -1153,6 +1532,8 @@ export default function EdgePackagesPage() {
                   {packages.map((pkg) => {
                     const statusClass = getStatusBadgeClass(pkg.status);
                     const isSelected = selectedId === pkg.package_id;
+                    const securityMode = packageSecurityMode(pkg);
+                    const packageSecrets = secrets[pkg.package_id];
                     const parentLabel =
                       pkg.component_type === 'checker'
                         ? 'Parent agent'
@@ -1228,12 +1609,28 @@ export default function EdgePackagesPage() {
                               title={
                                 pkg.status !== 'issued'
                                   ? 'Download token already consumed'
-                                  : 'Download installer (single-use)'
+                                  : securityMode === 'mtls'
+                                    ? 'Download mTLS bundle (JSON, single-use token)'
+                                    : 'Download installer (single-use)'
                               }
                             >
                               {actionLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                              Download
+                              {securityMode === 'mtls' ? 'Bundle' : 'Download'}
                             </button>
+                            {securityMode === 'mtls' && packageSecrets?.structuredToken && (
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void copyToClipboard(packageSecrets.structuredToken, 'ONBOARDING_TOKEN');
+                                }}
+                                title="Copy edgepkg-v1 token for mTLS clients"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                                Token
+                              </button>
+                            )}
                             <button
                               type="button"
                               className="inline-flex items-center gap-1 rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-900/10"
@@ -1586,16 +1983,39 @@ export default function EdgePackagesPage() {
                           <p className="mt-1 break-all rounded bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                             {selectedSecrets.structuredToken || 'Token unavailable (download token already consumed).'}
                           </p>
-                          <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
-                            Set <code className="rounded bg-slate-200 px-1 py-0.5 text-[11px] dark:bg-slate-700">ONBOARDING_TOKEN</code> to this value; it already
-                            includes the Core URL, package id, and download token.
-                          </p>
-                        </div>
+                        <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
+                          Set <code className="rounded bg-slate-200 px-1 py-0.5 text-[11px] dark:bg-slate-700">ONBOARDING_TOKEN</code> to this value; it already
+                          includes the Core URL, package id, and download token.
+                        </p>
+                      </div>
 
-                        <div>
+                      {selectedSecurityMode === 'mtls' && selectedSecrets.structuredToken && (
+                        <div className="rounded-md border border-dashed border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-900/40 dark:bg-blue-900/10 dark:text-blue-100">
                           <div className="flex items-center justify-between">
-                            <span className="font-medium">SPIRE bundle (PEM)</span>
+                            <span className="font-medium text-sm text-blue-800 dark:text-blue-100">mTLS quickstart</span>
                             <button
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded border border-blue-200 px-2 py-1 text-[11px] text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:text-blue-100 dark:hover:bg-blue-900/30"
+                              onClick={() => copyToClipboard(selectedSecrets.structuredToken, 'ONBOARDING_TOKEN')}
+                            >
+                              <Copy className="h-3 w-3" />
+                              Copy token
+                            </button>
+                          </div>
+                          <pre className="mt-2 overflow-auto rounded bg-slate-900 px-2 py-2 text-[11px] text-slate-100">
+{`serviceradar-sysmon-vm \\
+  --mtls \\
+  --token "${selectedSecrets.structuredToken}" \\
+  --host ${coreApiBase || 'https://<core-host>'} \\
+  --poller-endpoint ${selectedMetadata['poller_endpoint'] || '<poller-host:port>'}`}
+                          </pre>
+                        </div>
+                      )}
+
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium">SPIRE bundle (PEM)</span>
+                          <button
                               type="button"
                               className="inline-flex items-center gap-1 rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
                               onClick={() => copyToClipboard(selectedSecrets.bundlePEM, 'SPIRE bundle')}
@@ -1620,15 +2040,25 @@ export default function EdgePackagesPage() {
                       </div>
                     )}
 
-                    {selectedPackage.status === 'issued' && (
-                      <button
-                        type="button"
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-transparent bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-70"
-                        onClick={() => void handleDownload(selectedPackage, selectedSecrets?.downloadToken)}
-                        disabled={actionLoading}
-                      >
-                        {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                        Download archive
+              {selectedPackage.status === 'issued' && (
+                <button
+                  type="button"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-transparent bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-70"
+                  onClick={() => void handleDownload(selectedPackage, selectedSecrets?.downloadToken)}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  {selectedSecurityMode === 'mtls' ? 'Download mTLS bundle' : 'Download archive'}
+                  </button>
+                )}
+                {selectedSecrets?.structuredToken && selectedSecurityMode === 'mtls' && (
+                  <button
+                    type="button"
+                    className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+                    onClick={() => copyToClipboard(selectedSecrets.structuredToken, 'ONBOARDING_TOKEN')}
+                  >
+                        <Copy className="h-4 w-4" />
+                        Copy mTLS token
                       </button>
                     )}
                   </div>

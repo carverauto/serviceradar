@@ -12,6 +12,7 @@ go_library(
         "//alias:config",
         "//alias:config-bootstrap",
         "//alias:edgeonboarding",
+        "//alias:edgeonboarding-mtls",
         "//alias:lifecycle",
         "//alias:logger",
         "//alias:models",

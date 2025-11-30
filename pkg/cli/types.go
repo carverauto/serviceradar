@@ -73,6 +73,7 @@ type CmdConfig struct {
 	EdgePackageSite            string
 	EdgePackageSelectors       []string
 	EdgePackageMetadata        string
+	EdgePackageMetadataMap     map[string]string
 	EdgePackageNotes           string
 	EdgePackageCheckerKind     string
 	EdgePackageCheckerConfig   string

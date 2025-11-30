@@ -3,8 +3,13 @@ package core
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,6 +18,8 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/edgeonboarding/mtls"
+	testgrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
@@ -250,6 +257,114 @@ func TestEdgeOnboardingCreatePackagePollerUsesMetadataDefaults(t *testing.T) {
 		CreatedBy: "admin@example.com",
 	})
 	require.NoError(t, err)
+}
+
+func TestCreateMTLSPackageMintsClientCertificate(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0x55}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	svc, err := newEdgeOnboardingService(cfg, nil, nil, mockDB, nil, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+	require.NotNil(t, svc)
+
+	// Deterministic timestamps and download token source
+	svc.now = func() time.Time { return time.Date(2025, time.January, 2, 3, 4, 5, 0, time.UTC) }
+	svc.rand = bytes.NewReader(bytes.Repeat([]byte{0x01}, 128))
+
+	certDir := t.TempDir()
+	require.NoError(t, testgrpc.GenerateTestCertificates(certDir))
+
+	mockDB.EXPECT().
+		ListEdgeOnboardingPollerIDs(
+			gomock.Any(),
+			models.EdgeOnboardingStatusIssued,
+			models.EdgeOnboardingStatusDelivered,
+			models.EdgeOnboardingStatusActivated,
+		).
+		Return([]string{}, nil).
+		AnyTimes()
+	mockDB.EXPECT().ListEdgeOnboardingPackages(gomock.Any(), gomock.Any()).
+		Return([]*models.EdgeOnboardingPackage{}, nil).
+		AnyTimes()
+
+	var storedPkg *models.EdgeOnboardingPackage
+	mockDB.EXPECT().UpsertEdgeOnboardingPackage(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, pkg *models.EdgeOnboardingPackage) error {
+		storedPkg = pkg
+		return nil
+	})
+
+	result, err := svc.CreatePackage(context.Background(), &models.EdgeOnboardingCreateRequest{
+		Label:         "sysmon mTLS",
+		ComponentID:   "sysmon-vm",
+		ComponentType: models.EdgeOnboardingComponentTypeChecker,
+		ParentType:    models.EdgeOnboardingComponentTypeAgent,
+		ParentID:      "agent-1",
+		PollerID:      "edge-poller",
+		CheckerKind:   "sysmon",
+		SecurityMode:  "mtls",
+		CreatedBy:     "admin@example.com",
+		MetadataJSON: fmt.Sprintf(`{
+			"security_mode":"mtls",
+			"poller_endpoint":"poller.serviceradar:50053",
+			"core_endpoint":"core:50052",
+			"cert_dir":%q,
+			"server_name":"poller.serviceradar"
+		}`, certDir),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	require.NotEmpty(t, result.DownloadToken)
+	assert.Empty(t, result.JoinToken)
+	require.NotNil(t, result.MTLSBundle)
+
+	var bundle mtls.Bundle
+	require.NoError(t, json.Unmarshal(result.MTLSBundle, &bundle))
+	assert.Equal(t, "poller.serviceradar", bundle.ServerName)
+	assert.Equal(t, "poller.serviceradar:50053", bundle.Endpoints["poller"])
+	assert.Equal(t, "core:50052", bundle.Endpoints["core"])
+
+	generatedAt, err := time.Parse(time.RFC3339, bundle.GeneratedAt)
+	require.NoError(t, err)
+	expiresAt, err := time.Parse(time.RFC3339, bundle.ExpiresAt)
+	require.NoError(t, err)
+	assert.Equal(t, svc.now(), generatedAt)
+	assert.Equal(t, svc.now().Add(defaultMTLSCertTTL), expiresAt)
+
+	// Validate the client certificate is signed by the generated CA
+	caPEM, err := os.ReadFile(filepath.Join(certDir, "root.pem"))
+	require.NoError(t, err)
+	caBlock, _ := pem.Decode(caPEM)
+	require.NotNil(t, caBlock)
+	caCert, err := x509.ParseCertificate(caBlock.Bytes)
+	require.NoError(t, err)
+
+	clientBlock, _ := pem.Decode([]byte(bundle.ClientCert))
+	require.NotNil(t, clientBlock)
+	clientCert, err := x509.ParseCertificate(clientBlock.Bytes)
+	require.NoError(t, err)
+	require.NoError(t, clientCert.CheckSignatureFrom(caCert))
+	assert.Equal(t, "sysmon-vm", clientCert.Subject.CommonName)
+
+	// Stored package contains the encrypted bundle and mTLS security mode
+	require.NotNil(t, storedPkg)
+	assert.Equal(t, securityModeMTLS, storedPkg.SecurityMode)
+	assert.Empty(t, storedPkg.JoinTokenCiphertext)
+	assert.NotEmpty(t, storedPkg.BundleCiphertext)
+	assert.Equal(t, models.EdgeOnboardingStatusIssued, storedPkg.Status)
+
+	decrypted, err := svc.cipher.Decrypt(storedPkg.BundleCiphertext)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(result.MTLSBundle), string(decrypted))
 }
 
 func TestEdgeOnboardingCreatePackagePollerConflict(t *testing.T) {

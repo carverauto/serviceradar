@@ -44,6 +44,7 @@ import (
 type sysmonMetricBuffer struct {
 	Metrics   *models.SysmonMetrics
 	Partition string
+	DeviceID  string
 }
 
 // Server represents the core ServiceRadar server instance with all its dependencies and configuration.

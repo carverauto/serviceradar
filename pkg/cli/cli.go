@@ -581,6 +581,12 @@ func (EdgeHandler) Parse(args []string, cfg *CmdConfig) error {
 	switch action {
 	case "create":
 		return parseEdgePackageCreateFlags(subArgs, cfg)
+	case "mtls":
+		// Shorthand for mTLS sysmon-vm create
+		return parseEdgePackageCreateFlags(append([]string{
+			"--component-type", "checker:sysmon-vm",
+			"--metadata-json", `{"security_mode":"mtls"}`,
+		}, subArgs...), cfg)
 	case "list":
 		return parseEdgePackageListFlags(subArgs, cfg)
 	case "show":
@@ -650,6 +656,13 @@ func parseEdgePackageCreateFlags(args []string, cfg *CmdConfig) error {
 
 	if err := loadMetadataPayload(metadataJSON, metadataFile, cfg); err != nil {
 		return err
+	}
+
+	// Allow inlined metadata map to be used if provided via previous handler
+	if len(cfg.EdgePackageMetadataMap) > 0 && strings.TrimSpace(cfg.EdgePackageMetadata) == "" {
+		if err := loadMetadataPayload(nil, nil, cfg); err != nil {
+			return err
+		}
 	}
 
 	componentTypeValue := strings.ToLower(strings.TrimSpace(*componentType))

@@ -23,6 +23,7 @@ INSERT INTO edge_onboarding_packages (
 	parent_id,
 	poller_id,
 	site,
+	security_mode,
 	status,
 	downstream_entry_id,
 	downstream_spiffe_id,
@@ -49,7 +50,7 @@ INSERT INTO edge_onboarding_packages (
 	kv_revision,
 	notes
 ) VALUES (
-	$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33
+	$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34
 )
 ON CONFLICT (package_id) DO UPDATE SET
 	label = EXCLUDED.label,
@@ -59,6 +60,7 @@ ON CONFLICT (package_id) DO UPDATE SET
 	parent_id = EXCLUDED.parent_id,
 	poller_id = EXCLUDED.poller_id,
 	site = EXCLUDED.site,
+	security_mode = EXCLUDED.security_mode,
 	status = EXCLUDED.status,
 	downstream_entry_id = EXCLUDED.downstream_entry_id,
 	downstream_spiffe_id = EXCLUDED.downstream_spiffe_id,
@@ -168,6 +170,7 @@ func buildEdgeOnboardingPackageArgs(pkg *models.EdgeOnboardingPackage) ([]interf
 		pkg.ParentID,
 		pkg.PollerID,
 		pkg.Site,
+		strings.TrimSpace(pkg.SecurityMode),
 		string(pkg.Status),
 		pkg.DownstreamEntryID,
 		pkg.DownstreamSPIFFEID,
