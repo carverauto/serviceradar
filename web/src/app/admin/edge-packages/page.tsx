@@ -902,7 +902,7 @@ export default function EdgePackagesPage() {
       return;
     }
 
-    const securityMode = deriveSecurityMode(pkg.metadata_json);
+    const securityMode = packageSecurityMode(pkg);
     const expectJSON = securityMode === 'mtls';
 
     setActionLoading(true);
@@ -1092,8 +1092,24 @@ export default function EdgePackagesPage() {
   };
 
   const copyToClipboard = async (text: string, description: string) => {
+    if (!text) {
+      setActionError(`Nothing to copy for ${description}.`);
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(text);
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
       setActionMessage(`${description} copied to clipboard.`);
     } catch (err) {
       console.error('Copy failed', err);
