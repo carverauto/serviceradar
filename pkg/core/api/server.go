@@ -476,7 +476,11 @@ func (w *responseWriterWrapper) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 func (s *APIServer) authenticationMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if allowUnauthenticatedEdgePackageDownload(r) {
-			next.ServeHTTP(w, r)
+			ctx := context.WithValue(r.Context(), auth.UserKey, &models.User{
+				Email: "edge-download@system",
+				Roles: []string{"admin"},
+			})
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
 

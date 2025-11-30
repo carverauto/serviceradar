@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 
 	"google.golang.org/grpc"
 
@@ -24,6 +25,11 @@ var (
 	errSysmonDescriptorMissing = fmt.Errorf("sysmon-vm-checker descriptor missing")
 )
 
+const (
+	defaultConfigPath = "/etc/serviceradar/checkers/sysmon-vm.json"
+	macOSConfigPath   = "/usr/local/etc/serviceradar/sysmon-vm.json"
+)
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatalf("sysmon-vm checker failed: %v", err)
@@ -31,7 +37,7 @@ func main() {
 }
 
 func run() error {
-	configPath := flag.String("config", "/etc/serviceradar/checkers/sysmon-vm.json", "Path to sysmon-vm config file")
+	configPath := flag.String("config", defaultConfigPath, "Path to sysmon-vm config file")
 	_ = flag.String("onboarding-token", "", "Edge onboarding token (SPIFFE path; triggers edge onboarding)")
 	_ = flag.String("kv-endpoint", "", "KV service endpoint (required for edge onboarding)")
 	mtlsMode := flag.Bool("mtls", false, "Enable mTLS bootstrap (token or bundle required)")
@@ -41,6 +47,10 @@ func run() error {
 	mtlsCertDir := flag.String("cert-dir", "/etc/serviceradar/certs", "Directory to write mTLS certs/keys")
 	mtlsServerName := flag.String("server-name", "sysmon-vm.serviceradar", "Server name to present in mTLS")
 	flag.Parse()
+
+	configFlag := flag.CommandLine.Lookup("config")
+	userProvidedConfig := configFlag != nil && configFlag.Value.String() != configFlag.DefValue
+	*configPath = resolveConfigPath(*configPath, userProvidedConfig)
 
 	ctx := context.Background()
 
@@ -138,6 +148,26 @@ func run() error {
 }
 
 type samplerService struct{}
+
+func resolveConfigPath(configPath string, userProvided bool) string {
+	if _, err := os.Stat(configPath); err == nil {
+		return configPath
+	}
+
+	if userProvided {
+		return configPath
+	}
+
+	fallbacks := []string{macOSConfigPath}
+	for _, candidate := range fallbacks {
+		if _, err := os.Stat(candidate); err == nil {
+			log.Printf("config not found at %s; using %s", configPath, candidate)
+			return candidate
+		}
+	}
+
+	return configPath
+}
 
 func (samplerService) Start(ctx context.Context) error {
 	return cpufreq.StartHostfreqSampler(ctx)
