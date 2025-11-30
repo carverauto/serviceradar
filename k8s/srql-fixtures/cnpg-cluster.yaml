@@ -6,7 +6,7 @@ metadata:
 spec:
   description: Shared CNPG instance for SRQL API tests (Timescale + Apache AGE)
   instances: 2
-  imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr1@sha256:68f2c4e55b553e7f5f710b28c9c19a56dc37de467543e9b31d4afe002df9d2ac
+  imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2@sha256:aa49dec4057652983bfbb134d561c5461093da80a0b256804a8e5a79481f3b88
   imagePullSecrets:
     - name: ghcr-io-cred
 
