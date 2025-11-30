@@ -2,14 +2,23 @@ package core
 
 import (
 	"context"
+	"crypto"
+	"crypto/ecdsa"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -41,9 +50,10 @@ var onboardingAllowedStatuses = []models.EdgeOnboardingStatus{
 }
 
 const (
-	securityModeSPIRE = "spire"
-	securityModeMTLS  = "mtls"
-	defaultCertDir    = "/etc/serviceradar/certs"
+	securityModeSPIRE  = "spire"
+	securityModeMTLS   = "mtls"
+	defaultCertDir     = "/etc/serviceradar/certs"
+	defaultMTLSCertTTL = 30 * 24 * time.Hour
 )
 
 // ServiceManager provides service registration operations for edge onboarding.
@@ -1094,11 +1104,10 @@ func (s *edgeOnboardingService) DeliverPackage(ctx context.Context, req *models.
 	var mtlsBundle []byte
 
 	if securityMode == securityModeMTLS {
-		bundlePlain, err = s.cipher.Decrypt(pkg.BundleCiphertext)
+		mtlsBundle, err = s.cipher.Decrypt(pkg.BundleCiphertext)
 		if err != nil {
 			return nil, fmt.Errorf("edge onboarding: decrypt mTLS bundle: %w", err)
 		}
-		mtlsBundle = bundlePlain
 	} else {
 		joinTokenPlain, err = s.cipher.Decrypt(pkg.JoinTokenCiphertext)
 		if err != nil {
@@ -1852,7 +1861,7 @@ func (s *edgeOnboardingService) createMTLSPackage(ctx context.Context, params *m
 	}
 	downloadExpires := params.Now.Add(downloadTTL)
 
-	bundle, err := s.buildMTLSBundle(params.ComponentType, params.ComponentID, params.MetadataMap)
+	bundle, err := s.buildMTLSBundle(params.ComponentType, params.ComponentID, params.MetadataMap, params.Now)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to build mTLS bundle: %w", models.ErrEdgeOnboardingInvalidRequest, err)
 	}
@@ -1905,69 +1914,68 @@ func (s *edgeOnboardingService) createMTLSPackage(ctx context.Context, params *m
 	return &models.EdgeOnboardingCreateResult{
 		Package:       pkgModel,
 		DownloadToken: downloadToken,
-		BundlePEM:     bundleBytes,
 		MTLSBundle:    bundleBytes,
 	}, nil
 }
 
-func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboardingComponentType, componentID string, metadata map[string]string) (*mtls.Bundle, error) {
+func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboardingComponentType, componentID string, metadata map[string]string, now time.Time) (*mtls.Bundle, error) {
 	certDir := strings.TrimSpace(metadata["cert_dir"])
 	if certDir == "" {
 		certDir = defaultCertDir
 	}
 
-	serviceName := strings.TrimSpace(metadata["client_cert_name"])
-	if serviceName == "" {
-		serviceName = strings.TrimSpace(componentID)
+	caPath := firstNonEmpty(strings.TrimSpace(metadata["ca_cert_path"]), filepath.Join(certDir, "root.pem"))
+	caKeyPath := firstNonEmpty(strings.TrimSpace(metadata["ca_key_path"]), filepath.Join(certDir, "root-key.pem"))
+
+	caPEM, err := os.ReadFile(caPath)
+	if err != nil {
+		return nil, fmt.Errorf("read ca cert from %s: %w", caPath, err)
 	}
-	if serviceName == "" {
-		serviceName = "edge-client"
+	caCert, err := parseCACertificate(caPEM)
+	if err != nil {
+		return nil, fmt.Errorf("parse ca certificate: %w", err)
 	}
 
-	caPath := filepath.Join(certDir, "root.pem")
-	certPath := filepath.Join(certDir, fmt.Sprintf("%s.pem", serviceName))
-	keyPath := filepath.Join(certDir, fmt.Sprintf("%s-key.pem", serviceName))
+	caKeyBytes, err := os.ReadFile(caKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("read ca key from %s: %w", caKeyPath, err)
+	}
+	caKey, err := parsePrivateKey(caKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse ca key: %w", err)
+	}
 
-	read := func(path string) (string, error) {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return "", err
+	clientName := strings.TrimSpace(metadataValue(metadata, componentType, "client_cert_name"))
+	if clientName == "" {
+		clientName = strings.TrimSpace(componentID)
+		if clientName == "" {
+			clientName = "edge-client"
 		}
-		return string(data), nil
 	}
 
-	caPEM, err := read(caPath)
-	if err != nil {
-		return nil, fmt.Errorf("read ca cert: %w", err)
-	}
-	clientCert, err := read(certPath)
-	if err != nil {
-		return nil, fmt.Errorf("read client cert: %w", err)
-	}
-	clientKey, err := read(keyPath)
-	if err != nil {
-		return nil, fmt.Errorf("read client key: %w", err)
-	}
-
-	serverName := strings.TrimSpace(metadata["server_name"])
+	serverName := strings.TrimSpace(metadataValue(metadata, componentType, "server_name"))
 	if serverName == "" {
-		serverName = fmt.Sprintf("%s.serviceradar", serviceName)
+		switch componentType {
+		case models.EdgeOnboardingComponentTypeChecker:
+			serverName = "poller.serviceradar"
+		default:
+			serverName = "core.serviceradar"
+		}
 	}
+
+	pollerEndpoint := metadataValue(metadata, componentType, "poller_endpoint")
+	coreEndpoint := metadataValue(metadata, componentType, "core_endpoint", "core_address")
+	kvEndpoint := metadataValue(metadata, componentType, "kv_endpoint", "kv_address")
 
 	endpoints := make(map[string]string)
-	if poller := strings.TrimSpace(metadata["poller_endpoint"]); poller != "" {
-		endpoints["poller"] = poller
+	if pollerEndpoint != "" {
+		endpoints["poller"] = pollerEndpoint
 	}
-	if core := strings.TrimSpace(metadata["core_endpoint"]); core != "" {
-		endpoints["core"] = core
+	if coreEndpoint != "" {
+		endpoints["core"] = coreEndpoint
 	}
-
-	bundle := &mtls.Bundle{
-		CACertPEM:  caPEM,
-		ClientCert: clientCert,
-		ClientKey:  clientKey,
-		ServerName: serverName,
-		Endpoints:  endpoints,
+	if kvEndpoint != "" {
+		endpoints["kv"] = kvEndpoint
 	}
 
 	// Provide a sensible default for checkers if no poller endpoint set
@@ -1975,7 +1983,260 @@ func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboard
 		endpoints["poller"] = "localhost:50053"
 	}
 
-	return bundle, nil
+	clientCertTTL := defaultMTLSCertTTL
+	if raw := metadataValue(metadata, componentType, "client_cert_ttl"); raw != "" {
+		if dur, err := time.ParseDuration(raw); err == nil && dur > 0 {
+			clientCertTTL = dur
+		}
+	}
+
+	clientCert, clientKey, err := mintClientCertificate(caCert, caKey, clientName, serverName, endpoints, now, clientCertTTL)
+	if err != nil {
+		return nil, err
+	}
+
+	return &mtls.Bundle{
+		CACertPEM:   string(caPEM),
+		ClientCert:  clientCert,
+		ClientKey:   clientKey,
+		ServerName:  serverName,
+		Endpoints:   endpoints,
+		GeneratedAt: now.UTC().Format(time.RFC3339),
+		ExpiresAt:   now.Add(clientCertTTL).UTC().Format(time.RFC3339),
+	}, nil
+}
+
+func mintClientCertificate(caCert *x509.Certificate, caKey crypto.Signer, clientName, serverName string, endpoints map[string]string, now time.Time, ttl time.Duration) (string, string, error) {
+	clientKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return "", "", fmt.Errorf("generate client key: %w", err)
+	}
+
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return "", "", fmt.Errorf("generate serial: %w", err)
+	}
+
+	dnsNames := uniqueNonEmpty(clientName, fmt.Sprintf("%s.serviceradar", clientName), serverName)
+	var ipAddresses []net.IP
+
+	for _, ep := range []string{endpoints["poller"], endpoints["core"]} {
+		host := endpointHost(ep)
+		if host == "" {
+			continue
+		}
+		if ip := net.ParseIP(host); ip != nil {
+			ipAddresses = append(ipAddresses, ip)
+			continue
+		}
+		dnsNames = append(dnsNames, host)
+	}
+
+	dnsNames = uniqueStrings(dnsNames)
+
+	notBefore := now.UTC()
+	notAfter := notBefore.Add(ttl)
+
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName:   clientName,
+			Organization: []string{"ServiceRadar Edge"},
+		},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		DNSNames:              dnsNames,
+		IPAddresses:           ipAddresses,
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, caCert, &clientKey.PublicKey, caKey)
+	if err != nil {
+		return "", "", fmt.Errorf("create client cert: %w", err)
+	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(clientKey)})
+
+	return string(certPEM), string(keyPEM), nil
+}
+
+func parseCACertificate(pemBytes []byte) (*x509.Certificate, error) {
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		return nil, errors.New("ca certificate: no pem block found")
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return cert, nil
+}
+
+func parsePrivateKey(pemBytes []byte) (crypto.Signer, error) {
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		return nil, errors.New("ca key: no pem block found")
+	}
+
+	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return key, nil
+	}
+	if key, err := x509.ParseECPrivateKey(block.Bytes); err == nil {
+		return key, nil
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	switch key := parsed.(type) {
+	case *rsa.PrivateKey:
+		return key, nil
+	case *ecdsa.PrivateKey:
+		return key, nil
+	default:
+		return nil, fmt.Errorf("ca key: unsupported type %T", key)
+	}
+}
+
+func metadataValue(metadata map[string]string, componentType models.EdgeOnboardingComponentType, keys ...string) string {
+	loweredKeys := make([]string, 0, len(keys))
+	for _, key := range keys {
+		trimmed := strings.ToLower(strings.TrimSpace(key))
+		if trimmed != "" {
+			loweredKeys = append(loweredKeys, trimmed)
+		}
+	}
+
+	for _, key := range loweredKeys {
+		if value := strings.TrimSpace(metadata[key]); value != "" {
+			return value
+		}
+	}
+
+	containers := []string{}
+	if ct := strings.ToLower(string(componentType)); ct != "" {
+		containers = append(containers, ct)
+	}
+	containers = append(containers, "mtls")
+
+	for _, container := range containers {
+		raw := strings.TrimSpace(metadata[container])
+		if raw == "" {
+			continue
+		}
+
+		nested := decodeMetadataStringMap(raw)
+		for _, key := range loweredKeys {
+			if value := strings.TrimSpace(nested[key]); value != "" {
+				return value
+			}
+		}
+	}
+
+	return ""
+}
+
+func decodeMetadataStringMap(raw string) map[string]string {
+	decoded := make(map[string]string)
+	if strings.TrimSpace(raw) == "" {
+		return decoded
+	}
+
+	var value map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+		return decoded
+	}
+
+	for key, v := range value {
+		normalizedKey := strings.ToLower(strings.TrimSpace(key))
+		if normalizedKey == "" {
+			continue
+		}
+		if str := stringifyMetadataValue(v); str != "" {
+			decoded[normalizedKey] = str
+		}
+	}
+
+	return decoded
+}
+
+func stringifyMetadataValue(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case bool:
+		return strconv.FormatBool(v)
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	default:
+		if encoded, err := json.Marshal(v); err == nil {
+			return string(encoded)
+		}
+	}
+
+	return ""
+}
+
+func endpointHost(endpoint string) string {
+	trimmed := strings.TrimSpace(endpoint)
+	if trimmed == "" {
+		return ""
+	}
+
+	if strings.Contains(trimmed, "://") {
+		if parsed, err := url.Parse(trimmed); err == nil {
+			if host := parsed.Hostname(); host != "" {
+				return host
+			}
+		}
+	}
+
+	if host, _, err := net.SplitHostPort(trimmed); err == nil {
+		return host
+	}
+
+	if idx := strings.Index(trimmed, "/"); idx > 0 {
+		return trimmed[:idx]
+	}
+
+	return trimmed
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+
+	for _, v := range values {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		result = append(result, v)
+	}
+
+	return result
+}
+
+func uniqueNonEmpty(values ...string) []string {
+	return uniqueStrings(values)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if trimmed := strings.TrimSpace(v); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func validatePollerMetadata(meta map[string]string) error {

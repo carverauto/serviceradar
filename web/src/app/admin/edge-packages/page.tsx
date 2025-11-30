@@ -907,10 +907,10 @@ export default function EdgePackagesPage() {
 
     setActionLoading(true);
     try {
-      const url = expectJSON
+      const requestUrl = expectJSON
         ? `/api/admin/edge-packages/${pkg.package_id}/download?format=json`
         : `/api/admin/edge-packages/${pkg.package_id}/download`;
-      const response = await fetch(url, {
+      const response = await fetch(requestUrl, {
         method: 'POST',
         headers: buildHeaders('application/json', expectJSON ? 'application/json' : 'application/gzip'),
         body: JSON.stringify({ download_token: downloadToken }),
@@ -961,14 +961,14 @@ export default function EdgePackagesPage() {
         parseContentDisposition(response.headers.get('Content-Disposition')) ??
         `edge-package-${pkg.package_id}.tar.gz`;
 
-      const url = URL.createObjectURL(blob);
+      const blobUrl = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
-      anchor.href = url;
+      anchor.href = blobUrl;
       anchor.download = filename;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(blobUrl);
 
       setActionMessage(`Package ${pkg.label} archive downloaded. Token consumed.`);
       setSecrets((prev) => {

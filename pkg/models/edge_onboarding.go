@@ -126,6 +126,7 @@ type EdgeOnboardingCreateResult struct {
 	JoinToken         string
 	DownloadToken     string
 	BundlePEM         []byte
+	MTLSBundle        []byte
 	DownstreamEntryID string
 }
 

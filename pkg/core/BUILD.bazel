@@ -53,6 +53,7 @@ go_library(
         "//pkg/devicealias",
         "//pkg/db",
         "//pkg/grpc",
+        "//pkg/edgeonboarding/mtls",
         "//pkg/lifecycle",
         "//pkg/logger",
         "//pkg/identitymap:identitymap",

@@ -2,9 +2,11 @@ package db
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -120,6 +122,173 @@ func TestBuildEdgeOnboardingEventArgs(t *testing.T) {
 	assert.Equal(t, "actor", args[3])
 	assert.Equal(t, "192.0.2.1", args[4])
 	assertJSONRawEquals(t, map[string]string{"status": "ok"}, args[5])
+}
+
+type fakeEdgePackageRow struct {
+	values []interface{}
+}
+
+func (r *fakeEdgePackageRow) Scan(dest ...interface{}) error {
+	if len(dest) != len(r.values) {
+		return fmt.Errorf("fake edge package row scan mismatch: dest=%d values=%d", len(dest), len(r.values))
+	}
+
+	for i, d := range dest {
+		switch ptr := d.(type) {
+		case *uuid.UUID:
+			val, ok := r.values[i].(uuid.UUID)
+			if !ok {
+				return fmt.Errorf("expected uuid.UUID at %d, got %T", i, r.values[i])
+			}
+			*ptr = val
+		case *string:
+			val, ok := r.values[i].(string)
+			if !ok {
+				return fmt.Errorf("expected string at %d, got %T", i, r.values[i])
+			}
+			*ptr = val
+		case *[]string:
+			switch v := r.values[i].(type) {
+			case []string:
+				*ptr = append([]string(nil), v...)
+			case nil:
+				*ptr = nil
+			default:
+				return fmt.Errorf("expected []string at %d, got %T", i, r.values[i])
+			}
+		case *[]byte:
+			switch v := r.values[i].(type) {
+			case []byte:
+				*ptr = append([]byte(nil), v...)
+			case string:
+				*ptr = []byte(v)
+			case nil:
+				*ptr = nil
+			default:
+				return fmt.Errorf("expected []byte at %d, got %T", i, r.values[i])
+			}
+		case *time.Time:
+			val, ok := r.values[i].(time.Time)
+			if !ok {
+				return fmt.Errorf("expected time.Time at %d, got %T", i, r.values[i])
+			}
+			*ptr = val
+		case **time.Time:
+			switch v := r.values[i].(type) {
+			case *time.Time:
+				*ptr = v
+			case time.Time:
+				t := v
+				*ptr = &t
+			case nil:
+				*ptr = nil
+			default:
+				return fmt.Errorf("expected *time.Time at %d, got %T", i, r.values[i])
+			}
+		case **string:
+			switch v := r.values[i].(type) {
+			case *string:
+				*ptr = v
+			case string:
+				s := v
+				*ptr = &s
+			case nil:
+				*ptr = nil
+			default:
+				return fmt.Errorf("expected *string at %d, got %T", i, r.values[i])
+			}
+		case *int64:
+			switch v := r.values[i].(type) {
+			case int64:
+				*ptr = v
+			case uint64:
+				*ptr = int64(v)
+			default:
+				return fmt.Errorf("expected int64 at %d, got %T", i, r.values[i])
+			}
+		case *uint64:
+			switch v := r.values[i].(type) {
+			case uint64:
+				*ptr = v
+			case int64:
+				*ptr = uint64(v)
+			default:
+				return fmt.Errorf("expected uint64 at %d, got %T", i, r.values[i])
+			}
+		default:
+			return fmt.Errorf("unsupported scan destination %T at %d", d, i)
+		}
+	}
+
+	return nil
+}
+
+func TestScanEdgeOnboardingPackageIncludesSecurityMode(t *testing.T) {
+	now := time.Date(2025, time.February, 1, 12, 0, 0, 0, time.UTC)
+	delivered := now.Add(5 * time.Minute)
+	activated := now.Add(10 * time.Minute)
+	revoked := now.Add(20 * time.Minute)
+	ip := "198.51.100.7"
+	lastSeen := "spiffe://edge/sysmon"
+	pkgID := uuid.New()
+
+	row := &fakeEdgePackageRow{values: []interface{}{
+		pkgID,
+		"sysmon bundle",
+		"sysmon-vm",
+		"checker",
+		"agent",
+		"agent-1",
+		"edge-poller",
+		"edge-site",
+		"delivered",
+		"mtls",
+		"",
+		"spiffe://downstream",
+		[]string{"role:edge"},
+		"sysmon",
+		[]byte(`{"interval":30}`),
+		"ciphertext",
+		now,
+		"bundle",
+		"hash",
+		now.Add(time.Hour),
+		"creator@example.com",
+		now.Add(-time.Hour),
+		now,
+		&delivered,
+		&activated,
+		&ip,
+		&lastSeen,
+		&revoked,
+		(*time.Time)(nil),
+		"deleter",
+		"rotated",
+		[]byte(`{"security_mode":"mtls","poller_endpoint":"poller:50053"}`),
+		int64(7),
+		"notes",
+	}}
+
+	pkg, err := scanEdgeOnboardingPackage(row)
+	require.NoError(t, err)
+	require.NotNil(t, pkg)
+
+	assert.Equal(t, pkgID.String(), pkg.PackageID)
+	assert.Equal(t, models.EdgeOnboardingComponentTypeChecker, pkg.ComponentType)
+	assert.Equal(t, models.EdgeOnboardingComponentTypeAgent, pkg.ParentType)
+	assert.Equal(t, models.EdgeOnboardingStatusDelivered, pkg.Status)
+	assert.Equal(t, "mtls", pkg.SecurityMode)
+	assert.Equal(t, []string{"role:edge"}, pkg.Selectors)
+	assert.Equal(t, `{"security_mode":"mtls","poller_endpoint":"poller:50053"}`, pkg.MetadataJSON)
+	assert.Equal(t, `{"interval":30}`, pkg.CheckerConfigJSON)
+	require.NotNil(t, pkg.DeliveredAt)
+	assert.WithinDuration(t, delivered, *pkg.DeliveredAt, time.Second)
+	require.NotNil(t, pkg.ActivatedFromIP)
+	assert.Equal(t, ip, *pkg.ActivatedFromIP)
+	require.NotNil(t, pkg.LastSeenSPIFFEID)
+	assert.Equal(t, lastSeen, *pkg.LastSeenSPIFFEID)
+	assert.EqualValues(t, 7, pkg.KVRevision)
+	assert.Equal(t, "notes", pkg.Notes)
 }
 
 func assertJSONRawEquals(t *testing.T, expected interface{}, value interface{}) {

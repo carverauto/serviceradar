@@ -3,7 +3,7 @@
 - [x] 1.2 Define Docker Compose CA generation/retention and enrollment flow (where bundles are minted, how poller/core trust the same CA, rotation story).
 
 ## 2. Implementation
-- [ ] 2.1 Extend Core edge-package issuance/delivery to support mTLS bundle tokens for `checker:sysmon-vm` (serve CA + client cert/key + poller/core endpoints). **In progress:** backend returns `security_mode=mtls` with JSON `mtls_bundle`; per-package cert minting and endpoint population still pending.
+- [x] 2.1 Extend Core edge-package issuance/delivery to support mTLS bundle tokens for `checker:sysmon-vm` (serve CA + client cert/key + poller/core endpoints). Per-package certs now minted from the Compose CA, JSON bundle includes endpoints/server name + timestamps, and DB scan/upsert tests cover `security_mode`.
 - [x] 2.2 Add sysmon-vm CLI/bootstrap path `--mtls` (env equivalent) that pulls the bundle via token/host, installs to `/etc/serviceradar/certs`, and boots mTLS to the configured poller endpoint (e.g., `192.168.1.218:<port>`).
 - [x] 2.3 Wire Docker Compose to generate/reuse the CA and issue per-edge bundles (CLI or HTTP handler), and ensure core/poller/agent certs come from the same CA.
 - [x] 2.4 Document the Linux Compose + darwin/arm64 edge flow (token issuance, sysmon-vm install/run, rotation/cleanup), and note SPIRE ingress/agent as an optional path.
