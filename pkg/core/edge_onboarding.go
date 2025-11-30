@@ -1192,10 +1192,6 @@ func (s *edgeOnboardingService) RevokePackage(ctx context.Context, req *models.E
 		return nil, fmt.Errorf("%w: package_id is required", models.ErrEdgeOnboardingInvalidRequest)
 	}
 
-	if s.spire == nil {
-		return nil, models.ErrEdgeOnboardingSpireUnavailable
-	}
-
 	pkg, err := s.db.GetEdgeOnboardingPackage(ctx, packageID)
 	if err != nil {
 		return nil, err
@@ -1205,8 +1201,13 @@ func (s *edgeOnboardingService) RevokePackage(ctx context.Context, req *models.E
 		return nil, models.ErrEdgeOnboardingPackageRevoked
 	}
 
-	if err := s.deleteDownstreamEntry(ctx, pkg.DownstreamEntryID); err != nil {
-		return nil, fmt.Errorf("edge onboarding: delete downstream entry: %w", err)
+	if pkg.SecurityMode != securityModeMTLS {
+		if s.spire == nil {
+			return nil, models.ErrEdgeOnboardingSpireUnavailable
+		}
+		if err := s.deleteDownstreamEntry(ctx, pkg.DownstreamEntryID); err != nil {
+			return nil, fmt.Errorf("edge onboarding: delete downstream entry: %w", err)
+		}
 	}
 
 	now := s.now().UTC()

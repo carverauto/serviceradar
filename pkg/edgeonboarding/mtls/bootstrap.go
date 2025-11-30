@@ -126,7 +126,12 @@ func bootstrapFromToken(ctx context.Context, cfg *BootstrapConfig) (*models.Secu
 		return nil, err
 	}
 
-	apiBase, err := ensureScheme(payload.CoreURL)
+	coreHost := strings.TrimSpace(cfg.Host)
+	if coreHost == "" {
+		coreHost = payload.CoreURL
+	}
+
+	apiBase, err := ensureScheme(coreHost)
 	if err != nil {
 		return nil, err
 	}
