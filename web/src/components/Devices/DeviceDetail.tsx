@@ -36,6 +36,7 @@ import {
 import { useAuth } from "@/components/AuthProvider";
 import { fetchAPI } from "@/lib/client-api";
 import { escapeSrqlValue } from "@/lib/srql";
+import { collectorServiceType } from "@/lib/deviceClassification";
 import { formatTimestampForDisplay } from "@/utils/traceTimestamp";
 import {
   LineChart,
@@ -52,7 +53,7 @@ import DeleteDeviceButton from "./DeleteDeviceButton";
 import type { DeviceAliasHistory, DeviceAliasRecord } from "@/types/devices";
 import { buildAliasHistoryFromMetadata } from "@/lib/alias";
 import type { SightingEvent } from "@/types/identity";
-import DeviceGraphSummary from "./DeviceGraphSummary";
+import DeviceGraphNeighborhoodPanel from "./DeviceGraphNeighborhoodPanel";
 
 interface SrqlResponse<T> {
   results?: T[];
@@ -1232,10 +1233,11 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
         )}
       </div>
 
-      <DeviceGraphSummary
+      <DeviceGraphNeighborhoodPanel
         deviceId={device.device_id}
-        defaultCollectorOwnedOnly={false}
-        includeTopology={true}
+        defaultCollectorOwnedOnly={
+          collectorServiceType(device.device_id, device.service_type) !== null
+        }
       />
 
       {(promotionSightingId || promotedViaSighting) && (

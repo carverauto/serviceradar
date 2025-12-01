@@ -34,10 +34,12 @@ import {
   Share2,
 } from "lucide-react";
 import DeviceTable from "./DeviceTable";
+import DeviceInventoryGraphView from "./DeviceInventoryGraphView";
 import { useDebounce } from "use-debounce";
 import { useSrqlQuery, DEFAULT_SRQL_QUERY } from "@/contexts/SrqlQueryContext";
 import { usePathname } from "next/navigation";
 import selectDevicesQuery from "./deviceQueryUtils";
+import { collectorServiceType } from "@/lib/deviceClassification";
 
 const isCollectorDevice = (device: Device | null | undefined): boolean => {
   if (!device) {
@@ -168,6 +170,8 @@ const Dashboard = () => {
     Record<string, unknown> | null
   >(null);
   const [registryOffset, setRegistryOffset] = useState(0);
+  const [hideCollectorServices, setHideCollectorServices] = useState(true);
+  const [viewMode, setViewMode] = useState<"graph" | "table">("table");
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm] = useDebounce(searchTerm, 300);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
@@ -749,6 +753,35 @@ const Dashboard = () => {
     fetchStats();
   }, [fetchStats]);
 
+  const collectorServiceMeta = useMemo(() => {
+    const meta = new Map<string, string>();
+    devices.forEach((device) => {
+      const serviceType = collectorServiceType(
+        device.device_id,
+        device.service_type,
+      );
+      if (serviceType) {
+        meta.set(device.device_id, serviceType);
+      }
+    });
+    return meta;
+  }, [devices]);
+
+  const visibleDevices = useMemo(
+    () =>
+      devices.filter(
+        (device) =>
+          !hideCollectorServices ||
+          !collectorServiceMeta.has(device.device_id),
+      ),
+    [collectorServiceMeta, devices, hideCollectorServices],
+  );
+
+  const hiddenCollectorServiceCount = useMemo(
+    () => Math.max(0, devices.length - visibleDevices.length),
+    [devices, visibleDevices],
+  );
+
   const handleSort = (key: SortableKeys) => {
     if (sortBy === key) {
       setSortOrder(sortOrder === "asc" ? "desc" : "asc");
@@ -872,7 +905,63 @@ const Dashboard = () => {
               <option value="collectors">Collectors</option>
             </select>
           </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-600 dark:text-gray-300">
+              Collector services:
+            </span>
+            <button
+              type="button"
+              onClick={() => setHideCollectorServices((prev) => !prev)}
+              className="inline-flex items-center gap-2 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-medium text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              {hideCollectorServices ? "Hidden" : "Shown"}
+              <span
+                className={`inline-flex h-2 w-2 rounded-full ${hideCollectorServices ? "bg-amber-500" : "bg-emerald-500"}`}
+                aria-hidden
+              />
+            </button>
+            {hiddenCollectorServiceCount > 0 && (
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {hiddenCollectorServiceCount} service nodes
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600 dark:text-gray-300">
+              View:
+            </span>
+            <div className="inline-flex rounded-md border border-gray-300 dark:border-gray-700 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setViewMode("graph")}
+                className={`px-3 py-1.5 text-xs font-semibold ${viewMode === "graph" ? "bg-blue-600 text-white" : "bg-transparent text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"}`}
+              >
+                Graph
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("table")}
+                className={`px-3 py-1.5 text-xs font-semibold border-l border-gray-300 dark:border-gray-700 ${viewMode === "table" ? "bg-blue-600 text-white" : "bg-transparent text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"}`}
+              >
+                Table
+              </button>
+            </div>
+          </div>
         </div>
+        {hideCollectorServices && hiddenCollectorServiceCount > 0 && (
+          <div className="px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between bg-blue-50 dark:bg-blue-900/30 text-blue-900 dark:text-blue-100 border-t border-b border-blue-200 dark:border-blue-800">
+            <span className="text-sm">
+              Collector-owned service health checks (sync/mapper/zen/etc) are rolled into their collectors in the table view and hidden from the list until you toggle them on.
+            </span>
+            <button
+              type="button"
+              onClick={() => setHideCollectorServices(false)}
+              className="inline-flex items-center gap-2 rounded-md bg-blue-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-blue-700"
+            >
+              Show services in list
+            </button>
+          </div>
+        )}
         <div className="px-4 py-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-700">
           <span>Engine: {searchEngine}</span>
           {searchDiagnostics &&
@@ -910,12 +999,23 @@ const Dashboard = () => {
             {error}
           </div>
         ) : (
-          <DeviceTable
-            devices={devices}
-            onSort={handleSort}
-            sortBy={sortBy}
-            sortOrder={sortOrder}
-          />
+          <>
+            {viewMode === "graph" ? (
+              <DeviceInventoryGraphView
+                devices={visibleDevices}
+                collectorServiceMeta={collectorServiceMeta}
+              />
+            ) : (
+              <DeviceTable
+                devices={devices}
+                collectorServiceMeta={collectorServiceMeta}
+                hideCollectorServices={hideCollectorServices}
+                onSort={handleSort}
+                sortBy={sortBy}
+                sortOrder={sortOrder}
+              />
+            )}
+          </>
         )}
 
         {pagination &&

@@ -5,7 +5,12 @@
  */
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ShieldCheck,
   Radio,
@@ -16,6 +21,7 @@ import {
   AlertTriangle,
   EyeOff,
   Eye,
+  ExternalLink,
 } from "lucide-react";
 import type {
   DeviceGraphNeighborhood,
@@ -75,9 +81,7 @@ const Badge = ({
     );
   }
 
-  return (
-    <span className="inline-flex items-center">{content}</span>
-  );
+  return <span className="inline-flex items-center">{content}</span>;
 };
 
 const renderServices = (
@@ -106,7 +110,9 @@ const renderServices = (
             label={label}
             description={description}
             tone={tone}
-            href={svcNodeId ? `/devices/${encodeURIComponent(svcNodeId)}` : undefined}
+            href={
+              svcNodeId ? `/devices/${encodeURIComponent(svcNodeId)}` : undefined
+            }
           />
         );
       })}
@@ -114,56 +120,57 @@ const renderServices = (
   );
 };
 
-const DeviceGraphSummary: React.FC<DeviceGraphSummaryProps> = ({
+type DeviceGraphSummaryCardProps = {
+  deviceId: string;
+  graph: DeviceGraphNeighborhood | null;
+  collectorOwnedOnly: boolean;
+  includeTopology: boolean;
+  loading?: boolean;
+  error?: string | null;
+  onToggleCollectorOwnedOnly?: () => void;
+  children?: React.ReactNode;
+};
+
+export const DeviceGraphSummaryCard: React.FC<DeviceGraphSummaryCardProps> = ({
   deviceId,
-  defaultCollectorOwnedOnly = false,
-  includeTopology = true,
+  graph,
+  collectorOwnedOnly,
+  includeTopology,
+  loading = false,
+  error = null,
+  onToggleCollectorOwnedOnly,
+  children,
 }) => {
-  const [graph, setGraph] = useState<DeviceGraphNeighborhood | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [collectorOwnedOnly, setCollectorOwnedOnly] = useState(
-    defaultCollectorOwnedOnly,
-  );
-  const isPollerRoot = useMemo(
-    () => deviceId.startsWith("serviceradar:poller:"),
-    [deviceId],
-  );
+  const srqlQuery = useMemo(() => {
+    const clauses = [
+      "in:device_graph",
+      `device_id:${JSON.stringify(deviceId)}`,
+    ];
+    if (collectorOwnedOnly) {
+      clauses.push("collector_owned:true");
+    }
+    if (includeTopology === false) {
+      clauses.push("include_topology:false");
+    }
+    return clauses.join(" ");
+  }, [collectorOwnedOnly, deviceId, includeTopology]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const result = await fetchDeviceGraph(deviceId, {
-          collectorOwnedOnly,
-          includeTopology,
-        });
-        if (!cancelled) {
-          setGraph(result);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          const message =
-            err instanceof Error ? err.message : "Failed to load device graph";
-          setError(message);
-          setGraph(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [collectorOwnedOnly, deviceId]);
+  const srqlLink = useMemo(
+    () => `/query?q=${encodeURIComponent(srqlQuery)}`,
+    [srqlQuery],
+  );
 
   const collectors = useMemo(() => graph?.collectors ?? [], [graph]);
+  const collectorNodes = useMemo(
+    () =>
+      collectors.filter((collector) => {
+        const id = nodeId(collector);
+        if (!id) return false;
+        if (id === deviceId) return false;
+        return true;
+      }),
+    [collectors, deviceId],
+  );
   const services = useMemo(() => graph?.services ?? [], [graph]);
   const capabilities = useMemo(
     () => ({
@@ -178,6 +185,10 @@ const DeviceGraphSummary: React.FC<DeviceGraphSummaryProps> = ({
     () => graph?.peer_interfaces ?? [],
     [graph],
   );
+  const isPollerRoot = useMemo(
+    () => deviceId.startsWith("serviceradar:poller:"),
+    [deviceId],
+  );
 
   const linkForNode = (node?: { id?: string }): string | undefined => {
     if (!node || !node.id) return undefined;
@@ -191,23 +202,33 @@ const DeviceGraphSummary: React.FC<DeviceGraphSummaryProps> = ({
           <Network className="h-4 w-4" />
           Graph Relationships
         </div>
-        <button
-          type="button"
-          onClick={() => setCollectorOwnedOnly((prev) => !prev)}
-          className="inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-700 px-3 py-1 text-xs font-medium text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
-        >
-          {collectorOwnedOnly ? (
-            <>
-              <EyeOff className="h-4 w-4" />
-              Collector-owned only
-            </>
-          ) : (
-            <>
-              <Eye className="h-4 w-4" />
-              Include targets
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href={srqlLink}
+            className="inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-700 px-3 py-1 text-xs font-medium text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
+          >
+            <ExternalLink className="h-4 w-4" />
+            SRQL
+          </Link>
+          <button
+            type="button"
+            onClick={onToggleCollectorOwnedOnly}
+            disabled={!onToggleCollectorOwnedOnly}
+            className={`inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-700 px-3 py-1 text-xs font-medium text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 ${!onToggleCollectorOwnedOnly ? "cursor-not-allowed opacity-60" : ""}`}
+          >
+            {collectorOwnedOnly ? (
+              <>
+                <EyeOff className="h-4 w-4" />
+                Collector-owned only
+              </>
+            ) : (
+              <>
+                <Eye className="h-4 w-4" />
+                Include targets
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="space-y-4 p-4">
@@ -227,37 +248,41 @@ const DeviceGraphSummary: React.FC<DeviceGraphSummaryProps> = ({
 
         {!loading && !error && (
           <>
-            {!isPollerRoot && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
-                  <Radio className="h-4 w-4" />
-                  Collectors
-                </div>
-                {collectors.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    No collectors linked yet.
-                  </p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {collectors.map((collector) => {
-                      const id = nodeId(collector);
-                      const cType = nodeType(collector);
-                      const description =
-                        cType && cType !== id ? `${cType} • ${id}` : id;
-                      return (
-                        <Badge
-                          key={id || description}
-                          label={id || "collector"}
-                          description={description}
-                          tone="blue"
-                          href={linkForNode(collector)}
-                        />
-                      );
-                    })}
-                  </div>
-                )}
+            {children ? (
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-2">
+                {children}
               </div>
-            )}
+            ) : null}
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                <Radio className="h-4 w-4" />
+                {isPollerRoot ? "Child collectors" : "Collectors"}
+              </div>
+              {collectorNodes.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  No collectors linked yet.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {collectorNodes.map((collector) => {
+                    const id = nodeId(collector);
+                    const cType = nodeType(collector);
+                    const description =
+                      cType && cType !== id ? `${cType} • ${id}` : id;
+                    return (
+                      <Badge
+                        key={id || description}
+                        label={id || "collector"}
+                        description={description}
+                        tone="blue"
+                        href={linkForNode(collector)}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
@@ -315,52 +340,52 @@ const DeviceGraphSummary: React.FC<DeviceGraphSummaryProps> = ({
               )}
             </div>
 
-            {includeTopology && (interfaces.length > 0 || peerInterfaces.length > 0) && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
-                  <Network className="h-4 w-4" />
-                  Interfaces & topology
-                </div>
-                {interfaces.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    No interfaces discovered yet.
-                  </p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {interfaces.map((iface) => {
-                      const id = nodeId(iface);
-                    const label =
-                      id || nodeType(iface) || "interface";
-                    return (
-                      <Badge
-                        key={`iface-${label}`}
-                        label={label}
-                        tone="blue"
-                        description="Discovered interface"
-                        href={linkForNode(iface)}
-                      />
-                    );
-                  })}
+            {includeTopology &&
+              (interfaces.length > 0 || peerInterfaces.length > 0) && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    <Network className="h-4 w-4" />
+                    Interfaces & topology
+                  </div>
+                  {interfaces.length === 0 ? (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      No interfaces discovered yet.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {interfaces.map((iface) => {
+                        const id = nodeId(iface);
+                        const label = id || nodeType(iface) || "interface";
+                        return (
+                          <Badge
+                            key={`iface-${label}`}
+                            label={label}
+                            tone="blue"
+                            description="Discovered interface"
+                            href={linkForNode(iface)}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                  {peerInterfaces.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {peerInterfaces.map((peer) => {
+                        const id = nodeId(peer);
+                        return (
+                          <Badge
+                            key={`peer-${id || nodeType(peer)}`}
+                            label={id || nodeType(peer) || "peer"}
+                            tone="purple"
+                            description="Peer interface"
+                            href={linkForNode(peer)}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
-                {peerInterfaces.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {peerInterfaces.map((peer) => {
-                      const id = nodeId(peer);
-                    return (
-                      <Badge
-                        key={`peer-${id || nodeType(peer)}`}
-                        label={id || nodeType(peer) || "peer"}
-                        tone="purple"
-                        description="Peer interface"
-                        href={linkForNode(peer)}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-              </div>
-            )}
 
             {!collectorOwnedOnly && targets.length > 0 && (
               <div className="space-y-2">
@@ -387,6 +412,103 @@ const DeviceGraphSummary: React.FC<DeviceGraphSummaryProps> = ({
         )}
       </div>
     </div>
+  );
+};
+
+export function useDeviceGraphNeighborhood(
+  deviceId: string,
+  options?: {
+    defaultCollectorOwnedOnly?: boolean;
+    includeTopology?: boolean;
+  },
+) {
+  const {
+    defaultCollectorOwnedOnly = false,
+    includeTopology: defaultIncludeTopology = true,
+  } = options ?? {};
+
+  const [graph, setGraph] = useState<DeviceGraphNeighborhood | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [collectorOwnedOnly, setCollectorOwnedOnly] = useState(
+    defaultCollectorOwnedOnly,
+  );
+  const [includeTopology, setIncludeTopology] = useState(
+    defaultIncludeTopology,
+  );
+
+  useEffect(() => {
+    setCollectorOwnedOnly(defaultCollectorOwnedOnly);
+  }, [defaultCollectorOwnedOnly, deviceId]);
+
+  useEffect(() => {
+    setIncludeTopology(defaultIncludeTopology);
+  }, [defaultIncludeTopology, deviceId]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await fetchDeviceGraph(deviceId, {
+        collectorOwnedOnly,
+        includeTopology,
+      });
+      setGraph(result);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to load device graph";
+      setError(message);
+      setGraph(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [collectorOwnedOnly, deviceId, includeTopology]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return {
+    graph,
+    loading,
+    error,
+    collectorOwnedOnly,
+    includeTopology,
+    setCollectorOwnedOnly,
+    setIncludeTopology,
+    reload: load,
+  };
+}
+
+const DeviceGraphSummary: React.FC<DeviceGraphSummaryProps> = ({
+  deviceId,
+  defaultCollectorOwnedOnly = false,
+  includeTopology = true,
+}) => {
+  const {
+    graph,
+    loading,
+    error,
+    collectorOwnedOnly,
+    includeTopology: resolvedIncludeTopology,
+    setCollectorOwnedOnly,
+  } = useDeviceGraphNeighborhood(deviceId, {
+    defaultCollectorOwnedOnly,
+    includeTopology,
+  });
+
+  return (
+    <DeviceGraphSummaryCard
+      deviceId={deviceId}
+      graph={graph}
+      loading={loading}
+      error={error}
+      collectorOwnedOnly={collectorOwnedOnly}
+      includeTopology={resolvedIncludeTopology}
+      onToggleCollectorOwnedOnly={() =>
+        setCollectorOwnedOnly((prev) => !prev)
+      }
+    />
   );
 };
 

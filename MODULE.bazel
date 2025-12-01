@@ -673,6 +673,7 @@ use_repo(
     "npm__next__16.0.1_821344105__links",
     "npm__react-dom__19.2.0_react_19.2.0__links",
     "npm__react__19.2.0__links",
+    "npm__reactflow__11.11.4_1456001583__links",
     "npm__recharts-scale__0.4.5__links",
     "npm__recharts__2.15.3_1315089095__links",
     "npm__tailwindcss-animate__1.0.7_tailwindcss_3.4.17__links",

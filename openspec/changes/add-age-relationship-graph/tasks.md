@@ -33,10 +33,13 @@
 
 ## 5. Web inventory integration
 
-- [ ] 5.1 Update inventory UI to show graph-derived badges (e.g., "collector service", "SNMP metrics") instead of duplicating devices
-- [ ] 5.2 Ensure entries like sync/mapper/zen health checks render as services on `docker-agent`/poller, not as separate devices named "agent"
-- [ ] 5.3 Add UI affordances to hide/filter collector-owned health checks while keeping true targets visible
-- [ ] 5.4 Build hierarchical Device Inventory view (Device → services/collectors/child agents) and Network Discovery/Interfaces view (Device → interfaces) without listing interfaces as top-level devices
+- [x] 5.1 Update inventory UI to show graph-derived badges (e.g., "collector service", "SNMP metrics") instead of duplicating devices
+- [x] 5.2 Ensure entries like sync/mapper/zen health checks render as services on `docker-agent`/poller, not as separate devices named "agent"
+- [x] 5.3 Add UI affordances to hide/filter collector-owned health checks while keeping true targets visible
+- [x] 5.4 Build hierarchical Device Inventory view (Device → services/collectors/child agents) and Network Discovery/Interfaces view (Device → interfaces) without listing interfaces as top-level devices
+- [x] 5.5 Add a graph-based device detail view (ReactFlow) showing collectors, services, targets, and interfaces in a single neighborhood canvas with badges/links
+- [x] 5.6 Make the default Device Inventory experience hierarchy-first in the table view: roll child services/agents under parents by default with SRQL link-outs to the underlying `in:device_graph` query (no card layout)
+- [x] 5.7 Implement expandable poller rows that reveal agents/collector services as indented table rows (color-coded relationship rows), keeping collectors visible as first-class devices while suppressing agent/checker rows until expanded; preserve pagination/performance for large inventories (50k–5M devices)
 
 ## 6. Backfill, testing, and validation
 
@@ -53,3 +56,6 @@ Progress notes:
 - Core/poller/agent/web running; data now lands in `public` (unified_devices=10, pollers=1, logs/traces populated). UI validation + AGE backfill still outstanding.
 - AGE graph writer cypher calls reworked to use parameter maps (no format() dollar quoting); compose refreshed with APP_TAG `sha-d03721f47c5c7b4575da2a3f00c475bcfa0b0237` and services healthy.
 - AGE neighborhood helper updated to drop graph_path, pin search_path to `ag_catalog,pg_catalog`, cast agtype via text/jsonb, and aggregate property maps to avoid null graph responses; re-applied migration to mTLS CNPG and verified age_device_neighborhood returns collectors/services/targets.
+- Inventory UI now hides collector-owned service devices by default, surfaces them as collector services with badges/toggle + SRQL link-outs, and defaults graph cards to collector-owned view for service nodes.
+- Device inventory graph cards now render child collectors for poller roots; network discovery view groups interfaces under their owning devices (no interface rows as top-level results) with per-device interface tables.
+- ReactFlow-based device detail view + graph-centric inventory view still pending; will anchor on `in:device_graph` neighborhood responses and include interfaces in the canvas.

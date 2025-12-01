@@ -138,3 +138,11 @@ The system SHALL present hierarchical views backed by AGE: Device Inventory (dev
 #### Scenario: Poller-to-agent hierarchy is visible
 - **WHEN** a poller has registered agents
 - **THEN** the inventory view shows the poller as a collector device with its agents as children, using graph relationships instead of duplicating device records.
+
+#### Scenario: Inventory table expands pollers into relationship rows
+- **WHEN** viewing the Device Inventory and expanding a poller row
+- **THEN** the table renders the poller as a standard row and inserts indented, color-differentiated rows beneath it for its agents/collector services/checkers (sourced from the graph), without switching to card layouts or inflating row height, and collapsed state hides those rows to keep large inventories performant.
+
+#### Scenario: Device detail renders a graph canvas
+- **WHEN** viewing a device with collectors, services, targets, and interfaces
+- **THEN** the detail page renders a graph-based view (e.g., ReactFlow) that places the device, its collectors/child agents, services/checkers, targets, and interfaces on a single canvas, with badges/links back to the underlying nodes, and interfaces are shown as attached nodes instead of top-level devices.

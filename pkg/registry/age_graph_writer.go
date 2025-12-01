@@ -39,12 +39,12 @@ type ageGraphWriter struct {
 }
 
 type ageGraphParams struct {
-	Collectors []ageGraphCollector `json:"collectors,omitempty"`
-	Devices    []ageGraphDevice    `json:"devices,omitempty"`
-	Services   []ageGraphService   `json:"services,omitempty"`
-	ReportedBy []ageGraphEdge      `json:"reportedBy,omitempty"`
+	Collectors       []ageGraphCollector     `json:"collectors,omitempty"`
+	Devices          []ageGraphDevice        `json:"devices,omitempty"`
+	Services         []ageGraphService       `json:"services,omitempty"`
+	ReportedBy       []ageGraphEdge          `json:"reportedBy,omitempty"`
 	CollectorParents []ageGraphCollectorEdge `json:"collectorParents,omitempty"`
-	Targets    []ageGraphTarget    `json:"targets,omitempty"`
+	Targets          []ageGraphTarget        `json:"targets,omitempty"`
 }
 
 type ageGraphCollector struct {
@@ -203,12 +203,12 @@ func buildAgeGraphParams(updates []*models.DeviceUpdate) *ageGraphParams {
 	}
 
 	return &ageGraphParams{
-		Collectors: mapCollectorsToSlice(collectors),
-		Devices:    mapDevicesToSlice(devices),
-		Services:   mapServicesToSlice(services),
-		ReportedBy: mapEdgesToSlice(reported),
+		Collectors:       mapCollectorsToSlice(collectors),
+		Devices:          mapDevicesToSlice(devices),
+		Services:         mapServicesToSlice(services),
+		ReportedBy:       mapEdgesToSlice(reported),
 		CollectorParents: mapCollectorParentsToSlice(collectorParents),
-		Targets:    mapTargetsToSlice(targets),
+		Targets:          mapTargetsToSlice(targets),
 	}
 }
 
@@ -679,13 +679,13 @@ FROM ag_catalog.cypher(
                  SET col.type = coalesce(c.type, col.type),
                      col.ip = coalesce(c.ip, col.ip),
                      col.hostname = coalesce(c.hostname, col.hostname)
-                 WITH collectors, devices, services, reportedBy, targets
+                 WITH collectors, devices, services, reportedBy, collectorParents, targets
 
              UNWIND devices AS d
                  MERGE (dev:Device {id: d.id})
                  SET dev.ip = coalesce(d.ip, dev.ip),
                      dev.hostname = coalesce(d.hostname, dev.hostname)
-                 WITH collectors, devices, services, reportedBy, targets
+                 WITH collectors, devices, services, reportedBy, collectorParents, targets
 
              UNWIND services AS s
                  MERGE (svc:Service {id: s.id})
@@ -696,31 +696,33 @@ FROM ag_catalog.cypher(
                  WHERE coalesce(s.collector_id, '') <> ''
                  MERGE (col:Collector {id: s.collector_id})
                  MERGE (col)-[:HOSTS_SERVICE]->(svc)
-                 WITH col, svc, s, collectors, devices, services, reportedBy, targets,
+                 WITH col, svc, s, collectors, devices, services, reportedBy, collectorParents, targets,
                       CASE WHEN coalesce(s.type, '') = 'checker' THEN [1] ELSE [] END AS run_checker
                  UNWIND run_checker AS _
                      MERGE (col)-[:RUNS_CHECKER]->(svc)
-                 WITH collectors, devices, services, reportedBy, targets
+                 WITH collectors, devices, services, reportedBy, collectorParents, targets
 
              UNWIND reportedBy AS r
-                 WITH r, CASE WHEN r.device_id STARTS WITH 'serviceradar:' THEN true ELSE false END AS is_service
-                 FOREACH(_ IN CASE WHEN is_service THEN [1] ELSE [] END |
-                     MERGE (child:Collector {id: r.device_id})
-                     MERGE (parent:Collector {id: r.collector_id})
-                     MERGE (child)-[:REPORTED_BY]->(parent)
-                 )
-                 FOREACH(_ IN CASE WHEN NOT is_service THEN [1] ELSE [] END |
-                     MERGE (dev:Device {id: r.device_id})
-                     MERGE (col:Collector {id: r.collector_id})
-                     MERGE (dev)-[:REPORTED_BY]->(col)
-                 )
-                 WITH collectors, devices, services, reportedBy, targets
+                 WITH r, collectorParents, targets
+                 WHERE NOT r.device_id STARTS WITH 'serviceradar:'
+                 MERGE (dev:Device {id: r.device_id})
+                 MERGE (col:Collector {id: r.collector_id})
+                 MERGE (dev)-[:REPORTED_BY]->(col)
+                 WITH collectorParents, targets
+
+             UNWIND reportedBy AS r
+                 WITH r, collectorParents, targets
+                 WHERE r.device_id STARTS WITH 'serviceradar:'
+                 MERGE (child:Collector {id: r.device_id})
+                 MERGE (parent:Collector {id: r.collector_id})
+                 MERGE (child)-[:REPORTED_BY]->(parent)
+                 WITH collectorParents, targets
 
              UNWIND collectorParents AS cp
                  MERGE (child:Collector {id: cp.collector_id})
                  MERGE (parent:Collector {id: cp.parent_collector_id})
                  MERGE (child)-[:REPORTED_BY]->(parent)
-                 WITH collectors, devices, services, reportedBy, targets
+                 WITH targets
 
              UNWIND targets AS t
                  MERGE (svc:Service {id: t.service_id})

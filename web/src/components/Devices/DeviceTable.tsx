@@ -30,6 +30,8 @@ import {
   ChevronRight,
   ArrowUp,
   ArrowDown,
+  Loader2,
+  ExternalLink,
 } from "lucide-react";
 import Link from "next/link";
 import ReactJson from "@/components/Common/DynamicReactJson";
@@ -41,6 +43,8 @@ import DeviceTypeIndicator from "./DeviceTypeIndicator";
 import { formatTimestampForDisplay } from "@/utils/traceTimestamp";
 import { useAuth } from "@/components/AuthProvider";
 import DeviceGraphSummary from "./DeviceGraphSummary";
+import { fetchDeviceGraph, collectorOwnedServices, nodeId, nodeType } from "@/lib/graph";
+import type { DeviceGraphNeighborhood } from "@/types/deviceGraph";
 
 type SortableKeys =
   | "ip"
@@ -54,6 +58,8 @@ interface DeviceTableProps {
   onSort?: (key: SortableKeys) => void;
   sortBy?: SortableKeys;
   sortOrder?: "asc" | "desc";
+  collectorServiceMeta?: Map<string, string>;
+  hideCollectorServices?: boolean;
 }
 
 type CollectorFlags = {
@@ -72,6 +78,74 @@ type CollectorInfo = {
   agentId?: string;
   pollerId?: string;
   lastSeen?: string;
+};
+
+type HierarchyChildRow = {
+  id: string;
+  type: "agent" | "service";
+  level: 1 | 2;
+  label: string;
+  subLabel?: string;
+  collectorOwnerId?: string | null;
+  device?: Device;
+};
+
+type PollerHierarchyState = {
+  loading: boolean;
+  error: string | null;
+  children: HierarchyChildRow[];
+  srqlQuery: string;
+};
+
+type LocalChildren = {
+  agents: Device[];
+  services: Device[];
+};
+
+const normalizeString = (value: unknown): string => {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  return "";
+};
+
+const metaString = (
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string => {
+  if (!metadata) return "";
+  const raw = metadata[key];
+  return typeof raw === "string" ? raw.trim() : "";
+};
+
+const isPollerDeviceId = (deviceId: string): boolean =>
+  deviceId.startsWith("serviceradar:poller:");
+
+const isAgentDeviceRow = (device: Device): boolean =>
+  device.device_id.startsWith("serviceradar:agent:") ||
+  device.device_type === "agent" ||
+  device.service_type === "agent";
+
+const isCheckerDeviceRow = (device: Device): boolean =>
+  device.device_id.startsWith("serviceradar:checker:") ||
+  device.device_type === "checker" ||
+  device.service_type === "checker";
+
+const isCollectorServiceDeviceRow = (
+  device: Device,
+  meta?: Map<string, string>,
+): boolean => Boolean(meta?.has(device.device_id));
+
+const deviceDisplayName = (device?: Device | null): string =>
+  (device?.hostname || device?.ip || device?.device_id || "device").toString();
+
+const nodeDisplayName = (
+  node: { properties?: Record<string, unknown> } | null | undefined,
+): string => {
+  const props = node?.properties ?? {};
+  const hostname = typeof props.hostname === "string" ? props.hostname : "";
+  const ip = typeof props.ip === "string" ? props.ip : "";
+  return hostname || ip || "node";
 };
 
 const CAPABILITY_STATE_CLASS_MAP: Record<string, string> = {
@@ -139,6 +213,8 @@ const METRICS_STATUS_REFRESH_INTERVAL_MS = 30_000;
 
 const DeviceTable: React.FC<DeviceTableProps> = ({
   devices,
+  collectorServiceMeta,
+  hideCollectorServices = true,
   onSort,
   sortBy = "last_seen",
   sortOrder = "desc",
@@ -153,6 +229,116 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     Record<string, { hasMetrics: boolean }>
   >({});
   const [snmpStatusesLoading, setSnmpStatusesLoading] = useState(true);
+  const [pollerHierarchy, setPollerHierarchy] = useState<
+    Record<string, PollerHierarchyState>
+  >({});
+
+  const deviceSignature = useMemo(
+    () => devices.map((device) => device.device_id).sort().join("|"),
+    [devices],
+  );
+
+  useEffect(() => {
+    setExpandedRow(null);
+    setPollerHierarchy({});
+  }, [deviceSignature]);
+
+  const deviceById = useMemo(() => {
+    const map = new Map<string, Device>();
+    devices.forEach((device) => map.set(device.device_id, device));
+    return map;
+  }, [devices]);
+
+  const pollerLookup = useMemo(() => {
+    const map = new Map<string, string>();
+    devices.forEach((device) => {
+      if (isPollerDeviceId(device.device_id)) {
+        const canonical = device.device_id;
+        map.set(canonical, canonical);
+        const short = canonical.replace(/^serviceradar:poller:/i, "");
+        if (short && !map.has(short)) {
+          map.set(short, canonical);
+        }
+      }
+    });
+    return map;
+  }, [devices]);
+
+  const resolvePollerForDevice = useCallback(
+    (device: Device): string | null => {
+      const candidates = [
+        normalizeString(device.poller_id),
+        normalizeString(device.collector_capabilities?.poller_id),
+        metaString(device.metadata, "collector_poller_id"),
+      ].filter(Boolean);
+
+      for (const candidate of candidates) {
+        const canonical =
+          pollerLookup.get(candidate) ||
+          (candidate.startsWith("serviceradar:poller:")
+            ? candidate
+            : null);
+        if (canonical && canonical !== device.device_id) {
+          return canonical;
+        }
+      }
+      return null;
+    },
+    [pollerLookup],
+  );
+
+  const hierarchyIndex = useMemo(() => {
+    const localChildren = new Map<string, LocalChildren>();
+    const topLevelDevices: Device[] = [];
+    let rolledAgents = 0;
+    let rolledServices = 0;
+
+    devices.forEach((device) => {
+      const collectorServiceLabel =
+        collectorServiceMeta?.get(device.device_id) ?? null;
+      const agentLike = isAgentDeviceRow(device) || isCheckerDeviceRow(device);
+      const parentPoller = resolvePollerForDevice(device);
+      const pollerId = parentPoller
+        ? pollerLookup.get(parentPoller) ?? parentPoller
+        : null;
+      const pollerPresent = Boolean(pollerId && pollerLookup.has(pollerId));
+
+      if (pollerPresent && pollerId) {
+        if (!localChildren.has(pollerId)) {
+          localChildren.set(pollerId, { agents: [], services: [] });
+        }
+
+        if (agentLike) {
+          localChildren.get(pollerId)!.agents.push(device);
+          rolledAgents += 1;
+          return;
+        }
+
+        if (collectorServiceLabel) {
+          localChildren.get(pollerId)!.services.push(device);
+          if (hideCollectorServices) {
+            rolledServices += 1;
+            return;
+          }
+        }
+      }
+
+      topLevelDevices.push(device);
+    });
+
+    return {
+      topLevelDevices,
+      localChildren,
+      rolledAgents,
+      rolledServices,
+    };
+  }, [
+    collectorServiceMeta,
+    devices,
+    hideCollectorServices,
+    pollerLookup,
+    resolvePollerForDevice,
+  ]);
 
   const extractCollectorInfo = useCallback((device: Device): CollectorInfo => {
     const aliasHistory = device.alias_history;
@@ -452,6 +638,201 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     token,
   ]);
 
+  const srqlQueryForPoller = useCallback(
+    (pollerId: string) =>
+      [
+        "in:device_graph",
+        `device_id:${JSON.stringify(pollerId)}`,
+        "collector_owned:true",
+        "include_topology:false",
+      ].join(" "),
+    [],
+  );
+
+  const buildChildRows = useCallback(
+    (
+      pollerId: string,
+      graph: DeviceGraphNeighborhood | null,
+    ): HierarchyChildRow[] => {
+      const rows: HierarchyChildRow[] = [];
+      const added = new Set<string>();
+      const local = hierarchyIndex.localChildren.get(pollerId);
+
+      const addRow = (row: HierarchyChildRow) => {
+        if (!row.id) return;
+        const key = `${row.type}:${row.id}:${row.collectorOwnerId ?? ""}`;
+        if (added.has(key)) {
+          return;
+        }
+        added.add(key);
+        rows.push(row);
+      };
+
+      const addFromDevice = (
+        device: Device,
+        type: "agent" | "service",
+        ownerId?: string | null,
+      ) => {
+        const declaredOwner =
+          ownerId ||
+          normalizeString(device.collector_capabilities?.agent_id) ||
+          metaString(device.metadata, "collector_agent_id") ||
+          resolvePollerForDevice(device) ||
+          pollerId;
+        const level: 1 | 2 =
+          declaredOwner && declaredOwner !== pollerId && type === "service"
+            ? 2
+            : 1;
+        const serviceLabel =
+          collectorServiceMeta?.get(device.device_id) ?? device.service_type;
+        addRow({
+          id: device.device_id,
+          type,
+          level,
+          label: deviceDisplayName(device),
+          subLabel:
+            type === "service"
+              ? serviceLabel || "collector service"
+              : device.device_id,
+          collectorOwnerId: declaredOwner,
+          device,
+        });
+      };
+
+      if (graph) {
+        (graph.collectors ?? []).forEach((collector) => {
+          const id = nodeId(collector);
+          if (!id || id === pollerId) {
+            return;
+          }
+          const device = deviceById.get(id);
+          addRow({
+            id,
+            type: "agent",
+            level: 1,
+            label: deviceDisplayName(device) || nodeDisplayName(collector),
+            subLabel: device?.device_id ?? (nodeType(collector) || id),
+            collectorOwnerId: pollerId,
+            device,
+          });
+        });
+
+        collectorOwnedServices(graph.services).forEach((svcEdge) => {
+          const id = nodeId(svcEdge.service);
+          if (!id) {
+            return;
+          }
+          const device = deviceById.get(id);
+          const ownerId =
+            (svcEdge.collector_id &&
+              (pollerLookup.get(svcEdge.collector_id) ||
+                svcEdge.collector_id)) ||
+            pollerId;
+          const level: 1 | 2 =
+            ownerId && ownerId !== pollerId ? 2 : 1;
+          const serviceLabel =
+            collectorServiceMeta?.get(id) ?? nodeType(svcEdge.service);
+          addRow({
+            id,
+            type: "service",
+            level,
+            label: deviceDisplayName(device) || nodeDisplayName(svcEdge.service),
+            subLabel: serviceLabel || id,
+            collectorOwnerId: ownerId,
+            device,
+          });
+        });
+      }
+
+      if (local) {
+        local.agents.forEach((agent) =>
+          addFromDevice(agent, "agent", pollerId),
+        );
+        local.services.forEach((svc) =>
+          addFromDevice(
+            svc,
+            "service",
+            resolvePollerForDevice(svc) ?? pollerId,
+          ),
+        );
+      }
+
+      return rows.sort((a, b) => {
+        if (a.level !== b.level) {
+          return a.level - b.level;
+        }
+        if (a.type !== b.type) {
+          return a.type === "agent" ? -1 : 1;
+        }
+        return a.label.localeCompare(b.label);
+      });
+    },
+    [
+      collectorServiceMeta,
+      deviceById,
+      hierarchyIndex.localChildren,
+      pollerLookup,
+      resolvePollerForDevice,
+    ],
+  );
+
+  const ensurePollerHierarchy = useCallback(
+    async (pollerId: string) => {
+      let skipFetch = false;
+      setPollerHierarchy((prev) => {
+        const existing = prev[pollerId];
+        if (existing && !existing.error && existing.children.length > 0) {
+          skipFetch = true;
+          return prev;
+        }
+        return {
+          ...prev,
+          [pollerId]: {
+            srqlQuery: srqlQueryForPoller(pollerId),
+            children: existing?.children ?? buildChildRows(pollerId, null),
+            loading: true,
+            error: null,
+          },
+        };
+      });
+
+      if (skipFetch) {
+        return;
+      }
+
+      try {
+        const graph = await fetchDeviceGraph(pollerId, {
+          collectorOwnedOnly: true,
+          includeTopology: false,
+        });
+        const children = buildChildRows(pollerId, graph);
+        setPollerHierarchy((prev) => ({
+          ...prev,
+          [pollerId]: {
+            srqlQuery: srqlQueryForPoller(pollerId),
+            children,
+            loading: false,
+            error: null,
+          },
+        }));
+      } catch (error) {
+        setPollerHierarchy((prev) => ({
+          ...prev,
+          [pollerId]: {
+            srqlQuery: srqlQueryForPoller(pollerId),
+            children: buildChildRows(pollerId, null),
+            loading: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to load poller relationships",
+          },
+        }));
+      }
+    },
+    [buildChildRows, srqlQueryForPoller],
+  );
+
   const getSourceColor = (source: string) => {
     const lowerSource = source.toLowerCase();
     if (lowerSource.includes("netbox"))
@@ -510,6 +891,9 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     </th>
   );
 
+  const { topLevelDevices, rolledAgents, rolledServices } = hierarchyIndex;
+  const rolledUpTotal = rolledAgents + rolledServices;
+
   if (!devices || devices.length === 0) {
     return (
       <div className="text-center p-8 text-gray-600 dark:text-gray-400">
@@ -518,8 +902,24 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     );
   }
 
+  if (topLevelDevices.length === 0) {
+    return (
+      <div className="text-center p-8 text-gray-600 dark:text-gray-400">
+        All results are rolled up under collector hierarchies. Expand pollers or
+        adjust filters to view their children.
+      </div>
+    );
+  }
+
   return (
     <div className="overflow-x-auto">
+      {rolledUpTotal > 0 && (
+        <div className="px-4 py-2 text-xs text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded-md mb-3 bg-gray-50 dark:bg-gray-900/40">
+          Hierarchy view is hiding {rolledAgents} agent/checker rows
+          {hideCollectorServices ? ` and ${rolledServices} collector services` : ""} behind their pollers.
+          Expand a poller to inspect rolled-up children.
+        </div>
+      )}
       <table className="min-w-full divide-y divide-gray-700">
         <thead className="bg-gray-100 dark:bg-gray-800/50">
           <tr>
@@ -542,13 +942,31 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
           </tr>
         </thead>
         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-          {devices.map((device) => {
+          {topLevelDevices.map((device) => {
             const metadata = device.metadata || {};
+            const serviceTypeLabel =
+              collectorServiceMeta?.get(device.device_id) ?? null;
+            const isCollectorService = Boolean(serviceTypeLabel);
             const sysmonServiceHint =
               typeof metadata === "object" &&
               metadata !== null &&
               typeof metadata.checker_service === "string" &&
               metadata.checker_service.toLowerCase().includes("sysmon");
+            const isPoller = isPollerDeviceId(device.device_id);
+            const isPollerExpanded =
+              isPoller && expandedRow === device.device_id;
+            const pollerState = pollerHierarchy[device.device_id];
+            const pollerChildren = isPollerExpanded
+              ? pollerState?.children ?? buildChildRows(device.device_id, null)
+              : [];
+            const pollerChildrenLoading =
+              isPollerExpanded && (pollerState?.loading ?? true);
+            const pollerChildrenError = isPollerExpanded
+              ? pollerState?.error ?? null
+              : null;
+            const pollerSrqlLink = isPoller
+              ? `/query?q=${encodeURIComponent(srqlQueryForPoller(device.device_id))}`
+              : null;
 
             const collectorInfo =
               collectorInfoByDevice.get(device.device_id) ??
@@ -599,16 +1017,21 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
 
             return (
               <Fragment key={device.device_id}>
-                <tr className="hover:bg-gray-700/30">
+                <tr
+                  className={`hover:bg-gray-700/30 ${isCollectorService ? "bg-emerald-50 dark:bg-emerald-900/10" : ""}`}
+                >
                   <td className="pl-4">
                     <button
-                      onClick={() =>
-                        setExpandedRow(
+                      onClick={() => {
+                        const nextExpanded =
                           expandedRow === device.device_id
                             ? null
-                            : device.device_id,
-                        )
-                      }
+                            : device.device_id;
+                        setExpandedRow(nextExpanded);
+                        if (nextExpanded && isPoller) {
+                          void ensurePollerHierarchy(device.device_id);
+                        }
+                      }}
                       className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"
                     >
                       {expandedRow === device.device_id ? (
@@ -695,6 +1118,14 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                           {collectorBadges}
                         </div>
                       )}
+                      {isCollectorService && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-800/50 dark:text-emerald-100">
+                            Collector service
+                            {serviceTypeLabel ? ` - ${serviceTypeLabel}` : ""}
+                          </span>
+                        </div>
+                      )}
                     </Link>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -724,6 +1155,150 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                     {formatDate(device.last_seen)}
                   </td>
                 </tr>
+                {isPollerExpanded && (
+                  <>
+                    <tr className="bg-gray-100 dark:bg-gray-900/40">
+                      <td colSpan={6} className="px-6 py-3 text-xs text-gray-700 dark:text-gray-200">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-gray-900 dark:text-gray-100">
+                              Collector hierarchy (AGE graph)
+                            </span>
+                            {pollerChildrenLoading && (
+                              <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                            )}
+                            {pollerChildrenError && (
+                              <span className="text-red-500">
+                                {pollerChildrenError}
+                              </span>
+                            )}
+                          </div>
+                          {pollerSrqlLink && (
+                            <div className="flex items-center gap-2">
+                              <Link
+                                href={pollerSrqlLink}
+                                className="inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-700 px-3 py-1 text-xs font-semibold text-blue-700 dark:text-blue-200 hover:bg-blue-50 dark:hover:bg-gray-800"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                                SRQL graph query
+                              </Link>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {pollerChildren.length === 0 && !pollerChildrenLoading ? (
+                      <tr className="bg-white dark:bg-gray-900/40">
+                        <td
+                          colSpan={6}
+                          className="px-6 py-3 text-sm text-gray-600 dark:text-gray-300"
+                        >
+                          No linked agents or collector services yet for this poller.
+                        </td>
+                      </tr>
+                    ) : null}
+                    {pollerChildren.map((child) => {
+                      const childDevice =
+                        child.device ?? deviceById.get(child.id);
+                      const childStatus =
+                        childDevice === undefined
+                          ? null
+                          : getDeviceDisplayStatus(childDevice);
+                      const sources = Array.isArray(
+                        childDevice?.discovery_sources,
+                      )
+                        ? childDevice.discovery_sources.filter(
+                            (source): source is string =>
+                              typeof source === "string" && source.length > 0,
+                          )
+                        : [];
+                      const relationshipClasses =
+                        child.type === "agent"
+                          ? "bg-purple-50 dark:bg-purple-900/30 border-l-4 border-purple-300 dark:border-purple-600"
+                          : "bg-emerald-50 dark:bg-emerald-900/30 border-l-4 border-emerald-300 dark:border-emerald-700";
+                      const ownerLabel =
+                        child.collectorOwnerId || device.device_id;
+                      const lastSeen =
+                        childDevice?.last_seen ?? childDevice?.last_heartbeat;
+
+                      return (
+                        <tr
+                          key={`${device.device_id}-${child.type}-${child.id}`}
+                          className={`${relationshipClasses}`}
+                        >
+                          <td className="pl-4"></td>
+                          <td className="px-6 py-3 whitespace-nowrap">
+                            {childStatus === null ? (
+                              <span className="text-xs text-gray-500">graph</span>
+                            ) : childStatus ? (
+                              <CheckCircle className="h-4 w-4 text-green-500" />
+                            ) : (
+                              <XCircle className="h-4 w-4 text-red-500" />
+                            )}
+                          </td>
+                          <td className="px-6 py-3 whitespace-nowrap">
+                            <div
+                              className="flex flex-col"
+                              style={{ paddingLeft: child.level * 12 }}
+                            >
+                              {child.id ? (
+                                <Link
+                                  href={`/devices/${encodeURIComponent(child.id)}`}
+                                  className="text-sm font-semibold text-blue-700 dark:text-blue-300 hover:underline"
+                                >
+                                  {child.label}
+                                </Link>
+                              ) : (
+                                <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                                  {child.label}
+                                </span>
+                              )}
+                              <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                                <span className="inline-flex items-center rounded-full bg-black/5 px-2 py-0.5 text-[11px] font-semibold uppercase text-gray-700 dark:bg-white/10 dark:text-gray-100">
+                                  {child.type === "agent"
+                                    ? "Agent"
+                                    : "Collector service"}
+                                </span>
+                                {child.subLabel && (
+                                  <span className="font-mono text-[11px] text-gray-500 dark:text-gray-400">
+                                    {child.subLabel}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-3 whitespace-nowrap">
+                            <div className="flex flex-wrap gap-1">
+                              {sources.length === 0 ? (
+                                <span className="text-xs text-gray-500">
+                                  graph
+                                </span>
+                              ) : (
+                                sources
+                                  .slice()
+                                  .sort((a, b) => a.localeCompare(b))
+                                  .map((source) => (
+                                    <span
+                                      key={`${child.id}-${source}`}
+                                      className={`px-2 inline-flex text-[11px] leading-5 font-semibold rounded-full ${getSourceColor(source)}`}
+                                    >
+                                      {source}
+                                    </span>
+                                  ))
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                            {ownerLabel}
+                          </td>
+                          <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                            {lastSeen ? formatDate(lastSeen) : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </>
+                )}
                 {expandedRow === device.device_id && (
                   <tr className="bg-gray-50 dark:bg-gray-800/50">
                     <td colSpan={6} className="p-0">
@@ -830,7 +1405,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                           <div>
                             <DeviceGraphSummary
                               deviceId={device.device_id}
-                              defaultCollectorOwnedOnly={false}
+                              defaultCollectorOwnedOnly={isCollectorService}
                               includeTopology={false}
                             />
                           </div>

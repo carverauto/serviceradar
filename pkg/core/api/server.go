@@ -2121,6 +2121,11 @@ func (s *APIServer) buildDeviceRecords(
 			"last_seen":         device.LastSeen,
 			"is_available":      device.IsAvailable,
 			"device_type":       device.DeviceType,
+			"service_type":      device.ServiceType,
+			"service_status":    device.ServiceStatus,
+			"last_heartbeat":    device.LastHeartbeat,
+			"os_info":           device.OSInfo,
+			"version_info":      device.VersionInfo,
 			"discovery_sources": device.DiscoverySources,
 			"metadata":          getFieldValue(device.Metadata),
 		}
