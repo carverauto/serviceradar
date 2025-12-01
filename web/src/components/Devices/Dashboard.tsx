@@ -38,6 +38,47 @@ import { useDebounce } from "use-debounce";
 import { useSrqlQuery, DEFAULT_SRQL_QUERY } from "@/contexts/SrqlQueryContext";
 import { usePathname } from "next/navigation";
 import selectDevicesQuery from "./deviceQueryUtils";
+
+const isCollectorDevice = (device: Device | null | undefined): boolean => {
+  if (!device) {
+    return false;
+  }
+
+  const normalizeMetaString = (val: unknown): string => {
+    if (typeof val === "string") {
+      return val.trim();
+    }
+    if (val === undefined || val === null) {
+      return "";
+    }
+    return String(val).trim();
+  };
+
+  const caps = device.collector_capabilities;
+  const hasCapList =
+    Array.isArray(caps?.capabilities) &&
+    caps.capabilities.some(
+      (cap) => typeof cap === "string" && cap.trim().length > 0,
+    );
+  if (
+    caps &&
+    (hasCapList ||
+      caps.has_collector ||
+      caps.supports_icmp ||
+      caps.supports_snmp ||
+      caps.supports_sysmon ||
+      normalizeMetaString(caps.agent_id).length > 0 ||
+      normalizeMetaString(caps.poller_id).length > 0)
+  ) {
+    return true;
+  }
+
+  const collectorID =
+    normalizeMetaString(device.metadata?.collector_agent_id) ||
+    normalizeMetaString(device.metadata?.collector_id);
+  return collectorID.length > 0;
+};
+
 type SortableKeys =
   | "ip"
   | "hostname"
@@ -242,21 +283,7 @@ const Dashboard = () => {
           : [];
 
         if (statusFilter === "collectors") {
-          results = results.filter((device) => {
-            const caps = device.collector_capabilities;
-            if (!caps) {
-              return false;
-            }
-            if (Array.isArray(caps.capabilities) && caps.capabilities.length) {
-              return true;
-            }
-            return Boolean(
-              caps.has_collector ||
-                caps.supports_icmp ||
-                caps.supports_snmp ||
-                caps.supports_sysmon,
-            );
-          });
+          results = results.filter((device) => isCollectorDevice(device));
         }
 
         const capabilityFilter = filters.capability?.trim().toLowerCase();
@@ -475,7 +502,15 @@ const Dashboard = () => {
 
         const data = await postSearch(payload);
 
-        setDevices(data.results || []);
+        const normalizedResults = Array.isArray(data.results)
+          ? data.results
+          : [];
+        const filteredResults =
+          filterStatus === "collectors"
+            ? normalizedResults.filter((device) => isCollectorDevice(device))
+            : normalizedResults;
+
+        setDevices(filteredResults);
         setPagination(data.pagination || null);
         setSearchEngine(data.engine || "srql");
         setSearchDiagnostics(data.diagnostics ?? null);

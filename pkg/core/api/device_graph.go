@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 )
@@ -24,7 +25,18 @@ func (s *APIServer) handleDeviceGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := s.dbService.ExecuteQuery(r.Context(), deviceNeighborhoodQuery, deviceID)
+	queryParams := r.URL.Query()
+	collectorOwnedOnly := parseBool(queryParams.Get("collector_owned"), false) ||
+		parseBool(queryParams.Get("collector_owned_only"), false)
+	includeTopology := parseBool(queryParams.Get("include_topology"), true)
+
+	rows, err := s.dbService.ExecuteQuery(
+		r.Context(),
+		ageDeviceNeighborhoodQuery,
+		deviceID,
+		collectorOwnedOnly,
+		includeTopology,
+	)
 	if err != nil {
 		writeError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -50,20 +62,17 @@ func (s *APIServer) handleDeviceGraph(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
-const deviceNeighborhoodQuery = `
-SELECT *
-FROM cypher('serviceradar', $$
-    MATCH (d:Device {id: $id})
-    OPTIONAL MATCH (d)-[:REPORTED_BY]->(c:Collector)
-    OPTIONAL MATCH (c)-[:HOSTS_SERVICE]->(svc:Service)
-    OPTIONAL MATCH (svc)-[:TARGETS]->(t:Device)
-    OPTIONAL MATCH (d)-[:HAS_INTERFACE]->(iface:Interface)
-    RETURN jsonb_build_object(
-        'device', d,
-        'collectors', collect(DISTINCT c),
-        'services', collect(DISTINCT svc),
-        'targets', collect(DISTINCT t),
-        'interfaces', collect(DISTINCT iface)
-    ) AS result
-$$, jsonb_build_object('id', $1)) AS (result agtype);
+func parseBool(raw string, defaultValue bool) bool {
+	if raw == "" {
+		return defaultValue
+	}
+	val, err := strconv.ParseBool(raw)
+	if err != nil {
+		return defaultValue
+	}
+	return val
+}
+
+const ageDeviceNeighborhoodQuery = `
+SELECT public.age_device_neighborhood($1::text, $2::boolean, $3::boolean) AS result;
 `

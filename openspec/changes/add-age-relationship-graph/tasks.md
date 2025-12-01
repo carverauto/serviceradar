@@ -25,10 +25,10 @@
 ## 4. API surfaces and queries
 
 - [x] 4.1 Add API endpoint/DAO to fetch a device neighborhood (collector → service/checker → target → interfaces) from AGE
-- [ ] 4.2 Add filters to return only collector-owned services/checkers vs external targets
-- [ ] 4.3 Provide Cypher snippets or stored procedures for common queries (device summary, path to collector, service capability badges)
+- [x] 4.2 Add filters to return only collector-owned services/checkers vs external targets
+- [x] 4.3 Provide Cypher snippets or stored procedures for common queries (device summary, path to collector, service capability badges)
 - [x] 4.4 Add a new SRQL entity `in:device_graph` that reads from AGE for inventory-like queries (neighborhood/relationships) instead of only `unified_devices`, returning structured JSON (collector-owned flags, capabilities, interfaces) from AGE Cypher rather than raw agtype
-- [ ] 4.5 Expose graph queries for AI copilots so responses draw from canonical relationships
+- [x] 4.5 Expose graph queries for AI copilots so responses draw from canonical relationships
 - [x] 4.6 Add SRQL AGE bootstrap + fixtures in tests (graph_path, labels, sample neighborhood) and integration tests that validate the graph query contract and JSON shape
 
 ## 5. Web inventory integration
@@ -41,8 +41,8 @@
 ## 6. Backfill, testing, and validation
 
 - [x] 6.1 Add backfill/rebuild job to regenerate AGE graph from relational sources (device updates, mapper interfaces, checker history)
-- [ ] 6.2 Add unit/integration tests for graph ingestion and neighborhood queries (including collector-vs-target distinction)
-- [ ] 6.3 Document validation steps: run on docker-compose.mtls and confirm phantom checker devices do not reappear; verify SNMP target shows metrics badge
+- [x] 6.2 Add unit/integration tests for graph ingestion and neighborhood queries (including collector-vs-target distinction)
+- [x] 6.3 Document validation steps: run on docker-compose.mtls and confirm phantom checker devices do not reappear; verify SNMP target shows metrics badge
 - [ ] 6.4 Validate mapper-seeded devices (seed router + neighbors) create correct Device/Interface/CONNECTS_TO relationships in the graph
 - [ ] 6.5 Validate SRQL/graph queries back the UI without unified_devices joins
 
@@ -51,3 +51,4 @@
 Progress notes:
 - Compose mTLS stack rebuilt on APP_TAG `sha-3c7fc58993090562980d9fa62aab7caeb4c8db19`; search_path corrected to `public, ag_catalog`, CNPG collation refreshed, and AGE cypher() params in the graph writer converted to stringified JSON for compatibility.
 - Core/poller/agent/web running; data now lands in `public` (unified_devices=10, pollers=1, logs/traces populated). UI validation + AGE backfill still outstanding.
+- AGE graph writer cypher calls reworked to use parameter maps (no format() dollar quoting); compose refreshed with APP_TAG `sha-d03721f47c5c7b4575da2a3f00c475bcfa0b0237` and services healthy.

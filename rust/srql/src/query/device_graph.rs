@@ -4,16 +4,18 @@ use crate::{
     parser::{Entity, FilterOp},
 };
 use diesel::prelude::*;
-use diesel::sql_types::{Jsonb, Text};
+use diesel::sql_types::{Bool, Jsonb, Text};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
-    let device_id = extract_device_id(plan)?;
+    let params = extract_params(plan)?;
 
     let row = diesel::sql_query(DEVICE_GRAPH_QUERY)
-        .bind::<Text, _>(device_id)
+        .bind::<Text, _>(params.device_id)
+        .bind::<Bool, _>(params.collector_owned_only)
+        .bind::<Bool, _>(params.include_topology)
         .get_result::<DeviceGraphRow>(conn)
         .await
         .optional()
@@ -36,8 +38,16 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     }
 }
 
-fn extract_device_id(plan: &QueryPlan) -> Result<String> {
+struct DeviceGraphParams {
+    device_id: String,
+    collector_owned_only: bool,
+    include_topology: bool,
+}
+
+fn extract_params(plan: &QueryPlan) -> Result<DeviceGraphParams> {
     let mut device_id: Option<String> = None;
+    let mut collector_owned_only = false;
+    let mut include_topology = true;
 
     for filter in &plan.filters {
         match filter.field.as_str() {
@@ -55,6 +65,32 @@ fn extract_device_id(plan: &QueryPlan) -> Result<String> {
                 }
                 device_id = Some(value.to_string());
             }
+            "collector_owned" | "collector_owned_only" => {
+                if !matches!(filter.op, FilterOp::Eq) {
+                    return Err(ServiceError::InvalidRequest(
+                        "collector_owned filter only supports equality".into(),
+                    ));
+                }
+                let value = filter.value.as_scalar()?.trim().to_lowercase();
+                collector_owned_only = parse_bool(&value, false).ok_or_else(|| {
+                    ServiceError::InvalidRequest(
+                        "collector_owned filter expects boolean true/false".into(),
+                    )
+                })?;
+            }
+            "include_topology" => {
+                if !matches!(filter.op, FilterOp::Eq) {
+                    return Err(ServiceError::InvalidRequest(
+                        "include_topology filter only supports equality".into(),
+                    ));
+                }
+                let value = filter.value.as_scalar()?.trim().to_lowercase();
+                include_topology = parse_bool(&value, true).ok_or_else(|| {
+                    ServiceError::InvalidRequest(
+                        "include_topology filter expects boolean true/false".into(),
+                    )
+                })?;
+            }
             other => {
                 return Err(ServiceError::InvalidRequest(format!(
                     "unsupported filter field '{other}' for device_graph"
@@ -63,9 +99,22 @@ fn extract_device_id(plan: &QueryPlan) -> Result<String> {
         }
     }
 
-    device_id.ok_or_else(|| {
+    let device_id = device_id.ok_or_else(|| {
         ServiceError::InvalidRequest("device_id filter is required for device_graph queries".into())
+    })?;
+
+    Ok(DeviceGraphParams {
+        device_id,
+        collector_owned_only,
+        include_topology,
     })
+}
+
+fn parse_bool(input: &str, default_value: bool) -> Option<bool> {
+    if input.is_empty() {
+        return Some(default_value);
+    }
+    input.parse::<bool>().ok()
 }
 
 #[derive(QueryableByName)]
@@ -79,30 +128,5 @@ WITH _config AS (
     SELECT
         set_config('search_path', 'ag_catalog,"$user",public', false)
 )
-SELECT result::jsonb AS result
-FROM ag_catalog.cypher(
-    'serviceradar',
-    format($$ 
-        MATCH (d:Device {id: %L})
-        OPTIONAL MATCH (d)-[:REPORTED_BY]->(col:Collector)
-        OPTIONAL MATCH (col)-[:HOSTS_SERVICE]->(svc:Service)
-        OPTIONAL MATCH (svc)-[:TARGETS]->(t:Device)
-        OPTIONAL MATCH (d)-[:HAS_INTERFACE]->(iface:Interface)
-        OPTIONAL MATCH (d)-[:PROVIDES_CAPABILITY]->(dcap:Capability)
-        OPTIONAL MATCH (svc)-[:PROVIDES_CAPABILITY]->(svcCap:Capability)
-        RETURN jsonb_build_object(
-            'device', d,
-            'collectors', [c IN collect(DISTINCT col) WHERE c IS NOT NULL],
-            'services', [s IN collect(DISTINCT CASE WHEN svc IS NULL THEN NULL ELSE jsonb_build_object(
-                'service', svc,
-                'collector_id', col.id,
-                'collector_owned', col IS NOT NULL
-            ) END) WHERE s IS NOT NULL],
-            'targets', [target IN collect(DISTINCT t) WHERE target IS NOT NULL],
-            'interfaces', [i IN collect(DISTINCT iface) WHERE i IS NOT NULL],
-            'device_capabilities', [cap IN collect(DISTINCT dcap) WHERE cap IS NOT NULL],
-            'service_capabilities', [cap IN collect(DISTINCT svcCap) WHERE cap IS NOT NULL]
-        ) AS result
-    $$, $1)
-) AS (result agtype);
+SELECT public.age_device_neighborhood($1::text, $2::boolean, $3::boolean) AS result;
 "#;

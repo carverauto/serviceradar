@@ -104,7 +104,7 @@ func (w *ageGraphWriter) WriteGraph(ctx context.Context, updates []*models.Devic
 		return
 	}
 
-	payload, err := json.Marshal(params)
+	payloadBytes, err := json.Marshal(params)
 	if err != nil {
 		if w.log != nil {
 			w.log.Warn().Err(err).Msg("age graph: failed to marshal params")
@@ -113,7 +113,7 @@ func (w *ageGraphWriter) WriteGraph(ctx context.Context, updates []*models.Devic
 		return
 	}
 
-	if _, err := w.executor.ExecuteQuery(ctx, ageGraphMergeQuery, payload); err != nil {
+	if _, err := w.executor.ExecuteQuery(ctx, ageGraphMergeQuery, string(payloadBytes)); err != nil {
 		w.recordFailure()
 		if w.log != nil {
 			w.log.Warn().Err(err).Msg("age graph: failed to merge batch")
@@ -223,7 +223,7 @@ func (w *ageGraphWriter) WriteInterfaces(ctx context.Context, interfaces []*mode
 		return
 	}
 
-	if _, err := w.executor.ExecuteQuery(ctx, ageInterfaceMergeQuery, data); err != nil {
+	if _, err := w.executor.ExecuteQuery(ctx, ageInterfaceMergeQuery, string(data)); err != nil {
 		w.recordFailure()
 		if w.log != nil {
 			w.log.Warn().Err(err).Msg("age graph: failed to merge interfaces")
@@ -252,7 +252,7 @@ func (w *ageGraphWriter) WriteTopology(ctx context.Context, events []*models.Top
 		return
 	}
 
-	if _, err := w.executor.ExecuteQuery(ctx, ageTopologyMergeQuery, data); err != nil {
+	if _, err := w.executor.ExecuteQuery(ctx, ageTopologyMergeQuery, string(data)); err != nil {
 		w.recordFailure()
 		if w.log != nil {
 			w.log.Warn().Err(err).Msg("age graph: failed to merge topology links")
@@ -633,97 +633,96 @@ func (w *ageGraphWriter) recordFailure() {
 const ageGraphMergeQuery = `
 SELECT *
 FROM ag_catalog.cypher(
-    'serviceradar',
-    format($$ 
-        WITH %s AS collectors, %s AS devices, %s AS services, %s AS reportedBy, %s AS targets
+         'serviceradar',
+         $agefmt$
+             WITH coalesce($collectors, []) AS collectors,
+                  coalesce($devices, []) AS devices,
+                  coalesce($services, []) AS services,
+                  coalesce($reportedBy, []) AS reportedBy,
+                  coalesce($targets, []) AS targets
 
-        UNWIND collectors AS c
-            MERGE (col:Collector {id: c.id})
-            SET col.type = coalesce(c.type, col.type),
-                col.ip = coalesce(c.ip, col.ip),
-                col.hostname = coalesce(c.hostname, col.hostname)
+             UNWIND collectors AS c
+                 MERGE (col:Collector {id: c.id})
+                 SET col.type = coalesce(c.type, col.type),
+                     col.ip = coalesce(c.ip, col.ip),
+                     col.hostname = coalesce(c.hostname, col.hostname)
+                 WITH collectors, devices, services, reportedBy, targets
 
-        UNWIND devices AS d
-            MERGE (dev:Device {id: d.id})
-            SET dev.ip = coalesce(d.ip, dev.ip),
-                dev.hostname = coalesce(d.hostname, dev.hostname)
+             UNWIND devices AS d
+                 MERGE (dev:Device {id: d.id})
+                 SET dev.ip = coalesce(d.ip, dev.ip),
+                     dev.hostname = coalesce(d.hostname, dev.hostname)
+                 WITH collectors, devices, services, reportedBy, targets
 
-        UNWIND services AS s
-            MERGE (svc:Service {id: s.id})
-            SET svc.type = coalesce(s.type, svc.type),
-                svc.ip = coalesce(s.ip, svc.ip),
-                svc.hostname = coalesce(s.hostname, svc.hostname)
-            WITH svc, s
-            WHERE coalesce(s.collector_id, '') <> ''
-            MERGE (col:Collector {id: s.collector_id})
-            MERGE (col)-[:HOSTS_SERVICE]->(svc)
-            FOREACH (_ IN CASE WHEN coalesce(s.type, '') = 'checker' THEN [1] ELSE [] END |
-                MERGE (col)-[:RUNS_CHECKER]->(svc)
-            )
+             UNWIND services AS s
+                 MERGE (svc:Service {id: s.id})
+                 SET svc.type = coalesce(s.type, svc.type),
+                     svc.ip = coalesce(s.ip, svc.ip),
+                     svc.hostname = coalesce(s.hostname, svc.hostname)
+                 WITH svc, s, collectors, devices, services, reportedBy, targets
+                 WHERE coalesce(s.collector_id, '') <> ''
+                 MERGE (col:Collector {id: s.collector_id})
+                 MERGE (col)-[:HOSTS_SERVICE]->(svc)
+                 WITH col, svc, s, collectors, devices, services, reportedBy, targets,
+                      CASE WHEN coalesce(s.type, '') = 'checker' THEN [1] ELSE [] END AS run_checker
+                 UNWIND run_checker AS _
+                     MERGE (col)-[:RUNS_CHECKER]->(svc)
+                 WITH collectors, devices, services, reportedBy, targets
 
-        UNWIND reportedBy AS r
-            MERGE (dev:Device {id: r.device_id})
-            MERGE (col:Collector {id: r.collector_id})
-            MERGE (dev)-[:REPORTED_BY]->(col)
+             UNWIND reportedBy AS r
+                 MERGE (dev:Device {id: r.device_id})
+                 MERGE (col:Collector {id: r.collector_id})
+                 MERGE (dev)-[:REPORTED_BY]->(col)
+                 WITH collectors, devices, services, reportedBy, targets
 
-        UNWIND targets AS t
-            MERGE (svc:Service {id: t.service_id})
-            MERGE (dev:Device {id: t.device_id})
-            MERGE (svc)-[:TARGETS]->(dev)
-    $$,
-        coalesce(($1->'collectors')::jsonb, '[]'::jsonb)::text,
-        coalesce(($1->'devices')::jsonb, '[]'::jsonb)::text,
-        coalesce(($1->'services')::jsonb, '[]'::jsonb)::text,
-        coalesce(($1->'reportedBy')::jsonb, '[]'::jsonb)::text,
-        coalesce(($1->'targets')::jsonb, '[]'::jsonb)::text)
-) AS (result agtype);
+             UNWIND targets AS t
+                 MERGE (svc:Service {id: t.service_id})
+                 MERGE (dev:Device {id: t.device_id})
+                 MERGE (svc)-[:TARGETS]->(dev)
+         $agefmt$,
+         $1
+     ) AS (result agtype);
 `
 
 const ageInterfaceMergeQuery = `
 SELECT *
 FROM ag_catalog.cypher(
-    'serviceradar',
-    format($$
-        WITH %s AS interfaces
-        UNWIND interfaces AS i
-            MERGE (d:Device {id: i.device_id})
-            MERGE (iface:Interface {id: i.id})
-            SET iface.name = coalesce(i.name, iface.name),
-                iface.descr = coalesce(i.descr, iface.descr),
-                iface.alias = coalesce(i.alias, iface.alias),
-                iface.mac = coalesce(i.mac, iface.mac),
-                iface.ip_addresses = coalesce(i.ip_addresses, iface.ip_addresses),
-                iface.ifindex = coalesce(i.ifindex, iface.ifindex)
-            MERGE (d)-[:HAS_INTERFACE]->(iface)
-    $$, coalesce(($1->'interfaces')::jsonb, '[]'::jsonb)::text)
-) AS (result agtype);
+         'serviceradar',
+         $agefmt$
+             WITH coalesce($interfaces, []) AS interfaces
+             UNWIND interfaces AS i
+                 MERGE (d:Device {id: i.device_id})
+                 MERGE (iface:Interface {id: i.id})
+                 SET iface.name = coalesce(i.name, iface.name),
+                     iface.descr = coalesce(i.descr, iface.descr),
+                     iface.alias = coalesce(i.alias, iface.alias),
+                     iface.mac = coalesce(i.mac, iface.mac),
+                     iface.ip_addresses = coalesce(i.ip_addresses, iface.ip_addresses),
+                     iface.ifindex = coalesce(i.ifindex, iface.ifindex)
+                 MERGE (d)-[:HAS_INTERFACE]->(iface)
+         $agefmt$,
+         $1
+     ) AS (result agtype);
 `
 
 const ageTopologyMergeQuery = `
 SELECT *
 FROM ag_catalog.cypher(
-    'serviceradar',
-    format($$
-        WITH %s AS links
-        UNWIND links AS l
-            WITH l
-            MATCH (src:Device {id: l.local_device_id})
-            MATCH (dst:Device {id: l.remote_device_id})
-            OPTIONAL MATCH (srcIface:Interface {id: l.local_interface_id})
-            OPTIONAL MATCH (dstIface:Interface {id: l.remote_interface_id})
-            FOREACH (_ IN CASE WHEN srcIface IS NULL AND l.local_interface_id IS NOT NULL THEN [1] ELSE [] END |
-                MERGE (newSrcIface:Interface {id: l.local_interface_id})
-                MERGE (src)-[:HAS_INTERFACE]->(newSrcIface)
-                WITH l, src, dst, newSrcIface AS srcIface, dstIface
-            )
-            FOREACH (_ IN CASE WHEN dstIface IS NULL AND l.remote_interface_id IS NOT NULL THEN [1] ELSE [] END |
-                MERGE (newDstIface:Interface {id: l.remote_interface_id})
-                MERGE (dst)-[:HAS_INTERFACE]->(newDstIface)
-                WITH l, src, dst, srcIface, newDstIface AS dstIface
-            )
-            MERGE (srcIfaceOpt:Interface {id: coalesce(l.local_interface_id, src.id)}) // fallback to device if iface missing
-            MERGE (dstIfaceOpt:Interface {id: coalesce(l.remote_interface_id, dst.id)})
-            MERGE (srcIfaceOpt)-[:CONNECTS_TO]->(dstIfaceOpt)
-    $$, coalesce(($1->'links')::jsonb, '[]'::jsonb)::text)
-) AS (result agtype);
+         'serviceradar',
+         $agefmt$
+             WITH coalesce($links, []) AS links
+             UNWIND links AS l
+                 MATCH (src:Device {id: l.local_device_id})
+                 MATCH (dst:Device {id: l.remote_device_id})
+                 WITH l, src, dst,
+                      coalesce(l.local_interface_id, src.id) AS local_iface_id,
+                      coalesce(l.remote_interface_id, dst.id) AS remote_iface_id
+                 MERGE (srcIface:Interface {id: local_iface_id}) // fallback to device if iface missing
+                 MERGE (dstIface:Interface {id: remote_iface_id})
+                 MERGE (src)-[:HAS_INTERFACE]->(srcIface)
+                 MERGE (dst)-[:HAS_INTERFACE]->(dstIface)
+                 MERGE (srcIface)-[:CONNECTS_TO]->(dstIface)
+         $agefmt$,
+         $1
+     ) AS (result agtype);
 `

@@ -10,6 +10,7 @@ go_library(
         "tools_devices.go",
         "tools_events.go",
         "tools_logs.go",
+        "tools_graph.go",
         "tools_srql.go",
         "tools_sweeps.go",
     ],
@@ -25,7 +26,10 @@ go_library(
 
 go_test(
     name = "mcp_test",
-    srcs = ["server_test.go"],
+    srcs = [
+        "server_test.go",
+        "tools_graph_test.go",
+    ],
     embed = [":mcp"],
     deps = [
         "//pkg/core/auth",

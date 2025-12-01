@@ -59,3 +59,19 @@ This document captures the canonical AGE graph schema (`serviceradar`), ID forma
 ## Query guidance
 - Always pass the graph name in `cypher` calls: `cypher('serviceradar', $$ ... $$)`.
 - Keep `search_path` including `ag_catalog` to expose the `cypher` function and `agtype`.
+
+## Common queries
+- Device neighborhood (collector-owned filter + optional topology) via stored procedure:
+  ```sql
+  SELECT public.age_device_neighborhood('device-alpha', true, false);
+  ```
+- Service → collector → target path with capability badges:
+  ```sql
+  SELECT jsonb_pretty(result)
+  FROM ag_catalog.cypher(
+      'serviceradar',
+      $$MATCH (c:Collector {id:'serviceradar:agent:agent-1'})-[:HOSTS_SERVICE]->(svc:Service {id:'serviceradar:service:ssh@agent-1'})-[:TARGETS]->(t:Device)
+        OPTIONAL MATCH (t)-[:PROVIDES_CAPABILITY]->(cap:Capability)
+        RETURN jsonb_build_object('collector', c, 'service', svc, 'target', t, 'capabilities', collect(cap))$$
+  ) AS (result ag_catalog.agtype);
+  ```

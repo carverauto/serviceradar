@@ -205,6 +205,38 @@ async fn device_graph_query_returns_neighborhood() {
                 == Some("snmp")),
             "expected snmp capability in graph: {body}"
         );
+
+        let filtered_request = QueryRequest {
+            query: r#"in:device_graph device_id:"device-alpha" collector_owned:true include_topology:false"#.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let filtered_response = harness.query(filtered_request).await;
+        let (filtered_status, filtered_body) = read_json(filtered_response).await;
+        assert_eq!(
+            filtered_status,
+            http::StatusCode::OK,
+            "unexpected status on filtered graph query: {filtered_body}"
+        );
+        let filtered_results = filtered_body["results"]
+            .as_array()
+            .unwrap_or_else(|| panic!("filtered results missing or not array: {filtered_body}"));
+        assert_eq!(filtered_results.len(), 1, "expected single filtered row");
+        let filtered_graph = filtered_results[0]
+            .as_object()
+            .unwrap_or_else(|| panic!("filtered graph result is not an object: {filtered_body}"));
+
+        let filtered_interfaces = filtered_graph
+            .get("interfaces")
+            .and_then(|i| i.as_array())
+            .unwrap_or_else(|| panic!("interfaces missing or not array: {filtered_body}"));
+        assert!(
+            filtered_interfaces.is_empty(),
+            "include_topology:false should omit interfaces: {filtered_body}"
+        );
     })
     .await;
 }

@@ -90,6 +90,25 @@ Retrieves a single device by ID.
 **Parameters:**
 - `device_id` (required): Device identifier
 
+### Graph Tools
+
+#### `graphs.getDeviceNeighborhood`
+Fetches the AGE-backed graph neighborhood for a device, including collectors, services/checkers, targets, interfaces, and capability badges.
+
+**Parameters:**
+- `device_id` (required): Canonical device ID to look up
+- `collector_owned_only` (optional): When `true`, return only collector-owned services/checkers
+- `include_topology` (optional): When `false`, omit interfaces and peer topology from the response
+
+**Example:**
+```json
+{
+  "device_id": "serviceradar:router:edge1",
+  "collector_owned_only": false,
+  "include_topology": true
+}
+```
+
 ### Log Management Tools
 
 #### `logs.getLogs`
