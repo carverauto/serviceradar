@@ -14,8 +14,7 @@ DECLARE
     collector_only text := CASE WHEN coalesce(p_collector_owned_only, false) THEN 'true' ELSE 'false' END;
 BEGIN
     -- Ensure AGE objects are visible in the session.
-    PERFORM set_config('search_path', 'ag_catalog,"$user",public', false);
-    PERFORM set_config('graph_path', 'serviceradar', false);
+    PERFORM set_config('search_path', 'ag_catalog,pg_catalog,"$user",public', false);
 
     cypher_sql := format($cypher$
         WITH %s::boolean AS include_topology, %s::boolean AS collector_only
@@ -27,29 +26,39 @@ BEGIN
         OPTIONAL MATCH (svc)-[:PROVIDES_CAPABILITY]->(svcCap:Capability)
         OPTIONAL MATCH (d)-[:HAS_INTERFACE]->(iface:Interface)
         OPTIONAL MATCH (iface)-[:CONNECTS_TO]->(peer:Interface)
-        WITH d, col, svc, t, iface, peer, dcap, svcCap, include_topology, collector_only,
-             CASE WHEN col IS NOT NULL THEN true ELSE false END AS collector_owned
-        WHERE NOT collector_only OR collector_owned
-        RETURN jsonb_build_object(
-            'device', d,
-            'collectors', [c IN collect(DISTINCT col) WHERE c IS NOT NULL],
-            'services', [s IN collect(DISTINCT CASE WHEN svc IS NULL THEN NULL ELSE jsonb_build_object(
-                'service', svc,
-                'collector_id', col.id,
-                'collector_owned', collector_owned
-            ) END) WHERE s IS NOT NULL],
-            'targets', [target IN collect(DISTINCT t) WHERE target IS NOT NULL],
-            'interfaces', CASE WHEN include_topology THEN [i IN collect(DISTINCT iface) WHERE i IS NOT NULL] ELSE [] END,
-            'peer_interfaces', CASE WHEN include_topology THEN [p IN collect(DISTINCT peer) WHERE p IS NOT NULL] ELSE [] END,
-            'device_capabilities', [cap IN collect(DISTINCT dcap) WHERE cap IS NOT NULL],
-            'service_capabilities', [cap IN collect(DISTINCT svcCap) WHERE cap IS NOT NULL]
-        ) AS result
+        WITH d, include_topology, collector_only,
+             collect(DISTINCT col) AS collectors,
+             collect(DISTINCT svc) AS services,
+             collect(DISTINCT t) AS targets,
+             collect(DISTINCT iface) AS interfaces,
+             collect(DISTINCT peer) AS peers,
+             collect(DISTINCT dcap) AS device_caps,
+             collect(DISTINCT svcCap) AS service_caps
+        WITH d, include_topology, collector_only, collectors, services, targets, interfaces, peers, device_caps, service_caps,
+             CASE WHEN size([c IN collectors WHERE c IS NOT NULL]) > 0 THEN true ELSE false END AS has_collector
+        WHERE NOT collector_only OR has_collector
+        RETURN {
+            device: properties(d),
+            collectors: [c IN collectors WHERE c IS NOT NULL | properties(c)],
+            services: [s IN services WHERE s IS NOT NULL | {
+                service: properties(s),
+                collector_id: CASE WHEN size([c IN collectors WHERE c IS NOT NULL]) > 0 THEN (collectors[0].id) ELSE NULL END,
+                collector_owned: has_collector
+            }],
+            targets: [tgt IN targets WHERE tgt IS NOT NULL | properties(tgt)],
+            interfaces: CASE WHEN include_topology THEN [i IN interfaces WHERE i IS NOT NULL | properties(i)] ELSE [] END,
+            peer_interfaces: CASE WHEN include_topology THEN [p IN peers WHERE p IS NOT NULL | properties(p)] ELSE [] END,
+            device_capabilities: [cap IN device_caps WHERE cap IS NOT NULL | properties(cap)],
+            service_capabilities: [cap IN service_caps WHERE cap IS NOT NULL | properties(cap)]
+        } AS result
     $cypher$, include_topology, collector_only, p_device_id);
 
-    SELECT result INTO cypher_result
-    FROM ag_catalog.cypher('serviceradar', cypher_sql) AS (result ag_catalog.agtype);
+    EXECUTE 'SELECT result FROM ag_catalog.cypher(''serviceradar'', ' ||
+            chr(36) || chr(36) || cypher_sql || chr(36) || chr(36) ||
+            ') AS (result ag_catalog.agtype)'
+    INTO cypher_result;
 
-    RETURN cypher_result::jsonb;
+    RETURN (cypher_result::text)::jsonb;
 EXCEPTION
     WHEN undefined_function THEN
         -- AGE not available; preserve prior behavior by returning NULL.

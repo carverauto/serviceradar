@@ -40,6 +40,7 @@ import ICMPSparkline from "./ICMPSparkline";
 import DeviceTypeIndicator from "./DeviceTypeIndicator";
 import { formatTimestampForDisplay } from "@/utils/traceTimestamp";
 import { useAuth } from "@/components/AuthProvider";
+import DeviceGraphSummary from "./DeviceGraphSummary";
 
 type SortableKeys =
   | "ip"
@@ -825,22 +826,31 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                               </div>
                             </div>
                           )}
-                        <div>
-                          <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-2">
-                            Metadata
-                          </h4>
-                          <ReactJson
-                            src={device.metadata}
-                            theme="pop"
-                            collapsed={false}
-                            displayDataTypes={false}
-                            enableClipboard={true}
-                            style={{
-                              padding: "1rem",
-                              borderRadius: "0.375rem",
-                              backgroundColor: "#1C1B22",
-                            }}
-                          />
+                        <div className="grid gap-4 lg:grid-cols-2">
+                          <div>
+                            <DeviceGraphSummary
+                              deviceId={device.device_id}
+                              defaultCollectorOwnedOnly={false}
+                              includeTopology={false}
+                            />
+                          </div>
+                          <div>
+                            <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-2">
+                              Metadata
+                            </h4>
+                            <ReactJson
+                              src={device.metadata}
+                              theme="pop"
+                              collapsed={false}
+                              displayDataTypes={false}
+                              enableClipboard={true}
+                              style={{
+                                padding: "1rem",
+                                borderRadius: "0.375rem",
+                                backgroundColor: "#1C1B22",
+                              }}
+                            />
+                          </div>
                         </div>
                       </div>
                     </td>

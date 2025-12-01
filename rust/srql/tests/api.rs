@@ -138,8 +138,7 @@ async fn device_graph_query_returns_neighborhood() {
 
         let device = graph
             .get("device")
-            .and_then(|d| d.get("properties"))
-            .and_then(|props| props.get("id"))
+            .and_then(|d| d.get("id"))
             .and_then(|id| id.as_str())
             .unwrap_or_else(|| panic!("device id missing in graph result: {body}"));
         assert_eq!(device, "device-alpha");
@@ -150,8 +149,7 @@ async fn device_graph_query_returns_neighborhood() {
             .unwrap_or_else(|| panic!("collectors missing or not array: {body}"));
         assert!(
             collectors.iter().any(|c| c
-                .get("properties")
-                .and_then(|p| p.get("id"))
+                .get("id")
                 .and_then(|id| id.as_str())
                 == Some("serviceradar:agent:agent-1")),
             "expected collector serviceradar:agent:agent-1 in graph: {body}"
@@ -172,7 +170,6 @@ async fn device_graph_query_returns_neighborhood() {
                         == Some("serviceradar:agent:agent-1")
                     && svc_obj
                         .get("service")
-                        .and_then(|s| s.get("properties"))
                         .and_then(|p| p.get("id"))
                         .and_then(|id| id.as_str())
                         == Some("serviceradar:service:ssh@agent-1")
@@ -186,8 +183,7 @@ async fn device_graph_query_returns_neighborhood() {
             .unwrap_or_else(|| panic!("interfaces missing or not array: {body}"));
         assert!(
             interfaces.iter().any(|iface| iface
-                .get("properties")
-                .and_then(|p| p.get("id"))
+                .get("id")
                 .and_then(|id| id.as_str())
                 == Some("device-alpha/eth0")),
             "expected interface device-alpha/eth0 in graph: {body}"
@@ -199,8 +195,7 @@ async fn device_graph_query_returns_neighborhood() {
             .unwrap_or_else(|| panic!("device_capabilities missing or not array: {body}"));
         assert!(
             device_caps.iter().any(|cap| cap
-                .get("properties")
-                .and_then(|p| p.get("type"))
+                .get("type")
                 .and_then(|t| t.as_str())
                 == Some("snmp")),
             "expected snmp capability in graph: {body}"

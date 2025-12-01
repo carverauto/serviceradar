@@ -52,3 +52,4 @@ Progress notes:
 - Compose mTLS stack rebuilt on APP_TAG `sha-3c7fc58993090562980d9fa62aab7caeb4c8db19`; search_path corrected to `public, ag_catalog`, CNPG collation refreshed, and AGE cypher() params in the graph writer converted to stringified JSON for compatibility.
 - Core/poller/agent/web running; data now lands in `public` (unified_devices=10, pollers=1, logs/traces populated). UI validation + AGE backfill still outstanding.
 - AGE graph writer cypher calls reworked to use parameter maps (no format() dollar quoting); compose refreshed with APP_TAG `sha-d03721f47c5c7b4575da2a3f00c475bcfa0b0237` and services healthy.
+- AGE neighborhood helper updated to drop graph_path, pin search_path to `ag_catalog,pg_catalog`, cast agtype via text/jsonb, and aggregate property maps to avoid null graph responses; re-applied migration to mTLS CNPG and verified age_device_neighborhood returns collectors/services/targets.

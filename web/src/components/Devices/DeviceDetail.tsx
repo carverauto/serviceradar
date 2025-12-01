@@ -52,6 +52,7 @@ import DeleteDeviceButton from "./DeleteDeviceButton";
 import type { DeviceAliasHistory, DeviceAliasRecord } from "@/types/devices";
 import { buildAliasHistoryFromMetadata } from "@/lib/alias";
 import type { SightingEvent } from "@/types/identity";
+import DeviceGraphSummary from "./DeviceGraphSummary";
 
 interface SrqlResponse<T> {
   results?: T[];
@@ -1230,6 +1231,12 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
           </div>
         )}
       </div>
+
+      <DeviceGraphSummary
+        deviceId={device.device_id}
+        defaultCollectorOwnedOnly={false}
+        includeTopology={true}
+      />
 
       {(promotionSightingId || promotedViaSighting) && (
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">

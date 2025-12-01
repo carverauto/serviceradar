@@ -43,6 +43,7 @@ type ageGraphParams struct {
 	Devices    []ageGraphDevice    `json:"devices,omitempty"`
 	Services   []ageGraphService   `json:"services,omitempty"`
 	ReportedBy []ageGraphEdge      `json:"reportedBy,omitempty"`
+	CollectorParents []ageGraphCollectorEdge `json:"collectorParents,omitempty"`
 	Targets    []ageGraphTarget    `json:"targets,omitempty"`
 }
 
@@ -70,6 +71,11 @@ type ageGraphService struct {
 type ageGraphEdge struct {
 	DeviceID    string `json:"device_id"`
 	CollectorID string `json:"collector_id"`
+}
+
+type ageGraphCollectorEdge struct {
+	CollectorID       string `json:"collector_id"`
+	ParentCollectorID string `json:"parent_collector_id"`
 }
 
 type ageGraphTarget struct {
@@ -132,6 +138,7 @@ func buildAgeGraphParams(updates []*models.DeviceUpdate) *ageGraphParams {
 	devices := make(map[string]ageGraphDevice)
 	services := make(map[string]ageGraphService)
 	reported := make(map[string]ageGraphEdge)
+	collectorParents := make(map[string]ageGraphCollectorEdge)
 	targets := make(map[string]ageGraphTarget)
 
 	for _, update := range updates {
@@ -156,7 +163,7 @@ func buildAgeGraphParams(updates []*models.DeviceUpdate) *ageGraphParams {
 				if serviceType == models.ServiceTypeAgent && strings.TrimSpace(update.PollerID) != "" {
 					pollerID := models.GenerateServiceDeviceID(models.ServiceTypePoller, strings.TrimSpace(update.PollerID))
 					upsertCollector(collectors, pollerID, string(models.ServiceTypePoller), "", "")
-					addReportedEdge(reported, deviceID, pollerID)
+					addCollectorParent(collectorParents, deviceID, pollerID)
 				}
 			} else {
 				hostCollectorID := hostCollectorFromUpdate(update)
@@ -191,7 +198,7 @@ func buildAgeGraphParams(updates []*models.DeviceUpdate) *ageGraphParams {
 	}
 
 	// Nothing to persist.
-	if len(collectors) == 0 && len(devices) == 0 && len(services) == 0 && len(reported) == 0 && len(targets) == 0 {
+	if len(collectors) == 0 && len(devices) == 0 && len(services) == 0 && len(reported) == 0 && len(targets) == 0 && len(collectorParents) == 0 {
 		return nil
 	}
 
@@ -200,6 +207,7 @@ func buildAgeGraphParams(updates []*models.DeviceUpdate) *ageGraphParams {
 		Devices:    mapDevicesToSlice(devices),
 		Services:   mapServicesToSlice(services),
 		ReportedBy: mapEdgesToSlice(reported),
+		CollectorParents: mapCollectorParentsToSlice(collectorParents),
 		Targets:    mapTargetsToSlice(targets),
 	}
 }
@@ -480,8 +488,32 @@ func addTargetEdge(store map[string]ageGraphTarget, serviceID, deviceID string) 
 	}
 }
 
+func addCollectorParent(store map[string]ageGraphCollectorEdge, collectorID, parentCollectorID string) {
+	collectorID = strings.TrimSpace(collectorID)
+	parentCollectorID = strings.TrimSpace(parentCollectorID)
+	if collectorID == "" || parentCollectorID == "" {
+		return
+	}
+	key := collectorID + "|" + parentCollectorID
+	if _, exists := store[key]; exists {
+		return
+	}
+	store[key] = ageGraphCollectorEdge{
+		CollectorID:       collectorID,
+		ParentCollectorID: parentCollectorID,
+	}
+}
+
 func mapCollectorsToSlice(store map[string]ageGraphCollector) []ageGraphCollector {
 	out := make([]ageGraphCollector, 0, len(store))
+	for _, v := range store {
+		out = append(out, v)
+	}
+	return out
+}
+
+func mapCollectorParentsToSlice(store map[string]ageGraphCollectorEdge) []ageGraphCollectorEdge {
+	out := make([]ageGraphCollectorEdge, 0, len(store))
 	for _, v := range store {
 		out = append(out, v)
 	}
@@ -639,6 +671,7 @@ FROM ag_catalog.cypher(
                   coalesce($devices, []) AS devices,
                   coalesce($services, []) AS services,
                   coalesce($reportedBy, []) AS reportedBy,
+                  coalesce($collectorParents, []) AS collectorParents,
                   coalesce($targets, []) AS targets
 
              UNWIND collectors AS c
@@ -670,9 +703,23 @@ FROM ag_catalog.cypher(
                  WITH collectors, devices, services, reportedBy, targets
 
              UNWIND reportedBy AS r
-                 MERGE (dev:Device {id: r.device_id})
-                 MERGE (col:Collector {id: r.collector_id})
-                 MERGE (dev)-[:REPORTED_BY]->(col)
+                 WITH r, CASE WHEN r.device_id STARTS WITH 'serviceradar:' THEN true ELSE false END AS is_service
+                 FOREACH(_ IN CASE WHEN is_service THEN [1] ELSE [] END |
+                     MERGE (child:Collector {id: r.device_id})
+                     MERGE (parent:Collector {id: r.collector_id})
+                     MERGE (child)-[:REPORTED_BY]->(parent)
+                 )
+                 FOREACH(_ IN CASE WHEN NOT is_service THEN [1] ELSE [] END |
+                     MERGE (dev:Device {id: r.device_id})
+                     MERGE (col:Collector {id: r.collector_id})
+                     MERGE (dev)-[:REPORTED_BY]->(col)
+                 )
+                 WITH collectors, devices, services, reportedBy, targets
+
+             UNWIND collectorParents AS cp
+                 MERGE (child:Collector {id: cp.collector_id})
+                 MERGE (parent:Collector {id: cp.parent_collector_id})
+                 MERGE (child)-[:REPORTED_BY]->(parent)
                  WITH collectors, devices, services, reportedBy, targets
 
              UNWIND targets AS t
