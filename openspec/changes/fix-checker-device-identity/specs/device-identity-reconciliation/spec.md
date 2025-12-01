@@ -44,6 +44,17 @@ The system SHALL distinguish between the collector host (where the checker runs)
 - **WHEN** a checker reports `host_ip: 172.18.0.5` and that IP matches the registered agent's current IP
 - **THEN** the system recognizes this as the collector's own address and skips device creation for that IP from the checker result
 
+### Requirement: Checker Definitions and Results Are Not Devices
+The system SHALL NOT create unified device records or sightings from checker definitions in poller configuration or from checker host metadata; only the monitoring targets themselves may become devices.
+
+#### Scenario: Poller checker definition is ignored
+- **WHEN** `poller.json` defines a checker service (e.g., `checker_service: sysmon-vm`, `checker_service_type: grpc`, `checker_host_ip: 172.18.0.5`)
+- **THEN** no unified device or device sighting is created from that checker definition; device creation is limited to actual monitoring targets discovered at runtime
+
+#### Scenario: Checker host result is ignored
+- **WHEN** a checker result is received with `checker_host_ip: 172.18.0.5`, `checker_service: sysmon-vm`, and `source: checker` for collector `docker-agent`
+- **THEN** the system skips device creation for that host IP and service ID, ensuring the existing target device (e.g., sysmon-vm) remains the only device in inventory
+
 ### Requirement: Internal Service Type Registry
 The system SHALL maintain a registry of ServiceTypes for internal services that use service device ID format.
 

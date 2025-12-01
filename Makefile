@@ -96,6 +96,14 @@ help: ## Show this help message
 	@echo "$(COLOR_BOLD)Available targets:$(COLOR_RESET)"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(COLOR_CYAN)%-20s$(COLOR_RESET) %s\n", $$1, $$2}'
 
+.PHONY: build
+build: ## Build the full workspace with Bazel (remote)
+	@bazel build --config=remote //...
+
+.PHONY: push_all
+push_all: ## Build and push all OCI images to GHCR via Bazel
+	@bazel run --config=remote --stamp //docker/images:push_all
+
 .PHONY: cnpg-migrate
 cnpg-migrate: ## Apply CNPG migrations (set CNPG_* vars or pass ARGS="--host ...")
 	@$(GO) run ./cmd/tools/cnpg-migrate $(ARGS)
@@ -280,8 +288,8 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 		proto/flow/flow.proto
 	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
 
-.PHONY: build
-build: generate-proto ## Build all binaries
+.PHONY: build-binaries
+build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@echo "$(COLOR_BOLD)Building all binaries$(COLOR_RESET)"
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-agent cmd/agent/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-poller cmd/poller/main.go
