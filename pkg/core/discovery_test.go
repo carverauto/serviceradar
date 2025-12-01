@@ -55,7 +55,7 @@ func TestNewDiscoveryService(t *testing.T) {
 
 	testLogger := logger.NewTestLogger()
 
-	svc := NewDiscoveryService(mockDB, mockRegistry, testLogger)
+	svc := NewDiscoveryService(mockDB, mockRegistry, testLogger, nil)
 	assert.NotNil(t, svc)
 
 	// Verify it implements the interface

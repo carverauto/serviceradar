@@ -15,16 +15,16 @@
 
 ## 3. Ingestion pipelines into AGE
 
-- [ ] 3.1 Wire core registry/device updates (via DIRE output) to `MERGE` Device + Capability edges (SNMP/OTEL/sysmon) without creating collector-host devices
-- [ ] 3.2 Emit Service nodes/edges for internal services (datasvc/sync/mapper/otel/zen) attached to their collector nodes instead of standalone devices
-- [ ] 3.3 Map checker results to TARGETS edges from Service/CheckerDefinition → Device targets; ensure collector host metadata is ignored for node creation
-- [ ] 3.4 Ingest mapper interface discoveries as Interface nodes attached to Devices; add CONNECTS_TO edges between interfaces when topology is known; seed devices discovered via mapper through DIRE to reuse canonical IDs
-- [ ] 3.5 Provide backpressure/error handling so AGE failures do not block registry ingestion, with metrics + logs
+- [x] 3.1 Wire core registry/device updates (via DIRE output) to `MERGE` Device + Capability edges (SNMP/OTEL/sysmon) without creating collector-host devices
+- [x] 3.2 Emit Service nodes/edges for internal services (datasvc/sync/mapper/otel/zen) attached to their collector nodes instead of standalone devices
+- [x] 3.3 Map checker results to TARGETS/RUNS_CHECKER edges from Service/CheckerDefinition → Device targets; ensure collector host metadata is ignored for node creation
+- [x] 3.4 Ingest mapper interface discoveries as Interface nodes attached to Devices; add CONNECTS_TO edges between interfaces when topology is known; seed devices discovered via mapper through DIRE to reuse canonical IDs
+- [x] 3.5 Provide backpressure/error handling so AGE failures do not block registry ingestion, with metrics + logs
 - [ ] 3.6 Add reconciliation/backfill from unified_devices + mapper discoveries to heal graph drift
 
 ## 4. API surfaces and queries
 
-- [ ] 4.1 Add API endpoint/DAO to fetch a device neighborhood (collector → service/checker → target → interfaces) from AGE
+- [x] 4.1 Add API endpoint/DAO to fetch a device neighborhood (collector → service/checker → target → interfaces) from AGE
 - [ ] 4.2 Add filters to return only collector-owned services/checkers vs external targets
 - [ ] 4.3 Provide Cypher snippets or stored procedures for common queries (device summary, path to collector, service capability badges)
 - [ ] 4.4 Update SRQL planner to read from graph for inventory-like queries (neighborhood/relationships) instead of only `unified_devices`

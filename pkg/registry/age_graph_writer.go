@@ -3,7 +3,9 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -13,6 +15,8 @@ import (
 // GraphWriter emits device/service/collector relationships into the AGE graph.
 type GraphWriter interface {
 	WriteGraph(ctx context.Context, updates []*models.DeviceUpdate)
+	WriteInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface)
+	WriteTopology(ctx context.Context, events []*models.TopologyDiscoveryEvent)
 }
 
 // NewAGEGraphWriter builds an AGE-backed GraphWriter that uses cypher() against CNPG.
@@ -27,8 +31,11 @@ func NewAGEGraphWriter(executor db.QueryExecutor, log logger.Logger) GraphWriter
 }
 
 type ageGraphWriter struct {
-	executor db.QueryExecutor
-	log      logger.Logger
+	executor        db.QueryExecutor
+	log             logger.Logger
+	successCount    uint64
+	failureCount    uint64
+	lastFailureWarn uint64
 }
 
 type ageGraphParams struct {
@@ -36,6 +43,7 @@ type ageGraphParams struct {
 	Devices    []ageGraphDevice    `json:"devices,omitempty"`
 	Services   []ageGraphService   `json:"services,omitempty"`
 	ReportedBy []ageGraphEdge      `json:"reportedBy,omitempty"`
+	Targets    []ageGraphTarget    `json:"targets,omitempty"`
 }
 
 type ageGraphCollector struct {
@@ -64,6 +72,29 @@ type ageGraphEdge struct {
 	CollectorID string `json:"collector_id"`
 }
 
+type ageGraphTarget struct {
+	ServiceID string `json:"service_id"`
+	DeviceID  string `json:"device_id"`
+}
+
+type ageGraphInterface struct {
+	ID          string   `json:"id"`
+	DeviceID    string   `json:"device_id"`
+	Name        string   `json:"name,omitempty"`
+	Descr       string   `json:"descr,omitempty"`
+	Alias       string   `json:"alias,omitempty"`
+	MAC         string   `json:"mac,omitempty"`
+	IPAddresses []string `json:"ip_addresses,omitempty"`
+	IfIndex     int32    `json:"ifindex,omitempty"`
+}
+
+type ageGraphLink struct {
+	LocalDeviceID   string `json:"local_device_id"`
+	LocalInterface  string `json:"local_interface_id"`
+	RemoteDeviceID  string `json:"remote_device_id"`
+	RemoteInterface string `json:"remote_interface_id"`
+}
+
 func (w *ageGraphWriter) WriteGraph(ctx context.Context, updates []*models.DeviceUpdate) {
 	if w == nil || w.executor == nil {
 		return
@@ -78,11 +109,17 @@ func (w *ageGraphWriter) WriteGraph(ctx context.Context, updates []*models.Devic
 		if w.log != nil {
 			w.log.Warn().Err(err).Msg("age graph: failed to marshal params")
 		}
+		w.recordFailure()
 		return
 	}
 
-	if _, err := w.executor.ExecuteQuery(ctx, ageGraphMergeQuery, payload); err != nil && w.log != nil {
-		w.log.Warn().Err(err).Msg("age graph: failed to merge batch")
+	if _, err := w.executor.ExecuteQuery(ctx, ageGraphMergeQuery, payload); err != nil {
+		w.recordFailure()
+		if w.log != nil {
+			w.log.Warn().Err(err).Msg("age graph: failed to merge batch")
+		}
+	} else {
+		w.recordSuccess()
 	}
 }
 
@@ -95,6 +132,7 @@ func buildAgeGraphParams(updates []*models.DeviceUpdate) *ageGraphParams {
 	devices := make(map[string]ageGraphDevice)
 	services := make(map[string]ageGraphService)
 	reported := make(map[string]ageGraphEdge)
+	targets := make(map[string]ageGraphTarget)
 
 	for _, update := range updates {
 		if update == nil || isDeletionMetadata(update.Metadata) {
@@ -138,10 +176,22 @@ func buildAgeGraphParams(updates []*models.DeviceUpdate) *ageGraphParams {
 			upsertCollector(collectors, collectorID.id, collectorID.kind, collectorID.ip, collectorID.hostname)
 			addReportedEdge(reported, deviceID, collectorID.id)
 		}
+
+		// If this update was produced by a checker, link the checker service to the target device.
+		if checkerSvc := strings.TrimSpace(update.Metadata["checker_service"]); checkerSvc != "" {
+			if checkerID := checkerServiceID(checkerSvc, update.AgentID, update.PollerID); checkerID != "" {
+				hostCollectorID := hostCollectorFromUpdate(update)
+				upsertService(services, checkerID, string(models.ServiceTypeChecker), "", "", hostCollectorID)
+				addTargetEdge(targets, checkerID, deviceID)
+				if hostCollectorID != "" {
+					upsertCollector(collectors, hostCollectorID, collectorTypeFromID(hostCollectorID), "", "")
+				}
+			}
+		}
 	}
 
 	// Nothing to persist.
-	if len(collectors) == 0 && len(devices) == 0 && len(services) == 0 && len(reported) == 0 {
+	if len(collectors) == 0 && len(devices) == 0 && len(services) == 0 && len(reported) == 0 && len(targets) == 0 {
 		return nil
 	}
 
@@ -150,7 +200,145 @@ func buildAgeGraphParams(updates []*models.DeviceUpdate) *ageGraphParams {
 		Devices:    mapDevicesToSlice(devices),
 		Services:   mapServicesToSlice(services),
 		ReportedBy: mapEdgesToSlice(reported),
+		Targets:    mapTargetsToSlice(targets),
 	}
+}
+
+func (w *ageGraphWriter) WriteInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) {
+	if w == nil || w.executor == nil {
+		return
+	}
+
+	payload := buildInterfaceParams(interfaces)
+	if len(payload) == 0 {
+		return
+	}
+
+	data, err := json.Marshal(map[string]any{"interfaces": payload})
+	if err != nil {
+		if w.log != nil {
+			w.log.Warn().Err(err).Msg("age graph: failed to marshal interface payload")
+		}
+		w.recordFailure()
+		return
+	}
+
+	if _, err := w.executor.ExecuteQuery(ctx, ageInterfaceMergeQuery, data); err != nil {
+		w.recordFailure()
+		if w.log != nil {
+			w.log.Warn().Err(err).Msg("age graph: failed to merge interfaces")
+		}
+	} else {
+		w.recordSuccess()
+	}
+}
+
+func (w *ageGraphWriter) WriteTopology(ctx context.Context, events []*models.TopologyDiscoveryEvent) {
+	if w == nil || w.executor == nil {
+		return
+	}
+
+	payload := buildTopologyParams(events)
+	if len(payload) == 0 {
+		return
+	}
+
+	data, err := json.Marshal(map[string]any{"links": payload})
+	if err != nil {
+		if w.log != nil {
+			w.log.Warn().Err(err).Msg("age graph: failed to marshal topology payload")
+		}
+		w.recordFailure()
+		return
+	}
+
+	if _, err := w.executor.ExecuteQuery(ctx, ageTopologyMergeQuery, data); err != nil {
+		w.recordFailure()
+		if w.log != nil {
+			w.log.Warn().Err(err).Msg("age graph: failed to merge topology links")
+		}
+	} else {
+		w.recordSuccess()
+	}
+}
+
+func buildInterfaceParams(interfaces []*models.DiscoveredInterface) []ageGraphInterface {
+	if len(interfaces) == 0 {
+		return nil
+	}
+
+	result := make([]ageGraphInterface, 0, len(interfaces))
+
+	for _, iface := range interfaces {
+		if iface == nil {
+			continue
+		}
+
+		deviceID := strings.TrimSpace(iface.DeviceID)
+		if deviceID == "" {
+			continue
+		}
+
+		name := strings.TrimSpace(iface.IfName)
+		if name == "" {
+			name = fmt.Sprintf("ifindex:%d", iface.IfIndex)
+		}
+
+		ifaceID := fmt.Sprintf("%s/%s", deviceID, name)
+		entry := ageGraphInterface{
+			ID:          ifaceID,
+			DeviceID:    deviceID,
+			Name:        name,
+			Descr:       strings.TrimSpace(iface.IfDescr),
+			Alias:       strings.TrimSpace(iface.IfAlias),
+			MAC:         strings.TrimSpace(iface.IfPhysAddress),
+			IPAddresses: normalizeIPs(iface.IPAddresses),
+			IfIndex:     iface.IfIndex,
+		}
+
+		result = append(result, entry)
+	}
+
+	return result
+}
+
+func buildTopologyParams(events []*models.TopologyDiscoveryEvent) []ageGraphLink {
+	if len(events) == 0 {
+		return nil
+	}
+
+	result := make([]ageGraphLink, 0, len(events))
+	for _, ev := range events {
+		if ev == nil {
+			continue
+		}
+		localDeviceID := strings.TrimSpace(ev.LocalDeviceID)
+		neighborID := strings.TrimSpace(ev.NeighborManagementAddr)
+		if localDeviceID == "" || neighborID == "" {
+			continue
+		}
+
+		localIfaceID := ""
+		if ev.LocalIfName != "" {
+			localIfaceID = fmt.Sprintf("%s/%s", localDeviceID, strings.TrimSpace(ev.LocalIfName))
+		} else if ev.LocalIfIndex != 0 {
+			localIfaceID = fmt.Sprintf("%s/ifindex:%d", localDeviceID, ev.LocalIfIndex)
+		}
+
+		remoteIfaceID := ""
+		if ev.NeighborPortID != "" {
+			remoteIfaceID = fmt.Sprintf("%s/%s", neighborID, strings.TrimSpace(ev.NeighborPortID))
+		}
+
+		result = append(result, ageGraphLink{
+			LocalDeviceID:   localDeviceID,
+			LocalInterface:  localIfaceID,
+			RemoteDeviceID:  neighborID,
+			RemoteInterface: remoteIfaceID,
+		})
+	}
+
+	return result
 }
 
 type collectorRef struct {
@@ -276,6 +464,22 @@ func addReportedEdge(store map[string]ageGraphEdge, deviceID, collectorID string
 	}
 }
 
+func addTargetEdge(store map[string]ageGraphTarget, serviceID, deviceID string) {
+	serviceID = strings.TrimSpace(serviceID)
+	deviceID = strings.TrimSpace(deviceID)
+	if serviceID == "" || deviceID == "" {
+		return
+	}
+	key := serviceID + "|" + deviceID
+	if _, exists := store[key]; exists {
+		return
+	}
+	store[key] = ageGraphTarget{
+		ServiceID: serviceID,
+		DeviceID:  deviceID,
+	}
+}
+
 func mapCollectorsToSlice(store map[string]ageGraphCollector) []ageGraphCollector {
 	out := make([]ageGraphCollector, 0, len(store))
 	for _, v := range store {
@@ -302,6 +506,14 @@ func mapServicesToSlice(store map[string]ageGraphService) []ageGraphService {
 
 func mapEdgesToSlice(store map[string]ageGraphEdge) []ageGraphEdge {
 	out := make([]ageGraphEdge, 0, len(store))
+	for _, v := range store {
+		out = append(out, v)
+	}
+	return out
+}
+
+func mapTargetsToSlice(store map[string]ageGraphTarget) []ageGraphTarget {
+	out := make([]ageGraphTarget, 0, len(store))
 	for _, v := range store {
 		out = append(out, v)
 	}
@@ -348,11 +560,74 @@ func collectorTypeFromID(deviceID string) string {
 	return ""
 }
 
+func checkerServiceID(serviceName, agentID, pollerID string) string {
+	serviceName = strings.TrimSpace(serviceName)
+	if serviceName == "" {
+		return ""
+	}
+
+	if agentID := strings.TrimSpace(agentID); agentID != "" {
+		return models.GenerateServiceDeviceID(models.ServiceTypeChecker, fmt.Sprintf("%s@%s", serviceName, agentID))
+	}
+
+	if pollerID := strings.TrimSpace(pollerID); pollerID != "" {
+		return models.GenerateServiceDeviceID(models.ServiceTypeChecker, fmt.Sprintf("%s@%s", serviceName, pollerID))
+	}
+
+	return ""
+}
+
 func trimPtr(val *string) string {
 	if val == nil {
 		return ""
 	}
 	return strings.TrimSpace(*val)
+}
+
+func normalizeIPs(ips []string) []string {
+	if len(ips) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(ips))
+	result := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		ip = strings.TrimSpace(ip)
+		if ip == "" {
+			continue
+		}
+		if _, ok := seen[ip]; ok {
+			continue
+		}
+		seen[ip] = struct{}{}
+		result = append(result, ip)
+	}
+	return result
+}
+
+func (w *ageGraphWriter) recordSuccess() {
+	if w == nil {
+		return
+	}
+	atomic.AddUint64(&w.successCount, 1)
+	recordAgeGraphSuccess()
+}
+
+func (w *ageGraphWriter) recordFailure() {
+	if w == nil {
+		return
+	}
+	total := atomic.AddUint64(&w.failureCount, 1)
+	recordAgeGraphFailure()
+	if w.log != nil {
+		// Warn every 10th failure to avoid log spam.
+		if total == 1 || total%10 == 0 {
+			successes := atomic.LoadUint64(&w.successCount)
+			w.log.Warn().
+				Uint64("age_graph_failures", total).
+				Uint64("age_graph_successes", successes).
+				Msg("age graph: write failures observed")
+		}
+	}
 }
 
 const ageGraphMergeQuery = `
@@ -378,10 +653,59 @@ FROM cypher('serviceradar', $$
         WHERE coalesce(s.collector_id, '') <> ''
         MERGE (col:Collector {id: s.collector_id})
         MERGE (col)-[:HOSTS_SERVICE]->(svc)
+        FOREACH (_ IN CASE WHEN coalesce(s.type, '') = 'checker' THEN [1] ELSE [] END |
+            MERGE (col)-[:RUNS_CHECKER]->(svc)
+        )
 
     UNWIND coalesce($reportedBy, []) AS r
         MERGE (dev:Device {id: r.device_id})
         MERGE (col:Collector {id: r.collector_id})
         MERGE (dev)-[:REPORTED_BY]->(col)
+
+    UNWIND coalesce($targets, []) AS t
+        MERGE (svc:Service {id: t.service_id})
+        MERGE (dev:Device {id: t.device_id})
+        MERGE (svc)-[:TARGETS]->(dev)
+$$, $1::jsonb) AS (result agtype);
+`
+
+const ageInterfaceMergeQuery = `
+SELECT *
+FROM cypher('serviceradar', $$
+    UNWIND coalesce($interfaces, []) AS i
+        MERGE (d:Device {id: i.device_id})
+        MERGE (iface:Interface {id: i.id})
+        SET iface.name = coalesce(i.name, iface.name),
+            iface.descr = coalesce(i.descr, iface.descr),
+            iface.alias = coalesce(i.alias, iface.alias),
+            iface.mac = coalesce(i.mac, iface.mac),
+            iface.ip_addresses = coalesce(i.ip_addresses, iface.ip_addresses),
+            iface.ifindex = coalesce(i.ifindex, iface.ifindex)
+        MERGE (d)-[:HAS_INTERFACE]->(iface)
+$$, $1::jsonb) AS (result agtype);
+`
+
+const ageTopologyMergeQuery = `
+SELECT *
+FROM cypher('serviceradar', $$
+    UNWIND coalesce($links, []) AS l
+        WITH l
+        MATCH (src:Device {id: l.local_device_id})
+        MATCH (dst:Device {id: l.remote_device_id})
+        OPTIONAL MATCH (srcIface:Interface {id: l.local_interface_id})
+        OPTIONAL MATCH (dstIface:Interface {id: l.remote_interface_id})
+        FOREACH (_ IN CASE WHEN srcIface IS NULL AND l.local_interface_id IS NOT NULL THEN [1] ELSE [] END |
+            MERGE (newSrcIface:Interface {id: l.local_interface_id})
+            MERGE (src)-[:HAS_INTERFACE]->(newSrcIface)
+            WITH l, src, dst, newSrcIface AS srcIface, dstIface
+        )
+        FOREACH (_ IN CASE WHEN dstIface IS NULL AND l.remote_interface_id IS NOT NULL THEN [1] ELSE [] END |
+            MERGE (newDstIface:Interface {id: l.remote_interface_id})
+            MERGE (dst)-[:HAS_INTERFACE]->(newDstIface)
+            WITH l, src, dst, srcIface, newDstIface AS dstIface
+        )
+        MERGE (srcIfaceOpt:Interface {id: coalesce(l.local_interface_id, src.id)}) // fallback to device if iface missing
+        MERGE (dstIfaceOpt:Interface {id: coalesce(l.remote_interface_id, dst.id)})
+        MERGE (srcIfaceOpt)-[:CONNECTS_TO]->(dstIfaceOpt)
 $$, $1::jsonb) AS (result agtype);
 `

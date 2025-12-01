@@ -73,7 +73,7 @@ func TestSyncResultsPerformanceOptimization(t *testing.T) {
 			realRegistry := registry.NewDeviceRegistry(mockDB, testLogger)
 
 			// Create discovery service
-			discoveryService := NewDiscoveryService(mockDB, realRegistry, testLogger)
+			discoveryService := NewDiscoveryService(mockDB, realRegistry, testLogger, nil)
 
 			// Create test sync results (simulating Armis data)
 			sightings := createSyncSightings(tt.sightingCount)
@@ -139,7 +139,7 @@ func TestRepeatedSyncCallsPerformance(t *testing.T) {
 		AnyTimes()
 	testLogger := logger.NewTestLogger()
 	realRegistry := registry.NewDeviceRegistry(mockDB, testLogger)
-	discoveryService := NewDiscoveryService(mockDB, realRegistry, testLogger)
+	discoveryService := NewDiscoveryService(mockDB, realRegistry, testLogger, nil)
 
 	// Create consistent sync data (same as what would come every 30 seconds)
 	sightings := createSyncSightings(15) // Reduced for test performance
@@ -206,7 +206,7 @@ func TestDatabaseCallCounting(t *testing.T) {
 		AnyTimes()
 	testLogger := logger.NewTestLogger()
 	realRegistry := registry.NewDeviceRegistry(mockDB, testLogger)
-	discoveryService := NewDiscoveryService(mockDB, realRegistry, testLogger)
+	discoveryService := NewDiscoveryService(mockDB, realRegistry, testLogger, nil)
 
 	sightings := createSyncSightings(15) // Batch size doesn't matter anymore
 	sightingsJSON, _ := json.Marshal(sightings)

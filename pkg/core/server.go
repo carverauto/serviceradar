@@ -155,8 +155,11 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		registry.WithCNPGIdentityResolver(database),
 		registry.WithIdentityReconciliationConfig(normalizedConfig.Identity),
 	}
-	if writer := registry.NewAGEGraphWriter(database, log); writer != nil && ageGraphEnabled() {
-		registryOpts = append(registryOpts, registry.WithGraphWriter(writer))
+	graphWriter := registry.NewAGEGraphWriter(database, log)
+	if graphWriter != nil && ageGraphEnabled() {
+		registryOpts = append(registryOpts, registry.WithGraphWriter(graphWriter))
+	} else {
+		graphWriter = nil
 	}
 	if normalizedConfig.Identity != nil {
 		registryOpts = append(registryOpts, registry.WithReconcileInterval(time.Duration(normalizedConfig.Identity.Reaper.Interval)))
@@ -213,7 +216,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 	serviceRegistry := registry.NewServiceRegistry(dbConn, log)
 
 	// Initialize the DiscoveryService
-	discoveryService := NewDiscoveryService(database, deviceRegistry, log)
+	discoveryService := NewDiscoveryService(database, deviceRegistry, log, graphWriter)
 
 	server := &Server{
 		DB:                  database,

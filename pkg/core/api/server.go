@@ -857,6 +857,7 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
 	protected.HandleFunc("/devices/{id}", s.handleDeviceByID).Methods("GET", "DELETE")
 	protected.HandleFunc("/devices/{id}/registry", s.getDeviceRegistryInfo).Methods("GET")
+	protected.HandleFunc("/devices/{id}/graph", s.handleDeviceGraph).Methods("GET")
 	protected.HandleFunc("/devices/{id}/metrics", s.getDeviceMetrics).Methods("GET")
 	protected.HandleFunc("/devices/metrics/status", s.getDeviceMetricsStatus).Methods("GET")
 	protected.HandleFunc("/devices/snmp/status", s.getDeviceSNMPStatus).Methods("POST")

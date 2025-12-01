@@ -64,6 +64,55 @@ func TestBuildAgeGraphParams_ServiceAttachedToCollector(t *testing.T) {
 	assert.Empty(t, params.Devices)
 }
 
+func TestBuildAgeGraphParams_CheckerTargets(t *testing.T) {
+	host := "target"
+	params := buildAgeGraphParams([]*models.DeviceUpdate{
+		{
+			DeviceID: "default:10.0.0.5",
+			IP:       "10.0.0.5",
+			AgentID:  "docker-agent",
+			Hostname: &host,
+			Metadata: map[string]string{
+				"checker_service":      "sysmon",
+				"checker_service_type": "grpc",
+			},
+		},
+	})
+
+	require.NotNil(t, params)
+	require.Len(t, params.Targets, 1)
+	assert.Equal(t, models.GenerateServiceDeviceID(models.ServiceTypeChecker, "sysmon@docker-agent"), params.Targets[0].ServiceID)
+	assert.Len(t, params.Services, 1, "checker service node should be created")
+	assert.Len(t, params.Collectors, 1, "host collector should be present for HOSTS_SERVICE")
+}
+
+func TestBuildInterfaceParams(t *testing.T) {
+	ifaces := []*models.DiscoveredInterface{
+		{
+			DeviceID:      "sr:device-1",
+			IfIndex:       1,
+			IfName:        "eth0",
+			IfDescr:       "uplink",
+			IfAlias:       "alias",
+			IfPhysAddress: "aa:bb:cc",
+			IPAddresses:   []string{"10.0.0.1", "10.0.0.1", "  "},
+		},
+		{
+			DeviceID: "sr:device-1",
+			IfIndex:  2,
+			// IfName empty -> use ifindex
+		},
+	}
+
+	params := buildInterfaceParams(ifaces)
+	require.Len(t, params, 2)
+
+	assert.Equal(t, "sr:device-1/eth0", params[0].ID)
+	assert.Equal(t, []string{"10.0.0.1"}, params[0].IPAddresses)
+	assert.Equal(t, "sr:device-1/ifindex:2", params[1].ID)
+	assert.Equal(t, int32(2), params[1].IfIndex)
+}
+
 func serviceTypePtr(st models.ServiceType) *models.ServiceType {
 	return &st
 }
