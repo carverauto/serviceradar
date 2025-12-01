@@ -35,7 +35,8 @@ import (
 
 // Static errors for err113 compliance
 var (
-	ErrMissingLocationData = errors.New("missing required location data for device registration")
+	ErrMissingLocationData      = errors.New("missing required location data for device registration")
+	ErrNilCoreServiceDeviceData = errors.New("failed to create device update for core service")
 )
 
 func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, partition string, now time.Time) error {
@@ -945,6 +946,122 @@ func (*Server) isCheckerService(serviceType string) bool {
 	}
 
 	return checkerTypes[serviceType]
+}
+
+// getCoreServiceType returns the ServiceType for a core service type string.
+// Returns empty string if the service type is not a core service.
+// These are ServiceRadar core infrastructure services that should use stable service device IDs.
+func getCoreServiceType(serviceType string) models.ServiceType {
+	switch serviceType {
+	case "datasvc":
+		return models.ServiceTypeDatasvc
+	case "kv":
+		return models.ServiceTypeKV
+	case "sync":
+		return models.ServiceTypeSync
+	case "mapper":
+		return models.ServiceTypeMapper
+	case "otel":
+		return models.ServiceTypeOtel
+	case "zen":
+		return models.ServiceTypeZen
+	case "core":
+		return models.ServiceTypeCore
+	default:
+		return ""
+	}
+}
+
+// findCoreServiceType checks if any of the services in the list is a core service.
+// Returns the service type and service name if found, empty strings otherwise.
+func findCoreServiceType(services []*proto.ServiceStatus) (models.ServiceType, string) {
+	for _, svc := range services {
+		if svc == nil {
+			continue
+		}
+		if serviceType := getCoreServiceType(svc.ServiceType); serviceType != "" {
+			return serviceType, svc.ServiceName
+		}
+	}
+	return "", ""
+}
+
+// registerCoreServiceDevice registers a core service (datasvc, sync, mapper, etc.)
+// using a stable service device ID that survives IP changes.
+func (s *Server) registerCoreServiceDevice(
+	ctx context.Context, serviceType models.ServiceType, serviceID, partition, sourceIP string, timestamp time.Time) error {
+	if partition == "" || sourceIP == "" {
+		return fmt.Errorf("CRITICAL: Cannot register core service device %s - "+
+			"missing required location data (partition=%q, source_ip=%q): %w",
+			serviceID, partition, sourceIP, ErrMissingLocationData)
+	}
+
+	// Create device update with stable service device ID
+	deviceUpdate := models.CreateCoreServiceDeviceUpdate(serviceType, serviceID, sourceIP, partition, nil)
+	if deviceUpdate == nil {
+		return fmt.Errorf("%w: %s", ErrNilCoreServiceDeviceData, serviceID)
+	}
+
+	// Update timestamp to match the status report time
+	deviceUpdate.Timestamp = timestamp
+
+	if s.DeviceRegistry != nil {
+		if err := s.DeviceRegistry.ProcessDeviceUpdate(ctx, deviceUpdate); err != nil {
+			return fmt.Errorf("failed to register core service device: %w", err)
+		}
+	} else {
+		s.logger.Warn().
+			Msg("DeviceRegistry not available for core service device registration")
+	}
+
+	s.logger.Debug().
+		Str("device_id", deviceUpdate.DeviceID).
+		Str("service_type", string(serviceType)).
+		Str("service_id", serviceID).
+		Str("ip", sourceIP).
+		Msg("Successfully registered core service device with stable ID")
+
+	return nil
+}
+
+// registerServiceOrCoreDevice handles device registration for both regular pollers/agents
+// and core services. It detects core services and uses stable service device IDs for them.
+func (s *Server) registerServiceOrCoreDevice(
+	ctx context.Context,
+	pollerID, partition, sourceIP string,
+	services []*proto.ServiceStatus,
+	timestamp time.Time,
+) {
+	// Skip registration if location data is missing
+	if partition == "" || sourceIP == "" {
+		return
+	}
+
+	// Create a timeout context
+	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// Check if this is a core service (datasvc, sync, etc.) - use stable service device ID
+	if coreServiceType, serviceID := findCoreServiceType(services); coreServiceType != "" {
+		if err := s.registerCoreServiceDevice(timeoutCtx, coreServiceType, serviceID,
+			partition, sourceIP, timestamp); err != nil {
+			s.logger.Warn().
+				Err(err).
+				Str("service_type", string(coreServiceType)).
+				Str("service_id", serviceID).
+				Msg("Failed to register core service device")
+		}
+		return
+	}
+
+	// Regular poller/agent registration
+	if err := s.registerServiceDevice(timeoutCtx, pollerID, s.findAgentID(services),
+		partition, sourceIP, timestamp); err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("poller_id", pollerID).
+			Msg("Failed to register service device for poller")
+	}
 }
 
 // generateCheckerID generates a unique checker ID from service name and agent ID

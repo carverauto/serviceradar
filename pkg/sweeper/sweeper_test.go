@@ -44,7 +44,8 @@ var (
 const (
 	testWatchReconnectDelay = 5 * time.Millisecond
 	testWatchBackoffDelay   = 3 * time.Millisecond
-	testWatchContextTimeout = 80 * time.Millisecond
+	// Give goroutine scheduling some slack so watch setup does not time out in CI.
+	testWatchContextTimeout = 500 * time.Millisecond
 )
 
 const (

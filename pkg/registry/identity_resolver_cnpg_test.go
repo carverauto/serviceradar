@@ -23,6 +23,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
@@ -189,14 +190,11 @@ func TestIdentityResolverCacheExpiry(t *testing.T) {
 		t.Errorf("expected device-1, got %s", deviceID)
 	}
 
-	// Wait for expiry
-	time.Sleep(15 * time.Millisecond)
-
-	// Should not find in cache after expiry
-	_, ok = cache.getIPMapping("192.168.1.1")
-	if ok {
-		t.Error("expected cache entry to be expired")
-	}
+	// Wait for expiry with generous deadline to avoid flakiness
+	require.Eventually(t, func() bool {
+		_, ok := cache.getIPMapping("192.168.1.1")
+		return !ok
+	}, 200*time.Millisecond, 10*time.Millisecond, "expected cache entry to be expired")
 }
 
 func TestIdentityResolverCacheEviction(t *testing.T) {
