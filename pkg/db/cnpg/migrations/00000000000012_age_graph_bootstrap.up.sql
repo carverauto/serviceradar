@@ -5,18 +5,8 @@
 CREATE EXTENSION IF NOT EXISTS age;
 
 -- Apply database-level defaults so new sessions see AGE objects without per-connection setup.
-DO $$
-BEGIN
-    EXECUTE format('ALTER DATABASE %I SET search_path = ag_catalog, "$user", public', current_database());
-    IF EXISTS (SELECT 1 FROM pg_settings WHERE name = 'graph_path') THEN
-        EXECUTE format('ALTER DATABASE %I SET graph_path = serviceradar', current_database());
-    ELSE
-        RAISE NOTICE 'graph_path GUC not available; skipping database-level default';
-    END IF;
-END $$;
-
 -- Ensure the current session can use AGE objects for the remaining statements.
-SET search_path = ag_catalog, "$user", public;
+SET search_path = ag_catalog, public;
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_settings WHERE name = 'graph_path') THEN
@@ -31,10 +21,10 @@ DO $$
 DECLARE
     graph_oid oid;
 BEGIN
-    SELECT oid INTO graph_oid FROM ag_catalog.ag_graph WHERE name = 'serviceradar';
+    SELECT graphid INTO graph_oid FROM ag_catalog.ag_graph WHERE name = 'serviceradar';
     IF graph_oid IS NULL THEN
         PERFORM ag_catalog.create_graph('serviceradar');
-        SELECT oid INTO graph_oid FROM ag_catalog.ag_graph WHERE name = 'serviceradar';
+        SELECT graphid INTO graph_oid FROM ag_catalog.ag_graph WHERE name = 'serviceradar';
     END IF;
 
     -- Vertex labels (devices, services, collectors, interfaces, capabilities, checker defs).

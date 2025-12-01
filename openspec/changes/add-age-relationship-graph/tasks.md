@@ -20,7 +20,7 @@
 - [x] 3.3 Map checker results to TARGETS/RUNS_CHECKER edges from Service/CheckerDefinition → Device targets; ensure collector host metadata is ignored for node creation
 - [x] 3.4 Ingest mapper interface discoveries as Interface nodes attached to Devices; add CONNECTS_TO edges between interfaces when topology is known; seed devices discovered via mapper through DIRE to reuse canonical IDs
 - [x] 3.5 Provide backpressure/error handling so AGE failures do not block registry ingestion, with metrics + logs
-- [ ] 3.6 Add reconciliation/backfill from unified_devices + mapper discoveries to heal graph drift
+- [x] 3.6 Add reconciliation/backfill from unified_devices + mapper discoveries to heal graph drift
 
 ## 4. API surfaces and queries
 
@@ -40,8 +40,14 @@
 
 ## 6. Backfill, testing, and validation
 
-- [ ] 6.1 Add backfill/rebuild job to regenerate AGE graph from relational sources (device updates, mapper interfaces, checker history)
+- [x] 6.1 Add backfill/rebuild job to regenerate AGE graph from relational sources (device updates, mapper interfaces, checker history)
 - [ ] 6.2 Add unit/integration tests for graph ingestion and neighborhood queries (including collector-vs-target distinction)
 - [ ] 6.3 Document validation steps: run on docker-compose.mtls and confirm phantom checker devices do not reappear; verify SNMP target shows metrics badge
 - [ ] 6.4 Validate mapper-seeded devices (seed router + neighbors) create correct Device/Interface/CONNECTS_TO relationships in the graph
 - [ ] 6.5 Validate SRQL/graph queries back the UI without unified_devices joins
+
+---
+
+Progress notes:
+- Compose mTLS stack rebuilt on APP_TAG `sha-3c7fc58993090562980d9fa62aab7caeb4c8db19`; search_path corrected to `public, ag_catalog`, CNPG collation refreshed, and AGE cypher() params in the graph writer converted to stringified JSON for compatibility.
+- Core/poller/agent/web running; data now lands in `public` (unified_devices=10, pollers=1, logs/traces populated). UI validation + AGE backfill still outstanding.

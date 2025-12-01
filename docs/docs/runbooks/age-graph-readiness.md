@@ -24,3 +24,11 @@ Use this runbook to confirm the Apache AGE graph (`serviceradar`) is present and
   - `kubectl -n demo exec deploy/serviceradar-tools -- cnpg-sql "SELECT name, kind FROM ag_catalog.ag_label WHERE graph=(SELECT oid FROM ag_catalog.ag_graph WHERE name='serviceradar') ORDER BY kind, name;"`
   - `kubectl -n demo exec deploy/serviceradar-tools -- cnpg-sql "SELECT * FROM ag_catalog.cypher('serviceradar', 'RETURN 1') AS (result agtype);"`
 - If the graph is missing, re-run migrations from the tools pod or issue the manual `CREATE EXTENSION` + `create_graph('serviceradar')` statements above (safe to rerun).
+
+## Rebuild/backfill the AGE graph
+- Use the new backfill utility to rehydrate nodes/edges from CNPG tables:
+  - Local repo: `go run ./cmd/tools/age-backfill --host ${CNPG_HOST:-localhost} --database ${CNPG_DATABASE:-serviceradar} --username ${CNPG_USERNAME:-serviceradar} --password ${CNPG_PASSWORD:-serviceradar}`
+  - Bazel: `bazel run //cmd/tools/age-backfill -- --host <host> --database <db> --username <user> --password <pass>`
+  - Demo k8s: `kubectl -n demo exec deploy/serviceradar-tools -- age-backfill`
+- The job reads `unified_devices`, `discovered_interfaces`, and `topology_discovery_events` and writes MERGE batches via AGE cypher.
+- Ensure `CNPG_*` env (host, port, database, username, password/secret, sslmode) are available in the execution environment.

@@ -216,10 +216,6 @@ func ensureAgeRuntimeDefaults(cnpg *models.CNPGDatabase) {
 	if _, ok := cnpg.ExtraRuntimeParams["search_path"]; !ok {
 		cnpg.ExtraRuntimeParams["search_path"] = `ag_catalog,"$user",public`
 	}
-
-	if _, ok := cnpg.ExtraRuntimeParams["graph_path"]; !ok {
-		cnpg.ExtraRuntimeParams["graph_path"] = "serviceradar"
-	}
 }
 
 func applyIdentityDefaults(cfg *models.IdentityReconciliationConfig) *models.IdentityReconciliationConfig {
