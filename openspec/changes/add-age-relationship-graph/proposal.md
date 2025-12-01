@@ -7,7 +7,7 @@ Checker hosts are still leaking into inventory as phantom devices (e.g., sysmon/
 - Bootstrap an `age` graph (`serviceradar`) in CNPG with node/edge types for devices, interfaces, services (internal + target), collectors, and checker definitions, plus indexes on canonical IDs.
 - Ingest registry updates (agents/pollers/services), mapper discoveries, checker results, and sync/DIRE device updates into AGE, merging on canonical IDs and ensuring collector host metadata does NOT create new device nodes.
 - Store relationships for health checks and metrics capabilities (e.g., SNMP/OTEL/sysmon) so inventory can label nodes like "sync (collector service)" or show that a router has SNMP metrics available.
-- Expose graph query surfaces for the UI/API/SRQL to fetch a device’s neighborhood (collector → service/checker → target → interfaces) and render badges instead of duplicating devices.
+- Expose graph query surfaces for the UI/API/SRQL to fetch a device’s neighborhood (collector → service/checker → target → interfaces) and render badges instead of duplicating devices, including a dedicated SRQL entity `in:device_graph`.
 - Add a rebuild/backfill job to regenerate the graph from relational tables (unified_devices, registry, mapper) and emit observability around graph drift or ingestion failures.
 - Provide hierarchical views: Device Inventory (device → services/collectors/child agents) and Network Discovery/Interfaces (device → interfaces) without polluting the device list with interfaces.
 - Make the graph the source for AI/device reasoning so answers use canonical IDs/relationships instead of flat unified_devices queries.

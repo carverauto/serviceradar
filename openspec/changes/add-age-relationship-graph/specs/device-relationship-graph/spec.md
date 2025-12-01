@@ -69,6 +69,17 @@ The system SHALL expose an API/DAO to return a device’s immediate neighborhood
 - **WHEN** the UI requests the neighborhood for a router device
 - **THEN** the API returns attached Interfaces, any CONNECTS_TO peers, and the Collectors/Services that target the device so operators can trace how the device is monitored.
 
+### Requirement: SRQL exposes graph-backed neighborhood queries
+The system SHALL provide a SRQL query path that reads from the AGE graph and returns structured JSON for device neighborhoods instead of relying on relational joins.
+
+#### Scenario: SRQL graph query returns structured JSON
+- **WHEN** a SRQL query requests a device neighborhood via the dedicated graph entity `in:device_graph`
+- **THEN** the service executes an AGE `cypher` against graph_path `serviceradar`, casts the result to JSON containing the device, collectors, services/checkers (with a collector-owned flag), targets, interfaces, and capability badges, and does not query `unified_devices` for relationships.
+
+#### Scenario: SRQL graph harness seeds AGE data
+- **WHEN** SRQL integration tests run
+- **THEN** the harness bootstraps the AGE graph (graph_path, labels) and seeds a minimal neighborhood so the graph query contract is validated without `agtype` binding errors.
+
 ### Requirement: Graph rebuild and drift detection
 The system SHALL provide a job to rebuild the AGE graph from relational sources and emit drift metrics/alerts when graph ingestion fails or diverges.
 

@@ -27,8 +27,9 @@
 - [x] 4.1 Add API endpoint/DAO to fetch a device neighborhood (collector → service/checker → target → interfaces) from AGE
 - [ ] 4.2 Add filters to return only collector-owned services/checkers vs external targets
 - [ ] 4.3 Provide Cypher snippets or stored procedures for common queries (device summary, path to collector, service capability badges)
-- [ ] 4.4 Update SRQL planner to read from graph for inventory-like queries (neighborhood/relationships) instead of only `unified_devices`
+- [ ] 4.4 Add a new SRQL entity `in:device_graph` that reads from AGE for inventory-like queries (neighborhood/relationships) instead of only `unified_devices`, returning structured JSON (collector-owned flags, capabilities, interfaces) from AGE Cypher rather than raw agtype
 - [ ] 4.5 Expose graph queries for AI copilots so responses draw from canonical relationships
+- [ ] 4.6 Add SRQL AGE bootstrap + fixtures in tests (graph_path, labels, sample neighborhood) and integration tests that validate the graph query contract and JSON shape
 
 ## 5. Web inventory integration
 

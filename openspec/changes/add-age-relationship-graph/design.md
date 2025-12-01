@@ -12,6 +12,7 @@ Apache AGE is already bundled in our CNPG images but unused. Checker hosts still
 - Ingestion: DIRE emits canonical device updates into AGE; core registry emits Cypher `MERGE` writes; mapper interface pipeline writes Interfaces and neighbor CONNECTS_TO edges via DIRE-resolved device IDs; checker ingestion writes RUNS_CHECKER/TARGETS without promoting collector host IPs to Device nodes; writers tolerate AGE failures (queue/retry) without blocking registry.
 - Queries: DAO/API returns device neighborhoods (collector → service/checker → target → interfaces + capabilities) with flags for collector-owned services; SRQL gains graph-backed primitives for inventory/topology; provide stored Cypher templates for UI and AI use.
 - Backfill: job to rehydrate graph from unified_devices (DIRE), service registry, mapper interface inventory, and recent checker history.
+- SRQL integration: add a dedicated graph entity `device_graph` (`in:device_graph`) that issues AGE `cypher(...)` and casts results to `jsonb` to avoid `agtype` bindings; normalize graph_path/search_path per session for safety; return structured JSON (device, collectors, services/checkers with collector-owned flag, targets, interfaces, capability badges) instead of raw Cypher rows; extend SRQL test harness to seed the AGE graph with a minimal neighborhood and assert the contract.
 
 ## Risks / Trade-offs
 - AGE ingestion lag could desync UI badges from registry state → mitigate with retry + drift metrics and rebuild job.
