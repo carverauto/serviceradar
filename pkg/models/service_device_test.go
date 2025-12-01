@@ -405,3 +405,149 @@ func TestMultipleServicesOnSameIP(t *testing.T) {
 	assert.Equal(t, "serviceradar:agent:agent-1", agentUpdate.DeviceID)
 	assert.Equal(t, "serviceradar:checker:sysmon@agent-1", checkerUpdate.DeviceID)
 }
+
+func TestCreateCoreServiceDeviceUpdate(t *testing.T) {
+	tests := []struct {
+		name            string
+		serviceType     ServiceType
+		serviceID       string
+		hostIP          string
+		partition       string
+		metadata        map[string]string
+		expectedID      string
+		expectedSource  DiscoverySource
+	}{
+		{
+			name:            "Datasvc service",
+			serviceType:     ServiceTypeDatasvc,
+			serviceID:       "datasvc-primary",
+			hostIP:          "10.0.0.10",
+			partition:       "default",
+			metadata:        nil,
+			expectedID:      "serviceradar:datasvc:datasvc-primary",
+			expectedSource:  DiscoverySourceServiceRadar,
+		},
+		{
+			name:            "Sync service",
+			serviceType:     ServiceTypeSync,
+			serviceID:       "sync-service",
+			hostIP:          "10.0.0.11",
+			partition:       "prod",
+			metadata:        map[string]string{"region": "us-east"},
+			expectedID:      "serviceradar:sync:sync-service",
+			expectedSource:  DiscoverySourceServiceRadar,
+		},
+		{
+			name:            "Mapper service",
+			serviceType:     ServiceTypeMapper,
+			serviceID:       "mapper-01",
+			hostIP:          "172.20.0.5",
+			partition:       "",
+			metadata:        nil,
+			expectedID:      "serviceradar:mapper:mapper-01",
+			expectedSource:  DiscoverySourceServiceRadar,
+		},
+		{
+			name:            "Otel service",
+			serviceType:     ServiceTypeOtel,
+			serviceID:       "otel-collector",
+			hostIP:          "192.168.1.50",
+			partition:       "monitoring",
+			metadata:        nil,
+			expectedID:      "serviceradar:otel:otel-collector",
+			expectedSource:  DiscoverySourceServiceRadar,
+		},
+		{
+			name:            "Zen service",
+			serviceType:     ServiceTypeZen,
+			serviceID:       "zen-primary",
+			hostIP:          "192.168.1.60",
+			partition:       "default",
+			metadata:        nil,
+			expectedID:      "serviceradar:zen:zen-primary",
+			expectedSource:  DiscoverySourceServiceRadar,
+		},
+		{
+			name:            "Core service",
+			serviceType:     ServiceTypeCore,
+			serviceID:       "core-main",
+			hostIP:          "10.0.0.1",
+			partition:       "default",
+			metadata:        nil,
+			expectedID:      "serviceradar:core:core-main",
+			expectedSource:  DiscoverySourceServiceRadar,
+		},
+		{
+			name:            "KV service alias",
+			serviceType:     ServiceTypeKV,
+			serviceID:       "kv-primary",
+			hostIP:          "10.0.0.12",
+			partition:       "default",
+			metadata:        nil,
+			expectedID:      "serviceradar:kv:kv-primary",
+			expectedSource:  DiscoverySourceServiceRadar,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CreateCoreServiceDeviceUpdate(tt.serviceType, tt.serviceID, tt.hostIP, tt.partition, tt.metadata)
+
+			require.NotNil(t, result)
+			assert.Equal(t, tt.expectedID, result.DeviceID)
+			assert.Equal(t, tt.hostIP, result.IP)
+			assert.Equal(t, tt.expectedSource, result.Source)
+			assert.True(t, result.IsAvailable)
+			assert.Equal(t, ConfidenceHighSelfReported, result.Confidence)
+
+			// Verify service type is set
+			require.NotNil(t, result.ServiceType)
+			assert.Equal(t, tt.serviceType, *result.ServiceType)
+
+			// Verify service ID is set
+			assert.Equal(t, tt.serviceID, result.ServiceID)
+
+			// Verify metadata
+			assert.NotNil(t, result.Metadata)
+			assert.Equal(t, string(tt.serviceType), result.Metadata["component_type"])
+			assert.Equal(t, tt.serviceID, result.Metadata["service_id"])
+
+			// If additional metadata was passed, verify it's preserved
+			if tt.metadata != nil {
+				for k, v := range tt.metadata {
+					assert.Equal(t, v, result.Metadata[k])
+				}
+			}
+
+			// Verify timestamp is set
+			assert.False(t, result.Timestamp.IsZero())
+		})
+	}
+}
+
+func TestCoreServiceDeviceIDSurvivesIPChange(t *testing.T) {
+	// Simulate a service registering with one IP
+	update1 := CreateCoreServiceDeviceUpdate(ServiceTypeDatasvc, "datasvc-01", "172.18.0.5", "default", nil)
+
+	// Simulate the same service registering with a different IP after container restart
+	update2 := CreateCoreServiceDeviceUpdate(ServiceTypeDatasvc, "datasvc-01", "172.18.0.10", "default", nil)
+
+	// Device ID should be the same (service identity is stable)
+	assert.Equal(t, update1.DeviceID, update2.DeviceID)
+
+	// But IP should be different
+	assert.NotEqual(t, update1.IP, update2.IP)
+	assert.Equal(t, "172.18.0.5", update1.IP)
+	assert.Equal(t, "172.18.0.10", update2.IP)
+}
+
+func TestCoreServiceTypesConstants(t *testing.T) {
+	// Verify the new service type constants are defined correctly
+	assert.Equal(t, ServiceTypeDatasvc, ServiceType("datasvc"))
+	assert.Equal(t, ServiceTypeKV, ServiceType("kv"))
+	assert.Equal(t, ServiceTypeSync, ServiceType("sync"))
+	assert.Equal(t, ServiceTypeMapper, ServiceType("mapper"))
+	assert.Equal(t, ServiceTypeOtel, ServiceType("otel"))
+	assert.Equal(t, ServiceTypeZen, ServiceType("zen"))
+	assert.Equal(t, ServiceTypeCore, ServiceType("core"))
+}

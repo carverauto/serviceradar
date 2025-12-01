@@ -642,25 +642,12 @@ func (s *Server) processStatusReport(
 		}
 
 		// Register the poller/agent as a device
-		go func(normalizedIP string) {
+		go func(normalizedIP string, services []*proto.ServiceStatus) {
 			// Run in a separate goroutine to not block the main status report flow.
-			// Skip registration if location data is missing. A warning is already logged in ReportStatus.
-			if req.Partition == "" || normalizedIP == "" {
-				return
-			}
-
 			// Create a detached context but preserve trace information
-			timeoutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-			defer cancel()
-
-			if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services),
-				req.Partition, normalizedIP, now); err != nil {
-				s.logger.Warn().
-					Err(err).
-					Str("poller_id", req.PollerId).
-					Msg("Failed to register service device for poller")
-			}
-		}(normSourceIP)
+			detachedCtx := context.WithoutCancel(ctx)
+			s.registerServiceOrCoreDevice(detachedCtx, req.PollerId, req.Partition, normalizedIP, services, now)
+		}(normSourceIP, req.Services)
 
 		return apiStatus, nil
 	}
@@ -698,25 +685,12 @@ func (s *Server) processStatusReport(
 	s.processServices(ctx, req.PollerId, req.Partition, normSourceIP, apiStatus, req.Services, now)
 
 	// Register the poller/agent as a device for new pollers too
-	go func(normalizedIP string) {
+	go func(normalizedIP string, services []*proto.ServiceStatus) {
 		// Run in a separate goroutine to not block the main status report flow.
-		// Skip registration if location data is missing. A warning is already logged in ReportStatus.
-		if req.Partition == "" || normalizedIP == "" {
-			return
-		}
-
 		// Create a detached context but preserve trace information
-		timeoutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-
-		if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services),
-			req.Partition, normalizedIP, now); err != nil {
-			s.logger.Warn().
-				Err(err).
-				Str("poller_id", req.PollerId).
-				Msg("Failed to register service device for poller")
-		}
-	}(normSourceIP)
+		detachedCtx := context.WithoutCancel(ctx)
+		s.registerServiceOrCoreDevice(detachedCtx, req.PollerId, req.Partition, normalizedIP, services, now)
+	}(normSourceIP, req.Services)
 
 	return apiStatus, nil
 }
@@ -1113,7 +1087,7 @@ func (s *Server) collectServiceChunks(
 
 		if existingData, exists := serviceMessages[key]; exists {
 			// Handle sync services specially - they send JSON arrays that need proper merging
-			if svc.ServiceType == "sync" {
+			if svc.ServiceType == syncServiceType {
 				serviceMessages[key] = s.mergeSyncServiceChunks(existingData, svc.Message)
 			} else {
 				// For non-sync services, continue with byte concatenation
