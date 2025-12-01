@@ -80,7 +80,9 @@ BEGIN
                  CASE WHEN size(host_collectors) > 0 THEN host_collectors ELSE collectors END AS collector_list,
                  (size(host_collectors) > 0 OR size([c IN collectors WHERE c IS NOT NULL]) > 0) AS has_collector,
                  [tgt IN target_props_raw WHERE tgt IS NOT NULL | tgt] AS target_props
-            UNWIND collector_list AS base_col
+            WITH d, include_topology, collector_only, services_output, target_props, interfaces, peers, device_caps, service_caps, has_collector,
+                 CASE WHEN size(collector_list) = 0 THEN [NULL] ELSE collector_list END AS collector_list_safe
+            UNWIND collector_list_safe AS base_col
             OPTIONAL MATCH (parentCol:Collector)<-[:REPORTED_BY]-(base_col)
             WITH d, include_topology, collector_only, services_output, target_props, interfaces, peers, device_caps, service_caps, has_collector,
                  collect(DISTINCT base_col) AS collector_list_dedup,
@@ -118,9 +120,13 @@ BEGIN
                  collect(DISTINCT col) AS collectors,
                  collect(DISTINCT t) AS targets,
                  collect(DISTINCT svcCap) AS service_caps
-            UNWIND collectors AS base_col
+            WITH svc, include_topology, collector_only,
+                 CASE WHEN size(collectors) = 0 THEN [NULL] ELSE collectors END AS collectors_list,
+                 CASE WHEN size(targets) = 0 THEN [NULL] ELSE targets END AS targets_list,
+                 service_caps
+            UNWIND collectors_list AS base_col
             OPTIONAL MATCH (parentCol:Collector)<-[:REPORTED_BY]-(base_col)
-            UNWIND targets AS tgt
+            UNWIND targets_list AS tgt
             WITH svc, include_topology, collector_only, service_caps,
                  collect(DISTINCT base_col) AS collectors,
                  collect(DISTINCT parentCol) AS parent_collectors,

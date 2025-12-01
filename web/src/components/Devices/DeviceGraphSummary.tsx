@@ -21,6 +21,7 @@ import type {
   DeviceGraphNeighborhood,
   AgeServiceEdge,
 } from "@/types/deviceGraph";
+import Link from "next/link";
 import {
   capabilityLabel,
   collectorOwnedServices,
@@ -40,10 +41,12 @@ const Badge = ({
   label,
   description,
   tone = "blue",
+  href,
 }: {
   label: string;
   description?: string;
   tone?: "blue" | "purple" | "green" | "amber";
+  href?: string;
 }) => {
   const toneClasses: Record<string, string> = {
     blue: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200",
@@ -55,13 +58,25 @@ const Badge = ({
       "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
   };
 
-  return (
+  const content = (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${toneClasses[tone] ?? toneClasses.blue}`}
       title={description}
     >
       {label}
     </span>
+  );
+
+  if (href) {
+    return (
+      <Link href={href} className="inline-block">
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center">{content}</span>
   );
 };
 
@@ -91,6 +106,7 @@ const renderServices = (
             label={label}
             description={description}
             tone={tone}
+            href={svcNodeId ? `/devices/${encodeURIComponent(svcNodeId)}` : undefined}
           />
         );
       })}
@@ -108,6 +124,10 @@ const DeviceGraphSummary: React.FC<DeviceGraphSummaryProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [collectorOwnedOnly, setCollectorOwnedOnly] = useState(
     defaultCollectorOwnedOnly,
+  );
+  const isPollerRoot = useMemo(
+    () => deviceId.startsWith("serviceradar:poller:"),
+    [deviceId],
   );
 
   useEffect(() => {
@@ -159,6 +179,11 @@ const DeviceGraphSummary: React.FC<DeviceGraphSummaryProps> = ({
     [graph],
   );
 
+  const linkForNode = (node?: { id?: string }): string | undefined => {
+    if (!node || !node.id) return undefined;
+    return `/devices/${encodeURIComponent(node.id)}`;
+  };
+
   return (
     <div className="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900/60">
       <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-4 py-3">
@@ -202,34 +227,37 @@ const DeviceGraphSummary: React.FC<DeviceGraphSummaryProps> = ({
 
         {!loading && !error && (
           <>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
-                <Radio className="h-4 w-4" />
-                Collectors
-              </div>
-              {collectors.length === 0 ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  No collectors linked yet.
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {collectors.map((collector) => {
-                    const id = nodeId(collector);
-                    const cType = nodeType(collector);
-                    const description =
-                      cType && cType !== id ? `${cType} • ${id}` : id;
-                    return (
-                      <Badge
-                        key={id || description}
-                        label={id || "collector"}
-                        description={description}
-                        tone="blue"
-                      />
-                    );
-                  })}
+            {!isPollerRoot && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  <Radio className="h-4 w-4" />
+                  Collectors
                 </div>
-              )}
-            </div>
+                {collectors.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    No collectors linked yet.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {collectors.map((collector) => {
+                      const id = nodeId(collector);
+                      const cType = nodeType(collector);
+                      const description =
+                        cType && cType !== id ? `${cType} • ${id}` : id;
+                      return (
+                        <Badge
+                          key={id || description}
+                          label={id || "collector"}
+                          description={description}
+                          tone="blue"
+                          href={linkForNode(collector)}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
@@ -301,34 +329,36 @@ const DeviceGraphSummary: React.FC<DeviceGraphSummaryProps> = ({
                   <div className="flex flex-wrap gap-2">
                     {interfaces.map((iface) => {
                       const id = nodeId(iface);
-                      const label =
-                        id || nodeType(iface) || "interface";
-                      return (
-                        <Badge
-                          key={`iface-${label}`}
-                          label={label}
-                          tone="blue"
-                          description="Discovered interface"
-                        />
-                      );
-                    })}
-                  </div>
-                )}
+                    const label =
+                      id || nodeType(iface) || "interface";
+                    return (
+                      <Badge
+                        key={`iface-${label}`}
+                        label={label}
+                        tone="blue"
+                        description="Discovered interface"
+                        href={linkForNode(iface)}
+                      />
+                    );
+                  })}
+                </div>
+              )}
                 {peerInterfaces.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {peerInterfaces.map((peer) => {
                       const id = nodeId(peer);
-                      return (
-                        <Badge
-                          key={`peer-${id || nodeType(peer)}`}
-                          label={id || nodeType(peer) || "peer"}
-                          tone="purple"
-                          description="Peer interface"
-                        />
-                      );
-                    })}
-                  </div>
-                )}
+                    return (
+                      <Badge
+                        key={`peer-${id || nodeType(peer)}`}
+                        label={id || nodeType(peer) || "peer"}
+                        tone="purple"
+                        description="Peer interface"
+                        href={linkForNode(peer)}
+                      />
+                    );
+                  })}
+                </div>
+              )}
               </div>
             )}
 
@@ -346,6 +376,7 @@ const DeviceGraphSummary: React.FC<DeviceGraphSummaryProps> = ({
                         key={`target-${id || nodeType(tgt)}`}
                         label={id || nodeType(tgt) || "target"}
                         tone="blue"
+                        href={linkForNode(tgt)}
                       />
                     );
                   })}
