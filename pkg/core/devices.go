@@ -55,6 +55,32 @@ func (s *Server) ensureServiceDevice(
 		return
 	}
 
+	// Check if the reported host_ip matches the collector's (agent/poller) registered IP.
+	// If so, skip device creation - this is the collector itself, not a monitoring target.
+	collectorIP := s.getCollectorIP(ctx, agentID, pollerID)
+	if collectorIP != "" && hostIP == collectorIP {
+		s.logger.Debug().
+			Str("host_ip", hostIP).
+			Str("collector_ip", collectorIP).
+			Str("agent_id", agentID).
+			Str("poller_id", pollerID).
+			Str("service_name", svc.ServiceName).
+			Msg("Skipping device creation: host_ip matches collector IP (this is the collector, not a target)")
+		return
+	}
+
+	// Also skip if the IP is in a common Docker bridge network range and matches agent/poller characteristics.
+	// This catches cases where the collector IP couldn't be looked up but the IP is clearly ephemeral.
+	if s.isEphemeralCollectorIP(hostIP, hostname, hostID) {
+		s.logger.Debug().
+			Str("host_ip", hostIP).
+			Str("hostname", hostname).
+			Str("host_id", hostID).
+			Str("service_name", svc.ServiceName).
+			Msg("Skipping device creation: detected ephemeral collector IP with agent/poller hostname")
+		return
+	}
+
 	if partition == "" {
 		partition = "default"
 	}
@@ -318,6 +344,112 @@ func cloneDeviceUpdate(update *models.DeviceUpdate) *models.DeviceUpdate {
 	}
 
 	return &cloned
+}
+
+// getCollectorIP retrieves the registered IP address for the agent or poller that is running the checker.
+// This is used to detect when a checker is reporting its own collector's IP rather than a monitoring target.
+func (s *Server) getCollectorIP(ctx context.Context, agentID, pollerID string) string {
+	// Try to get the agent's IP from the service registry
+	if agentID != "" && s.ServiceRegistry != nil {
+		if agent, err := s.ServiceRegistry.GetAgent(ctx, agentID); err == nil && agent != nil {
+			if ip := extractIPFromMetadata(agent.Metadata); ip != "" {
+				return ip
+			}
+		}
+	}
+
+	// Fall back to poller's IP
+	if pollerID != "" && s.ServiceRegistry != nil {
+		if poller, err := s.ServiceRegistry.GetPoller(ctx, pollerID); err == nil && poller != nil {
+			if ip := extractIPFromMetadata(poller.Metadata); ip != "" {
+				return ip
+			}
+		}
+	}
+
+	// Try the database as a last resort
+	if pollerID != "" && s.DB != nil {
+		if status, err := s.DB.GetPollerStatus(ctx, pollerID); err == nil && status != nil {
+			if ip := normalizeHostIP(status.HostIP); ip != "" {
+				return ip
+			}
+		}
+	}
+
+	return ""
+}
+
+// extractIPFromMetadata extracts an IP address from service metadata.
+func extractIPFromMetadata(metadata map[string]string) string {
+	if metadata == nil {
+		return ""
+	}
+
+	// Try common metadata keys for IP
+	for _, key := range []string{"source_ip", "host_ip", "ip"} {
+		if ip := normalizeHostIP(metadata[key]); ip != "" {
+			return ip
+		}
+	}
+
+	return ""
+}
+
+// isEphemeralCollectorIP checks if the given IP appears to be an ephemeral container IP
+// belonging to the collector (agent/poller) rather than a monitoring target.
+// This is a heuristic to catch phantom devices when the collector IP lookup fails.
+func (s *Server) isEphemeralCollectorIP(hostIP, hostname, hostID string) bool {
+	// Check if IP is in common Docker bridge network ranges
+	if !isDockerBridgeIP(hostIP) {
+		return false
+	}
+
+	// Check if hostname suggests this is an agent or poller
+	lowerHostname := strings.ToLower(hostname)
+	lowerHostID := strings.ToLower(hostID)
+
+	collectorIndicators := []string{"agent", "poller", "collector"}
+	for _, indicator := range collectorIndicators {
+		if strings.Contains(lowerHostname, indicator) || strings.Contains(lowerHostID, indicator) {
+			return true
+		}
+	}
+
+	// Also catch empty/generic hostnames with Docker IPs
+	if hostname == "" || lowerHostname == statusUnknown || lowerHostname == "localhost" {
+		return true
+	}
+
+	return false
+}
+
+// isDockerBridgeIP checks if an IP is in common Docker bridge network ranges.
+func isDockerBridgeIP(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+
+	// Common Docker bridge network ranges
+	dockerCIDRs := []string{
+		"172.17.0.0/16", // Default docker0 bridge
+		"172.18.0.0/16", // Docker compose default
+		"172.19.0.0/16", // Additional compose networks
+		"172.20.0.0/16", // Additional compose networks
+		"172.21.0.0/16", // Additional compose networks
+	}
+
+	for _, cidr := range dockerCIDRs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if network.Contains(ip) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // createSNMPTargetDeviceUpdate creates a DeviceUpdate for an SNMP target device.

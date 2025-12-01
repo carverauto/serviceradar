@@ -14,6 +14,20 @@ const (
 	ServiceTypeChecker ServiceType = "checker"
 	// ServiceTypeNetworkDevice represents a discovered network device (not a service component)
 	ServiceTypeNetworkDevice ServiceType = "network"
+	// ServiceTypeDatasvc represents the datasvc/KV service
+	ServiceTypeDatasvc ServiceType = "datasvc"
+	// ServiceTypeKV is an alias for datasvc (legacy name)
+	ServiceTypeKV ServiceType = "kv"
+	// ServiceTypeSync represents the sync service
+	ServiceTypeSync ServiceType = "sync"
+	// ServiceTypeMapper represents the mapper service
+	ServiceTypeMapper ServiceType = "mapper"
+	// ServiceTypeOtel represents the OpenTelemetry collector service
+	ServiceTypeOtel ServiceType = "otel"
+	// ServiceTypeZen represents the zen service
+	ServiceTypeZen ServiceType = "zen"
+	// ServiceTypeCore represents the core service
+	ServiceTypeCore ServiceType = "core"
 )
 
 // ServiceDevicePartition is the special partition used for service components
