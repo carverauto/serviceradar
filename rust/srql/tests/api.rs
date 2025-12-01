@@ -103,3 +103,114 @@ async fn missing_api_key_returns_401() {
     })
     .await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[serial]
+async fn device_graph_query_returns_neighborhood() {
+    with_srql_harness(|harness| async move {
+        if !harness.age_available() {
+            if allow_age_skip() {
+                eprintln!("[srql-test] AGE not available in fixture; skipping device_graph test");
+                return;
+            }
+            panic!("AGE not available in fixture and SRQL_ALLOW_AGE_SKIP not set");
+        }
+
+        let request = QueryRequest {
+            query: r#"in:device_graph device_id:"device-alpha""#.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response = harness.query(request).await;
+        let (status, body) = read_json(response).await;
+
+        assert_eq!(status, http::StatusCode::OK, "unexpected status: {body}");
+        let results = body["results"]
+            .as_array()
+            .unwrap_or_else(|| panic!("results missing or not array: {body}"));
+        assert_eq!(results.len(), 1, "expected single neighborhood row");
+        let graph = results[0]
+            .as_object()
+            .unwrap_or_else(|| panic!("graph result is not an object: {body}"));
+
+        let device = graph
+            .get("device")
+            .and_then(|d| d.get("properties"))
+            .and_then(|props| props.get("id"))
+            .and_then(|id| id.as_str())
+            .unwrap_or_else(|| panic!("device id missing in graph result: {body}"));
+        assert_eq!(device, "device-alpha");
+
+        let collectors = graph
+            .get("collectors")
+            .and_then(|c| c.as_array())
+            .unwrap_or_else(|| panic!("collectors missing or not array: {body}"));
+        assert!(
+            collectors.iter().any(|c| c
+                .get("properties")
+                .and_then(|p| p.get("id"))
+                .and_then(|id| id.as_str())
+                == Some("serviceradar:agent:agent-1")),
+            "expected collector serviceradar:agent:agent-1 in graph: {body}"
+        );
+
+        let services = graph
+            .get("services")
+            .and_then(|s| s.as_array())
+            .unwrap_or_else(|| panic!("services missing or not array: {body}"));
+        assert!(
+            services.iter().any(|svc| {
+                let svc_obj = svc.as_object().unwrap();
+                svc_obj
+                    .get("collector_owned")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                    && svc_obj.get("collector_id").and_then(|v| v.as_str())
+                        == Some("serviceradar:agent:agent-1")
+                    && svc_obj
+                        .get("service")
+                        .and_then(|s| s.get("properties"))
+                        .and_then(|p| p.get("id"))
+                        .and_then(|id| id.as_str())
+                        == Some("serviceradar:service:ssh@agent-1")
+            }),
+            "expected collector-owned service ssh@agent-1 in graph: {body}"
+        );
+
+        let interfaces = graph
+            .get("interfaces")
+            .and_then(|i| i.as_array())
+            .unwrap_or_else(|| panic!("interfaces missing or not array: {body}"));
+        assert!(
+            interfaces.iter().any(|iface| iface
+                .get("properties")
+                .and_then(|p| p.get("id"))
+                .and_then(|id| id.as_str())
+                == Some("device-alpha/eth0")),
+            "expected interface device-alpha/eth0 in graph: {body}"
+        );
+
+        let device_caps = graph
+            .get("device_capabilities")
+            .and_then(|c| c.as_array())
+            .unwrap_or_else(|| panic!("device_capabilities missing or not array: {body}"));
+        assert!(
+            device_caps.iter().any(|cap| cap
+                .get("properties")
+                .and_then(|p| p.get("type"))
+                .and_then(|t| t.as_str())
+                == Some("snmp")),
+            "expected snmp capability in graph: {body}"
+        );
+    })
+    .await;
+}
+
+fn allow_age_skip() -> bool {
+    std::env::var("SRQL_ALLOW_AGE_SKIP")
+        .map(|v| v.trim().eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false)
+}

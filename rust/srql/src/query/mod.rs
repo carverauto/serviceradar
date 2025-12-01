@@ -92,6 +92,7 @@ macro_rules! apply_eq_filter {
 }
 
 mod cpu_metrics;
+mod device_graph;
 mod device_updates;
 mod devices;
 mod disk_metrics;
@@ -146,6 +147,7 @@ impl QueryEngine {
         let results = match plan.entity {
             Entity::Devices => devices::execute(&mut conn, &plan).await?,
             Entity::DeviceUpdates => device_updates::execute(&mut conn, &plan).await?,
+            Entity::DeviceGraph => device_graph::execute(&mut conn, &plan).await?,
             Entity::Events => events::execute(&mut conn, &plan).await?,
             Entity::Interfaces => interfaces::execute(&mut conn, &plan).await?,
             Entity::Logs => logs::execute(&mut conn, &plan).await?,
@@ -182,6 +184,7 @@ impl QueryEngine {
         let sql = match plan.entity {
             Entity::Devices => devices::to_debug_sql(&plan)?,
             Entity::DeviceUpdates => device_updates::to_debug_sql(&plan)?,
+            Entity::DeviceGraph => device_graph::to_debug_sql(&plan)?,
             Entity::Events => events::to_debug_sql(&plan)?,
             Entity::Interfaces => interfaces::to_debug_sql(&plan)?,
             Entity::Logs => logs::to_debug_sql(&plan)?,

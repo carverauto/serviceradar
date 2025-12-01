@@ -6,6 +6,7 @@ use axum::{
 use serde::Serialize;
 use serde_json::Value;
 use srql::{config::AppConfig, query::QueryRequest, server::Server};
+use std::sync::Once;
 use std::{
     fs,
     future::Future,
@@ -33,6 +34,7 @@ const DB_CONNECT_DELAY_MS: u64 = 250;
 const REMOTE_FIXTURE_LOCK_ID: i64 = 4_216_042;
 
 static CNPG_BUILD_STATE: OnceLock<Mutex<bool>> = OnceLock::new();
+static TRACING_INIT: Once = Once::new();
 
 const BOOTSTRAP_SCRIPT: &str = r#"set -euo pipefail
 cat <<'EOS' >/tmp/bootstrap.sh
@@ -55,12 +57,109 @@ chmod +x /tmp/bootstrap.sh
 exec /tmp/bootstrap.sh
 "#;
 
+const AGE_GRAPH_BOOTSTRAP_SQL: &str = r#"
+SET LOCAL search_path = ag_catalog, public, "$user";
+DO $$
+BEGIN
+    BEGIN
+        PERFORM ag_catalog.create_graph('serviceradar');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+
+    BEGIN
+        EXECUTE format('GRANT USAGE ON SCHEMA %I TO PUBLIC', 'serviceradar');
+        EXECUTE format('GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA %I TO PUBLIC', 'serviceradar');
+    EXCEPTION
+        WHEN insufficient_privilege THEN NULL;
+        WHEN others THEN NULL;
+    END;
+
+    BEGIN
+        GRANT USAGE ON SCHEMA ag_catalog TO PUBLIC;
+        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO PUBLIC;
+    EXCEPTION
+        WHEN insufficient_privilege THEN NULL;
+        WHEN others THEN NULL;
+    END;
+
+    BEGIN
+        PERFORM ag_catalog.create_vlabel('serviceradar', 'Device');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_vlabel('serviceradar', 'Collector');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_vlabel('serviceradar', 'Service');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_vlabel('serviceradar', 'Interface');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_vlabel('serviceradar', 'Capability');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+
+    BEGIN
+        PERFORM ag_catalog.create_elabel('serviceradar', 'HOSTS_SERVICE');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_elabel('serviceradar', 'TARGETS');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_elabel('serviceradar', 'HAS_INTERFACE');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_elabel('serviceradar', 'REPORTED_BY');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_elabel('serviceradar', 'PROVIDES_CAPABILITY');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+
+    PERFORM * FROM ag_catalog.cypher('serviceradar', $_cypher$
+        MERGE (d:Device {id: 'device-alpha', hostname: 'alpha-edge'})
+        MERGE (c:Collector {id: 'serviceradar:agent:agent-1'})
+        MERGE (svc:Service {id: 'serviceradar:service:ssh@agent-1', type: 'ssh'})
+        MERGE (iface:Interface {id: 'device-alpha/eth0', name: 'eth0'})
+        MERGE (cap:Capability {type: 'snmp'})
+        MERGE (d)-[:HAS_INTERFACE]->(iface)
+        MERGE (d)-[:PROVIDES_CAPABILITY]->(cap)
+        MERGE (c)-[:HOSTS_SERVICE]->(svc)
+        MERGE (svc)-[:TARGETS]->(d)
+        MERGE (d)-[:REPORTED_BY]->(c)
+    $_cypher$) AS (result agtype);
+END $$;
+"#;
+
 /// Runs a test closure against a fully bootstrapped SRQL instance backed by the seeded Postgres fixture.
 pub async fn with_srql_harness<F, Fut>(test: F)
 where
     F: FnOnce(SrqlTestHarness) -> Fut,
     Fut: Future<Output = ()>,
 {
+    TRACING_INIT.call_once(|| {
+        let _ = tracing_subscriber::fmt::try_init();
+    });
+
     if let Some(remote_config) =
         RemoteFixtureConfig::from_env().expect("failed to read remote fixture config")
     {
@@ -91,6 +190,9 @@ where
         .expect("failed to seed fixture database");
 
     let config = test_config(database_url);
+    let age_available = check_age_available(&config.database_url)
+        .await
+        .unwrap_or(false);
     let server = Server::new(config)
         .await
         .expect("failed to boot SRQL server for harness");
@@ -99,6 +201,7 @@ where
     let harness = SrqlTestHarness {
         router,
         api_key: API_KEY.to_string(),
+        age_available,
     };
 
     test(harness).await;
@@ -125,6 +228,9 @@ where
         .expect("failed to seed fixture database");
 
     let app_config = test_config(config.database_url.clone());
+    let age_available = check_age_available(&config.database_url)
+        .await
+        .unwrap_or(false);
     let server = Server::new(app_config)
         .await
         .expect("failed to boot SRQL server for remote harness");
@@ -133,6 +239,7 @@ where
     let harness = SrqlTestHarness {
         router,
         api_key: API_KEY.to_string(),
+        age_available,
     };
 
     test(harness).await;
@@ -219,6 +326,7 @@ async fn extension_exists(client: &Client, name: &str) -> anyhow::Result<bool> {
 pub struct SrqlTestHarness {
     router: Router,
     api_key: String,
+    age_available: bool,
 }
 
 impl SrqlTestHarness {
@@ -258,6 +366,10 @@ impl SrqlTestHarness {
             .oneshot(request)
             .await
             .expect("router should handle harness request")
+    }
+
+    pub fn age_available(&self) -> bool {
+        self.age_available
     }
 }
 
@@ -382,6 +494,7 @@ impl RemoteFixtureGuard {
         client
             .batch_execute("CREATE EXTENSION IF NOT EXISTS age;")
             .await?;
+        client.batch_execute(AGE_GRAPH_BOOTSTRAP_SQL).await?;
         drop(client);
         let _ = task.await;
         Ok(())
@@ -544,4 +657,18 @@ fn fixture_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures")
+}
+
+async fn check_age_available(database_url: &str) -> anyhow::Result<bool> {
+    let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    let result = client
+        .query(
+            "SELECT 1 FROM ag_catalog.cypher('serviceradar', 'RETURN 1') AS (result agtype) LIMIT 1",
+            &[],
+        )
+        .await;
+    Ok(result.is_ok())
 }

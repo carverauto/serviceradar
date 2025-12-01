@@ -8,12 +8,23 @@ CREATE EXTENSION IF NOT EXISTS age;
 DO $$
 BEGIN
     EXECUTE format('ALTER DATABASE %I SET search_path = ag_catalog, "$user", public', current_database());
-    EXECUTE format('ALTER DATABASE %I SET graph_path = serviceradar', current_database());
+    IF EXISTS (SELECT 1 FROM pg_settings WHERE name = 'graph_path') THEN
+        EXECUTE format('ALTER DATABASE %I SET graph_path = serviceradar', current_database());
+    ELSE
+        RAISE NOTICE 'graph_path GUC not available; skipping database-level default';
+    END IF;
 END $$;
 
 -- Ensure the current session can use AGE objects for the remaining statements.
 SET search_path = ag_catalog, "$user", public;
-SELECT set_config('graph_path', 'serviceradar', false);
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_settings WHERE name = 'graph_path') THEN
+        PERFORM set_config('graph_path', 'serviceradar', false);
+    ELSE
+        RAISE NOTICE 'graph_path GUC not available; skipping session default';
+    END IF;
+END $$;
 
 -- Create the graph if missing.
 DO $$
@@ -98,5 +109,19 @@ BEGIN
             WHEN duplicate_table THEN NULL;
             WHEN duplicate_object THEN NULL;
         END;
+    END IF;
+END $$;
+
+-- Grant AGE access to the application role (if present) so non-superuser sessions can run cypher().
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'serviceradar') THEN
+        EXECUTE 'GRANT USAGE ON SCHEMA ag_catalog TO serviceradar';
+        EXECUTE 'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO serviceradar';
+        EXECUTE 'GRANT USAGE ON SCHEMA serviceradar TO serviceradar';
+        EXECUTE 'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA serviceradar TO serviceradar';
+        EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA serviceradar GRANT ALL ON TABLES TO serviceradar';
+    ELSE
+        RAISE NOTICE 'Role serviceradar not found; skipping AGE grants';
     END IF;
 END $$;

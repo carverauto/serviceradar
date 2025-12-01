@@ -1,17 +1,17 @@
 ## 1. Bootstrap AGE graph in CNPG
 
-- [ ] 1.1 Add migration/init script to `create_graph('serviceradar')` and enable AGE search_path for core/SRQL connections
-- [ ] 1.2 Define indexes/constraints for canonical IDs on Device, Service, Collector, Interface nodes and ensure idempotent creation
-- [ ] 1.3 Add ops/runbook steps for Docker Compose + demo k8s to verify AGE graph readiness
-- [ ] 1.4 Add AGE write credentials/config to DIRE/SRQL/core so they can emit Cypher writes
+- [x] 1.1 Add migration/init script to `create_graph('serviceradar')` and enable AGE search_path for core/SRQL connections
+- [x] 1.2 Define indexes/constraints for canonical IDs on Device, Service, Collector, Interface nodes and ensure idempotent creation
+- [x] 1.3 Add ops/runbook steps for Docker Compose + demo k8s to verify AGE graph readiness
+- [x] 1.4 Add AGE write credentials/config to DIRE/SRQL/core so they can emit Cypher writes
 
 ## 2. Graph schema and contracts
 
-- [ ] 2.1 Define node labels/properties for Device, Interface, Service (internal vs target), Collector (agent/poller), CheckerDefinition, Capability (snmp/otel/sysmon)
-- [ ] 2.2 Define edge types/properties (HOSTS_SERVICE, RUNS_CHECKER, TARGETS, HAS_INTERFACE, CONNECTS_TO, PROVIDES_CAPABILITY, REPORTED_BY)
-- [ ] 2.3 Document canonical ID format mapping (unified_device.canonical_device_id → Device.id, service_device_id → Service.id, agent/poller ids → Collector.id, interface fingerprint)
-- [ ] 2.4 Add AGE schema docs to `docs/docs/` (or `openspec/design.md`) for reference
-- [ ] 2.5 Map DIRE resolution outputs to graph nodes/edges so the graph stays aligned with unified_devices
+- [x] 2.1 Define node labels/properties for Device, Interface, Service (internal vs target), Collector (agent/poller), CheckerDefinition, Capability (snmp/otel/sysmon)
+- [x] 2.2 Define edge types/properties (HOSTS_SERVICE, RUNS_CHECKER, TARGETS, HAS_INTERFACE, CONNECTS_TO, PROVIDES_CAPABILITY, REPORTED_BY)
+- [x] 2.3 Document canonical ID format mapping (unified_device.canonical_device_id → Device.id, service_device_id → Service.id, agent/poller ids → Collector.id, interface fingerprint)
+- [x] 2.4 Add AGE schema docs to `docs/docs/` (or `openspec/design.md`) for reference
+- [x] 2.5 Map DIRE resolution outputs to graph nodes/edges so the graph stays aligned with unified_devices
 
 ## 3. Ingestion pipelines into AGE
 
@@ -27,9 +27,9 @@
 - [x] 4.1 Add API endpoint/DAO to fetch a device neighborhood (collector → service/checker → target → interfaces) from AGE
 - [ ] 4.2 Add filters to return only collector-owned services/checkers vs external targets
 - [ ] 4.3 Provide Cypher snippets or stored procedures for common queries (device summary, path to collector, service capability badges)
-- [ ] 4.4 Add a new SRQL entity `in:device_graph` that reads from AGE for inventory-like queries (neighborhood/relationships) instead of only `unified_devices`, returning structured JSON (collector-owned flags, capabilities, interfaces) from AGE Cypher rather than raw agtype
+- [x] 4.4 Add a new SRQL entity `in:device_graph` that reads from AGE for inventory-like queries (neighborhood/relationships) instead of only `unified_devices`, returning structured JSON (collector-owned flags, capabilities, interfaces) from AGE Cypher rather than raw agtype
 - [ ] 4.5 Expose graph queries for AI copilots so responses draw from canonical relationships
-- [ ] 4.6 Add SRQL AGE bootstrap + fixtures in tests (graph_path, labels, sample neighborhood) and integration tests that validate the graph query contract and JSON shape
+- [x] 4.6 Add SRQL AGE bootstrap + fixtures in tests (graph_path, labels, sample neighborhood) and integration tests that validate the graph query contract and JSON shape
 
 ## 5. Web inventory integration
 

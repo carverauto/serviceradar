@@ -325,3 +325,99 @@ SELECT base.now_ts - INTERVAL '1 minute',
     '[]',
     base.now_ts
 FROM base;
+
+-- Seed AGE graph data for device_graph SRQL queries (best-effort when privileges allow).
+SET LOCAL search_path = ag_catalog, public, "$user";
+
+DO $$
+BEGIN
+    BEGIN
+        PERFORM ag_catalog.create_graph('serviceradar');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+
+    BEGIN
+        EXECUTE format('GRANT USAGE ON SCHEMA %I TO PUBLIC', 'serviceradar');
+        EXECUTE format('GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA %I TO PUBLIC', 'serviceradar');
+    EXCEPTION
+        WHEN insufficient_privilege THEN NULL;
+        WHEN others THEN NULL;
+    END;
+
+    BEGIN
+        GRANT USAGE ON SCHEMA ag_catalog TO PUBLIC;
+        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO PUBLIC;
+    EXCEPTION
+        WHEN insufficient_privilege THEN NULL;
+        WHEN others THEN NULL;
+    END;
+
+    BEGIN
+        PERFORM ag_catalog.create_vlabel('serviceradar', 'Device');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_vlabel('serviceradar', 'Collector');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_vlabel('serviceradar', 'Service');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_vlabel('serviceradar', 'Interface');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_vlabel('serviceradar', 'Capability');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+
+    BEGIN
+        PERFORM ag_catalog.create_elabel('serviceradar', 'HOSTS_SERVICE');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_elabel('serviceradar', 'TARGETS');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_elabel('serviceradar', 'HAS_INTERFACE');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_elabel('serviceradar', 'REPORTED_BY');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+    BEGIN
+        PERFORM ag_catalog.create_elabel('serviceradar', 'PROVIDES_CAPABILITY');
+    EXCEPTION
+        WHEN others THEN NULL;
+    END;
+
+    PERFORM * FROM ag_catalog.cypher('serviceradar', $_cypher$
+        MERGE (d:Device {id: 'device-alpha', hostname: 'alpha-edge'})
+        MERGE (c:Collector {id: 'serviceradar:agent:agent-1'})
+        MERGE (svc:Service {id: 'serviceradar:service:ssh@agent-1', type: 'ssh'})
+        MERGE (iface:Interface {id: 'device-alpha/eth0', name: 'eth0'})
+        MERGE (cap:Capability {type: 'snmp'})
+        MERGE (d)-[:HAS_INTERFACE]->(iface)
+        MERGE (d)-[:PROVIDES_CAPABILITY]->(cap)
+        MERGE (c)-[:HOSTS_SERVICE]->(svc)
+        MERGE (svc)-[:TARGETS]->(d)
+        MERGE (d)-[:REPORTED_BY]->(c)
+    $_cypher$) AS (result agtype);
+EXCEPTION
+    WHEN insufficient_privilege THEN
+        RAISE NOTICE 'Skipping AGE graph seed due to insufficient privileges';
+END $$;
