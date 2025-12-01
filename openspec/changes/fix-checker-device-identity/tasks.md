@@ -63,8 +63,17 @@
 - [x] 6.10 Unit test: `registerCoreServiceDevice()` creates stable device IDs
 - [x] 6.11 Unit test: `registerServiceOrCoreDevice()` routes to correct registration
 - [x] 6.12 Unit test: Core service device ID format verification
-- [ ] 6.13 Integration test: Agent restart with new IP updates existing device, no duplicate
-- [ ] 6.14 Integration test: Core services (datasvc, sync, etc.) appear in device inventory
+- [x] 6.13 Unit test: `normalizeHostIdentifier()` IP normalization edge cases
+- [x] 6.14 Unit test: `isDockerBridgeIP()` boundary conditions (172.16 vs 172.17-21 vs 172.22)
+- [x] 6.15 Unit test: `isEphemeralCollectorIP()` case sensitivity and partial hostname matches
+- [x] 6.16 Unit test: `getCollectorIP()` nil registry handling
+- [x] 6.17 Unit test: `extractCheckerHostIdentity()` JSON parsing variations
+- [x] 6.18 Unit test: `ensureServiceDevice` non-gRPC service type filtering
+- [x] 6.19 Unit test: `ensureServiceDevice` unknown/empty host IP handling
+- [x] 6.20 Unit test: Service device IDs don't match phantom cleanup migration criteria
+- [x] 6.21 Unit test: Legitimate Docker targets (mysql, redis) not falsely detected as phantom
+- [ ] 6.22 Integration test: Agent restart with new IP updates existing device, no duplicate
+- [ ] 6.23 Integration test: Core services (datasvc, sync, etc.) appear in device inventory
 
 ## 7. Verification
 

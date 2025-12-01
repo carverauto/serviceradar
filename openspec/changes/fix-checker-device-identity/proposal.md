@@ -45,3 +45,39 @@ The Device Identity Reconciliation Engine (DIRE) already has the concept of **se
   - `pkg/models/service_device.go` (add new ServiceTypes)
   - `pkg/core/devices.go` (`ensureServiceDevice`, extract target vs collector host)
   - Core services registration (datasvc, sync, mapper, otel, zen) to use service device IDs
+
+## Implementation Status
+
+### Completed (Unit Tested)
+
+#### 1. ServiceTypes for Core Services (`pkg/models/service_device.go`)
+- Added `ServiceTypeDatasvc`, `ServiceTypeKV`, `ServiceTypeSync`, `ServiceTypeMapper`, `ServiceTypeOtel`, `ServiceTypeZen`, `ServiceTypeCore`
+- Added `CreateCoreServiceDeviceUpdate()` helper in `pkg/models/service_registration.go`
+
+#### 2. Core Service Registration (`pkg/core/services.go`)
+- `getCoreServiceType()` - identifies core services from service type string
+- `findCoreServiceType()` - scans services list for core services
+- `registerCoreServiceDevice()` - registers core service with stable device ID
+- `registerServiceOrCoreDevice()` - routes to correct registration path
+
+#### 3. Fix Checker Device Registration (`pkg/core/devices.go`)
+- Modified `ensureServiceDevice()` to detect and skip collector IPs
+- `getCollectorIP()` - looks up agent/poller IP from ServiceRegistry
+- `isEphemeralCollectorIP()` - heuristic fallback for phantom detection
+- `isDockerBridgeIP()` - identifies Docker bridge network IPs (172.17-21.x.x)
+- `extractIPFromMetadata()` - extracts IP from service metadata
+
+#### 4. Database Migration (`pkg/db/cnpg/migrations/`)
+- `00000000000011_cleanup_phantom_devices.up.sql` - removes phantom devices with backup
+- `00000000000011_cleanup_phantom_devices.down.sql` - restores from backup
+
+#### 5. Test Coverage
+- 21 unit tests covering all new functionality
+- Tests in `pkg/core/devices_test.go`, `pkg/core/services_core_test.go`, `pkg/models/service_device_test.go`
+- Edge cases: IP normalization, Docker IP boundaries, hostname case sensitivity, nil registries
+- Safety tests: service device IDs excluded from phantom cleanup, legitimate Docker targets preserved
+
+### Pending (Integration/Manual Verification)
+- Integration test: Agent restart with new IP updates existing device
+- Integration test: Core services appear in device inventory
+- Manual verification of device inventory in production environment

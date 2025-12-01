@@ -54,3 +54,48 @@ The system SHALL maintain a registry of ServiceTypes for internal services that 
 #### Scenario: isServiceDeviceID check
 - **WHEN** determining if a device ID is for an internal service
 - **THEN** the system checks if the ID starts with `serviceradar:` prefix to identify service device IDs
+
+### Requirement: Heuristic Fallback for Phantom Device Detection
+When the collector IP cannot be determined from the ServiceRegistry, the system SHALL use heuristics to detect phantom devices based on Docker bridge network IPs and collector-like hostnames.
+
+#### Scenario: Docker bridge IP with agent hostname
+- **WHEN** a checker reports `host_ip: 172.18.0.5` with hostname containing "agent"
+- **AND** the ServiceRegistry lookup returns empty (collector IP unknown)
+- **THEN** the system identifies this as an ephemeral collector IP and skips device creation
+
+#### Scenario: Docker bridge IP with proper target hostname
+- **WHEN** a checker reports `host_ip: 172.18.0.10` with hostname `mysql-primary`
+- **THEN** the system creates a device record because the hostname indicates a legitimate target, not a collector
+
+#### Scenario: Non-Docker IP with agent hostname
+- **WHEN** a checker reports `host_ip: 192.168.1.100` with hostname `my-agent-server`
+- **THEN** the system creates a device record because the IP is not in Docker bridge ranges
+
+#### Scenario: Docker IP boundary conditions
+- **WHEN** the system evaluates IP addresses
+- **THEN** it identifies IPs in ranges 172.17.0.0-172.21.255.255 as Docker bridge network IPs
+- **AND** IPs like 172.16.x.x or 172.22.x.x are NOT considered Docker bridge IPs
+
+### Requirement: Database Cleanup Migration for Phantom Devices
+The system SHALL provide a database migration to clean up existing phantom devices while preserving legitimate service device records.
+
+#### Scenario: Migration backs up phantom devices before deletion
+- **WHEN** the cleanup migration runs
+- **THEN** it creates a backup table `_phantom_devices_backup` containing all devices to be deleted
+- **AND** then deletes the phantom devices from `unified_devices`
+
+#### Scenario: Migration preserves service device IDs
+- **WHEN** the cleanup migration identifies phantom devices
+- **THEN** it excludes all devices with `device_id LIKE 'serviceradar:%'` from deletion
+
+#### Scenario: Migration rollback restores deleted devices
+- **WHEN** the rollback migration runs
+- **THEN** it restores all devices from `_phantom_devices_backup` to `unified_devices`
+- **AND** drops the backup table
+
+#### Scenario: Phantom device identification criteria
+- **WHEN** the migration identifies phantom devices
+- **THEN** it matches devices with:
+  - IP in Docker bridge ranges (172.17-21.x.x)
+  - Source is 'checker' or 'self-reported'
+  - Hostname is NULL, empty, 'unknown', 'localhost', or contains 'agent', 'poller', 'collector'
