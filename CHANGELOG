@@ -1,3 +1,13 @@
+# ServiceRadar v1.0.61
+
+Device registry backed by Apache AGE plus refreshed UI.
+
+## Whats New
+
+**1.0.61**
+- Wired the device registry to Apache AGE, enabling graph-backed queries for neighborhood and capability traversal.
+- Shipped UI updates to surface the new graph data and align the device views with the registry changes.
+
 # ServiceRadar v1.0.60
 
 mTLS compose sysmon canonicalization and release rebuild.
