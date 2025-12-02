@@ -110,6 +110,9 @@ buildbuddy_toolchain_ext.gcc_toolchain(
         "/opt/rh/gcc-toolset-13/root/usr/include/c++/13/backward",
         "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include",
         "/opt/rh/gcc-toolset-13/root/usr/lib/gcc/x86_64-redhat-linux/13/include-fixed",
+        # Debian bullseye toolchain paths (GCC 10) used in the RBE image.
+        "/usr/lib/gcc/x86_64-linux-gnu/10/include",
+        "/usr/lib/gcc/x86_64-linux-gnu/10/include-fixed",
         # Allow Debian/Ubuntu GCC 11 built-ins when remote execution falls back to distro toolchain.
         "/usr/lib/gcc/x86_64-linux-gnu/11/include",
         "/usr/lib/gcc/x86_64-linux-gnu/11/include-fixed",
@@ -119,7 +122,7 @@ buildbuddy_toolchain_ext.gcc_toolchain(
 
 # Make the generated platform default to our custom executor image.
 buildbuddy_toolchain_ext.platform(
-    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.18",
+    container_image = "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.20",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
@@ -673,11 +676,16 @@ use_repo(
     "npm__next__16.0.1_821344105__links",
     "npm__react-dom__19.2.0_react_19.2.0__links",
     "npm__react__19.2.0__links",
+    "npm__reactflow__11.11.4_1456001583__links",
     "npm__recharts-scale__0.4.5__links",
     "npm__recharts__2.15.3_1315089095__links",
     "npm__tailwindcss-animate__1.0.7_tailwindcss_3.4.17__links",
     "npm__use-debounce__10.0.5_react_19.2.0__links",
     "npm__xlsx__0.18.5__links",
+    "npm__dagre__0.8.5__links",
+    "npm__d3-hierarchy__3.1.2__links",
+    "npm__at_types_dagre__0.7.53__links",
+    "npm__at_types_d3-hierarchy__3.1.7__links",
 )
 
 rules_ts_ext = use_extension("@aspect_rules_ts//ts:extensions.bzl", "ext")

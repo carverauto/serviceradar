@@ -16,5 +16,11 @@ type Device struct {
 	FirstSeen        time.Time              `json:"first_seen"`
 	LastSeen         time.Time              `json:"last_seen"`
 	IsAvailable      bool                   `json:"is_available"`
+	ServiceType      string                 `json:"service_type,omitempty"`
+	ServiceStatus    string                 `json:"service_status,omitempty"`
+	LastHeartbeat    *time.Time             `json:"last_heartbeat,omitempty"`
+	DeviceType       string                 `json:"device_type,omitempty"`
+	OSInfo           string                 `json:"os_info,omitempty"`
+	VersionInfo      string                 `json:"version_info,omitempty"`
 	Metadata         map[string]interface{} `json:"metadata,omitempty"`
 }

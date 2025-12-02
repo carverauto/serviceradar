@@ -54,7 +54,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
     const [error, setError] = useState<string | null>(null);
     const [viewFormat, setViewFormat] = useState<ViewFormat>('table');
     const [showRawJson, setShowRawJson] = useState<boolean>(false);
-    const { token } = useAuth();
+    const { token, isAuthEnabled } = useAuth();
     
     // Derive query from URL params, falling back to initialQuery
     const query = searchParams.get('q') || initialQuery;
@@ -103,7 +103,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                 });
                 
                 const data: unknown = await Promise.race([
-                    fetchAPI('/query', options),
+                    fetchAPI('/api/query', options),
                     timeoutPromise
                 ]);
 
@@ -136,10 +136,14 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
 
     // Run query when query parameter changes
     useEffect(() => {
-        if (query) {
-            handleSubmit(undefined, undefined, undefined, query);
+        if (!query) {
+            return;
         }
-    }, [query, handleSubmit]); // Re-run when query changes
+        if (isAuthEnabled && !token) {
+            return;
+        }
+        handleSubmit(undefined, undefined, undefined, query);
+    }, [query, handleSubmit, token, isAuthEnabled]); // Re-run when query changes or auth becomes available
 
     useEffect(() => {
         // Only run on client side

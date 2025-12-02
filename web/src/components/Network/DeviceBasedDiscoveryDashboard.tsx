@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import { Device } from '@/types/devices';
-import InterfaceTable from './InterfaceTable';
+import InterfaceTable, { NetworkInterface } from './InterfaceTable';
 import { cachedQuery } from '@/lib/cached-query';
 import { useSrqlQuery } from '@/contexts/SrqlQueryContext';
 import { DISCOVERY_DEVICES_QUERY, DISCOVERY_INTERFACES_QUERY } from '@/lib/srqlQueries';
@@ -389,20 +389,21 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
         currentFilteredInterfaces.sort(sortFn);
 
         return {
-            devices: filterType === 'interfaces' ? [] : currentFilteredDevices,
+            devices: currentFilteredDevices,
             interfaces: filterType === 'devices' ? [] : currentFilteredInterfaces
         };
     }, [availabilityFilter, devices, interfaces, searchTerm, filterType, sortBy, sortOrder]);
 
     // Convert interfaces to format expected by InterfaceTable
-    const formattedInterfaces = useMemo(() => {
-        return filteredData.interfaces.map(iface => ({
+    const formattedInterfaces = useMemo<NetworkInterface[]>(() => {
+        return filteredData.interfaces.map((iface) => ({
             name: iface.if_name || iface.if_descr || `Interface ${iface.if_index || 'N/A'}`,
             ip_address: Array.isArray(iface.ip_addresses) && iface.ip_addresses.length > 0 ? iface.ip_addresses[0] : undefined,
             mac_address: iface.if_phys_address || '-',
             status: iface.if_oper_status === 1 ? 'up' : iface.if_oper_status === 2 ? 'down' : 'unknown',
             type: iface.if_descr,
             speed: iface.if_speed ? `${(iface.if_speed / 1000000).toFixed(0)}Mbps` : 'N/A',
+            device_id: iface.device_id,
             device_ip: iface.device_ip,
             if_name: iface.if_name,
             if_descr: iface.if_descr,
@@ -415,6 +416,64 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
             metadata: iface.metadata,
         }));
     }, [filteredData.interfaces]);
+
+    const deviceLookup = useMemo(() => {
+        const map = new Map<string, Device>();
+        devices.forEach((device) => {
+            if (device.device_id) {
+                map.set(device.device_id, device);
+            }
+            if (device.ip) {
+                map.set(device.ip, device);
+            }
+        });
+        return map;
+    }, [devices]);
+
+    const interfaceGroups = useMemo(() => {
+        const groups = new Map<
+            string,
+            {
+                key: string;
+                deviceId?: string;
+                deviceIp?: string;
+                interfaces: NetworkInterface[];
+            }
+        >();
+
+        formattedInterfaces.forEach((iface) => {
+            const key = iface.device_id || iface.device_ip || iface.if_name || `iface-${iface.if_index ?? Math.random()}`;
+            const group = groups.get(key) ?? {
+                key,
+                deviceId: iface.device_id,
+                deviceIp: iface.device_ip,
+                interfaces: [],
+            };
+            group.interfaces.push(iface);
+            group.deviceId = group.deviceId || iface.device_id;
+            group.deviceIp = group.deviceIp || iface.device_ip;
+            groups.set(key, group);
+        });
+
+        return Array.from(groups.values()).map((group) => {
+            const device =
+                (group.deviceId ? deviceLookup.get(group.deviceId) : undefined) ||
+                (group.deviceIp ? deviceLookup.get(group.deviceIp) : undefined);
+            const label =
+                device?.hostname ||
+                device?.ip ||
+                group.deviceIp ||
+                group.deviceId ||
+                'Unknown device';
+            return {
+                ...group,
+                device,
+                label,
+                isAvailable: device?.is_available,
+                discoverySources: device?.discovery_sources ?? [],
+            };
+        });
+    }, [deviceLookup, formattedInterfaces]);
 
     // Get icon for device type
     const getDeviceIcon = (device: Device) => {
@@ -647,8 +706,18 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                 </div>
             )}
 
+            {filterType === 'interfaces' && interfaceGroups.length === 0 && filteredData.interfaces.length > 0 && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center shadow">
+                    <Network className="h-12 w-12 mx-auto text-gray-400 mb-3" />
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Interfaces discovered, but no device grouping</h3>
+                    <p className="text-gray-500 dark:text-gray-400">
+                        Interface data is present but missing device identifiers. Once mapper/DIRE attaches device IDs, interfaces will appear under their devices here.
+                    </p>
+                </div>
+            )}
+
             {/* Devices Section */}
-            {filteredData.devices.length > 0 && (
+            {filterType !== 'interfaces' && filteredData.devices.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
@@ -772,21 +841,64 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                 </div>
             )}
 
-            {/* Interfaces Section */}
-            {filteredData.interfaces.length > 0 && (
+            {/* Interfaces Section (grouped by device) */}
+            {interfaceGroups.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                             <Network className="h-5 w-5" />
-                            {`Network Interfaces (showing ${filteredData.interfaces.length} of ${stats.totalInterfaces.toLocaleString()})`}
+                            {filterType === 'interfaces'
+                                ? `Devices with interfaces (${interfaceGroups.length})`
+                                : `Network Interfaces (grouped by device)`}
                         </h2>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                            Interfaces are shown under their devices; interface nodes are no longer listed as top-level results.
+                        </p>
                     </div>
-                    <div className="p-4">
-                        <InterfaceTable 
-                            interfaces={formattedInterfaces} 
-                            showDeviceColumn={true}
-                            jsonViewTheme="pop"
-                        />
+                    <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {interfaceGroups.map((group) => {
+                            const availableTone =
+                                group.isAvailable === true
+                                    ? 'text-green-500'
+                                    : group.isAvailable === false
+                                        ? 'text-red-500'
+                                        : 'text-gray-500';
+                            return (
+                                <div key={group.key} className="p-4">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-2">
+                                            <Network className="h-4 w-4 text-blue-500" />
+                                            <div>
+                                                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                                                    {group.label}
+                                                </p>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                    {group.device?.ip || group.deviceIp || 'Unknown IP'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-3 text-xs text-gray-600 dark:text-gray-400">
+                                            <span className={availableTone}>
+                                                {group.isAvailable === true
+                                                    ? 'Online'
+                                                    : group.isAvailable === false
+                                                        ? 'Offline'
+                                                        : 'Unknown'}
+                                            </span>
+                                            <span className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-1 text-gray-800 dark:text-gray-200">
+                                                {group.interfaces.length} interfaces
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <InterfaceTable
+                                        interfaces={group.interfaces}
+                                        showDeviceColumn={false}
+                                        jsonViewTheme="pop"
+                                        itemsPerPage={10}
+                                    />
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             )}

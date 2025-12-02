@@ -1,0 +1,22 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "age_backfill_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/cmd/tools/age-backfill",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//pkg/db",
+        "//pkg/lifecycle",
+        "//pkg/logger",
+        "//pkg/models",
+        "//pkg/registry",
+        "@com_github_jackc_pgx_v5//pgxpool",
+    ],
+)
+
+go_binary(
+    name = "age-backfill",
+    embed = [":age_backfill_lib"],
+    visibility = ["//visibility:public"],
+)

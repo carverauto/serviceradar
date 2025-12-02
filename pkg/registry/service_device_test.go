@@ -344,6 +344,10 @@ func TestServiceDeviceRegistration_DeviceIDGeneration(t *testing.T) {
 }
 
 func TestServiceDeviceRegistration_HighCardinalityCheckers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping high-cardinality checker stress test in short mode")
+	}
+
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

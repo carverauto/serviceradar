@@ -1219,6 +1219,10 @@ func TestAvailabilityRemainsUnknownUntilPositiveProbe(t *testing.T) {
 }
 
 func TestIngestHarnessWithProbesKeepsCardinalityAndAvailability(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ingest harness cardinality probe test in short mode")
+	}
+
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

@@ -188,6 +188,13 @@ func (ud *UnifiedDevice) ToLegacyDevice() *Device {
 		device.PollerID = ud.DiscoverySources[0].PollerID
 	}
 
+	device.DeviceType = ud.DeviceType
+	device.ServiceType = ud.ServiceType
+	device.ServiceStatus = ud.ServiceStatus
+	device.LastHeartbeat = ud.LastHeartbeat
+	device.OSInfo = ud.OSInfo
+	device.VersionInfo = ud.VersionInfo
+
 	return device
 }
 

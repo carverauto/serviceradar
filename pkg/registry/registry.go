@@ -71,6 +71,7 @@ type DeviceRegistry struct {
 	deviceIdentityResolver   *DeviceIdentityResolver
 	firstSeenLookupChunkSize int
 	identityCfg              *models.IdentityReconciliationConfig
+	graphWriter              GraphWriter
 	reconcileInterval        time.Duration
 
 	mu           sync.RWMutex
@@ -115,6 +116,13 @@ func WithFirstSeenLookupChunkSize(size int) Option {
 		if size > 0 {
 			r.firstSeenLookupChunkSize = size
 		}
+	}
+}
+
+// WithGraphWriter wires an optional graph writer (e.g., AGE) for device relationship ingestion.
+func WithGraphWriter(writer GraphWriter) Option {
+	return func(r *DeviceRegistry) {
+		r.graphWriter = writer
 	}
 }
 
@@ -342,6 +350,10 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	}
 
 	r.applyRegistryStore(canonicalized, tombstones)
+
+	if r.graphWriter != nil {
+		r.graphWriter.WriteGraph(ctx, canonicalized)
+	}
 
 	r.logger.Debug().
 		Int("incoming_updates", len(updates)).

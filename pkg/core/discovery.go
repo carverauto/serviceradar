@@ -58,15 +58,17 @@ type discoveryService struct {
 	reg             registry.Manager
 	logger          logger.Logger
 	deviceSlicePool *sync.Pool
+	graphWriter     registry.GraphWriter
 }
 
 // NewDiscoveryService creates a new DiscoveryService instance.
-func NewDiscoveryService(dbSvc db.Service, reg registry.Manager, log logger.Logger) DiscoveryService {
+func NewDiscoveryService(dbSvc db.Service, reg registry.Manager, log logger.Logger, gw registry.GraphWriter) DiscoveryService {
 	return &discoveryService{
 		db:              dbSvc,
 		reg:             reg,
 		logger:          log,
 		deviceSlicePool: newDeviceSlicePool(),
+		graphWriter:     gw,
 	}
 }
 
@@ -834,6 +836,58 @@ func (s *discoveryService) processDiscoveredInterfaces(
 				Msg("Error processing mapper correlation sightings")
 		}
 	}
+
+	if s.graphWriter != nil {
+		s.emitInterfacesToGraph(ctx, allModelInterfaces, deviceToInterfacesMap)
+	}
+}
+
+func (s *discoveryService) emitInterfacesToGraph(
+	ctx context.Context,
+	allModelInterfaces []*models.DiscoveredInterface,
+	deviceToInterfacesMap map[string][]*discoverypb.DiscoveredInterface,
+) {
+	if len(allModelInterfaces) == 0 || len(deviceToInterfacesMap) == 0 || s.reg == nil || s.graphWriter == nil {
+		return
+	}
+
+	canonicalByIP := make(map[string]string, len(deviceToInterfacesMap))
+
+	for deviceIP := range deviceToInterfacesMap {
+		devices, err := s.reg.GetDevicesByIP(ctx, deviceIP)
+		if err != nil {
+			s.logger.Warn().Err(err).Str("device_ip", deviceIP).Msg("graph: failed to resolve device by IP")
+			continue
+		}
+		if len(devices) == 0 || devices[0] == nil || strings.TrimSpace(devices[0].DeviceID) == "" {
+			continue
+		}
+		canonicalByIP[deviceIP] = strings.TrimSpace(devices[0].DeviceID)
+	}
+
+	if len(canonicalByIP) == 0 {
+		return
+	}
+
+	interfacesForGraph := make([]*models.DiscoveredInterface, 0, len(allModelInterfaces))
+	for _, iface := range allModelInterfaces {
+		if iface == nil {
+			continue
+		}
+		canonical := canonicalByIP[iface.DeviceIP]
+		if canonical == "" {
+			continue
+		}
+		copyIface := *iface
+		copyIface.DeviceID = canonical
+		interfacesForGraph = append(interfacesForGraph, &copyIface)
+	}
+
+	if len(interfacesForGraph) == 0 {
+		return
+	}
+
+	s.graphWriter.WriteInterfaces(ctx, interfacesForGraph)
 }
 
 // prepareInterfaceMetadata prepares the metadata JSON for an interface. (Helper function, remains unchanged)
@@ -916,6 +970,11 @@ func (s *discoveryService) processDiscoveredTopology(
 			Str("poller_id", reportingPollerID).
 			Msg("Error publishing batch topology discovery events")
 	}
+
+	// Emit graph CONNECTS_TO edges if the graph writer is available.
+	if s.graphWriter != nil {
+		s.emitTopologyToGraph(ctx, modelTopologyEvents, partition)
+	}
 }
 
 // getOrGenerateLocalDeviceID returns the local device ID from the topology link or generates one if not present.
@@ -930,6 +989,57 @@ func (s *discoveryService) getOrGenerateLocalDeviceID(protoLink *discoverypb.Top
 	}
 
 	return localDeviceID
+}
+
+func (s *discoveryService) emitTopologyToGraph(ctx context.Context, events []*models.TopologyDiscoveryEvent, partition string) {
+	if len(events) == 0 || s.reg == nil || s.graphWriter == nil {
+		return
+	}
+
+	canonicalByIP := make(map[string]string)
+
+	resolveDevice := func(ip, hintedID string) string {
+		if hintedID != "" {
+			return hintedID
+		}
+		if cached := canonicalByIP[ip]; cached != "" {
+			return cached
+		}
+		devs, err := s.reg.GetDevicesByIP(ctx, ip)
+		if err != nil || len(devs) == 0 || devs[0] == nil {
+			return ""
+		}
+		id := strings.TrimSpace(devs[0].DeviceID)
+		if id != "" {
+			canonicalByIP[ip] = id
+		}
+		return id
+	}
+
+	resolved := make([]*models.TopologyDiscoveryEvent, 0, len(events))
+	for _, ev := range events {
+		if ev == nil {
+			continue
+		}
+		localID := strings.TrimSpace(ev.LocalDeviceID)
+		if localID == "" {
+			localID = resolveDevice(ev.LocalDeviceIP, fmt.Sprintf("%s:%s", partition, ev.LocalDeviceIP))
+		}
+		neighborID := resolveDevice(ev.NeighborManagementAddr, strings.TrimSpace(ev.NeighborManagementAddr))
+		if neighborID == "" || localID == "" {
+			continue
+		}
+		copyEv := *ev
+		copyEv.LocalDeviceID = localID
+		copyEv.NeighborManagementAddr = neighborID
+		resolved = append(resolved, &copyEv)
+	}
+
+	if len(resolved) == 0 {
+		return
+	}
+
+	s.graphWriter.WriteTopology(ctx, resolved)
 }
 
 // prepareTopologyMetadata prepares the metadata JSON for a topology link.
