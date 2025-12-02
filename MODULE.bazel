@@ -679,6 +679,10 @@ use_repo(
     "npm__tailwindcss-animate__1.0.7_tailwindcss_3.4.17__links",
     "npm__use-debounce__10.0.5_react_19.2.0__links",
     "npm__xlsx__0.18.5__links",
+    "npm__dagre__0.8.5__links",
+    "npm__d3-hierarchy__3.1.2__links",
+    "npm__at_types_dagre__0.7.53__links",
+    "npm__at_types_d3-hierarchy__3.1.7__links",
 )
 
 rules_ts_ext = use_extension("@aspect_rules_ts//ts:extensions.bzl", "ext")

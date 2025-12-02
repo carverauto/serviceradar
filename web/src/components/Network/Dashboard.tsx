@@ -85,6 +85,7 @@ interface ServiceWithPoller extends Service {
 }
 
 type TabName = 'overview' | 'discovery' | 'sweeps' | 'snmp' | 'applications' | 'netflow';
+const TAB_NAMES: TabName[] = ['overview', 'discovery', 'sweeps', 'snmp', 'applications', 'netflow'];
 
 const TIMESTAMP_FIELDS = [
     'timestamp',
@@ -1137,6 +1138,32 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
     const pathname = usePathname();
     const networkBasePath = pathname ?? '/network';
     const { setQuery: setSrqlQuery } = useSrqlQuery();
+
+    useEffect(() => {
+        const handleHashChange = () => {
+            if (typeof window === 'undefined') {
+                return;
+            }
+            const hash = window.location.hash.replace('#', '');
+            if (TAB_NAMES.includes(hash as TabName)) {
+                setActiveTab(hash as TabName);
+            }
+        };
+
+        handleHashChange();
+        window.addEventListener('hashchange', handleHashChange);
+        return () => window.removeEventListener('hashchange', handleHashChange);
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') {
+            return;
+        }
+        const current = window.location.hash.replace('#', '');
+        if (current !== activeTab) {
+            window.location.hash = activeTab;
+        }
+    }, [activeTab]);
 
     useEffect(() => {
         const viewPath = `${networkBasePath}#${activeTab}`;

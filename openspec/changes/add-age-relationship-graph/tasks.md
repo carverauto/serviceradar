@@ -36,10 +36,12 @@
 - [x] 5.1 Update inventory UI to show graph-derived badges (e.g., "collector service", "SNMP metrics") instead of duplicating devices
 - [x] 5.2 Ensure entries like sync/mapper/zen health checks render as services on `docker-agent`/poller, not as separate devices named "agent"
 - [x] 5.3 Add UI affordances to hide/filter collector-owned health checks while keeping true targets visible
-- [x] 5.4 Build hierarchical Device Inventory view (Device → services/collectors/child agents) and Network Discovery/Interfaces view (Device → interfaces) without listing interfaces as top-level devices
+- [x] 5.4 Restore the Device Inventory to the original flat table while keeping graph-sourced badges/filters, and keep the Network Discovery/Interfaces view device-scoped (interfaces grouped under a device, no nested inventory rows)
 - [x] 5.5 Add a graph-based device detail view (ReactFlow) showing collectors, services, targets, and interfaces in a single neighborhood canvas with badges/links
-- [x] 5.6 Make the default Device Inventory experience hierarchy-first in the table view: roll child services/agents under parents by default with SRQL link-outs to the underlying `in:device_graph` query (no card layout)
-- [x] 5.7 Implement expandable poller rows that reveal agents/collector services as indented table rows (color-coded relationship rows), keeping collectors visible as first-class devices while suppressing agent/checker rows until expanded; preserve pagination/performance for large inventories (50k–5M devices)
+- [x] 5.6 Remove hierarchy-first/auto-expanded poller rows from the Device Inventory while keeping poller/agent/service relationships reachable via graph-based detail views or link-outs; preserve pagination/performance for large inventories (50k–5M devices)
+- [x] 5.7 Add clear link-outs from the flat inventory rows to the graph canvas/network discovery views so relationships remain discoverable without nested table rows
+- [x] 5.8 Replace the ReactFlow neighborhood canvas with a D3 hierarchy/cluster-based dendrogram that auto-lays out collectors → services/checkers → targets/interfaces so edges stay visible and the graph remains compact on device detail pages
+- [x] 5.9 Add a large-neighborhood fallback that clusters sweep-scale (10k–50k+) targets by CIDR using a pack layout instead of rendering all edges/vertices in the device detail graph
 
 ## 6. Backfill, testing, and validation
 
@@ -59,3 +61,8 @@ Progress notes:
 - Inventory UI now hides collector-owned service devices by default, surfaces them as collector services with badges/toggle + SRQL link-outs, and defaults graph cards to collector-owned view for service nodes.
 - Device inventory graph cards now render child collectors for poller roots; network discovery view groups interfaces under their owning devices (no interface rows as top-level results) with per-device interface tables.
 - ReactFlow-based device detail view + graph-centric inventory view still pending; will anchor on `in:device_graph` neighborhood responses and include interfaces in the canvas.
+- Dagre-based ReactFlow layout landed for device neighborhoods, hierarchy-first device table (now being rolled back to flat) updated, and mTLS compose rebuilt on APP_TAG `sha-a9a9af5644f28b3ba13be71264307f981b21fa0e` with images pushed to GHCR.
+- Inventory table previously auto-expanded pollers by default, removed the AGE/SRQL banner in child rows, restored ICMP sparklines for ICMP-capable devices, and limited sysmon/SNMP indicators to supported devices to avoid stuck skeletons; collector-service info banner on the dashboard was removed (now being reverted to a flat table per 5.4/5.6).
+- Discovery source badges now normalize object-shaped entries to avoid React crashes, and compose mTLS stack refreshed on the latest `sha-a9a9af5644f28b3ba13be71264307f981b21fa0e` build (web digest `f3cca016019225d25212aaa4f6ea1fdf2c6b495cfa5dd03f50f16d789c46b81c`).
+- UI cleanup: Removed "Hierarchy view is hiding X rows" banner, Capability Status table, Metadata card, and Graph Relationships card from the main device inventory expanded row. DeviceDetail page restructured to use full-width sections, reduced Network Neighborhood canvas from 500px to 320px, and added click-to-focus behavior for canvas zoom/pan (scroll wheel no longer captured on hover—requires click first).
+- Scope pivot: reverting the Device Inventory back to a flat layout (hierarchy stays in graph/detail views); relationship navigation will rely on badges/link-outs and the dedicated network discovery/graph canvases.

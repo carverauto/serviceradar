@@ -167,22 +167,45 @@ BEGIN
     cypher_sql := format($cypher$
         WITH %s::boolean AS include_topology, %s::boolean AS collector_only
         MATCH (c:Collector {id: %L})
-        OPTIONAL MATCH (c)-[:HOSTS_SERVICE]->(svc:Service)
+        OPTIONAL MATCH (c)-[:REPORTED_BY]->(parentCol:Collector)
+        OPTIONAL MATCH (devAlias:Device {id: %L})-[:REPORTED_BY]->(parentFromAlias:Collector)
+        OPTIONAL MATCH (childCol:Collector)-[:REPORTED_BY]->(c)
+        OPTIONAL MATCH (childDev:Device)-[:REPORTED_BY]->(c)
+            WHERE childDev.id STARTS WITH 'serviceradar:'
+        WITH c, include_topology,
+             collect(DISTINCT parentCol) + collect(DISTINCT parentFromAlias) AS parent_collectors,
+             collect(DISTINCT childCol) AS child_collectors,
+             collect(DISTINCT childDev.id) AS child_dev_ids
+        WITH c, include_topology, parent_collectors, child_collectors,
+             CASE WHEN size(child_dev_ids) = 0 THEN [NULL] ELSE child_dev_ids END AS child_dev_ids_safe
+        UNWIND child_dev_ids_safe AS child_dev_id
+        OPTIONAL MATCH (aliasCol:Collector {id: child_dev_id})
+        WITH c, include_topology,
+             parent_collectors,
+             child_collectors,
+             collect(DISTINCT aliasCol) AS alias_child_collectors
+        WITH c, include_topology,
+             [col IN parent_collectors WHERE col IS NOT NULL] AS parent_collectors,
+             [col IN (child_collectors + alias_child_collectors) WHERE col IS NOT NULL] AS child_collectors,
+             [c] + [col IN (child_collectors + alias_child_collectors) WHERE col IS NOT NULL | col] AS host_collectors
+        UNWIND host_collectors AS host_col
+        OPTIONAL MATCH (host_col)-[:HOSTS_SERVICE]->(svc:Service)
         OPTIONAL MATCH (svc)-[:TARGETS]->(t:Device)
         OPTIONAL MATCH (svc)-[:PROVIDES_CAPABILITY]->(svcCap:Capability)
-        OPTIONAL MATCH (reported:Device)-[:REPORTED_BY]->(c)
-        OPTIONAL MATCH (c)-[:REPORTED_BY]->(parentCol:Collector)
-        WITH c, include_topology,
-             collect(DISTINCT CASE WHEN svc IS NOT NULL THEN {service: properties(svc), collector_id: c.id, collector_owned: true} ELSE NULL END) AS services_output_raw,
-             collect(DISTINCT t) AS targets,
+        OPTIONAL MATCH (reported:Device)-[:REPORTED_BY]->(host_col)
+        WITH c, include_topology, parent_collectors, child_collectors,
+             collect(DISTINCT CASE WHEN svc IS NOT NULL THEN {service: properties(svc), collector_id: host_col.id, collector_owned: true} ELSE NULL END) AS services_output_raw,
+             collect(DISTINCT t) AS service_targets,
              collect(DISTINCT svcCap) AS service_caps,
-             collect(DISTINCT reported) AS reported_devices,
-             collect(DISTINCT parentCol) AS parent_collectors
-        UNWIND (targets + reported_devices) AS tgt
-        WITH c, include_topology, services_output_raw, service_caps, collect(DISTINCT tgt) AS all_targets, parent_collectors
+             collect(DISTINCT reported) AS reported_devices
+        WITH c, include_topology, parent_collectors, child_collectors, services_output_raw, service_targets, service_caps, reported_devices,
+             CASE WHEN size(service_targets + reported_devices) = 0 THEN [NULL] ELSE service_targets + reported_devices END AS combined_targets
+        UNWIND combined_targets AS tgt
+        WITH c, include_topology, parent_collectors, child_collectors, services_output_raw, service_caps,
+             collect(DISTINCT tgt) AS all_targets
         RETURN {
             device: properties(c),
-            collectors: [pc IN parent_collectors WHERE pc IS NOT NULL | properties(pc)],
+            collectors: [col IN (parent_collectors + child_collectors) WHERE col IS NOT NULL | properties(col)],
             services: [s IN services_output_raw WHERE s IS NOT NULL | s],
             targets: [tgt IN all_targets WHERE tgt IS NOT NULL | properties(tgt)],
             interfaces: [],
@@ -190,7 +213,7 @@ BEGIN
             device_capabilities: [],
             service_capabilities: [cap IN service_caps WHERE cap IS NOT NULL | properties(cap)]
         } AS result
-    $cypher$, include_topology, collector_only, p_device_id);
+    $cypher$, include_topology, collector_only, p_device_id, p_device_id);
 
     EXECUTE 'SELECT result FROM ag_catalog.cypher(''serviceradar'', ' ||
             chr(36) || chr(36) || cypher_sql || chr(36) || chr(36) ||

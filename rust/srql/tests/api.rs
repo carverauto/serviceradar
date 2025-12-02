@@ -236,6 +236,106 @@ async fn device_graph_query_returns_neighborhood() {
     .await;
 }
 
+#[tokio::test(flavor = "multi_thread")]
+#[serial]
+async fn timeseries_metrics_query_returns_rows() {
+    with_srql_harness(|harness| async move {
+        let request = QueryRequest {
+            query:
+                r#"in:timeseries_metrics device_id:"device-alpha" time:last_1h sort:timestamp:desc"#
+                    .to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response = harness.query(request).await;
+        let (status, body) = read_json(response).await;
+
+        assert_eq!(status, http::StatusCode::OK, "unexpected status: {body}");
+        let rows = body["results"]
+            .as_array()
+            .unwrap_or_else(|| panic!("results missing or not array: {body}"));
+        assert!(
+            !rows.is_empty(),
+            "timeseries_metrics should return seeded rows for device-alpha: {body}"
+        );
+        assert!(
+            rows.iter()
+                .all(|row| row.get("device_id").and_then(|v| v.as_str()) == Some("device-alpha")),
+            "all rows should belong to device-alpha: {body}"
+        );
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[serial]
+async fn snmp_metrics_alias_filters_metric_type() {
+    with_srql_harness(|harness| async move {
+        let request = QueryRequest {
+            query: r#"in:snmp_metrics device_id:"device-alpha" time:last_1h sort:timestamp:desc"#
+                .to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response = harness.query(request).await;
+        let (status, body) = read_json(response).await;
+
+        assert_eq!(status, http::StatusCode::OK, "unexpected status: {body}");
+        let rows = body["results"]
+            .as_array()
+            .unwrap_or_else(|| panic!("results missing or not array: {body}"));
+        assert!(
+            !rows.is_empty(),
+            "snmp_metrics should return seeded snmp rows: {body}"
+        );
+        assert!(
+            rows.iter()
+                .all(|row| row.get("metric_type").and_then(|v| v.as_str()) == Some("snmp")),
+            "snmp_metrics entity should enforce metric_type=snmp: {body}"
+        );
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[serial]
+async fn rperf_metrics_queries_still_work() {
+    with_srql_harness(|harness| async move {
+        let request = QueryRequest {
+            query: r#"in:rperf_metrics device_id:"device-beta" time:last_1h sort:timestamp:desc"#
+                .to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response = harness.query(request).await;
+        let (status, body) = read_json(response).await;
+
+        assert_eq!(status, http::StatusCode::OK, "unexpected status: {body}");
+        let rows = body["results"]
+            .as_array()
+            .unwrap_or_else(|| panic!("results missing or not array: {body}"));
+        assert!(
+            !rows.is_empty(),
+            "rperf_metrics should return seeded rows for device-beta: {body}"
+        );
+        assert!(
+            rows.iter()
+                .all(|row| row.get("metric_type").and_then(|v| v.as_str()) == Some("rperf")),
+            "rperf_metrics should continue to enforce metric_type=rperf: {body}"
+        );
+    })
+    .await;
+}
+
 fn allow_age_skip() -> bool {
     std::env::var("SRQL_ALLOW_AGE_SKIP")
         .map(|v| v.trim().eq_ignore_ascii_case("true") || v == "1")

@@ -767,20 +767,123 @@ const Dashboard = () => {
     return meta;
   }, [devices]);
 
+  const isDeletedDevice = useCallback((device: Device): boolean => {
+    const metadata = device.metadata as Record<string, unknown> | undefined;
+    if (!metadata) return false;
+    const flags = ["deleted", "_deleted"];
+    return flags.some((flag) => {
+      const raw = metadata[flag];
+      if (raw === true) return true;
+      if (typeof raw === "string") {
+        return raw.trim().toLowerCase() === "true";
+      }
+      return false;
+    });
+  }, []);
+
+  const isCollectorOwnedPlaceholder = useCallback((device: Device): boolean => {
+    const metadata = device.metadata as Record<string, unknown> | undefined;
+    const checkerService =
+      metadata && typeof metadata.checker_service === "string"
+        ? metadata.checker_service.trim()
+        : "";
+    const collectorAgent =
+      metadata && typeof metadata.collector_agent_id === "string"
+        ? metadata.collector_agent_id.trim()
+        : "";
+    const collectorPoller =
+      metadata && typeof metadata.collector_poller_id === "string"
+        ? metadata.collector_poller_id.trim()
+        : "";
+    const hostIp =
+      metadata && typeof metadata.checker_host_ip === "string"
+        ? metadata.checker_host_ip.trim()
+        : "";
+    const normalizedHostname = (
+      device.hostname ||
+      (metadata && typeof metadata.canonical_hostname === "string"
+        ? metadata.canonical_hostname
+        : "") ||
+      ""
+    )
+      .toString()
+      .toLowerCase();
+    const ip = (device.ip || hostIp || "").toString();
+    const collectorishName =
+      normalizedHostname === "agent" ||
+      normalizedHostname === "poller" ||
+      normalizedHostname.startsWith("docker-agent") ||
+      normalizedHostname.startsWith("docker-poller");
+    const collectorishIp = ip.startsWith("172.18.");
+
+    return (
+      Boolean(checkerService) &&
+      (collectorAgent.length > 0 || collectorPoller.length > 0) &&
+      (collectorishName || collectorishIp)
+    );
+  }, []);
+
   const visibleDevices = useMemo(
     () =>
       devices.filter(
         (device) =>
-          !hideCollectorServices ||
-          !collectorServiceMeta.has(device.device_id),
+          !isDeletedDevice(device) &&
+          !isCollectorOwnedPlaceholder(device) &&
+          (!hideCollectorServices ||
+            !collectorServiceMeta.has(device.device_id)),
       ),
-    [collectorServiceMeta, devices, hideCollectorServices],
+    [
+      collectorServiceMeta,
+      devices,
+      hideCollectorServices,
+      isDeletedDevice,
+      isCollectorOwnedPlaceholder,
+    ],
   );
 
   const hiddenCollectorServiceCount = useMemo(
     () => Math.max(0, devices.length - visibleDevices.length),
     [devices, visibleDevices],
   );
+
+  const visibleStats = useMemo(() => {
+    const total = visibleDevices.length;
+    let online = 0;
+    let collectorsCount = 0;
+
+    visibleDevices.forEach((device) => {
+      if (device.is_available) {
+        online += 1;
+      }
+      if (isCollectorDevice(device)) {
+        collectorsCount += 1;
+      }
+    });
+
+    const offline = Math.max(0, total - online);
+    return { total, online, offline, collectors: collectorsCount };
+  }, [visibleDevices]);
+
+  const displayedStats = useMemo(() => {
+    if (statsLoading) {
+      return stats;
+    }
+    return {
+      total: Math.max(
+        visibleStats.total,
+        stats.total - hiddenCollectorServiceCount,
+      ),
+      online: Math.max(
+        visibleStats.online,
+        stats.online - hiddenCollectorServiceCount,
+      ),
+      offline: Math.max(
+        visibleStats.offline,
+        stats.offline - hiddenCollectorServiceCount,
+      ),
+      collectors: Math.max(visibleStats.collectors, stats.collectors),
+    };
+  }, [hiddenCollectorServiceCount, stats, statsLoading, visibleStats]);
 
   const handleSort = (key: SortableKeys) => {
     if (sortBy === key) {
@@ -826,7 +929,7 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard
           title="Total Devices"
-          value={stats.total.toLocaleString()}
+          value={displayedStats.total.toLocaleString()}
           icon={<Server className="h-6 w-6 text-blue-600 dark:text-blue-400" />}
           isLoading={statsLoading}
           colorScheme="blue"
@@ -835,7 +938,7 @@ const Dashboard = () => {
         />
         <StatCard
           title="Online"
-          value={stats.online.toLocaleString()}
+          value={displayedStats.online.toLocaleString()}
           icon={
             <CheckCircle className="h-6 w-6 text-green-600 dark:text-green-400" />
           }
@@ -846,7 +949,7 @@ const Dashboard = () => {
         />
         <StatCard
           title="Offline"
-          value={stats.offline.toLocaleString()}
+          value={displayedStats.offline.toLocaleString()}
           icon={<XCircle className="h-6 w-6 text-red-600 dark:text-red-400" />}
           isLoading={statsLoading}
           colorScheme="red"
@@ -855,7 +958,7 @@ const Dashboard = () => {
         />
         <StatCard
           title="Devices with Collectors"
-          value={stats.collectors.toLocaleString()}
+          value={displayedStats.collectors.toLocaleString()}
           icon={
             <Share2 className="h-6 w-6 text-purple-600 dark:text-purple-400" />
           }
@@ -948,20 +1051,6 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
-        {hideCollectorServices && hiddenCollectorServiceCount > 0 && (
-          <div className="px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between bg-blue-50 dark:bg-blue-900/30 text-blue-900 dark:text-blue-100 border-t border-b border-blue-200 dark:border-blue-800">
-            <span className="text-sm">
-              Collector-owned service health checks (sync/mapper/zen/etc) are rolled into their collectors in the table view and hidden from the list until you toggle them on.
-            </span>
-            <button
-              type="button"
-              onClick={() => setHideCollectorServices(false)}
-              className="inline-flex items-center gap-2 rounded-md bg-blue-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-blue-700"
-            >
-              Show services in list
-            </button>
-          </div>
-        )}
         <div className="px-4 py-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-700">
           <span>Engine: {searchEngine}</span>
           {searchDiagnostics &&
@@ -1007,7 +1096,7 @@ const Dashboard = () => {
               />
             ) : (
               <DeviceTable
-                devices={devices}
+                devices={visibleDevices}
                 collectorServiceMeta={collectorServiceMeta}
                 hideCollectorServices={hideCollectorServices}
                 onSort={handleSort}

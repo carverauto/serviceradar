@@ -692,7 +692,7 @@ FROM ag_catalog.cypher(
                  SET svc.type = coalesce(s.type, svc.type),
                      svc.ip = coalesce(s.ip, svc.ip),
                      svc.hostname = coalesce(s.hostname, svc.hostname)
-                 WITH svc, s, collectors, devices, services, reportedBy, targets
+                 WITH svc, s, collectors, devices, services, reportedBy, collectorParents, targets
                  WHERE coalesce(s.collector_id, '') <> ''
                  MERGE (col:Collector {id: s.collector_id})
                  MERGE (col)-[:HOSTS_SERVICE]->(svc)
@@ -703,15 +703,15 @@ FROM ag_catalog.cypher(
                  WITH collectors, devices, services, reportedBy, collectorParents, targets
 
              UNWIND reportedBy AS r
-                 WITH r, collectorParents, targets
+                 WITH r, collectorParents, targets, reportedBy
                  WHERE NOT r.device_id STARTS WITH 'serviceradar:'
                  MERGE (dev:Device {id: r.device_id})
                  MERGE (col:Collector {id: r.collector_id})
                  MERGE (dev)-[:REPORTED_BY]->(col)
-                 WITH collectorParents, targets
+                 WITH collectorParents, targets, reportedBy
 
              UNWIND reportedBy AS r
-                 WITH r, collectorParents, targets
+                 WITH r, collectorParents, targets, reportedBy
                  WHERE r.device_id STARTS WITH 'serviceradar:'
                  MERGE (child:Collector {id: r.device_id})
                  MERGE (parent:Collector {id: r.collector_id})

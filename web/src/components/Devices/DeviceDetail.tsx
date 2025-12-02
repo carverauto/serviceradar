@@ -1160,7 +1160,7 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {isDeleted ? (
               <span className="inline-flex items-center rounded-full bg-rose-100 dark:bg-rose-900/30 px-3 py-1 text-sm font-medium text-rose-700 dark:text-rose-300">
                 <AlertTriangle className="mr-2 h-4 w-4" />
@@ -1177,6 +1177,11 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
                 Offline
               </span>
             )}
+            <DeleteDeviceButton
+              deviceId={deviceId}
+              deviceName={device.hostname || device.ip}
+              compact
+            />
           </div>
         </div>
 
@@ -1233,12 +1238,115 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
         )}
       </div>
 
-      <DeviceGraphNeighborhoodPanel
-        deviceId={device.device_id}
-        defaultCollectorOwnedOnly={
-          collectorServiceType(device.device_id, device.service_type) !== null
-        }
-      />
+      <div
+        id="graph"
+        className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden"
+      >
+        <div className="px-6 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h3 className="font-semibold text-gray-900 dark:text-white">
+              Network Neighborhood
+            </h3>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              Apache AGE graph
+            </span>
+          </div>
+        </div>
+        <DeviceGraphNeighborhoodPanel
+          deviceId={device.device_id}
+          defaultCollectorOwnedOnly={
+            collectorServiceType(device.device_id, device.service_type) !== null
+          }
+        />
+      </div>
+
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Availability
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {timeWindow.label} window • tracking transitions from device
+              updates
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(TIME_RANGE_CONFIG).map(([key, config]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTimeRange(key)}
+                className={`rounded-md border px-3 py-1 text-sm transition ${
+                  timeRange === key
+                    ? "border-blue-500 bg-blue-50 text-blue-600 dark:border-blue-400 dark:bg-blue-900/40 dark:text-blue-200"
+                    : "border-gray-300 text-gray-600 hover:border-gray-400 dark:border-gray-700 dark:text-gray-300"
+                }`}
+              >
+                {config.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {availabilityLoading ? (
+          <div className="flex items-center justify-center py-10 text-gray-500 dark:text-gray-400">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            Loading availability history…
+          </div>
+        ) : availabilityError ? (
+          <div className="rounded-lg border border-dashed border-red-300 dark:border-red-700 bg-red-50/60 dark:bg-red-900/20 p-4 text-sm text-red-600 dark:text-red-300">
+            {availabilityError}
+          </div>
+        ) : (
+          <>
+            <AvailabilityTimeline
+              segments={availabilityInfo.segments}
+              totalMs={availabilityInfo.totalMs}
+              start={timeWindow.start}
+              end={timeWindow.end}
+            />
+
+            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+              <MetricCard
+                title={`Uptime (${timeWindow.label})`}
+                value={`${availabilityInfo.uptimePct.toFixed(1)}%`}
+                subtitle={`${formatDuration(availabilityInfo.uptimeMs)} available`}
+                icon={<TrendingUp className="h-6 w-6" />}
+                color="green"
+              />
+              <MetricCard
+                title="Observed Downtime"
+                value={formatDuration(availabilityInfo.downtimeMs)}
+                subtitle="Based on collected device update events"
+                icon={<AlertTriangle className="h-6 w-6" />}
+                color="red"
+              />
+              <MetricCard
+                title="Last Status Change"
+                value={
+                  availabilityInfo.latestEvent
+                    ? formatRelativeTime(
+                        new Date(availabilityInfo.latestEvent.timestamp),
+                      )
+                    : "No change recorded"
+                }
+                subtitle={
+                  availabilityInfo.latestEvent
+                    ? formatTimestampForDisplay(
+                        availabilityInfo.latestEvent.timestamp,
+                      )
+                    : undefined
+                }
+                icon={<Clock className="h-6 w-6" />}
+                color="blue"
+              />
+            </div>
+          </>
+        )}
+      </div>
+
+      <ServiceRegistryPanel deviceId={deviceId} />
 
       {(promotionSightingId || promotedViaSighting) && (
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
@@ -1346,101 +1454,6 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
           </div>
         </div>
       )}
-
-      {/* Service Registry Panel - only shows for pollers, agents, and checkers */}
-      <ServiceRegistryPanel deviceId={deviceId} />
-
-      {/* Delete Device Button */}
-      <DeleteDeviceButton
-        deviceId={deviceId}
-        deviceName={device.hostname || device.ip}
-      />
-
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
-        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Availability
-            </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              {timeWindow.label} window • tracking transitions from device
-              updates
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(TIME_RANGE_CONFIG).map(([key, config]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setTimeRange(key)}
-                className={`rounded-md border px-3 py-1 text-sm transition ${
-                  timeRange === key
-                    ? "border-blue-500 bg-blue-50 text-blue-600 dark:border-blue-400 dark:bg-blue-900/40 dark:text-blue-200"
-                    : "border-gray-300 text-gray-600 hover:border-gray-400 dark:border-gray-700 dark:text-gray-300"
-                }`}
-              >
-                {config.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {availabilityLoading ? (
-          <div className="flex items-center justify-center py-10 text-gray-500 dark:text-gray-400">
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-            Loading availability history…
-          </div>
-        ) : availabilityError ? (
-          <div className="rounded-lg border border-dashed border-red-300 dark:border-red-700 bg-red-50/60 dark:bg-red-900/20 p-4 text-sm text-red-600 dark:text-red-300">
-            {availabilityError}
-          </div>
-        ) : (
-          <>
-            <AvailabilityTimeline
-              segments={availabilityInfo.segments}
-              totalMs={availabilityInfo.totalMs}
-              start={timeWindow.start}
-              end={timeWindow.end}
-            />
-
-            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-              <MetricCard
-                title={`Uptime (${timeWindow.label})`}
-                value={`${availabilityInfo.uptimePct.toFixed(1)}%`}
-                subtitle={`${formatDuration(availabilityInfo.uptimeMs)} available`}
-                icon={<TrendingUp className="h-6 w-6" />}
-                color="green"
-              />
-              <MetricCard
-                title="Observed Downtime"
-                value={formatDuration(availabilityInfo.downtimeMs)}
-                subtitle="Based on collected device update events"
-                icon={<AlertTriangle className="h-6 w-6" />}
-                color="red"
-              />
-              <MetricCard
-                title="Last Status Change"
-                value={
-                  availabilityInfo.latestEvent
-                    ? formatRelativeTime(
-                        new Date(availabilityInfo.latestEvent.timestamp),
-                      )
-                    : "No change recorded"
-                }
-                subtitle={
-                  availabilityInfo.latestEvent
-                    ? formatTimestampForDisplay(
-                        availabilityInfo.latestEvent.timestamp,
-                      )
-                    : undefined
-                }
-                icon={<Clock className="h-6 w-6" />}
-                color="blue"
-              />
-            </div>
-          </>
-        )}
-      </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard

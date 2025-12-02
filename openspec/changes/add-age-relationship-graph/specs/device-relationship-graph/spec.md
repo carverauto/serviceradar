@@ -124,25 +124,25 @@ The system SHALL serve device inventory and neighborhood queries from AGE (via D
 - **WHEN** SRQL is asked for a device’s connected collectors or services
 - **THEN** it reads from the AGE graph to return relationships, ensuring poller/agent ownership and service health checks appear as children rather than duplicate devices.
 
-### Requirement: Hierarchical UI views respect graph relationships
-The system SHALL present hierarchical views backed by AGE: Device Inventory (device → services/collectors/child agents) and Network Discovery/Interfaces (device → interfaces) without listing interfaces as devices.
+### Requirement: Flat inventory layout uses graph context and link-outs
+The system SHALL keep the main Device Inventory table flat while using AGE relationships for badges/filters, and rely on dedicated graph/detail plus discovery views to navigate hierarchy and interfaces.
 
-#### Scenario: Device inventory shows services under device
-- **WHEN** viewing a device that has internal services (sync/mapper/zen) checked by an agent
-- **THEN** those services render as children of that device/agent node with labels (e.g., collector service, healthcheck) instead of top-level devices.
+#### Scenario: Flat inventory row per device
+- **WHEN** viewing the Device Inventory
+- **THEN** each device renders as a single row with graph-sourced badges/toggles for collector-owned services/checkers and capabilities, without nested or indented rows.
 
 #### Scenario: Interfaces page shows devices with discovered interfaces only
 - **WHEN** opening the Network → Discovery → Interfaces page
 - **THEN** only devices that have mapper-discovered interfaces are listed; expanding a device shows its interfaces and peer links, and interfaces are not shown as top-level devices elsewhere.
 
-#### Scenario: Poller-to-agent hierarchy is visible
+#### Scenario: Poller-to-agent relationships reachable via detail views
 - **WHEN** a poller has registered agents
-- **THEN** the inventory view shows the poller as a collector device with its agents as children, using graph relationships instead of duplicating device records.
-
-#### Scenario: Inventory table expands pollers into relationship rows
-- **WHEN** viewing the Device Inventory and expanding a poller row
-- **THEN** the table renders the poller as a standard row and inserts indented, color-differentiated rows beneath it for its agents/collector services/checkers (sourced from the graph), without switching to card layouts or inflating row height, and collapsed state hides those rows to keep large inventories performant.
+- **THEN** the flat inventory provides link-outs or actions to the device detail/graph view to see poller↔agent/service relationships while keeping the main table un-nested.
 
 #### Scenario: Device detail renders a graph canvas
 - **WHEN** viewing a device with collectors, services, targets, and interfaces
-- **THEN** the detail page renders a graph-based view (e.g., ReactFlow) that places the device, its collectors/child agents, services/checkers, targets, and interfaces on a single canvas, with badges/links back to the underlying nodes, and interfaces are shown as attached nodes instead of top-level devices.
+- **THEN** the detail page renders a D3 hierarchy/cluster (dendrogram) view that auto-lays out the device, its collectors/child agents, services/checkers, targets, and interfaces on a single canvas with visible edges, badges/links back to the underlying nodes, and interfaces shown as attached nodes instead of top-level devices.
+
+#### Scenario: Large neighborhoods collapse into CIDR clusters
+- **WHEN** the neighborhood contains a sweep/Armis/NetBox-scale result set (tens of thousands of targets or more)
+- **THEN** the detail view switches to a pack layout that clusters targets by CIDR/prefix to avoid rendering tens of thousands of individual edges while keeping collectors/services recognizable and navigable.

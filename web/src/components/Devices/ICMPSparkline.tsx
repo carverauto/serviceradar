@@ -181,7 +181,7 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
     if (processedMetrics.length === 0) {
       if (isLoading) {
         return (
-          <div className="h-4 w-6 bg-gray-600 animate-pulse rounded"></div>
+          <div className="h-6 w-12 bg-gray-600/60 animate-pulse rounded"></div>
         );
       }
       return null;
@@ -193,39 +193,44 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
       latestValue < 50 ? "#10b981" : latestValue < 100 ? "#f59e0b" : "#ef4444";
 
     return (
-      <div className="relative group">
-        <div className="h-4 w-6">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={processedMetrics}>
-              <defs>
-                <linearGradient
-                  id={`icmp-gradient-${deviceId}`}
-                  x1="0"
-                  y1="0"
-                  x2="0"
-                  y2="1"
-                >
-                  <stop offset="5%" stopColor={color} stopOpacity={0.8} />
-                  <stop offset="95%" stopColor={color} stopOpacity={0.2} />
-                </linearGradient>
-              </defs>
-              <YAxis type="number" domain={["dataMin", "dataMax"]} hide />
-              <Area
-                type="monotone"
-                dataKey="value"
-                stroke={color}
-                strokeWidth={1}
-                fill={`url(#icmp-gradient-${deviceId})`}
-                baseValue="dataMin"
-                dot={false}
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+      <div className="flex items-center gap-2">
+        <div className="relative group">
+          <div className="h-8 w-16 rounded bg-gray-100 dark:bg-gray-800/60 px-1 py-0.5">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={processedMetrics}>
+                <defs>
+                  <linearGradient
+                    id={`icmp-gradient-${deviceId}`}
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop offset="5%" stopColor={color} stopOpacity={0.95} />
+                    <stop offset="95%" stopColor={color} stopOpacity={0.35} />
+                  </linearGradient>
+                </defs>
+                <YAxis type="number" domain={["dataMin", "dataMax"]} hide />
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke={color}
+                  strokeWidth={1.5}
+                  fill={`url(#icmp-gradient-${deviceId})`}
+                  baseValue="dataMin"
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 text-xs text-white bg-gray-900 rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 shadow">
+            ICMP: {latestValue.toFixed(1)}ms
+          </div>
         </div>
-        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 text-xs text-white bg-gray-900 rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-          ICMP: {latestValue.toFixed(1)}ms
-        </div>
+        <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+          {latestValue.toFixed(1)}ms
+        </span>
       </div>
     );
   }

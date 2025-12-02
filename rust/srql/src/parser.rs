@@ -20,6 +20,8 @@ pub enum Entity {
     CpuMetrics,
     MemoryMetrics,
     DiskMetrics,
+    TimeseriesMetrics,
+    SnmpMetrics,
     TraceSummaries,
     Traces,
 }
@@ -187,6 +189,8 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "cpu_metrics" | "cpu" => Ok(Entity::CpuMetrics),
         "memory_metrics" | "memory" => Ok(Entity::MemoryMetrics),
         "disk_metrics" | "disk" => Ok(Entity::DiskMetrics),
+        "timeseries_metrics" | "timeseries" => Ok(Entity::TimeseriesMetrics),
+        "snmp_metrics" | "snmp" => Ok(Entity::SnmpMetrics),
         "otel_trace_summaries" | "trace_summaries" | "traces_summaries" => {
             Ok(Entity::TraceSummaries)
         }

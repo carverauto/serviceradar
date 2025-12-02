@@ -59,6 +59,14 @@ load(
     "@npm__tailwindcss-animate__1.0.7_tailwindcss_3.4.17__links//:defs.bzl",
     npm_link_tailwindcss_animate_store = "npm_link_imported_package_store",
 )
+load(
+    "@npm__dagre__0.8.5__links//:defs.bzl",
+    npm_link_dagre_store = "npm_link_imported_package_store",
+)
+load(
+    "@npm__d3-hierarchy__3.1.2__links//:defs.bzl",
+    npm_link_d3_hierarchy_store = "npm_link_imported_package_store",
+)
 load("@aspect_rules_ts//ts:defs.bzl", "ts_project")
 load(
     "@aspect_rules_js//contrib/nextjs:defs.bzl",
@@ -151,6 +159,16 @@ npm_link_tailwindcss_animate_store(
     link_root_name = "node_modules",
     link_alias = "tailwindcss-animate",
 )
+npm_link_dagre_store(
+    name = "node_modules/dagre",
+    link_root_name = "node_modules",
+    link_alias = "dagre",
+)
+npm_link_d3_hierarchy_store(
+    name = "node_modules/d3-hierarchy",
+    link_root_name = "node_modules",
+    link_alias = "d3-hierarchy",
+)
 
 genrule(
     name = "next_env_d_ts",
@@ -214,6 +232,7 @@ ts_project(
         ":node_modules/next-runtime-env",
         ":node_modules/tailwindcss-animate",
         ":node_modules/xlsx",
+        ":node_modules/d3-hierarchy",
     ],
     allow_js = True,
     no_emit = True,
@@ -244,6 +263,8 @@ js_binary(
         ":node_modules/next-runtime-env",
         ":node_modules/xlsx",
         ":node_modules/tailwindcss-animate",
+        ":node_modules/dagre",
+        ":node_modules/d3-hierarchy",
     ],
     visibility = ["//visibility:public"],
 )
@@ -287,6 +308,8 @@ nextjs_standalone_build(
         ":node_modules/next-runtime-env",
         ":node_modules/xlsx",
         ":node_modules/tailwindcss-animate",
+        ":node_modules/dagre",
+        ":node_modules/d3-hierarchy",
         "package.json",
         "pnpm-lock.yaml",
         "postcss.config.mjs",
