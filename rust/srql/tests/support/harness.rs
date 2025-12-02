@@ -31,6 +31,7 @@ const CNPG_IMAGE_REF: &str = "ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2";
 const CNPG_ARCHIVE: &str = "/opt/cnpg_image.tar";
 const DB_CONNECT_RETRIES: usize = 240;
 const DB_CONNECT_DELAY_MS: u64 = 250;
+const DB_SEED_RETRIES: usize = 3;
 const REMOTE_FIXTURE_LOCK_ID: i64 = 4_216_042;
 
 static CNPG_BUILD_STATE: OnceLock<Mutex<bool>> = OnceLock::new();
@@ -454,6 +455,25 @@ fn test_config(database_url: String) -> AppConfig {
 
 async fn seed_fixture_database(database_url: &str) -> anyhow::Result<()> {
     let mut attempts = 0usize;
+    loop {
+        match seed_fixture_database_once(database_url).await {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                attempts += 1;
+                if attempts >= DB_SEED_RETRIES {
+                    return Err(err);
+                }
+                eprintln!(
+                    "[srql-test] seeding attempt {attempts} failed: {err}; retrying fixture setup"
+                );
+                sleep(TokioDuration::from_millis(DB_CONNECT_DELAY_MS)).await;
+            }
+        }
+    }
+}
+
+async fn seed_fixture_database_once(database_url: &str) -> anyhow::Result<()> {
+    let mut attempts = 0usize;
     let (client, connection) = loop {
         match tokio_postgres::connect(database_url, NoTls).await {
             Ok(parts) => break parts,
@@ -514,6 +534,7 @@ async fn extension_exists(client: &Client, name: &str) -> anyhow::Result<bool> {
 pub struct SrqlTestHarness {
     router: Router,
     api_key: String,
+    #[allow(dead_code)]
     age_available: bool,
 }
 
@@ -556,6 +577,7 @@ impl SrqlTestHarness {
             .expect("router should handle harness request")
     }
 
+    #[allow(dead_code)]
     pub fn age_available(&self) -> bool {
         self.age_available
     }

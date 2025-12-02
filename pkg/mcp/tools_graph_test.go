@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
@@ -57,10 +58,10 @@ func TestGraphToolBuildsQueryAndReturnsGraph(t *testing.T) {
 		"include_topology":     false,
 	}
 	raw, err := json.Marshal(args)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	result, err := tool.Handler(context.Background(), raw)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, `in:device_graph device_id:"device-alpha" collector_owned:true include_topology:false`, exec.lastQuery)
 	assert.Equal(t, 1, exec.lastLimit)
@@ -83,7 +84,7 @@ func TestGraphToolRequiresDeviceID(t *testing.T) {
 	tool := server.tools["graphs.getDeviceNeighborhood"]
 
 	raw, err := json.Marshal(map[string]interface{}{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	_, err = tool.Handler(context.Background(), raw)
 	assert.ErrorIs(t, err, errDeviceIDRequired)
@@ -98,10 +99,10 @@ func TestGraphToolAliasAndDefaults(t *testing.T) {
 		"device_id":       "edge-1",
 		"collector_owned": true, // Alias for collector_owned_only
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	_, err = tool.Handler(context.Background(), raw)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, `in:device_graph device_id:"edge-1" collector_owned:true`, exec.lastQuery)
 	assert.Equal(t, 1, exec.lastLimit)

@@ -77,9 +77,9 @@ const (
 func ageGraphEnabled() bool {
 	val := strings.TrimSpace(strings.ToLower(os.Getenv("ENABLE_AGE_GRAPH_WRITES")))
 	switch val {
-	case "", "1", "true", "yes", "on":
+	case "", "1", metadataBoolTrue, "yes", "on":
 		return true
-	case "0", "false", "no", "off":
+	case "0", metadataBoolFalse, "no", "off":
 		return false
 	default:
 		return true

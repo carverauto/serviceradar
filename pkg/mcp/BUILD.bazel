@@ -35,5 +35,6 @@ go_test(
         "//pkg/core/auth",
         "//pkg/logger",
         "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
     ],
 )

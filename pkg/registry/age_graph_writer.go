@@ -31,11 +31,10 @@ func NewAGEGraphWriter(executor db.QueryExecutor, log logger.Logger) GraphWriter
 }
 
 type ageGraphWriter struct {
-	executor        db.QueryExecutor
-	log             logger.Logger
-	successCount    uint64
-	failureCount    uint64
-	lastFailureWarn uint64
+	executor     db.QueryExecutor
+	log          logger.Logger
+	successCount uint64
+	failureCount uint64
 }
 
 type ageGraphParams struct {
@@ -164,6 +163,7 @@ func buildAgeGraphParams(updates []*models.DeviceUpdate) *ageGraphParams {
 					pollerID := models.GenerateServiceDeviceID(models.ServiceTypePoller, strings.TrimSpace(update.PollerID))
 					upsertCollector(collectors, pollerID, string(models.ServiceTypePoller), "", "")
 					addCollectorParent(collectorParents, deviceID, pollerID)
+					addReportedEdge(reported, deviceID, pollerID)
 				}
 			} else {
 				hostCollectorID := hostCollectorFromUpdate(update)

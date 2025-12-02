@@ -93,10 +93,12 @@ type PackLayout = {
 type LayoutResult = TreeLayout | PackLayout | null;
 
 const CANVAS_WIDTH = 1100;
-const CANVAS_HEIGHT = 420;
-const MARGIN = { top: 24, right: 220, bottom: 24, left: 160 };
+const MIN_CANVAS_HEIGHT = 500;
+const MARGIN = { top: 28, right: 260, bottom: 28, left: 180 };
 const LARGE_TARGET_THRESHOLD = 5000;
 const LARGE_NODE_THRESHOLD = 8000;
+const FONT_FAMILY =
+  '"Inter", "SF Pro Text", "Segoe UI", system-ui, -apple-system, sans-serif';
 
 const kindStyles: Record<GraphNodeKind, { fill: string; stroke: string }> = {
   device: { fill: "#dbeafe", stroke: "#2563eb" },
@@ -108,6 +110,8 @@ const kindStyles: Record<GraphNodeKind, { fill: string; stroke: string }> = {
 
 const safeKind = (kind?: GraphNodeKind): GraphNodeKind =>
   kindStyles[kind ?? "device"] ? (kind as GraphNodeKind) : "device";
+
+const crisp = (value: number): number => Math.round(value * 2) / 2;
 
 const nameForNode = (node?: AgeNode | null): string => {
   const props = node?.properties ?? {};
@@ -169,7 +173,7 @@ const attach = (parent: GraphNode, child: GraphNode) => {
   parent.children.push(child);
 };
 
-const truncateText = (value: string | undefined, max = 26): string =>
+const truncateText = (value: string | undefined, max = 28): string =>
   !value ? "" : value.length > max ? `${value.slice(0, max - 1)}…` : value;
 
 const assignValues = (node: GraphNode): number => {
@@ -396,11 +400,12 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
     const mode: LayoutMode = usePack ? "pack" : "tree";
 
     const width = CANVAS_WIDTH;
-    const height = CANVAS_HEIGHT;
     const innerWidth = width - MARGIN.left - MARGIN.right;
-    const innerHeight = height - MARGIN.top - MARGIN.bottom;
 
     if (mode === "pack") {
+      const height = MIN_CANVAS_HEIGHT;
+      const innerHeight = height - MARGIN.top - MARGIN.bottom;
+
       const packedRoot = hierarchy(buildCidrPackRoot(root)).sum(
         (d) => d.value ?? 1,
       );
@@ -409,8 +414,8 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
         .padding(10);
       const packed = packLayout(packedRoot);
       const circles: PackCircle[] = packed.descendants().map((node) => ({
-        x: node.x + MARGIN.left,
-        y: node.y + MARGIN.top,
+        x: crisp(node.x + MARGIN.left),
+        y: crisp(node.y + MARGIN.top),
         r: node.r,
         data: node.data,
         depth: node.depth,
@@ -427,26 +432,43 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
     }
 
     const rootHierarchy = hierarchy(root);
-    const treeLayout = tree<GraphNode>().size([innerHeight, innerWidth]);
+    const leaves = rootHierarchy.leaves().length;
+    const height = Math.max(MIN_CANVAS_HEIGHT, leaves * 64); // Roomier vertical spacing for readability
+    const innerHeight = height - MARGIN.top - MARGIN.bottom;
+
+    const treeLayout = tree<GraphNode>()
+      .size([innerHeight, innerWidth])
+      .separation((a, b) => (a.parent === b.parent ? 1.6 : 1.4));
     treeLayout(rootHierarchy);
 
-    const nodes: TreeNode[] = rootHierarchy.descendants().map((node) => ({
-      x: (node.y ?? 0) + MARGIN.left,
-      y: (node.x ?? 0) + MARGIN.top,
-      data: node.data,
-      depth: node.depth,
-    }));
+    const nodes: TreeNode[] = rootHierarchy.descendants().map((node) => {
+      const x = crisp((node.y ?? 0) + MARGIN.left);
+      const y = crisp((node.x ?? 0) + MARGIN.top);
+      return {
+        x,
+        y,
+        data: node.data,
+        depth: node.depth,
+      };
+    });
 
-    const links: TreeLink[] = rootHierarchy.links().map((link) => ({
-      source: {
-        x: (link.source.y ?? 0) + MARGIN.left,
-        y: (link.source.x ?? 0) + MARGIN.top,
-      },
-      target: {
-        x: (link.target.y ?? 0) + MARGIN.left,
-        y: (link.target.x ?? 0) + MARGIN.top,
-      },
-    }));
+    const links: TreeLink[] = rootHierarchy.links().map((link) => {
+      const sourceX = crisp((link.source.y ?? 0) + MARGIN.left);
+      const sourceY = crisp((link.source.x ?? 0) + MARGIN.top);
+      const targetX = crisp((link.target.y ?? 0) + MARGIN.left);
+      const targetY = crisp((link.target.x ?? 0) + MARGIN.top);
+
+      return {
+        source: {
+          x: sourceX,
+          y: sourceY,
+        },
+        target: {
+          x: targetX,
+          y: targetY,
+        },
+      };
+    });
 
     return {
       mode,
@@ -491,7 +513,16 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
       </div>
       <svg
         viewBox={`0 0 ${layout.width} ${layout.height}`}
-        className="h-[360px] w-full rounded-md border border-gray-200 bg-white text-gray-900 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+        width={layout.width}
+        height={layout.height}
+        style={{
+          minHeight: "360px",
+          fontFamily: FONT_FAMILY,
+          letterSpacing: "-0.01em",
+        }}
+        className="w-full rounded-md border border-gray-200 bg-white text-gray-900 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+        shapeRendering="geometricPrecision"
+        textRendering="optimizeLegibility"
       >
         {layout.mode === "tree" && (
           <g>
@@ -522,8 +553,8 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
                 }
               };
               const radius =
-                16 + Math.min(12, (node.data.badges?.length ?? 0) * 1.5);
-              
+                16 + Math.min(12, (node.data.badges?.length ?? 0) * 1.4);
+
               // Determine Icon
               let Icon = Server;
               if (kind === "collector") Icon = Radio;
@@ -533,7 +564,7 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
               if (node.data.label.includes("/")) Icon = Cloud;
 
               const isLeaf = !node.data.children || node.data.children.length === 0;
-              
+
               const labelX = isLeaf ? radius + 8 : 0;
               const labelY = isLeaf ? 0 : -radius - 12;
               const anchor = isLeaf ? "start" : "middle";
@@ -545,6 +576,16 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
                   ? truncateText(node.data.badges.join(" · "), 40)
                   : "";
 
+              // Build tooltip with full details
+              const tooltipLines = [
+                node.data.label,
+                node.data.subLabel && node.data.subLabel !== node.data.label
+                  ? node.data.subLabel
+                  : null,
+                node.data.badges?.length ? `Tags: ${node.data.badges.join(", ")}` : null,
+              ].filter(Boolean);
+              const tooltip = tooltipLines.join("\n");
+
               return (
                 <g
                   key={node.data.id}
@@ -552,6 +593,7 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
                   className={hasHref ? "cursor-pointer" : undefined}
                   onClick={handleClick}
                 >
+                  <title>{tooltip}</title>
                   <circle
                     r={radius}
                     fill={styles.fill}
@@ -571,14 +613,12 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
                   {badgeText && (
                     <text
                       x={isLeaf ? radius + 8 : 0}
-                      y={isLeaf ? -12 : labelY - 10}
+                      y={isLeaf ? -11 : labelY - 10}
                       textAnchor={anchor}
-                      fontSize={8}
+                      fontSize={10}
+                      fontFamily={FONT_FAMILY}
                       fill="#0f172a"
                       className="dark:fill-gray-100"
-                      paintOrder="stroke"
-                      stroke="#fff"
-                      strokeWidth={2}
                     >
                       {badgeText}
                     </text>
@@ -588,13 +628,11 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
                     y={labelY}
                     textAnchor={anchor}
                     dominantBaseline="middle"
-                    fontSize={11}
+                    fontSize={13}
                     fontWeight={600}
+                    fontFamily={FONT_FAMILY}
                     fill="#0f172a"
                     className="dark:fill-white"
-                    paintOrder="stroke"
-                    stroke="#fff"
-                    strokeWidth={3}
                   >
                     {label}
                   </text>
@@ -604,12 +642,10 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
                       y={isLeaf ? 14 : labelY + 14}
                       textAnchor={anchor}
                       dominantBaseline="hanging"
-                      fontSize={9}
+                      fontSize={11}
+                      fontFamily={FONT_FAMILY}
                       fill="#475569"
                       className="dark:fill-gray-300"
-                      paintOrder="stroke"
-                      stroke="#fff"
-                      strokeWidth={2}
                     >
                       {subLabel}
                     </text>
@@ -631,6 +667,17 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
                   window.location.href = circle.data.href;
                 }
               };
+
+              // Build tooltip with full details
+              const tooltipLines = [
+                circle.data.label,
+                circle.data.subLabel && circle.data.subLabel !== circle.data.label
+                  ? circle.data.subLabel
+                  : null,
+                circle.data.badges?.length ? `Tags: ${circle.data.badges.join(", ")}` : null,
+              ].filter(Boolean);
+              const tooltip = tooltipLines.join("\n");
+
               return (
                 <g
                   key={`${circle.data.id}-${circle.depth}`}
@@ -638,6 +685,7 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
                   className={hasHref ? "cursor-pointer" : undefined}
                   onClick={handleClick}
                 >
+                  <title>{tooltip}</title>
                   <circle
                     r={circle.r}
                     fill={circle.depth === 0 ? "transparent" : styles.fill}
@@ -649,13 +697,11 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
                     <text
                       textAnchor="middle"
                       dominantBaseline="middle"
-                      fontSize={Math.min(12, Math.max(9, circle.r / 6))}
+                      fontSize={Math.min(12.5, Math.max(9.5, circle.r / 6))}
                       fontWeight={600}
+                      fontFamily={FONT_FAMILY}
                       fill="#0f172a"
                       className="pointer-events-none dark:fill-white"
-                      paintOrder="stroke"
-                      stroke="#fff"
-                      strokeWidth={2}
                     >
                       {truncateText(circle.data.label, Math.max(10, Math.floor(circle.r / 1.8)))}
                     </text>
@@ -664,12 +710,10 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
                     <text
                       y={14}
                       textAnchor="middle"
-                      fontSize={8}
+                      fontSize={9.5}
+                      fontFamily={FONT_FAMILY}
                       fill="#475569"
                       className="pointer-events-none dark:fill-gray-300"
-                      paintOrder="stroke"
-                      stroke="#fff"
-                      strokeWidth={2}
                     >
                       {truncateText(circle.data.badges.join(" · "), Math.max(12, Math.floor(circle.r / 2.2)))}
                     </text>

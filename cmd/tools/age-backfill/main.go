@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -81,6 +82,13 @@ WHERE local_device_id IS NOT NULL AND local_device_id <> ''
 ORDER BY local_device_id, neighbor_management_addr, neighbor_port_id, timestamp DESC`
 )
 
+var (
+	errMissingCNPGHost      = errors.New("cnpg host is required")
+	errMissingCNPGDatabase  = errors.New("cnpg database is required")
+	errMissingCNPGPool      = errors.New("cnpg pool not configured")
+	errMissingGraphExecutor = errors.New("age graph writer not initialized")
+)
+
 type config struct {
 	host         string
 	port         int
@@ -96,19 +104,21 @@ func main() {
 	cfg := parseFlags()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
+	err := run(ctx, cfg)
+	cancel()
 
-	if err := run(ctx, cfg); err != nil {
-		log.Fatalf("age-backfill: %v", err)
+	if err != nil {
+		log.Printf("age-backfill: %v", err)
+		os.Exit(1)
 	}
 }
 
 func run(ctx context.Context, cfg *config) error {
 	if cfg.host == "" {
-		return fmt.Errorf("cnpg host is required")
+		return errMissingCNPGHost
 	}
 	if cfg.database == "" {
-		return fmt.Errorf("cnpg database is required")
+		return errMissingCNPGDatabase
 	}
 
 	if cfg.password == "" && cfg.passwordFile != "" {
@@ -146,14 +156,14 @@ func run(ctx context.Context, cfg *config) error {
 		return fmt.Errorf("dial cnpg: %w", err)
 	}
 	if pool == nil {
-		return fmt.Errorf("cnpg pool not configured")
+		return errMissingCNPGPool
 	}
 	defer pool.Close()
 
 	executor := &poolExecutor{pool: pool}
 	graphWriter := registry.NewAGEGraphWriter(executor, appLogger)
 	if graphWriter == nil {
-		return fmt.Errorf("age graph writer not initialized")
+		return errMissingGraphExecutor
 	}
 
 	now := time.Now().UTC()

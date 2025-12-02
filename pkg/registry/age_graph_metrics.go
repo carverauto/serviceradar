@@ -20,6 +20,7 @@ type ageGraphMetrics struct {
 	failure atomic.Uint64
 }
 
+//nolint:gochecknoglobals,unused // metrics are process-wide; keep registration to prevent GC
 var (
 	ageMetricsOnce sync.Once
 	ageMetrics     = &ageGraphMetrics{}
