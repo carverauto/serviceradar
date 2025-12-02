@@ -7,7 +7,15 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { cluster, hierarchy, pack } from "d3-hierarchy";
+import { tree, hierarchy, pack } from "d3-hierarchy";
+import {
+  Server,
+  Radio,
+  Box,
+  Network,
+  Target,
+  Cloud,
+} from "lucide-react";
 import type {
   AgeNode,
   AgeServiceEdge,
@@ -40,16 +48,16 @@ type DeviceGraphCanvasProps = {
   includeTopology: boolean;
 };
 
-type LayoutMode = "cluster" | "pack";
+type LayoutMode = "tree" | "pack";
 
-type ClusterNode = {
+type TreeNode = {
   x: number;
   y: number;
   data: GraphNode;
   depth: number;
 };
 
-type ClusterLink = {
+type TreeLink = {
   source: { x: number; y: number };
   target: { x: number; y: number };
 };
@@ -63,12 +71,12 @@ type PackCircle = {
   isLeaf: boolean;
 };
 
-type ClusterLayout = {
-  mode: "cluster";
+type TreeLayout = {
+  mode: "tree";
   width: number;
   height: number;
-  nodes: ClusterNode[];
-  links: ClusterLink[];
+  nodes: TreeNode[];
+  links: TreeLink[];
   targetCount: number;
   nodeCount: number;
 };
@@ -82,7 +90,7 @@ type PackLayout = {
   nodeCount: number;
 };
 
-type LayoutResult = ClusterLayout | PackLayout | null;
+type LayoutResult = TreeLayout | PackLayout | null;
 
 const CANVAS_WIDTH = 1100;
 const CANVAS_HEIGHT = 420;
@@ -385,7 +393,7 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
 
     const usePack =
       targetCount >= LARGE_TARGET_THRESHOLD || nodeCount >= LARGE_NODE_THRESHOLD;
-    const mode: LayoutMode = usePack ? "pack" : "cluster";
+    const mode: LayoutMode = usePack ? "pack" : "tree";
 
     const width = CANVAS_WIDTH;
     const height = CANVAS_HEIGHT;
@@ -419,17 +427,17 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
     }
 
     const rootHierarchy = hierarchy(root);
-    const clusterLayout = cluster<GraphNode>().size([innerHeight, innerWidth]);
-    clusterLayout(rootHierarchy);
+    const treeLayout = tree<GraphNode>().size([innerHeight, innerWidth]);
+    treeLayout(rootHierarchy);
 
-    const nodes: ClusterNode[] = rootHierarchy.descendants().map((node) => ({
+    const nodes: TreeNode[] = rootHierarchy.descendants().map((node) => ({
       x: (node.y ?? 0) + MARGIN.left,
       y: (node.x ?? 0) + MARGIN.top,
       data: node.data,
       depth: node.depth,
     }));
 
-    const links: ClusterLink[] = rootHierarchy.links().map((link) => ({
+    const links: TreeLink[] = rootHierarchy.links().map((link) => ({
       source: {
         x: (link.source.y ?? 0) + MARGIN.left,
         y: (link.source.x ?? 0) + MARGIN.top,
@@ -466,7 +474,7 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
   const modeLabel =
     layout.mode === "pack"
       ? "CIDR-clustered pack layout (large graph)"
-      : "Hierarchy dendrogram";
+      : "Hierarchy tree layout";
 
   return (
     <div className="w-full">
@@ -485,24 +493,24 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
         viewBox={`0 0 ${layout.width} ${layout.height}`}
         className="h-[360px] w-full rounded-md border border-gray-200 bg-white text-gray-900 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
       >
-        {layout.mode === "cluster" && (
+        {layout.mode === "tree" && (
           <g>
-            {layout.links?.map((link: ClusterLink) => {
+            {layout.links?.map((link: TreeLink) => {
               const sourceX = link.source?.x ?? 0;
               const sourceY = link.source?.y ?? 0;
               const targetX = link.target?.x ?? 0;
               const targetY = link.target?.y ?? 0;
               return (
-              <path
-                key={`${sourceX}-${sourceY}-${targetX}-${targetY}`}
-                d={`M${sourceX},${sourceY}C${(sourceX + targetX) / 2},${sourceY} ${(sourceX + targetX) / 2},${targetY} ${targetX},${targetY}`}
-                fill="none"
-                stroke="#cbd5e1"
-                strokeWidth={1.4}
-              />
+                <path
+                  key={`${sourceX}-${sourceY}-${targetX}-${targetY}`}
+                  d={`M${sourceX},${sourceY}C${(sourceX + targetX) / 2},${sourceY} ${(sourceX + targetX) / 2},${targetY} ${targetX},${targetY}`}
+                  fill="none"
+                  stroke="#cbd5e1"
+                  strokeWidth={1.4}
+                />
               );
             })}
-            {layout.nodes?.map((node: ClusterNode) => {
+            {layout.nodes?.map((node: TreeNode) => {
               const nodeX = node.x ?? 0;
               const nodeY = node.y ?? 0;
               const kind = safeKind(node.data.kind);
@@ -515,13 +523,28 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
               };
               const radius =
                 16 + Math.min(12, (node.data.badges?.length ?? 0) * 1.5);
-              const labelX = radius + 14;
+              
+              // Determine Icon
+              let Icon = Server;
+              if (kind === "collector") Icon = Radio;
+              if (kind === "service") Icon = Box;
+              if (kind === "interface") Icon = Network;
+              if (kind === "target") Icon = Target;
+              if (node.data.label.includes("/")) Icon = Cloud;
+
+              const isLeaf = !node.data.children || node.data.children.length === 0;
+              
+              const labelX = isLeaf ? radius + 8 : 0;
+              const labelY = isLeaf ? 0 : -radius - 12;
+              const anchor = isLeaf ? "start" : "middle";
+
               const label = truncateText(node.data.label);
               const subLabel = truncateText(node.data.subLabel, 24);
               const badgeText =
                 node.data.badges && node.data.badges.length > 0
                   ? truncateText(node.data.badges.join(" · "), 40)
                   : "";
+
               return (
                 <g
                   key={node.data.id}
@@ -533,13 +556,23 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
                     r={radius}
                     fill={styles.fill}
                     stroke={styles.stroke}
+                    strokeWidth={1.5}
+                    className="dark:opacity-20"
+                  />
+                  <Icon
+                    x={-radius / 2}
+                    y={-radius / 2}
+                    width={radius}
+                    height={radius}
+                    color={styles.stroke}
+                    fill="none"
                     strokeWidth={2}
                   />
                   {badgeText && (
                     <text
-                      x={labelX}
-                      y={-10}
-                      textAnchor="start"
+                      x={isLeaf ? radius + 8 : 0}
+                      y={isLeaf ? -12 : labelY - 10}
+                      textAnchor={anchor}
                       fontSize={8}
                       fill="#0f172a"
                       className="dark:fill-gray-100"
@@ -552,8 +585,8 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
                   )}
                   <text
                     x={labelX}
-                    y={-2}
-                    textAnchor="start"
+                    y={labelY}
+                    textAnchor={anchor}
                     dominantBaseline="middle"
                     fontSize={11}
                     fontWeight={600}
@@ -561,19 +594,22 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
                     className="dark:fill-white"
                     paintOrder="stroke"
                     stroke="#fff"
-                    strokeWidth={2}
+                    strokeWidth={3}
                   >
                     {label}
                   </text>
                   {subLabel && (
                     <text
                       x={labelX}
-                      y={12}
-                      textAnchor="start"
+                      y={isLeaf ? 14 : labelY + 14}
+                      textAnchor={anchor}
                       dominantBaseline="hanging"
                       fontSize={9}
                       fill="#475569"
                       className="dark:fill-gray-300"
+                      paintOrder="stroke"
+                      stroke="#fff"
+                      strokeWidth={2}
                     >
                       {subLabel}
                     </text>
