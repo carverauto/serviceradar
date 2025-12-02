@@ -92,6 +92,7 @@ macro_rules! apply_eq_filter {
 }
 
 mod cpu_metrics;
+mod device_graph;
 mod device_updates;
 mod devices;
 mod disk_metrics;
@@ -101,8 +102,8 @@ mod logs;
 mod memory_metrics;
 mod otel_metrics;
 mod pollers;
-mod rperf_metrics;
 mod services;
+mod timeseries_metrics;
 mod trace_summaries;
 mod traces;
 
@@ -146,12 +147,15 @@ impl QueryEngine {
         let results = match plan.entity {
             Entity::Devices => devices::execute(&mut conn, &plan).await?,
             Entity::DeviceUpdates => device_updates::execute(&mut conn, &plan).await?,
+            Entity::DeviceGraph => device_graph::execute(&mut conn, &plan).await?,
             Entity::Events => events::execute(&mut conn, &plan).await?,
             Entity::Interfaces => interfaces::execute(&mut conn, &plan).await?,
             Entity::Logs => logs::execute(&mut conn, &plan).await?,
             Entity::Pollers => pollers::execute(&mut conn, &plan).await?,
             Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
-            Entity::RperfMetrics => rperf_metrics::execute(&mut conn, &plan).await?,
+            Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
+                timeseries_metrics::execute(&mut conn, &plan).await?
+            }
             Entity::CpuMetrics => cpu_metrics::execute(&mut conn, &plan).await?,
             Entity::MemoryMetrics => memory_metrics::execute(&mut conn, &plan).await?,
             Entity::DiskMetrics => disk_metrics::execute(&mut conn, &plan).await?,
@@ -182,12 +186,15 @@ impl QueryEngine {
         let sql = match plan.entity {
             Entity::Devices => devices::to_debug_sql(&plan)?,
             Entity::DeviceUpdates => device_updates::to_debug_sql(&plan)?,
+            Entity::DeviceGraph => device_graph::to_debug_sql(&plan)?,
             Entity::Events => events::to_debug_sql(&plan)?,
             Entity::Interfaces => interfaces::to_debug_sql(&plan)?,
             Entity::Logs => logs::to_debug_sql(&plan)?,
             Entity::Pollers => pollers::to_debug_sql(&plan)?,
             Entity::OtelMetrics => otel_metrics::to_debug_sql(&plan)?,
-            Entity::RperfMetrics => rperf_metrics::to_debug_sql(&plan)?,
+            Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
+                timeseries_metrics::to_debug_sql(&plan)?
+            }
             Entity::CpuMetrics => cpu_metrics::to_debug_sql(&plan)?,
             Entity::MemoryMetrics => memory_metrics::to_debug_sql(&plan)?,
             Entity::DiskMetrics => disk_metrics::to_debug_sql(&plan)?,

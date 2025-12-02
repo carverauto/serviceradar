@@ -857,6 +857,7 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
 	protected.HandleFunc("/devices/{id}", s.handleDeviceByID).Methods("GET", "DELETE")
 	protected.HandleFunc("/devices/{id}/registry", s.getDeviceRegistryInfo).Methods("GET")
+	protected.HandleFunc("/devices/{id}/graph", s.handleDeviceGraph).Methods("GET")
 	protected.HandleFunc("/devices/{id}/metrics", s.getDeviceMetrics).Methods("GET")
 	protected.HandleFunc("/devices/metrics/status", s.getDeviceMetricsStatus).Methods("GET")
 	protected.HandleFunc("/devices/snmp/status", s.getDeviceSNMPStatus).Methods("POST")
@@ -2120,6 +2121,11 @@ func (s *APIServer) buildDeviceRecords(
 			"last_seen":         device.LastSeen,
 			"is_available":      device.IsAvailable,
 			"device_type":       device.DeviceType,
+			"service_type":      device.ServiceType,
+			"service_status":    device.ServiceStatus,
+			"last_heartbeat":    device.LastHeartbeat,
+			"os_info":           device.OSInfo,
+			"version_info":      device.VersionInfo,
 			"discovery_sources": device.DiscoverySources,
 			"metadata":          getFieldValue(device.Metadata),
 		}

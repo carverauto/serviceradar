@@ -49,7 +49,10 @@ fn packaging_rules_parse() {
 
     // Skip test if packaging rules directory doesn't exist (e.g., in Bazel sandbox)
     if !rules_dir.is_dir() {
-        eprintln!("Skipping packaging_rules_parse: directory not found at {}", rules_dir.display());
+        eprintln!(
+            "Skipping packaging_rules_parse: directory not found at {}",
+            rules_dir.display()
+        );
         return;
     }
 

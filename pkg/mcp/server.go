@@ -18,17 +18,17 @@
 package mcp
 
 import (
-    "context"
-    _ "embed"
-    "encoding/json"
-    "fmt"
-    "net/http"
-    "strings"
+	"context"
+	_ "embed"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
 
-    "github.com/gorilla/mux"
+	"github.com/gorilla/mux"
 
-    "github.com/carverauto/serviceradar/pkg/core/auth"
-    "github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/core/auth"
+	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
 //go:embed srql-mcp-prompt.md
@@ -52,13 +52,13 @@ var (
 
 // Server represents the ServiceRadar MCP server instance.
 type MCPServer struct {
-    queryExecutor QueryExecutor
-    logger        logger.Logger
-    config        *MCPConfig
-    authService   auth.AuthService
-    ctx           context.Context
-    cancel        context.CancelFunc
-    tools         map[string]MCPTool
+	queryExecutor QueryExecutor
+	logger        logger.Logger
+	config        *MCPConfig
+	authService   auth.AuthService
+	ctx           context.Context
+	cancel        context.CancelFunc
+	tools         map[string]MCPTool
 }
 
 // Config holds configuration for the MCP server.
@@ -97,11 +97,11 @@ type MCPError struct {
 
 // NewMCPServer creates a new MCP server instance
 func NewMCPServer(
-    parentCtx context.Context,
-    queryExecutor QueryExecutor,
-    log logger.Logger,
-    config *MCPConfig,
-    authService auth.AuthService,
+	parentCtx context.Context,
+	queryExecutor QueryExecutor,
+	log logger.Logger,
+	config *MCPConfig,
+	authService auth.AuthService,
 ) *MCPServer {
 	ctx, cancel := context.WithCancel(parentCtx)
 
@@ -117,6 +117,7 @@ func NewMCPServer(
 
 	// Register all MCP tools
 	mcpServer.registerDeviceTools()
+	mcpServer.registerGraphTools()
 	mcpServer.registerLogTools()
 	mcpServer.registerEventTools()
 	mcpServer.registerSweepTools()
@@ -406,6 +407,33 @@ func getDeviceTools() []map[string]interface{} {
 	}
 }
 
+func getGraphTools() []map[string]interface{} {
+	return []map[string]interface{}{
+		{
+			"name":        "graphs.getDeviceNeighborhood",
+			"description": "Fetch the AGE-backed neighborhood for a device (collectors, services, targets, interfaces, capabilities)",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"device_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Canonical device ID to look up",
+					},
+					"collector_owned_only": map[string]interface{}{
+						"type":        "boolean",
+						"description": "If true, only return collector-owned services/checkers",
+					},
+					"include_topology": map[string]interface{}{
+						"type":        "boolean",
+						"description": "If false, omit interfaces/peer topology from the response",
+					},
+				},
+				"required": []string{"device_id"},
+			},
+		},
+	}
+}
+
 func getQueryTools() []map[string]interface{} {
 	return []map[string]interface{}{
 		{
@@ -505,6 +533,7 @@ func getMCPToolsDefinition() []map[string]interface{} {
 	var tools []map[string]interface{}
 
 	tools = append(tools, getDeviceTools()...)
+	tools = append(tools, getGraphTools()...)
 	tools = append(tools, getQueryTools()...)
 	tools = append(tools, getLogTools()...)
 

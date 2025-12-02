@@ -1,3 +1,5 @@
+//! SRQL support for timeseries-backed metrics (generic, SNMP, and rperf).
+
 use super::QueryPlan;
 use crate::{
     error::{Result, ServiceError},
@@ -7,7 +9,7 @@ use crate::{
         agent_id as col_agent_id, device_id as col_device_id, if_index as col_if_index,
         metric_name as col_metric_name, metric_type as col_metric_type, partition as col_partition,
         poller_id as col_poller_id, target_device_ip as col_target_device_ip, timeseries_metrics,
-        timestamp as col_timestamp,
+        timestamp as col_timestamp, value as col_value,
     },
     time::TimeRange,
 };
@@ -24,10 +26,17 @@ type TimeseriesQuery<'a> =
     BoxedSelectStatement<'a, <TimeseriesTable as AsQuery>::SqlType, TimeseriesFromClause, Pg>;
 
 const RPERF_METRIC_TYPE: &str = "rperf";
+const SNMP_METRIC_TYPE: &str = "snmp";
+
+#[derive(Clone, Copy)]
+enum MetricScope<'a> {
+    Any,
+    Forced(&'a str),
+}
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
-    ensure_entity(plan)?;
-    let query = build_query(plan)?;
+    let scope = ensure_entity(plan)?;
+    let query = build_query(plan, scope)?;
     let rows: Vec<TimeseriesMetricRow> = query
         .limit(plan.limit)
         .offset(plan.offset)
@@ -42,23 +51,28 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 }
 
 pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
-    ensure_entity(plan)?;
-    let query = build_query(plan)?;
+    let scope = ensure_entity(plan)?;
+    let query = build_query(plan, scope)?;
     Ok(diesel::debug_query::<Pg, _>(&query.limit(plan.limit).offset(plan.offset)).to_string())
 }
 
-fn ensure_entity(plan: &QueryPlan) -> Result<()> {
+fn ensure_entity(plan: &QueryPlan) -> Result<MetricScope<'static>> {
     match plan.entity {
-        Entity::RperfMetrics => Ok(()),
+        Entity::TimeseriesMetrics => Ok(MetricScope::Any),
+        Entity::SnmpMetrics => Ok(MetricScope::Forced(SNMP_METRIC_TYPE)),
+        Entity::RperfMetrics => Ok(MetricScope::Forced(RPERF_METRIC_TYPE)),
         _ => Err(ServiceError::InvalidRequest(
-            "entity not supported by rperf metrics query".into(),
+            "entity not supported by timeseries metrics query".into(),
         )),
     }
 }
 
-fn build_query(plan: &QueryPlan) -> Result<TimeseriesQuery<'static>> {
+fn build_query(plan: &QueryPlan, scope: MetricScope<'static>) -> Result<TimeseriesQuery<'static>> {
     let mut query = timeseries_metrics.into_boxed::<Pg>();
-    query = query.filter(col_metric_type.eq(RPERF_METRIC_TYPE));
+
+    if let MetricScope::Forced(metric_type) = scope {
+        query = query.filter(col_metric_type.eq(metric_type));
+    }
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
         query = query.filter(col_timestamp.ge(*start).and(col_timestamp.le(*end)));
@@ -100,6 +114,9 @@ fn apply_filter<'a>(
         "if_index" => {
             query = apply_if_index_filter(query, filter)?;
         }
+        "value" => {
+            query = apply_value_filter(query, filter)?;
+        }
         _ => {}
     }
 
@@ -127,6 +144,33 @@ fn apply_if_index_filter<'a>(
     };
 
     Ok(query)
+}
+
+fn apply_value_filter<'a>(
+    query: TimeseriesQuery<'a>,
+    filter: &Filter,
+) -> Result<TimeseriesQuery<'a>> {
+    let value = parse_f64(filter.value.as_scalar()?)?;
+    let query = match filter.op {
+        FilterOp::Eq => query.filter(col_value.eq(value)),
+        FilterOp::NotEq => query.filter(col_value.ne(value)),
+        FilterOp::Gt => query.filter(col_value.gt(value)),
+        FilterOp::Gte => query.filter(col_value.ge(value)),
+        FilterOp::Lt => query.filter(col_value.lt(value)),
+        FilterOp::Lte => query.filter(col_value.le(value)),
+        _ => {
+            return Err(ServiceError::InvalidRequest(
+                "value filter does not support this operator".into(),
+            ))
+        }
+    };
+
+    Ok(query)
+}
+
+fn parse_f64(raw: &str) -> Result<f64> {
+    raw.parse::<f64>()
+        .map_err(|_| ServiceError::InvalidRequest("invalid numeric value".into()))
 }
 
 fn apply_ordering<'a>(
@@ -168,6 +212,18 @@ fn apply_primary_order<'a>(
             OrderDirection::Asc => query.order(col_metric_name.asc()),
             OrderDirection::Desc => query.order(col_metric_name.desc()),
         },
+        "metric_type" => match direction {
+            OrderDirection::Asc => query.order(col_metric_type.asc()),
+            OrderDirection::Desc => query.order(col_metric_type.desc()),
+        },
+        "device_id" => match direction {
+            OrderDirection::Asc => query.order(col_device_id.asc()),
+            OrderDirection::Desc => query.order(col_device_id.desc()),
+        },
+        "value" => match direction {
+            OrderDirection::Asc => query.order(col_value.asc()),
+            OrderDirection::Desc => query.order(col_value.desc()),
+        },
         _ => query,
     }
 }
@@ -189,6 +245,18 @@ fn apply_secondary_order<'a>(
         "metric_name" => match direction {
             OrderDirection::Asc => query.then_order_by(col_metric_name.asc()),
             OrderDirection::Desc => query.then_order_by(col_metric_name.desc()),
+        },
+        "metric_type" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_metric_type.asc()),
+            OrderDirection::Desc => query.then_order_by(col_metric_type.desc()),
+        },
+        "device_id" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_device_id.asc()),
+            OrderDirection::Desc => query.then_order_by(col_device_id.desc()),
+        },
+        "value" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_value.asc()),
+            OrderDirection::Desc => query.then_order_by(col_value.desc()),
         },
         _ => query,
     }

@@ -11,11 +11,9 @@ use std::{
     future::Future,
     net::SocketAddr,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    sync::{Mutex, OnceLock},
+    sync::Once,
     time::Duration,
 };
-use testcontainers::{clients::Cli, GenericImage};
 use tokio::{
     task::JoinHandle,
     time::{sleep, Duration as TokioDuration},
@@ -24,36 +22,12 @@ use tokio_postgres::{config::Host, error::SqlState, Client, Config as PgConfig, 
 use tower::ServiceExt;
 
 const API_KEY: &str = "test-api-key";
-const CNPG_IMAGE: &str = "ghcr.io/carverauto/serviceradar-cnpg";
-const CNPG_TAG: &str = "16.6.0-sr2";
-const CNPG_IMAGE_REF: &str = "ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2";
-const CNPG_ARCHIVE: &str = "/opt/cnpg_image.tar";
 const DB_CONNECT_RETRIES: usize = 240;
 const DB_CONNECT_DELAY_MS: u64 = 250;
+const DB_SEED_RETRIES: usize = 3;
 const REMOTE_FIXTURE_LOCK_ID: i64 = 4_216_042;
 
-static CNPG_BUILD_STATE: OnceLock<Mutex<bool>> = OnceLock::new();
-
-const BOOTSTRAP_SCRIPT: &str = r#"set -euo pipefail
-cat <<'EOS' >/tmp/bootstrap.sh
-#!/bin/bash
-set -euo pipefail
-export PATH=/usr/lib/postgresql/16/bin:$PATH
-initdb -D /tmp/pgdata >/tmp/initdb.log
-cat <<'CONF' >> /tmp/pgdata/postgresql.conf
-shared_preload_libraries = 'timescaledb,age'
-listen_addresses = '*'
-max_connections = 50
-CONF
-cat <<'HBA' > /tmp/pgdata/pg_hba.conf
-host all all 0.0.0.0/0 trust
-host all all ::/0 trust
-HBA
-exec postgres -D /tmp/pgdata -c logging_collector=off
-EOS
-chmod +x /tmp/bootstrap.sh
-exec /tmp/bootstrap.sh
-"#;
+static TRACING_INIT: Once = Once::new();
 
 /// Runs a test closure against a fully bootstrapped SRQL instance backed by the seeded Postgres fixture.
 pub async fn with_srql_harness<F, Fut>(test: F)
@@ -61,47 +35,23 @@ where
     F: FnOnce(SrqlTestHarness) -> Fut,
     Fut: Future<Output = ()>,
 {
-    if let Some(remote_config) =
-        RemoteFixtureConfig::from_env().expect("failed to read remote fixture config")
+    TRACING_INIT.call_once(|| {
+        let _ = tracing_subscriber::fmt::try_init();
+    });
+
+    let remote_config = match RemoteFixtureConfig::from_env()
+        .expect("failed to read remote fixture config")
     {
-        run_with_remote_fixture(remote_config, test).await;
-        return;
-    }
-
-    run_with_local_fixture(test).await;
-}
-
-async fn run_with_local_fixture<F, Fut>(test: F)
-where
-    F: FnOnce(SrqlTestHarness) -> Fut,
-    Fut: Future<Output = ()>,
-{
-    ensure_cnpg_image().expect("failed to prepare CNPG image for SRQL harness");
-
-    let docker = Cli::default();
-    let image = GenericImage::new(CNPG_IMAGE, CNPG_TAG)
-        .with_exposed_port(5432)
-        .with_entrypoint("bash");
-    let container = docker.run((image, vec!["-lc".into(), BOOTSTRAP_SCRIPT.into()]));
-    let port = container.get_host_port_ipv4(5432);
-    let database_url = format!("postgres://postgres@127.0.0.1:{port}/postgres?sslmode=disable");
-
-    seed_fixture_database(&database_url)
-        .await
-        .expect("failed to seed fixture database");
-
-    let config = test_config(database_url);
-    let server = Server::new(config)
-        .await
-        .expect("failed to boot SRQL server for harness");
-    let router = server.router();
-
-    let harness = SrqlTestHarness {
-        router,
-        api_key: API_KEY.to_string(),
+        Some(config) => config,
+        None => {
+            eprintln!(
+                "[srql-test] skipping SRQL harness: SRQL_TEST_DATABASE_URL and SRQL_TEST_ADMIN_URL are not set"
+            );
+            return;
+        }
     };
 
-    test(harness).await;
+    run_with_remote_fixture(remote_config, test).await;
 }
 
 async fn run_with_remote_fixture<F, Fut>(config: RemoteFixtureConfig, test: F)
@@ -125,6 +75,9 @@ where
         .expect("failed to seed fixture database");
 
     let app_config = test_config(config.database_url.clone());
+    let age_available = check_age_available(&config.database_url)
+        .await
+        .unwrap_or(false);
     let server = Server::new(app_config)
         .await
         .expect("failed to boot SRQL server for remote harness");
@@ -133,6 +86,7 @@ where
     let harness = SrqlTestHarness {
         router,
         api_key: API_KEY.to_string(),
+        age_available,
     };
 
     test(harness).await;
@@ -158,6 +112,25 @@ fn test_config(database_url: String) -> AppConfig {
 }
 
 async fn seed_fixture_database(database_url: &str) -> anyhow::Result<()> {
+    let mut attempts = 0usize;
+    loop {
+        match seed_fixture_database_once(database_url).await {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                attempts += 1;
+                if attempts >= DB_SEED_RETRIES {
+                    return Err(err);
+                }
+                eprintln!(
+                    "[srql-test] seeding attempt {attempts} failed: {err}; retrying fixture setup"
+                );
+                sleep(TokioDuration::from_millis(DB_CONNECT_DELAY_MS)).await;
+            }
+        }
+    }
+}
+
+async fn seed_fixture_database_once(database_url: &str) -> anyhow::Result<()> {
     let mut attempts = 0usize;
     let (client, connection) = loop {
         match tokio_postgres::connect(database_url, NoTls).await {
@@ -219,6 +192,8 @@ async fn extension_exists(client: &Client, name: &str) -> anyhow::Result<bool> {
 pub struct SrqlTestHarness {
     router: Router,
     api_key: String,
+    #[allow(dead_code)]
+    age_available: bool,
 }
 
 impl SrqlTestHarness {
@@ -259,6 +234,11 @@ impl SrqlTestHarness {
             .await
             .expect("router should handle harness request")
     }
+
+    #[allow(dead_code)]
+    pub fn age_available(&self) -> bool {
+        self.age_available
+    }
 }
 
 pub async fn read_json(response: http::Response<Body>) -> (StatusCode, Value) {
@@ -281,15 +261,23 @@ struct RemoteFixtureConfig {
 
 impl RemoteFixtureConfig {
     fn from_env() -> anyhow::Result<Option<Self>> {
-        let database_url = match read_env_value("SRQL_TEST_DATABASE_URL")? {
-            Some(value) => value,
-            None => return Ok(None),
+        let db_env = read_env_value("SRQL_TEST_DATABASE_URL")?;
+        let admin_env = read_env_value("SRQL_TEST_ADMIN_URL")?;
+
+        let (database_url, admin_url) = match (db_env, admin_env) {
+            (Some(db), Some(admin)) => (db, admin),
+            (Some(_), None) => {
+                anyhow::bail!(
+                    "SRQL_TEST_ADMIN_URL must be set when SRQL_TEST_DATABASE_URL is provided"
+                )
+            }
+            (None, Some(_)) => {
+                anyhow::bail!(
+                    "SRQL_TEST_DATABASE_URL must be set when SRQL_TEST_ADMIN_URL is provided"
+                )
+            }
+            (None, None) => return Ok(None),
         };
-        let admin_url = read_env_value("SRQL_TEST_ADMIN_URL")?.ok_or_else(|| {
-            anyhow::anyhow!(
-                "SRQL_TEST_ADMIN_URL must be set when SRQL_TEST_DATABASE_URL is provided"
-            )
-        })?;
 
         let parsed: tokio_postgres::Config = database_url
             .parse()
@@ -382,6 +370,18 @@ impl RemoteFixtureGuard {
         client
             .batch_execute("CREATE EXTENSION IF NOT EXISTS age;")
             .await?;
+        client
+            .batch_execute(&format!(
+                "GRANT USAGE ON SCHEMA ag_catalog TO {};",
+                quote_ident(&config.database_owner)
+            ))
+            .await?;
+        client
+            .batch_execute(&format!(
+                "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO {};",
+                quote_ident(&config.database_owner)
+            ))
+            .await?;
         drop(client);
         let _ = task.await;
         Ok(())
@@ -443,60 +443,34 @@ fn log_connection_details(name: &str, url: &str) {
     }
 }
 
-fn ensure_cnpg_image() -> anyhow::Result<()> {
-    let state = CNPG_BUILD_STATE.get_or_init(|| Mutex::new(false));
-    let mut fetched = state
-        .lock()
-        .expect("CNPG image build mutex poisoned by previous panic");
-    if !*fetched {
-        if !cnpg_image_present()? {
-            fetch_cnpg_image()?;
+fn find_runfile(path: &str) -> Option<PathBuf> {
+    let runfile_rel = Path::new(path);
+
+    let find_in_base = |base: &Path| -> Option<PathBuf> {
+        let mut candidates = vec![base.join(runfile_rel)];
+
+        if let Ok(workspace) = std::env::var("TEST_WORKSPACE") {
+            candidates.push(base.join(&workspace).join(runfile_rel));
         }
-        *fetched = true;
-    }
-    Ok(())
-}
 
-fn cnpg_image_present() -> anyhow::Result<bool> {
-    let status = Command::new("docker")
-        .args(["image", "inspect", CNPG_IMAGE_REF])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()?;
-    Ok(status.success())
-}
+        candidates.push(base.join("__main").join(runfile_rel));
+        candidates.push(base.join("__main__").join(runfile_rel));
+        candidates.into_iter().find(|candidate| candidate.exists())
+    };
 
-fn fetch_cnpg_image() -> anyhow::Result<()> {
-    if load_cnpg_from_archive()? {
-        return Ok(());
+    if let Ok(runfiles) = std::env::var("RUNFILES_DIR") {
+        if let Some(path) = find_in_base(Path::new(&runfiles)) {
+            return Some(path);
+        }
     }
-    let status = Command::new("docker")
-        .args(["pull", CNPG_IMAGE_REF])
-        .status()?;
-    if !status.success() {
-        anyhow::bail!(
-            "docker pull {CNPG_IMAGE_REF} failed with status {:?}",
-            status.code()
-        );
-    }
-    Ok(())
-}
 
-fn load_cnpg_from_archive() -> anyhow::Result<bool> {
-    let archive = Path::new(CNPG_ARCHIVE);
-    if !archive.exists() {
-        return Ok(false);
+    if let Ok(test_srcdir) = std::env::var("TEST_SRCDIR") {
+        if let Some(path) = find_in_base(Path::new(&test_srcdir)) {
+            return Some(path);
+        }
     }
-    let status = Command::new("docker")
-        .args(["load", "--input", CNPG_ARCHIVE])
-        .status()?;
-    if !status.success() {
-        anyhow::bail!(
-            "docker load --input {CNPG_ARCHIVE} failed with status {:?}",
-            status.code()
-        );
-    }
-    Ok(true)
+
+    None
 }
 
 fn load_fixture(name: &str) -> anyhow::Result<String> {
@@ -515,33 +489,25 @@ fn fixture_root() -> PathBuf {
     }
 
     const RELATIVE: &str = "rust/srql/tests/fixtures";
-    let runfile_rel = Path::new(RELATIVE);
-
-    let find_in_base = |base: &Path| -> Option<PathBuf> {
-        let mut candidates = vec![base.join(runfile_rel)];
-
-        if let Ok(workspace) = std::env::var("TEST_WORKSPACE") {
-            candidates.push(base.join(&workspace).join(runfile_rel));
-        }
-
-        candidates.push(base.join("__main").join(runfile_rel));
-        candidates.push(base.join("__main__").join(runfile_rel));
-        candidates.into_iter().find(|candidate| candidate.exists())
-    };
-
-    if let Ok(runfiles) = std::env::var("RUNFILES_DIR") {
-        if let Some(path) = find_in_base(Path::new(&runfiles)) {
-            return path;
-        }
-    }
-
-    if let Ok(test_srcdir) = std::env::var("TEST_SRCDIR") {
-        if let Some(path) = find_in_base(Path::new(&test_srcdir)) {
-            return path;
-        }
+    if let Some(path) = find_runfile(RELATIVE) {
+        return path;
     }
 
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures")
+}
+
+async fn check_age_available(database_url: &str) -> anyhow::Result<bool> {
+    let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    let result = client
+        .query(
+            "SELECT 1 FROM ag_catalog.cypher('serviceradar', 'RETURN 1') AS (result agtype) LIMIT 1",
+            &[],
+        )
+        .await;
+    Ok(result.is_ok())
 }

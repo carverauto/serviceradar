@@ -16,28 +16,20 @@
 
 "use client";
 
-import React, {
-  useState,
-  Fragment,
-  useEffect,
-  useMemo,
-  useCallback,
-} from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
-  CheckCircle,
-  XCircle,
-  ChevronDown,
-  ChevronRight,
   ArrowUp,
   ArrowDown,
+  Server,
+  Box,
+  Cpu,
+  Monitor,
 } from "lucide-react";
 import Link from "next/link";
-import ReactJson from "@/components/Common/DynamicReactJson";
-import { Device, CapabilitySnapshot } from "@/types/devices";
+import { Device } from "@/types/devices";
 import SysmonStatusIndicator from "./SysmonStatusIndicator";
 import SNMPStatusIndicator from "./SNMPStatusIndicator";
 import ICMPSparkline from "./ICMPSparkline";
-import DeviceTypeIndicator from "./DeviceTypeIndicator";
 import { formatTimestampForDisplay } from "@/utils/traceTimestamp";
 import { useAuth } from "@/components/AuthProvider";
 
@@ -53,6 +45,8 @@ interface DeviceTableProps {
   onSort?: (key: SortableKeys) => void;
   sortBy?: SortableKeys;
   sortOrder?: "asc" | "desc";
+  collectorServiceMeta?: Map<string, string>;
+  hideCollectorServices?: boolean;
 }
 
 type CollectorFlags = {
@@ -73,77 +67,121 @@ type CollectorInfo = {
   lastSeen?: string;
 };
 
-const CAPABILITY_STATE_CLASS_MAP: Record<string, string> = {
-  ok: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200",
-  healthy: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200",
-  failed: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
-  error: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
-  degraded: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
-  warning: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
-  unknown: "bg-gray-200 text-gray-800 dark:bg-gray-700/60 dark:text-gray-200",
+type IcmpState = {
+  shouldRender: boolean;
+  hasMetrics: boolean | undefined;
+  hasCollector: boolean;
+  supportsICMP: boolean;
 };
 
-const CAPABILITY_STATE_DISABLED_CLASS =
-  "bg-gray-300 text-gray-700 dark:bg-gray-600/60 dark:text-gray-200";
-
-const formatCapabilityTimestamp = (timestamp?: string): string =>
-  timestamp ? formatTimestampForDisplay(timestamp, undefined, undefined, "—") : "—";
-
-const getCapabilityStateBadge = (snapshot: CapabilitySnapshot) => {
-  if (!snapshot.enabled) {
-    return {
-      label: "disabled",
-      classes: CAPABILITY_STATE_DISABLED_CLASS,
-    };
+const DeviceIcon = ({
+  type,
+  className,
+}: {
+  type: string;
+  className?: string;
+}) => {
+  const cls = className || "h-4 w-4";
+  switch (type) {
+    case "poller":
+      return <Server className={`text-purple-600 ${cls}`} />;
+    case "agent":
+      return <Box className={`text-blue-600 ${cls}`} />;
+    case "service":
+    case "checker":
+      return <Cpu className={`text-emerald-600 ${cls}`} />;
+    default:
+      return <Monitor className={`text-gray-500 ${cls}`} />;
   }
-
-  const normalized = (snapshot.state ?? "unknown").toLowerCase();
-  const classes =
-    CAPABILITY_STATE_CLASS_MAP[normalized] ?? CAPABILITY_STATE_CLASS_MAP.unknown;
-
-  return {
-    label: normalized || "unknown",
-    classes,
-  };
 };
 
-const describeService = (snapshot: CapabilitySnapshot): string => {
-  const serviceId = snapshot.service_id?.trim();
-  const serviceType = snapshot.service_type?.trim();
-  if (serviceId && serviceType) {
-    return `${serviceType} · ${serviceId}`;
+const normalizeString = (value: unknown): string => {
+  if (typeof value === "string") {
+    return value.trim();
   }
-  if (serviceId) {
-    return serviceId;
-  }
-  if (serviceType) {
-    return serviceType;
-  }
-  return "—";
+  return "";
 };
 
-const summarizeMetadata = (metadata?: Record<string, unknown>): string => {
-  if (!metadata) {
-    return "—";
+const metaString = (
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string => {
+  if (!metadata) return "";
+  const raw = metadata[key];
+  return typeof raw === "string" ? raw.trim() : "";
+};
+
+const isPollerDeviceId = (deviceId: string): boolean =>
+  deviceId.startsWith("serviceradar:poller:");
+
+const deviceIp = (device: Device): string => {
+  const metadata = (device.metadata as Record<string, unknown>) || {};
+  const candidates = [
+    device.ip,
+    metaString(metadata, "host_ip"),
+    metaString(metadata, "collector_ip"),
+    metaString(metadata, "alias_ip"),
+    metaString(metadata, "current_ip"),
+    metaString(metadata, "checker_host_ip"),
+  ];
+  const ip = candidates.find((val) => val && val.trim().length > 0);
+  return ip ? ip.trim() : "";
+};
+
+const looksLikeCollectorHost = (
+  device: Device,
+  normalizedIp: string,
+): boolean => {
+  const name =
+    (device.hostname || metaString(device.metadata, "canonical_hostname") || "")
+      .toLowerCase();
+  if (name === "agent" || name === "poller") {
+    return true;
   }
-  const entries = Object.entries(metadata);
-  if (entries.length === 0) {
-    return "—";
+  if (name.startsWith("docker-agent") || name.startsWith("docker-poller")) {
+    return true;
   }
-  const json = JSON.stringify(metadata);
-  return json.length > 120 ? `${json.slice(0, 117)}…` : json;
+  return normalizedIp.startsWith("172.18.");
 };
 
 const METRICS_STATUS_REFRESH_INTERVAL_MS = 30_000;
 
+const normalizeDiscoverySources = (raw: unknown): string[] => {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return entry.trim();
+      }
+      if (entry && typeof entry === "object") {
+        const sourceField = (entry as Record<string, unknown>).source;
+        if (typeof sourceField === "string" && sourceField.trim()) {
+          return sourceField.trim();
+        }
+        try {
+          return JSON.stringify(entry);
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    })
+    .filter((value): value is string => Boolean(value && value.length > 0))
+    .sort((a, b) => a.localeCompare(b));
+};
+
 const DeviceTable: React.FC<DeviceTableProps> = ({
   devices,
+  collectorServiceMeta,
+  hideCollectorServices = true,
   onSort,
   sortBy = "last_seen",
   sortOrder = "desc",
 }) => {
   const { token } = useAuth();
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [sysmonStatuses, setSysmonStatuses] = useState<
     Record<string, { hasMetrics: boolean }>
   >({});
@@ -152,6 +190,22 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     Record<string, { hasMetrics: boolean }>
   >({});
   const [snmpStatusesLoading, setSnmpStatusesLoading] = useState(true);
+  const filteredDevices = useMemo(() => {
+    return devices.filter((device) => {
+      if (hideCollectorServices && collectorServiceMeta?.has(device.device_id)) {
+        return false;
+      }
+      const normalizedIp = deviceIp(device);
+      const placeholderCollectorOwned =
+        !!metaString(device.metadata, "checker_service") &&
+        looksLikeCollectorHost(device, normalizedIp) &&
+        Boolean(
+          metaString(device.metadata, "collector_agent_id") ||
+            metaString(device.metadata, "collector_poller_id"),
+        );
+      return !(hideCollectorServices && placeholderCollectorOwned);
+    });
+  }, [collectorServiceMeta, devices, hideCollectorServices]);
 
   const extractCollectorInfo = useCallback((device: Device): CollectorInfo => {
     const aliasHistory = device.alias_history;
@@ -222,67 +276,59 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
 
   const collectorInfoByDevice = useMemo(() => {
     const info = new Map<string, CollectorInfo>();
-    devices.forEach((device) => {
+    filteredDevices.forEach((device) => {
       info.set(device.device_id, extractCollectorInfo(device));
     });
     return info;
-  }, [devices, extractCollectorInfo]);
+  }, [filteredDevices, extractCollectorInfo]);
 
   const icmpCollectorInfo = useMemo(() => {
-    const collectors = new Map<
-      string,
-      {
-        shouldRender: boolean;
-        hasMetrics: boolean | undefined;
-      }
-    >();
+    const collectors = new Map<string, IcmpState>();
 
-    devices.forEach((device) => {
+    filteredDevices.forEach((device) => {
       const info = collectorInfoByDevice.get(device.device_id);
       if (!info) {
-        return;
-      }
-
-      if (!info.supports.icmp || !info.hasCollector) {
         return;
       }
 
       const summary = device.metrics_summary as
         | Record<string, boolean>
         | undefined;
+      const supportsICMP = info.supports.icmp || summary?.icmp === true;
 
-      const hasSummaryMetrics = summary?.icmp === true;
-      const hasExplicitCollector =
-        info.capabilities.length > 0 ||
-        Boolean(info.serviceId || info.collectorIp || info.aliasIp);
-
-      if (hasExplicitCollector || hasSummaryMetrics) {
-        collectors.set(device.device_id, {
-          shouldRender: true,
-          hasMetrics: hasSummaryMetrics ? true : undefined,
-        });
+      if (!supportsICMP) {
+        return;
       }
+
+      const hasMetrics = summary?.icmp === true ? true : undefined;
+
+      collectors.set(device.device_id, {
+        shouldRender: true,
+        hasMetrics,
+        hasCollector: Boolean(info.hasCollector),
+        supportsICMP,
+      });
     });
 
     return collectors;
-  }, [devices, collectorInfoByDevice]);
+  }, [collectorInfoByDevice, filteredDevices]);
 
   const sysmonEligibleDeviceIds = useMemo(() => {
-    return devices
+    return filteredDevices
       .filter(
         (device) =>
           collectorInfoByDevice.get(device.device_id)?.supports.sysmon,
       )
       .map((device) => device.device_id);
-  }, [devices, collectorInfoByDevice]);
+  }, [collectorInfoByDevice, filteredDevices]);
 
   const snmpEligibleDeviceIds = useMemo(() => {
-    return devices
+    return filteredDevices
       .filter(
         (device) => collectorInfoByDevice.get(device.device_id)?.supports.snmp,
       )
       .map((device) => device.device_id);
-  }, [devices, collectorInfoByDevice]);
+  }, [collectorInfoByDevice, filteredDevices]);
 
   const sysmonDeviceIdsString = useMemo(() => {
     return [...sysmonEligibleDeviceIds].sort().join(",");
@@ -292,21 +338,8 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     return [...snmpEligibleDeviceIds].sort().join(",");
   }, [snmpEligibleDeviceIds]);
 
-  // Create a stable reference for device IDs
-  const deviceIdsString = useMemo(() => {
-    return devices
-      .map((device) => device.device_id)
-      .sort()
-      .join(",");
-  }, [devices]);
-
   useEffect(() => {
-    if (!devices || devices.length === 0) return;
-
-    const deviceIds = devices.map((device) => device.device_id);
-    console.log(
-      `DeviceTable useEffect triggered with ${devices.length} devices: ${deviceIds.slice(0, 3).join(", ")}...`,
-    );
+    if (!filteredDevices || filteredDevices.length === 0) return;
 
     let cancelled = false;
     const safeSetState = <T,>(
@@ -442,8 +475,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
       }
     };
   }, [
-    devices,
-    deviceIdsString,
+    filteredDevices,
     sysmonDeviceIdsString,
     snmpDeviceIdsString,
     sysmonEligibleDeviceIds,
@@ -452,6 +484,9 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
   ]);
 
   const getSourceColor = (source: string) => {
+    if (typeof source !== "string") {
+      return "bg-gray-100 text-gray-800 dark:bg-gray-600/50 dark:text-gray-200";
+    }
     const lowerSource = source.toLowerCase();
     if (lowerSource.includes("netbox"))
       return "bg-blue-100 text-blue-800 dark:bg-blue-600/50 dark:text-blue-200";
@@ -509,7 +544,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     </th>
   );
 
-  if (!devices || devices.length === 0) {
+  if (!filteredDevices || filteredDevices.length === 0) {
     return (
       <div className="text-center p-8 text-gray-600 dark:text-gray-400">
         No devices found.
@@ -519,36 +554,32 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
 
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-700">
-        <thead className="bg-gray-100 dark:bg-gray-800/50">
+      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+        <thead className="bg-gray-50 dark:bg-gray-900/50">
           <tr>
-            <th scope="col" className="w-12"></th>
+            <TableHeader aKey="hostname" label="Device" />
+            <TableHeader aKey="ip" label="IP Address" />
             <th
               scope="col"
               className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider"
             >
-              Status
+              Health & Metrics
             </th>
-            <TableHeader aKey="ip" label="Device" />
-            <th
-              scope="col"
-              className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider"
-            >
-              Sources
-            </th>
-            <TableHeader aKey="poller_id" label="Poller" />
             <TableHeader aKey="last_seen" label="Last Seen" />
           </tr>
         </thead>
-        <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-          {devices.map((device) => {
+        <tbody className="bg-white dark:bg-gray-800/60 divide-y divide-gray-200 dark:divide-gray-800">
+          {filteredDevices.map((device) => {
             const metadata = device.metadata || {};
+            const serviceTypeLabel =
+              collectorServiceMeta?.get(device.device_id) ?? null;
+            const isCollectorService = Boolean(serviceTypeLabel);
             const sysmonServiceHint =
               typeof metadata === "object" &&
               metadata !== null &&
               typeof metadata.checker_service === "string" &&
               metadata.checker_service.toLowerCase().includes("sysmon");
-
+            const isPoller = isPollerDeviceId(device.device_id);
             const collectorInfo =
               collectorInfoByDevice.get(device.device_id) ??
               extractCollectorInfo(device);
@@ -595,258 +626,148 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                 </span>,
               );
             }
+            const icmpInfo = icmpCollectorInfo.get(device.device_id);
+            const sysmonSupported =
+              collectorInfo.supports.sysmon || sysmonServiceHint;
+            const sysmonHasMetrics =
+              !sysmonSupported
+                ? false
+                : sysmonStatusesLoading
+                  ? undefined
+                  : sysmonStatuses[device.device_id]?.hasMetrics ?? false;
+            const snmpSupported = collectorInfo.supports.snmp;
+            const snmpHasMetrics =
+              !snmpSupported
+                ? false
+                : snmpStatusesLoading
+                  ? undefined
+                  : snmpStatuses[device.device_id]?.hasMetrics ?? false;
+            const deviceOnline = getDeviceDisplayStatus(device);
+            const sources = normalizeDiscoverySources(
+              device.discovery_sources,
+            );
+            const deviceHref = `/devices/${encodeURIComponent(device.device_id)}`;
 
             return (
-              <Fragment key={device.device_id}>
-                <tr className="hover:bg-gray-700/30">
-                  <td className="pl-4">
-                    <button
-                      onClick={() =>
-                        setExpandedRow(
-                          expandedRow === device.device_id
-                            ? null
-                            : device.device_id,
-                        )
-                      }
-                      className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"
+              <tr
+                key={device.device_id}
+                className="group hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+              >
+                <td className="px-6 py-4">
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`p-2 rounded-lg ${
+                        deviceOnline
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                          : "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+                      }`}
                     >
-                      {expandedRow === device.device_id ? (
-                        <ChevronDown className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                      ) : (
-                        <ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                      )}
-                    </button>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      {getDeviceDisplayStatus(device) ? (
-                        <CheckCircle className="h-5 w-5 text-green-500" />
-                      ) : (
-                        <XCircle className="h-5 w-5 text-red-500" />
-                      )}
-                      <DeviceTypeIndicator
-                        deviceId={device.device_id}
-                        compact={true}
-                        discoverySource={
-                          Array.isArray(device.discovery_sources)
-                            ? device.discovery_sources.join(",")
-                            : undefined
+                      <DeviceIcon
+                        type={
+                          isPoller
+                            ? "poller"
+                            : isCollectorService
+                              ? "service"
+                              : "device"
                         }
                       />
+                    </div>
+                    <div className="min-w-0">
+                      <Link
+                        href={deviceHref}
+                        className="font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400"
+                      >
+                        {device.hostname || device.device_id}
+                      </Link>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                        <span className="font-mono">
+                          {device.device_type || device.service_type || "device"}
+                        </span>
+                        {device.poller_id && !isPoller && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-700 dark:bg-gray-800/70 dark:text-gray-200">
+                            Poller {device.poller_id}
+                          </span>
+                        )}
+                      </div>
+                      {(collectorBadges.length > 0 ||
+                        isCollectorService ||
+                        sources.length > 0) && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {collectorBadges}
+                          {isCollectorService && (
+                            <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 dark:bg-emerald-800/40 dark:text-emerald-100">
+                              Collector service
+                              {serviceTypeLabel ? ` · ${serviceTypeLabel}` : ""}
+                            </span>
+                          )}
+                          {sources.map((source) => (
+                            <span
+                              key={source}
+                              className={`px-2 inline-flex text-[11px] leading-5 font-semibold rounded-full ${getSourceColor(source)}`}
+                            >
+                              {source}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 font-mono">
+                  {deviceIp(device) || "—"}
+                </td>
+                <td className="px-6 py-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div
+                      className={`flex items-center gap-2 text-xs font-semibold ${
+                        deviceOnline
+                          ? "text-emerald-600 dark:text-emerald-300"
+                          : "text-rose-600 dark:text-rose-300"
+                      }`}
+                    >
+                      <span
+                        className={`h-2.5 w-2.5 rounded-full ${
+                          deviceOnline ? "bg-emerald-500" : "bg-rose-500"
+                        }`}
+                      />
+                      {deviceOnline ? "Online" : "Offline"}
+                    </div>
+                    {icmpInfo?.shouldRender && (
+                      <ICMPSparkline
+                        deviceId={device.device_id}
+                        deviceIp={device.ip}
+                        compact={true}
+                        hasMetrics={icmpInfo.hasMetrics}
+                        hasCollector={icmpInfo.hasCollector}
+                        supportsICMP={icmpInfo.supportsICMP}
+                      />
+                    )}
+                    {sysmonSupported && (
                       <SysmonStatusIndicator
                         deviceId={device.device_id}
                         compact={true}
-                        hasMetrics={
-                          sysmonStatusesLoading
-                            ? undefined
-                            : sysmonStatuses[device.device_id]?.hasMetrics
-                        }
+                        hasMetrics={sysmonHasMetrics}
                         serviceHint={sysmonServiceHint}
                       />
+                    )}
+                    {snmpSupported && (
                       <SNMPStatusIndicator
                         deviceId={device.device_id}
                         compact={true}
-                        hasMetrics={
-                          snmpStatusesLoading
-                            ? undefined
-                            : snmpStatuses[device.device_id]?.hasMetrics
-                        }
+                        hasMetrics={snmpHasMetrics}
                         hasSnmpSource={
                           Array.isArray(device.discovery_sources) &&
                           (device.discovery_sources.includes("snmp") ||
                             device.discovery_sources.includes("mapper"))
                         }
                       />
-                      {icmpCollectorInfo.get(device.device_id)
-                        ?.shouldRender && (
-                        <ICMPSparkline
-                          deviceId={device.device_id}
-                          deviceIp={device.ip}
-                          compact={false}
-                          hasMetrics={
-                            icmpCollectorInfo.get(device.device_id)?.hasMetrics
-                          }
-                          hasCollector={
-                            collectorInfoByDevice.get(device.device_id)
-                              ?.hasCollector
-                          }
-                          supportsICMP={
-                            collectorInfoByDevice.get(device.device_id)
-                              ?.supports.icmp
-                          }
-                        />
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <Link
-                      href={`/devices/${encodeURIComponent(device.device_id)}`}
-                      className="block hover:bg-gray-50 dark:hover:bg-gray-700/50 -m-4 p-4 rounded transition-colors"
-                    >
-                      <div className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300">
-                        {device.hostname || device.ip}
-                      </div>
-                      <div className="text-sm text-gray-500 dark:text-gray-400">
-                        {device.hostname ? device.ip : device.mac}
-                      </div>
-                      {collectorBadges.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {collectorBadges}
-                        </div>
-                      )}
-                    </Link>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-wrap gap-1">
-                      {Array.isArray(device.discovery_sources)
-                        ? device.discovery_sources
-                            .filter(
-                              (source): source is string =>
-                                typeof source === "string" && source.length > 0,
-                            )
-                            .sort((a, b) => a.localeCompare(b))
-                            .map((source) => (
-                              <span
-                                key={source}
-                                className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getSourceColor(source)}`}
-                              >
-                                {source}
-                              </span>
-                            ))
-                        : null}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                    {device.poller_id}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                    {formatDate(device.last_seen)}
-                  </td>
-                </tr>
-                {expandedRow === device.device_id && (
-                  <tr className="bg-gray-50 dark:bg-gray-800/50">
-                    <td colSpan={6} className="p-0">
-                      <div className="p-4 space-y-4">
-                        {Array.isArray(device.capability_snapshots) &&
-                          device.capability_snapshots.length > 0 && (
-                            <div>
-                              <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-2">
-                                Capability Status
-                              </h4>
-                              <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-                                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
-                                  <thead className="bg-gray-100 dark:bg-gray-700/60">
-                                    <tr>
-                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
-                                        Capability
-                                      </th>
-                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
-                                        Service
-                                      </th>
-                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
-                                        Status
-                                      </th>
-                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
-                                        Last Success
-                                      </th>
-                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
-                                        Last Failure
-                                      </th>
-                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
-                                        Last Checked
-                                      </th>
-                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
-                                        Recorded By
-                                      </th>
-                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
-                                        Failure Reason
-                                      </th>
-                                      <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
-                                        Metadata
-                                      </th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900/30">
-                                    {device.capability_snapshots.map((snapshot) => {
-                                      const { label, classes } =
-                                        getCapabilityStateBadge(snapshot);
-                                      const serviceLabel = describeService(snapshot);
-                                      const rowKey = `${snapshot.capability}-${snapshot.service_id ?? "global"}-${
-                                        snapshot.recorded_by ?? "system"
-                                      }-${snapshot.last_checked ?? "na"}`;
-                                      const metadataSummary = summarizeMetadata(
-                                        snapshot.metadata,
-                                      );
-
-                                      return (
-                                        <tr key={rowKey}>
-                                          <td className="px-4 py-2 font-mono text-xs uppercase tracking-wide text-gray-800 dark:text-gray-100">
-                                            {snapshot.capability || "unknown"}
-                                          </td>
-                                          <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-200">
-                                            {serviceLabel}
-                                          </td>
-                                          <td className="px-4 py-2">
-                                            <span
-                                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${classes}`}
-                                            >
-                                              {label}
-                                            </span>
-                                          </td>
-                                          <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-200">
-                                            {formatCapabilityTimestamp(snapshot.last_success)}
-                                          </td>
-                                          <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-200">
-                                            {formatCapabilityTimestamp(snapshot.last_failure)}
-                                          </td>
-                                          <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-200">
-                                            {formatCapabilityTimestamp(snapshot.last_checked)}
-                                          </td>
-                                          <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-200">
-                                            {snapshot.recorded_by ?? "—"}
-                                          </td>
-                                          <td className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300">
-                                            {snapshot.failure_reason ?? "—"}
-                                          </td>
-                                          <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300">
-                                            {metadataSummary === "—" ? (
-                                              "—"
-                                            ) : (
-                                              <span title={JSON.stringify(snapshot.metadata, null, 2)}>
-                                                {metadataSummary}
-                                              </span>
-                                            )}
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          )}
-                        <div>
-                          <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-2">
-                            Metadata
-                          </h4>
-                          <ReactJson
-                            src={device.metadata}
-                            theme="pop"
-                            collapsed={false}
-                            displayDataTypes={false}
-                            enableClipboard={true}
-                            style={{
-                              padding: "1rem",
-                              borderRadius: "0.375rem",
-                              backgroundColor: "#1C1B22",
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
+                    )}
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                  {formatDate(device.last_seen)}
+                </td>
+              </tr>
             );
           })}
         </tbody>

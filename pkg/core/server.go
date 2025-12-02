@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -72,6 +73,18 @@ const (
 	snmpDiscoveryResultsServiceType = "snmp-discovery-results"
 	mapperDiscoveryServiceType      = "mapper_discovery"
 )
+
+func ageGraphEnabled() bool {
+	val := strings.TrimSpace(strings.ToLower(os.Getenv("ENABLE_AGE_GRAPH_WRITES")))
+	switch val {
+	case "", "1", metadataBoolTrue, "yes", "on":
+		return true
+	case "0", metadataBoolFalse, "no", "off":
+		return false
+	default:
+		return true
+	}
+}
 
 func (s *Server) pollerStatusIntervalOrDefault() time.Duration {
 	if s == nil || s.pollerStatusInterval <= 0 {
@@ -142,6 +155,12 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		registry.WithCNPGIdentityResolver(database),
 		registry.WithIdentityReconciliationConfig(normalizedConfig.Identity),
 	}
+	graphWriter := registry.NewAGEGraphWriter(database, log)
+	if graphWriter != nil && ageGraphEnabled() {
+		registryOpts = append(registryOpts, registry.WithGraphWriter(graphWriter))
+	} else {
+		graphWriter = nil
+	}
 	if normalizedConfig.Identity != nil {
 		registryOpts = append(registryOpts, registry.WithReconcileInterval(time.Duration(normalizedConfig.Identity.Reaper.Interval)))
 	}
@@ -197,7 +216,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 	serviceRegistry := registry.NewServiceRegistry(dbConn, log)
 
 	// Initialize the DiscoveryService
-	discoveryService := NewDiscoveryService(database, deviceRegistry, log)
+	discoveryService := NewDiscoveryService(database, deviceRegistry, log, graphWriter)
 
 	server := &Server{
 		DB:                  database,

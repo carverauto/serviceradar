@@ -51,6 +51,12 @@ export interface Device {
     last_seen: string;
     mac: string | null;
     metadata: Record<string, unknown>;
+    device_type?: string;
+    service_type?: string;
+    service_status?: string;
+    last_heartbeat?: string | null;
+    os_info?: string | null;
+    version_info?: string | null;
     poller_id: string;
     sys_descr?: string;
     alias_history?: DeviceAliasHistory;

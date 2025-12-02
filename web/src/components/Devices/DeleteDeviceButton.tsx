@@ -27,12 +27,14 @@ interface DeleteDeviceButtonProps {
     deviceId: string;
     deviceName?: string;
     onDelete?: () => void;
+    compact?: boolean;
 }
 
 const DeleteDeviceButton: React.FC<DeleteDeviceButtonProps> = ({
     deviceId,
     deviceName,
-    onDelete
+    onDelete,
+    compact = false,
 }) => {
     const { token } = useAuth();
     const router = useRouter();
@@ -154,6 +156,18 @@ const DeleteDeviceButton: React.FC<DeleteDeviceButtonProps> = ({
                     </div>
                 )}
             </div>
+        );
+    }
+
+    if (compact) {
+        return (
+            <button
+                onClick={() => setShowConfirm(true)}
+                title="Delete device"
+                className="inline-flex items-center justify-center rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 p-2 text-gray-600 dark:text-gray-300 hover:bg-red-50 hover:text-red-600 hover:border-red-300 dark:hover:bg-red-900/20 dark:hover:text-red-400 dark:hover:border-red-700 transition-colors"
+            >
+                <Trash2 className="h-4 w-4" />
+            </button>
         );
     }
 

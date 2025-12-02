@@ -65,6 +65,14 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 - bazel is our build system, we use it to build and push images
 - Sysmon-vm hostfreq sampler buffers ~5 minutes of 250 ms samples; keep pollers querying at least once per retention window so cached CPU data stays fresh.
 
+## Docker MTLS Compose Refresh
+
+- Build and publish images from the current commit: `make build` then `make push_all`.
+- Capture the tag for compose: `git rev-parse HEAD` and use `APP_TAG=sha-<sha>`.
+- Pull fresh images: `APP_TAG=sha-<sha> docker compose -f docker-compose.mtls.yml pull`.
+- Restart the stack: `APP_TAG=sha-<sha> docker compose -f docker-compose.mtls.yml up -d --force-recreate`.
+- Verify: `docker compose -f docker-compose.mtls.yml ps` (one-shot jobs like cert-generator/config-updater exit once finished; nginx may sit in “health: starting” briefly).
+
 ## Release Playbook
 
 1. Prep metadata:

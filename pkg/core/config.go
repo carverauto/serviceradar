@@ -94,6 +94,7 @@ func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig
 	}
 
 	normalized.Identity = applyIdentityDefaults(normalized.Identity)
+	ensureAgeRuntimeDefaults(normalized.CNPG)
 
 	return &normalized
 }
@@ -200,6 +201,20 @@ func boolPtr(v bool) *bool {
 func applyDefaultAdminUser(authConfig *models.AuthConfig) {
 	if adminHash := os.Getenv("ADMIN_PASSWORD_HASH"); adminHash != "" {
 		authConfig.LocalUsers["admin"] = adminHash
+	}
+}
+
+func ensureAgeRuntimeDefaults(cnpg *models.CNPGDatabase) {
+	if cnpg == nil {
+		return
+	}
+
+	if cnpg.ExtraRuntimeParams == nil {
+		cnpg.ExtraRuntimeParams = map[string]string{}
+	}
+
+	if _, ok := cnpg.ExtraRuntimeParams["search_path"]; !ok {
+		cnpg.ExtraRuntimeParams["search_path"] = `ag_catalog,"$user",public`
 	}
 }
 

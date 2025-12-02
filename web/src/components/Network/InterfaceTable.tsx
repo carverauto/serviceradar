@@ -31,6 +31,7 @@ export interface NetworkInterface {
     mtu?: number;
 
     // Raw properties from backend output (retained for comprehensive data)
+    device_id?: string;
     device_ip?: string;
     if_index?: number;
     if_name?: string;

@@ -10,6 +10,7 @@ pub enum Entity {
     Devices,
     DeviceUpdates,
     Interfaces,
+    DeviceGraph,
     Events,
     Logs,
     Services,
@@ -19,6 +20,8 @@ pub enum Entity {
     CpuMetrics,
     MemoryMetrics,
     DiskMetrics,
+    TimeseriesMetrics,
+    SnmpMetrics,
     TraceSummaries,
     Traces,
 }
@@ -174,6 +177,7 @@ fn parse_entity(raw: &str) -> Result<Entity> {
     let normalized = raw.trim_matches('"').trim_matches('\'').to_lowercase();
     match normalized.as_str() {
         "devices" | "device" | "device_inventory" => Ok(Entity::Devices),
+        "device_graph" | "devicegraph" | "graph" => Ok(Entity::DeviceGraph),
         "device_updates" | "device_update" | "updates" => Ok(Entity::DeviceUpdates),
         "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
         "events" | "activity" => Ok(Entity::Events),
@@ -185,6 +189,8 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "cpu_metrics" | "cpu" => Ok(Entity::CpuMetrics),
         "memory_metrics" | "memory" => Ok(Entity::MemoryMetrics),
         "disk_metrics" | "disk" => Ok(Entity::DiskMetrics),
+        "timeseries_metrics" | "timeseries" => Ok(Entity::TimeseriesMetrics),
+        "snmp_metrics" | "snmp" => Ok(Entity::SnmpMetrics),
         "otel_trace_summaries" | "trace_summaries" | "traces_summaries" => {
             Ok(Entity::TraceSummaries)
         }
@@ -427,6 +433,12 @@ mod tests {
     fn parses_time() {
         let ast = parse("in:devices time:last_7d").unwrap();
         assert!(ast.time_filter.is_some());
+    }
+
+    #[test]
+    fn parses_device_graph_entity() {
+        let ast = parse("in:device_graph device_id:sr:device-1").unwrap();
+        assert!(matches!(ast.entity, Entity::DeviceGraph));
     }
 
     #[test]
