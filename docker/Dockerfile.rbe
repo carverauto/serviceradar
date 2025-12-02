@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1
 
-# Custom RBE executor image based on Ubuntu 24.04 with development tooling.
+# Custom RBE executor image based on Ubuntu 24.04 (glibc 2.39) with development tooling.
 # This image provides a hermetic build environment for BuildBuddy RBE.
-
 FROM --platform=linux/amd64 ubuntu:24.04
 
 # Set non-interactive frontend for apt to prevent prompts
@@ -20,7 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         software-properties-common \
     && install -d /usr/share/postgresql-common/pgdg \
     && curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-    && sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list' \
+    && gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    && sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] http://apt.postgresql.org/pub/repos/apt noble-pgdg main" > /etc/apt/sources.list.d/pgdg.list' \
     && apt-get update && apt-get install -y --no-install-recommends \
         # Build Tools & Compilers
         build-essential \
@@ -38,9 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         # Container Tools
         skopeo \
         podman \
-        podman-docker \
         slirp4netns \
-        fuse-overlayfs \
         iptables \
         # Database / Libs
         postgresql-server-dev-16 \
@@ -52,6 +50,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgmp-dev \
         libev-dev \
         libbpf-dev \
+        linux-tools-common \
         linux-tools-generic \
         protobuf-compiler \
         libprotobuf-dev \
@@ -69,6 +68,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Install libssl1.1 runtime for binaries that still target OpenSSL 1.1.
+RUN curl -fsSL http://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb -o /tmp/libssl1.1.deb \
+    && dpkg -i /tmp/libssl1.1.deb \
+    && rm /tmp/libssl1.1.deb
+
+# Provide a Docker-compatible shim for podman that forces the vfs driver to
+# avoid fuse-overlayfs mount constraints inside the executor sandbox.
+RUN cat <<'EOF' >/usr/local/bin/docker \
+    && chmod +x /usr/local/bin/docker
+#!/bin/bash
+exec /usr/bin/podman --storage-driver=vfs "$@"
+EOF
+
+# Force podman to prefer the vfs storage driver and make iptables visible on PATH.
+RUN mkdir -p /etc/containers \
+    && cat <<'EOF' >/etc/containers/storage.conf
+[storage]
+driver = "vfs"
+runroot = "/var/run/containers/storage"
+graphroot = "/var/lib/containers/storage"
+[storage.options]
+mount_program = ""
+mountopt = "nodev,fsync=0"
+EOF
+RUN ln -sf /usr/sbin/iptables /usr/bin/iptables
+
+ENV CONTAINERS_STORAGE_DRIVER=vfs \
+    CONTAINERS_STORAGE_CONF=/etc/containers/storage.conf \
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
 # Provide the common RHEL-style lib64 path expected by some build scripts.
 RUN ln -s /usr/lib/x86_64-linux-gnu /usr/lib64
 
@@ -83,9 +112,8 @@ ENV CC=/usr/bin/gcc \
     RUSTUP_HOME=/opt/rustup \
     CARGO_HOME=/opt/cargo \
     PATH=/opt/cargo/bin:$PATH \
-    # Ubuntu places pg_config headers in standard locations or specific include dirs.
-    # We add the specific pgsql pkgconfig path just in case, though often not strictly needed on Debian.
-    PKG_CONFIG_PATH=/usr/lib/postgresql/16/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH
+    # pkg-config lookup paths
+    PKG_CONFIG_PATH=/usr/lib/postgresql/16/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
 
@@ -116,8 +144,9 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-ini
     && chmod +x /tmp/rustup-init \
     && /tmp/rustup-init -y --profile minimal --default-toolchain stable --no-modify-path \
     && rm -f /tmp/rustup-init \
-    && rustup default stable \
-    && cargo install --locked bpf-linker
+    && source /opt/cargo/env \
+    && /opt/cargo/bin/rustup default stable \
+    && /opt/cargo/bin/cargo install --locked bpf-linker
 
 # Install cosign for container signing/attestation
 ARG COSIGN_VERSION=2.4.1

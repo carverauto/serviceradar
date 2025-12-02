@@ -28,6 +28,7 @@ const API_KEY: &str = "test-api-key";
 const CNPG_IMAGE: &str = "ghcr.io/carverauto/serviceradar-cnpg";
 const CNPG_TAG: &str = "16.6.0-sr2";
 const CNPG_IMAGE_REF: &str = "ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2";
+const CNPG_LOCAL_IMAGE_REF: &str = "ghcr.io/carverauto/serviceradar-cnpg:local";
 const CNPG_ARCHIVE: &str = "/opt/cnpg_image.tar";
 const DB_CONNECT_RETRIES: usize = 240;
 const DB_CONNECT_DELAY_MS: u64 = 250;
@@ -766,6 +767,36 @@ fn log_connection_details(name: &str, url: &str) {
     }
 }
 
+fn find_runfile(path: &str) -> Option<PathBuf> {
+    let runfile_rel = Path::new(path);
+
+    let find_in_base = |base: &Path| -> Option<PathBuf> {
+        let mut candidates = vec![base.join(runfile_rel)];
+
+        if let Ok(workspace) = std::env::var("TEST_WORKSPACE") {
+            candidates.push(base.join(&workspace).join(runfile_rel));
+        }
+
+        candidates.push(base.join("__main").join(runfile_rel));
+        candidates.push(base.join("__main__").join(runfile_rel));
+        candidates.into_iter().find(|candidate| candidate.exists())
+    };
+
+    if let Ok(runfiles) = std::env::var("RUNFILES_DIR") {
+        if let Some(path) = find_in_base(Path::new(&runfiles)) {
+            return Some(path);
+        }
+    }
+
+    if let Ok(test_srcdir) = std::env::var("TEST_SRCDIR") {
+        if let Some(path) = find_in_base(Path::new(&test_srcdir)) {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
 fn ensure_cnpg_image() -> anyhow::Result<()> {
     let state = CNPG_BUILD_STATE.get_or_init(|| Mutex::new(false));
     let mut fetched = state
@@ -781,8 +812,16 @@ fn ensure_cnpg_image() -> anyhow::Result<()> {
 }
 
 fn cnpg_image_present() -> anyhow::Result<bool> {
+    image_tag_present(CNPG_IMAGE_REF)
+}
+
+fn cnpg_local_image_present() -> anyhow::Result<bool> {
+    image_tag_present(CNPG_LOCAL_IMAGE_REF)
+}
+
+fn image_tag_present(tag: &str) -> anyhow::Result<bool> {
     let status = Command::new("docker")
-        .args(["image", "inspect", CNPG_IMAGE_REF])
+        .args(["image", "inspect", tag])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()?;
@@ -802,24 +841,73 @@ fn fetch_cnpg_image() -> anyhow::Result<()> {
             status.code()
         );
     }
+    retag_cnpg_image_if_needed()?;
     Ok(())
 }
 
 fn load_cnpg_from_archive() -> anyhow::Result<bool> {
-    let archive = Path::new(CNPG_ARCHIVE);
-    if !archive.exists() {
-        return Ok(false);
+    let mut archives = Vec::new();
+    if let Ok(path) = std::env::var("SRQL_CNPG_ARCHIVE") {
+        if !path.trim().is_empty() {
+            archives.push(PathBuf::from(path));
+        }
+    }
+    archives.push(PathBuf::from(CNPG_ARCHIVE));
+
+    for archive in archives {
+        if !archive.exists() {
+            continue;
+        }
+        let archive_str = archive
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("CNPG archive path is not valid UTF-8"))?;
+        let status = Command::new("docker")
+            .args(["load", "--input", archive_str])
+            .status()?;
+        if !status.success() {
+            anyhow::bail!(
+                "docker load --input {} failed with status {:?}",
+                archive.display(),
+                status.code()
+            );
+        }
+        retag_cnpg_image_if_needed()?;
+        return Ok(true);
+    }
+
+    if let Some(loader) = find_runfile("docker/images/cnpg_image_amd64_tar.sh") {
+        let status = Command::new(&loader).status()?;
+        if !status.success() {
+            anyhow::bail!(
+                "{} failed with status {:?}",
+                loader.display(),
+                status.code()
+            );
+        }
+        retag_cnpg_image_if_needed()?;
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+fn retag_cnpg_image_if_needed() -> anyhow::Result<()> {
+    if cnpg_image_present()? {
+        return Ok(());
+    }
+    if !cnpg_local_image_present()? {
+        anyhow::bail!("CNPG image not present after load attempt");
     }
     let status = Command::new("docker")
-        .args(["load", "--input", CNPG_ARCHIVE])
+        .args(["tag", CNPG_LOCAL_IMAGE_REF, CNPG_IMAGE_REF])
         .status()?;
     if !status.success() {
         anyhow::bail!(
-            "docker load --input {CNPG_ARCHIVE} failed with status {:?}",
+            "docker tag {CNPG_LOCAL_IMAGE_REF} {CNPG_IMAGE_REF} failed with status {:?}",
             status.code()
         );
     }
-    Ok(true)
+    Ok(())
 }
 
 fn load_fixture(name: &str) -> anyhow::Result<String> {
@@ -838,30 +926,8 @@ fn fixture_root() -> PathBuf {
     }
 
     const RELATIVE: &str = "rust/srql/tests/fixtures";
-    let runfile_rel = Path::new(RELATIVE);
-
-    let find_in_base = |base: &Path| -> Option<PathBuf> {
-        let mut candidates = vec![base.join(runfile_rel)];
-
-        if let Ok(workspace) = std::env::var("TEST_WORKSPACE") {
-            candidates.push(base.join(&workspace).join(runfile_rel));
-        }
-
-        candidates.push(base.join("__main").join(runfile_rel));
-        candidates.push(base.join("__main__").join(runfile_rel));
-        candidates.into_iter().find(|candidate| candidate.exists())
-    };
-
-    if let Ok(runfiles) = std::env::var("RUNFILES_DIR") {
-        if let Some(path) = find_in_base(Path::new(&runfiles)) {
-            return path;
-        }
-    }
-
-    if let Ok(test_srcdir) = std::env::var("TEST_SRCDIR") {
-        if let Some(path) = find_in_base(Path::new(&test_srcdir)) {
-            return path;
-        }
+    if let Some(path) = find_runfile(RELATIVE) {
+        return path;
     }
 
     Path::new(env!("CARGO_MANIFEST_DIR"))

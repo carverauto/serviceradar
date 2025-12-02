@@ -37,6 +37,7 @@ rust_test(
     data = [
         "tests/fixtures/schema.sql",
         "tests/fixtures/seed.sql",
+        "//docker/images:cnpg_image_amd64_tar",
     ],
     crate_name = "srql_api_tests",
     crate_root = "tests/api.rs",
@@ -57,6 +58,7 @@ rust_test(
     data = [
         "tests/fixtures/schema.sql",
         "tests/fixtures/seed.sql",
+        "//docker/images:cnpg_image_amd64_tar",
     ],
     crate_name = "srql_comprehensive_tests",
     crate_root = "tests/comprehensive_queries.rs",
