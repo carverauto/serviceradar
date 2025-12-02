@@ -6,17 +6,14 @@ use axum::{
 use serde::Serialize;
 use serde_json::Value;
 use srql::{config::AppConfig, query::QueryRequest, server::Server};
-use std::sync::Once;
 use std::{
     fs,
     future::Future,
     net::SocketAddr,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    sync::{Mutex, OnceLock},
+    sync::Once,
     time::Duration,
 };
-use testcontainers::{clients::Cli, GenericImage};
 use tokio::{
     task::JoinHandle,
     time::{sleep, Duration as TokioDuration},
@@ -25,320 +22,12 @@ use tokio_postgres::{config::Host, error::SqlState, Client, Config as PgConfig, 
 use tower::ServiceExt;
 
 const API_KEY: &str = "test-api-key";
-const CNPG_IMAGE: &str = "ghcr.io/carverauto/serviceradar-cnpg";
-const CNPG_TAG: &str = "16.6.0-sr2";
-const CNPG_IMAGE_REF: &str = "ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2";
-const CNPG_LOCAL_IMAGE_REF: &str = "ghcr.io/carverauto/serviceradar-cnpg:local";
-const CNPG_ARCHIVE: &str = "/opt/cnpg_image.tar";
 const DB_CONNECT_RETRIES: usize = 240;
 const DB_CONNECT_DELAY_MS: u64 = 250;
 const DB_SEED_RETRIES: usize = 3;
 const REMOTE_FIXTURE_LOCK_ID: i64 = 4_216_042;
 
-static CNPG_BUILD_STATE: OnceLock<Mutex<bool>> = OnceLock::new();
 static TRACING_INIT: Once = Once::new();
-
-const BOOTSTRAP_SCRIPT: &str = r#"set -euo pipefail
-cat <<'EOS' >/tmp/bootstrap.sh
-#!/bin/bash
-set -euo pipefail
-export PATH=/usr/lib/postgresql/16/bin:$PATH
-initdb -D /tmp/pgdata >/tmp/initdb.log
-cat <<'CONF' >> /tmp/pgdata/postgresql.conf
-shared_preload_libraries = 'timescaledb,age'
-listen_addresses = '*'
-max_connections = 50
-CONF
-cat <<'HBA' > /tmp/pgdata/pg_hba.conf
-host all all 0.0.0.0/0 trust
-host all all ::/0 trust
-HBA
-exec postgres -D /tmp/pgdata -c logging_collector=off
-EOS
-chmod +x /tmp/bootstrap.sh
-exec /tmp/bootstrap.sh
-"#;
-
-const AGE_GRAPH_BOOTSTRAP_SQL: &str = r#"
-SET LOCAL search_path = ag_catalog, public, "$user";
-DO $$
-BEGIN
-    BEGIN
-        PERFORM ag_catalog.create_graph('serviceradar');
-    EXCEPTION
-        WHEN others THEN NULL;
-    END;
-
-    BEGIN
-        EXECUTE format('GRANT USAGE ON SCHEMA %I TO PUBLIC', 'serviceradar');
-        EXECUTE format('GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA %I TO PUBLIC', 'serviceradar');
-    EXCEPTION
-        WHEN insufficient_privilege THEN NULL;
-        WHEN others THEN NULL;
-    END;
-
-    BEGIN
-        GRANT USAGE ON SCHEMA ag_catalog TO PUBLIC;
-        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO PUBLIC;
-    EXCEPTION
-        WHEN insufficient_privilege THEN NULL;
-        WHEN others THEN NULL;
-    END;
-
-    BEGIN
-        PERFORM ag_catalog.create_vlabel('serviceradar', 'Device');
-    EXCEPTION
-        WHEN others THEN NULL;
-    END;
-    BEGIN
-        PERFORM ag_catalog.create_vlabel('serviceradar', 'Collector');
-    EXCEPTION
-        WHEN others THEN NULL;
-    END;
-    BEGIN
-        PERFORM ag_catalog.create_vlabel('serviceradar', 'Service');
-    EXCEPTION
-        WHEN others THEN NULL;
-    END;
-    BEGIN
-        PERFORM ag_catalog.create_vlabel('serviceradar', 'Interface');
-    EXCEPTION
-        WHEN others THEN NULL;
-    END;
-    BEGIN
-        PERFORM ag_catalog.create_vlabel('serviceradar', 'Capability');
-    EXCEPTION
-        WHEN others THEN NULL;
-    END;
-
-    BEGIN
-        PERFORM ag_catalog.create_elabel('serviceradar', 'HOSTS_SERVICE');
-    EXCEPTION
-        WHEN others THEN NULL;
-    END;
-    BEGIN
-        PERFORM ag_catalog.create_elabel('serviceradar', 'TARGETS');
-    EXCEPTION
-        WHEN others THEN NULL;
-    END;
-    BEGIN
-        PERFORM ag_catalog.create_elabel('serviceradar', 'HAS_INTERFACE');
-    EXCEPTION
-        WHEN others THEN NULL;
-    END;
-    BEGIN
-        PERFORM ag_catalog.create_elabel('serviceradar', 'REPORTED_BY');
-    EXCEPTION
-        WHEN others THEN NULL;
-    END;
-    BEGIN
-        PERFORM ag_catalog.create_elabel('serviceradar', 'PROVIDES_CAPABILITY');
-    EXCEPTION
-        WHEN others THEN NULL;
-    END;
-
-    PERFORM * FROM ag_catalog.cypher('serviceradar', $_cypher$
-        MERGE (d:Device {id: 'device-alpha', hostname: 'alpha-edge'})
-        MERGE (c:Collector {id: 'serviceradar:agent:agent-1'})
-        MERGE (svc:Service {id: 'serviceradar:service:ssh@agent-1', type: 'ssh'})
-        MERGE (iface:Interface {id: 'device-alpha/eth0', name: 'eth0'})
-        MERGE (cap:Capability {type: 'snmp'})
-        MERGE (d)-[:HAS_INTERFACE]->(iface)
-        MERGE (d)-[:PROVIDES_CAPABILITY]->(cap)
-        MERGE (c)-[:HOSTS_SERVICE]->(svc)
-        MERGE (svc)-[:TARGETS]->(d)
-        MERGE (d)-[:REPORTED_BY]->(c)
-    $_cypher$) AS (result agtype);
-END $$;
-
-CREATE OR REPLACE FUNCTION public.age_device_neighborhood(
-    p_device_id text,
-    p_collector_owned_only boolean DEFAULT false,
-    p_include_topology boolean DEFAULT true
-) RETURNS jsonb
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    cypher_sql text;
-    cypher_result ag_catalog.agtype;
-    include_topology text := CASE WHEN coalesce(p_include_topology, true) THEN 'true' ELSE 'false' END;
-    collector_only text := CASE WHEN coalesce(p_collector_owned_only, false) THEN 'true' ELSE 'false' END;
-BEGIN
-    PERFORM set_config('search_path', 'ag_catalog,pg_catalog,"$user",public', false);
-
-    cypher_sql := format($cypher$
-        WITH %s::boolean AS include_topology, %s::boolean AS collector_only
-        MATCH (c:Collector {id: %L})
-        OPTIONAL MATCH (c)-[:REPORTED_BY]->(parentCol:Collector)
-        OPTIONAL MATCH (devAlias:Device {id: %L})-[:REPORTED_BY]->(parentFromAlias:Collector)
-        OPTIONAL MATCH (childCol:Collector)-[:REPORTED_BY]->(c)
-        OPTIONAL MATCH (childDev:Device)-[:REPORTED_BY]->(c)
-            WHERE childDev.id STARTS WITH 'serviceradar:'
-        WITH c, include_topology,
-             collect(DISTINCT parentCol) + collect(DISTINCT parentFromAlias) AS parent_collectors,
-             collect(DISTINCT childCol) AS child_collectors,
-             collect(DISTINCT childDev.id) AS child_dev_ids
-        WITH c, include_topology, parent_collectors, child_collectors,
-             CASE WHEN size(child_dev_ids) = 0 THEN [NULL] ELSE child_dev_ids END AS child_dev_ids_safe
-        UNWIND child_dev_ids_safe AS child_dev_id
-        OPTIONAL MATCH (aliasCol:Collector {id: child_dev_id})
-        WITH c, include_topology,
-             parent_collectors,
-             child_collectors,
-             collect(DISTINCT aliasCol) AS alias_child_collectors
-        WITH c, include_topology,
-             [col IN parent_collectors WHERE col IS NOT NULL] AS parent_collectors,
-             [col IN (child_collectors + alias_child_collectors) WHERE col IS NOT NULL] AS child_collectors,
-             [c] + [col IN (child_collectors + alias_child_collectors) WHERE col IS NOT NULL | col] AS host_collectors
-        UNWIND host_collectors AS host_col
-        OPTIONAL MATCH (host_col)-[:HOSTS_SERVICE]->(svc:Service)
-        OPTIONAL MATCH (svc)-[:TARGETS]->(t:Device)
-        OPTIONAL MATCH (svc)-[:PROVIDES_CAPABILITY]->(svcCap:Capability)
-        OPTIONAL MATCH (reported:Device)-[:REPORTED_BY]->(host_col)
-        WITH c, include_topology, parent_collectors, child_collectors,
-             collect(DISTINCT CASE WHEN svc IS NOT NULL THEN {service: properties(svc), collector_id: host_col.id, collector_owned: true} ELSE NULL END) AS services_output_raw,
-             collect(DISTINCT t) AS service_targets,
-             collect(DISTINCT svcCap) AS service_caps,
-             collect(DISTINCT reported) AS reported_devices
-        WITH c, include_topology, parent_collectors, child_collectors, services_output_raw, service_targets, service_caps, reported_devices,
-             CASE WHEN size(service_targets + reported_devices) = 0 THEN [NULL] ELSE service_targets + reported_devices END AS combined_targets
-        UNWIND combined_targets AS tgt
-        WITH c, include_topology, parent_collectors, child_collectors, services_output_raw, service_caps,
-             collect(DISTINCT tgt) AS all_targets
-        RETURN {
-            device: properties(c),
-            collectors: [col IN (parent_collectors + child_collectors) WHERE col IS NOT NULL | properties(col)],
-            services: [s IN services_output_raw WHERE s IS NOT NULL | s],
-            targets: [tgt IN all_targets WHERE tgt IS NOT NULL | properties(tgt)],
-            interfaces: [],
-            peer_interfaces: [],
-            device_capabilities: [],
-            service_capabilities: [cap IN service_caps WHERE cap IS NOT NULL | properties(cap)]
-        } AS result
-    $cypher$, include_topology, collector_only, p_device_id, p_device_id);
-
-    EXECUTE 'SELECT result FROM ag_catalog.cypher(''serviceradar'', ' ||
-            chr(36) || chr(36) || cypher_sql || chr(36) || chr(36) ||
-            ') AS (result ag_catalog.agtype)'
-    INTO cypher_result;
-
-    IF cypher_result IS NULL OR cypher_result::text = 'null' THEN
-        cypher_sql := format($cypher$
-            WITH %s::boolean AS include_topology, %s::boolean AS collector_only
-            MATCH (d:Device {id: %L})
-            OPTIONAL MATCH (d)-[:REPORTED_BY]->(col:Collector)
-            OPTIONAL MATCH (col)-[:HOSTS_SERVICE]->(svc:Service)
-            OPTIONAL MATCH (svc)-[:TARGETS]->(t:Device)
-            OPTIONAL MATCH (svc)-[:PROVIDES_CAPABILITY]->(svcCap:Capability)
-            OPTIONAL MATCH (d)-[:PROVIDES_CAPABILITY]->(dcap:Capability)
-            OPTIONAL MATCH (d)-[:HAS_INTERFACE]->(iface:Interface)
-            OPTIONAL MATCH (iface)-[:CONNECTS_TO]->(peer:Interface)
-            WITH d, include_topology, collector_only,
-                 collect(DISTINCT col) AS collectors,
-                 collect(DISTINCT CASE WHEN svc IS NOT NULL AND t IS NOT NULL AND t.id = d.id AND col IS NOT NULL THEN {
-                     service: properties(svc),
-                     collector_id: col.id,
-                     collector_owned: col IS NOT NULL
-                 } ELSE NULL END) AS services_output_raw,
-                 collect(DISTINCT CASE WHEN svc IS NOT NULL AND t IS NOT NULL AND t.id = d.id AND col IS NOT NULL THEN col ELSE NULL END) AS host_collectors_raw,
-                 collect(DISTINCT CASE WHEN t IS NOT NULL AND t.id <> d.id THEN properties(t) ELSE NULL END) AS target_props_raw,
-                 collect(DISTINCT iface) AS interfaces,
-                 collect(DISTINCT peer) AS peers,
-                 collect(DISTINCT dcap) AS device_caps,
-                 collect(DISTINCT svcCap) AS service_caps
-            WITH d, include_topology, collector_only, collectors, target_props_raw, interfaces, peers, device_caps, service_caps,
-                 [c IN host_collectors_raw WHERE c IS NOT NULL] AS host_collectors,
-                 [s IN services_output_raw WHERE s IS NOT NULL] AS services_output
-            WITH d, include_topology, collector_only, collectors, services_output, target_props_raw, interfaces, peers, device_caps, service_caps, host_collectors,
-                 CASE WHEN size(host_collectors) > 0 THEN host_collectors ELSE collectors END AS collector_list,
-                 (size(host_collectors) > 0 OR size([c IN collectors WHERE c IS NOT NULL]) > 0) AS has_collector,
-                 [tgt IN target_props_raw WHERE tgt IS NOT NULL | tgt] AS target_props
-            WITH d, include_topology, collector_only, services_output, target_props, interfaces, peers, device_caps, service_caps, has_collector,
-                 CASE WHEN size(collector_list) = 0 THEN [NULL] ELSE collector_list END AS collector_list_safe
-            UNWIND collector_list_safe AS base_col
-            OPTIONAL MATCH (parentCol:Collector)<-[:REPORTED_BY]-(base_col)
-            WITH d, include_topology, collector_only, services_output, target_props, interfaces, peers, device_caps, service_caps, has_collector,
-                 collect(DISTINCT base_col) AS collector_list_dedup,
-                 collect(DISTINCT parentCol) AS parent_collectors
-            WITH d, include_topology, collector_only, services_output, target_props, interfaces, peers, device_caps, service_caps,
-                 collector_list_dedup + parent_collectors AS combined_collectors,
-                 (has_collector OR size([p IN parent_collectors WHERE p IS NOT NULL]) > 0) AS has_any_collector
-            WHERE NOT collector_only OR has_any_collector
-            RETURN {
-                device: properties(d),
-                collectors: [c IN combined_collectors WHERE c IS NOT NULL | properties(c)],
-                services: services_output,
-                targets: target_props,
-                interfaces: CASE WHEN include_topology THEN [i IN interfaces WHERE i IS NOT NULL | properties(i)] ELSE [] END,
-                peer_interfaces: CASE WHEN include_topology THEN [p IN peers WHERE p IS NOT NULL | properties(p)] ELSE [] END,
-                device_capabilities: [cap IN device_caps WHERE cap IS NOT NULL | properties(cap)],
-                service_capabilities: [cap IN service_caps WHERE cap IS NOT NULL | properties(cap)]
-            } AS result
-        $cypher$, include_topology, collector_only, p_device_id);
-
-        EXECUTE 'SELECT result FROM ag_catalog.cypher(''serviceradar'', ' ||
-                chr(36) || chr(36) || cypher_sql || chr(36) || chr(36) ||
-                ') AS (result ag_catalog.agtype)'
-        INTO cypher_result;
-    END IF;
-
-    IF cypher_result IS NULL OR cypher_result::text = 'null' THEN
-        cypher_sql := format($cypher$
-            WITH %s::boolean AS include_topology, %s::boolean AS collector_only
-            MATCH (svc:Service {id: %L})
-            OPTIONAL MATCH (col:Collector)-[:HOSTS_SERVICE]->(svc)
-            OPTIONAL MATCH (svc)-[:TARGETS]->(t:Device)
-            OPTIONAL MATCH (svc)-[:PROVIDES_CAPABILITY]->(svcCap:Capability)
-            WITH svc, include_topology, collector_only,
-                 collect(DISTINCT col) AS collectors,
-                 collect(DISTINCT t) AS targets,
-                 collect(DISTINCT svcCap) AS service_caps
-            WITH svc, include_topology, collector_only,
-                 CASE WHEN size(collectors) = 0 THEN [NULL] ELSE collectors END AS collectors_list,
-                 CASE WHEN size(targets) = 0 THEN [NULL] ELSE targets END AS targets_list,
-                 service_caps
-            UNWIND collectors_list AS base_col
-            OPTIONAL MATCH (parentCol:Collector)<-[:REPORTED_BY]-(base_col)
-            UNWIND targets_list AS tgt
-            WITH svc, include_topology, collector_only, service_caps,
-                 collect(DISTINCT base_col) AS collectors,
-                 collect(DISTINCT parentCol) AS parent_collectors,
-                 collect(DISTINCT tgt) AS targets_flat
-            WITH svc, include_topology, collector_only,
-                 collectors + parent_collectors AS combined_collectors,
-                 targets_flat,
-                 service_caps,
-                 size([c IN (collectors + parent_collectors) WHERE c IS NOT NULL]) > 0 AS has_collector
-            WHERE NOT collector_only OR has_collector
-            RETURN {
-                device: properties(svc),
-                collectors: [c IN combined_collectors WHERE c IS NOT NULL | properties(c)],
-                services: [{
-                    service: properties(svc),
-                    collector_id: CASE WHEN size([c IN combined_collectors WHERE c IS NOT NULL]) > 0 THEN (combined_collectors[0].id) ELSE NULL END,
-                    collector_owned: size([c IN combined_collectors WHERE c IS NOT NULL]) > 0
-                }],
-                targets: [tgt IN targets_flat WHERE tgt IS NOT NULL | properties(tgt)],
-                interfaces: [],
-                peer_interfaces: [],
-                device_capabilities: [],
-                service_capabilities: [cap IN service_caps WHERE cap IS NOT NULL | properties(cap)]
-            } AS result
-        $cypher$, include_topology, collector_only, p_device_id);
-
-        EXECUTE 'SELECT result FROM ag_catalog.cypher(''serviceradar'', ' ||
-                chr(36) || chr(36) || cypher_sql || chr(36) || chr(36) ||
-                ') AS (result ag_catalog.agtype)'
-        INTO cypher_result;
-    END IF;
-
-    RETURN (cypher_result::text)::jsonb;
-EXCEPTION
-    WHEN undefined_function THEN
-        RETURN NULL;
-END;
-$$;
-"#;
 
 /// Runs a test closure against a fully bootstrapped SRQL instance backed by the seeded Postgres fixture.
 pub async fn with_srql_harness<F, Fut>(test: F)
@@ -350,51 +39,19 @@ where
         let _ = tracing_subscriber::fmt::try_init();
     });
 
-    if let Some(remote_config) =
-        RemoteFixtureConfig::from_env().expect("failed to read remote fixture config")
+    let remote_config = match RemoteFixtureConfig::from_env()
+        .expect("failed to read remote fixture config")
     {
-        run_with_remote_fixture(remote_config, test).await;
-        return;
-    }
-
-    run_with_local_fixture(test).await;
-}
-
-async fn run_with_local_fixture<F, Fut>(test: F)
-where
-    F: FnOnce(SrqlTestHarness) -> Fut,
-    Fut: Future<Output = ()>,
-{
-    ensure_cnpg_image().expect("failed to prepare CNPG image for SRQL harness");
-
-    let docker = Cli::default();
-    let image = GenericImage::new(CNPG_IMAGE, CNPG_TAG)
-        .with_exposed_port(5432)
-        .with_entrypoint("bash");
-    let container = docker.run((image, vec!["-lc".into(), BOOTSTRAP_SCRIPT.into()]));
-    let port = container.get_host_port_ipv4(5432);
-    let database_url = format!("postgres://postgres@127.0.0.1:{port}/postgres?sslmode=disable");
-
-    seed_fixture_database(&database_url)
-        .await
-        .expect("failed to seed fixture database");
-
-    let config = test_config(database_url);
-    let age_available = check_age_available(&config.database_url)
-        .await
-        .unwrap_or(false);
-    let server = Server::new(config)
-        .await
-        .expect("failed to boot SRQL server for harness");
-    let router = server.router();
-
-    let harness = SrqlTestHarness {
-        router,
-        api_key: API_KEY.to_string(),
-        age_available,
+        Some(config) => config,
+        None => {
+            eprintln!(
+                "[srql-test] skipping SRQL harness: SRQL_TEST_DATABASE_URL and SRQL_TEST_ADMIN_URL are not set"
+            );
+            return;
+        }
     };
 
-    test(harness).await;
+    run_with_remote_fixture(remote_config, test).await;
 }
 
 async fn run_with_remote_fixture<F, Fut>(config: RemoteFixtureConfig, test: F)
@@ -604,15 +261,23 @@ struct RemoteFixtureConfig {
 
 impl RemoteFixtureConfig {
     fn from_env() -> anyhow::Result<Option<Self>> {
-        let database_url = match read_env_value("SRQL_TEST_DATABASE_URL")? {
-            Some(value) => value,
-            None => return Ok(None),
+        let db_env = read_env_value("SRQL_TEST_DATABASE_URL")?;
+        let admin_env = read_env_value("SRQL_TEST_ADMIN_URL")?;
+
+        let (database_url, admin_url) = match (db_env, admin_env) {
+            (Some(db), Some(admin)) => (db, admin),
+            (Some(_), None) => {
+                anyhow::bail!(
+                    "SRQL_TEST_ADMIN_URL must be set when SRQL_TEST_DATABASE_URL is provided"
+                )
+            }
+            (None, Some(_)) => {
+                anyhow::bail!(
+                    "SRQL_TEST_DATABASE_URL must be set when SRQL_TEST_ADMIN_URL is provided"
+                )
+            }
+            (None, None) => return Ok(None),
         };
-        let admin_url = read_env_value("SRQL_TEST_ADMIN_URL")?.ok_or_else(|| {
-            anyhow::anyhow!(
-                "SRQL_TEST_ADMIN_URL must be set when SRQL_TEST_DATABASE_URL is provided"
-            )
-        })?;
 
         let parsed: tokio_postgres::Config = database_url
             .parse()
@@ -705,7 +370,18 @@ impl RemoteFixtureGuard {
         client
             .batch_execute("CREATE EXTENSION IF NOT EXISTS age;")
             .await?;
-        client.batch_execute(AGE_GRAPH_BOOTSTRAP_SQL).await?;
+        client
+            .batch_execute(&format!(
+                "GRANT USAGE ON SCHEMA ag_catalog TO {};",
+                quote_ident(&config.database_owner)
+            ))
+            .await?;
+        client
+            .batch_execute(&format!(
+                "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO {};",
+                quote_ident(&config.database_owner)
+            ))
+            .await?;
         drop(client);
         let _ = task.await;
         Ok(())
@@ -795,119 +471,6 @@ fn find_runfile(path: &str) -> Option<PathBuf> {
     }
 
     None
-}
-
-fn ensure_cnpg_image() -> anyhow::Result<()> {
-    let state = CNPG_BUILD_STATE.get_or_init(|| Mutex::new(false));
-    let mut fetched = state
-        .lock()
-        .expect("CNPG image build mutex poisoned by previous panic");
-    if !*fetched {
-        if !cnpg_image_present()? {
-            fetch_cnpg_image()?;
-        }
-        *fetched = true;
-    }
-    Ok(())
-}
-
-fn cnpg_image_present() -> anyhow::Result<bool> {
-    image_tag_present(CNPG_IMAGE_REF)
-}
-
-fn cnpg_local_image_present() -> anyhow::Result<bool> {
-    image_tag_present(CNPG_LOCAL_IMAGE_REF)
-}
-
-fn image_tag_present(tag: &str) -> anyhow::Result<bool> {
-    let status = Command::new("docker")
-        .args(["image", "inspect", tag])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()?;
-    Ok(status.success())
-}
-
-fn fetch_cnpg_image() -> anyhow::Result<()> {
-    if load_cnpg_from_archive()? {
-        return Ok(());
-    }
-    let status = Command::new("docker")
-        .args(["pull", CNPG_IMAGE_REF])
-        .status()?;
-    if !status.success() {
-        anyhow::bail!(
-            "docker pull {CNPG_IMAGE_REF} failed with status {:?}",
-            status.code()
-        );
-    }
-    retag_cnpg_image_if_needed()?;
-    Ok(())
-}
-
-fn load_cnpg_from_archive() -> anyhow::Result<bool> {
-    let mut archives = Vec::new();
-    if let Ok(path) = std::env::var("SRQL_CNPG_ARCHIVE") {
-        if !path.trim().is_empty() {
-            archives.push(PathBuf::from(path));
-        }
-    }
-    archives.push(PathBuf::from(CNPG_ARCHIVE));
-
-    for archive in archives {
-        if !archive.exists() {
-            continue;
-        }
-        let archive_str = archive
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("CNPG archive path is not valid UTF-8"))?;
-        let status = Command::new("docker")
-            .args(["load", "--input", archive_str])
-            .status()?;
-        if !status.success() {
-            anyhow::bail!(
-                "docker load --input {} failed with status {:?}",
-                archive.display(),
-                status.code()
-            );
-        }
-        retag_cnpg_image_if_needed()?;
-        return Ok(true);
-    }
-
-    if let Some(loader) = find_runfile("docker/images/cnpg_image_amd64_tar.sh") {
-        let status = Command::new(&loader).status()?;
-        if !status.success() {
-            anyhow::bail!(
-                "{} failed with status {:?}",
-                loader.display(),
-                status.code()
-            );
-        }
-        retag_cnpg_image_if_needed()?;
-        return Ok(true);
-    }
-
-    Ok(false)
-}
-
-fn retag_cnpg_image_if_needed() -> anyhow::Result<()> {
-    if cnpg_image_present()? {
-        return Ok(());
-    }
-    if !cnpg_local_image_present()? {
-        anyhow::bail!("CNPG image not present after load attempt");
-    }
-    let status = Command::new("docker")
-        .args(["tag", CNPG_LOCAL_IMAGE_REF, CNPG_IMAGE_REF])
-        .status()?;
-    if !status.success() {
-        anyhow::bail!(
-            "docker tag {CNPG_LOCAL_IMAGE_REF} {CNPG_IMAGE_REF} failed with status {:?}",
-            status.code()
-        );
-    }
-    Ok(())
 }
 
 fn load_fixture(name: &str) -> anyhow::Result<String> {

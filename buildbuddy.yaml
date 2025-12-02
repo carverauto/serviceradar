@@ -17,7 +17,7 @@ build_event_streaming:
 
 execution_config:
   platform_properties:
-    container-image: "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.18"
+    container-image: "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.20"
     OSFamily: "linux"
     Arch: "amd64"
   max_execution_timeout_seconds: 3600

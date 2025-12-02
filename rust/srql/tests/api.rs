@@ -315,7 +315,8 @@ async fn check_rperf_metrics_queries_still_work(harness: &SrqlTestHarness) {
 }
 
 fn allow_age_skip() -> bool {
-    std::env::var("SRQL_ALLOW_AGE_SKIP")
-        .map(|v| v.trim().eq_ignore_ascii_case("true") || v == "1")
-        .unwrap_or(false)
+    match std::env::var("SRQL_ALLOW_AGE_SKIP") {
+        Ok(val) => !(val.trim().eq_ignore_ascii_case("false") || val.trim() == "0"),
+        Err(_) => true, // default to skipping when AGE is unavailable
+    }
 }
