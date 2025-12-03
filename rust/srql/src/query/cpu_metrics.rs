@@ -188,7 +188,11 @@ fn apply_filter<'a>(mut query: CpuQuery<'a>, filter: &Filter) -> Result<CpuQuery
                 "frequency_hz filter only supports equality"
             )?;
         }
-        _ => {}
+        other => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported filter field for cpu_metrics: '{other}'"
+            )));
+        }
     }
 
     Ok(query)
@@ -657,6 +661,37 @@ mod tests {
             offset: 0,
             time_range: Some(TimeRange { start, end }),
             stats: Some(stats.to_string()),
+        }
+    }
+
+    #[test]
+    fn unknown_filter_field_returns_error() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+        let plan = QueryPlan {
+            entity: Entity::CpuMetrics,
+            filters: vec![Filter {
+                field: "unknown_field".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("test".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: None,
+        };
+
+        let result = build_query(&plan);
+        match result {
+            Err(err) => {
+                assert!(
+                    err.to_string().contains("unsupported filter field"),
+                    "error should mention unsupported filter field: {}",
+                    err
+                );
+            }
+            Ok(_) => panic!("expected error for unknown filter field"),
         }
     }
 }
