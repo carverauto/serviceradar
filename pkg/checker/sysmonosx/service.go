@@ -1,4 +1,4 @@
-package sysmonvm
+package sysmonosx
 
 import (
 	"context"
@@ -25,7 +25,7 @@ var (
 	errCollectFrequency = errors.New("failed to collect cpu frequency data")
 )
 
-// Service implements the monitoring.AgentService gRPC interface for VM-oriented sysmon metrics.
+// Service implements the monitoring.AgentService gRPC interface for macOS sysmon metrics.
 type Service struct {
 	proto.UnimplementedAgentServiceServer
 	log             logger.Logger
@@ -56,7 +56,7 @@ func (s *Service) GetStatus(ctx context.Context, req *proto.StatusRequest) (*pro
 		Str("service_type", req.GetServiceType()).
 		Str("agent_id", req.GetAgentId()).
 		Str("poller_id", req.GetPollerId()).
-		Msg("Received sysmon-vm GetStatus request")
+		Msg("Received sysmon-osx GetStatus request")
 
 	freqSnapshot, err := s.freqCollector(ctx)
 	if err != nil {
@@ -146,7 +146,7 @@ func (s *Service) GetStatus(ctx context.Context, req *proto.StatusRequest) (*pro
 
 	messageBytes, err := json.Marshal(payload)
 	if err != nil {
-		s.log.Error().Err(err).Msg("failed to marshal sysmon-vm payload")
+		s.log.Error().Err(err).Msg("failed to marshal sysmon-osx payload")
 		return s.failureResponse(req, start, fmt.Errorf("serialization error: %w", err)), nil
 	}
 
@@ -156,7 +156,7 @@ func (s *Service) GetStatus(ctx context.Context, req *proto.StatusRequest) (*pro
 		Str("host_id", hostID).
 		Str("host_ip", hostIP).
 		Int64("response_time_ns", respTime).
-		Msg("sysmon-vm GetStatus returning success")
+		Msg("sysmon-osx GetStatus returning success")
 
 	return &proto.StatusResponse{
 		Available:    true,
@@ -178,7 +178,7 @@ func (s *Service) GetResults(ctx context.Context, req *proto.ResultsRequest) (*p
 		Str("agent_id", req.GetAgentId()).
 		Str("poller_id", req.GetPollerId()).
 		Str("last_sequence", req.GetLastSequence()).
-		Msg("Received sysmon-vm GetResults request")
+		Msg("Received sysmon-osx GetResults request")
 
 	freqSnapshot, err := s.freqCollector(ctx)
 	if err != nil {
@@ -268,7 +268,7 @@ func (s *Service) GetResults(ctx context.Context, req *proto.ResultsRequest) (*p
 
 	dataBytes, err := json.Marshal(payload)
 	if err != nil {
-		s.log.Error().Err(err).Msg("failed to marshal sysmon-vm payload")
+		s.log.Error().Err(err).Msg("failed to marshal sysmon-osx payload")
 		return s.failureResultsResponse(req, start, fmt.Errorf("serialization error: %w", err)), nil
 	}
 
@@ -281,7 +281,7 @@ func (s *Service) GetResults(ctx context.Context, req *proto.ResultsRequest) (*p
 		Str("host_ip", hostIP).
 		Str("sequence", currentSeq).
 		Int64("response_time_ns", respTime).
-		Msg("sysmon-vm GetResults returning success")
+		Msg("sysmon-osx GetResults returning success")
 
 	return &proto.ResultsResponse{
 		Available:       true,

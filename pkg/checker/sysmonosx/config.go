@@ -1,4 +1,4 @@
-package sysmonvm
+package sysmonosx
 
 import (
 	"time"
@@ -13,7 +13,7 @@ const (
 	maxSampleInterval     = 5 * time.Second
 )
 
-// Config controls the sysmon-vm checker runtime.
+// Config controls the sysmon-osx checker runtime.
 type Config struct {
 	ListenAddr     string                 `json:"listen_addr"`
 	Security       *models.SecurityConfig `json:"security,omitempty"`

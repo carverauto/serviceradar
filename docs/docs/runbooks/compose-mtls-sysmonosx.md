@@ -1,6 +1,6 @@
-# Compose mTLS sysmon-vm onboarding (Docker Compose)
+# Compose mTLS sysmon-osx onboarding (Docker Compose)
 
-Use this runbook to bring a macOS arm64 or Linux sysmon-vm checker online against the mTLS Compose stack without SPIRE. It relies on the Compose CA, edgepkg-v1 tokens, and the sysmon-vm `--mtls` bootstrap path.
+Use this runbook to bring a macOS arm64 or Linux sysmon-osx checker online against the mTLS Compose stack without SPIRE. It relies on the Compose CA, edgepkg-v1 tokens, and the sysmon-osx `--mtls` bootstrap path.
 
 ## Prerequisites
 - `docker-compose.mtls.yml` is running (built with Bazel images; core and srql tagged `:local` or release tags).
@@ -21,16 +21,16 @@ ACCESS_TOKEN=$(curl -s http://localhost/api/auth/login \
   | python -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
 ```
 
-## 2) Issue an mTLS sysmon-vm package (edgepkg-v1 token)
+## 2) Issue an mTLS sysmon-osx package (edgepkg-v1 token)
 ```bash
 CORE_URL=http://localhost:8090
 
-# Create a sysmon-vm mTLS package (uses metadata.security_mode=mtls)
+# Create a sysmon-osx mTLS package (uses metadata.security_mode=mtls)
 ./serviceradar-cli edge package mtls \
   --core-url "${CORE_URL}" \
   --auth-token "${ACCESS_TOKEN}" \
   --api-key "${API_KEY}" \
-  --label sysmonvm-darwin \
+  --label sysmonosx-darwin \
   --poller-id docker-poller \
   --checker-kind sysmon \
   --metadata '{"security_mode":"mtls","checker":{"poller_endpoint":"192.168.2.134:50053"}}' \
@@ -53,11 +53,11 @@ Token semantics (locked for mTLS):
 
 The deliver response includes an `mtls_bundle` with `ca_cert_pem`, `client_cert_pem`, `client_key_pem`, optional `server_name`, and `endpoints`.
 
-## 3) Bootstrap sysmon-vm on the edge host (online)
+## 3) Bootstrap sysmon-osx on the edge host (online)
 ```bash
 EDGE_TOKEN=$(cat edgepkg.token)
 
-serviceradar-sysmon-vm \
+serviceradar-sysmon-osx \
   --mtls \
   --token "${EDGE_TOKEN}" \
   --host http://192.168.2.134:8090 \
@@ -65,7 +65,7 @@ serviceradar-sysmon-vm \
   --cert-dir /etc/serviceradar/certs
 ```
 - `--host` is only needed if the token omits `api`.
-- Certs install to `/etc/serviceradar/certs` (writes `root.pem`, `sysmon-vm.pem`, `sysmon-vm-key.pem`). Server name defaults to the bundle value if not provided.
+- Certs install to `/etc/serviceradar/certs` (writes `root.pem`, `sysmon-osx.pem`, `sysmon-osx-key.pem`). Server name defaults to the bundle value if not provided.
 - The poller will accept the connection because the client cert chains to the Compose CA.
 
 ## 4) Offline / pre-fetched bundle flow
@@ -81,7 +81,7 @@ serviceradar-sysmon-vm \
   --output edge-package.json
 
 # On the edge host (air-gapped), copy edge-package.json and run:
-serviceradar-sysmon-vm \
+serviceradar-sysmon-osx \
   --mtls \
   --bundle /path/to/edge-package.json \
   --poller-endpoint 192.168.2.134:50053 \
@@ -92,4 +92,4 @@ serviceradar-sysmon-vm \
 ## 5) Rotation and retries
 - Reissue a download token without recreating the package: `./serviceradar-cli edge package show --reissue-token --id <pkg> --download-token <new-token>`.
 - Revocation: `./serviceradar-cli edge package revoke --core-url "${CORE_URL}" --auth-token "${ACCESS_TOKEN}" --id <pkg>`.
-- To rotate certs on the edge, re-run sysmon-vm with a freshly issued token (writes new pem/key over the existing files).
+- To rotate certs on the edge, re-run sysmon-osx with a freshly issued token (writes new pem/key over the existing files).

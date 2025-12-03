@@ -20,12 +20,12 @@ import React, { useMemo } from 'react';
 import { Activity, Clock, Cpu, Gauge, HardDrive, Server, Users } from 'lucide-react';
 import { ServicePayload } from '@/types/types';
 import {
-    SysmonVmStatusPayload,
-    SysmonVmCpuCore,
-    SysmonVmCluster,
+    SysmonOsxStatusPayload,
+    SysmonOsxCpuCore,
+    SysmonOsxCluster,
 } from '@/types/sysmon';
 
-interface SysmonVmDetailsProps {
+interface SysmonOsxDetailsProps {
     service: ServicePayload;
     details?: unknown;
 }
@@ -59,7 +59,7 @@ const formatMilliseconds = (value: number): string => `${value.toFixed(2)} ms`;
 
 const formatGiB = (value: number): string => `${value.toFixed(2)} GiB`;
 
-const deriveClusterName = (core: SysmonVmCpuCore): string => {
+const deriveClusterName = (core: SysmonOsxCpuCore): string => {
     if (core && typeof core.cluster === 'string' && core.cluster.trim().length > 0) {
         return core.cluster.trim();
     }
@@ -75,8 +75,8 @@ const deriveClusterName = (core: SysmonVmCpuCore): string => {
 };
 
 const computeClusterSummaries = (
-    cores: SysmonVmCpuCore[],
-    clusters: SysmonVmCluster[] = [],
+    cores: SysmonOsxCpuCore[],
+    clusters: SysmonOsxCluster[] = [],
 ) => {
     const summaryMap = new Map<string, {
         label: string;
@@ -114,7 +114,7 @@ const computeClusterSummaries = (
     });
 };
 
-const parseDetailsPayload = (raw: unknown): SysmonVmStatusPayload | null => {
+const parseDetailsPayload = (raw: unknown): SysmonOsxStatusPayload | null => {
     let data: unknown = raw;
 
     if (typeof raw === 'string') {
@@ -129,7 +129,7 @@ const parseDetailsPayload = (raw: unknown): SysmonVmStatusPayload | null => {
         return null;
     }
 
-    const candidate = data as Partial<SysmonVmStatusPayload>;
+    const candidate = data as Partial<SysmonOsxStatusPayload>;
     if (typeof candidate.available !== 'boolean') {
         return null;
     }
@@ -145,13 +145,13 @@ const parseDetailsPayload = (raw: unknown): SysmonVmStatusPayload | null => {
     return {
         ...candidate,
         response_time: rawResponseTime,
-    } as SysmonVmStatusPayload;
+    } as SysmonOsxStatusPayload;
 };
 
-export const parseSysmonVmDetails = (details: unknown): SysmonVmStatusPayload | null =>
+export const parseSysmonOsxDetails = (details: unknown): SysmonOsxStatusPayload | null =>
     parseDetailsPayload(details);
 
-const SysmonVmDetails: React.FC<SysmonVmDetailsProps> = ({ service, details }) => {
+const SysmonOsxDetails: React.FC<SysmonOsxDetailsProps> = ({ service, details }) => {
     const parsedDetails = useMemo(
         () => parseDetailsPayload(details ?? service.details ?? null),
         [details, service.details],
@@ -161,10 +161,10 @@ const SysmonVmDetails: React.FC<SysmonVmDetailsProps> = ({ service, details }) =
         return (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
                 <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-2">
-                    sysmon-vm Status
+                    sysmon-osx Status
                 </h3>
                 <p className="text-gray-600 dark:text-gray-400">
-                    sysmon-vm returned an unexpected payload. Raw details:
+                    sysmon-osx returned an unexpected payload. Raw details:
                 </p>
                 <pre className="mt-3 p-3 bg-gray-100 dark:bg-gray-900 rounded text-xs overflow-x-auto text-gray-700 dark:text-gray-300">
                     {typeof service.details === 'string'
@@ -424,4 +424,4 @@ const SysmonVmDetails: React.FC<SysmonVmDetailsProps> = ({ service, details }) =
     );
 };
 
-export default SysmonVmDetails;
+export default SysmonOsxDetails;

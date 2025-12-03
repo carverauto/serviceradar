@@ -3,12 +3,12 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 package(default_visibility = ["//visibility:public"])
 
 go_library(
-    name = "sysmonvm",
+    name = "sysmonosx",
     srcs = [
         "config.go",
         "service.go",
     ],
-    importpath = "github.com/carverauto/serviceradar/pkg/checker/sysmonvm",
+    importpath = "github.com/carverauto/serviceradar/pkg/checker/sysmonosx",
     target_compatible_with = ["@platforms//os:macos"],
     deps = [
         "//pkg/cpufreq",
@@ -21,9 +21,9 @@ go_library(
 )
 
 go_test(
-    name = "sysmonvm_test",
+    name = "sysmonosx_test",
     srcs = ["service_test.go"],
-    embed = [":sysmonvm"],
+    embed = [":sysmonosx"],
     target_compatible_with = ["@platforms//os:macos"],
     deps = [
         "//pkg/cpufreq",

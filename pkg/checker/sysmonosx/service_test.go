@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-// Package sysmonvm pkg/checker/sysmonvm/service_test.go
-package sysmonvm
+// Package sysmonosx pkg/checker/sysmonosx/service_test.go
+package sysmonosx
 
 import (
 	"context"
@@ -60,7 +60,7 @@ func TestServiceGetStatusSuccess(t *testing.T) {
 	service.localIPResolver = func(context.Context) string { return "192.0.2.10" }
 
 	req := &proto.StatusRequest{
-		ServiceName: "sysmon-vm",
+		ServiceName: "sysmon-osx",
 		ServiceType: "cpu-monitor",
 		AgentId:     "agent-123",
 		PollerId:    "poller-456",
@@ -123,7 +123,7 @@ func TestServiceGetStatusCollectError(t *testing.T) {
 	}
 
 	req := &proto.StatusRequest{
-		ServiceName: "sysmon-vm",
+		ServiceName: "sysmon-osx",
 		ServiceType: "cpu-monitor",
 	}
 

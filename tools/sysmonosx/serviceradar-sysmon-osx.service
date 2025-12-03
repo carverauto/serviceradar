@@ -1,11 +1,11 @@
 [Unit]
-Description=ServiceRadar sysmon-vm checker
+Description=ServiceRadar sysmon-osx checker
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/serviceradar-sysmon-vm --config /etc/serviceradar/checkers/sysmon-vm.json
+ExecStart=/usr/local/bin/serviceradar-sysmon-osx --config /etc/serviceradar/checkers/sysmon-osx.json
 Restart=always
 RestartSec=5
 AmbientCapabilities=CAP_NET_BIND_SERVICE

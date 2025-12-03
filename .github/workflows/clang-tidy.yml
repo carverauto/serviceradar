@@ -19,7 +19,7 @@ on:
     branches:
       - main
     paths:
-      - 'cmd/checkers/sysmon-vm/hostmac/**'
+      - 'cmd/checkers/sysmon-osx/hostmac/**'
       - 'pkg/cpufreq/**'
       - 'Makefile'
       - '.bazelrc'
@@ -28,7 +28,7 @@ on:
       - '.github/workflows/clang-tidy.yml'
   pull_request:
     paths:
-      - 'cmd/checkers/sysmon-vm/hostmac/**'
+      - 'cmd/checkers/sysmon-osx/hostmac/**'
       - 'pkg/cpufreq/**'
       - 'Makefile'
       - '.bazelrc'

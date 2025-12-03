@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.serviceradar.sysmonvm</string>
+    <string>com.serviceradar.sysmonosx</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/libexec/serviceradar/serviceradar-sysmon-vm</string>
+        <string>/usr/local/libexec/serviceradar/serviceradar-sysmon-osx</string>
         <string>--config</string>
-        <string>/usr/local/etc/serviceradar/sysmon-vm.json</string>
+        <string>/usr/local/etc/serviceradar/sysmon-osx.json</string>
     </array>
 
     <key>RunAtLoad</key>
@@ -18,9 +18,9 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/var/log/serviceradar/sysmon-vm.log</string>
+    <string>/var/log/serviceradar/sysmon-osx.log</string>
     <key>StandardErrorPath</key>
-    <string>/var/log/serviceradar/sysmon-vm.err.log</string>
+    <string>/var/log/serviceradar/sysmon-osx.err.log</string>
 
     <key>ProcessType</key>
     <string>Background</string>

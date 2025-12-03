@@ -84,8 +84,8 @@ services:
         if [ -f /etc/serviceradar/config/agent.json ]; then
           TARGET=/etc/serviceradar/config/agent.json;
         fi;
-        if [ -f /etc/serviceradar/config/checkers/sysmon-vm.json ]; then
-          cp /etc/serviceradar/config/checkers/sysmon-vm.json /etc/serviceradar/checkers/sysmon-vm.json;
+        if [ -f /etc/serviceradar/config/checkers/sysmon-osx.json ]; then
+          cp /etc/serviceradar/config/checkers/sysmon-osx.json /etc/serviceradar/checkers/sysmon-osx.json;
         fi;
         exec /usr/local/bin/serviceradar-agent -config "$$TARGET"
       '

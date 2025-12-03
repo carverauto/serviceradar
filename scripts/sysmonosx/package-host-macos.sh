@@ -2,15 +2,15 @@
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-DIST_DIR="${REPO_ROOT}/dist/sysmonvm"
+DIST_DIR="${REPO_ROOT}/dist/sysmonosx"
 STAGING_DIR="${DIST_DIR}/package-macos"
-OUTPUT_TAR="${DIST_DIR}/serviceradar-sysmonvm-host-macos.tar.gz"
-OUTPUT_PKG="${DIST_DIR}/serviceradar-sysmonvm-host-macos.pkg"
-SIGNED_PKG="${DIST_DIR}/serviceradar-sysmonvm-host-macos-signed.pkg"
+OUTPUT_TAR="${DIST_DIR}/serviceradar-sysmonosx-host-macos.tar.gz"
+OUTPUT_PKG="${DIST_DIR}/serviceradar-sysmonosx-host-macos.pkg"
+SIGNED_PKG="${DIST_DIR}/serviceradar-sysmonosx-host-macos-signed.pkg"
 
 SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_PKG="${SKIP_PKG:-0}"
-PKG_IDENTIFIER="${PKG_IDENTIFIER:-com.serviceradar.sysmonvm.host}"
+PKG_IDENTIFIER="${PKG_IDENTIFIER:-com.serviceradar.sysmonosx.host}"
 PKG_DISABLE_TIMESTAMP="${PKG_DISABLE_TIMESTAMP:-0}"
 PKG_APP_SIGN_IDENTITY="${PKG_APP_SIGN_IDENTITY:-}"
 PKG_TIMESTAMP_URL="${PKG_TIMESTAMP_URL:-http://timestamp.apple.com/ts01}"
@@ -36,14 +36,14 @@ if [[ ! "${PKG_VERSION}" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
 fi
 
 if [[ "${SKIP_BUILD}" != "1" ]]; then
-  make -C "${REPO_ROOT}" sysmonvm-build-checker-darwin
+  make -C "${REPO_ROOT}" sysmonosx-build-checker-darwin
 fi
 
-CHECKER_BIN="${DIST_DIR}/mac-host/bin/serviceradar-sysmon-vm"
-CONFIG_JSON="${DIST_DIR}/sysmon-vm.json"
-CHECKER_PLIST="${REPO_ROOT}/cmd/checkers/sysmon-vm/hostmac/com.serviceradar.sysmonvm.plist"
-CONFIG_TEMPLATE="${REPO_ROOT}/cmd/checkers/sysmon-vm/sysmon-vm.json.example"
-PKG_SCRIPTS_DIR="${REPO_ROOT}/packaging/sysmonvm_host/scripts"
+CHECKER_BIN="${DIST_DIR}/mac-host/bin/serviceradar-sysmon-osx"
+CONFIG_JSON="${DIST_DIR}/sysmon-osx.json"
+CHECKER_PLIST="${REPO_ROOT}/cmd/checkers/sysmon-osx/hostmac/com.serviceradar.sysmonosx.plist"
+CONFIG_TEMPLATE="${REPO_ROOT}/cmd/checkers/sysmon-osx/sysmon-osx.json.example"
+PKG_SCRIPTS_DIR="${REPO_ROOT}/packaging/sysmonosx_host/scripts"
 
 if [[ ! -f "${CONFIG_JSON}" ]]; then
   if [[ -f "${CONFIG_TEMPLATE}" ]]; then
@@ -203,9 +203,9 @@ mkdir -p \
   "${STAGING_DIR}/usr/local/etc/serviceradar" \
   "${STAGING_DIR}/Library/LaunchDaemons"
 
-install -m 0755 "${CHECKER_BIN}" "${STAGING_DIR}/usr/local/libexec/serviceradar/serviceradar-sysmon-vm"
-install -m 0644 "${CONFIG_JSON}" "${STAGING_DIR}/usr/local/etc/serviceradar/sysmon-vm.json"
-install -m 0644 "${CHECKER_PLIST}" "${STAGING_DIR}/Library/LaunchDaemons/com.serviceradar.sysmonvm.plist"
+install -m 0755 "${CHECKER_BIN}" "${STAGING_DIR}/usr/local/libexec/serviceradar/serviceradar-sysmon-osx"
+install -m 0644 "${CONFIG_JSON}" "${STAGING_DIR}/usr/local/etc/serviceradar/sysmon-osx.json"
+install -m 0644 "${CHECKER_PLIST}" "${STAGING_DIR}/Library/LaunchDaemons/com.serviceradar.sysmonosx.plist"
 
 rm -f "${OUTPUT_TAR}"
 tar -czf "${OUTPUT_TAR}" -C "${STAGING_DIR}" usr Library

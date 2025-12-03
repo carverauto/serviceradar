@@ -120,7 +120,7 @@ services:
       - ./docker/compose:/templates:ro
       - ./docker/compose/update-config.sh:/usr/local/bin/update-config.sh:ro
     environment:
-      - SYSMON_VM_ADDRESS=${SYSMON_VM_ADDRESS:-192.168.1.219:50110}
+      - SYSMON_OSX_ADDRESS=${SYSMON_OSX_ADDRESS:-192.168.1.219:50110}
       - POLLERS_SECURITY_MODE=${POLLERS_SECURITY_MODE:-spiffe}
       - POLLERS_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
       - POLLERS_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
@@ -500,7 +500,7 @@ services:
         condition: service_completed_successfully
       spire-agent:
         condition: service_healthy
-    command: ["/bin/sh","-c","if [ -f /etc/serviceradar/config/checkers/sysmon-vm.json ]; then cp /etc/serviceradar/config/checkers/sysmon-vm.json /etc/serviceradar/checkers/sysmon-vm.json; fi; exec /usr/local/bin/serviceradar-agent -config /etc/serviceradar/agent.json"]
+    command: ["/bin/sh","-c","if [ -f /etc/serviceradar/config/checkers/sysmon-osx.json ]; then cp /etc/serviceradar/config/checkers/sysmon-osx.json /etc/serviceradar/checkers/sysmon-osx.json; fi; exec /usr/local/bin/serviceradar-agent -config /etc/serviceradar/agent.json"]
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f serviceradar-agent >/dev/null"]
       interval: 30s

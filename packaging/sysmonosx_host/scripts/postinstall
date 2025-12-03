@@ -13,23 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Post-install script for ServiceRadar sysmon-vm macOS package
+# Post-install script for ServiceRadar sysmon-osx macOS package
 # This script is executed after the package files are installed.
 
 set -e
 
 LOG_DIR="/var/log/serviceradar"
-PLIST="/Library/LaunchDaemons/com.serviceradar.sysmonvm.plist"
-SERVICE_LABEL="com.serviceradar.sysmonvm"
+PLIST="/Library/LaunchDaemons/com.serviceradar.sysmonosx.plist"
+SERVICE_LABEL="com.serviceradar.sysmonosx"
 SERVICE_TARGET="system/${SERVICE_LABEL}"
-CONFIG="/usr/local/etc/serviceradar/sysmon-vm.json"
-CONFIG_BACKUP="/usr/local/etc/serviceradar/.sysmon-vm.json.pre-upgrade"
+CONFIG="/usr/local/etc/serviceradar/sysmon-osx.json"
+CONFIG_BACKUP="/usr/local/etc/serviceradar/.sysmon-osx.json.pre-upgrade"
 
 log() {
     echo "[postinstall] $*"
 }
 
-log "Starting sysmon-vm service setup..."
+log "Starting sysmon-osx service setup..."
 
 # Create log directory if it doesn't exist
 if [ ! -d "${LOG_DIR}" ]; then
@@ -55,7 +55,7 @@ if [ ! -f "${PLIST}" ]; then
 fi
 
 # Verify binary exists and is executable
-BINARY="/usr/local/libexec/serviceradar/serviceradar-sysmon-vm"
+BINARY="/usr/local/libexec/serviceradar/serviceradar-sysmon-osx"
 if [ ! -x "${BINARY}" ]; then
     log "ERROR: Binary not found or not executable at ${BINARY}"
     exit 1
@@ -91,8 +91,8 @@ sleep 2
 if launchctl print "${SERVICE_TARGET}" >/dev/null 2>&1; then
     log "Service started successfully"
 else
-    log "WARNING: Service may not have started. Check logs at ${LOG_DIR}/sysmon-vm.log"
+    log "WARNING: Service may not have started. Check logs at ${LOG_DIR}/sysmon-osx.log"
 fi
 
-log "sysmon-vm service setup complete"
+log "sysmon-osx service setup complete"
 exit 0

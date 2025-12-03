@@ -72,7 +72,7 @@ export interface SysmonData {
     };
 }
 
-export interface SysmonVmCpuCore {
+export interface SysmonOsxCpuCore {
     core_id: number;
     label?: string;
     cluster?: string;
@@ -81,19 +81,19 @@ export interface SysmonVmCpuCore {
     timestamp?: string;
 }
 
-export interface SysmonVmCluster {
+export interface SysmonOsxCluster {
     name: string;
     frequency_hz?: number;
     timestamp?: string;
 }
 
-export interface SysmonVmMemory {
+export interface SysmonOsxMemory {
     used_bytes?: number;
     total_bytes?: number;
     timestamp?: string;
 }
 
-export interface SysmonVmDisk {
+export interface SysmonOsxDisk {
     mount_point?: string;
     filesystem?: string;
     total_bytes?: number;
@@ -102,7 +102,7 @@ export interface SysmonVmDisk {
     timestamp?: string;
 }
 
-export interface SysmonVmProcess {
+export interface SysmonOsxProcess {
     pid?: number;
     name?: string;
     cpu_usage?: number;
@@ -111,7 +111,7 @@ export interface SysmonVmProcess {
     start_time?: string;
 }
 
-export interface SysmonVmStatusPayload {
+export interface SysmonOsxStatusPayload {
     available: boolean;
     response_time: number;
     error?: string;
@@ -119,10 +119,10 @@ export interface SysmonVmStatusPayload {
         timestamp?: string;
         host_id?: string;
         host_ip?: string;
-        cpus?: SysmonVmCpuCore[];
-        clusters?: SysmonVmCluster[];
-        disks?: SysmonVmDisk[];
-        memory?: SysmonVmMemory;
-        processes?: SysmonVmProcess[];
+        cpus?: SysmonOsxCpuCore[];
+        clusters?: SysmonOsxCluster[];
+        disks?: SysmonOsxDisk[];
+        memory?: SysmonOsxMemory;
+        processes?: SysmonOsxProcess[];
     };
 }

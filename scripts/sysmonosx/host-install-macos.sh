@@ -8,25 +8,25 @@ fi
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
-DIST_DIR="${REPO_ROOT}/dist/sysmonvm"
+DIST_DIR="${REPO_ROOT}/dist/sysmonosx"
 HOST_BIN_DIR="${DIST_DIR}/mac-host/bin"
 INSTALL_PREFIX="/usr/local/libexec/serviceradar"
 CONFIG_PREFIX="/usr/local/etc/serviceradar"
-CHECKER_PLIST="/Library/LaunchDaemons/com.serviceradar.sysmonvm.plist"
+CHECKER_PLIST="/Library/LaunchDaemons/com.serviceradar.sysmonosx.plist"
 LOG_DIR="/var/log/serviceradar"
-CONFIG_SRC="${DIST_DIR}/sysmon-vm.json"
-CONFIG_DEST="${CONFIG_PREFIX}/sysmon-vm.json"
+CONFIG_SRC="${DIST_DIR}/sysmon-osx.json"
+CONFIG_DEST="${CONFIG_PREFIX}/sysmon-osx.json"
 
 mkdir -p "${DIST_DIR}"
-make -C "${REPO_ROOT}" sysmonvm-build-checker-darwin
+make -C "${REPO_ROOT}" sysmonosx-build-checker-darwin
 
 if [[ ! -f "${CONFIG_SRC}" ]]; then
-  echo "[error] expected config at ${CONFIG_SRC}; run make sysmonvm-host-setup first." >&2
+  echo "[error] expected config at ${CONFIG_SRC}; run make sysmonosx-host-setup first." >&2
   exit 1
 fi
 
 install -d "${INSTALL_PREFIX}"
-install -m 0755 "${HOST_BIN_DIR}/serviceradar-sysmon-vm" "${INSTALL_PREFIX}/serviceradar-sysmon-vm"
+install -m 0755 "${HOST_BIN_DIR}/serviceradar-sysmon-osx" "${INSTALL_PREFIX}/serviceradar-sysmon-osx"
 
 install -d "${CONFIG_PREFIX}"
 if [[ -f "${CONFIG_DEST}" ]]; then
@@ -37,11 +37,11 @@ else
 fi
 
 install -d "${LOG_DIR}"
-install -m 0644 "${REPO_ROOT}/cmd/checkers/sysmon-vm/hostmac/com.serviceradar.sysmonvm.plist" "${CHECKER_PLIST}"
+install -m 0644 "${REPO_ROOT}/cmd/checkers/sysmon-osx/hostmac/com.serviceradar.sysmonosx.plist" "${CHECKER_PLIST}"
 
-launchctl bootout system/com.serviceradar.sysmonvm >/dev/null 2>&1 || true
+launchctl bootout system/com.serviceradar.sysmonosx >/dev/null 2>&1 || true
 launchctl bootstrap system "${CHECKER_PLIST}"
-launchctl enable system/com.serviceradar.sysmonvm
-launchctl kickstart -k system/com.serviceradar.sysmonvm
+launchctl enable system/com.serviceradar.sysmonosx
+launchctl kickstart -k system/com.serviceradar.sysmonosx
 
-echo "Installed sysmon-vm checker (macOS). Logs: ${LOG_DIR}/sysmon-vm.log"
+echo "Installed sysmon-osx checker (macOS). Logs: ${LOG_DIR}/sysmon-osx.log"

@@ -97,7 +97,7 @@ const sidebars: SidebarsConfig = {
       items: [
         {type: 'doc', id: 'troubleshooting-guide', label: 'Troubleshooting Guide'},
         {type: 'doc', id: 'agents', label: 'Agents & Demo Operations'},
-        {type: 'doc', id: 'runbooks/sysmonvm-e2e', label: 'SysmonVM End-to-End'},
+        {type: 'doc', id: 'runbooks/sysmonosx-e2e', label: 'SysmonOSX End-to-End'},
       ],
     },
   ],

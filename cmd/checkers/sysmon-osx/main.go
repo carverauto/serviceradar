@@ -13,7 +13,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/carverauto/serviceradar/pkg/checker/sysmonvm"
+	"github.com/carverauto/serviceradar/pkg/checker/sysmonosx"
 	"github.com/carverauto/serviceradar/pkg/config"
 	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/cpufreq"
@@ -26,24 +26,24 @@ import (
 )
 
 var (
-	errSysmonDescriptorMissing  = fmt.Errorf("sysmon-vm-checker descriptor missing")
-	errRootPrivilegesRequired   = fmt.Errorf("root privileges required to restart launchd service")
+	errSysmonDescriptorMissing = fmt.Errorf("sysmon-osx-checker descriptor missing")
+	errRootPrivilegesRequired  = fmt.Errorf("root privileges required to restart launchd service")
 )
 
 const (
-	defaultConfigPath    = "/etc/serviceradar/checkers/sysmon-vm.json"
-	macOSConfigPath      = "/usr/local/etc/serviceradar/sysmon-vm.json"
-	launchdServiceTarget = "system/com.serviceradar.sysmonvm"
+	defaultConfigPath    = "/etc/serviceradar/checkers/sysmon-osx.json"
+	macOSConfigPath      = "/usr/local/etc/serviceradar/sysmon-osx.json"
+	launchdServiceTarget = "system/com.serviceradar.sysmonosx"
 )
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatalf("sysmon-vm checker failed: %v", err)
+		log.Fatalf("sysmon-osx checker failed: %v", err)
 	}
 }
 
 func run() error {
-	configPath := flag.String("config", defaultConfigPath, "Path to sysmon-vm config file")
+	configPath := flag.String("config", defaultConfigPath, "Path to sysmon-osx config file")
 	_ = flag.String("onboarding-token", "", "Edge onboarding token (SPIFFE path; triggers edge onboarding)")
 	_ = flag.String("kv-endpoint", "", "KV service endpoint (required for edge onboarding)")
 	mtlsMode := flag.Bool("mtls", false, "Enable mTLS bootstrap (token or bundle required)")
@@ -51,7 +51,7 @@ func run() error {
 	mtlsHost := flag.String("host", "", "Core API host for mTLS bundle download (e.g. http://core:8090)")
 	mtlsBundlePath := flag.String("bundle", "", "Path to a pre-fetched mTLS bundle (tar.gz or JSON)")
 	mtlsCertDir := flag.String("cert-dir", "/etc/serviceradar/certs", "Directory to write mTLS certs/keys")
-	mtlsServerName := flag.String("server-name", "sysmon-vm.serviceradar", "Server name to present in mTLS")
+	mtlsServerName := flag.String("server-name", "sysmon-osx.serviceradar", "Server name to present in mTLS")
 	mtlsBootstrapOnly := flag.Bool("mtls-bootstrap-only", false, "Run mTLS bootstrap, persist config, then exit without starting the service")
 	flag.Parse()
 
@@ -70,7 +70,7 @@ func run() error {
 			BundlePath:  *mtlsBundlePath,
 			CertDir:     *mtlsCertDir,
 			ServerName:  *mtlsServerName,
-			ServiceName: "sysmon-vm",
+			ServiceName: "sysmon-osx",
 			Role:        models.RoleChecker,
 		})
 		if err != nil {
@@ -102,8 +102,8 @@ func run() error {
 		}
 	}
 
-	var cfg sysmonvm.Config
-	desc, ok := config.ServiceDescriptorFor("sysmon-vm-checker")
+	var cfg sysmonosx.Config
+	desc, ok := config.ServiceDescriptorFor("sysmon-osx-checker")
 	if !ok {
 		return errSysmonDescriptorMissing
 	}
@@ -131,15 +131,15 @@ func run() error {
 		Output: "stdout",
 	}
 
-	componentLogger, err := lifecycle.CreateComponentLogger(ctx, "sysmon-vm", logCfg)
+	componentLogger, err := lifecycle.CreateComponentLogger(ctx, "sysmon-osx", logCfg)
 	if err != nil {
 		return fmt.Errorf("failed to create component logger: %w", err)
 	}
 
-	service := sysmonvm.NewService(componentLogger, sampleInterval)
+	service := sysmonosx.NewService(componentLogger, sampleInterval)
 
 	bootstrapResult.StartWatch(ctx, componentLogger, &cfg, func() {
-		componentLogger.Warn().Msg("sysmon-vm config updated in KV; restart checker to apply changes")
+		componentLogger.Warn().Msg("sysmon-osx config updated in KV; restart checker to apply changes")
 	})
 
 	register := func(s *grpc.Server) error {
@@ -153,7 +153,7 @@ func run() error {
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{register},
 		EnableHealthCheck:    true,
 		Security:             cfg.Security,
-		ServiceName:          "sysmon-vm",
+		ServiceName:          "sysmon-osx",
 	}
 
 	if err := lifecycle.RunServer(ctx, &opts); err != nil {
@@ -217,15 +217,15 @@ func persistMTLSConfig(path string, sec *models.SecurityConfig) {
 	log.Printf("persisted mTLS config to %s", path)
 }
 
-func loadConfigOrDefault(path string) *sysmonvm.Config {
+func loadConfigOrDefault(path string) *sysmonosx.Config {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return &sysmonvm.Config{}
+		return &sysmonosx.Config{}
 	}
 
-	var cfg sysmonvm.Config
+	var cfg sysmonosx.Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return &sysmonvm.Config{}
+		return &sysmonosx.Config{}
 	}
 
 	return &cfg
@@ -240,7 +240,7 @@ func (samplerService) Stop(context.Context) error {
 	return nil
 }
 
-// restartLaunchdService restarts the sysmon-vm launchd service on macOS.
+// restartLaunchdService restarts the sysmon-osx launchd service on macOS.
 // This is called after mTLS bootstrap to apply the new configuration.
 func restartLaunchdService(ctx context.Context) error {
 	if runtime.GOOS != "darwin" {

@@ -1,11 +1,11 @@
 filegroup(
     name = "launchd_plists",
     srcs = [
-        "com.serviceradar.sysmonvm.plist",
+        "com.serviceradar.sysmonosx.plist",
     ],
     visibility = ["//visibility:public"],
 )
 
 exports_files([
-    "com.serviceradar.sysmonvm.plist",
+    "com.serviceradar.sysmonosx.plist",
 ])
