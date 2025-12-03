@@ -3,6 +3,12 @@ load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 
 package(default_visibility = ["//visibility:public"])
 
+# Package installer scripts (preinstall/postinstall)
+filegroup(
+    name = "pkg_scripts",
+    srcs = glob(["scripts/*"]),
+)
+
 genrule(
     name = "sysmonvm_checker_binary",
     srcs = ["//cmd/checkers/sysmon-vm:sysmon-vm"],
@@ -62,7 +68,10 @@ pkg_tar(
 
 genrule(
     name = "sysmonvm_host_pkg",
-    srcs = ["//scripts/sysmonvm:package-host-macos.sh"],
+    srcs = [
+        "//scripts/sysmonvm:package-host-macos.sh",
+        ":pkg_scripts",
+    ],
     outs = ["serviceradar-sysmonvm-host-macos.pkg"],
     cmd = """
 set -euo pipefail

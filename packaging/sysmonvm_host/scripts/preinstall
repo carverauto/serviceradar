@@ -1,0 +1,41 @@
+#!/bin/bash
+# Copyright 2024 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Pre-install script for ServiceRadar sysmon-vm macOS package
+# This script is executed before the package files are installed.
+# Used to gracefully stop the existing service before upgrade.
+
+set -e
+
+SERVICE_TARGET="system/com.serviceradar.sysmonvm"
+
+log() {
+    echo "[preinstall] $*"
+}
+
+log "Preparing for sysmon-vm installation..."
+
+# Stop existing service if running (ignore errors if not present)
+if launchctl print "${SERVICE_TARGET}" >/dev/null 2>&1; then
+    log "Stopping existing sysmon-vm service..."
+    launchctl bootout "${SERVICE_TARGET}" 2>/dev/null || true
+    sleep 1
+    log "Existing service stopped"
+else
+    log "No existing service found, proceeding with fresh install"
+fi
+
+log "Pre-install complete"
+exit 0
