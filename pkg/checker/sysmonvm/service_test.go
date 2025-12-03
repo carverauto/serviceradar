@@ -107,8 +107,9 @@ func TestServiceGetStatusSuccess(t *testing.T) {
 	assert.InDelta(t, 87.5, payload.Status.CPUs[1].UsagePercent, 0.0001)
 	assert.InDelta(t, 2_000_000_000.0, payload.Status.CPUs[1].FrequencyHz, 0.1)
 	assert.NotEmpty(t, payload.Status.Memory.Timestamp)
-	assert.GreaterOrEqual(t, payload.Status.Memory.TotalBytes, uint64(0))
-	assert.GreaterOrEqual(t, payload.Status.Memory.UsedBytes, uint64(0))
+	assert.NotZero(t, payload.Status.Memory.TotalBytes, "TotalBytes should be populated")
+	// UsedBytes can legitimately be 0, so just verify it's accessible
+	_ = payload.Status.Memory.UsedBytes
 }
 
 func TestServiceGetStatusCollectError(t *testing.T) {

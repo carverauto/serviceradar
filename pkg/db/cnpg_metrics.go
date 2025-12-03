@@ -21,7 +21,7 @@ var nowUTC = func() time.Time {
 
 const (
 	insertTimeseriesMetricsSQL = `
-INSERT INTO timeseries_metrics (
+INSERT INTO public.timeseries_metrics (
 	timestamp,
 	poller_id,
 	agent_id,
@@ -44,7 +44,7 @@ INSERT INTO timeseries_metrics (
 )`
 
 	insertCPUMetricsSQL = `
-INSERT INTO cpu_metrics (
+INSERT INTO public.cpu_metrics (
 	timestamp,
 	poller_id,
 	agent_id,
@@ -62,7 +62,7 @@ INSERT INTO cpu_metrics (
 )`
 
 	insertCPUClusterMetricsSQL = `
-INSERT INTO cpu_cluster_metrics (
+INSERT INTO public.cpu_cluster_metrics (
 	timestamp,
 	poller_id,
 	agent_id,
@@ -76,7 +76,7 @@ INSERT INTO cpu_cluster_metrics (
 )`
 
 	insertDiskMetricsSQL = `
-INSERT INTO disk_metrics (
+INSERT INTO public.disk_metrics (
 	timestamp,
 	poller_id,
 	agent_id,
@@ -94,7 +94,7 @@ INSERT INTO disk_metrics (
 )`
 
 	insertMemoryMetricsSQL = `
-INSERT INTO memory_metrics (
+INSERT INTO public.memory_metrics (
 	timestamp,
 	poller_id,
 	agent_id,
@@ -110,7 +110,7 @@ INSERT INTO memory_metrics (
 )`
 
 	insertProcessMetricsSQL = `
-INSERT INTO process_metrics (
+INSERT INTO public.process_metrics (
 	timestamp,
 	poller_id,
 	agent_id,
@@ -317,13 +317,17 @@ func (db *DB) cnpgInsertProcessMetrics(
 	return db.sendCNPG(ctx, batch, "process metrics")
 }
 
-func (db *DB) sendCNPG(ctx context.Context, batch *pgx.Batch, name string) error {
+func (db *DB) sendCNPG(ctx context.Context, batch *pgx.Batch, name string) (err error) {
 	br := db.pgPool.SendBatch(ctx, batch)
-	defer br.Close()
+	defer func() {
+		if closeErr := br.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("cnpg %s batch close: %w", name, closeErr)
+		}
+	}()
 
 	// Read results for each queued command to properly detect errors
 	for i := 0; i < batch.Len(); i++ {
-		if _, err := br.Exec(); err != nil {
+		if _, err = br.Exec(); err != nil {
 			return fmt.Errorf("cnpg %s insert (command %d): %w", name, i, err)
 		}
 	}
