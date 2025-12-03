@@ -26,7 +26,8 @@ import (
 )
 
 var (
-	errSysmonDescriptorMissing = fmt.Errorf("sysmon-vm-checker descriptor missing")
+	errSysmonDescriptorMissing  = fmt.Errorf("sysmon-vm-checker descriptor missing")
+	errRootPrivilegesRequired   = fmt.Errorf("root privileges required to restart launchd service")
 )
 
 const (
@@ -80,7 +81,7 @@ func run() error {
 		persistMTLSConfig(*configPath, forcedSecurity)
 		if *mtlsBootstrapOnly {
 			log.Printf("mTLS bootstrap-only mode enabled; exiting after writing config")
-			if err := restartLaunchdService(); err != nil {
+			if err := restartLaunchdService(ctx); err != nil {
 				log.Printf("note: could not restart launchd service: %v", err)
 				log.Printf("you may need to manually restart: sudo launchctl kickstart -k %s", launchdServiceTarget)
 			}
@@ -241,21 +242,21 @@ func (samplerService) Stop(context.Context) error {
 
 // restartLaunchdService restarts the sysmon-vm launchd service on macOS.
 // This is called after mTLS bootstrap to apply the new configuration.
-func restartLaunchdService() error {
+func restartLaunchdService(ctx context.Context) error {
 	if runtime.GOOS != "darwin" {
 		return nil
 	}
 
 	// Check if we're running with sufficient privileges
 	if os.Geteuid() != 0 {
-		return fmt.Errorf("root privileges required to restart launchd service")
+		return errRootPrivilegesRequired
 	}
 
 	log.Printf("restarting launchd service %s to apply new configuration...", launchdServiceTarget)
 
 	// Use launchctl kickstart -k to restart the service
 	// The -k flag kills the running service before restarting
-	cmd := exec.Command("launchctl", "kickstart", "-k", launchdServiceTarget)
+	cmd := exec.CommandContext(ctx, "launchctl", "kickstart", "-k", launchdServiceTarget)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
