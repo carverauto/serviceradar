@@ -379,7 +379,7 @@ POLLERS_SPIRE_SQLITE_PATH="${POLLERS_SPIRE_SQLITE_PATH:-/run/spire/nested/server
 POLLERS_SPIRE_SERVER_KEYS_PATH="${POLLERS_SPIRE_SERVER_KEYS_PATH:-/run/spire/nested/server/keys.json}"
 POLLERS_SPIRE_SERVER_SOCKET="${POLLERS_SPIRE_SERVER_SOCKET:-/run/spire/nested/server/api.sock}"
 
-# Prepare poller configuration with sysmon-vm override
+# Prepare poller configuration with sysmon-osx override
 POLLERS_TEMPLATE="/templates/poller.docker.json"
 if [ "$POLLERS_SECURITY_MODE" = "spiffe" ] && [ -f /templates/poller.spiffe.json ]; then
     POLLERS_TEMPLATE="/templates/poller.spiffe.json"

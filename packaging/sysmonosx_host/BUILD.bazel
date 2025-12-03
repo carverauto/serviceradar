@@ -81,7 +81,12 @@ SKIP_PKG=0 \
 
 cp "dist/sysmonosx/serviceradar-sysmonosx-host-macos.pkg" "$@"
     """,
-    tools = ["//scripts/sysmonosx:package-host-macos.sh"],
+    tools = [
+        "//scripts/sysmonosx:package-host-macos.sh",
+        ":sysmonosx_checker_binary",
+        ":sysmonosx_config_file",
+        ":sysmonosx_launchd_plist",
+    ],
     local = True,
     target_compatible_with = ["@platforms//os:macos"],
     tags = [

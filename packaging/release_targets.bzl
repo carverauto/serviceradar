@@ -38,7 +38,7 @@ def declare_release_artifacts():
         for name in component_names
     ]
 
-    mac_pkg_targets = ["//packaging/sysmonvm_host:sysmonvm_host_pkg"]
+    mac_pkg_targets = ["//packaging/sysmonosx_host:sysmonosx_host_pkg"]
     mac_pkg_select = select({
         "@platforms//os:macos": mac_pkg_targets,
         "//conditions:default": [],

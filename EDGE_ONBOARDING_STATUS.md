@@ -156,7 +156,7 @@ pkg/edgeonboarding/integration_test.go
 
 Apply the same pattern to:
 - `cmd/checkers/dusk/main.go`
-- `cmd/checkers/sysmon-vm/main.go`
+- `cmd/checkers/sysmon-osx/main.go`
 - Any other checker services
 
 ### Low Priority
@@ -264,7 +264,7 @@ if kvEndpoint == "" {
 ### 3. Service integration (Go)
 - Ensure every Go binary that calls `edgeonboarding.TryOnboard` still loads legacy configs when no token/package is present.
 - Consider a shared helper (maybe `pkg/edgeonboarding/cmd/bootstrap`) for init containers or provisioning scripts that need to pre-download packages for air-gapped installs.
-- Add smoke tests for poller, agent, sysmon-vm, mapper, sync, etc., so we know the onboarding path hasn’t regressed.
+- Add smoke tests for poller, agent, sysmon-osx, mapper, sync, etc., so we know the onboarding path hasn't regressed.
 
 ### 4. Service integration (Rust)
 - Build a Rust crate (`rust/edge-onboarding`) mirroring the Go bootstrapper—accepts `ONBOARDING_TOKEN` or `ONBOARDING_PACKAGE`, calls the Core deliver API, and writes the same config layout.

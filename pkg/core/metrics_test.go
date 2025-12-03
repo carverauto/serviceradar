@@ -189,7 +189,7 @@ func TestProcessSysmonMetrics_EmitsStallEventAfterEmptyPayloads(t *testing.T) {
 	}
 	payload.Status.Timestamp = now.Format(time.RFC3339Nano)
 	payload.Status.HostIP = "192.0.2.10"
-	payload.Status.HostID = "sysmon-vm-01"
+	payload.Status.HostID = "sysmon-osx-01"
 
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
