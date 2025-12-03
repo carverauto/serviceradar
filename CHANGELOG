@@ -1,3 +1,13 @@
+# ServiceRadar v1.0.62
+
+sysmon-vm renamed to sysmon-osx and security updates.
+
+## Whats New
+
+**1.0.62**
+- Renamed sysmon-vm to sysmon-osx to better reflect macOS-specific system monitoring functionality.
+- Updated React and Next.js dependencies with latest security patches.
+
 # ServiceRadar v1.0.61
 
 Device registry backed by Apache AGE plus refreshed UI.
