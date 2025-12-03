@@ -18,7 +18,7 @@
     "lodash": "^4.17.21",
     "lodash.set": "^4.3.2",
     "lucide-react": "^0.476.0",
-    "next": "16.0.1",
+    "next": "16.0.7",
     "next-runtime-env": "^3.3.0",
     "react": "19.2.1",
     "react-dom": "19.2.0",
