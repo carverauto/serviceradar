@@ -394,7 +394,7 @@ func (s *APIServer) getCPUMetricsForDevice(
 	// Query cpu_metrics table directly for per-core data by device_id
 	const cpuQuery = `
 		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz, label, cluster
-		FROM cpu_metrics
+		FROM public.cpu_metrics
 		WHERE device_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, core_id ASC`
 
@@ -450,7 +450,7 @@ func (s *APIServer) getCPUMetricsForDevice(
 
 	const clusterQuery = `
 		SELECT timestamp, agent_id, host_id, cluster, frequency_hz
-		FROM cpu_cluster_metrics
+		FROM public.cpu_cluster_metrics
 		WHERE device_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, cluster ASC`
 
@@ -517,7 +517,7 @@ func (s *APIServer) getMemoryMetricsForDevice(
 	ctx context.Context, _ db.SysmonMetricsProvider, deviceID string, start, end time.Time) (interface{}, error) {
 	const query = `
 		SELECT timestamp, agent_id, host_id, used_bytes, total_bytes
-		FROM memory_metrics
+		FROM public.memory_metrics
 		WHERE device_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC`
 
@@ -571,7 +571,7 @@ func (s *APIServer) getDiskMetricsForDevice(
 	ctx context.Context, _ db.SysmonMetricsProvider, deviceID string, start, end time.Time) (interface{}, error) {
 	const query = `
 		SELECT timestamp, agent_id, host_id, mount_point, used_bytes, total_bytes
-		FROM disk_metrics
+		FROM public.disk_metrics
 		WHERE device_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, mount_point ASC`
 
@@ -635,7 +635,7 @@ func (s *APIServer) getProcessMetricsForDevice(
 	ctx context.Context, _ db.SysmonMetricsProvider, deviceID string, start, end time.Time) (interface{}, error) {
 	const query = `
 		SELECT timestamp, agent_id, host_id, pid, name, cpu_usage, memory_usage, status, start_time
-		FROM process_metrics
+		FROM public.process_metrics
 		WHERE device_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, pid ASC`
 
