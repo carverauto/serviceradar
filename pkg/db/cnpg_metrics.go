@@ -290,9 +290,15 @@ func (db *DB) cnpgInsertProcessMetrics(
 
 func (db *DB) sendCNPG(ctx context.Context, batch *pgx.Batch, name string) error {
 	br := db.pgPool.SendBatch(ctx, batch)
-	if err := br.Close(); err != nil {
-		return fmt.Errorf("cnpg %s insert: %w", name, err)
+	defer br.Close()
+
+	// Read results for each queued command to properly detect errors
+	for i := 0; i < batch.Len(); i++ {
+		if _, err := br.Exec(); err != nil {
+			return fmt.Errorf("cnpg %s insert (command %d): %w", name, i, err)
+		}
 	}
+
 	return nil
 }
 
