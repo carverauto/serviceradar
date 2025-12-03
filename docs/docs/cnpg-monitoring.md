@@ -128,3 +128,44 @@ Any sustained growth indicates the pgx pool is undersized or a migration locked 
 | pgx Errors | `kubectl logs deploy/serviceradar-db-event-writer | grep "cnpg"` | any non-zero error rate should alert |
 
 Reuse your existing Prometheus stack to alert on pod restarts (`kube_pod_container_status_restarts_total`) and container CPU saturation (`container_cpu_usage_seconds_total`) for the CNPG and db-event-writer pods. Use this doc in tandem with the **Timescale Retention & Compression Checks** section in `agents.md` for the CLI-based playbook.
+
+## Trigram Indexes for Text Search
+
+ServiceRadar enables the `pg_trgm` extension and creates GIN trigram indexes on frequently searched text columns to optimize `ILIKE` queries. The `pg_trgm` extension is bundled with TimescaleDB, so no additional packages need to be installed—the migration simply runs `CREATE EXTENSION IF NOT EXISTS pg_trgm;` to enable it. Without these indexes, case-insensitive pattern matching (e.g., `hostname ILIKE '%server%'`) would require full table scans.
+
+### Indexed Columns
+
+The migration `00000000000016_pg_trgm_extension.up.sql` creates the following indexes:
+
+| Table | Column | Index Name |
+|-------|--------|------------|
+| `unified_devices` | `hostname` | `idx_unified_devices_hostname_trgm` |
+| `unified_devices` | `ip` | `idx_unified_devices_ip_trgm` |
+
+### Verifying Index Usage
+
+For tables with more than ~100 rows, PostgreSQL should use the trigram indexes for `ILIKE` queries:
+
+```sql
+EXPLAIN ANALYZE SELECT * FROM unified_devices WHERE hostname ILIKE '%pattern%';
+```
+
+Look for `Bitmap Index Scan on idx_unified_devices_hostname_trgm` in the output. Note that PostgreSQL may choose a sequential scan for very small tables where the overhead of using an index exceeds the cost of scanning all rows.
+
+### Performance Characteristics
+
+- **Read performance**: GIN trigram indexes provide fast lookups for `LIKE`, `ILIKE`, and similarity queries, including patterns with leading wildcards.
+- **Write overhead**: GIN indexes are more expensive to maintain than B-tree indexes. Expect slightly slower `INSERT`/`UPDATE` operations on indexed columns.
+- **Storage**: GIN trigram indexes are typically 1-3x the size of the indexed column data.
+
+### Checking Index Health
+
+```sql
+-- List all trigram indexes
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE indexname LIKE '%trgm%';
+
+-- Check index size
+SELECT pg_size_pretty(pg_relation_size('idx_unified_devices_hostname_trgm'));
+```
