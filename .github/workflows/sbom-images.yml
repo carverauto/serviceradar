@@ -117,7 +117,7 @@ jobs:
           mv "${IMAGE_NAME}.sbom.txt" "sbom-artifacts/"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.image.name }}-sbom
           path: sbom-artifacts/
