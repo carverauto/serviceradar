@@ -15,11 +15,13 @@
 
 # Pre-install script for ServiceRadar sysmon-vm macOS package
 # This script is executed before the package files are installed.
-# Used to gracefully stop the existing service before upgrade.
+# Used to gracefully stop the existing service and preserve config.
 
 set -e
 
 SERVICE_TARGET="system/com.serviceradar.sysmonvm"
+CONFIG="/usr/local/etc/serviceradar/sysmon-vm.json"
+CONFIG_BACKUP="/usr/local/etc/serviceradar/.sysmon-vm.json.pre-upgrade"
 
 log() {
     echo "[preinstall] $*"
@@ -35,6 +37,12 @@ if launchctl print "${SERVICE_TARGET}" >/dev/null 2>&1; then
     log "Existing service stopped"
 else
     log "No existing service found, proceeding with fresh install"
+fi
+
+# Back up existing config if present (will be restored in postinstall)
+if [ -f "${CONFIG}" ]; then
+    log "Backing up existing config to ${CONFIG_BACKUP}"
+    cp -f "${CONFIG}" "${CONFIG_BACKUP}"
 fi
 
 log "Pre-install complete"

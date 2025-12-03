@@ -22,6 +22,8 @@ LOG_DIR="/var/log/serviceradar"
 PLIST="/Library/LaunchDaemons/com.serviceradar.sysmonvm.plist"
 SERVICE_LABEL="com.serviceradar.sysmonvm"
 SERVICE_TARGET="system/${SERVICE_LABEL}"
+CONFIG="/usr/local/etc/serviceradar/sysmon-vm.json"
+CONFIG_BACKUP="/usr/local/etc/serviceradar/.sysmon-vm.json.pre-upgrade"
 
 log() {
     echo "[postinstall] $*"
@@ -38,6 +40,14 @@ fi
 # Ensure proper permissions on log directory
 chmod 755 "${LOG_DIR}"
 
+# Restore pre-upgrade config if it exists (preserves user customizations)
+if [ -f "${CONFIG_BACKUP}" ]; then
+    log "Restoring previous config from backup"
+    mv -f "${CONFIG_BACKUP}" "${CONFIG}"
+else
+    log "No previous config found, using package default"
+fi
+
 # Verify plist exists
 if [ ! -f "${PLIST}" ]; then
     log "ERROR: LaunchDaemon plist not found at ${PLIST}"
@@ -52,7 +62,6 @@ if [ ! -x "${BINARY}" ]; then
 fi
 
 # Verify config exists
-CONFIG="/usr/local/etc/serviceradar/sysmon-vm.json"
 if [ ! -f "${CONFIG}" ]; then
     log "ERROR: Config file not found at ${CONFIG}"
     exit 1
