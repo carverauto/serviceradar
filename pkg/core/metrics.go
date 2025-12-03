@@ -1409,7 +1409,7 @@ func (s *Server) processGRPCService(
 		return s.processRperfMetrics(pollerID, partition, serviceData, now)
 	case sysmonServiceType:
 		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
-	case "sysmon-vm":
+	case "sysmon-osx":
 		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
 	case syncServiceType:
 		s.logger.Debug().

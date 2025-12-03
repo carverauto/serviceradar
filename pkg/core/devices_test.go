@@ -255,8 +255,8 @@ func TestIsEphemeralCollectorIP(t *testing.T) {
 		{
 			name:     "docker IP with legitimate hostname",
 			hostIP:   "172.18.0.5",
-			hostname: "sysmon-vm-01",
-			hostID:   "sysmon-vm-01",
+			hostname: "sysmon-osx-01",
+			hostID:   "sysmon-osx-01",
 			expected: false,
 		},
 		{
@@ -269,8 +269,8 @@ func TestIsEphemeralCollectorIP(t *testing.T) {
 		{
 			name:     "legitimate target IP",
 			hostIP:   "192.168.1.218",
-			hostname: "sysmon-vm",
-			hostID:   "sysmon-vm",
+			hostname: "sysmon-osx",
+			hostID:   "sysmon-osx",
 			expected: false,
 		},
 	}
@@ -300,7 +300,7 @@ func TestEnsureServiceDeviceSkipsEphemeralCollectorIP(t *testing.T) {
 	serviceData := json.RawMessage(`{"status":{"host_ip":"172.18.0.5","hostname":"docker-agent"}}`)
 
 	svc := &proto.ServiceStatus{
-		ServiceName: "sysmon-vm",
+		ServiceName: "sysmon-osx",
 		ServiceType: grpcServiceType,
 		Source:      "status",
 	}
@@ -336,10 +336,10 @@ func TestEnsureServiceDeviceCreatesTargetDevice(t *testing.T) {
 
 	// Service data reports a non-Docker IP with a real hostname
 	// This should be detected as a legitimate target and create a device
-	serviceData := json.RawMessage(`{"status":{"host_ip":"192.168.1.218","hostname":"sysmon-vm"}}`)
+	serviceData := json.RawMessage(`{"status":{"host_ip":"192.168.1.218","hostname":"sysmon-osx"}}`)
 
 	svc := &proto.ServiceStatus{
-		ServiceName: "sysmon-vm",
+		ServiceName: "sysmon-osx",
 		ServiceType: grpcServiceType,
 		Source:      "status",
 	}
@@ -365,7 +365,7 @@ func TestEnsureServiceDeviceCreatesTargetDevice(t *testing.T) {
 			require.Equal(t, "default:192.168.1.218", update.DeviceID)
 			require.Equal(t, "192.168.1.218", update.IP)
 			require.NotNil(t, update.Hostname)
-			require.Equal(t, "sysmon-vm", *update.Hostname)
+			require.Equal(t, "sysmon-osx", *update.Hostname)
 			return nil
 		})
 
@@ -588,10 +588,10 @@ func TestIsEphemeralCollectorIP_EdgeCases(t *testing.T) {
 
 		// Real-world hostnames that should NOT be flagged
 		{
-			name:     "sysmon-vm with Docker IP but proper hostname",
+			name:     "sysmon-osx with Docker IP but proper hostname",
 			hostIP:   "172.18.0.100",
-			hostname: "sysmon-vm",
-			hostID:   "sysmon-vm",
+			hostname: "sysmon-osx",
+			hostID:   "sysmon-osx",
 			expected: false,
 		},
 		{
@@ -673,9 +673,9 @@ func TestExtractCheckerHostIdentity(t *testing.T) {
 	}{
 		{
 			name:             "standard sysmon payload",
-			serviceData:      `{"status":{"host_ip":"192.168.1.100","hostname":"sysmon-vm","host_id":"sysmon-01"}}`,
+			serviceData:      `{"status":{"host_ip":"192.168.1.100","hostname":"sysmon-osx","host_id":"sysmon-01"}}`,
 			expectedIP:       "192.168.1.100",
-			expectedHostname: "sysmon-vm",
+			expectedHostname: "sysmon-osx",
 			expectedHostID:   "sysmon-01",
 		},
 		{

@@ -2089,7 +2089,7 @@ func mintClientCertificate(caCert *x509.Certificate, caKey crypto.Signer, client
 		NotBefore: notBefore,
 		NotAfter:  notAfter,
 		KeyUsage:  x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		// sysmon-vm acts as both mTLS server (polled by agent) and client (if it ever calls back),
+		// sysmon-osx acts as both mTLS server (polled by agent) and client (if it ever calls back),
 		// so keep both usages to satisfy TLS handshakes.
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		DNSNames:              dnsNames,

@@ -75,11 +75,11 @@ type BootstrapConfig struct {
 	CertDir string
 
 	// ServerName is the server name to present in mTLS.
-	// Defaults to the service name (e.g., "sysmon-vm.serviceradar").
+	// Defaults to the service name (e.g., "sysmon-osx.serviceradar").
 	ServerName string
 
 	// ServiceName is the name of the service (used for cert file naming).
-	// Examples: "sysmon-vm", "agent", "poller".
+	// Examples: "sysmon-osx", "agent", "poller".
 	ServiceName string
 
 	// Role is the security role for the service.

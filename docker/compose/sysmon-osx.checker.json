@@ -1,0 +1,19 @@
+{
+  "name": "sysmon-osx",
+  "type": "grpc",
+  "address": "${SYSMON_OSX_ADDRESS:-sysmon-osx:50110}",
+  "security": {
+    "mode": "spiffe",
+    "role": "poller",
+    "cert_dir": "/etc/serviceradar/certs",
+    "trust_domain": "carverauto.dev",
+    "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-sysmon-osx",
+    "workload_socket": "unix:/run/spire/sockets/agent.sock",
+    "tls": {
+      "cert_file": "agent.pem",
+      "key_file": "agent-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  }
+}

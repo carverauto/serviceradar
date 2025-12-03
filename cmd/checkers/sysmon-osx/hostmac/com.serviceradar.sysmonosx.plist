@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.serviceradar.sysmonosx</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/libexec/serviceradar/serviceradar-sysmon-osx</string>
+        <string>--config</string>
+        <string>/usr/local/etc/serviceradar/sysmon-osx.json</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/serviceradar/sysmon-osx.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/serviceradar/sysmon-osx.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

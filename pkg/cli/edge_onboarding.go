@@ -124,9 +124,9 @@ func runEdgePackageCommand(cfg *CmdConfig) error {
 	case "token":
 		return RunEdgePackageToken(cfg)
 	case "mtls":
-		// Shorthand for sysmon-vm mTLS package creation
+		// Shorthand for sysmon-osx mTLS package creation
 		if cfg.EdgePackageComponentType == "" {
-			cfg.EdgePackageComponentType = "checker:sysmon-vm"
+			cfg.EdgePackageComponentType = "checker:sysmon-osx"
 		}
 		if strings.TrimSpace(cfg.EdgePackageMetadata) == "" && len(cfg.EdgePackageMetadataMap) == 0 {
 			cfg.EdgePackageMetadata = `{"security_mode":"mtls"}`

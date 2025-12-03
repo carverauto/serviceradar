@@ -156,8 +156,9 @@ else
   echo "Pruning optional agent checkers for edge profile (KV disabled)"
   docker run --rm \
     -v "${CONFIG_VOLUME}:/config" \
-    alpine:3.20 sh -c "rm -f /config/checkers/sysmon-vm.json /config/checkers/sweep/sweep.json && \
+    alpine:3.20 sh -c "rm -f /config/checkers/sysmon-osx.json /config/checkers/sweep/sweep.json && \
       if [ -d /config/checkers/sweep ]; then find /config/checkers/sweep -mindepth 1 -delete && rmdir /config/checkers/sweep 2>/dev/null || true; fi"
+
 fi
 
 # Copy the nested SPIRE configuration template into the volume.

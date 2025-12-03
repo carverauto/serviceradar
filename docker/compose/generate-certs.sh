@@ -156,7 +156,7 @@ generate_cert "otel" "otel.serviceradar" "DNS:otel,DNS:otel.serviceradar,DNS:ser
 generate_cert "flowgger" "flowgger.serviceradar" "DNS:flowgger,DNS:flowgger.serviceradar,DNS:serviceradar-flowgger,DNS:localhost,IP:127.0.0.1"
 
 # Edge / checker
-generate_cert "sysmon-vm" "sysmon-vm.serviceradar" "DNS:sysmon-vm,DNS:sysmon-vm.serviceradar,DNS:serviceradar-sysmon-vm,DNS:sysmon-vm-checker,DNS:localhost,IP:127.0.0.1"
+generate_cert "sysmon-osx" "sysmon-osx.serviceradar" "DNS:sysmon-osx,DNS:sysmon-osx.serviceradar,DNS:serviceradar-sysmon-osx,DNS:sysmon-osx-checker,DNS:localhost,IP:127.0.0.1"
 generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"
 
 # Generate JWT secret for authentication

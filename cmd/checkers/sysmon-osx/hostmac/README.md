@@ -1,0 +1,38 @@
+# macOS Host Frequency Integration
+
+The sysmon-osx checker embeds its macOS frequency sampler directly into the Go
+binary via cgo. The Objective-C++ implementation that talks to IOReport now
+lives under `pkg/cpufreq` and is compiled as part of the checker, so no separate
+`hostfreq` executable or launchd service is required.
+
+## Build
+
+```
+make sysmonosx-build-checker-darwin
+```
+
+The command cross-compiles the checker (including the embedded sampler) into
+`dist/sysmonosx/mac-host/bin/serviceradar-sysmon-osx`.
+
+## Install
+
+```
+sudo make sysmonosx-host-install
+```
+
+The install script copies the checker to
+`/usr/local/libexec/serviceradar/serviceradar-sysmon-osx`, installs the launchd
+unit `com.serviceradar.sysmonosx`, and ensures `/usr/local/etc/serviceradar`
+contains `sysmon-osx.json`. Because the frequency sampler is built in, there is
+no companion `hostfreq` daemon to manage.
+
+If you want to use SPIFFE-based authentication, you must manually configure a
+SPIRE agent on the host and onboard it with the SPIRE server running in k8s.
+
+## Troubleshooting
+
+- The sampler still depends on private IOReport APIs, so the launchd service
+  must run with sufficient privileges (root on Apple Silicon macOS).
+- When the process cannot talk to IOReport, `pkg/cpufreq` reports the wrapped
+  error that previously came from the helper binary. Check
+  `/var/log/serviceradar/sysmon-osx.err.log` for additional detail.

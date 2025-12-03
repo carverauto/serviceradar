@@ -2003,7 +2003,7 @@ export default function EdgePackagesPage() {
                             </button>
                           </div>
                           <pre className="mt-2 overflow-auto rounded bg-slate-900 px-2 py-2 text-[11px] text-slate-100">
-{`serviceradar-sysmon-vm \\
+{`serviceradar-sysmon-osx \\
   --mtls \\
   --token "${selectedSecrets.structuredToken}" \\
   --host ${coreApiBase || 'https://<core-host>'} \\

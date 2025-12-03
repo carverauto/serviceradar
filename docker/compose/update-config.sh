@@ -317,45 +317,45 @@ fi
 
 echo "🎉 Configuration update complete!"
 
-# Generate sysmon-vm checker configuration with runtime overrides
-SYSMON_VM_CERT_FILE="${SYSMON_VM_CERT_FILE:-sysmon-vm.pem}"
-SYSMON_VM_KEY_FILE="${SYSMON_VM_KEY_FILE:-sysmon-vm-key.pem}"
-SYSMON_VM_CA_FILE="${SYSMON_VM_CA_FILE:-root.pem}"
+# Generate sysmon-osx checker configuration with runtime overrides
+SYSMON_OSX_CERT_FILE="${SYSMON_OSX_CERT_FILE:-sysmon-osx.pem}"
+SYSMON_OSX_KEY_FILE="${SYSMON_OSX_KEY_FILE:-sysmon-osx-key.pem}"
+SYSMON_OSX_CA_FILE="${SYSMON_OSX_CA_FILE:-root.pem}"
 
-if [ "$SYSMON_VM_SECURITY_MODE" = "mtls" ]; then
-    cat > "$CHECKERS_DIR/sysmon-vm.json" <<EOF
+if [ "$SYSMON_OSX_SECURITY_MODE" = "mtls" ]; then
+    cat > "$CHECKERS_DIR/sysmon-osx.json" <<EOF
 {
-  "name": "sysmon-vm",
+  "name": "sysmon-osx",
   "type": "grpc",
-  "address": "$SYSMON_VM_ADDRESS",
+  "address": "$SYSMON_OSX_ADDRESS",
   "security": {
     "mode": "mtls",
     "role": "checker",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "sysmon-vm.serviceradar",
+    "server_name": "sysmon-osx.serviceradar",
     "tls": {
-      "cert_file": "$SYSMON_VM_CERT_FILE",
-      "key_file": "$SYSMON_VM_KEY_FILE",
-      "ca_file": "$SYSMON_VM_CA_FILE",
-      "client_ca_file": "$SYSMON_VM_CA_FILE"
+      "cert_file": "$SYSMON_OSX_CERT_FILE",
+      "key_file": "$SYSMON_OSX_KEY_FILE",
+      "ca_file": "$SYSMON_OSX_CA_FILE",
+      "client_ca_file": "$SYSMON_OSX_CA_FILE"
     }
   }
 }
 EOF
-    echo "✅ Generated sysmon-vm checker config (mTLS) with address $SYSMON_VM_ADDRESS"
+    echo "✅ Generated sysmon-osx checker config (mTLS) with address $SYSMON_OSX_ADDRESS"
 else
-    cat > "$CHECKERS_DIR/sysmon-vm.json" <<EOF
+    cat > "$CHECKERS_DIR/sysmon-osx.json" <<EOF
 {
-  "name": "sysmon-vm",
+  "name": "sysmon-osx",
   "type": "grpc",
-  "address": "$SYSMON_VM_ADDRESS",
+  "address": "$SYSMON_OSX_ADDRESS",
   "security": {
     "mode": "none",
     "role": "agent"
   }
 }
 EOF
-    echo "✅ Generated sysmon-vm checker config (no security) with address $SYSMON_VM_ADDRESS"
+    echo "✅ Generated sysmon-osx checker config (no security) with address $SYSMON_OSX_ADDRESS"
 fi
 
 POLLERS_SECURITY_MODE="${POLLERS_SECURITY_MODE:-mtls}"
@@ -379,7 +379,7 @@ POLLERS_SPIRE_SQLITE_PATH="${POLLERS_SPIRE_SQLITE_PATH:-/run/spire/nested/server
 POLLERS_SPIRE_SERVER_KEYS_PATH="${POLLERS_SPIRE_SERVER_KEYS_PATH:-/run/spire/nested/server/keys.json}"
 POLLERS_SPIRE_SERVER_SOCKET="${POLLERS_SPIRE_SERVER_SOCKET:-/run/spire/nested/server/api.sock}"
 
-# Prepare poller configuration with sysmon-vm override
+# Prepare poller configuration with sysmon-osx override
 POLLERS_TEMPLATE="/templates/poller.docker.json"
 if [ "$POLLERS_SECURITY_MODE" = "spiffe" ] && [ -f /templates/poller.spiffe.json ]; then
     POLLERS_TEMPLATE="/templates/poller.spiffe.json"
@@ -400,10 +400,10 @@ if [ "$POLLERS_SECURITY_MODE" = "spiffe" ]; then
         | (.security.trust_domain) = $td
         | (.security.server_spiffe_id) = $coreId
         | (.security.workload_socket) = $socket
-        | (.agents[]?.checks[]? | select(.service_name == "sysmon-vm")).details = $addr
+        | (.agents[]?.checks[]? | select(.service_name == "sysmon-osx")).details = $addr
     ' "$CONFIG_DIR/poller.json" > "$CONFIG_DIR/poller.json.tmp"
     mv "$CONFIG_DIR/poller.json.tmp" "$CONFIG_DIR/poller.json"
-    echo "✅ Generated poller.json (SPIFFE mode) with sysmon-vm address $SYSMON_VM_ADDRESS"
+    echo "✅ Generated poller.json (SPIFFE mode) with sysmon-osx address $SYSMON_OSX_ADDRESS"
     mkdir -p "$POLLERS_SPIRE_CONFIG_DIR"
     cat > "$POLLERS_SPIRE_CONFIG_DIR/upstream-agent.conf" <<EOF
 agent {
@@ -537,9 +537,9 @@ EOF
     echo "✅ Generated nested SPIRE configuration under $POLLERS_SPIRE_CONFIG_DIR"
 elif [ -f "$POLLERS_TEMPLATE" ]; then
     cp "$POLLERS_TEMPLATE" "$CONFIG_DIR/poller.json"
-    jq --arg addr "$SYSMON_VM_ADDRESS" '
-        (.agents[]?.checks[]? | select(.service_name == "sysmon-vm")).details = $addr
+    jq --arg addr "$SYSMON_OSX_ADDRESS" '
+        (.agents[]?.checks[]? | select(.service_name == "sysmon-osx")).details = $addr
     ' "$CONFIG_DIR/poller.json" > "$CONFIG_DIR/poller.json.tmp"
     mv "$CONFIG_DIR/poller.json.tmp" "$CONFIG_DIR/poller.json"
-    echo "✅ Generated poller.json with sysmon-vm address $SYSMON_VM_ADDRESS (security mode: ${POLLERS_SECURITY_MODE:-mtls})"
+    echo "✅ Generated poller.json with sysmon-osx address $SYSMON_OSX_ADDRESS (security mode: ${POLLERS_SECURITY_MODE:-mtls})"
 fi

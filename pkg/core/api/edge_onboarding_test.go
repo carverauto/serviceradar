@@ -414,7 +414,7 @@ func TestHandleDownloadEdgePackageMTLSJSON(t *testing.T) {
 			Package: &models.EdgeOnboardingPackage{
 				PackageID:              "pkg-mtls",
 				Label:                  "mTLS Checker",
-				ComponentID:            "sysmon-vm",
+				ComponentID:            "sysmon-osx",
 				ComponentType:          models.EdgeOnboardingComponentTypeChecker,
 				ParentType:             models.EdgeOnboardingComponentTypeAgent,
 				ParentID:               "agent-1",
@@ -461,7 +461,7 @@ func TestHandleDownloadEdgePackageMTLSTarRejected(t *testing.T) {
 			Package: &models.EdgeOnboardingPackage{
 				PackageID:          "pkg-mtls",
 				Label:              "mTLS Checker",
-				ComponentID:        "sysmon-vm",
+				ComponentID:        "sysmon-osx",
 				ComponentType:      models.EdgeOnboardingComponentTypeChecker,
 				Status:             models.EdgeOnboardingStatusIssued,
 				SecurityMode:       "mtls",

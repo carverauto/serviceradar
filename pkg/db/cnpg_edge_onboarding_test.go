@@ -242,7 +242,7 @@ func TestScanEdgeOnboardingPackageIncludesSecurityMode(t *testing.T) {
 	row := &fakeEdgePackageRow{values: []interface{}{
 		pkgID,
 		"sysmon bundle",
-		"sysmon-vm",
+		"sysmon-osx",
 		"checker",
 		"agent",
 		"agent-1",

@@ -111,7 +111,7 @@ sequenceDiagram
   ```json
   {
     "service_type": "grpc",
-    "service_name": "sysmon-vm",
+    "service_name": "sysmon-osx",
     "details": "192.168.1.219:50110"
   }
   ```
@@ -165,7 +165,7 @@ sequenceDiagram
      `/etc/serviceradar/certs`.
 
 6. **Run the checker as a service**
-   - Package it with systemd or launchd (see `tools/sysmonvm` for examples).
+   - Package it with systemd or launchd (see `tools/sysmonosx` for examples).
    - Ensure the port in `details` is reachable from the agent host.
 
 ## Configuring the Pipeline

@@ -38,7 +38,7 @@ import { SnmpDataPoint } from "@/types/snmp";
 import { SysmonData } from "@/types/sysmon";
 import RPerfDashboard from "@/components/Network/RPerfDashboard";
 import LanDiscoveryDashboard from "@/components/Network/LANDiscoveryDashboard";
-import SysmonVmDetails from "@/components/Service/SysmonVmDetails";
+import SysmonOsxDetails from "@/components/Service/SysmonOsxDetails";
 
 
 // Define props interface
@@ -294,10 +294,10 @@ const Dashboard: React.FC<ServiceDashboardProps> = ({
 
         if (
             serviceData &&
-            (serviceData.service_name === "sysmon-vm" || serviceData.name === "sysmon-vm")
+            (serviceData.service_name === "sysmon-osx" || serviceData.name === "sysmon-osx")
         ) {
             return (
-                <SysmonVmDetails
+                <SysmonOsxDetails
                     service={serviceData}
                     details={serviceData.details ?? {}}
                 />

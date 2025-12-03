@@ -374,7 +374,7 @@ export const SysmonHostCard = ({ metadata }) => {
             <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center">
                     <Server size={16} className="mr-2 text-blue-500 dark:text-blue-400" />
-                    <span className="text-sm font-medium text-gray-600 dark:text-gray-300">sysmon-vm Host</span>
+                    <span className="text-sm font-medium text-gray-600 dark:text-gray-300">sysmon-osx Host</span>
                 </div>
                 {responseMs !== null && (
                     <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center">

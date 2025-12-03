@@ -23,8 +23,8 @@ alias(
 )
 
 alias(
-    name = "sysmonvm",
-    actual = "//pkg/checker/sysmonvm:sysmonvm",
+    name = "sysmonosx",
+    actual = "//pkg/checker/sysmonosx:sysmonosx",
     target_compatible_with = ["@platforms//os:macos"],
 )
 

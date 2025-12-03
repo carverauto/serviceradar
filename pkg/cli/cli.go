@@ -582,9 +582,9 @@ func (EdgeHandler) Parse(args []string, cfg *CmdConfig) error {
 	case "create":
 		return parseEdgePackageCreateFlags(subArgs, cfg)
 	case "mtls":
-		// Shorthand for mTLS sysmon-vm create
+		// Shorthand for mTLS sysmon-osx create
 		return parseEdgePackageCreateFlags(append([]string{
-			"--component-type", "checker:sysmon-vm",
+			"--component-type", "checker:sysmon-osx",
 			"--metadata-json", `{"security_mode":"mtls"}`,
 		}, subArgs...), cfg)
 	case "list":
