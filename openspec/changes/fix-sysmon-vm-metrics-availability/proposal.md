@@ -59,11 +59,41 @@ func (db *DB) sendCNPG(ctx context.Context, batch *pgx.Batch, name string) (err 
 - Fixed `br.Close()` error return value not being checked (errcheck)
 - Fixed useless assertions in `pkg/checker/sysmonvm/service_test.go` (testifylint)
 
+### 5. Implement GetResults in sysmon-vm
+The poller's KV config overlay sets `results_interval` for sysmon-vm, causing the poller to call `GetResults` instead of `GetStatus`. However, sysmon-vm only implemented `GetStatus`, resulting in empty metrics being returned.
+
+Modified `pkg/checker/sysmonvm/service.go` to implement `GetResults`:
+```go
+// GetResults implements the monitoring.AgentService GetResults RPC.
+// It collects the same sysmon metrics as GetStatus but returns a ResultsResponse.
+func (s *Service) GetResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
+    // ... collects CPU, memory, cluster metrics ...
+    return &proto.ResultsResponse{
+        Available:       true,
+        Data:            dataBytes,
+        ServiceName:     req.GetServiceName(),
+        ServiceType:     req.GetServiceType(),
+        ResponseTime:    respTime,
+        AgentId:         req.GetAgentId(),
+        PollerId:        req.GetPollerId(),
+        Timestamp:       now.UnixNano(),
+        CurrentSequence: currentSeq,  // monotonically increasing sequence
+        HasNewData:      true,        // sysmon always has fresh metrics
+    }, nil
+}
+```
+
+Added:
+- `sequence atomic.Uint64` field to Service for tracking response sequences
+- `failureResultsResponse()` helper for error cases
+- Proper imports: `strconv`, `sync/atomic`
+
 ## Files Changed
 | File | Change Type |
 |------|-------------|
 | `pkg/db/cnpg_metrics.go` | Modified - Added `public.` prefix to all INSERT statements, fixed batch close error handling |
 | `pkg/core/api/sysmon.go` | Modified - Added `public.` prefix to all SELECT queries |
+| `pkg/checker/sysmonvm/service.go` | Modified - Implemented `GetResults` RPC method, added sequence tracking |
 | `pkg/checker/sysmonvm/service_test.go` | Modified - Fixed useless assertions |
 
 ## Verification

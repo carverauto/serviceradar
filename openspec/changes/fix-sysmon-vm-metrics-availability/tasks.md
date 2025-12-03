@@ -10,6 +10,6 @@
 - [x] 3.1 Add regression coverage for sysmon-vm → poller/core → CNPG write → `/api/sysmon` query (unit/integration as appropriate). _Fixed linter errors in `sysmonvm/service_test.go`._
 - [x] 3.2 Manual E2E: run darwin/arm64 sysmon-vm against Compose poller with mTLS, verify metrics appear in CNPG and UI `/api/sysmon` panels within one polling interval. _Verified: `public.cpu_metrics` shows fresh data with count 6090+ and timestamps updating every 30s._
 
-## 4. Outstanding Issues
-- [ ] 4.1 Investigate why sysmon-vm returns `method GetResults not implemented` when poller calls GetResults. The sysmon-vm service only implements `GetStatus`, but poller config may have `results_interval` set via KV store, causing it to call the wrong method.
-- [ ] 4.2 Verify memory metrics collection - sysmon-vm now collects memory via gopsutil but need to confirm it flows through to database and UI.
+## 4. Outstanding Issues (RESOLVED)
+- [x] 4.1 Investigate why sysmon-vm returns `method GetResults not implemented` when poller calls GetResults. _Finding: The poller's KV config overlay sets `results_interval` for sysmon-vm, causing it to call `GetResults` instead of `GetStatus`. sysmon-vm only implemented `GetStatus`. Fix: Implemented `GetResults` method in `pkg/checker/sysmonvm/service.go` that collects the same metrics and returns a `ResultsResponse` with proper sequence tracking._
+- [x] 4.2 Verify memory metrics collection - sysmon-vm now collects memory via gopsutil but need to confirm it flows through to database and UI. _Verified: Core logs show `memory_count:1, has_memory:true` and metrics are being flushed to database. Database count increased from 6090 to 6098+ with fresh timestamps._
