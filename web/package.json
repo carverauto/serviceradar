@@ -20,7 +20,7 @@
     "lucide-react": "^0.476.0",
     "next": "16.0.1",
     "next-runtime-env": "^3.3.0",
-    "react": "19.2.0",
+    "react": "19.2.1",
     "react-dom": "19.2.0",
     "reactflow": "^11.11.4",
     "recharts": "^2.15.1",
