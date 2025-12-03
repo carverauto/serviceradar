@@ -43,6 +43,7 @@ CHECKER_BIN="${DIST_DIR}/mac-host/bin/serviceradar-sysmon-vm"
 CONFIG_JSON="${DIST_DIR}/sysmon-vm.json"
 CHECKER_PLIST="${REPO_ROOT}/cmd/checkers/sysmon-vm/hostmac/com.serviceradar.sysmonvm.plist"
 CONFIG_TEMPLATE="${REPO_ROOT}/cmd/checkers/sysmon-vm/sysmon-vm.json.example"
+PKG_SCRIPTS_DIR="${REPO_ROOT}/packaging/sysmonvm_host/scripts"
 
 if [[ ! -f "${CONFIG_JSON}" ]]; then
   if [[ -f "${CONFIG_TEMPLATE}" ]]; then
@@ -61,6 +62,14 @@ for path in \
 do
   if [[ ! -f "${path}" ]]; then
     echo "[error] missing required artifact: ${path}" >&2
+    exit 1
+  fi
+done
+
+# Verify package scripts exist
+for script in "preinstall" "postinstall"; do
+  if [[ ! -x "${PKG_SCRIPTS_DIR}/${script}" ]]; then
+    echo "[error] missing or non-executable package script: ${PKG_SCRIPTS_DIR}/${script}" >&2
     exit 1
   fi
 done
@@ -215,12 +224,13 @@ fi
 rm -f "${OUTPUT_PKG}" "${SIGNED_PKG}"
 pkgbuild \
   --root "${STAGING_DIR}" \
+  --scripts "${PKG_SCRIPTS_DIR}" \
   --identifier "${PKG_IDENTIFIER}" \
   --version "${PKG_VERSION}" \
   --install-location / \
   "${OUTPUT_PKG}"
 
-echo "Wrote unsigned installer package to ${OUTPUT_PKG}"
+echo "Wrote installer package (with pre/postinstall scripts) to ${OUTPUT_PKG}"
 
 if [[ -n "${PKG_SIGN_IDENTITY:-}" ]]; then
   if ! command -v productsign >/dev/null 2>&1; then
