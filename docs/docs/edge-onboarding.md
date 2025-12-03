@@ -280,7 +280,7 @@ Until the automation lands:
 
 ## 5. Checker Onboarding (Planned Enhancement)
 
-Checkers (SNMP, sysmon-vm, custom scanners) will reuse the same framework. The
+Checkers (SNMP, sysmon-osx, custom scanners) will reuse the same framework. The
 UX will prompt for:
 
 - Checker type.

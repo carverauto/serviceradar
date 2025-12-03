@@ -46,7 +46,7 @@ const CORE_KV_STORE: KvStoreOption = {
 const agentScopedServiceOverrides = new Set([
   'snmp-checker',
   'sysmon-checker',
-  'sysmon-vm-checker',
+  'sysmon-osx-checker',
   'rperf-checker',
   'mapper',
   'mapper-checker',

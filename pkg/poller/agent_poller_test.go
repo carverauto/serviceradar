@@ -303,8 +303,8 @@ func TestEnrichPayloadWithHost_PreservesExistingHostIdentity(t *testing.T) {
 		"available": true,
 		"status": {
 			"host_ip": "192.0.2.10",
-			"hostname": "sysmon-vm",
-			"host_id": "sysmon-vm-01"
+			"hostname": "sysmon-osx",
+			"host_id": "sysmon-osx-01"
 		}
 	}`)
 
@@ -318,7 +318,7 @@ func TestEnrichPayloadWithHost_PreservesExistingHostIdentity(t *testing.T) {
 
 	// host_ip/hostname reported by the service should not be overwritten by collector metadata.
 	assert.Equal(t, "192.0.2.10", status["host_ip"])
-	assert.Equal(t, "sysmon-vm", status["hostname"])
+	assert.Equal(t, "sysmon-osx", status["hostname"])
 
 	_, topLevelHostIPPresent := payload["host_ip"]
 	assert.False(t, topLevelHostIPPresent)
@@ -813,7 +813,7 @@ func TestEnrichServiceMessageWithAddress_UsesDeviceMetadata(t *testing.T) {
 }
 
 func TestEnrichServiceMessageWithAddress_PrefersDetailsHostOverDeviceIP(t *testing.T) {
-	check := Check{Type: "grpc", Name: "sysmon-vm", Details: "192.0.2.10:50110"}
+	check := Check{Type: "grpc", Name: "sysmon-osx", Details: "192.0.2.10:50110"}
 	message := []byte(`{"status":{"state":"ok"}}`)
 
 	enriched := enrichServiceMessageWithAddress(message, check, "172.18.0.7", "agent")

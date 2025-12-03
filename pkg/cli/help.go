@@ -28,7 +28,7 @@ Commands:
   edge package download Download onboarding artifacts (tar.gz or JSON)
   edge package revoke  Revoke an onboarding package (alias: edge-package-revoke)
   edge package token   Emit an edgepkg-v1 token (alias: edge-package-token)
-  edge package mtls    Issue an mTLS sysmon-vm package (alias for create with mTLS defaults)
+  edge package mtls    Issue an mTLS sysmon-osx package (alias for create with mTLS defaults)
   edge-package-download Download the onboarding archive for a package (tar.gz)
   edge-package-token    Emit an edgepkg-v1 onboarding token for ONBOARDING_TOKEN
   edge-package-revoke   Revoke an onboarding package and downstream entry

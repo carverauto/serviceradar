@@ -15,7 +15,7 @@ mTLS compose sysmon canonicalization and release rebuild.
 ## Whats New
 
 **1.0.60**
-- Fixed sysmon ingestion to resolve canonical device IDs so UI/device sysmon CPU panels now show data for mTLS sysmon-vm checkers (e.g., `sr:88239dc2-7208-4c24-a396-3f868c2c9419`).
+- Fixed sysmon ingestion to resolve canonical device IDs so UI/device sysmon CPU panels now show data for mTLS sysmon-osx checkers (e.g., `sr:88239dc2-7208-4c24-a396-3f868c2c9419`).
 - Rebuilt/pushed all compose-mtls images with tag `sha-0bc21e5ee79be0eb143cddd6fc7601f739c39f21` and refreshed the stack.
 
 # ServiceRadar v1.0.59

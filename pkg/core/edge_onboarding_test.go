@@ -304,7 +304,7 @@ func TestCreateMTLSPackageMintsClientCertificate(t *testing.T) {
 
 	result, err := svc.CreatePackage(context.Background(), &models.EdgeOnboardingCreateRequest{
 		Label:         "sysmon mTLS",
-		ComponentID:   "sysmon-vm",
+		ComponentID:   "sysmon-osx",
 		ComponentType: models.EdgeOnboardingComponentTypeChecker,
 		ParentType:    models.EdgeOnboardingComponentTypeAgent,
 		ParentID:      "agent-1",
@@ -353,7 +353,7 @@ func TestCreateMTLSPackageMintsClientCertificate(t *testing.T) {
 	clientCert, err := x509.ParseCertificate(clientBlock.Bytes)
 	require.NoError(t, err)
 	require.NoError(t, clientCert.CheckSignatureFrom(caCert))
-	assert.Equal(t, "sysmon-vm", clientCert.Subject.CommonName)
+	assert.Equal(t, "sysmon-osx", clientCert.Subject.CommonName)
 
 	// Stored package contains the encrypted bundle and mTLS security mode
 	require.NotNil(t, storedPkg)

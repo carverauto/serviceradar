@@ -1,0 +1,96 @@
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
+
+package(default_visibility = ["//visibility:public"])
+
+# Package installer scripts (preinstall/postinstall)
+filegroup(
+    name = "pkg_scripts",
+    srcs = glob(["scripts/*"]),
+)
+
+genrule(
+    name = "sysmonosx_checker_binary",
+    srcs = ["//cmd/checkers/sysmon-osx:sysmon-osx"],
+    outs = ["serviceradar-sysmon-osx"],
+    cmd = "cp $(location //cmd/checkers/sysmon-osx:sysmon-osx) $@",
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+genrule(
+    name = "sysmonosx_config_file",
+    srcs = ["//cmd/checkers/sysmon-osx:sysmon-osx.json.example"],
+    outs = ["sysmon-osx.json"],
+    cmd = "cp $(location //cmd/checkers/sysmon-osx:sysmon-osx.json.example) $@",
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+genrule(
+    name = "sysmonosx_launchd_plist",
+    srcs = ["//cmd/checkers/sysmon-osx/hostmac:com.serviceradar.sysmonosx.plist"],
+    outs = ["com.serviceradar.sysmonosx.plist"],
+    cmd = "cp $(location //cmd/checkers/sysmon-osx/hostmac:com.serviceradar.sysmonosx.plist) $@",
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+pkg_files(
+    name = "sysmonosx_host_checker",
+    srcs = [":sysmonosx_checker_binary"],
+    prefix = "/usr/local/libexec/serviceradar",
+    attributes = pkg_attributes(mode = "0755"),
+)
+
+pkg_files(
+    name = "sysmonosx_config",
+    srcs = [":sysmonosx_config_file"],
+    prefix = "/usr/local/etc/serviceradar",
+    attributes = pkg_attributes(mode = "0644"),
+)
+
+pkg_files(
+    name = "sysmonosx_launchd_checker",
+    srcs = [":sysmonosx_launchd_plist"],
+    prefix = "/Library/LaunchDaemons",
+    attributes = pkg_attributes(mode = "0644"),
+)
+
+pkg_tar(
+    name = "sysmonosx_host_tar",
+    srcs = [
+        ":sysmonosx_host_checker",
+        ":sysmonosx_config",
+        ":sysmonosx_launchd_checker",
+    ],
+    package_dir = "/",
+    extension = "tar.gz",
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
+genrule(
+    name = "sysmonosx_host_pkg",
+    srcs = [
+        "//scripts/sysmonosx:package-host-macos.sh",
+        ":pkg_scripts",
+    ],
+    outs = ["serviceradar-sysmonosx-host-macos.pkg"],
+    cmd = """
+set -euo pipefail
+
+SKIP_PKG=0 \
+"$(location //scripts/sysmonosx:package-host-macos.sh)"
+
+cp "dist/sysmonosx/serviceradar-sysmonosx-host-macos.pkg" "$@"
+    """,
+    tools = [
+        "//scripts/sysmonosx:package-host-macos.sh",
+        ":sysmonosx_checker_binary",
+        ":sysmonosx_config_file",
+        ":sysmonosx_launchd_plist",
+    ],
+    local = True,
+    target_compatible_with = ["@platforms//os:macos"],
+    tags = [
+        "no-remote",
+        "requires-macos",
+    ],
+)

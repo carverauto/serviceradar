@@ -36,7 +36,7 @@
                 },
                 {
                     "service_type": "grpc",
-                    "service_name": "sysmon-vm",
+                    "service_name": "sysmon-osx",
                     "details": "192.168.1.219:50110"
                 },
                 {
