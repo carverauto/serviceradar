@@ -6,6 +6,7 @@ go_library(
     name = "sysmon_vm_lib",
     srcs = ["main.go"],
     importpath = "github.com/carverauto/serviceradar/cmd/checkers/sysmon-vm",
+    target_compatible_with = ["@platforms//os:macos"],
     visibility = ["//visibility:private"],
     deps = [
         "//alias:sysmonvm",
@@ -25,6 +26,7 @@ go_library(
 go_binary(
     name = "sysmon-vm",
     embed = [":sysmon_vm_lib"],
+    target_compatible_with = ["@platforms//os:macos"],
 )
 
 exports_files(["sysmon-vm.json.example"])

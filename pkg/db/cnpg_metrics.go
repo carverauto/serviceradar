@@ -21,7 +21,7 @@ var nowUTC = func() time.Time {
 
 const (
 	insertTimeseriesMetricsSQL = `
-INSERT INTO timeseries_metrics (
+INSERT INTO public.timeseries_metrics (
 	timestamp,
 	poller_id,
 	agent_id,
@@ -44,7 +44,7 @@ INSERT INTO timeseries_metrics (
 )`
 
 	insertCPUMetricsSQL = `
-INSERT INTO cpu_metrics (
+INSERT INTO public.cpu_metrics (
 	timestamp,
 	poller_id,
 	agent_id,
@@ -62,7 +62,7 @@ INSERT INTO cpu_metrics (
 )`
 
 	insertCPUClusterMetricsSQL = `
-INSERT INTO cpu_cluster_metrics (
+INSERT INTO public.cpu_cluster_metrics (
 	timestamp,
 	poller_id,
 	agent_id,
@@ -76,7 +76,7 @@ INSERT INTO cpu_cluster_metrics (
 )`
 
 	insertDiskMetricsSQL = `
-INSERT INTO disk_metrics (
+INSERT INTO public.disk_metrics (
 	timestamp,
 	poller_id,
 	agent_id,
@@ -94,7 +94,7 @@ INSERT INTO disk_metrics (
 )`
 
 	insertMemoryMetricsSQL = `
-INSERT INTO memory_metrics (
+INSERT INTO public.memory_metrics (
 	timestamp,
 	poller_id,
 	agent_id,
@@ -110,7 +110,7 @@ INSERT INTO memory_metrics (
 )`
 
 	insertProcessMetricsSQL = `
-INSERT INTO process_metrics (
+INSERT INTO public.process_metrics (
 	timestamp,
 	poller_id,
 	agent_id,
@@ -169,8 +169,19 @@ func (db *DB) cnpgInsertCPUMetrics(
 	timestamp time.Time,
 ) error {
 	if len(cpus) == 0 || !db.useCNPGWrites() {
+		db.logger.Info().
+			Int("cpu_count", len(cpus)).
+			Bool("cnpg_writes", db.useCNPGWrites()).
+			Msg("cnpgInsertCPUMetrics: skipping (no cpus or writes disabled)")
 		return nil
 	}
+
+	db.logger.Info().
+		Str("poller_id", pollerID).
+		Str("device_id", deviceID).
+		Int("cpu_count", len(cpus)).
+		Time("timestamp", timestamp).
+		Msg("cnpgInsertCPUMetrics: building batch")
 
 	batch := &pgx.Batch{}
 	queued := 0
@@ -185,7 +196,25 @@ func (db *DB) cnpgInsertCPUMetrics(
 		return nil
 	}
 
-	return db.sendCNPG(ctx, batch, "cpu metrics")
+	db.logger.Info().
+		Int("queued", queued).
+		Msg("cnpgInsertCPUMetrics: sending batch")
+
+	if err := db.sendCNPG(ctx, batch, "cpu metrics"); err != nil {
+		db.logger.Error().
+			Err(err).
+			Str("device_id", deviceID).
+			Int("cpu_count", len(cpus)).
+			Msg("cnpgInsertCPUMetrics: batch insert failed")
+		return err
+	}
+
+	db.logger.Info().
+		Str("device_id", deviceID).
+		Int("cpu_count", len(cpus)).
+		Msg("cnpgInsertCPUMetrics: batch insert succeeded")
+
+	return nil
 }
 
 func (db *DB) cnpgInsertCPUClusterMetrics(
@@ -288,11 +317,21 @@ func (db *DB) cnpgInsertProcessMetrics(
 	return db.sendCNPG(ctx, batch, "process metrics")
 }
 
-func (db *DB) sendCNPG(ctx context.Context, batch *pgx.Batch, name string) error {
+func (db *DB) sendCNPG(ctx context.Context, batch *pgx.Batch, name string) (err error) {
 	br := db.pgPool.SendBatch(ctx, batch)
-	if err := br.Close(); err != nil {
-		return fmt.Errorf("cnpg %s insert: %w", name, err)
+	defer func() {
+		if closeErr := br.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("cnpg %s batch close: %w", name, closeErr)
+		}
+	}()
+
+	// Read results for each queued command to properly detect errors
+	for i := 0; i < batch.Len(); i++ {
+		if _, err = br.Exec(); err != nil {
+			return fmt.Errorf("cnpg %s insert (command %d): %w", name, i, err)
+		}
 	}
+
 	return nil
 }
 

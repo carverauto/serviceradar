@@ -205,9 +205,24 @@ func (db *DB) StoreSysmonMetrics(
 		return nil
 	}
 
+	if !db.useCNPGWrites() {
+		db.logger.Warn().Str("poller_id", pollerID).Msg("CNPG writes disabled; skipping sysmon metrics")
+		return nil
+	}
+
 	if deviceID == "" {
 		deviceID = fmt.Sprintf("%s:%s", partition, hostIP)
 	}
+
+	db.logger.Info().
+		Str("poller_id", pollerID).
+		Str("device_id", deviceID).
+		Int("cpu_count", len(sysmon.CPUs)).
+		Int("cluster_count", len(sysmon.Clusters)).
+		Int("disk_count", len(sysmon.Disks)).
+		Int("process_count", len(sysmon.Processes)).
+		Bool("has_memory", sysmon.Memory != nil).
+		Msg("Storing sysmon metrics")
 
 	if err := db.cnpgInsertCPUMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, sysmon.CPUs, timestamp); err != nil {
 		return fmt.Errorf("failed to store CPU metrics: %w", err)

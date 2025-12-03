@@ -25,6 +25,7 @@ alias(
 alias(
     name = "sysmonvm",
     actual = "//pkg/checker/sysmonvm:sysmonvm",
+    target_compatible_with = ["@platforms//os:macos"],
 )
 
 # pkg/cli
