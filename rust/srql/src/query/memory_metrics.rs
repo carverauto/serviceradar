@@ -125,7 +125,11 @@ fn apply_filter<'a>(mut query: MemoryQuery<'a>, filter: &Filter) -> Result<Memor
                 "available_bytes filter only supports equality"
             )?;
         }
-        _ => {}
+        other => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported filter field for memory_metrics: '{other}'"
+            )));
+        }
     }
 
     Ok(query)
@@ -211,4 +215,42 @@ fn parse_f64(raw: &str) -> Result<f64> {
 fn parse_i64(raw: &str) -> Result<i64> {
     raw.parse::<i64>()
         .map_err(|_| ServiceError::InvalidRequest("value must be an integer".into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::{Entity, Filter, FilterOp, FilterValue};
+    use chrono::{Duration as ChronoDuration, TimeZone, Utc};
+
+    #[test]
+    fn unknown_filter_field_returns_error() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(1);
+        let plan = QueryPlan {
+            entity: Entity::MemoryMetrics,
+            filters: vec![Filter {
+                field: "unknown_field".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("test".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: None,
+        };
+
+        let result = build_query(&plan);
+        match result {
+            Err(err) => {
+                assert!(
+                    err.to_string().contains("unsupported filter field"),
+                    "error should mention unsupported filter field: {}",
+                    err
+                );
+            }
+            Ok(_) => panic!("expected error for unknown filter field"),
+        }
+    }
 }
