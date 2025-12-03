@@ -81,7 +81,7 @@ fn apply_filter<'a>(mut query: TracesQuery<'a>, filter: &Filter) -> Result<Trace
         "parent_span_id" => {
             query = apply_text_filter!(query, filter, col_parent_span_id)?;
         }
-        "service_name" => {
+        "service_name" | "service.name" => {
             query = apply_text_filter!(query, filter, col_service_name)?;
         }
         "service_version" => {
