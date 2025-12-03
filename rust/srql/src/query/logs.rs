@@ -232,7 +232,11 @@ fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Result<LogsQue
                 ))
             }
         },
-        _ => {}
+        other => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported filter field for logs: '{other}'"
+            )));
+        }
     }
 
     Ok(query)
@@ -434,7 +438,9 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlB
         "severity_text" | "severity" | "level" => build_text_clause("severity_text", filter),
         "body" => build_text_clause("body", filter),
         "severity_number" => build_numeric_clause("severity_number", filter),
-        _ => Ok(None),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for logs stats: '{other}'"
+        ))),
     }
 }
 
@@ -608,6 +614,68 @@ mod tests {
             offset: 0,
             time_range: Some(TimeRange { start, end }),
             stats: Some(stats.to_string()),
+        }
+    }
+
+    #[test]
+    fn unknown_filter_field_returns_error() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(24);
+        let plan = QueryPlan {
+            entity: Entity::Logs,
+            filters: vec![Filter {
+                field: "unknown_field".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("test".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: None,
+        };
+
+        let result = build_query(&plan);
+        match result {
+            Err(err) => {
+                assert!(
+                    err.to_string().contains("unsupported filter field"),
+                    "error should mention unsupported filter field: {}",
+                    err
+                );
+            }
+            Ok(_) => panic!("expected error for unknown filter field"),
+        }
+    }
+
+    #[test]
+    fn unknown_stats_filter_field_returns_error() {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(24);
+        let plan = QueryPlan {
+            entity: Entity::Logs,
+            filters: vec![Filter {
+                field: "unknown_field".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("test".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: Some("count() as total".to_string()),
+        };
+
+        let result = build_stats_query(&plan);
+        match result {
+            Err(err) => {
+                assert!(
+                    err.to_string().contains("unsupported filter field"),
+                    "error should mention unsupported filter field: {}",
+                    err
+                );
+            }
+            Ok(_) => panic!("expected error for unknown stats filter field"),
         }
     }
 }

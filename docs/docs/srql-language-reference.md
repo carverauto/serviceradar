@@ -117,10 +117,200 @@ Set `stream:true` to subscribe to entity streams such as `ocsf_network_activity`
 - Inspect new OCSF columns in `pkg/db/migrations` before adding filters so names stay consistent with upstream schema revisions.
 - Validate complex queries with the `srql.validate` MCP tool or the SRQL CLI under `rust/srql`.
 
+## Supported Filter Fields by Entity
+
+Each entity supports a specific set of filter fields. Using an unsupported field will return an error indicating the invalid field name.
+
+### devices
+
+| Field | Description |
+|-------|-------------|
+| `device_id` | Unique device identifier |
+| `hostname` | Device hostname (supports wildcards) |
+| `ip` | IP address (supports wildcards) |
+| `mac` | MAC address (supports wildcards) |
+| `poller_id` | Associated poller ID |
+| `agent_id` | Associated agent ID |
+| `is_available` | Availability status (`true`/`false`) |
+| `device_type` | Type of device |
+| `service_type` | Type of service |
+| `service_status` | Service status |
+| `discovery_sources` | Sources that discovered this device (array containment) |
+
+### events
+
+| Field | Description |
+|-------|-------------|
+| `id` | Event identifier |
+| `type` | Event type |
+| `source` | Event source |
+| `subject` | Event subject |
+| `datacontenttype` | Content type of event data |
+| `remote_addr` | Remote address |
+| `host` | Host name |
+| `specversion` | CloudEvents spec version |
+| `severity` | Severity level |
+| `short_message` | Short message text |
+| `version` | Version string |
+| `level` | Numeric level |
+
+### logs
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `trace_id` | | OpenTelemetry trace ID |
+| `span_id` | | OpenTelemetry span ID |
+| `service_name` | | Name of the service |
+| `service_version` | | Service version |
+| `service_instance` | | Service instance identifier |
+| `scope_name` | | Instrumentation scope name |
+| `scope_version` | | Instrumentation scope version |
+| `severity_text` | `severity`, `level` | Text representation of severity |
+| `body` | | Log message body |
+| `severity_number` | | Numeric severity level |
+
+### traces (otel_traces)
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `trace_id` | | OpenTelemetry trace ID |
+| `span_id` | | Span identifier |
+| `parent_span_id` | | Parent span identifier |
+| `service_name` | | Name of the service |
+| `service_version` | | Service version |
+| `service_instance` | | Service instance identifier |
+| `scope_name` | | Instrumentation scope name |
+| `scope_version` | | Instrumentation scope version |
+| `name` | `span_name` | Span name |
+| `status_message` | | Status message |
+| `status_code` | | Numeric status code |
+| `kind` | `span_kind` | Span kind (integer) |
+
+### services
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `service_name` | `name` | Name of the service |
+| `service_type` | `type` | Type of service |
+| `poller_id` | | Associated poller ID |
+| `agent_id` | | Associated agent ID |
+| `partition` | | Partition identifier |
+| `message` | | Status message |
+| `available` | | Availability status (`true`/`false`) |
+
+### pollers
+
+| Field | Description |
+|-------|-------------|
+| `poller_id` | Poller identifier |
+| `status` | Poller status |
+| `component_id` | Component identifier |
+| `registration_source` | Registration source |
+| `spiffe_identity` | SPIFFE identity |
+| `created_by` | Creator identifier |
+| `is_healthy` | Health status (`true`/`false`) |
+
+### otel_metrics
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `trace_id` | | OpenTelemetry trace ID |
+| `span_id` | | Span identifier |
+| `service_name` | `service` | Name of the service |
+| `span_name` | | Span name |
+| `span_kind` | | Span kind |
+| `metric_type` | `type` | Type of metric |
+| `component` | | Component name |
+| `level` | | Level |
+| `http_method` | | HTTP method |
+| `http_route` | | HTTP route |
+| `http_status_code` | | HTTP status code |
+| `grpc_service` | | gRPC service name |
+| `grpc_method` | | gRPC method name |
+| `grpc_status_code` | | gRPC status code |
+| `is_slow` | | Slow request flag (`true`/`false`) |
+
+### cpu_metrics
+
+| Field | Description |
+|-------|-------------|
+| `poller_id` | Associated poller ID |
+| `agent_id` | Associated agent ID |
+| `host_id` | Host identifier |
+| `device_id` | Device identifier |
+| `partition` | Partition identifier |
+| `cluster` | Cluster name |
+| `label` | Label |
+| `core_id` | CPU core identifier |
+| `usage_percent` | CPU usage percentage |
+| `frequency_hz` | CPU frequency in Hz |
+
+### memory_metrics
+
+| Field | Description |
+|-------|-------------|
+| `poller_id` | Associated poller ID |
+| `agent_id` | Associated agent ID |
+| `host_id` | Host identifier |
+| `device_id` | Device identifier |
+| `partition` | Partition identifier |
+| `usage_percent` | Memory usage percentage |
+| `total_bytes` | Total memory in bytes |
+| `used_bytes` | Used memory in bytes |
+| `available_bytes` | Available memory in bytes |
+
+### disk_metrics
+
+| Field | Description |
+|-------|-------------|
+| `poller_id` | Associated poller ID |
+| `agent_id` | Associated agent ID |
+| `host_id` | Host identifier |
+| `device_id` | Device identifier |
+| `partition` | Partition identifier |
+| `mount_point` | Filesystem mount point |
+| `device_name` | Device name |
+| `usage_percent` | Disk usage percentage |
+| `total_bytes` | Total disk space in bytes |
+| `used_bytes` | Used disk space in bytes |
+| `available_bytes` | Available disk space in bytes |
+
+### timeseries_metrics
+
+| Field | Description |
+|-------|-------------|
+| `poller_id` | Associated poller ID |
+| `agent_id` | Associated agent ID |
+| `metric_name` | Name of the metric |
+| `metric_type` | Type of metric |
+| `device_id` | Device identifier |
+| `target_device_ip` | Target device IP address |
+| `partition` | Partition identifier |
+| `if_index` | Interface index |
+| `value` | Metric value |
+
+### interfaces
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `device_id` | | Device identifier |
+| `device_ip` | `ip` | Device IP address |
+| `poller_id` | | Associated poller ID |
+| `agent_id` | | Associated agent ID |
+| `if_name` | | Interface name |
+| `if_descr` | `description` | Interface description |
+| `if_alias` | | Interface alias |
+| `if_phys_address` | `mac` | Physical (MAC) address |
+| `if_admin_status` | | Administrative status |
+| `if_oper_status` | `status` | Operational status |
+| `if_speed` | `speed` | Interface speed |
+| `ip_addresses` | `ip_address` | IP addresses assigned to interface |
+
 ## Error Handling
 
 Common issues and suggested fixes:
-- **Unknown field** – The key cannot be mapped via `entity_mapping`. Check the OCSF migration files or use the CLI’s schema inspection.
+- **Unsupported filter field** – The field name is not valid for the specified entity. Check the [Supported Filter Fields](#supported-filter-fields-by-entity) section above for valid fields.
+- **Unknown field** – The key cannot be mapped via `entity_mapping`. Check the OCSF migration files or use the CLI's schema inspection.
 - **Missing target entity** – Add `in:<entity>` to specify which OCSF domain to query.
 - **Invalid time range** – Ensure `time:` ranges are well-formed (`last_<number><unit>` or `[start,end]`).
 - **Aggregation conflicts** – When using `stats`, ensure grouped fields appear inside the `by` clause and reference aliases correctly in `having`.
