@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
 
 	"github.com/carverauto/serviceradar/pkg/cpufreq"
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -99,6 +100,20 @@ func (s *Service) GetStatus(ctx context.Context, req *proto.StatusRequest) (*pro
 		})
 	}
 
+	memMetric := models.MemoryMetric{
+		Timestamp: now,
+		HostID:    hostID,
+		HostIP:    hostIP,
+		AgentID:   agentID,
+	}
+
+	if vmStats, err := mem.VirtualMemoryWithContext(ctx); err != nil {
+		s.log.Warn().Err(err).Msg("memory collection failed; reporting zeroes")
+	} else {
+		memMetric.TotalBytes = vmStats.Total
+		memMetric.UsedBytes = vmStats.Used
+	}
+
 	payload := struct {
 		Available    bool  `json:"available"`
 		ResponseTime int64 `json:"response_time"`
@@ -123,7 +138,7 @@ func (s *Service) GetStatus(ctx context.Context, req *proto.StatusRequest) (*pro
 	payload.Status.CPUs = cpus
 	payload.Status.Clusters = clusterMetrics
 	payload.Status.Disks = []models.DiskMetric{}
-	payload.Status.Memory = models.MemoryMetric{}
+	payload.Status.Memory = memMetric
 	payload.Status.Processes = []models.ProcessMetric{}
 
 	messageBytes, err := json.Marshal(payload)

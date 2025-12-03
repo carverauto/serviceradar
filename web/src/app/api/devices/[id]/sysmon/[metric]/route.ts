@@ -85,6 +85,9 @@ export async function GET(req: NextRequest, props: RouteProps) {
         }
 
         const data = await response.json();
+        if (data === null || data === undefined) {
+            return NextResponse.json([]);
+        }
         console.log(`Response data length: ${JSON.stringify(data).length}`);
         console.log(`Response data sample: ${JSON.stringify(data).slice(0, 200)}...`);
 
@@ -92,26 +95,26 @@ export async function GET(req: NextRequest, props: RouteProps) {
         let transformedData;
         if (metric === 'cpu') {
             transformedData = Array.isArray(data) ? data : {
-                cpus: data.cpus || [],
-                timestamp: data.timestamp || new Date().toISOString(),
+                cpus: data?.cpus || [],
+                timestamp: data?.timestamp || new Date().toISOString(),
             };
         } else if (metric === 'memory') {
             transformedData = Array.isArray(data) ? data : {
                 memory: {
-                    used_bytes: data.memory?.used_bytes || 0,
-                    total_bytes: data.memory?.total_bytes || 1,
+                    used_bytes: data?.memory?.used_bytes || 0,
+                    total_bytes: data?.memory?.total_bytes || 1,
                 },
-                timestamp: data.timestamp || new Date().toISOString(),
+                timestamp: data?.timestamp || new Date().toISOString(),
             };
         } else if (metric === 'disk') {
             transformedData = Array.isArray(data) ? data : {
-                disks: data.disks || [],
-                timestamp: data.timestamp || new Date().toISOString(),
+                disks: data?.disks || [],
+                timestamp: data?.timestamp || new Date().toISOString(),
             };
         } else if (metric === 'processes') {
             transformedData = Array.isArray(data) ? data : {
-                processes: data.processes || [],
-                timestamp: data.timestamp || new Date().toISOString(),
+                processes: data?.processes || [],
+                timestamp: data?.timestamp || new Date().toISOString(),
             };
         }
 

@@ -37,6 +37,8 @@ var (
 	errICMPDeviceIdentifiersMissing = errors.New("icmp device identifiers missing")
 )
 
+const sysmonStallPollThreshold = 5
+
 // createSNMPMetric creates a new timeseries metric from SNMP data
 func createSNMPMetric(
 	pollerID string,
@@ -867,13 +869,51 @@ func (s *Server) processSysmonMetrics(
 		return err
 	}
 
-	m := s.buildSysmonMetrics(sysmonPayload, pollerTimestamp, agentID)
-
-	// Create device_id for logging and device registration
-	deviceID := fmt.Sprintf("%s:%s", partition, sysmonPayload.Status.HostIP)
-	if snap := s.resolveCanonicalDevice(ctx, sysmonPayload.Status.HostIP, deviceID); strings.TrimSpace(snap.DeviceID) != "" {
-		deviceID = snap.DeviceID
+	hostIP := strings.TrimSpace(sysmonPayload.Status.HostIP)
+	hostID := strings.TrimSpace(sysmonPayload.Status.HostID)
+	if hostIP == "" {
+		if s.logger != nil {
+			s.logger.Warn().
+				Str("poller_id", pollerID).
+				Str("agent_id", agentID).
+				Msg("Sysmon payload missing host_ip; skipping metric buffer")
+		}
+		return nil
 	}
+
+	deviceID := fmt.Sprintf("%s:%s", partition, hostIP)
+	if snap := s.resolveCanonicalDevice(ctx, hostIP, deviceID); strings.TrimSpace(snap.DeviceID) != "" {
+		deviceID = snap.DeviceID
+		if trimmedIP := strings.TrimSpace(snap.IP); trimmedIP != "" {
+			hostIP = trimmedIP
+		}
+	}
+
+	hasMetrics := len(sysmonPayload.Status.CPUs) > 0 ||
+		len(sysmonPayload.Status.Clusters) > 0 ||
+		len(sysmonPayload.Status.Disks) > 0 ||
+		len(sysmonPayload.Status.Processes) > 0 ||
+		sysmonPayload.Status.Memory.TotalBytes > 0 ||
+		sysmonPayload.Status.Memory.UsedBytes > 0
+
+	if !hasMetrics || !sysmonPayload.Available {
+		reason := "sysmon payload had no metrics"
+		if !sysmonPayload.Available {
+			reason = "sysmon collector reported unavailable"
+		}
+
+		s.upsertCollectorCapabilities(ctx, deviceID, []string{"sysmon"}, agentID, pollerID, "sysmon", pollerTimestamp)
+		s.noteSysmonStall(ctx, deviceID, hostIP, hostID, agentID, pollerID, reason, pollerTimestamp)
+
+		return nil
+	}
+
+	sysmonPayload.Status.HostIP = hostIP
+	sysmonPayload.Status.HostID = hostID
+
+	s.noteSysmonSuccess(deviceID, pollerTimestamp)
+
+	m := s.buildSysmonMetrics(sysmonPayload, pollerTimestamp, agentID)
 
 	s.bufferSysmonMetrics(pollerID, partition, deviceID, m)
 
@@ -900,8 +940,8 @@ func (s *Server) processSysmonMetrics(
 		"agent_id":         agentID,
 		"poller_id":        pollerID,
 		"partition":        partition,
-		"host_ip":          sysmonPayload.Status.HostIP,
-		"host_id":          sysmonPayload.Status.HostID,
+		"host_ip":          hostIP,
+		"host_id":          hostID,
 		"cpu_count":        len(sysmonPayload.Status.CPUs),
 		"disk_count":       len(sysmonPayload.Status.Disks),
 		"process_count":    len(sysmonPayload.Status.Processes),
@@ -1235,6 +1275,113 @@ func (*Server) buildSysmonMetrics(
 	}
 
 	return m
+}
+
+func (s *Server) noteSysmonSuccess(deviceID string, when time.Time) {
+	if s == nil || deviceID == "" {
+		return
+	}
+
+	s.sysmonStallMu.Lock()
+	defer s.sysmonStallMu.Unlock()
+
+	if s.sysmonStall == nil {
+		s.sysmonStall = make(map[string]*sysmonStreamState)
+	}
+
+	state := s.sysmonStall[deviceID]
+	if state == nil {
+		state = &sysmonStreamState{}
+		s.sysmonStall[deviceID] = state
+	}
+
+	state.consecutiveEmpty = 0
+	state.lastSuccess = when
+}
+
+func (s *Server) noteSysmonStall(
+	ctx context.Context,
+	deviceID, hostIP, hostID, agentID, pollerID, reason string,
+	when time.Time,
+) {
+	if s == nil || deviceID == "" {
+		return
+	}
+
+	s.sysmonStallMu.Lock()
+	if s.sysmonStall == nil {
+		s.sysmonStall = make(map[string]*sysmonStreamState)
+	}
+
+	state := s.sysmonStall[deviceID]
+	if state == nil {
+		state = &sysmonStreamState{}
+		s.sysmonStall[deviceID] = state
+	}
+
+	state.consecutiveEmpty++
+	consecutive := state.consecutiveEmpty
+	lastSuccess := state.lastSuccess
+	lastAlert := state.lastAlert
+	s.sysmonStallMu.Unlock()
+
+	if consecutive < sysmonStallPollThreshold {
+		return
+	}
+
+	// Avoid flooding logs/events; only emit when we have been stalled for 5+ polls and not recently alerted.
+	if !lastAlert.IsZero() && when.Sub(lastAlert) < defaultFlushInterval {
+		return
+	}
+
+	if !lastSuccess.IsZero() && when.Sub(lastSuccess) < time.Duration(sysmonStallPollThreshold)*defaultFlushInterval {
+		return
+	}
+
+	s.sysmonStallMu.Lock()
+	state.lastAlert = when
+	s.sysmonStallMu.Unlock()
+
+	if s.logger != nil {
+		s.logger.Warn().
+			Str("device_id", deviceID).
+			Str("host_ip", hostIP).
+			Str("host_id", hostID).
+			Str("poller_id", pollerID).
+			Str("agent_id", agentID).
+			Int("consecutive_empty", consecutive).
+			Msg("Sysmon metrics stalled; skipping insert")
+	}
+
+	stalledSince := lastSuccess
+	if stalledSince.IsZero() {
+		stalledSince = when
+	}
+
+	metadata := map[string]any{
+		"host_ip":            hostIP,
+		"host_id":            hostID,
+		"agent_id":           agentID,
+		"poller_id":          pollerID,
+		"consecutive_empty":  consecutive,
+		"stalled_since":      stalledSince.Format(time.RFC3339Nano),
+		"sysmon_available":   false,
+		"sysmon_stall_event": true,
+		"failure_reason":     reason,
+	}
+
+	s.recordCapabilityEvent(ctx, &capabilityEventInput{
+		DeviceID:      deviceID,
+		Capability:    "sysmon",
+		ServiceID:     agentID,
+		ServiceType:   "sysmon",
+		RecordedBy:    pollerID,
+		Enabled:       true,
+		Success:       false,
+		CheckedAt:     when,
+		FailureReason: reason,
+		Metadata:      metadata,
+	})
 }
 
 func (s *Server) bufferSysmonMetrics(pollerID, partition, deviceID string, metrics *models.SysmonMetrics) {
