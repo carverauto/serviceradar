@@ -298,6 +298,32 @@ func TestAgentPoller_ExecuteChecks_WithErrors(t *testing.T) {
 	assert.Contains(t, fmt.Sprint(failingPayload["error"]), "Service check failed")
 }
 
+func TestEnrichPayloadWithHost_PreservesExistingHostIdentity(t *testing.T) {
+	raw := []byte(`{
+		"available": true,
+		"status": {
+			"host_ip": "192.0.2.10",
+			"hostname": "sysmon-vm",
+			"host_id": "sysmon-vm-01"
+		}
+	}`)
+
+	enriched := enrichPayloadWithHost(raw, "127.0.0.1", "collector-host")
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(enriched, &payload))
+
+	status, ok := payload["status"].(map[string]any)
+	require.True(t, ok)
+
+	// host_ip/hostname reported by the service should not be overwritten by collector metadata.
+	assert.Equal(t, "192.0.2.10", status["host_ip"])
+	assert.Equal(t, "sysmon-vm", status["hostname"])
+
+	_, topLevelHostIPPresent := payload["host_ip"]
+	assert.False(t, topLevelHostIPPresent)
+}
+
 func TestAgentPoller_ExecuteResults(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

@@ -148,6 +148,59 @@ func TestProcessServicePayload_SyncService_PayloadDetection(t *testing.T) {
 	}
 }
 
+func TestProcessSysmonMetrics_EmitsStallEventAfterEmptyPayloads(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	mockRegistry := registry.NewMockManager(ctrl)
+
+	mockRegistry.EXPECT().
+		SetDeviceCapabilitySnapshot(gomock.Any(), gomock.AssignableToTypeOf(&models.DeviceCapabilitySnapshot{})).
+		Do(func(_ context.Context, snapshot *models.DeviceCapabilitySnapshot) {
+			require.Equal(t, "sysmon", snapshot.Capability)
+			require.True(t, snapshot.Enabled)
+			require.Equal(t, "failed", snapshot.State)
+		}).
+		Times(1)
+	mockRegistry.EXPECT().
+		GetCollectorCapabilities(gomock.Any(), "default:192.0.2.10").
+		Return(nil, false).
+		AnyTimes()
+	mockRegistry.EXPECT().
+		SetCollectorCapabilities(gomock.Any(), gomock.AssignableToTypeOf(&models.CollectorCapability{})).
+		AnyTimes()
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), []string{"192.0.2.10"}, gomock.Nil()).
+		Return([]*models.UnifiedDevice{}, nil).
+		AnyTimes()
+
+	server := &Server{
+		DB:             mockDB,
+		DeviceRegistry: mockRegistry,
+		sysmonBuffers:  make(map[string][]*sysmonMetricBuffer),
+		sysmonStall:    make(map[string]*sysmonStreamState),
+		logger:         logger.NewTestLogger(),
+	}
+
+	now := time.Now().UTC()
+	payload := sysmonPayload{
+		Available: true,
+	}
+	payload.Status.Timestamp = now.Format(time.RFC3339Nano)
+	payload.Status.HostIP = "192.0.2.10"
+	payload.Status.HostID = "sysmon-vm-01"
+
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	for i := 0; i < sysmonStallPollThreshold; i++ {
+		err := server.processSysmonMetrics(ctx, testPollerID, "default", "agent-1", raw, now.Add(time.Duration(i)*time.Second))
+		require.NoError(t, err)
+	}
+}
+
 func TestProcessServicePayload_SyncService_WithEnhancedPayload(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

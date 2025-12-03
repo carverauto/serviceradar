@@ -47,6 +47,12 @@ type sysmonMetricBuffer struct {
 	DeviceID  string
 }
 
+type sysmonStreamState struct {
+	consecutiveEmpty int
+	lastSuccess      time.Time
+	lastAlert        time.Time
+}
+
 // Server represents the core ServiceRadar server instance with all its dependencies and configuration.
 type Server struct {
 	proto.UnimplementedPollerServiceServer
@@ -81,10 +87,12 @@ type Server struct {
 	serviceBuffers          map[string][]*models.ServiceStatus
 	serviceListBuffers      map[string][]*models.Service
 	sysmonBuffers           map[string][]*sysmonMetricBuffer
+	sysmonStall             map[string]*sysmonStreamState
 	metricBufferMu          sync.RWMutex
 	serviceBufferMu         sync.RWMutex
 	serviceListBufferMu     sync.RWMutex
 	sysmonBufferMu          sync.RWMutex
+	sysmonStallMu           sync.Mutex
 	serviceDeviceMu         sync.Mutex
 	serviceDeviceBuffer     map[string]*models.DeviceUpdate
 	pollerStatusCache       map[string]*models.PollerStatus

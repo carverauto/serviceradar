@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -434,10 +435,23 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 	s.sysmonBufferMu.Lock()
 	defer s.sysmonBufferMu.Unlock()
 
+	cnpgWritesEnabled := true
+	if concreteDB, ok := s.DB.(*db.DB); ok {
+		cnpgWritesEnabled = concreteDB.UseCNPGWrites()
+	} else {
+		s.logger.Warn().Msg("flushSysmonMetrics: database is not *db.DB; cannot verify CNPG write path")
+	}
+
 	for pollerID, sysmonMetrics := range s.sysmonBuffers {
 		if len(sysmonMetrics) == 0 {
 			continue
 		}
+
+		s.logger.Info().
+			Str("poller_id", pollerID).
+			Int("buffer_count", len(sysmonMetrics)).
+			Bool("cnpg_writes_enabled", cnpgWritesEnabled).
+			Msg("Flushing sysmon buffers to database")
 
 		for _, metricBuffer := range sysmonMetrics {
 			metric := metricBuffer.Metrics
@@ -477,6 +491,16 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 					Err(err).
 					Str("poller_id", pollerID).
 					Msg("Failed to flush sysmon metrics")
+			} else {
+				hasMemory := metric.Memory != nil && (metric.Memory.TotalBytes > 0 || metric.Memory.UsedBytes > 0)
+				s.logger.Info().
+					Str("poller_id", pollerID).
+					Str("device_id", deviceID).
+					Int("cpu_count", len(metric.CPUs)).
+					Int("disk_count", len(metric.Disks)).
+					Int("process_count", len(metric.Processes)).
+					Bool("has_memory", hasMemory).
+					Msg("Flushed sysmon metrics to database")
 			}
 		}
 

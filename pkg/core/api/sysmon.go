@@ -370,15 +370,13 @@ func (s *APIServer) handleDeviceSysmonMetrics(
 		return
 	}
 
-	// Check if metrics slice is empty using reflection since we're dealing with interface{}
 	metricsValue := reflect.ValueOf(metrics)
-	if metricsValue.Kind() == reflect.Slice && metricsValue.Len() == 0 {
-		writeError(w, "No metrics found", http.StatusNotFound)
-
-		return
+	count := 0
+	if metricsValue.Kind() == reflect.Slice {
+		count = metricsValue.Len()
 	}
 
-	s.logger.Debug().Int("count", metricsValue.Len()).Str("metric_type", metricType).Str("device_id", deviceID).Msg("Fetched metrics")
+	s.logger.Debug().Int("count", count).Str("metric_type", metricType).Str("device_id", deviceID).Msg("Fetched metrics")
 
 	w.Header().Set("Content-Type", "application/json")
 
@@ -533,7 +531,7 @@ func (s *APIServer) getMemoryMetricsForDevice(
 		}
 	}()
 
-	var result []models.SysmonMemoryResponse
+	result := make([]models.SysmonMemoryResponse, 0)
 
 	for rows.Next() {
 		var timestamp time.Time

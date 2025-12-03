@@ -499,14 +499,44 @@ func enrichPayloadWithHost(message []byte, ip, host string) []byte {
 		statusNode = make(map[string]any)
 	}
 
-	if ip != "" {
+	// Preserve any host_ip/ip already reported by the service; only backfill when absent.
+	hasIP := func(m map[string]any) bool {
+		if m == nil {
+			return false
+		}
+		for _, key := range []string{"host_ip", "ip"} {
+			if val, ok := m[key]; ok {
+				if str, ok := val.(string); ok && strings.TrimSpace(str) != "" {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	if ip != "" && !hasIP(statusNode) && !hasIP(payload) {
 		statusNode["host_ip"] = ip
 		statusNode["ip"] = ip
 		payload["host_ip"] = ip
 		payload["ip"] = ip
 	}
 
-	if host != "" {
+	// Preserve hostname reported by the service; only backfill when missing.
+	hasHost := func(m map[string]any) bool {
+		if m == nil {
+			return false
+		}
+		for _, key := range []string{"host_name", "hostname"} {
+			if val, ok := m[key]; ok {
+				if str, ok := val.(string); ok && strings.TrimSpace(str) != "" {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	if host != "" && !hasHost(statusNode) && !hasHost(payload) {
 		statusNode["host_name"] = host
 		if _, exists := statusNode["hostname"]; !exists {
 			statusNode["hostname"] = host
