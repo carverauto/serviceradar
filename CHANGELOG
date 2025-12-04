@@ -1,3 +1,14 @@
+# ServiceRadar v1.0.63
+
+Next.js/React security patch and AGE graph permissions fix.
+
+## Whats New
+
+**1.0.63**
+- Updated the web UI to Next.js 16.0.7 with react-dom 19.2.1 to remediate December 2025 advisories; rebuilt/pushed images (`sha-a85eb7e52726a5471913d0ba61d20ceb2d4d35da`) and refreshed the demo release.
+- Hardened AGE graph bootstrap migrations with explicit extension/sequence grants and idempotent search_path defaults so CNPG upgrades no longer fail on permissions.
+- Bumped SPIRE controller-manager resources and kept helm/chart defaults aligned with the new image tag.
+
 # ServiceRadar v1.0.62
 
 sysmon-vm renamed to sysmon-osx and security updates.
