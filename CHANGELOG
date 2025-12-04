@@ -1,3 +1,16 @@
+# ServiceRadar v1.0.64
+
+Edge onboarding support for Rust sysmon checker.
+
+## Whats New
+
+**1.0.64**
+- Added edge onboarding library (`rust/edge-onboarding`) for Rust-based checkers, mirroring the Go `pkg/edgeonboarding` package.
+- Integrated mTLS bootstrap into the sysmon checker with `--mtls`, `--token`, `--host`, and `--cert-dir` CLI flags.
+- Supports `ONBOARDING_TOKEN` environment variable for zero-touch token-based installation.
+- Generates and persists checker configuration from onboarding packages with proper certificate permissions.
+- Updated AGENTS.md with edge onboarding testing playbook for Docker mTLS Compose stack.
+
 # ServiceRadar v1.0.63
 
 Next.js/React security patch and AGE graph permissions fix.
