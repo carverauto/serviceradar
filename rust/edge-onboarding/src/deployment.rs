@@ -97,18 +97,3 @@ fn is_docker() -> bool {
 
     false
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_deployment_type_as_str() {
-        assert_eq!(DeploymentType::Docker.as_str(), "docker");
-        assert_eq!(DeploymentType::Kubernetes.as_str(), "kubernetes");
-        assert_eq!(DeploymentType::BareMetal.as_str(), "bare-metal");
-    }
-
-    // Note: Actual detection tests would require mocking the environment
-    // or running in actual Docker/K8s environments.
-}

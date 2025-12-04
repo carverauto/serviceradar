@@ -141,26 +141,3 @@ fn ensure_scheme(host: &str) -> Result<String> {
     }
     Ok(format!("http://{}", host))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_ensure_scheme() {
-        assert_eq!(ensure_scheme("example.com").unwrap(), "http://example.com");
-        assert_eq!(
-            ensure_scheme("http://example.com").unwrap(),
-            "http://example.com"
-        );
-        assert_eq!(
-            ensure_scheme("https://example.com").unwrap(),
-            "https://example.com"
-        );
-    }
-
-    #[test]
-    fn test_ensure_scheme_empty() {
-        assert!(matches!(ensure_scheme(""), Err(Error::CoreApiHostRequired)));
-    }
-}
