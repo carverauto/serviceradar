@@ -38,5 +38,9 @@ rust_binary(
     name = "sysmon",
     srcs = ["src/main.rs"],
     edition = "2021",
-    deps = [":sysmon_lib", "//rust/config-bootstrap:config_bootstrap"] + all_crate_deps(normal = True),
+    deps = [
+        ":sysmon_lib",
+        "//rust/config-bootstrap:config_bootstrap",
+        "//rust/edge-onboarding:edge_onboarding",
+    ] + all_crate_deps(normal = True),
 )
