@@ -997,10 +997,10 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 """,
-    sha256 = "26575fa9e287a6107a6bf162bacab4932b0df19bee38d28c132f9a2d6591d647",
-    strip_prefix = "timescaledb-2.23.1",
+    sha256 = "06a5d38c52bebb364104541002ccfb9ea739f93183c339895f0d1ed90b005e17",
+    strip_prefix = "timescaledb-2.24.0",
     urls = [
-        "https://github.com/timescale/timescaledb/archive/refs/tags/2.23.1.tar.gz",
+        "https://github.com/timescale/timescaledb/archive/refs/tags/2.24.0.tar.gz",
     ],
 )
 

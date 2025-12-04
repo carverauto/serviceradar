@@ -76,6 +76,7 @@ spec:
       containers:
       - name: core
         image: ghcr.io/carverauto/serviceradar-core:{{ .Values.image.tags.core }}
+        imagePullPolicy: Always
         command: ["/bin/bash"]
         args:
         - -c
