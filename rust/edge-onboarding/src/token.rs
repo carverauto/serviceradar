@@ -148,6 +148,7 @@ fn looks_like_url(raw: &str) -> bool {
 }
 
 /// Encode a token payload into the edgepkg-v1 format.
+#[allow(dead_code)]
 pub fn encode_token(payload: &TokenPayload) -> Result<String> {
     validate_token_payload(payload)?;
     let json = serde_json::to_vec(payload)?;
@@ -211,5 +212,114 @@ mod tests {
 
         let parsed = parse_token(&token, None, Some("https://fallback.com")).unwrap();
         assert_eq!(parsed.core_url, Some("https://fallback.com".to_string()));
+    }
+
+    #[test]
+    fn test_whitespace_only_token() {
+        let result = parse_token("   ", None, None);
+        assert!(matches!(result, Err(Error::TokenRequired)));
+    }
+
+    #[test]
+    fn test_invalid_base64_token() {
+        // Invalid base64 after the prefix
+        let result = parse_token("edgepkg-v1:!!!invalid!!!", None, None);
+        assert!(matches!(result, Err(Error::Base64Decode(_))));
+    }
+
+    #[test]
+    fn test_invalid_json_in_token() {
+        // Valid base64 but invalid JSON
+        let invalid_json = URL_SAFE_NO_PAD.encode(b"not json");
+        let token = format!("{}{}", TOKEN_PREFIX, invalid_json);
+        let result = parse_token(&token, None, None);
+        assert!(matches!(result, Err(Error::Json(_))));
+    }
+
+    #[test]
+    fn test_token_missing_package_id() {
+        // When the JSON is missing the `pkg` field, serde returns a JSON parse error
+        let json = serde_json::json!({"dl": "token-123"});
+        let encoded = URL_SAFE_NO_PAD.encode(json.to_string().as_bytes());
+        let token = format!("{}{}", TOKEN_PREFIX, encoded);
+        let result = parse_token(&token, None, None);
+        // This fails with JSON error because pkg is a required field in the struct
+        assert!(matches!(result, Err(Error::Json(_))));
+    }
+
+    #[test]
+    fn test_token_missing_download_token() {
+        // When the JSON is missing the `dl` field, serde returns a JSON parse error
+        let json = serde_json::json!({"pkg": "pkg-123"});
+        let encoded = URL_SAFE_NO_PAD.encode(json.to_string().as_bytes());
+        let token = format!("{}{}", TOKEN_PREFIX, encoded);
+        let result = parse_token(&token, None, None);
+        // This fails with JSON error because dl is a required field in the struct
+        assert!(matches!(result, Err(Error::Json(_))));
+    }
+
+    #[test]
+    fn test_token_empty_package_id_with_fallback() {
+        // Test fallback for empty (but present) package_id
+        let json = serde_json::json!({"pkg": "", "dl": "token-123"});
+        let encoded = URL_SAFE_NO_PAD.encode(json.to_string().as_bytes());
+        let token = format!("{}{}", TOKEN_PREFIX, encoded);
+        let parsed = parse_token(&token, Some("fallback-pkg"), None).unwrap();
+        assert_eq!(parsed.package_id, "fallback-pkg");
+        assert_eq!(parsed.download_token, "token-123");
+    }
+
+    #[test]
+    fn test_legacy_token_no_separator() {
+        // No separator - entire string becomes download_token, needs fallback package_id
+        let result = parse_token("only-token-here", Some("fallback-pkg"), None).unwrap();
+        assert_eq!(result.package_id, "fallback-pkg");
+        assert_eq!(result.download_token, "only-token-here");
+    }
+
+    #[test]
+    fn test_legacy_token_no_separator_no_fallback() {
+        // No separator and no fallback - fails with MissingPackageId
+        let result = parse_token("only-token-here", None, None);
+        assert!(matches!(result, Err(Error::MissingPackageId)));
+    }
+
+    #[test]
+    fn test_legacy_token_empty_parts() {
+        let result = parse_token(":", None, None);
+        assert!(matches!(result, Err(Error::MissingPackageId)));
+    }
+
+    #[test]
+    fn test_encode_token_validation() {
+        // Test that encode_token validates the payload
+        let empty_pkg = TokenPayload {
+            package_id: "".to_string(),
+            download_token: "token".to_string(),
+            core_url: None,
+        };
+        let result = encode_token(&empty_pkg);
+        assert!(matches!(result, Err(Error::MissingPackageId)));
+
+        let empty_dl = TokenPayload {
+            package_id: "pkg".to_string(),
+            download_token: "".to_string(),
+            core_url: None,
+        };
+        let result = encode_token(&empty_dl);
+        assert!(matches!(result, Err(Error::MissingDownloadToken)));
+    }
+
+    #[test]
+    fn test_token_payload_clone() {
+        let payload = TokenPayload {
+            package_id: "pkg-123".to_string(),
+            download_token: "dl-456".to_string(),
+            core_url: Some("http://example.com".to_string()),
+        };
+        let cloned = payload.clone();
+        assert_eq!(cloned.package_id, payload.package_id);
+        assert_eq!(cloned.download_token, payload.download_token);
+        assert_eq!(cloned.core_url, payload.core_url);
     }
 }

@@ -336,3 +336,133 @@ fn generate_checker_config_mtls(
         process_monitoring: None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_component_type_as_str() {
+        assert_eq!(ComponentType::Poller.as_str(), "poller");
+        assert_eq!(ComponentType::Agent.as_str(), "agent");
+        assert_eq!(ComponentType::Checker.as_str(), "checker");
+    }
+
+    #[test]
+    fn test_component_type_config_filename() {
+        assert_eq!(ComponentType::Poller.config_filename(), "poller.json");
+        assert_eq!(ComponentType::Agent.config_filename(), "agent.json");
+        assert_eq!(ComponentType::Checker.config_filename(), "checker.json");
+    }
+
+    #[test]
+    fn test_get_storage_path_docker() {
+        let path = get_storage_path(&DeploymentType::Docker, ComponentType::Checker);
+        assert_eq!(path, PathBuf::from("/var/lib/serviceradar/checker"));
+    }
+
+    #[test]
+    fn test_get_storage_path_kubernetes() {
+        let path = get_storage_path(&DeploymentType::Kubernetes, ComponentType::Poller);
+        assert_eq!(path, PathBuf::from("/var/lib/serviceradar/poller"));
+    }
+
+    #[test]
+    fn test_get_storage_path_bare_metal() {
+        let path = get_storage_path(&DeploymentType::BareMetal, ComponentType::Agent);
+        assert_eq!(path, PathBuf::from("/var/lib/serviceradar/agent"));
+    }
+
+    #[test]
+    fn test_generate_checker_config_mtls_defaults() {
+        let security = SecurityConfig {
+            tls_enabled: Some(true),
+            mode: Some(SecurityMode::Mtls),
+            cert_dir: Some("/tmp/certs".to_string()),
+            cert_file: Some("client.pem".to_string()),
+            key_file: Some("client-key.pem".to_string()),
+            ca_file: Some("ca.pem".to_string()),
+            client_ca_file: Some("ca.pem".to_string()),
+            trust_domain: None,
+            workload_socket: None,
+            server_spiffe_id: None,
+        };
+
+        let config = generate_checker_config_mtls(&security, &DeploymentType::Docker);
+
+        assert_eq!(config.listen_addr, "0.0.0.0:50083");
+        assert_eq!(config.poll_interval, 30);
+        assert!(config.security.is_some());
+        assert_eq!(config.filesystems.len(), 1);
+        assert_eq!(config.filesystems[0].name, "/");
+    }
+
+    #[test]
+    fn test_try_onboard_no_token() {
+        // Clear the env var if set
+        std::env::remove_var("ONBOARDING_TOKEN");
+
+        // Should return None when no token is present
+        let result = try_onboard(ComponentType::Checker).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_try_onboard_empty_token() {
+        std::env::set_var("ONBOARDING_TOKEN", "");
+
+        let result = try_onboard(ComponentType::Checker).unwrap();
+        assert!(result.is_none());
+
+        std::env::remove_var("ONBOARDING_TOKEN");
+    }
+
+    #[test]
+    fn test_try_onboard_whitespace_token() {
+        std::env::set_var("ONBOARDING_TOKEN", "   ");
+
+        let result = try_onboard(ComponentType::Checker).unwrap();
+        assert!(result.is_none());
+
+        std::env::remove_var("ONBOARDING_TOKEN");
+    }
+
+    #[test]
+    fn test_mtls_bootstrap_config_fields() {
+        let cfg = MtlsBootstrapConfig {
+            token: "edgepkg-v1:abc".to_string(),
+            host: Some("http://localhost:8090".to_string()),
+            bundle_path: None,
+            cert_dir: Some("/tmp/certs".to_string()),
+            service_name: Some("sysmon".to_string()),
+        };
+
+        assert_eq!(cfg.token, "edgepkg-v1:abc");
+        assert_eq!(cfg.host.as_deref(), Some("http://localhost:8090"));
+        assert!(cfg.bundle_path.is_none());
+        assert_eq!(cfg.cert_dir.as_deref(), Some("/tmp/certs"));
+        assert_eq!(cfg.service_name.as_deref(), Some("sysmon"));
+    }
+
+    #[test]
+    fn test_onboarding_result_fields() {
+        let result = OnboardingResult {
+            config_path: "/etc/config/checker.json".to_string(),
+            config_data: vec![1, 2, 3],
+            spiffe_id: Some("spiffe://example.com/service".to_string()),
+            package_id: "pkg-123".to_string(),
+            deployment_type: DeploymentType::Docker,
+            cert_dir: "/etc/certs".to_string(),
+        };
+
+        assert_eq!(result.config_path, "/etc/config/checker.json");
+        assert_eq!(result.config_data, vec![1, 2, 3]);
+        assert_eq!(
+            result.spiffe_id,
+            Some("spiffe://example.com/service".to_string())
+        );
+        assert_eq!(result.package_id, "pkg-123");
+        assert_eq!(result.deployment_type, DeploymentType::Docker);
+        assert_eq!(result.cert_dir, "/etc/certs");
+    }
+}
