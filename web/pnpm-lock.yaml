@@ -22,7 +22,7 @@ importers:
         version: 0.8.5
       knip:
         specifier: ^5.57.2
-        version: 5.57.2(@types/node@20.17.30)(typescript@5.8.3)
+        version: 5.57.2(@types/node@20.19.0)(typescript@5.8.3)
       lodash:
         specifier: ^4.17.21
         version: 4.17.21
@@ -79,8 +79,8 @@ importers:
         specifier: ^4.3.9
         version: 4.3.9
       '@types/node':
-        specifier: 20.17.30
-        version: 20.17.30
+        specifier: 20.19.0
+        version: 20.19.0
       '@types/react':
         specifier: 19.2.2
         version: 19.2.2
@@ -104,7 +104,7 @@ importers:
         version: 5.8.3
       vitest:
         specifier: ^4.0.1
-        version: 4.0.1(@types/node@20.17.30)(jiti@2.4.2)(yaml@2.8.0)
+        version: 4.0.1(@types/node@20.19.0)(jiti@2.4.2)(yaml@2.8.0)
 
 packages:
 
@@ -1025,8 +1025,8 @@ packages:
   '@types/lodash@4.17.17':
     resolution: {integrity: sha512-RRVJ+J3J+WmyOTqnz3PiBLA501eKwXl2noseKOrNo/6+XEHjTAxO4xHvxQB6QuNm+s4WRbn6rSiap8+EA+ykFQ==}
 
-  '@types/node@20.17.30':
-    resolution: {integrity: sha512-7zf4YyHA+jvBNfVrk2Gtvs6x7E8V+YDW05bNfG2XkWDJfYRXrTiP/DsB2zSYTaHX0bGIujTBQdMVAhb+j7mwpg==}
+  '@types/node@20.19.0':
+    resolution: {integrity: sha512-hfrc+1tud1xcdVTABC2JiomZJEklMcXYNTVtZLAeqTVWD+qL5jkHKT+1lOtqDdGxt+mB53DTtiz673vfjU8D1Q==}
 
   '@types/react-dom@19.2.2':
     resolution: {integrity: sha512-9KQPoO6mZCi7jcIStSnlOWn2nEF3mNmyr3rIAsGnAbQKYbRLyqmeSc39EVgtxXVia+LMT8j3knZLAZAh+xLmrw==}
@@ -2850,8 +2850,8 @@ packages:
     resolution: {integrity: sha512-nWJ91DjeOkej/TA8pXQ3myruKpKEYgqvpw9lz4OPHj/NWFNluYrjbz9j01CJ8yKQd2g4jFoOkINCTW2I5LEEyw==}
     engines: {node: '>= 0.4'}
 
-  undici-types@6.19.8:
-    resolution: {integrity: sha512-ve2KP6f/JnbPBFyobGHuerC9g1FYGn/F8n1LWTwNxCEzd6IfqTwUQcNXgEtmmQ6DlRrC1hrSrBnCZPokRrDHjw==}
+  undici-types@6.21.0:
+    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
   unrs-resolver@1.11.1:
     resolution: {integrity: sha512-bSjt9pjaEBnNiGgc9rUiHGKv5l4/TGzDmYw3RhnkJGtLhbnnA/5qJj7x3dNDCRx/PJxu774LlH8lCOlB4hEfKg==}
@@ -3897,9 +3897,9 @@ snapshots:
 
   '@types/lodash@4.17.17': {}
 
-  '@types/node@20.17.30':
+  '@types/node@20.19.0':
     dependencies:
-      undici-types: 6.19.8
+      undici-types: 6.21.0
 
   '@types/react-dom@19.2.2(@types/react@19.2.2)':
     dependencies:
@@ -4069,13 +4069,13 @@ snapshots:
       chai: 6.2.0
       tinyrainbow: 3.0.3
 
-  '@vitest/mocker@4.0.1(vite@7.1.11(@types/node@20.17.30)(jiti@2.4.2)(yaml@2.8.0))':
+  '@vitest/mocker@4.0.1(vite@7.1.11(@types/node@20.19.0)(jiti@2.4.2)(yaml@2.8.0))':
     dependencies:
       '@vitest/spy': 4.0.1
       estree-walker: 3.0.3
       magic-string: 0.30.19
     optionalDependencies:
-      vite: 7.1.11(@types/node@20.17.30)(jiti@2.4.2)(yaml@2.8.0)
+      vite: 7.1.11(@types/node@20.19.0)(jiti@2.4.2)(yaml@2.8.0)
 
   '@vitest/pretty-format@4.0.1':
     dependencies:
@@ -5215,10 +5215,10 @@ snapshots:
     dependencies:
       json-buffer: 3.0.1
 
-  knip@5.57.2(@types/node@20.17.30)(typescript@5.8.3):
+  knip@5.57.2(@types/node@20.19.0)(typescript@5.8.3):
     dependencies:
       '@nodelib/fs.walk': 1.2.8
-      '@types/node': 20.17.30
+      '@types/node': 20.19.0
       fast-glob: 3.3.3
       formatly: 0.2.3
       jiti: 2.4.2
@@ -6054,7 +6054,7 @@ snapshots:
       has-symbols: 1.1.0
       which-boxed-primitive: 1.1.1
 
-  undici-types@6.19.8: {}
+  undici-types@6.21.0: {}
 
   unrs-resolver@1.11.1:
     dependencies:
@@ -6136,7 +6136,7 @@ snapshots:
       d3-time: 3.1.0
       d3-timer: 3.0.1
 
-  vite@7.1.11(@types/node@20.17.30)(jiti@2.4.2)(yaml@2.8.0):
+  vite@7.1.11(@types/node@20.19.0)(jiti@2.4.2)(yaml@2.8.0):
     dependencies:
       esbuild: 0.25.11
       fdir: 6.5.0(picomatch@4.0.3)
@@ -6145,15 +6145,15 @@ snapshots:
       rollup: 4.52.5
       tinyglobby: 0.2.15
     optionalDependencies:
-      '@types/node': 20.17.30
+      '@types/node': 20.19.0
       fsevents: 2.3.3
       jiti: 2.4.2
       yaml: 2.8.0
 
-  vitest@4.0.1(@types/node@20.17.30)(jiti@2.4.2)(yaml@2.8.0):
+  vitest@4.0.1(@types/node@20.19.0)(jiti@2.4.2)(yaml@2.8.0):
     dependencies:
       '@vitest/expect': 4.0.1
-      '@vitest/mocker': 4.0.1(vite@7.1.11(@types/node@20.17.30)(jiti@2.4.2)(yaml@2.8.0))
+      '@vitest/mocker': 4.0.1(vite@7.1.11(@types/node@20.19.0)(jiti@2.4.2)(yaml@2.8.0))
       '@vitest/pretty-format': 4.0.1
       '@vitest/runner': 4.0.1
       '@vitest/snapshot': 4.0.1
@@ -6170,10 +6170,10 @@ snapshots:
       tinyexec: 0.3.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.0.3
-      vite: 7.1.11(@types/node@20.17.30)(jiti@2.4.2)(yaml@2.8.0)
+      vite: 7.1.11(@types/node@20.19.0)(jiti@2.4.2)(yaml@2.8.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
-      '@types/node': 20.17.30
+      '@types/node': 20.19.0
     transitivePeerDependencies:
       - jiti
       - less

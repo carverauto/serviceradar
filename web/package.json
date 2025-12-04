@@ -35,7 +35,7 @@
     "@types/dagre": "^0.7.52",
     "@types/lodash": "^4.17.16",
     "@types/lodash.set": "^4.3.9",
-    "@types/node": "20.17.30",
+    "@types/node": "20.19.0",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
     "eslint": "^9",
