@@ -22,6 +22,9 @@ coverage.txt
 .vscode
 .DS_Store
 
+# Local tool caches
+.beads/
+
 # Added by me
 /k8s/robusta/generated_values.yaml
 
