@@ -25,6 +25,7 @@ go_library(
         "@org_golang_google_grpc//status:go_default_library",
         "@org_golang_x_sync//errgroup",
         "@org_uber_go_mock//gomock",
+        "@com_github_jackc_pgx_v5//pgconn:go_default_library",
     ],
 )
 

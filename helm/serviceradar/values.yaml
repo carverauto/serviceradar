@@ -2,7 +2,7 @@ namespace: demo
 image:
   registryPullSecret: ghcr-io-cred
   tags:
-    appTag: &appTag "sha-a85eb7e52726a5471913d0ba61d20ceb2d4d35da"
+    appTag: &appTag "sha-439b1d567900ba889e0d1f0d4596ca156782137e"
     # ServiceRadar UUID identity system - generates stable device IDs based on strong identifiers
     core: *appTag
     web: *appTag
@@ -242,7 +242,7 @@ spire:
     password: changeme
     image: ghcr.io/carverauto/serviceradar-cnpg
     imageTag: ""
-    imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2@sha256:aa49dec4057652983bfbb134d561c5461093da80a0b256804a8e5a79481f3b88
+    imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2@sha256:8d642db579f8162634996d55cff1c639f2285f99375ee693b24546f5a6e6437f
     imagePullSecrets: []
     sharedPreloadLibraries:
       - timescaledb

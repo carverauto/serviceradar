@@ -82,3 +82,7 @@ Use the same `psql` entrypoint above (`docker compose ... exec cnpg psql ... -c 
   LIMIT 10;
   ```
 - The stored helper should mirror those edges: `SELECT jsonb_pretty(public.age_device_neighborhood('<device_id>', false, true));` will include `interfaces` and `peer_interfaces` when mapper topology edges exist.
+
+## Contention and backpressure checks
+- Core now serializes AGE writes through a bounded queue with retries for transient `XX000`/`57014` errors. Watch for backpressure by scraping the metrics `age_graph_queue_depth` and `age_graph_queue_capacity` (OTel meter `serviceradar.age_graph`), or by tailing core logs for `age graph: transient merge failure, will retry`.
+- If `queue_depth` approaches `queue_capacity` (default 64) or logs show repeated retries, reduce concurrent backfill/ingest: pause `age-backfill`, wait for queue drain, then resume. The writer will retry transient conflicts automatically; persistent failures will emit `age graph: merge failed` with SQLSTATE details.

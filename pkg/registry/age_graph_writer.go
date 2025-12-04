@@ -3,9 +3,16 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -24,18 +31,65 @@ func NewAGEGraphWriter(executor db.QueryExecutor, log logger.Logger) GraphWriter
 	if executor == nil {
 		return nil
 	}
+
+	queueSize := parseEnvInt(ageGraphQueueEnv, defaultAgeGraphQueueSize)
+	chunkSize := parseEnvInt(ageGraphChunkSizeEnv, defaultAgeGraphChunkSize)
+	workerCount := parseEnvInt(ageGraphWorkersEnv, defaultAgeGraphWorkers)
+	if workerCount < 1 {
+		workerCount = defaultAgeGraphWorkers
+	}
+	requestTimeout := parseEnvDuration(ageGraphTimeoutEnv, defaultAgeGraphTimeout)
 	return &ageGraphWriter{
-		executor: executor,
-		log:      log,
+		executor:       executor,
+		log:            log,
+		workQueue:      make(chan *ageGraphRequest, queueSize),
+		queueCapacity:  queueSize,
+		chunkSize:      chunkSize,
+		workerCount:    workerCount,
+		requestTimeout: requestTimeout,
 	}
 }
 
 type ageGraphWriter struct {
-	executor     db.QueryExecutor
-	log          logger.Logger
-	successCount uint64
-	failureCount uint64
+	executor       db.QueryExecutor
+	log            logger.Logger
+	successCount   uint64
+	failureCount   uint64
+	workQueue      chan *ageGraphRequest
+	queueStarted   sync.Once
+	queueCapacity  int
+	chunkSize      int
+	workerCount    int
+	requestTimeout time.Duration
 }
+
+type ageGraphRequest struct {
+	ctx        context.Context
+	kind       string
+	size       int
+	payload    string
+	query      string
+	result     chan error
+	enqueuedAt time.Time
+}
+
+const (
+	defaultAgeGraphQueueSize   = 512
+	defaultAgeGraphMaxAttempts = 3
+	defaultAgeGraphBackoff     = 150 * time.Millisecond
+	defaultAgeGraphChunkSize   = 128
+	defaultAgeGraphWorkers     = 1
+	defaultAgeGraphTimeout     = 2 * time.Minute
+	ageGraphQueueEnv           = "AGE_GRAPH_QUEUE_SIZE"
+	ageGraphChunkSizeEnv       = "AGE_GRAPH_CHUNK_SIZE"
+	ageGraphWorkersEnv         = "AGE_GRAPH_WORKERS"
+	ageGraphTimeoutEnv         = "AGE_GRAPH_TIMEOUT_SECS"
+)
+
+var (
+	errAgeGraphWriterUnavailable = errors.New("age graph writer unavailable")
+	errAgeGraphQueueFull         = errors.New("age graph queue is full")
+)
 
 type ageGraphParams struct {
 	Collectors       []ageGraphCollector     `json:"collectors,omitempty"`
@@ -100,31 +154,49 @@ type ageGraphLink struct {
 	RemoteInterface string `json:"remote_interface_id"`
 }
 
+func (w *ageGraphWriter) startWorker() {
+	w.queueStarted.Do(func() {
+		setAgeQueueCapacity(int64(w.queueCapacity))
+		for i := 0; i < w.workerCount; i++ {
+			go func() {
+				for req := range w.workQueue {
+					processErr := w.processRequest(req)
+					req.result <- processErr
+				}
+			}()
+		}
+	})
+}
+
 func (w *ageGraphWriter) WriteGraph(ctx context.Context, updates []*models.DeviceUpdate) {
 	if w == nil || w.executor == nil {
 		return
 	}
-	params := buildAgeGraphParams(updates)
-	if params == nil {
-		return
-	}
-
-	payloadBytes, err := json.Marshal(params)
-	if err != nil {
-		if w.log != nil {
-			w.log.Warn().Err(err).Msg("age graph: failed to marshal params")
+	w.startWorker()
+	for _, chunk := range chunkDeviceUpdates(updates, w.chunkSize) {
+		params := buildAgeGraphParams(chunk)
+		if params == nil {
+			continue
 		}
-		w.recordFailure()
-		return
-	}
 
-	if _, err := w.executor.ExecuteQuery(ctx, ageGraphMergeQuery, string(payloadBytes)); err != nil {
-		w.recordFailure()
-		if w.log != nil {
-			w.log.Warn().Err(err).Msg("age graph: failed to merge batch")
+		payloadBytes, err := json.Marshal(params)
+		if err != nil {
+			if w.log != nil {
+				w.log.Warn().Err(err).Msg("age graph: failed to marshal params")
+			}
+			w.recordFailure()
+			continue
 		}
-	} else {
-		w.recordSuccess()
+
+		if err := w.enqueue(ctx, "graph", len(chunk), ageGraphMergeQuery, string(payloadBytes)); err != nil {
+			w.recordFailure()
+			if w.log != nil {
+				w.log.Warn().Err(err).
+					Int("batch_size", len(chunk)).
+					Msg("age graph: failed to queue batch")
+			}
+			continue
+		}
 	}
 }
 
@@ -212,32 +284,39 @@ func buildAgeGraphParams(updates []*models.DeviceUpdate) *ageGraphParams {
 	}
 }
 
+func (w *ageGraphWriter) enqueuePayload(ctx context.Context, kind string, size int, query string, payload map[string]any, marshalErrMsg, enqueueErrMsg string) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		if w.log != nil {
+			w.log.Warn().Err(err).Msg(marshalErrMsg)
+		}
+		w.recordFailure()
+		return
+	}
+
+	if err := w.enqueue(ctx, kind, size, query, string(data)); err != nil {
+		w.recordFailure()
+		if w.log != nil {
+			w.log.Warn().Err(err).
+				Int("batch_size", size).
+				Msg(enqueueErrMsg)
+		}
+	}
+}
+
 func (w *ageGraphWriter) WriteInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) {
 	if w == nil || w.executor == nil {
 		return
 	}
+	w.startWorker()
 
-	payload := buildInterfaceParams(interfaces)
-	if len(payload) == 0 {
-		return
-	}
-
-	data, err := json.Marshal(map[string]any{"interfaces": payload})
-	if err != nil {
-		if w.log != nil {
-			w.log.Warn().Err(err).Msg("age graph: failed to marshal interface payload")
+	for _, chunk := range chunkInterfaces(interfaces, w.chunkSize) {
+		payload := buildInterfaceParams(chunk)
+		if len(payload) == 0 {
+			continue
 		}
-		w.recordFailure()
-		return
-	}
 
-	if _, err := w.executor.ExecuteQuery(ctx, ageInterfaceMergeQuery, string(data)); err != nil {
-		w.recordFailure()
-		if w.log != nil {
-			w.log.Warn().Err(err).Msg("age graph: failed to merge interfaces")
-		}
-	} else {
-		w.recordSuccess()
+		w.enqueuePayload(ctx, "interfaces", len(chunk), ageInterfaceMergeQuery, map[string]any{"interfaces": payload}, "age graph: failed to marshal interface payload", "age graph: failed to queue interfaces")
 	}
 }
 
@@ -245,28 +324,15 @@ func (w *ageGraphWriter) WriteTopology(ctx context.Context, events []*models.Top
 	if w == nil || w.executor == nil {
 		return
 	}
+	w.startWorker()
 
-	payload := buildTopologyParams(events)
-	if len(payload) == 0 {
-		return
-	}
-
-	data, err := json.Marshal(map[string]any{"links": payload})
-	if err != nil {
-		if w.log != nil {
-			w.log.Warn().Err(err).Msg("age graph: failed to marshal topology payload")
+	for _, chunk := range chunkTopology(events, w.chunkSize) {
+		payload := buildTopologyParams(chunk)
+		if len(payload) == 0 {
+			continue
 		}
-		w.recordFailure()
-		return
-	}
 
-	if _, err := w.executor.ExecuteQuery(ctx, ageTopologyMergeQuery, string(data)); err != nil {
-		w.recordFailure()
-		if w.log != nil {
-			w.log.Warn().Err(err).Msg("age graph: failed to merge topology links")
-		}
-	} else {
-		w.recordSuccess()
+		w.enqueuePayload(ctx, "topology", len(chunk), ageTopologyMergeQuery, map[string]any{"links": payload}, "age graph: failed to marshal topology payload", "age graph: failed to queue topology links")
 	}
 }
 
@@ -634,6 +700,229 @@ func normalizeIPs(ips []string) []string {
 		result = append(result, ip)
 	}
 	return result
+}
+
+func chunkDeviceUpdates(updates []*models.DeviceUpdate, max int) [][]*models.DeviceUpdate {
+	if len(updates) == 0 {
+		return nil
+	}
+	if max <= 0 || len(updates) <= max {
+		return [][]*models.DeviceUpdate{updates}
+	}
+	var out [][]*models.DeviceUpdate
+	for start := 0; start < len(updates); start += max {
+		end := start + max
+		if end > len(updates) {
+			end = len(updates)
+		}
+		out = append(out, updates[start:end])
+	}
+	return out
+}
+
+func chunkInterfaces(interfaces []*models.DiscoveredInterface, max int) [][]*models.DiscoveredInterface {
+	if len(interfaces) == 0 {
+		return nil
+	}
+	if max <= 0 || len(interfaces) <= max {
+		return [][]*models.DiscoveredInterface{interfaces}
+	}
+	var out [][]*models.DiscoveredInterface
+	for start := 0; start < len(interfaces); start += max {
+		end := start + max
+		if end > len(interfaces) {
+			end = len(interfaces)
+		}
+		out = append(out, interfaces[start:end])
+	}
+	return out
+}
+
+func chunkTopology(events []*models.TopologyDiscoveryEvent, max int) [][]*models.TopologyDiscoveryEvent {
+	if len(events) == 0 {
+		return nil
+	}
+	if max <= 0 || len(events) <= max {
+		return [][]*models.TopologyDiscoveryEvent{events}
+	}
+	var out [][]*models.TopologyDiscoveryEvent
+	for start := 0; start < len(events); start += max {
+		end := start + max
+		if end > len(events) {
+			end = len(events)
+		}
+		out = append(out, events[start:end])
+	}
+	return out
+}
+
+func (w *ageGraphWriter) enqueue(ctx context.Context, kind string, size int, query, payload string) error {
+	if w == nil || w.executor == nil {
+		return errAgeGraphWriterUnavailable
+	}
+
+	baseCtx := context.WithoutCancel(ctx)
+	reqCtx, cancel := context.WithTimeout(baseCtx, w.requestTimeout)
+	defer cancel()
+
+	req := &ageGraphRequest{
+		ctx:        reqCtx,
+		kind:       kind,
+		size:       size,
+		payload:    payload,
+		query:      query,
+		result:     make(chan error, 1),
+		enqueuedAt: time.Now(),
+	}
+
+	select {
+	case w.workQueue <- req:
+		incrementAgeQueueDepth(1)
+	case <-reqCtx.Done():
+		return reqCtx.Err()
+	default:
+		return fmt.Errorf("%w: capacity=%d", errAgeGraphQueueFull, w.queueCapacity)
+	}
+
+	select {
+	case err := <-req.result:
+		return err
+	case <-reqCtx.Done():
+		return reqCtx.Err()
+	}
+}
+
+func (w *ageGraphWriter) processRequest(req *ageGraphRequest) error {
+	defer incrementAgeQueueDepth(-1)
+
+	if req == nil {
+		return nil
+	}
+
+	attempts := defaultAgeGraphMaxAttempts
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if req.ctx.Err() != nil {
+			return req.ctx.Err()
+		}
+
+		start := time.Now()
+		_, err := w.executor.ExecuteQuery(req.ctx, req.query, req.payload)
+		if err == nil {
+			w.recordSuccess()
+			return nil
+		}
+
+		lastErr = err
+		code, transient := classifyAGEError(err)
+		if transient && attempt < attempts {
+			delay := backoffDelay(attempt)
+			if w.log != nil {
+				w.log.Warn().
+					Err(err).
+					Str("age_sqlstate", code).
+					Str("kind", req.kind).
+					Int("batch_size", req.size).
+					Int("attempt", attempt).
+					Int("max_attempts", attempts).
+					Float64("queue_wait_secs", time.Since(req.enqueuedAt).Seconds()).
+					Dur("backoff", delay).
+					Msg("age graph: transient merge failure, will retry")
+			}
+			time.Sleep(delay)
+			continue
+		}
+
+		if w.log != nil {
+			w.log.Warn().
+				Err(err).
+				Str("age_sqlstate", code).
+				Str("kind", req.kind).
+				Int("batch_size", req.size).
+				Int("attempt", attempt).
+				Int("max_attempts", attempts).
+				Float64("queue_wait_secs", time.Since(req.enqueuedAt).Seconds()).
+				Float64("exec_secs", time.Since(start).Seconds()).
+				Int64("queue_depth", currentAgeQueueDepth()).
+				Int64("queue_capacity", currentAgeQueueCapacity()).
+				Msg("age graph: merge failed")
+		}
+		w.recordFailure()
+		return err
+	}
+
+	if lastErr != nil {
+		w.recordFailure()
+	}
+	return lastErr
+}
+
+func classifyAGEError(err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		if pgErr.Code == "XX000" || pgErr.Code == "57014" {
+			return pgErr.Code, true
+		}
+		return pgErr.Code, false
+	}
+
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "xx000"), strings.Contains(msg, "entity failed to be updated"):
+		return "XX000", true
+	case strings.Contains(msg, "57014"), strings.Contains(msg, "statement timeout"):
+		return "57014", true
+	default:
+		return "", false
+	}
+}
+
+func backoffDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		return defaultAgeGraphBackoff
+	}
+	backoff := time.Duration(attempt) * defaultAgeGraphBackoff
+	// Add small jitter based on time to avoid lockstep retries.
+	jitterNanos := time.Now().UnixNano() % int64(defaultAgeGraphBackoff)
+	return backoff + time.Duration(jitterNanos)
+}
+
+func parseEnvInt(key string, fallback int) int {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(val)
+	if err != nil {
+		return fallback
+	}
+	if parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+func parseEnvDuration(key string, fallback time.Duration) time.Duration {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return fallback
+	}
+
+	// Allow raw seconds for simplicity.
+	if secs, err := strconv.Atoi(val); err == nil && secs > 0 {
+		return time.Duration(secs) * time.Second
+	}
+
+	// Fallback to ParseDuration for advanced inputs (e.g., "90s", "2m").
+	if dur, err := time.ParseDuration(val); err == nil && dur > 0 {
+		return dur
+	}
+
+	return fallback
 }
 
 func (w *ageGraphWriter) recordSuccess() {
