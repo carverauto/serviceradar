@@ -1,34 +1,34 @@
 load("@npm//:defs.bzl", "npm_link_all_packages")
 load(
-    "@npm__next__16.0.1_821344105__links//:defs.bzl",
+    "@npm__next__16.0.7_1139416313__links//:defs.bzl",
     npm_link_next_store = "npm_link_imported_package_store",
 )
 load(
-    "@npm__react__19.2.0__links//:defs.bzl",
+    "@npm__react__19.2.1__links//:defs.bzl",
     npm_link_react_store = "npm_link_imported_package_store",
 )
 load(
-    "@npm__react-dom__19.2.0_react_19.2.0__links//:defs.bzl",
+    "@npm__react-dom__19.2.1_react_19.2.1__links//:defs.bzl",
     npm_link_react_dom_store = "npm_link_imported_package_store",
 )
 load(
-    "@npm__reactflow__11.11.4_1456001583__links//:defs.bzl",
+    "@npm__reactflow__11.11.4_91375728__links//:defs.bzl",
     npm_link_reactflow_store = "npm_link_imported_package_store",
 )
 load(
-    "@npm__lucide-react__0.476.0_react_19.2.0__links//:defs.bzl",
+    "@npm__lucide-react__0.476.0_react_19.2.1__links//:defs.bzl",
     npm_link_lucide_react_store = "npm_link_imported_package_store",
 )
 load(
-    "@npm__at_tanstack_react-query__5.81.5_react_19.2.0__links//:defs.bzl",
+    "@npm__at_tanstack_react-query__5.81.5_react_19.2.1__links//:defs.bzl",
     npm_link_react_query_store = "npm_link_imported_package_store",
 )
 load(
-    "@npm__at_microlink_react-json-view__1.26.2_1456001583__links//:defs.bzl",
+    "@npm__at_microlink_react-json-view__1.26.2_91375728__links//:defs.bzl",
     npm_link_react_json_view_store = "npm_link_imported_package_store",
 )
 load(
-    "@npm__recharts__2.15.3_1315089095__links//:defs.bzl",
+    "@npm__recharts__2.15.3_1615252346__links//:defs.bzl",
     npm_link_recharts_store = "npm_link_imported_package_store",
 )
 load(
@@ -36,7 +36,7 @@ load(
     npm_link_recharts_scale_store = "npm_link_imported_package_store",
 )
 load(
-    "@npm__use-debounce__10.0.5_react_19.2.0__links//:defs.bzl",
+    "@npm__use-debounce__10.0.5_react_19.2.1__links//:defs.bzl",
     npm_link_use_debounce_store = "npm_link_imported_package_store",
 )
 load(
@@ -48,7 +48,7 @@ load(
     npm_link_lodash_set_store = "npm_link_imported_package_store",
 )
 load(
-    "@npm__next-runtime-env__3.3.0_390736547__links//:defs.bzl",
+    "@npm__next-runtime-env__3.3.0_1770189794__links//:defs.bzl",
     npm_link_next_runtime_env_store = "npm_link_imported_package_store",
 )
 load(
