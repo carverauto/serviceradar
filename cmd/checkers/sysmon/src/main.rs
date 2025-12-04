@@ -19,6 +19,7 @@
 use anyhow::{Context, Result};
 use clap::{App, Arg};
 use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat, RestartHandle};
+use edge_onboarding::{ComponentType, MtlsBootstrapConfig};
 use log::{debug, info, warn};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -50,12 +51,107 @@ async fn main() -> Result<()> {
                 .value_name("FILE")
                 .help("Path to configuration file")
                 .takes_value(true)
-                .required(true),
+                .required(false),
+        )
+        .arg(
+            Arg::with_name("mtls")
+                .long("mtls")
+                .help("Enable mTLS bootstrap mode")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("token")
+                .long("token")
+                .value_name("TOKEN")
+                .help("Edge onboarding token (edgepkg-v1 format)")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("host")
+                .long("host")
+                .value_name("HOST")
+                .help("Core API host for mTLS bundle download")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("bundle")
+                .long("bundle")
+                .value_name("PATH")
+                .help("Path to pre-fetched mTLS bundle")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("cert-dir")
+                .long("cert-dir")
+                .value_name("PATH")
+                .help("Directory to store certificates")
+                .takes_value(true),
         )
         .get_matches();
 
-    let config_path = matches.value_of("config").unwrap();
-    let config_path = PathBuf::from(config_path);
+    // Check for edge onboarding modes
+    let mut config_path: Option<PathBuf> = matches.value_of("config").map(PathBuf::from);
+    let mtls_mode = matches.is_present("mtls");
+    let token = matches.value_of("token").map(String::from);
+    let host = matches.value_of("host").map(String::from);
+    let bundle_path = matches.value_of("bundle").map(String::from);
+    let cert_dir = matches.value_of("cert-dir").map(String::from);
+
+    // Try mTLS bootstrap first if --mtls flag is set
+    if mtls_mode {
+        let mtls_token = token.clone().or_else(|| std::env::var("ONBOARDING_TOKEN").ok());
+        if let Some(t) = mtls_token {
+            info!("mTLS bootstrap mode enabled");
+            let mtls_config = MtlsBootstrapConfig {
+                token: t,
+                host,
+                bundle_path,
+                cert_dir,
+                service_name: Some("sysmon".to_string()),
+            };
+
+            match edge_onboarding::mtls_bootstrap(&mtls_config) {
+                Ok(result) => {
+                    info!("mTLS bootstrap successful");
+                    info!("Generated config at: {}", result.config_path);
+                    info!("Certificates installed to: {}", result.cert_dir);
+                    config_path = Some(PathBuf::from(&result.config_path));
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("mTLS bootstrap failed: {}", e));
+                }
+            }
+        } else {
+            return Err(anyhow::anyhow!(
+                "--mtls requires --token or ONBOARDING_TOKEN environment variable"
+            ));
+        }
+    }
+
+    // Try environment-based edge onboarding if no config path yet
+    if config_path.is_none() {
+        match edge_onboarding::try_onboard(ComponentType::Checker) {
+            Ok(Some(result)) => {
+                info!("Edge onboarding successful");
+                info!("Generated config at: {}", result.config_path);
+                if let Some(ref spiffe_id) = result.spiffe_id {
+                    info!("SPIFFE ID: {}", spiffe_id);
+                }
+                config_path = Some(PathBuf::from(&result.config_path));
+            }
+            Ok(None) => {
+                // No onboarding token, need a config file
+                return Err(anyhow::anyhow!(
+                    "No configuration provided. Use --config, --mtls, or set ONBOARDING_TOKEN"
+                ));
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("Edge onboarding failed: {}", e));
+            }
+        }
+    }
+
+    let config_path = config_path.expect("config path should be set at this point");
     info!("Loading configuration from {config_path:?}");
     template::ensure_config_file(&config_path)
         .with_context(|| format!("failed to install default config at {config_path:?}"))?;

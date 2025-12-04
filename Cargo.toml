@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "rust/kvutil",
     "rust/config-bootstrap",
+    "rust/edge-onboarding",
     "cmd/flowgger",
     "cmd/trapd",
     "cmd/otel",
