@@ -102,6 +102,8 @@ cnpg:
   port: 5432
   database: serviceradar
   username: serviceradar
+  runtimeParams:
+    search_path: "public,ag_catalog,\\\"$user\\\""
   credentialsSecret: serviceradar-db-credentials
   sslmode: verify-full
   certDir: /etc/serviceradar/certs
@@ -268,10 +270,10 @@ spire:
     resources:
       limits:
         cpu: 200m
-        memory: 256Mi
+        memory: 512Mi
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 256Mi
 ingress:
   enabled: true
   host: demo.serviceradar.cloud
