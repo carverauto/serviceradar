@@ -86,6 +86,11 @@ const (
 	ageGraphTimeoutEnv         = "AGE_GRAPH_TIMEOUT_SECS"
 )
 
+var (
+	errAgeGraphWriterUnavailable = errors.New("age graph writer unavailable")
+	errAgeGraphQueueFull         = errors.New("age graph queue is full")
+)
+
 type ageGraphParams struct {
 	Collectors       []ageGraphCollector     `json:"collectors,omitempty"`
 	Devices          []ageGraphDevice        `json:"devices,omitempty"`
@@ -279,6 +284,26 @@ func buildAgeGraphParams(updates []*models.DeviceUpdate) *ageGraphParams {
 	}
 }
 
+func (w *ageGraphWriter) enqueuePayload(ctx context.Context, kind string, size int, query string, payload map[string]any, marshalErrMsg, enqueueErrMsg string) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		if w.log != nil {
+			w.log.Warn().Err(err).Msg(marshalErrMsg)
+		}
+		w.recordFailure()
+		return
+	}
+
+	if err := w.enqueue(ctx, kind, size, query, string(data)); err != nil {
+		w.recordFailure()
+		if w.log != nil {
+			w.log.Warn().Err(err).
+				Int("batch_size", size).
+				Msg(enqueueErrMsg)
+		}
+	}
+}
+
 func (w *ageGraphWriter) WriteInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) {
 	if w == nil || w.executor == nil {
 		return
@@ -291,24 +316,7 @@ func (w *ageGraphWriter) WriteInterfaces(ctx context.Context, interfaces []*mode
 			continue
 		}
 
-		data, err := json.Marshal(map[string]any{"interfaces": payload})
-		if err != nil {
-			if w.log != nil {
-				w.log.Warn().Err(err).Msg("age graph: failed to marshal interface payload")
-			}
-			w.recordFailure()
-			continue
-		}
-
-		if err := w.enqueue(ctx, "interfaces", len(chunk), ageInterfaceMergeQuery, string(data)); err != nil {
-			w.recordFailure()
-			if w.log != nil {
-				w.log.Warn().Err(err).
-					Int("batch_size", len(chunk)).
-					Msg("age graph: failed to queue interfaces")
-			}
-			continue
-		}
+		w.enqueuePayload(ctx, "interfaces", len(chunk), ageInterfaceMergeQuery, map[string]any{"interfaces": payload}, "age graph: failed to marshal interface payload", "age graph: failed to queue interfaces")
 	}
 }
 
@@ -324,24 +332,7 @@ func (w *ageGraphWriter) WriteTopology(ctx context.Context, events []*models.Top
 			continue
 		}
 
-		data, err := json.Marshal(map[string]any{"links": payload})
-		if err != nil {
-			if w.log != nil {
-				w.log.Warn().Err(err).Msg("age graph: failed to marshal topology payload")
-			}
-			w.recordFailure()
-			continue
-		}
-
-		if err := w.enqueue(ctx, "topology", len(chunk), ageTopologyMergeQuery, string(data)); err != nil {
-			w.recordFailure()
-			if w.log != nil {
-				w.log.Warn().Err(err).
-					Int("batch_size", len(chunk)).
-					Msg("age graph: failed to queue topology links")
-			}
-			continue
-		}
+		w.enqueuePayload(ctx, "topology", len(chunk), ageTopologyMergeQuery, map[string]any{"links": payload}, "age graph: failed to marshal topology payload", "age graph: failed to queue topology links")
 	}
 }
 
@@ -767,7 +758,7 @@ func chunkTopology(events []*models.TopologyDiscoveryEvent, max int) [][]*models
 
 func (w *ageGraphWriter) enqueue(ctx context.Context, kind string, size int, query, payload string) error {
 	if w == nil || w.executor == nil {
-		return errors.New("age graph writer unavailable")
+		return errAgeGraphWriterUnavailable
 	}
 
 	baseCtx := context.WithoutCancel(ctx)
@@ -790,7 +781,7 @@ func (w *ageGraphWriter) enqueue(ctx context.Context, kind string, size int, que
 	case <-reqCtx.Done():
 		return reqCtx.Err()
 	default:
-		return fmt.Errorf("age graph queue is full (capacity=%d)", w.queueCapacity)
+		return fmt.Errorf("%w: capacity=%d", errAgeGraphQueueFull, w.queueCapacity)
 	}
 
 	select {
