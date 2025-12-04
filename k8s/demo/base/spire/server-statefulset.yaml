@@ -101,11 +101,11 @@ spec:
             periodSeconds: 10
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 300m
+              memory: 512Mi
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 100m
+              memory: 256Mi
       volumes:
         - name: spire-config-template
           configMap:
