@@ -5,6 +5,7 @@
 {{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
 {{- $agentVals := default (dict) .Values.agent -}}
 {{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
+{{- $cnpgRuntime := default (dict) .Values.cnpg.runtimeParams -}}
 {{- $otelSA := .Values.spire.otelServiceAccount | default "serviceradar-otel" -}}
 {{- $syncSA := .Values.spire.syncServiceAccount | default "serviceradar-sync" -}}
 {{- $zenSA := .Values.spire.zenServiceAccount | default "serviceradar-zen" -}}
@@ -44,6 +45,9 @@ data:
           "cert_file": "/etc/serviceradar/certs/core.pem",
           "key_file": "/etc/serviceradar/certs/core-key.pem",
           "ca_file": "/etc/serviceradar/cnpg/ca.crt"
+        },
+        "runtime_params": {
+          "search_path": "{{ default "public,ag_catalog,\\\"$user\\\"" (index $cnpgRuntime "search_path") }}"
         }
       },
       "reaper": {
