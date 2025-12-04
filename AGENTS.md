@@ -71,7 +71,139 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 - Capture the tag for compose: `git rev-parse HEAD` and use `APP_TAG=sha-<sha>`.
 - Pull fresh images: `APP_TAG=sha-<sha> docker compose -f docker-compose.mtls.yml pull`.
 - Restart the stack: `APP_TAG=sha-<sha> docker compose -f docker-compose.mtls.yml up -d --force-recreate`.
-- Verify: `docker compose -f docker-compose.mtls.yml ps` (one-shot jobs like cert-generator/config-updater exit once finished; nginx may sit in “health: starting” briefly).
+- Verify: `docker compose -f docker-compose.mtls.yml ps` (one-shot jobs like cert-generator/config-updater exit once finished; nginx may sit in "health: starting" briefly).
+
+## Edge Onboarding Testing with Docker mTLS Stack
+
+Use this playbook to test edge onboarding functionality (e.g., sysmon checker mTLS bootstrap) against the Docker Compose mTLS stack.
+
+### 1. Get Admin Credentials
+
+The config-updater container generates admin credentials at startup:
+
+```bash
+cd docker/compose
+docker compose logs config-updater 2>&1 | grep -E "(Username|Password)"
+```
+
+Look for output like:
+```
+Username: admin
+Password: HaM5aHNMqLFA9gtq
+```
+
+### 2. Obtain a JWT Token
+
+Authenticate against the Core API (port 8090) using the credentials:
+
+```bash
+curl -s -X POST http://localhost:8090/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"<PASSWORD>"}' | jq -r '.access_token' > /tmp/jwt_token.txt
+```
+
+### 3. Find Available Pollers and Agents
+
+```bash
+# List pollers
+curl -s "http://localhost:8090/api/pollers" \
+  -H "Authorization: Bearer $(cat /tmp/jwt_token.txt)" | jq '.[].poller_id'
+
+# List agents
+curl -s "http://localhost:8090/api/admin/agents" \
+  -H "Authorization: Bearer $(cat /tmp/jwt_token.txt)" | jq '.[].agent_id'
+```
+
+Typical output: `docker-poller` and `docker-agent`.
+
+### 4. Create an Edge Onboarding Package
+
+Create a checker package for the sysmon checker:
+
+```bash
+curl -s -X POST "http://localhost:8090/api/admin/edge-packages" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $(cat /tmp/jwt_token.txt)" \
+  -d '{
+    "label": "Sysmon Test",
+    "component_type": "checker",
+    "component_id": "sysmon-test-01",
+    "parent_id": "docker-agent",
+    "parent_type": "agent",
+    "poller_id": "docker-poller",
+    "checker_kind": "sysmon",
+    "security_mode": "mtls",
+    "checker_config_json": "{\"listen_addr\":\"0.0.0.0:50083\",\"poll_interval\":30,\"filesystems\":[{\"name\":\"/\",\"type\":\"ext4\",\"monitor\":true}]}"
+  }' | tee /tmp/package_response.json
+```
+
+Extract the package ID and download token:
+```bash
+jq -r '.package.package_id' /tmp/package_response.json
+jq -r '.download_token' /tmp/package_response.json
+```
+
+### 5. Generate an Onboarding Token
+
+Create the `edgepkg-v1:` token format (fields: `pkg`, `dl`, `api`):
+
+```bash
+PACKAGE_ID=$(jq -r '.package.package_id' /tmp/package_response.json)
+DOWNLOAD_TOKEN=$(jq -r '.download_token' /tmp/package_response.json)
+CORE_URL="http://localhost:8090"
+TOKEN_PAYLOAD="{\"pkg\":\"$PACKAGE_ID\",\"dl\":\"$DOWNLOAD_TOKEN\",\"api\":\"$CORE_URL\"}"
+echo -n "$TOKEN_PAYLOAD" | base64 -w0 | tr '+/' '-_' | tr -d '='
+```
+
+Prepend `edgepkg-v1:` to the base64 output for the final token.
+
+### 6. Test the Sysmon Checker with mTLS Bootstrap
+
+Ensure the certificate directory exists with proper permissions:
+```bash
+sudo mkdir -p /var/lib/serviceradar/checker/{certs,config}
+sudo chown -R $USER:$USER /var/lib/serviceradar
+```
+
+Run the checker with the token:
+```bash
+export ONBOARDING_TOKEN="edgepkg-v1:<base64-token>"
+./target/release/serviceradar-sysmon-checker \
+    --mtls \
+    --cert-dir /var/lib/serviceradar/checker/certs \
+    --host http://localhost:8090
+```
+
+Successful output shows:
+- "mTLS bootstrap successful"
+- "Generated config at: /var/lib/serviceradar/checker/config/checker.json"
+- "Certificates installed to: ..."
+- "Server will listen on 0.0.0.0:50083"
+
+### 7. Verify Generated Files
+
+```bash
+# Check certificates (key should be 0600)
+ls -la /var/lib/serviceradar/checker/certs/
+
+# View generated config
+cat /var/lib/serviceradar/checker/config/checker.json | jq '.'
+```
+
+### 8. Test Restart Resilience
+
+Restart the checker using the persisted config:
+```bash
+./target/release/serviceradar-sysmon-checker \
+    --config /var/lib/serviceradar/checker/config/checker.json
+```
+
+### Notes
+
+- Each package can only be downloaded once (status changes to "delivered").
+- Create a new package for each test run.
+- The Core API is on port 8090 (direct), Kong gateway on port 8000 (requires auth headers).
+- Edge packages expire based on `download_token_ttl_seconds` (default: 10 minutes).
 
 ## Release Playbook
 

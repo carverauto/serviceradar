@@ -1,0 +1,20 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("@rust_crates//:defs.bzl", "all_crate_deps")
+
+rust_library(
+    name = "edge_onboarding",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    deps = all_crate_deps(normal = True),
+    visibility = ["//visibility:public"],
+)
+
+rust_test(
+    name = "edge_onboarding_test",
+    crate = ":edge_onboarding",
+    edition = "2021",
+    deps = [
+        "@rust_crates//:tempfile",
+    ],
+)

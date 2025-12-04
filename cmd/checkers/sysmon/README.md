@@ -50,7 +50,58 @@ Edit `/etc/serviceradar/checkers/sysmon.json` to customize monitoring:
 - List `filesystems` to monitor (e.g., `"/mnt/data"`).
 - Enable `zfs` for ZFS monitoring if available.
 
+## Edge Onboarding
+
+The sysmon checker supports zero-touch deployment via edge onboarding, enabling automatic configuration and mTLS/SPIFFE credential setup.
+
+### mTLS Bootstrap (CLI)
+
+For mTLS-based deployments against a Docker Compose stack:
+
+```bash
+# Using token from command line
+serviceradar-sysmon-checker --mtls --token <TOKEN> --host http://core:8090
+
+# Using token from environment
+export ONBOARDING_TOKEN="edgepkg-v1:..."
+serviceradar-sysmon-checker --mtls --host http://core:8090
+
+# Using a pre-fetched bundle
+serviceradar-sysmon-checker --mtls --bundle /path/to/bundle.json
+```
+
+**CLI Options:**
+- `--mtls`: Enable mTLS bootstrap mode
+- `--token <TOKEN>`: Edge onboarding token (edgepkg-v1 format)
+- `--host <HOST>`: Core API host for bundle download
+- `--bundle <PATH>`: Path to pre-fetched mTLS bundle
+- `--cert-dir <PATH>`: Directory to store certificates (default: `/var/lib/serviceradar/checker/certs`)
+
+### Environment-Based Onboarding
+
+For automated deployments (Docker, Kubernetes):
+
+```bash
+export ONBOARDING_TOKEN="edgepkg-v1:..."
+export CORE_API_URL="http://core:8090"
+serviceradar-sysmon-checker
+```
+
+**Environment Variables:**
+- `ONBOARDING_TOKEN`: The edge onboarding token
+- `CORE_API_URL`: Core API base URL (optional if embedded in token)
+- `KV_ENDPOINT`: KV service endpoint for SPIRE-based onboarding
+
+### Traditional Configuration
+
+For manual configuration without edge onboarding:
+
+```bash
+serviceradar-sysmon-checker --config /etc/serviceradar/checkers/sysmon.json
+```
+
 ## Troubleshooting
 - Check logs: `journalctl -u serviceradar-sysmon-checker.service`.
 - Verify ZFS availability: `zfs list`.
 - Ensure `serviceradar` user has permissions for ZFS pools.
+- For edge onboarding issues, check that `ONBOARDING_TOKEN` is valid and Core API is accessible.
