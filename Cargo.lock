@@ -5094,7 +5094,7 @@ version = "1.0.30"
 dependencies = [
  "anyhow",
  "chrono",
- "clap 2.33.4",
+ "clap 4.5.51",
  "config-bootstrap",
  "env_logger 0.10.2",
  "log 0.4.28",
@@ -5118,7 +5118,7 @@ version = "1.0.31"
 dependencies = [
  "anyhow",
  "chrono",
- "clap 2.33.4",
+ "clap 4.5.51",
  "config-bootstrap",
  "edge-onboarding",
  "env_logger 0.10.2",
