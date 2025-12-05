@@ -39,14 +39,21 @@ func NewAGEGraphWriter(executor db.QueryExecutor, log logger.Logger) GraphWriter
 		workerCount = defaultAgeGraphWorkers
 	}
 	requestTimeout := parseEnvDuration(ageGraphTimeoutEnv, defaultAgeGraphTimeout)
+	memoryLimitMB := parseEnvInt(ageGraphMemoryLimitEnv, defaultAgeGraphMemoryLimitMB)
+	circuitThreshold := parseEnvInt(ageGraphCircuitThresholdEnv, defaultAgeGraphCircuitThreshold)
+	circuitResetSecs := parseEnvInt(ageGraphCircuitResetEnv, defaultAgeGraphCircuitResetSecs)
+
 	return &ageGraphWriter{
-		executor:       executor,
-		log:            log,
-		workQueue:      make(chan *ageGraphRequest, queueSize),
-		queueCapacity:  queueSize,
-		chunkSize:      chunkSize,
-		workerCount:    workerCount,
-		requestTimeout: requestTimeout,
+		executor:         executor,
+		log:              log,
+		workQueue:        make(chan *ageGraphRequest, queueSize),
+		queueCapacity:    queueSize,
+		chunkSize:        chunkSize,
+		workerCount:      workerCount,
+		requestTimeout:   requestTimeout,
+		memoryLimitBytes: uint64(memoryLimitMB) * 1024 * 1024,
+		circuitThreshold: circuitThreshold,
+		circuitResetSecs: circuitResetSecs,
 	}
 }
 
@@ -61,6 +68,16 @@ type ageGraphWriter struct {
 	chunkSize      int
 	workerCount    int
 	requestTimeout time.Duration
+
+	// Memory pressure protection
+	memoryLimitBytes uint64
+
+	// Circuit breaker state
+	circuitFailures   int64
+	circuitThreshold  int
+	circuitResetSecs  int
+	circuitOpenedAt   atomic.Int64 // unix timestamp when circuit opened
+	circuitMu         sync.Mutex
 }
 
 type ageGraphRequest struct {
@@ -74,21 +91,34 @@ type ageGraphRequest struct {
 }
 
 const (
-	defaultAgeGraphQueueSize   = 512
-	defaultAgeGraphMaxAttempts = 3
-	defaultAgeGraphBackoff     = 150 * time.Millisecond
-	defaultAgeGraphChunkSize   = 128
-	defaultAgeGraphWorkers     = 1
-	defaultAgeGraphTimeout     = 2 * time.Minute
-	ageGraphQueueEnv           = "AGE_GRAPH_QUEUE_SIZE"
-	ageGraphChunkSizeEnv       = "AGE_GRAPH_CHUNK_SIZE"
-	ageGraphWorkersEnv         = "AGE_GRAPH_WORKERS"
-	ageGraphTimeoutEnv         = "AGE_GRAPH_TIMEOUT_SECS"
+	defaultAgeGraphQueueSize         = 256
+	defaultAgeGraphMaxAttempts       = 3
+	defaultAgeGraphBackoff           = 150 * time.Millisecond
+	defaultAgeGraphChunkSize         = 128
+	defaultAgeGraphWorkers           = 4
+	defaultAgeGraphTimeout           = 2 * time.Minute
+	defaultAgeGraphMemoryLimitMB     = 0 // 0 = disabled
+	defaultAgeGraphCircuitThreshold  = 10
+	defaultAgeGraphCircuitResetSecs  = 60
+	ageGraphQueueEnv                 = "AGE_GRAPH_QUEUE_SIZE"
+	ageGraphChunkSizeEnv             = "AGE_GRAPH_CHUNK_SIZE"
+	ageGraphWorkersEnv               = "AGE_GRAPH_WORKERS"
+	ageGraphTimeoutEnv               = "AGE_GRAPH_TIMEOUT_SECS"
+	ageGraphMemoryLimitEnv           = "AGE_GRAPH_MEMORY_LIMIT_MB"
+	ageGraphCircuitThresholdEnv      = "AGE_GRAPH_CIRCUIT_THRESHOLD"
+	ageGraphCircuitResetEnv          = "AGE_GRAPH_CIRCUIT_RESET_SECS"
+
+	// Circuit breaker states
+	circuitClosed   = 0
+	circuitOpen     = 1
+	circuitHalfOpen = 2
 )
 
 var (
 	errAgeGraphWriterUnavailable = errors.New("age graph writer unavailable")
 	errAgeGraphQueueFull         = errors.New("age graph queue is full")
+	errAgeGraphMemoryPressure    = errors.New("age graph rejected due to memory pressure")
+	errAgeGraphCircuitOpen       = errors.New("age graph circuit breaker is open")
 )
 
 type ageGraphParams struct {
@@ -761,6 +791,29 @@ func (w *ageGraphWriter) enqueue(ctx context.Context, kind string, size int, que
 		return errAgeGraphWriterUnavailable
 	}
 
+	// Check circuit breaker state
+	if w.isCircuitOpen() {
+		recordAgeDroppedCircuitOpen()
+		return errAgeGraphCircuitOpen
+	}
+
+	// Check memory pressure
+	if w.memoryLimitBytes > 0 {
+		heapBytes := currentHeapAllocBytes()
+		if heapBytes > w.memoryLimitBytes {
+			recordAgeDroppedMemoryPressure()
+			if w.log != nil {
+				w.log.Warn().
+					Uint64("heap_bytes", heapBytes).
+					Uint64("limit_bytes", w.memoryLimitBytes).
+					Str("kind", kind).
+					Int("batch_size", size).
+					Msg("age graph: rejected batch due to memory pressure")
+			}
+			return errAgeGraphMemoryPressure
+		}
+	}
+
 	baseCtx := context.WithoutCancel(ctx)
 	reqCtx, cancel := context.WithTimeout(baseCtx, w.requestTimeout)
 	defer cancel()
@@ -781,6 +834,7 @@ func (w *ageGraphWriter) enqueue(ctx context.Context, kind string, size int, que
 	case <-reqCtx.Done():
 		return reqCtx.Err()
 	default:
+		recordAgeDroppedBackpressure()
 		return fmt.Errorf("%w: capacity=%d", errAgeGraphQueueFull, w.queueCapacity)
 	}
 
@@ -931,6 +985,9 @@ func (w *ageGraphWriter) recordSuccess() {
 	}
 	atomic.AddUint64(&w.successCount, 1)
 	recordAgeGraphSuccess()
+
+	// Reset circuit breaker on success
+	w.resetCircuit()
 }
 
 func (w *ageGraphWriter) recordFailure() {
@@ -939,6 +996,10 @@ func (w *ageGraphWriter) recordFailure() {
 	}
 	total := atomic.AddUint64(&w.failureCount, 1)
 	recordAgeGraphFailure()
+
+	// Track consecutive failures for circuit breaker
+	w.incrementCircuitFailures()
+
 	if w.log != nil {
 		// Warn every 10th failure to avoid log spam.
 		if total == 1 || total%10 == 0 {
@@ -947,6 +1008,80 @@ func (w *ageGraphWriter) recordFailure() {
 				Uint64("age_graph_failures", total).
 				Uint64("age_graph_successes", successes).
 				Msg("age graph: write failures observed")
+		}
+	}
+}
+
+// Circuit breaker methods
+
+func (w *ageGraphWriter) isCircuitOpen() bool {
+	if w == nil || w.circuitThreshold <= 0 {
+		return false
+	}
+
+	state := currentAgeCircuitState()
+	if state == circuitClosed {
+		return false
+	}
+
+	if state == circuitOpen {
+		// Check if reset time has passed
+		openedAt := w.circuitOpenedAt.Load()
+		if openedAt > 0 && time.Now().Unix()-openedAt >= int64(w.circuitResetSecs) {
+			// Transition to half-open
+			w.circuitMu.Lock()
+			if currentAgeCircuitState() == circuitOpen {
+				setAgeCircuitState(circuitHalfOpen)
+				if w.log != nil {
+					w.log.Info().Msg("age graph: circuit breaker transitioning to half-open")
+				}
+			}
+			w.circuitMu.Unlock()
+			return false // Allow one request through
+		}
+		return true
+	}
+
+	// Half-open: allow requests through to test recovery
+	return false
+}
+
+func (w *ageGraphWriter) incrementCircuitFailures() {
+	if w == nil || w.circuitThreshold <= 0 {
+		return
+	}
+
+	w.circuitMu.Lock()
+	defer w.circuitMu.Unlock()
+
+	w.circuitFailures++
+	if w.circuitFailures >= int64(w.circuitThreshold) && currentAgeCircuitState() != circuitOpen {
+		setAgeCircuitState(circuitOpen)
+		w.circuitOpenedAt.Store(time.Now().Unix())
+		if w.log != nil {
+			w.log.Warn().
+				Int64("consecutive_failures", w.circuitFailures).
+				Int("threshold", w.circuitThreshold).
+				Msg("age graph: circuit breaker opened")
+		}
+	}
+}
+
+func (w *ageGraphWriter) resetCircuit() {
+	if w == nil || w.circuitThreshold <= 0 {
+		return
+	}
+
+	w.circuitMu.Lock()
+	defer w.circuitMu.Unlock()
+
+	prevState := currentAgeCircuitState()
+	if w.circuitFailures > 0 || prevState != circuitClosed {
+		w.circuitFailures = 0
+		w.circuitOpenedAt.Store(0)
+		setAgeCircuitState(circuitClosed)
+		if prevState != circuitClosed && w.log != nil {
+			w.log.Info().Msg("age graph: circuit breaker closed after successful request")
 		}
 	}
 }
