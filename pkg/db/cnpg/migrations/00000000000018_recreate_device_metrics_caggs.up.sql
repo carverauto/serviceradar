@@ -3,13 +3,48 @@
 -- See: https://github.com/carverauto/serviceradar/issues/2065
 
 -- Remove existing policies first (they reference the stale CAGGs)
-SELECT remove_continuous_aggregate_policy('device_metrics_summary_cpu', if_exists => TRUE);
-SELECT remove_continuous_aggregate_policy('device_metrics_summary_disk', if_exists => TRUE);
-SELECT remove_continuous_aggregate_policy('device_metrics_summary_memory', if_exists => TRUE);
+-- Wrapped in exception handlers in case the CAGGs don't exist or have corrupted metadata
+DO $$
+BEGIN
+    PERFORM remove_continuous_aggregate_policy('device_metrics_summary_cpu', if_exists => TRUE);
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'Could not remove CPU CAGG policy: %', SQLERRM;
+END $$;
 
-SELECT remove_retention_policy('device_metrics_summary_cpu', if_exists => TRUE);
-SELECT remove_retention_policy('device_metrics_summary_disk', if_exists => TRUE);
-SELECT remove_retention_policy('device_metrics_summary_memory', if_exists => TRUE);
+DO $$
+BEGIN
+    PERFORM remove_continuous_aggregate_policy('device_metrics_summary_disk', if_exists => TRUE);
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'Could not remove Disk CAGG policy: %', SQLERRM;
+END $$;
+
+DO $$
+BEGIN
+    PERFORM remove_continuous_aggregate_policy('device_metrics_summary_memory', if_exists => TRUE);
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'Could not remove Memory CAGG policy: %', SQLERRM;
+END $$;
+
+DO $$
+BEGIN
+    PERFORM remove_retention_policy('device_metrics_summary_cpu', if_exists => TRUE);
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'Could not remove CPU retention policy: %', SQLERRM;
+END $$;
+
+DO $$
+BEGIN
+    PERFORM remove_retention_policy('device_metrics_summary_disk', if_exists => TRUE);
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'Could not remove Disk retention policy: %', SQLERRM;
+END $$;
+
+DO $$
+BEGIN
+    PERFORM remove_retention_policy('device_metrics_summary_memory', if_exists => TRUE);
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'Could not remove Memory retention policy: %', SQLERRM;
+END $$;
 
 -- Drop the composite view and materialized views
 DROP VIEW IF EXISTS device_metrics_summary;
