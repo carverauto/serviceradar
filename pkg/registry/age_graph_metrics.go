@@ -11,17 +11,20 @@ import (
 )
 
 const (
-	ageMeterName                    = "serviceradar.age_graph"
-	metricAgeWritesSuccessName      = "age_graph_writes_success_total"
-	metricAgeWritesFailureName      = "age_graph_writes_failure_total"
-	metricAgeQueueDepthName         = "age_graph_queue_depth"
-	metricAgeQueueCapName           = "age_graph_queue_capacity"
-	metricAgeDroppedBackpressure    = "age_graph_dropped_backpressure_total"
-	metricAgeDroppedMemoryPressure  = "age_graph_dropped_memory_pressure_total"
-	metricAgeDroppedCircuitOpen     = "age_graph_dropped_circuit_open_total"
-	metricAgeHeapAllocBytes         = "age_graph_heap_alloc_bytes"
-	metricAgeHeapInuseBytes         = "age_graph_heap_inuse_bytes"
-	metricAgeCircuitState           = "age_graph_circuit_state"
+	ageMeterName                       = "serviceradar.age_graph"
+	metricAgeWritesSuccessName         = "age_graph_writes_success_total"
+	metricAgeWritesFailureName         = "age_graph_writes_failure_total"
+	metricAgeQueueDepthName            = "age_graph_queue_depth"
+	metricAgeQueueCapName              = "age_graph_queue_capacity"
+	metricAgeDroppedBackpressure       = "age_graph_dropped_backpressure_total"
+	metricAgeDroppedMemoryPressure     = "age_graph_dropped_memory_pressure_total"
+	metricAgeDroppedCircuitOpen        = "age_graph_dropped_circuit_open_total"
+	metricAgeHeapAllocBytes            = "age_graph_heap_alloc_bytes"
+	metricAgeHeapInuseBytes            = "age_graph_heap_inuse_bytes"
+	metricAgeCircuitState              = "age_graph_circuit_state"
+	metricAgeDeadlockTotal             = "age_graph_deadlock_total"
+	metricAgeSerializationFailureTotal = "age_graph_serialization_failure_total"
+	metricAgeTransientRetryTotal       = "age_graph_transient_retry_total"
 )
 
 type ageGraphMetrics struct {
@@ -30,6 +33,9 @@ type ageGraphMetrics struct {
 	droppedBackpressure   atomic.Uint64
 	droppedMemoryPressure atomic.Uint64
 	droppedCircuitOpen    atomic.Uint64
+	deadlockTotal         atomic.Uint64
+	serializationFailure  atomic.Uint64
+	transientRetry        atomic.Uint64
 }
 
 //nolint:gochecknoglobals,unused // metrics are process-wide; keep registration to prevent GC
@@ -50,6 +56,9 @@ var (
 		heapAllocBytes        metric.Int64ObservableGauge
 		heapInuseBytes        metric.Int64ObservableGauge
 		circuitState          metric.Int64ObservableGauge
+		deadlockTotal         metric.Int64ObservableGauge
+		serializationFailure  metric.Int64ObservableGauge
+		transientRetry        metric.Int64ObservableGauge
 	}
 	ageMetricsRegistration metric.Registration // keep handle to avoid GC
 )
@@ -138,6 +147,30 @@ func initAgeMetrics() {
 		otel.Handle(err)
 		return
 	}
+	ageGauges.deadlockTotal, err = meter.Int64ObservableGauge(
+		metricAgeDeadlockTotal,
+		metric.WithDescription("Total AGE graph deadlock errors encountered"),
+	)
+	if err != nil {
+		otel.Handle(err)
+		return
+	}
+	ageGauges.serializationFailure, err = meter.Int64ObservableGauge(
+		metricAgeSerializationFailureTotal,
+		metric.WithDescription("Total AGE graph serialization failure errors encountered"),
+	)
+	if err != nil {
+		otel.Handle(err)
+		return
+	}
+	ageGauges.transientRetry, err = meter.Int64ObservableGauge(
+		metricAgeTransientRetryTotal,
+		metric.WithDescription("Total transient error retries across all error types"),
+	)
+	if err != nil {
+		otel.Handle(err)
+		return
+	}
 
 	reg, err := meter.RegisterCallback(func(ctx context.Context, observer metric.Observer) error {
 		observer.ObserveInt64(ageGauges.success, int64(ageMetrics.success.Load()))
@@ -148,6 +181,9 @@ func initAgeMetrics() {
 		observer.ObserveInt64(ageGauges.droppedMemoryPressure, int64(ageMetrics.droppedMemoryPressure.Load()))
 		observer.ObserveInt64(ageGauges.droppedCircuitOpen, int64(ageMetrics.droppedCircuitOpen.Load()))
 		observer.ObserveInt64(ageGauges.circuitState, ageCircuitState.Load())
+		observer.ObserveInt64(ageGauges.deadlockTotal, int64(ageMetrics.deadlockTotal.Load()))
+		observer.ObserveInt64(ageGauges.serializationFailure, int64(ageMetrics.serializationFailure.Load()))
+		observer.ObserveInt64(ageGauges.transientRetry, int64(ageMetrics.transientRetry.Load()))
 
 		// Read Go runtime memory stats
 		var memStats runtime.MemStats
@@ -167,6 +203,9 @@ func initAgeMetrics() {
 		ageGauges.heapAllocBytes,
 		ageGauges.heapInuseBytes,
 		ageGauges.circuitState,
+		ageGauges.deadlockTotal,
+		ageGauges.serializationFailure,
+		ageGauges.transientRetry,
 	)
 	if err != nil {
 		otel.Handle(err)
@@ -235,4 +274,22 @@ func currentHeapAllocBytes() uint64 {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 	return memStats.HeapAlloc
+}
+
+// recordAgeDeadlock increments the deadlock counter for monitoring deadlock frequency.
+func recordAgeDeadlock() {
+	ageMetricsOnce.Do(initAgeMetrics)
+	ageMetrics.deadlockTotal.Add(1)
+}
+
+// recordAgeSerializationFailure increments the serialization failure counter.
+func recordAgeSerializationFailure() {
+	ageMetricsOnce.Do(initAgeMetrics)
+	ageMetrics.serializationFailure.Add(1)
+}
+
+// recordAgeTransientRetry increments the transient retry counter.
+func recordAgeTransientRetry() {
+	ageMetricsOnce.Do(initAgeMetrics)
+	ageMetrics.transientRetry.Add(1)
 }

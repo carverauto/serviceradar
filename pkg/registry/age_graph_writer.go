@@ -72,6 +72,11 @@ type ageGraphWriter struct {
 	// Memory pressure protection
 	memoryLimitBytes uint64
 
+	// Mutex to serialize AGE graph writes and prevent deadlocks.
+	// Multiple workers can process the queue, but only one can execute
+	// a MERGE query at a time.
+	writeMu sync.Mutex
+
 	// Circuit breaker state
 	circuitFailures   int64
 	circuitThreshold  int
@@ -94,6 +99,7 @@ const (
 	defaultAgeGraphQueueSize         = 256
 	defaultAgeGraphMaxAttempts       = 3
 	defaultAgeGraphBackoff           = 150 * time.Millisecond
+	defaultAgeGraphDeadlockBackoff   = 500 * time.Millisecond // Longer backoff for deadlocks
 	defaultAgeGraphChunkSize         = 128
 	defaultAgeGraphWorkers           = 4
 	defaultAgeGraphTimeout           = 2 * time.Minute
@@ -107,6 +113,7 @@ const (
 	ageGraphMemoryLimitEnv           = "AGE_GRAPH_MEMORY_LIMIT_MB"
 	ageGraphCircuitThresholdEnv      = "AGE_GRAPH_CIRCUIT_THRESHOLD"
 	ageGraphCircuitResetEnv          = "AGE_GRAPH_CIRCUIT_RESET_SECS"
+	ageGraphDeadlockBackoffEnv       = "AGE_GRAPH_DEADLOCK_BACKOFF_MS"
 
 	// Circuit breaker states
 	circuitClosed   = 0
@@ -860,8 +867,12 @@ func (w *ageGraphWriter) processRequest(req *ageGraphRequest) error {
 			return req.ctx.Err()
 		}
 
+		// Serialize AGE graph writes to prevent deadlocks and lock contention.
+		// Workers wait here if another write is in progress.
+		w.writeMu.Lock()
 		start := time.Now()
 		_, err := w.executor.ExecuteQuery(req.ctx, req.query, req.payload)
+		w.writeMu.Unlock()
 		if err == nil {
 			w.recordSuccess()
 			return nil
@@ -869,8 +880,18 @@ func (w *ageGraphWriter) processRequest(req *ageGraphRequest) error {
 
 		lastErr = err
 		code, transient := classifyAGEError(err)
+
+		// Record error-type-specific metrics
+		switch code {
+		case sqlstateDeadlockDetected:
+			recordAgeDeadlock()
+		case sqlstateSerializationFailed:
+			recordAgeSerializationFailure()
+		}
+
 		if transient && attempt < attempts {
-			delay := backoffDelay(attempt)
+			recordAgeTransientRetry()
+			delay := backoffDelay(attempt, code)
 			if w.log != nil {
 				w.log.Warn().
 					Err(err).
@@ -911,6 +932,14 @@ func (w *ageGraphWriter) processRequest(req *ageGraphRequest) error {
 	return lastErr
 }
 
+// PostgreSQL SQLSTATE codes for transient errors that should be retried.
+const (
+	sqlstateInternalError       = "XX000" // AGE "Entity failed to be updated" lock contention
+	sqlstateStatementTimeout    = "57014" // Statement timeout
+	sqlstateDeadlockDetected    = "40P01" // Deadlock detected
+	sqlstateSerializationFailed = "40001" // Serialization failure
+)
+
 func classifyAGEError(err error) (string, bool) {
 	if err == nil {
 		return "", false
@@ -918,7 +947,9 @@ func classifyAGEError(err error) (string, bool) {
 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		if pgErr.Code == "XX000" || pgErr.Code == "57014" {
+		switch pgErr.Code {
+		case sqlstateInternalError, sqlstateStatementTimeout,
+			sqlstateDeadlockDetected, sqlstateSerializationFailed:
 			return pgErr.Code, true
 		}
 		return pgErr.Code, false
@@ -927,21 +958,40 @@ func classifyAGEError(err error) (string, bool) {
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "xx000"), strings.Contains(msg, "entity failed to be updated"):
-		return "XX000", true
+		return sqlstateInternalError, true
 	case strings.Contains(msg, "57014"), strings.Contains(msg, "statement timeout"):
-		return "57014", true
+		return sqlstateStatementTimeout, true
+	case strings.Contains(msg, "40p01"), strings.Contains(msg, "deadlock detected"):
+		return sqlstateDeadlockDetected, true
+	case strings.Contains(msg, "40001"), strings.Contains(msg, "could not serialize access"):
+		return sqlstateSerializationFailed, true
 	default:
 		return "", false
 	}
 }
 
-func backoffDelay(attempt int) time.Duration {
+func backoffDelay(attempt int, sqlstate string) time.Duration {
 	if attempt < 1 {
-		return defaultAgeGraphBackoff
+		attempt = 1
 	}
-	backoff := time.Duration(attempt) * defaultAgeGraphBackoff
-	// Add small jitter based on time to avoid lockstep retries.
-	jitterNanos := time.Now().UnixNano() % int64(defaultAgeGraphBackoff)
+
+	// Use longer base backoff for deadlocks and serialization failures
+	// to break lock acquisition synchronization patterns.
+	var baseBackoff time.Duration
+	switch sqlstate {
+	case sqlstateDeadlockDetected, sqlstateSerializationFailed:
+		baseBackoff = defaultAgeGraphDeadlockBackoff
+	default:
+		baseBackoff = defaultAgeGraphBackoff
+	}
+
+	// Exponential backoff: base * 2^(attempt-1)
+	backoff := baseBackoff * time.Duration(1<<(attempt-1))
+
+	// Add randomized jitter (0-100% of base) to avoid lockstep retries.
+	// Using crypto/rand would be better but time-based is sufficient here.
+	jitterMax := int64(baseBackoff)
+	jitterNanos := time.Now().UnixNano() % jitterMax
 	return backoff + time.Duration(jitterNanos)
 }
 
