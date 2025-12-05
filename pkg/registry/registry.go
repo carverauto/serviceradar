@@ -372,39 +372,82 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	return nil
 }
 
-// deduplicateBatch removes duplicate updates for the same IP within a batch
-// It merges metadata from duplicates into the first occurrence
+// deduplicateBatch removes duplicate updates for the same IP within a batch.
+// It enforces IP uniqueness to prevent duplicate key constraint violations on
+// idx_unified_devices_ip_unique_active. When multiple devices share the same IP,
+// the first device becomes canonical and subsequent devices become tombstones.
 func (r *DeviceRegistry) deduplicateBatch(updates []*models.DeviceUpdate) []*models.DeviceUpdate {
 	if len(updates) <= 1 {
 		return updates
 	}
 
-	// Track weak (IP-only) updates seen in this batch; strong-identity updates are not deduplicated.
-	seenWeakByIP := make(map[string]*models.DeviceUpdate)
+	// Track ALL devices by IP to enforce uniqueness constraint.
+	// The first device seen for each IP becomes canonical; subsequent devices become tombstones.
+	seenByIP := make(map[string]*models.DeviceUpdate)
 	result := make([]*models.DeviceUpdate, 0, len(updates))
+	tombstones := make([]*models.DeviceUpdate, 0)
+	var ipCollisions int
 
 	for _, update := range updates {
-		// Skip updates without IP or with service component IDs
+		// Skip updates without IP or with service component IDs (they use device_id identity)
 		if update.IP == "" || isServiceDeviceID(update.DeviceID) {
 			result = append(result, update)
 			continue
 		}
 
-		// If the update has a strong identity (e.g., Armis ID/MAC), do not deduplicate on IP.
-		if hasStrongIdentity(update) {
-			result = append(result, update)
-			continue
+		// Skip updates that are already tombstones (have _merged_into set)
+		if update.Metadata != nil {
+			if mergedInto := update.Metadata["_merged_into"]; mergedInto != "" && mergedInto != update.DeviceID {
+				result = append(result, update)
+				continue
+			}
 		}
 
-		if existing, ok := seenWeakByIP[update.IP]; ok {
-			// Same IP twice in batch for weak sightings - merge into first occurrence
+		if existing, ok := seenByIP[update.IP]; ok {
+			// IP collision detected - convert this update to a tombstone
+			ipCollisions++
+
+			r.logger.Debug().
+				Str("ip", update.IP).
+				Str("canonical_device_id", existing.DeviceID).
+				Str("tombstoned_device_id", update.DeviceID).
+				Msg("IP collision in batch - converting to tombstone")
+
+			// Merge metadata from the tombstoned device into the canonical device
+			// This preserves identity markers (armis_id, netbox_id, etc.)
 			r.mergeUpdateMetadata(existing, update)
+
+			// Create tombstone pointing to the canonical device
+			tombstone := &models.DeviceUpdate{
+				AgentID:     update.AgentID,
+				PollerID:    update.PollerID,
+				Partition:   update.Partition,
+				DeviceID:    update.DeviceID,
+				Source:      update.Source,
+				IP:          update.IP,
+				Timestamp:   update.Timestamp,
+				IsAvailable: update.IsAvailable,
+				Metadata:    map[string]string{"_merged_into": existing.DeviceID},
+			}
+			tombstones = append(tombstones, tombstone)
 			continue
 		}
 
-		seenWeakByIP[update.IP] = update
+		seenByIP[update.IP] = update
 		result = append(result, update)
 	}
+
+	// Record metric for IP collisions
+	if ipCollisions > 0 {
+		recordBatchIPCollisionMetrics(ipCollisions)
+		r.logger.Info().
+			Int("ip_collisions", ipCollisions).
+			Int("tombstones_created", len(tombstones)).
+			Msg("Resolved IP collisions in batch by creating tombstones")
+	}
+
+	// Append tombstones after canonical devices to ensure targets exist first
+	result = append(result, tombstones...)
 
 	return result
 }
