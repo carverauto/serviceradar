@@ -28,6 +28,8 @@
 
 - [x] Add unit test: Two devices with different Armis IDs, same IP → no tombstone, IP cleared from old device
 - [x] Add unit test: `TestDeduplicateBatchMergesStrongIdentityByIP` updated to verify IP clearing on mismatch
+- [x] Add unit test: Two devices with same Armis ID, same IP → merge is correct (duplicate update)
+- [x] Add unit test: Device with no Armis ID vs device with Armis ID, same IP → merge is correct (weak upgraded to strong)
 
 ## 3. Data Repair / Verification
 
