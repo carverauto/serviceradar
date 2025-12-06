@@ -415,19 +415,21 @@ func (r *DeviceRegistry) deduplicateBatch(updates []*models.DeviceUpdate) []*mod
 
 		if existing, ok := seenByIP[update.IP]; ok {
 			// Check for strong identity mismatch (IP churn)
-			_, existingID := getStrongIdentity(existing)
-			_, updateID := getStrongIdentity(update)
+			existingType, existingID := getStrongIdentity(existing)
+			updateType, updateID := getStrongIdentity(update)
 
 			if existingID != "" && updateID != "" && existingID != updateID {
 				// Different strong identities sharing same IP -> churn.
 				// Do NOT merge. The new update takes the IP.
 				// We must clear the IP from the previous update in this batch to avoid constraint violation.
-				
+
 				r.logger.Info().
 					Str("ip", update.IP).
 					Str("old_device", existing.DeviceID).
 					Str("new_device", update.DeviceID).
+					Str("old_identity_type", existingType).
 					Str("old_identity", existingID).
+					Str("new_identity_type", updateType).
 					Str("new_identity", updateID).
 					Msg("IP reassignment detected in batch (strong identity mismatch)")
 				
@@ -492,6 +494,73 @@ func (r *DeviceRegistry) deduplicateBatch(updates []*models.DeviceUpdate) []*mod
 	return result
 }
 
+// shouldSkipIPConflictCheck returns true if the update should bypass IP conflict checking
+func shouldSkipIPConflictCheck(update *models.DeviceUpdate) bool {
+	if update.IP == "" || isServiceDeviceID(update.DeviceID) {
+		return true
+	}
+	if update.Metadata != nil {
+		if mergedInto := update.Metadata["_merged_into"]; mergedInto != "" && mergedInto != update.DeviceID {
+			return true
+		}
+	}
+	return false
+}
+
+// createIPClearUpdate creates an update that clears the IP from a device due to IP churn
+func createIPClearUpdate(deviceID string) *models.DeviceUpdate {
+	return &models.DeviceUpdate{
+		DeviceID:    deviceID,
+		IP:          "0.0.0.0",
+		Timestamp:   time.Now(),
+		Source:      models.DiscoverySourceServiceRadar,
+		IsAvailable: false,
+		Metadata: map[string]string{
+			"_ip_cleared_due_to_churn": "true",
+		},
+	}
+}
+
+// createTombstoneUpdate creates a tombstone update pointing to the target device
+func createTombstoneUpdate(update *models.DeviceUpdate, targetDeviceID string) *models.DeviceUpdate {
+	tombstone := &models.DeviceUpdate{
+		AgentID:     update.AgentID,
+		PollerID:    update.PollerID,
+		Partition:   update.Partition,
+		DeviceID:    update.DeviceID,
+		Source:      update.Source,
+		IP:          update.IP,
+		Timestamp:   update.Timestamp,
+		IsAvailable: update.IsAvailable,
+		Metadata:    map[string]string{"_merged_into": targetDeviceID},
+	}
+	if update.Metadata != nil {
+		for k, v := range update.Metadata {
+			if k != "_merged_into" {
+				tombstone.Metadata[k] = v
+			}
+		}
+	}
+	return tombstone
+}
+
+// createMergeUpdate creates an update to merge metadata into an existing device
+func createMergeUpdate(update *models.DeviceUpdate, targetDeviceID string) *models.DeviceUpdate {
+	return &models.DeviceUpdate{
+		AgentID:     update.AgentID,
+		PollerID:    update.PollerID,
+		Partition:   update.Partition,
+		DeviceID:    targetDeviceID,
+		Source:      update.Source,
+		IP:          update.IP,
+		MAC:         update.MAC,
+		Hostname:    update.Hostname,
+		Timestamp:   update.Timestamp,
+		IsAvailable: update.IsAvailable,
+		Metadata:    update.Metadata,
+	}
+}
+
 // resolveIPConflictsWithDB checks the batch against existing database records
 // and converts devices to tombstones if their IP already belongs to an existing
 // active device with a different device_id. This prevents duplicate key constraint
@@ -501,41 +570,43 @@ func (r *DeviceRegistry) resolveIPConflictsWithDB(ctx context.Context, batch []*
 		return batch, 0
 	}
 
-	// Collect IPs from non-tombstone devices
-	ips := make([]string, 0, len(batch))
-	ipToUpdates := make(map[string][]*models.DeviceUpdate)
-
-	for _, update := range batch {
-		if update.IP == "" || isServiceDeviceID(update.DeviceID) {
-			continue
-		}
-		// Skip existing tombstones
-		if update.Metadata != nil {
-			if mergedInto := update.Metadata["_merged_into"]; mergedInto != "" && mergedInto != update.DeviceID {
-				continue
-			}
-		}
-		ips = append(ips, update.IP)
-		ipToUpdates[update.IP] = append(ipToUpdates[update.IP], update)
-	}
-
+	ips, ipToUpdates := r.collectIPsForConflictCheck(batch)
 	if len(ips) == 0 {
 		return batch, 0
 	}
 
-	// Query database for existing active devices with these IPs
-	existingByIP := make(map[string]string) // IP -> existing device_id
+	existingByIP := make(map[string]string)
 	if err := r.resolveIPsToCanonical(ctx, ips, existingByIP); err != nil {
 		r.logger.Warn().Err(err).Msg("Failed to query existing IPs for conflict resolution")
 		return batch, 0
 	}
 
-	// Fetch full device records for existing devices to check strong identity
+	existingDevicesMap := r.fetchConflictingDevices(ctx, existingByIP, ipToUpdates)
+
+	return r.processDBConflicts(batch, existingByIP, existingDevicesMap)
+}
+
+// collectIPsForConflictCheck collects IPs from updates that need conflict checking
+func (r *DeviceRegistry) collectIPsForConflictCheck(batch []*models.DeviceUpdate) ([]string, map[string][]*models.DeviceUpdate) {
+	ips := make([]string, 0, len(batch))
+	ipToUpdates := make(map[string][]*models.DeviceUpdate)
+
+	for _, update := range batch {
+		if shouldSkipIPConflictCheck(update) {
+			continue
+		}
+		ips = append(ips, update.IP)
+		ipToUpdates[update.IP] = append(ipToUpdates[update.IP], update)
+	}
+	return ips, ipToUpdates
+}
+
+// fetchConflictingDevices fetches full device records for devices that may conflict
+func (r *DeviceRegistry) fetchConflictingDevices(ctx context.Context, existingByIP map[string]string, ipToUpdates map[string][]*models.DeviceUpdate) map[string]*models.UnifiedDevice {
 	existingDevicesMap := make(map[string]*models.UnifiedDevice)
 	conflictingIDs := make([]string, 0, len(existingByIP))
+
 	for ip, id := range existingByIP {
-		// Optimization: Only fetch if the ID is different from what we have in the batch
-		// (though we double check inside the loop anyway)
 		if updates, ok := ipToUpdates[ip]; ok {
 			for _, u := range updates {
 				if u.DeviceID != id {
@@ -550,135 +621,86 @@ func (r *DeviceRegistry) resolveIPConflictsWithDB(ctx context.Context, batch []*
 		devs, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, conflictingIDs)
 		if err != nil {
 			r.logger.Warn().Err(err).Msg("Failed to fetch conflicting devices for identity check")
-			// Proceed without strong identity check (fallback to existing behavior)
 		} else {
 			for _, d := range devs {
 				existingDevicesMap[d.DeviceID] = d
 			}
 		}
 	}
+	return existingDevicesMap
+}
 
-	// Find conflicts and convert to tombstones
+// processDBConflicts processes batch updates against existing DB records
+func (r *DeviceRegistry) processDBConflicts(batch []*models.DeviceUpdate, existingByIP map[string]string, existingDevicesMap map[string]*models.UnifiedDevice) ([]*models.DeviceUpdate, int) {
 	var conflicts int
 	result := make([]*models.DeviceUpdate, 0, len(batch))
 	tombstones := make([]*models.DeviceUpdate, 0)
 
 	for _, update := range batch {
-		// Pass through updates without IPs, service devices, or existing tombstones
-		if update.IP == "" || isServiceDeviceID(update.DeviceID) {
+		if shouldSkipIPConflictCheck(update) {
 			result = append(result, update)
 			continue
 		}
-		if update.Metadata != nil {
-			if mergedInto := update.Metadata["_merged_into"]; mergedInto != "" && mergedInto != update.DeviceID {
-				result = append(result, update)
-				continue
-			}
-		}
 
-		// Check if this IP already has a different active device in the database
-		if existingDeviceID, exists := existingByIP[update.IP]; exists && existingDeviceID != update.DeviceID {
-			// Check for strong identity mismatch
-			var identityMismatch bool
-			if existingDev, ok := existingDevicesMap[existingDeviceID]; ok {
-				_, existingID := getStrongIdentityFromDevice(existingDev)
-				_, updateID := getStrongIdentity(update)
-				if existingID != "" && updateID != "" && existingID != updateID {
-					identityMismatch = true
-					r.logger.Info().
-						Str("ip", update.IP).
-						Str("old_device", existingDeviceID).
-						Str("new_device", update.DeviceID).
-						Str("old_identity", existingID).
-						Str("new_identity", updateID).
-						Msg("IP reassignment detected against DB (strong identity mismatch)")
-				}
-			}
-
-			if identityMismatch {
-				// Different strong identities sharing same IP -> churn.
-				// Do NOT merge. The new update takes the IP.
-				// We must clear the IP from the existing DB record to avoid constraint violation.
-				
-				clearUpdate := &models.DeviceUpdate{
-					DeviceID:    existingDeviceID,
-					IP:          "0.0.0.0", // Clear IP to resolve conflict
-					Timestamp:   time.Now(),
-					Source:      models.DiscoverySourceServiceRadar, // System update
-					IsAvailable: false, // Don't change availability? Or maybe we should?
-					Metadata: map[string]string{
-						"_ip_cleared_due_to_churn": "true",
-					},
-				}
-				// Append clear update FIRST
-				result = append(result, clearUpdate)
-				// Append new update (it will take the IP)
-				result = append(result, update)
-				continue
-			}
-
-			// Conflict: this IP already belongs to a different device
-			conflicts++
-
-			r.logger.Debug().
-				Str("ip", update.IP).
-				Str("existing_device_id", existingDeviceID).
-				Str("conflicting_device_id", update.DeviceID).
-				Msg("IP conflict with existing database record - converting to tombstone")
-
-			// Create tombstone pointing to the existing device
-			tombstone := &models.DeviceUpdate{
-				AgentID:     update.AgentID,
-				PollerID:    update.PollerID,
-				Partition:   update.Partition,
-				DeviceID:    update.DeviceID,
-				Source:      update.Source,
-				IP:          update.IP,
-				Timestamp:   update.Timestamp,
-				IsAvailable: update.IsAvailable,
-				Metadata:    map[string]string{"_merged_into": existingDeviceID},
-			}
-			// Copy other metadata to preserve identity info
-			if update.Metadata != nil {
-				for k, v := range update.Metadata {
-					if k != "_merged_into" {
-						tombstone.Metadata[k] = v
-					}
-				}
-			}
-			tombstones = append(tombstones, tombstone)
-
-			// Also update the existing device with any new metadata from the conflicting device
-			// We create an update for the existing device to merge the metadata
-			mergeUpdate := &models.DeviceUpdate{
-				AgentID:     update.AgentID,
-				PollerID:    update.PollerID,
-				Partition:   update.Partition,
-				DeviceID:    existingDeviceID,
-				Source:      update.Source,
-				IP:          update.IP,
-				MAC:         update.MAC,
-				Hostname:    update.Hostname,
-				Timestamp:   update.Timestamp,
-				IsAvailable: update.IsAvailable,
-				Metadata:    update.Metadata,
-			}
-			result = append(result, mergeUpdate)
+		existingDeviceID, exists := existingByIP[update.IP]
+		if !exists || existingDeviceID == update.DeviceID {
+			result = append(result, update)
 			continue
 		}
 
-		result = append(result, update)
+		// Check for strong identity mismatch
+		if r.handleIdentityMismatch(update, existingDeviceID, existingDevicesMap, &result) {
+			continue
+		}
+
+		// No identity mismatch - create tombstone
+		conflicts++
+		r.logger.Debug().
+			Str("ip", update.IP).
+			Str("existing_device_id", existingDeviceID).
+			Str("conflicting_device_id", update.DeviceID).
+			Msg("IP conflict with existing database record - converting to tombstone")
+
+		tombstones = append(tombstones, createTombstoneUpdate(update, existingDeviceID))
+		result = append(result, createMergeUpdate(update, existingDeviceID))
 	}
 
-	// Record metrics
 	if conflicts > 0 {
 		recordBatchIPCollisionMetrics(conflicts)
 	}
 
-	// Append tombstones at the end
 	result = append(result, tombstones...)
-
 	return result, conflicts
+}
+
+// handleIdentityMismatch checks for strong identity mismatch and handles IP churn
+// Returns true if identity mismatch was detected and handled
+func (r *DeviceRegistry) handleIdentityMismatch(update *models.DeviceUpdate, existingDeviceID string, existingDevicesMap map[string]*models.UnifiedDevice, result *[]*models.DeviceUpdate) bool {
+	existingDev, ok := existingDevicesMap[existingDeviceID]
+	if !ok {
+		return false
+	}
+
+	existingType, existingID := getStrongIdentityFromDevice(existingDev)
+	updateType, updateID := getStrongIdentity(update)
+
+	if existingID == "" || updateID == "" || existingID == updateID {
+		return false
+	}
+
+	r.logger.Info().
+		Str("ip", update.IP).
+		Str("old_device", existingDeviceID).
+		Str("new_device", update.DeviceID).
+		Str("old_identity_type", existingType).
+		Str("old_identity", existingID).
+		Str("new_identity_type", updateType).
+		Str("new_identity", updateID).
+		Msg("IP reassignment detected against DB (strong identity mismatch)")
+
+	*result = append(*result, createIPClearUpdate(existingDeviceID))
+	*result = append(*result, update)
+	return true
 }
 
 func (r *DeviceRegistry) attachSweepSightings(ctx context.Context, sweeps []*models.DeviceUpdate) ([]*models.DeviceUpdate, []*models.DeviceUpdate) {
