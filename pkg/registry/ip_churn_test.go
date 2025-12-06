@@ -86,7 +86,8 @@ func TestIPChurn_SameStrongIdentity(t *testing.T) {
 
 func TestIPChurn_WeakVsStrongIdentity(t *testing.T) {
 	// Scenario: Existing device is WEAK (just IP/scan). Incoming is STRONG (Armis).
-	// Should merge (upgrade weak to strong), NOT clear IP.
+	// New behavior (as of fix): Should SPLIT (clear IP of weak, create new strong).
+	// Previously we merged, but that caused inventory loss during churn.
 	
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
@@ -138,31 +139,34 @@ func TestIPChurn_WeakVsStrongIdentity(t *testing.T) {
 	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
 	require.NoError(t, err)
 
-	// Expectation: Conflict detected. 
-	// Strong identities: Existing="", Update="armis-new".
-	// Mismatch logic: (existing != "" && update != "" && ...) -> FALSE.
-	// Fallback: Standard merge. Update (strong) conflicts with Existing (weak).
-	// Existing (weak) should likely be merged into Update (strong) or vice versa depending on logic.
-	// Currently `resolveIPConflictsWithDB` converts the NEW update to a tombstone pointing to EXISTING.
-	// So "sr:strong-dev" becomes tombstone -> "sr:weak-dev".
-	// AND "sr:weak-dev" gets updated with "armis-new". 
-	// Effectively upgrading "sr:weak-dev" to have a strong identity.
 	
+	// Expectation: Split.
+	// 1. Update clearing IP of weak device (soft delete).
+	// 2. New strong device update.
+	// NO tombstones.
+	
+	var clearUpdate *models.DeviceUpdate
+	var strongUpdate *models.DeviceUpdate
 	var tombstone *models.DeviceUpdate
-	var merge *models.DeviceUpdate
 	
 	for _, u := range published {
-		if u.Metadata != nil && u.Metadata["_merged_into"] == "sr:weak-dev" {
-			tombstone = u
+		if u.DeviceID == "sr:weak-dev" && u.IP == "0.0.0.0" {
+			clearUpdate = u
 		}
-		if u.DeviceID == "sr:weak-dev" {
-			merge = u
+		if u.DeviceID == "sr:strong-dev" {
+			strongUpdate = u
+		}
+		if u.Metadata != nil && u.Metadata["_merged_into"] != "" {
+			tombstone = u
 		}
 	}
 	
-	assert.NotNil(t, tombstone, "Should merge new strong device into existing weak device")
-	assert.NotNil(t, merge, "Should update existing weak device with new details")
-	if merge != nil {
-		assert.Equal(t, "armis-new", merge.Metadata["armis_device_id"], "Existing device should inherit strong ID")
+	assert.Nil(t, tombstone, "Should NOT merge/tombstone weak device into strong device")
+	assert.NotNil(t, clearUpdate, "Should clear IP of weak device")
+	assert.NotNil(t, strongUpdate, "Should process strong device update")
+	
+	if clearUpdate != nil {
+		assert.Equal(t, "true", clearUpdate.Metadata["_ip_cleared_due_to_churn"])
+		assert.Equal(t, "true", clearUpdate.Metadata["_deleted"])
 	}
 }
