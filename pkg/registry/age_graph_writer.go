@@ -32,6 +32,7 @@ func NewAGEGraphWriter(executor db.QueryExecutor, log logger.Logger) GraphWriter
 		return nil
 	}
 
+	async := parseEnvBool(ageGraphAsyncEnv, true)
 	queueSize := parseEnvInt(ageGraphQueueEnv, defaultAgeGraphQueueSize)
 	chunkSize := parseEnvInt(ageGraphChunkSizeEnv, defaultAgeGraphChunkSize)
 	workerCount := parseEnvInt(ageGraphWorkersEnv, defaultAgeGraphWorkers)
@@ -50,6 +51,7 @@ func NewAGEGraphWriter(executor db.QueryExecutor, log logger.Logger) GraphWriter
 		queueCapacity:    queueSize,
 		chunkSize:        chunkSize,
 		workerCount:      workerCount,
+		async:            async,
 		requestTimeout:   requestTimeout,
 		memoryLimitBytes: uint64(memoryLimitMB) * 1024 * 1024,
 		circuitThreshold: circuitThreshold,
@@ -67,6 +69,7 @@ type ageGraphWriter struct {
 	queueCapacity  int
 	chunkSize      int
 	workerCount    int
+	async          bool
 	requestTimeout time.Duration
 
 	// Memory pressure protection
@@ -78,11 +81,11 @@ type ageGraphWriter struct {
 	writeMu sync.Mutex
 
 	// Circuit breaker state
-	circuitFailures   int64
-	circuitThreshold  int
-	circuitResetSecs  int
-	circuitOpenedAt   atomic.Int64 // unix timestamp when circuit opened
-	circuitMu         sync.Mutex
+	circuitFailures  int64
+	circuitThreshold int
+	circuitResetSecs int
+	circuitOpenedAt  atomic.Int64 // unix timestamp when circuit opened
+	circuitMu        sync.Mutex
 }
 
 type ageGraphRequest struct {
@@ -96,24 +99,25 @@ type ageGraphRequest struct {
 }
 
 const (
-	defaultAgeGraphQueueSize         = 256
-	defaultAgeGraphMaxAttempts       = 3
-	defaultAgeGraphBackoff           = 150 * time.Millisecond
-	defaultAgeGraphDeadlockBackoff   = 500 * time.Millisecond // Longer backoff for deadlocks
-	defaultAgeGraphChunkSize         = 128
-	defaultAgeGraphWorkers           = 4
-	defaultAgeGraphTimeout           = 2 * time.Minute
-	defaultAgeGraphMemoryLimitMB     = 0 // 0 = disabled
-	defaultAgeGraphCircuitThreshold  = 10
-	defaultAgeGraphCircuitResetSecs  = 60
-	ageGraphQueueEnv                 = "AGE_GRAPH_QUEUE_SIZE"
-	ageGraphChunkSizeEnv             = "AGE_GRAPH_CHUNK_SIZE"
-	ageGraphWorkersEnv               = "AGE_GRAPH_WORKERS"
-	ageGraphTimeoutEnv               = "AGE_GRAPH_TIMEOUT_SECS"
-	ageGraphMemoryLimitEnv           = "AGE_GRAPH_MEMORY_LIMIT_MB"
-	ageGraphCircuitThresholdEnv      = "AGE_GRAPH_CIRCUIT_THRESHOLD"
-	ageGraphCircuitResetEnv          = "AGE_GRAPH_CIRCUIT_RESET_SECS"
-	ageGraphDeadlockBackoffEnv       = "AGE_GRAPH_DEADLOCK_BACKOFF_MS"
+	defaultAgeGraphQueueSize        = 256
+	defaultAgeGraphMaxAttempts      = 3
+	defaultAgeGraphBackoff          = 150 * time.Millisecond
+	defaultAgeGraphDeadlockBackoff  = 500 * time.Millisecond // Longer backoff for deadlocks
+	defaultAgeGraphChunkSize        = 128
+	defaultAgeGraphWorkers          = 4
+	defaultAgeGraphTimeout          = 2 * time.Minute
+	defaultAgeGraphMemoryLimitMB    = 0 // 0 = disabled
+	defaultAgeGraphCircuitThreshold = 10
+	defaultAgeGraphCircuitResetSecs = 60
+	ageGraphAsyncEnv                = "AGE_GRAPH_ASYNC"
+	ageGraphQueueEnv                = "AGE_GRAPH_QUEUE_SIZE"
+	ageGraphChunkSizeEnv            = "AGE_GRAPH_CHUNK_SIZE"
+	ageGraphWorkersEnv              = "AGE_GRAPH_WORKERS"
+	ageGraphTimeoutEnv              = "AGE_GRAPH_TIMEOUT_SECS"
+	ageGraphMemoryLimitEnv          = "AGE_GRAPH_MEMORY_LIMIT_MB"
+	ageGraphCircuitThresholdEnv     = "AGE_GRAPH_CIRCUIT_THRESHOLD"
+	ageGraphCircuitResetEnv         = "AGE_GRAPH_CIRCUIT_RESET_SECS"
+	ageGraphDeadlockBackoffEnv      = "AGE_GRAPH_DEADLOCK_BACKOFF_MS"
 
 	// Circuit breaker states
 	circuitClosed   = 0
@@ -845,11 +849,26 @@ func (w *ageGraphWriter) enqueue(ctx context.Context, kind string, size int, que
 		return fmt.Errorf("%w: capacity=%d", errAgeGraphQueueFull, w.queueCapacity)
 	}
 
-	select {
-	case err := <-req.result:
-		return err
-	case <-reqCtx.Done():
-		return reqCtx.Err()
+	if w.async {
+		go w.handleEnqueueResult(req)
+		return nil
+	}
+
+	return w.awaitRequest(req)
+}
+
+func (w *ageGraphWriter) handleEnqueueResult(req *ageGraphRequest) {
+	if req == nil {
+		return
+	}
+
+	if err := w.awaitRequest(req); err != nil && w.log != nil {
+		w.log.Debug().
+			Err(err).
+			Str("kind", req.kind).
+			Int("batch_size", req.size).
+			Float64("queue_wait_secs", time.Since(req.enqueuedAt).Seconds()).
+			Msg("age graph: async batch failed")
 	}
 }
 
@@ -995,6 +1014,24 @@ func backoffDelay(attempt int, sqlstate string) time.Duration {
 	return backoff + time.Duration(jitterNanos)
 }
 
+func (w *ageGraphWriter) awaitRequest(req *ageGraphRequest) error {
+	if req == nil {
+		return nil
+	}
+
+	select {
+	case err := <-req.result:
+		return err
+	case <-req.ctx.Done():
+		select {
+		case err := <-req.result:
+			return err
+		default:
+			return req.ctx.Err()
+		}
+	}
+}
+
 func parseEnvInt(key string, fallback int) int {
 	val := strings.TrimSpace(os.Getenv(key))
 	if val == "" {
@@ -1027,6 +1064,18 @@ func parseEnvDuration(key string, fallback time.Duration) time.Duration {
 	}
 
 	return fallback
+}
+
+func parseEnvBool(key string, fallback bool) bool {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(val)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func (w *ageGraphWriter) recordSuccess() {

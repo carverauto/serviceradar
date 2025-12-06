@@ -288,6 +288,9 @@ func (r *cnpgIdentityResolver) resolveCanonicalIPs(ctx context.Context, ips []st
 		if device == nil || device.IP == "" || device.DeviceID == "" {
 			continue
 		}
+		if !isCanonicalUnifiedDevice(device) {
+			continue
+		}
 		resolved[device.IP] = device.DeviceID
 		r.cache.setIPMapping(device.IP, device.DeviceID)
 		r.cache.setDeviceMeta(device.DeviceID, device)

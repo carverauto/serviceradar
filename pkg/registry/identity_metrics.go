@@ -25,23 +25,25 @@ const (
 	metricDriftPercentName             = "identity_cardinality_drift_percent"
 	metricDriftBlockedName             = "identity_cardinality_blocked"
 	metricSweepMergesLastRunName       = "identity_sweep_merges_last_batch"
+	metricBatchIPCollisionsTotalName   = "device_batch_ip_collisions_total"
 )
 
 // identityMetricsObservatory stores the latest promotion reconciliation measurements.
 type identityMetricsObservatory struct {
-	promotedLastRun      atomic.Int64
-	eligibleAutoLastRun  atomic.Int64
-	shadowReadyLastRun   atomic.Int64
-	blockedPolicyLastRun atomic.Int64
-	shadowOnlyLastRun    atomic.Int64
-	attemptedLastRun     atomic.Int64
-	runTimestampMs       atomic.Int64
-	runAgeMs             atomic.Int64
-	driftCurrentDevices  atomic.Int64
-	driftBaselineDevices atomic.Int64
-	driftPercent         atomic.Int64
-	driftBlocked         atomic.Int64
-	sweepMergesLastRun   atomic.Int64
+	promotedLastRun       atomic.Int64
+	eligibleAutoLastRun   atomic.Int64
+	shadowReadyLastRun    atomic.Int64
+	blockedPolicyLastRun  atomic.Int64
+	shadowOnlyLastRun     atomic.Int64
+	attemptedLastRun      atomic.Int64
+	runTimestampMs        atomic.Int64
+	runAgeMs              atomic.Int64
+	driftCurrentDevices   atomic.Int64
+	driftBaselineDevices  atomic.Int64
+	driftPercent          atomic.Int64
+	driftBlocked          atomic.Int64
+	sweepMergesLastRun    atomic.Int64
+	batchIPCollisionsTotal atomic.Int64
 }
 
 var (
@@ -51,19 +53,20 @@ var (
 	identityMetricsData = &identityMetricsObservatory{}
 	//nolint:gochecknoglobals // metric observers are shared singletons
 	identityMetricsGauges struct {
-		promotedLastRun      metric.Int64ObservableGauge
-		eligibleAutoLastRun  metric.Int64ObservableGauge
-		shadowReadyLastRun   metric.Int64ObservableGauge
-		blockedPolicyLastRun metric.Int64ObservableGauge
-		shadowOnlyLastRun    metric.Int64ObservableGauge
-		attemptedLastRun     metric.Int64ObservableGauge
-		runTimestampMs       metric.Int64ObservableGauge
-		runAgeMs             metric.Int64ObservableGauge
-		driftCurrentDevices  metric.Int64ObservableGauge
-		driftBaselineDevices metric.Int64ObservableGauge
-		driftPercent         metric.Int64ObservableGauge
-		driftBlocked         metric.Int64ObservableGauge
-		sweepMergesLastRun   metric.Int64ObservableGauge
+		promotedLastRun        metric.Int64ObservableGauge
+		eligibleAutoLastRun    metric.Int64ObservableGauge
+		shadowReadyLastRun     metric.Int64ObservableGauge
+		blockedPolicyLastRun   metric.Int64ObservableGauge
+		shadowOnlyLastRun      metric.Int64ObservableGauge
+		attemptedLastRun       metric.Int64ObservableGauge
+		runTimestampMs         metric.Int64ObservableGauge
+		runAgeMs               metric.Int64ObservableGauge
+		driftCurrentDevices    metric.Int64ObservableGauge
+		driftBaselineDevices   metric.Int64ObservableGauge
+		driftPercent           metric.Int64ObservableGauge
+		driftBlocked           metric.Int64ObservableGauge
+		sweepMergesLastRun     metric.Int64ObservableGauge
+		batchIPCollisionsTotal metric.Int64ObservableGauge
 	}
 	identityMetricsRegistration metric.Registration //nolint:unused,gochecknoglobals // kept to retain callback
 )
@@ -176,6 +179,14 @@ func initIdentityMetrics() {
 		otel.Handle(err)
 		return
 	}
+	identityMetricsGauges.batchIPCollisionsTotal, err = meter.Int64ObservableGauge(
+		metricBatchIPCollisionsTotalName,
+		metric.WithDescription("Total IP collisions resolved by creating tombstones in batch deduplication"),
+	)
+	if err != nil {
+		otel.Handle(err)
+		return
+	}
 
 	registration, err := meter.RegisterCallback(func(ctx context.Context, observer metric.Observer) error {
 		observer.ObserveInt64(identityMetricsGauges.promotedLastRun, identityMetricsData.promotedLastRun.Load())
@@ -191,6 +202,7 @@ func initIdentityMetrics() {
 		observer.ObserveInt64(identityMetricsGauges.driftPercent, identityMetricsData.driftPercent.Load())
 		observer.ObserveInt64(identityMetricsGauges.driftBlocked, identityMetricsData.driftBlocked.Load())
 		observer.ObserveInt64(identityMetricsGauges.sweepMergesLastRun, identityMetricsData.sweepMergesLastRun.Load())
+		observer.ObserveInt64(identityMetricsGauges.batchIPCollisionsTotal, identityMetricsData.batchIPCollisionsTotal.Load())
 		return nil
 	},
 		identityMetricsGauges.promotedLastRun,
@@ -206,6 +218,7 @@ func initIdentityMetrics() {
 		identityMetricsGauges.driftPercent,
 		identityMetricsGauges.driftBlocked,
 		identityMetricsGauges.sweepMergesLastRun,
+		identityMetricsGauges.batchIPCollisionsTotal,
 	)
 	if err != nil {
 		otel.Handle(err)
@@ -279,4 +292,11 @@ func recordSweepMergeMetrics(merged int, runTime time.Time) {
 		age = 0
 	}
 	identityMetricsData.runAgeMs.Store(age.Milliseconds())
+}
+
+// recordBatchIPCollisionMetrics increments the counter for IP collisions resolved in batch deduplication.
+func recordBatchIPCollisionMetrics(collisions int) {
+	identityMetricsOnce.Do(initIdentityMetrics)
+
+	identityMetricsData.batchIPCollisionsTotal.Add(int64(collisions))
 }

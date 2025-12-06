@@ -18,6 +18,8 @@ const (
 	defaultActiveWindow             = 24 * time.Hour
 	defaultPartitionFallback        = "default"
 	defaultStatsMismatchLogInterval = time.Minute
+	defaultStatsDriftTolerancePct   = 1   // 1% drift tolerated before alerting
+	defaultStatsDriftMinDifference  = 100 // minimum absolute drift tolerated
 )
 
 //nolint:gochecknoglobals // default capability set is shared configuration
@@ -386,7 +388,6 @@ func shouldCountRecord(record *registry.DeviceRecord) bool {
 	return record != nil
 }
 
-
 func isCanonicalRecord(record *registry.DeviceRecord) bool {
 	if record == nil {
 		return false
@@ -708,6 +709,20 @@ func (a *StatsAggregator) maybeReportDiscrepancy(ctx context.Context, records []
 		return
 	}
 
+	registryTotal64 := int64(registryTotal)
+	diff := registryTotal64 - cnpgTotal
+	if diff < 0 {
+		diff = -diff
+	}
+
+	tolerance := int64(defaultStatsDriftMinDifference)
+	if pct := (cnpgTotal * int64(defaultStatsDriftTolerancePct)) / 100; pct > tolerance {
+		tolerance = pct
+	}
+	if diff <= tolerance {
+		return
+	}
+
 	if !a.lastMismatchLog.IsZero() && a.mismatchLogInterval > 0 && a.now().Before(a.lastMismatchLog.Add(a.mismatchLogInterval)) {
 		return
 	}
@@ -727,7 +742,9 @@ func (a *StatsAggregator) maybeReportDiscrepancy(ctx context.Context, records []
 
 	event := a.logger.Warn().
 		Int("registry_devices", registryTotal).
-		Int64("cnpg_devices", cnpgTotal)
+		Int64("cnpg_devices", cnpgTotal).
+		Int64("drift", diff).
+		Int64("drift_tolerance", tolerance)
 
 	if len(missingIDs) > 0 {
 		event = event.Strs("missing_device_ids", missingIDs)

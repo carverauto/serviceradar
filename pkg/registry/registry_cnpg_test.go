@@ -13,6 +13,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 type cnpgMockService struct {
@@ -136,6 +137,23 @@ func TestResolveIPsToCanonicalCNPG(t *testing.T) {
 		}, nil
 	}
 
+	// Because resolveIPsToCanonical now calls resolveCanonicalIPMappings, we must expect a lookup.
+	// We return them as valid canonical devices.
+	mockService.MockService.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, ips []string, ids []string) ([]*models.UnifiedDevice, error) {
+			var res []*models.UnifiedDevice
+			for _, id := range ids {
+				if id == "device-a" || id == "device-b" {
+					res = append(res, &models.UnifiedDevice{
+						DeviceID: id,
+						Metadata: &models.DiscoveredField[map[string]string]{Value: map[string]string{}},
+					})
+				}
+			}
+			return res, nil
+		}).AnyTimes()
+
 	registry := NewDeviceRegistry(mockService, logger.NewTestLogger())
 	out := map[string]string{}
 
@@ -145,4 +163,51 @@ func TestResolveIPsToCanonicalCNPG(t *testing.T) {
 		"10.0.0.1": "device-a",
 		"10.0.0.2": "device-b",
 	}, out)
+}
+
+func TestResolveCanonicalIPMappingsFollowsTombstones(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockService := db.NewMockService(ctrl)
+
+	mappings := map[string]string{
+		"10.0.0.1": "sr:tomb",
+		"10.0.0.2": "sr:canonical",
+	}
+
+	// Mock DB to return requested devices
+	store := map[string]*models.UnifiedDevice{
+		"sr:tomb": {
+			DeviceID: "sr:tomb",
+			Metadata: &models.DiscoveredField[map[string]string]{Value: map[string]string{"_merged_into": "sr:target"}},
+		},
+		"sr:target": {
+			DeviceID: "sr:target",
+			Metadata: &models.DiscoveredField[map[string]string]{Value: map[string]string{}},
+		},
+		"sr:canonical": {
+			DeviceID: "sr:canonical",
+			Metadata: &models.DiscoveredField[map[string]string]{Value: map[string]string{}},
+		},
+	}
+
+	mockService.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), []string(nil), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ []string, ids []string) ([]*models.UnifiedDevice, error) {
+			var res []*models.UnifiedDevice
+			for _, id := range ids {
+				if dev, ok := store[id]; ok {
+					res = append(res, dev)
+				}
+			}
+			return res, nil
+		}).AnyTimes()
+
+	registry := NewDeviceRegistry(mockService, logger.NewTestLogger())
+
+	resolved := registry.resolveCanonicalIPMappings(context.Background(), mappings)
+
+	assert.Equal(t, map[string]string{
+		"10.0.0.1": "sr:target",    // Followed chain from sr:tomb -> sr:target
+		"10.0.0.2": "sr:canonical", // Stayed same
+	}, resolved)
 }
