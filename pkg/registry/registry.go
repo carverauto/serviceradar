@@ -1675,6 +1675,8 @@ WHERE ip = ANY($1)
      OR (metadata ? 'integration_type' AND metadata->>'integration_type' = $2)
      OR (mac IS NOT NULL AND mac <> '')
       )
+  AND COALESCE(lower(metadata->>'_deleted'),'false') <> 'true'
+  AND COALESCE(lower(metadata->>'deleted'),'false') <> 'true'
 ORDER BY ip, last_seen DESC`
 
 	argBuilder := func(chunk []string) []interface{} {
@@ -1887,6 +1889,8 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 		resolved, resolveErr = r.identityResolver.resolveCanonicalIPs(ctx, candidates)
 	}
 
+	// Add initial results to out. We allow tombstones/merged devices here
+	// because we'll resolve the chains at the very end.
 	for ip, deviceID := range resolved {
 		ip = strings.TrimSpace(ip)
 		deviceID = strings.TrimSpace(deviceID)
@@ -1905,22 +1909,19 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 		delete(unresolved, ip)
 	}
 
-	if len(unresolved) == 0 {
-		return resolveErr
-	}
+	// If we still have unresolved IPs, try fallback methods
+	if len(unresolved) > 0 {
+		fallbackIPs := make([]string, 0, len(unresolved))
+		for ip := range unresolved {
+			fallbackIPs = append(fallbackIPs, ip)
+		}
 
-	fallbackIPs := make([]string, 0, len(unresolved))
-	for ip := range unresolved {
-		fallbackIPs = append(fallbackIPs, ip)
-	}
-
-	if r.useCNPGReads() {
-		cnpgErr := r.resolveIPsToCanonicalCNPG(ctx, fallbackIPs, out)
-		return errors.Join(resolveErr, cnpgErr)
-	}
-
-	buildQuery := func(list string) string {
-		return fmt.Sprintf(`SELECT
+		if r.useCNPGReads() {
+			cnpgErr := r.resolveIPsToCanonicalCNPG(ctx, fallbackIPs, out)
+			resolveErr = errors.Join(resolveErr, cnpgErr)
+		} else {
+			buildQuery := func(list string) string {
+				return fmt.Sprintf(`SELECT
                 ip,
                 arg_max(device_id, _tp_time) AS device_id
               FROM table(unified_devices)
@@ -1929,15 +1930,170 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
                      OR (has(map_keys(metadata),'integration_type') AND metadata['integration_type']='%s')
                      OR (mac IS NOT NULL AND mac != ''))
               GROUP BY ip`, list, integrationTypeNetbox)
-	}
-	extract := func(row map[string]any) (string, string) {
-		ip, _ := row["ip"].(string)
-		dev, _ := row["device_id"].(string)
-		return ip, dev
+			}
+			extract := func(row map[string]any) (string, string) {
+				ip, _ := row["ip"].(string)
+				dev, _ := row["device_id"].(string)
+				return ip, dev
+			}
+
+			fallbackErr := r.resolveIdentifiers(ctx, fallbackIPs, out, buildQuery, extract)
+			resolveErr = errors.Join(resolveErr, fallbackErr)
+		}
 	}
 
-	fallbackErr := r.resolveIdentifiers(ctx, fallbackIPs, out, buildQuery, extract)
-	return errors.Join(resolveErr, fallbackErr)
+	// Finally, resolve any merged devices in the result set to their canonical targets
+	if len(out) > 0 {
+		resolvedChains := r.resolveCanonicalIPMappings(ctx, out)
+		// Update out with resolved canonical IDs, removing any that couldn't be resolved (e.g. deleted)
+		for ip := range out {
+			if canonical, ok := resolvedChains[ip]; ok && canonical != "" {
+				out[ip] = canonical
+			} else {
+				delete(out, ip)
+			}
+		}
+	}
+
+	return resolveErr
+}
+
+func (r *DeviceRegistry) resolveCanonicalIPMappings(ctx context.Context, mappings map[string]string) map[string]string {
+	if len(mappings) == 0 || r.db == nil {
+		return mappings
+	}
+
+	ids := make([]string, 0, len(mappings))
+	seen := make(map[string]struct{})
+	for _, id := range mappings {
+		if id != "" {
+			if _, ok := seen[id]; !ok {
+				ids = append(ids, id)
+				seen[id] = struct{}{}
+			}
+		}
+	}
+
+	resolvedChains := r.resolveMergeChains(ctx, ids)
+
+	result := make(map[string]string)
+	for ip, id := range mappings {
+		if canonical, ok := resolvedChains[id]; ok && canonical != "" {
+			result[ip] = canonical
+		}
+	}
+
+	return result
+}
+
+func (r *DeviceRegistry) resolveMergeChains(ctx context.Context, ids []string) map[string]string {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	// pending: IDs we need to look up
+	pending := make(map[string]struct{})
+	for _, id := range ids {
+		if id != "" {
+			pending[id] = struct{}{}
+		}
+	}
+
+	// loaded: IDs we have fetched from DB
+	loaded := make(map[string]*models.UnifiedDevice)
+
+	// Loop to fetch chains (max depth 5 to prevent infinite loops/excessive queries)
+	for i := 0; i < 5; i++ {
+		if len(pending) == 0 {
+			break
+		}
+
+		// Convert pending set to slice
+		batch := make([]string, 0, len(pending))
+		for id := range pending {
+			batch = append(batch, id)
+		}
+
+		// Clear pending for next iteration
+		pending = make(map[string]struct{})
+
+		// Fetch from DB
+		devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, batch)
+		if err != nil {
+			r.logger.Warn().Err(err).Msg("Failed to fetch devices for chain resolution")
+			// Stop here, process what we have
+			break
+		}
+
+		for _, dev := range devices {
+			loaded[dev.DeviceID] = dev
+
+			// If merged, add target to pending if not already loaded
+			if dev.Metadata != nil {
+				if merged := strings.TrimSpace(dev.Metadata.Value["_merged_into"]); merged != "" && merged != dev.DeviceID {
+					if _, have := loaded[merged]; !have {
+						pending[merged] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+
+	// Build final map
+	results := make(map[string]string)
+
+	for _, startID := range ids {
+		currID := startID
+		visited := map[string]struct{}{}
+
+		// Follow chain
+		for {
+			if _, seen := visited[currID]; seen {
+				// Cycle detected! Abort chain.
+				currID = ""
+				break
+			}
+			visited[currID] = struct{}{}
+
+			dev, ok := loaded[currID]
+			if !ok {
+				// Missing device in chain (deleted or not found)
+				// If it's the startID, we treat it as missing.
+				currID = ""
+				break
+			}
+
+			if isCanonicalUnifiedDevice(dev) {
+				// Found it!
+				break
+			}
+
+			// It's merged or deleted
+			if dev.Metadata != nil && strings.EqualFold(dev.Metadata.Value["_deleted"], "true") {
+				currID = "" // Deleted
+				break
+			}
+
+			merged := ""
+			if dev.Metadata != nil {
+				merged = strings.TrimSpace(dev.Metadata.Value["_merged_into"])
+			}
+
+			if merged != "" && merged != currID {
+				currID = merged // Advance
+			} else {
+				// Not canonical, not deleted, no merge target? Invalid state.
+				currID = ""
+				break
+			}
+		}
+
+		if currID != "" {
+			results[startID] = currID
+		}
+	}
+
+	return results
 }
 
 func (r *DeviceRegistry) lookupCanonicalFromMaps(u *models.DeviceUpdate, maps *identityMaps) (string, string) {
