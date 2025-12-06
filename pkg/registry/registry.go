@@ -414,6 +414,36 @@ func (r *DeviceRegistry) deduplicateBatch(updates []*models.DeviceUpdate) []*mod
 		}
 
 		if existing, ok := seenByIP[update.IP]; ok {
+			// Check for strong identity mismatch (IP churn)
+			_, existingID := getStrongIdentity(existing)
+			_, updateID := getStrongIdentity(update)
+
+			if existingID != "" && updateID != "" && existingID != updateID {
+				// Different strong identities sharing same IP -> churn.
+				// Do NOT merge. The new update takes the IP.
+				// We must clear the IP from the previous update in this batch to avoid constraint violation.
+				
+				r.logger.Info().
+					Str("ip", update.IP).
+					Str("old_device", existing.DeviceID).
+					Str("new_device", update.DeviceID).
+					Str("old_identity", existingID).
+					Str("new_identity", updateID).
+					Msg("IP reassignment detected in batch (strong identity mismatch)")
+				
+				// Clear IP from existing (old) update
+				existing.IP = "0.0.0.0" 
+				if existing.Metadata == nil {
+					existing.Metadata = map[string]string{}
+				}
+				existing.Metadata["_ip_cleared_due_to_churn"] = "true"
+
+				// Update map to point to the new owner
+				seenByIP[update.IP] = update
+				result = append(result, update)
+				continue
+			}
+
 			// IP collision detected - convert this update to a tombstone
 			ipCollisions++
 
@@ -500,6 +530,34 @@ func (r *DeviceRegistry) resolveIPConflictsWithDB(ctx context.Context, batch []*
 		return batch, 0
 	}
 
+	// Fetch full device records for existing devices to check strong identity
+	existingDevicesMap := make(map[string]*models.UnifiedDevice)
+	conflictingIDs := make([]string, 0, len(existingByIP))
+	for ip, id := range existingByIP {
+		// Optimization: Only fetch if the ID is different from what we have in the batch
+		// (though we double check inside the loop anyway)
+		if updates, ok := ipToUpdates[ip]; ok {
+			for _, u := range updates {
+				if u.DeviceID != id {
+					conflictingIDs = append(conflictingIDs, id)
+					break
+				}
+			}
+		}
+	}
+
+	if len(conflictingIDs) > 0 {
+		devs, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, conflictingIDs)
+		if err != nil {
+			r.logger.Warn().Err(err).Msg("Failed to fetch conflicting devices for identity check")
+			// Proceed without strong identity check (fallback to existing behavior)
+		} else {
+			for _, d := range devs {
+				existingDevicesMap[d.DeviceID] = d
+			}
+		}
+	}
+
 	// Find conflicts and convert to tombstones
 	var conflicts int
 	result := make([]*models.DeviceUpdate, 0, len(batch))
@@ -520,6 +578,45 @@ func (r *DeviceRegistry) resolveIPConflictsWithDB(ctx context.Context, batch []*
 
 		// Check if this IP already has a different active device in the database
 		if existingDeviceID, exists := existingByIP[update.IP]; exists && existingDeviceID != update.DeviceID {
+			// Check for strong identity mismatch
+			var identityMismatch bool
+			if existingDev, ok := existingDevicesMap[existingDeviceID]; ok {
+				_, existingID := getStrongIdentityFromDevice(existingDev)
+				_, updateID := getStrongIdentity(update)
+				if existingID != "" && updateID != "" && existingID != updateID {
+					identityMismatch = true
+					r.logger.Info().
+						Str("ip", update.IP).
+						Str("old_device", existingDeviceID).
+						Str("new_device", update.DeviceID).
+						Str("old_identity", existingID).
+						Str("new_identity", updateID).
+						Msg("IP reassignment detected against DB (strong identity mismatch)")
+				}
+			}
+
+			if identityMismatch {
+				// Different strong identities sharing same IP -> churn.
+				// Do NOT merge. The new update takes the IP.
+				// We must clear the IP from the existing DB record to avoid constraint violation.
+				
+				clearUpdate := &models.DeviceUpdate{
+					DeviceID:    existingDeviceID,
+					IP:          "0.0.0.0", // Clear IP to resolve conflict
+					Timestamp:   time.Now(),
+					Source:      models.DiscoverySourceServiceRadar, // System update
+					IsAvailable: false, // Don't change availability? Or maybe we should?
+					Metadata: map[string]string{
+						"_ip_cleared_due_to_churn": "true",
+					},
+				}
+				// Append clear update FIRST
+				result = append(result, clearUpdate)
+				// Append new update (it will take the IP)
+				result = append(result, update)
+				continue
+			}
+
 			// Conflict: this IP already belongs to a different device
 			conflicts++
 

@@ -33,17 +33,24 @@ func TestDeduplicateBatchMergesStrongIdentityByIP(t *testing.T) {
 
 	deduped := registry.deduplicateBatch(updates)
 
-	// Should have 2 items: the canonical device and the tombstone
-	require.Len(t, deduped, 2, "should have canonical device + tombstone")
+	// Should have 2 items: both valid devices (no tombstones)
+	// But the first one should have its IP cleared due to churn
+	require.Len(t, deduped, 2, "should have 2 devices (churn detected)")
 
-	// First device becomes canonical and receives merged metadata
+	// First device (old) loses IP
 	require.Equal(t, "sr:uuid-1", deduped[0].DeviceID)
-	require.Equal(t, "armis-1", deduped[0].Metadata["armis_device_id"])
-	require.Equal(t, &mac, deduped[0].MAC, "MAC should be merged from second device")
-
-	// Second device becomes a tombstone pointing to the first
+	require.Equal(t, "0.0.0.0", deduped[0].IP)
+	require.Equal(t, "true", deduped[0].Metadata["_ip_cleared_due_to_churn"])
+	
+	// Second device (new) keeps IP
 	require.Equal(t, "sr:uuid-2", deduped[1].DeviceID)
-	require.Equal(t, "sr:uuid-1", deduped[1].Metadata["_merged_into"], "second device should be tombstoned into first")
+	require.Equal(t, "10.0.0.1", deduped[1].IP)
+	require.Equal(t, "armis-2", deduped[1].Metadata["armis_device_id"])
+	require.Equal(t, &mac, deduped[1].MAC)
+	
+	// Ensure no tombstones
+	require.Empty(t, deduped[0].Metadata["_merged_into"])
+	require.Empty(t, deduped[1].Metadata["_merged_into"])
 }
 
 func TestDeduplicateBatchMergesWeakSightings(t *testing.T) {
