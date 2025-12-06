@@ -1005,6 +1005,15 @@ func TestResolveIPsToCanonicalUsesIdentityResolverBeforeDB(t *testing.T) {
 		},
 	}
 
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), []string(nil), gomock.Any()).
+		Return([]*models.UnifiedDevice{
+			{
+				DeviceID: "default:canonical-ip",
+				Metadata: &models.DiscoveredField[map[string]string]{Value: map[string]string{}},
+			},
+		}, nil)
+
 	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithIdentityResolver(kv, identitymap.DefaultNamespace))
 
 	maps, err := registry.buildIdentityMaps(ctx, []*models.DeviceUpdate{

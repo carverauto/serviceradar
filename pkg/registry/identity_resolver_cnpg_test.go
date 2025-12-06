@@ -75,6 +75,48 @@ func TestCNPGIdentityResolverResolveCanonicalIPs(t *testing.T) {
 	}
 }
 
+func TestCNPGIdentityResolverSkipsTombstonedIPs(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	metaTombstone := map[string]string{"_merged_into": "sr:canonical-1"}
+	metaDeleted := map[string]string{"_deleted": "true"}
+
+	testDevices := []*models.UnifiedDevice{
+		{
+			DeviceID: "sr:tombstoned",
+			IP:       "10.0.0.1",
+			Metadata: &models.DiscoveredField[map[string]string]{Value: metaTombstone},
+		},
+		{
+			DeviceID: "sr:canonical-1",
+			IP:       "10.0.0.2",
+			Metadata: &models.DiscoveredField[map[string]string]{Value: map[string]string{}},
+		},
+		{
+			DeviceID: "sr:deleted",
+			IP:       "10.0.0.3",
+			Metadata: &models.DiscoveredField[map[string]string]{Value: metaDeleted},
+		},
+	}
+
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}, []string(nil)).
+		Return(testDevices, nil)
+
+	resolver := &cnpgIdentityResolver{
+		db:    mockDB,
+		cache: newIdentityResolverCache(5*time.Minute, 1000),
+	}
+
+	resolved, err := resolver.resolveCanonicalIPs(context.Background(), []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"})
+	require.NoError(t, err)
+
+	require.Len(t, resolved, 1)
+	require.Equal(t, "sr:canonical-1", resolved["10.0.0.2"])
+}
+
 func TestCNPGIdentityResolverUsesCache(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

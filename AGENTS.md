@@ -65,6 +65,13 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 - bazel is our build system, we use it to build and push images
 - Sysmon-vm hostfreq sampler buffers ~5 minutes of 250 ms samples; keep pollers querying at least once per retention window so cached CPU data stays fresh.
 
+## Demo Namespace Helm Refresh
+
+- Build and push images: `make build` then `make push_all`.
+- Capture the tag: `git rev-parse HEAD` and set `appTag: "sha-<sha>"` in `helm/serviceradar/values.yaml`.
+- Deploy to demo: `helm upgrade --install serviceradar helm/serviceradar -n demo -f helm/serviceradar/values.yaml --atomic`.
+- Sanity check: `kubectl get pods -n demo` and `helm status serviceradar -n demo`.
+
 ## Docker MTLS Compose Refresh
 
 - Build and publish images from the current commit: `make build` then `make push_all`.
