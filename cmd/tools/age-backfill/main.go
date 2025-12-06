@@ -151,6 +151,12 @@ func run(ctx context.Context, cfg *config) error {
 		},
 	}
 
+	// Ensure age-backfill runs graph writes synchronously so the process
+	// does not exit before the queue drains. Core defaults to async.
+	if _, ok := os.LookupEnv("AGE_GRAPH_ASYNC"); !ok {
+		_ = os.Setenv("AGE_GRAPH_ASYNC", "false")
+	}
+
 	pool, err := db.NewCNPGPool(ctx, cnpg, appLogger)
 	if err != nil {
 		return fmt.Errorf("dial cnpg: %w", err)
