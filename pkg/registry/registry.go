@@ -511,12 +511,13 @@ func shouldSkipIPConflictCheck(update *models.DeviceUpdate) bool {
 func createIPClearUpdate(deviceID string) *models.DeviceUpdate {
 	return &models.DeviceUpdate{
 		DeviceID:    deviceID,
-		IP:          "0.0.0.0",
+		IP:          "0.0.0.0", // Set to 0.0.0.0 for history log
 		Timestamp:   time.Now(),
 		Source:      models.DiscoverySourceServiceRadar,
 		IsAvailable: false,
 		Metadata: map[string]string{
 			"_ip_cleared_due_to_churn": "true",
+			"_deleted":                 "true", // Soft-delete to remove from unique index
 		},
 	}
 }
