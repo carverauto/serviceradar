@@ -413,41 +413,41 @@ func (r *DeviceRegistry) deduplicateBatch(updates []*models.DeviceUpdate) []*mod
 			}
 		}
 
-		if existing, ok := seenByIP[update.IP]; ok {
-			// Check for strong identity mismatch (IP churn)
-			existingType, existingID := getStrongIdentity(existing)
-			updateType, updateID := getStrongIdentity(update)
-
-			if existingID != "" && updateID != "" && existingID != updateID {
-				// Different strong identities sharing same IP -> churn.
-				// Do NOT merge. The new update takes the IP.
-				// We must clear the IP from the previous update in this batch to avoid constraint violation.
-
-				r.logger.Info().
-					Str("ip", update.IP).
-					Str("old_device", existing.DeviceID).
-					Str("new_device", update.DeviceID).
-					Str("old_identity_type", existingType).
-					Str("old_identity", existingID).
-					Str("new_identity_type", updateType).
-					Str("new_identity", updateID).
-					Msg("IP reassignment detected in batch (strong identity mismatch)")
-				
-				// Clear IP from existing (old) update
-				existing.IP = "0.0.0.0" 
-				if existing.Metadata == nil {
-					existing.Metadata = map[string]string{}
-				}
-				existing.Metadata["_ip_cleared_due_to_churn"] = "true"
-
-				// Update map to point to the new owner
-				seenByIP[update.IP] = update
-				result = append(result, update)
-				continue
-			}
-
-			// IP collision detected - convert this update to a tombstone
-			ipCollisions++
+		        if existing, ok := seenByIP[update.IP]; ok {
+		            // Check for strong identity mismatch (IP churn)
+		            _, existingID := getStrongIdentity(existing)
+		            _, updateID := getStrongIdentity(update)
+		
+		            // If the new update has a strong identity, and it doesn't match the existing one
+		            // (either because existing is different strong ID, OR existing is weak/empty),
+		            // we treat it as IP churn and split to prevent corruption.
+		            if updateID != "" && existingID != updateID {
+		                // Different strong identities sharing same IP -> churn.
+		                // Do NOT merge. The new update takes the IP.
+		                // We must clear the IP from the previous update in this batch to avoid constraint violation.
+		
+		                r.logger.Info().
+		                    Str("ip", update.IP).
+		                    Str("old_device", existing.DeviceID).
+		                    Str("new_device", update.DeviceID).
+		                    Str("old_identity", existingID).
+		                    Str("new_identity", updateID).
+		                    Msg("IP reassignment detected in batch (strong identity mismatch)")
+		
+		                // Clear IP from existing (old) update
+		                existing.IP = "0.0.0.0" 
+		                if existing.Metadata == nil {
+		                    existing.Metadata = map[string]string{}
+		                }
+		                existing.Metadata["_ip_cleared_due_to_churn"] = "true"
+		
+		                // Update map to point to the new owner
+		                seenByIP[update.IP] = update
+		                result = append(result, update)
+		                continue
+		            }
+		
+		            // IP collision detected - convert this update to a tombstone			ipCollisions++
 
 			r.logger.Debug().
 				Str("ip", update.IP).
@@ -684,7 +684,9 @@ func (r *DeviceRegistry) handleIdentityMismatch(update *models.DeviceUpdate, exi
 	existingType, existingID := getStrongIdentityFromDevice(existingDev)
 	updateType, updateID := getStrongIdentity(update)
 
-	if existingID == "" || updateID == "" || existingID == updateID {
+	// If update is weak (no ID), or IDs match, it's not a mismatch -> Merge.
+	// If update is strong (ID present) and existing is either different strong or weak, it's a mismatch -> Split.
+	if updateID == "" || existingID == updateID {
 		return false
 	}
 
