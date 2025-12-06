@@ -344,6 +344,16 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 	// This ensures we don't try to create duplicate devices within the same batch
 	batch = r.deduplicateBatch(batch)
 
+	// Resolve IP conflicts with existing database records
+	// This prevents duplicate key constraint violations when a new device has
+	// an IP that already belongs to an existing active device
+	batch, dbConflicts := r.resolveIPConflictsWithDB(ctx, batch)
+	if dbConflicts > 0 {
+		r.logger.Info().
+			Int("db_ip_conflicts", dbConflicts).
+			Msg("Resolved IP conflicts with existing database records")
+	}
+
 	// Publish directly to the device_updates stream
 	if err := r.db.PublishBatchDeviceUpdates(ctx, batch); err != nil {
 		return fmt.Errorf("failed to publish device updates: %w", err)
@@ -450,6 +460,128 @@ func (r *DeviceRegistry) deduplicateBatch(updates []*models.DeviceUpdate) []*mod
 	result = append(result, tombstones...)
 
 	return result
+}
+
+// resolveIPConflictsWithDB checks the batch against existing database records
+// and converts devices to tombstones if their IP already belongs to an existing
+// active device with a different device_id. This prevents duplicate key constraint
+// violations on idx_unified_devices_ip_unique_active.
+func (r *DeviceRegistry) resolveIPConflictsWithDB(ctx context.Context, batch []*models.DeviceUpdate) ([]*models.DeviceUpdate, int) {
+	if len(batch) == 0 {
+		return batch, 0
+	}
+
+	// Collect IPs from non-tombstone devices
+	ips := make([]string, 0, len(batch))
+	ipToUpdates := make(map[string][]*models.DeviceUpdate)
+
+	for _, update := range batch {
+		if update.IP == "" || isServiceDeviceID(update.DeviceID) {
+			continue
+		}
+		// Skip existing tombstones
+		if update.Metadata != nil {
+			if mergedInto := update.Metadata["_merged_into"]; mergedInto != "" && mergedInto != update.DeviceID {
+				continue
+			}
+		}
+		ips = append(ips, update.IP)
+		ipToUpdates[update.IP] = append(ipToUpdates[update.IP], update)
+	}
+
+	if len(ips) == 0 {
+		return batch, 0
+	}
+
+	// Query database for existing active devices with these IPs
+	existingByIP := make(map[string]string) // IP -> existing device_id
+	if err := r.resolveIPsToCanonical(ctx, ips, existingByIP); err != nil {
+		r.logger.Warn().Err(err).Msg("Failed to query existing IPs for conflict resolution")
+		return batch, 0
+	}
+
+	// Find conflicts and convert to tombstones
+	var conflicts int
+	result := make([]*models.DeviceUpdate, 0, len(batch))
+	tombstones := make([]*models.DeviceUpdate, 0)
+
+	for _, update := range batch {
+		// Pass through updates without IPs, service devices, or existing tombstones
+		if update.IP == "" || isServiceDeviceID(update.DeviceID) {
+			result = append(result, update)
+			continue
+		}
+		if update.Metadata != nil {
+			if mergedInto := update.Metadata["_merged_into"]; mergedInto != "" && mergedInto != update.DeviceID {
+				result = append(result, update)
+				continue
+			}
+		}
+
+		// Check if this IP already has a different active device in the database
+		if existingDeviceID, exists := existingByIP[update.IP]; exists && existingDeviceID != update.DeviceID {
+			// Conflict: this IP already belongs to a different device
+			conflicts++
+
+			r.logger.Debug().
+				Str("ip", update.IP).
+				Str("existing_device_id", existingDeviceID).
+				Str("conflicting_device_id", update.DeviceID).
+				Msg("IP conflict with existing database record - converting to tombstone")
+
+			// Create tombstone pointing to the existing device
+			tombstone := &models.DeviceUpdate{
+				AgentID:     update.AgentID,
+				PollerID:    update.PollerID,
+				Partition:   update.Partition,
+				DeviceID:    update.DeviceID,
+				Source:      update.Source,
+				IP:          update.IP,
+				Timestamp:   update.Timestamp,
+				IsAvailable: update.IsAvailable,
+				Metadata:    map[string]string{"_merged_into": existingDeviceID},
+			}
+			// Copy other metadata to preserve identity info
+			if update.Metadata != nil {
+				for k, v := range update.Metadata {
+					if k != "_merged_into" {
+						tombstone.Metadata[k] = v
+					}
+				}
+			}
+			tombstones = append(tombstones, tombstone)
+
+			// Also update the existing device with any new metadata from the conflicting device
+			// We create an update for the existing device to merge the metadata
+			mergeUpdate := &models.DeviceUpdate{
+				AgentID:     update.AgentID,
+				PollerID:    update.PollerID,
+				Partition:   update.Partition,
+				DeviceID:    existingDeviceID,
+				Source:      update.Source,
+				IP:          update.IP,
+				MAC:         update.MAC,
+				Hostname:    update.Hostname,
+				Timestamp:   update.Timestamp,
+				IsAvailable: update.IsAvailable,
+				Metadata:    update.Metadata,
+			}
+			result = append(result, mergeUpdate)
+			continue
+		}
+
+		result = append(result, update)
+	}
+
+	// Record metrics
+	if conflicts > 0 {
+		recordBatchIPCollisionMetrics(conflicts)
+	}
+
+	// Append tombstones at the end
+	result = append(result, tombstones...)
+
+	return result, conflicts
 }
 
 func (r *DeviceRegistry) attachSweepSightings(ctx context.Context, sweeps []*models.DeviceUpdate) ([]*models.DeviceUpdate, []*models.DeviceUpdate) {

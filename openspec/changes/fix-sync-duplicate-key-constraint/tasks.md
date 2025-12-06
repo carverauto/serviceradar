@@ -21,5 +21,10 @@
 
 - [x] 4.1 Add integration test that verifies two strong-identity devices with same IP are deduplicated.
 - [x] 4.2 Verify existing tests still pass (no regression).
-- [ ] 4.3 Deploy to demo namespace and verify duplicate key errors are eliminated.
-- [ ] 4.4 Monitor `device_batch_ip_collisions_total` metric to understand collision frequency.
+- [x] 4.3 Deploy to demo namespace and verify duplicate key errors are eliminated.
+- [x] 4.4 Monitor `device_batch_ip_collisions_total` metric to understand collision frequency.
+
+**Validation Results (2025-12-05):**
+- Deployed to demo namespace (helm revision 251)
+- Observed: `"db_ip_conflicts":1286` - Fix resolved 1286 IP conflicts with existing database records
+- Verified: Zero duplicate key errors in logs after fix deployment
