@@ -32,8 +32,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-const testDeviceID = "default:172.18.0.2"
-
 func allowCanonicalizationQueries(mockDB *db.MockService) {
 	mockDB.EXPECT().
 		ExecuteQuery(gomock.Any(), gomock.Any()).

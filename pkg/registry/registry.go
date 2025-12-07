@@ -406,7 +406,7 @@ func (r *DeviceRegistry) resolveSightingTTL(update *models.DeviceUpdate, ts time
 		return nil
 	}
 
-	profileName := "default"
+	profileName := defaultPartition
 	if update != nil && update.Metadata != nil {
 		if cls := strings.TrimSpace(update.Metadata["subnet_class"]); cls != "" {
 			profileName = cls
@@ -1057,27 +1057,6 @@ func buildIdentifiersFromUpdate(u *models.DeviceUpdate, now time.Time) []*models
 	return ids
 }
 
-// mergeUpdateMetadata merges metadata from source update into target update
-func (r *DeviceRegistry) mergeUpdateMetadata(target, source *models.DeviceUpdate) {
-	if source.Metadata == nil {
-		return
-	}
-	if target.Metadata == nil {
-		target.Metadata = make(map[string]string)
-	}
-
-	for k, v := range source.Metadata {
-		if _, exists := target.Metadata[k]; !exists {
-			target.Metadata[k] = v
-		}
-	}
-
-	// Also merge strong identifiers if present in source but missing in target
-	if source.MAC != nil && (target.MAC == nil || *target.MAC == "") {
-		target.MAC = source.MAC
-	}
-}
-
 // SetCollectorCapabilities stores or updates the collector capability record for a device.
 func (r *DeviceRegistry) SetCollectorCapabilities(_ context.Context, capability *models.CollectorCapability) {
 	if capability == nil {
@@ -1175,35 +1154,6 @@ WHERE metadata ? 'armis_device_id'
 ORDER BY updated_at DESC`
 
 	return r.resolveIdentifiersCNPG(ctx, ids, query, nil, out)
-}
-
-func (r *DeviceRegistry) resolveNetboxIDsCNPG(ctx context.Context, ids []string, out map[string]string) error {
-	const query = `
-SELECT COALESCE(metadata->>'integration_id', metadata->>'netbox_device_id') AS id,
-       device_id
-FROM unified_devices
-WHERE metadata->>'integration_type' = $1
-  AND (
-        (metadata ? 'integration_id' AND metadata->>'integration_id' = ANY($2))
-     OR (metadata ? 'netbox_device_id' AND metadata->>'netbox_device_id' = ANY($2))
-      )
-ORDER BY updated_at DESC`
-
-	argBuilder := func(chunk []string) []interface{} {
-		return []interface{}{integrationTypeNetbox, chunk}
-	}
-
-	return r.resolveIdentifiersCNPG(ctx, ids, query, argBuilder, out)
-}
-
-func (r *DeviceRegistry) resolveMACsCNPG(ctx context.Context, macs []string, out map[string]string) error {
-	const query = `
-SELECT mac, device_id
-FROM unified_devices
-WHERE mac = ANY($1)
-ORDER BY updated_at DESC`
-
-	return r.resolveIdentifiersCNPG(ctx, macs, query, nil, out)
 }
 
 func (r *DeviceRegistry) resolveIPsToCanonicalCNPG(ctx context.Context, ips []string, out map[string]string) error {
@@ -1350,48 +1300,6 @@ func (r *DeviceRegistry) resolveArmisIDs(ctx context.Context, ids []string, out 
 	return r.resolveIdentifiers(ctx, ids, out, buildQuery, extract)
 }
 
-func (r *DeviceRegistry) resolveNetboxIDs(ctx context.Context, ids []string, out map[string]string) error {
-	if r.useCNPGReads() {
-		return r.resolveNetboxIDsCNPG(ctx, ids, out)
-	}
-
-	buildQuery := func(list string) string {
-		return fmt.Sprintf(`SELECT device_id,
-                     if(has(map_keys(metadata),'integration_id'), metadata['integration_id'], metadata['netbox_device_id']) AS id,
-                     _tp_time
-              FROM table(unified_devices)
-              WHERE has(map_keys(metadata), 'integration_type') AND metadata['integration_type'] = '%s'
-                AND ((has(map_keys(metadata), 'integration_id') AND metadata['integration_id'] IN (%s))
-                  OR (has(map_keys(metadata), 'netbox_device_id') AND metadata['netbox_device_id'] IN (%s)))
-              ORDER BY _tp_time DESC`, integrationTypeNetbox, list, list)
-	}
-	extract := func(row map[string]any) (string, string) {
-		idVal, _ := row["id"].(string)
-		dev, _ := row["device_id"].(string)
-		return idVal, dev
-	}
-	return r.resolveIdentifiers(ctx, ids, out, buildQuery, extract)
-}
-
-func (r *DeviceRegistry) resolveMACs(ctx context.Context, macs []string, out map[string]string) error {
-	if r.useCNPGReads() {
-		return r.resolveMACsCNPG(ctx, macs, out)
-	}
-
-	buildQuery := func(list string) string {
-		return fmt.Sprintf(`SELECT device_id, mac AS id, _tp_time
-              FROM table(unified_devices)
-              WHERE mac IN (%s)
-              ORDER BY _tp_time DESC`, list)
-	}
-	extract := func(row map[string]any) (string, string) {
-		idVal, _ := row["id"].(string)
-		dev, _ := row["device_id"].(string)
-		return idVal, dev
-	}
-	return r.resolveIdentifiers(ctx, macs, out, buildQuery, extract)
-}
-
 // resolveIPsToCanonical maps IPs to canonical device_ids where the device has a strong identity
 func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string, out map[string]string) error {
 	if len(ips) == 0 {
@@ -1418,10 +1326,6 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 
 	// Resolve IPs using CNPG (preferred) or KV (legacy fallback)
 	var resolveErr error
-	candidates := make([]string, 0, len(unresolved))
-	for ip := range unresolved {
-		candidates = append(candidates, ip)
-	}
 
 	// Resolve IPs using CNPG directly (no longer using separate identity resolvers)
 	var resolved map[string]string

@@ -37,6 +37,7 @@ import (
 var (
 	ErrDatabaseNotInitialized = errors.New("database connection not initialized")
 	ErrCNPGUnavailable        = errors.New("cnpg connection pool not configured")
+	ErrUnknownExecutorType    = errors.New("unknown executor type")
 )
 
 const defaultPartitionValue = "default"
@@ -165,7 +166,7 @@ func (db *DB) WithTx(ctx context.Context, fn func(tx Service) error) error {
 			return fmt.Errorf("begin nested tx: %w", err)
 		}
 	} else {
-		return errors.New("unknown executor type")
+		return ErrUnknownExecutorType
 	}
 
 	defer func() {

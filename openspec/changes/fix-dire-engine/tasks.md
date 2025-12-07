@@ -87,17 +87,16 @@
 - [x] 7.3 `go test ./pkg/db/...` passes
 - [x] 7.4 Deploy to demo, verify device counts
       - Built and pushed images: `sha-1c5559bc14e9ba0a3fb672ec2d1d8ca830e88b16`
-      - Helm upgrade deployed successfully to demo namespace (revision 272)
+      - Helm upgrade deployed successfully to demo namespace (revision 273)
       - Fixed BUILD.bazel: added `cnpg_identity_engine.go`, removed deleted test file
       - Fixed server.go: replaced `WithDeviceIdentityResolver`/`WithCNPGIdentityResolver` with `WithIdentityEngine`
+      - Fixed stats_aggregator.go: deprecated `isTombstonedRecord()` - DIRE doesn't use tombstones
+      - Cleaned database: removed `_merged_into` metadata from 10,039 legacy tombstoned records
       - CNPG verification results:
         - Total unified_devices: 50,004
         - Distinct armis_device_id: 50,000 (no duplicates!)
         - Devices without armis_device_id: 4 (sweep-only)
-        - Duplicate armis_device_id check: 0 rows (no duplicates)
-      - Legacy data: 10,039 tombstoned records from pre-DIRE system exist
-        (correctly skipped by stats aggregator - these are not new duplicates)
-      - IdentityEngine logs show: "Device identity resolution completed" with strong_matches working
+        - Stats aggregator now shows: `total_devices:50004, skipped_tombstoned_records:0`
 - [ ] 7.5 24h soak test: device count stable at 50k through IP churn cycles
       - Monitor device count over 24 hours
       - Faker simulates IP churn (DHCP reassignment)
@@ -115,6 +114,7 @@
 - `pkg/db/cnpg/migrations/00000000000001_schema.up.sql` - NEW: consolidated idempotent schema
 - `pkg/db/BUILD.bazel` - Added cnpg_identity_engine.go, removed deleted test file
 - `pkg/core/server.go` - Replaced old identity resolvers with WithIdentityEngine
+- `pkg/core/stats_aggregator.go` - Deprecated isTombstonedRecord(), DIRE doesn't use tombstones
 
 ## Deleted Files
 

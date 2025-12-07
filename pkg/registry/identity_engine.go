@@ -50,6 +50,8 @@ const (
 
 // StrongIdentifierPriority defines the priority order for strong identifiers.
 // Lower index = higher priority.
+//
+//nolint:gochecknoglobals // shared configuration constant
 var StrongIdentifierPriority = []string{
 	IdentifierTypeArmis,
 	IdentifierTypeIntegration,
@@ -226,7 +228,7 @@ func (e *IdentityEngine) ResolveDeviceID(ctx context.Context, update *models.Dev
 
 	// Step 2: Query device_identifiers table for strong identifier match
 	if ids.HasStrongIdentifier() {
-		if deviceID, err := e.lookupByStrongIdentifiers(ctx, ids); err == nil && deviceID != "" {
+		if deviceID := e.lookupByStrongIdentifiers(ctx, ids); deviceID != "" {
 			e.cacheIdentifierMappings(ids, deviceID)
 			return deviceID, nil
 		}
@@ -313,10 +315,7 @@ func (e *IdentityEngine) ResolveDeviceIDs(ctx context.Context, updates []*models
 	}
 
 	// Batch query for strong identifiers
-	strongMatches, err := e.batchLookupByStrongIdentifiers(ctx, uncachedUpdates, updateIdentifiers)
-	if err != nil && e.logger != nil {
-		e.logger.Warn().Err(err).Msg("Failed batch strong identifier lookup")
-	}
+	strongMatches := e.batchLookupByStrongIdentifiers(ctx, uncachedUpdates, updateIdentifiers)
 
 	// Process results
 	var generatedCount, existingCount, strongCount int
@@ -407,16 +406,17 @@ func (e *IdentityEngine) GenerateDeterministicDeviceID(ids *StrongIdentifiers) s
 		seeds = append(seeds, "mac:"+ids.MAC)
 	}
 
-	if len(seeds) > 0 {
+	switch {
+	case len(seeds) > 0:
 		// Strong identifiers present - deterministic hash
 		_, _ = fmt.Fprintf(h, "partition:%s:", partition)
 		for _, seed := range seeds {
 			h.Write([]byte(seed))
 		}
-	} else if ids.IP != "" {
+	case ids.IP != "":
 		// IP-only fallback (weak identifier)
 		_, _ = fmt.Fprintf(h, "partition:%s:ip:%s", partition, ids.IP)
-	} else {
+	default:
 		// No identifiers - random UUID
 		return "sr:" + uuid.New().String()
 	}
@@ -442,9 +442,9 @@ func (e *IdentityEngine) GenerateDeterministicDeviceID(ids *StrongIdentifiers) s
 }
 
 // lookupByStrongIdentifiers queries the device_identifiers table for a match
-func (e *IdentityEngine) lookupByStrongIdentifiers(ctx context.Context, ids *StrongIdentifiers) (string, error) {
+func (e *IdentityEngine) lookupByStrongIdentifiers(ctx context.Context, ids *StrongIdentifiers) string {
 	if e == nil || e.db == nil {
-		return "", nil
+		return ""
 	}
 
 	// Query in priority order
@@ -470,11 +470,11 @@ func (e *IdentityEngine) lookupByStrongIdentifiers(ctx context.Context, ids *Str
 			continue // Try next identifier type
 		}
 		if deviceID != "" {
-			return deviceID, nil
+			return deviceID
 		}
 	}
 
-	return "", nil
+	return ""
 }
 
 // batchLookupByStrongIdentifiers queries device_identifiers for multiple updates
@@ -482,11 +482,11 @@ func (e *IdentityEngine) batchLookupByStrongIdentifiers(
 	ctx context.Context,
 	updates []*models.DeviceUpdate,
 	updateIdentifiers map[*models.DeviceUpdate]*StrongIdentifiers,
-) (map[*models.DeviceUpdate]string, error) {
+) map[*models.DeviceUpdate]string {
 	matches := make(map[*models.DeviceUpdate]string)
 
 	if e == nil || e.db == nil || len(updates) == 0 {
-		return matches, nil
+		return matches
 	}
 
 	// Collect all identifiers by type
@@ -569,7 +569,7 @@ func (e *IdentityEngine) batchLookupByStrongIdentifiers(
 		}
 	}
 
-	return matches, nil
+	return matches
 }
 
 // lookupByIP queries unified_devices for a device with the given IP
@@ -601,11 +601,6 @@ func (e *IdentityEngine) lookupByIP(ctx context.Context, ip string) (string, err
 func (e *IdentityEngine) RegisterDeviceIdentifiers(ctx context.Context, deviceID string, ids *StrongIdentifiers) error {
 	if e == nil || e.db == nil || deviceID == "" {
 		return nil
-	}
-
-	partition := ids.Partition
-	if partition == "" {
-		partition = "default"
 	}
 
 	// Insert each strong identifier using models.DeviceIdentifier
@@ -812,15 +807,6 @@ func isLegacyIPBasedID(deviceID string) bool {
 	// Second part should look like an IP address
 	ip := parts[1]
 	return strings.Count(ip, ".") == 3 || strings.Contains(ip, ":") // IPv4 or IPv6
-}
-
-// normalizeMAC normalizes a MAC address to uppercase without separators (unexported)
-func normalizeMAC(mac string) string {
-	mac = strings.ToUpper(strings.TrimSpace(mac))
-	mac = strings.ReplaceAll(mac, ":", "")
-	mac = strings.ReplaceAll(mac, "-", "")
-	mac = strings.ReplaceAll(mac, ".", "")
-	return mac
 }
 
 // findBatchStrongAssignment looks up a device ID from batch-level strong identifier assignments

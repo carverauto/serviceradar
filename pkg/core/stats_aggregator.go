@@ -359,12 +359,6 @@ func hasAnyCapability(sets map[string]map[string]struct{}, deviceID string) bool
 	return false
 }
 
-// isTombstonedRecord is deprecated - DIRE does not use tombstones or soft deletes.
-// The database (unified_devices) is the authoritative source of active devices.
-// This function is kept for backwards compatibility but always returns false.
-func isTombstonedRecord(_ *registry.DeviceRecord) bool {
-	return false
-}
 
 func shouldCountRecord(record *registry.DeviceRecord) bool {
 	// Count all non-nil records. The database (unified_devices) is the source of truth
@@ -400,7 +394,7 @@ type canonicalEntry struct {
 	canonical bool
 }
 
-func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecord, meta *models.DeviceStatsMeta) []*registry.DeviceRecord { //nolint:gocyclo // Complex device record selection logic, intentionally kept together for clarity
+func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecord, meta *models.DeviceStatsMeta) []*registry.DeviceRecord {
 	if len(records) == 0 {
 		return nil
 	}

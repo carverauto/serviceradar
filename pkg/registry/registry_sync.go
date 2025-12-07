@@ -26,8 +26,6 @@ import (
 const (
 	// DefaultSyncInterval is the default interval for periodic registry sync.
 	DefaultSyncInterval = 5 * time.Minute
-	// syncBatchSize is the batch size for syncing devices from CNPG.
-	syncBatchSize = 512
 )
 
 // SyncConfig holds configuration for the registry sync process.
