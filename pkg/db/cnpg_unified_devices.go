@@ -149,7 +149,7 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 				),
 				is_available = EXCLUDED.is_available,
 				last_seen = EXCLUDED.last_seen,
-				metadata = (unified_devices.metadata || EXCLUDED.metadata) - '_deleted',
+				metadata = (unified_devices.metadata || EXCLUDED.metadata),
 				updated_at = NOW()`,
 			update.DeviceID,
 			update.IP,
