@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "auth.go",
         "cnpg_discovery.go",
+        "cnpg_identity_engine.go",
         "cnpg_migrate.go",
         "cnpg_netflow.go",
         "cnpg_observability.go",
@@ -61,7 +62,6 @@ go_test(
         "cnpg_edge_onboarding_test.go",
         "cnpg_sweep_test.go",
         "cnpg_observability_test.go",
-        "cnpg_unified_devices_test.go",
         "json_helper_test.go",
         "services_json_test.go",
     ],
