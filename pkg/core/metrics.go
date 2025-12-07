@@ -614,7 +614,8 @@ func (s *Server) processICMPMetrics(
 	}
 
 	targetHost := strings.TrimSpace(pingResult.Host)
-	deviceID := strings.TrimSpace(pingResult.DeviceID)
+	targetDeviceID := strings.TrimSpace(pingResult.DeviceID)
+	deviceID := targetDeviceID
 
 	deviceID, hostDeviceID, collectorIP, updateIP, err := s.resolveICMPDevice(ctx, pollerID, partition, agentID, sourceIP, deviceID)
 	if err != nil {
@@ -646,6 +647,9 @@ func (s *Server) processICMPMetrics(
 	}
 	if targetHost != "" {
 		metadata["target_host"] = targetHost
+	}
+	if targetDeviceID != "" {
+		metadata["target_device_id"] = targetDeviceID
 	}
 
 	// Marshal metadata to JSON string
@@ -718,6 +722,9 @@ func (s *Server) processICMPMetrics(
 		if targetHost != "" {
 			deviceMetadata["icmp_target"] = targetHost
 		}
+		if targetDeviceID != "" {
+			deviceMetadata["icmp_target_device_id"] = targetDeviceID
+		}
 
 		update := &models.DeviceUpdate{
 			DeviceID:    deviceID,
@@ -753,6 +760,9 @@ func (s *Server) processICMPMetrics(
 		}
 		if targetHost != "" {
 			eventMetadata["target_host"] = targetHost
+		}
+		if targetDeviceID != "" {
+			eventMetadata["target_device_id"] = targetDeviceID
 		}
 		if serviceName != "" {
 			eventMetadata["service_name"] = serviceName
@@ -808,6 +818,8 @@ func (s *Server) resolveICMPDevice(
 	sourceIP string,
 	deviceID string,
 ) (string, string, string, string, error) {
+	agentID = strings.TrimSpace(agentID)
+	partition = strings.TrimSpace(partition)
 	collectorIP := normalizeHostIP(s.resolveServiceHostIP(ctx, pollerID, agentID, sourceIP))
 	if collectorIP == "" {
 		collectorIP = normalizeHostIP(sourceIP)
@@ -817,13 +829,12 @@ func (s *Server) resolveICMPDevice(
 	}
 
 	resolvedDeviceID := strings.TrimSpace(deviceID)
-	if resolvedDeviceID == "" {
-		switch {
-		case agentID != "":
-			resolvedDeviceID = models.GenerateServiceDeviceID(models.ServiceTypeAgent, agentID)
-		case collectorIP != "":
+	if agentID != "" {
+		resolvedDeviceID = models.GenerateServiceDeviceID(models.ServiceTypeAgent, agentID)
+	} else if resolvedDeviceID == "" {
+		if collectorIP != "" {
 			resolvedDeviceID = models.GenerateNetworkDeviceID(partition, collectorIP)
-		default:
+		} else {
 			return "", "", collectorIP, "", errICMPDeviceIdentifiersMissing
 		}
 	}
