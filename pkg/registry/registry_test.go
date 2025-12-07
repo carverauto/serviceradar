@@ -28,10 +28,8 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/carverauto/serviceradar/pkg/db"
-	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 )
 
 const testDeviceID = "default:172.18.0.2"
@@ -49,6 +47,16 @@ func allowCanonicalizationQueries(mockDB *db.MockService) {
 		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return([]*models.UnifiedDevice{}, nil).
 		AnyTimes()
+	// IdentityEngine calls BatchGetDeviceIDsByIdentifier to resolve strong identifiers
+	mockDB.EXPECT().
+		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).
+		AnyTimes()
+	// IdentityEngine calls UpsertDeviceIdentifiers to persist identifier mappings
+	mockDB.EXPECT().
+		UpsertDeviceIdentifiers(gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
 }
 
 func strPtr(v string) *string {
@@ -61,10 +69,6 @@ func TestProcessBatchDeviceUpdatesUpdatesStore(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	allowCanonicalizationQueries(mockDB)
 
 	mockDB.EXPECT().
@@ -119,10 +123,6 @@ func TestProcessBatchDeviceUpdatesRemovesDeletedRecords(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	allowCanonicalizationQueries(mockDB)
 
 	mockDB.EXPECT().
@@ -222,15 +222,10 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
-	registry := NewDeviceRegistry(mockDB, testLogger, WithDeviceIdentityResolver(mockDB))
-	require.NotNil(t, registry.deviceIdentityResolver)
-	require.NotNil(t, registry.deviceIdentityResolver)
+	registry := NewDeviceRegistry(mockDB, testLogger, WithIdentityEngine(mockDB))
+	require.NotNil(t, registry.identityEngine)
 
 	tests := []struct {
 		name        string
@@ -425,13 +420,9 @@ func TestDeviceRegistry_ProcessDeviceUpdate(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
-	registry := NewDeviceRegistry(mockDB, testLogger, WithDeviceIdentityResolver(mockDB))
+	registry := NewDeviceRegistry(mockDB, testLogger, WithIdentityEngine(mockDB))
 
 	// Test single device update (should call ProcessBatchDeviceUpdates internally)
 	update := &models.DeviceUpdate{
@@ -475,13 +466,9 @@ func TestDeviceRegistry_NormalizationBehavior(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
-	registry := NewDeviceRegistry(mockDB, testLogger, WithDeviceIdentityResolver(mockDB))
+	registry := NewDeviceRegistry(mockDB, testLogger, WithIdentityEngine(mockDB))
 
 	tests := []struct {
 		name        string
@@ -577,10 +564,7 @@ func TestDeviceRegistry_FirstSeenPreservedFromExistingRecord(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	allowCanonicalizationQueries(mockDB)
 	existingFirstSeen := time.Date(2024, 12, 1, 15, 4, 5, 0, time.UTC)
 	deviceID := "default:10.0.0.5"
 
@@ -627,10 +611,7 @@ func TestAnnotateFirstSeenUsesEarliestAcrossBatch(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	allowCanonicalizationQueries(mockDB)
 
 	deviceID := "default:10.0.0.42"
 	later := time.Date(2025, 1, 2, 15, 4, 5, 0, time.UTC)
@@ -678,10 +659,7 @@ func TestAnnotateFirstSeenUsesRegistryCache(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	allowCanonicalizationQueries(mockDB)
 
 	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
 
@@ -721,13 +699,10 @@ func TestAnnotateFirstSeenFallsBackToDB(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	deviceID := "default:10.9.8.7"
 	existing := time.Date(2024, 11, 15, 10, 30, 0, 0, time.UTC)
 
+	// Set up specific expectation BEFORE allowCanonicalizationQueries
 	mockDB.EXPECT().
 		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), gomock.AssignableToTypeOf([]string{})).
 		Return([]*models.UnifiedDevice{
@@ -737,6 +712,8 @@ func TestAnnotateFirstSeenFallsBackToDB(t *testing.T) {
 			},
 		}, nil).
 		Times(1)
+
+	allowCanonicalizationQueries(mockDB)
 
 	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
 
@@ -767,13 +744,9 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates_CanonicalizesDuplicatesWithinB
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
-	registry := NewDeviceRegistry(mockDB, testLogger, WithDeviceIdentityResolver(mockDB))
+	registry := NewDeviceRegistry(mockDB, testLogger, WithIdentityEngine(mockDB))
 
 	primaryID := "default:10.0.0.1"
 	updates := []*models.DeviceUpdate{
@@ -825,54 +798,12 @@ func TestDeviceRegistry_ProcessBatchDeviceUpdates_CanonicalizesDuplicatesWithinB
 	assert.Equal(t, "armis-123", second.Metadata["armis_device_id"])
 }
 
-func TestLookupCanonicalPrefersMACOverIP(t *testing.T) {
-	registry := &DeviceRegistry{logger: logger.NewTestLogger()}
-	mac := "AA:BB:CC:DD:EE:FF"
-	update := &models.DeviceUpdate{
-		IP:  "10.0.0.10",
-		MAC: &mac,
-	}
-	maps := &identityMaps{
-		armis: map[string]string{},
-		netbx: map[string]string{},
-		mac:   map[string]string{mac: "default:canonical-mac"},
-		ip:    map[string]string{"10.0.0.10": "default:canonical-ip"},
-	}
-
-	canonical, via := registry.lookupCanonicalFromMaps(update, maps)
-
-	require.Equal(t, "default:canonical-mac", canonical)
-	require.Equal(t, identitySourceMAC, via)
-}
-
-func TestLookupCanonicalFallsBackToIP(t *testing.T) {
-	registry := &DeviceRegistry{logger: logger.NewTestLogger()}
-	update := &models.DeviceUpdate{
-		IP: "10.0.0.11",
-	}
-	maps := &identityMaps{
-		armis: map[string]string{},
-		netbx: map[string]string{},
-		mac:   map[string]string{},
-		ip:    map[string]string{"10.0.0.11": "default:canonical-ip"},
-	}
-
-	canonical, via := registry.lookupCanonicalFromMaps(update, maps)
-
-	require.Equal(t, "default:canonical-ip", canonical)
-	require.Equal(t, "ip", via)
-}
-
 func TestProcessBatchPublishesSweepWithoutIdentity(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)
@@ -902,262 +833,12 @@ func TestProcessBatchPublishesSweepWithoutIdentity(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestProcessBatchDeviceUpdates_DropsSelfReportedAfterDelete(t *testing.T) {
-	ctx := context.Background()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-
-	mockDB.EXPECT().
-		ExecuteQuery(gomock.Any(), gomock.Any()).
-		Return([]map[string]any{}, nil).
-		AnyTimes()
-
-	deviceID := testDeviceID
-	deletedAt := time.Date(2025, 11, 2, 18, 45, 0, 0, time.UTC)
-
-	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf([]string{})).
-		DoAndReturn(func(_ context.Context, _ []string, ids []string) ([]*models.UnifiedDevice, error) {
-			if len(ids) == 1 && ids[0] == deviceID {
-				return []*models.UnifiedDevice{
-					{
-						DeviceID: deviceID,
-						Metadata: &models.DiscoveredField[map[string]string]{
-							Value: map[string]string{
-								"_deleted":    "true",
-								"_deleted_at": deletedAt.Format(time.RFC3339Nano),
-							},
-						},
-					},
-				}, nil
-			}
-			return []*models.UnifiedDevice{}, nil
-		}).
-		AnyTimes()
-
-	mockDB.EXPECT().
-		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
-		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
-			require.Empty(t, updates, "stale updates should be dropped before publishing")
-			return nil
-		})
-
-	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
-
-	// Update with timestamp BEFORE deletion should be dropped
-	staleUpdate := &models.DeviceUpdate{
-		DeviceID:    deviceID,
-		Partition:   "default",
-		IP:          "172.18.0.2",
-		Source:      models.DiscoverySourceSelfReported,
-		Timestamp:   deletedAt.Add(-10 * time.Minute), // Before deletion
-		IsAvailable: true,
-		Metadata: map[string]string{
-			"last_update": deletedAt.Add(-5 * time.Minute).Format(time.RFC3339Nano),
-		},
-	}
-
-	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{staleUpdate})
-	require.NoError(t, err)
-}
-
-func TestProcessBatchDeviceUpdates_AllowsSelfReportedReOnboarding(t *testing.T) {
-	ctx := context.Background()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-
-	mockDB.EXPECT().
-		ExecuteQuery(gomock.Any(), gomock.Any()).
-		Return([]map[string]any{}, nil).
-		AnyTimes()
-
-	deviceID := testDeviceID
-	deletedAt := time.Date(2025, 11, 2, 18, 45, 0, 0, time.UTC)
-
-	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf([]string{})).
-		DoAndReturn(func(_ context.Context, _ []string, ids []string) ([]*models.UnifiedDevice, error) {
-			if len(ids) == 1 && ids[0] == deviceID {
-				return []*models.UnifiedDevice{
-					{
-						DeviceID: deviceID,
-						Metadata: &models.DiscoveredField[map[string]string]{
-							Value: map[string]string{
-								"_deleted":    "true",
-								"_deleted_at": deletedAt.Format(time.RFC3339Nano),
-							},
-						},
-					},
-				}, nil
-			}
-			return []*models.UnifiedDevice{}, nil
-		}).
-		AnyTimes()
-
-	mockDB.EXPECT().
-		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
-		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
-			require.Len(t, updates, 1, "fresh self-reported update should be allowed for re-onboarding")
-			require.Equal(t, deviceID, updates[0].DeviceID)
-			return nil
-		})
-
-	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
-
-	// Update with timestamp AFTER deletion should be allowed (re-onboarding)
-	freshUpdate := &models.DeviceUpdate{
-		DeviceID:    deviceID,
-		Partition:   "default",
-		IP:          "172.18.0.2",
-		Source:      models.DiscoverySourceSelfReported,
-		Timestamp:   deletedAt.Add(10 * time.Minute), // After deletion
-		IsAvailable: true,
-		Metadata: map[string]string{
-			"last_update": deletedAt.Add(5 * time.Minute).Format(time.RFC3339Nano),
-		},
-	}
-
-	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{freshUpdate})
-	require.NoError(t, err)
-}
-
-func TestResolveIPsToCanonicalUsesIdentityResolverBeforeDB(t *testing.T) {
-	ctx := context.Background()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-
-	record := &identitymap.Record{
-		CanonicalDeviceID: "default:canonical-ip",
-	}
-	payload, err := identitymap.MarshalRecord(record)
-	require.NoError(t, err)
-
-	key := identitymap.Key{Kind: identitymap.KindIP, Value: "10.0.0.42"}.KeyPath(identitymap.DefaultNamespace)
-	kv := &fakeBatchGetter{
-		results: map[string]*proto.BatchGetEntry{
-			key: {
-				Key:   key,
-				Found: true,
-				Value: payload,
-			},
-		},
-	}
-
-	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), []string(nil), gomock.Any()).
-		Return([]*models.UnifiedDevice{
-			{
-				DeviceID: "default:canonical-ip",
-				Metadata: &models.DiscoveredField[map[string]string]{Value: map[string]string{}},
-			},
-		}, nil)
-
-	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithIdentityResolver(kv, identitymap.DefaultNamespace))
-
-	maps, err := registry.buildIdentityMaps(ctx, []*models.DeviceUpdate{
-		{IP: "10.0.0.42"},
-	})
-	require.NoError(t, err)
-
-	require.Equal(t, "default:canonical-ip", maps.ip["10.0.0.42"])
-}
-
-func TestProcessBatchDeviceUpdates_AllowsFreshNonSelfReportedAfterDelete(t *testing.T) {
-	ctx := context.Background()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-
-	mockDB.EXPECT().
-		ExecuteQuery(gomock.Any(), gomock.Any()).
-		Return([]map[string]any{}, nil).
-		AnyTimes()
-
-	deviceID := testDeviceID
-	deletedAt := time.Date(2025, 11, 2, 18, 45, 0, 0, time.UTC)
-
-	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf([]string{})).
-		DoAndReturn(func(_ context.Context, _ []string, ids []string) ([]*models.UnifiedDevice, error) {
-			if len(ids) == 1 && ids[0] == deviceID {
-				return []*models.UnifiedDevice{
-					{
-						DeviceID: deviceID,
-						Metadata: &models.DiscoveredField[map[string]string]{
-							Value: map[string]string{
-								"_deleted":    "true",
-								"_deleted_at": deletedAt.Format(time.RFC3339Nano),
-							},
-						},
-					},
-				}, nil
-			}
-			return []*models.UnifiedDevice{}, nil
-		}).
-		AnyTimes()
-
-	allowCanonicalizationQueries(mockDB)
-
-	mockDB.EXPECT().
-		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
-		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
-			require.Len(t, updates, 1, "fresh updates should bypass the tombstone filter")
-			require.Equal(t, deviceID, updates[0].DeviceID)
-			require.Equal(t, models.DiscoverySourceSNMP, updates[0].Source)
-			return nil
-		})
-
-	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
-
-	freshUpdate := &models.DeviceUpdate{
-		DeviceID:    deviceID,
-		Partition:   "default",
-		IP:          "172.18.0.2",
-		Source:      models.DiscoverySourceSNMP,
-		Timestamp:   deletedAt.Add(10 * time.Minute),
-		IsAvailable: true,
-		Metadata: map[string]string{
-			"last_update": deletedAt.Add(10 * time.Minute).Format(time.RFC3339Nano),
-		},
-	}
-
-	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{freshUpdate})
-	require.NoError(t, err)
-}
-
 func TestEndToEndIngestWithChurnKeepsCardinality(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	allowCanonicalizationQueries(mockDB)
 
 	type deviceStats struct {
@@ -1190,7 +871,7 @@ func TestEndToEndIngestWithChurnKeepsCardinality(t *testing.T) {
 		}).
 		Times(2) // initial ingest + churn batch
 
-	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithDeviceIdentityResolver(mockDB))
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithIdentityEngine(mockDB))
 
 	const total = 20
 	initial := make([]*models.DeviceUpdate, 0, total)
@@ -1246,10 +927,6 @@ func TestAvailabilityRemainsUnknownUntilPositiveProbe(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	allowCanonicalizationQueries(mockDB)
 
 	var published []*models.DeviceUpdate
@@ -1262,7 +939,7 @@ func TestAvailabilityRemainsUnknownUntilPositiveProbe(t *testing.T) {
 		}).
 		Times(2) // initial sighting promotion + positive probe
 
-	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithDeviceIdentityResolver(mockDB))
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithIdentityEngine(mockDB))
 
 	mac := "aa:bb:cc:dd:ee:11"
 	initial := &models.DeviceUpdate{
@@ -1305,10 +982,6 @@ func TestIngestHarnessWithProbesKeepsCardinalityAndAvailability(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	allowCanonicalizationQueries(mockDB)
 
 	type deviceStats struct {
@@ -1335,7 +1008,7 @@ func TestIngestHarnessWithProbesKeepsCardinalityAndAvailability(t *testing.T) {
 		}).
 		Times(3) // initial ingest + churn + probes
 
-	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithDeviceIdentityResolver(mockDB))
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithIdentityEngine(mockDB))
 
 	const total = 30
 	initial := make([]*models.DeviceUpdate, 0, total)
@@ -1437,10 +1110,6 @@ func TestDeviceIngestEndToEnd_StrongIDsSurviveIPChurn(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	allowCanonicalizationQueries(mockDB)
 
 	published := make(map[string][]string) // armis_device_id -> []device_id
@@ -1456,7 +1125,7 @@ func TestDeviceIngestEndToEnd_StrongIDsSurviveIPChurn(t *testing.T) {
 		}).
 		Times(2) // initial ingest + churn
 
-	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithDeviceIdentityResolver(mockDB))
+	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithIdentityEngine(mockDB))
 
 	batch1 := []*models.DeviceUpdate{
 		{
@@ -1536,10 +1205,7 @@ func TestReconcileSightingsBlocksOnCardinalityDrift(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	allowCanonicalizationQueries(mockDB)
 	mockDB.EXPECT().
 		CountUnifiedDevices(gomock.Any()).
 		Return(int64(52000), nil)
@@ -1578,26 +1244,20 @@ func TestProcessBatchDeviceUpdates_MergesSweepIntoCanonicalDevice(t *testing.T) 
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
-	cfg := &models.IdentityReconciliationConfig{Enabled: true}
-	registry := NewDeviceRegistry(
-		mockDB,
-		logger.NewTestLogger(),
-		WithIdentityReconciliationConfig(cfg),
-		WithCNPGIdentityResolver(mockDB),
-	)
-
-	mockDB.EXPECT().
-		ExecuteQuery(gomock.Any(), gomock.Any()).
-		Return([]map[string]interface{}{}, nil).
-		AnyTimes()
+	// Set up specific ExecuteQuery mock FIRST (before any AnyTimes() fallbacks)
+	// This is used by resolveIdentifiers for IP-to-canonical resolution
 	mockDB.EXPECT().
 		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]map[string]interface{}{}, nil).
+		DoAndReturn(func(_ context.Context, query string, _ ...interface{}) ([]map[string]interface{}, error) {
+			// Return canonical device mapping for IP query
+			if strings.Contains(query, "10.1.1.1") {
+				return []map[string]interface{}{
+					{"ip": "10.1.1.1", "device_id": "sr:canonical"},
+				}, nil
+			}
+			return []map[string]interface{}{}, nil
+		}).
 		AnyTimes()
 
 	mockDB.EXPECT().
@@ -1625,6 +1285,16 @@ func TestProcessBatchDeviceUpdates_MergesSweepIntoCanonicalDevice(t *testing.T) 
 		}).
 		AnyTimes()
 
+	// IdentityEngine mocks
+	mockDB.EXPECT().
+		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).
+		AnyTimes()
+	mockDB.EXPECT().
+		UpsertDeviceIdentifiers(gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
+
 	mockDB.EXPECT().
 		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
 		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
@@ -1634,6 +1304,14 @@ func TestProcessBatchDeviceUpdates_MergesSweepIntoCanonicalDevice(t *testing.T) 
 			assert.True(t, updates[0].IsAvailable)
 			return nil
 		})
+
+	cfg := &models.IdentityReconciliationConfig{Enabled: true}
+	registry := NewDeviceRegistry(
+		mockDB,
+		logger.NewTestLogger(),
+		WithIdentityReconciliationConfig(cfg),
+		WithIdentityEngine(mockDB),
+	)
 
 	sweepUpdate := &models.DeviceUpdate{
 		IP:          "10.1.1.1",
@@ -1652,10 +1330,30 @@ func TestReconcileSightingsMergesSweepSightingsByIP(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	// Set up specific ExecuteQuery mock FIRST (before any AnyTimes() fallbacks)
+	// This is used by resolveIdentifiers for IP-to-canonical resolution
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, query string, _ ...interface{}) ([]map[string]interface{}, error) {
+			if strings.Contains(query, "10.2.2.2") {
+				return []map[string]interface{}{
+					{"ip": "10.2.2.2", "device_id": "sr:merge-target"},
+				}, nil
+			}
+			return []map[string]interface{}{}, nil
+		}).
+		AnyTimes()
+
+	// IdentityEngine mocks
+	mockDB.EXPECT().
+		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).
+		AnyTimes()
+	mockDB.EXPECT().
+		UpsertDeviceIdentifiers(gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
 
 	cfg := &models.IdentityReconciliationConfig{
 		Enabled: true,
@@ -1669,17 +1367,8 @@ func TestReconcileSightingsMergesSweepSightingsByIP(t *testing.T) {
 		mockDB,
 		logger.NewTestLogger(),
 		WithIdentityReconciliationConfig(cfg),
-		WithCNPGIdentityResolver(mockDB),
+		WithIdentityEngine(mockDB),
 	)
-
-	mockDB.EXPECT().
-		ExecuteQuery(gomock.Any(), gomock.Any()).
-		Return([]map[string]interface{}{}, nil).
-		AnyTimes()
-	mockDB.EXPECT().
-		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]map[string]interface{}{}, nil).
-		AnyTimes()
 
 	sighting := &models.NetworkSighting{
 		SightingID: "s-merge",
@@ -1753,11 +1442,20 @@ func TestReconcileSightingsPromotesEligibleSightings(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	allowCanonicalizationQueries(mockDB)
+
+	// Set up mocks without using allowCanonicalizationQueries to control order
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]map[string]interface{}{}, nil).
+		AnyTimes()
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*models.UnifiedDevice{}, nil).
+		AnyTimes()
+	mockDB.EXPECT().
+		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).
+		AnyTimes()
 
 	now := time.Now().UTC()
 	sighting := &models.NetworkSighting{
@@ -1799,9 +1497,11 @@ func TestReconcileSightingsPromotesEligibleSightings(t *testing.T) {
 		MarkSightingsPromoted(gomock.Any(), gomock.Any()).
 		Return(int64(1), nil)
 
+	// UpsertDeviceIdentifiers may be called multiple times when IdentityEngine registers identifiers
 	mockDB.EXPECT().
 		UpsertDeviceIdentifiers(gomock.Any(), gomock.Any()).
-		Return(nil)
+		Return(nil).
+		AnyTimes()
 
 	mockDB.EXPECT().
 		InsertSightingEvents(gomock.Any(), gomock.Any()).
@@ -1816,7 +1516,12 @@ func TestReconcileSightingsPromotesEligibleSightings(t *testing.T) {
 		},
 	}
 
-	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger(), WithIdentityReconciliationConfig(cfg))
+	registry := NewDeviceRegistry(
+		mockDB,
+		logger.NewTestLogger(),
+		WithIdentityReconciliationConfig(cfg),
+		WithIdentityEngine(mockDB),
+	)
 
 	err := registry.ReconcileSightings(ctx)
 	require.NoError(t, err)

@@ -29,7 +29,6 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/deviceupdate"
-	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -65,14 +64,13 @@ type Option func(*DeviceRegistry)
 type DeviceRegistry struct {
 	db                       db.Service
 	logger                   logger.Logger
+	identityEngine           *IdentityEngine
 	identityPublisher        *identityPublisher
-	identityResolver         *identityResolver
-	cnpgIdentityResolver     *cnpgIdentityResolver
-	deviceIdentityResolver   *DeviceIdentityResolver
 	firstSeenLookupChunkSize int
 	identityCfg              *models.IdentityReconciliationConfig
 	graphWriter              GraphWriter
 	reconcileInterval        time.Duration
+	syncInterval             time.Duration
 
 	mu           sync.RWMutex
 	devices      map[string]*DeviceRecord
@@ -149,7 +147,19 @@ func (r *DeviceRegistry) ProcessDeviceUpdate(ctx context.Context, update *models
 
 // ProcessBatchDeviceUpdates processes a batch of discovery events (DeviceUpdates).
 // It publishes them directly to the device_updates stream for the materialized view.
-func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error { //nolint:gocyclo
+//
+// The simplified DIRE (Device Identity and Reconciliation Engine) flow:
+//  1. Normalize and filter invalid updates
+//  2. Handle service components and network sightings
+//  3. Resolve device IDs using IdentityEngine (strong identifiers -> deterministic sr: UUID)
+//  4. Register device identifiers (DB unique constraint prevents duplicates)
+//  5. Publish updates (no deduplication needed - DB handles uniqueness)
+//  6. Update in-memory cache
+//
+// No IP uniqueness constraint, no tombstones, no soft deletes. The device_identifiers
+// table's unique constraint on (identifier_type, identifier_value, partition) ensures
+// one device per strong identifier.
+func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error {
 	if len(updates) == 0 {
 		return nil
 	}
@@ -163,9 +173,8 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 			Msg("ProcessBatchDeviceUpdates completed")
 	}()
 
-	// Normalize and filter out invalid updates (e.g., empty IP)
+	// Step 1: Normalize and filter out invalid updates (e.g., empty IP)
 	valid := make([]*models.DeviceUpdate, 0, len(updates))
-	// Batch metrics
 	var droppedEmptyIP int
 	for _, u := range updates {
 		scrubArmisCanonical(u)
@@ -185,6 +194,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		return nil
 	}
 
+	// Step 2: Handle service components and network sightings
 	if r.identityCfg != nil && r.identityCfg.Enabled {
 		var sightings []*models.DeviceUpdate
 		var sweepCandidates []*models.DeviceUpdate
@@ -232,535 +242,61 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		}
 	}
 
-	// Resolve device IDs to canonical ServiceRadar UUIDs
-	// This ensures devices are identified by stable IDs rather than ephemeral IPs
-	if r.deviceIdentityResolver != nil {
-		if err := r.deviceIdentityResolver.ResolveDeviceIDs(ctx, valid); err != nil {
+	// Step 3: Resolve device IDs to canonical ServiceRadar UUIDs using the unified IdentityEngine
+	if r.identityEngine != nil {
+		if err := r.identityEngine.ResolveDeviceIDs(ctx, valid); err != nil {
 			r.logger.Warn().Err(err).Msg("Device identity resolution failed")
 		}
 	}
 
-	// Hydrate canonical metadata from CNPG (preferred) or KV (legacy fallback)
-	if r.cnpgIdentityResolver != nil {
-		if err := r.cnpgIdentityResolver.hydrateCanonical(ctx, valid); err != nil {
-			r.logger.Warn().Err(err).Msg("CNPG canonical hydration failed")
-		}
-	} else if r.identityResolver != nil {
-		if err := r.identityResolver.hydrateCanonical(ctx, valid); err != nil {
-			r.logger.Warn().Err(err).Msg("KV canonical hydration failed")
-		}
-	}
-
-	// Build identity maps once per batch to avoid per-update DB lookups
-	maps, err := r.buildIdentityMaps(ctx, valid)
-	if err != nil {
-		r.logger.Warn().Err(err).Msg("Failed to build identity maps; proceeding without canonicalization maps")
-	}
-
-	// Canonicalize by identity (Armis ID → NetBox ID → MAC) and emit tombstones for old IDs
-	canonicalized := make([]*models.DeviceUpdate, 0, len(valid))
-	tombstones := make([]*models.DeviceUpdate, 0, 4)
-	var canonByArmisID int
-	var canonByNetboxID int
-	var canonByMAC int
-	var canonByDeviceID int
-	var tombstoneCount int
-	var sweepNoIdentity int
-
-	for _, u := range valid {
-		if isAuthoritativeServiceUpdate(u) {
-			canonicalized = append(canonicalized, u)
-			continue
-		}
-
-		origID := u.DeviceID
-		canonicalID, via := r.lookupCanonicalFromMaps(u, maps)
-
-		if u.Source == models.DiscoverySourceSweep {
-			if !hasStrongIdentity(u) && canonicalID == "" {
-				sweepNoIdentity++
-			}
-		}
-
-		if canonicalID != "" && canonicalID != origID {
-			// Rewrite to canonical
-			u.DeviceID = canonicalID
-			switch via {
-			case identitySourceArmis:
-				canonByArmisID++
-			case identitySourceNetbox:
-				canonByNetboxID++
-			case identitySourceMAC:
-				canonByMAC++
-			case identitySourceDeviceID:
-				canonByDeviceID++
-			}
-			// Track current IP as alt for searchability
-			if u.Metadata == nil {
-				u.Metadata = map[string]string{}
-			}
-			if u.IP != "" {
-				u.Metadata["alt_ip:"+u.IP] = "1"
-			}
-			// Emit tombstone to hide the old ID in list views
-			tombstones = append(tombstones, &models.DeviceUpdate{
-				AgentID:     u.AgentID,
-				PollerID:    u.PollerID,
-				Partition:   u.Partition,
-				DeviceID:    origID,
-				Source:      u.Source,
-				IP:          u.IP,
-				Timestamp:   time.Now(),
-				IsAvailable: u.IsAvailable,
-				Metadata:    map[string]string{"_merged_into": canonicalID},
-			})
-			tombstoneCount++
-		}
-		canonicalized = append(canonicalized, u)
-	}
-
-	if len(canonicalized) > 0 {
-		r.publishIdentityMap(ctx, canonicalized)
-	}
-
-	if err := r.annotateFirstSeen(ctx, canonicalized); err != nil {
-		r.logger.Warn().Err(err).Msg("Failed to annotate _first_seen metadata")
-	}
-
-	droppedStale := 0
-	if filtered, dropped, err := r.filterObsoleteUpdates(ctx, canonicalized); err != nil {
-		r.logger.Warn().Err(err).Msg("Failed to filter updates against tombstones")
-	} else {
-		canonicalized = filtered
-		droppedStale = dropped
-	}
-
-	batch := canonicalized
-	if len(tombstones) > 0 {
-		batch = append(batch, tombstones...)
-	}
-
-	// Wrap the critical section in a transaction to prevent race conditions
-	var dbConflicts int
-	err = r.db.WithTx(ctx, func(tx db.Service) error {
-		// Create a registry instance that uses the transaction-aware DB service
-		rTx := *r
-		rTx.db = tx
-
-		// Lock the IPs we are about to update to prevent concurrent modifications
-		ipsToLock, _ := rTx.collectIPsForConflictCheck(batch)
-		if len(ipsToLock) > 0 {
-			if err := tx.LockUnifiedDevices(ctx, ipsToLock); err != nil {
-				return err
-			}
-		}
-
-		// Deduplicate batch before publishing
-		// This ensures we don't try to create duplicate devices within the same batch
-		batch = rTx.deduplicateBatch(batch)
-
-		// Resolve IP conflicts with existing database records
-		// This prevents duplicate key constraint violations when a new device has
-		// an IP that already belongs to an existing active device
-		batch, dbConflicts = rTx.resolveIPConflictsWithDB(ctx, batch)
-		
-		// Publish directly to the device_updates stream within the transaction
-		if err := tx.PublishBatchDeviceUpdates(ctx, batch); err != nil {
-			return fmt.Errorf("failed to publish device updates: %w", err)
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	if dbConflicts > 0 {
-		r.logger.Info().
-			Int("db_ip_conflicts", dbConflicts).
-			Msg("Resolved IP conflicts with existing database records")
-	}
-
-	// We use the original canonicalized list for cache update because
-	// applyRegistryStore handles the in-memory state. 
-	// NOTE: If deduplicateBatch or resolveIPConflictsWithDB converted some updates 
-	// to tombstones, the in-memory cache might be slightly out of sync until the 
-	// next read, but the DB is consistent. 
-	// Ideally, we should use the 'batch' from the Tx, but applyRegistryStore
-	// likely expects separate lists. For now, we preserve existing cache behavior 
-	// while fixing the DB race condition.
-	r.applyRegistryStore(canonicalized, tombstones)
-
-	if r.graphWriter != nil {
-		r.graphWriter.WriteGraph(ctx, canonicalized)
-	}
-
-	r.logger.Debug().
-		Int("incoming_updates", len(updates)).
-		Int("valid_updates", len(valid)).
-		Int("published_updates", len(batch)).
-		Int("dropped_empty_ip", droppedEmptyIP).
-		Int("canonicalized_by_armis_id", canonByArmisID).
-		Int("canonicalized_by_netbox_id", canonByNetboxID).
-		Int("canonicalized_by_mac", canonByMAC).
-		Int("canonicalized_by_device_id", canonByDeviceID).
-		Int("tombstones_emitted", tombstoneCount).
-		Int("dropped_stale_after_delete", droppedStale).
-		Int("sweeps_without_identity", sweepNoIdentity).
-		Msg("Registry batch processed")
-
-	return nil
-}
-
-// deduplicateBatch removes duplicate updates for the same IP within a batch.
-// It enforces IP uniqueness to prevent duplicate key constraint violations on
-// idx_unified_devices_ip_unique_active. When multiple devices share the same IP,
-// the first device becomes canonical and subsequent devices become tombstones.
-func (r *DeviceRegistry) deduplicateBatch(updates []*models.DeviceUpdate) []*models.DeviceUpdate {
-	if len(updates) <= 1 {
-		return updates
-	}
-
-	// Track ALL devices by IP to enforce uniqueness constraint.
-	// The first device seen for each IP becomes canonical; subsequent devices become tombstones.
-	seenByIP := make(map[string]*models.DeviceUpdate)
-	result := make([]*models.DeviceUpdate, 0, len(updates))
-	tombstones := make([]*models.DeviceUpdate, 0)
-	var ipCollisions int
-
-	for _, update := range updates {
-		// Skip updates without IP or with service component IDs (they use device_id identity)
-		if update.IP == "" || isServiceDeviceID(update.DeviceID) {
-			result = append(result, update)
-			continue
-		}
-
-		// Skip updates that are already tombstones (have _merged_into set)
-		if update.Metadata != nil {
-			if mergedInto := update.Metadata["_merged_into"]; mergedInto != "" && mergedInto != update.DeviceID {
-				result = append(result, update)
+	// Step 4: Register device identifiers (DB unique constraint prevents duplicates)
+	if r.identityEngine != nil {
+		for _, u := range valid {
+			if isAuthoritativeServiceUpdate(u) {
 				continue
 			}
-		}
-
-		        if existing, ok := seenByIP[update.IP]; ok {
-		            // Check for strong identity mismatch (IP churn)
-		            _, existingID := getStrongIdentity(existing)
-		            _, updateID := getStrongIdentity(update)
-		
-		            // If the new update has a strong identity, and it doesn't match the existing one
-		            // (either because existing is different strong ID, OR existing is weak/empty),
-		            // we treat it as IP churn and split to prevent corruption.
-		            if updateID != "" && existingID != updateID {
-		                // Different strong identities sharing same IP -> churn.
-		                // Do NOT merge. The new update takes the IP.
-		                // We must clear the IP from the previous update in this batch to avoid constraint violation.
-		
-		                r.logger.Info().
-		                    Str("ip", update.IP).
-		                    Str("old_device", existing.DeviceID).
-		                    Str("new_device", update.DeviceID).
-		                    Str("old_identity", existingID).
-		                    Str("new_identity", updateID).
-		                    Msg("IP reassignment detected in batch (strong identity mismatch)")
-		
-		                // Clear IP from existing (old) update
-		                existing.IP = "0.0.0.0" 
-		                if existing.Metadata == nil {
-		                    existing.Metadata = map[string]string{}
-		                }
-		                existing.Metadata["_ip_cleared_due_to_churn"] = "true"
-		
-		                // Update map to point to the new owner
-		                seenByIP[update.IP] = update
-		                result = append(result, update)
-		                continue
-		            }
-		
-		            // IP collision detected - convert this update to a tombstone			ipCollisions++
-
-			r.logger.Debug().
-				Str("ip", update.IP).
-				Str("canonical_device_id", existing.DeviceID).
-				Str("tombstoned_device_id", update.DeviceID).
-				Msg("IP collision in batch - converting to tombstone")
-
-			// Merge metadata from the tombstoned device into the canonical device
-			// This preserves identity markers (armis_id, netbox_id, etc.)
-			r.mergeUpdateMetadata(existing, update)
-
-			// Create tombstone pointing to the canonical device
-			tombstone := &models.DeviceUpdate{
-				AgentID:     update.AgentID,
-				PollerID:    update.PollerID,
-				Partition:   update.Partition,
-				DeviceID:    update.DeviceID,
-				Source:      update.Source,
-				IP:          update.IP,
-				Timestamp:   update.Timestamp,
-				IsAvailable: update.IsAvailable,
-				Metadata:    map[string]string{"_merged_into": existing.DeviceID},
-			}
-			tombstones = append(tombstones, tombstone)
-			continue
-		}
-
-		seenByIP[update.IP] = update
-		result = append(result, update)
-	}
-
-	// Record metric for IP collisions
-	if ipCollisions > 0 {
-		recordBatchIPCollisionMetrics(ipCollisions)
-		r.logger.Info().
-			Int("ip_collisions", ipCollisions).
-			Int("tombstones_created", len(tombstones)).
-			Msg("Resolved IP collisions in batch by creating tombstones")
-	}
-
-	// Append tombstones after canonical devices to ensure targets exist first
-	result = append(result, tombstones...)
-
-	return result
-}
-
-// shouldSkipIPConflictCheck returns true if the update should bypass IP conflict checking
-func shouldSkipIPConflictCheck(update *models.DeviceUpdate) bool {
-	if update.IP == "" || isServiceDeviceID(update.DeviceID) {
-		return true
-	}
-	if update.Metadata != nil {
-		if mergedInto := update.Metadata["_merged_into"]; mergedInto != "" && mergedInto != update.DeviceID {
-			return true
-		}
-	}
-	return false
-}
-
-// createIPClearUpdate creates an update that clears the IP from a device due to IP churn
-func createIPClearUpdate(deviceID string, softDelete bool) *models.DeviceUpdate {
-	u := &models.DeviceUpdate{
-		DeviceID:    deviceID,
-		IP:          "0.0.0.0", // Set to 0.0.0.0 for history log
-		Timestamp:   time.Now(),
-		Source:      models.DiscoverySourceServiceRadar,
-		IsAvailable: false,
-		Metadata: map[string]string{
-			"_ip_cleared_due_to_churn": "true",
-		},
-	}
-	if softDelete {
-		u.Metadata["_deleted"] = "true" // Soft-delete to remove from unique index
-	}
-	return u
-}
-
-// createTombstoneUpdate creates a tombstone update pointing to the target device
-func createTombstoneUpdate(update *models.DeviceUpdate, targetDeviceID string) *models.DeviceUpdate {
-	tombstone := &models.DeviceUpdate{
-		AgentID:     update.AgentID,
-		PollerID:    update.PollerID,
-		Partition:   update.Partition,
-		DeviceID:    update.DeviceID,
-		Source:      update.Source,
-		IP:          update.IP,
-		Timestamp:   update.Timestamp,
-		IsAvailable: update.IsAvailable,
-		Metadata:    map[string]string{"_merged_into": targetDeviceID},
-	}
-	if update.Metadata != nil {
-		for k, v := range update.Metadata {
-			if k != "_merged_into" {
-				tombstone.Metadata[k] = v
-			}
-		}
-	}
-	return tombstone
-}
-
-// createMergeUpdate creates an update to merge metadata into an existing device
-func createMergeUpdate(update *models.DeviceUpdate, targetDeviceID string) *models.DeviceUpdate {
-	return &models.DeviceUpdate{
-		AgentID:     update.AgentID,
-		PollerID:    update.PollerID,
-		Partition:   update.Partition,
-		DeviceID:    targetDeviceID,
-		Source:      update.Source,
-		IP:          update.IP,
-		MAC:         update.MAC,
-		Hostname:    update.Hostname,
-		Timestamp:   update.Timestamp,
-		IsAvailable: update.IsAvailable,
-		Metadata:    update.Metadata,
-	}
-}
-
-// resolveIPConflictsWithDB checks the batch against existing database records
-// and converts devices to tombstones if their IP already belongs to an existing
-// active device with a different device_id. This prevents duplicate key constraint
-// violations on idx_unified_devices_ip_unique_active.
-func (r *DeviceRegistry) resolveIPConflictsWithDB(ctx context.Context, batch []*models.DeviceUpdate) ([]*models.DeviceUpdate, int) {
-	if len(batch) == 0 {
-		return batch, 0
-	}
-
-	ips, ipToUpdates := r.collectIPsForConflictCheck(batch)
-	if len(ips) == 0 {
-		return batch, 0
-	}
-
-	existingByIP := make(map[string]string)
-	if err := r.resolveIPsToCanonical(ctx, ips, existingByIP); err != nil {
-		r.logger.Warn().Err(err).Msg("Failed to query existing IPs for conflict resolution")
-		return batch, 0
-	}
-
-	existingDevicesMap := r.fetchConflictingDevices(ctx, existingByIP, ipToUpdates)
-
-	return r.processDBConflicts(batch, existingByIP, existingDevicesMap)
-}
-
-// collectIPsForConflictCheck collects IPs from updates that need conflict checking
-func (r *DeviceRegistry) collectIPsForConflictCheck(batch []*models.DeviceUpdate) ([]string, map[string][]*models.DeviceUpdate) {
-	ips := make([]string, 0, len(batch))
-	ipToUpdates := make(map[string][]*models.DeviceUpdate)
-
-	for _, update := range batch {
-		if shouldSkipIPConflictCheck(update) {
-			continue
-		}
-		ips = append(ips, update.IP)
-		ipToUpdates[update.IP] = append(ipToUpdates[update.IP], update)
-	}
-	return ips, ipToUpdates
-}
-
-// fetchConflictingDevices fetches full device records for devices that may conflict
-func (r *DeviceRegistry) fetchConflictingDevices(ctx context.Context, existingByIP map[string]string, ipToUpdates map[string][]*models.DeviceUpdate) map[string]*models.UnifiedDevice {
-	existingDevicesMap := make(map[string]*models.UnifiedDevice)
-	conflictingIDs := make([]string, 0, len(existingByIP))
-
-	for ip, id := range existingByIP {
-		if updates, ok := ipToUpdates[ip]; ok {
-			for _, u := range updates {
-				if u.DeviceID != id {
-					conflictingIDs = append(conflictingIDs, id)
-					break
+			ids := r.identityEngine.ExtractStrongIdentifiers(u)
+			if ids.HasStrongIdentifier() {
+				if err := r.identityEngine.RegisterDeviceIdentifiers(ctx, u.DeviceID, ids); err != nil {
+					r.logger.Warn().Err(err).Str("device_id", u.DeviceID).Msg("Failed to register device identifiers")
 				}
 			}
 		}
 	}
 
-	if len(conflictingIDs) > 0 {
-		devs, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, conflictingIDs)
-		if err != nil {
-			r.logger.Warn().Err(err).Msg("Failed to fetch conflicting devices for identity check")
-		} else {
-			for _, d := range devs {
-				existingDevicesMap[d.DeviceID] = d
-			}
-		}
-	}
-	return existingDevicesMap
-}
-
-// processDBConflicts processes batch updates against existing DB records
-func (r *DeviceRegistry) processDBConflicts(batch []*models.DeviceUpdate, existingByIP map[string]string, existingDevicesMap map[string]*models.UnifiedDevice) ([]*models.DeviceUpdate, int) {
-	var conflicts int
-	result := make([]*models.DeviceUpdate, 0, len(batch))
-	clears := make([]*models.DeviceUpdate, 0)
-	tombstones := make([]*models.DeviceUpdate, 0)
-
-	// Track devices updated in this batch to avoid soft-deleting them
-	updatedDevices := make(map[string]bool, len(batch))
-	for _, u := range batch {
-		if u.DeviceID != "" {
-			updatedDevices[u.DeviceID] = true
-		}
+	// Publish identity map for downstream consumers
+	if len(valid) > 0 {
+		r.publishIdentityMap(ctx, valid)
 	}
 
-	for _, update := range batch {
-		if shouldSkipIPConflictCheck(update) {
-			result = append(result, update)
-			continue
-		}
-
-		existingDeviceID, exists := existingByIP[update.IP]
-		if !exists || existingDeviceID == update.DeviceID {
-			result = append(result, update)
-			continue
-		}
-
-		// Check for strong identity mismatch
-		if r.handleIdentityMismatch(update, existingDeviceID, existingDevicesMap, updatedDevices, &clears, &result) {
-			continue
-		}
-
-		// No identity mismatch - create tombstone
-		conflicts++
-		r.logger.Debug().
-			Str("ip", update.IP).
-			Str("existing_device_id", existingDeviceID).
-			Str("conflicting_device_id", update.DeviceID).
-			Msg("IP conflict with existing database record - converting to tombstone")
-
-		tombstones = append(tombstones, createTombstoneUpdate(update, existingDeviceID))
-		result = append(result, createMergeUpdate(update, existingDeviceID))
+	// Annotate first_seen timestamps
+	if err := r.annotateFirstSeen(ctx, valid); err != nil {
+		r.logger.Warn().Err(err).Msg("Failed to annotate _first_seen metadata")
 	}
 
-	if conflicts > 0 {
-		recordBatchIPCollisionMetrics(conflicts)
+	// Step 5: Publish updates to the device_updates stream
+	// No deduplication or IP conflict resolution needed - the IdentityEngine ensures
+	// consistent device IDs based on strong identifiers, and the device_identifiers
+	// table's unique constraint prevents duplicate devices.
+	if err := r.db.PublishBatchDeviceUpdates(ctx, valid); err != nil {
+		return fmt.Errorf("failed to publish device updates: %w", err)
 	}
 
-	// Prepend clears to ensure IPs are freed before being reassigned
-	finalResult := make([]*models.DeviceUpdate, 0, len(clears)+len(result)+len(tombstones))
-	finalResult = append(finalResult, clears...)
-	finalResult = append(finalResult, result...)
-	finalResult = append(finalResult, tombstones...)
+	// Step 6: Update in-memory cache
+	r.applyRegistryStore(valid, nil)
 
-	return finalResult, conflicts
-}
-
-// handleIdentityMismatch checks for strong identity mismatch and handles IP churn
-// Returns true if identity mismatch was detected and handled
-func (r *DeviceRegistry) handleIdentityMismatch(
-	update *models.DeviceUpdate,
-	existingDeviceID string,
-	existingDevicesMap map[string]*models.UnifiedDevice,
-	updatedDevices map[string]bool,
-	clears *[]*models.DeviceUpdate,
-	result *[]*models.DeviceUpdate,
-) bool {
-	existingDev, ok := existingDevicesMap[existingDeviceID]
-	if !ok {
-		return false
+	if r.graphWriter != nil {
+		r.graphWriter.WriteGraph(ctx, valid)
 	}
 
-	existingType, existingID := getStrongIdentityFromDevice(existingDev)
-	updateType, updateID := getStrongIdentity(update)
+	r.logger.Debug().
+		Int("incoming_updates", len(updates)).
+		Int("valid_updates", len(valid)).
+		Int("published_updates", len(valid)).
+		Int("dropped_empty_ip", droppedEmptyIP).
+		Msg("Registry batch processed")
 
-	// If update is weak (no ID), or IDs match, it's not a mismatch -> Merge.
-	// If update is strong (ID present) and existing is either different strong or weak, it's a mismatch -> Split.
-	if updateID == "" || existingID == updateID {
-		return false
-	}
-
-	r.logger.Info().
-		Str("ip", update.IP).
-		Str("old_device", existingDeviceID).
-		Str("new_device", update.DeviceID).
-		Str("old_identity_type", existingType).
-		Str("old_identity", existingID).
-		Str("new_identity_type", updateType).
-		Str("new_identity", updateID).
-		Msg("IP reassignment detected against DB (strong identity mismatch)")
-
-	// Only soft-delete if the device is NOT being updated in this batch
-	shouldSoftDelete := !updatedDevices[existingDeviceID]
-	*clears = append(*clears, createIPClearUpdate(existingDeviceID, shouldSoftDelete))
-	*result = append(*result, update)
-	return true
+	return nil
 }
 
 func (r *DeviceRegistry) attachSweepSightings(ctx context.Context, sweeps []*models.DeviceUpdate) ([]*models.DeviceUpdate, []*models.DeviceUpdate) {
@@ -1596,180 +1132,6 @@ func (r *DeviceRegistry) ListDeviceCapabilitySnapshots(_ context.Context, device
 	return r.matrix.ListForDevice(deviceID)
 }
 
-// identityMaps holds batch-resolved mappings from identity → canonical device_id
-type identityMaps struct {
-	armis  map[string]string
-	netbx  map[string]string
-	mac    map[string]string
-	ip     map[string]string
-	device map[string]string
-}
-
-func (r *DeviceRegistry) buildIdentityMaps(ctx context.Context, updates []*models.DeviceUpdate) (*identityMaps, error) {
-	m := &identityMaps{
-		armis:  map[string]string{},
-		netbx:  map[string]string{},
-		mac:    map[string]string{},
-		ip:     map[string]string{},
-		device: map[string]string{},
-	}
-
-	// Collect unique identities
-	armisSet := make(map[string]struct{})
-	netboxSet := make(map[string]struct{})
-	macSet := make(map[string]struct{})
-	ipSet := make(map[string]struct{})
-	deviceSet := make(map[string]struct{})
-
-	for _, u := range updates {
-		if u.Metadata != nil {
-			if del, ok := u.Metadata["_deleted"]; ok && strings.EqualFold(del, "true") {
-				continue
-			}
-			if _, ok := u.Metadata["_merged_into"]; ok {
-				continue
-			}
-			if id := u.Metadata["armis_device_id"]; id != "" {
-				armisSet[id] = struct{}{}
-			}
-			if typ := u.Metadata["integration_type"]; typ == integrationTypeNetbox {
-				if id := u.Metadata["integration_id"]; id != "" {
-					netboxSet[id] = struct{}{}
-				}
-				if id := u.Metadata["netbox_device_id"]; id != "" {
-					netboxSet[id] = struct{}{}
-				}
-			}
-			if alias := strings.TrimSpace(u.Metadata["_alias_last_seen_service_id"]); alias != "" {
-				deviceSet[alias] = struct{}{}
-			}
-			for key := range u.Metadata {
-				if strings.HasPrefix(key, "service_alias:") {
-					if alias := strings.TrimSpace(strings.TrimPrefix(key, "service_alias:")); alias != "" {
-						deviceSet[alias] = struct{}{}
-					}
-				}
-			}
-		}
-		if u.MAC != nil && *u.MAC != "" {
-			for _, mac := range parseMACList(*u.MAC) {
-				macSet[mac] = struct{}{}
-			}
-		}
-		if u.IP != "" {
-			ipSet[u.IP] = struct{}{}
-		}
-		if trimmed := strings.TrimSpace(u.DeviceID); trimmed != "" {
-			deviceSet[trimmed] = struct{}{}
-		}
-	}
-
-	// Helper to convert set to slice
-	toList := func(set map[string]struct{}) []string {
-		out := make([]string, 0, len(set))
-		for k := range set {
-			out = append(out, k)
-		}
-		return out
-	}
-
-	// Resolve in chunks
-	if err := r.resolveArmisIDs(ctx, toList(armisSet), m.armis); err != nil {
-		return m, err
-	}
-	if err := r.resolveNetboxIDs(ctx, toList(netboxSet), m.netbx); err != nil {
-		return m, err
-	}
-	if err := r.resolveMACs(ctx, toList(macSet), m.mac); err != nil {
-		return m, err
-	}
-	if err := r.resolveIPsToCanonical(ctx, toList(ipSet), m.ip); err != nil {
-		return m, err
-	}
-	for _, id := range toList(deviceSet) {
-		setIfMissing(m.device, id, id)
-	}
-	seedIdentityMapsFromBatch(updates, m)
-	return m, nil
-}
-
-func seedIdentityMapsFromBatch(updates []*models.DeviceUpdate, m *identityMaps) {
-	if len(updates) == 0 || m == nil {
-		return
-	}
-	for _, update := range updates {
-		if update == nil {
-			continue
-		}
-		canonical := canonicalIDCandidate(update)
-		if canonical == "" {
-			continue
-		}
-		strongIdentity := hasStrongIdentity(update)
-		for _, key := range identitymap.BuildKeys(update) {
-			switch key.Kind {
-			case identitymap.KindDeviceID:
-				setIfMissing(m.device, key.Value, canonical)
-			case identitymap.KindArmisID:
-				setIfMissing(m.armis, key.Value, canonical)
-			case identitymap.KindNetboxID:
-				setIfMissing(m.netbx, key.Value, canonical)
-			case identitymap.KindMAC:
-				setIfMissing(m.mac, key.Value, canonical)
-			case identitymap.KindIP, identitymap.KindPartitionIP:
-				if !strongIdentity {
-					continue
-				}
-				setIfMissing(m.ip, key.Value, canonical)
-			}
-		}
-	}
-}
-
-func canonicalIDCandidate(update *models.DeviceUpdate) string {
-	if update == nil {
-		return ""
-	}
-
-	// If this update carries an Armis strong ID, ignore any provided canonical_device_id
-	// to avoid collapsing distinct Armis devices that happen to share a canonical hint.
-	if update.Metadata != nil && strings.TrimSpace(update.Metadata["armis_device_id"]) != "" {
-		// Fall through to DeviceID handling below.
-	} else if update.Metadata != nil {
-		if canonical := strings.TrimSpace(update.Metadata["canonical_device_id"]); canonical != "" {
-			// Skip legacy partition:IP format IDs - they should be migrated to ServiceRadar UUIDs
-			if !isLegacyIPBasedID(canonical) {
-				return canonical
-			}
-		}
-	}
-
-	// Check canonical_device_id from metadata, but skip legacy partition:IP format IDs
-	// Use the current DeviceID, but skip legacy partition:IP format IDs
-	deviceID := strings.TrimSpace(update.DeviceID)
-	if deviceID != "" && !isLegacyIPBasedID(deviceID) {
-		return deviceID
-	}
-
-	// For legacy IDs or empty IDs, return empty to signal that a new UUID is needed
-	// Don't fall back to partition:IP format
-	return ""
-}
-
-func setIfMissing(dst map[string]string, key, value string) {
-	if dst == nil {
-		return
-	}
-	key = strings.TrimSpace(key)
-	value = strings.TrimSpace(value)
-	if key == "" || value == "" {
-		return
-	}
-	if _, exists := dst[key]; !exists {
-		dst[key] = value
-	}
-}
-
 func (r *DeviceRegistry) resolveIdentifiers(
 	ctx context.Context,
 	values []string,
@@ -2061,12 +1423,8 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 		candidates = append(candidates, ip)
 	}
 
+	// Resolve IPs using CNPG directly (no longer using separate identity resolvers)
 	var resolved map[string]string
-	if r.cnpgIdentityResolver != nil {
-		resolved, resolveErr = r.cnpgIdentityResolver.resolveCanonicalIPs(ctx, candidates)
-	} else if r.identityResolver != nil {
-		resolved, resolveErr = r.identityResolver.resolveCanonicalIPs(ctx, candidates)
-	}
 
 	// Add initial results to out. We allow tombstones/merged devices here
 	// because we'll resolve the chains at the very end.
@@ -2137,191 +1495,11 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 	return resolveErr
 }
 
-func (r *DeviceRegistry) resolveCanonicalIPMappings(ctx context.Context, mappings map[string]string) map[string]string {
-	if len(mappings) == 0 || r.db == nil {
-		return mappings
-	}
-
-	ids := make([]string, 0, len(mappings))
-	seen := make(map[string]struct{})
-	for _, id := range mappings {
-		if id != "" {
-			if _, ok := seen[id]; !ok {
-				ids = append(ids, id)
-				seen[id] = struct{}{}
-			}
-		}
-	}
-
-	resolvedChains := r.resolveMergeChains(ctx, ids)
-
-	result := make(map[string]string)
-	for ip, id := range mappings {
-		if canonical, ok := resolvedChains[id]; ok && canonical != "" {
-			result[ip] = canonical
-		}
-	}
-
-	return result
-}
-
-func (r *DeviceRegistry) resolveMergeChains(ctx context.Context, ids []string) map[string]string {
-	if len(ids) == 0 {
-		return nil
-	}
-
-	// pending: IDs we need to look up
-	pending := make(map[string]struct{})
-	for _, id := range ids {
-		if id != "" {
-			pending[id] = struct{}{}
-		}
-	}
-
-	// loaded: IDs we have fetched from DB
-	loaded := make(map[string]*models.UnifiedDevice)
-
-	// Loop to fetch chains (max depth 5 to prevent infinite loops/excessive queries)
-	for i := 0; i < 5; i++ {
-		if len(pending) == 0 {
-			break
-		}
-
-		// Convert pending set to slice
-		batch := make([]string, 0, len(pending))
-		for id := range pending {
-			batch = append(batch, id)
-		}
-
-		// Clear pending for next iteration
-		pending = make(map[string]struct{})
-
-		// Fetch from DB
-		devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, batch)
-		if err != nil {
-			r.logger.Warn().Err(err).Msg("Failed to fetch devices for chain resolution")
-			// Stop here, process what we have
-			break
-		}
-
-		for _, dev := range devices {
-			loaded[dev.DeviceID] = dev
-
-			// If merged, add target to pending if not already loaded
-			if dev.Metadata != nil {
-				if merged := strings.TrimSpace(dev.Metadata.Value["_merged_into"]); merged != "" && merged != dev.DeviceID {
-					if _, have := loaded[merged]; !have {
-						pending[merged] = struct{}{}
-					}
-				}
-			}
-		}
-	}
-
-	// Build final map
-	results := make(map[string]string)
-
-	for _, startID := range ids {
-		currID := startID
-		visited := map[string]struct{}{}
-
-		// Follow chain
-		for {
-			if _, seen := visited[currID]; seen {
-				// Cycle detected! Abort chain.
-				currID = ""
-				break
-			}
-			visited[currID] = struct{}{}
-
-			dev, ok := loaded[currID]
-			if !ok {
-				// Missing device in chain (deleted or not found)
-				// If it's the startID, we treat it as missing.
-				currID = ""
-				break
-			}
-
-			if isCanonicalUnifiedDevice(dev) {
-				// Found it!
-				break
-			}
-
-			// It's merged or deleted
-			if dev.Metadata != nil && strings.EqualFold(dev.Metadata.Value["_deleted"], "true") {
-				currID = "" // Deleted
-				break
-			}
-
-			merged := ""
-			if dev.Metadata != nil {
-				merged = strings.TrimSpace(dev.Metadata.Value["_merged_into"])
-			}
-
-			if merged != "" && merged != currID {
-				currID = merged // Advance
-			} else {
-				// Not canonical, not deleted, no merge target? Invalid state.
-				currID = ""
-				break
-			}
-		}
-
-		if currID != "" {
-			results[startID] = currID
-		}
-	}
-
-	return results
-}
-
-func (r *DeviceRegistry) lookupCanonicalFromMaps(u *models.DeviceUpdate, maps *identityMaps) (string, string) {
-	if maps == nil {
-		return "", ""
-	}
-	if trimmedID := strings.TrimSpace(u.DeviceID); trimmedID != "" {
-		if dev, ok := maps.device[trimmedID]; ok {
-			if canonical := strings.TrimSpace(dev); canonical != "" && canonical != trimmedID {
-				return canonical, identitySourceDeviceID
-			}
-		}
-	}
-	if u.Metadata != nil {
-		if del, ok := u.Metadata["_deleted"]; ok && strings.EqualFold(del, "true") {
-			return "", ""
-		}
-		if _, ok := u.Metadata["_merged_into"]; ok {
-			return "", ""
-		}
-		if id := u.Metadata["armis_device_id"]; id != "" {
-			if dev, ok := maps.armis[id]; ok {
-				return dev, identitySourceArmis
-			}
-		}
-		if typ := u.Metadata["integration_type"]; typ == integrationTypeNetbox {
-			if id := u.Metadata["integration_id"]; id != "" {
-				if dev, ok := maps.netbx[id]; ok {
-					return dev, identitySourceNetbox
-				}
-			}
-			if id := u.Metadata["netbox_device_id"]; id != "" {
-				if dev, ok := maps.netbx[id]; ok {
-					return dev, identitySourceNetbox
-				}
-			}
-		}
-	}
-	if u.MAC != nil && *u.MAC != "" {
-		if dev, ok := maps.mac[*u.MAC]; ok {
-			return dev, identitySourceMAC
-		}
-	}
-	if u.IP != "" {
-		if dev, ok := maps.ip[u.IP]; ok {
-			return dev, "ip"
-		}
-	}
-	return "", ""
+// resolveCanonicalIPMappings returns IP to device ID mappings.
+// With the DIRE simplification, there are no tombstones or merge chains to resolve.
+// Devices are directly mapped by their identifiers.
+func (r *DeviceRegistry) resolveCanonicalIPMappings(_ context.Context, mappings map[string]string) map[string]string {
+	return mappings
 }
 
 func quoteList(vals []string) string {
@@ -2363,26 +1541,7 @@ func parseMACList(s string) []string {
 	return out
 }
 
-func (r *DeviceRegistry) annotateFirstSeen(ctx context.Context, updates []*models.DeviceUpdate) error {
-	if len(updates) == 0 {
-		return nil
-	}
-
-	deviceIDs := collectDeviceIDs(updates)
-	if len(deviceIDs) == 0 {
-		return nil
-	}
-
-	existing, err := r.fetchExistingFirstSeen(ctx, deviceIDs)
-	if err != nil {
-		return err
-	}
-
-	firstSeen := computeBatchFirstSeen(updates, existing)
-	applyFirstSeenMetadata(updates, firstSeen)
-	return nil
-}
-
+// collectDeviceIDs extracts unique device IDs from a slice of updates
 func collectDeviceIDs(updates []*models.DeviceUpdate) []string {
 	if len(updates) == 0 {
 		return nil
@@ -2405,6 +1564,26 @@ func collectDeviceIDs(updates []*models.DeviceUpdate) []string {
 		deviceIDs = append(deviceIDs, id)
 	}
 	return deviceIDs
+}
+
+func (r *DeviceRegistry) annotateFirstSeen(ctx context.Context, updates []*models.DeviceUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	deviceIDs := collectDeviceIDs(updates)
+	if len(deviceIDs) == 0 {
+		return nil
+	}
+
+	existing, err := r.fetchExistingFirstSeen(ctx, deviceIDs)
+	if err != nil {
+		return err
+	}
+
+	firstSeen := computeBatchFirstSeen(updates, existing)
+	applyFirstSeenMetadata(updates, firstSeen)
+	return nil
 }
 
 func (r *DeviceRegistry) fetchExistingFirstSeen(ctx context.Context, deviceIDs []string) (map[string]time.Time, error) {
@@ -2655,131 +1834,6 @@ func allDigits(s string) bool {
 		}
 	}
 	return true
-}
-
-func (r *DeviceRegistry) filterObsoleteUpdates(ctx context.Context, updates []*models.DeviceUpdate) ([]*models.DeviceUpdate, int, error) {
-	if len(updates) == 0 {
-		return updates, 0, nil
-	}
-
-	deviceIDs := collectDeviceIDs(updates)
-	if len(deviceIDs) == 0 {
-		return updates, 0, nil
-	}
-
-	devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, deviceIDs)
-	if err != nil {
-		return updates, 0, fmt.Errorf("lookup tombstoned devices: %w", err)
-	}
-
-	lastDeleted := make(map[string]time.Time, len(devices))
-	for _, device := range devices {
-		if device == nil || device.DeviceID == "" {
-			continue
-		}
-		if device.Metadata == nil || device.Metadata.Value == nil {
-			continue
-		}
-		if deletedAt := extractDeletionTimestamp(device.Metadata.Value); !deletedAt.IsZero() {
-			lastDeleted[device.DeviceID] = deletedAt
-		}
-	}
-
-	if len(lastDeleted) == 0 {
-		return updates, 0, nil
-	}
-
-	filtered := make([]*models.DeviceUpdate, 0, len(updates))
-	var dropped int
-
-	for _, update := range updates {
-		if update == nil || update.DeviceID == "" {
-			continue
-		}
-		if shouldBypassDeletionFilter(update) {
-			filtered = append(filtered, update)
-			continue
-		}
-
-		deletedAt, ok := lastDeleted[update.DeviceID]
-		if !ok || deletedAt.IsZero() {
-			filtered = append(filtered, update)
-			continue
-		}
-
-		if update.Source == models.DiscoverySourceSelfReported || update.Source == models.DiscoverySourceServiceRadar {
-			// Block self-reported updates for tombstoned devices unless the update is fresh,
-			// which can happen during re-onboarding when a device comes back online.
-			if !update.Timestamp.After(deletedAt) {
-				dropped++
-				r.logger.Info().
-					Str("device_id", update.DeviceID).
-					Str("source", string(update.Source)).
-					Time("deleted_at", deletedAt).
-					Time("update_ts", update.Timestamp).
-					Msg("Blocking self-reported update for tombstoned device")
-				continue
-			}
-			// Update is newer than deletion - allow re-onboarding
-			r.logger.Info().
-				Str("device_id", update.DeviceID).
-				Str("source", string(update.Source)).
-				Time("deleted_at", deletedAt).
-				Time("update_ts", update.Timestamp).
-				Msg("Allowing self-reported update for re-onboarding (update is newer than deletion)")
-		}
-
-		updateTimestamp := update.Timestamp
-		if updateTimestamp.IsZero() {
-			updateTimestamp = time.Time{}
-		}
-
-		if !updateTimestamp.After(deletedAt) {
-			dropped++
-			r.logger.Debug().
-				Str("device_id", update.DeviceID).
-				Time("deleted_at", deletedAt).
-				Time("update_ts", updateTimestamp).
-				Str("source", string(update.Source)).
-				Msg("Dropping stale update for tombstoned device")
-			continue
-		}
-
-		filtered = append(filtered, update)
-	}
-
-	return filtered, dropped, nil
-}
-
-func extractDeletionTimestamp(metadata map[string]string) time.Time {
-	for _, key := range []string{"_deleted_at", "deleted_at"} {
-		val := strings.TrimSpace(metadata[key])
-		if val == "" {
-			continue
-		}
-		if ts, ok := parseFirstSeenTimestamp(val); ok {
-			return ts
-		}
-	}
-	return time.Time{}
-}
-
-func shouldBypassDeletionFilter(update *models.DeviceUpdate) bool {
-	if update == nil || update.Metadata == nil {
-		return false
-	}
-
-	for _, key := range []string{"_deleted", "deleted"} {
-		if val, ok := update.Metadata[key]; ok && strings.EqualFold(val, "true") {
-			return true
-		}
-	}
-
-	if _, ok := update.Metadata["_merged_into"]; ok {
-		return true
-	}
-
-	return false
 }
 
 // scrubArmisCanonical removes Armis-provided canonical hints so strong Armis identifiers

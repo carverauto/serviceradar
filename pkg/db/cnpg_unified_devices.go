@@ -31,6 +31,9 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+// unifiedDevicesSelection is the base SELECT for querying unified_devices.
+// With the DIRE simplification, there are no tombstones or soft deletes to filter out.
+// All devices in the table are active.
 const unifiedDevicesSelection = `
 SELECT
 	device_id,
@@ -51,9 +54,7 @@ SELECT
 	os_info,
 	version_info
 FROM unified_devices
-WHERE (metadata->>'_merged_into' IS NULL OR metadata->>'_merged_into' = '' OR metadata->>'_merged_into' = device_id)
-  AND COALESCE(lower(metadata->>'_deleted'),'false') <> 'true'
-  AND COALESCE(lower(metadata->>'deleted'),'false') <> 'true'`
+WHERE 1=1`
 
 func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error {
 	if len(updates) == 0 || !db.cnpgConfigured() {
@@ -76,9 +77,7 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 			update.Metadata = make(map[string]string)
 		}
 
-		meta := normalizeDeletionMetadata(update.Metadata)
-
-		metaBytes, err := json.Marshal(meta)
+		metaBytes, err := json.Marshal(update.Metadata)
 		if err != nil {
 			db.logger.Warn().
 				Err(err).
@@ -151,11 +150,7 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 				),
 				is_available = EXCLUDED.is_available,
 				last_seen = EXCLUDED.last_seen,
-				metadata = CASE
-					WHEN COALESCE(lower(EXCLUDED.metadata->>'_deleted'),'false') = 'true'
-						THEN (unified_devices.metadata || EXCLUDED.metadata)
-					ELSE (unified_devices.metadata || EXCLUDED.metadata) - '_deleted' - 'deleted'
-				END,
+				metadata = unified_devices.metadata || EXCLUDED.metadata,
 				updated_at = NOW()`,
 			update.DeviceID,
 			update.IP,
@@ -176,34 +171,6 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 	}
 
 	return nil
-}
-
-func normalizeDeletionMetadata(meta map[string]string) map[string]string {
-	if len(meta) == 0 {
-		return meta
-	}
-
-	isDeletion := false
-	for _, key := range []string{"_deleted", "deleted"} {
-		if val, ok := meta[key]; ok && strings.EqualFold(val, "true") {
-			isDeletion = true
-			break
-		}
-	}
-
-	if isDeletion {
-		return meta
-	}
-
-	cleaned := make(map[string]string, len(meta))
-	for k, v := range meta {
-		if k == "_deleted" || k == "deleted" {
-			continue
-		}
-		cleaned[k] = v
-	}
-
-	return cleaned
 }
 
 func (db *DB) cnpgGetUnifiedDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
@@ -253,12 +220,8 @@ func (db *DB) cnpgListUnifiedDevices(ctx context.Context, limit, offset int) ([]
 }
 
 func (db *DB) cnpgCountUnifiedDevices(ctx context.Context) (int64, error) {
-	const query = `
-SELECT COUNT(*)
-FROM unified_devices
-WHERE (metadata->>'_merged_into' IS NULL OR metadata->>'_merged_into' = '' OR metadata->>'_merged_into' = device_id)
-  AND COALESCE(lower(metadata->>'_deleted'),'false') <> 'true'
-  AND COALESCE(lower(metadata->>'deleted'),'false') <> 'true'`
+	// Simple count - no tombstone/deleted filtering needed with DIRE simplification
+	const query = `SELECT COUNT(*) FROM unified_devices`
 
 	var count int64
 	if err := db.conn().QueryRow(ctx, query).Scan(&count); err != nil {
@@ -474,16 +437,12 @@ func (db *DB) GetStaleIPOnlyDevices(ctx context.Context, ttl time.Duration) ([]s
 	}
 
 	// Query for devices where:
-	// 1. Not deleted
-	// 2. No strong identifiers (MAC, Armis ID, Netbox ID)
-	// 3. Last seen older than TTL
+	// 1. No strong identifiers (MAC, Armis ID, Netbox ID)
+	// 2. Last seen older than TTL
 	const query = `
 	SELECT device_id
 	FROM unified_devices
-	WHERE (metadata->>'_merged_into' IS NULL OR metadata->>'_merged_into' = '' OR metadata->>'_merged_into' = device_id)
-	  AND COALESCE(lower(metadata->>'_deleted'),'false') <> 'true'
-	  AND COALESCE(lower(metadata->>'deleted'),'false') <> 'true'
-	  AND mac IS NULL
+	WHERE mac IS NULL
 	  AND metadata->>'armis_device_id' IS NULL
 	  AND metadata->>'netbox_device_id' IS NULL
 	  AND last_seen < $1`
@@ -506,23 +465,53 @@ func (db *DB) GetStaleIPOnlyDevices(ctx context.Context, ttl time.Duration) ([]s
 	return deviceIDs, rows.Err()
 }
 
-// SoftDeleteDevices marks the specified devices as deleted in the database.
-func (db *DB) SoftDeleteDevices(ctx context.Context, deviceIDs []string) error {
+// DeleteDevices permanently removes the specified devices from the database.
+// With the DIRE simplification, we use hard deletes instead of soft deletes.
+// An audit record is written to device_updates before deletion.
+func (db *DB) DeleteDevices(ctx context.Context, deviceIDs []string) error {
 	if len(deviceIDs) == 0 || !db.cnpgConfigured() {
 		return nil
 	}
 
-	// Update metadata to set _deleted = true
-	const query = `
-	UPDATE unified_devices
-	SET metadata = metadata || '{"_deleted": "true"}'::jsonb,
-	    updated_at = NOW()
-	WHERE device_id = ANY($1)`
+	// First, log the deletion to device_updates for audit trail
+	batch := &pgx.Batch{}
+	now := time.Now().UTC()
+	for _, deviceID := range deviceIDs {
+		batch.Queue(
+			`INSERT INTO device_updates (
+				observed_at, device_id, discovery_source, metadata
+			) VALUES ($1, $2, 'serviceradar', '{"_action": "deleted"}'::jsonb)`,
+			now, deviceID,
+		)
+	}
 
-	_, err := db.conn().Exec(ctx, query, deviceIDs)
+	// Execute audit log batch
+	br := db.conn().SendBatch(ctx, batch)
+	if err := br.Close(); err != nil {
+		db.logger.Warn().Err(err).Msg("Failed to log device deletions to audit trail")
+		// Continue with deletion even if audit fails
+	}
+
+	// Hard delete the devices
+	const deleteQuery = `DELETE FROM unified_devices WHERE device_id = ANY($1)`
+	_, err := db.conn().Exec(ctx, deleteQuery, deviceIDs)
 	if err != nil {
-		return fmt.Errorf("failed to soft-delete devices: %w", err)
+		return fmt.Errorf("failed to delete devices: %w", err)
+	}
+
+	// Also remove from device_identifiers table
+	const deleteIdentifiersQuery = `DELETE FROM device_identifiers WHERE device_id = ANY($1)`
+	_, err = db.conn().Exec(ctx, deleteIdentifiersQuery, deviceIDs)
+	if err != nil {
+		db.logger.Warn().Err(err).Msg("Failed to delete device identifiers")
+		// Not a fatal error - the device is already deleted
 	}
 
 	return nil
+}
+
+// SoftDeleteDevices is deprecated - use DeleteDevices for hard deletes.
+// This function now calls DeleteDevices for backwards compatibility.
+func (db *DB) SoftDeleteDevices(ctx context.Context, deviceIDs []string) error {
+	return db.DeleteDevices(ctx, deviceIDs)
 }
