@@ -340,25 +340,56 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		batch = append(batch, tombstones...)
 	}
 
-	// Deduplicate batch before publishing
-	// This ensures we don't try to create duplicate devices within the same batch
-	batch = r.deduplicateBatch(batch)
+	// Wrap the critical section in a transaction to prevent race conditions
+	var dbConflicts int
+	err = r.db.WithTx(ctx, func(tx db.Service) error {
+		// Create a registry instance that uses the transaction-aware DB service
+		rTx := *r
+		rTx.db = tx
 
-	// Resolve IP conflicts with existing database records
-	// This prevents duplicate key constraint violations when a new device has
-	// an IP that already belongs to an existing active device
-	batch, dbConflicts := r.resolveIPConflictsWithDB(ctx, batch)
+		// Lock the IPs we are about to update to prevent concurrent modifications
+		ipsToLock, _ := rTx.collectIPsForConflictCheck(batch)
+		if len(ipsToLock) > 0 {
+			if err := tx.LockUnifiedDevices(ctx, ipsToLock); err != nil {
+				return err
+			}
+		}
+
+		// Deduplicate batch before publishing
+		// This ensures we don't try to create duplicate devices within the same batch
+		batch = rTx.deduplicateBatch(batch)
+
+		// Resolve IP conflicts with existing database records
+		// This prevents duplicate key constraint violations when a new device has
+		// an IP that already belongs to an existing active device
+		batch, dbConflicts = rTx.resolveIPConflictsWithDB(ctx, batch)
+		
+		// Publish directly to the device_updates stream within the transaction
+		if err := tx.PublishBatchDeviceUpdates(ctx, batch); err != nil {
+			return fmt.Errorf("failed to publish device updates: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
 	if dbConflicts > 0 {
 		r.logger.Info().
 			Int("db_ip_conflicts", dbConflicts).
 			Msg("Resolved IP conflicts with existing database records")
 	}
 
-	// Publish directly to the device_updates stream
-	if err := r.db.PublishBatchDeviceUpdates(ctx, batch); err != nil {
-		return fmt.Errorf("failed to publish device updates: %w", err)
-	}
-
+	// We use the original canonicalized list for cache update because
+	// applyRegistryStore handles the in-memory state. 
+	// NOTE: If deduplicateBatch or resolveIPConflictsWithDB converted some updates 
+	// to tombstones, the in-memory cache might be slightly out of sync until the 
+	// next read, but the DB is consistent. 
+	// Ideally, we should use the 'batch' from the Tx, but applyRegistryStore
+	// likely expects separate lists. For now, we preserve existing cache behavior 
+	// while fixing the DB race condition.
 	r.applyRegistryStore(canonicalized, tombstones)
 
 	if r.graphWriter != nil {

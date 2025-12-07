@@ -32,6 +32,10 @@ func TestCNPGIdentityResolverResolveCanonicalIPs(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
+		return fn(mockDB)
+	}).AnyTimes()
+	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	// Setup test data
 	testDevices := []*models.UnifiedDevice{
@@ -80,6 +84,10 @@ func TestCNPGIdentityResolverSkipsTombstonedIPs(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
+		return fn(mockDB)
+	}).AnyTimes()
+	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	metaTombstone := map[string]string{"_merged_into": "sr:canonical-1"}
 	metaDeleted := map[string]string{"_deleted": "true"}
 
@@ -122,6 +130,10 @@ func TestCNPGIdentityResolverUsesCache(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
+		return fn(mockDB)
+	}).AnyTimes()
+	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	testDevices := []*models.UnifiedDevice{
 		{
@@ -165,6 +177,10 @@ func TestCNPGIdentityResolverHydrateCanonical(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
+		return fn(mockDB)
+	}).AnyTimes()
+	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	testDevices := []*models.UnifiedDevice{
 		{
@@ -274,6 +290,10 @@ func TestWithCNPGIdentityResolverOption(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
+		return fn(mockDB)
+	}).AnyTimes()
+	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	reg := NewDeviceRegistry(mockDB, nil, WithCNPGIdentityResolver(mockDB))
 

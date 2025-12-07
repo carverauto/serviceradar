@@ -23,6 +23,10 @@ func TestIPChurn_SameStrongIdentity(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
+		return fn(mockDB)
+	}).AnyTimes()
+	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
 
 	// 1. Existing device in DB
@@ -94,6 +98,10 @@ func TestIPChurn_WeakVsStrongIdentity(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
+		return fn(mockDB)
+	}).AnyTimes()
+	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	registry := NewDeviceRegistry(mockDB, logger.NewTestLogger())
 
 	// 1. Existing WEAK device

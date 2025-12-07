@@ -56,7 +56,7 @@ WHERE (metadata->>'_merged_into' IS NULL OR metadata->>'_merged_into' = '' OR me
   AND COALESCE(lower(metadata->>'deleted'),'false') <> 'true'`
 
 func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error {
-	if len(updates) == 0 || !db.useCNPGWrites() {
+	if len(updates) == 0 || !db.cnpgConfigured() {
 		return nil
 	}
 
@@ -170,7 +170,7 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 		)
 	}
 
-	br := db.pgPool.SendBatch(ctx, batch)
+	br := db.conn().SendBatch(ctx, batch)
 	if err := br.Close(); err != nil {
 		return fmt.Errorf("cnpg device_updates batch: %w", err)
 	}
@@ -212,7 +212,7 @@ func (db *DB) cnpgGetUnifiedDevice(ctx context.Context, deviceID string) (*model
 	ORDER BY last_seen DESC
 	LIMIT 1`
 
-	row := db.pgPool.QueryRow(ctx, query, deviceID)
+	row := db.conn().QueryRow(ctx, query, deviceID)
 	device, err := scanCNPGUnifiedDevice(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -229,7 +229,7 @@ func (db *DB) cnpgGetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*mode
 	AND ip = $1
 	ORDER BY last_seen DESC`
 
-	rows, err := db.pgPool.Query(ctx, query, ip)
+	rows, err := db.conn().Query(ctx, query, ip)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToQueryUnifiedDevice, err)
 	}
@@ -243,7 +243,7 @@ func (db *DB) cnpgListUnifiedDevices(ctx context.Context, limit, offset int) ([]
 	ORDER BY device_id ASC
 	LIMIT $1 OFFSET $2`
 
-	rows, err := db.pgPool.Query(ctx, query, limit, offset)
+	rows, err := db.conn().Query(ctx, query, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToQueryUnifiedDevice, err)
 	}
@@ -261,7 +261,7 @@ WHERE (metadata->>'_merged_into' IS NULL OR metadata->>'_merged_into' = '' OR me
   AND COALESCE(lower(metadata->>'deleted'),'false') <> 'true'`
 
 	var count int64
-	if err := db.pgPool.QueryRow(ctx, query).Scan(&count); err != nil {
+	if err := db.conn().QueryRow(ctx, query).Scan(&count); err != nil {
 		return 0, fmt.Errorf("%w: %w", errFailedToQueryUnifiedDevice, err)
 	}
 
@@ -282,7 +282,7 @@ func (db *DB) cnpgQueryUnifiedDevicesBatch(ctx context.Context, deviceIDs, ips [
 	}
 
 	if len(deviceIDs) > 0 {
-		rows, err := db.pgPool.Query(ctx, unifiedDevicesSelection+`
+		rows, err := db.conn().Query(ctx, unifiedDevicesSelection+`
 			AND device_id = ANY($1)
 			ORDER BY device_id, last_seen DESC`, deviceIDs)
 		if err != nil {
@@ -294,7 +294,7 @@ func (db *DB) cnpgQueryUnifiedDevicesBatch(ctx context.Context, deviceIDs, ips [
 	}
 
 	if len(ips) > 0 {
-		rows, err := db.pgPool.Query(ctx, unifiedDevicesSelection+`
+		rows, err := db.conn().Query(ctx, unifiedDevicesSelection+`
 			AND ip = ANY($1)
 			ORDER BY device_id, last_seen DESC`, ips)
 		if err != nil {
@@ -451,11 +451,11 @@ func toNullableString(value *string) interface{} {
 // CleanupStaleUnifiedDevices removes devices not seen within the retention period.
 // This should be called periodically (e.g., daily) to prevent unbounded table growth.
 func (db *DB) CleanupStaleUnifiedDevices(ctx context.Context, retention time.Duration) (int64, error) {
-	if !db.useCNPGWrites() {
+	if !db.cnpgConfigured() {
 		return 0, nil
 	}
 
-	result, err := db.pgPool.Exec(ctx,
+	result, err := db.conn().Exec(ctx,
 		`DELETE FROM unified_devices WHERE last_seen < $1`,
 		time.Now().UTC().Add(-retention),
 	)
@@ -469,7 +469,7 @@ func (db *DB) CleanupStaleUnifiedDevices(ctx context.Context, retention time.Dur
 // GetStaleIPOnlyDevices returns IDs of devices that have no strong identifiers
 // and have not been seen for the specified TTL.
 func (db *DB) GetStaleIPOnlyDevices(ctx context.Context, ttl time.Duration) ([]string, error) {
-	if !db.useCNPGWrites() {
+	if !db.cnpgConfigured() {
 		return nil, nil
 	}
 
@@ -488,7 +488,7 @@ func (db *DB) GetStaleIPOnlyDevices(ctx context.Context, ttl time.Duration) ([]s
 	  AND metadata->>'netbox_device_id' IS NULL
 	  AND last_seen < $1`
 
-	rows, err := db.pgPool.Query(ctx, query, time.Now().UTC().Add(-ttl))
+	rows, err := db.conn().Query(ctx, query, time.Now().UTC().Add(-ttl))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query stale IP-only devices: %w", err)
 	}
@@ -508,7 +508,7 @@ func (db *DB) GetStaleIPOnlyDevices(ctx context.Context, ttl time.Duration) ([]s
 
 // SoftDeleteDevices marks the specified devices as deleted in the database.
 func (db *DB) SoftDeleteDevices(ctx context.Context, deviceIDs []string) error {
-	if len(deviceIDs) == 0 || !db.useCNPGWrites() {
+	if len(deviceIDs) == 0 || !db.cnpgConfigured() {
 		return nil
 	}
 
@@ -519,7 +519,7 @@ func (db *DB) SoftDeleteDevices(ctx context.Context, deviceIDs []string) error {
 	    updated_at = NOW()
 	WHERE device_id = ANY($1)`
 
-	_, err := db.pgPool.Exec(ctx, query, deviceIDs)
+	_, err := db.conn().Exec(ctx, query, deviceIDs)
 	if err != nil {
 		return fmt.Errorf("failed to soft-delete devices: %w", err)
 	}

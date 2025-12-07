@@ -133,6 +133,10 @@ type Service interface {
 	CleanupStaleUnifiedDevices(ctx context.Context, retention time.Duration) (int64, error)
 	GetStaleIPOnlyDevices(ctx context.Context, ttl time.Duration) ([]string, error)
 	SoftDeleteDevices(ctx context.Context, deviceIDs []string) error
+	LockUnifiedDevices(ctx context.Context, ips []string) error
+
+	// Transaction support
+	WithTx(ctx context.Context, fn func(tx Service) error) error
 
 	// DeviceUpdate operations (modern materialized view approach).
 

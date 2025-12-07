@@ -744,8 +744,6 @@ FROM unified_devices
 WHERE mac = ANY($1)
   AND device_id LIKE 'sr:%'
   AND (metadata->>'_merged_into' IS NULL OR metadata->>'_merged_into' = '' OR metadata->>'_merged_into' = device_id)
-  AND COALESCE(lower(metadata->>'_deleted'),'false') <> 'true'
-  AND COALESCE(lower(metadata->>'deleted'),'false') <> 'true'
 ORDER BY mac, last_seen DESC`
 
 	rows, err := r.db.ExecuteQuery(ctx, query, macs)
@@ -779,8 +777,6 @@ WHERE metadata ? 'armis_device_id'
   AND metadata->>'armis_device_id' = ANY($1)
   AND device_id LIKE 'sr:%'
   AND (metadata->>'_merged_into' IS NULL OR metadata->>'_merged_into' = '' OR metadata->>'_merged_into' = device_id)
-  AND COALESCE(lower(metadata->>'_deleted'),'false') <> 'true'
-  AND COALESCE(lower(metadata->>'deleted'),'false') <> 'true'
 ORDER BY metadata->>'armis_device_id', last_seen DESC`
 
 	rows, err := r.db.ExecuteQuery(ctx, query, armisIDs)
@@ -818,8 +814,6 @@ WHERE metadata->>'integration_type' = 'netbox'
     OR (metadata ? 'netbox_device_id' AND metadata->>'netbox_device_id' = ANY($1)))
   AND device_id LIKE 'sr:%'
   AND (metadata->>'_merged_into' IS NULL OR metadata->>'_merged_into' = '' OR metadata->>'_merged_into' = device_id)
-  AND COALESCE(lower(metadata->>'_deleted'),'false') <> 'true'
-  AND COALESCE(lower(metadata->>'deleted'),'false') <> 'true'
 ORDER BY COALESCE(metadata->>'integration_id', metadata->>'netbox_device_id'), last_seen DESC`
 
 	rows, err := r.db.ExecuteQuery(ctx, query, netboxIDs)

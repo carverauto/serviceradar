@@ -168,6 +168,10 @@ func TestResolveIPsToCanonicalCNPG(t *testing.T) {
 func TestResolveCanonicalIPMappingsFollowsTombstones(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockService := db.NewMockService(ctrl)
+	mockService.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
+		return fn(mockService)
+	}).AnyTimes()
+	mockService.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	mappings := map[string]string{
 		"10.0.0.1": "sr:tomb",

@@ -1226,3 +1226,31 @@ func (mr *MockServiceMockRecorder) ListMergeAuditEvents(ctx, deviceID, limit any
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMergeAuditEvents", reflect.TypeOf((*MockService)(nil).ListMergeAuditEvents), ctx, deviceID, limit)
 }
+
+// LockUnifiedDevices mocks base method.
+func (m *MockService) LockUnifiedDevices(ctx context.Context, ips []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockUnifiedDevices", ctx, ips)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockUnifiedDevices indicates an expected call of LockUnifiedDevices.
+func (mr *MockServiceMockRecorder) LockUnifiedDevices(ctx, ips any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockUnifiedDevices", reflect.TypeOf((*MockService)(nil).LockUnifiedDevices), ctx, ips)
+}
+
+// WithTx mocks base method.
+func (m *MockService) WithTx(ctx context.Context, fn func(Service) error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithTx", ctx, fn)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WithTx indicates an expected call of WithTx.
+func (mr *MockServiceMockRecorder) WithTx(ctx, fn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithTx", reflect.TypeOf((*MockService)(nil).WithTx), ctx, fn)
+}
