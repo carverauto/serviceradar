@@ -851,6 +851,7 @@ data:
           | .auth.jwt_expiration = "24h"
           | .auth.local_users.admin = $bcrypt
           | .api_key = $api_key
+          | .srql.api_key = $api_key
           | .cnpg.tls.ca_file = $ca_file
           | (if ($edge_key | length) > 0 then .edge_onboarding.encryption_key = $edge_key else . end)' \
         "$CONFIG_PATH" > "$TMP_CONFIG"
