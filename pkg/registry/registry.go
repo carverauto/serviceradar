@@ -508,8 +508,8 @@ func shouldSkipIPConflictCheck(update *models.DeviceUpdate) bool {
 }
 
 // createIPClearUpdate creates an update that clears the IP from a device due to IP churn
-func createIPClearUpdate(deviceID string) *models.DeviceUpdate {
-	return &models.DeviceUpdate{
+func createIPClearUpdate(deviceID string, softDelete bool) *models.DeviceUpdate {
+	u := &models.DeviceUpdate{
 		DeviceID:    deviceID,
 		IP:          "0.0.0.0", // Set to 0.0.0.0 for history log
 		Timestamp:   time.Now(),
@@ -517,9 +517,12 @@ func createIPClearUpdate(deviceID string) *models.DeviceUpdate {
 		IsAvailable: false,
 		Metadata: map[string]string{
 			"_ip_cleared_due_to_churn": "true",
-			"_deleted":                 "true", // Soft-delete to remove from unique index
 		},
 	}
+	if softDelete {
+		u.Metadata["_deleted"] = "true" // Soft-delete to remove from unique index
+	}
+	return u
 }
 
 // createTombstoneUpdate creates a tombstone update pointing to the target device
@@ -635,7 +638,16 @@ func (r *DeviceRegistry) fetchConflictingDevices(ctx context.Context, existingBy
 func (r *DeviceRegistry) processDBConflicts(batch []*models.DeviceUpdate, existingByIP map[string]string, existingDevicesMap map[string]*models.UnifiedDevice) ([]*models.DeviceUpdate, int) {
 	var conflicts int
 	result := make([]*models.DeviceUpdate, 0, len(batch))
+	clears := make([]*models.DeviceUpdate, 0)
 	tombstones := make([]*models.DeviceUpdate, 0)
+
+	// Track devices updated in this batch to avoid soft-deleting them
+	updatedDevices := make(map[string]bool, len(batch))
+	for _, u := range batch {
+		if u.DeviceID != "" {
+			updatedDevices[u.DeviceID] = true
+		}
+	}
 
 	for _, update := range batch {
 		if shouldSkipIPConflictCheck(update) {
@@ -650,7 +662,7 @@ func (r *DeviceRegistry) processDBConflicts(batch []*models.DeviceUpdate, existi
 		}
 
 		// Check for strong identity mismatch
-		if r.handleIdentityMismatch(update, existingDeviceID, existingDevicesMap, &result) {
+		if r.handleIdentityMismatch(update, existingDeviceID, existingDevicesMap, updatedDevices, &clears, &result) {
 			continue
 		}
 
@@ -670,13 +682,25 @@ func (r *DeviceRegistry) processDBConflicts(batch []*models.DeviceUpdate, existi
 		recordBatchIPCollisionMetrics(conflicts)
 	}
 
-	result = append(result, tombstones...)
-	return result, conflicts
+	// Prepend clears to ensure IPs are freed before being reassigned
+	finalResult := make([]*models.DeviceUpdate, 0, len(clears)+len(result)+len(tombstones))
+	finalResult = append(finalResult, clears...)
+	finalResult = append(finalResult, result...)
+	finalResult = append(finalResult, tombstones...)
+
+	return finalResult, conflicts
 }
 
 // handleIdentityMismatch checks for strong identity mismatch and handles IP churn
 // Returns true if identity mismatch was detected and handled
-func (r *DeviceRegistry) handleIdentityMismatch(update *models.DeviceUpdate, existingDeviceID string, existingDevicesMap map[string]*models.UnifiedDevice, result *[]*models.DeviceUpdate) bool {
+func (r *DeviceRegistry) handleIdentityMismatch(
+	update *models.DeviceUpdate,
+	existingDeviceID string,
+	existingDevicesMap map[string]*models.UnifiedDevice,
+	updatedDevices map[string]bool,
+	clears *[]*models.DeviceUpdate,
+	result *[]*models.DeviceUpdate,
+) bool {
 	existingDev, ok := existingDevicesMap[existingDeviceID]
 	if !ok {
 		return false
@@ -701,7 +725,9 @@ func (r *DeviceRegistry) handleIdentityMismatch(update *models.DeviceUpdate, exi
 		Str("new_identity", updateID).
 		Msg("IP reassignment detected against DB (strong identity mismatch)")
 
-	*result = append(*result, createIPClearUpdate(existingDeviceID))
+	// Only soft-delete if the device is NOT being updated in this batch
+	shouldSoftDelete := !updatedDevices[existingDeviceID]
+	*clears = append(*clears, createIPClearUpdate(existingDeviceID, shouldSoftDelete))
 	*result = append(*result, update)
 	return true
 }

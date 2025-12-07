@@ -76,7 +76,9 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 			update.Metadata = make(map[string]string)
 		}
 
-		metaBytes, err := json.Marshal(update.Metadata)
+		meta := normalizeDeletionMetadata(update.Metadata)
+
+		metaBytes, err := json.Marshal(meta)
 		if err != nil {
 			db.logger.Warn().
 				Err(err).
@@ -149,7 +151,11 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 				),
 				is_available = EXCLUDED.is_available,
 				last_seen = EXCLUDED.last_seen,
-				metadata = (unified_devices.metadata || EXCLUDED.metadata),
+				metadata = CASE
+					WHEN COALESCE(lower(EXCLUDED.metadata->>'_deleted'),'false') = 'true'
+						THEN (unified_devices.metadata || EXCLUDED.metadata)
+					ELSE (unified_devices.metadata || EXCLUDED.metadata) - '_deleted' - 'deleted'
+				END,
 				updated_at = NOW()`,
 			update.DeviceID,
 			update.IP,
@@ -170,6 +176,34 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 	}
 
 	return nil
+}
+
+func normalizeDeletionMetadata(meta map[string]string) map[string]string {
+	if len(meta) == 0 {
+		return meta
+	}
+
+	isDeletion := false
+	for _, key := range []string{"_deleted", "deleted"} {
+		if val, ok := meta[key]; ok && strings.EqualFold(val, "true") {
+			isDeletion = true
+			break
+		}
+	}
+
+	if isDeletion {
+		return meta
+	}
+
+	cleaned := make(map[string]string, len(meta))
+	for k, v := range meta {
+		if k == "_deleted" || k == "deleted" {
+			continue
+		}
+		cleaned[k] = v
+	}
+
+	return cleaned
 }
 
 func (db *DB) cnpgGetUnifiedDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {

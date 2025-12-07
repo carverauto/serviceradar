@@ -6,10 +6,11 @@
 - [x] 1.3 Deploy fix via Helm upgrade with new image tag `sha-691d182cd47b1ec746b88c5544b64b3699d91e8f`.
 - [x] 1.4 Verify SRQL backend returns correct ICMP metrics for `serviceradar:agent:k8s-agent` with fresh timestamps.
 - [x] 1.5 Verify device inventory sparklines render ICMP for `k8s-agent` (confirmed `metrics_summary.icmp=true`).
+- [x] 1.6 Fix device details ICMP timeline to display ICMP values instead of flattening to zero when units vary (handle ns/ms scaling in `web/src/components/Devices/DeviceDetail.tsx`).
+- [x] 1.7 Add regression test to ensure `device_id:` queries bypass the registry engine (`pkg/search/planner_test.go`).
 
 ### Pending
-- [ ] 1.6 Investigate device details page showing stale ICMP data ("0.0 ms 19h ago") despite backend having fresh metrics.
-- [ ] 1.7 Add regression test for `device_id:` queries to ensure they use SRQL engine, not registry.
+- [ ] None (all implementation tasks for this change are currently completed)
 
 ## 2. Investigation Notes
 - Original hypothesis (agent ICMP attribution) was incorrect - ICMP metrics were correctly written to `serviceradar:agent:k8s-agent`.
