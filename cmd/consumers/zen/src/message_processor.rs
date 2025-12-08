@@ -37,7 +37,7 @@ pub async fn process_message(
                 if matches!(
                     e.as_ref(),
                     zen_engine::EvaluationError::LoaderError(le)
-                        if matches!(le.as_ref(), zen_engine::loader::LoaderError::NotFound(_))
+                        if matches!(le, zen_engine::loader::LoaderError::NotFound(_))
                 ) {
                     debug!("rule {dkey} not found, skipping");
                     continue;
@@ -47,10 +47,10 @@ pub async fn process_message(
                     zen_engine::EvaluationError::LoaderError(le) => {
                         format!("failed to load rule {dkey}: {le}")
                     }
-                    _ => format!("failed to evaluate rule {dkey}"),
+                    _ => format!("failed to evaluate rule {dkey}: {e}"),
                 };
 
-                return Err(anyhow::Error::new(e).context(message));
+                return Err(anyhow::anyhow!(message));
             }
         };
         debug!("decision {dkey} evaluated");
