@@ -3,7 +3,7 @@
 Use this runbook to bring a macOS arm64 or Linux sysmon-osx checker online against the mTLS Compose stack without SPIRE. It relies on the Compose CA, edgepkg-v1 tokens, and the sysmon-osx `--mtls` bootstrap path.
 
 ## Prerequisites
-- `docker-compose.mtls.yml` is running (built with Bazel images; core and srql tagged `:local` or release tags).
+- The Docker Compose stack is running (`docker compose up -d`).
 - You can read generated secrets from the `cert-data` volume (`/etc/serviceradar/certs` in core/web).
 - `serviceradar-cli` is available (`./serviceradar-cli` from the repo root is fine).
 - Know the poller endpoint reachable from the edge host (e.g., `192.168.2.134:50053`).

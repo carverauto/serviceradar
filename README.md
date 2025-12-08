@@ -39,45 +39,28 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 
 ## Quick Installation
 
-### Option 1: Docker Compose (Recommended)
+### Docker Compose (Recommended)
 
-The fastest way to get ServiceRadar running is with Docker Compose. This deploys the complete stack including the database, web UI, and all monitoring services.
-
-**Prerequisites:**
-- Docker and Docker Compose installed
-- 8GB+ available RAM
-- Ports 80, 8090, 5423 available
+Get ServiceRadar running in under 5 minutes with Docker Compose:
 
 ```bash
-# Clone the repository
+# Clone and start
 git clone https://github.com/carverauto/serviceradar.git
 cd serviceradar
+cp .env.example .env
+docker compose up -d
 
-# Start all services
-docker-compose up -d
-
-# Check status
-docker-compose ps
-
-# Bring up Kong API Gateway + NGINX
-docker compose up -d nginx kong
-
-# View logs
-docker-compose logs -f web
-
-# Get Random Generated Admin Password
-docker-compose logs config-updater
+# Get your admin password
+docker compose logs config-updater | grep "Password:"
 ```
 
-**Access ServiceRadar:**
-- **Web UI**: http://localhost (login: admin / randomPW)
+**Access ServiceRadar:** http://localhost (login: `admin` / password from above)
 
-**Stop Services:**
-```bash
-docker-compose down
-```
+**Prerequisites:** Docker Engine 20.10+, Docker Compose 2.0+, 8GB+ RAM
 
-For detailed installation options including component-specific deployments and optional checkers, see [INSTALL.md](INSTALL.md).
+For OS-specific setup instructions (AlmaLinux, Ubuntu, macOS), see [README-Docker.md](README-Docker.md).
+
+For detailed installation options and component-specific deployments, see [INSTALL.md](INSTALL.md).
 
 ## Architecture Overview
 
@@ -90,39 +73,37 @@ ServiceRadar (SR) uses a distributed architecture with four main components:
 
 ## Docker Deployment
 
-ServiceRadar provides a complete Docker Compose stack with all components pre-configured and ready to run.
+ServiceRadar provides a complete Docker Compose stack with mTLS security, automatic certificate generation, and all components pre-configured.
 
 ### Services Included
 
-The Docker Compose deployment includes:
-
-- **Unified Database** - PostgreSQL managed by CloudNativePG with TimescaleDB (metrics) and Apache AGE (graph topology) extensions
+- **Database** - PostgreSQL with TimescaleDB (metrics) and Apache AGE (graph topology)
 - **Core API** - Main ServiceRadar API and business logic
-- **API Gateway** - Polyglot APIs or Bring Your Own API, easily extend SR
-- **Web UI** - Modern React-based dashboard
-- **Nginx** - Reverse proxy and load balancer
-- **Agent** - Host monitoring service
-- **Poller** - Network and service polling coordinator
-- **Sync Service** - Data synchronization between integrations (Armis, NetBox, etc.)
-- **Data Svc (Messaging, KV, and Object Store)** - Configuration and state management
-- **Observability Stack** - OTEL, logging, and telemetry collection
+- **Web UI** - Modern React-based dashboard with Nginx reverse proxy
+- **Agent & Poller** - Distributed monitoring services
+- **Observability** - OTEL collector, syslog (flowgger), SNMP traps
 - **Network Discovery** - SNMP/LLDP network mapping
-- **Performance Testing** - Built-in network performance monitoring
+- **Kong Gateway** - API gateway with JWT authentication
+
+### Common Commands
+
+```bash
+docker compose ps                    # View service status
+docker compose logs -f core          # Follow logs for a service
+docker compose restart core          # Restart a service
+docker compose down                  # Stop all services
+```
 
 ### Custom Configuration
 
-To customize the deployment:
-
 ```bash
-# Copy and modify configuration files
+# Create an override file for customizations
 cp docker-compose.yml docker-compose.override.yml
-
-# Edit configuration as needed
 vim docker-compose.override.yml
-
-# Deploy with custom config
-docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
 ```
+
+See [README-Docker.md](README-Docker.md) for detailed Docker setup and troubleshooting.
 
 ## Performance
 

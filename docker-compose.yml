@@ -1,118 +1,62 @@
-# ServiceRadar Docker Compose Configuration
-#
-# Usage:
-#   Standard deployment (core stack only):
-#     docker compose up -d
-#
-#   Include testing services (faker):
-#     docker compose -f docker-compose.yml -f docker-compose.testing.yml --profile testing up -d
-#
-# Available profiles:
-#   - testing: Adds the optional faker Armis emulator when the testing override is included
+version: "3.9"
 
 services:
-  spire-server:
-    image: ghcr.io/spiffe/spire-server:1.11.2
-    container_name: serviceradar-spire-server
-    entrypoint: ["/opt/spire/bin/spire-server"]
-    command: ["run","-config","/spire/config/server.conf"]
-    volumes:
-      - ./docker/compose/spire/server.conf:/spire/config/server.conf:ro
-      - spire-server-data:/run/spire
-      - spire-server-socket:/run/spire/server
-    healthcheck:
-      test:
-        - CMD
-        - /opt/spire/bin/spire-server
-        - healthcheck
-        - -socketPath
-        - /run/spire/server/api.sock
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  spire-bootstrap:
-    image: alpine:3.20
-    container_name: serviceradar-spire-bootstrap
-    depends_on:
-      spire-server:
-        condition: service_healthy
-    entrypoint:
-      - /bin/sh
-      - -c
-    command:
-      - >
-        apk add --no-cache curl tar >/dev/null &&
-        exec /bin/sh /spire/scripts/bootstrap.sh
-    environment:
-      - SPIRE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - SPIRE_WORKLOAD_PARENT_ID=${SPIRE_WORKLOAD_PARENT_ID:-}
-      - SPIRE_AGENT_JOIN_TOKEN_FILE=${SPIRE_AGENT_JOIN_TOKEN_FILE:-/spire/bootstrap/join_token}
-    volumes:
-      - ./docker/compose/spire/bootstrap-compose-spire.sh:/spire/scripts/bootstrap.sh:ro
-      - spire-server-socket:/run/spire/server
-      - spire-bootstrap:/spire/bootstrap
-    networks:
-      - serviceradar-net
-    restart: "no"
-
-  spire-agent:
-    image: alpine:3.20
-    container_name: serviceradar-spire-agent
-    pid: "host"
-    cap_add:
-      - SYS_PTRACE
-    depends_on:
-      spire-bootstrap:
-        condition: service_completed_successfully
-    entrypoint:
-      - /bin/sh
-      - -c
-    command:
-      - >
-        apk add --no-cache curl tar >/dev/null &&
-        exec /spire/scripts/run-agent.sh
-    environment:
-      - SPIRE_AGENT_JOIN_TOKEN_FILE=${SPIRE_AGENT_JOIN_TOKEN_FILE:-/spire/bootstrap/join_token}
-      - SPIRE_AGENT_SOCKET=${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-    volumes:
-      - ./docker/compose/spire/agent.conf:/spire/config/agent.conf:ro
-      - ./docker/compose/spire/run-agent.sh:/spire/scripts/run-agent.sh:ro
-      - spire-agent-data:/run/spire/data
-      - spire-agent-sockets:/run/spire/sockets
-      - spire-bootstrap:/spire/bootstrap:ro
-    healthcheck:
-      test:
-        - CMD
-        - test
-        - -S
-        - /run/spire/sockets/agent.sock
-      interval: 10s
-      timeout: 5s
-      retries: 12
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  # Certificate Generation Service (runs once to generate mTLS certs)
   cert-generator:
     image: alpine:3.20
-    container_name: serviceradar-cert-generator
+    container_name: serviceradar-cert-generator-mtls
     volumes:
       - cert-data:/certs
       - ./docker/compose/generate-certs.sh:/generate-certs.sh:ro
     command: sh -c "apk add --no-cache openssl bash && cp /generate-certs.sh /tmp/gen.sh && chmod +x /tmp/gen.sh && CERT_DIR=/certs bash /tmp/gen.sh"
-    restart: "no"  # Only run once
+    restart: "no"
     networks:
       - serviceradar-net
 
-  # Configuration Updater (runs after cert generation to update configs with secrets)
+  cnpg:
+    image: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2
+    container_name: serviceradar-cnpg-mtls
+    user: "0:0"
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=timescaledb,age"
+      - "-c"
+      - "ssl=on"
+      - "-c"
+      - "ssl_cert_file=/etc/serviceradar/certs/cnpg.pem"
+      - "-c"
+      - "ssl_key_file=/etc/serviceradar/certs/cnpg-key.pem"
+      - "-c"
+      - "ssl_ca_file=/etc/serviceradar/certs/root.pem"
+    environment:
+      - POSTGRES_USER=${CNPG_USERNAME:-serviceradar}
+      - POSTGRES_PASSWORD=${CNPG_PASSWORD:-serviceradar}
+      - POSTGRES_DB=${CNPG_DATABASE:-serviceradar}
+      - TS_TUNE=false
+    volumes:
+      - cnpg-data:/var/lib/postgresql/data
+      - ./docker/compose/cnpg-init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+      - cert-data:/etc/serviceradar/certs:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "PGSSLMODE=require PGSSLROOTCERT=/etc/serviceradar/certs/root.pem pg_isready -h localhost -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar}"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      serviceradar-net:
+        aliases:
+          - cnpg
+          - cnpg-rw
+    restart: unless-stopped
+
   config-updater:
-    image: ghcr.io/carverauto/serviceradar-config-updater:latest
-    container_name: serviceradar-config-updater
+    image: ghcr.io/carverauto/serviceradar-config-updater:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-config-updater-mtls
     volumes:
       - cert-data:/etc/serviceradar/certs
       - generated-config:/etc/serviceradar/config
@@ -120,26 +64,28 @@ services:
       - ./docker/compose:/templates:ro
       - ./docker/compose/update-config.sh:/usr/local/bin/update-config.sh:ro
     environment:
-      - SYSMON_OSX_ADDRESS=${SYSMON_OSX_ADDRESS:-192.168.1.219:50110}
-      - POLLERS_SECURITY_MODE=${POLLERS_SECURITY_MODE:-spiffe}
-      - POLLERS_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - POLLERS_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - POLLERS_SPIRE_UPSTREAM_ADDRESS=${POLLERS_SPIRE_UPSTREAM_ADDRESS:-spire-server}
-      - POLLERS_SPIRE_UPSTREAM_PORT=${POLLERS_SPIRE_UPSTREAM_PORT:-8081}
-      - POLLERS_SPIRE_INSECURE_BOOTSTRAP=${POLLERS_SPIRE_INSECURE_BOOTSTRAP:-true}
-      - POLLERS_SPIRE_PARENT_ID=${POLLERS_SPIRE_PARENT_ID:-spiffe://carverauto.dev/ns/edge/poller-nested-spire}
-      - POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID=${POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID:-spiffe://carverauto.dev/services/poller}
+      - SYSMON_VM_ADDRESS=${SYSMON_VM_ADDRESS:-192.168.1.218:50110}
+      - SYSMON_VM_SECURITY_MODE=mtls
+      - POLLERS_SECURITY_MODE=mtls
+      - CORE_SECURITY_MODE=mtls
+      - CNPG_HOST=${CNPG_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_PORT:-5432}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
+      - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
+      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
     depends_on:
       cert-generator:
         condition: service_completed_successfully
-    restart: "no"  # Only run once
+      cnpg:
+        condition: service_healthy
+    restart: "no"
     networks:
       - serviceradar-net
 
-  # Generate RS256 JWT keys and update core.json (first-run init)
   core-jwks-init:
-    image: ghcr.io/carverauto/serviceradar-kong-config:latest
-    container_name: serviceradar-core-jwks-init
+    image: ghcr.io/carverauto/serviceradar-kong-config:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-core-jwks-init-mtls
     user: "0:0"
     entrypoint: ["/usr/local/bin/serviceradar-cli", "generate-jwt-keys"]
     command: ["-file", "/etc/serviceradar/config/core.json", "-bits", "2048"]
@@ -152,10 +98,9 @@ services:
     networks:
       - serviceradar-net
 
-  # Fix certificate permissions for Docker deployment
   cert-permissions-fixer:
     image: alpine:3.20
-    container_name: serviceradar-cert-permissions-fixer
+    container_name: serviceradar-cert-permissions-fixer-mtls
     volumes:
       - cert-data:/etc/serviceradar/certs
       - ./docker/compose/fix-cert-permissions.sh:/fix-cert-permissions.sh:ro
@@ -163,53 +108,53 @@ services:
     depends_on:
       config-updater:
         condition: service_completed_successfully
-    restart: "no"  # Only run once
+    restart: "no"
     networks:
       - serviceradar-net
 
-  # ServiceRadar Core Service
   core:
-    image: ghcr.io/carverauto/serviceradar-core:latest
-    container_name: serviceradar-core
+    image: ghcr.io/carverauto/serviceradar-core:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-core-mtls
     mem_limit: 8g
     mem_reservation: 4g
-    # Expose core ports for debugging authentication
     ports:
-      - "8090:8090"  # HTTP API
-      - "50052:50052"  # gRPC (matching core.json)
-      - "9090:9090"  # Metrics (Prometheus)
+      - "8090:8090"
+      - "50052:50052"
+      - "9090:9090"
     volumes:
-      # Use generated config files with secrets (generated by config-updater)
       - generated-config:/etc/serviceradar/config:ro
       - cert-data:/etc/serviceradar/certs:ro
       - credentials:/etc/serviceradar/credentials:ro
       - core-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
-      - spire-agent-sockets:/run/spire/sockets:ro
     environment:
-      # Wait for dependencies
       - INIT_DB=true
-      
-      # Config source
-      - CONFIG_SOURCE=kv
+      - CONFIG_SOURCE=file
       - CONFIG_PATH=/etc/serviceradar/config/core.json
       - CONFIG_WATCH_ENABLED=${CONFIG_WATCH_ENABLED:-true}
-      - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=spiffe
-      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
+      - CNPG_HOST=${CNPG_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_PORT:-5432}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
+      - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
+      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
+      - KV_ADDRESS=datasvc:50057
+      - KV_SEC_MODE=mtls
       - KV_CERT_DIR=/etc/serviceradar/certs
+      - KV_CERT_FILE=/etc/serviceradar/certs/core.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/core-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
     depends_on:
-      cert-generator:
-        condition: service_completed_successfully
       config-updater:
         condition: service_completed_successfully
       core-jwks-init:
         condition: service_completed_successfully
       cert-permissions-fixer:
         condition: service_completed_successfully
-      spire-agent:
+      datasvc:
+        condition: service_healthy
+      cnpg:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f serviceradar-core >/dev/null"]
@@ -223,17 +168,532 @@ services:
           - core.serviceradar
     restart: unless-stopped
 
-  # ServiceRadar Web Application
+  nats:
+    image: nats:latest
+    platform: linux/amd64
+    container_name: serviceradar-nats-mtls
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+      - "6222:6222"
+    volumes:
+      - nats-data:/data
+      - cert-data:/etc/serviceradar/certs:ro
+      - ./docker/compose/nats.docker.conf:/etc/nats/nats-server.conf:ro
+    command: ["--config", "/etc/nats/nats-server.conf"]
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+    networks:
+      serviceradar-net:
+        aliases:
+          - nats.serviceradar
+    restart: unless-stopped
+
+  datasvc:
+    image: ghcr.io/carverauto/serviceradar-datasvc:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-datasvc-mtls
+    cpus: "2.0"
+    ports:
+      - "50057:50057"
+    volumes:
+      - ./docker/compose/datasvc.mtls.json:/etc/serviceradar/datasvc.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - datasvc-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_PATH=/etc/serviceradar/datasvc.json
+      - WAIT_FOR_NATS=true
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wait-for-port --host 127.0.0.1 --port 50057 --attempts 1 --interval 1s --quiet"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      serviceradar-net:
+        aliases:
+          - datasvc.serviceradar
+    restart: unless-stopped
+
+  poller-kv-seed:
+    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-poller-kv-seed-mtls
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - generated-config:/etc/serviceradar/config:ro
+      - ./docker/compose/seed-poller-kv.sh:/usr/local/bin/seed-poller-kv.sh:ro
+    environment:
+      - POLLERS_CONFIG_PATH=/etc/serviceradar/config/poller.json
+      - POLLERS_POLLER_ID=${POLLERS_POLLER_ID:-}
+      - KV_BUCKET=${KV_BUCKET:-serviceradar-datasvc}
+      - NATS_SERVER=${NATS_SERVER:-tls://nats:4222}
+    depends_on:
+      config-updater:
+        condition: service_completed_successfully
+      datasvc:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    entrypoint: ["/bin/bash", "/usr/local/bin/seed-poller-kv.sh"]
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  agent:
+    image: ghcr.io/carverauto/serviceradar-agent:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-agent-mtls
+    volumes:
+      - ./docker/compose/agent.mtls.json:/etc/serviceradar/agent.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - generated-config:/etc/serviceradar/config:ro
+      - agent-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_SOURCE=file
+      - CONFIG_PATH=/etc/serviceradar/agent.json
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    privileged: true
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
+      config-updater:
+        condition: service_completed_successfully
+    command: ["/usr/local/bin/serviceradar-agent","-config","/etc/serviceradar/agent.json"]
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f serviceradar-agent >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      serviceradar-net:
+        aliases:
+          - agent.serviceradar
+    restart: unless-stopped
+
+  poller:
+    image: ghcr.io/carverauto/serviceradar-poller:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-poller-mtls
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - generated-config:/etc/serviceradar/config:ro
+      - poller-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_SOURCE=kv
+      - CONFIG_PATH=/etc/serviceradar/config/poller.json
+      - CORE_ADDRESS=core:50052
+      - CORE_SEC_MODE=mtls
+      - CORE_CERT_DIR=/etc/serviceradar/certs
+      - KV_ADDRESS=datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_DIR=/etc/serviceradar/certs
+      - KV_CERT_FILE=/etc/serviceradar/certs/poller.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/poller-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - POLLERS_SECURITY_MODE=mtls
+      - MANAGE_NESTED_SPIRE=disabled
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      config-updater:
+        condition: service_completed_successfully
+      core:
+        condition: service_healthy
+      poller-kv-seed:
+        condition: service_completed_successfully
+      datasvc:
+        condition: service_healthy
+    command: ["/usr/local/bin/serviceradar-poller","-config","/etc/serviceradar/config/poller.json"]
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f serviceradar-poller >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      serviceradar-net:
+        aliases:
+          - poller.serviceradar
+    restart: unless-stopped
+
+  srql:
+    image: ghcr.io/carverauto/serviceradar-srql:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-srql-mtls
+    environment:
+      - AUTH_ENABLED=true
+      - SRQL_API_KEY=${SRQL_API_KEY:-}
+      - SRQL_LISTEN_HOST=0.0.0.0
+      - SRQL_LISTEN_PORT=8080
+      - CNPG_HOST=${CNPG_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_PORT:-5432}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
+      - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
+      - CNPG_SSLMODE=${CNPG_SSL_MODE:-verify-full}
+      - CNPG_CERT_DIR=/etc/serviceradar/certs
+      - SRQL_DATABASE_URL=${SRQL_DATABASE_URL:-}
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - generated-config:/etc/serviceradar/config:ro
+      - credentials:/etc/serviceradar/credentials:ro
+    depends_on:
+      cnpg:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8080'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  sync:
+    image: ghcr.io/carverauto/serviceradar-sync:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-sync-mtls
+    ports:
+      - "50058:50058"
+    volumes:
+      - ./docker/compose/sync.mtls.json:/etc/serviceradar/sync.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - sync-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_SOURCE=file
+      - CONFIG_PATH=/etc/serviceradar/sync.json
+      - CORE_ADDRESS=core:50052
+      - CORE_SEC_MODE=mtls
+      - CORE_CERT_DIR=/etc/serviceradar/certs
+      - KV_ADDRESS=datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_DIR=/etc/serviceradar/certs
+      - WAIT_FOR_DATASVC=true
+      - WAIT_FOR_NATS=true
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      datasvc:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  otel:
+    image: ghcr.io/carverauto/serviceradar-otel:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-otel-mtls
+    ports:
+      - "4317:4317"
+    volumes:
+      - ./docker/compose/otel.docker.toml:/etc/serviceradar/otel.toml:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - otel-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_SOURCE=file
+      - CONFIG_PATH=/etc/serviceradar/otel.toml
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  flowgger:
+    image: ghcr.io/carverauto/serviceradar-flowgger:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-flowgger-mtls
+    ports:
+      - "514:514/udp"
+      - "50044:50044"
+    volumes:
+      - ./docker/compose/flowgger.docker.toml:/etc/serviceradar/flowgger.toml:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - flowgger-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_SOURCE=file
+      - CONFIG_PATH=/etc/serviceradar/flowgger.toml
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    cap_add:
+      - NET_BIND_SERVICE
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  trapd:
+    image: ghcr.io/carverauto/serviceradar-trapd:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-trapd-mtls
+    ports:
+      - "162:162/udp"
+      - "50043:50043"
+    volumes:
+      - ./docker/compose/trapd.docker.json:/etc/serviceradar/trapd.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - trapd-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_SOURCE=file
+      - CONFIG_PATH=/etc/serviceradar/trapd.json
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    cap_add:
+      - NET_BIND_SERVICE
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  zen:
+    image: ghcr.io/carverauto/serviceradar-zen:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-zen-mtls
+    ports:
+      - "50040:50040"
+    volumes:
+      - ./docker/compose/zen.docker.json:/etc/serviceradar/zen.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - zen-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_SOURCE=file
+      - CONFIG_PATH=/etc/serviceradar/zen.json
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+      datasvc:
+        condition: service_healthy
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  db-event-writer:
+    image: ghcr.io/carverauto/serviceradar-db-event-writer:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-db-event-writer-mtls
+    ports:
+      - "50041:50041"
+    volumes:
+      - ./docker/compose/db-event-writer.mtls.json:/etc/serviceradar/templates/db-event-writer.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - db-event-writer-data:/var/lib/serviceradar
+      - db-event-writer-config:/etc/serviceradar/consumers
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_SOURCE=file
+      - CONFIG_PATH=/etc/serviceradar/templates/db-event-writer.json
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - CNPG_HOST=${CNPG_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_PORT:-5432}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
+      - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
+      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
+      - CNPG_CERT_DIR=/etc/serviceradar/certs
+      - CNPG_CA_FILE=/etc/serviceradar/certs/root.pem
+      - CNPG_CERT_FILE=/etc/serviceradar/certs/db-event-writer.pem
+      - CNPG_KEY_FILE=/etc/serviceradar/certs/db-event-writer-key.pem
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+      cnpg:
+        condition: service_healthy
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  mapper:
+    image: ghcr.io/carverauto/serviceradar-mapper:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-mapper-mtls
+    ports:
+      - "50056:50056"
+    volumes:
+      - ./docker/compose/mapper.docker.json:/etc/serviceradar/mapper.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - mapper-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_SOURCE=file
+      - CONFIG_PATH=/etc/serviceradar/mapper.json
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      otel:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/mapper.pem", "-key", "/etc/serviceradar/certs/mapper-key.pem", "-servername", "mapper.serviceradar", "localhost:50056", "grpc.health.v1.Health/Check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  snmp-checker:
+    image: ghcr.io/carverauto/serviceradar-snmp-checker:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-snmp-checker-mtls
+    ports:
+      - "50054:50054"
+    volumes:
+      - ./docker/compose/snmp-checker.docker.json:/etc/serviceradar/checkers/snmp.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - snmp-checker-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - WAIT_FOR_AGENT=true
+      - WAIT_FOR_OTEL=true
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      agent:
+        condition: service_started
+      otel:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/snmp-checker.pem", "-key", "/etc/serviceradar/certs/snmp-checker-key.pem", "-servername", "snmp-checker.serviceradar", "localhost:50054", "grpc.health.v1.Health/Check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  rperf-client:
+    image: ghcr.io/carverauto/serviceradar-rperf-client:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-rperf-client-mtls
+    ports:
+      - "50059:50059"
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - rperf-client-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - WAIT_FOR_AGENT=true
+      - WAIT_FOR_OTEL=true
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - RUST_LOG=${RUST_LOG:-info}
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      agent:
+        condition: service_started
+      otel:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  kong-config:
+    image: ghcr.io/carverauto/serviceradar-kong-config:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-kong-config-mtls
+    user: "0:0"
+    entrypoint: ["/bin/sh","-c"]
+    command:
+      - |
+        until /usr/local/bin/serviceradar-cli render-kong \
+          --jwks "${JWKS_URL:-http://core:8090/auth/jwks.json}" \
+          --service "${KONG_SERVICE_URL:-http://core:8090}" \
+          --path "${KONG_ROUTE_PATH:-/api}" \
+          --srql-service "${SRQL_SERVICE_URL:-http://srql:8080}" \
+          --srql-path "${SRQL_ROUTE_PATH:-/api/query}" \
+          --out /out/kong.yml
+        do
+          status=$$?
+          echo "[kong-config] render failed (exit $$status), retrying in $${KONG_CONFIG_RETRY_SECONDS:-5}s"
+          sleep $${KONG_CONFIG_RETRY_SECONDS:-5}
+        done
+    environment:
+      - KONG_CONFIG_RETRY_SECONDS=${KONG_CONFIG_RETRY_SECONDS:-5}
+    volumes:
+      - kong_config:/out
+    depends_on:
+      srql:
+        condition: service_started
+      core:
+        condition: service_started
+    networks:
+      - serviceradar-net
+    restart: "no"
+
+  kong:
+    image: ${KONG_IMAGE:-kong:latest}
+    container_name: serviceradar-kong-mtls
+    restart: on-failure
+    depends_on:
+      srql:
+        condition: service_started
+      kong-config:
+        condition: service_completed_successfully
+    environment:
+      KONG_DATABASE: off
+      KONG_DECLARATIVE_CONFIG: /opt/kong/kong.yml
+      KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 ssl
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_NGINX_DAEMON: off
+      KONG_LOG_LEVEL: debug
+    command: ["sh","-lc","if [ ! -f /opt/kong/kong.yml ]; then cp /default-kong.yml /opt/kong/kong.yml 2>/dev/null || true; fi; until [ -f /opt/kong/kong.yml ]; do echo '[kong] waiting for /opt/kong/kong.yml'; sleep 2; done; rm -f /usr/local/kong/pids/nginx.pid /opt/kong/pids/nginx.pid 2>/dev/null || true; exec kong start --vv"]
+    volumes:
+      - kong_config:/opt/kong
+      - ./docker/kong/kong.yaml:/default-kong.yml:ro
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    networks:
+      - serviceradar-net
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   web:
-    image: ghcr.io/carverauto/serviceradar-web:latest
-    container_name: serviceradar-web
+    image: ghcr.io/carverauto/serviceradar-web:${APP_TAG:-v1.0.65}
+    container_name: serviceradar-web-mtls
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://localhost/api
+      - NEXT_PUBLIC_API_URL=${PUBLIC_API_URL:-http://localhost/api}
       - NEXT_INTERNAL_API_URL=http://core:8090
       - NEXT_INTERNAL_SRQL_URL=http://kong:8000
       - AUTH_ENABLED=true
-      # API_KEY and JWT_SECRET will be loaded from generated config volume at runtime
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/web.docker.json:/etc/serviceradar/web.json:ro
@@ -254,47 +714,11 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  # SRQL Service (OCaml) - handles /api/query requests routed via Kong
-  srql:
-    image: ghcr.io/carverauto/serviceradar-srql:latest
-    container_name: serviceradar-srql
-    environment:
-      - AUTH_ENABLED=true
-      - SRQL_API_KEY=${SRQL_API_KEY:-changeme}
-      - SRQL_LISTEN_HOST=0.0.0.0
-      - SRQL_LISTEN_PORT=8080
-      - CNPG_HOST=${CNPG_HOST:-cnpg-rw}
-      - CNPG_PORT=${CNPG_PORT:-5432}
-      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
-      - CNPG_USERNAME=${CNPG_USERNAME:-postgres}
-      - CNPG_SSLMODE=${CNPG_SSLMODE:-disable}
-      - CNPG_PASSWORD=${CNPG_PASSWORD:-}
-      - CNPG_PASSWORD_FILE=/etc/serviceradar/credentials/cnpg-password
-      - SRQL_DATABASE_URL=${SRQL_DATABASE_URL:-}
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-      - generated-config:/etc/serviceradar/config:ro
-      - credentials:/etc/serviceradar/credentials:ro
-    depends_on:
-      config-updater:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  # Nginx Reverse Proxy
   nginx:
     image: ghcr.io/carverauto/serviceradar-nginx:latest
-    container_name: serviceradar-nginx
+    container_name: serviceradar-nginx-mtls
     ports:
-      - "${SERVICERADAR_HTTP_PORT:-80}:80"      # HTTP
-      # - "443:443"  # HTTPS (add SSL termination later)
+      - "${SERVICERADAR_HTTP_PORT:-80}:80"
     environment:
       API_UPSTREAM: ${API_UPSTREAM:-http://kong:8000}
     volumes:
@@ -318,816 +742,29 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  # JWKS renderer - generates DB-less config for Kong from Core's JWKS
-  kong-config:
-    image: ghcr.io/carverauto/serviceradar-kong-config:latest
-    container_name: serviceradar-kong-config
-    user: "0:0"
-    entrypoint: ["/bin/sh","-c"]
-    command:
-      - |
-        until /usr/local/bin/serviceradar-cli render-kong \
-          --jwks "${JWKS_URL:-http://core:8090/auth/jwks.json}" \
-          --service "${KONG_SERVICE_URL:-http://core:8090}" \
-          --path "${KONG_ROUTE_PATH:-/api}" \
-          --srql-service "${SRQL_SERVICE_URL:-http://srql:8080}" \
-          --srql-path "${SRQL_ROUTE_PATH:-/api/query}" \
-          --out /out/kong.yml
-        do
-          status=$$?
-          echo "[kong-config] render failed (exit $$status), retrying in $${KONG_CONFIG_RETRY_SECONDS:-5}s"
-          sleep $${KONG_CONFIG_RETRY_SECONDS:-5}
-        done
-    environment:
-      - KONG_CONFIG_RETRY_SECONDS=${KONG_CONFIG_RETRY_SECONDS:-5}
-    volumes:
-      - kong_config:/out
-    depends_on:
-      core:
-        condition: service_started
-    networks:
-      - serviceradar-net
-    # runs as part of default stack (no profile)
-    restart: "no"
-
-  # Kong (Community) — DB-less mode, optional 'kong' profile
-  kong:
-    image: ${KONG_IMAGE:-kong:latest}
-    container_name: serviceradar-kong
-    restart: on-failure
-    # Start alongside kong-config; Kong's entrypoint will wait/copy default
-    # so we don't block on kong-config completion.
-    depends_on:
-      kong-config:
-        condition: service_completed_successfully
-      srql:
-        condition: service_started
-    environment:
-      KONG_DATABASE: off
-      KONG_DECLARATIVE_CONFIG: /opt/kong/kong.yml
-      KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 ssl
-      KONG_ADMIN_LISTEN: 0.0.0.0:8001
-      # run Kong in foreground (no daemon) when using 'kong start'
-      KONG_NGINX_DAEMON: off
-      KONG_LOG_LEVEL: debug
-    command: ["sh","-lc","if [ ! -f /opt/kong/kong.yml ]; then cp /default-kong.yml /opt/kong/kong.yml 2>/dev/null || true; fi; until [ -f /opt/kong/kong.yml ]; do echo '[kong] waiting for /opt/kong/kong.yml'; sleep 2; done; rm -f /usr/local/kong/pids/nginx.pid /opt/kong/pids/nginx.pid 2>/dev/null || true; exec kong start --vv"]
-    volumes:
-      - kong_config:/opt/kong
-      - ./docker/kong/kong.yaml:/default-kong.yml:ro
-    ports:
-      - "8000:8000"
-      - "8001:8001"
-    networks:
-      - serviceradar-net
-    # runs as part of default stack (no profile)
-    healthcheck:
-      test: ["CMD", "kong", "health"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 20s
-
-  
-
-  # ServiceRadar Poller Service
-  poller:
-    image: ghcr.io/carverauto/serviceradar-poller:latest
-    container_name: serviceradar-poller
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-      - generated-config:/etc/serviceradar/config:ro
-      - poller-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-      - spire-agent-sockets:/run/spire/sockets:ro
-    environment:
-      # Config path
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/config/poller.json
-      - CORE_ADDRESS=serviceradar-core:50052
-      - CORE_SEC_MODE=spiffe
-      - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
-      - CORE_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - CORE_CERT_DIR=/etc/serviceradar/certs
-      - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=spiffe
-      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      - POLLERS_SECURITY_MODE=${POLLERS_SECURITY_MODE:-spiffe}
-      - MANAGE_NESTED_SPIRE=${MANAGE_NESTED_SPIRE:-disabled}
-      - POLLERS_TRUST_DOMAIN=${POLLERS_TRUST_DOMAIN:-carverauto.dev}
-      - NESTED_SPIRE_CONFIG_DIR=/etc/serviceradar/config/poller-spire
-      - NESTED_SPIRE_PARENT_ID=${NESTED_SPIRE_PARENT_ID:-spiffe://carverauto.dev/ns/edge/poller-nested-spire}
-      - NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID=${NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID:-spiffe://carverauto.dev/services/poller}
-      - NESTED_SPIRE_AGENT_SPIFFE_ID=${NESTED_SPIRE_AGENT_SPIFFE_ID:-spiffe://carverauto.dev/services/agent}
-      - NESTED_SPIRE_UPSTREAM_JOIN_TOKEN=${NESTED_SPIRE_UPSTREAM_JOIN_TOKEN:-}
-      - NESTED_SPIRE_UPSTREAM_JOIN_TOKEN_FILE=${NESTED_SPIRE_UPSTREAM_JOIN_TOKEN_FILE:-}
-      - NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE=${NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE:-}
-      - NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE_FILE=${NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE_FILE:-}
-      - NESTED_SPIRE_DOWNSTREAM_JOIN_TOKEN=${NESTED_SPIRE_DOWNSTREAM_JOIN_TOKEN:-}
-      - NESTED_SPIRE_DOWNSTREAM_JOIN_TOKEN_FILE=${NESTED_SPIRE_DOWNSTREAM_JOIN_TOKEN_FILE:-}
-      - NESTED_SPIRE_AUTO_GENERATE_DOWNSTREAM_TOKEN=${NESTED_SPIRE_AUTO_GENERATE_DOWNSTREAM_TOKEN:-1}
-      - NESTED_SPIRE_SERVER_SOCKET=${NESTED_SPIRE_SERVER_SOCKET:-/run/spire/nested/server/api.sock}
-      - ENABLE_POLLER_JOIN_TOKEN=${ENABLE_POLLER_JOIN_TOKEN:-enabled}
-      - DOWNSTREAM_REGISTRATION_MODE=${DOWNSTREAM_REGISTRATION_MODE:-disabled}
-      # Logging
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      config-updater:
-        condition: service_completed_successfully
-      core:
-        condition: service_healthy
-      poller-kv-seed:
-        condition: service_completed_successfully
-      spire-agent:
-        condition: service_healthy
-    command: ["/usr/local/bin/serviceradar-poller","-config","/etc/serviceradar/config/poller.json"]
-    healthcheck:
-      test: ["CMD-SHELL", "pgrep -f serviceradar-poller >/dev/null"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-    networks:
-      serviceradar-net:
-        aliases:
-          - poller.serviceradar
-    restart: unless-stopped
-
-  # ServiceRadar Agent Service
-  agent:
-    image: ghcr.io/carverauto/serviceradar-agent:latest
-    container_name: serviceradar-agent
-    volumes:
-      - ./docker/compose/agent.docker.json:/etc/serviceradar/agent.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - generated-config:/etc/serviceradar/config:ro
-      - agent-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-      - spire-agent-sockets:/run/spire/sockets:ro
-    environment:
-      # Config path
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/agent.json
-      - CORE_ADDRESS=serviceradar-core:50052
-      - CORE_SEC_MODE=spiffe
-      - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
-      - CORE_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - CORE_CERT_DIR=/etc/serviceradar/certs
-      - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=spiffe
-      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      # Logging
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    # Required capabilities for network operations
-    cap_add:
-      - NET_RAW
-      - NET_ADMIN
-    # Enable privileged mode for high-performance SYN scanning
-    privileged: true
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      config-updater:
-        condition: service_completed_successfully
-      spire-agent:
-        condition: service_healthy
-    command: ["/bin/sh","-c","if [ -f /etc/serviceradar/config/checkers/sysmon-osx.json ]; then cp /etc/serviceradar/config/checkers/sysmon-osx.json /etc/serviceradar/checkers/sysmon-osx.json; fi; exec /usr/local/bin/serviceradar-agent -config /etc/serviceradar/agent.json"]
-    healthcheck:
-      test: ["CMD-SHELL", "pgrep -f serviceradar-agent >/dev/null"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    networks:
-      serviceradar-net:
-        aliases:
-          - agent.serviceradar
-    restart: unless-stopped
-
-  # NATS for messaging and KV store
-  nats:
-    image: nats:latest
-    platform: linux/amd64
-    container_name: serviceradar-nats
-    ports:
-      - "4222:4222"  # Client connections
-      - "8222:8222"  # HTTP monitoring
-      - "6222:6222"  # Cluster routing
-    volumes:
-      - nats-data:/data
-      - cert-data:/etc/serviceradar/certs:ro
-      - ./docker/compose/nats.docker.conf:/etc/nats/nats-server.conf:ro
-    command: ["--config", "/etc/nats/nats-server.conf"]
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-    # Health check disabled - minimal NATS image doesn't include wget/curl
-    # NATS logs show when it's ready, and other services will connect via mTLS
-    # healthcheck:
-    #   test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222/varz"]
-    #   interval: 30s
-    #   timeout: 5s
-    #   retries: 3
-    #   start_period: 30s
-    networks:
-      serviceradar-net:
-        aliases:
-          - nats.serviceradar
-    restart: unless-stopped
-
-  # ServiceRadar Data Service (KV + object store via NATS JetStream)
-  datasvc:
-    image: ghcr.io/carverauto/serviceradar-datasvc:latest
-    container_name: serviceradar-datasvc
-    cpus: "2.0"
-    ports:
-      - "50057:50057"  # gRPC port
-    volumes:
-      - ./docker/compose/datasvc.docker.json:/etc/serviceradar/datasvc.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - datasvc-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-      - spire-agent-sockets:/run/spire/sockets:ro
-    environment:
-      # Config path
-      - CONFIG_PATH=/etc/serviceradar/datasvc.json
-      # Wait for dependencies
-      - WAIT_FOR_NATS=true
-      # Logging
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      nats:
-        condition: service_started
-      spire-agent:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wait-for-port --host 127.0.0.1 --port 50057 --attempts 1 --interval 1s --quiet"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    networks:
-      serviceradar-net:
-        aliases:
-          - datasvc.serviceradar
-    restart: unless-stopped
-
-  # Seed poller configuration/template into KV so the Admin UI has defaults.
-  poller-kv-seed:
-    image: ghcr.io/carverauto/serviceradar-tools:latest
-    container_name: serviceradar-poller-kv-seed
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-      - generated-config:/etc/serviceradar/config:ro
-      - ./docker/compose/seed-poller-kv.sh:/usr/local/bin/seed-poller-kv.sh:ro
-    environment:
-      - POLLERS_CONFIG_PATH=/etc/serviceradar/config/poller.json
-      - POLLERS_POLLER_ID=${POLLERS_POLLER_ID:-}
-      - KV_BUCKET=${KV_BUCKET:-serviceradar-datasvc}
-      - NATS_SERVER=${NATS_SERVER:-tls://serviceradar-nats:4222}
-    depends_on:
-      config-updater:
-        condition: service_completed_successfully
-      datasvc:
-        condition: service_healthy
-      nats:
-        condition: service_started
-    entrypoint: ["/bin/bash", "/usr/local/bin/seed-poller-kv.sh"]
-    restart: "no"
-    networks:
-      - serviceradar-net
-
-  # ServiceRadar Sync Service (Device discovery synchronization)
-  sync:
-    image: ghcr.io/carverauto/serviceradar-sync:latest
-    container_name: serviceradar-sync
-    ports:
-      - "50058:50058"  # gRPC port
-    volumes:
-      - ./docker/compose/sync.docker.json:/etc/serviceradar/sync.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - sync-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-      - spire-agent-sockets:/run/spire/sockets:ro
-    environment:
-      # Config path
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/sync.json
-      - CORE_ADDRESS=serviceradar-core:50052
-      - CORE_SEC_MODE=spiffe
-      - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
-      - CORE_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - CORE_CERT_DIR=/etc/serviceradar/certs
-      - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=spiffe
-      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      # Wait for dependencies
-      - WAIT_FOR_DATASVC=true
-      - WAIT_FOR_NATS=true
-      # Logging
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      datasvc:
-        condition: service_healthy
-      nats:
-        condition: service_started
-      spire-agent:
-        condition: service_healthy
-    # Health check disabled - sync service may not implement standard gRPC health service
-    # Service logs show when it's ready and healthy
-    # healthcheck:
-    #   test: ["CMD", "grpcurl", "-plaintext", "localhost:50058", "grpc.health.v1.Health/Check"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 60s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  # ServiceRadar OTEL Service (OpenTelemetry collector)
-  otel:
-    image: ghcr.io/carverauto/serviceradar-otel:latest
-    container_name: serviceradar-otel
-    ports:
-      - "4317:4317"  # OTEL gRPC port
-    volumes:
-      - ./docker/compose/otel.docker.toml:/etc/serviceradar/otel.toml:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - otel-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-      - spire-agent-sockets:/run/spire/sockets:ro
-    environment:
-      # Config path
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/otel.toml
-      - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=spiffe
-      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      # Wait for dependencies
-      - WAIT_FOR_NATS=true
-      # Logging
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-      # Config sync
-      - CONFIG_SERVICE=${OTEL_CONFIG_SERVICE:-otel}
-      - CONFIG_OUTPUT=${OTEL_CONFIG_OUTPUT:-/etc/serviceradar/otel.toml}
-      - CONFIG_TEMPLATE=${OTEL_CONFIG_TEMPLATE:-/etc/serviceradar/templates/otel.toml}
-      - CONFIG_SYNC_ROLE=${OTEL_CONFIG_SYNC_ROLE:-core}
-      - CONFIG_SYNC_ENABLED=${OTEL_CONFIG_SYNC_ENABLED:-false}
-      - CONFIG_SYNC_SEED=${OTEL_CONFIG_SYNC_SEED:-true}
-      - CONFIG_SYNC_WATCH=${OTEL_CONFIG_SYNC_WATCH:-false}
-      - CONFIG_KV_KEY=${OTEL_CONFIG_KV_KEY:-}
-      - CONFIG_SYNC_EXTRA_ARGS=${OTEL_CONFIG_SYNC_EXTRA_ARGS:-}
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      nats:
-        condition: service_started
-      spire-agent:
-        condition: service_healthy
-    # Health check disabled - OTEL service may not implement standard gRPC health service
-    # Service logs show when it's ready and healthy
-    # healthcheck:
-    #   test: ["CMD", "grpcurl", "-plaintext", "localhost:4317", "grpc.health.v1.Health/Check"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 60s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  # ServiceRadar Flowgger Service (Syslog collector)
-  flowgger:
-    image: ghcr.io/carverauto/serviceradar-flowgger:latest
-    container_name: serviceradar-flowgger
-    ports:
-      - "514:514/udp"  # Syslog UDP port
-      - "50044:50044"  # gRPC port
-    volumes:
-      - ./docker/compose/flowgger.docker.toml:/etc/serviceradar/flowgger.toml:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - flowgger-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-      - spire-agent-sockets:/run/spire/sockets:ro
-    environment:
-      # Config path
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/flowgger.toml
-      - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=spiffe
-      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      # Wait for dependencies
-      - WAIT_FOR_NATS=true
-      # Logging
-      - RUST_LOG=${RUST_LOG:-info}
-      # Config sync
-      - CONFIG_SERVICE=${FLOWGGER_CONFIG_SERVICE:-flowgger}
-      - CONFIG_OUTPUT=${FLOWGGER_CONFIG_OUTPUT:-/etc/serviceradar/flowgger.toml}
-      - CONFIG_TEMPLATE=${FLOWGGER_CONFIG_TEMPLATE:-/etc/serviceradar/templates/flowgger.toml}
-      - CONFIG_SYNC_ROLE=${FLOWGGER_CONFIG_SYNC_ROLE:-core}
-      - CONFIG_SYNC_ENABLED=${FLOWGGER_CONFIG_SYNC_ENABLED:-false}
-      - CONFIG_SYNC_SEED=${FLOWGGER_CONFIG_SYNC_SEED:-true}
-      - CONFIG_SYNC_WATCH=${FLOWGGER_CONFIG_SYNC_WATCH:-false}
-      - CONFIG_KV_KEY=${FLOWGGER_CONFIG_KV_KEY:-}
-      - CONFIG_SYNC_EXTRA_ARGS=${FLOWGGER_CONFIG_SYNC_EXTRA_ARGS:-}
-    # Capabilities needed for binding to port 514
-    cap_add:
-      - NET_BIND_SERVICE
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      nats:
-        condition: service_started
-      spire-agent:
-        condition: service_healthy
-    # Health check disabled - Flowgger service may not implement standard gRPC health service
-    # Service logs show when it's ready and healthy
-    # healthcheck:
-    #   test: ["CMD", "grpcurl", "-plaintext", "localhost:50044", "grpc.health.v1.Health/Check"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 60s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  # ServiceRadar Trapd Service (SNMP trap collector)
-  trapd:
-    image: ghcr.io/carverauto/serviceradar-trapd:latest
-    container_name: serviceradar-trapd
-    ports:
-      - "162:162/udp"  # SNMP trap UDP port
-      - "50043:50043"  # gRPC port
-    volumes:
-      - ./docker/compose/trapd.docker.json:/etc/serviceradar/trapd.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - trapd-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-      - spire-agent-sockets:/run/spire/sockets:ro
-    environment:
-      # Config path
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/trapd.json
-      - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=spiffe
-      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      # Wait for dependencies
-      - WAIT_FOR_NATS=true
-      # Logging
-      - RUST_LOG=${RUST_LOG:-info}
-      # Config sync
-      - CONFIG_SERVICE=${TRAPD_CONFIG_SERVICE:-trapd}
-      - CONFIG_OUTPUT=${TRAPD_CONFIG_OUTPUT:-/etc/serviceradar/trapd.json}
-      - CONFIG_TEMPLATE=${TRAPD_CONFIG_TEMPLATE:-/etc/serviceradar/templates/trapd.json}
-      - CONFIG_SYNC_ROLE=${TRAPD_CONFIG_SYNC_ROLE:-core}
-      - CONFIG_SYNC_ENABLED=${TRAPD_CONFIG_SYNC_ENABLED:-false}
-      - CONFIG_SYNC_SEED=${TRAPD_CONFIG_SYNC_SEED:-true}
-      - CONFIG_SYNC_WATCH=${TRAPD_CONFIG_SYNC_WATCH:-false}
-      - CONFIG_KV_KEY=${TRAPD_CONFIG_KV_KEY:-}
-      - CONFIG_SYNC_EXTRA_ARGS=${TRAPD_CONFIG_SYNC_EXTRA_ARGS:-}
-    # Capabilities needed for binding to privileged port 162
-    cap_add:
-      - NET_BIND_SERVICE
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      nats:
-        condition: service_started
-      spire-agent:
-        condition: service_healthy
-    # Health check disabled - Trapd service may not implement standard gRPC health service
-    # Service logs show when it's ready and healthy
-    # healthcheck:
-    #   test: ["CMD", "grpcurl", "-plaintext", "localhost:50043", "grpc.health.v1.Health/Check"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 60s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  # ServiceRadar Zen Service (Event processing and rule engine)
-  zen:
-    image: ghcr.io/carverauto/serviceradar-zen:latest
-    container_name: serviceradar-zen
-    ports:
-      - "50040:50040"  # gRPC port
-    volumes:
-      - ./docker/compose/zen.docker.json:/etc/serviceradar/zen.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - zen-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-      - spire-agent-sockets:/run/spire/sockets:ro
-    environment:
-      # Config path
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/zen.json
-      - CORE_ADDRESS=serviceradar-core:50052
-      - CORE_SEC_MODE=spiffe
-      - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
-      - CORE_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - CORE_CERT_DIR=/etc/serviceradar/certs
-      - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=spiffe
-      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      # Wait for dependencies
-      - WAIT_FOR_NATS=true
-      - WAIT_FOR_DATASVC=true
-      # Logging
-      - RUST_LOG=${RUST_LOG:-info}
-      # Config sync
-      - CONFIG_SERVICE=${ZEN_CONFIG_SERVICE:-zen-consumer}
-      - CONFIG_OUTPUT=${ZEN_CONFIG_OUTPUT:-/etc/serviceradar/consumers/zen-consumer.json}
-      - CONFIG_TEMPLATE=${ZEN_CONFIG_TEMPLATE:-/etc/serviceradar/templates/consumers/zen-consumer.json}
-      - CONFIG_SYNC_ROLE=${ZEN_CONFIG_SYNC_ROLE:-core}
-      - CONFIG_SYNC_ENABLED=${ZEN_CONFIG_SYNC_ENABLED:-false}
-      - CONFIG_SYNC_SEED=${ZEN_CONFIG_SYNC_SEED:-true}
-      - CONFIG_SYNC_WATCH=${ZEN_CONFIG_SYNC_WATCH:-false}
-      - CONFIG_KV_KEY=${ZEN_CONFIG_KV_KEY:-}
-      - CONFIG_SYNC_EXTRA_ARGS=${ZEN_CONFIG_SYNC_EXTRA_ARGS:-}
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      nats:
-        condition: service_started
-      datasvc:
-        condition: service_healthy
-      spire-agent:
-        condition: service_healthy
-    # Health check disabled - Zen service may not implement standard gRPC health service
-    # Service logs show when it's ready and healthy
-    # healthcheck:
-    #   test: ["CMD", "grpcurl", "-plaintext", "localhost:50040", "grpc.health.v1.Health/Check"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 60s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  # ServiceRadar DB Event Writer Service (NATS to Database bridge)
-  db-event-writer:
-    image: ghcr.io/carverauto/serviceradar-db-event-writer:latest
-    container_name: serviceradar-db-event-writer
-    ports:
-      - "50041:50041"  # gRPC port
-    volumes:
-      - ./docker/compose/db-event-writer.docker.json:/etc/serviceradar/templates/db-event-writer.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - credentials:/etc/serviceradar/credentials:ro
-      - db-event-writer-data:/var/lib/serviceradar
-      - db-event-writer-config:/etc/serviceradar/consumers
-      - ./logs:/var/log/serviceradar
-      - spire-agent-sockets:/run/spire/sockets:ro
-    environment:
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/templates/db-event-writer.json
-      - CORE_ADDRESS=serviceradar-core:50052
-      - CORE_SEC_MODE=spiffe
-      - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
-      - CORE_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - CORE_CERT_DIR=/etc/serviceradar/certs
-      - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=spiffe
-      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      # Wait for dependencies
-      - WAIT_FOR_NATS=true
-      - WAIT_FOR_CNPG=true
-      - CNPG_HOST=${CNPG_HOST:-cnpg-rw}
-      - CNPG_PORT=${CNPG_PORT:-5432}
-      - CNPG_PASSWORD_FILE=/etc/serviceradar/credentials/cnpg-password
-      # Database password
-      # Disable duplicate migrations (Core handles them)
-      - ENABLE_DB_MIGRATIONS=false
-      # Logging
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      nats:
-        condition: service_started
-      spire-agent:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/db-event-writer.pem", "-key", "/etc/serviceradar/certs/db-event-writer-key.pem", "-servername", "db-event-writer.serviceradar", "localhost:50041", "grpc.health.v1.Health/Check"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  # ServiceRadar Mapper - SNMP Network Discovery Service
-  mapper:
-    image: ghcr.io/carverauto/serviceradar-mapper:latest
-    container_name: serviceradar-mapper
-    ports:
-      - "50056:50056"  # gRPC port
-    volumes:
-      - ./docker/compose/mapper.docker.json:/etc/serviceradar/mapper.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - mapper-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-      - spire-agent-sockets:/run/spire/sockets:ro
-    environment:
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/mapper.json
-      - CORE_ADDRESS=serviceradar-core:50052
-      - CORE_SEC_MODE=spiffe
-      - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
-      - CORE_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - CORE_CERT_DIR=/etc/serviceradar/certs
-      - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=spiffe
-      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      # Wait for dependencies
-      - WAIT_FOR_OTEL=true
-      # Logging
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      otel:
-        condition: service_started
-      spire-agent:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/mapper.pem", "-key", "/etc/serviceradar/certs/mapper-key.pem", "-servername", "mapper.serviceradar", "localhost:50056", "grpc.health.v1.Health/Check"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  # ServiceRadar SNMP Checker - SNMP Polling Service
-  snmp-checker:
-    image: ghcr.io/carverauto/serviceradar-snmp-checker:latest
-    container_name: serviceradar-snmp-checker
-    ports:
-      - "50054:50054"  # gRPC port
-    volumes:
-      - ./docker/compose/snmp-checker.docker.json:/etc/serviceradar/checkers/snmp.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - snmp-checker-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-    environment:
-      # Wait for dependencies
-      - WAIT_FOR_AGENT=true
-      - WAIT_FOR_OTEL=true
-      # Logging
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      agent:
-        condition: service_started
-      otel:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/snmp-checker.pem", "-key", "/etc/serviceradar/certs/snmp-checker-key.pem", "-servername", "snmp-checker.serviceradar", "localhost:50054", "grpc.health.v1.Health/Check"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  # ServiceRadar rperf Client - Network Performance Testing Service
-  rperf-client:
-    image: ghcr.io/carverauto/serviceradar-rperf-client:latest
-    container_name: serviceradar-rperf-client
-    ports:
-      - "50059:50059"  # gRPC port
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-      - rperf-client-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-    environment:
-      # Wait for dependencies
-      - WAIT_FOR_AGENT=true
-      - WAIT_FOR_OTEL=true
-      # Logging
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-      - RUST_LOG=${RUST_LOG:-info}
-    depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      agent:
-        condition: service_started
-      otel:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/rperf-client.pem", "-key", "/etc/serviceradar/certs/rperf-client-key.pem", "-servername", "rperf-client.serviceradar", "localhost:50059", "grpc.health.v1.Health/Check"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
+volumes:
+  cert-data:
+  generated-config:
+  credentials:
+  core-data:
+  cnpg-data:
+  poller-data:
+  datasvc-data:
+  nats-data:
+  logs:
+  agent-data:
+  sync-data:
+  otel-data:
+  flowgger-data:
+  trapd-data:
+  zen-data:
+  db-event-writer-data:
+  db-event-writer-config:
+  mapper-data:
+  snmp-checker-data:
+  rperf-client-data:
+  kong_config:
 
 networks:
   serviceradar-net:
     driver: bridge
-    driver_opts:
-      com.docker.network.bridge.name: serviceradar-br
-
-volumes:
-  cert-data:
-    driver: local
-  credentials:
-    driver: local
-  generated-config:
-    driver: local
-  core-data:
-    driver: local
-  poller-data:
-    driver: local
-  agent-data:
-    driver: local
-  nats-data:
-    driver: local
-  datasvc-data:
-    driver: local
-  sync-data:
-    driver: local
-  otel-data:
-    driver: local
-  flowgger-data:
-    driver: local
-  trapd-data:
-    driver: local
-  zen-data:
-    driver: local
-  db-event-writer-data:
-    driver: local
-  db-event-writer-config:
-    driver: local
-  mapper-data:
-    driver: local
-  snmp-checker-data:
-    driver: local
-  rperf-client-data:
-    driver: local
-  kong_config:
-    driver: local
-  kong_db_data:
-    driver: local
-  spire-server-data:
-    driver: local
-  spire-server-socket:
-    driver: local
-  spire-agent-data:
-    driver: local
-  spire-agent-sockets:
-    driver: local
-  spire-bootstrap:
-    driver: local
