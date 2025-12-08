@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "auth.go",
         "cnpg_discovery.go",
+        "cnpg_identity_engine.go",
         "cnpg_migrate.go",
         "cnpg_netflow.go",
         "cnpg_observability.go",
@@ -46,6 +47,7 @@ go_library(
         "//pkg/logger",
         "//pkg/models",
         "@com_github_jackc_pgx_v5//:pgx",
+        "@com_github_jackc_pgx_v5//pgconn:pgconn",
         "@com_github_jackc_pgx_v5//pgxpool:pgxpool",
         "@com_github_google_uuid//:uuid",
         "@org_uber_go_mock//gomock",
@@ -55,6 +57,7 @@ go_library(
 go_test(
     name = "db_test",
     srcs = [
+        "cnpg_identity_reconciliation_upserts_test.go",
         "cnpg_metrics_test.go",
         "cnpg_registry_test.go",
         "cnpg_edge_onboarding_test.go",

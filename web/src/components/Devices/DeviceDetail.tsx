@@ -262,7 +262,11 @@ const normalizeMetricValue = (metric: TimeseriesMetric): number => {
     return NaN;
   }
   if (metric.type?.toLowerCase() === "icmp") {
-    return rawValue / 1_000_000;
+    // ICMP response times are emitted in nanoseconds today; tolerate future millisecond values.
+    if (rawValue > 1_000_000) {
+      return rawValue / 1_000_000;
+    }
+    return rawValue;
   }
   return rawValue;
 };

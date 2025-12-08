@@ -1226,3 +1226,163 @@ func (mr *MockServiceMockRecorder) ListMergeAuditEvents(ctx, deviceID, limit any
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMergeAuditEvents", reflect.TypeOf((*MockService)(nil).ListMergeAuditEvents), ctx, deviceID, limit)
 }
+
+// LockUnifiedDevices mocks base method.
+func (m *MockService) LockUnifiedDevices(ctx context.Context, ips []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockUnifiedDevices", ctx, ips)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockUnifiedDevices indicates an expected call of LockUnifiedDevices.
+func (mr *MockServiceMockRecorder) LockUnifiedDevices(ctx, ips any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockUnifiedDevices", reflect.TypeOf((*MockService)(nil).LockUnifiedDevices), ctx, ips)
+}
+
+// WithTx mocks base method.
+func (m *MockService) WithTx(ctx context.Context, fn func(Service) error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithTx", ctx, fn)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WithTx indicates an expected call of WithTx.
+func (mr *MockServiceMockRecorder) WithTx(ctx, fn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithTx", reflect.TypeOf((*MockService)(nil).WithTx), ctx, fn)
+}
+// QueryRegistryRows mocks base method.
+func (m *MockService) QueryRegistryRows(ctx context.Context, query string, args ...interface{}) (Rows, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, query}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "QueryRegistryRows", varargs...)
+	ret0, _ := ret[0].(Rows)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// QueryRegistryRows indicates an expected call of QueryRegistryRows.
+func (mr *MockServiceMockRecorder) QueryRegistryRows(ctx, query interface{}, args ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, query}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryRegistryRows", reflect.TypeOf((*MockService)(nil).QueryRegistryRows), varargs...)
+}
+
+// GetDeviceIDByIdentifier mocks base method.
+func (m *MockService) GetDeviceIDByIdentifier(ctx context.Context, identifierType, identifierValue, partition string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceIDByIdentifier", ctx, identifierType, identifierValue, partition)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceIDByIdentifier indicates an expected call of GetDeviceIDByIdentifier.
+func (mr *MockServiceMockRecorder) GetDeviceIDByIdentifier(ctx, identifierType, identifierValue, partition any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceIDByIdentifier", reflect.TypeOf((*MockService)(nil).GetDeviceIDByIdentifier), ctx, identifierType, identifierValue, partition)
+}
+
+// BatchGetDeviceIDsByIdentifier mocks base method.
+func (m *MockService) BatchGetDeviceIDsByIdentifier(ctx context.Context, identifierType string, identifierValues []string) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BatchGetDeviceIDsByIdentifier", ctx, identifierType, identifierValues)
+	ret0, _ := ret[0].(map[string]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// BatchGetDeviceIDsByIdentifier indicates an expected call of BatchGetDeviceIDsByIdentifier.
+func (mr *MockServiceMockRecorder) BatchGetDeviceIDsByIdentifier(ctx, identifierType, identifierValues any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchGetDeviceIDsByIdentifier", reflect.TypeOf((*MockService)(nil).BatchGetDeviceIDsByIdentifier), ctx, identifierType, identifierValues)
+}
+
+// MockRows is a mock of Rows interface.
+type MockRows struct {
+	ctrl     *gomock.Controller
+	recorder *MockRowsMockRecorder
+}
+
+// MockRowsMockRecorder is the mock recorder for MockRows.
+type MockRowsMockRecorder struct {
+	mock *MockRows
+}
+
+// NewMockRows creates a new mock instance.
+func NewMockRows(ctrl *gomock.Controller) *MockRows {
+	mock := &MockRows{ctrl: ctrl}
+	mock.recorder = &MockRowsMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockRows) EXPECT() *MockRowsMockRecorder {
+	return m.recorder
+}
+
+// Next mocks base method.
+func (m *MockRows) Next() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Next")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// Next indicates an expected call of Next.
+func (mr *MockRowsMockRecorder) Next() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Next", reflect.TypeOf((*MockRows)(nil).Next))
+}
+
+// Scan mocks base method.
+func (m *MockRows) Scan(dest ...interface{}) error {
+	m.ctrl.T.Helper()
+	varargs := make([]interface{}, len(dest))
+	for i, v := range dest {
+		varargs[i] = v
+	}
+	ret := m.ctrl.Call(m, "Scan", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Scan indicates an expected call of Scan.
+func (mr *MockRowsMockRecorder) Scan(dest ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Scan", reflect.TypeOf((*MockRows)(nil).Scan), dest...)
+}
+
+// Close mocks base method.
+func (m *MockRows) Close() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockRowsMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockRows)(nil).Close))
+}
+
+// Err mocks base method.
+func (m *MockRows) Err() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Err")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Err indicates an expected call of Err.
+func (mr *MockRowsMockRecorder) Err() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Err", reflect.TypeOf((*MockRows)(nil).Err))
+}

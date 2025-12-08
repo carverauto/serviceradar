@@ -16,12 +16,13 @@
   - [x] Set `timescaledb.materialized_only = FALSE` for Disk CAGG
   - [x] Add continuous aggregate policy for Disk
   - [x] Add retention policy for Disk
-  - [x] Recreate Memory CAGG
-  - [x] Set `timescaledb.materialized_only = FALSE` for Memory CAGG
-  - [x] Add continuous aggregate policy for Memory
-  - [x] Add retention policy for Memory
-  - [x] Recreate `device_metrics_summary` composite view with JOINs
+- [x] Recreate Memory CAGG
+- [x] Set `timescaledb.materialized_only = FALSE` for Memory CAGG
+- [x] Add continuous aggregate policy for Memory
+- [x] Add retention policy for Memory
+- [x] Recreate `device_metrics_summary` composite view with JOINs
 - [x] Create down migration `pkg/db/cnpg/migrations/00000000000018_recreate_device_metrics_caggs.down.sql` (no-op comment)
+- [x] Add cleanup migration `pkg/db/cnpg/migrations/00000000000019_remove_unused_caggs.up.sql` to drop unused summary CAGGs/policies that still register OIDs.
 
 ## Documentation
 - [ ] Add runbook `docs/docs/runbooks/cnpg-cagg-refresh-error.md` with:

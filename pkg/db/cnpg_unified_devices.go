@@ -31,6 +31,9 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+// unifiedDevicesSelection is the base SELECT for querying unified_devices.
+// With the DIRE simplification, there are no tombstones or soft deletes to filter out.
+// All devices in the table are active.
 const unifiedDevicesSelection = `
 SELECT
 	device_id,
@@ -51,12 +54,10 @@ SELECT
 	os_info,
 	version_info
 FROM unified_devices
-WHERE (metadata->>'_merged_into' IS NULL OR metadata->>'_merged_into' = '' OR metadata->>'_merged_into' = device_id)
-  AND COALESCE(lower(metadata->>'_deleted'),'false') <> 'true'
-  AND COALESCE(lower(metadata->>'deleted'),'false') <> 'true'`
+WHERE 1=1`
 
 func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error {
-	if len(updates) == 0 || !db.useCNPGWrites() {
+	if len(updates) == 0 || !db.cnpgConfigured() {
 		return nil
 	}
 
@@ -149,7 +150,7 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 				),
 				is_available = EXCLUDED.is_available,
 				last_seen = EXCLUDED.last_seen,
-				metadata = (unified_devices.metadata || EXCLUDED.metadata) - '_deleted',
+				metadata = unified_devices.metadata || EXCLUDED.metadata,
 				updated_at = NOW()`,
 			update.DeviceID,
 			update.IP,
@@ -164,7 +165,7 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 		)
 	}
 
-	br := db.pgPool.SendBatch(ctx, batch)
+	br := db.conn().SendBatch(ctx, batch)
 	if err := br.Close(); err != nil {
 		return fmt.Errorf("cnpg device_updates batch: %w", err)
 	}
@@ -178,7 +179,7 @@ func (db *DB) cnpgGetUnifiedDevice(ctx context.Context, deviceID string) (*model
 	ORDER BY last_seen DESC
 	LIMIT 1`
 
-	row := db.pgPool.QueryRow(ctx, query, deviceID)
+	row := db.conn().QueryRow(ctx, query, deviceID)
 	device, err := scanCNPGUnifiedDevice(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -195,7 +196,7 @@ func (db *DB) cnpgGetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*mode
 	AND ip = $1
 	ORDER BY last_seen DESC`
 
-	rows, err := db.pgPool.Query(ctx, query, ip)
+	rows, err := db.conn().Query(ctx, query, ip)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToQueryUnifiedDevice, err)
 	}
@@ -209,7 +210,7 @@ func (db *DB) cnpgListUnifiedDevices(ctx context.Context, limit, offset int) ([]
 	ORDER BY device_id ASC
 	LIMIT $1 OFFSET $2`
 
-	rows, err := db.pgPool.Query(ctx, query, limit, offset)
+	rows, err := db.conn().Query(ctx, query, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToQueryUnifiedDevice, err)
 	}
@@ -219,15 +220,11 @@ func (db *DB) cnpgListUnifiedDevices(ctx context.Context, limit, offset int) ([]
 }
 
 func (db *DB) cnpgCountUnifiedDevices(ctx context.Context) (int64, error) {
-	const query = `
-SELECT COUNT(*)
-FROM unified_devices
-WHERE (metadata->>'_merged_into' IS NULL OR metadata->>'_merged_into' = '' OR metadata->>'_merged_into' = device_id)
-  AND COALESCE(lower(metadata->>'_deleted'),'false') <> 'true'
-  AND COALESCE(lower(metadata->>'deleted'),'false') <> 'true'`
+	// Simple count - no tombstone/deleted filtering needed with DIRE simplification
+	const query = `SELECT COUNT(*) FROM unified_devices`
 
 	var count int64
-	if err := db.pgPool.QueryRow(ctx, query).Scan(&count); err != nil {
+	if err := db.conn().QueryRow(ctx, query).Scan(&count); err != nil {
 		return 0, fmt.Errorf("%w: %w", errFailedToQueryUnifiedDevice, err)
 	}
 
@@ -248,7 +245,7 @@ func (db *DB) cnpgQueryUnifiedDevicesBatch(ctx context.Context, deviceIDs, ips [
 	}
 
 	if len(deviceIDs) > 0 {
-		rows, err := db.pgPool.Query(ctx, unifiedDevicesSelection+`
+		rows, err := db.conn().Query(ctx, unifiedDevicesSelection+`
 			AND device_id = ANY($1)
 			ORDER BY device_id, last_seen DESC`, deviceIDs)
 		if err != nil {
@@ -260,7 +257,7 @@ func (db *DB) cnpgQueryUnifiedDevicesBatch(ctx context.Context, deviceIDs, ips [
 	}
 
 	if len(ips) > 0 {
-		rows, err := db.pgPool.Query(ctx, unifiedDevicesSelection+`
+		rows, err := db.conn().Query(ctx, unifiedDevicesSelection+`
 			AND ip = ANY($1)
 			ORDER BY device_id, last_seen DESC`, ips)
 		if err != nil {
@@ -417,11 +414,11 @@ func toNullableString(value *string) interface{} {
 // CleanupStaleUnifiedDevices removes devices not seen within the retention period.
 // This should be called periodically (e.g., daily) to prevent unbounded table growth.
 func (db *DB) CleanupStaleUnifiedDevices(ctx context.Context, retention time.Duration) (int64, error) {
-	if !db.useCNPGWrites() {
+	if !db.cnpgConfigured() {
 		return 0, nil
 	}
 
-	result, err := db.pgPool.Exec(ctx,
+	result, err := db.conn().Exec(ctx,
 		`DELETE FROM unified_devices WHERE last_seen < $1`,
 		time.Now().UTC().Add(-retention),
 	)
@@ -435,26 +432,22 @@ func (db *DB) CleanupStaleUnifiedDevices(ctx context.Context, retention time.Dur
 // GetStaleIPOnlyDevices returns IDs of devices that have no strong identifiers
 // and have not been seen for the specified TTL.
 func (db *DB) GetStaleIPOnlyDevices(ctx context.Context, ttl time.Duration) ([]string, error) {
-	if !db.useCNPGWrites() {
+	if !db.cnpgConfigured() {
 		return nil, nil
 	}
 
 	// Query for devices where:
-	// 1. Not deleted
-	// 2. No strong identifiers (MAC, Armis ID, Netbox ID)
-	// 3. Last seen older than TTL
+	// 1. No strong identifiers (MAC, Armis ID, Netbox ID)
+	// 2. Last seen older than TTL
 	const query = `
 	SELECT device_id
 	FROM unified_devices
-	WHERE (metadata->>'_merged_into' IS NULL OR metadata->>'_merged_into' = '' OR metadata->>'_merged_into' = device_id)
-	  AND COALESCE(lower(metadata->>'_deleted'),'false') <> 'true'
-	  AND COALESCE(lower(metadata->>'deleted'),'false') <> 'true'
-	  AND mac IS NULL
+	WHERE mac IS NULL
 	  AND metadata->>'armis_device_id' IS NULL
 	  AND metadata->>'netbox_device_id' IS NULL
 	  AND last_seen < $1`
 
-	rows, err := db.pgPool.Query(ctx, query, time.Now().UTC().Add(-ttl))
+	rows, err := db.conn().Query(ctx, query, time.Now().UTC().Add(-ttl))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query stale IP-only devices: %w", err)
 	}
@@ -472,23 +465,53 @@ func (db *DB) GetStaleIPOnlyDevices(ctx context.Context, ttl time.Duration) ([]s
 	return deviceIDs, rows.Err()
 }
 
-// SoftDeleteDevices marks the specified devices as deleted in the database.
-func (db *DB) SoftDeleteDevices(ctx context.Context, deviceIDs []string) error {
-	if len(deviceIDs) == 0 || !db.useCNPGWrites() {
+// DeleteDevices permanently removes the specified devices from the database.
+// With the DIRE simplification, we use hard deletes instead of soft deletes.
+// An audit record is written to device_updates before deletion.
+func (db *DB) DeleteDevices(ctx context.Context, deviceIDs []string) error {
+	if len(deviceIDs) == 0 || !db.cnpgConfigured() {
 		return nil
 	}
 
-	// Update metadata to set _deleted = true
-	const query = `
-	UPDATE unified_devices
-	SET metadata = metadata || '{"_deleted": "true"}'::jsonb,
-	    updated_at = NOW()
-	WHERE device_id = ANY($1)`
+	// First, log the deletion to device_updates for audit trail
+	batch := &pgx.Batch{}
+	now := time.Now().UTC()
+	for _, deviceID := range deviceIDs {
+		batch.Queue(
+			`INSERT INTO device_updates (
+				observed_at, device_id, discovery_source, metadata
+			) VALUES ($1, $2, 'serviceradar', '{"_action": "deleted"}'::jsonb)`,
+			now, deviceID,
+		)
+	}
 
-	_, err := db.pgPool.Exec(ctx, query, deviceIDs)
+	// Execute audit log batch
+	br := db.conn().SendBatch(ctx, batch)
+	if err := br.Close(); err != nil {
+		db.logger.Warn().Err(err).Msg("Failed to log device deletions to audit trail")
+		// Continue with deletion even if audit fails
+	}
+
+	// Hard delete the devices
+	const deleteQuery = `DELETE FROM unified_devices WHERE device_id = ANY($1)`
+	_, err := db.conn().Exec(ctx, deleteQuery, deviceIDs)
 	if err != nil {
-		return fmt.Errorf("failed to soft-delete devices: %w", err)
+		return fmt.Errorf("failed to delete devices: %w", err)
+	}
+
+	// Also remove from device_identifiers table
+	const deleteIdentifiersQuery = `DELETE FROM device_identifiers WHERE device_id = ANY($1)`
+	_, err = db.conn().Exec(ctx, deleteIdentifiersQuery, deviceIDs)
+	if err != nil {
+		db.logger.Warn().Err(err).Msg("Failed to delete device identifiers")
+		// Not a fatal error - the device is already deleted
 	}
 
 	return nil
+}
+
+// SoftDeleteDevices is deprecated - use DeleteDevices for hard deletes.
+// This function now calls DeleteDevices for backwards compatibility.
+func (db *DB) SoftDeleteDevices(ctx context.Context, deviceIDs []string) error {
+	return db.DeleteDevices(ctx, deviceIDs)
 }

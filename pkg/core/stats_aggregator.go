@@ -359,26 +359,6 @@ func hasAnyCapability(sets map[string]map[string]struct{}, deviceID string) bool
 	return false
 }
 
-func isTombstonedRecord(record *registry.DeviceRecord) bool {
-	if record == nil || len(record.Metadata) == 0 {
-		return false
-	}
-
-	for _, key := range []string{"_deleted", "deleted"} {
-		if value, ok := record.Metadata[key]; ok && strings.EqualFold(strings.TrimSpace(value), "true") {
-			return true
-		}
-	}
-
-	if value, ok := record.Metadata["_merged_into"]; ok {
-		target := strings.TrimSpace(value)
-		if target != "" && !strings.EqualFold(target, strings.TrimSpace(record.DeviceID)) {
-			return true
-		}
-	}
-
-	return false
-}
 
 func shouldCountRecord(record *registry.DeviceRecord) bool {
 	// Count all non-nil records. The database (unified_devices) is the source of truth
@@ -414,7 +394,7 @@ type canonicalEntry struct {
 	canonical bool
 }
 
-func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecord, meta *models.DeviceStatsMeta) []*registry.DeviceRecord { //nolint:gocyclo // Complex device record selection logic, intentionally kept together for clarity
+func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecord, meta *models.DeviceStatsMeta) []*registry.DeviceRecord {
 	if len(records) == 0 {
 		return nil
 	}
@@ -505,12 +485,8 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 			}
 			continue
 		}
-		if isTombstonedRecord(record) {
-			if meta != nil {
-				meta.SkippedTombstonedRecords++
-			}
-			continue
-		}
+		// DIRE: No tombstone filtering. The database is the source of truth.
+		// All devices in unified_devices are active - no soft deletes or merge chains.
 
 		// All records (including pollers, agents, global services) are counted as devices.
 		// Even if service components share an IP with other devices, they maintain

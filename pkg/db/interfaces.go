@@ -133,6 +133,10 @@ type Service interface {
 	CleanupStaleUnifiedDevices(ctx context.Context, retention time.Duration) (int64, error)
 	GetStaleIPOnlyDevices(ctx context.Context, ttl time.Duration) ([]string, error)
 	SoftDeleteDevices(ctx context.Context, deviceIDs []string) error
+	LockUnifiedDevices(ctx context.Context, ips []string) error
+
+	// Transaction support
+	WithTx(ctx context.Context, fn func(tx Service) error) error
 
 	// DeviceUpdate operations (modern materialized view approach).
 
@@ -170,6 +174,10 @@ type Service interface {
 	ListSightingEvents(ctx context.Context, sightingID string, limit int) ([]*models.SightingEvent, error)
 	ListSubnetPolicies(ctx context.Context, limit int) ([]*models.SubnetPolicy, error)
 	ListMergeAuditEvents(ctx context.Context, deviceID string, limit int) ([]*models.MergeAuditEvent, error)
+
+	// Device identifier lookup operations (for IdentityEngine).
+	GetDeviceIDByIdentifier(ctx context.Context, identifierType, identifierValue, partition string) (string, error)
+	BatchGetDeviceIDsByIdentifier(ctx context.Context, identifierType string, identifierValues []string) (map[string]string, error)
 }
 
 // SysmonMetricsProvider interface defines operations for system monitoring metrics.
