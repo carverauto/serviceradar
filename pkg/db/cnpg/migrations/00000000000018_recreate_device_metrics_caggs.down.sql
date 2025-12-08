@@ -1,3 +1,0 @@
--- Down migration is a no-op since the CAGGs are functionally identical.
--- Rolling back would just recreate them again with potentially stale OIDs.
--- See: https://github.com/carverauto/serviceradar/issues/2065

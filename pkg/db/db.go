@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/carverauto/serviceradar/pkg/deviceupdate"
@@ -36,14 +37,24 @@ import (
 var (
 	ErrDatabaseNotInitialized = errors.New("database connection not initialized")
 	ErrCNPGUnavailable        = errors.New("cnpg connection pool not configured")
+	ErrUnknownExecutorType    = errors.New("unknown executor type")
 )
 
 const defaultPartitionValue = "default"
 
+// PgxExecutor is an interface satisfied by both *pgxpool.Pool and pgx.Tx
+type PgxExecutor interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
+}
+
 // DB represents the CNPG-backed database connection.
 type DB struct {
-	pgPool *pgxpool.Pool
-	logger logger.Logger
+	pgPool   *pgxpool.Pool
+	executor PgxExecutor
+	logger   logger.Logger
 }
 
 // New creates a new CNPG-backed database connection and initializes the schema.
@@ -71,8 +82,9 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 	}
 
 	db := &DB{
-		pgPool: cnpgPool,
-		logger: log,
+		pgPool:   cnpgPool,
+		executor: cnpgPool, // Default to pool
+		logger:   log,
 	}
 
 	return db, nil
@@ -96,7 +108,7 @@ func shouldRunDBMigrations() bool {
 }
 
 func (db *DB) cnpgConfigured() bool {
-	return db != nil && db.pgPool != nil
+	return db != nil && db.executor != nil
 }
 
 func (db *DB) UseCNPGReads() bool {
@@ -111,10 +123,99 @@ func (db *DB) useCNPGWrites() bool {
 	return db.cnpgConfigured()
 }
 
+func (db *DB) conn() PgxExecutor {
+	if db.executor != nil {
+		return db.executor
+	}
+	return db.pgPool
+}
+
 // Close closes the database connection.
 func (db *DB) Close() error {
 	if db.pgPool != nil {
 		db.pgPool.Close()
+	}
+
+	return nil
+}
+
+// WithTx executes the given function within a transaction.
+func (db *DB) WithTx(ctx context.Context, fn func(tx Service) error) error {
+	if db.pgPool == nil {
+		return ErrCNPGUnavailable
+	}
+
+	// If we are already in a transaction, we can create a savepoint (nested tx)
+	// but simpler for now to just reuse the executor if it's already a tx,
+	// OR if it's the pool, start a new tx.
+	// Since db.executor is initialized to pgPool, checking type is safer.
+
+	var tx pgx.Tx
+	var err error
+
+	if _, ok := db.executor.(*pgxpool.Pool); ok {
+		// Start a new transaction from the pool
+		tx, err = db.pgPool.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("begin tx: %w", err)
+		}
+	} else if currentTx, ok := db.executor.(pgx.Tx); ok {
+		// Already in a transaction, create a nested transaction (savepoint)
+		tx, err = currentTx.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("begin nested tx: %w", err)
+		}
+	} else {
+		return ErrUnknownExecutorType
+	}
+
+	defer func() {
+		if p := recover(); p != nil {
+			_ = tx.Rollback(ctx)
+			panic(p)
+		}
+	}()
+
+	// Create a shallow copy of DB using the transaction executor
+	txDB := &DB{
+		pgPool:   db.pgPool, // Keep pool reference for access to stateless methods if needed
+		executor: tx,
+		logger:   db.logger,
+	}
+
+	if err := fn(txDB); err != nil {
+		_ = tx.Rollback(ctx)
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+
+	return nil
+}
+
+// LockUnifiedDevices locks the specified IPs in the unified_devices table for update.
+func (db *DB) LockUnifiedDevices(ctx context.Context, ips []string) error {
+	if len(ips) == 0 {
+		return nil
+	}
+	if !db.cnpgConfigured() {
+		return ErrCNPGUnavailable
+	}
+
+	// SELECT ... FOR UPDATE SKIP LOCKED is typical for queue processing,
+	// but here we want to wait for the lock because we intend to update these specific rows.
+	// We use NO KEY UPDATE to avoid blocking foreign key checks if we're not modifying PKs
+	// (though we might modify PK if we delete? No, we update rows).
+	const query = `
+SELECT 1 FROM unified_devices 
+WHERE ip = ANY($1) 
+FOR UPDATE`
+
+	_, err := db.conn().Exec(ctx, query, ips)
+	if err != nil {
+		return fmt.Errorf("failed to lock unified devices: %w", err)
 	}
 
 	return nil
@@ -126,7 +227,7 @@ func (db *DB) QueryCNPGRows(ctx context.Context, query string, args ...interface
 		return nil, ErrCNPGUnavailable
 	}
 
-	rows, err := db.pgPool.Query(ctx, query, args...)
+	rows, err := db.conn().Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +246,7 @@ func (db *DB) ExecCNPG(ctx context.Context, query string, args ...interface{}) e
 		return ErrCNPGUnavailable
 	}
 
-	if _, err := db.pgPool.Exec(ctx, query, args...); err != nil {
+	if _, err := db.conn().Exec(ctx, query, args...); err != nil {
 		return fmt.Errorf("cnpg exec: %w", err)
 	}
 
@@ -158,7 +259,7 @@ func (db *DB) ExecuteQuery(ctx context.Context, query string, params ...interfac
 		return nil, ErrCNPGUnavailable
 	}
 
-	rows, err := db.pgPool.Query(ctx, query, params...)
+	rows, err := db.conn().Query(ctx, query, params...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}

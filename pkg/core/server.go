@@ -146,13 +146,10 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		identityKVCloser = closer
 	}
 
-	// Initialize the NEW authoritative device registry with:
-	// 1. DeviceIdentityResolver - generates stable ServiceRadar UUIDs for devices
-	//    using strong identifiers (MAC, Armis ID) for merging, IP as weak identifier
-	// 2. CNPGIdentityResolver - enriches device updates with canonical metadata from CNPG
+	// Initialize the authoritative device registry with DIRE (Device Identity and Reconciliation Engine)
+	// IdentityEngine uses strong identifiers (armis_id, mac, etc.) for deterministic sr: UUID generation
 	registryOpts := []registry.Option{
-		registry.WithDeviceIdentityResolver(database),
-		registry.WithCNPGIdentityResolver(database),
+		registry.WithIdentityEngine(database),
 		registry.WithIdentityReconciliationConfig(normalizedConfig.Identity),
 	}
 	graphWriter := registry.NewAGEGraphWriter(database, log)

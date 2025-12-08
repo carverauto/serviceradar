@@ -16,6 +16,7 @@
   4. Re-adds the continuous aggregate and retention policies
   5. Recreates the composite view
 - The down migration will be a no-op since the CAGGs will be functionally identical.
+- Add cleanup migration (`00000000000019_remove_unused_caggs.up.sql`) to drop orphaned/unused summary CAGGs and associated policies that were still registering OIDs and triggering cache errors.
 - Add a runbook documenting the manual recovery procedure for operators who encounter this issue between releases.
 - Consider adding a CNPG health check that monitors `timescaledb_information.job_errors` for refresh policy failures and surfaces them in observability.
 

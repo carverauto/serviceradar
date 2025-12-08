@@ -319,6 +319,11 @@ func (p *Planner) supportsRegistry(query string, filters map[string]string) bool
 		return false
 	}
 
+	// Device ID filters require exact matching which the registry doesn't implement.
+	if strings.Contains(q, "device_id:") {
+		return false
+	}
+
 	if filters != nil {
 		if mode := strings.ToLower(filters["engine"]); mode == string(EngineSRQL) {
 			return false

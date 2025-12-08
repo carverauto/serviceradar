@@ -482,3 +482,58 @@ func TestProcessICMPMetricsSkipsWhenAgentMissing(t *testing.T) {
 
 	assert.Empty(t, server.serviceDeviceBuffer, "no device updates should be recorded without agent")
 }
+
+func TestProcessICMPMetricsIgnoresPayloadDeviceIDWhenAgentPresent(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockRegistry := registry.NewMockManager(ctrl)
+	mockRegistry.EXPECT().GetCollectorCapabilities(gomock.Any(), gomock.Any()).Return(nil, false).AnyTimes()
+	mockRegistry.EXPECT().SetCollectorCapabilities(gomock.Any(), gomock.Any()).AnyTimes()
+	mockRegistry.EXPECT().SetDeviceCapabilitySnapshot(gomock.Any(), gomock.Any()).AnyTimes()
+
+	server := &Server{
+		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
+		logger:              logger.NewTestLogger(),
+		DeviceRegistry:      mockRegistry,
+		canonicalCache:      newCanonicalCache(time.Minute),
+		serviceDeviceBuffer: make(map[string]*models.DeviceUpdate),
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	svc := &proto.ServiceStatus{
+		ServiceName: "ping",
+		ServiceType: "icmp",
+		Available:   true,
+	}
+
+	payload := []byte(`{"host":"8.8.4.4","response_time":25,"packet_loss":0,"available":true,"device_id":"default:agent"}`)
+
+	err := server.processICMPMetrics(ctx, "k8s-poller", "default", "agent", "k8s-agent", svc, payload, now)
+	require.NoError(t, err)
+
+	server.serviceDeviceMu.Lock()
+	update, ok := server.serviceDeviceBuffer["serviceradar:agent:k8s-agent"]
+	server.serviceDeviceMu.Unlock()
+	require.True(t, ok, "expected ICMP update to attach to agent service device")
+	assert.Equal(t, "serviceradar:agent:k8s-agent", update.DeviceID)
+	assert.Equal(t, "k8s-agent", update.AgentID)
+	assert.Equal(t, "k8s-poller", update.PollerID)
+	assert.Equal(t, "default", update.Partition)
+
+	server.metricBufferMu.Lock()
+	metrics := server.metricBuffers["k8s-poller"]
+	server.metricBufferMu.Unlock()
+	require.Len(t, metrics, 1, "expected one buffered metric")
+	assert.Equal(t, "serviceradar:agent:k8s-agent", metrics[0].DeviceID)
+
+	var metadata map[string]string
+	require.NoError(t, json.Unmarshal([]byte(metrics[0].Metadata), &metadata))
+	assert.Equal(t, "serviceradar:agent:k8s-agent", metadata["device_id"])
+	assert.Equal(t, "default:agent", metadata["target_device_id"], "target_device_id should preserve payload device hint")
+	assert.Equal(t, "8.8.4.4", metadata["target_host"])
+}

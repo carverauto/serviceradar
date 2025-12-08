@@ -293,10 +293,3 @@ func recordSweepMergeMetrics(merged int, runTime time.Time) {
 	}
 	identityMetricsData.runAgeMs.Store(age.Milliseconds())
 }
-
-// recordBatchIPCollisionMetrics increments the counter for IP collisions resolved in batch deduplication.
-func recordBatchIPCollisionMetrics(collisions int) {
-	identityMetricsOnce.Do(initIdentityMetrics)
-
-	identityMetricsData.batchIPCollisionsTotal.Add(int64(collisions))
-}

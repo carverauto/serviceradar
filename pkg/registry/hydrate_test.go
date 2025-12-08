@@ -20,6 +20,10 @@ func TestHydrateFromStoreLoadsDevices(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
+		return fn(mockDB)
+	}).AnyTimes()
+	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	reg := NewDeviceRegistry(mockDB, logger.NewTestLogger())
 
 	first := time.Unix(1700000000, 0).UTC()
@@ -91,6 +95,10 @@ func TestHydrateFromStorePreservesExistingStateOnError(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
+		return fn(mockDB)
+	}).AnyTimes()
+	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	reg := NewDeviceRegistry(mockDB, logger.NewTestLogger())
 
 	existing := &DeviceRecord{
@@ -118,6 +126,10 @@ func TestHydrateFromStoreHonorsContextCancellation(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
+		return fn(mockDB)
+	}).AnyTimes()
+	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	reg := NewDeviceRegistry(mockDB, logger.NewTestLogger())
 
 	ctx, cancel := context.WithCancel(context.Background())
