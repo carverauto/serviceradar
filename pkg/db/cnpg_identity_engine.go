@@ -66,7 +66,7 @@ func (db *DB) GetDeviceIDByIdentifier(ctx context.Context, identifierType, ident
 	}
 
 	if partition == "" {
-		partition = "default"
+		partition = defaultPartitionValue
 	}
 
 	rows, err := db.conn().Query(ctx, getDeviceIDByIdentifierSQL, identifierType, identifierValue, partition)

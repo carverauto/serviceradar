@@ -155,7 +155,7 @@ func (e *IdentityEngine) ExtractStrongIdentifiers(update *models.DeviceUpdate) *
 	}
 
 	if ids.Partition == "" {
-		ids.Partition = "default"
+		ids.Partition = defaultPartition
 	}
 
 	// Extract MAC

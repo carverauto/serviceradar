@@ -83,6 +83,7 @@ func TestBuildDeviceIdentifierArgs(t *testing.T) {
 			},
 			wantErr: false,
 			validate: func(t *testing.T, args []interface{}) {
+				t.Helper()
 				require.Len(t, args, 10, "expected 10 arguments")
 
 				// Check partition defaults to "default"
@@ -110,6 +111,7 @@ func TestBuildDeviceIdentifierArgs(t *testing.T) {
 			},
 			wantErr: false,
 			validate: func(t *testing.T, args []interface{}) {
+				t.Helper()
 				require.Len(t, args, 10, "expected 10 arguments")
 
 				// Check device_id
@@ -164,6 +166,7 @@ func TestBuildDeviceIdentifierArgs(t *testing.T) {
 			},
 			wantErr: false,
 			validate: func(t *testing.T, args []interface{}) {
+				t.Helper()
 				require.Len(t, args, 10)
 				assert.Equal(t, "default", args[3], "empty partition should default to 'default'")
 				assert.Equal(t, "weak", args[4], "empty confidence should default to 'weak'")
@@ -181,6 +184,7 @@ func TestBuildDeviceIdentifierArgs(t *testing.T) {
 			},
 			wantErr: false,
 			validate: func(t *testing.T, args []interface{}) {
+				t.Helper()
 				require.Len(t, args, 10)
 
 				firstSeen, ok := args[6].(time.Time)
