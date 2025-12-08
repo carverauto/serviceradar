@@ -28,8 +28,8 @@ tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt"] }
 uuid = { version = "1.11.0", features = ["serde", "v4"] }
 bb8 = "0.8"
-tokio-postgres = "0.7"
-tokio-postgres-rustls = "0.12"
+tokio-postgres = "0.7.15"
+tokio-postgres-rustls = "0.13"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 rustls-pemfile = "2.2"
 
