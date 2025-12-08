@@ -126,7 +126,7 @@ export const MetricCard = ({ title, current, unit, warning, critical, change, ic
     const clampedValue = Math.min(Math.max(rawValue, 0), safeMax);
 
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm transition-colors">
             <div className="flex justify-between items-center mb-2">
                 <div className="flex items-center">
                     {icon}

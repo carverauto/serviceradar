@@ -187,7 +187,7 @@ const CriticalLogsWidget = () => {
 
     return (
         <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex flex-col h-[320px] overflow-hidden">
-            <div className="flex justify-between items-start mb-4 flex-shrink-0">
+            <div className="flex justify-between items-start mb-4 shrink-0">
                 <h3 
                     className="font-semibold text-gray-900 dark:text-white cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                     onClick={() => handleLogLevelClick('all')}
@@ -209,7 +209,7 @@ const CriticalLogsWidget = () => {
             
             <div className="flex-1 flex flex-col min-h-0">
                 {/* Stats Summary Table */}
-                <div className="mb-4 flex-shrink-0">
+                <div className="mb-4 shrink-0">
                     <table className="w-full text-sm">
                         <thead>
                             <tr className="border-b border-gray-200 dark:border-gray-700">
@@ -289,7 +289,7 @@ const CriticalLogsWidget = () => {
                                 title={`Click to view ${log.trace_id ? 'related logs for this trace' : 'all ' + formatSeverityForDisplay(log.severity_text) + ' logs'}`}
                             >
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                                    <div className="flex-shrink-0">
+                                    <div className="shrink-0">
                                         {getLevelIcon(log.severity_text)}
                                     </div>
                                     <div className="min-w-0 flex-1">
@@ -305,7 +305,7 @@ const CriticalLogsWidget = () => {
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex-shrink-0 text-blue-600 dark:text-blue-400 opacity-70">
+                                <div className="shrink-0 text-blue-600 dark:text-blue-400 opacity-70">
                                     <ExternalLink size={14} />
                                 </div>
                             </div>

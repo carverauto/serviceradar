@@ -104,7 +104,7 @@ const DeleteDeviceButton: React.FC<DeleteDeviceButtonProps> = ({
         return (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
                 <div className="flex items-start space-x-3 mb-4">
-                    <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                    <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
                     <div>
                         <h3 className="text-lg font-semibold text-red-900 dark:text-red-100 mb-1">
                             Confirm Device Deletion

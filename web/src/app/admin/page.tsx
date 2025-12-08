@@ -145,7 +145,7 @@ export default function AdminPage() {
                 </h2>
                 <Link
                   href="/admin/edge-packages"
-                  className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-100"
+                  className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-100"
                 >
                   <ShieldPlus className="h-3.5 w-3.5" />
                   Edge onboarding
@@ -214,7 +214,7 @@ export default function AdminPage() {
         </div>
 
         {selectedService && (
-          <div className="absolute inset-0 z-20 bg-gray-950/70 backdrop-blur-sm">
+          <div className="absolute inset-0 z-20 bg-gray-950/70 backdrop-blur-xs">
             <div className="flex h-full w-full">
               <div className="flex-1 bg-white dark:bg-gray-950 shadow-2xl flex flex-col overflow-hidden">
                 <ConfigEditor

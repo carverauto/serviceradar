@@ -59,7 +59,7 @@ export default function LoginPage() {
                             id="username"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
-                            className="mt-1 block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
+                            className="mt-1 block w-full px-3 py-2 border rounded-md shadow-xs focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
                             required
                         />
                     </div>
@@ -72,14 +72,14 @@ export default function LoginPage() {
                             id="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            className="mt-1 block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
+                            className="mt-1 block w-full px-3 py-2 border rounded-md shadow-xs focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
                             required
                         />
                     </div>
                     {error && <p className="text-red-500 text-sm">{error}</p>}
                     <button
                         type="submit"
-                        className="w-full py-2 px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                        className="w-full py-2 px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                     >
                         Login
                     </button>

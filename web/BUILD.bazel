@@ -56,10 +56,6 @@ load(
     npm_link_xlsx_store = "npm_link_imported_package_store",
 )
 load(
-    "@npm__tailwindcss-animate__1.0.7_tailwindcss_3.4.17__links//:defs.bzl",
-    npm_link_tailwindcss_animate_store = "npm_link_imported_package_store",
-)
-load(
     "@npm__dagre__0.8.5__links//:defs.bzl",
     npm_link_dagre_store = "npm_link_imported_package_store",
 )
@@ -154,11 +150,6 @@ npm_link_xlsx_store(
     link_alias = "xlsx",
 )
 
-npm_link_tailwindcss_animate_store(
-    name = "node_modules/tailwindcss-animate",
-    link_root_name = "node_modules",
-    link_alias = "tailwindcss-animate",
-)
 npm_link_dagre_store(
     name = "node_modules/dagre",
     link_root_name = "node_modules",
@@ -195,7 +186,6 @@ WEB_TS_SRCS = glob(
         "next.config.bazel.mjs",
         "next.config.ts",
         "next.config.docker.ts",
-        "tailwind.config.ts",
         "src/**/*.ts",
         "src/**/*.tsx",
         "src/**/*.cts",
@@ -313,7 +303,6 @@ nextjs_standalone_build(
         "package.json",
         "pnpm-lock.yaml",
         "postcss.config.mjs",
-        "tailwind.config.ts",
         "tsconfig.json",
     ],
     # Copy sources into the runfiles/bin tree so Turbopack sees an in-tree package.json

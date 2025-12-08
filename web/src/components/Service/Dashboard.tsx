@@ -152,7 +152,7 @@ const Dashboard: React.FC<ServiceDashboardProps> = ({
 
         if (chartData.length === 0) {
             return (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 sm:p-6 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-2">
                         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
                             Response Time
@@ -166,7 +166,7 @@ const Dashboard: React.FC<ServiceDashboardProps> = ({
         }
 
         return (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 sm:p-6 transition-colors">
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-2">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
                         Response Time
@@ -255,7 +255,7 @@ const Dashboard: React.FC<ServiceDashboardProps> = ({
 
         if (serviceData.type === "icmp") {
             return (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 sm:p-6 transition-colors">
                     <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">
                         ICMP Status
                     </h3>
@@ -281,7 +281,7 @@ const Dashboard: React.FC<ServiceDashboardProps> = ({
         if (serviceName.toLowerCase() === "sysmon") {
             // Show a loading state while redirecting
             return (
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 text-center shadow">
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 text-center shadow-sm">
                     <div className="flex justify-center mb-4">
                         <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                     </div>
@@ -324,7 +324,7 @@ const Dashboard: React.FC<ServiceDashboardProps> = ({
                     .map(([key, value]) => (
                         <div
                             key={key}
-                            className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors"
+                            className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 sm:p-6 transition-colors"
                         >
                             <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-100">
                                 {key
@@ -352,13 +352,13 @@ const Dashboard: React.FC<ServiceDashboardProps> = ({
                     <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-32 sm:w-64 animate-pulse"></div>
                     <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-20 sm:w-32 animate-pulse"></div>
                 </div>
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 sm:p-6">
                     <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-24 sm:w-40 mb-4 animate-pulse"></div>
                     <div className="flex justify-between">
                         <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-16 sm:w-24 animate-pulse"></div>
                     </div>
                 </div>
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 sm:p-6">
                     <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-24 sm:w-40 mb-4 animate-pulse"></div>
                     <div className="h-32 sm:h-64 bg-gray-100 dark:bg-gray-700 rounded animate-pulse"></div>
                 </div>
@@ -368,7 +368,7 @@ const Dashboard: React.FC<ServiceDashboardProps> = ({
 
     if (error) {
         return (
-            <div className="bg-red-50 dark:bg-red-900 p-4 sm:p-6 rounded-lg shadow text-red-600 dark:text-red-200">
+            <div className="bg-red-50 dark:bg-red-900 p-4 sm:p-6 rounded-lg shadow-sm text-red-600 dark:text-red-200">
                 <h2 className="text-xl font-bold mb-4">Error Loading Service</h2>
                 <p className="mb-4">{error}</p>
                 <button
@@ -401,7 +401,7 @@ const Dashboard: React.FC<ServiceDashboardProps> = ({
                     Back to Dashboard
                 </button>
             </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 sm:p-6 transition-colors">
                 <div className="flex items-center justify-between">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
                         Service Status

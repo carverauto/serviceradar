@@ -457,7 +457,7 @@ const HighUtilizationWidget: React.FC = () => {
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex-shrink-0 text-blue-600 dark:text-blue-400 opacity-70">
+                                <div className="shrink-0 text-blue-600 dark:text-blue-400 opacity-70">
                                     <ExternalLink size={14} />
                                 </div>
                             </div>
