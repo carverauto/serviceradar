@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -55,6 +56,12 @@ type DB struct {
 	pgPool   *pgxpool.Pool
 	executor PgxExecutor
 	logger   logger.Logger
+
+	// deviceUpdatesMu serializes CNPG device-related batch writes to prevent deadlocks.
+	// This mutex protects cnpgInsertDeviceUpdates, UpsertDeviceIdentifiers, and
+	// StoreNetworkSightings operations from circular lock dependencies.
+	// Using a pointer so transaction-scoped DB copies share the same mutex.
+	deviceUpdatesMu *sync.Mutex
 }
 
 // New creates a new CNPG-backed database connection and initializes the schema.
@@ -82,9 +89,10 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 	}
 
 	db := &DB{
-		pgPool:   cnpgPool,
-		executor: cnpgPool, // Default to pool
-		logger:   log,
+		pgPool:          cnpgPool,
+		executor:        cnpgPool, // Default to pool
+		logger:          log,
+		deviceUpdatesMu: &sync.Mutex{},
 	}
 
 	return db, nil
@@ -178,9 +186,10 @@ func (db *DB) WithTx(ctx context.Context, fn func(tx Service) error) error {
 
 	// Create a shallow copy of DB using the transaction executor
 	txDB := &DB{
-		pgPool:   db.pgPool, // Keep pool reference for access to stateless methods if needed
-		executor: tx,
-		logger:   db.logger,
+		pgPool:          db.pgPool, // Keep pool reference for access to stateless methods if needed
+		executor:        tx,
+		logger:          db.logger,
+		deviceUpdatesMu: db.deviceUpdatesMu, // Share mutex with parent for deadlock prevention
 	}
 
 	if err := fn(txDB); err != nil {

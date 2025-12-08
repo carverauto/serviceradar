@@ -4,6 +4,8 @@ go_library(
     name = "db",
     srcs = [
         "auth.go",
+        "cnpg_device_updates_metrics.go",
+        "cnpg_device_updates_retry.go",
         "cnpg_discovery.go",
         "cnpg_identity_engine.go",
         "cnpg_migrate.go",
@@ -57,6 +59,7 @@ go_library(
 go_test(
     name = "db_test",
     srcs = [
+        "cnpg_device_updates_retry_test.go",
         "cnpg_identity_reconciliation_upserts_test.go",
         "cnpg_metrics_test.go",
         "cnpg_registry_test.go",

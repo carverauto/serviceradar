@@ -79,7 +79,14 @@ func (db *DB) StoreNetworkSightings(ctx context.Context, sightings []*models.Net
 		return nil
 	}
 
-	return db.sendCNPG(ctx, batch, "network sightings")
+	// Serialize network sighting writes to prevent deadlocks.
+	// Uses the same mutex as device updates since sightings may be promoted to devices.
+	if db.deviceUpdatesMu != nil {
+		db.deviceUpdatesMu.Lock()
+		defer db.deviceUpdatesMu.Unlock()
+	}
+
+	return db.sendCNPGWithRetry(ctx, batch, "network_sightings")
 }
 
 func buildNetworkSightingArgs(s *models.NetworkSighting) ([]interface{}, error) {

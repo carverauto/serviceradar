@@ -165,12 +165,15 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 		)
 	}
 
-	br := db.conn().SendBatch(ctx, batch)
-	if err := br.Close(); err != nil {
-		return fmt.Errorf("cnpg device_updates batch: %w", err)
+	// Serialize device updates writes to prevent deadlocks.
+	// Multiple concurrent callers can build batches in parallel,
+	// but only one can execute against the database at a time.
+	if db.deviceUpdatesMu != nil {
+		db.deviceUpdatesMu.Lock()
+		defer db.deviceUpdatesMu.Unlock()
 	}
 
-	return nil
+	return db.sendCNPGWithRetry(ctx, batch, "device_updates")
 }
 
 func (db *DB) cnpgGetUnifiedDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
