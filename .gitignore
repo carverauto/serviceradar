@@ -21,6 +21,7 @@ coverage.txt
 # IDE Cache
 .vscode
 .DS_Store
+.claude/
 
 # Local tool caches
 .beads/
