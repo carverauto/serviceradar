@@ -2,16 +2,16 @@
 
 Use this runbook to confirm the Apache AGE graph (`serviceradar`) is present and usable after bootstrap. The checks cover the mTLS Docker Compose stack and the demo Kubernetes namespace.
 
-## Docker Compose (docker-compose.mtls.yml)
-- Ensure CNPG is up: `docker compose -f docker-compose.mtls.yml ps cnpg`
+## Docker Compose
+- Ensure CNPG is up: `docker compose ps cnpg`
 - Verify graph defaults:
-  - `docker compose -f docker-compose.mtls.yml exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SHOW search_path; SHOW graph_path;"`
+  - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SHOW search_path; SHOW graph_path;"`
   - Expected: `search_path` includes `ag_catalog,"$user",public` and `graph_path` is `serviceradar`.
 - Confirm AGE is ready:
-  - `docker compose -f docker-compose.mtls.yml exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT extname FROM pg_extension WHERE extname='age';"`
-  - `docker compose -f docker-compose.mtls.yml exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT name FROM ag_catalog.ag_graph WHERE name='serviceradar';"`
-  - `docker compose -f docker-compose.mtls.yml exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT name, kind FROM ag_catalog.ag_label WHERE graph=(SELECT oid FROM ag_catalog.ag_graph WHERE name='serviceradar') ORDER BY kind, name;"`
-  - `docker compose -f docker-compose.mtls.yml exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT * FROM ag_catalog.cypher('serviceradar', 'RETURN 1') AS (result agtype);"`
+  - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT extname FROM pg_extension WHERE extname='age';"`
+  - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT name FROM ag_catalog.ag_graph WHERE name='serviceradar';"`
+  - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT name, kind FROM ag_catalog.ag_label WHERE graph=(SELECT oid FROM ag_catalog.ag_graph WHERE name='serviceradar') ORDER BY kind, name;"`
+  - `docker compose exec cnpg psql -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar} -c "SELECT * FROM ag_catalog.cypher('serviceradar', 'RETURN 1') AS (result agtype);"`
 - If any checks fail, rerun migrations (core connects with AGE defaults) or manually create the graph: `CREATE EXTENSION IF NOT EXISTS age; SELECT ag_catalog.create_graph('serviceradar');`.
 
 ## Demo Kubernetes (namespace demo)
