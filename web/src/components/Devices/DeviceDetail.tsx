@@ -1604,7 +1604,7 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
             <select
               value={selectedMetricType}
               onChange={(event) => setSelectedMetricType(event.target.value)}
-              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-blue-500 focus:outline-none focus:ring focus:ring-blue-500/30"
+              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white focus:border-blue-500 focus:outline-hidden focus:ring-3 focus:ring-blue-500/30"
             >
               <option value="all">All Types</option>
               {metricTypes.map((type) => (
@@ -1683,7 +1683,7 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
                   <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
                     Current Service
                   </p>
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100 break-words">
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100 wrap-break-word">
                     {aliasHistory.current_service_id ?? "Unknown"}
                   </p>
                   {aliasHistory.last_seen_at && (
@@ -1729,7 +1729,7 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
                         key={`${svc.id ?? "unknown"}-${svc.last_seen_at ?? "unknown"}`}
                         className="flex items-center justify-between rounded-md bg-gray-50 dark:bg-gray-900/40 px-3 py-2"
                       >
-                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 break-words">
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 wrap-break-word">
                           {svc.id ?? "Unknown service"}
                         </span>
                         <span className="text-xs text-gray-500 dark:text-gray-400 ml-4 whitespace-nowrap">
@@ -1754,7 +1754,7 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
                         key={`${ip.ip ?? "unknown"}-${ip.last_seen_at ?? "unknown"}`}
                         className="flex items-center justify-between rounded-md bg-gray-50 dark:bg-gray-900/40 px-3 py-2"
                       >
-                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 break-words">
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 wrap-break-word">
                           {ip.ip ?? "Unknown IP"}
                         </span>
                         <span className="text-xs text-gray-500 dark:text-gray-400 ml-4 whitespace-nowrap">
@@ -1790,7 +1790,7 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
                 <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
                   {key}
                 </p>
-                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 break-words">
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 wrap-break-word">
                   {value}
                 </p>
               </div>

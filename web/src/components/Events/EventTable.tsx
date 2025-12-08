@@ -135,7 +135,7 @@ const AliasSummaryCard = ({ label, value, previous }: { label: string; value?: s
     return (
         <div className="rounded-md bg-white dark:bg-gray-900/40 border border-indigo-100 dark:border-indigo-700/40 px-3 py-2">
             <p className="text-xs uppercase tracking-wide text-indigo-700 dark:text-indigo-300">{label}</p>
-            <p className="text-sm font-medium text-indigo-900 dark:text-indigo-100 break-words">
+            <p className="text-sm font-medium text-indigo-900 dark:text-indigo-100 wrap-break-word">
                 {displayValue}
             </p>
             {previousText && (

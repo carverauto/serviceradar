@@ -143,7 +143,7 @@ export default function IdentityConfigPage() {
 
       {config && (
         <div className="grid gap-6 lg:grid-cols-2">
-          <section className="space-y-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
+          <section className="space-y-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-xs">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-lg font-medium">Feature Flags</p>
@@ -168,7 +168,7 @@ export default function IdentityConfigPage() {
             </label>
           </section>
 
-          <section className="space-y-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
+          <section className="space-y-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-xs">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-lg font-medium">Promotion</p>
@@ -221,7 +221,7 @@ export default function IdentityConfigPage() {
             </div>
           </section>
 
-          <section className="space-y-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
+          <section className="space-y-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-xs">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-lg font-medium">Fingerprinting</p>
@@ -265,7 +265,7 @@ export default function IdentityConfigPage() {
             </div>
           </section>
 
-          <section className="space-y-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
+          <section className="space-y-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-xs">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-lg font-medium">Reaper</p>
@@ -315,7 +315,7 @@ export default function IdentityConfigPage() {
             </div>
           </section>
 
-          <section className="space-y-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
+          <section className="space-y-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-xs">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-lg font-medium">Drift Protection</p>

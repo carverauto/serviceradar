@@ -87,7 +87,7 @@ const HostDetailsView = ({ host }) => {
     };
 
     return (
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm transition-colors">
             <div className="flex justify-between items-center">
                 <h4 className="text-base sm:text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {host.host}
@@ -244,14 +244,14 @@ const NetworkSweepView = ({ pollerId: pollerId, service, standalone = false }) =
         <div
             className={`space-y-4 ${
                 !standalone &&
-                'bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-colors'
+                'bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 transition-colors'
             }`}
         >
             {/* Header */}
             <div
                 className={`${
                     standalone
-                        ? 'bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-colors'
+                        ? 'bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 transition-colors'
                         : ''
                 }`}
             >
@@ -397,7 +397,7 @@ const NetworkSweepView = ({ pollerId: pollerId, service, standalone = false }) =
 
             {/* ICMP Stats Summary */}
             {respondingHosts.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-colors">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 transition-colors">
                     <h4 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
                         ICMP Status Summary
                     </h4>
@@ -473,7 +473,7 @@ const NetworkSweepView = ({ pollerId: pollerId, service, standalone = false }) =
                 <div
                     className={`${
                         standalone
-                            ? 'bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-colors'
+                            ? 'bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 transition-colors'
                             : ''
                     }`}
                 >

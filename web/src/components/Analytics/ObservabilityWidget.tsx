@@ -111,7 +111,7 @@ const ObservabilityWidget = () => {
 
     return (
         <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex flex-col h-[320px] overflow-hidden">
-            <div className="flex justify-between items-start mb-4 flex-shrink-0">
+            <div className="flex justify-between items-start mb-4 shrink-0">
                 <div className="flex items-center">
                     <h3 className="font-semibold text-gray-900 dark:text-white">Observability</h3>
                     {stats.totalMetrics > 0 && (
@@ -129,7 +129,7 @@ const ObservabilityWidget = () => {
             
             <div className="flex-1 flex flex-col min-h-0">
                 {/* Key Metrics Grid */}
-                <div className="mb-3 flex-shrink-0">
+                <div className="mb-3 shrink-0">
                     <div className="grid grid-cols-2 gap-3">
                         <Link 
                             href="/observability?tab=metrics"
@@ -160,7 +160,7 @@ const ObservabilityWidget = () => {
                 </div>
 
                 {/* Performance Metrics */}
-                <div className="mb-3 flex-shrink-0 space-y-2">
+                <div className="mb-3 shrink-0 space-y-2">
                     <div className="flex justify-between items-center">
                         <div className="flex items-center">
                             <Clock className="h-3 w-3 text-purple-600 dark:text-purple-400 mr-1" />
@@ -195,7 +195,7 @@ const ObservabilityWidget = () => {
                 {/* Recent Slow Spans List */}
                 {recentSlowSpans.length > 0 ? (
                     <div className="flex-1 flex flex-col min-h-0">
-                        <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2 flex-shrink-0">Recent Slow Spans</h4>
+                        <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2 shrink-0">Recent Slow Spans</h4>
                         <div className="space-y-1 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
                             {recentSlowSpans.map((span, index) => (
                                 <Link

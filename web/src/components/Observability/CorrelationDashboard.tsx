@@ -407,7 +407,7 @@ const CorrelationDashboard = ({ initialTraceId }: { initialTraceId?: string }) =
 
                     {/* Stats Cards */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow p-4">
+                        <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-sm p-4">
                             <div className="flex items-center justify-between">
                                 <div>
                                     <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">Logs Found</h4>
@@ -416,7 +416,7 @@ const CorrelationDashboard = ({ initialTraceId }: { initialTraceId?: string }) =
                                 <Activity className="h-8 w-8 text-blue-500" />
                             </div>
                         </div>
-                        <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow p-4">
+                        <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-sm p-4">
                             <div className="flex items-center justify-between">
                                 <div>
                                     <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">Spans Found</h4>
@@ -425,7 +425,7 @@ const CorrelationDashboard = ({ initialTraceId }: { initialTraceId?: string }) =
                                 <Clock className="h-8 w-8 text-green-500" />
                             </div>
                         </div>
-                        <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow p-4">
+                        <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-sm p-4">
                             <div className="flex items-center justify-between">
                                 <div>
                                     <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">Metrics Found</h4>

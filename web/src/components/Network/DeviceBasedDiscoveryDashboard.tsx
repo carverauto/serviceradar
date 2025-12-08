@@ -73,9 +73,9 @@ type ViewMode = 'grid' | 'table';
 const DISCOVERY_RESULTS_LIMIT = 50;
 const statCardButtonClass = (isActive: boolean): string =>
     [
-        'w-full text-left bg-white dark:bg-gray-800 p-4 rounded-lg shadow border transition',
+        'w-full text-left bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border transition',
         'hover:border-gray-300 dark:hover:border-gray-600',
-        'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
+        'focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500',
         'focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900',
         isActive
             ? 'border-blue-500 dark:border-blue-400 ring-1 ring-blue-300 dark:ring-blue-500/40'
@@ -508,7 +508,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     // Error state
     if (error && devices.length === 0 && interfaces.length === 0) {
         return (
-            <div className="bg-red-50 dark:bg-red-900/20 p-6 rounded-lg shadow">
+            <div className="bg-red-50 dark:bg-red-900/20 p-6 rounded-lg shadow-sm">
                 <div className="flex items-center mb-4">
                     <AlertCircle className="h-6 w-6 text-red-500 mr-2" />
                     <h2 className="text-xl font-bold text-red-700 dark:text-red-400">
@@ -529,7 +529,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => router.push('/network')}
@@ -617,7 +617,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                     </div>
                 </button>
 
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm text-gray-500 dark:text-gray-400">Last Updated</p>
@@ -631,7 +631,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
             </div>
 
             {/* Filters and Search */}
-            <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+            <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                 <div className="flex flex-col lg:flex-row gap-4">
                     <div className="flex-1">
                         <div className="relative">
@@ -692,14 +692,14 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
 
             {/* No Data State */}
             {filteredData.devices.length === 0 && filteredData.interfaces.length === 0 && searchTerm === '' && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center shadow">
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center shadow-sm">
                     <Monitor className="h-12 w-12 mx-auto text-gray-400 mb-3" />
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">No Discovery Data</h3>
                     <p className="text-gray-500 dark:text-gray-400">No discovered devices or interfaces found.</p>
                 </div>
             )}
             {filteredData.devices.length === 0 && filteredData.interfaces.length === 0 && searchTerm !== '' && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center shadow">
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center shadow-sm">
                     <Search className="h-12 w-12 mx-auto text-gray-400 mb-3" />
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">No Matching Results</h3>
                     <p className="text-gray-500 dark:text-gray-400">No devices or interfaces match your search query &quot;{searchTerm}&quot;.</p>
@@ -707,7 +707,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
             )}
 
             {filterType === 'interfaces' && interfaceGroups.length === 0 && filteredData.interfaces.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center shadow">
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center shadow-sm">
                     <Network className="h-12 w-12 mx-auto text-gray-400 mb-3" />
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Interfaces discovered, but no device grouping</h3>
                     <p className="text-gray-500 dark:text-gray-400">
@@ -718,7 +718,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
 
             {/* Devices Section */}
             {filterType !== 'interfaces' && filteredData.devices.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                             <Monitor className="h-5 w-5" />
@@ -843,7 +843,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
 
             {/* Interfaces Section (grouped by device) */}
             {interfaceGroups.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                             <Network className="h-5 w-5" />

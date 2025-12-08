@@ -126,7 +126,7 @@ const StatCard = ({
       type={onClick ? "button" : undefined}
       onClick={onClick}
       aria-pressed={isActive}
-      className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg ${onClick ? "text-left transition hover:border-gray-400 dark:hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-900 " + ringColors[colorScheme] : ""} ${isActive ? "border-blue-500 dark:border-blue-400" : ""}`}
+      className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg ${onClick ? "text-left transition hover:border-gray-400 dark:hover:border-gray-600 focus:outline-hidden focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-900 " + ringColors[colorScheme] : ""} ${isActive ? "border-blue-500 dark:border-blue-400" : ""}`}
     >
       <div className="flex items-center">
         <div className={`p-3 ${bgColors[colorScheme]} rounded-lg mr-4`}>

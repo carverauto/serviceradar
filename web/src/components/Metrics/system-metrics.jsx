@@ -118,7 +118,7 @@ const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = nu
     const combinedChartData = getCombinedChartData(data);
 
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm transition-colors">
             <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                 <div className="flex flex-wrap justify-between items-center">
                     <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">System Metrics</h2>

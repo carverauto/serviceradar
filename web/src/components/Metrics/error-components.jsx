@@ -23,9 +23,9 @@ export const ErrorMessage = ({
                                  onRetry
                              }) => {
     return (
-        <div className="bg-white dark:bg-gray-800 border border-red-200 dark:border-red-900/30 rounded-lg p-5 text-gray-600 dark:text-gray-300 shadow">
+        <div className="bg-white dark:bg-gray-800 border border-red-200 dark:border-red-900/30 rounded-lg p-5 text-gray-600 dark:text-gray-300 shadow-sm">
             <div className="flex items-start">
-                <AlertTriangle className="text-red-500 dark:text-red-400 mr-3 mt-1 flex-shrink-0" />
+                <AlertTriangle className="text-red-500 dark:text-red-400 mr-3 mt-1 shrink-0" />
                 <div>
                     <h3 className="font-semibold text-red-600 dark:text-red-400 mb-1">{title}</h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">{message}</p>
@@ -64,7 +64,7 @@ export const EmptyState = ({
     const Icon = icon;
 
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-8 flex flex-col items-center justify-center text-center shadow">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-8 flex flex-col items-center justify-center text-center shadow-sm">
             <Icon className="text-gray-500 dark:text-gray-400 mb-3" size={32} />
             <p className="text-gray-500 dark:text-gray-400 mb-4">{message}</p>
 
@@ -103,7 +103,7 @@ export const PartialErrorIndicator = ({ metricName, onRetry }) => {
 
 export const LoadingState = ({ message = "Loading metrics data..." }) => {
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-8 flex flex-col items-center justify-center text-center shadow">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-8 flex flex-col items-center justify-center text-center shadow-sm">
             <div className="flex space-x-2 mb-4">
                 <div className="w-2 h-2 rounded-full bg-blue-400 dark:bg-blue-300 animate-bounce"></div>
                 <div className="w-2 h-2 rounded-full bg-blue-400 dark:bg-blue-300 animate-bounce delay-150"></div>

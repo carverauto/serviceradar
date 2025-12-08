@@ -520,7 +520,7 @@ const DeviceGraphCanvas: React.FC<DeviceGraphCanvasProps> = ({
           fontFamily: FONT_FAMILY,
           letterSpacing: "-0.01em",
         }}
-        className="w-full rounded-md border border-gray-200 bg-white text-gray-900 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+        className="w-full rounded-md border border-gray-200 bg-white text-gray-900 shadow-xs dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
         shapeRendering="geometricPrecision"
         textRendering="optimizeLegibility"
       >

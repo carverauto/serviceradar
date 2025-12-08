@@ -427,8 +427,8 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
             )}
 
             {error && (
-                <div className="bg-red-900/20 border border-red-500/30 p-4 rounded-lg shadow flex items-start">
-                    <AlertTriangle className="h-5 w-5 text-red-500 mr-3 flex-shrink-0" />
+                <div className="bg-red-900/20 border border-red-500/30 p-4 rounded-lg shadow-sm flex items-start">
+                    <AlertTriangle className="h-5 w-5 text-red-500 mr-3 shrink-0" />
                     <div>
                         <h3 className="text-md font-semibold text-red-700 dark:text-red-400">
                             Error

@@ -113,7 +113,7 @@ const StatCard = ({
     success: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200",
   };
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3 shadow-sm">
+    <div className="flex items-center gap-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3 shadow-xs">
       <div className={`p-2 rounded-full ${toneClasses[tone]}`}>{icon}</div>
       <div>
         <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
@@ -341,7 +341,7 @@ const SightingsDashboard: React.FC<{
           addHint("Meets promotion policy and is eligible for auto-promotion.");
         }
         if (promo.shadow_mode && promo.meets_policy) {
-          addHint("Promotion is in shadow mode; decisions are simulated without auto-attaching devices.");
+          addHint("Promotion is in shadow-sm mode; decisions are simulated without auto-attaching devices.");
         }
         promo.blockers?.forEach(addHint);
         if (promo.next_eligible_at) {
@@ -805,7 +805,7 @@ const SightingsDashboard: React.FC<{
             type="button"
             onClick={handleReconcile}
             disabled={reconciling}
-            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-blue-700 disabled:opacity-60"
           >
             <ShieldCheck className={`h-4 w-4 ${reconciling ? "animate-pulse" : ""}`} />
             Trigger reconcile
@@ -841,7 +841,7 @@ const SightingsDashboard: React.FC<{
       ) : null}
 
       {prefillMissing ? (
-        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-white dark:bg-gray-800 shadow-sm">
+        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-white dark:bg-gray-800 shadow-xs">
           <div className="flex items-center justify-between border-b border-amber-100 dark:border-amber-800 px-4 py-3">
             <div>
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Linked sighting history</h3>
@@ -895,7 +895,7 @@ const SightingsDashboard: React.FC<{
         </div>
       ) : null}
 
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xs">
         <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-4 py-3">
           <div>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Historical sighting lookup</h3>
@@ -909,7 +909,7 @@ const SightingsDashboard: React.FC<{
               value={historyLookupId}
               onChange={(e) => setHistoryLookupId(e.target.value)}
               placeholder="sighting UUID"
-              className="w-48 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-48 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
             />
             <button
               type="button"
@@ -924,14 +924,14 @@ const SightingsDashboard: React.FC<{
               value={historyActorFilter}
               onChange={(e) => setHistoryActorFilter(e.target.value)}
               placeholder="actor filter"
-              className="w-40 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-40 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
             />
             <input
               type="text"
               value={historyPartitionFilter}
               onChange={(e) => setHistoryPartitionFilter(e.target.value)}
               placeholder="partition filter"
-              className="w-40 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-40 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
             />
             <button
               type="button"
@@ -1007,7 +1007,7 @@ const SightingsDashboard: React.FC<{
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2 space-y-3">
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xs">
             <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 dark:border-gray-700 px-4 py-3">
               <div className="flex flex-1 flex-wrap gap-3">
                 <input
@@ -1015,19 +1015,19 @@ const SightingsDashboard: React.FC<{
                   value={filters.search}
                   onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
                   placeholder="Search IP, hostname, MAC, or partition"
-                  className="w-full sm:w-64 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full sm:w-64 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 />
                 <input
                   type="text"
                   value={filters.partition}
                   onChange={(e) => setFilters((prev) => ({ ...prev, partition: e.target.value }))}
                   placeholder="Partition filter"
-                  className="w-full sm:w-48 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full sm:w-48 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 />
                 <select
                   value={filters.source}
                   onChange={(e) => setFilters((prev) => ({ ...prev, source: e.target.value }))}
-                  className="w-full sm:w-44 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full sm:w-44 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="all">All sources</option>
                   {uniqueSources.map((src) => (
@@ -1248,7 +1248,7 @@ const SightingsDashboard: React.FC<{
         </div>
 
         <div className="space-y-3">
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xs">
             <div className="border-b border-gray-200 dark:border-gray-700 px-4 py-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -1366,7 +1366,7 @@ const SightingsDashboard: React.FC<{
                     value={dismissReason}
                     onChange={(e) => setDismissReason(e.target.value)}
                     rows={2}
-                    className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                     placeholder="Why are you promoting or dismissing this sighting?"
                   />
                   <div className="flex flex-wrap gap-2">
@@ -1396,7 +1396,7 @@ const SightingsDashboard: React.FC<{
             )}
           </div>
 
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xs">
             <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-4 py-3">
               <div>
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Audit trail</h3>
@@ -1451,7 +1451,7 @@ const SightingsDashboard: React.FC<{
         </div>
 
         <div className="space-y-3">
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xs">
             <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-4 py-3">
               <div>
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Subnet policies</h3>
@@ -1528,7 +1528,7 @@ const SightingsDashboard: React.FC<{
             </div>
           </div>
 
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xs">
             <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-4 py-3">
               <div>
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Merge history</h3>
@@ -1542,7 +1542,7 @@ const SightingsDashboard: React.FC<{
                   value={mergeDeviceFilter}
                   onChange={(e) => setMergeDeviceFilter(e.target.value)}
                   placeholder="Filter by device ID"
-                  className="w-44 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-xs text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-44 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-xs text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                 />
                 <button
                   type="button"
