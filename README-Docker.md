@@ -4,8 +4,8 @@ This guide gets you started with ServiceRadar using Docker Compose in under 5 mi
 
 ## Prerequisites
 
-- Docker Engine 20.10+
-- Docker Compose 2.0+
+- Docker Engine 20.10+ (or Podman 4.0+ with podman-compose)
+- Docker Compose 2.0+ (or podman-compose)
 - 8GB+ RAM
 - 50GB+ disk space
 
@@ -43,6 +43,48 @@ newgrp docker
 ### macOS
 
 Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and ensure it's running.
+
+### Podman (Alternative to Docker)
+
+Podman is a drop-in replacement for Docker available on most Linux distributions. ServiceRadar works with Podman but requires **rootful mode** due to privileged containers and low port bindings.
+
+**AlmaLinux 9 / RHEL 9 / Rocky Linux 9:**
+```bash
+# Install Podman and compose
+sudo dnf install -y podman podman-compose
+
+# Enable Podman socket for compose compatibility
+sudo systemctl enable --now podman.socket
+```
+
+**Ubuntu / Debian:**
+```bash
+sudo apt-get update
+sudo apt-get install -y podman podman-compose
+```
+
+**Running ServiceRadar with Podman:**
+```bash
+# Must use sudo for privileged containers and port 80/514/162
+sudo podman-compose up -d
+
+# Or with podman compose (v4.7+)
+sudo podman compose up -d
+
+# View logs
+sudo podman-compose logs config-updater | grep "Password:"
+```
+
+**Why rootful mode is required:**
+- The `agent` service uses `privileged: true` for network scanning
+- Ports 80, 514, and 162 require root to bind (< 1024)
+- Some init containers run as `user: "0:0"`
+
+**SELinux considerations (RHEL/AlmaLinux):**
+```bash
+# Allow container cgroup management
+sudo setsebool -P container_manage_cgroup on
+```
 
 ## Quick Start
 
