@@ -4,8 +4,8 @@ This guide gets you started with ServiceRadar using Docker Compose in under 5 mi
 
 ## Prerequisites
 
-- Docker Engine 20.10+ (or Podman 4.0+ with podman-compose)
-- Docker Compose 2.0+ (or podman-compose)
+- Docker Engine 20.10+ with Docker Compose 2.0+, or
+- Podman 4.0+ with podman-compose
 - 8GB+ RAM
 - 50GB+ disk space
 
@@ -50,29 +50,37 @@ Podman is a drop-in replacement for Docker available on most Linux distributions
 
 **AlmaLinux 9 / RHEL 9 / Rocky Linux 9:**
 ```bash
-# Install Podman and compose
-sudo dnf install -y podman podman-compose
-
-# Enable Podman socket for compose compatibility
-sudo systemctl enable --now podman.socket
+# Install Podman and podman-compose
+sudo dnf install -y podman python3-pip
+sudo pip3 install podman-compose
 ```
 
 **Ubuntu / Debian:**
 ```bash
 sudo apt-get update
-sudo apt-get install -y podman podman-compose
+sudo apt-get install -y podman python3-pip
+sudo pip3 install podman-compose
 ```
 
 **Running ServiceRadar with Podman:**
-```bash
-# Must use sudo for privileged containers and port 80/514/162
-sudo podman-compose up -d
 
-# Or with podman compose (v4.7+)
-sudo podman compose up -d
+Due to `podman-compose` limitations with dependency ordering, use the provided startup script:
+
+```bash
+# First time or clean start
+sudo ./podman-start.sh --clean
+
+# Subsequent starts
+sudo ./podman-start.sh
 
 # View logs
-sudo podman-compose logs config-updater | grep "Password:"
+sudo podman logs serviceradar-config-updater-mtls | grep "Password:"
+
+# Check status
+sudo podman ps
+
+# Stop all services
+sudo /usr/local/bin/podman-compose down
 ```
 
 **Why rootful mode is required:**
@@ -81,8 +89,18 @@ sudo podman-compose logs config-updater | grep "Password:"
 - Some init containers run as `user: "0:0"`
 
 **SELinux considerations (RHEL/AlmaLinux):**
+
+SELinux blocks bind mounts by default. Choose one of these options:
+
 ```bash
-# Allow container cgroup management
+# Option 1: Temporarily set SELinux to permissive (easiest)
+sudo setenforce 0
+
+# Option 2: Relabel the project directory for container access
+sudo chcon -Rt svirt_sandbox_file_t /path/to/serviceradar/docker
+sudo chcon -Rt svirt_sandbox_file_t /path/to/serviceradar/packaging
+
+# Option 3: Allow container cgroup management (may still need option 1 or 2)
 sudo setsebool -P container_manage_cgroup on
 ```
 
