@@ -372,7 +372,6 @@ use_repo(
     "org_golang_google_protobuf",
     "org_golang_x_crypto",
     "org_golang_x_net",
-    "org_golang_x_sync",
     "org_golang_x_sys",
     "org_uber_go_mock",
 )
@@ -794,17 +793,17 @@ http_file(
 
 http_file(
     name = "debian_gcc_15_base_amd64_deb",
-    sha256 = "34ea21b3311a1b9f16b8d0965d29bd3bcfb3229d4ef2a1dffbb2df39f3dee826",
+    sha256 = "3eab40ad4dba67170f888de69d76926ae2f0a1ba6839de46adc9ab991d5b433a",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/gcc-15/gcc-15-base_15.2.0-7_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/g/gcc-15/gcc-15-base_15.2.0-10_amd64.deb",
     ],
 )
 
 http_file(
     name = "debian_libgcc_s1_amd64_deb",
-    sha256 = "0d56299901b686d451936c268745a30ecff508d2eb9f0960e6a1fa84e60c4f0f",
+    sha256 = "e19e7e4f02b021fab8df3ecbc7347a66d9490759f70a5df00bc0c4a6506531fe",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/gcc-15/libgcc-s1_15.2.0-7_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/g/gcc-15/libgcc-s1_15.2.0-10_amd64.deb",
     ],
 )
 
