@@ -29,7 +29,6 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4.1.17",
     "tailwindcss-animate": "^1.0.7",
     "@types/d3-hierarchy": "^3.1.7",
@@ -54,7 +53,8 @@
       "unrs-resolver"
     ],
     "overrides": {
-      "brace-expansion@<1.1.12": "^1.1.12"
+      "brace-expansion@<1.1.12": "^1.1.12",
+      "js-yaml@>=4.0.0 <4.1.1": "^4.1.1"
     }
   },
   "overrides": {
