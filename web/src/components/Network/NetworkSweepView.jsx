@@ -15,7 +15,6 @@
  */
 
 import { useState, useMemo } from 'react';
-import ExportButton from '../Utils/ExportButton';
 import { Filter, Search, ChevronDown, ChevronUp, Info, X } from 'lucide-react';
 import { formatTimestampForDisplay } from '@/utils/traceTimestamp';
 
@@ -298,9 +297,6 @@ const NetworkSweepView = ({ pollerId: pollerId, service, standalone = false }) =
                                 Host Details
                             </button>
                         </div>
-                        <div className="hidden sm:block">
-                            <ExportButton sweepDetails={sweepDetails}/>
-                        </div>
                     </div>
                 </div>
 
@@ -385,10 +381,6 @@ const NetworkSweepView = ({ pollerId: pollerId, service, standalone = false }) =
                         </button>
                     </div>
                 )}
-
-                <div className="sm:hidden mt-4">
-                    <ExportButton sweepDetails={sweepDetails} />
-                </div>
 
                 <div className="text-sm text-gray-500 dark:text-gray-400 mt-2">
                     Last sweep: {new Date(sweepDetails.last_sweep * 1000).toLocaleString()}

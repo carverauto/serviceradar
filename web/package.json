@@ -25,8 +25,7 @@
     "reactflow": "^11.11.4",
     "recharts": "^2.15.1",
     "styled-jsx": "^5.1.6",
-    "use-debounce": "^10.0.5",
-    "xlsx": "^0.18.5"
+    "use-debounce": "^10.0.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.17",
