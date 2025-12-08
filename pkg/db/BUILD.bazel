@@ -57,6 +57,7 @@ go_library(
 go_test(
     name = "db_test",
     srcs = [
+        "cnpg_identity_reconciliation_upserts_test.go",
         "cnpg_metrics_test.go",
         "cnpg_registry_test.go",
         "cnpg_edge_onboarding_test.go",

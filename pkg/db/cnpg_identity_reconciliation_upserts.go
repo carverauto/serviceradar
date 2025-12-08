@@ -125,6 +125,9 @@ func buildDeviceIdentifierArgs(id *models.DeviceIdentifier) ([]interface{}, erro
 			return nil, fmt.Errorf("metadata: %w", err)
 		}
 		metadata = json.RawMessage(bytes)
+	} else {
+		// Database has NOT NULL constraint with DEFAULT '{}', but explicit NULL bypasses default
+		metadata = json.RawMessage("{}")
 	}
 
 	return []interface{}{
