@@ -247,19 +247,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		if err := r.identityEngine.ResolveDeviceIDs(ctx, valid); err != nil {
 			r.logger.Warn().Err(err).Msg("Device identity resolution failed")
 		}
-
-		// Ensure canonical_device_id metadata matches the resolved device ID.
-		// This is required for the stats aggregator to correctly count devices.
-		for _, u := range valid {
-			if u == nil || u.DeviceID == "" {
-				continue
-			}
-			if u.Metadata == nil {
-				u.Metadata = make(map[string]string)
-			}
-			// Always set canonical_device_id to match the resolved device ID
-			u.Metadata["canonical_device_id"] = u.DeviceID
-		}
+		ensureCanonicalDeviceIDMetadata(valid)
 	}
 
 	// Step 4: Register device identifiers (DB unique constraint prevents duplicates)
@@ -1883,6 +1871,20 @@ func isAuthoritativeServiceUpdate(update *models.DeviceUpdate) bool {
 	}
 
 	return isServiceDeviceID(update.DeviceID)
+}
+
+// ensureCanonicalDeviceIDMetadata sets canonical_device_id metadata to match DeviceID for all updates.
+// This is required for the stats aggregator's isCanonicalRecord check to correctly count devices.
+func ensureCanonicalDeviceIDMetadata(updates []*models.DeviceUpdate) {
+	for _, u := range updates {
+		if u == nil || u.DeviceID == "" {
+			continue
+		}
+		if u.Metadata == nil {
+			u.Metadata = make(map[string]string)
+		}
+		u.Metadata["canonical_device_id"] = u.DeviceID
+	}
 }
 
 func (r *DeviceRegistry) GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {

@@ -1524,3 +1524,260 @@ func TestReconcileSightingsPromotesEligibleSightings(t *testing.T) {
 	err := registry.ReconcileSightings(ctx)
 	require.NoError(t, err)
 }
+
+// TestProcessBatchDeviceUpdates_SetsCanonicalDeviceIDMetadata verifies that after identity
+// resolution, all published updates have canonical_device_id metadata set to match their DeviceID.
+// This is required for the stats aggregator to correctly count devices (isCanonicalRecord check).
+func TestProcessBatchDeviceUpdates_SetsCanonicalDeviceIDMetadata(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger, WithIdentityEngine(mockDB))
+
+	testCases := []struct {
+		name   string
+		update *models.DeviceUpdate
+	}{
+		{
+			name: "device with armis_device_id",
+			update: &models.DeviceUpdate{
+				IP:          "10.0.0.1",
+				DeviceID:    "default:10.0.0.1",
+				Partition:   "default",
+				Source:      models.DiscoverySourceArmis,
+				Timestamp:   time.Now(),
+				IsAvailable: true,
+				Metadata: map[string]string{
+					"armis_device_id": "armis-12345",
+				},
+			},
+		},
+		{
+			name: "device with MAC address only",
+			update: &models.DeviceUpdate{
+				IP:          "10.0.0.2",
+				DeviceID:    "default:10.0.0.2",
+				Partition:   "default",
+				Source:      models.DiscoverySourceArmis,
+				Timestamp:   time.Now(),
+				IsAvailable: true,
+				MAC:         strPtr("AA:BB:CC:DD:EE:FF"),
+				Metadata:    map[string]string{},
+			},
+		},
+		{
+			name: "device with no metadata initially",
+			update: &models.DeviceUpdate{
+				IP:          "10.0.0.3",
+				DeviceID:    "default:10.0.0.3",
+				Partition:   "default",
+				Source:      models.DiscoverySourceArmis,
+				Timestamp:   time.Now(),
+				IsAvailable: true,
+				Metadata: map[string]string{
+					"armis_device_id": "armis-67890",
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var published []*models.DeviceUpdate
+			mockDB.EXPECT().
+				PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+				DoAndReturn(func(_ context.Context, batch []*models.DeviceUpdate) error {
+					published = append([]*models.DeviceUpdate(nil), batch...)
+					return nil
+				})
+
+			err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{tc.update})
+			require.NoError(t, err)
+			require.Len(t, published, 1, "should publish one update")
+
+			pub := published[0]
+			require.NotNil(t, pub.Metadata, "metadata should not be nil")
+
+			canonicalID := pub.Metadata["canonical_device_id"]
+			require.NotEmpty(t, canonicalID, "canonical_device_id should be set in metadata")
+			assert.Equal(t, pub.DeviceID, canonicalID,
+				"canonical_device_id should match DeviceID for stats aggregator compatibility")
+
+			// Verify the device ID is a proper ServiceRadar UUID (sr: prefix)
+			require.True(t, strings.HasPrefix(pub.DeviceID, "sr:"),
+				"DeviceID should be a ServiceRadar UUID after identity resolution")
+		})
+	}
+}
+
+// TestProcessBatchDeviceUpdates_CanonicalDeviceIDMatchesForStatsAggregator specifically tests
+// the scenario that caused the device count regression: ensuring records pass isCanonicalRecord check.
+func TestProcessBatchDeviceUpdates_CanonicalDeviceIDMatchesForStatsAggregator(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	allowCanonicalizationQueries(mockDB)
+	testLogger := logger.NewTestLogger()
+	registry := NewDeviceRegistry(mockDB, testLogger, WithIdentityEngine(mockDB))
+
+	// Simulate a batch of devices like faker would generate
+	updates := make([]*models.DeviceUpdate, 100)
+	for i := 0; i < 100; i++ {
+		updates[i] = &models.DeviceUpdate{
+			IP:          fmt.Sprintf("10.0.%d.%d", i/256, i%256),
+			DeviceID:    fmt.Sprintf("default:10.0.%d.%d", i/256, i%256),
+			Partition:   "default",
+			Source:      models.DiscoverySourceArmis,
+			Timestamp:   time.Now(),
+			IsAvailable: true,
+			Metadata: map[string]string{
+				"armis_device_id": fmt.Sprintf("armis-%d", i),
+			},
+		}
+	}
+
+	var published []*models.DeviceUpdate
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, batch []*models.DeviceUpdate) error {
+			published = append(published, batch...)
+			return nil
+		})
+
+	err := registry.ProcessBatchDeviceUpdates(ctx, updates)
+	require.NoError(t, err)
+	require.Len(t, published, 100, "should publish all 100 updates")
+
+	// Verify ALL published updates would pass isCanonicalRecord check
+	nonCanonicalCount := 0
+	for i, pub := range published {
+		if pub.Metadata == nil {
+			t.Errorf("update %d: metadata is nil", i)
+			nonCanonicalCount++
+			continue
+		}
+
+		canonicalID := strings.TrimSpace(pub.Metadata["canonical_device_id"])
+		deviceID := strings.TrimSpace(pub.DeviceID)
+
+		if canonicalID == "" {
+			t.Errorf("update %d: canonical_device_id is empty", i)
+			nonCanonicalCount++
+			continue
+		}
+
+		if !strings.EqualFold(canonicalID, deviceID) {
+			t.Errorf("update %d: canonical_device_id (%s) != DeviceID (%s)", i, canonicalID, deviceID)
+			nonCanonicalCount++
+		}
+	}
+
+	assert.Zero(t, nonCanonicalCount,
+		"all updates should pass isCanonicalRecord check (canonical_device_id == device_id)")
+}
+
+// TestProcessBatchDeviceUpdates_SweepAttachedToCanonicalGetsMetadata verifies that
+// when a sweep is attached to an existing canonical device, both the DeviceID and
+// canonical_device_id metadata are set correctly.
+func TestProcessBatchDeviceUpdates_SweepAttachedToCanonicalGetsMetadata(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	testLogger := logger.NewTestLogger()
+
+	canonicalDeviceID := "sr:test-canonical-device"
+	sweepIP := "10.99.99.99"
+
+	// Set up ExecuteQuery mock FIRST (before any AnyTimes() fallbacks)
+	// This is used by resolveIdentifiers for IP-to-canonical resolution
+	mockDB.EXPECT().
+		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, query string, _ ...interface{}) ([]map[string]interface{}, error) {
+			// Return canonical device mapping for IP query
+			if strings.Contains(query, sweepIP) {
+				return []map[string]interface{}{
+					{"ip": sweepIP, "device_id": canonicalDeviceID},
+				}, nil
+			}
+			return []map[string]interface{}{}, nil
+		}).
+		AnyTimes()
+
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, ips []string, deviceIDs []string) ([]*models.UnifiedDevice, error) {
+			if len(ips) > 0 {
+				return []*models.UnifiedDevice{
+					{
+						DeviceID: canonicalDeviceID,
+						IP:       ips[0],
+					},
+				}, nil
+			}
+			return []*models.UnifiedDevice{}, nil
+		}).
+		AnyTimes()
+
+	mockDB.EXPECT().
+		GetDeviceIDByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return("", nil).
+		AnyTimes()
+
+	mockDB.EXPECT().
+		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, nil).
+		AnyTimes()
+
+	mockDB.EXPECT().
+		UpsertDeviceIdentifiers(gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
+
+	var published []*models.DeviceUpdate
+	mockDB.EXPECT().
+		PublishBatchDeviceUpdates(gomock.Any(), gomock.AssignableToTypeOf([]*models.DeviceUpdate{})).
+		DoAndReturn(func(_ context.Context, batch []*models.DeviceUpdate) error {
+			published = append(published, batch...)
+			return nil
+		})
+
+	cfg := &models.IdentityReconciliationConfig{
+		Enabled: true,
+	}
+
+	registry := NewDeviceRegistry(
+		mockDB,
+		testLogger,
+		WithIdentityReconciliationConfig(cfg),
+		WithIdentityEngine(mockDB),
+	)
+
+	// Process a sweep update
+	sweepUpdate := &models.DeviceUpdate{
+		IP:          sweepIP,
+		DeviceID:    "default:" + sweepIP,
+		Partition:   "default",
+		Source:      models.DiscoverySourceSweep,
+		Timestamp:   time.Now(),
+		IsAvailable: true,
+		Metadata:    map[string]string{},
+	}
+
+	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{sweepUpdate})
+	require.NoError(t, err)
+	require.Len(t, published, 1, "attached sweep should be published")
+
+	pub := published[0]
+	assert.Equal(t, canonicalDeviceID, pub.DeviceID,
+		"sweep should be attached to canonical device ID")
+	assert.Equal(t, canonicalDeviceID, pub.Metadata["canonical_device_id"],
+		"canonical_device_id metadata should match attached DeviceID")
+}
