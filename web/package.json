@@ -52,7 +52,10 @@
     ],
     "onlyBuiltDependencies": [
       "unrs-resolver"
-    ]
+    ],
+    "overrides": {
+      "brace-expansion@<1.1.12": "^1.1.12"
+    }
   },
   "overrides": {
     "@types/react": "19.2.2",
