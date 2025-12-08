@@ -1,4 +1,4 @@
-import set from 'lodash.set';
+import set from 'lodash/set';
 
 // Centralized guards against prototype pollution when performing deep property sets.
 const dangerousKeys = ['__proto__', 'constructor', 'prototype'] as const;
