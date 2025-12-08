@@ -1,13 +1,12 @@
 use anyhow::Result;
 use async_nats::jetstream;
 use log::info;
-use zen_engine::{handler::custom_node_adapter::NoopCustomNode, DecisionEngine};
+use zen_engine::{nodes::custom::NoopCustomNode, DecisionEngine};
 
 use crate::config::Config;
 use crate::kv_loader::KvLoader;
 
-pub type EngineType = DecisionEngine<KvLoader, NoopCustomNode>;
-pub type SharedEngine = std::sync::Arc<EngineType>;
+pub type SharedEngine = std::sync::Arc<DecisionEngine>;
 
 pub async fn build_engine(cfg: &Config, js: &jetstream::Context) -> Result<SharedEngine> {
     let store = js.get_key_value(&cfg.kv_bucket).await?;

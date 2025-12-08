@@ -1,3 +1,5 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use async_nats::jetstream::kv::Store;
@@ -30,18 +32,20 @@ impl KvLoader {
                     })?;
                 Ok(Arc::new(content))
             }
-            Ok(None) => Err(LoaderError::NotFound(key.to_string()).into()),
+            Ok(None) => Err(LoaderError::NotFound(key.to_string())),
             Err(e) => Err(LoaderError::Internal {
                 key: key.to_string(),
                 source: e.into(),
-            }
-            .into()),
+            }),
         }
     }
 }
 
 impl DecisionLoader for KvLoader {
-    async fn load<'a>(&'a self, key: &'a str) -> LoaderResponse {
-        self.load_from_kv(key).await
+    fn load<'a>(
+        &'a self,
+        key: &'a str,
+    ) -> Pin<Box<dyn Future<Output = LoaderResponse> + 'a + Send>> {
+        Box::pin(self.load_from_kv(key))
     }
 }
