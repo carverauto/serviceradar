@@ -83,10 +83,13 @@ func TestBuildDeviceIdentifierArgs(t *testing.T) {
 			},
 			wantErr: false,
 			validate: func(t *testing.T, args []interface{}) {
-				require.Len(t, args, 9, "expected 9 arguments")
+				require.Len(t, args, 10, "expected 10 arguments")
+
+				// Check partition defaults to "default"
+				assert.Equal(t, "default", args[3], "partition should default to 'default'")
 
 				// Check metadata is not nil and is valid empty JSON object
-				metadata := args[8]
+				metadata := args[9]
 				require.NotNil(t, metadata, "metadata should not be nil (was causing NOT NULL constraint violations)")
 
 				rawJSON, ok := metadata.(json.RawMessage)
@@ -100,13 +103,14 @@ func TestBuildDeviceIdentifierArgs(t *testing.T) {
 				DeviceID:   "sr:abc-123",
 				IDType:     "mac",
 				IDValue:    "AABBCCDDEEFF",
+				Partition:  "test-partition",
 				Confidence: "strong",
 				Source:     "sweep",
 				Metadata:   map[string]string{"vendor": "Cisco", "model": "Switch"},
 			},
 			wantErr: false,
 			validate: func(t *testing.T, args []interface{}) {
-				require.Len(t, args, 9, "expected 9 arguments")
+				require.Len(t, args, 10, "expected 10 arguments")
 
 				// Check device_id
 				assert.Equal(t, "sr:abc-123", args[0])
@@ -117,14 +121,17 @@ func TestBuildDeviceIdentifierArgs(t *testing.T) {
 				// Check id_value
 				assert.Equal(t, "AABBCCDDEEFF", args[2])
 
+				// Check partition
+				assert.Equal(t, "test-partition", args[3])
+
 				// Check confidence
-				assert.Equal(t, "strong", args[3])
+				assert.Equal(t, "strong", args[4])
 
 				// Check source
-				assert.Equal(t, "sweep", args[4])
+				assert.Equal(t, "sweep", args[5])
 
 				// Check metadata is not nil and contains expected data
-				metadata := args[8]
+				metadata := args[9]
 				require.NotNil(t, metadata, "metadata should not be nil")
 
 				rawJSON, ok := metadata.(json.RawMessage)
@@ -157,8 +164,9 @@ func TestBuildDeviceIdentifierArgs(t *testing.T) {
 			},
 			wantErr: false,
 			validate: func(t *testing.T, args []interface{}) {
-				require.Len(t, args, 9)
-				assert.Equal(t, "weak", args[3], "empty confidence should default to 'weak'")
+				require.Len(t, args, 10)
+				assert.Equal(t, "default", args[3], "empty partition should default to 'default'")
+				assert.Equal(t, "weak", args[4], "empty confidence should default to 'weak'")
 			},
 		},
 		{
@@ -173,13 +181,13 @@ func TestBuildDeviceIdentifierArgs(t *testing.T) {
 			},
 			wantErr: false,
 			validate: func(t *testing.T, args []interface{}) {
-				require.Len(t, args, 9)
+				require.Len(t, args, 10)
 
-				firstSeen, ok := args[5].(time.Time)
+				firstSeen, ok := args[6].(time.Time)
 				require.True(t, ok, "first_seen should be time.Time")
 				assert.False(t, firstSeen.IsZero(), "zero first_seen should be sanitized to current time")
 
-				lastSeen, ok := args[6].(time.Time)
+				lastSeen, ok := args[7].(time.Time)
 				require.True(t, ok, "last_seen should be time.Time")
 				assert.False(t, lastSeen.IsZero(), "zero last_seen should be sanitized to current time")
 			},
@@ -247,10 +255,10 @@ func TestBuildDeviceIdentifierArgs_NullMetadataRegression(t *testing.T) {
 
 			args, err := buildDeviceIdentifierArgs(id)
 			require.NoError(t, err)
-			require.Len(t, args, 9)
+			require.Len(t, args, 10)
 
 			// The critical assertion: metadata must NOT be nil
-			metadata := args[8]
+			metadata := args[9]
 			require.NotNil(t, metadata, "metadata must not be nil to avoid NOT NULL constraint violation")
 
 			// Should be valid JSON

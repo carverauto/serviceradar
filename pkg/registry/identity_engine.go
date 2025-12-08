@@ -606,11 +606,17 @@ func (e *IdentityEngine) RegisterDeviceIdentifiers(ctx context.Context, deviceID
 	// Insert each strong identifier using models.DeviceIdentifier
 	identifiers := make([]*models.DeviceIdentifier, 0, 4)
 
+	partition := ids.Partition
+	if partition == "" {
+		partition = "default"
+	}
+
 	if ids.ArmisID != "" {
 		identifiers = append(identifiers, &models.DeviceIdentifier{
 			DeviceID:   deviceID,
 			IDType:     IdentifierTypeArmis,
 			IDValue:    ids.ArmisID,
+			Partition:  partition,
 			Confidence: "strong",
 		})
 	}
@@ -619,6 +625,7 @@ func (e *IdentityEngine) RegisterDeviceIdentifiers(ctx context.Context, deviceID
 			DeviceID:   deviceID,
 			IDType:     IdentifierTypeIntegration,
 			IDValue:    ids.IntegrationID,
+			Partition:  partition,
 			Confidence: "strong",
 		})
 	}
@@ -627,6 +634,7 @@ func (e *IdentityEngine) RegisterDeviceIdentifiers(ctx context.Context, deviceID
 			DeviceID:   deviceID,
 			IDType:     IdentifierTypeNetbox,
 			IDValue:    ids.NetboxID,
+			Partition:  partition,
 			Confidence: "strong",
 		})
 	}
@@ -635,6 +643,7 @@ func (e *IdentityEngine) RegisterDeviceIdentifiers(ctx context.Context, deviceID
 			DeviceID:   deviceID,
 			IDType:     IdentifierTypeMAC,
 			IDValue:    ids.MAC,
+			Partition:  partition,
 			Confidence: "strong",
 		})
 	}

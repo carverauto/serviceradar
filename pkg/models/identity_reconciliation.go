@@ -33,6 +33,7 @@ type DeviceIdentifier struct {
 	DeviceID   string            `json:"device_id"`
 	IDType     string            `json:"id_type"`
 	IDValue    string            `json:"id_value"`
+	Partition  string            `json:"partition,omitempty"`
 	Confidence string            `json:"confidence"`
 	Source     string            `json:"source,omitempty"`
 	FirstSeen  time.Time         `json:"first_seen"`

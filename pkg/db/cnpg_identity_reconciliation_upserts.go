@@ -16,8 +16,9 @@ import (
 const upsertDeviceIdentifiersSQL = `
 INSERT INTO device_identifiers (
 	device_id,
-	id_type,
-	id_value,
+	identifier_type,
+	identifier_value,
+	partition,
 	confidence,
 	source,
 	first_seen,
@@ -25,9 +26,9 @@ INSERT INTO device_identifiers (
 	verified,
 	metadata
 ) VALUES (
-	$1,$2,$3,$4,$5,$6,$7,$8,$9
+	$1,$2,$3,$4,$5,$6,$7,$8,$9,$10
 )
-ON CONFLICT (id_type, id_value) DO UPDATE SET
+ON CONFLICT (identifier_type, identifier_value, partition) DO UPDATE SET
 	device_id = EXCLUDED.device_id,
 	confidence = EXCLUDED.confidence,
 	source = EXCLUDED.source,
@@ -108,6 +109,11 @@ func buildDeviceIdentifierArgs(id *models.DeviceIdentifier) ([]interface{}, erro
 		return nil, errIDValueMissing
 	}
 
+	partition := strings.TrimSpace(id.Partition)
+	if partition == "" {
+		partition = "default"
+	}
+
 	confidence := strings.TrimSpace(id.Confidence)
 	if confidence == "" {
 		confidence = "weak"
@@ -134,6 +140,7 @@ func buildDeviceIdentifierArgs(id *models.DeviceIdentifier) ([]interface{}, erro
 		devID,
 		idType,
 		idValue,
+		partition,
 		confidence,
 		source,
 		firstSeen,
