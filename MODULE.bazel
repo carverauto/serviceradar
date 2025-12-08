@@ -519,7 +519,7 @@ crates.spec(
     ],
     package = "pprof",
     repositories = ["rust_crates_profiler"],
-    version = "0.14.1",
+    version = "0.15.0",
 )
 crates.spec(
     package = "prost",
@@ -587,7 +587,7 @@ use_repo(
 )
 crates.from_cargo(
     name = "rust_crates_profiler",
-    cargo_lockfile = "//cmd/ebpf/profiler/profiler:Cargo.lock",
+    cargo_lockfile = "//cmd/ebpf/profiler:Cargo.lock",
     manifests = ["//cmd/ebpf/profiler:Cargo.toml"],
 )
 use_repo(
