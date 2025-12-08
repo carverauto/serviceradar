@@ -1,3 +1,19 @@
+# ServiceRadar v1.0.65
+
+Security patch release addressing multiple Dependabot alerts.
+
+## Whats New
+
+**1.0.65**
+- Upgraded Tailwind CSS from v3 to v4.1.17 to remediate glob vulnerability; migrated to CSS-first configuration.
+- Fixed brace-expansion vulnerability via pnpm override to force v1.1.12.
+- Fixed js-yaml vulnerability via pnpm override to force v4.1.1.
+- Removed xlsx dependency and ExportButton component to eliminate SheetJS vulnerability (no patched version on npm).
+- Switched lodash.set to lodash/set from patched lodash 4.17.21 to fix prototype pollution vulnerability.
+- Upgraded pprof from 0.14 to 0.15 in ebpf profiler to use patched protobuf 3.7.2.
+- Cleaned up orphaned Cargo.lock files and fixed MODULE.bazel profiler lockfile path.
+- Updated GitHub workflow to use pnpm instead of npm for web linting.
+
 # ServiceRadar v1.0.64
 
 Edge onboarding support for Rust sysmon checker.
