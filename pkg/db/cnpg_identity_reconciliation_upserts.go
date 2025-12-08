@@ -86,7 +86,14 @@ func (db *DB) UpsertDeviceIdentifiers(ctx context.Context, identifiers []*models
 		return nil
 	}
 
-	return db.sendCNPG(ctx, batch, "device identifiers")
+	// Serialize device identifier writes to prevent deadlocks.
+	// Uses the same mutex as device updates since both operate on related data.
+	if db.deviceUpdatesMu != nil {
+		db.deviceUpdatesMu.Lock()
+		defer db.deviceUpdatesMu.Unlock()
+	}
+
+	return db.sendCNPGWithRetry(ctx, batch, "device_identifiers")
 }
 
 func buildDeviceIdentifierArgs(id *models.DeviceIdentifier) ([]interface{}, error) {
