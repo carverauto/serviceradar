@@ -735,7 +735,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
                                   {agentAddOptions.length === 0 ? 'No descriptors' : 'Add service'}
                                 </button>
                                 {openAddMenuFor === key && agentAddOptions.length > 0 && (
-                                  <div className="absolute z-20 mt-1 w-48 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow">
+                                  <div className="absolute z-20 mt-1 w-48 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
                                     {agentAddOptions.map((option) => (
                                       <button
                                         key={option.type}

@@ -1143,7 +1143,7 @@ export default function EdgePackagesPage() {
             <button
               type="button"
               onClick={() => openFormFor(formState.componentType || 'poller')}
-              className="inline-flex items-center gap-2 rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              className="inline-flex items-center gap-2 rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-xs hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
               <Plus className="h-4 w-4" />
               Issue edge package
@@ -1155,7 +1155,7 @@ export default function EdgePackagesPage() {
                 setActionError(null);
                 void loadPackages();
               }}
-              className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-gray-900 dark:text-gray-200 dark:border-gray-700 dark:hover:bg-gray-800"
+              className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-gray-900 dark:text-gray-200 dark:border-gray-700 dark:hover:bg-gray-800"
               disabled={loading}
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -1176,7 +1176,7 @@ export default function EdgePackagesPage() {
         )}
 
         {formOpen && (
-          <div className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
+          <div className="rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700 dark:bg-gray-900">
             <form onSubmit={handleCreate} className="space-y-6 p-6">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
@@ -1185,7 +1185,7 @@ export default function EdgePackagesPage() {
                   </div>
                   <button
                     type="submit"
-                    className="inline-flex items-center gap-2 self-start rounded-md border border-transparent bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-70 sm:self-auto"
+                    className="inline-flex items-center gap-2 self-start rounded-md border border-transparent bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-xs hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-70 sm:self-auto"
                     disabled={formSubmitting}
                   >
                     {formSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
@@ -1200,7 +1200,7 @@ export default function EdgePackagesPage() {
                   </span>
                   <input
                     required
-                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                     value={formState.label}
                     onChange={(event) => handleFormChange('label', event.target.value)}
                     placeholder="Edge component label"
@@ -1212,7 +1212,7 @@ export default function EdgePackagesPage() {
                     Component type <span className="text-red-500">*</span>
                   </span>
                   <select
-                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                     value={formState.componentType || 'poller'}
                     onChange={(event) => handleComponentTypeChange(event.target.value as EdgeComponentType)}
                   >
@@ -1258,7 +1258,7 @@ export default function EdgePackagesPage() {
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">Component ID (optional)</span>
                   <input
-                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                     value={formState.componentId}
                     onChange={(event) => handleFormChange('componentId', event.target.value)}
                     placeholder="Auto-generated from label if omitted"
@@ -1278,7 +1278,7 @@ export default function EdgePackagesPage() {
                       Poller ID {formState.componentType === 'checker' ? '(optional override)' : '(optional)'}
                     </span>
                     <input
-                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                       value={formState.pollerId}
                       onChange={(event) => handleFormChange('pollerId', event.target.value)}
                       placeholder="Will be generated if omitted"
@@ -1296,7 +1296,7 @@ export default function EdgePackagesPage() {
                     </span>
                     <input
                       required
-                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                       value={formState.parentId}
                       onChange={(event) => handleFormChange('parentId', event.target.value)}
                       placeholder={
@@ -1339,7 +1339,7 @@ export default function EdgePackagesPage() {
                     </span>
                     <input
                       required
-                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                       value={formState.checkerKind}
                       onChange={(event) => handleFormChange('checkerKind', event.target.value)}
                       placeholder="sysmon, snmp, rperf"
@@ -1358,7 +1358,7 @@ export default function EdgePackagesPage() {
                     <span className="font-medium">Checker config JSON (optional)</span>
                     <textarea
                       rows={3}
-                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                       value={formState.checkerConfigJSON}
                       onChange={(event) => handleFormChange('checkerConfigJSON', event.target.value)}
                       placeholder='{"template": "sysmon"}'
@@ -1371,7 +1371,7 @@ export default function EdgePackagesPage() {
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">Site (optional)</span>
                   <input
-                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                     value={formState.site}
                     onChange={(event) => handleFormChange('site', event.target.value)}
                     placeholder="Edge location or facility"
@@ -1382,7 +1382,7 @@ export default function EdgePackagesPage() {
                   <label className="flex flex-col gap-1 text-sm">
                     <span className="font-medium">Downstream SPIFFE ID (optional)</span>
                     <input
-                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                       value={formState.downstreamSPIFFEID}
                       onChange={(event) => handleFormChange('downstreamSPIFFEID', event.target.value)}
                       placeholder="Override default template"
@@ -1397,7 +1397,7 @@ export default function EdgePackagesPage() {
                   <input
                     type="number"
                     min="0"
-                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                     value={formState.joinTTLMinutes}
                     onChange={(event) => handleFormChange('joinTTLMinutes', event.target.value)}
                   />
@@ -1408,7 +1408,7 @@ export default function EdgePackagesPage() {
                   <input
                     type="number"
                     min="0"
-                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                     value={formState.downloadTTLMinutes}
                     onChange={(event) => handleFormChange('downloadTTLMinutes', event.target.value)}
                   />
@@ -1420,7 +1420,7 @@ export default function EdgePackagesPage() {
                   <span className="font-medium">SPIRE selectors (newline or comma separated)</span>
                   <textarea
                     rows={3}
-                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                    className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                     value={formState.selectors}
                     onChange={(event) => handleFormChange('selectors', event.target.value)}
                     placeholder="k8s_psat:cluster:demo&#10;unix:group:root"
@@ -1436,7 +1436,7 @@ export default function EdgePackagesPage() {
                 <span className="font-medium">Metadata JSON (optional)</span>
                 <textarea
                   rows={3}
-                  className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                  className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                   value={formState.metadataJSON}
                   onChange={(event) => handleFormChange('metadataJSON', event.target.value)}
                   placeholder='{"asset_id": "edge-01"}'
@@ -1447,7 +1447,7 @@ export default function EdgePackagesPage() {
                 <span className="font-medium">Notes (optional)</span>
                 <textarea
                   rows={2}
-                  className="rounded border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                  className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
                   value={formState.notes}
                   onChange={(event) => handleFormChange('notes', event.target.value)}
                   placeholder="Additional operator guidance"
@@ -1463,7 +1463,7 @@ export default function EdgePackagesPage() {
               <div className="flex justify-end gap-3">
                 <button
                   type="button"
-                  className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                  className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
                   onClick={() => {
                     setFormOpen(false);
                     resetForm();
@@ -1474,7 +1474,7 @@ export default function EdgePackagesPage() {
                 </button>
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-2 rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-70"
+                  className="inline-flex items-center gap-2 rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-xs hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-70"
                   disabled={formSubmitting}
                 >
                   {formSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
@@ -1492,7 +1492,7 @@ export default function EdgePackagesPage() {
         )}
 
         <div className="flex flex-1 flex-col gap-6 overflow-hidden">
-          <div className="flex-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
+          <div className="flex-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700 dark:bg-gray-900">
             <div className="max-h-96 overflow-auto">
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
                 <thead className="bg-gray-50 dark:bg-gray-950">
@@ -1686,7 +1686,7 @@ export default function EdgePackagesPage() {
 
           <div className="grid flex-1 grid-cols-1 gap-6 lg:grid-cols-3">
             <div className="space-y-6 lg:col-span-2">
-              <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+              <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-xs dark:border-gray-700 dark:bg-gray-900">
                 {!selectedPackage ? (
                   <div className="flex flex-col items-center justify-center gap-3 py-10 text-center text-gray-500 dark:text-gray-400">
                     <Network className="h-8 w-8" />
@@ -1712,7 +1712,7 @@ export default function EdgePackagesPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        className="inline-flex items-center gap-2 rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                        className="inline-flex items-center gap-2 rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
                         onClick={() => setSelectedId(null)}
                       >
                         Back to list
@@ -1720,7 +1720,7 @@ export default function EdgePackagesPage() {
                       {selectedPackage.status === 'revoked' && (
                         <button
                           type="button"
-                          className="inline-flex items-center gap-2 rounded border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-900/10"
+                          className="inline-flex items-center gap-2 rounded border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 focus:outline-hidden focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-900/10"
                           onClick={() => void handleDelete(selectedPackage)}
                           disabled={actionLoading}
                         >
@@ -1854,7 +1854,7 @@ export default function EdgePackagesPage() {
                 )}
               </div>
 
-              <div className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
+              <div className="rounded-lg border border-gray-200 bg-white shadow-xs dark:border-gray-700 dark:bg-gray-900">
                 <div className="flex items-center justify-between border-b border-gray-200 px-5 py-3 dark:border-gray-800">
                   <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
                     <CalendarClock className="h-4 w-4" />
@@ -1918,7 +1918,7 @@ export default function EdgePackagesPage() {
             </div>
 
             <div className="space-y-6">
-              <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+              <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-xs dark:border-gray-700 dark:bg-gray-900">
                 <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
                   <Link2 className="h-4 w-4" />
                   Installer artifacts
@@ -2043,7 +2043,7 @@ export default function EdgePackagesPage() {
               {selectedPackage.status === 'issued' && (
                 <button
                   type="button"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-transparent bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-70"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-transparent bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-xs hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-70"
                   onClick={() => void handleDownload(selectedPackage, selectedSecrets?.downloadToken)}
                   disabled={actionLoading}
                 >
@@ -2054,7 +2054,7 @@ export default function EdgePackagesPage() {
                 {selectedSecrets?.structuredToken && selectedSecurityMode === 'mtls' && (
                   <button
                     type="button"
-                    className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+                    className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
                     onClick={() => copyToClipboard(selectedSecrets.structuredToken, 'ONBOARDING_TOKEN')}
                   >
                         <Copy className="h-4 w-4" />
@@ -2065,7 +2065,7 @@ export default function EdgePackagesPage() {
                 )}
               </div>
 
-              <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+              <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-xs dark:border-gray-700 dark:bg-gray-900">
                 <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
                   <AlertTriangle className="h-4 w-4" />
                   Operational notes

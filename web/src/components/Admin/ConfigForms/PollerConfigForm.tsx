@@ -94,7 +94,7 @@ const Section = ({ id, title, description, actions, children }: SectionProps) =>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{description}</p>
         )}
       </div>
-      {actions ? <div className="flex-shrink-0">{actions}</div> : null}
+      {actions ? <div className="shrink-0">{actions}</div> : null}
     </div>
     {children}
   </section>
@@ -260,7 +260,7 @@ export default function PollerConfigForm({ config, onChange }: PollerConfigFormP
               <a
                 key={item.id}
                 href={`#${item.id}`}
-                className="flex-shrink-0 rounded-full border border-gray-200 dark:border-gray-700 px-3 py-1 text-sm text-gray-700 dark:text-gray-200"
+                className="shrink-0 rounded-full border border-gray-200 dark:border-gray-700 px-3 py-1 text-sm text-gray-700 dark:text-gray-200"
               >
                 {item.label}
               </a>

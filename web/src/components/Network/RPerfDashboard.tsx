@@ -298,7 +298,7 @@ const RperfDashboard = ({
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                 <div className="flex items-center gap-2">
                     <button
                         onClick={handleBackToDashboard}
@@ -327,7 +327,7 @@ const RperfDashboard = ({
                                 onClick={() => handleTimeRangeChange(range)}
                                 className={`px-3 py-1 rounded-md text-sm transition-colors ${
                                     timeRange === range
-                                        ? "bg-blue-500 text-white shadow-sm"
+                                        ? "bg-blue-500 text-white shadow-xs"
                                         : "text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
                                 }`}
                             >
@@ -339,7 +339,7 @@ const RperfDashboard = ({
             </div>
 
             {error && (
-                <div className="bg-red-50 dark:bg-red-900/30 p-4 rounded-lg shadow">
+                <div className="bg-red-50 dark:bg-red-900/30 p-4 rounded-lg shadow-sm">
                     <div className="flex items-center">
                         <AlertCircle className="h-5 w-5 text-red-500 dark:text-red-400 mr-2" />
                         <div className="text-red-600 dark:text-red-300 font-medium">{error}</div>
@@ -348,21 +348,21 @@ const RperfDashboard = ({
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                     <div className="text-sm text-gray-500 dark:text-gray-400">Average Bandwidth</div>
                     <div className="text-2xl font-bold text-gray-800 dark:text-gray-100 mt-1">
                         {formatBandwidth(averages.bandwidth)}
                     </div>
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Target: 8 Mbps</div>
                 </div>
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                     <div className="text-sm text-gray-500 dark:text-gray-400">Average Jitter</div>
                     <div className="text-2xl font-bold text-gray-800 dark:text-gray-100 mt-1">
                         {formatJitter(averages.jitter)}
                     </div>
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Target: &lt; 2.0 ms</div>
                 </div>
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                     <div className="text-sm text-gray-500 dark:text-gray-400">Average Packet Loss</div>
                     <div className="text-2xl font-bold text-gray-800 dark:text-gray-100 mt-1">
                         {formatLoss(averages.loss)}
@@ -371,7 +371,7 @@ const RperfDashboard = ({
                 </div>
             </div>
 
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
                 <h4 className="text-md font-medium mb-2 text-gray-800 dark:text-gray-100">Bandwidth (Mbps)</h4>
                 <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
@@ -417,7 +417,7 @@ const RperfDashboard = ({
                 </div>
             </div>
 
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
                 <h4 className="text-md font-medium mb-2 text-gray-800 dark:text-gray-100">Jitter (ms)</h4>
                 <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
@@ -463,7 +463,7 @@ const RperfDashboard = ({
                 </div>
             </div>
 
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
                 <h4 className="text-md font-medium mb-2 text-gray-800 dark:text-gray-100">Packet Loss (%)</h4>
                 <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">

@@ -879,7 +879,7 @@ export default function CoreConfigForm({ config, onChange }: CoreConfigFormProps
               <a
                 key={item.id}
                 href={`#${item.id}`}
-                className="flex-shrink-0 rounded-full border border-gray-200 dark:border-gray-700 px-3 py-1 text-sm text-gray-700 dark:text-gray-200"
+                className="shrink-0 rounded-full border border-gray-200 dark:border-gray-700 px-3 py-1 text-sm text-gray-700 dark:text-gray-200"
               >
                 {item.label}
               </a>

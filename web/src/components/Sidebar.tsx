@@ -60,7 +60,7 @@ export default function Sidebar() {
     }, []);
 
     return (
-        <aside className="w-60 flex-shrink-0 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 flex flex-col border-r border-gray-200 dark:border-gray-700">
+        <aside className="w-60 shrink-0 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 flex flex-col border-r border-gray-200 dark:border-gray-700">
             <div className="h-16 flex items-center gap-2 px-4 border-b border-gray-200 dark:border-gray-700">
                 <Image src="/serviceRadar.svg" alt="ServiceRadar Logo" width={36} height={36} />
                 <Link href="/" className="text-xl font-bold text-gray-800 dark:text-white">

@@ -333,7 +333,7 @@ export default function WatcherTelemetryPanel({ kvStoreHints = [] }: WatcherTele
   );
 
   return (
-    <section className="border-b border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900/70">
+    <section className="border-b border-gray-200 bg-white p-4 shadow-xs dark:border-gray-700 dark:bg-gray-900/70">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Activity className="h-4 w-4 text-blue-600" />
@@ -346,7 +346,7 @@ export default function WatcherTelemetryPanel({ kvStoreHints = [] }: WatcherTele
           <label className="flex items-center gap-1 text-[11px] font-medium text-gray-600 dark:text-gray-300">
             <span>KV store</span>
             <select
-              className="rounded border border-gray-300 bg-white px-2 py-0.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              className="rounded border border-gray-300 bg-white px-2 py-0.5 text-xs text-gray-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               value={selectedStore}
               onChange={(e) => setSelectedStore(e.target.value)}
             >

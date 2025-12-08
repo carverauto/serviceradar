@@ -42,7 +42,7 @@ interface ChipListProps {
 const ChipList = ({ items = [], placeholder, addLabel = 'Add', onAdd, onRemove, emptyHint }: ChipListProps) => {
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap gap-2 min-h-[2.25rem]">
+      <div className="flex flex-wrap gap-2 min-h-9">
         {items.length === 0 && emptyHint ? (
           <span className="text-sm text-gray-500 dark:text-gray-400">{emptyHint}</span>
         ) : null}

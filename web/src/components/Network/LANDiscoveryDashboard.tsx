@@ -534,7 +534,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
     // Error state
     if (error && discoveryData.devices.length === 0 && discoveryData.interfaces.length === 0) {
         return (
-            <div className="bg-red-50 dark:bg-red-900/20 p-6 rounded-lg shadow">
+            <div className="bg-red-50 dark:bg-red-900/20 p-6 rounded-lg shadow-sm">
                 <div className="flex items-center mb-4">
                     <AlertCircle className="h-6 w-6 text-red-500 mr-2" />
                     <h2 className="text-xl font-bold text-red-700 dark:text-red-400">
@@ -555,7 +555,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => router.push('/pollers')}
@@ -596,7 +596,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm text-gray-500 dark:text-gray-400">Total Devices</p>
@@ -608,7 +608,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                     </div>
                 </div>
 
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm text-gray-500 dark:text-gray-400">Active Devices</p>
@@ -620,7 +620,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                     </div>
                 </div>
 
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm text-gray-500 dark:text-gray-400">Interfaces</p>
@@ -632,7 +632,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                     </div>
                 </div>
 
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm text-gray-500 dark:text-gray-400">Last Discovery</p>
@@ -648,7 +648,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
             </div>
 
             {/* Filters and Search */}
-            <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+            <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                 <div className="flex flex-col lg:flex-row gap-4">
                     <div className="flex-1">
                         <div className="relative">
@@ -703,14 +703,14 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
 
             {/* No Data State */}
             {filteredData.devices.length === 0 && filteredData.interfaces.length === 0 && searchTerm === '' && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center shadow">
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center shadow-sm">
                     <Monitor className="h-12 w-12 mx-auto text-gray-400 mb-3" />
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">No Devices or Interfaces Discovered</h3>
                     <p className="text-gray-500 dark:text-gray-400">The LAN Discovery service has not found any network entities.</p>
                 </div>
             )}
             {filteredData.devices.length === 0 && filteredData.interfaces.length === 0 && searchTerm !== '' && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center shadow">
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center shadow-sm">
                     <Search className="h-12 w-12 mx-auto text-gray-400 mb-3" />
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">No Matching Results</h3>
                     <p className="text-gray-500 dark:text-gray-400">No devices or interfaces match your search query &quot;{searchTerm}&quot;.</p>
@@ -720,7 +720,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
 
             {/* Devices Section */}
             {filteredData.devices.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                             <Monitor className="h-5 w-5" />
@@ -857,7 +857,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
 
             {/* Interfaces Section */}
             {filteredData.interfaces.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                             <Network className="h-5 w-5" />

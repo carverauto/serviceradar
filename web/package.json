@@ -25,12 +25,13 @@
     "reactflow": "^11.11.4",
     "recharts": "^2.15.1",
     "styled-jsx": "^5.1.6",
-    "tailwindcss-animate": "^1.0.7",
     "use-debounce": "^10.0.5",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4.1.17",
+    "tailwindcss-animate": "^1.0.7",
     "@types/d3-hierarchy": "^3.1.7",
     "@types/dagre": "^0.7.52",
     "@types/lodash": "^4.17.16",
@@ -41,7 +42,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.0.7",
     "postcss": "8.5.6",
-    "tailwindcss": "^3.4.1",
+    "tailwindcss": "^4.1.17",
     "typescript": "5.8.3",
     "vitest": "^4.0.1"
   },

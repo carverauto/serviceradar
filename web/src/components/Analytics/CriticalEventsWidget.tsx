@@ -252,7 +252,7 @@ const CriticalEventsWidget: React.FC = () => {
                                 title={`Click to view related events for ${event.host} with ${event.severity} severity`}
                             >
                                 <div className="flex items-center space-x-2 flex-1 min-w-0">
-                                    <div className="flex-shrink-0">
+                                    <div className="shrink-0">
                                         {getSeverityIcon(event.severity || 'unknown')}
                                     </div>
                                     <div className="flex-1 min-w-0">
@@ -268,7 +268,7 @@ const CriticalEventsWidget: React.FC = () => {
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex-shrink-0 text-blue-600 dark:text-blue-400 opacity-70">
+                                <div className="shrink-0 text-blue-600 dark:text-blue-400 opacity-70">
                                     <ExternalLink size={14} />
                                 </div>
                             </div>

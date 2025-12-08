@@ -281,7 +281,7 @@ const DuskDashboard = ({ initialDuskService = null, pollerId, initialError = nul
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Card 1: Poller Status */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors">
             <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-100">
               Poller Status
             </h3>
@@ -297,7 +297,7 @@ const DuskDashboard = ({ initialDuskService = null, pollerId, initialError = nul
           </div>
 
           {/* Card 2: Current Height */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors">
             <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-100">
               Current Height
             </h3>
@@ -307,7 +307,7 @@ const DuskDashboard = ({ initialDuskService = null, pollerId, initialError = nul
           </div>
 
           {/* Card 3: Latest Hash */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors">
             <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-100">
               Latest Hash
             </h3>

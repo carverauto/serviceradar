@@ -211,7 +211,7 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({
     return (
         <div className="space-y-6">
             {/* Service selector */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
                 <div className="flex items-center space-x-3 mb-4">
                     <Server className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                     <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">

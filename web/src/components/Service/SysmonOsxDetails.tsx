@@ -159,7 +159,7 @@ const SysmonOsxDetails: React.FC<SysmonOsxDetailsProps> = ({ service, details })
 
     if (!parsedDetails) {
         return (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors">
                 <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-2">
                     sysmon-osx Status
                 </h3>
@@ -207,7 +207,7 @@ const SysmonOsxDetails: React.FC<SysmonOsxDetailsProps> = ({ service, details })
     return (
         <div className="space-y-6 transition-colors">
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex items-center justify-between">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 flex items-center justify-between">
                     <div>
                         <p className="text-sm text-gray-500 dark:text-gray-400">Availability</p>
                         <p className="text-xl font-semibold text-gray-900 dark:text-gray-100">
@@ -216,7 +216,7 @@ const SysmonOsxDetails: React.FC<SysmonOsxDetailsProps> = ({ service, details })
                     </div>
                     <Activity className={`h-8 w-8 ${parsedDetails.available ? 'text-green-500' : 'text-red-500'}`} />
                 </div>
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex items-center justify-between">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 flex items-center justify-between">
                     <div>
                         <p className="text-sm text-gray-500 dark:text-gray-400">Response Time</p>
                         <p className="text-xl font-semibold text-gray-900 dark:text-gray-100">
@@ -225,7 +225,7 @@ const SysmonOsxDetails: React.FC<SysmonOsxDetailsProps> = ({ service, details })
                     </div>
                     <Clock className="h-8 w-8 text-blue-500" />
                 </div>
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex items-center justify-between">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 flex items-center justify-between">
                     <div>
                         <p className="text-sm text-gray-500 dark:text-gray-400">CPU Cores</p>
                         <p className="text-xl font-semibold text-gray-900 dark:text-gray-100">
@@ -234,7 +234,7 @@ const SysmonOsxDetails: React.FC<SysmonOsxDetailsProps> = ({ service, details })
                     </div>
                     <Cpu className="h-8 w-8 text-purple-500" />
                 </div>
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 flex items-center justify-between">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 flex items-center justify-between">
                     <div>
                         <p className="text-sm text-gray-500 dark:text-gray-400">Average CPU Usage</p>
                         <p className="text-xl font-semibold text-gray-900 dark:text-gray-100">
@@ -246,7 +246,7 @@ const SysmonOsxDetails: React.FC<SysmonOsxDetailsProps> = ({ service, details })
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-5">
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                             Host Details
@@ -275,7 +275,7 @@ const SysmonOsxDetails: React.FC<SysmonOsxDetailsProps> = ({ service, details })
                     </dl>
                 </div>
 
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-5">
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                             Memory & Processes
@@ -308,7 +308,7 @@ const SysmonOsxDetails: React.FC<SysmonOsxDetailsProps> = ({ service, details })
             </div>
 
             {clusterSummaries.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 overflow-hidden">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-5 overflow-hidden">
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                             CPU Clusters
@@ -360,7 +360,7 @@ const SysmonOsxDetails: React.FC<SysmonOsxDetailsProps> = ({ service, details })
             )}
 
             {cores.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 overflow-hidden">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-5 overflow-hidden">
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                             Per-Core Metrics

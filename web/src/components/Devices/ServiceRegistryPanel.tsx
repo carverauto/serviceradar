@@ -81,7 +81,7 @@ const ServiceRegistryPanel: React.FC<ServiceRegistryPanelProps> = ({ deviceId })
 
     if (loading) {
         return (
-            <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <div className="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6">
                 <div className="flex items-center space-x-2 text-gray-500 dark:text-gray-400">
                     <Loader className="h-5 w-5 animate-spin" />
                     <span>Loading service registry information...</span>
@@ -154,7 +154,7 @@ const ServiceRegistryPanel: React.FC<ServiceRegistryPanelProps> = ({ deviceId })
     };
 
     return (
-        <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+        <div className="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6">
             <div className="flex items-center space-x-3 mb-6">
                 {getTypeIcon()}
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white">

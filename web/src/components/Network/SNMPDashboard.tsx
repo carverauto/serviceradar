@@ -465,7 +465,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
 
     if (!snmpData.length) {
         return (
-            <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow">
+            <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-sm">
                 <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
                     No SNMP Data Available
                 </h3>
@@ -478,7 +478,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
 
     if (viewMode === 'single' && !processedData.length && activeMetric) {
         return (
-            <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow">
+            <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-sm">
                 <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
                     No Data Available
                 </h3>
@@ -511,7 +511,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
 
     if (viewMode === 'combined' && !combinedData.length && metricGroups.length > 0) {
         return (
-            <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow">
+            <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow-sm">
                 <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
                     No Combined Data Available
                 </h3>
@@ -544,7 +544,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
 
     return (
         <div className="space-y-4 sm:space-y-6">
-            <div className="flex flex-row items-center justify-between gap-3 bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+            <div className="flex flex-row items-center justify-between gap-3 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                 <div className="flex items-center gap-3">
                     <div className="flex items-center">
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -554,7 +554,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                                 onChange={() => setViewMode(viewMode === 'combined' ? 'single' : 'combined')}
                                 className="sr-only peer"
                             />
-                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"></div>
+                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"></div>
                             <span className="ml-2 text-sm font-medium text-gray-800 dark:text-gray-300">
                                 {viewMode === 'combined' ? 'Combined' : 'Single'}
                             </span>
@@ -651,7 +651,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                             // Limit to first 5 interfaces for performance
                             const limitedData = combinedData.slice(0, 5);
                             return limitedData.map((groupData) => (
-                                <div key={groupData.group.baseKey} className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+                                <div key={groupData.group.baseKey} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
                                     <div className="mb-3">
                                         <h4 className="text-lg font-medium text-gray-800 dark:text-gray-200">
                                             {groupData.group.baseKey === "ifOctets_global" ? "Global Interface Metrics" : 
@@ -712,7 +712,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                             if (!selectedGroupData) return null;
                             
                             return (
-                                <div key={selectedGroupData.group.baseKey} className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+                                <div key={selectedGroupData.group.baseKey} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
                                     <div className="mb-3">
                                         <h4 className="text-lg font-medium text-gray-800 dark:text-gray-200">
                                             {selectedGroupData.group.baseKey === "ifOctets_global" ? "Global Interface Metrics" : 
@@ -783,7 +783,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
             )}
 
             {viewMode === 'single' && processedData.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4">
                     <div style={{ height: `${chartHeight}px` }}>
                         <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={processedData}>
@@ -820,7 +820,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                 </div>
             )}
 
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-x-auto">
                 <div className="p-4 sm:hidden text-gray-700 dark:text-gray-300 text-sm">
                     <p>Swipe left/right to view all metrics data</p>
                 </div>

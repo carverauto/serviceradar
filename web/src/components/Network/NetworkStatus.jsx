@@ -128,7 +128,7 @@ const ICMPSummary = ({ hosts }) => {
     const avgResponseTime = respondingHosts > 0 ? totalResponseTime / respondingHosts : 0;
 
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors">
             <div className="grid grid-cols-2 gap-4 text-sm">
                 <div className="font-medium text-gray-600 dark:text-gray-400">ICMP Responding:</div>
                 <div className="text-gray-800 dark:text-gray-100">{respondingHosts} hosts</div>
@@ -174,7 +174,7 @@ const NetworkSweepICMP = ({ sweepData }) => {
             <h3 className="text-lg font-medium text-gray-800 dark:text-gray-100">
                 ICMP Status Summary
             </h3>
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 transition-colors">
                 <div className="grid grid-cols-2 gap-4 text-sm">
                     <div className="font-medium text-gray-600 dark:text-gray-400">
                         ICMP Responding:

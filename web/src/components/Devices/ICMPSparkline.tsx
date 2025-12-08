@@ -224,7 +224,7 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
               </AreaChart>
             </ResponsiveContainer>
           </div>
-          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 text-xs text-white bg-gray-900 rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 shadow">
+          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 text-xs text-white bg-gray-900 rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 shadow-sm">
             ICMP: {latestValue.toFixed(1)}ms
           </div>
         </div>

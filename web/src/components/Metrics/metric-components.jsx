@@ -145,7 +145,7 @@ export const CpuFrequencyCard = ({ data }) => {
 
 export const CpuChart = ({ data }) => {
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
             <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">CPU Usage Trend</h3>
             <div style={{ height: '180px' }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -168,7 +168,7 @@ export const CpuCoresChart = ({ cores }) => {
     const coreSamples = Array.isArray(cores) ? cores : [];
     if (coreSamples.length === 0) {
         return (
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
                 <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">CPU Cores Usage</h3>
                 <div className="text-center text-sm text-gray-500 dark:text-gray-400 py-6">
                     No per-core samples available for the selected range.
@@ -195,7 +195,7 @@ export const CpuCoresChart = ({ cores }) => {
         } = corePayload;
 
         return (
-            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 shadow">
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 shadow-sm">
                 <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">{rawLabel}</div>
                 {cluster && (
                     <div className="text-xs text-gray-600 dark:text-gray-300 mt-1">
@@ -217,7 +217,7 @@ export const CpuCoresChart = ({ cores }) => {
     const uniqueClusters = Array.from(new Set(coreSamples.map(core => core.cluster || 'Unassigned')));
 
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
             <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">CPU Cores Usage</h3>
             <div style={{ height: '180px' }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -276,7 +276,7 @@ export const CpuFrequencyChart = ({ data }) => {
 
     if (chartData.length === 0) {
         return (
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
                 <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">CPU Frequency Trend</h3>
                 <div className="text-center py-6 text-gray-500 dark:text-gray-400">
                     No frequency samples available for this range.
@@ -286,7 +286,7 @@ export const CpuFrequencyChart = ({ data }) => {
     }
 
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
             <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">CPU Frequency Trend</h3>
             <div style={{ height: '180px' }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -330,7 +330,7 @@ export const CpuFrequencyDetails = ({ data }) => {
     const domainMax = yMax > 0 ? parseFloat((yMax * 1.1).toFixed(2)) : 1;
 
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
             <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">Per-Core Frequencies</h3>
             {cores.length === 0 ? (
                 <div className="text-center py-4 text-gray-500 dark:text-gray-400">
@@ -370,7 +370,7 @@ export const SysmonHostCard = ({ metadata }) => {
     const formattedTimestamp = timestamp ? new Date(timestamp).toLocaleString() : 'Unknown';
 
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm transition-colors">
             <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center">
                     <Server size={16} className="mr-2 text-blue-500 dark:text-blue-400" />
@@ -425,7 +425,7 @@ export const CpuClusterDetails = ({ clusters }) => {
     };
 
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
             <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">CPU Clusters</h3>
             <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-xs sm:text-sm">
@@ -488,7 +488,7 @@ export const MemoryCard = ({ data }) => {
 
 export const MemoryChart = ({ data }) => {
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
             <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Memory Usage Trend</h3>
             <div style={{ height: '180px' }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -509,7 +509,7 @@ export const MemoryChart = ({ data }) => {
 
 export const MemoryDetails = ({ data }) => {
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
             <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">Memory Details</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded-lg">
@@ -552,7 +552,7 @@ export const FilesystemCard = ({ data }) => {
 
 export const FilesystemChart = ({ data }) => {
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
             <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Disk Usage Trend</h3>
             <div style={{ height: '180px' }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -574,7 +574,7 @@ export const FilesystemChart = ({ data }) => {
 export const FilesystemDetails = ({ drives = [] }) => {
     if (!drives || drives.length === 0) {
         return (
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
                 <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">Disk Details</h3>
                 <div className="text-center py-4 text-gray-500 dark:text-gray-400">
                     No disk data available
@@ -584,7 +584,7 @@ export const FilesystemDetails = ({ drives = [] }) => {
     }
 
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
             <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">Disk Details</h3>
             <div className="space-y-4">
                 {drives.map((drive, index) => (
@@ -626,7 +626,7 @@ export const ProcessCard = ({ data }) => {
 
 export const ProcessChart = ({ data }) => {
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
             <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Process Count Trend</h3>
             <div style={{ height: '180px' }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -730,7 +730,7 @@ export const ProcessDetails = ({ deviceId, targetId, idType = 'device' }) => {
 
     if (isLoading && processes.length === 0) {
         return (
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
                 <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">Process Details</h3>
                 <div className="text-center py-4 text-gray-500 dark:text-gray-400">
                     Loading processes...
@@ -741,7 +741,7 @@ export const ProcessDetails = ({ deviceId, targetId, idType = 'device' }) => {
 
     if (error) {
         return (
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
                 <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">Process Details</h3>
                 <div className="text-center py-4 text-red-500 dark:text-red-400">
                     Error: {error}
@@ -752,7 +752,7 @@ export const ProcessDetails = ({ deviceId, targetId, idType = 'device' }) => {
 
     if (!processes || processes.length === 0) {
         return (
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
                 <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">Process Details</h3>
                 <div className="text-center py-4 text-gray-500 dark:text-gray-400">
                     No process data available
@@ -762,7 +762,7 @@ export const ProcessDetails = ({ deviceId, targetId, idType = 'device' }) => {
     }
 
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm transition-colors">
             <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">
                 All Processes (Top 10 highlighted)
             </h3>
