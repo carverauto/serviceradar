@@ -161,6 +161,13 @@ The in-memory `DeviceRegistry` cache shows ~45-48k devices while CNPG has ~50k. 
 - `SoftDeleteDevices()` now calls hard `DELETE` with audit trail to `device_updates`
 - Deleted `normalizeDeletionMetadata()` and related tests
 
+### Completed (Bug Fix)
+
+**canonical_device_id Metadata Consistency** ✅
+- **Issue**: After `IdentityEngine.ResolveDeviceIDs()` updated `update.DeviceID`, the `metadata["canonical_device_id"]` was not being set. The stats aggregator's `isCanonicalRecord()` checks if `metadata["canonical_device_id"]` == `device_id`, causing devices to be filtered as "non-canonical" and creating fluctuating device counts.
+- **Fix**: Added code in `ProcessBatchDeviceUpdates()` to set `update.Metadata["canonical_device_id"] = update.DeviceID` after identity resolution.
+- **Location**: `pkg/registry/registry.go` (Step 3 in ProcessBatchDeviceUpdates)
+
 ### Remaining Work
 
 **Registry/CNPG Consistency (Phase 4)** - Not started
