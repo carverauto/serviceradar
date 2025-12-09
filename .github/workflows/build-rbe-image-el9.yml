@@ -25,115 +25,76 @@ jobs:
       contents: read
       packages: write
 
+    container:
+      image: gcr.io/kaniko-project/executor:debug
+      options: --entrypoint ""
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Install Buildah
-        run: |
-          if command -v apt-get &> /dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y buildah fuse-overlayfs
-          elif command -v dnf &> /dev/null; then
-            sudo dnf install -y buildah fuse-overlayfs
-          elif command -v yum &> /dev/null; then
-            sudo yum install -y buildah fuse-overlayfs
-          else
-            echo "No supported package manager found"
-            exit 1
-          fi
-
-      - name: Configure Buildah for rootless operation
-        run: |
-          # Create config directories
-          mkdir -p ~/.config/containers
-
-          # Configure storage to use vfs driver (works without privileges)
-          cat > ~/.config/containers/storage.conf << 'EOF'
-          [storage]
-          driver = "vfs"
-          runroot = "/tmp/containers-runroot"
-          graphroot = "/tmp/containers-storage"
-          EOF
-
-          # Configure registries
-          cat > ~/.config/containers/registries.conf << 'EOF'
-          [registries.search]
-          registries = ['docker.io', 'ghcr.io']
-
-          [registries.insecure]
-          registries = []
-          EOF
-
-          # Verify configuration
-          buildah info
-
-      - name: Log in to Container Registry
-        run: |
-          echo "${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}" | \
-            buildah login -u "${{ secrets.GHCR_USERNAME != '' && secrets.GHCR_USERNAME || github.actor }}" \
-            --password-stdin ${{ env.REGISTRY }}
-
       - name: Generate image tags
         id: tags
+        shell: sh
         run: |
-          REPO="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          TAGS=""
+          REPO="${REGISTRY}/${IMAGE_NAME}"
 
-          # Version tag
-          TAGS="${REPO}:${{ env.VERSION }}"
+          # Version tag (always included)
+          DESTINATIONS="--destination=${REPO}:${VERSION}"
 
           # SHA tag
-          TAGS="${TAGS} ${REPO}:sha-${GITHUB_SHA::7}"
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          DESTINATIONS="${DESTINATIONS} --destination=${REPO}:sha-${SHORT_SHA}"
 
           # Branch/PR tag
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            TAGS="${TAGS} ${REPO}:pr-${{ github.event.pull_request.number }}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            DESTINATIONS="${DESTINATIONS} --destination=${REPO}:pr-${{ github.event.pull_request.number }}"
           else
             BRANCH_NAME="${GITHUB_REF_NAME}"
-            TAGS="${TAGS} ${REPO}:${BRANCH_NAME}"
+            DESTINATIONS="${DESTINATIONS} --destination=${REPO}:${BRANCH_NAME}"
             # Latest tag only on main
-            if [[ "${BRANCH_NAME}" == "main" ]]; then
-              TAGS="${TAGS} ${REPO}:latest"
+            if [ "${BRANCH_NAME}" = "main" ]; then
+              DESTINATIONS="${DESTINATIONS} --destination=${REPO}:latest"
             fi
           fi
 
-          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
-          echo "Generated tags: ${TAGS}"
+          echo "destinations=${DESTINATIONS}" >> $GITHUB_OUTPUT
+          echo "Generated destinations: ${DESTINATIONS}"
 
-      - name: Build image with Buildah
+      - name: Create Kaniko config
+        shell: sh
         run: |
-          # Create secret file for GHCR token
-          echo "${GHCR_TOKEN}" > /tmp/ghcr_token
+          # Create docker config for registry auth
+          mkdir -p /kaniko/.docker
 
-          buildah bud \
-            --format docker \
-            --layers \
-            --isolation chroot \
-            --build-arg GHCR_USERNAME=${{ github.actor }} \
-            --secret id=ghcr_token,src=/tmp/ghcr_token \
-            -f docker/Dockerfile.rbe-ora9 \
-            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }} \
-            .
+          # Create auth config for GHCR
+          AUTH=$(echo -n "${{ secrets.GHCR_USERNAME != '' && secrets.GHCR_USERNAME || github.actor }}:${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}" | base64 -w 0)
 
-          # Clean up secret file
-          rm -f /tmp/ghcr_token
-        env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          cat > /kaniko/.docker/config.json << EOF
+          {
+            "auths": {
+              "${REGISTRY}": {
+                "auth": "${AUTH}"
+              }
+            }
+          }
+          EOF
 
-      - name: Tag image
+      - name: Build and push with Kaniko
+        shell: sh
         run: |
-          PRIMARY_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}"
-          for tag in ${{ steps.tags.outputs.tags }}; do
-            if [[ "${tag}" != "${PRIMARY_TAG}" ]]; then
-              buildah tag "${PRIMARY_TAG}" "${tag}"
-            fi
-          done
+          # For pull requests, use --no-push
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            NO_PUSH="--no-push"
+          else
+            NO_PUSH=""
+          fi
 
-      - name: Push image
-        if: github.event_name != 'pull_request'
-        run: |
-          for tag in ${{ steps.tags.outputs.tags }}; do
-            echo "Pushing ${tag}..."
-            buildah push "${tag}"
-          done
+          /kaniko/executor \
+            --context="${GITHUB_WORKSPACE}" \
+            --dockerfile=docker/Dockerfile.rbe-ora9 \
+            --build-arg=GHCR_USERNAME=${{ github.actor }} \
+            --cache=true \
+            --cache-repo=${REGISTRY}/${IMAGE_NAME}/cache \
+            ${NO_PUSH} \
+            ${{ steps.tags.outputs.destinations }}
