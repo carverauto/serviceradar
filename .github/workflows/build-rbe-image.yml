@@ -103,14 +103,21 @@ jobs:
 
       - name: Build image with Buildah
         run: |
+          # Create secret file for GHCR token
+          echo "${GHCR_TOKEN}" > /tmp/ghcr_token
+
           buildah bud \
             --format docker \
             --layers \
+            --isolation chroot \
             --build-arg GHCR_USERNAME=${{ github.actor }} \
-            --secret id=ghcr_token,env=GHCR_TOKEN \
+            --secret id=ghcr_token,src=/tmp/ghcr_token \
             -f docker/Dockerfile.rbe \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }} \
             .
+
+          # Clean up secret file
+          rm -f /tmp/ghcr_token
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
