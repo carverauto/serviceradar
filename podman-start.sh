@@ -23,7 +23,16 @@ wait_for_container_exit() {
     local count=0
     log "Waiting for $container to complete..."
     while [ $count -lt $timeout ]; do
+        # Try exact name first, then pattern match
         status=$(podman inspect --format '{{.State.Status}}' "$container" 2>/dev/null || echo "not_found")
+        if [ "$status" = "not_found" ]; then
+            # Try to find container by pattern
+            actual_name=$(podman ps -a --format "{{.Names}}" | grep -E "${container}|${container//-/_}" | head -1)
+            if [ -n "$actual_name" ]; then
+                container="$actual_name"
+                status=$(podman inspect --format '{{.State.Status}}' "$container" 2>/dev/null || echo "not_found")
+            fi
+        fi
         if [ "$status" = "exited" ]; then
             exit_code=$(podman inspect --format '{{.State.ExitCode}}' "$container" 2>/dev/null || echo "1")
             if [ "$exit_code" = "0" ]; then
@@ -31,14 +40,21 @@ wait_for_container_exit() {
                 return 0
             else
                 error "$container failed with exit code $exit_code"
-                podman logs "$container" | tail -20
+                podman logs "$container" 2>&1 | tail -20
                 return 1
             fi
+        elif [ "$status" = "not_found" ]; then
+            sleep 1
+            ((count++))
+            continue
         fi
         sleep 1
         ((count++))
     done
     error "$container timed out after ${timeout}s"
+    # Show what containers exist for debugging
+    log "Available containers:"
+    podman ps -a --format "{{.Names}} {{.Status}}" | head -10
     return 1
 }
 
