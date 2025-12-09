@@ -33,15 +33,40 @@ jobs:
         run: |
           if command -v apt-get &> /dev/null; then
             sudo apt-get update
-            sudo apt-get install -y buildah
+            sudo apt-get install -y buildah fuse-overlayfs
           elif command -v dnf &> /dev/null; then
-            sudo dnf install -y buildah
+            sudo dnf install -y buildah fuse-overlayfs
           elif command -v yum &> /dev/null; then
-            sudo yum install -y buildah
+            sudo yum install -y buildah fuse-overlayfs
           else
             echo "No supported package manager found"
             exit 1
           fi
+
+      - name: Configure Buildah for rootless operation
+        run: |
+          # Create config directories
+          mkdir -p ~/.config/containers
+
+          # Configure storage to use vfs driver (works without privileges)
+          cat > ~/.config/containers/storage.conf << 'EOF'
+          [storage]
+          driver = "vfs"
+          runroot = "/tmp/containers-runroot"
+          graphroot = "/tmp/containers-storage"
+          EOF
+
+          # Configure registries
+          cat > ~/.config/containers/registries.conf << 'EOF'
+          [registries.search]
+          registries = ['docker.io', 'ghcr.io']
+
+          [registries.insecure]
+          registries = []
+          EOF
+
+          # Verify configuration
+          buildah info
 
       - name: Log in to Container Registry
         run: |
