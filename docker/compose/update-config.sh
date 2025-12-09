@@ -379,7 +379,7 @@ POLLERS_SPIRE_SQLITE_PATH="${POLLERS_SPIRE_SQLITE_PATH:-/run/spire/nested/server
 POLLERS_SPIRE_SERVER_KEYS_PATH="${POLLERS_SPIRE_SERVER_KEYS_PATH:-/run/spire/nested/server/keys.json}"
 POLLERS_SPIRE_SERVER_SOCKET="${POLLERS_SPIRE_SERVER_SOCKET:-/run/spire/nested/server/api.sock}"
 
-# Prepare poller configuration with sysmon-osx override
+# Prepare poller configuration with sysmon-osx override (only on first run)
 POLLERS_TEMPLATE="/templates/poller.docker.json"
 if [ "$POLLERS_SECURITY_MODE" = "spiffe" ] && [ -f /templates/poller.spiffe.json ]; then
     POLLERS_TEMPLATE="/templates/poller.spiffe.json"
@@ -389,7 +389,10 @@ elif [ "$POLLERS_SECURITY_MODE" != "spiffe" ] && [ -f /templates/poller.docker.j
     POLLERS_TEMPLATE="/templates/poller.docker.json.orig"
 fi
 
-if [ "$POLLERS_SECURITY_MODE" = "spiffe" ]; then
+# Only generate poller.json if it doesn't exist (preserves manual customizations)
+if [ -f "$CONFIG_DIR/poller.json" ]; then
+    echo "poller.json already exists; preserving existing configuration"
+elif [ "$POLLERS_SECURITY_MODE" = "spiffe" ]; then
     cp "$POLLERS_TEMPLATE" "$CONFIG_DIR/poller.json"
     jq --arg addr "$SYSMON_VM_ADDRESS" \
        --arg td "$POLLERS_TRUST_DOMAIN" \

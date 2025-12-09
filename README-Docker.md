@@ -46,63 +46,101 @@ Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and en
 
 ### Podman (Alternative to Docker)
 
-Podman is a drop-in replacement for Docker available on most Linux distributions. ServiceRadar works with Podman but requires **rootful mode** due to privileged containers and low port bindings.
+Podman is a drop-in replacement for Docker available on most Linux distributions. ServiceRadar provides a dedicated startup script for Podman that handles proper service ordering and mTLS configuration.
 
-**AlmaLinux 9 / RHEL 9 / Rocky Linux 9:**
+**Why use the Podman script instead of podman-compose?**
+- `podman-compose` has limitations with dependency ordering and health checks
+- The script ensures proper startup sequence for certificate generation and service dependencies
+- Automatic mTLS configuration without SPIFFE/SPIRE dependencies
+
+#### Podman Quick Start
+
+**1. Install Podman (AlmaLinux 9 / RHEL 9 / Rocky Linux 9):**
 ```bash
-# Install Podman and podman-compose
-sudo dnf install -y podman python3-pip
-sudo pip3 install podman-compose
+sudo dnf install -y podman
 ```
 
 **Ubuntu / Debian:**
 ```bash
 sudo apt-get update
-sudo apt-get install -y podman python3-pip
-sudo pip3 install podman-compose
+sudo apt-get install -y podman
 ```
 
-**Running ServiceRadar with Podman:**
-
-Due to `podman-compose` limitations with dependency ordering, use the provided startup script:
-
+**2. Clone and start:**
 ```bash
-# First time or clean start
+git clone https://github.com/carverauto/serviceradar.git
+cd serviceradar
+
+# First time setup (generates certs, configs, starts all services)
 sudo ./podman-start.sh --clean
 
-# Subsequent starts
+# Get your admin credentials (shown at end of startup, or run):
+sudo podman logs serviceradar-config-updater 2>&1 | grep -E "(Username|Password)"
+```
+
+**3. Verify the stack is working:**
+```bash
+sudo ./podman-test.sh
+```
+
+**4. Access ServiceRadar:**
+- Web Interface: http://localhost
+- Username: `admin`
+- Password: (from step 2)
+
+#### Podman Commands
+
+```bash
+# Start the stack (preserves existing data/config)
 sudo ./podman-start.sh
 
-# View logs
-sudo podman logs serviceradar-config-updater-mtls | grep "Password:"
+# Start fresh (removes all data and regenerates config)
+sudo ./podman-start.sh --clean
 
-# Check status
-sudo podman ps
+# Check container status
+sudo podman ps --filter "name=serviceradar"
+
+# View logs for a service
+sudo podman logs serviceradar-core
+sudo podman logs serviceradar-poller
+
+# Follow logs in real-time
+sudo podman logs -f serviceradar-poller
 
 # Stop all services
-sudo /usr/local/bin/podman-compose down
+sudo podman stop $(sudo podman ps -q --filter "name=serviceradar")
+
+# Remove all containers (keeps volumes)
+sudo podman rm $(sudo podman ps -aq --filter "name=serviceradar")
+
+# Full cleanup (removes containers, volumes, network)
+sudo ./podman-start.sh --clean
+# Then Ctrl+C after "Cleanup complete" message
+```
+
+#### Podman Troubleshooting
+
+**SELinux issues (RHEL/AlmaLinux):**
+```bash
+# Option 1: Set SELinux to permissive (easiest for testing)
+sudo setenforce 0
+
+# Option 2: Relabel directories for container access
+sudo chcon -Rt svirt_sandbox_file_t /path/to/serviceradar/docker
+sudo chcon -Rt svirt_sandbox_file_t /path/to/serviceradar/packaging
+```
+
+**Firewall issues:**
+```bash
+sudo firewall-cmd --add-port=80/tcp --permanent
+sudo firewall-cmd --add-port=443/tcp --permanent
+sudo firewall-cmd --reload
 ```
 
 **Why rootful mode is required:**
 - The `agent` service uses `privileged: true` for network scanning
-- Ports 80, 514, and 162 require root to bind (< 1024)
-- Some init containers run as `user: "0:0"`
-
-**SELinux considerations (RHEL/AlmaLinux):**
-
-SELinux blocks bind mounts by default. Choose one of these options:
-
-```bash
-# Option 1: Temporarily set SELinux to permissive (easiest)
-sudo setenforce 0
-
-# Option 2: Relabel the project directory for container access
-sudo chcon -Rt svirt_sandbox_file_t /path/to/serviceradar/docker
-sudo chcon -Rt svirt_sandbox_file_t /path/to/serviceradar/packaging
-
-# Option 3: Allow container cgroup management (may still need option 1 or 2)
-sudo setsebool -P container_manage_cgroup on
-```
+- Ports 80 and 443 require root to bind (< 1024)
+- Certificate generation requires root access to volumes
 
 ## Quick Start
 
