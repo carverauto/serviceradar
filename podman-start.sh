@@ -36,15 +36,17 @@ if ! podman network exists "$NETWORK" 2>/dev/null; then
     podman network create "$NETWORK"
 fi
 
-# Helper to run container
+# Helper to run container with network alias (short name without serviceradar- prefix)
 run_container() {
     local name=$1
     shift
     if podman ps -a --format "{{.Names}}" | grep -q "^${name}$"; then
         podman rm -f "$name" 2>/dev/null || true
     fi
+    # Extract short alias (e.g., serviceradar-core -> core)
+    local alias="${name#serviceradar-}"
     # --name and --network must come BEFORE other args
-    podman run --name "$name" --network "$NETWORK" "$@"
+    podman run --name "$name" --network "$NETWORK" --network-alias "$alias" "$@"
 }
 
 log "=== Phase 1: Certificates ==="
