@@ -10,3 +10,6 @@ BEGIN
     END IF;
 END
 $$;
+
+-- Set search_path to include ag_catalog for AGE graph tables used by SRQL
+ALTER DATABASE serviceradar SET search_path TO ag_catalog, serviceradar, public;
