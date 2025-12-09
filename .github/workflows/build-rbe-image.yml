@@ -16,6 +16,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}/rbe-executor
+  VERSION: v1.0.14
 
 jobs:
   build-and-push:
@@ -28,40 +29,79 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Install Buildah
+        run: |
+          if command -v apt-get &> /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y buildah
+          elif command -v dnf &> /dev/null; then
+            sudo dnf install -y buildah
+          elif command -v yum &> /dev/null; then
+            sudo yum install -y buildah
+          else
+            echo "No supported package manager found"
+            exit 1
+          fi
 
       - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.GHCR_USERNAME != '' && secrets.GHCR_USERNAME || github.actor }}
-          password: ${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}" | \
+            buildah login -u "${{ secrets.GHCR_USERNAME != '' && secrets.GHCR_USERNAME || github.actor }}" \
+            --password-stdin ${{ env.REGISTRY }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,format=short,prefix=sha-
-            type=raw,value=v1.0.14
-            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Generate image tags
+        id: tags
+        run: |
+          REPO="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          TAGS=""
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.rbe
-          platforms: linux/amd64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            GHCR_USERNAME=${{ github.actor }}
-          secrets: |
-            ghcr_token=${{ secrets.GITHUB_TOKEN }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Version tag
+          TAGS="${REPO}:${{ env.VERSION }}"
+
+          # SHA tag
+          TAGS="${TAGS} ${REPO}:sha-${GITHUB_SHA::7}"
+
+          # Branch/PR tag
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TAGS="${TAGS} ${REPO}:pr-${{ github.event.pull_request.number }}"
+          else
+            BRANCH_NAME="${GITHUB_REF_NAME}"
+            TAGS="${TAGS} ${REPO}:${BRANCH_NAME}"
+            # Latest tag only on main
+            if [[ "${BRANCH_NAME}" == "main" ]]; then
+              TAGS="${TAGS} ${REPO}:latest"
+            fi
+          fi
+
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "Generated tags: ${TAGS}"
+
+      - name: Build image with Buildah
+        run: |
+          buildah bud \
+            --format docker \
+            --layers \
+            --build-arg GHCR_USERNAME=${{ github.actor }} \
+            --secret id=ghcr_token,env=GHCR_TOKEN \
+            -f docker/Dockerfile.rbe \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }} \
+            .
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag image
+        run: |
+          PRIMARY_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}"
+          for tag in ${{ steps.tags.outputs.tags }}; do
+            if [[ "${tag}" != "${PRIMARY_TAG}" ]]; then
+              buildah tag "${PRIMARY_TAG}" "${tag}"
+            fi
+          done
+
+      - name: Push image
+        if: github.event_name != 'pull_request'
+        run: |
+          for tag in ${{ steps.tags.outputs.tags }}; do
+            echo "Pushing ${tag}..."
+            buildah push "${tag}"
+          done
