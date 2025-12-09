@@ -16,85 +16,52 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}/rbe-executor
-  VERSION: v1.0.14
 
 jobs:
   build-and-push:
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
-    container:
-      image: gcr.io/kaniko-project/executor:debug
-      options: --entrypoint ""
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
-      - name: Generate image tags
-        id: tags
-        shell: sh
-        run: |
-          REPO="${REGISTRY}/${IMAGE_NAME}"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-          # Version tag (always included)
-          DESTINATIONS="--destination=${REPO}:${VERSION}"
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.GHCR_USERNAME != '' && secrets.GHCR_USERNAME || github.actor }}
+          password: ${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
 
-          # SHA tag
-          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
-          DESTINATIONS="${DESTINATIONS} --destination=${REPO}:sha-${SHORT_SHA}"
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,format=short,prefix=sha-
+            type=raw,value=v1.0.14
+            type=raw,value=latest,enable={{is_default_branch}}
 
-          # Branch/PR tag
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            DESTINATIONS="${DESTINATIONS} --destination=${REPO}:pr-${{ github.event.pull_request.number }}"
-          else
-            BRANCH_NAME="${GITHUB_REF_NAME}"
-            DESTINATIONS="${DESTINATIONS} --destination=${REPO}:${BRANCH_NAME}"
-            # Latest tag only on main
-            if [ "${BRANCH_NAME}" = "main" ]; then
-              DESTINATIONS="${DESTINATIONS} --destination=${REPO}:latest"
-            fi
-          fi
-
-          echo "destinations=${DESTINATIONS}" >> $GITHUB_OUTPUT
-          echo "Generated destinations: ${DESTINATIONS}"
-
-      - name: Create Kaniko config
-        shell: sh
-        run: |
-          # Create docker config for registry auth
-          mkdir -p /kaniko/.docker
-
-          # Create auth config for GHCR
-          AUTH=$(echo -n "${{ secrets.GHCR_USERNAME != '' && secrets.GHCR_USERNAME || github.actor }}:${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}" | base64 -w 0)
-
-          cat > /kaniko/.docker/config.json << EOF
-          {
-            "auths": {
-              "${REGISTRY}": {
-                "auth": "${AUTH}"
-              }
-            }
-          }
-          EOF
-
-      - name: Build and push with Kaniko
-        shell: sh
-        run: |
-          # For pull requests, use --no-push
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            NO_PUSH="--no-push"
-          else
-            NO_PUSH=""
-          fi
-
-          /kaniko/executor \
-            --context="${GITHUB_WORKSPACE}" \
-            --dockerfile=docker/Dockerfile.rbe \
-            --build-arg=GHCR_USERNAME=${{ github.actor }} \
-            --cache=true \
-            --cache-repo=${REGISTRY}/${IMAGE_NAME}/cache \
-            ${NO_PUSH} \
-            ${{ steps.tags.outputs.destinations }}
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.rbe
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GHCR_USERNAME=${{ github.actor }}
+          secrets: |
+            ghcr_token=${{ secrets.GITHUB_TOKEN }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
