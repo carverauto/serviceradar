@@ -264,7 +264,7 @@ run_container serviceradar-web -d \
 sleep 3
 
 run_container serviceradar-nginx -d \
-    -p 80:80 \
+    -p 80:80 -p 443:443 \
     -v serviceradar_cert-data:/etc/serviceradar/certs:ro \
     -v "$(pwd)/docker/compose/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro,z" \
     -v "$(pwd)/docker/compose/entrypoint-nginx.sh:/docker-entrypoint.d/50-serviceradar.sh:ro,z" \

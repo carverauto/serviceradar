@@ -3,9 +3,24 @@
 # Use Docker's internal DNS resolver for dynamic service discovery
 resolver 127.0.0.11 valid=10s ipv6=off;
 
+# Redirect HTTP to HTTPS (optional - comment out to allow both)
+# server {
+#     listen 80;
+#     server_name _;
+#     return 301 https://$host$request_uri;
+# }
+
 server {
     listen 80;
+    listen 443 ssl;
     server_name _;
+
+    # SSL configuration using generated certificates
+    ssl_certificate /etc/serviceradar/certs/web.pem;
+    ssl_certificate_key /etc/serviceradar/certs/web-key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
 
     # Disable automatic merging of consecutive slashes
     merge_slashes off;
