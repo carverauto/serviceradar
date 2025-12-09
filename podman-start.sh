@@ -43,7 +43,8 @@ run_container() {
     if podman ps -a --format "{{.Names}}" | grep -q "^${name}$"; then
         podman rm -f "$name" 2>/dev/null || true
     fi
-    podman run "$@" --name "$name" --network "$NETWORK"
+    # --name and --network must come BEFORE other args
+    podman run --name "$name" --network "$NETWORK" "$@"
 }
 
 log "=== Phase 1: Certificates ==="
@@ -66,11 +67,17 @@ run_container serviceradar-cnpg -d \
     postgres -c shared_preload_libraries=timescaledb,age
 
 log "Waiting for PostgreSQL..."
-for i in {1..30}; do
-    if podman exec serviceradar-cnpg pg_isready -U "$CNPG_USER" 2>/dev/null; then
+for i in {1..60}; do
+    if podman exec serviceradar-cnpg pg_isready -U "$CNPG_USER" -d "$CNPG_DB" 2>/dev/null; then
         log "PostgreSQL is ready"
         break
     fi
+    if [ $i -eq 60 ]; then
+        log "ERROR: PostgreSQL failed to start. Check logs:"
+        podman logs serviceradar-cnpg 2>&1 | tail -20
+        exit 1
+    fi
+    [ $((i % 10)) -eq 0 ] && log "Still waiting for PostgreSQL... ($i/60)"
     sleep 2
 done
 
