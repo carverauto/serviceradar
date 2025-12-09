@@ -161,6 +161,7 @@ log "Core started"
 
 run_container serviceradar-srql -d \
     -v serviceradar_cert-data:/etc/serviceradar/certs:ro \
+    -v serviceradar_generated-config:/etc/serviceradar/config:ro \
     -e SRQL_LISTEN_HOST=0.0.0.0 \
     -e SRQL_LISTEN_PORT=8080 \
     -e CNPG_HOST=serviceradar-cnpg \
@@ -169,6 +170,7 @@ run_container serviceradar-srql -d \
     -e CNPG_USERNAME="$CNPG_USER" \
     -e CNPG_PASSWORD="$CNPG_PASS" \
     -e CNPG_SSLMODE=disable \
+    -e AUTH_ENABLED=true \
     ghcr.io/carverauto/serviceradar-srql:${APP_TAG}
 sleep 3
 log "SRQL started"
