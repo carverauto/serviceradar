@@ -76,9 +76,9 @@ services:
       - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
     depends_on:
       cert-generator:
-        condition: service_completed_successfully
+        
       cnpg:
-        condition: service_healthy
+        
     restart: "no"
     networks:
       - serviceradar-net
@@ -93,7 +93,7 @@ services:
       - generated-config:/etc/serviceradar/config
     depends_on:
       config-updater:
-        condition: service_completed_successfully
+        
     restart: "no"
     networks:
       - serviceradar-net
@@ -107,7 +107,7 @@ services:
     command: sh /fix-cert-permissions.sh
     depends_on:
       config-updater:
-        condition: service_completed_successfully
+        
     restart: "no"
     networks:
       - serviceradar-net
@@ -147,15 +147,15 @@ services:
       - KV_SERVER_NAME=datasvc.serviceradar
     depends_on:
       config-updater:
-        condition: service_completed_successfully
+        
       core-jwks-init:
-        condition: service_completed_successfully
+        
       cert-permissions-fixer:
-        condition: service_completed_successfully
+        
       datasvc:
-        condition: service_healthy
+        
       cnpg:
-        condition: service_healthy
+        
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f serviceradar-core >/dev/null"]
       interval: 30s
@@ -183,9 +183,9 @@ services:
     command: ["--config", "/etc/nats/nats-server.conf"]
     depends_on:
       cert-generator:
-        condition: service_completed_successfully
+        
       cert-permissions-fixer:
-        condition: service_completed_successfully
+        
     networks:
       serviceradar-net:
         aliases:
@@ -209,9 +209,9 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-generator:
-        condition: service_completed_successfully
+        
       nats:
-        condition: service_started
+        
     healthcheck:
       test: ["CMD-SHELL", "wait-for-port --host 127.0.0.1 --port 50057 --attempts 1 --interval 1s --quiet"]
       interval: 30s
@@ -238,11 +238,11 @@ services:
       - NATS_SERVER=${NATS_SERVER:-tls://nats:4222}
     depends_on:
       config-updater:
-        condition: service_completed_successfully
+        
       datasvc:
-        condition: service_healthy
+        
       nats:
-        condition: service_started
+        
     entrypoint: ["/bin/bash", "/usr/local/bin/seed-poller-kv.sh"]
     restart: "no"
     networks:
@@ -267,9 +267,9 @@ services:
     privileged: true
     depends_on:
       cert-generator:
-        condition: service_completed_successfully
+        
       config-updater:
-        condition: service_completed_successfully
+        
     command: ["/usr/local/bin/serviceradar-agent","-config","/etc/serviceradar/agent.json"]
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f serviceradar-agent >/dev/null"]
@@ -308,13 +308,13 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       config-updater:
-        condition: service_completed_successfully
+        
       core:
-        condition: service_healthy
+        
       poller-kv-seed:
-        condition: service_completed_successfully
+        
       datasvc:
-        condition: service_healthy
+        
     command: ["/usr/local/bin/serviceradar-poller","-config","/etc/serviceradar/config/poller.json"]
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f serviceradar-poller >/dev/null"]
@@ -350,7 +350,7 @@ services:
       - credentials:/etc/serviceradar/credentials:ro
     depends_on:
       cnpg:
-        condition: service_healthy
+        
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8080'"]
       interval: 30s
@@ -385,11 +385,11 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-permissions-fixer:
-        condition: service_completed_successfully
+        
       datasvc:
-        condition: service_healthy
+        
       nats:
-        condition: service_started
+        
     networks:
       - serviceradar-net
     restart: unless-stopped
@@ -410,9 +410,9 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-permissions-fixer:
-        condition: service_completed_successfully
+        
       nats:
-        condition: service_started
+        
     networks:
       - serviceradar-net
     restart: unless-stopped
@@ -436,9 +436,9 @@ services:
       - NET_BIND_SERVICE
     depends_on:
       cert-permissions-fixer:
-        condition: service_completed_successfully
+        
       nats:
-        condition: service_started
+        
     networks:
       - serviceradar-net
     restart: unless-stopped
@@ -462,9 +462,9 @@ services:
       - NET_BIND_SERVICE
     depends_on:
       cert-permissions-fixer:
-        condition: service_completed_successfully
+        
       nats:
-        condition: service_started
+        
     networks:
       - serviceradar-net
     restart: unless-stopped
@@ -485,11 +485,11 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-permissions-fixer:
-        condition: service_completed_successfully
+        
       nats:
-        condition: service_started
+        
       datasvc:
-        condition: service_healthy
+        
     networks:
       - serviceradar-net
     restart: unless-stopped
@@ -521,11 +521,11 @@ services:
       - CNPG_KEY_FILE=/etc/serviceradar/certs/db-event-writer-key.pem
     depends_on:
       cert-permissions-fixer:
-        condition: service_completed_successfully
+        
       nats:
-        condition: service_started
+        
       cnpg:
-        condition: service_healthy
+        
     networks:
       - serviceradar-net
     restart: unless-stopped
@@ -546,9 +546,9 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-permissions-fixer:
-        condition: service_completed_successfully
+        
       otel:
-        condition: service_started
+        
     healthcheck:
       test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/mapper.pem", "-key", "/etc/serviceradar/certs/mapper-key.pem", "-servername", "mapper.serviceradar", "localhost:50056", "grpc.health.v1.Health/Check"]
       interval: 30s
@@ -575,11 +575,11 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-permissions-fixer:
-        condition: service_completed_successfully
+        
       agent:
-        condition: service_started
+        
       otel:
-        condition: service_started
+        
     healthcheck:
       test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/snmp-checker.pem", "-key", "/etc/serviceradar/certs/snmp-checker-key.pem", "-servername", "snmp-checker.serviceradar", "localhost:50054", "grpc.health.v1.Health/Check"]
       interval: 30s
@@ -606,11 +606,11 @@ services:
       - RUST_LOG=${RUST_LOG:-info}
     depends_on:
       cert-permissions-fixer:
-        condition: service_completed_successfully
+        
       agent:
-        condition: service_started
+        
       otel:
-        condition: service_started
+        
     healthcheck:
       test: ["CMD", "true"]
       interval: 30s
@@ -646,9 +646,9 @@ services:
       - kong_config:/out
     depends_on:
       srql:
-        condition: service_started
+        
       core:
-        condition: service_started
+        
     networks:
       - serviceradar-net
     restart: "no"
@@ -659,9 +659,9 @@ services:
     restart: on-failure
     depends_on:
       srql:
-        condition: service_started
+        
       kong-config:
-        condition: service_completed_successfully
+        
     environment:
       KONG_DATABASE: off
       KONG_DECLARATIVE_CONFIG: /opt/kong/kong.yml
@@ -701,9 +701,9 @@ services:
       - credentials:/etc/serviceradar/credentials:ro
     depends_on:
       config-updater:
-        condition: service_completed_successfully
+        
       core:
-        condition: service_started
+        
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://0.0.0.0:3000/"]
       interval: 30s
@@ -721,18 +721,17 @@ services:
       - "${SERVICERADAR_HTTP_PORT:-80}:80"
     environment:
       API_UPSTREAM: ${API_UPSTREAM:-http://kong:8000}
-      DNS_RESOLVER: "127.0.0.11"  # Docker's internal DNS
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./docker/compose/entrypoint-nginx.sh:/docker-entrypoint.d/50-serviceradar.sh:ro
     depends_on:
       web:
-        condition: service_started
+        
       core:
-        condition: service_started
+        
       kong:
-        condition: service_started
+        
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/"]
       interval: 30s
