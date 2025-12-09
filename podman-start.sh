@@ -263,12 +263,18 @@ run_container serviceradar-web -d \
     ghcr.io/carverauto/serviceradar-web:${APP_TAG}
 sleep 3
 
+# Get Podman network's DNS server (gateway IP)
+PODMAN_DNS=$(podman network inspect "$NETWORK" --format '{{range .Subnets}}{{.Gateway}}{{end}}' 2>/dev/null | head -1)
+[ -z "$PODMAN_DNS" ] && PODMAN_DNS="10.89.0.1"
+log "Using DNS resolver: $PODMAN_DNS"
+
 run_container serviceradar-nginx -d \
     -p 80:80 -p 443:443 \
     -v serviceradar_cert-data:/etc/serviceradar/certs:ro \
     -v "$(pwd)/docker/compose/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro,z" \
     -v "$(pwd)/docker/compose/entrypoint-nginx.sh:/docker-entrypoint.d/50-serviceradar.sh:ro,z" \
     -e API_UPSTREAM=http://serviceradar-kong:8000 \
+    -e DNS_RESOLVER="$PODMAN_DNS" \
     ghcr.io/carverauto/serviceradar-nginx:latest
 sleep 2
 log "Frontend started"

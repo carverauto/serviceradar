@@ -1,7 +1,8 @@
-# ServiceRadar Web Interface - Nginx Configuration for Docker
+# ServiceRadar Web Interface - Nginx Configuration for Docker/Podman
 
-# Use Docker's internal DNS resolver for dynamic service discovery
-resolver 127.0.0.11 valid=10s ipv6=off;
+# DNS resolver for dynamic service discovery
+# Docker uses 127.0.0.11, Podman uses network gateway (configurable via DNS_RESOLVER env)
+resolver ${DNS_RESOLVER} valid=10s ipv6=off;
 
 # Redirect HTTP to HTTPS (optional - comment out to allow both)
 # server {
