@@ -174,7 +174,8 @@ sleep 3
 log "SRQL started"
 
 log "=== Phase 7: API Gateway ==="
-run_container serviceradar-kong-config \
+# Kong config generation - may fail due to CLI bug, Kong is optional
+if ! run_container serviceradar-kong-config \
     -v serviceradar_kong-config:/out \
     ghcr.io/carverauto/serviceradar-kong-config:${APP_TAG} \
     /usr/local/bin/serviceradar-cli render-kong \
@@ -183,8 +184,13 @@ run_container serviceradar-kong-config \
     --path /api \
     --srql-service http://serviceradar-srql:8080 \
     --srql-path /api/query \
-    --out /out/kong.yml
-log "Kong config generated"
+    --out /out/kong.yml; then
+    log "WARNING: Kong config generation failed (CLI bug). Using default Kong config."
+    # Copy default kong config
+    podman run --rm -v serviceradar_kong-config:/out -v "$(pwd)/docker/kong/kong.yaml:/default-kong.yml:ro,z" \
+        docker.io/library/alpine:3.20 cp /default-kong.yml /out/kong.yml
+fi
+log "Kong config ready"
 
 run_container serviceradar-kong -d \
     -p 8000:8000 -p 8001:8001 \
