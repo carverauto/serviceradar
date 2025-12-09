@@ -238,7 +238,8 @@ run_container serviceradar-poller -d \
     -e KV_SEC_MODE=mtls \
     -e KV_CERT_DIR=/etc/serviceradar/certs \
     -e POLLERS_SECURITY_MODE=mtls \
-    ghcr.io/carverauto/serviceradar-poller:${APP_TAG}
+    ghcr.io/carverauto/serviceradar-poller:${APP_TAG} \
+    /usr/local/bin/serviceradar-poller -config /etc/serviceradar/config/poller.json
 
 run_container serviceradar-sync -d \
     -p 50058:50058 \

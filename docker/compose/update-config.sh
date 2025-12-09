@@ -383,6 +383,8 @@ POLLERS_SPIRE_SERVER_SOCKET="${POLLERS_SPIRE_SERVER_SOCKET:-/run/spire/nested/se
 POLLERS_TEMPLATE="/templates/poller.docker.json"
 if [ "$POLLERS_SECURITY_MODE" = "spiffe" ] && [ -f /templates/poller.spiffe.json ]; then
     POLLERS_TEMPLATE="/templates/poller.spiffe.json"
+elif [ "$POLLERS_SECURITY_MODE" = "mtls" ] && [ -f /templates/poller.mtls.json ]; then
+    POLLERS_TEMPLATE="/templates/poller.mtls.json"
 elif [ "$POLLERS_SECURITY_MODE" != "spiffe" ] && [ -f /templates/poller.docker.json.orig ]; then
     POLLERS_TEMPLATE="/templates/poller.docker.json.orig"
 fi
