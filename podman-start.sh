@@ -4,7 +4,9 @@
 
 set -e
 
-PC="/usr/local/bin/podman-compose"
+# Use podman-specific compose file without condition requirements
+COMPOSE_FILE="docker-compose.podman.yml"
+PC="/usr/local/bin/podman-compose -f $COMPOSE_FILE"
 
 log() { echo "[$(date '+%H:%M:%S')] $1"; }
 
@@ -15,6 +17,10 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 cd "$(dirname "$0")"
+
+# Generate podman-compatible compose file (removes condition requirements)
+log "Generating Podman-compatible compose file..."
+sed 's/condition: service_completed_successfully//g; s/condition: service_healthy//g; s/condition: service_started//g' docker-compose.yml > "$COMPOSE_FILE"
 
 # Clean if requested
 if [ "$1" = "--clean" ] || [ "$1" = "-c" ]; then
