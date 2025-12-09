@@ -161,3 +161,11 @@ build:darwin_pkg --repo_env=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/o
 build:darwin_pkg --repo_env=BAZEL=/usr/local/bin/bazel
 build:darwin_pkg --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 build:darwin_pkg --config=no_remote
+
+# EL9-compatible builds using Oracle Linux 9 RBE executor (glibc 2.34)
+# Use this for RPM packages targeting RHEL/AlmaLinux/Rocky/Oracle Linux 9
+build:el9 --config=remote_base
+build:el9 --host_platform=//build/platforms:rbe_linux_el9
+build:el9 --platforms=//build/platforms:rbe_linux_el9
+build:el9 --remote_cache=grpcs://remote.buildbuddy.io
+build:el9 --remote_timeout=10m

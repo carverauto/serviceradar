@@ -87,3 +87,21 @@ platform(
         "@platforms//cpu:arm64",
     ],
 )
+
+# Oracle Linux 9 RBE platform for EL9-compatible builds (glibc 2.34)
+# Use this platform for RPM builds targeting RHEL/AlmaLinux/Rocky/Oracle Linux 9
+platform(
+    name = "rbe_linux_el9",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    exec_properties = {
+        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor-el9:v1.0.20",
+        "OSFamily": "linux",
+        "Arch": "amd64",
+        "dockerNetwork": "host",
+        "Pool": "default",
+    },
+    visibility = ["//visibility:public"],
+)
