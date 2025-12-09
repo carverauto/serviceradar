@@ -174,6 +174,20 @@ sleep 3
 log "SRQL started"
 
 log "=== Phase 7: API Gateway ==="
+# Wait for core to be fully ready (JWKS endpoint)
+log "Waiting for Core JWKS endpoint..."
+for i in {1..30}; do
+    if podman run --rm --network "$NETWORK" docker.io/library/alpine:3.20 \
+        wget -q -O /dev/null http://core:8090/auth/jwks.json 2>/dev/null; then
+        log "Core JWKS endpoint is ready"
+        break
+    fi
+    if [ $i -eq 30 ]; then
+        log "WARNING: Core JWKS not ready after 60s, continuing anyway..."
+    fi
+    sleep 2
+done
+
 # Kong config generation - image entrypoint is already serviceradar-cli, just pass args
 run_container serviceradar-kong-config \
     -v serviceradar_kong-config:/out \
