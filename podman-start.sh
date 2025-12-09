@@ -106,11 +106,14 @@ run_container serviceradar-cert-permissions-fixer \
     sh /fix-cert-permissions.sh
 log "Cert permissions fixed"
 
-run_container serviceradar-core-jwks-init \
+# JWKS generation - may fail due to CLI bug, Kong JWT validation optional
+if ! run_container serviceradar-core-jwks-init \
     -v serviceradar_generated-config:/etc/serviceradar/config \
     ghcr.io/carverauto/serviceradar-kong-config:${APP_TAG} \
-    /usr/local/bin/serviceradar-cli generate-jwt-keys -file /etc/serviceradar/config/core.json -bits 2048
-log "JWKS generated"
+    /usr/local/bin/serviceradar-cli generate-jwt-keys -file /etc/serviceradar/config/core.json -bits 2048; then
+    log "WARNING: JWKS generation failed (known CLI bug). Kong JWT validation will use HS256 fallback."
+fi
+log "JWKS step complete"
 
 log "=== Phase 4: Messaging ==="
 run_container serviceradar-nats -d \
