@@ -106,14 +106,12 @@ run_container serviceradar-cert-permissions-fixer \
     sh /fix-cert-permissions.sh
 log "Cert permissions fixed"
 
-# JWKS generation - may fail due to CLI bug, Kong JWT validation optional
-if ! run_container serviceradar-core-jwks-init \
+# JWKS generation - image entrypoint is already serviceradar-cli, just pass subcommand args
+run_container serviceradar-core-jwks-init \
     -v serviceradar_generated-config:/etc/serviceradar/config \
     ghcr.io/carverauto/serviceradar-kong-config:${APP_TAG} \
-    /usr/local/bin/serviceradar-cli generate-jwt-keys -file /etc/serviceradar/config/core.json -bits 2048; then
-    log "WARNING: JWKS generation failed (known CLI bug). Kong JWT validation will use HS256 fallback."
-fi
-log "JWKS step complete"
+    generate-jwt-keys -file /etc/serviceradar/config/core.json -bits 2048
+log "JWKS generated"
 
 log "=== Phase 4: Messaging ==="
 run_container serviceradar-nats -d \
@@ -174,23 +172,18 @@ sleep 3
 log "SRQL started"
 
 log "=== Phase 7: API Gateway ==="
-# Kong config generation - may fail due to CLI bug, Kong is optional
-if ! run_container serviceradar-kong-config \
+# Kong config generation - image entrypoint is already serviceradar-cli, just pass args
+run_container serviceradar-kong-config \
     -v serviceradar_kong-config:/out \
     ghcr.io/carverauto/serviceradar-kong-config:${APP_TAG} \
-    /usr/local/bin/serviceradar-cli render-kong \
+    render-kong \
     --jwks http://serviceradar-core:8090/auth/jwks.json \
     --service http://serviceradar-core:8090 \
     --path /api \
     --srql-service http://serviceradar-srql:8080 \
     --srql-path /api/query \
-    --out /out/kong.yml; then
-    log "WARNING: Kong config generation failed (CLI bug). Using default Kong config."
-    # Copy default kong config
-    podman run --rm -v serviceradar_kong-config:/out -v "$(pwd)/docker/kong/kong.yaml:/default-kong.yml:ro,z" \
-        docker.io/library/alpine:3.20 cp /default-kong.yml /out/kong.yml
-fi
-log "Kong config ready"
+    --out /out/kong.yml
+log "Kong config generated"
 
 run_container serviceradar-kong -d \
     -p 8000:8000 -p 8001:8001 \
