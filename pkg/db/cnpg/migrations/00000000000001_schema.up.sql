@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS timeseries_metrics (
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('timeseries_metrics','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('timeseries_metrics', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('timeseries_metrics', INTERVAL '3 days', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_device_time ON timeseries_metrics (device_id, timestamp DESC);
 
 CREATE TABLE IF NOT EXISTS cpu_metrics (
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS cpu_metrics (
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('cpu_metrics','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('cpu_metrics', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('cpu_metrics', INTERVAL '3 days', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_cpu_metrics_device_time ON cpu_metrics (device_id, timestamp DESC);
 
 CREATE TABLE IF NOT EXISTS cpu_cluster_metrics (
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS cpu_cluster_metrics (
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('cpu_cluster_metrics','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('cpu_cluster_metrics', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('cpu_cluster_metrics', INTERVAL '3 days', if_not_exists => TRUE);
 
 CREATE TABLE IF NOT EXISTS disk_metrics (
     timestamp           TIMESTAMPTZ       NOT NULL,
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS disk_metrics (
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('disk_metrics','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('disk_metrics', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('disk_metrics', INTERVAL '3 days', if_not_exists => TRUE);
 
 CREATE TABLE IF NOT EXISTS memory_metrics (
     timestamp           TIMESTAMPTZ       NOT NULL,
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS memory_metrics (
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('memory_metrics','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('memory_metrics', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('memory_metrics', INTERVAL '3 days', if_not_exists => TRUE);
 
 CREATE TABLE IF NOT EXISTS process_metrics (
     timestamp           TIMESTAMPTZ       NOT NULL,
@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS process_metrics (
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('process_metrics','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('process_metrics', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('process_metrics', INTERVAL '3 days', if_not_exists => TRUE);
 
 CREATE TABLE IF NOT EXISTS netflow_metrics (
     timestamp           TIMESTAMPTZ       NOT NULL,
@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS netflow_metrics (
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('netflow_metrics','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('netflow_metrics', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('netflow_metrics', INTERVAL '3 days', if_not_exists => TRUE);
 
 -- ================================
 -- Discovery + sweep data
@@ -164,7 +164,7 @@ CREATE TABLE IF NOT EXISTS sweep_host_states (
     PRIMARY KEY (host_ip, poller_id, partition, last_sweep_time)
 );
 SELECT create_hypertable('sweep_host_states','last_sweep_time', if_not_exists => TRUE);
-SELECT add_retention_policy('sweep_host_states', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('sweep_host_states', INTERVAL '3 days', if_not_exists => TRUE);
 
 CREATE TABLE IF NOT EXISTS discovered_interfaces (
     timestamp           TIMESTAMPTZ       NOT NULL,
@@ -185,7 +185,7 @@ CREATE TABLE IF NOT EXISTS discovered_interfaces (
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('discovered_interfaces','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('discovered_interfaces', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('discovered_interfaces', INTERVAL '3 days', if_not_exists => TRUE);
 
 CREATE TABLE IF NOT EXISTS topology_discovery_events (
     timestamp                TIMESTAMPTZ   NOT NULL,
@@ -209,7 +209,7 @@ CREATE TABLE IF NOT EXISTS topology_discovery_events (
     created_at               TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('topology_discovery_events','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('topology_discovery_events', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('topology_discovery_events', INTERVAL '3 days', if_not_exists => TRUE);
 
 -- ================================
 -- Device inventory + updates
@@ -229,7 +229,7 @@ CREATE TABLE IF NOT EXISTS device_updates (
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('device_updates','observed_at', if_not_exists => TRUE);
-SELECT add_retention_policy('device_updates', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('device_updates', INTERVAL '3 days', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_device_updates_device_time ON device_updates (device_id, observed_at DESC);
 
 CREATE TABLE IF NOT EXISTS unified_devices (
@@ -329,7 +329,7 @@ CREATE TABLE IF NOT EXISTS service_registration_events (
     PRIMARY KEY (event_id, timestamp)
 );
 SELECT create_hypertable('service_registration_events','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('service_registration_events', INTERVAL '90 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('service_registration_events', INTERVAL '90 days', if_not_exists => TRUE);
 
 -- ================================
 -- Poller/service history
@@ -341,7 +341,7 @@ CREATE TABLE IF NOT EXISTS poller_history (
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('poller_history','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('poller_history', INTERVAL '7 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('poller_history', INTERVAL '7 days', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_poller_history_id_time ON poller_history (poller_id, timestamp DESC);
 
 CREATE TABLE IF NOT EXISTS service_status (
@@ -357,7 +357,7 @@ CREATE TABLE IF NOT EXISTS service_status (
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('service_status','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('service_status', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('service_status', INTERVAL '3 days', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_service_status_identity ON service_status (poller_id, service_name, timestamp DESC);
 
 CREATE TABLE IF NOT EXISTS services (
@@ -371,7 +371,7 @@ CREATE TABLE IF NOT EXISTS services (
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('services','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('services', INTERVAL '30 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('services', INTERVAL '30 days', if_not_exists => TRUE);
 
 -- ================================
 -- Edge onboarding
@@ -424,7 +424,7 @@ CREATE TABLE IF NOT EXISTS edge_onboarding_events (
     PRIMARY KEY (event_time, package_id)
 );
 SELECT create_hypertable('edge_onboarding_events','event_time', if_not_exists => TRUE);
-SELECT add_retention_policy('edge_onboarding_events', INTERVAL '365 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('edge_onboarding_events', INTERVAL '365 days', if_not_exists => TRUE);
 
 -- ================================
 -- Device capability registry
@@ -446,7 +446,7 @@ CREATE TABLE IF NOT EXISTS device_capabilities (
     PRIMARY KEY (event_id, last_checked)
 );
 SELECT create_hypertable('device_capabilities','last_checked', if_not_exists => TRUE);
-SELECT add_retention_policy('device_capabilities', INTERVAL '90 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('device_capabilities', INTERVAL '90 days', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_device_capabilities_lookup ON device_capabilities (device_id, capability, service_id, last_checked DESC);
 
 CREATE TABLE IF NOT EXISTS device_capability_registry (
@@ -488,7 +488,7 @@ CREATE TABLE IF NOT EXISTS events (
     PRIMARY KEY (event_timestamp, id)
 );
 SELECT create_hypertable('events','event_timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('events', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('events', INTERVAL '3 days', if_not_exists => TRUE);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_events_id_unique ON events (id, event_timestamp);
 CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events (event_timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_events_subject ON events (subject);
@@ -501,7 +501,7 @@ CREATE TABLE IF NOT EXISTS rperf_metrics (
     created_at     TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('rperf_metrics','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('rperf_metrics', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('rperf_metrics', INTERVAL '3 days', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_rperf_metrics_poller_time ON rperf_metrics (poller_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_rperf_metrics_service ON rperf_metrics (service_name);
 
@@ -540,7 +540,7 @@ CREATE TABLE IF NOT EXISTS logs (
     PRIMARY KEY (timestamp, trace_id, span_id)
 );
 SELECT create_hypertable('logs','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('logs', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('logs', INTERVAL '3 days', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_logs_service_time ON logs (service_name, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_trace_id ON logs (trace_id);
 
@@ -567,7 +567,7 @@ CREATE TABLE IF NOT EXISTS otel_metrics (
     PRIMARY KEY (timestamp, span_name, service_name, span_id)
 );
 SELECT create_hypertable('otel_metrics','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('otel_metrics', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('otel_metrics', INTERVAL '3 days', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_otel_metrics_service_time ON otel_metrics (service_name, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_otel_metrics_component ON otel_metrics (component);
 
@@ -595,7 +595,7 @@ CREATE TABLE IF NOT EXISTS otel_traces (
     PRIMARY KEY (timestamp, trace_id, span_id)
 );
 SELECT create_hypertable('otel_traces','timestamp', if_not_exists => TRUE);
-SELECT add_retention_policy('otel_traces', INTERVAL '3 days', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('otel_traces', INTERVAL '3 days', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_otel_traces_trace_id ON otel_traces (trace_id);
 CREATE INDEX IF NOT EXISTS idx_otel_traces_service_time ON otel_traces (service_name, timestamp DESC);
 

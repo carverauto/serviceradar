@@ -13,7 +13,7 @@ services:
       - serviceradar-net
 
   cnpg:
-    image: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2
+    image: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3
     container_name: serviceradar-cnpg-mtls
     user: "0:0"
     depends_on:

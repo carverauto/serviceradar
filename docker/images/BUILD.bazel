@@ -1554,12 +1554,6 @@ fi
 mkdir -p "$${OUT_DIR}/timescaledb"
 cp -R "$${SRC_TREE}/." "$${OUT_DIR}/timescaledb"
 chmod -R u+w "$${OUT_DIR}/timescaledb"
-# Force the built library to match the in-cluster extension version (2.24.0-dev).
-cat > "$${OUT_DIR}/timescaledb/version.config" <<'EOF'
-version = 2.24.0-dev
-previous_version = 2.24.0
-EOF
-
 cp "$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wrapper_ts.sh"
 chmod +x "$${OUT_DIR}/pg_config_wrapper_ts.sh"
 cp "$(location //docker/images:pg_config_rewrite.py)" "$${OUT_DIR}/pg_config_rewrite.py"

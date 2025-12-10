@@ -13,7 +13,7 @@ services:
       - serviceradar-net
 
   cnpg:
-    image: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2
+    image: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3
     container_name: serviceradar-cnpg-mtls
     user: "0:0"
     depends_on:
@@ -131,7 +131,7 @@ services:
       - core-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
-      - INIT_DB=true
+      - INIT_DB=${INIT_DB:-true}
       - CONFIG_SOURCE=file
       - CONFIG_PATH=/etc/serviceradar/config/core.json
       - CONFIG_WATCH_ENABLED=${CONFIG_WATCH_ENABLED:-true}
