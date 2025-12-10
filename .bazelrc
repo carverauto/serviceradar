@@ -97,8 +97,9 @@ build:remote_base --host_platform=//build/rbe:rbe_platform
 build:remote_base --platforms=//build/rbe:rbe_platform
 build:remote_base --crosstool_top=@buildbuddy_toolchain//:toolchain
 build:remote_base --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
-# Include EL9 platform for targets that require ZFS libraries (exec_compatible_with has_zfs)
-build:remote_base --extra_execution_platforms=//build/platforms:rbe_linux_el9
+# Note: EL9 platform with ZFS support is available via --config=el9
+# Do NOT add EL9 to extra_execution_platforms here, as it causes glibc mismatches
+# for other targets. Use --config=el9 explicitly for ZFS builds.
 build:remote_base --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 build:remote_base --copt=-Wno-use-after-free
 build:remote_base --java_language_version=11

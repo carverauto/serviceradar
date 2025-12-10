@@ -21,7 +21,7 @@ import (
 	"github.com/bazelbuild/rules_go/go/tools/bazel"
 )
 
-const manifestRunfile = "release/package_manifest.txt"
+var defaultManifestRunfile = "release/package_manifest.txt"
 
 var (
 	errGithubAPI              = errors.New("github api error")
@@ -88,6 +88,7 @@ func main() {
 	dryRunFlag := flag.Bool("dry_run", false, "Print actions without calling the GitHub API")
 	overwriteAssetsFlag := flag.Bool("overwrite_assets", true, "Replace existing assets that share the same name")
 	appendNotesFlag := flag.Bool("append_notes", false, "Append release notes when the release already exists")
+	manifestFlag := flag.String("manifest", defaultManifestRunfile, "Path to the package manifest runfile")
 
 	flag.Parse()
 
@@ -118,7 +119,7 @@ func main() {
 		failf("failed to initialise runfile resolver: %v", err)
 	}
 
-	assets, err := collectAssets(resolver, manifestRunfile)
+	assets, err := collectAssets(resolver, *manifestFlag)
 	if err != nil {
 		failf("failed to resolve package artifacts: %v", err)
 	}

@@ -278,6 +278,64 @@ jobs:
             run_local
           fi
 
+      - name: Publish EL9 packages (sysmon with ZFS)
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          NOTES_FILE: ${{ steps.notes.outputs.path }}
+          DRY_RUN: ${{ steps.release.outputs.dry_run }}
+          APPEND_NOTES: ${{ steps.release.outputs.append_notes }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          DRAFT: ${{ steps.release.outputs.draft }}
+          OVERWRITE_ASSETS: ${{ steps.release.outputs.overwrite_assets }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$RELEASE_TAG" ]]; then
+            echo "Release tag is empty" >&2
+            exit 1
+          fi
+
+          declare -a args
+          args+=("--tag" "$RELEASE_TAG")
+          args+=("--manifest" "release/package_manifest_el9.txt")
+          if [[ -n "$NOTES_FILE" ]]; then
+            args+=("--notes_file" "$NOTES_FILE")
+          fi
+          if [[ "$DRY_RUN" == "true" ]]; then
+            args+=("--dry_run")
+          fi
+          # Always append notes for EL9 packages since main release already created
+          args+=("--append_notes")
+          if [[ "$PRERELEASE" == "true" ]]; then
+            args+=("--prerelease")
+          fi
+          if [[ "$DRAFT" == "true" ]]; then
+            args+=("--draft")
+          fi
+          if [[ "$OVERWRITE_ASSETS" != "true" ]]; then
+            args+=("--overwrite_assets=${OVERWRITE_ASSETS}")
+          fi
+
+          # EL9 packages require --config=el9 for ZFS library support
+          run_el9_remote() {
+            bazel run \
+              --config=el9 \
+              --stamp \
+              //release:publish_packages_el9 \
+              -- "${args[@]}"
+          }
+
+          run_el9_local() {
+            echo "EL9 packages require remote execution with --config=el9" >&2
+            echo "Cannot build EL9 packages locally (requires ZFS libraries)" >&2
+            exit 1
+          }
+
+          if ! run_el9_remote; then
+            echo "EL9 packaging failed" >&2
+            run_el9_local
+          fi
+
       - name: Verify uploaded release assets via API
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
