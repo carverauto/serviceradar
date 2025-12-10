@@ -34,6 +34,7 @@ rust_library(
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
 
+# Non-ZFS binary (universal compatibility)
 rust_binary(
     name = "sysmon",
     srcs = ["src/main.rs"],
@@ -43,4 +44,46 @@ rust_binary(
         "//rust/config-bootstrap:config_bootstrap",
         "//rust/edge-onboarding:edge_onboarding",
     ] + all_crate_deps(normal = True),
+)
+
+# ZFS-enabled library variant
+# Requires ZFS libraries - build with: bazel build --config=el9 //cmd/checkers/sysmon:sysmon_lib_zfs
+# These targets are skipped in regular //... builds (incompatible with default platform)
+rust_library(
+    name = "sysmon_lib_zfs",
+    srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
+    crate_root = "src/lib.rs",
+    crate_name = "serviceradar_sysmon_checker",
+    crate_features = ["zfs"],
+    edition = "2021",
+    compile_data = [
+        "config/default_template.json",
+    ],
+    deps = all_crate_deps(normal = True) + [
+        ":build_script",
+        "@rust_crates//:libzetta",
+    ],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    target_compatible_with = [
+        "//build/platforms:has_zfs",
+    ],
+)
+
+# ZFS-enabled binary (requires libzfs on system)
+# Requires ZFS libraries - build with: bazel build --config=el9 //cmd/checkers/sysmon:sysmon_zfs
+# These targets are skipped in regular //... builds (incompatible with default platform)
+rust_binary(
+    name = "sysmon_zfs",
+    srcs = ["src/main.rs"],
+    crate_features = ["zfs"],
+    edition = "2021",
+    deps = [
+        ":sysmon_lib_zfs",
+        "//rust/config-bootstrap:config_bootstrap",
+        "//rust/edge-onboarding:edge_onboarding",
+        "@rust_crates//:libzetta",
+    ] + all_crate_deps(normal = True),
+    target_compatible_with = [
+        "//build/platforms:has_zfs",
+    ],
 )

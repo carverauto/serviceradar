@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   generate-image-sboms:
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     strategy:
       matrix:
@@ -137,7 +137,7 @@ jobs:
 
   summary:
     needs: generate-image-sboms
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     if: always()
     steps:
       - name: Generate summary

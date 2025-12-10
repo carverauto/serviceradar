@@ -10,8 +10,13 @@ SHELL ["/bin/bash", "-lc"]
 RUN dnf install -y oracle-epel-release-el9 oraclelinux-developer-release-el9 \
     && dnf config-manager --enable ol9_codeready_builder \
     && dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm \
+    && dnf install -y https://zfsonlinux.org/epel/zfs-release-2-3.el9.noarch.rpm \
     && dnf -qy module disable postgresql \
     && dnf install -y \
+        libzfs5-devel \
+        libuuid-devel \
+        libblkid-devel \
+        libtirpc-devel \
         skopeo \
         podman \
         podman-docker \
@@ -65,9 +70,9 @@ ENV CC=/usr/bin/gcc \
     RUSTUP_HOME=/opt/rustup \
     CARGO_HOME=/opt/cargo \
     PATH=/opt/cargo/bin:/opt/rh/gcc-toolset-13/root/usr/bin:$PATH \
-    LIBRARY_PATH=/usr/pgsql-16/lib \
-    LD_LIBRARY_PATH=/usr/pgsql-16/lib \
-    PKG_CONFIG_PATH=/usr/pgsql-16/lib/pkgconfig
+    LIBRARY_PATH=/usr/pgsql-16/lib:/usr/lib64 \
+    LD_LIBRARY_PATH=/usr/pgsql-16/lib:/usr/lib64 \
+    PKG_CONFIG_PATH=/usr/lib64/pkgconfig:/usr/pgsql-16/lib/pkgconfig
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
 
