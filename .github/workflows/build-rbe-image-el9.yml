@@ -1,21 +1,21 @@
-name: Build RBE Image
+name: Build RBE Image (EL9)
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'docker/Dockerfile.rbe'
-      - '.github/workflows/build-rbe-image.yml'
+      - 'docker/Dockerfile.rbe-ora9'
+      - '.github/workflows/build-rbe-image-el9.yml'
   pull_request:
     paths:
-      - 'docker/Dockerfile.rbe'
-      - '.github/workflows/build-rbe-image.yml'
+      - 'docker/Dockerfile.rbe-ora9'
+      - '.github/workflows/build-rbe-image-el9.yml'
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/rbe-executor
+  IMAGE_NAME: ${{ github.repository }}/rbe-executor-el9
 
 jobs:
   build-and-push:
@@ -47,14 +47,14 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=sha,format=short,prefix=sha-
-            type=raw,value=v1.0.14
+            type=raw,value=v1.0.23
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.rbe
+          file: docker/Dockerfile.rbe-ora9
           platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}

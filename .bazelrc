@@ -97,6 +97,9 @@ build:remote_base --host_platform=//build/rbe:rbe_platform
 build:remote_base --platforms=//build/rbe:rbe_platform
 build:remote_base --crosstool_top=@buildbuddy_toolchain//:toolchain
 build:remote_base --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
+# Note: EL9 platform with ZFS support is available via --config=el9
+# Do NOT add EL9 to extra_execution_platforms here, as it causes glibc mismatches
+# for other targets. Use --config=el9 explicitly for ZFS builds.
 build:remote_base --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 build:remote_base --copt=-Wno-use-after-free
 build:remote_base --java_language_version=11
@@ -161,3 +164,36 @@ build:darwin_pkg --repo_env=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/o
 build:darwin_pkg --repo_env=BAZEL=/usr/local/bin/bazel
 build:darwin_pkg --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 build:darwin_pkg --config=no_remote
+
+# EL9-compatible builds using Oracle Linux 9 RBE executor (glibc 2.34)
+# Use this for RPM packages targeting RHEL/AlmaLinux/Rocky/Oracle Linux 9
+# Note: We duplicate remote_base settings here instead of inheriting, to ensure
+# the EL9 platform takes precedence over the default rbe_platform
+build:el9 --remote_executor=grpcs://remote.buildbuddy.io
+build:el9 --host_platform=//build/platforms:rbe_linux_el9
+build:el9 --platforms=//build/platforms:rbe_linux_el9
+build:el9 --extra_execution_platforms=//build/platforms:rbe_linux_el9
+build:el9 --crosstool_top=@buildbuddy_toolchain//:toolchain
+build:el9 --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
+build:el9 --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+build:el9 --copt=-Wno-use-after-free
+build:el9 --java_language_version=11
+build:el9 --tool_java_language_version=11
+build:el9 --java_runtime_version=remotejdk_11
+build:el9 --tool_java_runtime_version=remotejdk_11
+build:el9 --define=EXECUTOR=remote
+build:el9 --incompatible_strict_action_env
+build:el9 --remote_download_outputs=all
+build:el9 --remote_upload_local_results
+build:el9 --jobs=100
+build:el9 --strategy=ExpandTemplate=local
+build:el9 --strategy=NpmPackageExtract=local
+build:el9 --strategy=CopyDirectory=local
+build:el9 --action_env=OPENSSL_DIR=/usr
+build:el9 --action_env=OPENSSL_LIB_DIR=/usr/lib64
+build:el9 --action_env=OPENSSL_INCLUDE_DIR=/usr/include
+build:el9 --action_env=PKG_CONFIG_PATH=/usr/lib64/pkgconfig:/usr/pgsql-16/lib/pkgconfig
+build:el9 --remote_cache=grpcs://remote.buildbuddy.io
+build:el9 --remote_timeout=10m
+# Use remote_default_exec_properties to force the EL9 container for all remote actions
+build:el9 --remote_default_exec_properties=container-image=docker://ghcr.io/carverauto/serviceradar/rbe-executor-el9:v1.0.23

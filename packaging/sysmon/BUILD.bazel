@@ -3,6 +3,9 @@ load("//packaging:packages.bzl", "PACKAGES")
 
 package(default_visibility = ["//visibility:public"])
 
+# Export the custom spec template for the RPM
+exports_files(["template.spec.tpl"])
+
 serviceradar_package_from_config(
     name = "sysmon",
     config = PACKAGES["sysmon"],

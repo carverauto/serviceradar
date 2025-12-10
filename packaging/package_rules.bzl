@@ -129,6 +129,7 @@ def serviceradar_package(
         version_file = "//:VERSION",
         rpm_tags = ["no-remote-exec"],
         rpm_disable_remote = False,
+        rpm_spec_template = None,
     ):
     """Define .deb and .rpm packaging targets for a component."""
 
@@ -280,6 +281,10 @@ PY
 """ % fallback_release_escaped,
     )
 
+    rpm_extra_kwargs = dict(rpm_kwargs)
+    if rpm_spec_template:
+        rpm_extra_kwargs["spec_template"] = rpm_spec_template
+
     pkg_rpm(
         name = "{}_rpm".format(name),
         package_name = package_name,
@@ -294,7 +299,7 @@ PY
         srcs = data_targets,
         target_compatible_with = select(target_compat),
         tags = rpm_tags,
-        **rpm_kwargs
+        **rpm_extra_kwargs
     )
 
     # Bundle ------------------------------------------------------------------
