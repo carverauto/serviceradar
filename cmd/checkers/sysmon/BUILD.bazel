@@ -47,6 +47,7 @@ rust_binary(
 )
 
 # ZFS-enabled library variant
+# Requires an executor with ZFS libraries - will automatically use EL9 RBE
 rust_library(
     name = "sysmon_lib_zfs",
     srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
@@ -62,9 +63,13 @@ rust_library(
         "@rust_crates//:libzetta",
     ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
+    exec_compatible_with = [
+        "//build/platforms:has_zfs",
+    ],
 )
 
 # ZFS-enabled binary (requires libzfs on system)
+# Requires an executor with ZFS libraries - will automatically use EL9 RBE
 rust_binary(
     name = "sysmon_zfs",
     srcs = ["src/main.rs"],
@@ -76,4 +81,7 @@ rust_binary(
         "//rust/edge-onboarding:edge_onboarding",
         "@rust_crates//:libzetta",
     ] + all_crate_deps(normal = True),
+    exec_compatible_with = [
+        "//build/platforms:has_zfs",
+    ],
 )

@@ -1,5 +1,25 @@
 # Platform definitions for ServiceRadar multi-arch builds
 
+# Custom constraint for ZFS library availability
+# Only the EL9 RBE platform has libzfs installed
+constraint_setting(
+    name = "zfs_support",
+    default_constraint_value = ":no_zfs",
+    visibility = ["//visibility:public"],
+)
+
+constraint_value(
+    name = "has_zfs",
+    constraint_setting = ":zfs_support",
+    visibility = ["//visibility:public"],
+)
+
+constraint_value(
+    name = "no_zfs",
+    constraint_setting = ":zfs_support",
+    visibility = ["//visibility:public"],
+)
+
 platform(
     name = "linux_amd64",
     constraint_values = [
@@ -90,11 +110,13 @@ platform(
 
 # Oracle Linux 9 RBE platform for EL9-compatible builds (glibc 2.34)
 # Use this platform for RPM builds targeting RHEL/AlmaLinux/Rocky/Oracle Linux 9
+# This platform has ZFS libraries installed for building ZFS-enabled binaries
 platform(
     name = "rbe_linux_el9",
     constraint_values = [
         "@platforms//os:linux",
         "@platforms//cpu:x86_64",
+        ":has_zfs",
     ],
     exec_properties = {
         "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor-el9:v1.0.23",
