@@ -16,6 +16,9 @@ services:
     image: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2
     container_name: serviceradar-cnpg-mtls
     user: "0:0"
+    depends_on:
+      cert-generator:
+        condition: service_completed_successfully
     command:
       - "postgres"
       - "-c"
