@@ -189,7 +189,8 @@ build:el9 --strategy=CopyDirectory=local
 build:el9 --action_env=OPENSSL_DIR=/usr
 build:el9 --action_env=OPENSSL_LIB_DIR=/usr/lib64
 build:el9 --action_env=OPENSSL_INCLUDE_DIR=/usr/include
+build:el9 --action_env=PKG_CONFIG_PATH=/usr/lib64/pkgconfig:/usr/pgsql-16/lib/pkgconfig
 build:el9 --remote_cache=grpcs://remote.buildbuddy.io
 build:el9 --remote_timeout=10m
 # Use remote_default_exec_properties to force the EL9 container for all remote actions
-build:el9 --remote_default_exec_properties=container-image=docker://ghcr.io/carverauto/serviceradar/rbe-executor-el9:v1.0.20
+build:el9 --remote_default_exec_properties=container-image=docker://ghcr.io/carverauto/serviceradar/rbe-executor-el9:v1.0.23

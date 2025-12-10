@@ -97,7 +97,7 @@ platform(
         "@platforms//cpu:x86_64",
     ],
     exec_properties = {
-        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor-el9:v1.0.20",
+        "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor-el9:v1.0.23",
         "OSFamily": "linux",
         "Arch": "amd64",
         "dockerNetwork": "host",

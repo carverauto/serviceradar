@@ -34,6 +34,7 @@ rust_library(
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
 
+# Non-ZFS binary (universal compatibility)
 rust_binary(
     name = "sysmon",
     srcs = ["src/main.rs"],
@@ -42,5 +43,37 @@ rust_binary(
         ":sysmon_lib",
         "//rust/config-bootstrap:config_bootstrap",
         "//rust/edge-onboarding:edge_onboarding",
+    ] + all_crate_deps(normal = True),
+)
+
+# ZFS-enabled library variant
+rust_library(
+    name = "sysmon_lib_zfs",
+    srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
+    crate_root = "src/lib.rs",
+    crate_name = "serviceradar_sysmon_checker",
+    crate_features = ["zfs"],
+    edition = "2021",
+    compile_data = [
+        "config/default_template.json",
+    ],
+    deps = all_crate_deps(normal = True) + [
+        ":build_script",
+        "@rust_crates//:libzetta",
+    ],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)
+
+# ZFS-enabled binary (requires libzfs on system)
+rust_binary(
+    name = "sysmon_zfs",
+    srcs = ["src/main.rs"],
+    crate_features = ["zfs"],
+    edition = "2021",
+    deps = [
+        ":sysmon_lib_zfs",
+        "//rust/config-bootstrap:config_bootstrap",
+        "//rust/edge-onboarding:edge_onboarding",
+        "@rust_crates//:libzetta",
     ] + all_crate_deps(normal = True),
 )
