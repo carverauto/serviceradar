@@ -217,6 +217,24 @@
   },
   "selectedYankedVersions": {},
   "moduleExtensions": {
+    "//build:version.bzl%version_ext": {
+      "general": {
+        "bzlTransitiveDigest": "fTz6SaRSjjhaYs7Ha7pmpbnfPAmxNevCjgESB7KjsG4=",
+        "usagesDigest": "Td1cT2/Tvl/uNmE4KrwT1p5eMZQxbM+HP+m7NZYd6us=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "serviceradar_version": {
+            "repoRuleId": "@@//build:version.bzl%_version_repo",
+            "attributes": {
+              "version_file": "@@//:VERSION"
+            }
+          }
+        },
+        "recordedRepoMappingEntries": []
+      }
+    },
     "@@buildifier_prebuilt+//:defs.bzl%buildifier_prebuilt_deps_extension": {
       "general": {
         "bzlTransitiveDigest": "qutGV+4qwAvWjeGNkFjX+tqkSCPbL129CcCePdkLkJU=",
@@ -1615,7 +1633,7 @@
         "bzlTransitiveDigest": "qATCXoRXiE4t2IhaFrGaKqtvL9i+mgfVSeAFstpB2/Q=",
         "usagesDigest": "Rt1wyIqgIFVokH27M6/Ua5LToertR25hW6g+sk1Q6UE=",
         "recordedFileInputs": {
-          "@@//Cargo.lock": "52b7b785cd0f5b4b8e4fae44a939abe8d86079aa02214a38671963999126dc8a",
+          "@@//Cargo.lock": "385ce33a65add9c7c3a4a514602de8e08c0b2129efcf85efbc1f4e14fc6b38d0",
           "@@//Cargo.toml": "102d13f360d4caf101620105fb5714eb031839cdb279e667553f27366d1ed5f0",
           "@@//cmd/checkers/rperf-client/Cargo.toml": "a0c791977332d5ab34a589b105b63f9723372480bdc7d789fa1eed70e239ce35",
           "@@//cmd/checkers/sysmon/Cargo.toml": "81ac297ad028cb714ce7ed3137f0bb667da9064f724aab1b421bda9613573922",
