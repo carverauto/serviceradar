@@ -2381,6 +2381,17 @@ func (s *edgeOnboardingService) applyComponentKVUpdates(ctx context.Context, pkg
 		}
 
 		pkg.KVRevision = revision
+
+		// Also update the poller's config to include this checker in the polling list
+		if err := s.addCheckerToPollerConfig(ctx, pkg); err != nil {
+			s.logger.Warn().
+				Err(err).
+				Str("checker_kind", pkg.CheckerKind).
+				Str("poller_id", pkg.PollerID).
+				Msg("Failed to add checker to poller config (checker config was written successfully)")
+			// Don't return error - checker config was written, this is a non-fatal enhancement
+		}
+
 		return nil
 	}
 
@@ -2521,6 +2532,148 @@ func (s *edgeOnboardingService) putKVDocument(ctx context.Context, key string, v
 		return confirm.GetRevision(), nil
 	}
 	return 0, nil
+}
+
+// pollerCheckConfig is a minimal struct matching the poller's Check type for JSON operations.
+type pollerCheckConfig struct {
+	Type    string `json:"service_type"`
+	Name    string `json:"service_name"`
+	Details string `json:"details,omitempty"`
+	Port    int32  `json:"port,omitempty"`
+}
+
+// pollerAgentConfig is a minimal struct for agent entries in the poller config.
+type pollerAgentConfig struct {
+	Address  string              `json:"address"`
+	Checks   []pollerCheckConfig `json:"checks"`
+	Security json.RawMessage     `json:"security,omitempty"`
+}
+
+// addCheckerToPollerConfig adds a new check entry to the poller's KV config.
+// This ensures the poller knows to start polling the newly registered checker.
+func (s *edgeOnboardingService) addCheckerToPollerConfig(ctx context.Context, pkg *models.EdgeOnboardingPackage) error {
+	if s.kvClient == nil {
+		return nil
+	}
+
+	// We need the poller ID - for checkers, this comes from the parent chain
+	pollerID := pkg.PollerID
+	if pollerID == "" {
+		s.logger.Debug().
+			Str("checker_kind", pkg.CheckerKind).
+			Str("parent_id", pkg.ParentID).
+			Msg("Checker has no poller_id, skipping poller config update")
+		return nil
+	}
+
+	// Get the agent ID - this is the parent of the checker
+	agentID := pkg.ParentID
+	if agentID == "" {
+		s.logger.Debug().
+			Str("checker_kind", pkg.CheckerKind).
+			Str("poller_id", pollerID).
+			Msg("Checker has no parent_id (agent), skipping poller config update")
+		return nil
+	}
+
+	// Build the poller config key
+	sanitizedPollerID := sanitizePollerID(pollerID)
+	pollerConfigKey := fmt.Sprintf("config/pollers/%s.json", sanitizedPollerID)
+
+	// Read the current poller config
+	existing, err := s.kvClient.Get(ctx, &proto.GetRequest{Key: pollerConfigKey})
+	if err != nil {
+		return fmt.Errorf("failed to read poller config from %s: %w", pollerConfigKey, err)
+	}
+
+	if !existing.GetFound() {
+		s.logger.Warn().
+			Str("poller_id", pollerID).
+			Str("key", pollerConfigKey).
+			Msg("Poller config not found in KV, cannot add checker to polling list")
+		return nil
+	}
+
+	// Parse the poller config - we use a flexible map structure to preserve unknown fields
+	var pollerConfig map[string]json.RawMessage
+	if err := json.Unmarshal(existing.GetValue(), &pollerConfig); err != nil {
+		return fmt.Errorf("failed to parse poller config: %w", err)
+	}
+
+	// Get or create the agents map
+	var agents map[string]pollerAgentConfig
+	if agentsRaw, ok := pollerConfig["agents"]; ok {
+		if err := json.Unmarshal(agentsRaw, &agents); err != nil {
+			return fmt.Errorf("failed to parse agents in poller config: %w", err)
+		}
+	}
+
+	if agents == nil {
+		agents = make(map[string]pollerAgentConfig)
+	}
+
+	// Find or create the agent entry
+	agent, ok := agents[agentID]
+	if !ok {
+		s.logger.Warn().
+			Str("agent_id", agentID).
+			Str("poller_id", pollerID).
+			Msg("Agent not found in poller config, cannot add checker")
+		return nil
+	}
+
+	// Build the new check entry
+	newCheck := pollerCheckConfig{
+		Type: pkg.CheckerKind,
+		Name: pkg.CheckerKind, // Default to checker_kind as name
+	}
+
+	// Check if this check type already exists for the agent
+	for _, check := range agent.Checks {
+		if check.Type == newCheck.Type {
+			s.logger.Debug().
+				Str("checker_kind", pkg.CheckerKind).
+				Str("agent_id", agentID).
+				Str("poller_id", pollerID).
+				Msg("Checker type already exists in agent's check list, skipping")
+			return nil
+		}
+	}
+
+	// Add the new check
+	agent.Checks = append(agent.Checks, newCheck)
+	agents[agentID] = agent
+
+	// Marshal the updated agents back
+	agentsJSON, err := json.Marshal(agents)
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated agents: %w", err)
+	}
+	pollerConfig["agents"] = agentsJSON
+
+	// Marshal the full config
+	updatedConfig, err := json.Marshal(pollerConfig)
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated poller config: %w", err)
+	}
+
+	// Write back using update to maintain revision
+	if _, err := s.kvClient.Update(ctx, &proto.UpdateRequest{
+		Key:      pollerConfigKey,
+		Value:    updatedConfig,
+		Revision: existing.GetRevision(),
+	}); err != nil {
+		return fmt.Errorf("failed to update poller config: %w", err)
+	}
+
+	s.logger.Info().
+		Str("checker_kind", pkg.CheckerKind).
+		Str("agent_id", agentID).
+		Str("poller_id", pollerID).
+		Str("key", pollerConfigKey).
+		Msg("Added checker to poller config")
+
+	return nil
 }
 
 // substituteTemplateVariables replaces placeholder values in a checker template

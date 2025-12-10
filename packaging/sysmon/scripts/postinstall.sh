@@ -30,7 +30,11 @@ setup_user_and_dirs() {
 
     # Set up required directories
     mkdir -p /var/lib/serviceradar
+    mkdir -p /var/lib/serviceradar/checker/config
+    mkdir -p /var/lib/serviceradar/checker/certs
     mkdir -p /etc/serviceradar/checkers
+    mkdir -p /etc/serviceradar/certs
+    mkdir -p /var/log/serviceradar
 }
 
 # Detect ZFS availability
@@ -101,9 +105,11 @@ configure_json() {
 finalize_installation() {
     # Set permissions
     chown -R serviceradar:serviceradar /etc/serviceradar/checkers
+    chown -R serviceradar:serviceradar /etc/serviceradar/certs
     chown -R serviceradar:serviceradar /var/lib/serviceradar
+    chown -R serviceradar:serviceradar /var/log/serviceradar
     chmod 755 /usr/local/bin/serviceradar-sysmon-checker
-    chmod 644 /etc/serviceradar/checkers/sysmon.json
+    chmod 644 /etc/serviceradar/checkers/sysmon.json 2>/dev/null || true
 
     # Enable and start the service
     systemctl daemon-reload

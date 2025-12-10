@@ -79,14 +79,20 @@ fn parse_structured_token(
 
     let mut payload: TokenPayload = serde_json::from_slice(&data)?;
 
-    // Apply fallbacks
+    // Apply fallbacks and overrides
     if payload.package_id.is_empty() {
         if let Some(fallback) = fallback_package_id {
             payload.package_id = fallback.to_string();
         }
     }
-    if payload.core_url.is_none() {
-        payload.core_url = fallback_core_url.map(String::from);
+    // --host flag should OVERRIDE the token's API URL, not just be a fallback
+    // This allows users to specify the actual reachable host when the token
+    // contains localhost or an internal hostname
+    if let Some(override_host) = fallback_core_url {
+        payload.core_url = Some(apply_host_override(
+            payload.core_url.as_deref(),
+            override_host,
+        ));
     }
 
     validate_token_payload(&payload)?;
@@ -145,6 +151,67 @@ fn validate_token_payload(payload: &TokenPayload) -> Result<()> {
 fn looks_like_url(raw: &str) -> bool {
     let lower = raw.trim().to_lowercase();
     lower.starts_with("http://") || lower.starts_with("https://")
+}
+
+/// Apply a host override to an existing URL, preserving scheme and port.
+///
+/// If `override_host` is a full URL (has scheme), use it directly.
+/// Otherwise, replace just the hostname in the original URL, keeping
+/// the scheme and port from the original.
+///
+/// Examples:
+/// - original: "http://localhost:8090", override: "192.168.2.235" -> "http://192.168.2.235:8090"
+/// - original: "https://core:8090", override: "myhost.example.com" -> "https://myhost.example.com:8090"
+/// - original: None, override: "192.168.2.235" -> "http://192.168.2.235:8090" (default port)
+/// - original: "http://localhost:8090", override: "http://myhost:9000" -> "http://myhost:9000" (full URL override)
+fn apply_host_override(original_url: Option<&str>, override_host: &str) -> String {
+    let override_host = override_host.trim();
+
+    // If override is already a full URL, use it directly
+    if looks_like_url(override_host) {
+        return override_host.to_string();
+    }
+
+    // If no original URL, construct a new one with default port
+    let Some(original) = original_url else {
+        // Check if override already has a port
+        if override_host.contains(':') {
+            return format!("http://{}", override_host);
+        }
+        return format!("http://{}:8090", override_host);
+    };
+
+    // Parse the original URL to extract scheme and port
+    let (scheme, rest) = if original.starts_with("https://") {
+        ("https://", &original[8..])
+    } else if original.starts_with("http://") {
+        ("http://", &original[7..])
+    } else {
+        ("http://", original)
+    };
+
+    // Extract port from original URL (if any)
+    // Format: host:port or host:port/path
+    let port = rest
+        .split('/')
+        .next()
+        .and_then(|host_port| {
+            host_port
+                .rsplit(':')
+                .next()
+                .filter(|p| p.chars().all(|c| c.is_ascii_digit()))
+        });
+
+    // If override already has a port, use it as-is
+    if override_host.contains(':') {
+        return format!("{}{}", scheme, override_host);
+    }
+
+    // Construct new URL with override host and original port
+    match port {
+        Some(p) => format!("{}{}:{}", scheme, override_host, p),
+        None => format!("{}{}", scheme, override_host),
+    }
 }
 
 /// Encode a token payload into the edgepkg-v1 format.
