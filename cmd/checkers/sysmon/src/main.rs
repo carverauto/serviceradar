@@ -29,6 +29,72 @@ use serviceradar_sysmon_checker::{
     config::Config, poller::MetricsCollector, server::SysmonService, template,
 };
 
+const SYSTEMD_SERVICE_NAME: &str = "serviceradar-sysmon-checker";
+
+/// Persist the mTLS config from the bootstrap location to the systemd expected path.
+fn persist_mtls_config(source_path: &str, dest_path: &PathBuf) -> Result<()> {
+    use std::fs;
+
+    // Ensure parent directory exists
+    if let Some(parent) = dest_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create config directory {:?}", parent))?;
+    }
+
+    // Copy the config file
+    fs::copy(source_path, dest_path).with_context(|| {
+        format!(
+            "Failed to copy config from {} to {:?}",
+            source_path, dest_path
+        )
+    })?;
+
+    info!("Persisted mTLS config to {:?}", dest_path);
+    Ok(())
+}
+
+/// Restart the systemd service to pick up the new configuration.
+fn restart_systemd_service() -> Result<()> {
+    use std::process::Command;
+
+    // Check if running as root
+    if unsafe { libc::geteuid() } != 0 {
+        warn!(
+            "Not running as root; cannot restart systemd service automatically. \
+             Please run: sudo systemctl restart {}",
+            SYSTEMD_SERVICE_NAME
+        );
+        return Ok(());
+    }
+
+    info!(
+        "Restarting systemd service {} to apply new configuration...",
+        SYSTEMD_SERVICE_NAME
+    );
+
+    let output = Command::new("systemctl")
+        .args(["restart", SYSTEMD_SERVICE_NAME])
+        .output()
+        .context("Failed to execute systemctl")?;
+
+    if output.status.success() {
+        info!("Service restart initiated successfully");
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        warn!(
+            "systemctl restart may have failed (exit code {:?}): {}",
+            output.status.code(),
+            stderr
+        );
+        warn!(
+            "You may need to manually restart: sudo systemctl restart {}",
+            SYSTEMD_SERVICE_NAME
+        );
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init_from_env(
@@ -87,11 +153,18 @@ async fn main() -> Result<()> {
                 .help("Directory to store certificates")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("mtls-bootstrap-only")
+                .long("mtls-bootstrap-only")
+                .help("Run mTLS bootstrap, persist config to systemd path, restart service, then exit")
+                .takes_value(false),
+        )
         .get_matches();
 
     // Check for edge onboarding modes
     let mut config_path: Option<PathBuf> = matches.value_of("config").map(PathBuf::from);
     let mtls_mode = matches.is_present("mtls");
+    let mtls_bootstrap_only = matches.is_present("mtls-bootstrap-only");
     let token = matches.value_of("token").map(String::from);
     let host = matches.value_of("host").map(String::from);
     let bundle_path = matches.value_of("bundle").map(String::from);
@@ -115,6 +188,17 @@ async fn main() -> Result<()> {
                     info!("mTLS bootstrap successful");
                     info!("Generated config at: {}", result.config_path);
                     info!("Certificates installed to: {}", result.cert_dir);
+
+                    // If --mtls-bootstrap-only, persist config and exit
+                    if mtls_bootstrap_only {
+                        let systemd_config_path =
+                            PathBuf::from("/etc/serviceradar/checkers/sysmon.json");
+                        persist_mtls_config(&result.config_path, &systemd_config_path)?;
+                        restart_systemd_service()?;
+                        info!("mTLS bootstrap-only mode complete; exiting");
+                        return Ok(());
+                    }
+
                     config_path = Some(PathBuf::from(&result.config_path));
                 }
                 Err(e) => {
