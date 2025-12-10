@@ -214,3 +214,74 @@ fn test_encode_decode_roundtrip() {
     assert_eq!(decoded.download_token, original.download_token);
     assert_eq!(decoded.core_url, original.core_url);
 }
+
+#[test]
+fn test_host_override_replaces_localhost() {
+    // Token has localhost:8090, --host provides real IP
+    let payload = TokenPayload {
+        package_id: "pkg-123".to_string(),
+        download_token: "dl-456".to_string(),
+        core_url: Some("http://localhost:8090".to_string()),
+    };
+    let token = encode_test_token(&payload);
+
+    let parsed = parse_token(&token, None, Some("192.168.2.235")).unwrap();
+    // Should override with the new host but preserve port from token
+    assert_eq!(parsed.core_url, Some("http://192.168.2.235:8090".to_string()));
+}
+
+#[test]
+fn test_host_override_with_full_url() {
+    // If --host is a full URL, use it directly
+    let payload = TokenPayload {
+        package_id: "pkg-123".to_string(),
+        download_token: "dl-456".to_string(),
+        core_url: Some("http://localhost:8090".to_string()),
+    };
+    let token = encode_test_token(&payload);
+
+    let parsed = parse_token(&token, None, Some("https://custom.host:9000")).unwrap();
+    assert_eq!(parsed.core_url, Some("https://custom.host:9000".to_string()));
+}
+
+#[test]
+fn test_host_override_preserves_https() {
+    // Token uses https, override should preserve it
+    let payload = TokenPayload {
+        package_id: "pkg-123".to_string(),
+        download_token: "dl-456".to_string(),
+        core_url: Some("https://localhost:8090".to_string()),
+    };
+    let token = encode_test_token(&payload);
+
+    let parsed = parse_token(&token, None, Some("secure.host")).unwrap();
+    assert_eq!(parsed.core_url, Some("https://secure.host:8090".to_string()));
+}
+
+#[test]
+fn test_host_override_with_explicit_port() {
+    // If --host has its own port, use that instead
+    let payload = TokenPayload {
+        package_id: "pkg-123".to_string(),
+        download_token: "dl-456".to_string(),
+        core_url: Some("http://localhost:8090".to_string()),
+    };
+    let token = encode_test_token(&payload);
+
+    let parsed = parse_token(&token, None, Some("192.168.2.235:9000")).unwrap();
+    assert_eq!(parsed.core_url, Some("http://192.168.2.235:9000".to_string()));
+}
+
+#[test]
+fn test_host_override_no_original_url() {
+    // Token has no URL, --host should create one with default port
+    let payload = TokenPayload {
+        package_id: "pkg-123".to_string(),
+        download_token: "dl-456".to_string(),
+        core_url: None,
+    };
+    let token = encode_test_token(&payload);
+
+    let parsed = parse_token(&token, None, Some("192.168.2.235")).unwrap();
+    assert_eq!(parsed.core_url, Some("http://192.168.2.235:8090".to_string()));
+}
