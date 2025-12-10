@@ -182,10 +182,10 @@ fn apply_host_override(original_url: Option<&str>, override_host: &str) -> Strin
     };
 
     // Parse the original URL to extract scheme and port
-    let (scheme, rest) = if original.starts_with("https://") {
-        ("https://", &original[8..])
-    } else if original.starts_with("http://") {
-        ("http://", &original[7..])
+    let (scheme, rest) = if let Some(stripped) = original.strip_prefix("https://") {
+        ("https://", stripped)
+    } else if let Some(stripped) = original.strip_prefix("http://") {
+        ("http://", stripped)
     } else {
         ("http://", original)
     };
