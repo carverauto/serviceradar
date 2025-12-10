@@ -214,7 +214,8 @@ func ensureAgeRuntimeDefaults(cnpg *models.CNPGDatabase) {
 	}
 
 	if _, ok := cnpg.ExtraRuntimeParams["search_path"]; !ok {
-		cnpg.ExtraRuntimeParams["search_path"] = `ag_catalog,"$user",public`
+		// IMPORTANT: public must be first so tables are created there (not ag_catalog)
+		cnpg.ExtraRuntimeParams["search_path"] = `public,ag_catalog,"$user"`
 	}
 }
 
