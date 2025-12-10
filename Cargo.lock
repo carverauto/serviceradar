@@ -1423,13 +1423,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "direct-cargo-bazel-deps"
-version = "0.0.1"
-dependencies = [
- "libzetta",
-]
-
-[[package]]
 name = "dispatch2"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5561,7 +5554,7 @@ version = "1.0.30"
 dependencies = [
  "anyhow",
  "chrono",
- "clap 2.33.4",
+ "clap 4.5.51",
  "config-bootstrap",
  "env_logger 0.10.2",
  "log 0.4.28",
@@ -5585,7 +5578,7 @@ version = "1.0.31"
 dependencies = [
  "anyhow",
  "chrono",
- "clap 2.33.4",
+ "clap 4.5.51",
  "config-bootstrap",
  "edge-onboarding",
  "env_logger 0.10.2",
