@@ -42,6 +42,10 @@ single_version_override(
 host_platform_ext = use_extension("@platforms//host:extension.bzl", "host_platform")
 use_repo(host_platform_ext, "host_platform")
 
+# --- Version Extension (reads VERSION file at load time) ----------------------------------
+version_ext = use_extension("//build:version.bzl", "version_ext")
+use_repo(version_ext, "serviceradar_version")
+
 # --- Java Toolchain  ----------------------------------
 
 java = use_extension("@rules_java//java:extensions.bzl", "toolchains")
