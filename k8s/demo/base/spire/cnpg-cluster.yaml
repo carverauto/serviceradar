@@ -5,7 +5,7 @@ metadata:
   namespace: demo
 spec:
   instances: 3
-  imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2@sha256:8d642db579f8162634996d55cff1c639f2285f99375ee693b24546f5a6e6437f
+  imageName: ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3@sha256:882fdd3f4905342a6ffa347ee988840eafa4f8e8b234a26e6e8cb72ec71b8eb8
   imagePullSecrets:
     - name: ghcr-io-cred
 

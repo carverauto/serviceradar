@@ -12,4 +12,5 @@ END
 $$;
 
 -- Set search_path to include ag_catalog for AGE graph tables used by SRQL
-ALTER DATABASE serviceradar SET search_path TO ag_catalog, serviceradar, public;
+-- IMPORTANT: public must be first so migrations create tables there (matches K8s behavior)
+ALTER DATABASE serviceradar SET search_path TO public, ag_catalog, serviceradar;

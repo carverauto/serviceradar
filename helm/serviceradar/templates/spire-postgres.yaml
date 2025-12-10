@@ -30,13 +30,18 @@
 {{- end }}
 {{- $baseSQL := default (list "CREATE EXTENSION IF NOT EXISTS timescaledb;" "CREATE EXTENSION IF NOT EXISTS age;") $pg.extensionsSQL }}
 {{- $serviceradarSQL := list
+  (printf "CREATE ROLE serviceradar WITH LOGIN PASSWORD '%s';" $appPass)
   "CREATE DATABASE serviceradar OWNER serviceradar;"
-  "\\c serviceradar"
-  "GRANT ALL PRIVILEGES ON SCHEMA public TO serviceradar;"
-  "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO serviceradar;"
-  "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO serviceradar;"
-  "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO serviceradar;"
-  "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO serviceradar;"
+  "CREATE EXTENSION IF NOT EXISTS dblink;"
+  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE EXTENSION IF NOT EXISTS timescaledb');")
+  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE EXTENSION IF NOT EXISTS age');")
+  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE EXTENSION IF NOT EXISTS pg_trgm');")
+  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'CREATE EXTENSION IF NOT EXISTS pgcrypto');")
+  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'GRANT ALL ON SCHEMA public TO serviceradar');")
+  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'GRANT ALL ON SCHEMA ag_catalog TO serviceradar');")
+  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO serviceradar');")
+  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO serviceradar');")
+  (printf "SELECT dblink_exec('dbname=serviceradar user=postgres', 'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO serviceradar');")
 }}
 {{- $postInitSQL := concat $baseSQL $serviceradarSQL }}
 {{- $sharedPreload := $pg.sharedPreloadLibraries }}

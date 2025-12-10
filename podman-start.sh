@@ -65,7 +65,7 @@ run_container serviceradar-cnpg -d \
     -v serviceradar_cnpg-data:/var/lib/postgresql/data \
     -v "$(pwd)/docker/compose/cnpg-init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro,z" \
     -v serviceradar_cert-data:/etc/serviceradar/certs:ro \
-    ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr2 \
+    ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3 \
     postgres -c shared_preload_libraries=timescaledb,age
 
 log "Waiting for PostgreSQL..."
