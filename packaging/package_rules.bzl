@@ -8,6 +8,7 @@ load(
     "pkg_files",
     "pkg_mkdirs",
 )
+load("@serviceradar_version//:defs.bzl", "RELEASE", "VERSION")
 
 _DEFAULT_HOMEPAGE = "https://github.com/carverauto/serviceradar"
 _DEFAULT_LICENSE = "Proprietary"
@@ -285,12 +286,15 @@ PY
     if rpm_spec_template:
         rpm_extra_kwargs["spec_template"] = rpm_spec_template
 
+    rpm_arch = "x86_64" if architecture == "amd64" else architecture
+
     pkg_rpm(
         name = "{}_rpm".format(name),
         package_name = package_name,
+        package_file_name = "{}-{}-{}.{}.rpm".format(package_name, VERSION, RELEASE, rpm_arch),
         version_file = ":{}".format(rpm_version_output),
         release_file = ":{}".format(rpm_release_output),
-        architecture = "x86_64" if architecture == "amd64" else architecture,
+        architecture = rpm_arch,
         summary = summary or description,
         description = description,
         license = license,
