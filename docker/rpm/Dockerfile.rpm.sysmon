@@ -1,19 +1,16 @@
-# Build stage for Rust binaries
-FROM ghcr.io/carverauto/custom-rust-zfs:latest AS builder
+# Build stage for non-ZFS binary using musl for universal compatibility
+# This produces a fully static binary that works on any Linux distro
+FROM rust:1.81-alpine AS musl-builder
+
+RUN apk add --no-cache musl-dev protobuf-dev protoc
+
+WORKDIR /src
+
+# Copy workspace dependencies
+COPY rust/config-bootstrap ../rust/config-bootstrap/
+COPY rust/edge-onboarding ../rust/edge-onboarding/
 
 WORKDIR /src/cmd/checkers/sysmon
-
-# Debugging: Print build arguments
-ARG BINARY_PATH
-ARG COMPONENT
-ARG VERSION
-ARG RELEASE
-RUN echo "BINARY_PATH=$BINARY_PATH" && \
-    echo "COMPONENT=$COMPONENT" && \
-    echo "VERSION=$VERSION" && \
-    echo "RELEASE=$RELEASE" && \
-    echo "Listing context:" && \
-    ls -la /src/cmd/checkers/sysmon/
 
 # Copy Cargo files and source
 COPY cmd/checkers/sysmon/Cargo.toml .
@@ -22,24 +19,61 @@ COPY cmd/checkers/sysmon/src ./src/
 COPY cmd/checkers/sysmon/build.rs .
 COPY proto ../proto/
 
-# Build ZFS-enabled binary
-RUN echo "Building ZFS-enabled binary..." && \
-    cargo build --release --features zfs --verbose && \
-    echo "ZFS build complete" && \
+# Build statically linked non-ZFS binary (musl defaults to static linking)
+RUN echo "Building musl static binary (universal, no ZFS)..." && \
+    cargo build --release && \
+    strip target/release/serviceradar-sysmon-checker && \
+    echo "Musl build complete" && \
     ls -l target/release/ && \
-    [ -f target/release/serviceradar-sysmon-checker ] || { echo "Error: ZFS binary not produced"; exit 1; } && \
-    mkdir -p /tmp/zfs && \
-    mv target/release/serviceradar-sysmon-checker /tmp/zfs/serviceradar-sysmon-checker-zfs
-
-# Build non-ZFS binary
-RUN echo "Building non-ZFS binary..." && \
-    cargo clean && \
-    cargo build --release --verbose && \
-    echo "Non-ZFS build complete" && \
-    ls -l target/release/ && \
-    [ -f target/release/serviceradar-sysmon-checker ] || { echo "Error: Non-ZFS binary not produced"; exit 1; } && \
+    file target/release/serviceradar-sysmon-checker && \
     mkdir -p /tmp/nonzfs && \
     mv target/release/serviceradar-sysmon-checker /tmp/nonzfs/serviceradar-sysmon-checker-nonzfs
+
+# Build stage for ZFS binary on Rocky 9 (for EL9 compatibility)
+FROM rockylinux:9 AS zfs-builder
+
+# Install build dependencies and ZFS
+RUN dnf install -y --allowerasing \
+    rpm-build rpmdevtools dnf-plugins-core git gcc make curl unzip \
+    && dnf config-manager --set-enabled crb \
+    && dnf install -y https://zfsonlinux.org/epel/zfs-release-2-3.el9.noarch.rpm \
+    && dnf install -y libzfs-devel \
+    && dnf clean all
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.81.0
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Install protoc
+RUN curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v27.2/protoc-27.2-linux-x86_64.zip \
+    && unzip protoc-27.2-linux-x86_64.zip -d /usr/local \
+    && chmod +x /usr/local/bin/protoc \
+    && rm protoc-27.2-linux-x86_64.zip
+
+WORKDIR /src
+
+# Copy workspace dependencies
+COPY rust/config-bootstrap ../rust/config-bootstrap/
+COPY rust/edge-onboarding ../rust/edge-onboarding/
+
+WORKDIR /src/cmd/checkers/sysmon
+
+# Copy Cargo files and source
+COPY cmd/checkers/sysmon/Cargo.toml .
+COPY cmd/checkers/sysmon/Cargo.lock* .
+COPY cmd/checkers/sysmon/src ./src/
+COPY cmd/checkers/sysmon/build.rs .
+COPY proto ../proto/
+
+# Build ZFS-enabled binary (dynamically linked against EL9 glibc 2.34)
+RUN echo "Building ZFS-enabled binary for EL9..." && \
+    cargo build --release --features zfs && \
+    strip target/release/serviceradar-sysmon-checker && \
+    echo "ZFS build complete" && \
+    ls -l target/release/ && \
+    ldd target/release/serviceradar-sysmon-checker && \
+    mkdir -p /tmp/zfs && \
+    mv target/release/serviceradar-sysmon-checker /tmp/zfs/serviceradar-sysmon-checker-zfs
 
 # RPM build stage
 FROM rockylinux:9 AS rpm-builder
@@ -65,11 +99,10 @@ RUN echo "Checking RPM build files:" && \
     ls -la SOURCES/sysmon-checker/systemd/ && \
     ls -la SOURCES/sysmon-checker/config/checkers/
 
-# Copy binaries from builder stage
-RUN mkdir -p BUILD && \
-    mkdir -p /tmp/zfs /tmp/nonzfs
-COPY --from=builder /tmp/zfs/serviceradar-sysmon-checker-zfs BUILD/serviceradar-sysmon-checker-zfs
-COPY --from=builder /tmp/nonzfs/serviceradar-sysmon-checker-nonzfs BUILD/serviceradar-sysmon-checker-nonzfs
+# Copy binaries from both builder stages
+RUN mkdir -p BUILD
+COPY --from=zfs-builder /tmp/zfs/serviceradar-sysmon-checker-zfs BUILD/serviceradar-sysmon-checker-zfs
+COPY --from=musl-builder /tmp/nonzfs/serviceradar-sysmon-checker-nonzfs BUILD/serviceradar-sysmon-checker-nonzfs
 
 # Build RPM
 ARG VERSION

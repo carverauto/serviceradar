@@ -626,9 +626,14 @@ PACKAGES = {
         "rpm_requires": ["systemd"],
         "binary": {
             "target": "//cmd/checkers/sysmon:sysmon",
-            "dest": "/usr/local/bin/serviceradar-sysmon-checker",
+            "dest": "/usr/local/bin/serviceradar-sysmon-checker-nonzfs",
         },
         "files": [
+            {
+                "target": "//cmd/checkers/sysmon:sysmon_zfs",
+                "dest": "/usr/local/bin/serviceradar-sysmon-checker-zfs",
+                "mode": "0755",
+            },
             {
                 "src": "config/checkers/sysmon.json.example",
                 "dest": "/etc/serviceradar/checkers/sysmon.json.example",
@@ -645,6 +650,8 @@ PACKAGES = {
         "conffiles": [
             "/etc/serviceradar/checkers/sysmon.json.example",
         ],
+        # Custom spec template to disable AutoReq for ZFS binary's optional dependencies
+        "rpm_spec_template": "//packaging/sysmon:template.spec.tpl",
     },
     "web": {
         "package_name": "serviceradar-web",

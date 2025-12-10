@@ -574,6 +574,12 @@ crates.spec(
     repositories = ["rust_crates_profiler"],
     version = "1.17.0",
 )
+# libzetta is an optional dependency for sysmon ZFS support
+crates.spec(
+    package = "libzetta",
+    repositories = ["rust_crates"],
+    version = "0.5.0",
+)
 crates.from_cargo(
     name = "rust_crates",
     cargo_lockfile = "//:Cargo.lock",

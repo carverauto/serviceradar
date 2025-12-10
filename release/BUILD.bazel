@@ -5,12 +5,27 @@ package(default_visibility = ["//visibility:public"])
 
 declare_release_artifacts()
 
+# Standard packages (excludes EL9-specific packages like sysmon)
 go_binary(
     name = "publish_packages",
     srcs = ["publish_packages.go"],
     data = [
         ":package_manifest",
         ":package_artifacts",
+    ],
+    deps = [
+        "@io_bazel_rules_go//go/tools/bazel",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# EL9 packages (sysmon with ZFS support) - requires --config=el9 to build
+go_binary(
+    name = "publish_packages_el9",
+    srcs = ["publish_packages.go"],
+    data = [
+        ":package_manifest_el9",
+        ":package_el9",
     ],
     deps = [
         "@io_bazel_rules_go//go/tools/bazel",
