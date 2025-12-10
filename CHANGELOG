@@ -1,3 +1,17 @@
+# ServiceRadar v1.0.66
+
+Rust edge onboarding improvements and build/deployment updates.
+
+## Whats New
+
+**1.0.66**
+- Enhanced Rust edge onboarding library with improved mTLS bootstrap and configuration handling.
+- Added Bazel build targets and RBE platform configuration for RHEL 9 (RH9).
+- Added Podman deployment documentation and container support.
+- Fixed potential deadlock issues in core services.
+- Updated Docker Compose configurations and container registry settings.
+- Various Bazel build fixes for improved CI/CD reliability.
+
 # ServiceRadar v1.0.65
 
 Security patch release addressing multiple Dependabot alerts.
