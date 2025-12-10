@@ -21,7 +21,7 @@ import (
 	"github.com/bazelbuild/rules_go/go/tools/bazel"
 )
 
-var defaultManifestRunfile = "release/package_manifest.txt"
+const defaultManifestRunfile = "release/package_manifest.txt"
 
 var (
 	errGithubAPI              = errors.New("github api error")
