@@ -8,6 +8,7 @@ RUN go mod download
 
 # Copy only necessary source files for CLI
 COPY pkg ./pkg
+COPY proto ./proto
 COPY cmd/cli ./cmd/cli
 
 # Build serviceradar-cli
@@ -69,6 +70,11 @@ RUN go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest && \
 COPY --from=builder /usr/local/bin/serviceradar-cli /usr/local/bin/serviceradar-cli
 RUN chmod +x /usr/local/bin/serviceradar-cli
 
+# Bundle a default NATS context setup script for local debugging
+RUN mkdir -p /etc/serviceradar/nats
+COPY docker/compose/setup-nats-context.sh /etc/serviceradar/nats/setup-nats-context.sh
+RUN chmod +x /etc/serviceradar/nats/setup-nats-context.sh
+
 # Create helpful aliases and functions
 RUN cat > /root/.bashrc << 'EOF'
 # Default bashrc content
@@ -80,6 +86,13 @@ export TERM=xterm-256color
 if [ -f /etc/bash_completion ]; then
     . /etc/bash_completion
 fi
+
+export NATS_URL=${NATS_URL:-tls://nats:4222}
+export NATS_HOST=${NATS_HOST:-nats}
+export NATS_CA=${NATS_CA:-/etc/serviceradar/certs/root.pem}
+export NATS_CERT=${NATS_CERT:-/etc/serviceradar/certs/datasvc.pem}
+export NATS_KEY=${NATS_KEY:-/etc/serviceradar/certs/datasvc-key.pem}
+export NATS_CONTEXT=${NATS_CONTEXT:-serviceradar}
 
 # Useful aliases for ServiceRadar debugging
 alias ll='ls -alF'
@@ -93,6 +106,7 @@ alias nats-consumers='nats consumer ls'
 alias nats-events='nats stream info events'
 alias nats-kv='nats stream info KV_serviceradar-datasvc'
 alias nats-datasvc='nats stream info KV_serviceradar-datasvc'
+alias nats-cert-check='echo "=== NATS Certificate Check ==="; echo "1. Client certificate:"; openssl x509 -in ${NATS_CERT} -subject -issuer -noout; echo ""; echo "2. Root CA:"; openssl x509 -in ${NATS_CA} -subject -issuer -noout; echo ""; echo "3. Testing NATS without client cert:"; timeout 5 openssl s_client -connect ${NATS_HOST}:4222 -CAfile ${NATS_CA} -verify_return_error </dev/null 2>/dev/null || echo "  ✗ Server cert verification failed"; echo ""; echo "4. Testing NATS with client cert:"; timeout 5 openssl s_client -connect ${NATS_HOST}:4222 -CAfile ${NATS_CA} -cert ${NATS_CERT} -key ${NATS_KEY} -verify_return_error </dev/null 2>/dev/null || echo "  ✗ mTLS verification failed"'
 
 # gRPC debugging aliases
 alias grpc-core='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core:50052'
@@ -108,16 +122,16 @@ alias sr-devices='serviceradar-cli devices list'
 alias sr-events='serviceradar-cli events list'
 
 # Quick connectivity tests
-alias ping-nats='ping -c 3 serviceradar-nats'
+alias ping-nats='ping -c 3 ${NATS_HOST}'
 alias ping-core='ping -c 3 serviceradar-core'
-alias telnet-nats='telnet serviceradar-nats 4222'
-alias nc-nats='nc -zv serviceradar-nats 4222'
+alias telnet-nats='telnet ${NATS_HOST} 4222'
+alias nc-nats='nc -zv ${NATS_HOST} 4222'
 
 # Function to test all service connectivity
 test-connectivity() {
     echo "=== ServiceRadar Service Connectivity Test ==="
     echo "Testing NATS..."
-    nc -zv serviceradar-nats 4222 || echo "  NATS connection failed"
+    nc -zv "${NATS_HOST}" 4222 || echo "  NATS connection failed"
     echo "Testing Core API..."
     nc -zv serviceradar-core 8090 || echo "  Core API connection failed"
     echo "Testing Core gRPC..."
@@ -169,7 +183,8 @@ RUN cat > /etc/motd << 'EOF'
 ║    nats-info           - Show NATS server information                       ║
 ║    nats-streams        - List all JetStream streams                         ║
 ║    nats-events         - Show events stream details                         ║
-║    nats-datasvc             - Show KV store stream details                       ║
+║    nats-kv             - Show KV store stream details                       ║
+║    nats --context <ctx> <cmd>  - Use preloaded TLS context                  ║
 ║                                                                              ║
 ║  🔌 gRPC ALIASES:                                                            ║
 ║    grpc-core           - Connect to core gRPC (add method after)            ║
@@ -184,10 +199,10 @@ RUN cat > /etc/motd << 'EOF'
 ║                                                                              ║
 ║  📁 CERT LOCATIONS:                                                          ║
 ║    /etc/serviceradar/certs/root.pem       - Root CA                         ║
-║    /etc/serviceradar/certs/client.pem     - Client certificate              ║
-║    /etc/serviceradar/certs/client-key.pem - Client private key              ║
+║    /etc/serviceradar/certs/datasvc.pem    - Default client certificate      ║
+║    /etc/serviceradar/certs/datasvc-key.pem - Default client private key     ║
 ║                                                                              ║
-║  🎯 NATS CONTEXT: Configured for serviceradar-nats:4222 with mTLS           ║
+║  🎯 NATS CONTEXT: Auto-configured for tls://nats:4222 with mTLS             ║
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 

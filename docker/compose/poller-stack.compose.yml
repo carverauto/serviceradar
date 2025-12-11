@@ -100,7 +100,15 @@ services:
       - ${LOGS_DIR:-../../logs}:/var/log/serviceradar
       - poller-spire-runtime:/run/spire/nested
     environment:
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/config/agent.json
+      - KV_ADDRESS=datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_DIR=/etc/serviceradar/certs
+      - KV_CERT_FILE=/etc/serviceradar/certs/agent.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/agent-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - CONFIG_SOURCE=file
     restart: unless-stopped
