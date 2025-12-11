@@ -72,7 +72,13 @@ async fn main() -> Result<()> {
             let restarter = RestartHandle::new("zen-consumer", KV_KEY);
             tokio::spawn(async move {
                 let mut cfg_watcher = watcher;
+                let mut is_initial = true;
                 while cfg_watcher.recv().await.is_some() {
+                    if is_initial {
+                        // First event is the current value; don't restart on initial sync.
+                        is_initial = false;
+                        continue;
+                    }
                     restarter.trigger();
                 }
             });

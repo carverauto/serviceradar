@@ -14,7 +14,7 @@
     nats-events          - Show events stream details
     nats-kv              - Show KV store stream details
     nats-datasvc         - Alias for nats-kv (DataService-backed)
-    nats --context serviceradar <cmd>  - Run CLI with bundled TLS context
+    nats --context <ctx> <cmd>  - Run CLI with bundled TLS context
 
 [*] gRPC ALIASES:
     grpc-core            - Connect to core gRPC (supply method after alias)
@@ -29,10 +29,10 @@
 
 [*] CERT LOCATIONS:
     /etc/serviceradar/certs/root.pem       - Root CA
-    /etc/serviceradar/certs/client.pem     - Client certificate
-    /etc/serviceradar/certs/client-key.pem - Client private key
+    /etc/serviceradar/certs/datasvc.pem    - Default client certificate
+    /etc/serviceradar/certs/datasvc-key.pem - Default client private key
 
-[*] NATS CONTEXT: Auto-configured with proper FQDN and mTLS
+[*] NATS CONTEXT: Auto-configured for tls://nats:4222 with mTLS
 
 [+] STATUS: TLS certs and JetStream aliases ready to use
 

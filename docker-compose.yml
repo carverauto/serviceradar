@@ -58,7 +58,7 @@ services:
     restart: unless-stopped
 
   config-updater:
-    image: ghcr.io/carverauto/serviceradar-config-updater:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-config-updater:${APP_TAG:-v1.0.67}
     container_name: serviceradar-config-updater-mtls
     volumes:
       - cert-data:/etc/serviceradar/certs
@@ -87,7 +87,7 @@ services:
       - serviceradar-net
 
   core-jwks-init:
-    image: ghcr.io/carverauto/serviceradar-kong-config:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-kong-config:${APP_TAG:-v1.0.67}
     container_name: serviceradar-core-jwks-init-mtls
     user: "0:0"
     entrypoint: ["/usr/local/bin/serviceradar-cli", "generate-jwt-keys"]
@@ -116,7 +116,7 @@ services:
       - serviceradar-net
 
   core:
-    image: ghcr.io/carverauto/serviceradar-core:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-core:${APP_TAG:-v1.0.67}
     container_name: serviceradar-core-mtls
     mem_limit: 8g
     mem_reservation: 4g
@@ -132,7 +132,7 @@ services:
       - ./logs:/var/log/serviceradar
     environment:
       - INIT_DB=${INIT_DB:-true}
-      - CONFIG_SOURCE=file
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/config/core.json
       - CONFIG_WATCH_ENABLED=${CONFIG_WATCH_ENABLED:-true}
       - CNPG_HOST=${CNPG_HOST:-cnpg}
@@ -196,7 +196,7 @@ services:
     restart: unless-stopped
 
   datasvc:
-    image: ghcr.io/carverauto/serviceradar-datasvc:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-datasvc:${APP_TAG:-v1.0.67}
     container_name: serviceradar-datasvc-mtls
     cpus: "2.0"
     ports:
@@ -228,7 +228,7 @@ services:
     restart: unless-stopped
 
   poller-kv-seed:
-    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.67}
     container_name: serviceradar-poller-kv-seed-mtls
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
@@ -252,7 +252,7 @@ services:
       - serviceradar-net
 
   agent:
-    image: ghcr.io/carverauto/serviceradar-agent:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-agent:${APP_TAG:-v1.0.67}
     container_name: serviceradar-agent-mtls
     volumes:
       - ./docker/compose/agent.mtls.json:/etc/serviceradar/agent.json:ro
@@ -261,8 +261,15 @@ services:
       - agent-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=file
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/agent.json
+      - KV_ADDRESS=datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_DIR=/etc/serviceradar/certs
+      - KV_CERT_FILE=/etc/serviceradar/certs/agent.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/agent-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
     cap_add:
       - NET_RAW
@@ -287,7 +294,7 @@ services:
     restart: unless-stopped
 
   poller:
-    image: ghcr.io/carverauto/serviceradar-poller:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-poller:${APP_TAG:-v1.0.67}
     container_name: serviceradar-poller-mtls
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
@@ -332,7 +339,7 @@ services:
     restart: unless-stopped
 
   srql:
-    image: ghcr.io/carverauto/serviceradar-srql:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-srql:${APP_TAG:-v1.0.67}
     container_name: serviceradar-srql-mtls
     environment:
       - AUTH_ENABLED=true
@@ -365,7 +372,7 @@ services:
     restart: unless-stopped
 
   sync:
-    image: ghcr.io/carverauto/serviceradar-sync:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-sync:${APP_TAG:-v1.0.67}
     container_name: serviceradar-sync-mtls
     ports:
       - "50058:50058"
@@ -375,7 +382,7 @@ services:
       - sync-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=file
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/sync.json
       - CORE_ADDRESS=core:50052
       - CORE_SEC_MODE=mtls
@@ -383,6 +390,10 @@ services:
       - KV_ADDRESS=datasvc:50057
       - KV_SEC_MODE=mtls
       - KV_CERT_DIR=/etc/serviceradar/certs
+      - KV_CERT_FILE=/etc/serviceradar/certs/sync.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/sync-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
       - WAIT_FOR_DATASVC=true
       - WAIT_FOR_NATS=true
       - LOG_LEVEL=${LOG_LEVEL:-info}
@@ -398,7 +409,7 @@ services:
     restart: unless-stopped
 
   otel:
-    image: ghcr.io/carverauto/serviceradar-otel:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-otel:${APP_TAG:-v1.0.67}
     container_name: serviceradar-otel-mtls
     ports:
       - "4317:4317"
@@ -408,8 +419,15 @@ services:
       - otel-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=file
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/otel.toml
+      - KV_ADDRESS=datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_DIR=/etc/serviceradar/certs
+      - KV_CERT_FILE=/etc/serviceradar/certs/otel.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/otel-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-permissions-fixer:
@@ -421,7 +439,7 @@ services:
     restart: unless-stopped
 
   flowgger:
-    image: ghcr.io/carverauto/serviceradar-flowgger:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-flowgger:${APP_TAG:-v1.0.67}
     container_name: serviceradar-flowgger-mtls
     ports:
       - "514:514/udp"
@@ -432,8 +450,15 @@ services:
       - flowgger-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=file
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/flowgger.toml
+      - KV_ADDRESS=datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_DIR=/etc/serviceradar/certs
+      - KV_CERT_FILE=/etc/serviceradar/certs/flowgger.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/flowgger-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
     cap_add:
       - NET_BIND_SERVICE
@@ -447,7 +472,7 @@ services:
     restart: unless-stopped
 
   trapd:
-    image: ghcr.io/carverauto/serviceradar-trapd:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-trapd:${APP_TAG:-v1.0.67}
     container_name: serviceradar-trapd-mtls
     ports:
       - "162:162/udp"
@@ -458,8 +483,15 @@ services:
       - trapd-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=file
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/trapd.json
+      - KV_ADDRESS=datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_DIR=/etc/serviceradar/certs
+      - KV_CERT_FILE=/etc/serviceradar/certs/trapd.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/trapd-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
     cap_add:
       - NET_BIND_SERVICE
@@ -473,7 +505,7 @@ services:
     restart: unless-stopped
 
   zen:
-    image: ghcr.io/carverauto/serviceradar-zen:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-zen:${APP_TAG:-v1.0.67}
     container_name: serviceradar-zen-mtls
     ports:
       - "50040:50040"
@@ -483,8 +515,15 @@ services:
       - zen-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=file
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/zen.json
+      - KV_ADDRESS=datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_DIR=/etc/serviceradar/certs
+      - KV_CERT_FILE=/etc/serviceradar/certs/zen.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/zen-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-permissions-fixer:
@@ -498,7 +537,7 @@ services:
     restart: unless-stopped
 
   db-event-writer:
-    image: ghcr.io/carverauto/serviceradar-db-event-writer:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-db-event-writer:${APP_TAG:-v1.0.67}
     container_name: serviceradar-db-event-writer-mtls
     ports:
       - "50041:50041"
@@ -509,8 +548,15 @@ services:
       - db-event-writer-config:/etc/serviceradar/consumers
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=file
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/templates/db-event-writer.json
+      - KV_ADDRESS=datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_DIR=/etc/serviceradar/certs
+      - KV_CERT_FILE=/etc/serviceradar/certs/db-event-writer.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/db-event-writer-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - CNPG_HOST=${CNPG_HOST:-cnpg}
       - CNPG_PORT=${CNPG_PORT:-5432}
@@ -534,7 +580,7 @@ services:
     restart: unless-stopped
 
   mapper:
-    image: ghcr.io/carverauto/serviceradar-mapper:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-mapper:${APP_TAG:-v1.0.67}
     container_name: serviceradar-mapper-mtls
     ports:
       - "50056:50056"
@@ -544,8 +590,15 @@ services:
       - mapper-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=file
+      - CONFIG_SOURCE=kv
       - CONFIG_PATH=/etc/serviceradar/mapper.json
+      - KV_ADDRESS=datasvc:50057
+      - KV_SEC_MODE=mtls
+      - KV_CERT_DIR=/etc/serviceradar/certs
+      - KV_CERT_FILE=/etc/serviceradar/certs/mapper.pem
+      - KV_KEY_FILE=/etc/serviceradar/certs/mapper-key.pem
+      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
+      - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-permissions-fixer:
@@ -563,7 +616,7 @@ services:
     restart: unless-stopped
 
   snmp-checker:
-    image: ghcr.io/carverauto/serviceradar-snmp-checker:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-snmp-checker:${APP_TAG:-v1.0.67}
     container_name: serviceradar-snmp-checker-mtls
     ports:
       - "50054:50054"
@@ -594,7 +647,7 @@ services:
     restart: unless-stopped
 
   rperf-client:
-    image: ghcr.io/carverauto/serviceradar-rperf-client:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-rperf-client:${APP_TAG:-v1.0.67}
     container_name: serviceradar-rperf-client-mtls
     ports:
       - "50059:50059"
@@ -625,7 +678,7 @@ services:
     restart: unless-stopped
 
   kong-config:
-    image: ghcr.io/carverauto/serviceradar-kong-config:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-kong-config:${APP_TAG:-v1.0.67}
     container_name: serviceradar-kong-config-mtls
     user: "0:0"
     entrypoint: ["/bin/sh","-c"]
@@ -689,7 +742,7 @@ services:
       start_period: 20s
 
   web:
-    image: ghcr.io/carverauto/serviceradar-web:${APP_TAG:-v1.0.65}
+    image: ghcr.io/carverauto/serviceradar-web:${APP_TAG:-v1.0.67}
     container_name: serviceradar-web-mtls
     environment:
       - NODE_ENV=production

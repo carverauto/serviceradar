@@ -67,11 +67,6 @@ func (s *Service) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	s.runCancel = cancel
 
-	if _, err := s.ensureConsumer(runCtx); err != nil {
-		cancel()
-		return err
-	}
-
 	s.wg.Add(1)
 	go s.run(runCtx)
 
@@ -179,25 +174,34 @@ func (s *Service) run(ctx context.Context) {
 }
 
 func (s *Service) ensureConsumer(ctx context.Context) (*Consumer, error) {
-	s.mu.Lock()
-	existing := s.consumer
-	s.mu.Unlock()
+	for {
+		s.mu.Lock()
+		existing := s.consumer
+		s.mu.Unlock()
 
-	if existing != nil {
-		return existing, nil
+		if existing != nil {
+			return existing, nil
+		}
+
+		consumer, err := s.establishConnection(ctx)
+		if err == nil {
+			s.logger.Info().
+				Str("stream_name", s.cfg.StreamName).
+				Str("consumer_name", s.cfg.ConsumerName).
+				Msg("Connected to NATS consumer")
+			return consumer, nil
+		}
+
+		// Treat transient connection/setup errors as retryable so we don't exit the process.
+		if ctx.Err() != nil {
+			return nil, err
+		}
+
+		s.logger.Warn().Err(err).Msg("Failed to (re)establish NATS consumer; retrying")
+		if !sleepWithContext(ctx, s.retryDelay) {
+			return nil, ctx.Err()
+		}
 	}
-
-	consumer, err := s.establishConnection(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	s.logger.Info().
-		Str("stream_name", s.cfg.StreamName).
-		Str("consumer_name", s.cfg.ConsumerName).
-		Msg("Connected to NATS consumer")
-
-	return consumer, nil
 }
 
 func (s *Service) establishConnection(ctx context.Context) (*Consumer, error) {
