@@ -1,3 +1,14 @@
+# ServiceRadar v1.0.69
+
+Edge onboarding lint cleanup and test consolidation.
+
+## Whats New
+
+**1.0.69**
+- Consolidated edge onboarding checker template fetch tests into table-driven coverage to remove duplication while keeping security-mode preference and fallback paths validated.
+- Introduced a static sentinel error for component template listing tests to satisfy lint requirements without changing runtime behavior.
+- `make lint` now passes cleanly across Go and Rust targets for this release.
+
 # ServiceRadar v1.0.68
 
 Docker Compose KV seeding restored and JetStream consumers hardened.
