@@ -113,6 +113,10 @@ func (*fakeKVClient) Info(context.Context, *proto.InfoRequest, ...grpc.CallOptio
 	return &proto.InfoResponse{}, nil
 }
 
+func (*fakeKVClient) ListKeys(context.Context, *proto.ListKeysRequest, ...grpc.CallOption) (*proto.ListKeysResponse, error) {
+	return &proto.ListKeysResponse{}, nil
+}
+
 func TestProcessDevices_DoesNotHydrateCanonicalMetadata(t *testing.T) {
 	canonical := &identitymap.Record{CanonicalDeviceID: "canonical-42", Partition: "prod", MetadataHash: "hash"}
 	payload, err := identitymap.MarshalRecord(canonical)

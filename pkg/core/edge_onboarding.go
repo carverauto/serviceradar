@@ -54,6 +54,8 @@ const (
 	securityModeMTLS   = "mtls"
 	defaultCertDir     = "/etc/serviceradar/certs"
 	defaultMTLSCertTTL = 30 * 24 * time.Hour
+	defaultPollerSNI   = "poller.serviceradar"
+	defaultCoreSNI     = "core.serviceradar"
 )
 
 // ServiceManager provides service registration operations for edge onboarding.
@@ -125,6 +127,8 @@ var (
 
 	// ErrPathOutsideAllowedDir is returned when a path traversal is attempted.
 	ErrPathOutsideAllowedDir = errors.New("path is outside allowed directory")
+
+	errKVClientUnavailable = errors.New("kv client not available")
 )
 
 type edgeOnboardingService struct {
@@ -1822,6 +1826,169 @@ func (s *edgeOnboardingService) MetadataDefaults() map[models.EdgeOnboardingComp
 	return result
 }
 
+// ListComponentTemplates returns available component templates from KV, scoped by component type and security mode.
+func (s *edgeOnboardingService) ListComponentTemplates(ctx context.Context, componentType models.EdgeOnboardingComponentType, securityMode string) ([]models.EdgeTemplate, error) {
+	if s.kvClient == nil {
+		return nil, errKVClientUnavailable
+	}
+
+	normalizedComponent := componentType
+	if normalizedComponent == models.EdgeOnboardingComponentTypeNone {
+		normalizedComponent = models.EdgeOnboardingComponentTypeChecker
+	}
+	normalizedSecurity := normalizeSecurityMode(securityMode, nil)
+
+	prefixes := []string{templatePrefixFor(normalizedComponent, normalizedSecurity)}
+	if normalizedSecurity == securityModeSPIRE {
+		prefixes = append(prefixes, templatePrefixFor(normalizedComponent, ""))
+	}
+
+	templates := make([]models.EdgeTemplate, 0)
+	seen := make(map[string]struct{})
+
+	for _, prefix := range prefixes {
+		resp, err := s.kvClient.ListKeys(ctx, &proto.ListKeysRequest{
+			Prefix: prefix,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list %s templates: %w", normalizedComponent, err)
+		}
+
+		for _, key := range resp.GetKeys() {
+			kind := extractTemplateKind(key, prefix)
+			if kind == "" {
+				continue
+			}
+
+			security := templateSecurityModeFromKey(key, normalizedComponent, normalizedSecurity)
+			tmpl := models.EdgeTemplate{
+				ComponentType: normalizedComponent,
+				Kind:          kind,
+				SecurityMode:  security,
+				TemplateKey:   key,
+			}
+
+			if _, dup := seen[tmpl.TemplateKey]; dup {
+				continue
+			}
+
+			templates = append(templates, tmpl)
+			seen[tmpl.TemplateKey] = struct{}{}
+		}
+	}
+
+	return templates, nil
+}
+
+func templatePrefixFor(componentType models.EdgeOnboardingComponentType, securityMode string) string {
+	component := templateComponentDir(componentType)
+	prefix := fmt.Sprintf("templates/%s/", component)
+	mode := strings.ToLower(strings.TrimSpace(securityMode))
+	if mode == "" {
+		return prefix
+	}
+
+	normalized := normalizeSecurityMode(mode, nil)
+	if normalized != "" {
+		return prefix + normalized + "/"
+	}
+
+	return prefix
+}
+
+func extractTemplateKind(key, prefix string) string {
+	if !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, ".json") {
+		return ""
+	}
+
+	trimmed := strings.TrimPrefix(key, prefix)
+	kind := strings.TrimSuffix(trimmed, ".json")
+
+	if strings.TrimSpace(kind) == "" {
+		return ""
+	}
+
+	return kind
+}
+
+func templateSecurityModeFromKey(key string, componentType models.EdgeOnboardingComponentType, defaultMode string) string {
+	parts := strings.Split(key, "/")
+	if len(parts) >= 4 && parts[0] == "templates" && parts[1] == templateComponentDir(componentType) {
+		mode := strings.ToLower(strings.TrimSpace(parts[2]))
+		if mode != "" && mode != string(componentType) {
+			return mode
+		}
+	}
+
+	if defaultMode == securityModeMTLS {
+		return securityModeMTLS
+	}
+
+	return securityModeSPIRE
+}
+
+func checkerTemplateKeys(kind, securityMode string) []string {
+	normalizedKind := strings.TrimSpace(kind)
+	if normalizedKind == "" {
+		return []string{}
+	}
+
+	mode := normalizeSecurityMode(securityMode, nil)
+	basePrefix := templatePrefixFor(models.EdgeOnboardingComponentTypeChecker, "")
+
+	keys := []string{
+		templatePrefixFor(models.EdgeOnboardingComponentTypeChecker, mode) + normalizedKind + ".json",
+	}
+
+	// Always include the base prefix for backward compatibility (SPIRE-only templates)
+	keys = append(keys, basePrefix+normalizedKind+".json")
+
+	return keys
+}
+
+func templateComponentDir(componentType models.EdgeOnboardingComponentType) string {
+	switch componentType {
+	case models.EdgeOnboardingComponentTypeAgent:
+		return "agents"
+	case models.EdgeOnboardingComponentTypePoller:
+		return "pollers"
+	case models.EdgeOnboardingComponentTypeChecker, models.EdgeOnboardingComponentTypeNone:
+		return "checkers"
+	default:
+		return "checkers"
+	}
+}
+
+func (s *edgeOnboardingService) fetchCheckerTemplate(ctx context.Context, pkg *models.EdgeOnboardingPackage) (string, string, error) {
+	if pkg == nil {
+		return "", "", fmt.Errorf("%w: checker package required", models.ErrEdgeOnboardingInvalidRequest)
+	}
+
+	keys := checkerTemplateKeys(pkg.CheckerKind, pkg.SecurityMode)
+	if len(keys) == 0 {
+		return "", "", fmt.Errorf("%w: checker_kind is required to resolve template", models.ErrEdgeOnboardingInvalidRequest)
+	}
+
+	var lastErr error
+	for _, key := range keys {
+		resp, err := s.kvClient.Get(ctx, &proto.GetRequest{Key: key})
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.GetFound() {
+			return key, string(resp.GetValue()), nil
+		}
+	}
+
+	if lastErr != nil {
+		return "", "", fmt.Errorf("edge onboarding: failed to fetch template from KV: %w", lastErr)
+	}
+
+	return "", "", fmt.Errorf("%w: no template found for %s (searched: %s)", models.ErrEdgeOnboardingInvalidRequest, pkg.CheckerKind, strings.Join(keys, ", "))
+}
+
 func parseEdgeMetadataMap(raw string) (map[string]string, error) {
 	meta := make(map[string]string)
 	if strings.TrimSpace(raw) == "" {
@@ -2000,9 +2167,9 @@ func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboard
 	if serverName == "" {
 		switch componentType {
 		case models.EdgeOnboardingComponentTypeChecker:
-			serverName = "poller.serviceradar"
+			serverName = defaultPollerSNI
 		case models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeAgent, models.EdgeOnboardingComponentTypeNone:
-			serverName = "core.serviceradar"
+			serverName = defaultCoreSNI
 		}
 	}
 
@@ -2345,19 +2512,13 @@ func (s *edgeOnboardingService) applyComponentKVUpdates(ctx context.Context, pkg
 		// Get the checker config - either from request or from template
 		checkerConfigJSON := pkg.CheckerConfigJSON
 		if checkerConfigJSON == "" {
-			// Fetch template from KV
-			templateKey := fmt.Sprintf("templates/checkers/%s.json", pkg.CheckerKind)
-			template, err := s.kvClient.Get(ctx, &proto.GetRequest{Key: templateKey})
+			templateKey, templateBody, err := s.fetchCheckerTemplate(ctx, pkg)
 			if err != nil {
-				return fmt.Errorf("edge onboarding: failed to fetch template from %s: %w", templateKey, err)
-			}
-
-			if !template.GetFound() {
-				return fmt.Errorf("%w: no template found at %s and no checker_config_json provided", models.ErrEdgeOnboardingInvalidRequest, templateKey)
+				return err
 			}
 
 			// Apply variable substitution to the template
-			checkerConfigJSON, err = s.substituteTemplateVariables(string(template.GetValue()), pkg)
+			checkerConfigJSON, err = s.substituteTemplateVariables(templateBody, pkg)
 			if err != nil {
 				return fmt.Errorf("edge onboarding: failed to substitute template variables: %w", err)
 			}
@@ -2366,6 +2527,7 @@ func (s *edgeOnboardingService) applyComponentKVUpdates(ctx context.Context, pkg
 				Str("template_key", templateKey).
 				Str("checker_kind", pkg.CheckerKind).
 				Str("downstream_spiffe_id", pkg.DownstreamSPIFFEID).
+				Str("security_mode", pkg.SecurityMode).
 				Msg("Using checker template from KV")
 		}
 
@@ -2695,13 +2857,20 @@ func (s *edgeOnboardingService) substituteTemplateVariables(templateJSON string,
 
 	// Whitelist of allowed metadata keys to prevent injection
 	allowedMetadataKeys := map[string]bool{
-		"agent_address":  true,
-		"core_address":   true,
-		"core_spiffe_id": true,
-		"kv_address":     true,
-		"kv_spiffe_id":   true,
-		"trust_domain":   true,
-		"log_level":      true,
+		"agent_address":    true,
+		"core_address":     true,
+		"core_spiffe_id":   true,
+		"kv_address":       true,
+		"kv_spiffe_id":     true,
+		"trust_domain":     true,
+		"log_level":        true,
+		"cert_dir":         true,
+		"server_name":      true,
+		"client_cert_name": true,
+		"poller_endpoint":  true,
+		"core_endpoint":    true,
+		"kv_endpoint":      true,
+		"datasvc_endpoint": true,
 	}
 
 	// Sanitize and validate metadata values before substitution
@@ -2712,6 +2881,36 @@ func (s *edgeOnboardingService) substituteTemplateVariables(templateJSON string,
 	sanitizedVars["COMPONENT_ID"] = pkg.ComponentID
 	sanitizedVars["CHECKER_KIND"] = pkg.CheckerKind
 	sanitizedVars["AGENT_ID"] = pkg.ParentID
+
+	certDir := metadataValue(metadata, pkg.ComponentType, "cert_dir")
+	if certDir == "" {
+		certDir = defaultCertDir
+	}
+	sanitizedVars["CERT_DIR"] = certDir
+
+	clientCertName := metadataValue(metadata, pkg.ComponentType, "client_cert_name")
+	if clientCertName == "" {
+		clientCertName = pkg.ComponentID
+		if clientCertName == "" {
+			clientCertName = "edge-client"
+		}
+	}
+	sanitizedVars["CLIENT_CERT_NAME"] = clientCertName
+
+	serverName := metadataValue(metadata, pkg.ComponentType, "server_name")
+	if serverName == "" {
+		switch pkg.ComponentType {
+		case models.EdgeOnboardingComponentTypeChecker:
+			serverName = defaultPollerSNI
+		case models.EdgeOnboardingComponentTypeAgent:
+			serverName = defaultPollerSNI
+		case models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeNone:
+			serverName = defaultCoreSNI
+		default:
+			serverName = defaultCoreSNI
+		}
+	}
+	sanitizedVars["SERVER_NAME"] = serverName
 
 	// Add only whitelisted metadata fields
 	for key, allowed := range allowedMetadataKeys {

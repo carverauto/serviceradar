@@ -19,8 +19,11 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
+
+var errListComponentTemplates = errors.New("listing failed")
 
 type stubEdgeOnboardingService struct {
 	createResult   *models.EdgeOnboardingCreateResult
@@ -35,6 +38,10 @@ type stubEdgeOnboardingService struct {
 	lastDeleteID   string
 	selectors      []string
 	metadata       map[models.EdgeOnboardingComponentType]map[string]string
+	templates      []models.EdgeTemplate
+	templatesErr   error
+	lastComponent  models.EdgeOnboardingComponentType
+	lastMode       string
 }
 
 func (s *stubEdgeOnboardingService) ListPackages(context.Context, *models.EdgeOnboardingListFilter) ([]*models.EdgeOnboardingPackage, error) {
@@ -97,6 +104,12 @@ func (s *stubEdgeOnboardingService) SetAllowedPollerCallback(func([]string)) {}
 func (s *stubEdgeOnboardingService) SetDeviceRegistryCallback(func(context.Context, []*models.DeviceUpdate) error) {
 }
 
+func (s *stubEdgeOnboardingService) ListComponentTemplates(_ context.Context, componentType models.EdgeOnboardingComponentType, securityMode string) ([]models.EdgeTemplate, error) {
+	s.lastComponent = componentType
+	s.lastMode = securityMode
+	return s.templates, s.templatesErr
+}
+
 func TestHandleGetEdgePackageDefaultsSuccess(t *testing.T) {
 	service := &stubEdgeOnboardingService{
 		selectors: []string{"unix:uid:0", "unix:user:root"},
@@ -108,7 +121,7 @@ func TestHandleGetEdgePackageDefaultsSuccess(t *testing.T) {
 		},
 	}
 
-	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service))
+	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service), WithLogger(logger.NewTestLogger()))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/edge-packages/defaults", nil)
 	rec := httptest.NewRecorder()
@@ -143,6 +156,49 @@ func TestHandleGetEdgePackageDefaultsDisabled(t *testing.T) {
 	}()
 
 	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+}
+
+func TestHandleListComponentTemplatesSuccess(t *testing.T) {
+	service := &stubEdgeOnboardingService{
+		templates: []models.EdgeTemplate{
+			{ComponentType: models.EdgeOnboardingComponentTypeChecker, Kind: "sysmon", SecurityMode: "mtls", TemplateKey: "templates/checkers/mtls/sysmon.json"},
+		},
+	}
+	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service), WithLogger(logger.NewTestLogger()))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/component-templates?component_type=checker&security_mode=mtls", nil)
+	rec := httptest.NewRecorder()
+
+	server.handleListComponentTemplates(rec, req)
+
+	resp := rec.Result()
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var payload []models.EdgeTemplate
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&payload))
+	assert.Len(t, payload, 1)
+	assert.Equal(t, "checker", string(payload[0].ComponentType))
+	assert.Equal(t, "mtls", payload[0].SecurityMode)
+	assert.Equal(t, "sysmon", payload[0].Kind)
+	assert.Equal(t, models.EdgeOnboardingComponentTypeChecker, service.lastComponent)
+	assert.Equal(t, "mtls", service.lastMode)
+}
+
+func TestHandleListComponentTemplatesError(t *testing.T) {
+	service := &stubEdgeOnboardingService{
+		templatesErr: errListComponentTemplates,
+	}
+	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service), WithLogger(logger.NewTestLogger()))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/component-templates?component_type=checker&security_mode=mtls", nil)
+	rec := httptest.NewRecorder()
+
+	server.handleListComponentTemplates(rec, req)
+
+	resp := rec.Result()
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 }
 
 func TestHandleCreateEdgePackageSuccess(t *testing.T) {

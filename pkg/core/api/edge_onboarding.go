@@ -723,6 +723,32 @@ func toEdgePackageView(pkg *models.EdgeOnboardingPackage) edgePackageView {
 	return view
 }
 
+// handleListComponentTemplates returns the list of available component templates.
+func (s *APIServer) handleListComponentTemplates(w http.ResponseWriter, r *http.Request) {
+	if s.edgeOnboarding == nil {
+		writeError(w, "Edge onboarding service is disabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	componentType := models.EdgeOnboardingComponentType(strings.ToLower(strings.TrimSpace(r.URL.Query().Get("component_type"))))
+	if componentType == models.EdgeOnboardingComponentTypeNone || componentType == "" {
+		componentType = models.EdgeOnboardingComponentTypeChecker
+	}
+	securityMode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("security_mode")))
+
+	templates, err := s.edgeOnboarding.ListComponentTemplates(r.Context(), componentType, securityMode)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to list component templates")
+		writeError(w, "Failed to list component templates", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(templates); err != nil {
+		s.logger.Error().Err(err).Msg("Failed to encode component templates response")
+	}
+}
+
 func clientIPFromRequest(r *http.Request) string {
 	if r == nil {
 		return ""

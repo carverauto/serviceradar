@@ -158,3 +158,11 @@ type EdgeOnboardingRevokeRequest struct {
 type EdgeOnboardingRevokeResult struct {
 	Package *EdgeOnboardingPackage
 }
+
+// EdgeTemplate represents an available component template in KV.
+type EdgeTemplate struct {
+	ComponentType EdgeOnboardingComponentType `json:"component_type"` // Component type (e.g., "checker")
+	Kind          string                      `json:"kind"`           // Component kind (e.g., "sysmon", "snmp", "rperf")
+	SecurityMode  string                      `json:"security_mode"`  // Security mode for the template (e.g., "mtls", "spire")
+	TemplateKey   string                      `json:"template_key"`   // Full KV key path (e.g., "templates/checkers/mtls/sysmon.json")
+}

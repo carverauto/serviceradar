@@ -1,8 +1,5 @@
 {
-  "listen_addr": "0.0.0.0:50081",
-  "name": "rperf-checker",
-  "type": "grpc",
-  "timeout": "30s",
+  "listen_addr": "0.0.0.0:50110",
   "security": {
     "mode": "mtls",
     "role": "checker",
@@ -15,6 +12,5 @@
       "client_ca_file": "{{CERT_DIR}}/root.pem"
     }
   },
-  "default_poll_interval": 300,
-  "targets": []
+  "sample_interval": "200ms"
 }

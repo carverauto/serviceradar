@@ -872,6 +872,10 @@ func (*mockKVClient) Info(_ context.Context, _ *proto.InfoRequest, _ ...grpc.Cal
 	return &proto.InfoResponse{Domain: "test", Bucket: "test"}, nil
 }
 
+func (*mockKVClient) ListKeys(context.Context, *proto.ListKeysRequest, ...grpc.CallOption) (*proto.ListKeysResponse, error) {
+	return nil, errNotImplemented
+}
+
 func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -1195,6 +1199,10 @@ func (*fakeKVClient) Watch(context.Context, *proto.WatchRequest, ...grpc.CallOpt
 
 func (*fakeKVClient) Info(context.Context, *proto.InfoRequest, ...grpc.CallOption) (*proto.InfoResponse, error) {
 	return &proto.InfoResponse{}, nil
+}
+
+func (*fakeKVClient) ListKeys(context.Context, *proto.ListKeysRequest, ...grpc.CallOption) (*proto.ListKeysResponse, error) {
+	return &proto.ListKeysResponse{}, nil
 }
 
 func TestProcessDevices_DoesNotHydrateCanonicalMetadata(t *testing.T) {

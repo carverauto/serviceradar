@@ -51,6 +51,9 @@ service KVService {
   // Info returns basic configuration details for this KV server (e.g., JetStream domain and bucket name).
   rpc Info(InfoRequest) returns (InfoResponse) {}
 
+  // ListKeys returns all keys matching a prefix filter.
+  rpc ListKeys(ListKeysRequest) returns (ListKeysResponse) {}
+
 }
 
 // GetRequest is the request message for the Get operation.
@@ -151,4 +154,14 @@ message InfoResponse {
   string domain = 1;
   string bucket = 2;
   string object_bucket = 3;
+}
+
+// ListKeysRequest is the request message for the ListKeys operation.
+message ListKeysRequest {
+  string prefix = 1;  // Optional prefix filter (e.g., "templates/checkers/")
+}
+
+// ListKeysResponse is the response message for the ListKeys operation.
+message ListKeysResponse {
+  repeated string keys = 1;  // List of matching key names
 }

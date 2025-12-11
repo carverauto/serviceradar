@@ -92,6 +92,7 @@ type EdgeOnboardingService interface {
 	MetadataDefaults() map[models.EdgeOnboardingComponentType]map[string]string
 	SetAllowedPollerCallback(cb func([]string))
 	SetDeviceRegistryCallback(cb func(context.Context, []*models.DeviceUpdate) error)
+	ListComponentTemplates(ctx context.Context, componentType models.EdgeOnboardingComponentType, securityMode string) ([]models.EdgeTemplate, error)
 }
 
 type APIServer struct {

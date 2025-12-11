@@ -442,6 +442,46 @@ func (n *NATSStore) sendUpdate(ctx context.Context, ch chan<- []byte, value []by
 	}
 }
 
+// ListKeys returns all keys matching the given prefix filter.
+// If prefix is empty, all keys are returned.
+func (n *NATSStore) ListKeys(ctx context.Context, prefix string) ([]string, error) {
+	domain, realPrefix := n.extractDomain(prefix)
+	kv, err := n.getKVForDomain(ctx, domain)
+	if err != nil {
+		return nil, err
+	}
+
+	keys := make([]string, 0, 16)
+	var lister jetstream.KeyLister
+
+	// JetStream treats "/" as a literal token, so slash-separated prefixes often
+	// don't work well with ListKeysFiltered. When a prefix contains a slash,
+	// fall back to listing everything and filter client-side. The keyspace for
+	// this bucket is small (config + templates), so the overhead is fine.
+	useFiltered := realPrefix != "" && !strings.Contains(realPrefix, "/")
+
+	if useFiltered {
+		lister, err = kv.ListKeysFiltered(ctx, realPrefix+">")
+	} else {
+		lister, err = kv.ListKeys(ctx)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to list keys with prefix %s: %w", prefix, err)
+	}
+
+	for key := range lister.Keys() {
+		if realPrefix == "" || strings.HasPrefix(key, realPrefix) {
+			keys = append(keys, key)
+		}
+	}
+
+	if err := lister.Stop(); err != nil {
+		log.Printf("warning: failed to stop key lister: %v", err)
+	}
+
+	return keys, nil
+}
+
 func (n *NATSStore) PutObject(ctx context.Context, key string, reader io.Reader, meta ObjectMetadata) (*ObjectInfo, error) {
 	domain, realKey := n.extractDomain(key)
 	store, err := n.getObjectStoreForDomain(ctx, domain)

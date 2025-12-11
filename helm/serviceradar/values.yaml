@@ -40,6 +40,9 @@ kv:
   serverSPIFFEID: ""
   workloadSocket: unix:/run/spire/sockets/agent.sock
   certDir: /etc/serviceradar/certs
+checkerTemplates:
+  # Enable checker template seeding into KV for edge onboarding
+  enabled: true
 core:
   # Enable or disable KV watch/reload in the core service
   configWatchEnabled: true
