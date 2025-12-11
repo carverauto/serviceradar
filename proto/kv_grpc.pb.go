@@ -17,7 +17,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v3.14.0
-// source: kv.proto
+// source: proto/kv.proto
 
 package proto
 
@@ -43,6 +43,7 @@ const (
 	KVService_Delete_FullMethodName      = "/proto.KVService/Delete"
 	KVService_Watch_FullMethodName       = "/proto.KVService/Watch"
 	KVService_Info_FullMethodName        = "/proto.KVService/Info"
+	KVService_ListKeys_FullMethodName    = "/proto.KVService/ListKeys"
 )
 
 // KVServiceClient is the client API for KVService service.
@@ -71,6 +72,8 @@ type KVServiceClient interface {
 	Watch(ctx context.Context, in *WatchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchResponse], error)
 	// Info returns basic configuration details for this KV server (e.g., JetStream domain and bucket name).
 	Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error)
+	// ListKeys returns all keys matching a prefix filter.
+	ListKeys(ctx context.Context, in *ListKeysRequest, opts ...grpc.CallOption) (*ListKeysResponse, error)
 }
 
 type kVServiceClient struct {
@@ -180,6 +183,16 @@ func (c *kVServiceClient) Info(ctx context.Context, in *InfoRequest, opts ...grp
 	return out, nil
 }
 
+func (c *kVServiceClient) ListKeys(ctx context.Context, in *ListKeysRequest, opts ...grpc.CallOption) (*ListKeysResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListKeysResponse)
+	err := c.cc.Invoke(ctx, KVService_ListKeys_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // KVServiceServer is the server API for KVService service.
 // All implementations must embed UnimplementedKVServiceServer
 // for forward compatibility.
@@ -206,6 +219,8 @@ type KVServiceServer interface {
 	Watch(*WatchRequest, grpc.ServerStreamingServer[WatchResponse]) error
 	// Info returns basic configuration details for this KV server (e.g., JetStream domain and bucket name).
 	Info(context.Context, *InfoRequest) (*InfoResponse, error)
+	// ListKeys returns all keys matching a prefix filter.
+	ListKeys(context.Context, *ListKeysRequest) (*ListKeysResponse, error)
 	mustEmbedUnimplementedKVServiceServer()
 }
 
@@ -242,6 +257,9 @@ func (UnimplementedKVServiceServer) Watch(*WatchRequest, grpc.ServerStreamingSer
 }
 func (UnimplementedKVServiceServer) Info(context.Context, *InfoRequest) (*InfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Info not implemented")
+}
+func (UnimplementedKVServiceServer) ListKeys(context.Context, *ListKeysRequest) (*ListKeysResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListKeys not implemented")
 }
 func (UnimplementedKVServiceServer) mustEmbedUnimplementedKVServiceServer() {}
 func (UnimplementedKVServiceServer) testEmbeddedByValue()                   {}
@@ -419,6 +437,24 @@ func _KVService_Info_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _KVService_ListKeys_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListKeysRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KVServiceServer).ListKeys(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KVService_ListKeys_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KVServiceServer).ListKeys(ctx, req.(*ListKeysRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // KVService_ServiceDesc is the grpc.ServiceDesc for KVService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -458,6 +494,10 @@ var KVService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "Info",
 			Handler:    _KVService_Info_Handler,
 		},
+		{
+			MethodName: "ListKeys",
+			Handler:    _KVService_ListKeys_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -466,5 +506,5 @@ var KVService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "kv.proto",
+	Metadata: "proto/kv.proto",
 }

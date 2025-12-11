@@ -1,8 +1,5 @@
 {
-  "listen_addr": "0.0.0.0:50081",
-  "name": "rperf-checker",
-  "type": "grpc",
-  "timeout": "30s",
+  "listen_addr": "0.0.0.0:50083",
   "security": {
     "mode": "mtls",
     "role": "checker",
@@ -15,6 +12,18 @@
       "client_ca_file": "{{CERT_DIR}}/root.pem"
     }
   },
-  "default_poll_interval": 300,
-  "targets": []
+  "poll_interval": 30,
+  "zfs": {
+    "enabled": false,
+    "pools": [],
+    "include_datasets": false,
+    "use_libzetta": false
+  },
+  "filesystems": [
+    {
+      "name": "/",
+      "type": "ext4",
+      "monitor": true
+    }
+  ]
 }

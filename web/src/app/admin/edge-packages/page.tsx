@@ -93,11 +93,20 @@ type EdgePackageDefaults = {
 
 type SecurityMode = 'spire' | 'mtls';
 
+const CUSTOM_CHECKER_KIND = '__custom_checker_kind__';
+
 type AgentInfo = {
   agent_id: string;
   poller_id: string;
   last_seen: string;
   service_types?: string[];
+};
+
+type ComponentTemplate = {
+  component_type: EdgeComponentType;
+  kind: string;
+  security_mode: SecurityMode | string;
+  template_key: string;
 };
 
 type CreateFormState = {
@@ -361,6 +370,7 @@ export default function EdgePackagesPage() {
   const [eventsLoading, setEventsLoading] = useState<boolean>(false);
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [formState, setFormState] = useState<CreateFormState>(defaultFormState);
+  const [customCheckerKind, setCustomCheckerKind] = useState<boolean>(false);
   const [formOpen, setFormOpen] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSubmitting, setFormSubmitting] = useState<boolean>(false);
@@ -373,6 +383,8 @@ export default function EdgePackagesPage() {
   const [selectorsTouched, setSelectorsTouched] = useState<boolean>(false);
   const [pollerTouched, setPollerTouched] = useState<boolean>(false);
   const [registeredAgents, setRegisteredAgents] = useState<AgentInfo[]>([]);
+  const [checkerTemplates, setCheckerTemplates] = useState<ComponentTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState<boolean>(false);
   const coreApiBase = useMemo(() => getPublicApiUrl(), []);
 
   const selectedPackage = useMemo(
@@ -416,19 +428,31 @@ export default function EdgePackagesPage() {
 
   const parentPollerListId = 'edge-parent-poller-options';
   const parentAgentListId = 'edge-parent-agent-options';
-  const checkerKindListId = 'edge-checker-kind-options';
-  const checkerKinds = useMemo(() => {
+  // Combine template kinds with historical kinds from packages
+  const availableCheckerKinds = useMemo(() => {
     const seen = new Set<string>();
-    return packages
-      .map((pkg) => pkg.checker_kind?.trim() ?? '')
-      .filter((kind) => {
-        if (!kind || seen.has(kind)) {
-          return false;
-        }
+    const result: string[] = [];
+
+    // Add template kinds first (prioritized)
+    for (const template of checkerTemplates) {
+      const kind = template.kind?.trim();
+      if (kind && !seen.has(kind)) {
         seen.add(kind);
-        return true;
-      });
-  }, [packages]);
+        result.push(kind);
+      }
+    }
+
+    // Add historical kinds from packages (for backwards compatibility)
+    for (const pkg of packages) {
+      const kind = pkg.checker_kind?.trim();
+      if (kind && !seen.has(kind)) {
+        seen.add(kind);
+        result.push(kind);
+      }
+    }
+
+    return result;
+  }, [checkerTemplates, packages]);
   const agentPollerMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const agent of registeredAgents) {
@@ -552,6 +576,51 @@ export default function EdgePackagesPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const fetchTemplates = async () => {
+      if (formState.componentType !== 'checker') {
+        setCheckerTemplates([]);
+        setTemplatesLoading(false);
+        return;
+      }
+
+      setTemplatesLoading(true);
+      try {
+        const params = new URLSearchParams({
+          component_type: 'checker',
+          security_mode: formState.securityMode,
+        });
+
+        const response = await fetch(`/api/admin/component-templates?${params.toString()}`, {
+          headers: buildHeaders(),
+          cache: 'no-store',
+        });
+        if (!response.ok) {
+          console.warn('Failed to load component templates');
+          return;
+        }
+        const data: ComponentTemplate[] = await response.json();
+        if (!cancelled) {
+          const filtered = (data ?? []).filter((tmpl) => tmpl.security_mode === formState.securityMode);
+          setCheckerTemplates(filtered);
+        }
+      } catch (err) {
+        console.error('Failed to load component templates', err);
+      } finally {
+        if (!cancelled) {
+          setTemplatesLoading(false);
+        }
+      }
+    };
+
+    void fetchTemplates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [formState.componentType, formState.securityMode]);
+
+  useEffect(() => {
     if (selectedId) {
       void loadEvents(selectedId);
     } else {
@@ -640,6 +709,7 @@ export default function EdgePackagesPage() {
     setMetadataTouched(false);
     setSelectorsTouched(false);
     setPollerTouched(false);
+    setCustomCheckerKind(false);
   }, []);
 
   const openFormFor = useCallback(
@@ -658,6 +728,7 @@ export default function EdgePackagesPage() {
       setMetadataTouched(false);
       setSelectorsTouched(false);
       setPollerTouched(false);
+      setCustomCheckerKind(false);
       setFormOpen(true);
     },
     [],
@@ -690,6 +761,9 @@ export default function EdgePackagesPage() {
       setMetadataTouched(false);
     }
     setPollerTouched(false);
+    if (nextType !== 'checker') {
+      setCustomCheckerKind(false);
+    }
   };
 
   const handleSecurityModeChange = (mode: SecurityMode) => {
@@ -1337,21 +1411,61 @@ export default function EdgePackagesPage() {
                     <span className="font-medium">
                       Checker kind <span className="text-red-500">*</span>
                     </span>
-                    <input
-                      required
-                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
-                      value={formState.checkerKind}
-                      onChange={(event) => handleFormChange('checkerKind', event.target.value)}
-                      placeholder="sysmon, snmp, rperf"
-                      list={checkerKindListId}
-                    />
-                    {checkerKinds.length > 0 && (
-                      <datalist id={checkerKindListId}>
-                        {checkerKinds.map((kind) => (
-                          <option value={kind} key={`checker-kind-${kind}`} />
-                        ))}
-                      </datalist>
+                    {templatesLoading ? (
+                      <div className="rounded border border-gray-300 px-3 py-2 text-sm text-gray-500 dark:bg-gray-950 dark:border-gray-700">
+                        Loading templates...
+                      </div>
+                    ) : availableCheckerKinds.length > 0 ? (
+                      <>
+                        <select
+                          required
+                          className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                          value={customCheckerKind ? CUSTOM_CHECKER_KIND : formState.checkerKind}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            if (value === CUSTOM_CHECKER_KIND) {
+                              setCustomCheckerKind(true);
+                              setFormState((prev) => ({ ...prev, checkerKind: '' }));
+                              return;
+                            }
+                            setCustomCheckerKind(false);
+                            handleFormChange('checkerKind', value);
+                          }}
+                        >
+                          <option value="">Select a checker type...</option>
+                          {availableCheckerKinds.map((kind) => (
+                            <option value={kind} key={`checker-kind-${kind}`}>
+                              {kind}
+                            </option>
+                          ))}
+                          <option value={CUSTOM_CHECKER_KIND}>Custom (enter manually)</option>
+                        </select>
+                        {customCheckerKind && (
+                          <input
+                            required
+                            className="mt-2 rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                            value={formState.checkerKind}
+                            onChange={(event) => handleFormChange('checkerKind', event.target.value)}
+                            placeholder="Enter custom checker kind"
+                          />
+                        )}
+                      </>
+                    ) : (
+                      <input
+                        required
+                        className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                        value={formState.checkerKind}
+                        onChange={(event) => handleFormChange('checkerKind', event.target.value)}
+                        placeholder="Enter checker kind (no templates available)"
+                      />
                     )}
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {checkerTemplates.length > 0
+                        ? customCheckerKind
+                          ? 'Custom kind selected - provide checker config JSON below'
+                          : 'Select from available templates or choose custom to enter a new kind'
+                        : 'No templates found - checker config JSON is required'}
+                    </span>
                   </label>
 
                   <label className="flex flex-col gap-1 text-sm">

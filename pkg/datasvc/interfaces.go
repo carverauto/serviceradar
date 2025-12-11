@@ -57,6 +57,10 @@ type KVStore interface {
 	// The returned channel is closed when the context is canceled or the KV store is closed.
 	Watch(ctx context.Context, key string) (<-chan []byte, error)
 
+	// ListKeys returns all keys matching the given prefix filter.
+	// If prefix is empty, all keys are returned.
+	ListKeys(ctx context.Context, prefix string) ([]string, error)
+
 	// PutObject streams an object payload into the JetStream object store.
 	PutObject(ctx context.Context, key string, reader io.Reader, meta ObjectMetadata) (*ObjectInfo, error)
 

@@ -1,8 +1,9 @@
 {
-  "listen_addr": "0.0.0.0:50081",
-  "name": "rperf-checker",
+  "name": "dusk",
   "type": "grpc",
-  "timeout": "30s",
+  "node_address": "{{AGENT_ADDRESS}}",
+  "listen_addr": ":50082",
+  "timeout": "5m",
   "security": {
     "mode": "mtls",
     "role": "checker",
@@ -14,7 +15,5 @@
       "ca_file": "{{CERT_DIR}}/root.pem",
       "client_ca_file": "{{CERT_DIR}}/root.pem"
     }
-  },
-  "default_poll_interval": 300,
-  "targets": []
+  }
 }

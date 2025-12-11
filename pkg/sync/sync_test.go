@@ -77,6 +77,10 @@ func (*mockProtoKVClient) Info(_ context.Context, _ *proto.InfoRequest, _ ...grp
 	return &proto.InfoResponse{Domain: "test", Bucket: "test"}, nil
 }
 
+func (*mockProtoKVClient) ListKeys(_ context.Context, _ *proto.ListKeysRequest, _ ...grpc.CallOption) (*proto.ListKeysResponse, error) {
+	return &proto.ListKeysResponse{}, nil
+}
+
 func TestNew(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
