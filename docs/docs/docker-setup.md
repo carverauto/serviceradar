@@ -146,6 +146,23 @@ After saving changes, redeploy Mapper so it reloads the file:
 docker-compose up -d mapper
 ```
 
+### Verify KV Seeding (first boot)
+
+Docker Compose now starts KV-backed config watchers. After the first `docker compose up -d`, confirm the datasvc bucket has defaults and watcher snapshots:
+
+```bash
+docker run --rm --network serviceradar_serviceradar-net \
+  -v serviceradar_cert-data:/etc/serviceradar/certs \
+  ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.65} \
+  nats --server tls://nats:4222 \
+       --tlsca /etc/serviceradar/certs/root.pem \
+       --tlscert /etc/serviceradar/certs/poller.pem \
+       --tlskey /etc/serviceradar/certs/poller-key.pem \
+       kv ls serviceradar-datasvc
+```
+
+You should see config entries for `config/core.json`, `config/pollers/docker-poller.json`, `config/agents/docker-agent.json`, the poller template, and watcher snapshots under `watchers/<service>/...json` (poller, agent, core). If the bucket is empty, rerun `docker compose up -d config-updater poller-kv-seed` to seed defaults, then refresh the Settings → Watcher Telemetry panel in the UI.
+
 ### SPIFFE In Docker Compose
 
 `docker compose up -d` now launches a local SPIRE control plane automatically:
