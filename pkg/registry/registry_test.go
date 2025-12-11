@@ -1781,3 +1781,53 @@ func TestProcessBatchDeviceUpdates_SweepAttachedToCanonicalGetsMetadata(t *testi
 	assert.Equal(t, canonicalDeviceID, pub.Metadata["canonical_device_id"],
 		"canonical_device_id metadata should match attached DeviceID")
 }
+
+func TestGetDeviceByIDStrictAndByIP(t *testing.T) {
+	log := logger.NewTestLogger()
+	reg := NewDeviceRegistry(nil, log)
+
+	// Add two devices at the same IP (simulating Docker environment)
+	sharedIP := "172.17.0.2"
+
+	agentRecord := &DeviceRecord{
+		DeviceID:    "serviceradar:agent:docker-agent",
+		IP:          sharedIP,
+		IsAvailable: true,
+		LastSeen:    time.Now(),
+	}
+	pollerRecord := &DeviceRecord{
+		DeviceID:    "serviceradar:poller:docker-poller",
+		IP:          sharedIP,
+		IsAvailable: true,
+		LastSeen:    time.Now(),
+	}
+
+	reg.UpsertDeviceRecord(agentRecord)
+	reg.UpsertDeviceRecord(pollerRecord)
+
+	ctx := context.Background()
+
+	// Test 1: Looking up agent by ID should return agent
+	device, err := reg.GetDeviceByIDStrict(ctx, "serviceradar:agent:docker-agent")
+	require.NoError(t, err)
+	assert.Equal(t, "serviceradar:agent:docker-agent", device.DeviceID)
+
+	// Test 2: Looking up poller by ID should return poller
+	device, err = reg.GetDeviceByIDStrict(ctx, "serviceradar:poller:docker-poller")
+	require.NoError(t, err)
+	assert.Equal(t, "serviceradar:poller:docker-poller", device.DeviceID)
+
+	// Test 3: Looking up a non-existent device ID should return ErrDeviceNotFound,
+	// NOT the first device at some IP
+	_, err = reg.GetDeviceByIDStrict(ctx, "serviceradar:agent:nonexistent")
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrDeviceNotFound)
+
+	// Test 4: Looking up by IP should return both devices at that IP
+	devicesAtIP, err := reg.GetDevicesByIP(ctx, sharedIP)
+	require.NoError(t, err)
+	require.Len(t, devicesAtIP, 2)
+	deviceIDs := []string{devicesAtIP[0].DeviceID, devicesAtIP[1].DeviceID}
+	assert.Contains(t, deviceIDs, agentRecord.DeviceID)
+	assert.Contains(t, deviceIDs, pollerRecord.DeviceID)
+}

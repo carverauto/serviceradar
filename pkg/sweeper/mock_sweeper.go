@@ -499,6 +499,21 @@ func (mr *MockDeviceRegistryServiceMockRecorder) GetDevice(ctx, deviceID any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevice", reflect.TypeOf((*MockDeviceRegistryService)(nil).GetDevice), ctx, deviceID)
 }
 
+// GetDeviceByIDStrict mocks base method.
+func (m *MockDeviceRegistryService) GetDeviceByIDStrict(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceByIDStrict", ctx, deviceID)
+	ret0, _ := ret[0].(*models.UnifiedDevice)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceByIDStrict indicates an expected call of GetDeviceByIDStrict.
+func (mr *MockDeviceRegistryServiceMockRecorder) GetDeviceByIDStrict(ctx, deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceByIDStrict", reflect.TypeOf((*MockDeviceRegistryService)(nil).GetDeviceByIDStrict), ctx, deviceID)
+}
+
 // GetDevicesByIP mocks base method.
 func (m *MockDeviceRegistryService) GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error) {
 	m.ctrl.T.Helper()

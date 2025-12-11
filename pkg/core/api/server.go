@@ -2333,7 +2333,7 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 
 	// Try device registry first (enhanced device data with discovery sources)
 	if s.deviceRegistry != nil {
-		unifiedDevice, err := s.deviceRegistry.GetMergedDevice(ctx, deviceID)
+		unifiedDevice, err := s.deviceRegistry.GetDeviceByIDStrict(ctx, deviceID)
 		if err == nil {
 			legacy := unifiedDevice.ToLegacyDevice()
 			resp := deviceResponse{
@@ -2371,21 +2371,28 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if errors.Is(err, registry.ErrDeviceNotFound) {
-			writeError(w, "Device not found", http.StatusNotFound)
-			return
-		}
-
-		if s.requireDeviceRegistry {
+		// If device not found in registry, fall back to database lookup (don't return 404 yet).
+		// This handles the case where the device exists in DB but isn't in the in-memory registry
+		// (e.g., due to timing/hydration issues in Docker environments).
+		switch {
+		case errors.Is(err, registry.ErrDeviceNotFound):
+			s.logger.Debug().
+				Str("device_id", deviceID).
+				Msg("Device not found in registry cache, falling back to database lookup")
+			// Fall through to database lookup below
+		case s.requireDeviceRegistry:
 			s.logger.Error().
 				Err(err).
 				Str("device_id", deviceID).
 				Msg("Device registry lookup failed and legacy fallback disabled")
 			writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
 			return
+		default:
+			s.logger.Warn().
+				Err(err).
+				Str("device_id", deviceID).
+				Msg("Device registry lookup failed, falling back to legacy")
 		}
-
-		s.logger.Warn().Err(err).Str("device_id", deviceID).Msg("Device registry lookup failed, falling back to legacy")
 	}
 
 	// Fallback to legacy database service
@@ -2810,8 +2817,8 @@ func mergeRelatedDevices(
 			continue // Skip if already processed as part of a merge
 		}
 
-		// Try to get the merged view of this device
-		mergedDevice, err := registry.GetMergedDevice(ctx, device.DeviceID)
+		// Try to get the strict view of this device (ID only, no IP fallback)
+		mergedDevice, err := registry.GetDeviceByIDStrict(ctx, device.DeviceID)
 		if err != nil {
 			logger.Warn().Err(err).Str("device_id", device.DeviceID).Msg("Failed to get merged device")
 			// Fallback to original device if merging fails

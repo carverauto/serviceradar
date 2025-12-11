@@ -5,6 +5,12 @@
   "known_pollers": [
     "docker-poller"
   ],
+  "srql": {
+    "enabled": true,
+    "base_url": "http://srql:8080",
+    "timeout": "15s",
+    "path": "/api/query"
+  },
   "metrics": {
     "enabled": true,
     "retention": 100,
