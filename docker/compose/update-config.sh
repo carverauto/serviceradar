@@ -118,6 +118,22 @@ EOF
     echo "✅ Created api.env with generated secrets"
 fi
 
+# Ensure SRQL config exists and is enabled by default
+if [ -f "$CORE_CONFIG" ]; then
+    SRQL_BASE_URL="${SRQL_BASE_URL:-http://srql:8080}"
+    jq --arg base "$SRQL_BASE_URL" \
+       --arg api_key "${API_KEY:-}" \
+       '.srql = (.srql // {}) |
+        .srql.enabled = true |
+        .srql.base_url = ($base // "http://srql:8080") |
+        .srql.timeout = (.srql.timeout // "15s") |
+        .srql.path = (.srql.path // "/api/query") |
+        (if $api_key != "" then .srql.api_key = $api_key else . end)' \
+       "$CORE_CONFIG" > "$CORE_CONFIG.tmp"
+    mv "$CORE_CONFIG.tmp" "$CORE_CONFIG"
+    echo "✅ Ensured SRQL config in core.json (base_url=$SRQL_BASE_URL)"
+fi
+
 # Create a Docker environment file for the core service to use
 # This allows docker-compose to inject the generated secrets directly
 if [ -f "$CERT_DIR/api-key" ] && [ -f "$CERT_DIR/jwt-secret" ]; then

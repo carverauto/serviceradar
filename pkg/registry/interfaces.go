@@ -25,14 +25,14 @@ type Manager interface {
 	// GetDevice retrieves a unified device by its device ID.
 	GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
 
+	// GetDeviceByIDStrict retrieves a unified device by device ID only (no IP fallback).
+	GetDeviceByIDStrict(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
+
 	// GetDevicesByIP retrieves all unified devices that have the given IP.
 	GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
 
 	// ListDevices retrieves a paginated list of unified devices.
 	ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
-
-	// GetMergedDevice retrieves a device by device ID or IP, returning the merged/unified view.
-	GetMergedDevice(ctx context.Context, deviceIDOrIP string) (*models.UnifiedDevice, error)
 
 	// FindRelatedDevices finds all devices that are related to the given device ID.
 	FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error)

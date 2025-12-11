@@ -1895,10 +1895,19 @@ func (r *DeviceRegistry) GetDevice(ctx context.Context, deviceID string) (*model
 
 	record, ok := r.GetDeviceRecord(trimmed)
 	if !ok || record == nil {
+		if r.logger != nil {
+			r.logger.Debug().
+				Str("device_id", trimmed).
+				Msg("Device lookup miss in registry")
+		}
 		return nil, fmt.Errorf("%w: %s", ErrDeviceNotFound, trimmed)
 	}
 
 	return UnifiedDeviceFromRecord(record), nil
+}
+
+func (r *DeviceRegistry) GetDeviceByIDStrict(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
+	return r.GetDevice(ctx, deviceID)
 }
 
 func (r *DeviceRegistry) GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error) {
@@ -2029,23 +2038,6 @@ func (r *DeviceRegistry) SearchDevices(query string, limit int) []*models.Unifie
 	}
 
 	return UnifiedDeviceSlice(matchedRecords)
-}
-
-func (r *DeviceRegistry) GetMergedDevice(ctx context.Context, deviceIDOrIP string) (*models.UnifiedDevice, error) {
-	if device, err := r.GetDevice(ctx, deviceIDOrIP); err == nil {
-		return device, nil
-	}
-
-	devices, err := r.GetDevicesByIP(ctx, deviceIDOrIP)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get device by ID or IP %s: %w", deviceIDOrIP, err)
-	}
-
-	if len(devices) == 0 {
-		return nil, fmt.Errorf("%w: %s", ErrDeviceNotFound, deviceIDOrIP)
-	}
-
-	return devices[0], nil
 }
 
 func (r *DeviceRegistry) FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error) {

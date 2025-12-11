@@ -71,6 +71,21 @@ func (mr *MockManagerMockRecorder) GetDevice(ctx, deviceID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevice", reflect.TypeOf((*MockManager)(nil).GetDevice), ctx, deviceID)
 }
 
+// GetDeviceByIDStrict mocks base method.
+func (m *MockManager) GetDeviceByIDStrict(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceByIDStrict", ctx, deviceID)
+	ret0, _ := ret[0].(*models.UnifiedDevice)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceByIDStrict indicates an expected call of GetDeviceByIDStrict.
+func (mr *MockManagerMockRecorder) GetDeviceByIDStrict(ctx, deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceByIDStrict", reflect.TypeOf((*MockManager)(nil).GetDeviceByIDStrict), ctx, deviceID)
+}
+
 // GetDevicesByIP mocks base method.
 func (m *MockManager) GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error) {
 	m.ctrl.T.Helper()
@@ -84,21 +99,6 @@ func (m *MockManager) GetDevicesByIP(ctx context.Context, ip string) ([]*models.
 func (mr *MockManagerMockRecorder) GetDevicesByIP(ctx, ip any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicesByIP", reflect.TypeOf((*MockManager)(nil).GetDevicesByIP), ctx, ip)
-}
-
-// GetMergedDevice mocks base method.
-func (m *MockManager) GetMergedDevice(ctx context.Context, deviceIDOrIP string) (*models.UnifiedDevice, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetMergedDevice", ctx, deviceIDOrIP)
-	ret0, _ := ret[0].(*models.UnifiedDevice)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetMergedDevice indicates an expected call of GetMergedDevice.
-func (mr *MockManagerMockRecorder) GetMergedDevice(ctx, deviceIDOrIP any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMergedDevice", reflect.TypeOf((*MockManager)(nil).GetMergedDevice), ctx, deviceIDOrIP)
 }
 
 // ListDevices mocks base method.

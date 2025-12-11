@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/registry"
 )
 
 const (
@@ -22,6 +24,8 @@ var (
 	errUnsupportedSearchEngine = errors.New("unsupported search engine")
 	errRegistryBackendMissing  = errors.New("registry backend not configured")
 )
+
+var deviceIDFilterPattern = regexp.MustCompile(`(?i)\bdevice_id\s*:\s*(?:"([^"]+)"|'([^']+)'|` + "`([^`]+)`" + `|([^\s]+))`)
 
 // Engine identifies which execution backend satisfied a search.
 type Engine string
@@ -250,6 +254,23 @@ func (p *Planner) executeRegistry(ctx context.Context, req *Request) ([]*models.
 		offset = 0
 	}
 
+	if deviceID := extractDeviceIDFilter(req.Query); deviceID != "" {
+		device, err := p.registry.GetDevice(ctx, deviceID)
+		switch {
+		case err == nil && device != nil:
+			if offset > 0 {
+				return []*models.UnifiedDevice{}, Pagination{Limit: limit, Offset: offset}, nil
+			}
+			return []*models.UnifiedDevice{device}, Pagination{Limit: limit, Offset: offset}, nil
+		case errors.Is(err, registry.ErrDeviceNotFound):
+			return []*models.UnifiedDevice{}, Pagination{Limit: limit, Offset: offset}, nil
+		case err != nil:
+			return nil, Pagination{}, err
+		default:
+			return []*models.UnifiedDevice{}, Pagination{Limit: limit, Offset: offset}, nil
+		}
+	}
+
 	searchTerm := strings.TrimSpace(filters["search"])
 
 	var devices []*models.UnifiedDevice
@@ -396,4 +417,18 @@ func nonZero(value, fallback int) int {
 		return value
 	}
 	return fallback
+}
+
+func extractDeviceIDFilter(query string) string {
+	matches := deviceIDFilterPattern.FindStringSubmatch(query)
+	if len(matches) == 0 {
+		return ""
+	}
+
+	for i := 1; i < len(matches); i++ {
+		if matches[i] != "" {
+			return strings.TrimSpace(matches[i])
+		}
+	}
+	return ""
 }
