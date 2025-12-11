@@ -454,19 +454,25 @@ func (n *NATSStore) ListKeys(ctx context.Context, prefix string) ([]string, erro
 	keys := make([]string, 0, 16)
 	var lister jetstream.KeyLister
 
-	if realPrefix == "" {
-		// List all keys
-		lister, err = kv.ListKeys(ctx)
-	} else {
-		// List keys with prefix filter using wildcard pattern
+	// JetStream treats "/" as a literal token, so slash-separated prefixes often
+	// don't work well with ListKeysFiltered. When a prefix contains a slash,
+	// fall back to listing everything and filter client-side. The keyspace for
+	// this bucket is small (config + templates), so the overhead is fine.
+	useFiltered := realPrefix != "" && !strings.Contains(realPrefix, "/")
+
+	if useFiltered {
 		lister, err = kv.ListKeysFiltered(ctx, realPrefix+">")
+	} else {
+		lister, err = kv.ListKeys(ctx)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to list keys with prefix %s: %w", prefix, err)
 	}
 
 	for key := range lister.Keys() {
-		keys = append(keys, key)
+		if realPrefix == "" || strings.HasPrefix(key, realPrefix) {
+			keys = append(keys, key)
+		}
 	}
 
 	if err := lister.Stop(); err != nil {
