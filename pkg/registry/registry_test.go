@@ -1903,7 +1903,7 @@ func TestGetMergedDevice_DoesNotFallbackToIPForDeviceIDs(t *testing.T) {
 	// NOT the first device at some IP
 	_, err = reg.GetMergedDevice(ctx, "serviceradar:agent:nonexistent")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrDeviceNotFound)
+	require.ErrorIs(t, err, ErrDeviceNotFound)
 
 	// Test 4: Looking up by IP should still work (returns first device at that IP)
 	device, err = reg.GetMergedDevice(ctx, sharedIP)
