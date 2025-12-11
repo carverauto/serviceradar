@@ -250,6 +250,18 @@ func (s *Server) Info(_ context.Context, _ *proto.InfoRequest) (*proto.InfoRespo
 	}, nil
 }
 
+// ListKeys implements the ListKeys RPC to return keys matching a prefix filter.
+func (s *Server) ListKeys(ctx context.Context, req *proto.ListKeysRequest) (*proto.ListKeysResponse, error) {
+	keys, err := s.store.ListKeys(ctx, req.GetPrefix())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list keys: %v", err)
+	}
+
+	return &proto.ListKeysResponse{
+		Keys: keys,
+	}, nil
+}
+
 // UploadObject implements the client-streaming object upload RPC.
 func (s *Server) UploadObject(stream proto.DataService_UploadObjectServer) error {
 	firstChunk, err := stream.Recv()

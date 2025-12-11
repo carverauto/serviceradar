@@ -442,6 +442,40 @@ func (n *NATSStore) sendUpdate(ctx context.Context, ch chan<- []byte, value []by
 	}
 }
 
+// ListKeys returns all keys matching the given prefix filter.
+// If prefix is empty, all keys are returned.
+func (n *NATSStore) ListKeys(ctx context.Context, prefix string) ([]string, error) {
+	domain, realPrefix := n.extractDomain(prefix)
+	kv, err := n.getKVForDomain(ctx, domain)
+	if err != nil {
+		return nil, err
+	}
+
+	var keys []string
+	var lister jetstream.KeyLister
+
+	if realPrefix == "" {
+		// List all keys
+		lister, err = kv.ListKeys(ctx)
+	} else {
+		// List keys with prefix filter using wildcard pattern
+		lister, err = kv.ListKeysFiltered(ctx, realPrefix+">")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to list keys with prefix %s: %w", prefix, err)
+	}
+
+	for key := range lister.Keys() {
+		keys = append(keys, key)
+	}
+
+	if err := lister.Stop(); err != nil {
+		log.Printf("warning: failed to stop key lister: %v", err)
+	}
+
+	return keys, nil
+}
+
 func (n *NATSStore) PutObject(ctx context.Context, key string, reader io.Reader, meta ObjectMetadata) (*ObjectInfo, error) {
 	domain, realKey := n.extractDomain(key)
 	store, err := n.getObjectStoreForDomain(ctx, domain)

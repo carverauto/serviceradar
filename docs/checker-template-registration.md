@@ -1,7 +1,8 @@
 # Checker Template Registration Design
 
-**Status**: Implemented (Core Service), In Progress (Checker Integration)
+**Status**: Implemented (Seeding + API)
 **Created**: 2025-11-01
+**Updated**: 2025-12-11
 **Author**: AI Assistant with Matt Freeman
 
 ## Overview
@@ -10,11 +11,11 @@ This document describes the zero-touch checker configuration system that enables
 
 ### Goals
 
-1. **Zero-Touch Onboarding**: Checkers self-register their default configurations
+1. **Zero-Touch Onboarding**: Default checker templates are pre-seeded into KV
 2. **KV-First Architecture**: All configurations stored and managed in NATS KV
-3. **No Additional Tools**: No need for external CLI tools or manual uploads
+3. **Template Discovery**: API endpoint lists available templates for UI dropdowns
 4. **User Modifications Protected**: Instance configs are never overwritten once created
-5. **Template Updates Safe**: Checkers can update default templates without affecting deployments
+5. **Template Updates Safe**: Templates can be updated without affecting deployments
 
 ## Architecture
 
@@ -22,22 +23,24 @@ This document describes the zero-touch checker configuration system that enables
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        Checker Startup                               │
+│                    Template Seeding (Bootstrap)                      │
 │                                                                       │
-│  1. Checker loads default config from embedded/shipped file          │
-│  2. Checker writes to templates/checkers/{kind}.json in KV           │
-│     (Safe to overwrite - this is the "factory default")              │
+│  Docker Compose: checker-templates-seed service seeds on startup     │
+│  Helm: checker-templates-kv-bootstrap Job runs as post-install hook  │
+│  Templates written to: templates/checkers/{kind}.json                │
 └─────────────────────────────────────────────────────────────────────┘
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────┐
 │                     Edge Onboarding Process                          │
 │                                                                       │
-│  1. Admin creates edge package via API                               │
-│  2. If checker_config_json not provided:                             │
+│  1. Admin creates edge package via Web UI or API                     │
+│  2. Web UI fetches available templates via GET /api/admin/checker-   │
+│     templates and displays them in a dropdown                        │
+│  3. If checker_config_json not provided:                             │
 │     - Fetch templates/checkers/{kind}.json from KV                   │
 │     - Apply variable substitution (SPIFFE IDs, addresses, etc.)      │
-│  3. Check if agents/{agent_id}/checkers/{kind}.json exists           │
-│  4. If NOT exists: Write customized config                           │
+│  4. Check if agents/{agent_id}/checkers/{kind}.json exists           │
+│  5. If NOT exists: Write customized config                           │
 │     If EXISTS: Skip write (preserve user modifications)              │
 └─────────────────────────────────────────────────────────────────────┘
                                     ↓
@@ -55,20 +58,17 @@ This document describes the zero-touch checker configuration system that enables
 ```
 templates/
   └── checkers/
-      ├── sysmon.json        # Template for sysmon checker (written by checker)
-      ├── sweep.json         # Template for sweep checker (written by checker)
-      ├── rperf.json         # Template for rperf checker (written by checker)
-      └── snmp.json          # Template for snmp checker (written by checker)
-
-> Implementation note: In code we persist templates under `templates/<descriptor>.json`
-> (for example `templates/agent-snmp.json`). The checker-friendly aliases above map
-> directly to those descriptor names for each service.
+      ├── sysmon.json        # Template for Linux sysmon checker (seeded)
+      ├── sysmon-osx.json    # Template for macOS sysmon checker (seeded)
+      ├── rperf.json         # Template for rperf network checker (seeded)
+      ├── snmp.json          # Template for SNMP checker (seeded)
+      └── dusk.json          # Template for Dusk browser checker (seeded)
 
 agents/
   └── {agent-id}/
       └── checkers/
           ├── sysmon.json    # Instance config (written by edge onboarding)
-          ├── sweep.json     # Instance config (never overwritten)
+          ├── snmp.json      # Instance config (never overwritten)
           └── rperf.json     # Instance config (user can modify via web UI)
 ```
 
@@ -76,7 +76,7 @@ agents/
 
 | Path Pattern | Written By | Overwrite Allowed | Purpose |
 |-------------|------------|-------------------|---------|
-| `templates/checkers/{kind}.json` | Checker on startup | ✅ Yes | Factory defaults, safe to update |
+| `templates/checkers/{kind}.json` | Seed job on deploy | ✅ Yes | Factory defaults, safe to update |
 | `agents/{agent_id}/checkers/{kind}.json` | Edge onboarding | ❌ No | Instance config, user modifications protected |
 | `agents/{agent_id}/checkers/{kind}.json` | Web UI | ✅ Yes | User modifications |
 
@@ -129,163 +129,73 @@ Templates can include placeholders that are automatically substituted during edg
 }
 ```
 
-## Implementation Guide
+## Template Seeding Implementation
 
-### Requirements for All Checkers
+Templates are seeded into KV at deployment time rather than being self-registered by checkers. This simplifies checker code and ensures templates are available before any edge onboarding occurs.
 
-1. **Load Default Config**: Read from embedded/shipped config file
-2. **Connect to KV**: Use KV address from metadata or environment
-3. **Write Template**: Write to `templates/checkers/{kind}.json`
-4. **Handle Errors Gracefully**: Template write failures should not prevent startup
-5. **Log Activity**: Log template registration for debugging
+### Template Source Files
 
-### Go Implementation Example
+Default templates are stored in the codebase at:
+- `packaging/{checker}/config/checkers/{kind}.json` - Source templates for each checker
 
-```go
-package main
+These templates are then:
+1. Copied into `docker/compose/checker-templates/` for docker-compose deployments
+2. Embedded in a Helm ConfigMap for Kubernetes deployments
 
-import (
-    "context"
-    "encoding/json"
-    "os"
+### Docker Compose Seeding
 
-    "github.com/carverauto/serviceradar/pkg/config"
-    "github.com/carverauto/serviceradar/proto"
-)
+The `docker-compose.yml` includes a `checker-templates-seed` service:
 
-func registerTemplate(ctx context.Context, kvClient proto.KVServiceClient, checkerKind string) error {
-    // Load default config from shipped file
-    defaultConfigPath := "/usr/share/serviceradar/checkers/" + checkerKind + "/default.json"
-    configData, err := os.ReadFile(defaultConfigPath)
-    if err != nil {
-        return fmt.Errorf("failed to read default config: %w", err)
-    }
-
-    // Validate it's valid JSON
-    if !json.Valid(configData) {
-        return fmt.Errorf("default config is not valid JSON")
-    }
-
-    // Write to KV template location
-    templateKey := fmt.Sprintf("templates/checkers/%s.json", checkerKind)
-
-    _, err = kvClient.Put(ctx, &proto.PutRequest{
-        Key:   templateKey,
-        Value: configData,
-    })
-    if err != nil {
-        return fmt.Errorf("failed to write template to KV: %w", err)
-    }
-
-    log.Info().
-        Str("template_key", templateKey).
-        Str("checker_kind", checkerKind).
-        Msg("Successfully registered checker template")
-
-    return nil
-}
-
-func main() {
-    ctx := context.Background()
-
-    // Initialize KV client from environment
-    kvClient, closer, err := config.NewKVServiceClientFromEnv(ctx, models.RoleChecker)
-    if err != nil {
-        log.Warn().Err(err).Msg("Failed to initialize KV client, skipping template registration")
-    } else {
-        defer closer()
-
-        // Register template (non-fatal if it fails)
-        if err := registerTemplate(ctx, kvClient, "sysmon"); err != nil {
-            log.Warn().Err(err).Msg("Failed to register template, continuing startup")
-        }
-    }
-
-    // Continue with normal checker startup...
-}
+```yaml
+checker-templates-seed:
+  image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG}
+  volumes:
+    - ./checker-templates:/templates:ro
+    - cert-data:/etc/serviceradar/certs:ro
+  command: ["sh", "/scripts/seed-checker-templates.sh"]
+  depends_on:
+    - nats
 ```
 
-### Rust Implementation Example
+### Helm Chart Seeding
 
-```rust
-use tonic::Request;
-use prost::Message;
+The Helm chart uses a Kubernetes Job as a post-install hook:
 
-async fn register_template(
-    kv_client: &mut KvServiceClient<Channel>,
-    checker_kind: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Load default config from embedded resource or file
-    let default_config_path = format!(
-        "/usr/share/serviceradar/checkers/{}/default.json",
-        checker_kind
-    );
-    let config_data = tokio::fs::read(&default_config_path).await?;
-
-    // Validate JSON
-    serde_json::from_slice::<serde_json::Value>(&config_data)?;
-
-    // Write to KV template location
-    let template_key = format!("templates/checkers/{}.json", checker_kind);
-
-    let request = Request::new(PutRequest {
-        key: template_key.clone(),
-        value: config_data,
-        ttl_seconds: 0,
-    });
-
-    kv_client.put(request).await?;
-
-    tracing::info!(
-        template_key = %template_key,
-        checker_kind = %checker_kind,
-        "Successfully registered checker template"
-    );
-
-    Ok(())
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize KV client from environment
-    let kv_address = std::env::var("KV_ADDRESS")
-        .unwrap_or_else(|_| "serviceradar-datasvc:50057".to_string());
-
-    match connect_to_kv(&kv_address).await {
-        Ok(mut kv_client) => {
-            // Register template (non-fatal if it fails)
-            if let Err(e) = register_template(&mut kv_client, "sysmon").await {
-                tracing::warn!(error = %e, "Failed to register template, continuing startup");
-            }
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "Failed to connect to KV, skipping template registration");
-        }
-    }
-
-    // Continue with normal checker startup...
-    Ok(())
-}
+```yaml
+# templates/checker-templates-kv-bootstrap-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+spec:
+  template:
+    spec:
+      containers:
+        - name: kv-bootstrap
+          image: ghcr.io/carverauto/serviceradar-tools:{{ .Values.image.tags.tools }}
+          volumeMounts:
+            - name: checker-templates
+              mountPath: /etc/serviceradar/checker-templates
+      volumes:
+        - name: checker-templates
+          configMap:
+            name: serviceradar-checker-templates
 ```
 
-## Configuration Sources
-
-### Default Config Location by Language
-
-**Go Checkers:**
-```
-/usr/share/serviceradar/checkers/{kind}/default.json
+Enable template seeding in values.yaml:
+```yaml
+checkerTemplates:
+  enabled: true
 ```
 
-**Rust Checkers:**
-```
-/usr/share/serviceradar/checkers/{kind}/default.json
-```
+### Adding a New Template
 
-Or embedded in binary:
-```rust
-const DEFAULT_CONFIG: &str = include_str!("../config/default.json");
-```
+1. Create the template file in `packaging/{checker}/config/checkers/{kind}.json`
+2. Copy to `docker/compose/checker-templates/{kind}.json`
+3. Add to Helm ConfigMap in `templates/checker-templates-config.yaml`
+4. Deploy - the seeding job will automatically upload the new template
 
 ## Edge Onboarding Integration
 
@@ -340,6 +250,28 @@ curl -X POST https://demo.serviceradar.cloud/api/admin/edge-packages \
   }'
 ```
 
+### Template Discovery API
+
+The `GET /api/admin/checker-templates` endpoint returns all available checker templates:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  https://demo.serviceradar.cloud/api/admin/checker-templates
+```
+
+**Response:**
+```json
+[
+  {"kind": "sysmon", "template_key": "templates/checkers/sysmon.json"},
+  {"kind": "sysmon-osx", "template_key": "templates/checkers/sysmon-osx.json"},
+  {"kind": "snmp", "template_key": "templates/checkers/snmp.json"},
+  {"kind": "rperf", "template_key": "templates/checkers/rperf.json"},
+  {"kind": "dusk", "template_key": "templates/checkers/dusk.json"}
+]
+```
+
+The web UI uses this endpoint to populate a dropdown selector for checker types, improving UX by eliminating the need for users to know template names.
+
 ## Migration Path
 
 ### Phase 1: Core Infrastructure (✅ Complete)
@@ -348,16 +280,16 @@ curl -X POST https://demo.serviceradar.cloud/api/admin/edge-packages \
 - [x] Add overwrite protection
 - [x] Deploy to k8s demo namespace
 
-### Phase 2: Checker Integration (📋 In Progress)
-- [ ] Add template registration to sysmon checker (Rust)
-- [ ] Add template registration to sweep checker (Go)
-- [ ] Add template registration to rperf checker (Go)
-- [ ] Add template registration to snmp checker (Go)
-- [ ] Add template registration to dusk checker (Go)
+### Phase 2: Template Seeding (✅ Complete)
+- [x] Create default templates for all checker types
+- [x] Add docker-compose seed service (`checker-templates-seed`)
+- [x] Add Helm chart KV bootstrap job (`checker-templates-kv-bootstrap`)
+- [x] Add `ListCheckerTemplates` API endpoint for template discovery
+- [x] Update web UI to show template dropdown
 
 ### Phase 3: Testing & Validation
-- [ ] Test template registration on first checker startup
-- [ ] Test template updates on checker restart
+- [ ] Test template seeding on docker-compose startup
+- [ ] Test template seeding with Helm chart deployment
 - [ ] Test edge onboarding without checker_config_json
 - [ ] Test variable substitution for all supported variables
 - [ ] Verify overwrite protection with web UI modifications
@@ -370,18 +302,20 @@ curl -X POST https://demo.serviceradar.cloud/api/admin/edge-packages \
 
 ## Testing Checklist
 
-### Template Registration Testing
+### Template Seeding Testing
 
 ```bash
-# 1. Deploy checker for first time
-kubectl logs -n demo checker-pod | grep "registered checker template"
+# Docker Compose: Verify seed service ran
+docker compose logs checker-templates-seed | grep "Seeding checker template"
 
-# 2. Verify template in KV
-# (Would need KV client tool or debug endpoint)
+# Helm: Verify bootstrap job completed
+kubectl get jobs -n demo | grep checker-templates-kv-bootstrap
+kubectl logs -n demo -l app=serviceradar-checker-templates-kv-bootstrap
 
-# 3. Restart checker, verify template updated
-kubectl delete pod checker-pod
-kubectl logs -n demo checker-pod | grep "registered checker template"
+# Verify templates via API
+curl -H "Authorization: Bearer $TOKEN" \
+  https://demo.serviceradar.cloud/api/admin/checker-templates
+# Expected: [{"kind":"sysmon","template_key":"templates/checkers/sysmon.json"}, ...]
 ```
 
 ### Edge Onboarding Testing
@@ -431,10 +365,12 @@ curl -X POST .../edge-packages ...
 **Symptom**: Edge onboarding fails with "no template found at templates/checkers/{kind}.json"
 
 **Solution**:
-1. Verify checker has started and registered its template
-2. Check checker logs for template registration
-3. Manually provide `checker_config_json` in edge package request
-4. Or manually upload template to KV
+1. Verify template seeding job completed successfully
+   - Docker Compose: `docker compose logs checker-templates-seed`
+   - Helm: `kubectl logs -n demo -l app=serviceradar-checker-templates-kv-bootstrap`
+2. Check that `checkerTemplates.enabled: true` in Helm values
+3. Verify template exists via API: `GET /api/admin/checker-templates`
+4. Manually provide `checker_config_json` in edge package request as workaround
 
 ### Variables Not Substituted
 
@@ -459,13 +395,15 @@ curl -X POST .../edge-packages ...
 1. **Template Versioning**: Track template versions and migrations
 2. **Template Validation**: JSON schema validation for templates
 3. **Template Inheritance**: Base templates with overrides
-4. **Admin API**: REST endpoints for template management
-5. **Template Discovery**: List available checker types and their templates
+4. **Admin API**: REST endpoints for template CRUD (create, update, delete)
+5. ~~**Template Discovery**: List available checker types and their templates~~ ✅ Implemented via `GET /api/admin/checker-templates`
 6. **Dry-Run Mode**: Preview substituted config before writing
 
 ## References
 
-- Edge Onboarding Implementation: `/home/mfreeman/serviceradar/pkg/core/edge_onboarding.go`
-- KV Service Proto: `/home/mfreeman/serviceradar/proto/kv.proto`
-- Config Utility: `/home/mfreeman/serviceradar/pkg/config/kv_client.go`
-- Example Templates: `/home/mfreeman/serviceradar/packaging/*/config/checkers/*.json`
+- Edge Onboarding Implementation: `pkg/core/edge_onboarding.go`
+- KV Service Proto: `proto/kv.proto`
+- Template Discovery API: `pkg/core/api/edge_onboarding.go`
+- Example Templates: `packaging/*/config/checkers/*.json`
+- Docker Compose Templates: `docker/compose/checker-templates/`
+- Helm Chart Templates: `helm/serviceradar/templates/checker-templates-config.yaml`

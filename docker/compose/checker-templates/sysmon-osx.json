@@ -1,0 +1,11 @@
+{
+  "listen_addr": "0.0.0.0:50110",
+  "security": {
+    "mode": "spiffe",
+    "cert_dir": "/etc/serviceradar/certs",
+    "trust_domain": "{{TRUST_DOMAIN}}",
+    "workload_socket": "unix:/run/spire/sockets/agent.sock",
+    "server_spiffe_id": "{{DOWNSTREAM_SPIFFE_ID}}"
+  },
+  "sample_interval": "200ms"
+}

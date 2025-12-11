@@ -1,0 +1,78 @@
+{{- if and .Values.checkerTemplates.enabled .Values.kv.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "serviceradar-checker-templates-kv-bootstrap-%s" (include "serviceradar.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    app: serviceradar-checker-templates-kv-bootstrap
+    app.kubernetes.io/part-of: serviceradar
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        app: serviceradar-checker-templates-kv-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}
+      containers:
+        - name: kv-bootstrap
+          image: ghcr.io/carverauto/serviceradar-tools:{{ .Values.image.tags.tools }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NATS_URL
+              value: "tls://serviceradar-nats.{{ .Release.Namespace }}.svc.cluster.local:4222"
+            - name: KV_BUCKET
+              value: {{ .Values.kv.bucket | default "serviceradar-datasvc" }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              TEMPLATES_DIR=/etc/serviceradar/checker-templates
+
+              seed_template() {
+                local kind="$1"
+                local file="${TEMPLATES_DIR}/${kind}.json"
+                local key="templates/checkers/${kind}.json"
+
+                if [ ! -s "${file}" ]; then
+                  echo "Template file ${file} not found or empty; skipping"
+                  return 0
+                fi
+
+                echo "Seeding checker template: ${key}"
+                cat "${file}" | nats --tlscert /etc/serviceradar/certs/kv.pem \
+                     --tlskey /etc/serviceradar/certs/kv-key.pem \
+                     --tlsca /etc/serviceradar/certs/root.pem \
+                     -s "${NATS_URL}" \
+                     kv put "${KV_BUCKET}" "${key}"
+              }
+
+              # Seed all checker templates
+              for template_file in "${TEMPLATES_DIR}"/*.json; do
+                if [ -f "${template_file}" ]; then
+                  filename=$(basename "${template_file}")
+                  kind="${filename%.json}"
+                  seed_template "${kind}" || echo "Warning: failed to seed ${kind}"
+                fi
+              done
+
+              echo "Checker template KV seed complete"
+          volumeMounts:
+            - name: checker-templates
+              mountPath: /etc/serviceradar/checker-templates
+              readOnly: true
+            - name: cert-data
+              mountPath: /etc/serviceradar/certs
+              readOnly: true
+      volumes:
+        - name: checker-templates
+          configMap:
+            name: serviceradar-checker-templates
+        - name: cert-data
+          persistentVolumeClaim:
+            claimName: serviceradar-cert-data
+{{- end }}

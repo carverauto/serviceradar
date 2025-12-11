@@ -251,6 +251,29 @@ services:
     networks:
       - serviceradar-net
 
+  checker-templates-seed:
+    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.67}
+    container_name: serviceradar-checker-templates-seed-mtls
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - ./docker/compose/checker-templates:/etc/serviceradar/checker-templates:ro
+      - ./docker/compose/seed-checker-templates.sh:/usr/local/bin/seed-checker-templates.sh:ro
+    environment:
+      - KV_BUCKET=${KV_BUCKET:-serviceradar-datasvc}
+      - NATS_SERVER=${NATS_SERVER:-tls://nats:4222}
+      - TEMPLATES_DIR=/etc/serviceradar/checker-templates
+    depends_on:
+      config-updater:
+        condition: service_completed_successfully
+      datasvc:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    entrypoint: ["/bin/bash", "/usr/local/bin/seed-checker-templates.sh"]
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   agent:
     image: ghcr.io/carverauto/serviceradar-agent:${APP_TAG:-v1.0.67}
     container_name: serviceradar-agent-mtls

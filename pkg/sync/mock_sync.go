@@ -223,6 +223,26 @@ func (mr *MockKVClientMockRecorder) Watch(ctx, in any, opts ...any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Watch", reflect.TypeOf((*MockKVClient)(nil).Watch), varargs...)
 }
 
+// ListKeys mocks base method.
+func (m *MockKVClient) ListKeys(ctx context.Context, in *proto.ListKeysRequest, opts ...grpc.CallOption) (*proto.ListKeysResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ListKeys", varargs...)
+	ret0, _ := ret[0].(*proto.ListKeysResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListKeys indicates an expected call of ListKeys.
+func (mr *MockKVClientMockRecorder) ListKeys(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListKeys", reflect.TypeOf((*MockKVClient)(nil).ListKeys), varargs...)
+}
+
 // MockGRPCClient is a mock of GRPCClient interface.
 type MockGRPCClient struct {
 	ctrl     *gomock.Controller

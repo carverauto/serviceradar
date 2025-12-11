@@ -1,15 +1,15 @@
 {
-  "listen_addr": "0.0.0.0:50081",
-  "name": "rperf-checker",
+  "name": "dusk",
   "type": "grpc",
-  "timeout": "30s",
+  "node_address": "{{AGENT_ADDRESS}}",
+  "listen_addr": ":50082",
+  "timeout": "5m",
   "security": {
     "mode": "spiffe",
+    "role": "checker",
     "cert_dir": "/etc/serviceradar/certs",
     "trust_domain": "{{TRUST_DOMAIN}}",
     "server_spiffe_id": "{{DOWNSTREAM_SPIFFE_ID}}",
     "workload_socket": "unix:/run/spire/sockets/agent.sock"
-  },
-  "default_poll_interval": 300,
-  "targets": []
+  }
 }

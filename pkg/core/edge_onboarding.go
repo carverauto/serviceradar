@@ -1822,6 +1822,44 @@ func (s *edgeOnboardingService) MetadataDefaults() map[models.EdgeOnboardingComp
 	return result
 }
 
+// ListCheckerTemplates returns all available checker templates from KV.
+func (s *edgeOnboardingService) ListCheckerTemplates(ctx context.Context) ([]models.CheckerTemplate, error) {
+	if s.kvClient == nil {
+		return nil, fmt.Errorf("KV client not available")
+	}
+
+	const templatePrefix = "templates/checkers/"
+
+	resp, err := s.kvClient.ListKeys(ctx, &proto.ListKeysRequest{
+		Prefix: templatePrefix,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list checker templates: %w", err)
+	}
+
+	templates := make([]models.CheckerTemplate, 0, len(resp.GetKeys()))
+	for _, key := range resp.GetKeys() {
+		// Extract checker kind from key (e.g., "templates/checkers/sysmon.json" -> "sysmon")
+		if !strings.HasPrefix(key, templatePrefix) || !strings.HasSuffix(key, ".json") {
+			continue
+		}
+
+		kind := strings.TrimPrefix(key, templatePrefix)
+		kind = strings.TrimSuffix(kind, ".json")
+
+		if kind == "" {
+			continue
+		}
+
+		templates = append(templates, models.CheckerTemplate{
+			Kind:        kind,
+			TemplateKey: key,
+		})
+	}
+
+	return templates, nil
+}
+
 func parseEdgeMetadataMap(raw string) (map[string]string, error) {
 	meta := make(map[string]string)
 	if strings.TrimSpace(raw) == "" {

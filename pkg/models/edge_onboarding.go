@@ -158,3 +158,9 @@ type EdgeOnboardingRevokeRequest struct {
 type EdgeOnboardingRevokeResult struct {
 	Package *EdgeOnboardingPackage
 }
+
+// CheckerTemplate represents an available checker template in KV.
+type CheckerTemplate struct {
+	Kind        string `json:"kind"`         // Checker kind (e.g., "sysmon", "snmp", "rperf")
+	TemplateKey string `json:"template_key"` // Full KV key path (e.g., "templates/checkers/sysmon.json")
+}

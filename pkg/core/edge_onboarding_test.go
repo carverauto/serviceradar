@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/grpc"
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding/mtls"
@@ -23,6 +24,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/spireadmin"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 type fakeSpireAdminClient struct {
@@ -1235,4 +1237,256 @@ func TestEdgeOnboardingDeletePackageRequiresRevoked(t *testing.T) {
 
 func strPtr(value string) *string {
 	return &value
+}
+
+// fakeKVClient is a test implementation of proto.KVServiceClient
+type fakeKVClient struct {
+	listKeysKeys []string
+	listKeysErr  error
+}
+
+func (f *fakeKVClient) Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error) {
+	return nil, nil
+}
+
+func (f *fakeKVClient) BatchGet(ctx context.Context, in *proto.BatchGetRequest, opts ...grpc.CallOption) (*proto.BatchGetResponse, error) {
+	return nil, nil
+}
+
+func (f *fakeKVClient) Put(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error) {
+	return nil, nil
+}
+
+func (f *fakeKVClient) PutIfAbsent(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error) {
+	return nil, nil
+}
+
+func (f *fakeKVClient) PutMany(ctx context.Context, in *proto.PutManyRequest, opts ...grpc.CallOption) (*proto.PutManyResponse, error) {
+	return nil, nil
+}
+
+func (f *fakeKVClient) Update(ctx context.Context, in *proto.UpdateRequest, opts ...grpc.CallOption) (*proto.UpdateResponse, error) {
+	return nil, nil
+}
+
+func (f *fakeKVClient) Delete(ctx context.Context, in *proto.DeleteRequest, opts ...grpc.CallOption) (*proto.DeleteResponse, error) {
+	return nil, nil
+}
+
+func (f *fakeKVClient) Watch(ctx context.Context, in *proto.WatchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[proto.WatchResponse], error) {
+	return nil, nil
+}
+
+func (f *fakeKVClient) Info(ctx context.Context, in *proto.InfoRequest, opts ...grpc.CallOption) (*proto.InfoResponse, error) {
+	return nil, nil
+}
+
+func (f *fakeKVClient) ListKeys(ctx context.Context, in *proto.ListKeysRequest, opts ...grpc.CallOption) (*proto.ListKeysResponse, error) {
+	if f.listKeysErr != nil {
+		return nil, f.listKeysErr
+	}
+	return &proto.ListKeysResponse{Keys: f.listKeysKeys}, nil
+}
+
+func TestEdgeOnboardingListCheckerTemplatesNoKVClient(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0xA1}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	// Create service without KV client
+	svc, err := newEdgeOnboardingService(cfg, nil, nil, mockDB, nil, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+	require.NotNil(t, svc)
+
+	templates, err := svc.ListCheckerTemplates(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "KV client not available")
+	assert.Nil(t, templates)
+}
+
+func TestEdgeOnboardingListCheckerTemplatesEmpty(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0xA2}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	fakeKV := &fakeKVClient{listKeysKeys: []string{}}
+
+	svc, err := newEdgeOnboardingService(cfg, nil, nil, mockDB, fakeKV, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+	require.NotNil(t, svc)
+
+	templates, err := svc.ListCheckerTemplates(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, templates)
+}
+
+func TestEdgeOnboardingListCheckerTemplatesSuccess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0xA3}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	fakeKV := &fakeKVClient{
+		listKeysKeys: []string{
+			"templates/checkers/sysmon.json",
+			"templates/checkers/snmp.json",
+			"templates/checkers/rperf.json",
+			"templates/checkers/dusk.json",
+			"templates/checkers/sysmon-osx.json",
+		},
+	}
+
+	svc, err := newEdgeOnboardingService(cfg, nil, nil, mockDB, fakeKV, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+	require.NotNil(t, svc)
+
+	templates, err := svc.ListCheckerTemplates(context.Background())
+	require.NoError(t, err)
+	require.Len(t, templates, 5)
+
+	// Verify each template
+	kinds := make(map[string]bool)
+	for _, tmpl := range templates {
+		kinds[tmpl.Kind] = true
+		assert.Equal(t, "templates/checkers/"+tmpl.Kind+".json", tmpl.TemplateKey)
+	}
+
+	assert.True(t, kinds["sysmon"])
+	assert.True(t, kinds["snmp"])
+	assert.True(t, kinds["rperf"])
+	assert.True(t, kinds["dusk"])
+	assert.True(t, kinds["sysmon-osx"])
+}
+
+func TestEdgeOnboardingListCheckerTemplatesFiltersInvalidKeys(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0xA4}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	fakeKV := &fakeKVClient{
+		listKeysKeys: []string{
+			"templates/checkers/sysmon.json",           // valid
+			"templates/checkers/snmp.json",             // valid
+			"templates/checkers/.json",                 // invalid - empty kind
+			"templates/checkers/test.yaml",             // invalid - not .json
+			"other/prefix/sysmon.json",                 // invalid - wrong prefix
+			"templates/checkers/",                      // invalid - no filename
+			"templates/checkers/sub/nested.json",       // valid - nested path treated as kind "sub/nested"
+		},
+	}
+
+	svc, err := newEdgeOnboardingService(cfg, nil, nil, mockDB, fakeKV, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+	require.NotNil(t, svc)
+
+	templates, err := svc.ListCheckerTemplates(context.Background())
+	require.NoError(t, err)
+
+	// Should only include valid templates
+	require.Len(t, templates, 3)
+
+	kinds := make(map[string]bool)
+	for _, tmpl := range templates {
+		kinds[tmpl.Kind] = true
+	}
+
+	assert.True(t, kinds["sysmon"])
+	assert.True(t, kinds["snmp"])
+	assert.True(t, kinds["sub/nested"]) // nested paths are allowed
+	assert.False(t, kinds["test"])       // .yaml file excluded
+	assert.False(t, kinds[""])           // empty kind excluded
+}
+
+func TestEdgeOnboardingListCheckerTemplatesKVError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0xA5}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	fakeKV := &fakeKVClient{
+		listKeysErr: fmt.Errorf("connection failed"),
+	}
+
+	svc, err := newEdgeOnboardingService(cfg, nil, nil, mockDB, fakeKV, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+	require.NotNil(t, svc)
+
+	templates, err := svc.ListCheckerTemplates(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to list checker templates")
+	assert.Contains(t, err.Error(), "connection failed")
+	assert.Nil(t, templates)
 }

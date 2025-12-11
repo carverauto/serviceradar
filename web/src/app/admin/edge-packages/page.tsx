@@ -100,6 +100,11 @@ type AgentInfo = {
   service_types?: string[];
 };
 
+type CheckerTemplate = {
+  kind: string;
+  template_key: string;
+};
+
 type CreateFormState = {
   componentType: EdgeComponentType;
   componentId: string;
@@ -373,6 +378,8 @@ export default function EdgePackagesPage() {
   const [selectorsTouched, setSelectorsTouched] = useState<boolean>(false);
   const [pollerTouched, setPollerTouched] = useState<boolean>(false);
   const [registeredAgents, setRegisteredAgents] = useState<AgentInfo[]>([]);
+  const [checkerTemplates, setCheckerTemplates] = useState<CheckerTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState<boolean>(false);
   const coreApiBase = useMemo(() => getPublicApiUrl(), []);
 
   const selectedPackage = useMemo(
@@ -416,19 +423,31 @@ export default function EdgePackagesPage() {
 
   const parentPollerListId = 'edge-parent-poller-options';
   const parentAgentListId = 'edge-parent-agent-options';
-  const checkerKindListId = 'edge-checker-kind-options';
-  const checkerKinds = useMemo(() => {
+  // Combine template kinds with historical kinds from packages
+  const availableCheckerKinds = useMemo(() => {
     const seen = new Set<string>();
-    return packages
-      .map((pkg) => pkg.checker_kind?.trim() ?? '')
-      .filter((kind) => {
-        if (!kind || seen.has(kind)) {
-          return false;
-        }
+    const result: string[] = [];
+
+    // Add template kinds first (prioritized)
+    for (const template of checkerTemplates) {
+      const kind = template.kind?.trim();
+      if (kind && !seen.has(kind)) {
         seen.add(kind);
-        return true;
-      });
-  }, [packages]);
+        result.push(kind);
+      }
+    }
+
+    // Add historical kinds from packages (for backwards compatibility)
+    for (const pkg of packages) {
+      const kind = pkg.checker_kind?.trim();
+      if (kind && !seen.has(kind)) {
+        seen.add(kind);
+        result.push(kind);
+      }
+    }
+
+    return result;
+  }, [checkerTemplates, packages]);
   const agentPollerMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const agent of registeredAgents) {
@@ -545,6 +564,39 @@ export default function EdgePackagesPage() {
     };
 
     void fetchDefaults();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchTemplates = async () => {
+      setTemplatesLoading(true);
+      try {
+        const response = await fetch('/api/admin/checker-templates', {
+          headers: buildHeaders(),
+          cache: 'no-store',
+        });
+        if (!response.ok) {
+          console.warn('Failed to load checker templates');
+          return;
+        }
+        const data: CheckerTemplate[] = await response.json();
+        if (!cancelled) {
+          setCheckerTemplates(data ?? []);
+        }
+      } catch (err) {
+        console.error('Failed to load checker templates', err);
+      } finally {
+        if (!cancelled) {
+          setTemplatesLoading(false);
+        }
+      }
+    };
+
+    void fetchTemplates();
 
     return () => {
       cancelled = true;
@@ -1337,21 +1389,38 @@ export default function EdgePackagesPage() {
                     <span className="font-medium">
                       Checker kind <span className="text-red-500">*</span>
                     </span>
-                    <input
-                      required
-                      className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
-                      value={formState.checkerKind}
-                      onChange={(event) => handleFormChange('checkerKind', event.target.value)}
-                      placeholder="sysmon, snmp, rperf"
-                      list={checkerKindListId}
-                    />
-                    {checkerKinds.length > 0 && (
-                      <datalist id={checkerKindListId}>
-                        {checkerKinds.map((kind) => (
-                          <option value={kind} key={`checker-kind-${kind}`} />
+                    {templatesLoading ? (
+                      <div className="rounded border border-gray-300 px-3 py-2 text-sm text-gray-500 dark:bg-gray-950 dark:border-gray-700">
+                        Loading templates...
+                      </div>
+                    ) : availableCheckerKinds.length > 0 ? (
+                      <select
+                        required
+                        className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                        value={formState.checkerKind}
+                        onChange={(event) => handleFormChange('checkerKind', event.target.value)}
+                      >
+                        <option value="">Select a checker type...</option>
+                        {availableCheckerKinds.map((kind) => (
+                          <option value={kind} key={`checker-kind-${kind}`}>
+                            {kind}
+                          </option>
                         ))}
-                      </datalist>
+                      </select>
+                    ) : (
+                      <input
+                        required
+                        className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                        value={formState.checkerKind}
+                        onChange={(event) => handleFormChange('checkerKind', event.target.value)}
+                        placeholder="Enter checker kind (no templates available)"
+                      />
                     )}
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {checkerTemplates.length > 0
+                        ? 'Select from available templates or enter a custom kind'
+                        : 'No templates found - checker config JSON is required'}
+                    </span>
                   </label>
 
                   <label className="flex flex-col gap-1 text-sm">

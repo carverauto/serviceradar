@@ -97,6 +97,10 @@ func (s *stubEdgeOnboardingService) SetAllowedPollerCallback(func([]string)) {}
 func (s *stubEdgeOnboardingService) SetDeviceRegistryCallback(func(context.Context, []*models.DeviceUpdate) error) {
 }
 
+func (s *stubEdgeOnboardingService) ListCheckerTemplates(context.Context) ([]models.CheckerTemplate, error) {
+	return nil, nil
+}
+
 func TestHandleGetEdgePackageDefaultsSuccess(t *testing.T) {
 	service := &stubEdgeOnboardingService{
 		selectors: []string{"unix:uid:0", "unix:user:root"},
