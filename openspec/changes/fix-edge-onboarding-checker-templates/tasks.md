@@ -3,7 +3,7 @@
 - [x] 1.1 Create `packaging/sysmon/config/checkers/sysmon.json` template with variable substitution placeholders
 - [x] 1.2 Create `packaging/sysmon-osx/config/checkers/sysmon-osx.json` template
 - [x] 1.3 Verify existing templates (`snmp.json`, `rperf.json`) use consistent variable substitution format
-- [ ] 1.4 Create `packaging/sweep-checker/config/checkers/sweep.json` if missing (N/A - no sweep checker exists)
+- [x] 1.4 Create `packaging/sweep-checker/config/checkers/sweep.json` if missing (N/A - no sweep checker exists)
 - [x] 1.5 Create `packaging/dusk-checker/config/checkers/dusk.json` if missing
 
 ## 2. Add KV seeding for checker templates
@@ -11,7 +11,7 @@
 - [x] 2.1 Update docker-compose KV seeding to include checker templates from packaging directories
 - [x] 2.2 Update Helm chart KV seeding ConfigMaps to include checker templates
 - [x] 2.3 Verify templates are seeded at `templates/checkers/{security_mode}/{kind}.json` paths (mtls for compose, spire for k8s)
-- [ ] 2.4 Test that seeded templates work with edge onboarding flow
+- [x] 2.4 Test that seeded templates work with edge onboarding flow
 
 ## 3. Add checker template listing API
 
@@ -28,7 +28,7 @@
 - [x] 4.3 Add loading and error states for template fetch
 - [x] 4.4 Fall back to text input when no templates available or when user selects “Custom”
 - [x] 4.5 Update helper text to guide users
-- [ ] 4.6 Test form behavior with no templates, some templates, and API errors
+- [x] 4.6 Test form behavior with no templates, some templates, and API errors
 
 ## 5. Documentation and testing
 
