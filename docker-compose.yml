@@ -262,6 +262,7 @@ services:
       - KV_BUCKET=${KV_BUCKET:-serviceradar-datasvc}
       - NATS_SERVER=${NATS_SERVER:-tls://nats:4222}
       - TEMPLATES_DIR=/etc/serviceradar/checker-templates
+      - SECURITY_MODE=mtls
     depends_on:
       config-updater:
         condition: service_completed_successfully

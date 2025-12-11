@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,6 +35,8 @@ type fakeSpireAdminClient struct {
 	bundlePEM []byte
 	deleteIDs []string
 }
+
+var errListKeysConnectionFailed = errors.New("connection failed")
 
 func newFakeSpireClient() *fakeSpireAdminClient {
 	return &fakeSpireAdminClient{
@@ -1243,10 +1246,17 @@ func strPtr(value string) *string {
 type fakeKVClient struct {
 	listKeysKeys []string
 	listKeysErr  error
+	lastPrefix   string
+	getFn        func(key string) *proto.GetResponse
 }
 
 func (f *fakeKVClient) Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error) {
-	return nil, nil
+	if f.getFn != nil {
+		if resp := f.getFn(in.GetKey()); resp != nil {
+			return resp, nil
+		}
+	}
+	return &proto.GetResponse{}, nil
 }
 
 func (f *fakeKVClient) BatchGet(ctx context.Context, in *proto.BatchGetRequest, opts ...grpc.CallOption) (*proto.BatchGetResponse, error) {
@@ -1282,13 +1292,203 @@ func (f *fakeKVClient) Info(ctx context.Context, in *proto.InfoRequest, opts ...
 }
 
 func (f *fakeKVClient) ListKeys(ctx context.Context, in *proto.ListKeysRequest, opts ...grpc.CallOption) (*proto.ListKeysResponse, error) {
+	f.lastPrefix = in.GetPrefix()
 	if f.listKeysErr != nil {
 		return nil, f.listKeysErr
 	}
 	return &proto.ListKeysResponse{Keys: f.listKeysKeys}, nil
 }
 
-func TestEdgeOnboardingListCheckerTemplatesNoKVClient(t *testing.T) {
+func TestEdgeOnboardingFetchCheckerTemplatePrefersSecurityMode(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0xA6}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	fakeKV := &fakeKVClient{
+		getFn: func(key string) *proto.GetResponse {
+			switch key {
+			case "templates/checkers/mtls/sysmon.json":
+				return &proto.GetResponse{Found: true, Value: []byte(`{"a":"b"}`)}
+			default:
+				return &proto.GetResponse{Found: false}
+			}
+		},
+	}
+
+	svc, err := newEdgeOnboardingService(cfg, nil, nil, mockDB, fakeKV, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	key, body, err := svc.fetchCheckerTemplate(context.Background(), &models.EdgeOnboardingPackage{
+		CheckerKind:   "sysmon",
+		SecurityMode:  "mtls",
+		ComponentType: models.EdgeOnboardingComponentTypeChecker,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "templates/checkers/mtls/sysmon.json", key)
+	assert.JSONEq(t, `{"a":"b"}`, body)
+}
+
+func TestEdgeOnboardingFetchCheckerTemplateFallsBackToSpire(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0xA7}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	fakeKV := &fakeKVClient{
+		getFn: func(key string) *proto.GetResponse {
+			switch key {
+			case "templates/checkers/sysmon.json":
+				return &proto.GetResponse{Found: true, Value: []byte(`{"spire":true}`)}
+			default:
+				return &proto.GetResponse{Found: false}
+			}
+		},
+	}
+
+	svc, err := newEdgeOnboardingService(cfg, nil, nil, mockDB, fakeKV, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	key, body, err := svc.fetchCheckerTemplate(context.Background(), &models.EdgeOnboardingPackage{
+		CheckerKind:   "sysmon",
+		SecurityMode:  "mtls",
+		ComponentType: models.EdgeOnboardingComponentTypeChecker,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "templates/checkers/sysmon.json", key)
+	assert.JSONEq(t, `{"spire":true}`, body)
+}
+
+func TestEdgeOnboardingFetchCheckerTemplateMissing(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0xA8}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	fakeKV := &fakeKVClient{
+		getFn: func(key string) *proto.GetResponse {
+			_ = key
+			return &proto.GetResponse{Found: false}
+		},
+	}
+
+	svc, err := newEdgeOnboardingService(cfg, nil, nil, mockDB, fakeKV, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	_, _, err = svc.fetchCheckerTemplate(context.Background(), &models.EdgeOnboardingPackage{
+		CheckerKind:   "sysmon",
+		SecurityMode:  "mtls",
+		ComponentType: models.EdgeOnboardingComponentTypeChecker,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no template found")
+}
+
+func TestSubstituteTemplateVariablesMTLSPlaceholders(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0xAA}, 32)),
+	}
+
+	svc, err := newEdgeOnboardingService(cfg, nil, nil, mockDB, &fakeKVClient{}, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	template := `{
+	  "listen_addr": "0.0.0.0:50083",
+	  "security": {
+	    "mode": "mtls",
+	    "cert_dir": "{{CERT_DIR}}",
+	    "server_name": "{{SERVER_NAME}}",
+	    "tls": {
+	      "cert_file": "{{CERT_DIR}}/{{CLIENT_CERT_NAME}}.pem",
+	      "key_file": "{{CERT_DIR}}/{{CLIENT_CERT_NAME}}-key.pem",
+	      "ca_file": "{{CERT_DIR}}/root.pem",
+	      "client_ca_file": "{{CERT_DIR}}/root.pem"
+	    }
+	  }
+	}`
+
+	pkg := &models.EdgeOnboardingPackage{
+		ComponentType: models.EdgeOnboardingComponentTypeChecker,
+		ComponentID:   "checker-1",
+		ParentID:      "agent-1",
+		CheckerKind:   "sysmon",
+		SecurityMode:  "mtls",
+		MetadataJSON:  `{"cert_dir":"/etc/custom","server_name":"custom.serviceradar","client_cert_name":"sysmon-client"}`,
+	}
+
+	out, err := svc.substituteTemplateVariables(template, pkg)
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &parsed))
+
+	sec := parsed["security"].(map[string]interface{})
+	assert.Equal(t, "mtls", sec["mode"])
+	assert.Equal(t, "/etc/custom", sec["cert_dir"])
+	assert.Equal(t, "custom.serviceradar", sec["server_name"])
+
+	tls := sec["tls"].(map[string]interface{})
+	assert.Equal(t, "/etc/custom/sysmon-client.pem", tls["cert_file"])
+	assert.Equal(t, "/etc/custom/sysmon-client-key.pem", tls["key_file"])
+	assert.Equal(t, "/etc/custom/root.pem", tls["ca_file"])
+	assert.Equal(t, "/etc/custom/root.pem", tls["client_ca_file"])
+}
+
+func TestEdgeOnboardingListComponentTemplatesNoKVClient(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -1313,13 +1513,13 @@ func TestEdgeOnboardingListCheckerTemplatesNoKVClient(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
-	templates, err := svc.ListCheckerTemplates(context.Background())
+	templates, err := svc.ListComponentTemplates(context.Background(), models.EdgeOnboardingComponentTypeChecker, "spire")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "KV client not available")
 	assert.Nil(t, templates)
+	assert.ErrorIs(t, err, errKVClientUnavailable)
 }
 
-func TestEdgeOnboardingListCheckerTemplatesEmpty(t *testing.T) {
+func TestEdgeOnboardingListComponentTemplatesEmpty(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -1345,12 +1545,13 @@ func TestEdgeOnboardingListCheckerTemplatesEmpty(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
-	templates, err := svc.ListCheckerTemplates(context.Background())
+	templates, err := svc.ListComponentTemplates(context.Background(), models.EdgeOnboardingComponentTypeChecker, "spire")
 	require.NoError(t, err)
 	assert.Empty(t, templates)
+	assert.Equal(t, "templates/checkers/", fakeKV.lastPrefix)
 }
 
-func TestEdgeOnboardingListCheckerTemplatesSuccess(t *testing.T) {
+func TestEdgeOnboardingListComponentTemplatesSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -1372,11 +1573,11 @@ func TestEdgeOnboardingListCheckerTemplatesSuccess(t *testing.T) {
 
 	fakeKV := &fakeKVClient{
 		listKeysKeys: []string{
-			"templates/checkers/sysmon.json",
-			"templates/checkers/snmp.json",
-			"templates/checkers/rperf.json",
-			"templates/checkers/dusk.json",
-			"templates/checkers/sysmon-osx.json",
+			"templates/checkers/mtls/sysmon.json",
+			"templates/checkers/mtls/snmp.json",
+			"templates/checkers/mtls/rperf.json",
+			"templates/checkers/mtls/dusk.json",
+			"templates/checkers/mtls/sysmon-osx.json",
 		},
 	}
 
@@ -1384,15 +1585,18 @@ func TestEdgeOnboardingListCheckerTemplatesSuccess(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
-	templates, err := svc.ListCheckerTemplates(context.Background())
+	templates, err := svc.ListComponentTemplates(context.Background(), models.EdgeOnboardingComponentTypeChecker, "mtls")
 	require.NoError(t, err)
 	require.Len(t, templates, 5)
+	assert.Equal(t, "templates/checkers/mtls/", fakeKV.lastPrefix)
 
 	// Verify each template
 	kinds := make(map[string]bool)
 	for _, tmpl := range templates {
 		kinds[tmpl.Kind] = true
-		assert.Equal(t, "templates/checkers/"+tmpl.Kind+".json", tmpl.TemplateKey)
+		assert.Equal(t, "mtls", tmpl.SecurityMode)
+		assert.Equal(t, "checker", string(tmpl.ComponentType))
+		assert.Equal(t, "templates/checkers/mtls/"+tmpl.Kind+".json", tmpl.TemplateKey)
 	}
 
 	assert.True(t, kinds["sysmon"])
@@ -1402,7 +1606,7 @@ func TestEdgeOnboardingListCheckerTemplatesSuccess(t *testing.T) {
 	assert.True(t, kinds["sysmon-osx"])
 }
 
-func TestEdgeOnboardingListCheckerTemplatesFiltersInvalidKeys(t *testing.T) {
+func TestEdgeOnboardingListComponentTemplatesFiltersInvalidKeys(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -1424,13 +1628,13 @@ func TestEdgeOnboardingListCheckerTemplatesFiltersInvalidKeys(t *testing.T) {
 
 	fakeKV := &fakeKVClient{
 		listKeysKeys: []string{
-			"templates/checkers/sysmon.json",           // valid
-			"templates/checkers/snmp.json",             // valid
-			"templates/checkers/.json",                 // invalid - empty kind
-			"templates/checkers/test.yaml",             // invalid - not .json
-			"other/prefix/sysmon.json",                 // invalid - wrong prefix
-			"templates/checkers/",                      // invalid - no filename
-			"templates/checkers/sub/nested.json",       // valid - nested path treated as kind "sub/nested"
+			"templates/checkers/mtls/sysmon.json",     // valid
+			"templates/checkers/mtls/snmp.json",       // valid
+			"templates/checkers/mtls/.json",           // invalid - empty kind
+			"templates/checkers/mtls/test.yaml",       // invalid - not .json
+			"other/prefix/sysmon.json",                // invalid - wrong prefix
+			"templates/checkers/mtls/",                // invalid - no filename
+			"templates/checkers/mtls/sub/nested.json", // valid - nested path treated as kind "sub/nested"
 		},
 	}
 
@@ -1438,7 +1642,7 @@ func TestEdgeOnboardingListCheckerTemplatesFiltersInvalidKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
-	templates, err := svc.ListCheckerTemplates(context.Background())
+	templates, err := svc.ListComponentTemplates(context.Background(), models.EdgeOnboardingComponentTypeChecker, "mtls")
 	require.NoError(t, err)
 
 	// Should only include valid templates
@@ -1452,11 +1656,11 @@ func TestEdgeOnboardingListCheckerTemplatesFiltersInvalidKeys(t *testing.T) {
 	assert.True(t, kinds["sysmon"])
 	assert.True(t, kinds["snmp"])
 	assert.True(t, kinds["sub/nested"]) // nested paths are allowed
-	assert.False(t, kinds["test"])       // .yaml file excluded
-	assert.False(t, kinds[""])           // empty kind excluded
+	assert.False(t, kinds["test"])      // .yaml file excluded
+	assert.False(t, kinds[""])          // empty kind excluded
 }
 
-func TestEdgeOnboardingListCheckerTemplatesKVError(t *testing.T) {
+func TestEdgeOnboardingListComponentTemplatesKVError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -1477,14 +1681,14 @@ func TestEdgeOnboardingListCheckerTemplatesKVError(t *testing.T) {
 	).Return([]string{}, nil).AnyTimes()
 
 	fakeKV := &fakeKVClient{
-		listKeysErr: fmt.Errorf("connection failed"),
+		listKeysErr: errListKeysConnectionFailed,
 	}
 
 	svc, err := newEdgeOnboardingService(cfg, nil, nil, mockDB, fakeKV, nil, nil, logger.NewTestLogger())
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
-	templates, err := svc.ListCheckerTemplates(context.Background())
+	templates, err := svc.ListComponentTemplates(context.Background(), models.EdgeOnboardingComponentTypeChecker, "mtls")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to list checker templates")
 	assert.Contains(t, err.Error(), "connection failed")

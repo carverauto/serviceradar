@@ -13,10 +13,10 @@
 - Templates will use the existing variable substitution format (`{{VARIABLE}}`) for deployment-specific values
 - This provides an immediate fix without requiring each checker to implement template registration
 
-### 2. Add API endpoint to list available checker templates
-- New endpoint: `GET /api/admin/checker-templates`
-- Returns list of available checker kinds with metadata (name, description, has_template)
-- Reads from `templates/checkers/*.json` keys in KV store
+### 2. Add API endpoint to list available component templates
+- New endpoint: `GET /api/admin/component-templates`
+- Returns list of available component kinds with metadata (component_type, kind, security_mode, template_key)
+- Reads from `templates/{component}/{security_mode}/*.json` keys in KV store
 - Provides discoverability for both UI and API users
 
 ### 3. Update web UI to show checker template dropdown

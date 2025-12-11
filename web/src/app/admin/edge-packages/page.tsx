@@ -100,8 +100,10 @@ type AgentInfo = {
   service_types?: string[];
 };
 
-type CheckerTemplate = {
+type ComponentTemplate = {
+  component_type: EdgeComponentType;
   kind: string;
+  security_mode: SecurityMode | string;
   template_key: string;
 };
 
@@ -378,7 +380,7 @@ export default function EdgePackagesPage() {
   const [selectorsTouched, setSelectorsTouched] = useState<boolean>(false);
   const [pollerTouched, setPollerTouched] = useState<boolean>(false);
   const [registeredAgents, setRegisteredAgents] = useState<AgentInfo[]>([]);
-  const [checkerTemplates, setCheckerTemplates] = useState<CheckerTemplate[]>([]);
+  const [checkerTemplates, setCheckerTemplates] = useState<ComponentTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState<boolean>(false);
   const coreApiBase = useMemo(() => getPublicApiUrl(), []);
 
@@ -573,22 +575,34 @@ export default function EdgePackagesPage() {
   useEffect(() => {
     let cancelled = false;
     const fetchTemplates = async () => {
+      if (formState.componentType !== 'checker') {
+        setCheckerTemplates([]);
+        setTemplatesLoading(false);
+        return;
+      }
+
       setTemplatesLoading(true);
       try {
-        const response = await fetch('/api/admin/checker-templates', {
+        const params = new URLSearchParams({
+          component_type: 'checker',
+          security_mode: formState.securityMode,
+        });
+
+        const response = await fetch(`/api/admin/component-templates?${params.toString()}`, {
           headers: buildHeaders(),
           cache: 'no-store',
         });
         if (!response.ok) {
-          console.warn('Failed to load checker templates');
+          console.warn('Failed to load component templates');
           return;
         }
-        const data: CheckerTemplate[] = await response.json();
+        const data: ComponentTemplate[] = await response.json();
         if (!cancelled) {
-          setCheckerTemplates(data ?? []);
+          const filtered = (data ?? []).filter((tmpl) => tmpl.security_mode === formState.securityMode);
+          setCheckerTemplates(filtered);
         }
       } catch (err) {
-        console.error('Failed to load checker templates', err);
+        console.error('Failed to load component templates', err);
       } finally {
         if (!cancelled) {
           setTemplatesLoading(false);
@@ -601,7 +615,7 @@ export default function EdgePackagesPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [formState.componentType, formState.securityMode]);
 
   useEffect(() => {
     if (selectedId) {

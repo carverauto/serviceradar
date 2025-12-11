@@ -2,12 +2,16 @@
   "node_address": "{{AGENT_ADDRESS}}",
   "listen_addr": ":50054",
   "security": {
-    "mode": "spiffe",
+    "mode": "mtls",
     "role": "checker",
-    "cert_dir": "/etc/serviceradar/certs",
-    "trust_domain": "{{TRUST_DOMAIN}}",
-    "server_spiffe_id": "{{DOWNSTREAM_SPIFFE_ID}}",
-    "workload_socket": "unix:/run/spire/sockets/agent.sock"
+    "cert_dir": "{{CERT_DIR}}",
+    "server_name": "{{SERVER_NAME}}",
+    "tls": {
+      "cert_file": "{{CERT_DIR}}/{{CLIENT_CERT_NAME}}.pem",
+      "key_file": "{{CERT_DIR}}/{{CLIENT_CERT_NAME}}-key.pem",
+      "ca_file": "{{CERT_DIR}}/root.pem",
+      "client_ca_file": "{{CERT_DIR}}/root.pem"
+    }
   },
   "timeout": "30s",
   "logger": {

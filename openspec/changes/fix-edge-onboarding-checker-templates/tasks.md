@@ -10,15 +10,15 @@
 
 - [x] 2.1 Update docker-compose KV seeding to include checker templates from packaging directories
 - [x] 2.2 Update Helm chart KV seeding ConfigMaps to include checker templates
-- [ ] 2.3 Verify templates are seeded at `templates/checkers/{kind}.json` paths
+- [ ] 2.3 Verify templates are seeded at `templates/checkers/{security_mode}/{kind}.json` paths (mtls for compose, spire for k8s)
 - [ ] 2.4 Test that seeded templates work with edge onboarding flow
 
 ## 3. Add checker template listing API
 
-- [x] 3.1 Add `ListCheckerTemplates` method to `pkg/core/edge_onboarding.go`
+- [x] 3.1 Add `ListComponentTemplates` method to `pkg/core/edge_onboarding.go`
 - [x] 3.2 Implement KV prefix scan for `templates/checkers/` keys (added `ListKeys` to proto and datasvc)
-- [x] 3.3 Add `GET /api/admin/checker-templates` endpoint handler
-- [x] 3.4 Return template metadata: kind, template_key
+- [x] 3.3 Add `GET /api/admin/component-templates` endpoint handler
+- [x] 3.4 Return template metadata: component_type, kind, security_mode, template_key
 - [x] 3.5 Add unit tests for template listing
 
 ## 4. Update web UI form

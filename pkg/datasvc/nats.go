@@ -451,7 +451,7 @@ func (n *NATSStore) ListKeys(ctx context.Context, prefix string) ([]string, erro
 		return nil, err
 	}
 
-	var keys []string
+	keys := make([]string, 0, 16)
 	var lister jetstream.KeyLister
 
 	if realPrefix == "" {

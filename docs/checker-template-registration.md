@@ -27,17 +27,18 @@ This document describes the zero-touch checker configuration system that enables
 │                                                                       │
 │  Docker Compose: checker-templates-seed service seeds on startup     │
 │  Helm: checker-templates-kv-bootstrap Job runs as post-install hook  │
-│  Templates written to: templates/checkers/{kind}.json                │
+│  Templates written to: templates/checkers/{security_mode}/{kind}.json│
 └─────────────────────────────────────────────────────────────────────┘
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────┐
 │                     Edge Onboarding Process                          │
 │                                                                       │
 │  1. Admin creates edge package via Web UI or API                     │
-│  2. Web UI fetches available templates via GET /api/admin/checker-   │
-│     templates and displays them in a dropdown                        │
+│  2. Web UI fetches available templates via GET /api/admin/component- │
+│     templates?component_type=checker&security_mode={mode}            │
+│     and displays them in a dropdown                                  │
 │  3. If checker_config_json not provided:                             │
-│     - Fetch templates/checkers/{kind}.json from KV                   │
+│     - Fetch templates/checkers/{security_mode}/{kind}.json from KV   │
 │     - Apply variable substitution (SPIFFE IDs, addresses, etc.)      │
 │  4. Check if agents/{agent_id}/checkers/{kind}.json exists           │
 │  5. If NOT exists: Write customized config                           │
@@ -76,7 +77,7 @@ agents/
 
 | Path Pattern | Written By | Overwrite Allowed | Purpose |
 |-------------|------------|-------------------|---------|
-| `templates/checkers/{kind}.json` | Seed job on deploy | ✅ Yes | Factory defaults, safe to update |
+| `templates/checkers/{security_mode}/{kind}.json` (or `templates/checkers/{kind}.json` for SPIRE) | Seed job on deploy | ✅ Yes | Factory defaults, safe to update |
 | `agents/{agent_id}/checkers/{kind}.json` | Edge onboarding | ❌ No | Instance config, user modifications protected |
 | `agents/{agent_id}/checkers/{kind}.json` | Web UI | ✅ Yes | User modifications |
 
@@ -205,7 +206,7 @@ The core service has been updated with the following changes in `/home/mfreeman/
 
 1. **Template Fetching** (Line ~1495-1517):
    - Checks if `checker_config_json` is provided
-   - If not, fetches from `templates/checkers/{checker_kind}.json`
+   - If not, fetches from `templates/checkers/{security_mode}/{checker_kind}.json` (fallback to `templates/checkers/{checker_kind}.json` for SPIRE)
    - Returns error if template not found and no config provided
 
 2. **Variable Substitution** (Line ~1674-1743):
@@ -252,25 +253,22 @@ curl -X POST https://demo.serviceradar.cloud/api/admin/edge-packages \
 
 ### Template Discovery API
 
-The `GET /api/admin/checker-templates` endpoint returns all available checker templates:
+The `GET /api/admin/component-templates` endpoint returns available templates scoped by component type and security mode:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  https://demo.serviceradar.cloud/api/admin/checker-templates
+  "https://demo.serviceradar.cloud/api/admin/component-templates?component_type=checker&security_mode=mtls"
 ```
 
 **Response:**
 ```json
 [
-  {"kind": "sysmon", "template_key": "templates/checkers/sysmon.json"},
-  {"kind": "sysmon-osx", "template_key": "templates/checkers/sysmon-osx.json"},
-  {"kind": "snmp", "template_key": "templates/checkers/snmp.json"},
-  {"kind": "rperf", "template_key": "templates/checkers/rperf.json"},
-  {"kind": "dusk", "template_key": "templates/checkers/dusk.json"}
+  {"component_type":"checker","kind":"sysmon","security_mode":"mtls","template_key":"templates/checkers/mtls/sysmon.json"},
+  {"component_type":"checker","kind":"snmp","security_mode":"mtls","template_key":"templates/checkers/mtls/snmp.json"}
 ]
 ```
 
-The web UI uses this endpoint to populate a dropdown selector for checker types, improving UX by eliminating the need for users to know template names.
+The web UI uses this endpoint to populate a dropdown selector for checker types, filtered to the selected security mode, improving UX by eliminating the need for users to know template names.
 
 ## Migration Path
 
@@ -284,7 +282,7 @@ The web UI uses this endpoint to populate a dropdown selector for checker types,
 - [x] Create default templates for all checker types
 - [x] Add docker-compose seed service (`checker-templates-seed`)
 - [x] Add Helm chart KV bootstrap job (`checker-templates-kv-bootstrap`)
-- [x] Add `ListCheckerTemplates` API endpoint for template discovery
+- [x] Add `ListComponentTemplates` API endpoint for template discovery
 - [x] Update web UI to show template dropdown
 
 ### Phase 3: Testing & Validation
@@ -314,8 +312,8 @@ kubectl logs -n demo -l app=serviceradar-checker-templates-kv-bootstrap
 
 # Verify templates via API
 curl -H "Authorization: Bearer $TOKEN" \
-  https://demo.serviceradar.cloud/api/admin/checker-templates
-# Expected: [{"kind":"sysmon","template_key":"templates/checkers/sysmon.json"}, ...]
+  "https://demo.serviceradar.cloud/api/admin/component-templates?component_type=checker&security_mode=mtls"
+# Expected: [{"kind":"sysmon","template_key":"templates/checkers/mtls/sysmon.json","security_mode":"mtls"}, ...]
 ```
 
 ### Edge Onboarding Testing
@@ -362,14 +360,14 @@ curl -X POST .../edge-packages ...
 
 ### Template Not Found Error
 
-**Symptom**: Edge onboarding fails with "no template found at templates/checkers/{kind}.json"
+**Symptom**: Edge onboarding fails with "no template found at templates/checkers/{security_mode}/{kind}.json"
 
 **Solution**:
 1. Verify template seeding job completed successfully
    - Docker Compose: `docker compose logs checker-templates-seed`
    - Helm: `kubectl logs -n demo -l app=serviceradar-checker-templates-kv-bootstrap`
 2. Check that `checkerTemplates.enabled: true` in Helm values
-3. Verify template exists via API: `GET /api/admin/checker-templates`
+3. Verify template exists via API: `GET /api/admin/component-templates?component_type=checker&security_mode=mtls`
 4. Manually provide `checker_config_json` in edge package request as workaround
 
 ### Variables Not Substituted
