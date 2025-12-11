@@ -2333,7 +2333,7 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 
 	// Try device registry first (enhanced device data with discovery sources)
 	if s.deviceRegistry != nil {
-		unifiedDevice, err := s.deviceRegistry.GetMergedDevice(ctx, deviceID)
+		unifiedDevice, err := s.deviceRegistry.GetDeviceByIDStrict(ctx, deviceID)
 		if err == nil {
 			legacy := unifiedDevice.ToLegacyDevice()
 			resp := deviceResponse{
@@ -2817,8 +2817,8 @@ func mergeRelatedDevices(
 			continue // Skip if already processed as part of a merge
 		}
 
-		// Try to get the merged view of this device
-		mergedDevice, err := registry.GetMergedDevice(ctx, device.DeviceID)
+		// Try to get the strict view of this device (ID only, no IP fallback)
+		mergedDevice, err := registry.GetDeviceByIDStrict(ctx, device.DeviceID)
 		if err != nil {
 			logger.Warn().Err(err).Str("device_id", device.DeviceID).Msg("Failed to get merged device")
 			// Fallback to original device if merging fails

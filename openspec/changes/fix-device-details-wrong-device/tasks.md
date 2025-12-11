@@ -3,8 +3,8 @@
 ## Phase 1: Investigation & Immediate Fix
 
 ### 1.1 Investigate Registry Miss Rate
-- [ ] Add debug logging to `GetDevice` to log when device ID lookup fails
-- [ ] Deploy to Docker environment and collect logs
+- [x] Add debug logging to `GetDevice` to log when device ID lookup fails
+- [x] Deploy to Docker environment and collect logs
 - [ ] Compare with K8s environment to understand timing differences
 - [ ] Document findings: why does the lookup fail in Docker?
 
@@ -17,24 +17,24 @@
 ### 1.3 Fix API Handler
 - [x] Update `getDevice` handler to fall back to `dbService.GetUnifiedDevice` instead of IP lookup
 - [x] Ensure 404 is returned for non-existent device IDs (not wrong device)
-- [ ] Add integration test: Docker environment with shared IP returns correct device
+- [x] Add integration test: Docker environment with shared IP returns correct device
 
 ## Phase 2: Clean Architecture (Optional)
 
 ### 2.1 Deprecate `GetMergedDevice`
-- [ ] Mark `GetMergedDevice` as deprecated
-- [ ] Audit all callers of `GetMergedDevice`
-- [ ] Create migration plan for each caller
+- [x] Mark `GetMergedDevice` as deprecated
+- [x] Audit all callers of `GetMergedDevice`
+- [x] Create migration plan for each caller
 
 ### 2.2 Create Explicit Functions
-- [ ] Add `GetDeviceByIDStrict(deviceID string)` - exact match only, returns error if not found
-- [ ] Keep existing `GetDevicesByIP(ip string)` for legitimate IP lookups
-- [ ] Update interface definition
+- [x] Add `GetDeviceByIDStrict(deviceID string)` - exact match only, returns error if not found
+- [x] Keep existing `GetDevicesByIP(ip string)` for legitimate IP lookups
+- [x] Update interface definition
 
 ### 2.3 Update Callers
-- [ ] Update `pkg/core/api/server.go:getDevice` to use new functions
-- [ ] Update any other callers identified in 2.1
-- [ ] Remove deprecated `GetMergedDevice` after migration
+- [x] Update `pkg/core/api/server.go:getDevice` to use new functions
+- [x] Update any other callers identified in 2.1
+- [x] Remove deprecated `GetMergedDevice` after migration
 
 ## Testing
 
@@ -49,10 +49,10 @@
 - [ ] K8s environment: No regression - `k8s-agent` still works correctly
 
 ### Manual Verification
-- [ ] Deploy fix to Docker environment
-- [ ] Verify: Click docker-agent → shows docker-agent details
-- [ ] Verify: Click docker-poller → shows docker-poller details
-- [ ] Verify: Device inventory shows correct device counts
+- [x] Deploy fix to Docker environment
+- [x] Verify: Click docker-agent → shows docker-agent details
+- [x] Verify: Click docker-poller → shows docker-poller details
+- [x] Verify: Device inventory shows correct device counts
 
 ## Implementation Summary
 
