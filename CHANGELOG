@@ -1,3 +1,15 @@
+# ServiceRadar v1.0.68
+
+Docker Compose KV seeding restored and JetStream consumers hardened.
+
+## Whats New
+
+**1.0.68**
+- Restored KV-backed configuration seeding in Docker Compose (including poller stack) so core/agent/poller/zen/db-event-writer bootstrap datasvc and surface in the UI; docs updated accordingly.
+- Bundled a Compose-ready NATS context inside `serviceradar-tools` for local JetStream/KV inspection without pulling extra images.
+- Hardened the db-event-writer JetStream consumer with retrying connection/setup logic to survive NATS restarts during Compose bring-up.
+- Zen now ignores the initial KV watch event when CONFIG_SOURCE=kv to avoid spurious restarts on first sync.
+
 # ServiceRadar v1.0.66
 
 Rust edge onboarding improvements and build/deployment updates.
