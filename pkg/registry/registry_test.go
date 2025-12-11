@@ -1781,3 +1781,160 @@ func TestProcessBatchDeviceUpdates_SweepAttachedToCanonicalGetsMetadata(t *testi
 	assert.Equal(t, canonicalDeviceID, pub.Metadata["canonical_device_id"],
 		"canonical_device_id metadata should match attached DeviceID")
 }
+
+// TestLooksLikeIP verifies the IP address detection helper function.
+func TestLooksLikeIP(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		// Valid IPv4 addresses
+		{"IPv4 simple", "192.168.1.1", true},
+		{"IPv4 localhost", "127.0.0.1", true},
+		{"IPv4 zeros", "0.0.0.0", true},
+		{"IPv4 broadcast", "255.255.255.255", true},
+
+		// Valid IPv6 addresses
+		{"IPv6 localhost", "::1", true},
+		{"IPv6 full", "2001:0db8:85a3:0000:0000:8a2e:0370:7334", true},
+		{"IPv6 compressed", "2001:db8::1", true},
+		{"IPv6 link-local", "fe80::1", true},
+
+		// Not IP addresses (device IDs)
+		{"ServiceRadar agent ID", "serviceradar:agent:docker-agent", false},
+		{"ServiceRadar poller ID", "serviceradar:poller:docker-poller", false},
+		{"ServiceRadar checker ID", "serviceradar:checker:my-checker", false},
+		{"Legacy device ID", "default:10.0.0.1", false},
+		{"SR UUID", "sr:abc123-def456", false},
+
+		// Edge cases
+		{"Empty string", "", false},
+		{"Whitespace", "  ", false},
+		{"Random text", "not-an-ip", false},
+		{"Partial IP", "192.168", false},
+		{"Too many octets", "192.168.1.1.1", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := looksLikeIP(tt.input)
+			assert.Equal(t, tt.expected, result, "looksLikeIP(%q)", tt.input)
+		})
+	}
+}
+
+// TestLooksLikeDeviceID verifies the device ID detection helper function.
+func TestLooksLikeDeviceID(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		// ServiceRadar device IDs
+		{"ServiceRadar agent ID", "serviceradar:agent:docker-agent", true},
+		{"ServiceRadar poller ID", "serviceradar:poller:docker-poller", true},
+		{"ServiceRadar checker ID", "serviceradar:checker:my-checker", true},
+
+		// Other device ID formats
+		{"Legacy device ID", "default:10.0.0.1", true},
+		{"SR UUID", "sr:abc123-def456", true},
+		{"Partition with IP", "production:192.168.1.1", true},
+
+		// NOT device IDs (IP addresses)
+		{"IPv4 simple", "192.168.1.1", false},
+		{"IPv4 localhost", "127.0.0.1", false},
+		{"IPv6 localhost", "::1", false},
+		{"IPv6 full", "2001:db8::1", false},
+
+		// Edge cases
+		{"Empty string", "", false},
+		{"No colon", "no-colon-here", false},
+		{"Whitespace", "  ", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := looksLikeDeviceID(tt.input)
+			assert.Equal(t, tt.expected, result, "looksLikeDeviceID(%q)", tt.input)
+		})
+	}
+}
+
+// TestGetMergedDevice_DoesNotFallbackToIPForDeviceIDs verifies that GetMergedDevice
+// does NOT fall back to IP lookup when given a device ID that isn't in the registry.
+// This prevents returning the wrong device when multiple devices share an IP (Docker).
+func TestGetMergedDevice_DoesNotFallbackToIPForDeviceIDs(t *testing.T) {
+	log := logger.NewTestLogger()
+	reg := NewDeviceRegistry(nil, log)
+
+	// Add two devices at the same IP (simulating Docker environment)
+	sharedIP := "172.17.0.2"
+
+	agentRecord := &DeviceRecord{
+		DeviceID:    "serviceradar:agent:docker-agent",
+		IP:          sharedIP,
+		IsAvailable: true,
+		LastSeen:    time.Now(),
+	}
+	pollerRecord := &DeviceRecord{
+		DeviceID:    "serviceradar:poller:docker-poller",
+		IP:          sharedIP,
+		IsAvailable: true,
+		LastSeen:    time.Now(),
+	}
+
+	reg.UpsertDeviceRecord(agentRecord)
+	reg.UpsertDeviceRecord(pollerRecord)
+
+	ctx := context.Background()
+
+	// Test 1: Looking up agent by ID should return agent
+	device, err := reg.GetMergedDevice(ctx, "serviceradar:agent:docker-agent")
+	require.NoError(t, err)
+	assert.Equal(t, "serviceradar:agent:docker-agent", device.DeviceID)
+
+	// Test 2: Looking up poller by ID should return poller
+	device, err = reg.GetMergedDevice(ctx, "serviceradar:poller:docker-poller")
+	require.NoError(t, err)
+	assert.Equal(t, "serviceradar:poller:docker-poller", device.DeviceID)
+
+	// Test 3: Looking up a non-existent device ID should return ErrDeviceNotFound,
+	// NOT the first device at some IP
+	_, err = reg.GetMergedDevice(ctx, "serviceradar:agent:nonexistent")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrDeviceNotFound)
+
+	// Test 4: Looking up by IP should still work (returns first device at that IP)
+	device, err = reg.GetMergedDevice(ctx, sharedIP)
+	require.NoError(t, err)
+	// We don't assert which device is returned - that's the documented behavior for IP lookup
+	assert.Contains(t, []string{agentRecord.DeviceID, pollerRecord.DeviceID}, device.DeviceID)
+}
+
+// TestGetMergedDevice_DeviceIDNotInRegistryReturnsError verifies that when a device ID
+// is not in the in-memory registry, GetMergedDevice returns ErrDeviceNotFound rather
+// than attempting to interpret it as an IP address.
+func TestGetMergedDevice_DeviceIDNotInRegistryReturnsError(t *testing.T) {
+	log := logger.NewTestLogger()
+	reg := NewDeviceRegistry(nil, log)
+
+	ctx := context.Background()
+
+	// Device ID formats that should NOT fall back to IP lookup
+	deviceIDs := []string{
+		"serviceradar:agent:docker-agent",
+		"serviceradar:poller:docker-poller",
+		"default:10.0.0.1",
+		"sr:abc123-def456",
+		"production:host-001",
+	}
+
+	for _, deviceID := range deviceIDs {
+		t.Run(deviceID, func(t *testing.T) {
+			_, err := reg.GetMergedDevice(ctx, deviceID)
+			require.Error(t, err, "Expected error for device ID not in registry: %s", deviceID)
+			assert.ErrorIs(t, err, ErrDeviceNotFound)
+		})
+	}
+}

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"regexp"
 	"sort"
 	"strconv"
@@ -2031,18 +2032,77 @@ func (r *DeviceRegistry) SearchDevices(query string, limit int) []*models.Unifie
 	return UnifiedDeviceSlice(matchedRecords)
 }
 
+// looksLikeIP returns true if the input string appears to be an IP address (IPv4 or IPv6).
+// Device IDs like "serviceradar:agent:docker-agent" or "default:10.0.0.1" contain colons
+// but are NOT valid IP addresses and should not be treated as such.
+func looksLikeIP(input string) bool {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return false
+	}
+
+	// Try parsing as IP address - this handles both IPv4 and IPv6
+	ip := net.ParseIP(input)
+	return ip != nil
+}
+
+// looksLikeDeviceID returns true if the input string appears to be a device ID rather than an IP.
+// Device IDs contain colons in patterns that don't match valid IP addresses.
+func looksLikeDeviceID(input string) bool {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return false
+	}
+
+	// If it parses as a valid IP, it's not a device ID
+	if net.ParseIP(input) != nil {
+		return false
+	}
+
+	// Device IDs typically contain colons (e.g., "serviceradar:agent:X", "default:10.0.0.1")
+	// or are ServiceRadar UUIDs (e.g., "sr:...")
+	return strings.Contains(input, ":")
+}
+
 func (r *DeviceRegistry) GetMergedDevice(ctx context.Context, deviceIDOrIP string) (*models.UnifiedDevice, error) {
+	// First, try exact device ID lookup in the in-memory registry
 	if device, err := r.GetDevice(ctx, deviceIDOrIP); err == nil {
 		return device, nil
 	}
 
+	// If the input looks like a device ID (not an IP), do NOT fall back to IP lookup.
+	// This prevents returning the wrong device when multiple devices share an IP (e.g., Docker).
+	if looksLikeDeviceID(deviceIDOrIP) {
+		if r.logger != nil {
+			r.logger.Debug().
+				Str("device_id", deviceIDOrIP).
+				Msg("Device ID lookup failed in registry; not falling back to IP lookup for device ID format")
+		}
+		return nil, fmt.Errorf("%w: %s", ErrDeviceNotFound, deviceIDOrIP)
+	}
+
+	// Only fall back to IP lookup if the input actually looks like an IP address
+	if !looksLikeIP(deviceIDOrIP) {
+		return nil, fmt.Errorf("%w: %s", ErrDeviceNotFound, deviceIDOrIP)
+	}
+
 	devices, err := r.GetDevicesByIP(ctx, deviceIDOrIP)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get device by ID or IP %s: %w", deviceIDOrIP, err)
+		return nil, fmt.Errorf("failed to get device by IP %s: %w", deviceIDOrIP, err)
 	}
 
 	if len(devices) == 0 {
 		return nil, fmt.Errorf("%w: %s", ErrDeviceNotFound, deviceIDOrIP)
+	}
+
+	// Note: IP lookup returns first device at that IP. This is only valid when
+	// there's a single device at that IP, which is typically the case in K8s
+	// but NOT in Docker where multiple containers may share the host IP.
+	if r.logger != nil && len(devices) > 1 {
+		r.logger.Warn().
+			Str("ip", deviceIDOrIP).
+			Int("device_count", len(devices)).
+			Msg("Multiple devices found at IP; returning first device - consider using device ID for exact lookup")
 	}
 
 	return devices[0], nil

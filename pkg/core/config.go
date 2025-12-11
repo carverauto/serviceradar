@@ -38,6 +38,9 @@ const (
 	defaultMetricsMaxPollers       = 10000
 	defaultDeviceRetentionDays     = 3
 	jwtAlgorithmRS256              = "RS256"
+	defaultSRQLBaseURL             = "http://srql:8080"
+	defaultSRQLPath                = "/api/query"
+	defaultSRQLTimeout             = 15 * time.Second
 	defaultIREReaperInterval       = time.Hour
 	defaultIREDefaultTTL           = 24 * time.Hour
 	defaultIREDynamicTTL           = 6 * time.Hour
@@ -93,6 +96,7 @@ func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig
 		normalized.Features.RequireDeviceRegistry = boolPtr(false)
 	}
 
+	normalized.SRQL = ensureSRQLConfig(normalized.SRQL)
 	normalized.Identity = applyIdentityDefaults(normalized.Identity)
 	ensureAgeRuntimeDefaults(normalized.CNPG)
 
@@ -111,6 +115,42 @@ func ensureDataDirectory(dbPath string) error {
 	dir := filepath.Dir(dbPath)
 
 	return os.MkdirAll(dir, serviceradarDirPerms)
+}
+
+func ensureSRQLConfig(cfg *models.SRQLConfig) *models.SRQLConfig {
+	normalized := cfg
+	if normalized == nil {
+		normalized = &models.SRQLConfig{}
+	}
+
+	normalized.Enabled = true
+
+	if strings.TrimSpace(normalized.BaseURL) == "" {
+		switch {
+		case strings.TrimSpace(os.Getenv("SRQL_BASE_URL")) != "":
+			normalized.BaseURL = strings.TrimSpace(os.Getenv("SRQL_BASE_URL"))
+		case strings.TrimSpace(os.Getenv("NEXT_INTERNAL_SRQL_URL")) != "":
+			normalized.BaseURL = strings.TrimSpace(os.Getenv("NEXT_INTERNAL_SRQL_URL"))
+		default:
+			normalized.BaseURL = defaultSRQLBaseURL
+		}
+	}
+
+	if normalized.Timeout == 0 {
+		normalized.Timeout = models.Duration(defaultSRQLTimeout)
+	}
+
+	if strings.TrimSpace(normalized.Path) == "" {
+		normalized.Path = defaultSRQLPath
+	}
+
+	if normalized.APIKey == "" {
+		if envKey := strings.TrimSpace(os.Getenv("SRQL_API_KEY")); envKey != "" {
+			normalized.APIKey = envKey
+		}
+	}
+
+	return normalized
 }
 
 func initializeAuthConfig(config *models.CoreServiceConfig) (*models.AuthConfig, error) {

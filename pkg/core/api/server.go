@@ -2371,21 +2371,24 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// If device not found in registry, fall back to database lookup (don't return 404 yet).
+		// This handles the case where the device exists in DB but isn't in the in-memory registry
+		// (e.g., due to timing/hydration issues in Docker environments).
 		if errors.Is(err, registry.ErrDeviceNotFound) {
-			writeError(w, "Device not found", http.StatusNotFound)
-			return
-		}
-
-		if s.requireDeviceRegistry {
+			s.logger.Debug().
+				Str("device_id", deviceID).
+				Msg("Device not found in registry cache, falling back to database lookup")
+			// Fall through to database lookup below
+		} else if s.requireDeviceRegistry {
 			s.logger.Error().
 				Err(err).
 				Str("device_id", deviceID).
 				Msg("Device registry lookup failed and legacy fallback disabled")
 			writeError(w, "Device registry unavailable", http.StatusServiceUnavailable)
 			return
+		} else {
+			s.logger.Warn().Err(err).Str("device_id", deviceID).Msg("Device registry lookup failed, falling back to legacy")
 		}
-
-		s.logger.Warn().Err(err).Str("device_id", deviceID).Msg("Device registry lookup failed, falling back to legacy")
 	}
 
 	// Fallback to legacy database service
