@@ -10,7 +10,7 @@
 
 - [x] 2.1 Update docker-compose KV seeding to include checker templates from packaging directories
 - [x] 2.2 Update Helm chart KV seeding ConfigMaps to include checker templates
-- [ ] 2.3 Verify templates are seeded at `templates/checkers/{security_mode}/{kind}.json` paths (mtls for compose, spire for k8s)
+- [x] 2.3 Verify templates are seeded at `templates/checkers/{security_mode}/{kind}.json` paths (mtls for compose, spire for k8s)
 - [ ] 2.4 Test that seeded templates work with edge onboarding flow
 
 ## 3. Add checker template listing API
@@ -26,7 +26,7 @@
 - [x] 4.1 Fetch available templates in edge-packages page
 - [x] 4.2 Replace text input with `<select>` dropdown when templates are available
 - [x] 4.3 Add loading and error states for template fetch
-- [x] 4.4 Fall back to text input when no templates available
+- [x] 4.4 Fall back to text input when no templates available or when user selects “Custom”
 - [x] 4.5 Update helper text to guide users
 - [ ] 4.6 Test form behavior with no templates, some templates, and API errors
 

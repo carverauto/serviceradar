@@ -93,6 +93,8 @@ type EdgePackageDefaults = {
 
 type SecurityMode = 'spire' | 'mtls';
 
+const CUSTOM_CHECKER_KIND = '__custom_checker_kind__';
+
 type AgentInfo = {
   agent_id: string;
   poller_id: string;
@@ -368,6 +370,7 @@ export default function EdgePackagesPage() {
   const [eventsLoading, setEventsLoading] = useState<boolean>(false);
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [formState, setFormState] = useState<CreateFormState>(defaultFormState);
+  const [customCheckerKind, setCustomCheckerKind] = useState<boolean>(false);
   const [formOpen, setFormOpen] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSubmitting, setFormSubmitting] = useState<boolean>(false);
@@ -706,6 +709,7 @@ export default function EdgePackagesPage() {
     setMetadataTouched(false);
     setSelectorsTouched(false);
     setPollerTouched(false);
+    setCustomCheckerKind(false);
   }, []);
 
   const openFormFor = useCallback(
@@ -724,6 +728,7 @@ export default function EdgePackagesPage() {
       setMetadataTouched(false);
       setSelectorsTouched(false);
       setPollerTouched(false);
+      setCustomCheckerKind(false);
       setFormOpen(true);
     },
     [],
@@ -756,6 +761,9 @@ export default function EdgePackagesPage() {
       setMetadataTouched(false);
     }
     setPollerTouched(false);
+    if (nextType !== 'checker') {
+      setCustomCheckerKind(false);
+    }
   };
 
   const handleSecurityModeChange = (mode: SecurityMode) => {
@@ -1408,19 +1416,40 @@ export default function EdgePackagesPage() {
                         Loading templates...
                       </div>
                     ) : availableCheckerKinds.length > 0 ? (
-                      <select
-                        required
-                        className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
-                        value={formState.checkerKind}
-                        onChange={(event) => handleFormChange('checkerKind', event.target.value)}
-                      >
-                        <option value="">Select a checker type...</option>
-                        {availableCheckerKinds.map((kind) => (
-                          <option value={kind} key={`checker-kind-${kind}`}>
-                            {kind}
-                          </option>
-                        ))}
-                      </select>
+                      <>
+                        <select
+                          required
+                          className="rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                          value={customCheckerKind ? CUSTOM_CHECKER_KIND : formState.checkerKind}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            if (value === CUSTOM_CHECKER_KIND) {
+                              setCustomCheckerKind(true);
+                              setFormState((prev) => ({ ...prev, checkerKind: '' }));
+                              return;
+                            }
+                            setCustomCheckerKind(false);
+                            handleFormChange('checkerKind', value);
+                          }}
+                        >
+                          <option value="">Select a checker type...</option>
+                          {availableCheckerKinds.map((kind) => (
+                            <option value={kind} key={`checker-kind-${kind}`}>
+                              {kind}
+                            </option>
+                          ))}
+                          <option value={CUSTOM_CHECKER_KIND}>Custom (enter manually)</option>
+                        </select>
+                        {customCheckerKind && (
+                          <input
+                            required
+                            className="mt-2 rounded border border-gray-300 px-3 py-2 text-sm shadow-xs focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500 dark:bg-gray-950 dark:border-gray-700"
+                            value={formState.checkerKind}
+                            onChange={(event) => handleFormChange('checkerKind', event.target.value)}
+                            placeholder="Enter custom checker kind"
+                          />
+                        )}
+                      </>
                     ) : (
                       <input
                         required
@@ -1432,7 +1461,9 @@ export default function EdgePackagesPage() {
                     )}
                     <span className="text-xs text-gray-500 dark:text-gray-400">
                       {checkerTemplates.length > 0
-                        ? 'Select from available templates or enter a custom kind'
+                        ? customCheckerKind
+                          ? 'Custom kind selected - provide checker config JSON below'
+                          : 'Select from available templates or choose custom to enter a new kind'
                         : 'No templates found - checker config JSON is required'}
                     </span>
                   </label>
