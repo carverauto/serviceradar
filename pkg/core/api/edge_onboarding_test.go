@@ -23,6 +23,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+var errListComponentTemplates = errors.New("listing failed")
+
 type stubEdgeOnboardingService struct {
 	createResult   *models.EdgeOnboardingCreateResult
 	createErr      error
@@ -185,7 +187,7 @@ func TestHandleListComponentTemplatesSuccess(t *testing.T) {
 
 func TestHandleListComponentTemplatesError(t *testing.T) {
 	service := &stubEdgeOnboardingService{
-		templatesErr: errors.New("listing failed"),
+		templatesErr: errListComponentTemplates,
 	}
 	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service), WithLogger(logger.NewTestLogger()))
 
