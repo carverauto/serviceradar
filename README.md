@@ -8,7 +8,7 @@
 
 # ServiceRadar
 
-<img width="1470" height="798" alt="Screenshot 2025-08-03 at 12 15 47 AM" src="https://github.com/user-attachments/assets/d6c61754-89d7-4c56-981f-1486e0586f3a" />
+<img width="1470" height="798" alt="Screenshot 2025-08-03 at 12 15 47 AM" src="https://github.com/user-attachments/assets/d6c61754-89d7-4c56-981f-1486e0586f3a" />
 
 [![CI](https://github.com/carverauto/serviceradar/actions/workflows/main.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/main.yml)
 [![Go Linter](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml)
@@ -73,24 +73,54 @@ ServiceRadar (SR) uses a distributed architecture with four main components:
 
 ## Kubernetes / Helm Deployment
 
-ServiceRadar provides a Helm chart for Kubernetes deployments, published to an OCI registry:
+ServiceRadar provides an official Helm chart for Kubernetes deployments, published to GHCR as an OCI artifact.
 
 ```bash
-# Add the Helm chart from OCI registry
-helm pull oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.70
+# Inspect chart metadata and default values
+helm show chart oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.75
+helm show values oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.75 > values.yaml
 
-# Install with default values
-helm install serviceradar oci://ghcr.io/carverauto/charts/serviceradar
+# Install a pinned release (recommended)
+helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar \
+  --version 1.0.75 \
+  -n serviceradar --create-namespace \
+  --set global.imageTag="v1.0.75"
 
-# Install with custom values
-helm install serviceradar oci://ghcr.io/carverauto/charts/serviceradar \
-  --set global.imageTag="v1.0.70" \
-  --set global.imagePullPolicy="IfNotPresent"
+# Track mutable images (staging/dev): pulls :latest and forces re-pull
+helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar \
+  --version 1.0.75 \
+  -n serviceradar --create-namespace \
+  --set global.imageTag="latest" \
+  --set global.imagePullPolicy="Always"
 ```
 
 **Chart URL:** `oci://ghcr.io/carverauto/charts/serviceradar`
 
-For ArgoCD deployments, use `ghcr.io/carverauto/charts` as the repository URL (without the `oci://` prefix).
+Notes:
+- Chart versions are like `1.0.75`; ServiceRadar image tags are like `v1.0.75`.
+- If your cluster requires registry credentials, set `image.registryPullSecret` (default `ghcr-io-cred`).
+
+For ArgoCD deployments, use `ghcr.io/carverauto/charts` as the repository URL (without the `oci://` prefix):
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: serviceradar
+  namespace: argocd
+spec:
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: serviceradar
+  source:
+    repoURL: ghcr.io/carverauto/charts
+    chart: serviceradar
+    targetRevision: "1.0.75"
+    helm:
+      values: |
+        global:
+          imageTag: "v1.0.75"
+```
 
 ## Docker Deployment
 

@@ -7,9 +7,20 @@ This guide shows how to deploy ServiceRadar via the bundled Helm chart and tune 
 
 Install/upgrade
 - Namespace: create once: `kubectl create ns serviceradar` (or change `namespace` in chart values).
-- Deploy from repo checkout:
+- Deploy from the official OCI chart (recommended):
+  - `helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.75 -n serviceradar --create-namespace -f my-values.yaml`
+- Deploy from a repo checkout (development):
   - `helm upgrade --install serviceradar ./helm/serviceradar -n serviceradar -f my-values.yaml`
 - Quick overrides without a file: add `--set` flags (examples below).
+
+OCI chart quick start
+- Inspect chart metadata and defaults:
+  - `helm show chart oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.75`
+  - `helm show values oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.75 > values.yaml`
+- Pin images to a release tag (recommended):
+  - `--set global.imageTag="v1.0.75"`
+- Track mutable images (staging/dev):
+  - `--set global.imageTag="latest" --set global.imagePullPolicy="Always"`
 
 Key values: `sweep`
 - networks: list of CIDRs/IPs to scan.
@@ -87,7 +98,7 @@ Operational notes
 - For keeping scans fast with tuned routers, apply NOTRACK/conntrack tuning in parallel. See: [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md).
 
 See also
-- [Configuration Basics → Network Sweep](./configuration.md#network-sweep) for file-based config reference
+- [Configuration Basics -> Network Sweep](./configuration.md#network-sweep) for file-based config reference
 - [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md) for upstream router guidance
 
 ## Mapper Service Settings
@@ -95,7 +106,7 @@ See also
 The Helm chart ships a `serviceradar-config` ConfigMap that includes `mapper.json`. Update it before installing or as part of an overlay so Mapper discovers the right networks:
 
 - Copy `helm/serviceradar/files/serviceradar-config.yaml` into your deployment repo, edit the `mapper.json` block, and commit the changes alongside your values file. The ConfigMap is rendered with `tpl`, so you can inject Helm template expressions if you prefer.
-- Adjust **`workers`**, **`max_active_jobs`**, and timeout values to match your cluster’s SNMP budget.
+- Adjust **`workers`**, **`max_active_jobs`**, and timeout values to match your cluster's SNMP budget.
 - Fill in **`default_credentials`** and **`credentials[]`** with SNMP v2c/v3 settings per CIDR. Use the same ordering rules described in the [Discovery guide](./discovery.md#configuring-mapperjson).
 - Customize **`stream_config`** so emitted device, interface, and topology records use the stream names and tags you expect.
 - Define **`scheduled_jobs[]`** for recurring discovery. Each job needs `seeds`, discovery `type`, `interval`, and optional overrides such as `concurrency` or `timeout`.
