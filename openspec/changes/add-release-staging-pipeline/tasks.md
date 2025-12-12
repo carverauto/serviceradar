@@ -37,18 +37,29 @@
 - [x] 4.6 Build and push v1.0.72 images with semantic version tags
 - [x] 4.7 Test ArgoCD sync for demo-staging deployment - chart 1.0.75 with all fixes, Sync: Synced, Health: Healthy
 
-## 5. GitOps Promoter Integration
+## 5. Environment Promotion (SIMPLIFIED)
 
-- [x] 5.1 Install ArgoCD Source Hydrator (argocd-commit-server deployed)
-- [x] 5.2 Install GitOps Promoter CRDs (v0.18.3)
-- [x] 5.3 Create `PromotionStrategy` for demo-staging -> demo flow (`k8s/gitops-promoter/promotion-strategy.yaml`)
-- [x] 5.4 Create `ArgoCDCommitStatus` for health gating (`k8s/gitops-promoter/argocd-commit-status.yaml`)
-- [x] 5.5 Create ArgoCD Applications using Source Hydrator (`k8s/gitops-promoter/argocd-app-*.yaml`)
+**Note:** GitOps Promoter with Source Hydrator was evaluated but removed due to complexity.
+The Source Hydrator requires specific credential configurations for write operations that
+proved difficult to set up with GitHub Apps. A simpler manual PR-based promotion is now used.
+
+- [x] 5.1 ~~Install ArgoCD Source Hydrator~~ (removed - too complex)
+- [x] 5.2 ~~Install GitOps Promoter CRDs~~ (removed - not needed without hydrator)
+- [x] 5.3 ~~Create PromotionStrategy~~ (removed)
+- [x] 5.4 ~~Create ArgoCDCommitStatus~~ (removed)
+- [x] 5.5 ~~Create hydrator ArgoCD Applications~~ (removed)
 - [x] 5.6 Create environment-specific values files (`helm/serviceradar/values-demo-staging.yaml`, `values-demo.yaml`)
-- [x] 5.7 Document promoter workflow (`k8s/gitops-promoter/README.md`)
-- [ ] 5.8 Create GitHub App for Promoter SCM access (requires user action)
-- [ ] 5.9 Create environment branches (environments/demo-staging, environments/demo, etc.)
-- [ ] 5.10 Apply ScmProvider and GitRepository CRDs (after GitHub App created)
+- [N/A] 5.7 ~~Document promoter workflow~~ (removed - k8s/gitops-promoter/ deleted)
+- [N/A] 5.8 ~~Create GitHub App~~ (not needed for simplified approach)
+- [N/A] 5.9 ~~Create environment branches~~ (not needed)
+- [N/A] 5.10 ~~Apply ScmProvider/GitRepository~~ (not needed)
+
+**Current Promotion Workflow:**
+1. Release updates chart in OCI registry
+2. ArgoCD auto-syncs demo-staging
+3. E2E tests validate staging deployment
+4. Manual PR or kubectl patch to promote version to demo-prod
+5. ArgoCD syncs demo-prod
 
 ## 6. GitHub Environments and E2E Test Integration
 

@@ -66,33 +66,21 @@ This creates gaps where released images may not have been validated in a staging
 
 **Chart URL:** `oci://ghcr.io/carverauto/charts/serviceradar:1.0.70`
 
-### Decision 2: ArgoCD GitOps Promoter for Environment Promotion
-**Rationale:** Native ArgoCD integration, declarative configuration, supports commit status gates for test validation.
+### Decision 2: Manual PR-Based Promotion (Simplified)
+**Rationale:** After evaluating GitOps Promoter with Source Hydrator, we chose a simpler approach. The Source Hydrator's credential requirements for write operations added complexity without proportional value for our use case.
 
-**Alternatives Considered:**
+**Approach:**
+- Demo-staging deploys automatically via ArgoCD when chart version is updated
+- Promotion to demo-prod happens via manual PR (or future GitHub Action)
+- ArgoCD syncs both environments from their respective configurations
+
+**Alternatives Evaluated:**
+- **GitOps Promoter + Source Hydrator:** Too complex for credential setup with GitHub Apps. Source Hydrator requires write access to push hydrated manifests.
 - Argo Rollouts: More focused on canary/blue-green within a single app
 - Flux: Would require migrating from ArgoCD
-- Jenkins/custom: More maintenance overhead
 
-**Key Resources:**
-```yaml
-apiVersion: promoter.argoproj.io/v1alpha1
-kind: PromotionStrategy
-metadata:
-  name: serviceradar-release
-spec:
-  environments:
-    - name: demo-staging
-      source:
-        type: registry
-        registryRef: ghcr.io/carverauto/serviceradar-core
-    - name: demo
-      source:
-        type: pull-request
-      gates:
-        - name: e2e-tests
-          type: commit-status
-```
+**Future Enhancement:**
+Could add a GitHub Action that creates a promotion PR automatically when staging e2e tests pass.
 
 ### Decision 3: Helm-Based ArgoCD Applications
 **Rationale:** ArgoCD Helm support is mature, allows value overrides per environment, and integrates well with OCI registries.
@@ -232,15 +220,22 @@ jobs:
 7. Published chart v1.0.75 with all template fixes
 8. Successfully deployed demo-staging: Sync: Synced, Health: Healthy (all 19 deployments running)
 
-### Phase 4: GitOps Promoter (IN PROGRESS)
-1. ~~Install promoter CRDs~~ Installed v0.18.3 with all CRDs
-2. ~~Install ArgoCD Source Hydrator~~ Deployed argocd-commit-server
-3. ~~Create PromotionStrategy~~ Created for demo-staging -> demo flow
-4. ~~Create ArgoCDCommitStatus~~ Created for health-based gating
-5. ~~Create hydrator-enabled ArgoCD Applications~~ Created templates
-6. **PENDING:** Create GitHub App for SCM access
-7. **PENDING:** Create environment branches
-8. **PENDING:** Apply ScmProvider and GitRepository CRDs
+### Phase 4: Environment Promotion (SIMPLIFIED)
+**Approach Changed:** After evaluating GitOps Promoter with Source Hydrator, we found the complexity didn't match our needs. The Source Hydrator requires specific credential configurations for write operations that proved difficult to set up with GitHub Apps.
+
+**Current Simple Approach:**
+1. Demo-staging deploys automatically when chart is updated
+2. Demo-staging validation happens (manual or via e2e tests)
+3. Production promotion is via manual PR to update demo-prod version
+4. ArgoCD syncs demo-prod when PR is merged
+
+**What was tried and removed:**
+- GitOps Promoter v0.18.3 CRDs
+- ArgoCD Source Hydrator (argocd-commit-server)
+- Hydrated branch model (environments/demo-staging, environments/demo)
+- GitHub App for SCM access (sr-argocd-promoter)
+
+**Future consideration:** Could add GitHub Action to automate PR creation when staging e2e tests pass.
 
 ### Phase 5: Full Pipeline (DONE)
 1. ~~Update release workflow for staged deployment~~ e2e-tests.yml runs after release.yml
@@ -292,16 +287,19 @@ argocd app set serviceradar-demo-staging \
 argocd app sync serviceradar-demo-staging
 ```
 
-#### GitOps Promoter Manual Override
-When promoter is installed, bypass automatic promotion:
+#### Manual Promotion to Production
+When staging is validated, promote to production:
 ```bash
-# Pause promoter for the application
-kubectl annotate application serviceradar-demo-staging \
-  promoter.argoproj.io/pause=true
+# Option 1: Update via kubectl patch
+kubectl -n argocd patch application serviceradar-demo-prod \
+  --type=merge \
+  -p '{"spec":{"source":{"helm":{"parameters":[{"name":"global.imageTag","value":"v1.0.75"}]}}}}'
 
-# Resume after manual intervention
-kubectl annotate application serviceradar-demo-staging \
-  promoter.argoproj.io/pause-
+# Option 2: Update via ArgoCD CLI
+argocd app set serviceradar-demo-prod --helm-set-string global.imageTag=v1.0.75
+argocd app sync serviceradar-demo-prod
+
+# Option 3: Create PR to update k8s/argocd/applications/demo-prod.yaml
 ```
 
 ## Resolved Questions
