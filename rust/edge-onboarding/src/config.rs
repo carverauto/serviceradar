@@ -149,15 +149,15 @@ pub fn generate_checker_config(
                 if let Some(listen_addr) = overlay.get("listen_addr").and_then(|v| v.as_str()) {
                     config.listen_addr = listen_addr.to_string();
                 }
-                if let Some(poll_interval) = overlay.get("poll_interval").and_then(|v| v.as_u64())
-                {
+                if let Some(poll_interval) = overlay.get("poll_interval").and_then(|v| v.as_u64()) {
                     config.poll_interval = poll_interval;
                 }
                 if let Some(partition) = overlay.get("partition").and_then(|v| v.as_str()) {
                     config.partition = Some(partition.to_string());
                 }
                 if let Some(filesystems) = overlay.get("filesystems") {
-                    if let Ok(fs) = serde_json::from_value::<Vec<FilesystemConfig>>(filesystems.clone())
+                    if let Ok(fs) =
+                        serde_json::from_value::<Vec<FilesystemConfig>>(filesystems.clone())
                     {
                         config.filesystems = fs;
                     }

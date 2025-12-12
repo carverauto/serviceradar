@@ -201,6 +201,62 @@ func TestProcessSysmonMetrics_EmitsStallEventAfterEmptyPayloads(t *testing.T) {
 	}
 }
 
+func TestProcessGRPCService_SysmonPrefixedName(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	mockRegistry := registry.NewMockManager(ctrl)
+
+	mockRegistry.EXPECT().
+		SetDeviceCapabilitySnapshot(gomock.Any(), gomock.AssignableToTypeOf(&models.DeviceCapabilitySnapshot{})).
+		AnyTimes()
+	mockRegistry.EXPECT().
+		GetCollectorCapabilities(gomock.Any(), gomock.Any()).
+		Return(nil, false).
+		AnyTimes()
+	mockRegistry.EXPECT().
+		SetCollectorCapabilities(gomock.Any(), gomock.Any()).
+		AnyTimes()
+	mockDB.EXPECT().
+		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), []string{"192.0.2.10"}, gomock.Nil()).
+		Return([]*models.UnifiedDevice{}, nil).
+		AnyTimes()
+
+	server := &Server{
+		DB:             mockDB,
+		DeviceRegistry: mockRegistry,
+		sysmonBuffers:  make(map[string][]*sysmonMetricBuffer),
+		sysmonStall:    make(map[string]*sysmonStreamState),
+		logger:         logger.NewTestLogger(),
+	}
+
+	now := time.Now().UTC()
+	payload := sysmonPayload{
+		Available: true,
+	}
+	payload.Status.Timestamp = now.Format(time.RFC3339Nano)
+	payload.Status.HostIP = "192.0.2.10"
+	payload.Status.HostID = "sysmon-ora9"
+	payload.Status.Memory.TotalBytes = 1
+	payload.Status.Memory.UsedBytes = 1
+
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	svc := &proto.ServiceStatus{
+		ServiceName: "sysmon-ora9",
+		ServiceType: "grpc",
+	}
+
+	err = server.processGRPCService(context.Background(), testPollerID, "default", "", "agent-1", svc, raw, now)
+	require.NoError(t, err)
+
+	buffers := server.sysmonBuffers[testPollerID]
+	require.Len(t, buffers, 1)
+	assert.Equal(t, "default", buffers[0].Partition)
+}
+
 func TestProcessServicePayload_SyncService_WithEnhancedPayload(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

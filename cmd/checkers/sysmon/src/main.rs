@@ -172,7 +172,9 @@ async fn main() -> Result<()> {
 
     // Try mTLS bootstrap first if --mtls flag is set
     if mtls_mode {
-        let mtls_token = token.clone().or_else(|| std::env::var("ONBOARDING_TOKEN").ok());
+        let mtls_token = token
+            .clone()
+            .or_else(|| std::env::var("ONBOARDING_TOKEN").ok());
         if let Some(t) = mtls_token {
             info!("mTLS bootstrap mode enabled");
             let mtls_config = MtlsBootstrapConfig {

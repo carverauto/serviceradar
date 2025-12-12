@@ -38,6 +38,7 @@ var (
 	ErrEdgeOnboardingDownloadExpired   = errors.New("edge onboarding: download token expired")
 	ErrEdgeOnboardingPackageDelivered  = errors.New("edge onboarding: package already delivered")
 	ErrEdgeOnboardingPackageRevoked    = errors.New("edge onboarding: package revoked")
+	ErrEdgeOnboardingDecryptFailed     = errors.New("edge onboarding: decrypt failed")
 )
 
 // EdgeOnboardingPackage models the material tracked for an edge poller bootstrap.

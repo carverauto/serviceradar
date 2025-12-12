@@ -21,9 +21,52 @@ use std::collections::HashMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use std::path::PathBuf;
 
 use crate::config::SecurityConfig;
 use crate::error::{Error, Result};
+
+#[cfg(unix)]
+fn maybe_chown_cert_files(paths: &[PathBuf]) -> Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    // Only relevant when bootstrap is run as root on bare metal.
+    if unsafe { libc::geteuid() } != 0 {
+        return Ok(());
+    }
+
+    let user = CString::new("serviceradar").expect("static string");
+    let pw = unsafe { libc::getpwnam(user.as_ptr()) };
+    if pw.is_null() {
+        tracing::warn!("service user serviceradar not found; leaving cert ownership unchanged");
+        return Ok(());
+    }
+
+    let uid = unsafe { (*pw).pw_uid };
+    let gid = unsafe { (*pw).pw_gid };
+
+    for path in paths {
+        let c_path = CString::new(path.as_os_str().as_bytes()).map_err(|e| Error::Io {
+            path: path.display().to_string(),
+            source: std::io::Error::new(std::io::ErrorKind::InvalidInput, e),
+        })?;
+        let rc = unsafe { libc::chown(c_path.as_ptr(), uid, gid) };
+        if rc != 0 {
+            return Err(Error::Io {
+                path: path.display().to_string(),
+                source: std::io::Error::last_os_error(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn maybe_chown_cert_files(_paths: &[PathBuf]) -> Result<()> {
+    Ok(())
+}
 
 /// mTLS bundle containing certificates and keys.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,6 +137,8 @@ pub fn install_mtls_bundle(
     let key_filename = format!("{}-key.pem", service_name);
     let key_path = cert_dir.join(&key_filename);
     write_file(&key_path, &bundle.client_key, 0o600)?;
+
+    maybe_chown_cert_files(&[ca_path.clone(), cert_path.clone(), key_path.clone()])?;
 
     tracing::info!(
         cert_dir = %cert_dir.display(),

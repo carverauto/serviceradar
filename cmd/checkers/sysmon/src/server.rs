@@ -20,10 +20,13 @@ use anyhow::{Context, Result};
 use log::{debug, error, info};
 use std::fs;
 use std::net::SocketAddr;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
+use tonic::codegen::futures_core::Stream;
 use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 use tonic::{Request, Response, Status};
 use tonic_reflection::server::Builder as ReflectionBuilder;
@@ -45,12 +48,16 @@ pub mod monitoring {
 #[derive(Debug)]
 pub struct SysmonService {
     collector: Arc<RwLock<MetricsCollector>>,
+    sequence: AtomicU64,
 }
 
 impl SysmonService {
     pub fn new(collector: Arc<RwLock<MetricsCollector>>) -> Self {
         debug!("Creating SysmonService");
-        Self { collector }
+        Self {
+            collector,
+            sequence: AtomicU64::new(0),
+        }
     }
 
     pub async fn start(&self, config: Arc<Config>) -> Result<ServerHandle> {
@@ -86,6 +93,7 @@ impl SysmonService {
 
         let service = Arc::new(Self {
             collector: Arc::clone(&self.collector),
+            sequence: AtomicU64::new(0),
         });
 
         let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
@@ -197,6 +205,9 @@ impl SysmonService {
 
 #[tonic::async_trait]
 impl AgentService for SysmonService {
+    type StreamResultsStream =
+        Pin<Box<dyn Stream<Item = Result<monitoring::ResultsChunk, Status>> + Send + 'static>>;
+
     async fn get_status(
         &self,
         request: Request<monitoring::StatusRequest>,
@@ -243,18 +254,96 @@ impl AgentService for SysmonService {
             service_name: req.service_name,
             service_type: req.service_type,
             response_time: response_time_ns,
+            agent_id: req.agent_id,
+            poller_id: req.poller_id,
         }))
+    }
+
+    async fn get_results(
+        &self,
+        request: Request<monitoring::ResultsRequest>,
+    ) -> Result<Response<monitoring::ResultsResponse>, Status> {
+        let req = request.into_inner();
+        info!(
+            "Received GetResults: service_name={}, service_type={}, agent_id={}, poller_id={}, details={}, last_sequence={}",
+            req.service_name, req.service_type, req.agent_id, req.poller_id, req.details, req.last_sequence
+        );
+
+        let start_time = std::time::Instant::now();
+        let collector = self.collector.read().await;
+        let metrics = collector
+            .get_latest_metrics()
+            .await
+            .ok_or_else(|| Status::unavailable("No metrics available yet"))?;
+
+        let outer_data = serde_json::json!({
+            "status": metrics,
+            "response_time": start_time.elapsed().as_nanos() as i64,
+            "available": true
+        });
+
+        let data_bytes = serde_json::to_vec(&outer_data).map_err(|e| {
+            error!("Failed to serialize results data: {e}");
+            Status::internal(format!("Failed to serialize results data: {e}"))
+        })?;
+
+        let response_time_ns = start_time.elapsed().as_nanos() as i64;
+        let now = chrono::Utc::now();
+        let current_sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
+
+        Ok(Response::new(monitoring::ResultsResponse {
+            available: true,
+            data: data_bytes,
+            service_name: req.service_name,
+            service_type: req.service_type,
+            response_time: response_time_ns,
+            agent_id: req.agent_id,
+            poller_id: req.poller_id,
+            timestamp: now
+                .timestamp_nanos_opt()
+                .unwrap_or_else(|| now.timestamp() * 1_000_000_000),
+            current_sequence: current_sequence.to_string(),
+            has_new_data: true,
+            sweep_completion: None,
+        }))
+    }
+
+    async fn stream_results(
+        &self,
+        _request: Request<monitoring::ResultsRequest>,
+    ) -> Result<Response<Self::StreamResultsStream>, Status> {
+        Err(Status::unimplemented(
+            "StreamResults not supported for sysmon",
+        ))
     }
 }
 
 #[tonic::async_trait]
 impl AgentService for Arc<SysmonService> {
+    type StreamResultsStream = <SysmonService as AgentService>::StreamResultsStream;
+
     async fn get_status(
         &self,
         request: Request<monitoring::StatusRequest>,
     ) -> Result<Response<monitoring::StatusResponse>, Status> {
         debug!("Delegating GetStatus to SysmonService");
         (**self).get_status(request).await
+    }
+
+    async fn get_results(
+        &self,
+        request: Request<monitoring::ResultsRequest>,
+    ) -> Result<Response<monitoring::ResultsResponse>, Status> {
+        debug!("Delegating GetResults to SysmonService");
+        (**self).get_results(request).await
+    }
+
+    async fn stream_results(
+        &self,
+        request: Request<monitoring::ResultsRequest>,
+    ) -> Result<Response<Self::StreamResultsStream>, Status> {
+        debug!("Delegating StreamResults to SysmonService");
+        (**self).stream_results(request).await
     }
 }
 

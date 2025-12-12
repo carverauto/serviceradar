@@ -56,8 +56,7 @@ fn test_parse_legacy_token() {
 
 #[test]
 fn test_parse_legacy_token_with_url() {
-    let parsed =
-        parse_token("https://core.example.com@pkg-abc:token-xyz", None, None).unwrap();
+    let parsed = parse_token("https://core.example.com@pkg-abc:token-xyz", None, None).unwrap();
     assert_eq!(parsed.package_id, "pkg-abc");
     assert_eq!(parsed.download_token, "token-xyz");
     assert_eq!(
@@ -227,7 +226,10 @@ fn test_host_override_replaces_localhost() {
 
     let parsed = parse_token(&token, None, Some("192.168.2.235")).unwrap();
     // Should override with the new host but preserve port from token
-    assert_eq!(parsed.core_url, Some("http://192.168.2.235:8090".to_string()));
+    assert_eq!(
+        parsed.core_url,
+        Some("http://192.168.2.235:8090".to_string())
+    );
 }
 
 #[test]
@@ -241,7 +243,10 @@ fn test_host_override_with_full_url() {
     let token = encode_test_token(&payload);
 
     let parsed = parse_token(&token, None, Some("https://custom.host:9000")).unwrap();
-    assert_eq!(parsed.core_url, Some("https://custom.host:9000".to_string()));
+    assert_eq!(
+        parsed.core_url,
+        Some("https://custom.host:9000".to_string())
+    );
 }
 
 #[test]
@@ -255,7 +260,10 @@ fn test_host_override_preserves_https() {
     let token = encode_test_token(&payload);
 
     let parsed = parse_token(&token, None, Some("secure.host")).unwrap();
-    assert_eq!(parsed.core_url, Some("https://secure.host:8090".to_string()));
+    assert_eq!(
+        parsed.core_url,
+        Some("https://secure.host:8090".to_string())
+    );
 }
 
 #[test]
@@ -269,7 +277,10 @@ fn test_host_override_with_explicit_port() {
     let token = encode_test_token(&payload);
 
     let parsed = parse_token(&token, None, Some("192.168.2.235:9000")).unwrap();
-    assert_eq!(parsed.core_url, Some("http://192.168.2.235:9000".to_string()));
+    assert_eq!(
+        parsed.core_url,
+        Some("http://192.168.2.235:9000".to_string())
+    );
 }
 
 #[test]
@@ -283,5 +294,8 @@ fn test_host_override_no_original_url() {
     let token = encode_test_token(&payload);
 
     let parsed = parse_token(&token, None, Some("192.168.2.235")).unwrap();
-    assert_eq!(parsed.core_url, Some("http://192.168.2.235:8090".to_string()));
+    assert_eq!(
+        parsed.core_url,
+        Some("http://192.168.2.235:8090".to_string())
+    );
 }

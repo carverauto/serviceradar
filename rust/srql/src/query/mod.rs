@@ -102,6 +102,7 @@ mod logs;
 mod memory_metrics;
 mod otel_metrics;
 mod pollers;
+mod process_metrics;
 mod services;
 mod timeseries_metrics;
 mod trace_summaries;
@@ -159,6 +160,7 @@ impl QueryEngine {
             Entity::CpuMetrics => cpu_metrics::execute(&mut conn, &plan).await?,
             Entity::MemoryMetrics => memory_metrics::execute(&mut conn, &plan).await?,
             Entity::DiskMetrics => disk_metrics::execute(&mut conn, &plan).await?,
+            Entity::ProcessMetrics => process_metrics::execute(&mut conn, &plan).await?,
             Entity::Services => services::execute(&mut conn, &plan).await?,
             Entity::TraceSummaries => trace_summaries::execute(&mut conn, &plan).await?,
             Entity::Traces => traces::execute(&mut conn, &plan).await?,
@@ -198,6 +200,7 @@ impl QueryEngine {
             Entity::CpuMetrics => cpu_metrics::to_debug_sql(&plan)?,
             Entity::MemoryMetrics => memory_metrics::to_debug_sql(&plan)?,
             Entity::DiskMetrics => disk_metrics::to_debug_sql(&plan)?,
+            Entity::ProcessMetrics => process_metrics::to_debug_sql(&plan)?,
             Entity::Services => services::to_debug_sql(&plan)?,
             Entity::TraceSummaries => trace_summaries::to_debug_sql(&plan)?,
             Entity::Traces => traces::to_debug_sql(&plan)?,

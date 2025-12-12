@@ -676,22 +676,22 @@ use_repo(npm, "npm")
 # Expose select npm package repositories required for Next.js build tooling.
 use_repo(
     npm,
-    "npm__at_microlink_react-json-view__1.26.2_91375728__links",
-    "npm__at_tanstack_react-query__5.81.5_react_19.2.1__links",
+    "npm__at_microlink_react-json-view__1.26.2_687510291__links",
+    "npm__at_tanstack_react-query__5.81.5_react_19.2.3__links",
     "npm__at_types_d3-hierarchy__3.1.7__links",
     "npm__at_types_dagre__0.7.53__links",
     "npm__d3-hierarchy__3.1.2__links",
     "npm__dagre__0.8.5__links",
     "npm__lodash__4.17.21__links",
-    "npm__lucide-react__0.476.0_react_19.2.1__links",
-    "npm__next-runtime-env__3.3.0_1770189794__links",
-    "npm__next__16.0.7_1139416313__links",
-    "npm__react-dom__19.2.1_react_19.2.1__links",
-    "npm__react__19.2.1__links",
-    "npm__reactflow__11.11.4_91375728__links",
+    "npm__lucide-react__0.476.0_react_19.2.3__links",
+    "npm__next-runtime-env__3.3.0_260211570__links",
+    "npm__next__16.0.10_1589835397__links",
+    "npm__react-dom__19.2.3_react_19.2.3__links",
+    "npm__react__19.2.3__links",
+    "npm__reactflow__11.11.4_687510291__links",
     "npm__recharts-scale__0.4.5__links",
-    "npm__recharts__2.15.3_1615252346__links",
-    "npm__use-debounce__10.0.5_react_19.2.1__links",
+    "npm__recharts__2.15.3_1113999364__links",
+    "npm__use-debounce__10.0.5_react_19.2.3__links",
 )
 
 rules_ts_ext = use_extension("@aspect_rules_ts//ts:extensions.bzl", "ext")

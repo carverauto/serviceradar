@@ -274,10 +274,7 @@ pub fn mtls_bootstrap(cfg: &MtlsBootstrapConfig) -> Result<OnboardingResult> {
     let payload = parse_token(&cfg.token, None, cfg.host.as_deref())?;
     let package = download_package(&payload)?;
 
-    let bundle = package
-        .mtls_bundle
-        .as_ref()
-        .ok_or(Error::BundleMissing)?;
+    let bundle = package.mtls_bundle.as_ref().ok_or(Error::BundleMissing)?;
 
     fs::create_dir_all(&cert_dir).map_err(|e| Error::Io {
         path: cert_dir.display().to_string(),
