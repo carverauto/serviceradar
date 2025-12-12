@@ -104,6 +104,11 @@ proved difficult to set up with GitHub Apps. A simpler manual PR-based promotion
 - [x] 7.4 Update `scripts/cut-release.sh` to support `--skip-staging` for hotfixes
 - [x] 7.5 Add rollback procedure documentation
 - [ ] 7.6 Test full pipeline with a pre-release version
+      - Suggested command: `scripts/cut-release.sh --version X.Y.Z-pre1 --push`
+      - Verify GitHub Actions:
+        - `Publish Release Artifacts` succeeds
+        - `E2E Tests` runs after release and `e2e-tests/staging` commit status is `success`
+      - Verify ArgoCD `demo-staging` is healthy and running `global.imageTag=latest`
 
 ## 8. ArgoCD Demo Application Update
 
@@ -113,6 +118,11 @@ proved difficult to set up with GitHub Apps. A simpler manual PR-based promotion
 - [x] 8.2 Configure demo to pull specific chart version (not `*`) for stability
 - [N/A] 8.3 ~~Set up ApplicationSet or sync waves~~ (not needed for current scope)
 - [ ] 8.4 Verify demo deployment pulls promoted version correctly
+      - Promote by updating `k8s/argocd/applications/demo-prod.yaml`:
+        - `spec.source.targetRevision: "X.Y.Z"`
+        - `spec.source.helm.parameters[name=global.imageTag].value: "vX.Y.Z"`
+      - Verify ArgoCD reports `Synced` + `Healthy` for `serviceradar-demo-prod`
+      - Verify workloads in `demo` reference `vX.Y.Z` images (example): `kubectl -n demo get deploy -o jsonpath='{range .items[*]}{.metadata.name}{"\\t"}{.spec.template.spec.containers[0].image}{"\\n"}{end}' | rg 'serviceradar-.*:vX\\.Y\\.Z'`
 
 ## 9. Helm Chart CI/CD Quality Gates
 
