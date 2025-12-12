@@ -143,12 +143,22 @@ jobs:
             exit 1
           fi
 
+          # Auto-detect pre-release from version pattern
+          is_prerelease="${INPUT_PRERELEASE}"
+          if [[ "$version" =~ -pre[0-9]*$ ]] || \
+             [[ "$version" =~ -rc[0-9]*$ ]] || \
+             [[ "$version" =~ -alpha[0-9]*$ ]] || \
+             [[ "$version" =~ -beta[0-9]*$ ]]; then
+            is_prerelease="true"
+            echo "Auto-detected pre-release version: $version"
+          fi
+
           {
             echo "tag=${tag}"
             echo "version=${version}"
             echo "dry_run=${INPUT_DRY_RUN}"
             echo "append_notes=${INPUT_APPEND_NOTES}"
-            echo "prerelease=${INPUT_PRERELEASE}"
+            echo "prerelease=${is_prerelease}"
             echo "draft=${INPUT_DRAFT}"
             echo "overwrite_assets=${INPUT_OVERWRITE}"
           } >> "$GITHUB_OUTPUT"

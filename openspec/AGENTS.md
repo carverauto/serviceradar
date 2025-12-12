@@ -373,6 +373,79 @@ notifications/spec.md
 ...
 ```
 
+## Versioning Conventions
+
+### Version Format
+- **Release versions**: `X.Y.Z` (e.g., `1.0.70`) - Only via `cut-release.sh` + GitHub Release
+- **Pre-release versions**: `X.Y.Z-preN` (e.g., `1.0.71-pre1`) - For development/testing
+
+### Pre-release Suffixes (auto-detected)
+- `-preN` - Pre-release (e.g., `1.0.71-pre1`, `1.0.71-pre2`)
+- `-rcN` - Release candidate (e.g., `1.0.71-rc1`)
+- `-alphaN` - Alpha release
+- `-betaN` - Beta release
+
+### Rules
+1. **Never bump to a release version** unless cutting an actual release
+2. **Use pre-release versions** for all development work, testing, and Helm chart iterations
+3. **Check GitHub Releases** to find the current official version before versioning
+4. **Increment pre-release suffix** (`-pre1` → `-pre2`) for iterative dev changes
+
+### Files to Update Together
+When changing versions, update ALL of these:
+- `VERSION` - App version
+- `helm/serviceradar/Chart.yaml` - `version` and `appVersion`
+- `k8s/argocd/applications/*.yaml` - `targetRevision` (if deploying)
+
+### Release Workflows
+
+#### Pre-release (for testing)
+```bash
+# Check current official release
+gh release list --limit 1   # e.g., v1.0.70
+
+# Cut a pre-release (auto-detects from version string, skips CHANGELOG)
+./scripts/cut-release.sh --version 1.0.71-pre1 --push
+
+# This will:
+# - Update VERSION and Chart.yaml to 1.0.71-pre1
+# - Create commit "chore: pre-release v1.0.71-pre1"
+# - Create tag v1.0.71-pre1
+# - Trigger release workflow (marks as prerelease on GitHub)
+# - Run e2e tests
+```
+
+#### Full release
+```bash
+# Ensure CHANGELOG has entry for this version
+./scripts/cut-release.sh --version 1.0.71 --push
+
+# This will:
+# - Update VERSION and Chart.yaml to 1.0.71
+# - Create commit "chore: release v1.0.71"
+# - Create tag v1.0.71
+# - Trigger release workflow (creates full GitHub Release)
+```
+
+#### Hotfix release (skip staging tests)
+```bash
+./scripts/cut-release.sh --version 1.0.71 --hotfix --push
+```
+
+### Manual Helm Chart Push (dev only)
+For quick iterations without a full release:
+```bash
+# Update VERSION and Chart.yaml manually
+echo "1.0.71-pre2" > VERSION
+sed -i 's/^version: .*/version: 1.0.71-pre2/' helm/serviceradar/Chart.yaml
+sed -i 's/^appVersion: .*/appVersion: "1.0.71-pre2"/' helm/serviceradar/Chart.yaml
+
+# Package and push
+helm package helm/serviceradar
+helm push serviceradar-1.0.71-pre2.tgz oci://ghcr.io/carverauto/charts
+rm serviceradar-1.0.71-pre2.tgz
+```
+
 ## Best Practices
 
 ### Simplicity First

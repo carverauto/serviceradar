@@ -7,16 +7,29 @@ Usage: scripts/cut-release.sh --version <version> [options]
 
 Options:
   --version <version>   Release version to publish (required).
+                        Use X.Y.Z for releases, X.Y.Z-preN for pre-releases.
   --tag-prefix <prefix> Prefix to prepend to the Git tag (default: v).
   --push                Push the branch and tag to origin when finished.
   --no-push             Do not push any refs (default).
   --dry-run             Print the actions without modifying the repository.
+  --prerelease          Mark as pre-release (auto-detected if version contains
+                        -pre, -rc, -alpha, or -beta).
   --skip-changelog-check
                         Skip validation that CHANGELOG contains an entry for the version.
   --skip-staging        Skip staging validation (for hotfixes). Sets [skip-staging]
                         in commit message to bypass e2e tests.
   --hotfix              Alias for --skip-staging.
   -h, --help            Show this message.
+
+Examples:
+  # Standard release (requires CHANGELOG entry)
+  scripts/cut-release.sh --version 1.0.71 --push
+
+  # Pre-release for testing (no CHANGELOG required, marked as prerelease)
+  scripts/cut-release.sh --version 1.0.71-pre1 --push
+
+  # Hotfix release (skips staging e2e tests)
+  scripts/cut-release.sh --version 1.0.71 --hotfix --push
 
 The script expects the working tree to be clean aside from VERSION and CHANGELOG changes.
 USAGE
@@ -28,6 +41,7 @@ push=false
 dry_run=false
 skip_changelog_check=false
 skip_staging=false
+prerelease=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -61,6 +75,10 @@ while [[ $# -gt 0 ]]; do
             dry_run=true
             shift
             ;;
+        --prerelease)
+            prerelease=true
+            shift
+            ;;
         --skip-changelog-check)
             skip_changelog_check=true
             shift
@@ -85,6 +103,21 @@ if [[ -z "$version" ]]; then
     echo "--version is required" >&2
     usage
     exit 1
+fi
+
+# Auto-detect pre-release from version string
+if [[ "$version" =~ -pre[0-9]*$ ]] || \
+   [[ "$version" =~ -rc[0-9]*$ ]] || \
+   [[ "$version" =~ -alpha[0-9]*$ ]] || \
+   [[ "$version" =~ -beta[0-9]*$ ]]; then
+    prerelease=true
+    echo "Detected pre-release version: $version"
+fi
+
+# Pre-releases automatically skip changelog check
+if [[ "$prerelease" == "true" ]]; then
+    skip_changelog_check=true
+    echo "Pre-release mode: changelog check skipped"
 fi
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
@@ -153,8 +186,11 @@ if git status --porcelain -- CHANGELOG >/dev/null 2>&1 && git status --porcelain
 fi
 
 commit_msg="chore: release $tag"
+if [[ "$prerelease" == "true" ]]; then
+    commit_msg="chore: pre-release $tag"
+fi
 if [[ "$skip_staging" == "true" ]]; then
-    commit_msg="chore: release $tag [skip-staging]"
+    commit_msg="$commit_msg [skip-staging]"
     echo "Note: Staging validation will be skipped for this release (hotfix mode)"
 fi
 
@@ -165,7 +201,9 @@ else
 fi
 
 notes=""
-if scripts/extract-changelog.py "$version" >/dev/null 2>&1; then
+if [[ "$prerelease" == "true" ]]; then
+    notes="Pre-release $tag for testing"
+elif scripts/extract-changelog.py "$version" >/dev/null 2>&1; then
     notes=$(scripts/extract-changelog.py "$version")
 else
     notes="Release $tag"
@@ -191,4 +229,11 @@ else
     echo "  git push origin $tag"
 fi
 
-printf 'Release preparation complete for %s\n' "$tag"
+if [[ "$prerelease" == "true" ]]; then
+    printf 'Pre-release preparation complete for %s\n' "$tag"
+    echo ""
+    echo "The release workflow will automatically mark this as a pre-release on GitHub."
+    echo "Pre-releases are for testing and will not be shown as the latest release."
+else
+    printf 'Release preparation complete for %s\n' "$tag"
+fi
