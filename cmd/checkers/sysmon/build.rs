@@ -29,7 +29,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(true)
         .build_client(false)
         .file_descriptor_set_path(monitoring_descriptor_path)
-        .compile(&[proto_path.clone()], &[proto_dir.clone()])?;
+        .compile(
+            std::slice::from_ref(&proto_path),
+            std::slice::from_ref(&proto_dir),
+        )?;
 
     println!("cargo:rerun-if-changed={}", proto_path.display());
     Ok(())
