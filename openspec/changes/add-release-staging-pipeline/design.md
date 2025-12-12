@@ -220,7 +220,7 @@ jobs:
 7. Published chart v1.0.75 with all template fixes
 8. Successfully deployed demo-staging: Sync: Synced, Health: Healthy (all 19 deployments running)
 
-### Phase 4: Environment Promotion (SIMPLIFIED)
+### Phase 4: Environment Promotion (DONE - Simplified)
 **Approach Changed:** After evaluating GitOps Promoter with Source Hydrator, we found the complexity didn't match our needs. The Source Hydrator requires specific credential configurations for write operations that proved difficult to set up with GitHub Apps.
 
 **Current Simple Approach:**
@@ -230,10 +230,11 @@ jobs:
 4. ArgoCD syncs demo-prod when PR is merged
 
 **What was tried and removed:**
-- GitOps Promoter v0.18.3 CRDs
-- ArgoCD Source Hydrator (argocd-commit-server)
-- Hydrated branch model (environments/demo-staging, environments/demo)
-- GitHub App for SCM access (sr-argocd-promoter)
+- GitOps Promoter v0.18.3 CRDs (uninstalled)
+- ArgoCD Source Hydrator (argocd-commit-server still installed but unused)
+- Hydrated branch model (environments/demo-staging, environments/demo branches exist but unused)
+- GitHub App for SCM access (sr-argocd-promoter - can be deleted from GitHub)
+- k8s/gitops-promoter/ directory (deleted)
 
 **Future consideration:** Could add GitHub Action to automate PR creation when staging e2e tests pass.
 
@@ -311,7 +312,31 @@ argocd app sync serviceradar-demo-prod
   - `demo` environment: stores admin password, core service IP for production demo
   - Tests authenticate via HTTP API using stored credentials
 
+## Lessons Learned
+
+### GitOps Promoter Complexity
+The ArgoCD GitOps Promoter with Source Hydrator was evaluated but proved too complex for our needs:
+- Source Hydrator requires write access to push hydrated manifests to git branches
+- GitHub App authentication for write operations required specific credential configurations
+- The complexity didn't match the value for a simple staging→production promotion
+
+**Recommendation:** For simple two-environment promotion (staging→prod), a manual PR-based approach or simple GitHub Action is more maintainable than GitOps Promoter.
+
+### ArgoCD Ingress Configuration
+During testing, ArgoCD became unreachable due to missing ingress annotations. Fixed by:
+```bash
+# Add HTTPS backend protocol annotation
+kubectl annotate ingress argocd-ingress -n argocd \
+  nginx.ingress.kubernetes.io/backend-protocol=HTTPS
+
+# Update to use argocd-server service on port 443
+kubectl patch ingress argocd-ingress -n argocd --type=json \
+  -p='[{"op": "replace", "path": "/spec/rules/0/http/paths/0/backend/service/name", "value": "argocd-server"},
+      {"op": "replace", "path": "/spec/rules/0/http/paths/0/backend/service/port/number", "value": 443}]'
+```
+
 ## Open Questions
 
-- [ ] What specific e2e test scenarios should gate promotion? (API health, device ingestion, SRQL queries?)
+- [x] ~~What specific e2e test scenarios should gate promotion?~~ Defined in e2e-tests.yml (API health, login, basic queries)
 - [ ] Should we support promoting to customer environments in the future?
+- [ ] When to migrate demo-prod from Kustomize to Helm chart?

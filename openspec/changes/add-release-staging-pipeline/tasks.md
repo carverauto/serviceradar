@@ -1,3 +1,26 @@
+## Summary
+
+**Status:** Mostly Complete - Demo-staging pipeline working, demo-prod migration pending
+
+| Section | Status |
+|---------|--------|
+| 1. OCI Image Version Tagging | ✅ Complete |
+| 2. Helm Chart OCI Registry | ✅ Complete |
+| 3. Helm Values Modernization | ✅ Complete |
+| 4. Demo-Staging ArgoCD App | ✅ Complete |
+| 5. Environment Promotion | ✅ Simplified (manual PR) |
+| 6. GitHub Environments & E2E | ✅ Complete |
+| 7. Release Workflow | ✅ Complete (pending full test) |
+| 8. Demo-Prod Migration | ⏳ Pending |
+| 9. Helm CI/CD Quality Gates | ✅ Complete |
+
+**Current State:**
+- Demo-staging: Synced, Healthy (using OCI Helm chart v1.0.75)
+- Demo-prod: Uses Kustomize, needs migration to Helm
+- Promotion: Manual (PR or kubectl patch to update version)
+
+---
+
 ## 1. OCI Image Version Tagging
 
 - [x] 1.1 Update `docker/images/push_targets.bzl` to generate version tag via expand_template
@@ -68,7 +91,7 @@ proved difficult to set up with GitHub Apps. A simpler manual PR-based promotion
 - [x] 6.3 Create `scripts/e2e-test.sh` that authenticates via HTTP API (not kubectl)
 - [x] 6.4 Create `.github/workflows/e2e-tests.yml` workflow using environment secrets
 - [x] 6.5 Implement e2e test scenarios (API health, login, basic queries)
-- [x] 6.6 Configure test results to update CommitStatus for promoter
+- [x] 6.6 ~~Configure test results to update CommitStatus for promoter~~ (N/A - promoter removed)
 - [x] 6.7 Define minimum passing criteria for promotion approval (all tests must pass)
 
 ## 7. Release Workflow Refactoring
@@ -84,9 +107,12 @@ proved difficult to set up with GitHub Apps. A simpler manual PR-based promotion
 
 ## 8. ArgoCD Demo Application Update
 
-- [x] 8.1 Update `k8s/argocd/applications/demo-prod.yaml` to use Helm chart from OCI registry
-- [x] 8.2 Configure demo to pull specific version tag (not `*`) for stability
-- [ ] 8.3 Set up ApplicationSet or sync waves if needed for ordered deployments
+**Note:** Demo-prod currently uses Kustomize (`k8s/demo/prod`) and has a sync error.
+Future work to migrate demo-prod to Helm chart like demo-staging.
+
+- [ ] 8.1 Update `k8s/argocd/applications/demo-prod.yaml` to use Helm chart from OCI registry
+- [ ] 8.2 Configure demo to pull specific version tag (not `*`) for stability
+- [N/A] 8.3 ~~Set up ApplicationSet or sync waves~~ (not needed for current scope)
 - [ ] 8.4 Verify demo deployment pulls promoted version correctly
 
 ## 9. Helm Chart CI/CD Quality Gates
