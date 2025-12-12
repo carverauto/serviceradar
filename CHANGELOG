@@ -1,3 +1,16 @@
+# ServiceRadar v1.0.75
+
+Release staging automation and Helm OCI distribution.
+
+## Whats New
+
+**1.0.75**
+- Release workflow now publishes the official Helm chart to GHCR as an OCI artifact (`oci://ghcr.io/carverauto/charts/serviceradar`).
+- OCI images are tagged with the semantic version (`v1.0.75`) alongside `sha-<commit>` and `latest`.
+- Added a demo-staging environment and post-release e2e smoke tests to validate deployments before promotion.
+- Updated Helm deployment documentation to reference the published OCI chart.
+- Reduced CI flakiness in KV watcher tests.
+
 # ServiceRadar v1.0.70
 
 Sysmon bare-metal mTLS defaults, edge onboarding fixes, and query/runtime hardening.
