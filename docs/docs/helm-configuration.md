@@ -98,7 +98,7 @@ Operational notes
 - For keeping scans fast with tuned routers, apply NOTRACK/conntrack tuning in parallel. See: [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md).
 
 See also
-- [Configuration Basics → Network Sweep](./configuration.md#network-sweep) for file-based config reference
+- [Configuration Basics -> Network Sweep](./configuration.md#network-sweep) for file-based config reference
 - [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md) for upstream router guidance
 
 ## Mapper Service Settings
@@ -106,7 +106,7 @@ See also
 The Helm chart ships a `serviceradar-config` ConfigMap that includes `mapper.json`. Update it before installing or as part of an overlay so Mapper discovers the right networks:
 
 - Copy `helm/serviceradar/files/serviceradar-config.yaml` into your deployment repo, edit the `mapper.json` block, and commit the changes alongside your values file. The ConfigMap is rendered with `tpl`, so you can inject Helm template expressions if you prefer.
-- Adjust **`workers`**, **`max_active_jobs`**, and timeout values to match your cluster’s SNMP budget.
+- Adjust **`workers`**, **`max_active_jobs`**, and timeout values to match your cluster's SNMP budget.
 - Fill in **`default_credentials`** and **`credentials[]`** with SNMP v2c/v3 settings per CIDR. Use the same ordering rules described in the [Discovery guide](./discovery.md#configuring-mapperjson).
 - Customize **`stream_config`** so emitted device, interface, and topology records use the stream names and tags you expect.
 - Define **`scheduled_jobs[]`** for recurring discovery. Each job needs `seeds`, discovery `type`, `interval`, and optional overrides such as `concurrency` or `timeout`.
