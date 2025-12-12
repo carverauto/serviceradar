@@ -1130,16 +1130,16 @@ func (s *edgeOnboardingService) DeliverPackage(ctx context.Context, req *models.
 	if securityMode == securityModeMTLS {
 		mtlsBundle, err = s.cipher.Decrypt(pkg.BundleCiphertext)
 		if err != nil {
-			return nil, fmt.Errorf("%w: decrypt mTLS bundle: %v", models.ErrEdgeOnboardingDecryptFailed, err)
+			return nil, fmt.Errorf("%w: decrypt mTLS bundle: %w", models.ErrEdgeOnboardingDecryptFailed, err)
 		}
 	} else {
 		joinTokenPlain, err = s.cipher.Decrypt(pkg.JoinTokenCiphertext)
 		if err != nil {
-			return nil, fmt.Errorf("%w: decrypt join token: %v", models.ErrEdgeOnboardingDecryptFailed, err)
+			return nil, fmt.Errorf("%w: decrypt join token: %w", models.ErrEdgeOnboardingDecryptFailed, err)
 		}
 		bundlePlain, err = s.cipher.Decrypt(pkg.BundleCiphertext)
 		if err != nil {
-			return nil, fmt.Errorf("%w: decrypt bundle: %v", models.ErrEdgeOnboardingDecryptFailed, err)
+			return nil, fmt.Errorf("%w: decrypt bundle: %w", models.ErrEdgeOnboardingDecryptFailed, err)
 		}
 	}
 

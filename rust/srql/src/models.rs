@@ -538,6 +538,43 @@ impl DiskMetricRow {
     }
 }
 
+#[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::process_metrics)]
+pub struct ProcessMetricRow {
+    pub timestamp: DateTime<Utc>,
+    pub poller_id: Option<String>,
+    pub agent_id: Option<String>,
+    pub host_id: Option<String>,
+    pub pid: Option<i32>,
+    pub name: Option<String>,
+    pub cpu_usage: Option<f32>,
+    pub memory_usage: Option<i64>,
+    pub status: Option<String>,
+    pub start_time: Option<String>,
+    pub device_id: Option<String>,
+    pub partition: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl ProcessMetricRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "timestamp": self.timestamp,
+            "poller_id": self.poller_id,
+            "agent_id": self.agent_id,
+            "host_id": self.host_id,
+            "pid": self.pid,
+            "name": self.name,
+            "cpu_usage": self.cpu_usage,
+            "memory_usage": self.memory_usage,
+            "status": self.status,
+            "start_time": self.start_time,
+            "device_id": self.device_id,
+            "partition": self.partition,
+        })
+    }
+}
+
 #[derive(Debug, Clone, QueryableByName)]
 pub struct TraceSummaryRow {
     #[diesel(sql_type = Timestamptz)]
