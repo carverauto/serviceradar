@@ -8,7 +8,7 @@
 
 ## 2. Helm Chart OCI Registry Setup
 
-- [x] 2.1 Push chart to OCI registry: `oci://ghcr.io/carverauto/charts/serviceradar:1.0.73` (includes all CNPG fixes)
+- [x] 2.1 Push chart to OCI registry: `oci://ghcr.io/carverauto/charts/serviceradar:1.0.75` (includes all CNPG fixes + template fixes)
 - [x] 2.2 Add helm package/push step to `.github/workflows/release.yml`
 - [x] 2.3 Update `scripts/cut-release.sh` to bump Chart.yaml version and appVersion automatically
 - [x] 2.4 Create ArgoCD repository credentials template (`k8s/argocd/config/ghcr-helm-repo.yaml`)
@@ -24,6 +24,8 @@
 - [x] 3.6 Fix CNPG secret name to use dynamic cluster name (`$cnpgClusterName-ca`) in core.yaml, srql.yaml, db-event-writer.yaml
 - [x] 3.7 Fix CNPG host to use dynamic cluster name (`$cnpgClusterName-rw`) in core.yaml, db-event-writer.yaml, config files
 - [x] 3.8 Update remaining templates to use helpers (flowgger, mapper, zen, sync, trapd, snmp-checker, faker, rperf-checker, otel)
+- [x] 3.9 Fix db-event-writer-config.yaml template whitespace issue (malformed apiVersion line)
+- [x] 3.10 Fix db-event-writer.yaml duplicate volume/volumeMount definitions
 
 ## 4. Demo-Staging ArgoCD Application
 
@@ -33,7 +35,7 @@
 - [x] 4.4 Configure `demo-staging` namespace creation via ArgoCD syncPolicy
 - [x] 4.5 ArgoCD repo credentials not needed - Helm chart made public in GHCR
 - [x] 4.6 Build and push v1.0.72 images with semantic version tags
-- [x] 4.7 Test ArgoCD sync for demo-staging deployment - chart 1.0.73 with CNPG fixes, all pods running
+- [x] 4.7 Test ArgoCD sync for demo-staging deployment - chart 1.0.75 with all fixes, Sync: Synced, Health: Healthy
 
 ## 5. GitOps Promoter Integration
 

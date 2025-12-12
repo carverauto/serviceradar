@@ -210,7 +210,7 @@ jobs:
 ### Phase 1: Helm Chart OCI Registry (DONE)
 1. ~~Create gh-pages branch~~ Using OCI registry instead
 2. Added helm package/push step to release.yml
-3. Published chart: `oci://ghcr.io/carverauto/charts/serviceradar:1.0.73`
+3. Published chart: `oci://ghcr.io/carverauto/charts/serviceradar:1.0.75`
 4. Updated `cut-release.sh` to bump Chart.yaml version automatically
 5. Created ArgoCD repo credentials template (not needed - chart made public)
 
@@ -219,6 +219,8 @@ jobs:
 2. Set default `image.tags.appTag` to `latest`
 3. Added helper templates for image tag/policy resolution
 4. Updated key templates (core, web, datasvc, agent, poller, srql)
+5. Fixed db-event-writer-config.yaml template whitespace issue (malformed apiVersion)
+6. Fixed db-event-writer.yaml duplicate volume/volumeMount definitions
 
 ### Phase 3: Demo-Staging Setup (DONE)
 1. Created demo-staging ArgoCD Application
@@ -227,8 +229,8 @@ jobs:
 4. Copied ghcr-io-cred image pull secret to demo-staging namespace
 5. Fixed CNPG secret name to use dynamic cluster name (`$cnpgClusterName-ca`) in templates
 6. Fixed CNPG host to use dynamic cluster name (`$cnpgClusterName-rw`) in templates
-7. Published chart v1.0.73 with all CNPG fixes and pushed v1.0.72 images
-8. Successfully deployed demo-staging with v1.0.72 images, CNPG 3-node cluster, all core services running
+7. Published chart v1.0.75 with all template fixes
+8. Successfully deployed demo-staging: Sync: Synced, Health: Healthy (all 19 deployments running)
 
 ### Phase 4: GitOps Promoter (PENDING)
 1. Install promoter CRDs
