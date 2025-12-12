@@ -100,7 +100,27 @@ Notes:
 - Chart versions are like `1.0.75`; ServiceRadar image tags are like `v1.0.75`.
 - If your cluster requires registry credentials, set `image.registryPullSecret` (default `ghcr-io-cred`).
 
-For ArgoCD deployments, use `ghcr.io/carverauto/charts` as the repository URL (without the `oci://` prefix).
+For ArgoCD deployments, use `ghcr.io/carverauto/charts` as the repository URL (without the `oci://` prefix):
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: serviceradar
+  namespace: argocd
+spec:
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: serviceradar
+  source:
+    repoURL: ghcr.io/carverauto/charts
+    chart: serviceradar
+    targetRevision: "1.0.75"
+    helm:
+      values: |
+        global:
+          imageTag: "v1.0.75"
+```
 
 ## Docker Deployment
 
