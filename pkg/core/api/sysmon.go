@@ -33,6 +33,23 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+// resolveSysmonMetricsProvider returns a provider that supports sysmon metrics queries.
+// Prefer the in-process metrics manager when it implements the full DB provider,
+// otherwise fall back to the DB service (CNPG/Timescale).
+func (s *APIServer) resolveSysmonMetricsProvider() (db.SysmonMetricsProvider, bool) {
+	if s.metricsManager != nil {
+		if provider, ok := s.metricsManager.(db.SysmonMetricsProvider); ok {
+			return provider, true
+		}
+	}
+	if s.dbService != nil {
+		if provider, ok := s.dbService.(db.SysmonMetricsProvider); ok {
+			return provider, true
+		}
+	}
+	return nil, false
+}
+
 // fetchMetrics is a generic helper to fetch metrics and handle errors.
 func fetchMetrics[T any](
 	ctx context.Context,
@@ -79,9 +96,9 @@ func (s *APIServer) getSysmonMetrics(
 	}
 
 	// Validate metrics provider
-	metricsProvider, ok := s.metricsManager.(db.SysmonMetricsProvider)
+	metricsProvider, ok := s.resolveSysmonMetricsProvider()
 	if !ok {
-		s.logger.Warn().Str("poller_id", pollerID).Msg("Metrics manager does not implement SysmonMetricsProvider")
+		s.logger.Warn().Str("poller_id", pollerID).Msg("No sysmon metrics provider available")
 		writeError(w, "System metrics not supported by this server", http.StatusNotImplemented)
 
 		return
@@ -356,7 +373,10 @@ func (s *APIServer) handleDeviceSysmonMetrics(
 
 	metricsProvider, ok := s.metricsManager.(db.SysmonMetricsProvider)
 	if !ok {
-		s.logger.Warn().Str("device_id", deviceID).Msg("Metrics manager does not implement SysmonMetricsProvider")
+		metricsProvider, ok = s.resolveSysmonMetricsProvider()
+	}
+	if !ok {
+		s.logger.Warn().Str("device_id", deviceID).Msg("No sysmon metrics provider available")
 		writeError(w, "System metrics not supported by this server", http.StatusNotImplemented)
 
 		return

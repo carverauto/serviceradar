@@ -115,7 +115,9 @@ pub fn download_package(payload: &TokenPayload) -> Result<PackageResponse> {
             ureq::Error::Transport(t) => Error::Http(t.to_string()),
         })?;
 
-    let package: PackageResponse = response.into_json().map_err(|e| Error::Http(e.to_string()))?;
+    let package: PackageResponse = response
+        .into_json()
+        .map_err(|e| Error::Http(e.to_string()))?;
 
     // Ensure package_id is set
     let package = if package.package_id.is_empty() {

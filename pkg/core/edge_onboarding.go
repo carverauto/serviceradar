@@ -799,7 +799,15 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		return nil, fmt.Errorf("%w: metadata_json must be valid JSON: %w", models.ErrEdgeOnboardingInvalidRequest, err)
 	}
 
-	securityMode := normalizeSecurityMode(strings.TrimSpace(req.SecurityMode), metadataMap)
+	rawSecurityMode := strings.TrimSpace(req.SecurityMode)
+	securityMode := normalizeSecurityMode(rawSecurityMode, metadataMap)
+	// Sysmon checkers on bare metal should default to mTLS unless explicitly set otherwise.
+	if rawSecurityMode == "" &&
+		strings.TrimSpace(metadataMap["security_mode"]) == "" &&
+		componentType == models.EdgeOnboardingComponentTypeChecker &&
+		strings.EqualFold(strings.TrimSpace(req.CheckerKind), "sysmon") {
+		securityMode = securityModeMTLS
+	}
 	metadataMap["security_mode"] = securityMode
 
 	if securityMode != securityModeMTLS && s.spire == nil {
@@ -1122,16 +1130,16 @@ func (s *edgeOnboardingService) DeliverPackage(ctx context.Context, req *models.
 	if securityMode == securityModeMTLS {
 		mtlsBundle, err = s.cipher.Decrypt(pkg.BundleCiphertext)
 		if err != nil {
-			return nil, fmt.Errorf("edge onboarding: decrypt mTLS bundle: %w", err)
+			return nil, fmt.Errorf("%w: decrypt mTLS bundle: %v", models.ErrEdgeOnboardingDecryptFailed, err)
 		}
 	} else {
 		joinTokenPlain, err = s.cipher.Decrypt(pkg.JoinTokenCiphertext)
 		if err != nil {
-			return nil, fmt.Errorf("edge onboarding: decrypt join token: %w", err)
+			return nil, fmt.Errorf("%w: decrypt join token: %v", models.ErrEdgeOnboardingDecryptFailed, err)
 		}
 		bundlePlain, err = s.cipher.Decrypt(pkg.BundleCiphertext)
 		if err != nil {
-			return nil, fmt.Errorf("edge onboarding: decrypt bundle: %w", err)
+			return nil, fmt.Errorf("%w: decrypt bundle: %v", models.ErrEdgeOnboardingDecryptFailed, err)
 		}
 	}
 
@@ -2176,6 +2184,7 @@ func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboard
 	pollerEndpoint := metadataValue(metadata, componentType, "poller_endpoint")
 	coreEndpoint := metadataValue(metadata, componentType, "core_endpoint", "core_address")
 	kvEndpoint := metadataValue(metadata, componentType, "kv_endpoint", "kv_address")
+	checkerEndpoint := metadataValue(metadata, componentType, "checker_endpoint", "checker_address")
 
 	endpoints := make(map[string]string)
 	if pollerEndpoint != "" {
@@ -2186,6 +2195,11 @@ func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboard
 	}
 	if kvEndpoint != "" {
 		endpoints["kv"] = kvEndpoint
+	}
+	// For checker packages, allow including the checker endpoint itself in the cert SANs.
+	// This enables external checkers (like bare-metal sysmon) to be verified by IP/DNS.
+	if componentType == models.EdgeOnboardingComponentTypeChecker && checkerEndpoint != "" {
+		endpoints["checker"] = checkerEndpoint
 	}
 
 	// Provide a sensible default for checkers if no poller endpoint set
@@ -2230,7 +2244,7 @@ func mintClientCertificate(caCert *x509.Certificate, caKey crypto.Signer, client
 	dnsNames := uniqueNonEmpty(clientName, fmt.Sprintf("%s.serviceradar", clientName), serverName)
 	var ipAddresses []net.IP
 
-	for _, ep := range []string{endpoints["poller"], endpoints["core"]} {
+	for _, ep := range []string{endpoints["poller"], endpoints["core"], endpoints["checker"]} {
 		host := endpointHost(ep)
 		if host == "" {
 			continue
@@ -2784,15 +2798,28 @@ func (s *edgeOnboardingService) addCheckerToPollerConfig(ctx context.Context, pk
 		return nil
 	}
 
-	// Build the new check entry
+	normalizedKind := strings.ToLower(strings.TrimSpace(pkg.CheckerKind))
+	// For gRPC-based checkers, the agent expects service_type="grpc" and service_name=<kind>.
 	newCheck := pollerCheckConfig{
-		Type: pkg.CheckerKind,
-		Name: pkg.CheckerKind, // Default to checker_kind as name
+		Type: "grpc",
+		Name: pkg.CheckerKind,
+	}
+
+	// Clean up legacy sysmon entries that used service_type=sysmon.
+	if normalizedKind == "sysmon" || normalizedKind == "sysmon-osx" {
+		filtered := agent.Checks[:0]
+		for _, check := range agent.Checks {
+			if strings.EqualFold(check.Type, pkg.CheckerKind) {
+				continue
+			}
+			filtered = append(filtered, check)
+		}
+		agent.Checks = filtered
 	}
 
 	// Check if this check type already exists for the agent
 	for _, check := range agent.Checks {
-		if check.Type == newCheck.Type {
+		if check.Type == newCheck.Type && check.Name == newCheck.Name {
 			s.logger.Debug().
 				Str("checker_kind", pkg.CheckerKind).
 				Str("agent_id", agentID).
@@ -2868,6 +2895,8 @@ func (s *edgeOnboardingService) substituteTemplateVariables(templateJSON string,
 		"server_name":      true,
 		"client_cert_name": true,
 		"poller_endpoint":  true,
+		"checker_endpoint": true,
+		"checker_address":  true,
 		"core_endpoint":    true,
 		"kv_endpoint":      true,
 		"datasvc_endpoint": true,

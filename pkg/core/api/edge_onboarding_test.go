@@ -417,6 +417,23 @@ func TestHandleDownloadEdgePackageInvalidToken(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
+func TestHandleDownloadEdgePackageDecryptError(t *testing.T) {
+	service := &stubEdgeOnboardingService{
+		deliverErr: models.ErrEdgeOnboardingDecryptFailed,
+	}
+	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service), WithLogger(logger.NewTestLogger()))
+
+	body, _ := json.Marshal(edgePackageDownloadRequest{DownloadToken: "token"})
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/edge-packages/pkg-1/download?format=json", bytes.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"id": "pkg-1"})
+
+	rec := httptest.NewRecorder()
+	server.handleDownloadEdgePackage(rec, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Contains(t, rec.Body.String(), "decryption")
+}
+
 func TestHandleDownloadEdgePackageJSONResponse(t *testing.T) {
 	now := time.Now()
 	service := &stubEdgeOnboardingService{
