@@ -1,5 +1,5 @@
 # Demo-Staging Environment Values
-# Used by Source Hydrator for rendering manifests
+# Consumed by ArgoCD via Helm `valueFiles`.
 
 namespace: demo-staging
 

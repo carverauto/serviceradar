@@ -15,48 +15,8 @@ spec:
     targetRevision: "*"
     helm:
       releaseName: serviceradar
-      # Inline values for staging-specific configuration
-      values: |
-        namespace: demo-staging
-
-        # Use global settings to override all ServiceRadar images at once
-        global:
-          imageTag: "latest"
-          imagePullPolicy: Always
-
-        image:
-          registryPullSecret: ghcr-io-cred
-
-        ingress:
-          enabled: true
-          host: staging.serviceradar.cloud
-          className: nginx
-          tls:
-            enabled: true
-            secretName: serviceradar-staging-tls
-            clusterIssuer: carverauto-issuer
-
-        # Staging uses smaller faker simulation
-        faker:
-          simulation:
-            totalDevices: 1000
-            ipShuffle:
-              enabled: true
-              interval: "10m"
-              percentage: 5
-              warmupCycles: 2
-              allowExpansion: false
-              poolHeadroomPercent: 0
-
-        spire:
-          enabled: true
-          trustDomain: carverauto.dev
-          clusterName: carverauto-cluster
-          postgres:
-            enabled: true
-            clusterName: cnpg-staging
-            instances: 3
-            storageSize: 10Gi
+      valueFiles:
+        - values-demo-staging.yaml
 
   destination:
     server: https://kubernetes.default.svc

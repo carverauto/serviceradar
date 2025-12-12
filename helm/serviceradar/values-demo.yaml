@@ -1,10 +1,9 @@
 # Demo (Production) Environment Values
-# Used by Source Hydrator for rendering manifests
+# Consumed by ArgoCD via Helm `valueFiles`.
 
 namespace: demo
 
 global:
-  imageTag: "v1.0.75"  # Pin to specific version for production
   imagePullPolicy: IfNotPresent
 
 image:
@@ -14,21 +13,31 @@ ingress:
   enabled: true
   host: demo.serviceradar.cloud
   className: nginx
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "true"
+    metallb.universe.tf/address-pool: k3s-pool
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
+    nginx.ingress.kubernetes.io/proxy-busy-buffers-size: "256k"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
   tls:
     enabled: true
-    secretName: serviceradar-demo-tls
+    secretName: serviceradar-prod-tls
     clusterIssuer: carverauto-issuer
 
 faker:
   simulation:
-    totalDevices: 5000
+    totalDevices: 50000
     ipShuffle:
       enabled: true
-      interval: "30m"
-      percentage: 10
-      warmupCycles: 3
-      allowExpansion: true
-      poolHeadroomPercent: 10
+      interval: "10m"
+      percentage: 5
+      warmupCycles: 2
+      allowExpansion: false
+      poolHeadroomPercent: 0
 
 spire:
   enabled: true
@@ -36,6 +45,6 @@ spire:
   clusterName: carverauto-cluster
   postgres:
     enabled: true
-    clusterName: cnpg-demo
+    clusterName: cnpg
     instances: 3
-    storageSize: 50Gi
+    storageSize: 100Gi
