@@ -210,9 +210,9 @@ jobs:
 ### Phase 1: Helm Chart OCI Registry (DONE)
 1. ~~Create gh-pages branch~~ Using OCI registry instead
 2. Added helm package/push step to release.yml
-3. Published chart: `oci://ghcr.io/carverauto/charts/serviceradar:1.0.71`
+3. Published chart: `oci://ghcr.io/carverauto/charts/serviceradar:1.0.73`
 4. Updated `cut-release.sh` to bump Chart.yaml version automatically
-5. Created ArgoCD repo credentials template
+5. Created ArgoCD repo credentials template (not needed - chart made public)
 
 ### Phase 2: Helm Values Modernization (DONE)
 1. Added `global.imageTag` and `global.imagePullPolicy` to values.yaml
@@ -225,7 +225,10 @@ jobs:
 2. Configured to use OCI Helm chart with inline values
 3. Made Helm chart public in GHCR (no credentials needed)
 4. Copied ghcr-io-cred image pull secret to demo-staging namespace
-5. Successfully deployed demo-staging with v1.0.71 images
+5. Fixed CNPG secret name to use dynamic cluster name (`$cnpgClusterName-ca`) in templates
+6. Fixed CNPG host to use dynamic cluster name (`$cnpgClusterName-rw`) in templates
+7. Published chart v1.0.73 with all CNPG fixes and pushed v1.0.72 images
+8. Successfully deployed demo-staging with v1.0.72 images, CNPG 3-node cluster, all core services running
 
 ### Phase 4: GitOps Promoter (PENDING)
 1. Install promoter CRDs
@@ -236,6 +239,11 @@ jobs:
 1. Update release workflow for staged deployment
 2. Test complete flow with pre-release
 3. Document and train team
+
+### Phase 6: Helm Chart CI/CD Quality Gates (PENDING)
+1. Add `helm lint` step to CI workflow (path-filtered to helm/ changes)
+2. Add `helm template` validation for chart rendering
+3. Consider chart-testing (`ct lint`) integration
 
 ### Rollback Procedure
 1. Revert to previous chart version via ArgoCD

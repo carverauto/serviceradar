@@ -11,7 +11,7 @@ spec:
     # OCI Helm chart from ghcr.io
     repoURL: ghcr.io/carverauto/charts
     chart: serviceradar
-    targetRevision: "1.0.72"
+    targetRevision: "1.0.73"
     helm:
       releaseName: serviceradar
       # Inline values for staging-specific configuration
@@ -21,7 +21,7 @@ spec:
         # Use global settings to override all ServiceRadar images at once
         # Using 'latest' until v1.0.71 images are published with new versioning
         global:
-          imageTag: "latest"
+          imageTag: "v1.0.72"
           imagePullPolicy: Always
 
         image:
@@ -55,12 +55,17 @@ spec:
           postgres:
             enabled: true
             clusterName: cnpg-staging
-            instances: 1
+            instances: 3
             storageSize: 10Gi
 
   destination:
     server: https://kubernetes.default.svc
     namespace: demo-staging
+  ignoreDifferences:
+    - group: ""
+      kind: PersistentVolumeClaim
+      jsonPointers:
+        - /status
   syncPolicy:
     automated:
       prune: true
@@ -68,6 +73,8 @@ spec:
       allowEmpty: false
     syncOptions:
       - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:

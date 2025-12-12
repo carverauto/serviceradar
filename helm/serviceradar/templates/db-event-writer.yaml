@@ -63,7 +63,7 @@ spec:
         - name: WAIT_FOR_CNPG
           value: "true"
         - name: CNPG_HOST
-          value: {{ default (printf "cnpg-rw.%s.svc.cluster.local" .Release.Namespace) $cnpg.host | quote }}
+          value: {{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) $cnpg.host | quote }}
         - name: CNPG_PORT
           value: {{ default 5432 $cnpg.port | quote }}
         - name: CNPG_DATABASE

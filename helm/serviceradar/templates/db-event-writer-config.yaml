@@ -2,6 +2,8 @@
 # Rendered as-is from staging overlay
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 {{- $cnpg := default (dict) .Values.cnpg }}
+{{- $pg := default (dict) .Values.spire.postgres -}}
+{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -26,7 +28,7 @@ data:
         { "subject": "events.otel.metrics.raw", "table": "otel_metrics" }
       ],
       "cnpg": {
-        "host": "cnpg-rw.{{ .Release.Namespace }}.svc.cluster.local",
+        "host": "{{ $cnpgClusterName }}-rw.{{ .Release.Namespace }}.svc.cluster.local",
         "port": 5432,
         "database": {{ default "serviceradar" .Values.cnpg.database | quote }},
         "username": {{ default "serviceradar" .Values.cnpg.username | quote }},

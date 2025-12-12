@@ -6,6 +6,8 @@
 {{- $agentVals := default (dict) .Values.agent -}}
 {{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
 {{- $cnpgRuntime := default (dict) .Values.cnpg.runtimeParams -}}
+{{- $pg := default (dict) .Values.spire.postgres -}}
+{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $otelSA := .Values.spire.otelServiceAccount | default "serviceradar-otel" -}}
 {{- $syncSA := .Values.spire.syncServiceAccount | default "serviceradar-sync" -}}
 {{- $zenSA := .Values.spire.zenServiceAccount | default "serviceradar-zen" -}}
@@ -30,7 +32,7 @@ data:
       "grpc_addr": ":50052",
       "api_key": "",
       "cnpg": {
-        "host": "{{ default (printf "cnpg-rw.%s.svc.cluster.local" .Release.Namespace) .Values.cnpg.host }}",
+        "host": "{{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) .Values.cnpg.host }}",
         "port": {{ default 5432 .Values.cnpg.port }},
         "database": "{{ default "serviceradar" .Values.cnpg.database }}",
         "username": "{{ default "serviceradar" .Values.cnpg.username }}",
@@ -802,7 +804,7 @@ data:
       echo "Using runtime configuration at $CONFIG_PATH"
   
       EFFECTIVE_NAMESPACE="${KUBERNETES_NAMESPACE:-{{$spireNamespace}}}"
-      CNPG_HOST_VALUE="${CNPG_HOST:-cnpg-rw.${EFFECTIVE_NAMESPACE}.svc.cluster.local}"
+      CNPG_HOST_VALUE="${CNPG_HOST:-{{ $cnpgClusterName }}-rw.${EFFECTIVE_NAMESPACE}.svc.cluster.local}"
       CNPG_PORT_VALUE="${CNPG_PORT:-5432}"
       CNPG_DATABASE_VALUE="${CNPG_DATABASE:-serviceradar}"
       CNPG_USERNAME_VALUE="${CNPG_USERNAME:-postgres}"
