@@ -2,6 +2,31 @@
 {{- printf "serviceradar" -}}
 {{- end -}}
 
+{{/*
+Get image tag for a service.
+Uses global.imageTag if set, otherwise falls back to the service-specific tag.
+Usage: {{ include "serviceradar.imageTag" (dict "Values" .Values "service" "core") }}
+*/}}
+{{- define "serviceradar.imageTag" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $globalTag := $global.imageTag | default "" -}}
+{{- if $globalTag -}}
+{{- $globalTag -}}
+{{- else -}}
+{{- index .Values.image.tags .service -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Get image pull policy.
+Uses global.imagePullPolicy if set, otherwise defaults to IfNotPresent.
+Usage: {{ include "serviceradar.imagePullPolicy" . }}
+*/}}
+{{- define "serviceradar.imagePullPolicy" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $global.imagePullPolicy | default "IfNotPresent" -}}
+{{- end -}}
+
 {{- define "serviceradar.imagePullSecrets" -}}
 {{- if .Values.image.registryPullSecret }}
 imagePullSecrets:

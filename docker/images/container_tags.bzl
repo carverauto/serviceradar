@@ -6,6 +6,7 @@ def _immutable_tag_file_impl(ctx):
 
     digest_file = ctx.file.digest
     commit_file = ctx.file.commit_tags
+    version_file = ctx.file.version_tags
     out = ctx.outputs.tags
 
     args = [
@@ -14,6 +15,7 @@ def _immutable_tag_file_impl(ctx):
         str(ctx.attr.short_length),
         out.path,
         commit_file.path if commit_file else "",
+        version_file.path if version_file else "",
     ] + ctx.attr.static_tags
 
     command = """
@@ -29,7 +31,8 @@ prefix="$2"
 length="$3"
 out="$4"
 commit_file="$5"
-shift 5
+version_file="$6"
+shift 6
 
 short=$(printf '%s' "${digest#sha256:}" | cut -c1-"${length}")
 
@@ -40,6 +43,15 @@ short=$(printf '%s' "${digest#sha256:}" | cut -c1-"${length}")
         printf '%s\\n' "$line"
       fi
     done < "$commit_file"
+  fi
+
+  # Include semantic version tag (e.g., v1.0.70) if provided
+  if [[ -n "$version_file" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if [[ -n "$line" && "$line" != "vdev" ]]; then
+        printf '%s\\n' "$line"
+      fi
+    done < "$version_file"
   fi
 
   for tag in "$@"; do
@@ -55,6 +67,8 @@ short=$(printf '%s' "${digest#sha256:}" | cut -c1-"${length}")
     inputs = [digest_file]
     if commit_file:
         inputs.append(commit_file)
+    if version_file:
+        inputs.append(version_file)
 
     ctx.actions.run_shell(
         inputs = inputs,
@@ -76,6 +90,10 @@ immutable_push_tags = rule(
         "commit_tags": attr.label(
             allow_single_file = True,
             doc = "Optional file providing commit-derived tags (one per line).",
+        ),
+        "version_tags": attr.label(
+            allow_single_file = True,
+            doc = "Optional file providing semantic version tags (one per line, e.g., v1.0.70).",
         ),
         "static_tags": attr.string_list(
             default = [],

@@ -15,7 +15,8 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: web
-        image: ghcr.io/carverauto/serviceradar-web:{{ .Values.image.tags.web }}
+        image: ghcr.io/carverauto/serviceradar-web:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "web") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         - containerPort: 3000
           name: http

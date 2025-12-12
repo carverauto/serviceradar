@@ -34,7 +34,8 @@ spec:
               mountPath: /etc/serviceradar/checkers
       containers:
         - name: agent
-          image: ghcr.io/carverauto/serviceradar-agent:{{ .Values.image.tags.agent }}
+          image: ghcr.io/carverauto/serviceradar-agent:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "agent") }}
+          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
           volumeMounts:
           - name: serviceradar-config
             mountPath: /etc/serviceradar

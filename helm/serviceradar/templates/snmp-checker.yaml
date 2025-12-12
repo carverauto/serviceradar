@@ -25,7 +25,8 @@ spec:
               mountPath: /etc/serviceradar/checkers
       containers:
       - name: snmp-checker
-        image: ghcr.io/carverauto/serviceradar-snmp-checker:{{ .Values.image.tags.snmpChecker }}
+        image: ghcr.io/carverauto/serviceradar-snmp-checker:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "snmpChecker") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         - containerPort: 50054
           name: grpc

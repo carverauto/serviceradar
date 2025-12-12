@@ -18,7 +18,8 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: zen
-        image: ghcr.io/carverauto/serviceradar-zen:{{ .Values.image.tags.zen }}
+        image: ghcr.io/carverauto/serviceradar-zen:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "zen") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         - containerPort: 50040
           name: grpc

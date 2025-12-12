@@ -3,6 +3,8 @@
 {{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
 {{- $coreSA := .Values.spire.coreServiceAccount | default "serviceradar-core" -}}
 {{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $pg := default (dict) .Values.spire.postgres -}}
+{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -75,8 +77,8 @@ spec:
           mountPath: /var/lib/serviceradar
       containers:
       - name: core
-        image: ghcr.io/carverauto/serviceradar-core:{{ .Values.image.tags.core }}
-        imagePullPolicy: Always
+        image: ghcr.io/carverauto/serviceradar-core:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "core") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         command: ["/bin/bash"]
         args:
         - -c
@@ -99,7 +101,7 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
-        - name: cnpg-ca
+        - name: {{ $cnpgClusterName }}-ca
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
         - name: spire-agent-socket
@@ -120,7 +122,7 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: CNPG_HOST
-          value: {{ default (printf "cnpg-rw.%s.svc.cluster.local" .Release.Namespace) $cnpg.host | quote }}
+          value: {{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) $cnpg.host | quote }}
         - name: CNPG_PORT
           value: {{ default 5432 $cnpg.port | quote }}
         - name: CNPG_DATABASE
@@ -196,9 +198,9 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
-      - name: cnpg-ca
+      - name: {{ $cnpgClusterName }}-ca
         secret:
-          secretName: cnpg-ca
+          secretName: {{ $cnpgClusterName }}-ca
       - name: spire-agent-socket
         hostPath:
           path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
