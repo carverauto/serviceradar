@@ -5,6 +5,10 @@ metadata:
   namespace: promoter-system
 spec:
   secretRef:
-    name: github-app-promoter
+    name: github-token
   github:
     domain: github.com
+# Secret format for PAT:
+# kubectl create secret generic github-token \
+#   --namespace promoter-system \
+#   --from-literal=token=ghp_xxxxxxxxxxxx

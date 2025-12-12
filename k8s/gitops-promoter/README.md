@@ -4,40 +4,28 @@
 
 1. ArgoCD with Source Hydrator enabled (done)
 2. GitOps Promoter installed (done)
-3. GitHub App for SCM access (required)
+3. GitHub Personal Access Token (required)
 
-## Step 1: Create GitHub App
+## Step 1: Create GitHub Personal Access Token
 
-Create a GitHub App at: https://github.com/settings/apps/new
+Go to: https://github.com/settings/tokens?type=beta (Fine-grained tokens)
 
-**App Settings:**
+**Token Settings:**
 - Name: `serviceradar-promoter`
-- Homepage URL: `https://github.com/carverauto/serviceradar`
-- Webhook: Disabled (uncheck "Active")
+- Expiration: 90 days (or as needed)
+- Repository access: `carverauto/serviceradar`
 
-**Repository Permissions:**
-- Checks: Read and write
+**Permissions:**
 - Contents: Read and write
 - Pull requests: Read and write
 - Commit statuses: Read and write
 
-**Organization Permissions:**
-- Members: Read-only (if using org)
-
-After creation:
-1. Note the App ID
-2. Note the Installation ID (from the "Install" tab after installing to carverauto org)
-3. Generate and download a Private Key
-
 ## Step 2: Create Kubernetes Secret
 
 ```bash
-# Create the secret with the GitHub App credentials
-kubectl create secret generic github-app-promoter \
+kubectl create secret generic github-token \
   --namespace promoter-system \
-  --from-literal=appID=<YOUR_APP_ID> \
-  --from-literal=installationID=<YOUR_INSTALLATION_ID> \
-  --from-file=privateKey=<PATH_TO_PRIVATE_KEY.pem>
+  --from-literal=token=github_pat_xxxxxx
 ```
 
 ## Step 3: Apply SCM Provider and GitRepository
