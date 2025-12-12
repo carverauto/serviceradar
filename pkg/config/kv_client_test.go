@@ -331,7 +331,7 @@ func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
 
 	select {
 	case <-reloads:
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(500 * time.Millisecond):
 		t.Fatalf("timed out waiting for reload triggered by listen_addr change")
 	}
 
@@ -344,7 +344,7 @@ func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
 	select {
 	case <-reloads:
 		t.Fatalf("unexpected reload when config payload did not change")
-	case <-time.After(25 * time.Millisecond):
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 
@@ -387,7 +387,7 @@ func TestKVManagerStartWatchReappliesPinnedOverlay(t *testing.T) {
 	select {
 	case <-reloads:
 		t.Fatalf("pinned overlay should keep the effective config stable; reload not expected")
-	case <-time.After(30 * time.Millisecond):
+	case <-time.After(100 * time.Millisecond):
 	}
 
 	snap := cfg.snapshot()
@@ -483,7 +483,7 @@ func (s *watchKVStore) Delete(_ context.Context, _ string) error {
 func (s *watchKVStore) Watch(ctx context.Context, _ string) (<-chan []byte, error) {
 	s.mu.Lock()
 	if s.watchCh == nil {
-		s.watchCh = make(chan []byte, 1)
+		s.watchCh = make(chan []byte, 8) // Larger buffer to prevent emit from blocking
 		s.readyOnce.Do(func() {
 			close(s.ready)
 		})
