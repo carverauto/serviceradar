@@ -1,0 +1,41 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: serviceradar-demo-staging-hydrated
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: serviceradar-promoter
+    environment: demo-staging
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo-staging
+  # Source Hydrator configuration
+  sourceHydrator:
+    # Dry source: The Helm chart with values
+    drySource:
+      repoURL: https://github.com/carverauto/serviceradar.git
+      path: helm/serviceradar
+      targetRevision: HEAD
+      helm:
+        releaseName: serviceradar
+        valueFiles:
+          - values-demo-staging.yaml
+    # Sync source: the hydrated branch where manifests are stored
+    syncSource:
+      targetBranch: environments/demo-staging
+      path: demo-staging
+    # Hydrate to: staging branch for PR-based promotion
+    hydrateTo:
+      targetBranch: environments/demo-staging-next
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

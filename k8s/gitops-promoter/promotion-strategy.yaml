@@ -1,0 +1,24 @@
+apiVersion: promoter.argoproj.io/v1alpha1
+kind: PromotionStrategy
+metadata:
+  name: serviceradar-release
+  namespace: promoter-system
+spec:
+  gitRepositoryRef:
+    name: serviceradar
+  # Commit statuses required for live environment branches
+  activeCommitStatuses:
+    - key: argocd-health
+  # Commit statuses required for proposed changes (PRs)
+  proposedCommitStatuses:
+    - key: e2e-tests
+  # Environment progression: demo-staging -> demo
+  environments:
+    - branch: environments/demo-staging
+      autoMerge: true
+    - branch: environments/demo
+      autoMerge: false  # Require manual approval for production demo
+      activeCommitStatuses:
+        - key: argocd-health
+      proposedCommitStatuses:
+        - key: e2e-tests

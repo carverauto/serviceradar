@@ -1,0 +1,10 @@
+apiVersion: promoter.argoproj.io/v1alpha1
+kind: GitRepository
+metadata:
+  name: serviceradar
+  namespace: promoter-system
+spec:
+  owner: carverauto
+  name: serviceradar
+  scmProviderRef:
+    name: github-carverauto

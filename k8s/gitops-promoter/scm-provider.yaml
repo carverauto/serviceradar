@@ -1,0 +1,10 @@
+apiVersion: promoter.argoproj.io/v1alpha1
+kind: ScmProvider
+metadata:
+  name: github-carverauto
+  namespace: promoter-system
+spec:
+  secretRef:
+    name: github-app-promoter
+  github:
+    domain: github.com

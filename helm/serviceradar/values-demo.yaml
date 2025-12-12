@@ -1,0 +1,41 @@
+# Demo (Production) Environment Values
+# Used by Source Hydrator for rendering manifests
+
+namespace: demo
+
+global:
+  imageTag: "v1.0.75"  # Pin to specific version for production
+  imagePullPolicy: IfNotPresent
+
+image:
+  registryPullSecret: ghcr-io-cred
+
+ingress:
+  enabled: true
+  host: demo.serviceradar.cloud
+  className: nginx
+  tls:
+    enabled: true
+    secretName: serviceradar-demo-tls
+    clusterIssuer: carverauto-issuer
+
+faker:
+  simulation:
+    totalDevices: 5000
+    ipShuffle:
+      enabled: true
+      interval: "30m"
+      percentage: 10
+      warmupCycles: 3
+      allowExpansion: true
+      poolHeadroomPercent: 10
+
+spire:
+  enabled: true
+  trustDomain: carverauto.dev
+  clusterName: carverauto-cluster
+  postgres:
+    enabled: true
+    clusterName: cnpg-demo
+    instances: 3
+    storageSize: 50Gi
