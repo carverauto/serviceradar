@@ -1,3 +1,18 @@
+# ServiceRadar v1.0.70
+
+Sysmon bare-metal mTLS defaults, edge onboarding fixes, and query/runtime hardening.
+
+## Whats New
+
+**1.0.70**
+- Sysmon checker packages for RPM/deb installs now ship with mTLS defaults (instead of SPIFFE) and look for certs/config in standard bare‑metal paths.
+- Edge onboarding for sysmon checkers fixed: defaults to mTLS when security mode is omitted, includes correct endpoint SANs, and installs certs with proper ownership/permissions.
+- Core now ingests sysmon metrics from any gRPC service named `sysmon-*`, preventing UI‑configured checks from going stale.
+- Sysmon checker implements `GetResults` (matching poller expectations) and builds from shared `monitoring.proto`.
+- SRQL adds `process_metrics` entity so UI Process Details queries no longer 400.
+- Bazel npm `__links` repos synced for React/Next CVE bumps; added `scripts/sync-npm-links.py` to automate future updates.
+- Short Go test timeout raised to avoid race/coverage flakiness.
+
 # ServiceRadar v1.0.69
 
 Edge onboarding lint cleanup and test consolidation.
