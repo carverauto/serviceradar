@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: serviceradar-demo-prod
+  name: serviceradar-demo-staging
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -11,18 +11,16 @@ spec:
     # OCI Helm chart from ghcr.io
     repoURL: ghcr.io/carverauto/charts
     chart: serviceradar
-    targetRevision: "1.0.75"
+    # Track the latest published chart in staging.
+    targetRevision: "*"
     helm:
       releaseName: serviceradar
       valueFiles:
-        - values-demo.yaml
-      parameters:
-        - name: global.imageTag
-          value: "v1.0.75"
+        - values-demo-staging.yaml
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: demo
+    namespace: demo-staging
   ignoreDifferences:
     - group: ""
       kind: PersistentVolumeClaim

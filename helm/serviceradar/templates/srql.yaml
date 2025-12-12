@@ -1,6 +1,8 @@
 {{- $cnpg := default (dict) .Values.cnpg -}}
 {{- $ns := .Release.Namespace -}}
-{{- $cnpgHost := default (printf "cnpg-rw.%s.svc.cluster.local" $ns) $cnpg.host -}}
+{{- $pg := default (dict) .Values.spire.postgres -}}
+{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
+{{- $cnpgHost := default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName $ns) $cnpg.host -}}
 {{- if or (not (hasKey .Values "srql")) (.Values.srql.enabled | default true) -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -24,8 +26,8 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: srql
-        image: ghcr.io/carverauto/serviceradar-srql:{{ default "latest" .Values.image.tags.srql }}
-        imagePullPolicy: IfNotPresent
+        image: ghcr.io/carverauto/serviceradar-srql:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "srql") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         - containerPort: 8080
           name: http
@@ -65,7 +67,7 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
-        - name: cnpg-ca
+        - name: {{ $cnpgClusterName }}-ca
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
         resources:
@@ -95,9 +97,9 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
-      - name: cnpg-ca
+      - name: {{ $cnpgClusterName }}-ca
         secret:
-          secretName: cnpg-ca
+          secretName: {{ $cnpgClusterName }}-ca
 ---
 apiVersion: v1
 kind: Service

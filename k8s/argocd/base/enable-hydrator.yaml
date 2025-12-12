@@ -1,0 +1,9 @@
+# Patch to enable ArgoCD Source Hydrator
+# Apply with: kubectl patch configmap argocd-cmd-params-cm -n argocd --patch-file k8s/argocd/base/enable-hydrator.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+  namespace: argocd
+data:
+  hydrator.enabled: "true"

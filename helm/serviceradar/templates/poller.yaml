@@ -171,7 +171,8 @@ spec:
 {{- end }}
       containers:
       - name: poller
-        image: ghcr.io/carverauto/serviceradar-poller:{{ .Values.image.tags.poller }}
+        image: ghcr.io/carverauto/serviceradar-poller:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "poller") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         volumeMounts:
         - name: serviceradar-config
           mountPath: /etc/serviceradar

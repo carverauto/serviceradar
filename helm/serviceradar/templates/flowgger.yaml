@@ -66,8 +66,8 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: flowgger
-        image: ghcr.io/carverauto/serviceradar-flowgger:{{ .Values.image.tags.flowgger }}
-        imagePullPolicy: Always
+        image: ghcr.io/carverauto/serviceradar-flowgger:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "flowgger") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         - name: syslog
           containerPort: 514

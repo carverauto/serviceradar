@@ -1,9 +1,20 @@
 namespace: demo
+
+# Global settings that apply across all services
+global:
+  # Override all ServiceRadar image tags at once. When set, this takes precedence
+  # over individual image.tags.* values. Use for releases (e.g., "v1.0.70").
+  # Leave empty to use individual tags below.
+  imageTag: ""
+  # Image pull policy: IfNotPresent (default), Always (for staging/mutable tags), Never
+  imagePullPolicy: IfNotPresent
+
 image:
   registryPullSecret: ghcr-io-cred
   tags:
-    appTag: &appTag "sha-0933fd20c98038af196c35ea9f5cc95e3dc38909"
-    # ServiceRadar UUID identity system - generates stable device IDs based on strong identifiers
+    # Default tag for ServiceRadar images. Use global.imageTag to override all at once.
+    # For production, set global.imageTag to a specific version (e.g., "v1.0.71").
+    appTag: &appTag "latest"
     core: *appTag
     web: *appTag
     nats: "2.12.2-alpine"
@@ -17,7 +28,6 @@ image:
     trapd: *appTag
     flowgger: *appTag
     zen: *appTag
-    # Armis sync uses empty DeviceID - registry generates ServiceRadar UUIDs
     sync: *appTag
     rperfClient: *appTag
     faker: *appTag

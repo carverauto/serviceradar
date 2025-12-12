@@ -16,7 +16,8 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: sync
-        image: ghcr.io/carverauto/serviceradar-sync:{{ .Values.image.tags.sync }}
+        image: ghcr.io/carverauto/serviceradar-sync:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "sync") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         - containerPort: 50058
           name: grpc

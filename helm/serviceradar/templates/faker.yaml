@@ -15,7 +15,8 @@ spec:
     spec:
       containers:
       - name: faker
-        image: ghcr.io/carverauto/serviceradar-faker:{{ .Values.image.tags.faker }}
+        image: ghcr.io/carverauto/serviceradar-faker:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "faker") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         - containerPort: 8080
           name: http
