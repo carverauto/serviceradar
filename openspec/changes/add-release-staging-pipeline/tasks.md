@@ -39,12 +39,16 @@
 
 ## 5. GitOps Promoter Integration
 
-- [ ] 5.1 Install and configure ArgoCD GitOps Promoter CRDs
-- [ ] 5.2 Create `CommitStatus` resource for demo-staging health checks
-- [ ] 5.3 Create `PromotionStrategy` defining demo-staging -> demo -> release flow
-- [ ] 5.4 Configure e2e test job as promotion gate
-- [ ] 5.5 Add `ChangeTransferPolicy` for automatic demo promotion on staging success
-- [ ] 5.6 Document promoter workflow and manual override procedures
+- [x] 5.1 Install ArgoCD Source Hydrator (argocd-commit-server deployed)
+- [x] 5.2 Install GitOps Promoter CRDs (v0.18.3)
+- [x] 5.3 Create `PromotionStrategy` for demo-staging -> demo flow (`k8s/gitops-promoter/promotion-strategy.yaml`)
+- [x] 5.4 Create `ArgoCDCommitStatus` for health gating (`k8s/gitops-promoter/argocd-commit-status.yaml`)
+- [x] 5.5 Create ArgoCD Applications using Source Hydrator (`k8s/gitops-promoter/argocd-app-*.yaml`)
+- [x] 5.6 Create environment-specific values files (`helm/serviceradar/values-demo-staging.yaml`, `values-demo.yaml`)
+- [x] 5.7 Document promoter workflow (`k8s/gitops-promoter/README.md`)
+- [ ] 5.8 Create GitHub App for Promoter SCM access (requires user action)
+- [ ] 5.9 Create environment branches (environments/demo-staging, environments/demo, etc.)
+- [ ] 5.10 Apply ScmProvider and GitRepository CRDs (after GitHub App created)
 
 ## 6. GitHub Environments and E2E Test Integration
 

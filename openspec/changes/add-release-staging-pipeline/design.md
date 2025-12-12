@@ -232,10 +232,15 @@ jobs:
 7. Published chart v1.0.75 with all template fixes
 8. Successfully deployed demo-staging: Sync: Synced, Health: Healthy (all 19 deployments running)
 
-### Phase 4: GitOps Promoter (PENDING)
-1. Install promoter CRDs
-2. Configure staging->demo promotion
-3. Integrate e2e test gate
+### Phase 4: GitOps Promoter (IN PROGRESS)
+1. ~~Install promoter CRDs~~ Installed v0.18.3 with all CRDs
+2. ~~Install ArgoCD Source Hydrator~~ Deployed argocd-commit-server
+3. ~~Create PromotionStrategy~~ Created for demo-staging -> demo flow
+4. ~~Create ArgoCDCommitStatus~~ Created for health-based gating
+5. ~~Create hydrator-enabled ArgoCD Applications~~ Created templates
+6. **PENDING:** Create GitHub App for SCM access
+7. **PENDING:** Create environment branches
+8. **PENDING:** Apply ScmProvider and GitRepository CRDs
 
 ### Phase 5: Full Pipeline (DONE)
 1. ~~Update release workflow for staged deployment~~ e2e-tests.yml runs after release.yml
