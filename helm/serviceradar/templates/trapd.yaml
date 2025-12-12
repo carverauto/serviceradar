@@ -17,7 +17,8 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: trapd
-        image: ghcr.io/carverauto/serviceradar-trapd:{{ .Values.image.tags.trapd }}
+        image: ghcr.io/carverauto/serviceradar-trapd:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "trapd") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         - containerPort: 162
           name: snmp

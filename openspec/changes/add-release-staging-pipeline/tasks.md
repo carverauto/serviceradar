@@ -12,7 +12,7 @@
 - [x] 2.2 Add helm package/push step to `.github/workflows/release.yml`
 - [x] 2.3 Update `scripts/cut-release.sh` to bump Chart.yaml version and appVersion automatically
 - [x] 2.4 Create ArgoCD repository credentials template (`k8s/argocd/config/ghcr-helm-repo.yaml`)
-- [ ] 2.5 Document Helm OCI registry URL and usage in README
+- [x] 2.5 Document Helm OCI registry URL and usage in README
 
 ## 3. Helm Values Modernization
 
@@ -23,7 +23,7 @@
 - [x] 3.5 Update key templates (core, web, datasvc, agent, poller, srql) to use helpers
 - [x] 3.6 Fix CNPG secret name to use dynamic cluster name (`$cnpgClusterName-ca`) in core.yaml, srql.yaml, db-event-writer.yaml
 - [x] 3.7 Fix CNPG host to use dynamic cluster name (`$cnpgClusterName-rw`) in core.yaml, db-event-writer.yaml, config files
-- [ ] 3.8 Update remaining templates to use helpers (flowgger, mapper, zen, etc.)
+- [x] 3.8 Update remaining templates to use helpers (flowgger, mapper, zen, sync, trapd, snmp-checker, faker, rperf-checker, otel)
 
 ## 4. Demo-Staging ArgoCD Application
 
@@ -65,14 +65,14 @@
 
 ## 8. ArgoCD Demo Application Update
 
-- [ ] 8.1 Update `k8s/argocd/applications/demo-prod.yaml` to use Helm chart from OCI registry
-- [ ] 8.2 Configure demo to pull specific version tag (not `*`) for stability
+- [x] 8.1 Update `k8s/argocd/applications/demo-prod.yaml` to use Helm chart from OCI registry
+- [x] 8.2 Configure demo to pull specific version tag (not `*`) for stability
 - [ ] 8.3 Set up ApplicationSet or sync waves if needed for ordered deployments
 - [ ] 8.4 Verify demo deployment pulls promoted version correctly
 
 ## 9. Helm Chart CI/CD Quality Gates
 
-- [ ] 9.1 Add `helm lint` step to CI workflow (runs on helm/ path changes only)
-- [ ] 9.2 Configure path filter in workflow to scope lint to `helm/**` changes
-- [ ] 9.3 Add `helm template` validation step to verify chart renders correctly
+- [x] 9.1 Add `helm lint` step to CI workflow (runs on helm/ path changes only)
+- [x] 9.2 Configure path filter in workflow to scope lint to `helm/**` changes
+- [x] 9.3 Add `helm template` validation step to verify chart renders correctly
 - [ ] 9.4 Consider adding chart testing with `ct lint` from chart-testing tool

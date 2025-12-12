@@ -71,6 +71,27 @@ ServiceRadar (SR) uses a distributed architecture with four main components:
 3. **Core Service** - Receives reports from pollers, provides API, and sends alerts
 4. **Web UI** - Provides a modern dashboard interface with Nginx as a reverse proxy
 
+## Kubernetes / Helm Deployment
+
+ServiceRadar provides a Helm chart for Kubernetes deployments, published to an OCI registry:
+
+```bash
+# Add the Helm chart from OCI registry
+helm pull oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.70
+
+# Install with default values
+helm install serviceradar oci://ghcr.io/carverauto/charts/serviceradar
+
+# Install with custom values
+helm install serviceradar oci://ghcr.io/carverauto/charts/serviceradar \
+  --set global.imageTag="v1.0.70" \
+  --set global.imagePullPolicy="IfNotPresent"
+```
+
+**Chart URL:** `oci://ghcr.io/carverauto/charts/serviceradar`
+
+For ArgoCD deployments, use `ghcr.io/carverauto/charts` as the repository URL (without the `oci://` prefix).
+
 ## Docker Deployment
 
 ServiceRadar provides a complete Docker Compose stack with mTLS security, automatic certificate generation, and all components pre-configured.

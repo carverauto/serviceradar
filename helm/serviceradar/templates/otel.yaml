@@ -17,7 +17,8 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: otel-collector
-        image: ghcr.io/carverauto/serviceradar-otel:{{ .Values.image.tags.otel }}
+        image: ghcr.io/carverauto/serviceradar-otel:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "otel") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         - containerPort: 4317
           name: grpc

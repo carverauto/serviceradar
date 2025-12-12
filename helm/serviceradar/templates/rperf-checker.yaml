@@ -25,7 +25,8 @@ spec:
               mountPath: /etc/serviceradar/checkers
       containers:
       - name: rperf-checker
-        image: ghcr.io/carverauto/serviceradar-rperf-client:{{ .Values.image.tags.rperfClient | default "latest" }}
+        image: ghcr.io/carverauto/serviceradar-rperf-client:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "rperfClient") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         - containerPort: 50081
           name: grpc

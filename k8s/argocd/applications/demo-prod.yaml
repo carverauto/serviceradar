@@ -8,12 +8,73 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/carverauto/serviceradar.git
-    targetRevision: HEAD
-    path: k8s/demo/prod
+    # OCI Helm chart from ghcr.io
+    repoURL: ghcr.io/carverauto/charts
+    chart: serviceradar
+    targetRevision: "1.0.73"
+    helm:
+      releaseName: serviceradar
+      # Inline values for production-specific configuration
+      values: |
+        namespace: demo
+
+        # Use pinned version tag for production stability
+        global:
+          imageTag: "v1.0.72"
+          imagePullPolicy: IfNotPresent
+
+        image:
+          registryPullSecret: ghcr-io-cred
+
+        ingress:
+          enabled: true
+          host: demo.serviceradar.cloud
+          className: nginx
+          annotations:
+            metallb.universe.tf/allow-shared-ip: "true"
+            metallb.universe.tf/address-pool: k3s-pool
+            nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+            nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
+            nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
+            nginx.ingress.kubernetes.io/proxy-busy-buffers-size: "256k"
+            nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+            nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+            nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+          tls:
+            enabled: true
+            secretName: serviceradar-prod-tls
+            clusterIssuer: carverauto-issuer
+
+        # Production faker simulation (larger scale)
+        faker:
+          simulation:
+            totalDevices: 50000
+            ipShuffle:
+              enabled: true
+              interval: "10m"
+              percentage: 5
+              warmupCycles: 2
+              allowExpansion: false
+              poolHeadroomPercent: 0
+
+        spire:
+          enabled: true
+          trustDomain: carverauto.dev
+          clusterName: carverauto-cluster
+          postgres:
+            enabled: true
+            clusterName: cnpg
+            instances: 3
+            storageSize: 100Gi
+
   destination:
     server: https://kubernetes.default.svc
     namespace: demo
+  ignoreDifferences:
+    - group: ""
+      kind: PersistentVolumeClaim
+      jsonPointers:
+        - /status
   syncPolicy:
     automated:
       prune: true
@@ -21,6 +82,8 @@ spec:
       allowEmpty: false
     syncOptions:
       - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:
