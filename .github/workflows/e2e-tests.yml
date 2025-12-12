@@ -94,8 +94,23 @@ jobs:
       - name: Wait for deployment to stabilize
         if: github.event_name == 'workflow_run'
         run: |
-          echo "Waiting 60 seconds for ArgoCD to sync new release..."
-          sleep 60
+          set -euo pipefail
+          url="${SERVICERADAR_CORE_URL%/}/health"
+          echo "Waiting for API readiness at ${url}..."
+          deadline=$((SECONDS+600))
+          while true; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${url}" || true)"
+            if [[ "${code}" == "200" || "${code}" == "404" ]]; then
+              echo "API ready (HTTP ${code})"
+              break
+            fi
+            if (( SECONDS >= deadline )); then
+              echo "Timed out waiting for API readiness; last HTTP ${code}" >&2
+              exit 1
+            fi
+            echo "Not ready yet (HTTP ${code}); retrying in 15s..."
+            sleep 15
+          done
 
       - name: Run E2E Tests
         id: e2e

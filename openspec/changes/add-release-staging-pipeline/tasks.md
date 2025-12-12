@@ -1,6 +1,6 @@
 ## Summary
 
-**Status:** Mostly Complete - Demo-staging pipeline working, demo-prod migration pending
+**Status:** Mostly Complete - Demo-staging pipeline working, needs full pipeline test
 
 | Section | Status |
 |---------|--------|
@@ -11,12 +11,12 @@
 | 5. Environment Promotion | ✅ Simplified (manual PR) |
 | 6. GitHub Environments & E2E | ✅ Complete |
 | 7. Release Workflow | ✅ Complete (pending full test) |
-| 8. Demo-Prod Migration | ⏳ Pending |
+| 8. Demo-Prod Migration | ✅ Complete (pending cluster verify) |
 | 9. Helm CI/CD Quality Gates | ✅ Complete |
 
 **Current State:**
-- Demo-staging: Synced, Healthy (using OCI Helm chart v1.0.75)
-- Demo-prod: Uses Kustomize, needs migration to Helm
+- Demo-staging: Tracks latest OCI Helm chart (`targetRevision: "*"`)
+- Demo-prod: Uses OCI Helm chart pinned to a specific version
 - Promotion: Manual (PR or kubectl patch to update version)
 
 ---
@@ -57,7 +57,7 @@
 - [x] 4.3 Set up inline values for staging-specific configuration (imagePullPolicy: Always)
 - [x] 4.4 Configure `demo-staging` namespace creation via ArgoCD syncPolicy
 - [x] 4.5 ArgoCD repo credentials not needed - Helm chart made public in GHCR
-- [x] 4.6 Build and push v1.0.72 images with semantic version tags
+- [x] 4.6 Build and push vX.Y.Z images with semantic version tags
 - [x] 4.7 Test ArgoCD sync for demo-staging deployment - chart 1.0.75 with all fixes, Sync: Synced, Health: Healthy
 
 ## 5. Environment Promotion (SIMPLIFIED)
@@ -107,11 +107,10 @@ proved difficult to set up with GitHub Apps. A simpler manual PR-based promotion
 
 ## 8. ArgoCD Demo Application Update
 
-**Note:** Demo-prod currently uses Kustomize (`k8s/demo/prod`) and has a sync error.
-Future work to migrate demo-prod to Helm chart like demo-staging.
+**Note:** Demo-prod is Helm-based and SHOULD pin both chart and image versions for stability.
 
-- [ ] 8.1 Update `k8s/argocd/applications/demo-prod.yaml` to use Helm chart from OCI registry
-- [ ] 8.2 Configure demo to pull specific version tag (not `*`) for stability
+- [x] 8.1 Update `k8s/argocd/applications/demo-prod.yaml` to use Helm chart from OCI registry
+- [x] 8.2 Configure demo to pull specific chart version (not `*`) for stability
 - [N/A] 8.3 ~~Set up ApplicationSet or sync waves~~ (not needed for current scope)
 - [ ] 8.4 Verify demo deployment pulls promoted version correctly
 

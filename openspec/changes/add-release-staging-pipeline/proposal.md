@@ -1,4 +1,4 @@
-# Change: Add Release Staging Pipeline with GitOps Promotion
+# Change: Add Release Staging Pipeline with Promotion Gates
 
 ## Why
 
@@ -23,19 +23,20 @@ The current release process requires significant manual intervention: building i
 - Update `helm/serviceradar/values.yaml` to use `image.tag` with `APP_TAG` or `latest`
 - Set `imagePullPolicy: Always` for mutable tags in staging
 
-### 4. ArgoCD GitOps Promoter Integration
-- **Integrate ArgoCD GitOps Promoter** (https://argo-gitops-promoter.readthedocs.io/en/latest/) for automated promotion
-- Configure promotion flow: `demo-staging` -> `demo` -> release
-- Add e2e test gate between staging and demo promotion
-- Trigger release workflow only after successful demo deployment
+### 4. Environment Promotion (Manual, PR-Based)
+- Promote from `demo-staging` -> `demo` by updating the `demo` ArgoCD Application to pin:
+  - chart version (`targetRevision`)
+  - image tag (`global.imageTag`)
+- Use e2e test results against `demo-staging` as the gate for promotion
+- Future enhancement: automatically open a promotion PR when staging e2e tests pass
 
 ### 5. Release Workflow Updates
 - Modify `scripts/cut-release.sh` and `.github/workflows/release.yml` to:
   1. Build and push images with version tag
-  2. Deploy to `demo-staging` via Helm/ArgoCD
-  3. Run e2e tests
-  4. Promote to `demo` using GitOps Promoter
-  5. Only proceed with GitHub release after demo success
+  2. Publish Helm chart to GHCR OCI
+  3. Deploy/update `demo-staging` via ArgoCD (Helm chart tracking latest)
+  4. Run e2e tests against `demo-staging` and record commit status
+  5. Promote to `demo` via PR when staging is healthy
 
 ## Impact
 
@@ -43,8 +44,8 @@ The current release process requires significant manual intervention: building i
 - Affected code:
   - `docker/images/push_targets.bzl`, `container_tags.bzl`
   - `.github/workflows/release.yml`
+  - `.github/workflows/e2e-tests.yml`
   - `scripts/cut-release.sh`
   - `helm/serviceradar/Chart.yaml`, `values.yaml`
   - `k8s/argocd/applications/` (new staging app)
-  - New: GitHub Pages Helm repo configuration
-  - New: GitOps Promoter configuration
+  - `k8s/argocd/applications/demo-prod.yaml` (demo pinned to a version)

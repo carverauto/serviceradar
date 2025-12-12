@@ -13,7 +13,7 @@ This creates gaps where released images may not have been validated in a staging
 
 **OCI Images (`docker/images/push_targets.bzl:48-63`):**
 - Tags generated: `sha-<commit>`, `v<version>`, `latest`, and image-specific static tags
-- ✅ Semantic version tags (e.g., `v1.0.71`) now included via `expand_template` and workspace status
+- ✅ Semantic version tags (e.g., `vX.Y.Z`) now included via `expand_template` and workspace status
 
 **Helm Chart (`helm/serviceradar/`):**
 - ✅ Published to OCI registry: `oci://ghcr.io/carverauto/charts/serviceradar`
@@ -22,12 +22,11 @@ This creates gaps where released images may not have been validated in a staging
 - ✅ Helper templates for image tag/policy resolution
 
 **ArgoCD (`k8s/argocd/applications/`):**
-- `demo-prod.yaml` pointing to raw Git path `k8s/demo/prod` (uses Kustomize)
-- ✅ `demo-staging.yaml` using OCI Helm chart with inline values
+- ✅ `demo-prod.yaml` using OCI Helm chart with pinned chart version and image tag
+- ✅ `demo-staging.yaml` using OCI Helm chart tracking the latest chart version
 
 **Demo-Staging (`demo-staging` namespace):**
 - ✅ Deployed via ArgoCD Helm chart
-- ✅ Running with v1.0.71 images
 - Uses `global.imageTag: "latest"` with `imagePullPolicy: Always`
 
 ## Goals / Non-Goals
@@ -36,7 +35,7 @@ This creates gaps where released images may not have been validated in a staging
 - Automate staging deployment before any release
 - Ensure images are tagged with semantic version for production use
 - Publish Helm charts to a repository for external consumption
-- Enable GitOps-driven promotion from staging to production
+- Enable promotion from staging to demo with an e2e gate
 - Reduce manual release management overhead
 
 ### Non-Goals
@@ -92,7 +91,7 @@ spec:
   source:
     repoURL: ghcr.io/carverauto/charts
     chart: serviceradar
-    targetRevision: "1.0.70"  # or "*" for latest
+    targetRevision: "*"  # latest chart version in staging
     helm:
       valueFiles:
         - values-demo-staging.yaml
@@ -168,8 +167,8 @@ jobs:
 ### Risk: Helm chart version drift from app version
 **Mitigation:** Automate Chart.yaml version update as part of `cut-release.sh`. Chart version matches release version.
 
-### Risk: GitOps Promoter learning curve
-**Mitigation:** Start with simple staging->demo flow. Add complex gates incrementally.
+### Risk: Manual promotion drift
+**Mitigation:** Keep staging on `latest` for continuous validation and pin demo to a specific `chart targetRevision` and `global.imageTag`.
 
 ### Risk: Staging environment divergence
 **Mitigation:** Use same Helm chart with minimal value overrides. Document differences clearly.
@@ -186,7 +185,7 @@ jobs:
 
 **Not updated on release:**
 - `values.yaml` - keeps `appTag: "latest"` as default
-- ArgoCD Applications override with `global.imageTag: "v1.0.71"` for specific versions
+- ArgoCD Applications override with `global.imageTag: "vX.Y.Z"` for specific versions
 
 **Benefits:**
 - Minimal files to update during release
@@ -274,7 +273,7 @@ argocd app sync serviceradar-demo-staging
 # Update ArgoCD Application to use previous chart version
 kubectl -n argocd patch application serviceradar-demo-staging \
   --type=merge \
-  -p '{"spec":{"source":{"targetRevision":"1.0.72"}}}'
+  -p '{"spec":{"source":{"targetRevision":"1.0.75"}}}'
 ```
 
 #### Image Tag Override (Emergency)

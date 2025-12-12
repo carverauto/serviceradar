@@ -11,7 +11,7 @@ spec:
     # OCI Helm chart from ghcr.io
     repoURL: ghcr.io/carverauto/charts
     chart: serviceradar
-    targetRevision: "1.0.71-pre1"
+    targetRevision: "1.0.75"
     helm:
       releaseName: serviceradar
       # Inline values for production-specific configuration
@@ -20,7 +20,7 @@ spec:
 
         # Use pinned version tag for production stability
         global:
-          imageTag: "v1.0.72"
+          imageTag: "v1.0.75"
           imagePullPolicy: IfNotPresent
 
         image:

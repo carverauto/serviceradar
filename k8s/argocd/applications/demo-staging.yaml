@@ -11,7 +11,8 @@ spec:
     # OCI Helm chart from ghcr.io
     repoURL: ghcr.io/carverauto/charts
     chart: serviceradar
-    targetRevision: "1.0.75"
+    # Track the latest published chart in staging.
+    targetRevision: "*"
     helm:
       releaseName: serviceradar
       # Inline values for staging-specific configuration
@@ -19,9 +20,8 @@ spec:
         namespace: demo-staging
 
         # Use global settings to override all ServiceRadar images at once
-        # Using 'latest' until v1.0.71 images are published with new versioning
         global:
-          imageTag: "v1.0.72"
+          imageTag: "latest"
           imagePullPolicy: Always
 
         image:

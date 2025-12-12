@@ -46,23 +46,24 @@ The project SHALL maintain a persistent `demo-staging` environment for pre-relea
 - **THEN** it SHALL use the `demo-staging` Kubernetes namespace
 - **AND** it SHALL have isolated ingress (e.g., `staging.serviceradar.cloud`)
 
-### Requirement: GitOps Promotion Pipeline
-The release process SHALL use ArgoCD GitOps Promoter to automate environment promotion from `demo-staging` to `demo`.
+### Requirement: Environment Promotion Workflow
+The release process SHALL support promoting validated builds from `demo-staging` to `demo` by updating the `demo` ArgoCD Application to pin the desired chart version and image tag.
 
-#### Scenario: Automatic promotion on test success
+#### Scenario: Promotion readiness on test success
 - **WHEN** e2e tests pass against `demo-staging`
-- **THEN** the GitOps Promoter SHALL automatically promote to `demo` environment
-- **AND** a commit status update SHALL be recorded
+- **THEN** a success commit status SHALL be recorded for the release commit
+- **AND** operators SHALL be able to promote the validated version to `demo`
 
 #### Scenario: Promotion gate failure
 - **WHEN** e2e tests fail against `demo-staging`
-- **THEN** promotion to `demo` SHALL be blocked
-- **AND** an alert SHALL be generated for manual investigation
+- **THEN** a failure commit status SHALL be recorded for the release commit
+- **AND** promotion to `demo` SHOULD NOT proceed until the failure is investigated
 
-#### Scenario: Manual promotion override
-- **WHEN** an operator needs to bypass automated promotion
-- **THEN** manual promotion SHALL be possible via GitOps Promoter CLI or UI
-- **AND** the override SHALL be logged for audit purposes
+#### Scenario: Manual promotion
+- **WHEN** an operator promotes a version to `demo`
+- **THEN** they SHALL update the `demo` ArgoCD Application to pin:
+  - chart `targetRevision` (e.g., `1.0.75`)
+  - `global.imageTag` (e.g., `v1.0.75`)
 
 ### Requirement: E2E Test Credentials via GitHub Environments
 E2E tests SHALL authenticate using application-level credentials stored in GitHub Environments, not cluster credentials.
@@ -83,14 +84,14 @@ E2E tests SHALL authenticate using application-level credentials stored in GitHu
 - **AND** kubectl/kubeadm credentials SHALL NOT be exposed to GitHub Actions
 
 ### Requirement: Staged Release Workflow
-The release workflow SHALL deploy to staging and validate before creating the GitHub release.
+The release workflow SHALL publish build artifacts and trigger staging validation before promotion to `demo`.
 
 #### Scenario: Pre-release staging deployment
 - **WHEN** `scripts/cut-release.sh --version X.Y.Z --push` is executed
 - **THEN** images SHALL be built and pushed with version tag
 - **AND** the `demo-staging` environment SHALL be updated
 - **AND** e2e tests SHALL run against staging
-- **AND** only after staging success SHALL the GitHub release be created
+- **AND** the e2e result SHALL be recorded via commit status for promotion gating
 
 #### Scenario: Hotfix bypass
 - **WHEN** `scripts/cut-release.sh --version X.Y.Z --skip-staging` is executed
