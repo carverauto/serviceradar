@@ -73,6 +73,6 @@ config-bootstrap = { path = "../../rust/config-bootstrap" }
 [dev-dependencies]
 tempdir = "0.3"
 quickcheck = "1"
-rcgen = "0.12"
+rcgen = "0.14"
 
 ## Release profile now defined at workspace root to avoid non-root profile warning
