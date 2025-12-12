@@ -7,9 +7,20 @@ This guide shows how to deploy ServiceRadar via the bundled Helm chart and tune 
 
 Install/upgrade
 - Namespace: create once: `kubectl create ns serviceradar` (or change `namespace` in chart values).
-- Deploy from repo checkout:
+- Deploy from the official OCI chart (recommended):
+  - `helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.75 -n serviceradar --create-namespace -f my-values.yaml`
+- Deploy from a repo checkout (development):
   - `helm upgrade --install serviceradar ./helm/serviceradar -n serviceradar -f my-values.yaml`
 - Quick overrides without a file: add `--set` flags (examples below).
+
+OCI chart quick start
+- Inspect chart metadata and defaults:
+  - `helm show chart oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.75`
+  - `helm show values oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.75 > values.yaml`
+- Pin images to a release tag (recommended):
+  - `--set global.imageTag="v1.0.75"`
+- Track mutable images (staging/dev):
+  - `--set global.imageTag="latest" --set global.imagePullPolicy="Always"`
 
 Key values: `sweep`
 - networks: list of CIDRs/IPs to scan.
