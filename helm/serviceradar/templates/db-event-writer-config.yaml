@@ -1,9 +1,7 @@
-# Rendered as-is from staging overlay
-# Rendered as-is from staging overlay
-{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" }}
 {{- $cnpg := default (dict) .Values.cnpg }}
-{{- $pg := default (dict) .Values.spire.postgres -}}
-{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
+{{- $pg := default (dict) .Values.spire.postgres }}
+{{- $cnpgClusterName := default "cnpg" $pg.clusterName }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -44,9 +44,6 @@ spec:
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
           readOnly: true
-        - name: {{ $cnpgClusterName }}-ca
-          mountPath: /etc/serviceradar/cnpg
-          readOnly: true
         env:
         - name: CONFIG_SOURCE
           value: "{{ default (default "kv" .Values.kv.configSource) .Values.dbEventWriter.configSource }}"
@@ -148,9 +145,6 @@ spec:
       - name: db-event-writer-data
         persistentVolumeClaim:
           claimName: serviceradar-db-event-writer-data
-      - name: {{ $cnpgClusterName }}-ca
-        secret:
-          secretName: {{ $cnpgClusterName }}-ca
       - name: spire-agent-socket
         hostPath:
           path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
