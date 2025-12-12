@@ -1,4 +1,6 @@
 {{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $pg := default (dict) .Values.spire.postgres -}}
+{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,7 +34,7 @@ spec:
         - name: db-credentials
           mountPath: /etc/serviceradar/credentials
           readOnly: true
-        - name: cnpg-ca
+        - name: {{ $cnpgClusterName }}-ca
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
         - name: db-event-writer-consumers
@@ -42,7 +44,7 @@ spec:
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
           readOnly: true
-        - name: cnpg-ca
+        - name: {{ $cnpgClusterName }}-ca
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
         env:
@@ -140,15 +142,15 @@ spec:
       - name: db-credentials
         secret:
           secretName: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
-      - name: cnpg-ca
+      - name: {{ $cnpgClusterName }}-ca
         secret:
-          secretName: cnpg-ca
+          secretName: {{ $cnpgClusterName }}-ca
       - name: db-event-writer-data
         persistentVolumeClaim:
           claimName: serviceradar-db-event-writer-data
-      - name: cnpg-ca
+      - name: {{ $cnpgClusterName }}-ca
         secret:
-          secretName: cnpg-ca
+          secretName: {{ $cnpgClusterName }}-ca
       - name: spire-agent-socket
         hostPath:
           path: {{ include "serviceradar.spireSocketHostPath" . | quote }}

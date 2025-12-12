@@ -216,6 +216,26 @@ jobs:
               "${extra_args[@]}"
           fi
 
+      - name: Publish Helm chart to OCI registry
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Login to GHCR for Helm OCI
+          echo "${GHCR_TOKEN}" | helm registry login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
+
+          # Package and push chart
+          helm package helm/serviceradar
+          helm push "serviceradar-${VERSION}.tgz" oci://ghcr.io/carverauto/charts
+
+          # Cleanup
+          rm -f "serviceradar-${VERSION}.tgz"
+
+          echo "Published Helm chart: oci://ghcr.io/carverauto/charts/serviceradar:${VERSION}"
+
       - name: Publish Debian and RPM packages
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}

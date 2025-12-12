@@ -98,7 +98,7 @@ fi
 for entry in "${dirty[@]}"; do
     file=${entry:3}
     case "$file" in
-        ""|"VERSION"|"CHANGELOG")
+        ""|"VERSION"|"CHANGELOG"|"helm/serviceradar/Chart.yaml")
             ;;
         *)
             echo "Unexpected pending change: $file" >&2
@@ -121,10 +121,19 @@ else
     printf '%s\n' "$version" > VERSION
 fi
 
+# Update Helm chart version and appVersion
+chart_file="helm/serviceradar/Chart.yaml"
 if [[ "$dry_run" == "true" ]]; then
-    echo "[dry-run] Would stage VERSION"
+    echo "[dry-run] Would update $chart_file version and appVersion to $version"
 else
-    git add VERSION
+    sed -i "s/^version: .*/version: $version/" "$chart_file"
+    sed -i "s/^appVersion: .*/appVersion: \"$version\"/" "$chart_file"
+fi
+
+if [[ "$dry_run" == "true" ]]; then
+    echo "[dry-run] Would stage VERSION and $chart_file"
+else
+    git add VERSION "$chart_file"
 fi
 
 if git status --porcelain -- CHANGELOG >/dev/null 2>&1 && git status --porcelain -- CHANGELOG | grep -q '.'; then

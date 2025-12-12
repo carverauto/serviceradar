@@ -23,7 +23,8 @@ spec:
       serviceAccountName: {{ $datasvcSA }}
       containers:
       - name: datasvc
-        image: ghcr.io/carverauto/serviceradar-datasvc:{{ .Values.image.tags.datasvc }}
+        image: ghcr.io/carverauto/serviceradar-datasvc:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "datasvc") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
         - containerPort: 50057
           name: grpc

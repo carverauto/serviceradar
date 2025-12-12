@@ -14,23 +14,24 @@ The release workflow SHALL tag all OCI images with the semantic version (e.g., `
 - **WHEN** the release workflow runs
 - **THEN** the image version tag SHALL match the content of the VERSION file
 
-### Requirement: Helm Chart Repository
-The project SHALL maintain a Helm chart repository hosted on GitHub Pages at `https://carverauto.github.io/serviceradar`.
+### Requirement: Helm Chart OCI Registry
+The project SHALL publish Helm charts to the OCI registry at `oci://ghcr.io/carverauto/charts/serviceradar`.
 
 #### Scenario: Chart published on release
 - **WHEN** a new release is created
-- **THEN** the `serviceradar` Helm chart SHALL be packaged and published to the chart repository
-- **AND** the chart index SHALL be updated with the new version
+- **THEN** the `serviceradar` Helm chart SHALL be packaged and pushed to `oci://ghcr.io/carverauto/charts`
+- **AND** the chart SHALL be tagged with the release version (e.g., `1.0.70`)
 
 #### Scenario: Chart version synchronization
-- **WHEN** a release is prepared
+- **WHEN** `cut-release.sh` is executed with a version
 - **THEN** the `Chart.yaml` version SHALL be updated to match the release version
 - **AND** the `appVersion` SHALL reflect the application release version
+- **AND** the Chart.yaml changes SHALL be included in the release commit
 
-#### Scenario: Chart repository accessibility
-- **WHEN** a user runs `helm repo add serviceradar https://carverauto.github.io/serviceradar`
-- **THEN** the repository SHALL be added successfully
-- **AND** `helm search repo serviceradar` SHALL list available chart versions
+#### Scenario: Chart accessibility
+- **WHEN** a user runs `helm show chart oci://ghcr.io/carverauto/charts/serviceradar --version 1.0.70`
+- **THEN** the chart metadata SHALL be displayed
+- **AND** the chart SHALL be pullable for installation
 
 ### Requirement: Demo-Staging Environment
 The project SHALL maintain a persistent `demo-staging` environment for pre-release validation deployed via ArgoCD and Helm. This is the first environment where new releases are tested before promotion to demo.
@@ -97,14 +98,14 @@ The release workflow SHALL deploy to staging and validate before creating the Gi
 - **AND** the release SHALL proceed directly to GitHub release creation
 
 ### Requirement: ArgoCD Application Configuration
-ArgoCD applications for demo environments SHALL use Helm charts from the chart repository.
+ArgoCD applications for demo environments SHALL use Helm charts from the OCI registry.
 
 #### Scenario: Demo application Helm source
 - **WHEN** the `demo` ArgoCD Application is deployed
-- **THEN** it SHALL reference the Helm chart repository as source
-- **AND** it SHALL use a specific version tag (not `latest`) for production stability
+- **THEN** it SHALL reference `ghcr.io/carverauto/charts` as the Helm source
+- **AND** it SHALL use a specific version tag (not `*`) for production stability
 
 #### Scenario: Staging application Helm source
 - **WHEN** the `demo-staging` ArgoCD Application is deployed
-- **THEN** it SHALL reference the Helm chart repository as source
+- **THEN** it SHALL reference `ghcr.io/carverauto/charts` as the Helm source
 - **AND** it MAY use `*` (latest) chart version for continuous testing

@@ -12,23 +12,23 @@ This creates gaps where released images may not have been validated in a staging
 ### Current State Analysis
 
 **OCI Images (`docker/images/push_targets.bzl:48-63`):**
-- Tags generated: `sha-<commit>`, `latest`, and image-specific static tags
-- Missing: Semantic version tags (e.g., `v1.0.70`)
+- Tags generated: `sha-<commit>`, `v<version>`, `latest`, and image-specific static tags
+- ✅ Semantic version tags (e.g., `v1.0.71`) now included via `expand_template` and workspace status
 
 **Helm Chart (`helm/serviceradar/`):**
-- Lives only in Git repository
-- `Chart.yaml` has static version `0.1.0`, appVersion `1.0.0`
-- `values.yaml` uses hardcoded SHA tags: `sha-0933fd20c98038af196c35ea9f5cc95e3dc38909`
-- No published chart repository
+- ✅ Published to OCI registry: `oci://ghcr.io/carverauto/charts/serviceradar`
+- `Chart.yaml` version synced with app version (updated by `cut-release.sh`)
+- ✅ `values.yaml` uses `global.imageTag` with `latest` as default
+- ✅ Helper templates for image tag/policy resolution
 
 **ArgoCD (`k8s/argocd/applications/`):**
-- Single app `demo-prod.yaml` pointing to raw Git path `k8s/demo/prod`
-- Uses Kustomize, not Helm
-- No staging application exists
+- `demo-prod.yaml` pointing to raw Git path `k8s/demo/prod` (uses Kustomize)
+- ✅ `demo-staging.yaml` using OCI Helm chart with inline values
 
-**Staging (`k8s/demo/staging/`):**
-- Kustomize overlay exists but namespace was deleted
-- Hardcoded image SHA tags in kustomization.yaml
+**Demo-Staging (`demo-staging` namespace):**
+- ✅ Deployed via ArgoCD Helm chart
+- ✅ Running with v1.0.71 images
+- Uses `global.imageTag: "latest"` with `imagePullPolicy: Always`
 
 ## Goals / Non-Goals
 
@@ -46,23 +46,25 @@ This creates gaps where released images may not have been validated in a staging
 
 ## Decisions
 
-### Decision 1: GitHub Pages for Helm Chart Repository
-**Rationale:** Simplest option with no additional infrastructure. GitHub Pages is free, integrates with the existing repo, and is widely used for Helm chart hosting.
+### Decision 1: OCI Registry for Helm Charts
+**Rationale:** OCI is the modern standard for Helm chart distribution. We already use ghcr.io for container images, so charts live alongside images. No need to modify docs deployment or maintain separate GitHub Pages branch.
 
 **Alternatives Considered:**
+- GitHub Pages: Would conflict with existing Docusaurus docs deployment, requires rebuilding docs on every chart update
 - ChartMuseum: Requires hosting, more complex
-- OCI Registry: Helm OCI support still maturing, less compatible with older ArgoCD
-- Artifact Hub: Good for discovery but still needs underlying repo
+- Artifact Hub: Good for discovery but still needs underlying storage
 
 **Implementation:**
 ```yaml
-# .github/workflows/helm-release.yml
-- uses: helm/chart-releaser-action@v1.6.0
-  with:
-    charts_dir: helm
-  env:
-    CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+# Added to .github/workflows/release.yml
+- name: Publish Helm chart to OCI registry
+  run: |
+    echo "${GHCR_TOKEN}" | helm registry login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
+    helm package helm/serviceradar
+    helm push "serviceradar-${VERSION}.tgz" oci://ghcr.io/carverauto/charts
 ```
+
+**Chart URL:** `oci://ghcr.io/carverauto/charts/serviceradar:1.0.70`
 
 ### Decision 2: ArgoCD GitOps Promoter for Environment Promotion
 **Rationale:** Native ArgoCD integration, declarative configuration, supports commit status gates for test validation.
@@ -93,20 +95,22 @@ spec:
 ```
 
 ### Decision 3: Helm-Based ArgoCD Applications
-**Rationale:** ArgoCD Helm support is mature, allows value overrides per environment, and integrates well with chart repositories.
+**Rationale:** ArgoCD Helm support is mature, allows value overrides per environment, and integrates well with OCI registries.
 
 **Implementation:**
 ```yaml
 # k8s/argocd/applications/demo-staging.yaml
 spec:
   source:
-    repoURL: https://carverauto.github.io/serviceradar
+    repoURL: ghcr.io/carverauto/charts
     chart: serviceradar
-    targetRevision: "*"  # Latest chart version
+    targetRevision: "1.0.70"  # or "*" for latest
     helm:
       valueFiles:
         - values-demo-staging.yaml
 ```
+
+Note: ArgoCD requires OCI URLs without the `oci://` prefix for Helm sources.
 
 ### Decision 4: Version Tag Strategy
 **Rationale:** Use `v<VERSION>` tag (e.g., `v1.0.70`) as the primary release tag, with `latest` for dev convenience and `sha-<commit>` for immutability.
@@ -115,6 +119,20 @@ spec:
 1. `v1.0.70` - Primary release tag
 2. `sha-<commit>` - Immutable reference
 3. `latest` - Development convenience (staging only)
+
+**Implementation:**
+- Modified `docker/images/container_tags.bzl` to add `version_tags` attribute to `immutable_push_tags` rule
+- Modified `docker/images/push_targets.bzl` to generate version tag via `expand_template` using `{{STABLE_VERSION}}`
+- Version is read from `VERSION` file via `scripts/workspace_status.sh` when `--stamp` is used
+- The "vdev" tag is excluded when building without proper workspace status (local dev builds)
+
+**Generated Tags (example):**
+```
+sha-486cbfcbc1027b4255e8287df1c7ced48402b1c4  # commit SHA
+v1.0.70                                         # semantic version
+latest                                          # static tag
+sha-c30cd42eb275                                # short digest
+```
 
 ### Decision 5: E2E Test Credentials via GitHub Environments
 **Rationale:** Cannot expose kubectl/kubeadm API credentials to GitHub Actions. Instead, store application-level credentials in GitHub Secrets using deployment environments for isolation.
@@ -168,32 +186,53 @@ jobs:
 ### Risk: Staging environment divergence
 **Mitigation:** Use same Helm chart with minimal value overrides. Document differences clearly.
 
-### Trade-off: GitHub Pages vs dedicated chart registry
-**Accepted:** GitHub Pages has rate limits but sufficient for internal use. Can migrate later if needed.
+### Trade-off: OCI registry visibility
+**Accepted:** OCI charts in ghcr.io are less discoverable than GitHub Pages but provide better integration with existing GHCR authentication and image workflows.
+
+### Decision 6: Helm Chart and Image Versioning Strategy
+**Rationale:** Keep chart version in sync with app version (standard practice for charts in the same repo as the app). Image tags default to `latest` in values.yaml; deployments override via `global.imageTag`.
+
+**Release updates required:**
+1. `VERSION` file - app version
+2. `helm/serviceradar/Chart.yaml` - chart version + appVersion (via `cut-release.sh`)
+
+**Not updated on release:**
+- `values.yaml` - keeps `appTag: "latest"` as default
+- ArgoCD Applications override with `global.imageTag: "v1.0.71"` for specific versions
+
+**Benefits:**
+- Minimal files to update during release
+- Flexible: local dev uses `latest`, deployments pin to specific versions
+- Standard Helm versioning practice
 
 ## Migration Plan
 
-### Phase 1: Helm Chart Repository (Week 1)
-1. Create `gh-pages` branch with index.yaml
-2. Add helm-release workflow
-3. Publish initial chart version
+### Phase 1: Helm Chart OCI Registry (DONE)
+1. ~~Create gh-pages branch~~ Using OCI registry instead
+2. Added helm package/push step to release.yml
+3. Published chart: `oci://ghcr.io/carverauto/charts/serviceradar:1.0.71`
+4. Updated `cut-release.sh` to bump Chart.yaml version automatically
+5. Created ArgoCD repo credentials template
 
-### Phase 2: Image Version Tagging (Week 1)
-1. Update push_targets.bzl for version tags
-2. Modify release.yml to pass version
-3. Verify with dry-run release
+### Phase 2: Helm Values Modernization (DONE)
+1. Added `global.imageTag` and `global.imagePullPolicy` to values.yaml
+2. Set default `image.tags.appTag` to `latest`
+3. Added helper templates for image tag/policy resolution
+4. Updated key templates (core, web, datasvc, agent, poller, srql)
 
-### Phase 3: Demo-Staging Setup (Week 2)
-1. Create demo-staging ArgoCD Application
-2. Deploy via Helm chart
-3. Validate staging deployment works
+### Phase 3: Demo-Staging Setup (DONE)
+1. Created demo-staging ArgoCD Application
+2. Configured to use OCI Helm chart with inline values
+3. Made Helm chart public in GHCR (no credentials needed)
+4. Copied ghcr-io-cred image pull secret to demo-staging namespace
+5. Successfully deployed demo-staging with v1.0.71 images
 
-### Phase 4: GitOps Promoter (Week 2-3)
+### Phase 4: GitOps Promoter (PENDING)
 1. Install promoter CRDs
 2. Configure staging->demo promotion
 3. Integrate e2e test gate
 
-### Phase 5: Full Pipeline (Week 3)
+### Phase 5: Full Pipeline (PENDING)
 1. Update release workflow for staged deployment
 2. Test complete flow with pre-release
 3. Document and train team

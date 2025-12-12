@@ -11,11 +11,11 @@ The current release process requires significant manual intervention: building i
 - Verify `latest` tag is applied correctly during releases
 - Update `docker/images/push_targets.bzl` and `container_tags.bzl` to support version-based tags
 
-### 2. Helm Chart Repository
-- **Set up GitHub Pages-hosted Helm chart repository** following https://helm.sh/docs/topics/chart_repository/
-- Add workflow to package and publish `helm/serviceradar` chart on release
-- Update `Chart.yaml` version and `appVersion` automatically during releases
-- Configure ArgoCD to consume charts from the Helm repository instead of raw Git paths
+### 2. Helm Chart OCI Registry
+- **Publish Helm charts to OCI registry** at `oci://ghcr.io/carverauto/charts/serviceradar`
+- Add helm package/push step to release workflow
+- Update `Chart.yaml` version and `appVersion` automatically during releases (via `cut-release.sh`)
+- Configure ArgoCD to consume charts from OCI registry instead of raw Git paths
 
 ### 3. Demo-Staging Environment
 - **Recreate `demo-staging` namespace** for pre-release validation

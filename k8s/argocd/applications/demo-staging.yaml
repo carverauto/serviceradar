@@ -1,0 +1,76 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: serviceradar-demo-staging
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    # OCI Helm chart from ghcr.io
+    repoURL: ghcr.io/carverauto/charts
+    chart: serviceradar
+    targetRevision: "1.0.72"
+    helm:
+      releaseName: serviceradar
+      # Inline values for staging-specific configuration
+      values: |
+        namespace: demo-staging
+
+        # Use global settings to override all ServiceRadar images at once
+        # Using 'latest' until v1.0.71 images are published with new versioning
+        global:
+          imageTag: "latest"
+          imagePullPolicy: Always
+
+        image:
+          registryPullSecret: ghcr-io-cred
+
+        ingress:
+          enabled: true
+          host: staging.serviceradar.cloud
+          className: nginx
+          tls:
+            enabled: true
+            secretName: serviceradar-staging-tls
+            clusterIssuer: carverauto-issuer
+
+        # Staging uses smaller faker simulation
+        faker:
+          simulation:
+            totalDevices: 1000
+            ipShuffle:
+              enabled: true
+              interval: "10m"
+              percentage: 5
+              warmupCycles: 2
+              allowExpansion: false
+              poolHeadroomPercent: 0
+
+        spire:
+          enabled: true
+          trustDomain: carverauto.dev
+          clusterName: carverauto-cluster
+          postgres:
+            enabled: true
+            clusterName: cnpg-staging
+            instances: 1
+            storageSize: 10Gi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo-staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
