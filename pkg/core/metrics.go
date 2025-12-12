@@ -1415,14 +1415,12 @@ func (s *Server) processGRPCService(
 	svc *proto.ServiceStatus,
 	serviceData json.RawMessage,
 	now time.Time) error {
-	switch svc.ServiceName {
-	case rperfServiceType:
+	switch {
+	case svc.ServiceName == rperfServiceType:
 		return s.processRperfMetrics(pollerID, partition, serviceData, now)
-	case sysmonServiceType:
+	case svc.ServiceName == sysmonServiceType || svc.ServiceName == "sysmon-osx" || strings.HasPrefix(svc.ServiceName, sysmonServiceType+"-"):
 		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
-	case "sysmon-osx":
-		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
-	case syncServiceType:
+	case svc.ServiceName == syncServiceType:
 		s.logger.Debug().
 			Str("poller_id", pollerID).
 			Int("data_size", len(serviceData)).

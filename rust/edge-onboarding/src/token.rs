@@ -192,15 +192,12 @@ fn apply_host_override(original_url: Option<&str>, override_host: &str) -> Strin
 
     // Extract port from original URL (if any)
     // Format: host:port or host:port/path
-    let port = rest
-        .split('/')
-        .next()
-        .and_then(|host_port| {
-            host_port
-                .rsplit(':')
-                .next()
-                .filter(|p| p.chars().all(|c| c.is_ascii_digit()))
-        });
+    let port = rest.split('/').next().and_then(|host_port| {
+        host_port
+            .rsplit(':')
+            .next()
+            .filter(|p| p.chars().all(|c| c.is_ascii_digit()))
+    });
 
     // If override already has a port, use it as-is
     if override_host.contains(':') {

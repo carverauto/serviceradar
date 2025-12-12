@@ -16,17 +16,24 @@
 
 use std::env;
 use std::path::Path;
+use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR")?;
     let out_dir = env::var("OUT_DIR").unwrap();
     let monitoring_descriptor_path = Path::new(&out_dir).join("monitoring_descriptor.bin");
+    let proto_dir = PathBuf::from(&manifest_dir).join("../../../proto");
+    let proto_path = proto_dir.join("monitoring.proto");
 
     tonic_build::configure()
         .build_server(true)
         .build_client(false)
         .file_descriptor_set_path(monitoring_descriptor_path)
-        .compile(&["src/proto/monitoring.proto"], &["src/proto"])?;
+        .compile(
+            std::slice::from_ref(&proto_path),
+            std::slice::from_ref(&proto_dir),
+        )?;
 
-    println!("cargo:rerun-if-changed=src/proto/monitoring.proto");
+    println!("cargo:rerun-if-changed={}", proto_path.display());
     Ok(())
 }

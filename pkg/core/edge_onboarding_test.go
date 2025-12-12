@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -318,12 +319,13 @@ func TestCreateMTLSPackageMintsClientCertificate(t *testing.T) {
 		SecurityMode:  "mtls",
 		CreatedBy:     "admin@example.com",
 		MetadataJSON: fmt.Sprintf(`{
-			"security_mode":"mtls",
-			"poller_endpoint":"poller.serviceradar:50053",
-			"core_endpoint":"core:50052",
-			"cert_dir":%q,
-			"server_name":"poller.serviceradar"
-		}`, certDir),
+				"security_mode":"mtls",
+				"poller_endpoint":"poller.serviceradar:50053",
+				"core_endpoint":"core:50052",
+				"checker_endpoint":"192.168.2.134:50083",
+				"cert_dir":%q,
+				"server_name":"poller.serviceradar"
+			}`, certDir),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -359,6 +361,15 @@ func TestCreateMTLSPackageMintsClientCertificate(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, clientCert.CheckSignatureFrom(caCert))
 	assert.Equal(t, "sysmon-osx", clientCert.Subject.CommonName)
+	expectedIP := net.ParseIP("192.168.2.134")
+	foundExpected := false
+	for _, ip := range clientCert.IPAddresses {
+		if ip.Equal(expectedIP) {
+			foundExpected = true
+			break
+		}
+	}
+	assert.True(t, foundExpected)
 
 	// Stored package contains the encrypted bundle and mTLS security mode
 	require.NotNil(t, storedPkg)
@@ -573,6 +584,61 @@ func TestEdgeOnboardingDeliverPackageInvalidToken(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, models.ErrEdgeOnboardingDownloadInvalid)
+}
+
+func TestEdgeOnboardingDeliverPackageDecryptErrorClassified(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0x44}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:       true,
+		EncryptionKey: encKey,
+	}
+
+	spireCfg := &models.SpireAdminConfig{ServerSPIFFEID: "spiffe://example.org/spire/server"}
+	fakeSpire := newFakeSpireClient()
+
+	mockDB.EXPECT().ListEdgeOnboardingPollerIDs(
+		gomock.Any(),
+		models.EdgeOnboardingStatusIssued,
+		models.EdgeOnboardingStatusDelivered,
+		models.EdgeOnboardingStatusActivated,
+	).Return([]string{}, nil).AnyTimes()
+
+	svc, err := newEdgeOnboardingService(cfg, spireCfg, fakeSpire, mockDB, nil, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	now := time.Unix(1710000000, 0).UTC()
+	svc.now = func() time.Time { return now }
+
+	pkg := &models.EdgeOnboardingPackage{
+		PackageID:              "pkg-1",
+		ComponentID:            "edge-checker",
+		ComponentType:          models.EdgeOnboardingComponentTypeChecker,
+		ParentType:             models.EdgeOnboardingComponentTypeAgent,
+		ParentID:               "agent-1",
+		PollerID:               "edge-poller",
+		Status:                 models.EdgeOnboardingStatusIssued,
+		SecurityMode:           "mtls",
+		MetadataJSON:           `{"security_mode":"mtls"}`,
+		BundleCiphertext:       "not-base64",
+		DownloadTokenHash:      hashDownloadToken("download-token"),
+		DownloadTokenExpiresAt: now.Add(time.Minute),
+		JoinTokenExpiresAt:     now.Add(time.Minute),
+	}
+
+	mockDB.EXPECT().GetEdgeOnboardingPackage(gomock.Any(), "pkg-1").Return(pkg, nil)
+
+	_, err = svc.DeliverPackage(context.Background(), &models.EdgeOnboardingDeliverRequest{
+		PackageID:     "pkg-1",
+		DownloadToken: "download-token",
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrEdgeOnboardingDecryptFailed)
 }
 
 func TestEdgeOnboardingRevokePackageSuccess(t *testing.T) {

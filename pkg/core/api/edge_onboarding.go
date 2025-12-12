@@ -517,7 +517,11 @@ func (s *APIServer) handleDownloadEdgePackage(w http.ResponseWriter, r *http.Req
 			writeError(w, err.Error(), http.StatusServiceUnavailable)
 		case errors.Is(err, errEdgePackageArchive):
 			writeError(w, err.Error(), http.StatusInternalServerError)
+		case errors.Is(err, models.ErrEdgeOnboardingDecryptFailed):
+			s.logger.Error().Err(err).Str("package_id", id).Msg("edge onboarding: package decryption failed")
+			writeError(w, "package decryption failed; please reissue token", http.StatusInternalServerError)
 		default:
+			s.logger.Error().Err(err).Str("package_id", id).Msg("edge onboarding: deliver package failed")
 			writeError(w, "failed to deliver edge package", http.StatusBadGateway)
 		}
 		return

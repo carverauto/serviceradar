@@ -267,6 +267,26 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    process_metrics (timestamp, poller_id, pid) {
+        timestamp -> Timestamptz,
+        poller_id -> Nullable<Text>,
+        agent_id -> Nullable<Text>,
+        host_id -> Nullable<Text>,
+        pid -> Nullable<Int4>,
+        name -> Nullable<Text>,
+        cpu_usage -> Nullable<Float4>,
+        memory_usage -> Nullable<Int8>,
+        status -> Nullable<Text>,
+        start_time -> Nullable<Text>,
+        device_id -> Nullable<Text>,
+        partition -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     device_updates (observed_at, device_id) {
         observed_at -> Timestamptz,
         agent_id -> Text,
