@@ -11,7 +11,7 @@ spec:
     # OCI Helm chart from ghcr.io
     repoURL: ghcr.io/carverauto/charts
     chart: serviceradar
-    targetRevision: "1.0.73"
+    targetRevision: "1.0.71-pre1"
     helm:
       releaseName: serviceradar
       # Inline values for production-specific configuration

@@ -13,6 +13,9 @@ Options:
   --dry-run             Print the actions without modifying the repository.
   --skip-changelog-check
                         Skip validation that CHANGELOG contains an entry for the version.
+  --skip-staging        Skip staging validation (for hotfixes). Sets [skip-staging]
+                        in commit message to bypass e2e tests.
+  --hotfix              Alias for --skip-staging.
   -h, --help            Show this message.
 
 The script expects the working tree to be clean aside from VERSION and CHANGELOG changes.
@@ -24,6 +27,7 @@ tag_prefix="v"
 push=false
 dry_run=false
 skip_changelog_check=false
+skip_staging=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -59,6 +63,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-changelog-check)
             skip_changelog_check=true
+            shift
+            ;;
+        --skip-staging|--hotfix)
+            skip_staging=true
             shift
             ;;
         -h|--help)
@@ -144,10 +152,16 @@ if git status --porcelain -- CHANGELOG >/dev/null 2>&1 && git status --porcelain
     fi
 fi
 
+commit_msg="chore: release $tag"
+if [[ "$skip_staging" == "true" ]]; then
+    commit_msg="chore: release $tag [skip-staging]"
+    echo "Note: Staging validation will be skipped for this release (hotfix mode)"
+fi
+
 if [[ "$dry_run" == "true" ]]; then
-    echo "[dry-run] Would create commit chore: release $tag"
+    echo "[dry-run] Would create commit: $commit_msg"
 else
-    git commit -m "chore: release $tag"
+    git commit -m "$commit_msg"
 fi
 
 notes=""

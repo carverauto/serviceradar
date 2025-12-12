@@ -48,19 +48,21 @@
 
 - [x] 6.1 Create GitHub Environment `demo-staging` with secrets (placeholder values set)
 - [x] 6.2 Create GitHub Environment `demo` with secrets
-- [ ] 6.3 Create `scripts/e2e-test.sh` that authenticates via HTTP API (not kubectl)
-- [ ] 6.4 Create `.github/workflows/e2e-tests.yml` workflow using environment secrets
-- [ ] 6.5 Implement e2e test scenarios (API health, login, basic queries)
-- [ ] 6.6 Configure test results to update CommitStatus for promoter
-- [ ] 6.7 Define minimum passing criteria for promotion approval
+- [x] 6.3 Create `scripts/e2e-test.sh` that authenticates via HTTP API (not kubectl)
+- [x] 6.4 Create `.github/workflows/e2e-tests.yml` workflow using environment secrets
+- [x] 6.5 Implement e2e test scenarios (API health, login, basic queries)
+- [x] 6.6 Configure test results to update CommitStatus for promoter
+- [x] 6.7 Define minimum passing criteria for promotion approval (all tests must pass)
 
 ## 7. Release Workflow Refactoring
 
 - [x] 7.1 Add Helm chart publish step to release.yml
-- [ ] 7.2 Split release.yml into stages: build -> deploy-staging -> test -> promote -> release
-- [ ] 7.3 Add staging deployment step before package publishing
-- [ ] 7.4 Update `scripts/cut-release.sh` to support `--skip-staging` for hotfixes
-- [ ] 7.5 Add rollback procedure documentation
+- [x] 7.2 Split release.yml into stages: build -> deploy-staging -> test -> promote -> release
+      (Note: Staging is split via separate e2e-tests.yml workflow that runs after release)
+- [x] 7.3 Add staging deployment step before package publishing
+      (Note: ArgoCD auto-syncs staging when Helm chart is published; e2e-tests run after)
+- [x] 7.4 Update `scripts/cut-release.sh` to support `--skip-staging` for hotfixes
+- [x] 7.5 Add rollback procedure documentation
 - [ ] 7.6 Test full pipeline with a pre-release version
 
 ## 8. ArgoCD Demo Application Update

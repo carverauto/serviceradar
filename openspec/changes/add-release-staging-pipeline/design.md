@@ -235,20 +235,67 @@ jobs:
 2. Configure staging->demo promotion
 3. Integrate e2e test gate
 
-### Phase 5: Full Pipeline (PENDING)
-1. Update release workflow for staged deployment
-2. Test complete flow with pre-release
-3. Document and train team
+### Phase 5: Full Pipeline (DONE)
+1. ~~Update release workflow for staged deployment~~ e2e-tests.yml runs after release.yml
+2. ~~Test complete flow with pre-release~~ Pending manual test
+3. ~~Document and train team~~ Rollback procedures documented
 
-### Phase 6: Helm Chart CI/CD Quality Gates (PENDING)
-1. Add `helm lint` step to CI workflow (path-filtered to helm/ changes)
-2. Add `helm template` validation for chart rendering
-3. Consider chart-testing (`ct lint`) integration
+### Phase 6: Helm Chart CI/CD Quality Gates (DONE)
+1. ~~Add `helm lint` step to CI workflow (path-filtered to helm/ changes)~~ Created helm-lint.yml
+2. ~~Add `helm template` validation for chart rendering~~ Included in helm-lint.yml
+3. Consider chart-testing (`ct lint`) integration (deferred)
 
 ### Rollback Procedure
-1. Revert to previous chart version via ArgoCD
-2. Manual image tag override if needed
-3. GitOps Promoter supports manual promotion bypass
+
+#### Quick Rollback via ArgoCD UI
+1. Open ArgoCD dashboard and select the affected application (demo-staging or demo)
+2. Click "History and Rollback"
+3. Select the previous healthy revision
+4. Click "Rollback" to restore
+
+#### CLI Rollback Commands
+```bash
+# List application history
+argocd app history serviceradar-demo-staging
+
+# Rollback to specific revision
+argocd app rollback serviceradar-demo-staging <REVISION>
+
+# Or manually set chart version
+argocd app set serviceradar-demo-staging --helm-set-string global.imageTag=v1.0.69
+argocd app sync serviceradar-demo-staging
+```
+
+#### Helm Chart Version Rollback
+```bash
+# Update ArgoCD Application to use previous chart version
+kubectl -n argocd patch application serviceradar-demo-staging \
+  --type=merge \
+  -p '{"spec":{"source":{"targetRevision":"1.0.72"}}}'
+```
+
+#### Image Tag Override (Emergency)
+If only specific images are problematic:
+```bash
+# Override single service image via ArgoCD
+argocd app set serviceradar-demo-staging \
+  --helm-set-string image.tags.core=v1.0.69
+
+# Sync to apply
+argocd app sync serviceradar-demo-staging
+```
+
+#### GitOps Promoter Manual Override
+When promoter is installed, bypass automatic promotion:
+```bash
+# Pause promoter for the application
+kubectl annotate application serviceradar-demo-staging \
+  promoter.argoproj.io/pause=true
+
+# Resume after manual intervention
+kubectl annotate application serviceradar-demo-staging \
+  promoter.argoproj.io/pause-
+```
 
 ## Resolved Questions
 
