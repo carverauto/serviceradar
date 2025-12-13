@@ -162,3 +162,19 @@ imagePullSecrets:
 {{- define "serviceradar.spireControllerManagerRoleBindingName" -}}
 {{- printf "%s-%s-%s" (include "serviceradar.fullname" .) .Release.Namespace "spire-controller-manager-binding" -}}
 {{- end -}}
+
+{{/*
+Generate checksum for db credentials to trigger pod restart when secret changes.
+Uses lookup to get current secret value, falls back to random if not found.
+*/}}
+{{- define "serviceradar.dbCredentialsChecksum" -}}
+{{- $ns := default .Release.Namespace .Values.spire.namespace -}}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $secretName := default "serviceradar-db-credentials" $cnpg.credentialsSecret -}}
+{{- $existingSecret := (lookup "v1" "Secret" $ns $secretName) -}}
+{{- if and $existingSecret $existingSecret.data -}}
+{{- $existingSecret.data | toJson | sha256sum -}}
+{{- else -}}
+{{- randAlphaNum 32 | sha256sum -}}
+{{- end -}}
+{{- end -}}

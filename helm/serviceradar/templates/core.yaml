@@ -26,6 +26,8 @@ spec:
     metadata:
       labels:
         app: serviceradar-core
+      annotations:
+        checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ $coreSA }}
