@@ -1,3 +1,15 @@
+# ServiceRadar v1.0.77
+
+Device Details metrics now stay fresh, and demo-staging canary iteration is faster.
+
+## Whats New
+
+**1.0.77**
+- Device Details now auto-refreshes metrics/availability and keeps the “last 24h” window sliding, preventing stale ICMP/Sysmon timestamps when the page stays open.
+- Device Details metrics queries now fetch newest-first (fixes “Latest ICMP RTT” showing an old “xh ago” while values change, and restores recent points in the timeline).
+- Added `make demo-staging-canary`, `make demo-staging-web`, and `make demo-staging-core` helpers to speed up staging canary deploy/test loops.
+- Helm secret generator now keeps `admin-password` and `admin-bcrypt-hash` consistent to prevent demo login failures.
+
 # ServiceRadar v1.0.76
 
 CNPG auth rotation resilience, telemetry reliability improvements, and Helm publish fixes.
