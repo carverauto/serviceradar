@@ -11,14 +11,14 @@ spec:
     # OCI Helm chart from ghcr.io
     repoURL: ghcr.io/carverauto/charts
     chart: serviceradar
-    targetRevision: "1.0.75"
+    targetRevision: "1.0.76"
     helm:
       releaseName: serviceradar
       valueFiles:
         - values-demo.yaml
       parameters:
         - name: global.imageTag
-          value: "v1.0.75"
+          value: "v1.0.76"
 
   destination:
     server: https://kubernetes.default.svc
