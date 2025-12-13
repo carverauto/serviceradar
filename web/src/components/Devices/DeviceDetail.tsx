@@ -16,7 +16,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import {
   Server,
@@ -192,6 +192,7 @@ const TIME_RANGE_CONFIG: Record<string, { label: string; durationMs: number }> =
   };
 
 const DEFAULT_TIME_RANGE = "24h";
+const AUTO_REFRESH_INTERVAL_MS = 30_000;
 const MAX_DISCOVERY_SOURCES = 50;
 const ALLOWED_DISCOVERY_SOURCE_KEYS = new Set([
   "source",
@@ -525,6 +526,10 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
     null,
   );
 
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const refreshInFlightRef = useRef(false);
+  const refreshCounterRef = useRef(0);
+
   const [sysmonSummary, setSysmonSummary] = useState<SysmonSummary | null>(
     null,
   );
@@ -540,10 +545,10 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
   const [promotionLoading, setPromotionLoading] = useState(false);
   const [promotionError, setPromotionError] = useState<string | null>(null);
 
-  const timeWindow = useMemo(() => {
+  const resolveTimeWindow = useCallback((endMs?: number) => {
     const config =
       TIME_RANGE_CONFIG[timeRange] ?? TIME_RANGE_CONFIG[DEFAULT_TIME_RANGE];
-    const end = new Date();
+    const end = new Date(typeof endMs === "number" ? endMs : Date.now());
     const start = new Date(end.getTime() - config.durationMs);
     return {
       label: config.label,
@@ -551,6 +556,11 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
       end,
     };
   }, [timeRange]);
+
+  const timeWindow = useMemo(
+    () => resolveTimeWindow(nowMs),
+    [nowMs, resolveTimeWindow],
+  );
 
   const runSrqlQuery = useCallback(
     async (query: string, limit?: number) => {
@@ -594,9 +604,12 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
     return normalized;
   };
 
-  const fetchDevice = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const fetchDevice = useCallback(async (opts?: { showSpinner?: boolean }) => {
+    const showSpinner = opts?.showSpinner ?? false;
+    if (showSpinner) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const escapedId = escapeSrqlValue(deviceId);
       const query = `in:devices device_id:"${escapedId}" limit:1`;
@@ -606,61 +619,89 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
       )) as SrqlResponse<DeviceRecord>;
       const record = response.results?.[0];
       if (!record) {
-        setError("Device not found");
-        setDevice(null);
+        if (showSpinner) {
+          setError("Device not found");
+          setDevice(null);
+        }
         return;
       }
       setDevice(normalizeDevice(record));
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to load device";
-      setError(message);
-      setDevice(null);
+      if (showSpinner) {
+        setError(message);
+        setDevice(null);
+      } else {
+        console.error(message, err);
+      }
     } finally {
-      setLoading(false);
+      if (showSpinner) {
+        setLoading(false);
+      }
     }
   }, [deviceId, runSrqlQuery]);
 
-  const fetchAvailability = useCallback(async () => {
-    setAvailabilityLoading(true);
-    setAvailabilityError(null);
+  const fetchAvailability = useCallback(async (opts?: {
+    showSpinner?: boolean;
+    window?: { start: Date; end: Date };
+  }) => {
+    const showSpinner = opts?.showSpinner ?? false;
+    const windowOverride = opts?.window;
+    const { start, end } = windowOverride ?? resolveTimeWindow();
+    if (showSpinner) {
+      setAvailabilityLoading(true);
+      setAvailabilityError(null);
+    }
     try {
       const escapedId = escapeSrqlValue(deviceId);
-      const { start, end } = timeWindow;
       const queryParts = [
         "in:device_updates",
         `device_id:"${escapedId}"`,
         `time:[${start.toISOString()},${end.toISOString()}]`,
-        "sort:timestamp:asc",
+        "sort:timestamp:desc",
       ];
       const query = queryParts.join(" ");
       const response = (await runSrqlQuery(
         query,
         1000,
       )) as SrqlResponse<DeviceAvailabilityRow>;
-      setAvailabilityRows(response.results ?? []);
+      setAvailabilityRows([...(response.results ?? [])].reverse());
     } catch (err) {
       const message =
         err instanceof Error
           ? err.message
           : "Failed to load availability history";
-      setAvailabilityError(message);
-      setAvailabilityRows([]);
+      if (showSpinner) {
+        setAvailabilityError(message);
+        setAvailabilityRows([]);
+      } else {
+        console.error(message, err);
+      }
     } finally {
-      setAvailabilityLoading(false);
+      if (showSpinner) {
+        setAvailabilityLoading(false);
+      }
     }
-  }, [deviceId, runSrqlQuery, timeWindow]);
+  }, [deviceId, resolveTimeWindow, runSrqlQuery]);
 
-  const fetchMetrics = useCallback(async () => {
-    setMetricsLoading(true);
+  const fetchMetrics = useCallback(async (opts?: {
+    showSpinner?: boolean;
+    window?: { start: Date; end: Date };
+  }) => {
+    const showSpinner = opts?.showSpinner ?? false;
+    const windowOverride = opts?.window;
+    const { start, end } = windowOverride ?? resolveTimeWindow();
+    if (showSpinner) {
+      setMetricsLoading(true);
+    }
     try {
       const escapedId = escapeSrqlValue(deviceId);
-      const { start, end } = timeWindow;
       const clauses = [
         "in:timeseries_metrics",
         `device_id:"${escapedId}"`,
         `time:[${start.toISOString()},${end.toISOString()}]`,
-        "sort:timestamp:asc",
+        "sort:timestamp:desc",
       ];
 
       if (selectedMetricType !== "all") {
@@ -673,7 +714,13 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
         Record<string, unknown>
       >;
 
-      const mapped = (response.results ?? []).map((row) => {
+      const mapped = (response.results ?? [])
+        .map((row) => {
+          const timestamp = row.timestamp;
+          if (typeof timestamp !== "string" || timestamp.length === 0) {
+            return null;
+          }
+
         const metricName =
           (row.metric_name as string | undefined) ??
           (row.name as string | undefined) ??
@@ -699,27 +746,38 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
           name: metricName,
           type: metricType,
           value: String(value),
-          timestamp: (row.timestamp as string) ?? new Date().toISOString(),
+          timestamp,
           target_device_ip: row.target_device_ip as string | undefined,
           device_id: row.device_id as string | undefined,
           partition: row.partition as string | undefined,
           poller_id: row.poller_id as string | undefined,
           metadata,
         } as TimeseriesMetric;
-      });
+        })
+        .filter((row): row is TimeseriesMetric => row !== null)
+        .reverse();
 
       setMetrics(mapped);
     } catch (err) {
       console.error("Failed to fetch metrics:", err);
-      setMetrics([]);
+      if (showSpinner) {
+        setMetrics([]);
+      }
     } finally {
-      setMetricsLoading(false);
+      if (showSpinner) {
+        setMetricsLoading(false);
+      }
     }
-  }, [deviceId, runSrqlQuery, selectedMetricType, timeWindow]);
+  }, [deviceId, resolveTimeWindow, runSrqlQuery, selectedMetricType]);
 
-  const fetchSysmonSummary = useCallback(async () => {
-    setSysmonLoading(true);
-    setSysmonError(null);
+  const fetchSysmonSummary = useCallback(async (opts?: {
+    showSpinner?: boolean;
+  }) => {
+    const showSpinner = opts?.showSpinner ?? false;
+    if (showSpinner) {
+      setSysmonLoading(true);
+      setSysmonError(null);
+    }
     try {
       const escapedId = escapeSrqlValue(deviceId);
 
@@ -809,28 +867,80 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to load system metrics";
-      setSysmonError(message);
-      setSysmonSummary(null);
+      if (showSpinner) {
+        setSysmonError(message);
+        setSysmonSummary(null);
+      } else {
+        console.error(message, err);
+      }
     } finally {
-      setSysmonLoading(false);
+      if (showSpinner) {
+        setSysmonLoading(false);
+      }
     }
   }, [deviceId, runSrqlQuery]);
 
   useEffect(() => {
-    void fetchDevice();
-  }, [fetchDevice]);
+    const endMs = Date.now();
+    setNowMs(endMs);
+    const window = resolveTimeWindow(endMs);
+    void fetchDevice({ showSpinner: true });
+    void fetchAvailability({ showSpinner: true, window });
+    void fetchMetrics({ showSpinner: true, window });
+    void fetchSysmonSummary({ showSpinner: true });
+  }, [
+    fetchAvailability,
+    fetchDevice,
+    fetchMetrics,
+    fetchSysmonSummary,
+    resolveTimeWindow,
+    selectedMetricType,
+    timeRange,
+  ]);
 
   useEffect(() => {
-    void fetchAvailability();
-  }, [fetchAvailability]);
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
 
-  useEffect(() => {
-    void fetchMetrics();
-  }, [fetchMetrics]);
+      const endMs = Date.now();
+      setNowMs(endMs);
 
-  useEffect(() => {
-    void fetchSysmonSummary();
-  }, [fetchSysmonSummary]);
+      if (refreshInFlightRef.current) {
+        return;
+      }
+
+      refreshInFlightRef.current = true;
+      refreshCounterRef.current += 1;
+      const window = resolveTimeWindow(endMs);
+
+      const shouldRefreshDevice = refreshCounterRef.current % 2 === 0;
+      const refreshTasks: Array<Promise<void>> = [
+        fetchAvailability({ showSpinner: false, window }),
+        fetchMetrics({ showSpinner: false, window }),
+      ];
+
+      if (shouldRefreshDevice) {
+        refreshTasks.push(fetchDevice({ showSpinner: false }));
+        refreshTasks.push(fetchSysmonSummary({ showSpinner: false }));
+      } else {
+        refreshTasks.push(fetchSysmonSummary({ showSpinner: false }));
+      }
+
+      void Promise.all(refreshTasks).finally(() => {
+        refreshInFlightRef.current = false;
+      });
+    }, AUTO_REFRESH_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [
+    fetchAvailability,
+    fetchDevice,
+    fetchMetrics,
+    fetchSysmonSummary,
+    resolveTimeWindow,
+  ]);
 
   useEffect(() => {
     setAliasLoading(true);
