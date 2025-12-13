@@ -32,25 +32,34 @@ type Service struct {
 	retryDelay     time.Duration
 }
 
+var (
+	ErrNilConfig    = errors.New("db-event-writer: config is nil")
+	ErrNilDBService = errors.New("db-event-writer: db service is nil")
+)
+
+func buildProcessor(cfg *DBEventWriterConfig, dbService db.Service, log logger.Logger) (*Processor, error) {
+	if cfg == nil {
+		return nil, ErrNilConfig
+	}
+	if dbService == nil {
+		return nil, ErrNilDBService
+	}
+
+	streams := cfg.GetStreams()
+	if len(streams) > 0 {
+		return NewProcessorWithStreams(dbService, streams, log)
+	}
+
+	return NewProcessor(dbService, cfg.Table, log)
+}
+
 // NewService initializes the service.
 func NewService(cfg *DBEventWriterConfig, dbService db.Service, log logger.Logger) (*Service, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	var proc *Processor
-
-	var err error
-
-	streams := cfg.GetStreams()
-	if len(streams) > 0 {
-		// Use new multi-stream configuration
-		proc, err = NewProcessorWithStreams(dbService, streams, log)
-	} else {
-		// Legacy single stream configuration
-		proc, err = NewProcessor(dbService, cfg.Table, log)
-	}
-
+	proc, err := buildProcessor(cfg, dbService, log)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +143,42 @@ func (s *Service) UpdateConfig(ctx context.Context, cfg *DBEventWriterConfig) er
 	s.wg.Wait()
 	s.resetConnection()
 
+	proc, err := buildProcessor(cfg, s.db, s.logger)
+	if err != nil {
+		return err
+	}
+
 	s.cfg = cfg
+	s.processor = proc
+
+	return s.Start(ctx)
+}
+
+// ReloadDatabase rebuilds the CNPG connection and restarts the NATS consumer loop.
+// It is safe to call while the service is running.
+func (s *Service) ReloadDatabase(ctx context.Context, dbService db.Service) error {
+	if dbService == nil {
+		return nil
+	}
+
+	if s.runCancel != nil {
+		s.runCancel()
+	}
+
+	s.wg.Wait()
+	s.resetConnection()
+
+	proc, err := buildProcessor(s.cfg, dbService, s.logger)
+	if err != nil {
+		return err
+	}
+
+	oldDB := s.db
+	s.db = dbService
+	s.processor = proc
+	if oldDB != nil {
+		_ = oldDB.Close()
+	}
 
 	return s.Start(ctx)
 }

@@ -378,6 +378,13 @@ func (s *APIServer) loadWatcherSnapshot(ctx context.Context, kvStoreID, service,
 		return nil, err
 	}
 
+	if !snapshot.UpdatedAt.IsZero() && time.Since(snapshot.UpdatedAt) > config.WatcherSnapshotTTL {
+		snapshot.Status = config.WatcherStatusStopped
+		if snapshot.LastError == "" {
+			snapshot.LastError = "watcher snapshot is stale"
+		}
+	}
+
 	if snapshot.InstanceID == "" || strings.EqualFold(snapshot.InstanceID, service) {
 		snapshot.InstanceID = instanceID
 	}

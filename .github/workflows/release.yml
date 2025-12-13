@@ -226,6 +226,11 @@ jobs:
               "${extra_args[@]}"
           fi
 
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+
       - name: Publish Helm chart to OCI registry
         env:
           VERSION: ${{ steps.release.outputs.version }}
