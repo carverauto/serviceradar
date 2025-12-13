@@ -659,14 +659,14 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
         "in:device_updates",
         `device_id:"${escapedId}"`,
         `time:[${start.toISOString()},${end.toISOString()}]`,
-        "sort:timestamp:asc",
+        "sort:timestamp:desc",
       ];
       const query = queryParts.join(" ");
       const response = (await runSrqlQuery(
         query,
         1000,
       )) as SrqlResponse<DeviceAvailabilityRow>;
-      setAvailabilityRows(response.results ?? []);
+      setAvailabilityRows([...(response.results ?? [])].reverse());
     } catch (err) {
       const message =
         err instanceof Error
@@ -701,7 +701,7 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
         "in:timeseries_metrics",
         `device_id:"${escapedId}"`,
         `time:[${start.toISOString()},${end.toISOString()}]`,
-        "sort:timestamp:asc",
+        "sort:timestamp:desc",
       ];
 
       if (selectedMetricType !== "all") {
@@ -714,7 +714,13 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
         Record<string, unknown>
       >;
 
-      const mapped = (response.results ?? []).map((row) => {
+      const mapped = (response.results ?? [])
+        .map((row) => {
+          const timestamp = row.timestamp;
+          if (typeof timestamp !== "string" || timestamp.length === 0) {
+            return null;
+          }
+
         const metricName =
           (row.metric_name as string | undefined) ??
           (row.name as string | undefined) ??
@@ -740,14 +746,16 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
           name: metricName,
           type: metricType,
           value: String(value),
-          timestamp: (row.timestamp as string) ?? new Date().toISOString(),
+          timestamp,
           target_device_ip: row.target_device_ip as string | undefined,
           device_id: row.device_id as string | undefined,
           partition: row.partition as string | undefined,
           poller_id: row.poller_id as string | undefined,
           metadata,
         } as TimeseriesMetric;
-      });
+        })
+        .filter((row): row is TimeseriesMetric => row !== null)
+        .reverse();
 
       setMetrics(mapped);
     } catch (err) {
