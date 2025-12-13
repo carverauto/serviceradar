@@ -37,8 +37,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         pkg-config \
         # Container Tools
         skopeo \
-        podman \
-        slirp4netns \
         iptables \
         # Database / Libs
         postgresql-server-dev-16 \
@@ -73,30 +71,9 @@ RUN curl -fsSL http://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1
     && dpkg -i /tmp/libssl1.1.deb \
     && rm /tmp/libssl1.1.deb
 
-# Provide a Docker-compatible shim for podman that forces the vfs driver to
-# avoid fuse-overlayfs mount constraints inside the executor sandbox.
-RUN cat <<'EOF' >/usr/local/bin/docker \
-    && chmod +x /usr/local/bin/docker
-#!/bin/bash
-exec /usr/bin/podman --storage-driver=vfs "$@"
-EOF
-
-# Force podman to prefer the vfs storage driver and make iptables visible on PATH.
-RUN mkdir -p /etc/containers \
-    && cat <<'EOF' >/etc/containers/storage.conf
-[storage]
-driver = "vfs"
-runroot = "/var/run/containers/storage"
-graphroot = "/var/lib/containers/storage"
-[storage.options]
-mount_program = ""
-mountopt = "nodev,fsync=0"
-EOF
 RUN ln -sf /usr/sbin/iptables /usr/bin/iptables
 
-ENV CONTAINERS_STORAGE_DRIVER=vfs \
-    CONTAINERS_STORAGE_CONF=/etc/containers/storage.conf \
-    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Provide the common RHEL-style lib64 path expected by some build scripts.
 RUN ln -s /usr/lib/x86_64-linux-gnu /usr/lib64

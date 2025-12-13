@@ -82,7 +82,6 @@ Rust edge onboarding improvements and build/deployment updates.
 **1.0.66**
 - Enhanced Rust edge onboarding library with improved mTLS bootstrap and configuration handling.
 - Added Bazel build targets and RBE platform configuration for RHEL 9 (RH9).
-- Added Podman deployment documentation and container support.
 - Fixed potential deadlock issues in core services.
 - Updated Docker Compose configurations and container registry settings.
 - Various Bazel build fixes for improved CI/CD reliability.

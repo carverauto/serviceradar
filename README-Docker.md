@@ -4,8 +4,7 @@ This guide gets you started with ServiceRadar using Docker Compose in under 5 mi
 
 ## Prerequisites
 
-- Docker Engine 20.10+ with Docker Compose 2.0+, or
-- Podman 4.0+ with podman-compose
+- Docker Engine 20.10+ with Docker Compose 2.0+
 - 8GB+ RAM
 - 50GB+ disk space
 
@@ -44,104 +43,6 @@ newgrp docker
 
 Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and ensure it's running.
 
-### Podman (Alternative to Docker)
-
-Podman is a drop-in replacement for Docker available on most Linux distributions. ServiceRadar provides a dedicated startup script for Podman that handles proper service ordering and mTLS configuration.
-
-**Why use the Podman script instead of podman-compose?**
-- `podman-compose` has limitations with dependency ordering and health checks
-- The script ensures proper startup sequence for certificate generation and service dependencies
-- Automatic mTLS configuration without SPIFFE/SPIRE dependencies
-
-#### Podman Quick Start
-
-**1. Install Podman (AlmaLinux 9 / RHEL 9 / Rocky Linux 9):**
-```bash
-sudo dnf install -y podman
-```
-
-**Ubuntu / Debian:**
-```bash
-sudo apt-get update
-sudo apt-get install -y podman
-```
-
-**2. Clone and start:**
-```bash
-git clone https://github.com/carverauto/serviceradar.git
-cd serviceradar
-
-# First time setup (generates certs, configs, starts all services)
-sudo ./podman-start.sh --clean
-
-# Get your admin credentials (shown at end of startup, or run):
-sudo podman logs serviceradar-config-updater 2>&1 | grep -E "(Username|Password)"
-```
-
-**3. Verify the stack is working:**
-```bash
-sudo ./podman-test.sh
-```
-
-**4. Access ServiceRadar:**
-- Web Interface: http://localhost
-- Username: `admin`
-- Password: (from step 2)
-
-#### Podman Commands
-
-```bash
-# Start the stack (preserves existing data/config)
-sudo ./podman-start.sh
-
-# Start fresh (removes all data and regenerates config)
-sudo ./podman-start.sh --clean
-
-# Check container status
-sudo podman ps --filter "name=serviceradar"
-
-# View logs for a service
-sudo podman logs serviceradar-core
-sudo podman logs serviceradar-poller
-
-# Follow logs in real-time
-sudo podman logs -f serviceradar-poller
-
-# Stop all services
-sudo podman stop $(sudo podman ps -q --filter "name=serviceradar")
-
-# Remove all containers (keeps volumes)
-sudo podman rm $(sudo podman ps -aq --filter "name=serviceradar")
-
-# Full cleanup (removes containers, volumes, network)
-sudo ./podman-start.sh --clean
-# Then Ctrl+C after "Cleanup complete" message
-```
-
-#### Podman Troubleshooting
-
-**SELinux issues (RHEL/AlmaLinux):**
-```bash
-# Option 1: Set SELinux to permissive (easiest for testing)
-sudo setenforce 0
-
-# Option 2: Relabel directories for container access
-sudo chcon -Rt svirt_sandbox_file_t /path/to/serviceradar/docker
-sudo chcon -Rt svirt_sandbox_file_t /path/to/serviceradar/packaging
-```
-
-**Firewall issues:**
-```bash
-sudo firewall-cmd --add-port=80/tcp --permanent
-sudo firewall-cmd --add-port=443/tcp --permanent
-sudo firewall-cmd --reload
-```
-
-**Why rootful mode is required:**
-- The `agent` service uses `privileged: true` for network scanning
-- Ports 80 and 443 require root to bind (< 1024)
-- Certificate generation requires root access to volumes
-
 ## Quick Start
 
 1. **Clone and navigate**:
@@ -175,6 +76,19 @@ sudo firewall-cmd --reload
    - API via nginx: http://localhost/api/
    - Username: `admin`
    - Password: (from step 5)
+
+## Update an Existing Stack
+
+1. Choose a target image tag:
+   - Latest release: `APP_TAG=v1.0.77`
+   - Specific commit: `APP_TAG=sha-<git-sha>`
+
+2. Pull + restart with the new tag:
+   ```bash
+   export APP_TAG=v1.0.77
+   docker compose pull
+   docker compose up -d --force-recreate
+   ```
 
 ## Startup Sequence
 
@@ -269,9 +183,9 @@ docker compose down
 docker compose restart core
 
 # Update to a specific version
-# Edit .env and set APP_TAG=v1.0.65, then:
+export APP_TAG=v1.0.77
 docker compose pull
-docker compose up -d
+docker compose up -d --force-recreate
 ```
 
 ## Troubleshooting
