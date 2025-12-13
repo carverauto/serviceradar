@@ -20,7 +20,7 @@ spec:
       serviceAccountName: {{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}
       containers:
         - name: kv-bootstrap
-          image: ghcr.io/carverauto/serviceradar-tools:{{ .Values.image.tags.tools }}
+          image: ghcr.io/carverauto/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
           imagePullPolicy: IfNotPresent
           env:
             - name: NATS_URL

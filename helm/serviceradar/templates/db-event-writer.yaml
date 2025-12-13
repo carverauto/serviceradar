@@ -20,7 +20,7 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: db-event-writer
-        image: ghcr.io/carverauto/serviceradar-db-event-writer:{{ .Values.image.tags.dbEventWriter }}
+        image: ghcr.io/carverauto/serviceradar-db-event-writer:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "dbEventWriter") }}
         ports:
         - containerPort: 50041
           name: grpc
