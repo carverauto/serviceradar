@@ -104,6 +104,18 @@ build: ## Build the full workspace with Bazel (remote)
 push_all: ## Build and push all OCI images to GHCR via Bazel
 	@bazel run --config=remote --stamp //docker/images:push_all
 
+.PHONY: demo-staging-canary
+demo-staging-canary: ## Configure demo-staging ArgoCD app for canary tags (web=latest, others pinned)
+	@./scripts/demo-staging-canary.py --app serviceradar-demo-staging --base-tag v1.0.75 --web-tag latest
+
+.PHONY: demo-staging-web
+demo-staging-web: ## Push web image (latest) and restart serviceradar-web in demo-staging
+	@./scripts/demo-staging-web.sh demo-staging
+
+.PHONY: demo-staging-core
+demo-staging-core: ## Push core image (latest) and restart serviceradar-core in demo-staging
+	@./scripts/demo-staging-core.sh demo-staging
+
 .PHONY: cnpg-migrate
 cnpg-migrate: ## Apply CNPG migrations (set CNPG_* vars or pass ARGS="--host ...")
 	@$(GO) run ./cmd/tools/cnpg-migrate $(ARGS)
