@@ -1,25 +1,17 @@
-## 1. Investigation (Completed)
+## 1. Investigation
 
-- [x] 1.1 Verify ICMP data collection - Confirmed ~120 metrics/hour in `timeseries_metrics` table for `serviceradar:agent:k8s-agent`
-- [x] 1.2 Verify service status updates - Confirmed fresh entries in `service_status` every 30s
-- [x] 1.3 Test API endpoint directly - Confirmed `/api/devices/{id}/metrics?type=icmp` returns HTTP 401 "unauthorized"
-- [x] 1.4 Identify root cause - `handleAPIKeyAuth` authenticates but doesn't set user context for RBAC/RouteProtection middleware
+- [x] 1.1 Confirm stale behavior is isolated to Device Details view (Devices list ICMP sparkline continues refreshing)
+- [x] 1.2 Inspect Device Details code path - Metrics are fetched via SRQL (`/api/query`) and are not polled/revalidated
+- [x] 1.3 Identify root cause - `DeviceDetail.tsx` performs one-shot fetches and freezes the “now” time window end
 
-## 2. Implementation (Completed)
+## 2. Implementation
 
-- [x] 2.1 Fix `handleAPIKeyAuth` in `pkg/core/api/server.go` to inject a system/service user into request context after successful API key validation
-- [x] 2.2 Ensure the injected user has appropriate roles (`admin`, `operator`, `viewer`) to pass RBAC checks for all device metrics endpoints
-- [x] 2.3 Build and run tests to verify no regressions
+- [x] 2.1 Revert API-key auth context injection workaround in `pkg/core/api/server.go`
+- [x] 2.2 Add periodic auto-refresh to `web/src/components/Devices/DeviceDetail.tsx` without UI flicker (silent refresh)
+- [ ] 2.3 Add/confirm regression coverage (if existing web tests exist for polling behavior)
 
 ## 3. Verification
 
-- [ ] 3.1 Deploy fix to demo namespace
-- [ ] 3.2 Verify UI displays fresh "Latest ICMP RTT" (not 19h stale)
-- [ ] 3.3 Verify Device Metrics Timeline shows recent data
-- [ ] 3.4 Monitor for 1 hour to ensure metrics continue displaying
-
-## 4. Secondary Issue (KV Watcher Telemetry)
-
-- [ ] 4.1 Investigate why only core service appears in watcher telemetry
-- [ ] 4.2 Determine if watcher state needs to be aggregated across services via NATS/KV
-- [ ] 4.3 Create separate proposal if architectural changes needed
+- [ ] 3.1 Deploy to demo namespace
+- [ ] 3.2 Leave Device Details open >1h; confirm “Latest ICMP RTT” timestamp advances
+- [ ] 3.3 Confirm Device Metrics Timeline includes recent points without requiring a page reload

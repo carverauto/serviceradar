@@ -1,22 +1,21 @@
 # Change: Fix ICMP Metrics Display Stoppage
 
 ## Why
-ICMP metrics for `k8s-agent` in the demo namespace stopped appearing in the UI ~19 hours ago, even though:
-1. **Data IS being collected** - Database shows ~120 ICMP metrics/hour continuously for `serviceradar:agent:k8s-agent`
-2. **Service status IS being updated** - `service_status` table shows fresh ICMP data every 30s
+ICMP metrics for `k8s-agent` appear to “stop updating” on the Device Details page after the UI has been open for a while:
+- The Devices list ICMP sparkline continues refreshing.
+- The Device Details “Latest ICMP RTT” and metrics timeline remain stuck at the timestamp from when the page was first opened.
 
-The UI displays stale data ("Latest ICMP RTT: 8.5ms - 19h ago") because the API endpoint `/api/devices/{id}/metrics?type=icmp` returns HTTP 401 "unauthorized" even when the correct API key is provided.
-
-**Root Cause**: The RBAC middleware at `pkg/core/auth/middleware.go:70` checks `GetUserFromContext(r.Context())` and rejects requests when no user is found. The `handleAPIKeyAuth` function in `pkg/core/api/server.go:538-547` authenticates API keys but does not inject a user into the request context, causing subsequent RBAC checks to fail.
+## Root Cause
+`web/src/components/Devices/DeviceDetail.tsx` fetches device metrics and availability history once on mount (and on filter changes), but does not poll/revalidate. The time window end is also derived from “now” only at render time, so leaving the page open results in a frozen time range and stale “latest” values even while the backend continues to ingest metrics.
 
 ## What Changes
-- **Fix API key auth to set user context**: Modify `handleAPIKeyAuth` in `pkg/core/api/server.go` to inject a service/system user into the request context after successful API key validation, allowing RBAC middleware to pass.
-- **Add regression test**: Verify API key authenticated requests can access device metrics endpoints.
-- **Secondary issue - KV watcher telemetry**: Only core service appears in watcher telemetry because watcher state is process-local. This is a separate concern to track but may contribute to configuration propagation issues.
+- Add periodic auto-refresh to the Device Details view (SRQL queries for device record, availability, timeseries metrics, and sysmon summaries).
+- Update the time window to advance as time passes so “last 24h” stays relative to current time.
+- Remove the attempted API-key/RBAC context injection workaround (it is not the root cause of the UI display issue).
 
 ## Impact
 - Affected specs: None (bug fix restoring intended behavior)
 - Affected code:
-  - `pkg/core/api/server.go` (handleAPIKeyAuth)
-  - `pkg/core/auth/middleware.go` (context propagation)
+  - `web/src/components/Devices/DeviceDetail.tsx` (auto-refresh + sliding time window)
+  - `pkg/core/api/server.go` (revert API-key auth context injection workaround)
 - No breaking changes

@@ -542,12 +542,7 @@ func (s *APIServer) handleAPIKeyAuth(w http.ResponseWriter, r *http.Request, nex
 	}
 
 	if r.Header.Get("X-API-Key") == apiKey {
-		// Inject a service user into context for RBAC middleware compatibility
-		ctx := context.WithValue(r.Context(), auth.UserKey, &models.User{
-			Email: "api-key@system",
-			Roles: []string{"admin", "operator", "viewer"},
-		})
-		next.ServeHTTP(w, r.WithContext(ctx))
+		next.ServeHTTP(w, r)
 		return true
 	}
 
