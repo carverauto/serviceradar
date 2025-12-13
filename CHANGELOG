@@ -1,3 +1,15 @@
+# ServiceRadar v1.0.76
+
+CNPG auth rotation resilience, telemetry reliability improvements, and Helm publish fixes.
+
+## Whats New
+
+**1.0.76**
+- DB event writer now prefers `CNPG_PASSWORD_FILE` and can reload the CNPG pool when the mounted secret changes, preventing OTEL ingestion outages after password rotations.
+- Watcher snapshots no longer depend on per-key KV TTL; stale status is derived from snapshot timestamps, improving watcher telemetry reporting.
+- Release workflow now installs Helm before publishing the OCI chart to GHCR (fixes `helm: command not found`).
+- Helm chart now honors `global.imageTag` for db-event-writer and KV bootstrap jobs.
+
 # ServiceRadar v1.0.75
 
 Release staging automation and Helm OCI distribution.

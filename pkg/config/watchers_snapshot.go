@@ -14,7 +14,9 @@ type WatcherSnapshot struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-const watcherSnapshotTTL = 5 * time.Minute
+// WatcherSnapshotTTL is the freshness window used by the admin APIs to treat
+// watcher snapshots as "alive".
+const WatcherSnapshotTTL = 5 * time.Minute
 
 var errWatcherServiceRequired = errors.New("service is required for watcher snapshot")
 
@@ -47,5 +49,7 @@ func (m *KVManager) PublishWatcherSnapshot(ctx context.Context, info WatcherInfo
 		return err
 	}
 
-	return m.client.Put(ctx, key, payload, watcherSnapshotTTL)
+	// Do not rely on per-entry TTL support in the KV backend. Instead, embed an
+	// UpdatedAt timestamp and let readers treat stale snapshots as offline.
+	return m.client.Put(ctx, key, payload, 0)
 }
