@@ -99,7 +99,7 @@ jobs:
           echo "Waiting for API readiness at ${url}..."
           deadline=$((SECONDS+600))
           while true; do
-            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${url}" || true)"
+            code="$(curl -sL -o /dev/null -w '%{http_code}' --max-time 10 "${url}" || true)"
             if [[ "${code}" == "200" || "${code}" == "404" ]]; then
               echo "API ready (HTTP ${code})"
               break
