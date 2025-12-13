@@ -32,12 +32,17 @@ type Service struct {
 	retryDelay     time.Duration
 }
 
+var (
+	ErrNilConfig    = errors.New("db-event-writer: config is nil")
+	ErrNilDBService = errors.New("db-event-writer: db service is nil")
+)
+
 func buildProcessor(cfg *DBEventWriterConfig, dbService db.Service, log logger.Logger) (*Processor, error) {
 	if cfg == nil {
-		return nil, errors.New("db-event-writer: config is nil")
+		return nil, ErrNilConfig
 	}
 	if dbService == nil {
-		return nil, errors.New("db-event-writer: db service is nil")
+		return nil, ErrNilDBService
 	}
 
 	streams := cfg.GetStreams()
