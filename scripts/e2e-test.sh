@@ -109,7 +109,7 @@ http_request() {
     local http_code
 
     if [[ -n "$data" ]]; then
-        response=$(curl -s -w "\n%{http_code}" \
+        response=$(curl -sL -w "\n%{http_code}" \
             --max-time "$TIMEOUT" \
             -X "$method" \
             -H "Content-Type: application/json" \
@@ -117,7 +117,7 @@ http_request() {
             -d "$data" \
             "$url" 2>&1) || true
     else
-        response=$(curl -s -w "\n%{http_code}" \
+        response=$(curl -sL -w "\n%{http_code}" \
             --max-time "$TIMEOUT" \
             -X "$method" \
             -H "Content-Type: application/json" \

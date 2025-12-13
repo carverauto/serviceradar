@@ -22,6 +22,8 @@ spec:
       labels:
         app: serviceradar-srql
         app.kubernetes.io/part-of: serviceradar
+      annotations:
+        checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
