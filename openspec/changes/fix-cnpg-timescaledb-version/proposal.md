@@ -14,7 +14,7 @@ The cnpg:16.6.0-sr2 image was built 10 months ago (February 2025) with old Times
 - Affected code:
   - `docker/images/BUILD.bazel:1557-1561` - Remove version.config override
   - `docker-compose.yml:16` - Update image tag
-  - `docker-compose.podman.yml:16` - Update image tag
+  - Docker Compose - Update image tag
   - `k8s/` manifests - Update cnpg image references
 
 ## Root Cause Analysis

@@ -14,12 +14,12 @@
 
 ## 3. Update References
 - [x] 3.1 Update `docker-compose.yml` image tag to `16.6.0-sr3`
-- [x] 3.2 Update `docker-compose.podman.yml` image tag to `16.6.0-sr3`
+- [x] 3.2 Update Compose image tag to `16.6.0-sr3`
 - [x] 3.3 Update k8s manifests (`k8s/demo/base/spire/cnpg-cluster.yaml`, `k8s/srql-fixtures/cnpg-cluster.yaml`)
 - [x] 3.4 Update helm chart (`helm/serviceradar/values.yaml`)
 - [x] 3.5 Update Dockerfiles (`docker/Dockerfile.rbe`, `docker/Dockerfile.rbe-ora9`)
 - [x] 3.6 Update bazel push targets (`docker/images/push_targets.bzl`)
-- [x] 3.7 Update podman script (`podman-start.sh`)
+- [x] 3.7 Update local container startup scripts
 - [x] 3.8 Update documentation (`docs/docs/agents.md`, `k8s/srql-fixtures/README.md`)
 
 ## 4. Validation
