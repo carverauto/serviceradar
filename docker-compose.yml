@@ -67,8 +67,8 @@ services:
       - ./docker/compose:/templates:ro
       - ./docker/compose/update-config.sh:/usr/local/bin/update-config.sh:ro
     environment:
-      - SYSMON_VM_ADDRESS=${SYSMON_VM_ADDRESS:-192.168.1.218:50110}
-      - SYSMON_VM_SECURITY_MODE=mtls
+      - EDGE_DEFAULT_CHECKER_ENDPOINT=${EDGE_DEFAULT_CHECKER_ENDPOINT:-}
+      - EDGE_DEFAULT_CHECKER_SECURITY_MODE=${EDGE_DEFAULT_CHECKER_SECURITY_MODE:-}
       - POLLERS_SECURITY_MODE=mtls
       - CORE_SECURITY_MODE=mtls
       - CNPG_HOST=${CNPG_HOST:-cnpg}
@@ -342,6 +342,8 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       config-updater:
+        condition: service_completed_successfully
+      cert-permissions-fixer:
         condition: service_completed_successfully
       core:
         condition: service_healthy

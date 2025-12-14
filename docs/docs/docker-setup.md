@@ -568,11 +568,16 @@ Notes:
 - `docker/compose/update-config.sh` preserves existing configs by default; set `FORCE_REGENERATE_CONFIG=true` only if you intentionally want to overwrite generated configs.
 - Equivalent one-liner: `make compose-upgrade`
 
-Verification (optional):
+Verification (optional): confirm your poller KV entry still contains your checker after an upgrade.
 ```bash
-docker run --rm \
-  -v "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_generated-config:/etc/serviceradar/config" \
-  alpine:3.20 sh -c "apk add --no-cache jq >/dev/null && jq -r '.agents[].checks[] | select(.service_name==\"sysmon-osx\").details' /etc/serviceradar/config/poller.json"
+docker run --rm --network serviceradar_serviceradar-net \
+  -v "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cert-data:/etc/serviceradar/certs" \
+  ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.65} \
+  nats --server tls://nats:4222 \
+       --tlsca /etc/serviceradar/certs/root.pem \
+       --tlscert /etc/serviceradar/certs/poller.pem \
+       --tlskey /etc/serviceradar/certs/poller-key.pem \
+       kv get --raw serviceradar-datasvc config/pollers/docker-poller.json
 ```
 
 ### Data Migration

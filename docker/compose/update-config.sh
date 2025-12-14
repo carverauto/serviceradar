@@ -32,10 +32,8 @@ CORE_CONFIG="$CONFIG_DIR/core.json"
 API_ENV="$CONFIG_DIR/api.env"
 CHECKERS_DIR="$CONFIG_DIR/checkers"
 FORCE_REGENERATE_CONFIG="${FORCE_REGENERATE_CONFIG:-false}"
-SYSMON_VM_ADDRESS="${SYSMON_VM_ADDRESS:-192.168.1.219:50110}"
-SYSMON_VM_SECURITY_MODE="${SYSMON_VM_SECURITY_MODE:-none}"
-SYSMON_OSX_ADDRESS="${SYSMON_OSX_ADDRESS:-}"
-SYSMON_OSX_SECURITY_MODE="${SYSMON_OSX_SECURITY_MODE:-}"
+EDGE_DEFAULT_CHECKER_ENDPOINT="${EDGE_DEFAULT_CHECKER_ENDPOINT:-}"
+EDGE_DEFAULT_CHECKER_SECURITY_MODE="${EDGE_DEFAULT_CHECKER_SECURITY_MODE:-}"
 CNPG_HOST="${CNPG_HOST:-cnpg}"
 CNPG_PORT="${CNPG_PORT:-5432}"
 CNPG_DATABASE="${CNPG_DATABASE:-serviceradar}"
@@ -43,11 +41,12 @@ CNPG_USERNAME="${CNPG_USERNAME:-serviceradar}"
 CNPG_PASSWORD="${CNPG_PASSWORD:-serviceradar}"
 CNPG_SSL_MODE="${CNPG_SSL_MODE:-verify-full}"
 
-if [ -z "$SYSMON_OSX_ADDRESS" ] && [ -n "$SYSMON_VM_ADDRESS" ]; then
-    SYSMON_OSX_ADDRESS="$SYSMON_VM_ADDRESS"
+# Backwards-compatible fallbacks (deprecated names used by older compose files).
+if [ -z "$EDGE_DEFAULT_CHECKER_ENDPOINT" ] && [ -n "${SYSMON_VM_ADDRESS:-}" ]; then
+    EDGE_DEFAULT_CHECKER_ENDPOINT="$SYSMON_VM_ADDRESS"
 fi
-if [ -z "$SYSMON_OSX_SECURITY_MODE" ] && [ -n "$SYSMON_VM_SECURITY_MODE" ]; then
-    SYSMON_OSX_SECURITY_MODE="$SYSMON_VM_SECURITY_MODE"
+if [ -z "$EDGE_DEFAULT_CHECKER_SECURITY_MODE" ] && [ -n "${SYSMON_VM_SECURITY_MODE:-}" ]; then
+    EDGE_DEFAULT_CHECKER_SECURITY_MODE="$SYSMON_VM_SECURITY_MODE"
 fi
 
 # Create config directory
@@ -185,9 +184,9 @@ fi
 EDGE_ONBOARDING_KEY=$(cat "$EDGE_KEY_FILE")
 
 EDGE_DEFAULT_META="{}"
-if [ "$SYSMON_VM_SECURITY_MODE" = "mtls" ]; then
+if [ -n "$EDGE_DEFAULT_CHECKER_ENDPOINT" ] && [ "$EDGE_DEFAULT_CHECKER_SECURITY_MODE" = "mtls" ]; then
     EDGE_DEFAULT_META=$(cat <<EOF
-{"security_mode":"mtls","poller_endpoint":"$SYSMON_VM_ADDRESS","core_address":"core:50052","kv_address":"datasvc:50057"}
+{"security_mode":"mtls","checker_endpoint":"$EDGE_DEFAULT_CHECKER_ENDPOINT","poller_endpoint":"$EDGE_DEFAULT_CHECKER_ENDPOINT","core_address":"core:50052","kv_address":"datasvc:50057"}
 EOF
 )
 fi
@@ -358,66 +357,6 @@ fi
 
 echo "🎉 Configuration update complete!"
 
-# Generate sysmon-osx checker configuration with runtime overrides
-SYSMON_OSX_CERT_FILE="${SYSMON_OSX_CERT_FILE:-sysmon-osx.pem}"
-SYSMON_OSX_KEY_FILE="${SYSMON_OSX_KEY_FILE:-sysmon-osx-key.pem}"
-SYSMON_OSX_CA_FILE="${SYSMON_OSX_CA_FILE:-root.pem}"
-
-SYSMON_OSX_CHECKER_CONFIG="$CHECKERS_DIR/sysmon-osx.json"
-
-EXISTING_SYSMON_OSX_ADDRESS=""
-if [ -f "$SYSMON_OSX_CHECKER_CONFIG" ]; then
-    EXISTING_SYSMON_OSX_ADDRESS="$(jq -r '.address // ""' "$SYSMON_OSX_CHECKER_CONFIG" 2>/dev/null || echo "")"
-fi
-
-if [ -f "$SYSMON_OSX_CHECKER_CONFIG" ] && ! is_truthy "$FORCE_REGENERATE_CONFIG" && [ -n "$EXISTING_SYSMON_OSX_ADDRESS" ]; then
-    echo "sysmon-osx checker config already exists (address=$EXISTING_SYSMON_OSX_ADDRESS); preserving existing configuration"
-elif [ -z "$SYSMON_OSX_ADDRESS" ]; then
-    warn "sysmon endpoint is unset (SYSMON_OSX_ADDRESS/SYSMON_VM_ADDRESS); leaving existing sysmon-osx checker config untouched"
-elif [ "$SYSMON_OSX_SECURITY_MODE" = "mtls" ]; then
-    cat > "$CHECKERS_DIR/sysmon-osx.json" <<EOF
-{
-  "name": "sysmon-osx",
-  "type": "grpc",
-  "address": "$SYSMON_OSX_ADDRESS",
-  "security": {
-    "mode": "mtls",
-    "role": "checker",
-    "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "sysmon-osx.serviceradar",
-    "tls": {
-      "cert_file": "$SYSMON_OSX_CERT_FILE",
-      "key_file": "$SYSMON_OSX_KEY_FILE",
-      "ca_file": "$SYSMON_OSX_CA_FILE",
-      "client_ca_file": "$SYSMON_OSX_CA_FILE"
-    }
-  }
-}
-EOF
-    if [ -n "$EXISTING_SYSMON_OSX_ADDRESS" ]; then
-        echo "✅ Generated sysmon-osx checker config (mTLS) with address $SYSMON_OSX_ADDRESS"
-    else
-        echo "✅ Repaired sysmon-osx checker config (mTLS) with address $SYSMON_OSX_ADDRESS"
-    fi
-else
-    cat > "$CHECKERS_DIR/sysmon-osx.json" <<EOF
-{
-  "name": "sysmon-osx",
-  "type": "grpc",
-  "address": "$SYSMON_OSX_ADDRESS",
-  "security": {
-    "mode": "none",
-    "role": "agent"
-  }
-}
-EOF
-    if [ -n "$EXISTING_SYSMON_OSX_ADDRESS" ]; then
-        echo "✅ Generated sysmon-osx checker config (no security) with address $SYSMON_OSX_ADDRESS"
-    else
-        echo "✅ Repaired sysmon-osx checker config (no security) with address $SYSMON_OSX_ADDRESS"
-    fi
-fi
-
 POLLERS_SECURITY_MODE="${POLLERS_SECURITY_MODE:-mtls}"
 POLLERS_TRUST_DOMAIN="${POLLERS_TRUST_DOMAIN:-carverauto.dev}"
 POLLERS_AGENT_SPIFFE_ID="${POLLERS_AGENT_SPIFFE_ID:-spiffe://$POLLERS_TRUST_DOMAIN/services/agent}"
@@ -439,7 +378,7 @@ POLLERS_SPIRE_SQLITE_PATH="${POLLERS_SPIRE_SQLITE_PATH:-/run/spire/nested/server
 POLLERS_SPIRE_SERVER_KEYS_PATH="${POLLERS_SPIRE_SERVER_KEYS_PATH:-/run/spire/nested/server/keys.json}"
 POLLERS_SPIRE_SERVER_SOCKET="${POLLERS_SPIRE_SERVER_SOCKET:-/run/spire/nested/server/api.sock}"
 
-# Prepare poller configuration with sysmon-osx override (only on first run)
+# Prepare poller configuration (only on first run unless forced)
 POLLERS_TEMPLATE="/templates/poller.docker.json"
 if [ "$POLLERS_SECURITY_MODE" = "spiffe" ] && [ -f /templates/poller.spiffe.json ]; then
     POLLERS_TEMPLATE="/templates/poller.spiffe.json"
@@ -456,23 +395,9 @@ fi
 # Only generate poller.json if it doesn't exist (preserves manual customizations unless forced)
 if [ -f "$CONFIG_DIR/poller.json" ] && ! is_truthy "$FORCE_REGENERATE_CONFIG"; then
     echo "poller.json already exists; preserving existing configuration"
-    EXISTING_SYSMON_DETAILS="$(jq -r '([.agents[]?.checks[]? | select(.service_name == "sysmon-osx") | .details] | .[0] // "")' "$CONFIG_DIR/poller.json" 2>/dev/null || echo "")"
-    if [ -z "$SYSMON_OSX_ADDRESS" ]; then
-        warn "sysmon endpoint is unset (SYSMON_OSX_ADDRESS/SYSMON_VM_ADDRESS); leaving sysmon-osx details as-is in poller.json"
-    elif [ -z "$EXISTING_SYSMON_DETAILS" ]; then
-        jq --arg addr "$SYSMON_OSX_ADDRESS" '
-            (.agents[]?.checks[]? | select(.service_name == "sysmon-osx")).details
-              |= (if (. // "") == "" then $addr else . end)
-        ' "$CONFIG_DIR/poller.json" > "$CONFIG_DIR/poller.json.tmp"
-        mv "$CONFIG_DIR/poller.json.tmp" "$CONFIG_DIR/poller.json"
-        echo "✅ Repaired sysmon-osx details in poller.json to $SYSMON_OSX_ADDRESS"
-    else
-        echo "sysmon-osx details already set in poller.json (details=$EXISTING_SYSMON_DETAILS); leaving unchanged"
-    fi
 elif [ "$POLLERS_SECURITY_MODE" = "spiffe" ]; then
     cp "$POLLERS_TEMPLATE" "$CONFIG_DIR/poller.json"
-    jq --arg addr "$SYSMON_OSX_ADDRESS" \
-       --arg td "$POLLERS_TRUST_DOMAIN" \
+    jq --arg td "$POLLERS_TRUST_DOMAIN" \
        --arg agentId "$POLLERS_AGENT_SPIFFE_ID" \
        --arg coreId "$POLLERS_CORE_SPIFFE_ID" \
        --arg socket "$POLLERS_WORKLOAD_SOCKET" '
@@ -482,17 +407,9 @@ elif [ "$POLLERS_SECURITY_MODE" = "spiffe" ]; then
         | (.security.trust_domain) = $td
         | (.security.server_spiffe_id) = $coreId
         | (.security.workload_socket) = $socket
-        | (if $addr != "" then
-            (.agents[]?.checks[]? | select(.service_name == "sysmon-osx")).details = $addr
-          else
-            .
-          end)
     ' "$CONFIG_DIR/poller.json" > "$CONFIG_DIR/poller.json.tmp"
     mv "$CONFIG_DIR/poller.json.tmp" "$CONFIG_DIR/poller.json"
-    if [ -z "$SYSMON_OSX_ADDRESS" ]; then
-        warn "sysmon endpoint is unset (SYSMON_OSX_ADDRESS/SYSMON_VM_ADDRESS); leaving sysmon-osx details as-is in poller.json"
-    fi
-    echo "✅ Generated poller.json (SPIFFE mode) (sysmon-osx address: ${SYSMON_OSX_ADDRESS:-<unset>})"
+    echo "✅ Generated poller.json (SPIFFE mode)"
     mkdir -p "$POLLERS_SPIRE_CONFIG_DIR"
     cat > "$POLLERS_SPIRE_CONFIG_DIR/upstream-agent.conf" <<EOF
 agent {
@@ -626,13 +543,5 @@ EOF
     echo "✅ Generated nested SPIRE configuration under $POLLERS_SPIRE_CONFIG_DIR"
 elif [ -f "$POLLERS_TEMPLATE" ]; then
     cp "$POLLERS_TEMPLATE" "$CONFIG_DIR/poller.json"
-    if [ -n "$SYSMON_OSX_ADDRESS" ]; then
-        jq --arg addr "$SYSMON_OSX_ADDRESS" '
-            (.agents[]?.checks[]? | select(.service_name == "sysmon-osx")).details = $addr
-        ' "$CONFIG_DIR/poller.json" > "$CONFIG_DIR/poller.json.tmp"
-        mv "$CONFIG_DIR/poller.json.tmp" "$CONFIG_DIR/poller.json"
-    else
-        warn "sysmon endpoint is unset (SYSMON_OSX_ADDRESS/SYSMON_VM_ADDRESS); leaving sysmon-osx details as-is in poller.json"
-    fi
-    echo "✅ Generated poller.json (sysmon-osx address: ${SYSMON_OSX_ADDRESS:-<unset>}) (security mode: ${POLLERS_SECURITY_MODE:-mtls})"
+    echo "✅ Generated poller.json (security mode: ${POLLERS_SECURITY_MODE:-mtls})"
 fi
