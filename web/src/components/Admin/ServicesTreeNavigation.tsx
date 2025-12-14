@@ -172,7 +172,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
   );
 
   // Global services (not scoped to agents/pollers)
-  const [globalOpen, setGlobalOpen] = useState<boolean>(false);
+  const [globalOpen, setGlobalOpen] = useState<boolean>(true);
   const orderedGlobalDescriptors = React.useMemo(() => {
     return [...globalDescriptors]
       .filter((desc) => {
