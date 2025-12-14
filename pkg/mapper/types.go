@@ -47,13 +47,13 @@ type DiscoveryType string
 
 const (
 	// DiscoveryTypeFull performs comprehensive device discovery including all data.
-	DiscoveryTypeFull       DiscoveryType = "full"
+	DiscoveryTypeFull DiscoveryType = "full"
 	// DiscoveryTypeBasic performs basic device discovery without detailed topology.
-	DiscoveryTypeBasic      DiscoveryType = "basic"
+	DiscoveryTypeBasic DiscoveryType = "basic"
 	// DiscoveryTypeInterfaces discovers network interfaces for devices.
 	DiscoveryTypeInterfaces DiscoveryType = "interfaces"
 	// DiscoveryTypeTopology discovers network topology relationships between devices.
-	DiscoveryTypeTopology   DiscoveryType = "topology"
+	DiscoveryTypeTopology DiscoveryType = "topology"
 )
 
 // SNMPVersion represents the SNMP protocol version.
@@ -61,11 +61,11 @@ type SNMPVersion string
 
 const (
 	// SNMPVersion1 represents SNMP protocol version 1.
-	SNMPVersion1  SNMPVersion = "v1"
+	SNMPVersion1 SNMPVersion = "v1"
 	// SNMPVersion2c represents SNMP protocol version 2c.
 	SNMPVersion2c SNMPVersion = "v2c"
 	// SNMPVersion3 represents SNMP protocol version 3.
-	SNMPVersion3  SNMPVersion = "v3"
+	SNMPVersion3 SNMPVersion = "v3"
 )
 
 // DiscoveryParams contains parameters for a discovery operation.
@@ -84,12 +84,12 @@ type DiscoveryParams struct {
 // SNMPCredentials contains information needed to authenticate with SNMP devices.
 type SNMPCredentials struct {
 	Version         SNMPVersion                 // SNMP protocol version
-	Community       string                      // Community string for v1/v2c
+	Community       string                      `sensitive:"true"` // Community string for v1/v2c
 	Username        string                      // Username for v3
 	AuthProtocol    string                      // Auth protocol for v3 (MD5/SHA)
-	AuthPassword    string                      // Auth password for v3
+	AuthPassword    string                      `sensitive:"true"` // Auth password for v3
 	PrivacyProtocol string                      // Privacy protocol for v3 (DES/AES)
-	PrivacyPassword string                      // Privacy password for v3
+	PrivacyPassword string                      `sensitive:"true"` // Privacy password for v3
 	TargetSpecific  map[string]*SNMPCredentials // Credentials for specific targets
 }
 
@@ -98,17 +98,17 @@ type DiscoveryStatusType string
 
 const (
 	// DiscoveryStatusUnknown indicates the discovery status is not determined.
-	DiscoveryStatusUnknown   DiscoveryStatusType = "unknown"
+	DiscoveryStatusUnknown DiscoveryStatusType = "unknown"
 	// DiscoveryStatusPending indicates the discovery job is queued but not started.
-	DiscoveryStatusPending   DiscoveryStatusType = "pending"
+	DiscoveryStatusPending DiscoveryStatusType = "pending"
 	// DiscoveryStatusRunning indicates the discovery job is currently executing.
-	DiscoveryStatusRunning   DiscoveryStatusType = "running"
+	DiscoveryStatusRunning DiscoveryStatusType = "running"
 	// DiscoveryStatusCompleted indicates the discovery job finished successfully.
 	DiscoveryStatusCompleted DiscoveryStatusType = "completed"
 	// DiscoveryStatusFailed indicates the discovery job encountered an error.
-	DiscoveryStatusFailed    DiscoveryStatusType = "failed"
+	DiscoveryStatusFailed DiscoveryStatusType = "failed"
 	// DiscoverStatusCanceled indicates the discovery job was canceled.
-	DiscoverStatusCanceled   DiscoveryStatusType = "canceled"
+	DiscoverStatusCanceled DiscoveryStatusType = "canceled"
 )
 
 // DiscoveryStatus contains the current status of a discovery operation
@@ -199,14 +199,14 @@ type TopologyLink struct {
 
 // SNMPCredentialConfig represents SNMP credentials for specific target IP ranges.
 type SNMPCredentialConfig struct {
-	Targets         []string    `json:"targets"`          // IP addresses or CIDR ranges
-	Version         SNMPVersion `json:"version"`          // SNMP version (v1, v2c, v3)
-	Community       string      `json:"community"`        // Community string for v1/v2c
-	Username        string      `json:"username"`         // Username for v3
-	AuthProtocol    string      `json:"auth_protocol"`    // Auth protocol for v3 (MD5/SHA)
-	AuthPassword    string      `json:"auth_password"`    // Auth password for v3
-	PrivacyProtocol string      `json:"privacy_protocol"` // Privacy protocol for v3 (DES/AES)
-	PrivacyPassword string      `json:"privacy_password"` // Privacy password for v3
+	Targets         []string    `json:"targets"`                           // IP addresses or CIDR ranges
+	Version         SNMPVersion `json:"version"`                           // SNMP version (v1, v2c, v3)
+	Community       string      `json:"community" sensitive:"true"`        // Community string for v1/v2c
+	Username        string      `json:"username"`                          // Username for v3
+	AuthProtocol    string      `json:"auth_protocol"`                     // Auth protocol for v3 (MD5/SHA)
+	AuthPassword    string      `json:"auth_password" sensitive:"true"`    // Auth password for v3
+	PrivacyProtocol string      `json:"privacy_protocol"`                  // Privacy protocol for v3 (DES/AES)
+	PrivacyPassword string      `json:"privacy_password" sensitive:"true"` // Privacy password for v3
 }
 
 // ScheduledJob represents a scheduled discovery job configuration
@@ -244,7 +244,7 @@ type Config struct {
 // UniFiAPIConfig contains configuration for connecting to a UniFi controller API.
 type UniFiAPIConfig struct {
 	BaseURL            string `json:"base_url"`
-	APIKey             string `json:"api_key"`
+	APIKey             string `json:"api_key" sensitive:"true"`
 	Name               string `json:"name"`                           // Optional name for identifying the controller
 	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"` // Skip TLS verification
 }

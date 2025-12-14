@@ -71,6 +71,46 @@ type SortBy = 'name' | 'ip' | 'status';
 type SortOrder = 'asc' | 'desc';
 type ViewMode = 'grid' | 'table';
 const DISCOVERY_RESULTS_LIMIT = 50;
+type SNMPPollingBatchRequest = {
+    interfaces: Array<{ device_id: string; if_index: number }>;
+};
+
+type SNMPPollingBatchResult = {
+    device_id: string;
+    if_index: number;
+    enabled?: boolean;
+    found?: boolean;
+    error?: string;
+};
+
+type SNMPPollingBatchResponse = {
+    results: SNMPPollingBatchResult[];
+};
+
+type ConfigEnvelope = {
+    metadata?: {
+        updated_at?: string;
+        revision?: number;
+        kv_key?: string;
+        service?: string;
+    };
+    config?: Record<string, unknown>;
+};
+
+type WatcherInfo = {
+    service: string;
+    instance_id: string;
+    started_at: string;
+};
+
+type SnmpPollingPutResponse = {
+    preference?: unknown;
+    snmp_targets_rebuilt?: boolean;
+    snmp_targets_error?: string;
+    snmp_targets_kv_key?: string;
+    snmp_targets_revision?: number;
+};
+
 const statCardButtonClass = (isActive: boolean): string =>
     [
         'w-full text-left bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border transition',
@@ -92,6 +132,16 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
     } = useSrqlQuery();
     const discoveryViewPath = useMemo(() => `${pathname ?? '/network'}#discovery`, [pathname]);
     const { token } = useAuth();
+    const [snmpPollingByInterface, setSnmpPollingByInterface] = useState<Record<string, boolean>>({});
+    const [mapperConfig, setMapperConfig] = useState<Record<string, unknown> | null>(null);
+    const [mapperConfigMeta, setMapperConfigMeta] = useState<ConfigEnvelope['metadata'] | null>(null);
+    const [mapperConfigError, setMapperConfigError] = useState<string | null>(null);
+    const [mapperConfigLoading, setMapperConfigLoading] = useState(false);
+    const [mapperConfigSaving, setMapperConfigSaving] = useState(false);
+    const [mapperRestartRequired, setMapperRestartRequired] = useState<boolean | null>(null);
+    const [snmpCheckerConfigMeta, setSnmpCheckerConfigMeta] = useState<ConfigEnvelope['metadata'] | null>(null);
+    const [snmpCheckerRestartRequired, setSnmpCheckerRestartRequired] = useState<boolean | null>(null);
+    const [snmpCheckerConfigError, setSnmpCheckerConfigError] = useState<string | null>(null);
     const [devices, setDevices] = useState<Device[]>([]);
     const [interfaces, setInterfaces] = useState<DiscoveredInterface[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -110,6 +160,128 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
         onlineInterfaces: 0
     });
     const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter>('any');
+
+    type MapperScheduledJob = {
+        name?: string;
+        enabled?: boolean;
+        interval?: string;
+        seeds?: string[];
+        type?: string;
+    };
+
+    const mapperScheduledJobs = useMemo((): MapperScheduledJob[] => {
+        if (!mapperConfig) {
+            return [];
+        }
+        const raw = mapperConfig['scheduled_jobs'];
+        return Array.isArray(raw) ? (raw as MapperScheduledJob[]) : [];
+    }, [mapperConfig]);
+
+    const updateMapperScheduledJob = useCallback(
+        (jobName: string, patch: Partial<MapperScheduledJob>) => {
+            setMapperConfig((prev) => {
+                if (!prev) {
+                    return prev;
+                }
+                const raw = prev['scheduled_jobs'];
+                if (!Array.isArray(raw)) {
+                    return prev;
+                }
+                const nextJobs = raw.map((job) => {
+                    const j = job as MapperScheduledJob;
+                    if (j?.name !== jobName) {
+                        return job;
+                    }
+                    return { ...j, ...patch };
+                });
+                return { ...prev, scheduled_jobs: nextJobs };
+            });
+        },
+        [],
+    );
+
+    const bearerToken = useMemo(() => {
+        if (token) {
+            return token;
+        }
+        if (typeof document === 'undefined') {
+            return '';
+        }
+        return (
+            document.cookie
+                .split('; ')
+                .find((row) => row.startsWith('accessToken='))
+                ?.split('=')[1] || ''
+        );
+    }, [token]);
+
+    const isAdmin = useMemo(() => {
+        if (!bearerToken) {
+            return false;
+        }
+        try {
+            const payload = JSON.parse(atob(bearerToken.split('.')[1]));
+            const roles = Array.isArray(payload?.roles) ? payload.roles : [];
+            return roles.includes('admin');
+        } catch {
+            return false;
+        }
+    }, [bearerToken]);
+
+    const fetchSNMPPollingPrefs = useCallback(
+        async (ifaceRows: DiscoveredInterface[]) => {
+            if (!bearerToken || !isAdmin) {
+                setSnmpPollingByInterface({});
+                return;
+            }
+
+            const ids: SNMPPollingBatchRequest['interfaces'] = [];
+            for (const iface of ifaceRows) {
+                const deviceID = typeof iface.device_id === 'string' ? iface.device_id : '';
+                const ifIndex = typeof iface.if_index === 'number' ? iface.if_index : undefined;
+                if (!deviceID || typeof ifIndex !== 'number') {
+                    continue;
+                }
+                ids.push({ device_id: deviceID, if_index: ifIndex });
+            }
+
+            if (ids.length === 0) {
+                setSnmpPollingByInterface({});
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/network/discovery/snmp-polling/batch', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${bearerToken}`,
+                    },
+                    body: JSON.stringify({ interfaces: ids } satisfies SNMPPollingBatchRequest),
+                });
+
+                if (!response.ok) {
+                    setSnmpPollingByInterface({});
+                    return;
+                }
+
+                const data = (await response.json()) as SNMPPollingBatchResponse;
+                const next: Record<string, boolean> = {};
+                for (const item of data.results || []) {
+                    const key = `${item.device_id || ''}|${item.if_index ?? ''}`;
+                    if (!key.includes('|')) {
+                        continue;
+                    }
+                    next[key] = Boolean(item.enabled);
+                }
+                setSnmpPollingByInterface(next);
+            } catch (err) {
+                console.error('Failed to fetch SNMP polling prefs:', err);
+                setSnmpPollingByInterface({});
+            }
+        },
+        [bearerToken, isAdmin],
+    );
 
     const buildDevicesQuery = useCallback((availability: AvailabilityFilter): string => {
         if (availability === 'available') {
@@ -222,6 +394,7 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
             
             setDevices(devicesData);
             setInterfaces(interfacesData);
+            void fetchSNMPPollingPrefs(interfacesData);
             await fetchStats();
             setLastRefreshed(new Date());
         } catch (err) {
@@ -231,7 +404,168 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
             setIsRefreshing(false);
             setIsLoading(false);
         }
-    }, [fetchDevices, fetchInterfaces, fetchStats]);
+    }, [fetchDevices, fetchInterfaces, fetchSNMPPollingPrefs, fetchStats]);
+
+    const fetchMapperConfig = useCallback(async () => {
+        if (!bearerToken || !isAdmin) {
+            setMapperConfig(null);
+            setMapperConfigMeta(null);
+            setMapperRestartRequired(null);
+            return;
+        }
+        setMapperConfigLoading(true);
+        setMapperConfigError(null);
+        try {
+            const resp = await fetch('/api/admin/config/mapper', {
+                headers: { Authorization: `Bearer ${bearerToken}` },
+            });
+            if (!resp.ok) {
+                throw new Error(`Failed to load mapper config (${resp.status})`);
+            }
+            const envelope = (await resp.json()) as ConfigEnvelope;
+            setMapperConfig(envelope.config ?? null);
+            setMapperConfigMeta(envelope.metadata ?? null);
+
+            const watchersResp = await fetch('/api/admin/config/watchers?service=mapper', {
+                headers: { Authorization: `Bearer ${bearerToken}` },
+            });
+            if (watchersResp.ok) {
+                const watchers = (await watchersResp.json()) as WatcherInfo[];
+                const mapperWatcher = (watchers || []).find((w) => w.service === 'mapper');
+                const updatedAt = envelope.metadata?.updated_at ? new Date(envelope.metadata.updated_at) : null;
+                const startedAt = mapperWatcher?.started_at ? new Date(mapperWatcher.started_at) : null;
+                if (updatedAt && startedAt) {
+                    setMapperRestartRequired(updatedAt > startedAt);
+                } else {
+                    setMapperRestartRequired(null);
+                }
+            }
+        } catch (err) {
+            console.error('Failed to fetch mapper config:', err);
+            setMapperConfig(null);
+            setMapperConfigMeta(null);
+            setMapperRestartRequired(null);
+            setMapperConfigError(err instanceof Error ? err.message : 'Failed to load mapper config');
+        } finally {
+            setMapperConfigLoading(false);
+        }
+    }, [bearerToken, isAdmin]);
+
+    const fetchSnmpCheckerStatus = useCallback(async () => {
+        if (!bearerToken || !isAdmin) {
+            setSnmpCheckerConfigMeta(null);
+            setSnmpCheckerRestartRequired(null);
+            setSnmpCheckerConfigError(null);
+            return;
+        }
+        setSnmpCheckerConfigError(null);
+        try {
+            const resp = await fetch('/api/admin/config/snmp-checker', {
+                headers: { Authorization: `Bearer ${bearerToken}` },
+            });
+            if (!resp.ok) {
+                throw new Error(`Failed to load snmp-checker config (${resp.status})`);
+            }
+            const envelope = (await resp.json()) as ConfigEnvelope;
+            setSnmpCheckerConfigMeta(envelope.metadata ?? null);
+
+            const watchersResp = await fetch('/api/admin/config/watchers?service=snmp-checker', {
+                headers: { Authorization: `Bearer ${bearerToken}` },
+            });
+            if (watchersResp.ok) {
+                const watchers = (await watchersResp.json()) as WatcherInfo[];
+                const watcher = (watchers || []).find((w) => w.service === 'snmp-checker');
+                const updatedAt = envelope.metadata?.updated_at ? new Date(envelope.metadata.updated_at) : null;
+                const startedAt = watcher?.started_at ? new Date(watcher.started_at) : null;
+                if (updatedAt && startedAt) {
+                    setSnmpCheckerRestartRequired(updatedAt > startedAt);
+                } else {
+                    setSnmpCheckerRestartRequired(null);
+                }
+            } else {
+                setSnmpCheckerRestartRequired(null);
+            }
+        } catch (err) {
+            console.error('Failed to fetch snmp-checker status:', err);
+            setSnmpCheckerConfigMeta(null);
+            setSnmpCheckerRestartRequired(null);
+            setSnmpCheckerConfigError(err instanceof Error ? err.message : 'Failed to load snmp-checker config');
+        }
+    }, [bearerToken, isAdmin]);
+
+    const setInterfaceSNMPPolling = useCallback(
+        async (deviceID: string, ifIndex: number, enabled: boolean) => {
+            if (!bearerToken) {
+                return;
+            }
+            const key = `${deviceID}|${ifIndex}`;
+            setSnmpPollingByInterface((prev) => ({ ...prev, [key]: enabled }));
+            try {
+                const response = await fetch('/api/admin/network/discovery/snmp-polling', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${bearerToken}`,
+                    },
+                    body: JSON.stringify({ device_id: deviceID, if_index: ifIndex, enabled }),
+                });
+                if (!response.ok) {
+                    throw new Error('Failed to update SNMP polling preference');
+                }
+                try {
+                    const data = (await response.json()) as SnmpPollingPutResponse;
+                    if (data?.snmp_targets_error) {
+                        setSnmpCheckerConfigError(data.snmp_targets_error);
+                    } else {
+                        setSnmpCheckerConfigError(null);
+                    }
+                } catch {}
+                await fetchSnmpCheckerStatus();
+            } catch (err) {
+                console.error('Failed to set SNMP polling pref:', err);
+                setSnmpPollingByInterface((prev) => ({ ...prev, [key]: !enabled }));
+            }
+        },
+        [bearerToken, fetchSnmpCheckerStatus],
+    );
+
+    const saveMapperDiscoveryConfig = useCallback(
+        async (nextConfig: Record<string, unknown>) => {
+            if (!bearerToken) {
+                return;
+            }
+            setMapperConfigSaving(true);
+            setMapperConfigError(null);
+            try {
+                const resp = await fetch('/api/admin/config/mapper', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${bearerToken}`,
+                    },
+                    body: JSON.stringify(nextConfig),
+                });
+                if (!resp.ok) {
+                    throw new Error(`Failed to save mapper config (${resp.status})`);
+                }
+                await fetchMapperConfig();
+            } catch (err) {
+                console.error('Failed to save mapper config:', err);
+                setMapperConfigError(err instanceof Error ? err.message : 'Failed to save mapper config');
+            } finally {
+                setMapperConfigSaving(false);
+            }
+        },
+        [bearerToken, fetchMapperConfig],
+    );
+
+    useEffect(() => {
+        void fetchMapperConfig();
+    }, [fetchMapperConfig]);
+
+    useEffect(() => {
+        void fetchSnmpCheckerStatus();
+    }, [fetchSnmpCheckerStatus]);
 
     const handleTotalDevicesCardClick = useCallback(() => {
         if (filterType === 'all' && availabilityFilter === 'any') {
@@ -567,6 +901,123 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                 </div>
             )}
 
+            {/* Discovery Configuration (admin-only) */}
+            {isAdmin && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                    <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                        <div>
+                            <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                                <RouterIcon className="h-5 w-5 text-blue-500" />
+                                Discovery Configuration
+                            </h2>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                                Manage mapper discovery jobs (seeds + enable flags). Sensitive fields are redacted.
+                            </p>
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1 text-right">
+                            <div>
+                                <span className="mr-1">Mapper:</span>
+                                {mapperRestartRequired === true && (
+                                    <span className="text-amber-600 dark:text-amber-400">Restart required</span>
+                                )}
+                                {mapperRestartRequired === false && (
+                                    <span className="text-green-600 dark:text-green-400">Applied</span>
+                                )}
+                                {mapperRestartRequired === null && <span>Unknown</span>}
+                            </div>
+                            <div>
+                                <span className="mr-1">SNMP checker:</span>
+                                {snmpCheckerRestartRequired === true && (
+                                    <span className="text-amber-600 dark:text-amber-400">Restart required</span>
+                                )}
+                                {snmpCheckerRestartRequired === false && (
+                                    <span className="text-green-600 dark:text-green-400">Applied</span>
+                                )}
+                                {snmpCheckerRestartRequired === null && <span>Unknown</span>}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="p-4 space-y-4">
+                        {mapperConfigLoading && (
+                            <div className="text-sm text-gray-600 dark:text-gray-400">Loading mapper configuration…</div>
+                        )}
+                        {mapperConfigError && (
+                            <div className="text-sm text-red-600 dark:text-red-300">{mapperConfigError}</div>
+                        )}
+                        {snmpCheckerConfigError && (
+                            <div className="text-sm text-red-600 dark:text-red-300">{snmpCheckerConfigError}</div>
+                        )}
+
+                        {!mapperConfigLoading && mapperScheduledJobs.length === 0 && !mapperConfigError && (
+                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                                No scheduled jobs found in `mapper.json`.
+                            </div>
+                        )}
+
+                        {mapperScheduledJobs.map((job) => {
+                            const name = job.name || '(unnamed job)';
+                            const seeds = Array.isArray(job.seeds) ? job.seeds : [];
+                            return (
+                                <div key={name} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div>
+                                            <div className="text-sm font-semibold text-gray-900 dark:text-white">{name}</div>
+                                            <div className="text-xs text-gray-600 dark:text-gray-400">
+                                                Interval: {job.interval || '—'} · Type: {job.type || '—'}
+                                            </div>
+                                        </div>
+                                        <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                                            <input
+                                                type="checkbox"
+                                                checked={Boolean(job.enabled)}
+                                                onChange={(e) => updateMapperScheduledJob(name, { enabled: e.target.checked })}
+                                                className="h-4 w-4"
+                                            />
+                                            Enabled
+                                        </label>
+                                    </div>
+
+                                    <div className="mt-3">
+                                        <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                                            Seeds (one per line)
+                                        </label>
+                                        <textarea
+                                            value={seeds.join('\n')}
+                                            onChange={(e) => {
+                                                const nextSeeds = e.target.value
+                                                    .split('\n')
+                                                    .map((s) => s.trim())
+                                                    .filter(Boolean);
+                                                updateMapperScheduledJob(name, { seeds: nextSeeds });
+                                            }}
+                                            rows={3}
+                                            className="w-full font-mono text-sm p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                                        />
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                        <div className="flex items-center justify-between">
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                                {mapperConfigMeta?.kv_key ? `KV: ${mapperConfigMeta.kv_key}` : ''}
+                                {mapperConfigMeta?.revision ? ` · rev ${mapperConfigMeta.revision}` : ''}
+                                {mapperConfigMeta?.updated_at ? ` · updated ${new Date(mapperConfigMeta.updated_at).toLocaleString()}` : ''}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => mapperConfig && void saveMapperDiscoveryConfig(mapperConfig)}
+                                disabled={mapperConfigSaving || !mapperConfig}
+                                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors disabled:opacity-50"
+                            >
+                                {mapperConfigSaving ? 'Saving…' : 'Save'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Stats Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <button
@@ -895,6 +1346,8 @@ const DeviceBasedDiscoveryDashboard: React.FC<DeviceBasedDiscoveryDashboardProps
                                         showDeviceColumn={false}
                                         jsonViewTheme="pop"
                                         itemsPerPage={10}
+                                        snmpPollingByInterface={snmpPollingByInterface}
+                                        onToggleSnmpPolling={isAdmin ? setInterfaceSNMPPolling : undefined}
                                     />
                                 </div>
                             );

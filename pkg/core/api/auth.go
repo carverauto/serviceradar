@@ -701,6 +701,8 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		serviceName = desc.Name
 	}
 
+	entry.Value = redactConfigBytes(serviceName, entry.Value)
+
 	metadata := buildConfigMetadata(serviceName, kvStoreID, resolvedKey, formatHint, entry.Revision, metaRecord)
 
 	if rawMode {
@@ -794,7 +796,15 @@ func (s *APIServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	key = s.qualifyKVKey(kvStoreID, key)
+	resolvedKey := s.qualifyKVKey(kvStoreID, key)
+
+	if strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		if prevEntry, err := s.getKVEntry(r.Context(), kvStoreID, resolvedKey); err == nil && prevEntry != nil && prevEntry.Found && len(prevEntry.Value) > 0 {
+			configBytes = restoreRedactedConfigBytes(service, prevEntry.Value, configBytes)
+		}
+	}
+
+	key = resolvedKey
 
 	// Prefer per-request KV if provided
 	if kvStoreID != "" {
