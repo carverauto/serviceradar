@@ -3,6 +3,17 @@
 
 set -e
 
+is_truthy() {
+    case "${1:-}" in
+        1|true|TRUE|yes|YES|y|Y|on|ON) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+warn() {
+    printf '%s\n' "⚠️  $*" >&2
+}
+
 random_hex() {
     # $1: number of bytes to read from urandom
     dd if=/dev/urandom bs=1 count="$1" 2>/dev/null \
@@ -20,14 +31,24 @@ CONFIG_DIR="/etc/serviceradar/config"
 CORE_CONFIG="$CONFIG_DIR/core.json"
 API_ENV="$CONFIG_DIR/api.env"
 CHECKERS_DIR="$CONFIG_DIR/checkers"
+FORCE_REGENERATE_CONFIG="${FORCE_REGENERATE_CONFIG:-false}"
 SYSMON_VM_ADDRESS="${SYSMON_VM_ADDRESS:-192.168.1.219:50110}"
 SYSMON_VM_SECURITY_MODE="${SYSMON_VM_SECURITY_MODE:-none}"
+SYSMON_OSX_ADDRESS="${SYSMON_OSX_ADDRESS:-}"
+SYSMON_OSX_SECURITY_MODE="${SYSMON_OSX_SECURITY_MODE:-}"
 CNPG_HOST="${CNPG_HOST:-cnpg}"
 CNPG_PORT="${CNPG_PORT:-5432}"
 CNPG_DATABASE="${CNPG_DATABASE:-serviceradar}"
 CNPG_USERNAME="${CNPG_USERNAME:-serviceradar}"
 CNPG_PASSWORD="${CNPG_PASSWORD:-serviceradar}"
 CNPG_SSL_MODE="${CNPG_SSL_MODE:-verify-full}"
+
+if [ -z "$SYSMON_OSX_ADDRESS" ] && [ -n "$SYSMON_VM_ADDRESS" ]; then
+    SYSMON_OSX_ADDRESS="$SYSMON_VM_ADDRESS"
+fi
+if [ -z "$SYSMON_OSX_SECURITY_MODE" ] && [ -n "$SYSMON_VM_SECURITY_MODE" ]; then
+    SYSMON_OSX_SECURITY_MODE="$SYSMON_VM_SECURITY_MODE"
+fi
 
 # Create config directory
 mkdir -p "$CONFIG_DIR"
@@ -36,8 +57,12 @@ mkdir -p "$CHECKERS_DIR"
 echo "Updating ServiceRadar configurations with generated secrets..."
 
 # Seed core.json from template only on first run so we preserve generated keys between restarts
-if [ ! -f "$CORE_CONFIG" ]; then
-    echo "Seeding core.json from template for the first time..."
+if [ ! -f "$CORE_CONFIG" ] || is_truthy "$FORCE_REGENERATE_CONFIG"; then
+    if [ -f "$CORE_CONFIG" ]; then
+        warn "FORCE_REGENERATE_CONFIG enabled; overwriting existing core.json from template"
+    else
+        echo "Seeding core.json from template for the first time..."
+    fi
     cp /config/core.docker.json "$CORE_CONFIG"
     echo "✅ Created core.json from template"
 else
@@ -338,7 +363,12 @@ SYSMON_OSX_CERT_FILE="${SYSMON_OSX_CERT_FILE:-sysmon-osx.pem}"
 SYSMON_OSX_KEY_FILE="${SYSMON_OSX_KEY_FILE:-sysmon-osx-key.pem}"
 SYSMON_OSX_CA_FILE="${SYSMON_OSX_CA_FILE:-root.pem}"
 
-if [ "$SYSMON_OSX_SECURITY_MODE" = "mtls" ]; then
+SYSMON_OSX_CHECKER_CONFIG="$CHECKERS_DIR/sysmon-osx.json"
+if [ -f "$SYSMON_OSX_CHECKER_CONFIG" ] && ! is_truthy "$FORCE_REGENERATE_CONFIG"; then
+    echo "sysmon-osx checker config already exists; preserving existing configuration"
+elif [ -z "$SYSMON_OSX_ADDRESS" ]; then
+    warn "sysmon endpoint is unset (SYSMON_OSX_ADDRESS/SYSMON_VM_ADDRESS); leaving existing sysmon-osx checker config untouched"
+elif [ "$SYSMON_OSX_SECURITY_MODE" = "mtls" ]; then
     cat > "$CHECKERS_DIR/sysmon-osx.json" <<EOF
 {
   "name": "sysmon-osx",
@@ -405,12 +435,16 @@ elif [ "$POLLERS_SECURITY_MODE" != "spiffe" ] && [ -f /templates/poller.docker.j
     POLLERS_TEMPLATE="/templates/poller.docker.json.orig"
 fi
 
-# Only generate poller.json if it doesn't exist (preserves manual customizations)
-if [ -f "$CONFIG_DIR/poller.json" ]; then
+if [ -f "$CONFIG_DIR/poller.json" ] && is_truthy "$FORCE_REGENERATE_CONFIG"; then
+    warn "FORCE_REGENERATE_CONFIG enabled; overwriting existing poller.json from template"
+fi
+
+# Only generate poller.json if it doesn't exist (preserves manual customizations unless forced)
+if [ -f "$CONFIG_DIR/poller.json" ] && ! is_truthy "$FORCE_REGENERATE_CONFIG"; then
     echo "poller.json already exists; preserving existing configuration"
 elif [ "$POLLERS_SECURITY_MODE" = "spiffe" ]; then
     cp "$POLLERS_TEMPLATE" "$CONFIG_DIR/poller.json"
-    jq --arg addr "$SYSMON_VM_ADDRESS" \
+    jq --arg addr "$SYSMON_OSX_ADDRESS" \
        --arg td "$POLLERS_TRUST_DOMAIN" \
        --arg agentId "$POLLERS_AGENT_SPIFFE_ID" \
        --arg coreId "$POLLERS_CORE_SPIFFE_ID" \
@@ -421,10 +455,17 @@ elif [ "$POLLERS_SECURITY_MODE" = "spiffe" ]; then
         | (.security.trust_domain) = $td
         | (.security.server_spiffe_id) = $coreId
         | (.security.workload_socket) = $socket
-        | (.agents[]?.checks[]? | select(.service_name == "sysmon-osx")).details = $addr
+        | (if $addr != "" then
+            (.agents[]?.checks[]? | select(.service_name == "sysmon-osx")).details = $addr
+          else
+            .
+          end)
     ' "$CONFIG_DIR/poller.json" > "$CONFIG_DIR/poller.json.tmp"
     mv "$CONFIG_DIR/poller.json.tmp" "$CONFIG_DIR/poller.json"
-    echo "✅ Generated poller.json (SPIFFE mode) with sysmon-osx address $SYSMON_OSX_ADDRESS"
+    if [ -z "$SYSMON_OSX_ADDRESS" ]; then
+        warn "sysmon endpoint is unset (SYSMON_OSX_ADDRESS/SYSMON_VM_ADDRESS); leaving sysmon-osx details as-is in poller.json"
+    fi
+    echo "✅ Generated poller.json (SPIFFE mode) (sysmon-osx address: ${SYSMON_OSX_ADDRESS:-<unset>})"
     mkdir -p "$POLLERS_SPIRE_CONFIG_DIR"
     cat > "$POLLERS_SPIRE_CONFIG_DIR/upstream-agent.conf" <<EOF
 agent {
@@ -558,9 +599,13 @@ EOF
     echo "✅ Generated nested SPIRE configuration under $POLLERS_SPIRE_CONFIG_DIR"
 elif [ -f "$POLLERS_TEMPLATE" ]; then
     cp "$POLLERS_TEMPLATE" "$CONFIG_DIR/poller.json"
-    jq --arg addr "$SYSMON_OSX_ADDRESS" '
-        (.agents[]?.checks[]? | select(.service_name == "sysmon-osx")).details = $addr
-    ' "$CONFIG_DIR/poller.json" > "$CONFIG_DIR/poller.json.tmp"
-    mv "$CONFIG_DIR/poller.json.tmp" "$CONFIG_DIR/poller.json"
-    echo "✅ Generated poller.json with sysmon-osx address $SYSMON_OSX_ADDRESS (security mode: ${POLLERS_SECURITY_MODE:-mtls})"
+    if [ -n "$SYSMON_OSX_ADDRESS" ]; then
+        jq --arg addr "$SYSMON_OSX_ADDRESS" '
+            (.agents[]?.checks[]? | select(.service_name == "sysmon-osx")).details = $addr
+        ' "$CONFIG_DIR/poller.json" > "$CONFIG_DIR/poller.json.tmp"
+        mv "$CONFIG_DIR/poller.json.tmp" "$CONFIG_DIR/poller.json"
+    else
+        warn "sysmon endpoint is unset (SYSMON_OSX_ADDRESS/SYSMON_VM_ADDRESS); leaving sysmon-osx details as-is in poller.json"
+    fi
+    echo "✅ Generated poller.json (sysmon-osx address: ${SYSMON_OSX_ADDRESS:-<unset>}) (security mode: ${POLLERS_SECURITY_MODE:-mtls})"
 fi
