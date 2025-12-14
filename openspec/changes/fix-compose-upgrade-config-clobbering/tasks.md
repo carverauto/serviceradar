@@ -6,6 +6,7 @@
   - [x] 3.1. Define a single sysmon endpoint source of truth (`SYSMON_OSX_ADDRESS` / `SYSMON_VM_ADDRESS`) and security mode mapping.
   - [x] 3.2. Avoid clobbering existing config with empty values (guarded writes).
   - [x] 3.3. Preserve existing generated configs by default; require an explicit opt-in env (e.g., `FORCE_REGENERATE_CONFIG=true`) to rewrite templates.
+- [x] 3.4. Fix KV placeholder-repair so partial overlays do not get rewritten during restarts/upgrades.
 - [x] 4. Add/extend local verification steps:
   - [x] 4.1. Fresh `docker compose up` produces a poller config with a non-empty sysmon endpoint.
   - [x] 4.2. Upgrade-style `docker compose up -d --force-recreate` preserves sysmon endpoint and does not reset KV-managed config.
