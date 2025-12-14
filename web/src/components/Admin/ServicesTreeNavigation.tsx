@@ -48,8 +48,10 @@ const allowedGlobalServiceTypes = new Set([
   'datasvc',
   'db-event-writer',
   'flowgger',
+  'mapper',
   'otel',
   'netflow-consumer',
+  'snmp-checker',
   'sync',
   'zen-consumer',
   'trapd',
@@ -170,7 +172,7 @@ export default function ServicesTreeNavigation({ pollers, selected, onSelect, fi
   );
 
   // Global services (not scoped to agents/pollers)
-  const [globalOpen, setGlobalOpen] = useState<boolean>(false);
+  const [globalOpen, setGlobalOpen] = useState<boolean>(true);
   const orderedGlobalDescriptors = React.useMemo(() => {
     return [...globalDescriptors]
       .filter((desc) => {

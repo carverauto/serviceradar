@@ -44,14 +44,14 @@ var (
 	ErrInt32RangeExceeded      = errors.New("value exceeds int32 range")
 	ErrFoundMACStoppingWalk    = errors.New("found MAC, stopping walk")
 	ErrConnectionTimeout       = errors.New("connection timeout")
-	
+
 	// UniFi/UBNT specific errors
-	ErrUniFiSitesRequestFailed  = errors.New("UniFi sites request failed")
-	ErrNoUniFiSitesFound        = errors.New("no UniFi sites found")
+	ErrUniFiSitesRequestFailed   = errors.New("UniFi sites request failed")
+	ErrNoUniFiSitesFound         = errors.New("no UniFi sites found")
 	ErrUniFiDevicesRequestFailed = errors.New("UniFi devices request failed")
-	ErrUniFiDeviceDetailsFailed = errors.New("UniFi device details request failed")
-	ErrNoUniFiDevicesFound      = errors.New("no UniFi devices found; all API attempts failed")
-	ErrSNMPQueryTimeout         = errors.New("SNMP query timeout")
+	ErrUniFiDeviceDetailsFailed  = errors.New("UniFi device details request failed")
+	ErrNoUniFiDevicesFound       = errors.New("no UniFi devices found; all API attempts failed")
+	ErrSNMPQueryTimeout          = errors.New("SNMP query timeout")
 
 	// ErrNoSeedsProvided occurs when no discovery seeds are provided for a job.
 	ErrNoSeedsProvided         = errors.New("no seeds provided")

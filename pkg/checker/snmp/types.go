@@ -120,7 +120,7 @@ type Target struct {
 	Name      string      `json:"name"`
 	Host      string      `json:"host"`
 	Port      uint16      `json:"port"`
-	Community string      `json:"community"`
+	Community string      `json:"community" sensitive:"true"`
 	Version   SNMPVersion `json:"version"`
 	Interval  Duration    `json:"interval"`
 	Timeout   Duration    `json:"timeout"`
