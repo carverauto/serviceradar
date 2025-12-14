@@ -33,8 +33,8 @@ spec:
       serviceAccountName: {{ $coreSA }}
       initContainers:
       - name: init-core-jwks
-        image: ghcr.io/carverauto/serviceradar-kong-config:latest
-        imagePullPolicy: Always
+        image: ghcr.io/carverauto/serviceradar-kong-config:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "kongConfig") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         command:
         - /bin/sh
         - -c
