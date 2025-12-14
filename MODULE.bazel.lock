@@ -765,7 +765,7 @@
     "@@rules_nodejs+//nodejs:extensions.bzl%node": {
       "general": {
         "bzlTransitiveDigest": "hdICB1K7PX7oWtO8oksVTBDNt6xxiNERpcO4Yxoa0Gc=",
-        "usagesDigest": "2M3nYh/BvUUitcZDwIlWXFi6aNPw2PHVMOZgAwi7O3o=",
+        "usagesDigest": "HvO15LB1MnjX4k3C8vOAk9iSmrg2vUW6ZbqQerh+kVo=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -802,8 +802,8 @@
                 ]
               },
               "node_urls": [
-                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}",
-                "https://nodejs.org/dist/v{version}/{filename}"
+                "https://nodejs.org/dist/v{version}/{filename}",
+                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}"
               ],
               "node_version": "20.18.1",
               "include_headers": false,
@@ -842,8 +842,8 @@
                 ]
               },
               "node_urls": [
-                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}",
-                "https://nodejs.org/dist/v{version}/{filename}"
+                "https://nodejs.org/dist/v{version}/{filename}",
+                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}"
               ],
               "node_version": "20.18.1",
               "include_headers": false,
@@ -882,8 +882,8 @@
                 ]
               },
               "node_urls": [
-                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}",
-                "https://nodejs.org/dist/v{version}/{filename}"
+                "https://nodejs.org/dist/v{version}/{filename}",
+                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}"
               ],
               "node_version": "20.18.1",
               "include_headers": false,
@@ -922,8 +922,8 @@
                 ]
               },
               "node_urls": [
-                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}",
-                "https://nodejs.org/dist/v{version}/{filename}"
+                "https://nodejs.org/dist/v{version}/{filename}",
+                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}"
               ],
               "node_version": "20.18.1",
               "include_headers": false,
@@ -962,8 +962,8 @@
                 ]
               },
               "node_urls": [
-                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}",
-                "https://nodejs.org/dist/v{version}/{filename}"
+                "https://nodejs.org/dist/v{version}/{filename}",
+                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}"
               ],
               "node_version": "20.18.1",
               "include_headers": false,
@@ -1002,8 +1002,8 @@
                 ]
               },
               "node_urls": [
-                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}",
-                "https://nodejs.org/dist/v{version}/{filename}"
+                "https://nodejs.org/dist/v{version}/{filename}",
+                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}"
               ],
               "node_version": "20.18.1",
               "include_headers": false,
@@ -1042,8 +1042,8 @@
                 ]
               },
               "node_urls": [
-                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}",
-                "https://nodejs.org/dist/v{version}/{filename}"
+                "https://nodejs.org/dist/v{version}/{filename}",
+                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}"
               ],
               "node_version": "20.18.1",
               "include_headers": false,
@@ -1082,8 +1082,8 @@
                 ]
               },
               "node_urls": [
-                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}",
-                "https://nodejs.org/dist/v{version}/{filename}"
+                "https://nodejs.org/dist/v{version}/{filename}",
+                "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}"
               ],
               "node_version": "20.18.1",
               "include_headers": false,
