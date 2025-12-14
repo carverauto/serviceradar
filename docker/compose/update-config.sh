@@ -3,6 +3,17 @@
 
 set -e
 
+is_truthy() {
+    case "${1:-}" in
+        1|true|TRUE|yes|YES|y|Y|on|ON) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+warn() {
+    printf '%s\n' "⚠️  $*" >&2
+}
+
 random_hex() {
     # $1: number of bytes to read from urandom
     dd if=/dev/urandom bs=1 count="$1" 2>/dev/null \
@@ -20,14 +31,23 @@ CONFIG_DIR="/etc/serviceradar/config"
 CORE_CONFIG="$CONFIG_DIR/core.json"
 API_ENV="$CONFIG_DIR/api.env"
 CHECKERS_DIR="$CONFIG_DIR/checkers"
-SYSMON_VM_ADDRESS="${SYSMON_VM_ADDRESS:-192.168.1.219:50110}"
-SYSMON_VM_SECURITY_MODE="${SYSMON_VM_SECURITY_MODE:-none}"
+FORCE_REGENERATE_CONFIG="${FORCE_REGENERATE_CONFIG:-false}"
+EDGE_DEFAULT_CHECKER_ENDPOINT="${EDGE_DEFAULT_CHECKER_ENDPOINT:-}"
+EDGE_DEFAULT_CHECKER_SECURITY_MODE="${EDGE_DEFAULT_CHECKER_SECURITY_MODE:-}"
 CNPG_HOST="${CNPG_HOST:-cnpg}"
 CNPG_PORT="${CNPG_PORT:-5432}"
 CNPG_DATABASE="${CNPG_DATABASE:-serviceradar}"
 CNPG_USERNAME="${CNPG_USERNAME:-serviceradar}"
 CNPG_PASSWORD="${CNPG_PASSWORD:-serviceradar}"
 CNPG_SSL_MODE="${CNPG_SSL_MODE:-verify-full}"
+
+# Backwards-compatible fallbacks (deprecated names used by older compose files).
+if [ -z "$EDGE_DEFAULT_CHECKER_ENDPOINT" ] && [ -n "${SYSMON_VM_ADDRESS:-}" ]; then
+    EDGE_DEFAULT_CHECKER_ENDPOINT="$SYSMON_VM_ADDRESS"
+fi
+if [ -z "$EDGE_DEFAULT_CHECKER_SECURITY_MODE" ] && [ -n "${SYSMON_VM_SECURITY_MODE:-}" ]; then
+    EDGE_DEFAULT_CHECKER_SECURITY_MODE="$SYSMON_VM_SECURITY_MODE"
+fi
 
 # Create config directory
 mkdir -p "$CONFIG_DIR"
@@ -36,8 +56,12 @@ mkdir -p "$CHECKERS_DIR"
 echo "Updating ServiceRadar configurations with generated secrets..."
 
 # Seed core.json from template only on first run so we preserve generated keys between restarts
-if [ ! -f "$CORE_CONFIG" ]; then
-    echo "Seeding core.json from template for the first time..."
+if [ ! -f "$CORE_CONFIG" ] || is_truthy "$FORCE_REGENERATE_CONFIG"; then
+    if [ -f "$CORE_CONFIG" ]; then
+        warn "FORCE_REGENERATE_CONFIG enabled; overwriting existing core.json from template"
+    else
+        echo "Seeding core.json from template for the first time..."
+    fi
     cp /config/core.docker.json "$CORE_CONFIG"
     echo "✅ Created core.json from template"
 else
@@ -160,9 +184,9 @@ fi
 EDGE_ONBOARDING_KEY=$(cat "$EDGE_KEY_FILE")
 
 EDGE_DEFAULT_META="{}"
-if [ "$SYSMON_VM_SECURITY_MODE" = "mtls" ]; then
+if [ -n "$EDGE_DEFAULT_CHECKER_ENDPOINT" ] && [ "$EDGE_DEFAULT_CHECKER_SECURITY_MODE" = "mtls" ]; then
     EDGE_DEFAULT_META=$(cat <<EOF
-{"security_mode":"mtls","poller_endpoint":"$SYSMON_VM_ADDRESS","core_address":"core:50052","kv_address":"datasvc:50057"}
+{"security_mode":"mtls","checker_endpoint":"$EDGE_DEFAULT_CHECKER_ENDPOINT","poller_endpoint":"$EDGE_DEFAULT_CHECKER_ENDPOINT","core_address":"core:50052","kv_address":"datasvc:50057"}
 EOF
 )
 fi
@@ -333,47 +357,6 @@ fi
 
 echo "🎉 Configuration update complete!"
 
-# Generate sysmon-osx checker configuration with runtime overrides
-SYSMON_OSX_CERT_FILE="${SYSMON_OSX_CERT_FILE:-sysmon-osx.pem}"
-SYSMON_OSX_KEY_FILE="${SYSMON_OSX_KEY_FILE:-sysmon-osx-key.pem}"
-SYSMON_OSX_CA_FILE="${SYSMON_OSX_CA_FILE:-root.pem}"
-
-if [ "$SYSMON_OSX_SECURITY_MODE" = "mtls" ]; then
-    cat > "$CHECKERS_DIR/sysmon-osx.json" <<EOF
-{
-  "name": "sysmon-osx",
-  "type": "grpc",
-  "address": "$SYSMON_OSX_ADDRESS",
-  "security": {
-    "mode": "mtls",
-    "role": "checker",
-    "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "sysmon-osx.serviceradar",
-    "tls": {
-      "cert_file": "$SYSMON_OSX_CERT_FILE",
-      "key_file": "$SYSMON_OSX_KEY_FILE",
-      "ca_file": "$SYSMON_OSX_CA_FILE",
-      "client_ca_file": "$SYSMON_OSX_CA_FILE"
-    }
-  }
-}
-EOF
-    echo "✅ Generated sysmon-osx checker config (mTLS) with address $SYSMON_OSX_ADDRESS"
-else
-    cat > "$CHECKERS_DIR/sysmon-osx.json" <<EOF
-{
-  "name": "sysmon-osx",
-  "type": "grpc",
-  "address": "$SYSMON_OSX_ADDRESS",
-  "security": {
-    "mode": "none",
-    "role": "agent"
-  }
-}
-EOF
-    echo "✅ Generated sysmon-osx checker config (no security) with address $SYSMON_OSX_ADDRESS"
-fi
-
 POLLERS_SECURITY_MODE="${POLLERS_SECURITY_MODE:-mtls}"
 POLLERS_TRUST_DOMAIN="${POLLERS_TRUST_DOMAIN:-carverauto.dev}"
 POLLERS_AGENT_SPIFFE_ID="${POLLERS_AGENT_SPIFFE_ID:-spiffe://$POLLERS_TRUST_DOMAIN/services/agent}"
@@ -395,7 +378,7 @@ POLLERS_SPIRE_SQLITE_PATH="${POLLERS_SPIRE_SQLITE_PATH:-/run/spire/nested/server
 POLLERS_SPIRE_SERVER_KEYS_PATH="${POLLERS_SPIRE_SERVER_KEYS_PATH:-/run/spire/nested/server/keys.json}"
 POLLERS_SPIRE_SERVER_SOCKET="${POLLERS_SPIRE_SERVER_SOCKET:-/run/spire/nested/server/api.sock}"
 
-# Prepare poller configuration with sysmon-osx override (only on first run)
+# Prepare poller configuration (only on first run unless forced)
 POLLERS_TEMPLATE="/templates/poller.docker.json"
 if [ "$POLLERS_SECURITY_MODE" = "spiffe" ] && [ -f /templates/poller.spiffe.json ]; then
     POLLERS_TEMPLATE="/templates/poller.spiffe.json"
@@ -405,13 +388,16 @@ elif [ "$POLLERS_SECURITY_MODE" != "spiffe" ] && [ -f /templates/poller.docker.j
     POLLERS_TEMPLATE="/templates/poller.docker.json.orig"
 fi
 
-# Only generate poller.json if it doesn't exist (preserves manual customizations)
-if [ -f "$CONFIG_DIR/poller.json" ]; then
+if [ -f "$CONFIG_DIR/poller.json" ] && is_truthy "$FORCE_REGENERATE_CONFIG"; then
+    warn "FORCE_REGENERATE_CONFIG enabled; overwriting existing poller.json from template"
+fi
+
+# Only generate poller.json if it doesn't exist (preserves manual customizations unless forced)
+if [ -f "$CONFIG_DIR/poller.json" ] && ! is_truthy "$FORCE_REGENERATE_CONFIG"; then
     echo "poller.json already exists; preserving existing configuration"
 elif [ "$POLLERS_SECURITY_MODE" = "spiffe" ]; then
     cp "$POLLERS_TEMPLATE" "$CONFIG_DIR/poller.json"
-    jq --arg addr "$SYSMON_VM_ADDRESS" \
-       --arg td "$POLLERS_TRUST_DOMAIN" \
+    jq --arg td "$POLLERS_TRUST_DOMAIN" \
        --arg agentId "$POLLERS_AGENT_SPIFFE_ID" \
        --arg coreId "$POLLERS_CORE_SPIFFE_ID" \
        --arg socket "$POLLERS_WORKLOAD_SOCKET" '
@@ -421,10 +407,9 @@ elif [ "$POLLERS_SECURITY_MODE" = "spiffe" ]; then
         | (.security.trust_domain) = $td
         | (.security.server_spiffe_id) = $coreId
         | (.security.workload_socket) = $socket
-        | (.agents[]?.checks[]? | select(.service_name == "sysmon-osx")).details = $addr
     ' "$CONFIG_DIR/poller.json" > "$CONFIG_DIR/poller.json.tmp"
     mv "$CONFIG_DIR/poller.json.tmp" "$CONFIG_DIR/poller.json"
-    echo "✅ Generated poller.json (SPIFFE mode) with sysmon-osx address $SYSMON_OSX_ADDRESS"
+    echo "✅ Generated poller.json (SPIFFE mode)"
     mkdir -p "$POLLERS_SPIRE_CONFIG_DIR"
     cat > "$POLLERS_SPIRE_CONFIG_DIR/upstream-agent.conf" <<EOF
 agent {
@@ -558,9 +543,5 @@ EOF
     echo "✅ Generated nested SPIRE configuration under $POLLERS_SPIRE_CONFIG_DIR"
 elif [ -f "$POLLERS_TEMPLATE" ]; then
     cp "$POLLERS_TEMPLATE" "$CONFIG_DIR/poller.json"
-    jq --arg addr "$SYSMON_OSX_ADDRESS" '
-        (.agents[]?.checks[]? | select(.service_name == "sysmon-osx")).details = $addr
-    ' "$CONFIG_DIR/poller.json" > "$CONFIG_DIR/poller.json.tmp"
-    mv "$CONFIG_DIR/poller.json.tmp" "$CONFIG_DIR/poller.json"
-    echo "✅ Generated poller.json with sysmon-osx address $SYSMON_OSX_ADDRESS (security mode: ${POLLERS_SECURITY_MODE:-mtls})"
+    echo "✅ Generated poller.json (security mode: ${POLLERS_SECURITY_MODE:-mtls})"
 fi

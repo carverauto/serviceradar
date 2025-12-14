@@ -48,8 +48,10 @@ func needsPlaceholderRepair(desc ServiceDescriptor, raw []byte) bool {
 
 	for _, field := range desc.CriticalFields {
 		val, ok := lookupStringField(doc, field)
+		// Missing critical fields are common when KV stores a partial overlay rather
+		// than a full config document; do not treat "missing" as a placeholder signal.
 		if !ok {
-			return true
+			continue
 		}
 		if isPlaceholderValue(val) {
 			return true

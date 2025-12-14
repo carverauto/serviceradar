@@ -96,6 +96,15 @@ help: ## Show this help message
 	@echo "$(COLOR_BOLD)Available targets:$(COLOR_RESET)"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(COLOR_CYAN)%-20s$(COLOR_RESET) %s\n", $$1, $$2}'
 
+.PHONY: compose-up
+compose-up: ## Start Docker Compose stack
+	@docker compose up -d
+
+.PHONY: compose-upgrade
+compose-upgrade: ## Pull images and recreate containers without destroying volumes
+	@docker compose pull
+	@docker compose up -d --force-recreate
+
 .PHONY: build
 build: ## Build the full workspace with Bazel (remote)
 	@bazel build --config=remote //...

@@ -112,9 +112,9 @@ PROTON_LOG_LEVEL=error
 
 ServiceRadar uses the following Docker volumes:
 
-- `cert-data`: mTLS certificates and API keys
-- `credentials`: Database passwords and secrets
-- `generated-config`: Generated configuration files
+- `cert-data`: mTLS certificates and API keys (named `${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cert-data`)
+- `credentials`: Database passwords and secrets (named `${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_credentials`)
+- `generated-config`: Generated configuration files (named `${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_generated-config`)
 - `*-data`: Service-specific data storage
 
 ### Ports
@@ -152,7 +152,7 @@ Docker Compose now starts KV-backed config watchers. After the first `docker com
 
 ```bash
 docker run --rm --network serviceradar_serviceradar-net \
-  -v serviceradar_cert-data:/etc/serviceradar/certs \
+  -v "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cert-data:/etc/serviceradar/certs" \
   ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.65} \
   nats --server tls://nats:4222 \
        --tlsca /etc/serviceradar/certs/root.pem \
@@ -453,7 +453,7 @@ If you see certificate-related errors:
 1. **Regenerate certificates**:
    ```bash
    docker-compose down
-   docker volume rm serviceradar_cert-data
+   docker volume rm "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cert-data"
    docker-compose up cert-generator
    ```
 
@@ -550,18 +550,35 @@ services:
 ### Version Upgrades
 
 1. **Backup current installation**
-2. **Update version in environment**:
+2. **Update the Compose image tag** (the stack uses `APP_TAG`):
    ```bash
-   export SERVICERADAR_VERSION=v1.1.0
+   export APP_TAG=v1.1.0
    ```
 3. **Pull new images**:
    ```bash
-   docker-compose pull
+   docker compose pull
    ```
-4. **Restart services**:
+4. **Restart services (safe upgrade)**:
    ```bash
-   docker-compose up -d
+   docker compose up -d --force-recreate
    ```
+
+Notes:
+- Compose stateful volumes are explicitly named using `${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_...` so upgrades (even with a different Compose project name) reuse the same configuration/KV/certs.
+- `docker/compose/update-config.sh` preserves existing configs by default; set `FORCE_REGENERATE_CONFIG=true` only if you intentionally want to overwrite generated configs.
+- Equivalent one-liner: `make compose-upgrade`
+
+Verification (optional): confirm your poller KV entry still contains your checker after an upgrade.
+```bash
+docker run --rm --network serviceradar_serviceradar-net \
+  -v "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cert-data:/etc/serviceradar/certs" \
+  ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.65} \
+  nats --server tls://nats:4222 \
+       --tlsca /etc/serviceradar/certs/root.pem \
+       --tlscert /etc/serviceradar/certs/poller.pem \
+       --tlskey /etc/serviceradar/certs/poller-key.pem \
+       kv get --raw serviceradar-datasvc config/pollers/docker-poller.json
+```
 
 ### Data Migration
 
