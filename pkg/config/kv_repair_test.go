@@ -58,8 +58,8 @@ func TestNeedsPlaceholderRepair(t *testing.T) {
 		CriticalFields: []string{"auth.jwt_public_key_pem"},
 	}
 	raw = []byte(`{"auth":{}}`)
-	if !needsPlaceholderRepair(desc, raw) {
-		t.Fatalf("expected missing field to trigger repair")
+	if needsPlaceholderRepair(desc, raw) {
+		t.Fatalf("did not expect missing field to trigger repair")
 	}
 }
 

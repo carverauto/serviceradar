@@ -75,11 +75,6 @@
                 },
                 {
                     "service_type": "grpc",
-                    "service_name": "sysmon-osx",
-                    "details": "${SYSMON_OSX_ADDRESS:-sysmon-osx:50110}"
-                },
-                {
-                    "service_type": "grpc",
                     "service_name": "nats",
                     "details": "nats:4222"
                 },
