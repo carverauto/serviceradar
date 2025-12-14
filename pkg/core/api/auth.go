@@ -673,7 +673,7 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 			s.writeAPIError(w, http.StatusNotFound, "configuration not found")
 			return
 		}
-		if _, seedErr := s.seedConfigFromTemplate(ctx, desc, resolvedKey, kvStoreID); seedErr == nil {
+		if seedErr := s.seedConfigFromTemplate(ctx, desc, resolvedKey, kvStoreID); seedErr == nil {
 			entry, metaRecord, err = s.loadConfigEntry(ctx, kvStoreID, resolvedKey)
 			if err != nil {
 				s.logger.Error().Err(err).Str("key", resolvedKey).Msg("failed to reload seeded configuration")
@@ -1072,17 +1072,17 @@ func (s *APIServer) checkConfigKey(ctx context.Context, kvStoreID, key string) (
 	return entry != nil && entry.Found, nil
 }
 
-func (s *APIServer) seedConfigFromTemplate(ctx context.Context, desc config.ServiceDescriptor, key, kvStoreID string) ([]byte, error) {
+func (s *APIServer) seedConfigFromTemplate(ctx context.Context, desc config.ServiceDescriptor, key, kvStoreID string) error {
 	templateData, err := s.fetchTemplateData(ctx, kvStoreID, desc)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	payload := make([]byte, len(templateData))
 	copy(payload, templateData)
 
 	if err := s.putConfigToKV(ctx, kvStoreID, key, payload); err != nil {
-		return nil, err
+		return err
 	}
 
 	s.recordConfigMetadata(ctx, kvStoreID, key, configOriginSeeded, "system")
@@ -1093,7 +1093,7 @@ func (s *APIServer) seedConfigFromTemplate(ctx context.Context, desc config.Serv
 		Str("kv_store_id", kvStoreID).
 		Msg("seeded configuration from template")
 
-	return payload, nil
+	return nil
 }
 
 func (s *APIServer) putConfigToKV(ctx context.Context, kvStoreID, key string, value []byte) error {

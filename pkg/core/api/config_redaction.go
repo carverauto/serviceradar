@@ -8,11 +8,13 @@ import (
 
 const redactedConfigValuePlaceholder = "__SR_REDACTED__"
 
-var mapperSensitiveKeys = map[string]struct{}{
-	"community":        {},
-	"api_key":          {},
-	"auth_password":    {},
-	"privacy_password": {},
+func isSensitiveConfigKey(key string) bool {
+	switch key {
+	case "community", "api_key", "auth_password", "privacy_password":
+		return true
+	default:
+		return false
+	}
 }
 
 func shouldRedactConfig(serviceName string) bool {
@@ -43,7 +45,7 @@ func redactAny(v any) {
 	switch t := v.(type) {
 	case map[string]any:
 		for k, child := range t {
-			if _, ok := mapperSensitiveKeys[strings.ToLower(k)]; ok {
+			if isSensitiveConfigKey(strings.ToLower(k)) {
 				if str, ok := child.(string); ok && strings.TrimSpace(str) != "" {
 					t[k] = redactedConfigValuePlaceholder
 					continue
@@ -92,7 +94,7 @@ func restoreRedactions(prev any, next any, parentKey string) any {
 		p, _ := prev.(map[string]any)
 		for k, child := range n {
 			lk := strings.ToLower(k)
-			if _, ok := mapperSensitiveKeys[lk]; ok {
+			if isSensitiveConfigKey(lk) {
 				if str, ok := child.(string); ok && str == redactedConfigValuePlaceholder {
 					if p != nil {
 						if pv, exists := p[k]; exists {

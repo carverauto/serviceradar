@@ -35,3 +35,12 @@ ServiceRadar MUST make it observable whether configuration changes have been app
 - **AND** the running mapper and/or SNMP checker has not applied the latest config
 - **WHEN** an admin views the relevant configuration surfaces in the UI
 - **THEN** the UI SHALL indicate that a restart is required (or that the change is pending application)
+
+### Requirement: SNMP polling preferences update effective config
+ServiceRadar MUST support updating the effective SNMP checker polling configuration based on per-interface SNMP polling preferences.
+
+#### Scenario: Core rebuilds SNMP checker targets after a toggle
+- **GIVEN** an authenticated admin user enables SNMP polling for a discovered interface
+- **WHEN** the preference is persisted in KV
+- **THEN** Core SHALL be able to rebuild the effective SNMP checker configuration to include polling for that interface
+- **AND** the system SHALL preserve any existing non-managed SNMP targets configured by operators

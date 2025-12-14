@@ -37,7 +37,7 @@ func TestRedactConfigBytes_Mapper(t *testing.T) {
 	unifi0 := unifi[0].(map[string]any)
 	require.Equal(t, redactedConfigValuePlaceholder, unifi0["api_key"])
 
-	require.Equal(t, float64(5), doc["workers"])
+	require.InDelta(t, 5, doc["workers"], 0.001)
 }
 
 func TestRestoreRedactedConfigBytes_Mapper(t *testing.T) {
@@ -79,7 +79,7 @@ func TestRestoreRedactedConfigBytes_Mapper(t *testing.T) {
 	unifi0 := unifi[0].(map[string]any)
 	require.Equal(t, "api-secret", unifi0["api_key"])
 
-	require.Equal(t, float64(7), doc["workers"])
+	require.InDelta(t, 7, doc["workers"], 0.001)
 }
 
 func TestRedactConfigBytes_SNMPChecker(t *testing.T) {

@@ -18,6 +18,13 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+var (
+	errServerUnavailable              = errors.New("server unavailable")
+	errSNMPCheckerDescUnavailable     = errors.New("snmp-checker descriptor unavailable")
+	errSNMPCheckerConfigMissing       = errors.New("snmp-checker config missing after template seed")
+	errDatabaseServiceUnavailableSNMP = errors.New("database service unavailable for SNMP preference resolution")
+)
+
 const snmpInterfacePollingPrefKeyPrefix = "prefs/snmp/interface-polling"
 const snmpPrefManagedTargetPrefix = "ifpref_"
 
@@ -312,7 +319,7 @@ type snmpPrefDeviceInfo struct {
 
 func (s *APIServer) rebuildSNMPCheckerTargetsFromPrefs(ctx context.Context, kvStoreID, writer string) (string, uint64, error) {
 	if s == nil {
-		return "", 0, errors.New("server unavailable")
+		return "", 0, errServerUnavailable
 	}
 
 	// Load existing SNMP checker config (required to avoid guessing node/security settings).
@@ -326,9 +333,9 @@ func (s *APIServer) rebuildSNMPCheckerTargetsFromPrefs(ctx context.Context, kvSt
 	if kvEntryMissing(entry) {
 		desc, ok := config.ServiceDescriptorFor("snmp-checker")
 		if !ok {
-			return kvKey, 0, errors.New("snmp-checker descriptor unavailable")
+			return kvKey, 0, errSNMPCheckerDescUnavailable
 		}
-		if _, seedErr := s.seedConfigFromTemplate(ctx, desc, kvKey, kvStoreID); seedErr != nil {
+		if seedErr := s.seedConfigFromTemplate(ctx, desc, kvKey, kvStoreID); seedErr != nil {
 			return kvKey, 0, fmt.Errorf("snmp-checker config missing and template seed failed: %w", seedErr)
 		}
 		entry, err = s.getKVEntry(ctx, kvStoreID, kvKey)
@@ -336,7 +343,7 @@ func (s *APIServer) rebuildSNMPCheckerTargetsFromPrefs(ctx context.Context, kvSt
 			return kvKey, 0, fmt.Errorf("failed to load seeded snmp-checker config: %w", err)
 		}
 		if kvEntryMissing(entry) {
-			return kvKey, 0, errors.New("snmp-checker config missing after template seed")
+			return kvKey, 0, errSNMPCheckerConfigMissing
 		}
 	}
 
@@ -375,8 +382,8 @@ func (s *APIServer) rebuildSNMPCheckerTargetsFromPrefs(ctx context.Context, kvSt
 		}
 	}
 
-	nextTargets := append(kept, managedTargets...)
-	cfg["targets"] = nextTargets
+	kept = append(kept, managedTargets...)
+	cfg["targets"] = kept
 
 	payload, err := json.Marshal(cfg)
 	if err != nil {
@@ -437,7 +444,7 @@ func (s *APIServer) resolveSNMPPrefDevices(ctx context.Context, prefs []snmpInte
 		return nil, nil
 	}
 	if s.dbService == nil {
-		return nil, errors.New("database service unavailable for SNMP preference resolution")
+		return nil, errDatabaseServiceUnavailableSNMP
 	}
 
 	seen := make(map[string]struct{}, len(prefs))

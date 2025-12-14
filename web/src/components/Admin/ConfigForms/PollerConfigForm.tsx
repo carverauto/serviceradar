@@ -46,6 +46,15 @@ type PollerCheck = {
   results_interval?: string | number | null;
 };
 
+type PollerCheckKind =
+  | 'sysmon'
+  | 'sysmon-osx'
+  | 'mapper_discovery'
+  | 'icmp'
+  | 'snmp'
+  | 'grpc_custom'
+  | 'custom';
+
 type PollerAgentConfig = {
   address?: string;
   security?: SecurityConfig | null;
@@ -113,6 +122,7 @@ export default function PollerConfigForm({ config, onChange }: PollerConfigFormP
 
   const [otelHeadersText, setOtelHeadersText] = useState('{}');
   const [otelHeadersError, setOtelHeadersError] = useState<string | null>(null);
+  const [advancedChecks, setAdvancedChecks] = useState<Record<string, boolean>>({});
   const effectiveSecurity = useMemo<SecurityConfig | null>(
     () => (config.security ?? config.core_security ?? null),
     [config.security, config.core_security],
@@ -199,6 +209,16 @@ export default function PollerConfigForm({ config, onChange }: PollerConfigFormP
     setAgents(agents);
   };
 
+  const setCheck = (agentId: string, index: number, nextCheck: PollerCheck) => {
+    const agents = { ...(config.agents ?? {}) };
+    const agent = { ...(agents[agentId] ?? {}) };
+    const checks = Array.isArray(agent.checks) ? [...agent.checks] : [];
+    checks[index] = { ...nextCheck };
+    agent.checks = checks;
+    agents[agentId] = agent;
+    setAgents(agents);
+  };
+
   const handleCheckChange = (agentId: string, index: number, field: keyof PollerCheck, value: unknown) => {
     const agents = { ...(config.agents ?? {}) };
     const agent = { ...(agents[agentId] ?? {}) };
@@ -209,6 +229,85 @@ export default function PollerConfigForm({ config, onChange }: PollerConfigFormP
     agent.checks = checks;
     agents[agentId] = agent;
     setAgents(agents);
+  };
+
+  const inferCheckKind = (check?: PollerCheck | null): PollerCheckKind => {
+    const serviceType = (check?.service_type ?? '').toLowerCase();
+    const serviceName = (check?.service_name ?? '').toLowerCase();
+
+    if (serviceType === 'mapper_discovery') return 'mapper_discovery';
+    if (serviceType === 'icmp') return 'icmp';
+    if (serviceType === 'snmp') return 'snmp';
+    if (serviceType === 'grpc') {
+      if (serviceName === 'sysmon') return 'sysmon';
+      if (serviceName === 'sysmon-osx') return 'sysmon-osx';
+      return 'grpc_custom';
+    }
+    return 'custom';
+  };
+
+  const applyCheckKind = (check: PollerCheck, kind: PollerCheckKind): PollerCheck => {
+    const next: PollerCheck = { ...check };
+
+    switch (kind) {
+      case 'sysmon':
+        next.service_type = 'grpc';
+        next.service_name = 'sysmon';
+        return next;
+      case 'sysmon-osx':
+        next.service_type = 'grpc';
+        next.service_name = 'sysmon-osx';
+        return next;
+      case 'grpc_custom':
+        next.service_type = 'grpc';
+        next.service_name = next.service_name || '';
+        return next;
+      case 'mapper_discovery':
+        next.service_type = 'mapper_discovery';
+        next.service_name = next.service_name || 'mapper';
+        return next;
+      case 'icmp':
+        next.service_type = 'icmp';
+        next.service_name = next.service_name || 'icmp';
+        return next;
+      case 'snmp':
+        next.service_type = 'snmp';
+        next.service_name = next.service_name || 'snmp';
+        return next;
+      case 'custom':
+      default:
+        return next;
+    }
+  };
+
+  const parseDetailsObject = (details?: string): Record<string, unknown> | null => {
+    if (!details || !details.trim()) return null;
+    try {
+      const parsed = JSON.parse(details);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return null;
+      }
+      return parsed as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  };
+
+  const mapperDiscoveryIncludeRaw = (details?: string): boolean => {
+    const obj = parseDetailsObject(details);
+    return obj?.include_raw_data === true;
+  };
+
+  const updateMapperDiscoveryIncludeRaw = (details: string | undefined, enabled: boolean): string => {
+    const obj = parseDetailsObject(details) ?? {};
+    if (enabled) {
+      obj.include_raw_data = true;
+    } else {
+      delete obj.include_raw_data;
+    }
+    const keys = Object.keys(obj);
+    if (keys.length === 0) return '';
+    return JSON.stringify(obj);
   };
 
   const handleRemoveCheck = (agentId: string, index: number) => {

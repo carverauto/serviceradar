@@ -14,3 +14,21 @@ ServiceRadar MUST store per-interface SNMP metric polling preferences in KV usin
 - **WHEN** Core persists a polling preference for that interface
 - **THEN** the KV key used for that preference SHALL be derivable from those stable identifiers
 - **AND** Core SHALL sanitize identifiers as needed so the KV key is valid
+
+### Requirement: Redacted config reads preserve secrets on update
+ServiceRadar MUST redact sensitive configuration fields from admin config reads returned to the browser, and MUST preserve previously-stored secret values when the browser submits redacted placeholders.
+
+#### Scenario: Admin edits mapper config without clobbering secrets
+- **GIVEN** the mapper configuration contains secret fields (e.g., API keys, SNMP auth data)
+- **WHEN** an admin retrieves the config via Core and secret fields are redacted
+- **AND** the admin submits an updated config that still includes redacted placeholders for those secret fields
+- **THEN** Core SHALL restore the previous secret values when persisting the updated configuration
+
+### Requirement: Core can rebuild SNMP checker targets from preferences
+ServiceRadar MUST support rebuilding the effective SNMP checker targets in KV based on enabled interface polling preferences.
+
+#### Scenario: Rebuild updates managed targets only
+- **GIVEN** the SNMP checker configuration in KV includes a mix of operator-defined targets and system-managed targets
+- **WHEN** Core rebuilds targets based on interface preferences
+- **THEN** Core SHALL only replace system-managed targets
+- **AND** operator-defined targets SHALL remain unchanged
