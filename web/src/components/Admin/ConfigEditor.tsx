@@ -22,6 +22,8 @@ import CoreConfigForm from './ConfigForms/CoreConfigForm';
 import SyncConfigForm from './ConfigForms/SyncConfigForm';
 import PollerConfigForm from './ConfigForms/PollerConfigForm';
 import AgentConfigForm from './ConfigForms/AgentConfigForm';
+import MapperConfigForm from './ConfigForms/MapperConfigForm';
+import SnmpCheckerConfigForm from './ConfigForms/SnmpCheckerConfigForm';
 import type { ConfigDescriptor } from './types';
 
 interface ServiceInfo {
@@ -520,6 +522,10 @@ export default function ConfigEditor({ service, kvStore, onSave, onClose }: Conf
         return <PollerConfigForm config={currentConfig as unknown as Parameters<typeof PollerConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof PollerConfigForm>[0]['onChange']} />;
       case 'agent':
         return <AgentConfigForm config={currentConfig as unknown as Parameters<typeof AgentConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof AgentConfigForm>[0]['onChange']} />;
+      case 'mapper':
+        return <MapperConfigForm config={currentConfig as Record<string, unknown>} onChange={handleConfigChange as unknown as (config: Record<string, unknown>) => void} />;
+      case 'snmp-checker':
+        return <SnmpCheckerConfigForm config={currentConfig as Record<string, unknown>} onChange={handleConfigChange as unknown as (config: Record<string, unknown>) => void} />;
       default:
         return (
           <div className="bg-white dark:bg-gray-800 p-6 rounded-lg border border-gray-200 dark:border-gray-700">

@@ -60,6 +60,7 @@
   - Per-interface “SNMP Polling” toggle
   - Propagation state (“Applied” vs “Restart required”) for mapper and snmp-checker based on Core config metadata vs watcher started timestamps
 - Settings → Configuration Management MUST surface `mapper` and `snmp-checker` global configs, and MUST provide a service-type-aware editor for poller checks so operators do not need to hand-author JSON in text inputs for common workflows (LAN discovery, SNMP credentials).
+  - Mapper now has a typed editor for runtime tuning, default credentials, credential rules, scheduled jobs, UniFi APIs, and stream publishing (with JSON view for advanced fields like OIDs and SNMPv3).
 
 ### Local docker-compose testing (no secrets in files)
 - Use a gitignored `docker-compose.override.yml` to:
@@ -77,4 +78,4 @@
   - KV: additional keys/prefixes for per-interface SNMP polling preferences
 
 ## Status
-- Implemented for Network → Discovery + per-interface polling; needs follow-up for Configuration Management UX (SNMP checker visibility + service-type-aware forms).
+- Implemented for Network → Discovery + per-interface polling + Configuration Management UX (SNMP checker visibility, typed mapper/snmp editors, and check-kind dropdown).

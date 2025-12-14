@@ -10,11 +10,11 @@
   - [x] show propagation state (“applied” vs “restart required/pending”)
 - [x] 1.7 Add Next.js proxy routes for any new Core endpoints (follow the existing patterns in `web/src/app/api/admin/config/*` and `web/src/app/api/query/route.ts` for auth + `X-API-Key` forwarding).
 - [x] 1.8 Add authorization checks (admin-only or appropriate role) for all write endpoints and UI controls.
-- [ ] 1.9 Ensure Settings → Configuration Management surfaces `snmp-checker` and other relevant global configs (remove hardcoded omissions / improve discoverability).
-- [ ] 1.10 Add typed Configuration Management forms for:
+- [x] 1.9 Ensure Settings → Configuration Management surfaces `snmp-checker` and other relevant global configs (remove hardcoded omissions / improve discoverability).
+- [x] 1.10 Add typed Configuration Management forms for:
   - mapper scheduled jobs (LAN discovery inputs: seeds, interval, discovery type, credentials)
   - SNMP checker config (credentials/targets/timeouts), with “Advanced JSON” fallback
-- [ ] 1.11 Update poller config editor (Agents & Checks) to use a service-type-aware “check kind” dropdown and render per-kind fields (hide gRPC where possible; avoid requiring JSON in `details` for common cases).
+- [x] 1.11 Update poller config editor (Agents & Checks) to use a service-type-aware “check kind” dropdown and render per-kind fields (hide gRPC where possible; avoid requiring JSON in `details` for common cases).
 
 ## 2. Validation
 - [x] 2.1 Add unit tests for config parsing/validation and redaction on read.
