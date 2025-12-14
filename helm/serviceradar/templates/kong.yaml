@@ -20,8 +20,8 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       initContainers:
       - name: render-kong-config
-        image: ghcr.io/carverauto/serviceradar-kong-config:{{ default "latest" .Values.image.tags.kongConfig }}
-        imagePullPolicy: IfNotPresent
+        image: ghcr.io/carverauto/serviceradar-kong-config:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "kongConfig") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         command:
         - /bin/sh
         - -c
@@ -87,8 +87,8 @@ spec:
             cpu: "2"
             memory: "2Gi"
       - name: kong-config-watcher
-        image: ghcr.io/carverauto/serviceradar-kong-config:{{ default "latest" .Values.image.tags.kongConfig }}
-        imagePullPolicy: IfNotPresent
+        image: ghcr.io/carverauto/serviceradar-kong-config:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "kongConfig") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         command:
         - /bin/sh
         - -c

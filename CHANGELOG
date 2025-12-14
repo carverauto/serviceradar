@@ -1,3 +1,14 @@
+# ServiceRadar v1.0.78
+
+SNMP and network discovery configuration is now much easier to manage via the UI.
+
+## Whats New
+
+**1.0.78**
+- Settings → Configuration Management now includes dedicated forms for `mapper` and `snmp-checker`, with JSON view still available for advanced fields.
+- Poller check configuration now offers a “Check Kind” dropdown (e.g. Sysmon) and better mapper discovery UX (no more pasting raw JSON).
+- Helm: kong-config images now honor configured tags/pull policy (no hardcoded `latest`), improving reproducibility for release pinning.
+
 # ServiceRadar v1.0.77
 
 Device Details metrics now stay fresh, and demo-staging canary iteration is faster.

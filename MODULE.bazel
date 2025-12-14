@@ -578,6 +578,7 @@ crates.spec(
     repositories = ["rust_crates_profiler"],
     version = "1.17.0",
 )
+
 # libzetta is an optional dependency for sysmon ZFS support
 crates.spec(
     package = "libzetta",
@@ -637,8 +638,8 @@ node.toolchain(
         ),
     },
     node_urls = [
-        "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}",
         "https://nodejs.org/dist/v{version}/{filename}",
+        "https://unofficial-builds.nodejs.org/download/release/v{version}/{filename}",
     ],
     node_version = NODE_VERSION,
 )
@@ -803,17 +804,17 @@ http_file(
 
 http_file(
     name = "debian_gcc_15_base_amd64_deb",
-    sha256 = "3eab40ad4dba67170f888de69d76926ae2f0a1ba6839de46adc9ab991d5b433a",
+    sha256 = "56026946facc012ce81cfe6542c4c907537f9d40c637927be3033153889bf771",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/gcc-15/gcc-15-base_15.2.0-10_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/g/gcc-15/gcc-15-base_15.2.0-11_amd64.deb",
     ],
 )
 
 http_file(
     name = "debian_libgcc_s1_amd64_deb",
-    sha256 = "e19e7e4f02b021fab8df3ecbc7347a66d9490759f70a5df00bc0c4a6506531fe",
+    sha256 = "14bcff824455af407442054c92f62a47190210607026d4771afa2000fb217d56",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/gcc-15/libgcc-s1_15.2.0-10_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/g/gcc-15/libgcc-s1_15.2.0-11_amd64.deb",
     ],
 )
 

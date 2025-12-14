@@ -2,5 +2,5 @@ apiVersion: v2
 name: serviceradar
 description: Helm chart for deploying the ServiceRadar demo stack
 type: application
-version: 1.0.77
-appVersion: "1.0.77"
+version: 1.0.78
+appVersion: "1.0.78"
