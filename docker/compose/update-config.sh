@@ -364,8 +364,14 @@ SYSMON_OSX_KEY_FILE="${SYSMON_OSX_KEY_FILE:-sysmon-osx-key.pem}"
 SYSMON_OSX_CA_FILE="${SYSMON_OSX_CA_FILE:-root.pem}"
 
 SYSMON_OSX_CHECKER_CONFIG="$CHECKERS_DIR/sysmon-osx.json"
-if [ -f "$SYSMON_OSX_CHECKER_CONFIG" ] && ! is_truthy "$FORCE_REGENERATE_CONFIG"; then
-    echo "sysmon-osx checker config already exists; preserving existing configuration"
+
+EXISTING_SYSMON_OSX_ADDRESS=""
+if [ -f "$SYSMON_OSX_CHECKER_CONFIG" ]; then
+    EXISTING_SYSMON_OSX_ADDRESS="$(jq -r '.address // ""' "$SYSMON_OSX_CHECKER_CONFIG" 2>/dev/null || echo "")"
+fi
+
+if [ -f "$SYSMON_OSX_CHECKER_CONFIG" ] && ! is_truthy "$FORCE_REGENERATE_CONFIG" && [ -n "$EXISTING_SYSMON_OSX_ADDRESS" ]; then
+    echo "sysmon-osx checker config already exists (address=$EXISTING_SYSMON_OSX_ADDRESS); preserving existing configuration"
 elif [ -z "$SYSMON_OSX_ADDRESS" ]; then
     warn "sysmon endpoint is unset (SYSMON_OSX_ADDRESS/SYSMON_VM_ADDRESS); leaving existing sysmon-osx checker config untouched"
 elif [ "$SYSMON_OSX_SECURITY_MODE" = "mtls" ]; then
@@ -388,7 +394,11 @@ elif [ "$SYSMON_OSX_SECURITY_MODE" = "mtls" ]; then
   }
 }
 EOF
-    echo "✅ Generated sysmon-osx checker config (mTLS) with address $SYSMON_OSX_ADDRESS"
+    if [ -n "$EXISTING_SYSMON_OSX_ADDRESS" ]; then
+        echo "✅ Generated sysmon-osx checker config (mTLS) with address $SYSMON_OSX_ADDRESS"
+    else
+        echo "✅ Repaired sysmon-osx checker config (mTLS) with address $SYSMON_OSX_ADDRESS"
+    fi
 else
     cat > "$CHECKERS_DIR/sysmon-osx.json" <<EOF
 {
@@ -401,7 +411,11 @@ else
   }
 }
 EOF
-    echo "✅ Generated sysmon-osx checker config (no security) with address $SYSMON_OSX_ADDRESS"
+    if [ -n "$EXISTING_SYSMON_OSX_ADDRESS" ]; then
+        echo "✅ Generated sysmon-osx checker config (no security) with address $SYSMON_OSX_ADDRESS"
+    else
+        echo "✅ Repaired sysmon-osx checker config (no security) with address $SYSMON_OSX_ADDRESS"
+    fi
 fi
 
 POLLERS_SECURITY_MODE="${POLLERS_SECURITY_MODE:-mtls}"
@@ -442,6 +456,19 @@ fi
 # Only generate poller.json if it doesn't exist (preserves manual customizations unless forced)
 if [ -f "$CONFIG_DIR/poller.json" ] && ! is_truthy "$FORCE_REGENERATE_CONFIG"; then
     echo "poller.json already exists; preserving existing configuration"
+    EXISTING_SYSMON_DETAILS="$(jq -r '([.agents[]?.checks[]? | select(.service_name == "sysmon-osx") | .details] | .[0] // "")' "$CONFIG_DIR/poller.json" 2>/dev/null || echo "")"
+    if [ -z "$SYSMON_OSX_ADDRESS" ]; then
+        warn "sysmon endpoint is unset (SYSMON_OSX_ADDRESS/SYSMON_VM_ADDRESS); leaving sysmon-osx details as-is in poller.json"
+    elif [ -z "$EXISTING_SYSMON_DETAILS" ]; then
+        jq --arg addr "$SYSMON_OSX_ADDRESS" '
+            (.agents[]?.checks[]? | select(.service_name == "sysmon-osx")).details
+              |= (if (. // "") == "" then $addr else . end)
+        ' "$CONFIG_DIR/poller.json" > "$CONFIG_DIR/poller.json.tmp"
+        mv "$CONFIG_DIR/poller.json.tmp" "$CONFIG_DIR/poller.json"
+        echo "✅ Repaired sysmon-osx details in poller.json to $SYSMON_OSX_ADDRESS"
+    else
+        echo "sysmon-osx details already set in poller.json (details=$EXISTING_SYSMON_DETAILS); leaving unchanged"
+    fi
 elif [ "$POLLERS_SECURITY_MODE" = "spiffe" ]; then
     cp "$POLLERS_TEMPLATE" "$CONFIG_DIR/poller.json"
     jq --arg addr "$SYSMON_OSX_ADDRESS" \
