@@ -57,16 +57,21 @@ interface InterfaceTableProps {
     showDeviceColumn?: boolean;
     jsonViewTheme?: 'rjv-default' | 'pop';
     itemsPerPage?: number;
+    snmpPollingByInterface?: Record<string, boolean>;
+    onToggleSnmpPolling?: (deviceID: string, ifIndex: number, enabled: boolean) => Promise<void> | void;
 }
 
 const InterfaceTable: React.FC<InterfaceTableProps> = ({ 
     interfaces, 
     showDeviceColumn = false,
     jsonViewTheme = 'pop',
-    itemsPerPage = 20
+    itemsPerPage = 20,
+    snmpPollingByInterface,
+    onToggleSnmpPolling,
 }) => {
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
+    const [togglingKey, setTogglingKey] = useState<string | null>(null);
 
     const getStatusColor = (status?: string) => {
         const s = status?.toLowerCase() || '';
@@ -200,11 +205,25 @@ const InterfaceTable: React.FC<InterfaceTableProps> = ({
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                             Status
                         </th>
+                        {onToggleSnmpPolling && (
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                                SNMP Polling
+                            </th>
+                        )}
                     </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                     {paginatedInterfaces.map((iface, index) => {
                         const rowKey = `${iface.device_ip || 'no-ip'}-${iface.if_index ?? index}-${iface.mac_address || 'no-mac'}`;
+                        const snmpKey = `${iface.device_id || ''}|${iface.if_index ?? ''}`;
+                        const snmpEnabled =
+                            Boolean(iface.device_id) &&
+                            typeof iface.if_index === 'number' &&
+                            Boolean(snmpPollingByInterface?.[snmpKey]);
+                        const canToggle =
+                            Boolean(onToggleSnmpPolling) &&
+                            Boolean(iface.device_id) &&
+                            typeof iface.if_index === 'number';
                         return (
                             <Fragment key={rowKey}>
                                 <tr className="hover:bg-gray-100 dark:hover:bg-gray-700/30">
@@ -258,10 +277,44 @@ const InterfaceTable: React.FC<InterfaceTableProps> = ({
                                             <span className="ml-1 text-sm">{iface.status || 'Unknown'}</span>
                                         </span>
                                     </td>
+                                    {onToggleSnmpPolling && (
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                            {canToggle ? (
+                                                <label className="inline-flex items-center gap-2">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={snmpEnabled}
+                                                        disabled={togglingKey === snmpKey}
+                                                        onChange={async (e) => {
+                                                            if (!iface.device_id || typeof iface.if_index !== 'number') {
+                                                                return;
+                                                            }
+                                                            try {
+                                                                setTogglingKey(snmpKey);
+                                                                await onToggleSnmpPolling(
+                                                                    iface.device_id,
+                                                                    iface.if_index,
+                                                                    e.target.checked,
+                                                                );
+                                                            } finally {
+                                                                setTogglingKey(null);
+                                                            }
+                                                        }}
+                                                        className="h-4 w-4"
+                                                    />
+                                                    <span className="text-gray-700 dark:text-gray-300">
+                                                        {snmpEnabled ? 'Enabled' : 'Disabled'}
+                                                    </span>
+                                                </label>
+                                            ) : (
+                                                <span className="text-gray-500 dark:text-gray-400">—</span>
+                                            )}
+                                        </td>
+                                    )}
                                 </tr>
                                 {expandedRow === rowKey && (
                                     <tr className="bg-gray-100 dark:bg-gray-800/50">
-                                        <td colSpan={showDeviceColumn ? 7 : 6} className="p-0">
+                                        <td colSpan={showDeviceColumn ? (onToggleSnmpPolling ? 8 : 7) : (onToggleSnmpPolling ? 7 : 6)} className="p-0">
                                             <div className="p-4">
                                                 <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-2">
                                                     Interface Details

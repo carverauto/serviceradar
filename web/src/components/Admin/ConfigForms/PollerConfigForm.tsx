@@ -46,6 +46,15 @@ type PollerCheck = {
   results_interval?: string | number | null;
 };
 
+type PollerCheckKind =
+  | 'sysmon'
+  | 'sysmon-osx'
+  | 'mapper_discovery'
+  | 'icmp'
+  | 'snmp'
+  | 'grpc_custom'
+  | 'custom';
+
 type PollerAgentConfig = {
   address?: string;
   security?: SecurityConfig | null;
@@ -113,6 +122,7 @@ export default function PollerConfigForm({ config, onChange }: PollerConfigFormP
 
   const [otelHeadersText, setOtelHeadersText] = useState('{}');
   const [otelHeadersError, setOtelHeadersError] = useState<string | null>(null);
+  const [advancedChecks, setAdvancedChecks] = useState<Record<string, boolean>>({});
   const effectiveSecurity = useMemo<SecurityConfig | null>(
     () => (config.security ?? config.core_security ?? null),
     [config.security, config.core_security],
@@ -199,6 +209,16 @@ export default function PollerConfigForm({ config, onChange }: PollerConfigFormP
     setAgents(agents);
   };
 
+  const setCheck = (agentId: string, index: number, nextCheck: PollerCheck) => {
+    const agents = { ...(config.agents ?? {}) };
+    const agent = { ...(agents[agentId] ?? {}) };
+    const checks = Array.isArray(agent.checks) ? [...agent.checks] : [];
+    checks[index] = { ...nextCheck };
+    agent.checks = checks;
+    agents[agentId] = agent;
+    setAgents(agents);
+  };
+
   const handleCheckChange = (agentId: string, index: number, field: keyof PollerCheck, value: unknown) => {
     const agents = { ...(config.agents ?? {}) };
     const agent = { ...(agents[agentId] ?? {}) };
@@ -209,6 +229,85 @@ export default function PollerConfigForm({ config, onChange }: PollerConfigFormP
     agent.checks = checks;
     agents[agentId] = agent;
     setAgents(agents);
+  };
+
+  const inferCheckKind = (check?: PollerCheck | null): PollerCheckKind => {
+    const serviceType = (check?.service_type ?? '').toLowerCase();
+    const serviceName = (check?.service_name ?? '').toLowerCase();
+
+    if (serviceType === 'mapper_discovery') return 'mapper_discovery';
+    if (serviceType === 'icmp') return 'icmp';
+    if (serviceType === 'snmp') return 'snmp';
+    if (serviceType === 'grpc') {
+      if (serviceName === 'sysmon') return 'sysmon';
+      if (serviceName === 'sysmon-osx') return 'sysmon-osx';
+      return 'grpc_custom';
+    }
+    return 'custom';
+  };
+
+  const applyCheckKind = (check: PollerCheck, kind: PollerCheckKind): PollerCheck => {
+    const next: PollerCheck = { ...check };
+
+    switch (kind) {
+      case 'sysmon':
+        next.service_type = 'grpc';
+        next.service_name = 'sysmon';
+        return next;
+      case 'sysmon-osx':
+        next.service_type = 'grpc';
+        next.service_name = 'sysmon-osx';
+        return next;
+      case 'grpc_custom':
+        next.service_type = 'grpc';
+        next.service_name = next.service_name || '';
+        return next;
+      case 'mapper_discovery':
+        next.service_type = 'mapper_discovery';
+        next.service_name = next.service_name || 'mapper';
+        return next;
+      case 'icmp':
+        next.service_type = 'icmp';
+        next.service_name = next.service_name || 'icmp';
+        return next;
+      case 'snmp':
+        next.service_type = 'snmp';
+        next.service_name = next.service_name || 'snmp';
+        return next;
+      case 'custom':
+      default:
+        return next;
+    }
+  };
+
+  const parseDetailsObject = (details?: string): Record<string, unknown> | null => {
+    if (!details || !details.trim()) return null;
+    try {
+      const parsed = JSON.parse(details);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return null;
+      }
+      return parsed as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  };
+
+  const mapperDiscoveryIncludeRaw = (details?: string): boolean => {
+    const obj = parseDetailsObject(details);
+    return obj?.include_raw_data === true;
+  };
+
+  const updateMapperDiscoveryIncludeRaw = (details: string | undefined, enabled: boolean): string => {
+    const obj = parseDetailsObject(details) ?? {};
+    if (enabled) {
+      obj.include_raw_data = true;
+    } else {
+      delete obj.include_raw_data;
+    }
+    const keys = Object.keys(obj);
+    if (keys.length === 0) return '';
+    return JSON.stringify(obj);
   };
 
   const handleRemoveCheck = (agentId: string, index: number) => {
@@ -638,91 +737,207 @@ export default function PollerConfigForm({ config, onChange }: PollerConfigFormP
                             No checks configured for this agent.
                           </div>
                         )}
-                        {checks.map((check, index) => (
-                          <div
-                            key={`${agentId}-check-${index}`}
-                            className="border border-gray-200 dark:border-gray-700 rounded-md p-3 space-y-3"
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-medium">Check #{index + 1}</span>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveCheck(agentId, index)}
-                                className="text-xs text-red-600 hover:text-red-700"
-                              >
-                                Remove
-                              </button>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
+                        {checks.map((check, index) => {
+                          const advancedKey = `${agentId}:${index}`;
+                          const kind = inferCheckKind(check);
+                          const isAdvanced = advancedChecks[advancedKey] ?? false;
+
+                          return (
+                            <div
+                              key={`${agentId}-check-${index}`}
+                              className="border border-gray-200 dark:border-gray-700 rounded-md p-3 space-y-3"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium">Check #{index + 1}</span>
+                                <div className="flex items-center gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setAdvancedChecks((prev) => ({
+                                        ...prev,
+                                        [advancedKey]: !(prev[advancedKey] ?? false),
+                                      }))
+                                    }
+                                    className="text-xs text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
+                                  >
+                                    {isAdvanced ? 'Hide advanced' : 'Advanced'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveCheck(agentId, index)}
+                                    className="text-xs text-red-600 hover:text-red-700"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="block text-xs font-medium mb-1">Check Kind</label>
+                                  <select
+                                    value={kind}
+                                    onChange={(e) => {
+                                      const nextKind = e.target.value as PollerCheckKind;
+                                      setCheck(agentId, index, applyCheckKind(check ?? {}, nextKind));
+                                    }}
+                                    className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900"
+                                  >
+                                    <option value="sysmon">Sysmon (gRPC)</option>
+                                    <option value="sysmon-osx">Sysmon-OSX (gRPC)</option>
+                                    <option value="mapper_discovery">Mapper discovery status</option>
+                                    <option value="icmp">ICMP</option>
+                                    <option value="snmp">SNMP</option>
+                                    <option value="grpc_custom">gRPC (custom)</option>
+                                    <option value="custom">Advanced / Custom</option>
+                                  </select>
+                                </div>
+                                <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-4 self-end pb-2">
+                                  {kind === 'mapper_discovery'
+                                    ? 'Reads cached mapper results; configure seeds/credentials under Mapper config.'
+                                    : kind === 'sysmon' || kind === 'sysmon-osx'
+                                      ? 'Service type is set to grpc automatically.'
+                                      : null}
+                                </div>
+                              </div>
+
+                              {!isAdvanced && kind !== 'custom' && kind !== 'mapper_discovery' && (
+                                <div className="grid grid-cols-2 gap-3">
+                                  {kind === 'grpc_custom' && (
+                                    <div>
+                                      <label className="block text-xs font-medium mb-1">Service Name</label>
+                                      <input
+                                        type="text"
+                                        value={check?.service_name ?? ''}
+                                        onChange={(e) => handleCheckChange(agentId, index, 'service_name', e.target.value)}
+                                        className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                                        placeholder="sysmon / sync / rperf-checker"
+                                      />
+                                    </div>
+                                  )}
+                                  <div className={kind === 'grpc_custom' ? '' : 'col-span-2'}>
+                                    <label className="block text-xs font-medium mb-1">
+                                      {kind === 'icmp'
+                                        ? 'Host'
+                                        : kind === 'snmp'
+                                          ? 'Target Host'
+                                          : 'Target Address'}
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={check?.details ?? ''}
+                                      onChange={(e) => handleCheckChange(agentId, index, 'details', e.target.value)}
+                                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                                      placeholder={
+                                        kind === 'icmp'
+                                          ? '192.168.1.1'
+                                          : kind === 'snmp'
+                                            ? '192.168.1.1'
+                                            : 'serviceradar-agent:50051'
+                                      }
+                                    />
+                                  </div>
+                                </div>
+                              )}
+
+                              {!isAdvanced && kind === 'mapper_discovery' && (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    id={`${agentId}-check-${index}-mapper-raw`}
+                                    type="checkbox"
+                                    checked={mapperDiscoveryIncludeRaw(check?.details)}
+                                    onChange={(e) =>
+                                      handleCheckChange(
+                                        agentId,
+                                        index,
+                                        'details',
+                                        updateMapperDiscoveryIncludeRaw(check?.details, e.target.checked),
+                                      )
+                                    }
+                                    className="h-4 w-4"
+                                  />
+                                  <label htmlFor={`${agentId}-check-${index}-mapper-raw`} className="text-xs font-medium">
+                                    Include raw discovery data
+                                  </label>
+                                </div>
+                              )}
+
+                              {(isAdvanced || kind === 'custom') && (
+                                <>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="block text-xs font-medium mb-1">Service Name</label>
+                                      <input
+                                        type="text"
+                                        value={check?.service_name ?? ''}
+                                        onChange={(e) => handleCheckChange(agentId, index, 'service_name', e.target.value)}
+                                        className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                                        placeholder="serviceradar-agent"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs font-medium mb-1">Service Type</label>
+                                      <input
+                                        type="text"
+                                        value={check?.service_type ?? ''}
+                                        onChange={(e) => handleCheckChange(agentId, index, 'service_type', e.target.value)}
+                                        className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                                        placeholder="grpc / mapper_discovery / icmp / snmp"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-3 gap-3">
+                                    <div className="col-span-2">
+                                      <label className="block text-xs font-medium mb-1">Details</label>
+                                      <input
+                                        type="text"
+                                        value={check?.details ?? ''}
+                                        onChange={(e) => handleCheckChange(agentId, index, 'details', e.target.value)}
+                                        className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                                        placeholder="target address / host / JSON"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs font-medium mb-1">Port</label>
+                                      <input
+                                        type="number"
+                                        value={check?.port ?? ''}
+                                        onChange={(e) =>
+                                          handleCheckChange(
+                                            agentId,
+                                            index,
+                                            'port',
+                                            e.target.value === '' ? undefined : Number(e.target.value),
+                                          )
+                                        }
+                                        className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                                        placeholder="0"
+                                      />
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+
                               <div>
-                                <label className="block text-xs font-medium mb-1">Service Name</label>
+                                <label className="block text-xs font-medium mb-1">Results Interval</label>
                                 <input
                                   type="text"
-                                  value={check?.service_name ?? ''}
-                                  onChange={(e) => handleCheckChange(agentId, index, 'service_name', e.target.value)}
-                                  className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                                  placeholder="serviceradar-agent"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium mb-1">Service Type</label>
-                                <input
-                                  type="text"
-                                  value={check?.service_type ?? ''}
-                                  onChange={(e) => handleCheckChange(agentId, index, 'service_type', e.target.value)}
-                                  className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                                  placeholder="grpc / icmp / sweep"
-                                />
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-3 gap-3">
-                              <div className="col-span-2">
-                                <label className="block text-xs font-medium mb-1">Details</label>
-                                <input
-                                  type="text"
-                                  value={check?.details ?? ''}
-                                  onChange={(e) => handleCheckChange(agentId, index, 'details', e.target.value)}
-                                  className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                                  placeholder="serviceradar-agent:22"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-medium mb-1">Port</label>
-                                <input
-                                  type="number"
-                                  value={check?.port ?? ''}
+                                  value={stringValue(check?.results_interval)}
                                   onChange={(e) =>
                                     handleCheckChange(
                                       agentId,
                                       index,
-                                      'port',
-                                      e.target.value === '' ? undefined : Number(e.target.value),
+                                      'results_interval',
+                                      e.target.value.trim() ? e.target.value : null,
                                     )
                                   }
                                   className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                                  placeholder="0"
+                                  placeholder="5m0s"
                                 />
                               </div>
                             </div>
-                            <div>
-                              <label className="block text-xs font-medium mb-1">Results Interval</label>
-                              <input
-                                type="text"
-                                value={stringValue(check?.results_interval)}
-                                onChange={(e) =>
-                                  handleCheckChange(
-                                    agentId,
-                                    index,
-                                    'results_interval',
-                                    e.target.value.trim() ? e.target.value : null,
-                                  )
-                                }
-                                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md"
-                                placeholder="5m0s"
-                              />
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>

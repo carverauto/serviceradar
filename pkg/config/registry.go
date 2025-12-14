@@ -159,9 +159,6 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 		Scope:       ConfigScopeGlobal,
 		KVKey:       "config/mapper.json",
 		Format:      ConfigFormatJSON,
-		CriticalFields: []string{
-			"kv_address",
-		},
 	},
 	"netflow-consumer": {
 		Name:        "netflow-consumer",

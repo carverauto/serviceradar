@@ -22,6 +22,8 @@ import CoreConfigForm from './ConfigForms/CoreConfigForm';
 import SyncConfigForm from './ConfigForms/SyncConfigForm';
 import PollerConfigForm from './ConfigForms/PollerConfigForm';
 import AgentConfigForm from './ConfigForms/AgentConfigForm';
+import MapperConfigForm from './ConfigForms/MapperConfigForm';
+import SnmpCheckerConfigForm from './ConfigForms/SnmpCheckerConfigForm';
 import type { ConfigDescriptor } from './types';
 
 interface ServiceInfo {
@@ -520,8 +522,31 @@ export default function ConfigEditor({ service, kvStore, onSave, onClose }: Conf
         return <PollerConfigForm config={currentConfig as unknown as Parameters<typeof PollerConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof PollerConfigForm>[0]['onChange']} />;
       case 'agent':
         return <AgentConfigForm config={currentConfig as unknown as Parameters<typeof AgentConfigForm>[0]['config']} onChange={handleConfigChange as unknown as Parameters<typeof AgentConfigForm>[0]['onChange']} />;
+      case 'mapper':
+        return <MapperConfigForm config={currentConfig as Record<string, unknown>} onChange={handleConfigChange as unknown as (config: Record<string, unknown>) => void} />;
+      case 'snmp-checker':
+        return <SnmpCheckerConfigForm config={currentConfig as Record<string, unknown>} onChange={handleConfigChange as unknown as (config: Record<string, unknown>) => void} />;
       default:
-        return null;
+        return (
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg border border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold">No Form Available</h3>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+              This service does not have a typed configuration form yet. Edit the raw configuration in JSON view.
+            </p>
+            <div className="mt-4 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setJsonMode(true)}
+                className="px-3 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700"
+              >
+                Open JSON View
+              </button>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                Service type: <code>{effectiveServiceType || 'unknown'}</code>
+              </span>
+            </div>
+          </div>
+        );
     }
   };
 

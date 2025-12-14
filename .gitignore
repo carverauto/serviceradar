@@ -217,6 +217,15 @@ target/
 # Docker generated certificates
 docker/compose/certs/
 
+# Local docker-compose overrides (often contain secrets)
+docker-compose.override.yml
+docker-compose.local.yml
+docker-compose.*.local.yml
+docker/compose/*.local.json
+docker/compose/*.local.toml
+docker/compose/.env.local
+docker/compose/.env.*.local
+
 .gobuildcache/
 .gocache/
 

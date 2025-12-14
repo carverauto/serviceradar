@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "agent_registry.go",
         "auth.go",
+        "config_redaction.go",
         "datasvc_registry.go",
         "device_registry.go",
         "edge_onboarding.go",
@@ -14,6 +15,7 @@ go_library(
         "identity.go",
         "interfaces.go",
         "mock_api_server.go",
+        "network_discovery.go",
         "rperf.go",
         "server.go",
         "snmp_status.go",
@@ -25,12 +27,14 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/pkg/core/api",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/checker/snmp",
         "//pkg/config",
         "//pkg/core/auth",
         "//pkg/devicealias",
         "//pkg/db",
         "//pkg/grpc",
         "//pkg/http",
+        "//pkg/identitymap",
         "//pkg/logger",
         "//pkg/metrics",
         "//pkg/metricstore",
@@ -58,6 +62,7 @@ go_test(
     name = "api_test",
     srcs = [
         "collectors_test.go",
+        "config_redaction_test.go",
         "edge_onboarding_test.go",
         "identity_test.go",
     ],
