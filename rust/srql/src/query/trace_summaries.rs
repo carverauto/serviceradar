@@ -1,4 +1,4 @@
-use super::QueryPlan;
+use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     models::TraceSummaryRow,
@@ -67,6 +67,18 @@ pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
     Ok(summary_query.sql)
 }
 
+pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
+    ensure_entity(plan)?;
+    let summary_query = build_summary_query(plan)?;
+    let sql = rewrite_placeholders(&summary_query.sql);
+    let params = summary_query
+        .binds
+        .into_iter()
+        .map(bind_param_from_query)
+        .collect();
+    Ok((sql, params))
+}
+
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     match plan.entity {
         Entity::TraceSummaries => Ok(()),
@@ -119,6 +131,17 @@ impl SqlBindValue {
             SqlBindValue::Float(value) => query.bind::<Float8, _>(*value),
             SqlBindValue::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
         }
+    }
+}
+
+fn bind_param_from_query(value: SqlBindValue) -> BindParam {
+    match value {
+        SqlBindValue::Text(value) => BindParam::Text(value),
+        SqlBindValue::TextArray(values) => BindParam::TextArray(values),
+        SqlBindValue::Int(value) => BindParam::Int(i64::from(value)),
+        SqlBindValue::BigInt(value) => BindParam::Int(value),
+        SqlBindValue::Float(value) => BindParam::Float(value),
+        SqlBindValue::Timestamp(value) => BindParam::timestamptz(value),
     }
 }
 

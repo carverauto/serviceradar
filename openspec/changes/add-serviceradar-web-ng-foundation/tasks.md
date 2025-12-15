@@ -12,12 +12,12 @@
 - [x] 1.4 Refactor `rust/srql` to expose public library functions.
 - [x] 1.5 Implement `native/srql_nif` in Phoenix (Async NIF pattern).
 - [x] 1.6 Implement `ServiceRadarWebNG.SRQL` module.
-- [ ] 1.6a Pivot to **translator-only** SRQL architecture (no DB/runtime in NIF).
-  - [ ] Refactor `rust/srql` to expose a stable translate API (SQL + bind params + pagination metadata).
-  - [ ] Update `native/srql_nif` to export translate-only functions (no Tokio runtime, no DB connections).
-  - [ ] Update Phoenix to execute translated SQL via Ecto using `ServiceRadarWebNG.Repo`.
-  - [ ] Add integration tests to validate SRQL translation + execution from Elixir.
-  - [ ] Ensure existing SRQL HTTP service behavior remains intact (run existing `rust/srql` tests).
+- [x] 1.6a Pivot to **translator-only** SRQL architecture (no DB/runtime in NIF).
+  - [x] Refactor `rust/srql` to expose a stable translate API (SQL + bind params + pagination metadata).
+  - [x] Update `native/srql_nif` to export translate-only functions (no Tokio runtime, no DB connections).
+  - [x] Update Phoenix to execute translated SQL via Ecto using `ServiceRadarWebNG.Repo`.
+  - [x] Add integration tests to validate SRQL translation + execution from Elixir.
+  - [x] Ensure existing SRQL HTTP service behavior remains intact (run existing `rust/srql` tests).
 
 ### Property-Based Testing (StreamData)
 - [x] 1.7 Add `stream_data` (and `ExUnitProperties`) to the `web-ng` ExUnit suite.
@@ -57,7 +57,7 @@
 ### API Replacement
 - [x] 4.1 Create `ServiceRadarWebNG.Api.QueryController` (SRQL endpoint).
   - [x] 4.1a Add property tests for request validation/decoding to ensure malformed JSON and random inputs never crash the endpoint.
-- [ ] 4.1b Update `/api/query` implementation to translate SRQL -> SQL and execute via Ecto (translator-only plan).
+- [x] 4.1b Update `/api/query` implementation to translate SRQL -> SQL and execute via Ecto (translator-only plan).
 - [ ] 4.2 Create `ServiceRadarWebNG.Api.DeviceController`.
   - [ ] 4.2a Include property tests for any new parsing/validation logic introduced by the device API (IDs, filters, and pagination).
 

@@ -1,4 +1,4 @@
-use super::QueryPlan;
+use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     models::DiscoveredInterfaceRow,
@@ -67,6 +67,32 @@ pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
 
     let query = build_query(plan)?;
     Ok(diesel::debug_query::<Pg, _>(&query.limit(plan.limit).offset(plan.offset)).to_string())
+}
+
+pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
+    ensure_entity(plan)?;
+
+    let mut params = Vec::new();
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        params.push(BindParam::timestamptz(*start));
+        params.push(BindParam::timestamptz(*end));
+    }
+    for filter in &plan.filters {
+        collect_filter_params(&mut params, filter)?;
+    }
+
+    if let Some(spec) = parse_stats_spec(plan.stats.as_deref())? {
+        let base = base_query(plan)?;
+        let count_sql = super::diesel_sql(&base.count())?;
+        let sql = format!("SELECT ({count_sql}) AS {}", spec.alias);
+        return Ok((sql, params));
+    }
+
+    let query = build_query(plan)?;
+    let sql = super::diesel_sql(&query.limit(plan.limit).offset(plan.offset))?;
+    params.push(BindParam::Int(plan.limit));
+    params.push(BindParam::Int(plan.offset));
+    Ok((sql, params))
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
@@ -219,6 +245,71 @@ fn apply_filter<'a>(
     }
 
     Ok(query)
+}
+
+fn collect_text_params(
+    params: &mut Vec<BindParam>,
+    filter: &Filter,
+    allow_lists: bool,
+) -> Result<()> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        FilterOp::In | FilterOp::NotIn if allow_lists => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(());
+            }
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        FilterOp::In | FilterOp::NotIn => Err(ServiceError::InvalidRequest(
+            "list filters are not supported for this field".into(),
+        )),
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for text filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.field.as_str() {
+        "device_id" | "poller_id" | "agent_id" | "if_name" | "if_descr" | "description"
+        | "if_alias" | "if_phys_address" | "mac" => collect_text_params(params, filter, true),
+        "device_ip" | "ip" => collect_text_params(params, filter, false),
+        "if_admin_status" | "if_oper_status" | "status" => {
+            params.push(BindParam::Int(i64::from(parse_i32(
+                filter.value.as_scalar()?,
+            )?)));
+            Ok(())
+        }
+        "if_speed" | "speed" => {
+            params.push(BindParam::Int(parse_i64(filter.value.as_scalar()?)?));
+            Ok(())
+        }
+        "ip_addresses" | "ip_address" => {
+            let values: Vec<String> = match &filter.value {
+                FilterValue::Scalar(value) => vec![value.to_string()],
+                FilterValue::List(list) => list.clone(),
+            };
+            if values.is_empty() {
+                return Ok(());
+            }
+            if values.len() > MAX_IP_ADDRESS_FILTER_VALUES {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "ip_addresses filter supports at most {MAX_IP_ADDRESS_FILTER_VALUES} values"
+                )));
+            }
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field '{other}'"
+        ))),
+    }
 }
 
 fn apply_ordering<'a>(

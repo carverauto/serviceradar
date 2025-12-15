@@ -122,6 +122,24 @@ use serde_json::Value;
 use std::sync::Arc;
 use tracing::error;
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "t", content = "v", rename_all = "snake_case")]
+pub enum BindParam {
+    Text(String),
+    TextArray(Vec<String>),
+    IntArray(Vec<i64>),
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    Timestamptz(String),
+}
+
+impl BindParam {
+    fn timestamptz(value: chrono::DateTime<Utc>) -> Self {
+        Self::Timestamptz(value.to_rfc3339())
+    }
+}
+
 #[derive(Clone)]
 pub struct QueryEngine {
     pool: PgPool,
@@ -175,41 +193,7 @@ impl QueryEngine {
     }
 
     pub async fn translate(&self, request: TranslateRequest) -> Result<TranslateResponse> {
-        let ast = parser::parse(&request.query)?;
-        let synthetic = QueryRequest {
-            query: request.query.clone(),
-            limit: None,
-            cursor: None,
-            direction: QueryDirection::Next,
-            mode: None,
-        };
-        let plan = build_query_plan(&self.config, &synthetic, ast)?;
-
-        let sql = match plan.entity {
-            Entity::Devices => devices::to_debug_sql(&plan)?,
-            Entity::DeviceUpdates => device_updates::to_debug_sql(&plan)?,
-            Entity::DeviceGraph => device_graph::to_debug_sql(&plan)?,
-            Entity::Events => events::to_debug_sql(&plan)?,
-            Entity::Interfaces => interfaces::to_debug_sql(&plan)?,
-            Entity::Logs => logs::to_debug_sql(&plan)?,
-            Entity::Pollers => pollers::to_debug_sql(&plan)?,
-            Entity::OtelMetrics => otel_metrics::to_debug_sql(&plan)?,
-            Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
-                timeseries_metrics::to_debug_sql(&plan)?
-            }
-            Entity::CpuMetrics => cpu_metrics::to_debug_sql(&plan)?,
-            Entity::MemoryMetrics => memory_metrics::to_debug_sql(&plan)?,
-            Entity::DiskMetrics => disk_metrics::to_debug_sql(&plan)?,
-            Entity::ProcessMetrics => process_metrics::to_debug_sql(&plan)?,
-            Entity::Services => services::to_debug_sql(&plan)?,
-            Entity::TraceSummaries => trace_summaries::to_debug_sql(&plan)?,
-            Entity::Traces => traces::to_debug_sql(&plan)?,
-        };
-
-        Ok(TranslateResponse {
-            sql,
-            params: Vec::new(),
-        })
+        translate_request(self.config(), QueryRequest::from(request))
     }
 
     fn build_pagination(&self, plan: &QueryPlan, fetched: i64) -> PaginationMeta {
@@ -267,6 +251,70 @@ fn determine_limit(config: &AppConfig, candidate: Option<i64>) -> i64 {
     let default = config.default_limit;
     let max = config.max_limit;
     candidate.unwrap_or(default).clamp(1, max)
+}
+
+pub(super) fn diesel_sql<T>(query: &T) -> Result<String>
+where
+    T: diesel::query_builder::QueryFragment<diesel::pg::Pg>,
+{
+    use diesel::query_builder::QueryBuilder as _;
+
+    let backend = diesel::pg::Pg::default();
+    let mut query_builder = <diesel::pg::Pg as diesel::backend::Backend>::QueryBuilder::default();
+    diesel::query_builder::QueryFragment::<diesel::pg::Pg>::to_sql(
+        query,
+        &mut query_builder,
+        &backend,
+    )
+    .map_err(|err| {
+        error!(error = ?err, "failed to serialize diesel SQL");
+        ServiceError::Internal(anyhow::anyhow!("failed to serialize SQL"))
+    })?;
+
+    Ok(query_builder.finish())
+}
+
+pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<TranslateResponse> {
+    let ast = parser::parse(&request.query)?;
+    let plan = build_query_plan(config, &request, ast)?;
+
+    let (sql, params) = match plan.entity {
+        Entity::Devices => devices::to_sql_and_params(&plan)?,
+        Entity::DeviceUpdates => device_updates::to_sql_and_params(&plan)?,
+        Entity::DeviceGraph => device_graph::to_sql_and_params(&plan)?,
+        Entity::Events => events::to_sql_and_params(&plan)?,
+        Entity::Interfaces => interfaces::to_sql_and_params(&plan)?,
+        Entity::Logs => logs::to_sql_and_params(&plan)?,
+        Entity::Pollers => pollers::to_sql_and_params(&plan)?,
+        Entity::OtelMetrics => otel_metrics::to_sql_and_params(&plan)?,
+        Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
+            timeseries_metrics::to_sql_and_params(&plan)?
+        }
+        Entity::CpuMetrics => cpu_metrics::to_sql_and_params(&plan)?,
+        Entity::MemoryMetrics => memory_metrics::to_sql_and_params(&plan)?,
+        Entity::DiskMetrics => disk_metrics::to_sql_and_params(&plan)?,
+        Entity::ProcessMetrics => process_metrics::to_sql_and_params(&plan)?,
+        Entity::Services => services::to_sql_and_params(&plan)?,
+        Entity::TraceSummaries => trace_summaries::to_sql_and_params(&plan)?,
+        Entity::Traces => traces::to_sql_and_params(&plan)?,
+    };
+
+    let next_cursor = Some(encode_cursor(plan.offset.saturating_add(plan.limit)));
+    let prev_cursor = if plan.offset > 0 {
+        Some(encode_cursor(plan.offset.saturating_sub(plan.limit)))
+    } else {
+        None
+    };
+
+    Ok(TranslateResponse {
+        sql,
+        params,
+        pagination: PaginationMeta {
+            next_cursor,
+            prev_cursor,
+            limit: Some(plan.limit),
+        },
+    })
 }
 
 #[cfg(test)]
@@ -498,6 +546,26 @@ pub struct QueryRequest {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TranslateRequest {
     pub query: String,
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub direction: QueryDirection,
+    #[serde(default)]
+    pub mode: Option<String>,
+}
+
+impl From<TranslateRequest> for QueryRequest {
+    fn from(request: TranslateRequest) -> Self {
+        Self {
+            query: request.query,
+            limit: request.limit,
+            cursor: request.cursor,
+            direction: request.direction,
+            mode: request.mode,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -519,5 +587,6 @@ pub struct QueryResponse {
 pub struct TranslateResponse {
     pub sql: String,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub params: Vec<String>,
+    pub params: Vec<BindParam>,
+    pub pagination: PaginationMeta,
 }

@@ -2333,7 +2333,6 @@ dependencies = [
  "rustler",
  "serde_json",
  "srql",
- "tokio",
 ]
 
 [[package]]

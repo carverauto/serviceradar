@@ -1,4 +1,4 @@
-use super::QueryPlan;
+use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     models::DeviceUpdateRow,
@@ -42,6 +42,27 @@ pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
     ensure_entity(plan)?;
     let query = build_query(plan)?;
     Ok(diesel::debug_query::<Pg, _>(&query.limit(plan.limit).offset(plan.offset)).to_string())
+}
+
+pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
+    ensure_entity(plan)?;
+    let query = build_query(plan)?;
+    let sql = super::diesel_sql(&query.limit(plan.limit).offset(plan.offset))?;
+
+    let mut params = Vec::new();
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        params.push(BindParam::timestamptz(*start));
+        params.push(BindParam::timestamptz(*end));
+    }
+
+    for filter in &plan.filters {
+        collect_filter_params(&mut params, filter)?;
+    }
+
+    params.push(BindParam::Int(plan.limit));
+    params.push(BindParam::Int(plan.offset));
+
+    Ok((sql, params))
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
@@ -125,6 +146,55 @@ fn apply_filter<'a>(
     }
 
     Ok(query)
+}
+
+fn collect_text_params(
+    params: &mut Vec<BindParam>,
+    filter: &Filter,
+    allow_lists: bool,
+) -> Result<()> {
+    match filter.op {
+        crate::parser::FilterOp::Eq
+        | crate::parser::FilterOp::NotEq
+        | crate::parser::FilterOp::Like
+        | crate::parser::FilterOp::NotLike => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        crate::parser::FilterOp::In | crate::parser::FilterOp::NotIn if allow_lists => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(());
+            }
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        crate::parser::FilterOp::In | crate::parser::FilterOp::NotIn => Err(
+            ServiceError::InvalidRequest("list filters are not supported for this field".into()),
+        ),
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for text filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.field.as_str() {
+        "device_id" | "poller_id" | "agent_id" | "partition" | "discovery_source" | "source" => {
+            collect_text_params(params, filter, true)
+        }
+        "ip" | "mac" | "hostname" => collect_text_params(params, filter, false),
+        "available" | "is_available" => {
+            let value = filter.value.as_scalar()?.to_lowercase();
+            let bool_val = value == "true" || value == "1";
+            params.push(BindParam::Bool(bool_val));
+            Ok(())
+        }
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for device_updates: '{other}'"
+        ))),
+    }
 }
 
 fn apply_ordering<'a>(

@@ -1,4 +1,4 @@
-use super::QueryPlan;
+use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     models::MemoryMetricRow,
@@ -42,6 +42,27 @@ pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
     ensure_entity(plan)?;
     let query = build_query(plan)?;
     Ok(diesel::debug_query::<Pg, _>(&query.limit(plan.limit).offset(plan.offset)).to_string())
+}
+
+pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
+    ensure_entity(plan)?;
+    let query = build_query(plan)?;
+    let sql = super::diesel_sql(&query.limit(plan.limit).offset(plan.offset))?;
+
+    let mut params = Vec::new();
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        params.push(BindParam::timestamptz(*start));
+        params.push(BindParam::timestamptz(*end));
+    }
+
+    for filter in &plan.filters {
+        collect_filter_params(&mut params, filter)?;
+    }
+
+    params.push(BindParam::Int(plan.limit));
+    params.push(BindParam::Int(plan.offset));
+
+    Ok((sql, params))
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
@@ -133,6 +154,49 @@ fn apply_filter<'a>(mut query: MemoryQuery<'a>, filter: &Filter) -> Result<Memor
     }
 
     Ok(query)
+}
+
+fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.op {
+        crate::parser::FilterOp::Eq
+        | crate::parser::FilterOp::NotEq
+        | crate::parser::FilterOp::Like
+        | crate::parser::FilterOp::NotLike => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        crate::parser::FilterOp::In | crate::parser::FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(());
+            }
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for text filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.field.as_str() {
+        "poller_id" | "agent_id" | "host_id" | "device_id" | "partition" => {
+            collect_text_params(params, filter)
+        }
+        "usage_percent" => {
+            params.push(BindParam::Float(parse_f64(filter.value.as_scalar()?)?));
+            Ok(())
+        }
+        "total_bytes" | "used_bytes" | "available_bytes" => {
+            params.push(BindParam::Int(parse_i64(filter.value.as_scalar()?)?));
+            Ok(())
+        }
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for memory_metrics: '{other}'"
+        ))),
+    }
 }
 
 fn apply_ordering<'a>(mut query: MemoryQuery<'a>, order: &[OrderClause]) -> MemoryQuery<'a> {

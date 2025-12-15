@@ -1,5 +1,4 @@
-use rustler::{Encoder, Env, ResourceArc, Term};
-use tokio::runtime::Runtime;
+use rustler::{Encoder, Env, Term};
 
 mod atoms {
     rustler::atoms! {
@@ -8,55 +7,9 @@ mod atoms {
     }
 }
 
-struct EngineResource {
-    runtime: Runtime,
-    srql: srql::EmbeddedSrql,
-}
-
-impl rustler::Resource for EngineResource {}
-
-#[rustler::nif(schedule = "DirtyIo")]
-fn init(
+#[rustler::nif(schedule = "DirtyCpu")]
+fn translate(
     env: Env,
-    database_url: String,
-    root_cert: Option<String>,
-    client_cert: Option<String>,
-    client_key: Option<String>,
-    pool_size: u32,
-) -> Term {
-    let runtime = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(runtime) => runtime,
-        Err(err) => {
-            return (
-                atoms::error(),
-                format!("failed to start tokio runtime: {err}"),
-            )
-                .encode(env)
-        }
-    };
-
-    let mut config = srql::config::AppConfig::embedded(database_url);
-    config.max_pool_size = pool_size.max(1);
-    config.pg_ssl_root_cert = root_cert;
-    config.pg_ssl_cert = client_cert;
-    config.pg_ssl_key = client_key;
-
-    let srql = match runtime.block_on(srql::EmbeddedSrql::new(config)) {
-        Ok(engine) => engine,
-        Err(err) => return (atoms::error(), format!("failed to init SRQL: {err}")).encode(env),
-    };
-
-    let resource = ResourceArc::new(EngineResource { runtime, srql });
-    (atoms::ok(), resource).encode(env)
-}
-
-#[rustler::nif(schedule = "DirtyIo")]
-fn query(
-    env: Env,
-    engine: ResourceArc<EngineResource>,
     srql_query: String,
     limit: Option<i64>,
     cursor: Option<String>,
@@ -76,10 +29,9 @@ fn query(
         mode,
     };
 
-    let response = match engine
-        .runtime
-        .block_on(engine.srql.query.execute_query(request))
-    {
+    let config = srql::config::AppConfig::embedded("postgres://unused/db".to_string());
+
+    let response = match srql::query::translate_request(&config, request) {
         Ok(response) => response,
         Err(err) => return (atoms::error(), err.to_string()).encode(env),
     };
@@ -88,14 +40,10 @@ fn query(
         Ok(json) => (atoms::ok(), json).encode(env),
         Err(err) => (
             atoms::error(),
-            format!("failed to encode SRQL response: {err}"),
+            format!("failed to encode SRQL translation: {err}"),
         )
             .encode(env),
     }
 }
 
-fn load(env: Env, _info: Term) -> bool {
-    env.register::<EngineResource>().is_ok()
-}
-
-rustler::init!("Elixir.ServiceRadarWebNG.SRQL.Native", load = load);
+rustler::init!("Elixir.ServiceRadarWebNG.SRQL.Native");

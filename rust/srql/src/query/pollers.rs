@@ -1,4 +1,4 @@
-use super::QueryPlan;
+use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     models::PollerRow,
@@ -42,6 +42,28 @@ pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
     ensure_entity(plan)?;
     let query = build_query(plan)?;
     Ok(diesel::debug_query::<Pg, _>(&query.limit(plan.limit).offset(plan.offset)).to_string())
+}
+
+pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
+    ensure_entity(plan)?;
+    let query = build_query(plan)?;
+    let sql = super::diesel_sql(&query.limit(plan.limit).offset(plan.offset))?;
+
+    let mut params = Vec::new();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        params.push(BindParam::timestamptz(*start));
+        params.push(BindParam::timestamptz(*end));
+    }
+
+    for filter in &plan.filters {
+        collect_filter_params(&mut params, filter)?;
+    }
+
+    params.push(BindParam::Int(plan.limit));
+    params.push(BindParam::Int(plan.offset));
+
+    Ok((sql, params))
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
@@ -110,6 +132,46 @@ fn apply_filter<'a>(mut query: PollersQuery<'a>, filter: &Filter) -> Result<Poll
     Ok(query)
 }
 
+fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(());
+            }
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for text filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.field.as_str() {
+        "poller_id"
+        | "status"
+        | "component_id"
+        | "registration_source"
+        | "spiffe_identity"
+        | "created_by" => collect_text_params(params, filter),
+        "is_healthy" => {
+            let value = parse_bool(filter.value.as_scalar()?)?;
+            params.push(BindParam::Bool(value));
+            Ok(())
+        }
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field '{other}'"
+        ))),
+    }
+}
+
 fn apply_ordering<'a>(mut query: PollersQuery<'a>, order: &[OrderClause]) -> PollersQuery<'a> {
     let mut applied = false;
     for clause in order {
@@ -126,6 +188,16 @@ fn apply_ordering<'a>(mut query: PollersQuery<'a>, order: &[OrderClause]) -> Pol
     }
 
     query
+}
+
+fn parse_bool(raw: &str) -> Result<bool> {
+    match raw.to_lowercase().as_str() {
+        "true" | "1" | "yes" => Ok(true),
+        "false" | "0" | "no" => Ok(false),
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "invalid boolean value '{raw}'"
+        ))),
+    }
 }
 
 fn apply_single_order<'a>(
@@ -209,16 +281,6 @@ fn apply_secondary_order<'a>(
             OrderDirection::Desc => query.then_order_by(col_updated_at.desc()),
         },
         _ => query,
-    }
-}
-
-fn parse_bool(raw: &str) -> Result<bool> {
-    match raw.to_lowercase().as_str() {
-        "true" | "1" | "yes" => Ok(true),
-        "false" | "0" | "no" => Ok(false),
-        other => Err(ServiceError::InvalidRequest(format!(
-            "invalid boolean value '{other}'"
-        ))),
     }
 }
 

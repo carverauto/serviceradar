@@ -138,6 +138,11 @@ else
     end
 
     setup_all do
+      owner =
+        Ecto.Adapters.SQL.Sandbox.start_owner!(ServiceRadarWebNG.Repo, shared: true)
+
+      on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(owner) end)
+
       conn = start_supervised!({Postgrex, PostgrexHelpers.connection_opts()})
       PostgrexHelpers.create_pollers_table(conn)
 
@@ -147,6 +152,17 @@ else
       on_exit(fn -> PostgrexHelpers.delete_poller(conn, poller_id) end)
 
       {:ok, poller_id: poller_id}
+    end
+
+    test "translates SRQL pollers query via NIF", %{poller_id: poller_id} do
+      query = "in:pollers poller_id:#{poller_id} is_healthy:true limit:5"
+
+      assert {:ok, json} =
+               ServiceRadarWebNG.SRQL.Native.translate(query, nil, nil, nil, nil)
+
+      assert {:ok, %{"sql" => sql, "params" => params}} = Jason.decode(json)
+      assert is_binary(sql)
+      assert is_list(params)
     end
 
     test "executes SRQL pollers query via NIF", %{poller_id: poller_id} do

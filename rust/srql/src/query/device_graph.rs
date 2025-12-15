@@ -1,4 +1,4 @@
-use super::QueryPlan;
+use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     parser::{Entity, FilterOp},
@@ -27,6 +27,19 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
     ensure_entity(plan)?;
     Ok(DEVICE_GRAPH_QUERY.trim().to_string())
+}
+
+pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
+    ensure_entity(plan)?;
+    let params = extract_params(plan)?;
+    Ok((
+        DEVICE_GRAPH_QUERY.trim().to_string(),
+        vec![
+            BindParam::Text(params.device_id),
+            BindParam::Bool(params.collector_owned_only),
+            BindParam::Bool(params.include_topology),
+        ],
+    ))
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
