@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
      |> assign(:page_title, "Interfaces")
      |> assign(:interfaces, [])
      |> assign(:limit, @default_limit)
-     |> SRQLPage.init("interfaces", default_limit: @default_limit, builder_available: false)}
+     |> SRQLPage.init("interfaces", default_limit: @default_limit)}
   end
 
   @impl true

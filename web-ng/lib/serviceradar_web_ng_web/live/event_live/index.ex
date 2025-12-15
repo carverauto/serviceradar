@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
      |> assign(:page_title, "Events")
      |> assign(:events, [])
      |> assign(:limit, @default_limit)
-     |> SRQLPage.init("events", default_limit: @default_limit, builder_available: false)}
+     |> SRQLPage.init("events", default_limit: @default_limit)}
   end
 
   @impl true

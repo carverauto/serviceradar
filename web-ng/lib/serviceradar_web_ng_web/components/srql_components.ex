@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadarWebNGWeb.SRQL.Catalog
+
   attr :query, :string, default: nil
   attr :draft, :string, default: nil
   attr :loading, :boolean, default: false
@@ -276,6 +278,14 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   def srql_query_builder(assigns) do
     assigns = assign_new(assigns, :builder, fn -> %{} end)
 
+    entity = Map.get(assigns.builder, "entity", "devices")
+    config = Catalog.entity(entity)
+
+    assigns =
+      assigns
+      |> assign(:entities, Catalog.entities())
+      |> assign(:config, config)
+
     ~H"""
     <.ui_panel>
       <:header>
@@ -313,12 +323,11 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
             <div class="flex flex-col items-start gap-5">
               <.srql_builder_pill label="In" root>
                 <.ui_inline_select name="builder[entity]" disabled={not @supported}>
-                  <option value="devices" selected={@builder["entity"] == "devices"}>
-                    Devices
-                  </option>
-                  <option value="pollers" selected={@builder["entity"] == "pollers"}>
-                    Pollers
-                  </option>
+                  <%= for e <- @entities do %>
+                    <option value={e.id} selected={@builder["entity"] == e.id}>
+                      {e.label}
+                    </option>
+                  <% end %>
                 </.ui_inline_select>
               </.srql_builder_pill>
 
@@ -348,45 +357,27 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                     <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
                       <div class="flex items-center gap-3">
                         <.srql_builder_pill label="Filter">
-                          <.ui_inline_select
-                            name={"builder[filters][#{idx}][field]"}
-                            disabled={not @supported}
-                          >
-                            <%= if @builder["entity"] == "pollers" do %>
-                              <option value="poller_id" selected={filter["field"] == "poller_id"}>
-                                poller_id
-                              </option>
-                              <option value="status" selected={filter["field"] == "status"}>
-                                status
-                              </option>
-                              <option
-                                value="component_id"
-                                selected={filter["field"] == "component_id"}
-                              >
-                                component_id
-                              </option>
-                              <option
-                                value="registration_source"
-                                selected={filter["field"] == "registration_source"}
-                              >
-                                registration_source
-                              </option>
-                            <% else %>
-                              <option value="hostname" selected={filter["field"] == "hostname"}>
-                                hostname
-                              </option>
-                              <option value="ip" selected={filter["field"] == "ip"}>ip</option>
-                              <option value="device_id" selected={filter["field"] == "device_id"}>
-                                device_id
-                              </option>
-                              <option value="poller_id" selected={filter["field"] == "poller_id"}>
-                                poller_id
-                              </option>
-                              <option value="agent_id" selected={filter["field"] == "agent_id"}>
-                                agent_id
-                              </option>
-                            <% end %>
-                          </.ui_inline_select>
+                          <%= if @config.filter_fields == [] do %>
+                            <.ui_inline_input
+                              type="text"
+                              name={"builder[filters][#{idx}][field]"}
+                              value={filter["field"] || ""}
+                              placeholder="field"
+                              class="w-40 placeholder:text-base-content/40"
+                              disabled={not @supported}
+                            />
+                          <% else %>
+                            <.ui_inline_select
+                              name={"builder[filters][#{idx}][field]"}
+                              disabled={not @supported}
+                            >
+                              <%= for field <- @config.filter_fields do %>
+                                <option value={field} selected={filter["field"] == field}>
+                                  {field}
+                                </option>
+                              <% end %>
+                            </.ui_inline_select>
+                          <% end %>
 
                           <.ui_inline_select
                             name={"builder[filters][#{idx}][op]"}

@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   @moduledoc false
 
   alias ServiceRadarWebNGWeb.SRQL.Builder
+  alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   def init(socket, entity, opts \\ []) when is_binary(entity) do
     default_limit = Keyword.get(opts, :default_limit, 100)
@@ -340,10 +341,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   defp format_error(reason), do: inspect(reason)
 
   defp default_filter_field(entity, _filters) do
-    case entity do
-      "pollers" -> "poller_id"
-      _ -> "hostname"
-    end
+    Catalog.entity(entity).default_filter_field
   end
 
   defp default_query(entity, limit) do

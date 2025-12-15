@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:page_title, "Logs")
      |> assign(:logs, [])
      |> assign(:limit, @default_limit)
-     |> SRQLPage.init("logs", default_limit: @default_limit, builder_available: false)}
+     |> SRQLPage.init("logs", default_limit: @default_limit)}
   end
 
   @impl true

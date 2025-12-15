@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      |> assign(:page_title, "Services")
      |> assign(:services, [])
      |> assign(:limit, @default_limit)
-     |> SRQLPage.init("services", default_limit: @default_limit, builder_available: false)}
+     |> SRQLPage.init("services", default_limit: @default_limit)}
   end
 
   @impl true
