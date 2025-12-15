@@ -335,15 +335,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_icon("interfaces"), do: "hero-arrows-right-left-micro"
   defp section_icon(_), do: nil
 
-  defp format_id(id) when is_binary(id) do
-    # If it's a long ID (like a UUID), truncate it
-    if String.length(id) > 12 do
-      String.slice(id, 0, 8) <> "..."
-    else
-      id
-    end
-  end
-
+  defp format_id(id) when is_binary(id), do: URI.decode(id)
   defp format_id(id), do: to_string(id)
 
   @doc """

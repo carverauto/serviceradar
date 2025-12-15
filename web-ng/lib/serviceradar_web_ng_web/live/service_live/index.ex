@@ -111,36 +111,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     """
   end
 
-  attr :query, :string, required: true
-
-  defp active_filter_banner(assigns) do
-    ~H"""
-    <div class="rounded-lg bg-info/10 border border-info/20 p-3 flex items-center justify-between gap-3">
-      <div class="flex items-center gap-2 min-w-0">
-        <.icon name="hero-funnel" class="size-4 text-info shrink-0" />
-        <span class="text-sm text-base-content/80 truncate">
-          Filtered view: <span class="font-mono text-xs">{truncate_query(@query)}</span>
-        </span>
-      </div>
-      <.link patch={~p"/services"} class="btn btn-ghost btn-sm gap-1">
-        <.icon name="hero-x-mark" class="size-4" />
-        Clear Filter
-      </.link>
-    </div>
-    """
-  end
-
-  defp truncate_query(query) when is_binary(query) do
-    if String.length(query) > 60 do
-      String.slice(query, 0, 60) <> "..."
-    else
-      query
-    end
-  end
-
-  defp truncate_query(_), do: ""
-
   attr :summary, :map, required: true
+  attr :has_filter, :boolean, default: false
 
   defp service_summary(assigns) do
     total = assigns.summary.total
@@ -152,6 +124,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     # Calculate availability percentage
     avail_pct = if total > 0, do: round(available / total * 100), else: 0
 
+    has_filter = Map.get(assigns, :has_filter, false)
+
     assigns =
       assigns
       |> assign(:total, total)
@@ -160,6 +134,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       |> assign(:avail_pct, avail_pct)
       |> assign(:by_type, by_type)
       |> assign(:check_count, check_count)
+      |> assign(:has_filter, has_filter)
 
     ~H"""
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -211,14 +186,17 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
     <div :if={map_size(@by_type) > 0} class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
       <div class="flex items-center justify-between mb-3">
-        <div class="text-xs text-base-content/50 uppercase tracking-wider">By Service Type</div>
-        <div class="flex items-center gap-1">
+        <div class="flex items-center gap-2">
+          <div class="text-xs text-base-content/50 uppercase tracking-wider">By Service Type</div>
           <.link
+            :if={@has_filter}
             patch={~p"/services"}
-            class="btn btn-ghost btn-xs"
+            class="text-xs text-primary hover:underline"
           >
-            All Services
+            (Reset)
           </.link>
+        </div>
+        <div class="flex items-center gap-1">
           <.link
             patch={~p"/services?#{%{q: "in:services available:false time:last_1h sort:timestamp:desc"}}"}
             class="btn btn-ghost btn-xs text-error"

@@ -65,9 +65,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       logs: "in:logs time:last_24h sort:timestamp:desc limit:#{@default_logs_limit}",
       # Observability count queries for real totals (no time filter for total count)
       metrics_count: "in:metrics stats:count() as total",
-      traces_count: "in:traces stats:count() as total",
+      traces_count: "in:otel_traces stats:count() as total",
       # Observability detail queries (for slow spans analysis) - recent only
-      traces: "in:traces time:last_24h sort:timestamp:desc limit:#{@default_metrics_limit}",
+      traces: "in:otel_traces time:last_24h sort:timestamp:desc limit:#{@default_metrics_limit}",
       # High utilization - get recent CPU metrics
       cpu_metrics: "in:cpu_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
       # High utilization - get recent Memory metrics
@@ -302,12 +302,28 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp build_observability_summary(metrics_count, traces_count, traces_rows)
        when is_integer(metrics_count) and is_integer(traces_count) and is_list(traces_rows) do
-    # Calculate average duration from traces (if they have duration field)
+    # Calculate duration from start_time_unix_nano and end_time_unix_nano (in nanoseconds)
+    # Duration in milliseconds = (end - start) / 1_000_000
     durations =
       traces_rows
       |> Enum.filter(&is_map/1)
       |> Enum.map(fn trace ->
-        Map.get(trace, "duration") || Map.get(trace, "duration_ms") || 0
+        start_nano = extract_numeric(Map.get(trace, "start_time_unix_nano"))
+        end_nano = extract_numeric(Map.get(trace, "end_time_unix_nano"))
+
+        cond do
+          is_number(start_nano) and is_number(end_nano) and end_nano > start_nano ->
+            (end_nano - start_nano) / 1_000_000  # Convert nano to ms
+
+          is_number(Map.get(trace, "duration")) ->
+            Map.get(trace, "duration")
+
+          is_number(Map.get(trace, "duration_ms")) ->
+            Map.get(trace, "duration_ms")
+
+          true ->
+            nil
+        end
       end)
       |> Enum.filter(&is_number/1)
 
@@ -318,14 +334,15 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         0
       end
 
-    # Calculate error rate from traces sample (if they have error or status field)
+    # Calculate error rate from traces sample
+    # status_code: 0 = unset, 1 = ok, 2 = error
     error_traces =
       traces_rows
       |> Enum.filter(&is_map/1)
       |> Enum.count(fn trace ->
-        status = Map.get(trace, "status") || Map.get(trace, "status_code")
+        status_code = Map.get(trace, "status_code")
         is_error = Map.get(trace, "is_error") || Map.get(trace, "error")
-        status == "error" or status == "ERROR" or is_error == true
+        status_code == 2 or is_error == true
       end)
 
     sample_size = length(traces_rows)
@@ -340,10 +357,32 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     slow_spans =
       traces_rows
       |> Enum.filter(&is_map/1)
+      |> Enum.map(fn trace ->
+        start_nano = extract_numeric(Map.get(trace, "start_time_unix_nano"))
+        end_nano = extract_numeric(Map.get(trace, "end_time_unix_nano"))
+
+        duration_ms =
+          cond do
+            is_number(start_nano) and is_number(end_nano) and end_nano > start_nano ->
+              (end_nano - start_nano) / 1_000_000
+
+            is_number(Map.get(trace, "duration")) ->
+              Map.get(trace, "duration")
+
+            is_number(Map.get(trace, "duration_ms")) ->
+              Map.get(trace, "duration_ms")
+
+            true ->
+              0
+          end
+
+        Map.put(trace, "duration_ms", duration_ms)
+      end)
       |> Enum.filter(fn trace ->
-        duration = Map.get(trace, "duration") || Map.get(trace, "duration_ms") || 0
+        duration = Map.get(trace, "duration_ms", 0)
         is_number(duration) and duration > 1000
       end)
+      |> Enum.sort_by(fn trace -> -Map.get(trace, "duration_ms", 0) end)
       |> Enum.take(5)
 
     %{
@@ -977,7 +1016,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <div class="text-sm font-semibold">Observability</div>
         </.link>
         <.link
-          href={~p"/dashboard?#{%{q: "in:traces time:last_1h sort:timestamp:desc limit:100"}}"}
+          href={~p"/dashboard?#{%{q: "in:otel_traces time:last_1h sort:timestamp:desc limit:100"}}"}
           class="text-base-content/60 hover:text-primary"
           title="View traces"
         >
@@ -1326,12 +1365,32 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp disk_badge_class(_), do: "badge-ghost"
 
   defp span_name(span) when is_map(span) do
-    Map.get(span, "name") || Map.get(span, "span_name") || Map.get(span, "operation") || "Unknown"
+    name = Map.get(span, "name") || Map.get(span, "span_name") || Map.get(span, "operation")
+    service = Map.get(span, "service_name")
+
+    case {name, service} do
+      {nil, nil} -> "Unknown"
+      {nil, svc} -> svc
+      {n, nil} -> n
+      {n, svc} -> "#{svc}: #{n}"
+    end
   end
   defp span_name(_), do: "Unknown"
 
   defp span_duration(span) when is_map(span) do
-    Map.get(span, "duration") || Map.get(span, "duration_ms") || 0
+    # Use pre-calculated duration_ms if available, otherwise calculate
+    case Map.get(span, "duration_ms") do
+      ms when is_number(ms) -> ms
+      _ ->
+        start_nano = extract_numeric(Map.get(span, "start_time_unix_nano"))
+        end_nano = extract_numeric(Map.get(span, "end_time_unix_nano"))
+
+        if is_number(start_nano) and is_number(end_nano) and end_nano > start_nano do
+          (end_nano - start_nano) / 1_000_000
+        else
+          0
+        end
+    end
   end
   defp span_duration(_), do: 0
 

@@ -39,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:metric_sections, [])
      |> assign(:sysmon_summary, nil)
      |> assign(:availability, nil)
+     |> assign(:healthcheck_summary, nil)
      |> assign(:limit, @default_limit)
      |> assign(:srql, srql)}
   end
@@ -99,6 +100,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     metric_sections = load_metric_sections(srql_module, device_id)
     sysmon_summary = load_sysmon_summary(srql_module, device_id)
     availability = load_availability(srql_module, device_id)
+    healthcheck_summary = load_healthcheck_summary(srql_module, device_id)
 
     {:noreply,
      socket
@@ -109,6 +111,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:metric_sections, metric_sections)
      |> assign(:sysmon_summary, sysmon_summary)
      |> assign(:availability, availability)
+     |> assign(:healthcheck_summary, healthcheck_summary)
      |> assign(:srql, srql)}
   end
 
@@ -181,6 +184,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           </div>
 
           <.availability_section :if={is_map(@availability)} availability={@availability} />
+
+          <.healthcheck_section :if={is_map(@healthcheck_summary)} summary={@healthcheck_summary} />
 
           <.sysmon_summary_section :if={is_map(@sysmon_summary)} summary={@sysmon_summary} />
 
@@ -855,6 +860,173 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp extract_numeric(_), do: nil
+
+  # ---------------------------------------------------------------------------
+  # Healthcheck Section (GRPC/Service Health)
+  # ---------------------------------------------------------------------------
+
+  attr :summary, :map, required: true
+
+  def healthcheck_section(assigns) do
+    services = Map.get(assigns.summary, :services, [])
+    total = Map.get(assigns.summary, :total, 0)
+    available = Map.get(assigns.summary, :available, 0)
+    unavailable = Map.get(assigns.summary, :unavailable, 0)
+    uptime_pct = if total > 0, do: Float.round(available / total * 100.0, 1), else: 0.0
+
+    assigns =
+      assigns
+      |> assign(:services, services)
+      |> assign(:total, total)
+      |> assign(:available, available)
+      |> assign(:unavailable, unavailable)
+      |> assign(:uptime_pct, uptime_pct)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+        <span class="text-sm font-semibold">Service Health (GRPC)</span>
+        <div class="flex items-center gap-4 text-sm">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-success"></span>
+            <span class="tabular-nums">{@available}</span>
+            <span class="text-base-content/60 text-xs">healthy</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-error"></span>
+            <span class="tabular-nums">{@unavailable}</span>
+            <span class="text-base-content/60 text-xs">unhealthy</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-4">
+        <div :if={@services == []} class="text-sm text-base-content/60">
+          No service health data available.
+        </div>
+
+        <div :if={@services != []} class="space-y-2">
+          <%= for svc <- Enum.take(@services, 10) do %>
+            <.healthcheck_row service={svc} />
+          <% end %>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :service, :map, required: true
+
+  defp healthcheck_row(assigns) do
+    svc = assigns.service
+    available = Map.get(svc, :available, false)
+    service_name = Map.get(svc, :service_name, "Unknown")
+    service_type = Map.get(svc, :service_type, "")
+    message = Map.get(svc, :message, "")
+    timestamp = Map.get(svc, :timestamp, "")
+
+    assigns =
+      assigns
+      |> assign(:available, available)
+      |> assign(:service_name, service_name)
+      |> assign(:service_type, service_type)
+      |> assign(:message, message)
+      |> assign(:timestamp, timestamp)
+
+    ~H"""
+    <div class="flex items-center gap-3 p-2 rounded-lg bg-base-200/30">
+      <div class={["w-2.5 h-2.5 rounded-full shrink-0", @available && "bg-success" || "bg-error"]} />
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-medium truncate">{@service_name}</span>
+          <span :if={@service_type != ""} class="text-xs text-base-content/50 px-1.5 py-0.5 rounded bg-base-200">
+            {@service_type}
+          </span>
+        </div>
+        <div :if={@message != ""} class="text-xs text-base-content/60 truncate">{@message}</div>
+      </div>
+      <div class="text-xs text-base-content/50 shrink-0 font-mono">
+        {format_healthcheck_time(@timestamp)}
+      </div>
+    </div>
+    """
+  end
+
+  defp format_healthcheck_time(nil), do: ""
+  defp format_healthcheck_time(""), do: ""
+  defp format_healthcheck_time(ts) when is_binary(ts) do
+    case DateTime.from_iso8601(ts) do
+      {:ok, dt, _} -> Calendar.strftime(dt, "%H:%M:%S")
+      _ -> ts
+    end
+  end
+  defp format_healthcheck_time(_), do: ""
+
+  defp load_healthcheck_summary(srql_module, device_id) do
+    escaped_id = escape_value(device_id)
+
+    # Query services table for this device (matches by device_id in service_status or agent_id)
+    # The device_id format is like "serviceradar:agent:docker-agent"
+    # We need to search in services where poller_id or agent_id contains part of this
+
+    # First try to get service status for this exact device_id
+    query = "in:services device_id:\"#{escaped_id}\" time:last_24h sort:timestamp:desc limit:50"
+
+    case srql_module.query(query) do
+      {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
+        build_healthcheck_summary(rows)
+
+      _ ->
+        # Try alternate approach: look for agent_id match
+        # Extract the agent portion from device_id (e.g., "docker-agent" from "serviceradar:agent:docker-agent")
+        agent_name = device_id |> String.split(":") |> List.last()
+        alt_query = "in:services agent_id:\"#{escape_value(agent_name)}\" time:last_24h sort:timestamp:desc limit:50"
+
+        case srql_module.query(alt_query) do
+          {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
+            build_healthcheck_summary(rows)
+
+          _ ->
+            nil
+        end
+    end
+  end
+
+  defp build_healthcheck_summary(rows) do
+    # Group by service_name and take most recent status for each
+    services_by_name =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(%{}, fn row, acc ->
+        service_name = Map.get(row, "service_name") || "Unknown"
+        # Keep first (most recent) per service
+        Map.put_new(acc, service_name, row)
+      end)
+
+    services =
+      services_by_name
+      |> Map.values()
+      |> Enum.map(fn row ->
+        %{
+          service_name: Map.get(row, "service_name") || "Unknown",
+          service_type: Map.get(row, "service_type") || "",
+          available: Map.get(row, "available") == true,
+          message: Map.get(row, "message") || "",
+          timestamp: Map.get(row, "timestamp") || ""
+        }
+      end)
+      |> Enum.sort_by(fn s -> {s.available, s.service_name} end)
+
+    available_count = Enum.count(services, & &1.available)
+    unavailable_count = length(services) - available_count
+
+    %{
+      services: services,
+      total: length(services),
+      available: available_count,
+      unavailable: unavailable_count
+    }
+  end
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
