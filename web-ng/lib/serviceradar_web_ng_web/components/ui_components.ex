@@ -186,25 +186,25 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   slot :item, required: true
 
   def ui_dropdown(assigns) do
-    align_class =
-      case assigns.align do
-        "start" -> "dropdown-start"
-        _ -> "dropdown-end"
-      end
-
-    assigns = assign(assigns, :align_class, align_class)
-
     ~H"""
-    <details class={["dropdown", @align_class, @class]}>
-      <summary class="list-none">
+    <div class={[
+      "dropdown",
+      @align == "start" && "dropdown-start",
+      @align == "end" && "dropdown-end",
+      @class
+    ]}>
+      <div tabindex="0" role="button">
         {render_slot(@trigger)}
-      </summary>
-      <ul class="menu dropdown-content bg-base-100 rounded-box z-30 w-56 p-2 shadow border border-base-200 mt-2">
+      </div>
+      <ul
+        tabindex="0"
+        class="menu dropdown-content bg-base-100 rounded-box z-30 w-56 p-2 shadow border border-base-200 mt-2"
+      >
         <%= for item <- @item do %>
           <li>{render_slot(item)}</li>
         <% end %>
       </ul>
-    </details>
+    </div>
     """
   end
 

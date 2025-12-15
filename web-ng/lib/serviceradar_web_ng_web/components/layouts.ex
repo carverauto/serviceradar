@@ -37,117 +37,201 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   def app(assigns) do
     assigns = assign_new(assigns, :srql, fn -> %{} end)
+    signed_in? = assigns[:current_scope] && assigns.current_scope.user
+    current_path = Map.get(assigns.srql, :page_path)
+    assigns = assign(assigns, signed_in?: signed_in?, current_path: current_path)
 
     ~H"""
-    <header class="sticky top-0 z-20 border-b border-base-200 bg-base-100/90 backdrop-blur">
-      <div class="px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-4">
-        <div class="flex items-center gap-2 shrink-0">
-          <.link href={~p"/"} class="flex items-center gap-2">
-            <img src={~p"/images/logo.svg"} width="28" class="opacity-90" />
-            <span class="font-semibold tracking-tight">ServiceRadar</span>
-          </.link>
-        </div>
+    <div class="drawer lg:drawer-open">
+      <input id="sr-sidebar" type="checkbox" class="drawer-toggle" />
 
-        <nav class="flex-1 flex items-center gap-4 min-w-0">
-          <%= if @current_scope do %>
-            <div class="flex items-center gap-2 shrink-0">
-              <.ui_tabs
-                size="sm"
-                tabs={[
-                  %{
-                    label: "Dashboard",
-                    href: ~p"/dashboard",
-                    active: Map.get(@srql, :page_path) == "/dashboard"
-                  },
-                  %{
-                    label: "Devices",
-                    href: ~p"/devices",
-                    active: Map.get(@srql, :page_path) == "/devices"
-                  },
-                  %{
-                    label: "Pollers",
-                    href: ~p"/pollers",
-                    active: Map.get(@srql, :page_path) == "/pollers"
-                  },
-                  %{
-                    label: "Events",
-                    href: ~p"/events",
-                    active: Map.get(@srql, :page_path) == "/events"
-                  },
-                  %{label: "Logs", href: ~p"/logs", active: Map.get(@srql, :page_path) == "/logs"},
-                  %{
-                    label: "Services",
-                    href: ~p"/services",
-                    active: Map.get(@srql, :page_path) == "/services"
-                  },
-                  %{
-                    label: "Interfaces",
-                    href: ~p"/interfaces",
-                    active: Map.get(@srql, :page_path) == "/interfaces"
-                  }
-                ]}
+      <div class="drawer-content flex min-h-screen flex-col">
+        <header class="sticky top-0 z-20 border-b border-base-200 bg-base-100/90 backdrop-blur">
+          <div class="px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-4">
+            <div class="flex items-center gap-3 shrink-0">
+              <label
+                :if={@signed_in?}
+                for="sr-sidebar"
+                class="btn btn-ghost btn-sm lg:hidden"
+                aria-label="Open navigation"
+                title="Open navigation"
+              >
+                <.icon name="hero-bars-3" class="size-5" />
+              </label>
+
+              <.link href={~p"/"} class="flex items-center gap-2">
+                <img
+                  src={~p"/images/logo.svg"}
+                  alt="ServiceRadar"
+                  class="size-7 opacity-95"
+                  width="28"
+                  height="28"
+                />
+                <span class="font-semibold tracking-tight">ServiceRadar</span>
+              </.link>
+            </div>
+
+            <div class="flex-1 min-w-0">
+              <.srql_query_bar
+                :if={Map.get(@srql, :enabled, false)}
+                query={Map.get(@srql, :query)}
+                draft={Map.get(@srql, :draft)}
+                loading={Map.get(@srql, :loading, false)}
+                builder_available={Map.get(@srql, :builder_available, false)}
+                builder_open={Map.get(@srql, :builder_open, false)}
+                builder_supported={Map.get(@srql, :builder_supported, true)}
+                builder_sync={Map.get(@srql, :builder_sync, true)}
+                builder={Map.get(@srql, :builder, %{})}
               />
             </div>
-          <% end %>
 
-          <div class="flex-1 min-w-0">
-            <.srql_query_bar
-              :if={Map.get(@srql, :enabled, false)}
-              query={Map.get(@srql, :query)}
-              draft={Map.get(@srql, :draft)}
-              loading={Map.get(@srql, :loading, false)}
-              builder_available={Map.get(@srql, :builder_available, false)}
-              builder_open={Map.get(@srql, :builder_open, false)}
-              builder_supported={Map.get(@srql, :builder_supported, true)}
-              builder_sync={Map.get(@srql, :builder_sync, true)}
+            <div class="flex items-center gap-2 shrink-0">
+              <.theme_toggle />
+
+              <%= if not @signed_in? do %>
+                <.ui_button href={~p"/users/register"} variant="ghost" size="sm">Register</.ui_button>
+                <.ui_button href={~p"/users/log-in"} variant="primary" size="sm">Log in</.ui_button>
+              <% end %>
+            </div>
+          </div>
+        </header>
+
+        <div
+          :if={Map.get(@srql, :builder_open, false) or Map.get(@srql, :error)}
+          class="border-b border-base-200 bg-base-100"
+        >
+          <div class="px-4 sm:px-6 lg:px-8 py-4">
+            <div :if={Map.get(@srql, :error)} class="mb-3 text-xs text-error">
+              {Map.get(@srql, :error)}
+            </div>
+
+            <.srql_query_builder
+              :if={Map.get(@srql, :builder_open, false)}
+              supported={Map.get(@srql, :builder_supported, true)}
+              sync={Map.get(@srql, :builder_sync, true)}
               builder={Map.get(@srql, :builder, %{})}
             />
           </div>
-        </nav>
+        </div>
 
-        <div class="flex items-center gap-2 shrink-0">
-          <.theme_toggle />
+        <main class="px-4 py-6 sm:px-6 lg:px-8 flex-1">
+          {render_slot(@inner_block)}
+        </main>
 
-          <%= if @current_scope do %>
-            <div class="text-sm text-base-content/70 hidden sm:block">
+        <.flash_group flash={@flash} />
+      </div>
+
+      <div :if={@signed_in?} class="drawer-side z-30">
+        <label for="sr-sidebar" class="drawer-overlay" aria-label="Close navigation"></label>
+        <aside class="w-72 bg-base-100 border-r border-base-200 min-h-full flex flex-col">
+          <div class="p-4">
+            <div class="text-xs font-semibold text-base-content/50 mb-2">Navigation</div>
+            <ul class="menu menu-sm">
+              <li>
+                <.sidebar_link
+                  href={~p"/dashboard"}
+                  label="Dashboard"
+                  icon="hero-squares-2x2"
+                  active={@current_path == "/dashboard"}
+                />
+              </li>
+              <li>
+                <.sidebar_link
+                  href={~p"/devices"}
+                  label="Devices"
+                  icon="hero-computer-desktop"
+                  active={@current_path == "/devices"}
+                />
+              </li>
+              <li>
+                <.sidebar_link
+                  href={~p"/pollers"}
+                  label="Pollers"
+                  icon="hero-signal"
+                  active={@current_path == "/pollers"}
+                />
+              </li>
+              <li>
+                <.sidebar_link
+                  href={~p"/events"}
+                  label="Events"
+                  icon="hero-bolt"
+                  active={@current_path == "/events"}
+                />
+              </li>
+              <li>
+                <.sidebar_link
+                  href={~p"/logs"}
+                  label="Logs"
+                  icon="hero-rectangle-stack"
+                  active={@current_path == "/logs"}
+                />
+              </li>
+              <li>
+                <.sidebar_link
+                  href={~p"/services"}
+                  label="Services"
+                  icon="hero-wrench-screwdriver"
+                  active={@current_path == "/services"}
+                />
+              </li>
+              <li>
+                <.sidebar_link
+                  href={~p"/interfaces"}
+                  label="Interfaces"
+                  icon="hero-arrows-right-left"
+                  active={@current_path == "/interfaces"}
+                />
+              </li>
+            </ul>
+          </div>
+
+          <div class="mt-auto p-4 border-t border-base-200">
+            <div class="text-xs font-semibold text-base-content/50 mb-2">Account</div>
+
+            <div class="text-sm text-base-content/80 truncate mb-3">
               {@current_scope.user.email}
             </div>
 
-            <.ui_button href={~p"/users/settings"} variant="ghost" size="sm">Settings</.ui_button>
-            <.ui_button href={~p"/users/log-out"} method="delete" variant="ghost" size="sm">
-              Log out
-            </.ui_button>
-          <% else %>
-            <.ui_button href={~p"/users/register"} variant="ghost" size="sm">Register</.ui_button>
-            <.ui_button href={~p"/users/log-in"} variant="primary" size="sm">Log in</.ui_button>
-          <% end %>
-        </div>
-      </div>
-    </header>
-
-    <div
-      :if={Map.get(@srql, :builder_open, false) or Map.get(@srql, :error)}
-      class="border-b border-base-200 bg-base-100"
-    >
-      <div class="px-4 sm:px-6 lg:px-8 py-4">
-        <div :if={Map.get(@srql, :error)} class="mb-3 text-xs text-error">
-          {Map.get(@srql, :error)}
-        </div>
-
-        <.srql_query_builder
-          :if={Map.get(@srql, :builder_open, false)}
-          supported={Map.get(@srql, :builder_supported, true)}
-          sync={Map.get(@srql, :builder_sync, true)}
-          builder={Map.get(@srql, :builder, %{})}
-        />
+            <div class="flex flex-col gap-2">
+              <.ui_button href={~p"/users/settings"} variant="ghost" size="sm" class="justify-start">
+                <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
+              </.ui_button>
+              <.ui_button
+                href={~p"/users/log-out"}
+                method="delete"
+                variant="ghost"
+                size="sm"
+                class="justify-start"
+              >
+                <.icon name="hero-arrow-right-on-rectangle" class="size-4" /> Log out
+              </.ui_button>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
+    """
+  end
 
-    <main class="px-4 py-6 sm:px-6 lg:px-8">
-      {render_slot(@inner_block)}
-    </main>
+  attr :href, :string, required: true
+  attr :label, :string, required: true
+  attr :icon, :string, default: nil
+  attr :active, :boolean, default: false
 
-    <.flash_group flash={@flash} />
+  def sidebar_link(assigns) do
+    ~H"""
+    <.link
+      href={@href}
+      aria-current={@active && "page"}
+      class={[
+        "flex items-center gap-2",
+        @active && "active"
+      ]}
+    >
+      <.icon :if={@icon} name={@icon} class="size-4 opacity-80" />
+      <span class="truncate">{@label}</span>
+    </.link>
     """
   end
 
