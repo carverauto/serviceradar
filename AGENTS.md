@@ -37,6 +37,12 @@ ServiceRadar is a multi-component system made up of Go services (core, sync, reg
 - `web-ng/` – Phoenix (next-gen) UI/API monolith.
 - `proto/` – Protobuf definitions and generated Go code.
 
+## Per-Directory Agent Guides
+
+This file applies repo-wide, but subdirectories may include their own `AGENTS.md` with more specific rules; always read and follow the closest one to the code you are editing.
+
+- `web-ng/AGENTS.md` – Phoenix/Elixir/LiveView/Ecto/HEEx guidelines (must follow for any `web-ng/**` changes).
+
 ## Build & Test Commands
 
 - General Go lint/test: `make lint`, `make test`.

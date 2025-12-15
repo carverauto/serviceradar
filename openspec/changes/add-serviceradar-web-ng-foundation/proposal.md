@@ -8,7 +8,8 @@
 
 ## What Changes
 - **New App:** Create `web-ng/` hosting `:serviceradar_web_ng`.
-- **SRQL:** Embed `rust/srql` via Rustler (NIF) to run queries directly within the Phoenix VM, exposing a standard `ServiceRadarWebNG.SRQL` module.
+- **SRQL (Translator-Only):** Embed `rust/srql` via Rustler (NIF) as a *pure translator* that converts SRQL -> parameterized SQL (+ bind params + pagination metadata). Phoenix executes the SQL via Ecto/Postgrex using the existing `Repo` connection pool.
+  - **Compatibility:** Translator-only mode MUST be additive. The existing SRQL HTTP service (and its query-execution behavior) remains supported during the migration.
 - **Database:** Connect Ecto to the existing Postgres/AGE instance.
   - *Telemetry Data:* Mapped to existing tables (Read-Only).
   - *App Data:* Fresh tables created/managed by Phoenix (Read/Write).
@@ -20,11 +21,13 @@
 - **No Go Changes:** We will not modify `serviceradar-core` source code.
 - **No Auth Migration:** Legacy user accounts are abandoned. Users will register fresh accounts in the new system.
 - **No API Compatibility:** The new API will follow Phoenix conventions, not strictly mimic the legacy Go API structure.
+- **No SRQL DB Runtime in NIF:** SRQL MUST NOT open database connections, manage a separate pool, or require a Tokio runtime inside the Phoenix process. Query execution is handled by Phoenix via Ecto.
 
 ## Impact
 - **Routing:** Nginx will eventually route `/*` and `/api/*` to Phoenix.
 - **Security:** Phoenix becomes the sole Authority for Identity.
 - **Performance:** Elimination of internal HTTP hops for Query and API responses.
+  - Translator-only SRQL reduces overhead (no extra DB pool/runtime in NIF) and consolidates DB access under Ecto.
 
 ## Status
 - In progress (Foundation + Auth + initial list views).

@@ -23,16 +23,21 @@ The following domains must be re-implemented. Note that Auth is a *replacement*,
 
 ## 3. The API Gateway (Internal)
 Phoenix will mount a `ServiceRadarWebNG.Api` scope.
-- `POST /api/query` -> `QueryController.execute` (Calls Rust NIF).
+- `POST /api/query` -> `QueryController.execute` (Calls Rust NIF for translation, then executes SQL via Ecto).
 - All other legacy endpoints are deprecated and replaced by LiveView or new JSON endpoints as needed.
 
-## 4. Embedded SRQL (Rustler)
-We are transforming `srql` from a **standalone HTTP service** to an **embedded library**.
+## 4. Embedded SRQL Translation (Rustler)
+We are transforming `srql` from a **standalone HTTP service** to an **embedded translator library**.
 - **No removal:** The `rust/srql` crate stays in the repo and continues to be maintained.
-- **Refactor:** Ensure `rust/srql/src/lib.rs` exposes `QueryEngine` as a public API (decoupled from the `axum` HTTP layer).
-- **NIF:** Phoenix calls into SRQL via Rustler. The Elixir app initializes the Rust runtime once.
-- **Flow:** `UI -> Phoenix -> Rustler -> SRQL Lib -> Shared DB`.
-- **Deployment change:** The standalone `srql` HTTP container is no longer needed—queries go through Phoenix.
+- **Additive migration:** The translator-only API is added without breaking existing SRQL server behavior so the legacy stack can keep using the SRQL HTTP service during the cutover.
+- **Refactor:** Ensure `rust/srql` exposes a public translation API that returns:
+  - parameterized SQL (`$1`, `$2`, ...)
+  - bind parameters (in order)
+  - pagination metadata (next/prev cursor, limit)
+- **NIF:** Phoenix calls into SRQL via Rustler for translation only (pure computation).
+- **Execution:** Phoenix executes the SQL via `Ecto.Adapters.SQL.query/4` (or equivalent) using the existing `ServiceRadarWebNG.Repo` pool.
+- **Flow:** `UI/API -> Phoenix -> Rustler (translate) -> SQL -> Repo (execute) -> JSON`.
+- **Deployment change:** The standalone `srql` HTTP container is no longer needed—requests are served by Phoenix.
 
 ## 5. Schema Ownership vs Data Access
 - **Schema ownership (DDL):** Go Core owns the table structure for `unified_devices`, `pollers`, metrics, etc. Phoenix does NOT generate migrations for these.
