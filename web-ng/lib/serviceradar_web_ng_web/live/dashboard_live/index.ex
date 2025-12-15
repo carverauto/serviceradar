@@ -1,8 +1,8 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
-  alias ServiceRadarWebNGWeb.SRQL.Viz
 
   @default_limit 100
   @max_limit 500
@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
      socket
      |> assign(:page_title, "Dashboard")
      |> assign(:results, [])
-     |> assign(:viz, :none)
+     |> assign(:panels, [])
      |> assign(:limit, @default_limit)
      |> SRQLPage.init("devices", default_limit: @default_limit, builder_available: true)}
   end
@@ -26,7 +26,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         max_limit: @max_limit
       )
 
-    {:noreply, assign(socket, :viz, Viz.infer(socket.assigns.results))}
+    srql_response = %{
+      "results" => socket.assigns.results,
+      "viz" => get_in(socket.assigns, [:srql, :viz])
+    }
+
+    {:noreply, assign(socket, :panels, Engine.build_panels(srql_response))}
   end
 
   @impl true
@@ -90,7 +95,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
         </.header>
 
         <div class="grid grid-cols-1 gap-6">
-          <.srql_auto_viz viz={@viz} />
+          <%= for panel <- @panels do %>
+            <.live_component
+              module={panel.plugin}
+              id={panel.id}
+              title={panel.title}
+              panel_assigns={panel.assigns}
+            />
+          <% end %>
+
           <.srql_results_table id="dashboard-results" rows={@results} empty_message="No results." />
         </div>
       </div>

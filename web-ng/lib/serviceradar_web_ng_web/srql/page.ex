@@ -76,11 +76,22 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
     srql_module = srql_module()
 
-    {results, error} =
+    {results, error, viz_meta} =
       case srql_module.query(query) do
-        {:ok, %{"results" => results}} when is_list(results) -> {results, nil}
-        {:ok, other} -> {[], "unexpected SRQL response: #{inspect(other)}"}
-        {:error, reason} -> {[], "SRQL error: #{format_error(reason)}"}
+        {:ok, %{"results" => results} = resp} when is_list(results) ->
+          viz =
+            case Map.get(resp, "viz") do
+              value when is_map(value) -> value
+              _ -> nil
+            end
+
+          {results, nil, viz}
+
+        {:ok, other} ->
+          {[], "unexpected SRQL response: #{inspect(other)}", nil}
+
+        {:error, reason} ->
+          {[], "SRQL error: #{format_error(reason)}", nil}
       end
 
     page_path = uri |> normalize_uri() |> URI.parse() |> Map.get(:path)
@@ -98,6 +109,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         query: query,
         draft: query,
         error: error,
+        viz: viz_meta,
         loading: false,
         builder_available: builder_available,
         builder_supported: builder_supported,
