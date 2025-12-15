@@ -11,7 +11,7 @@ defmodule ServiceRadarWebNG.SRQLPropertyTest do
             max_runs: PropertyOpts.max_runs()
           ) do
       result = ServiceRadarWebNG.SRQL.query(query)
-      assert match?({:ok, _} | {:error, _}, result)
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
   end
 
@@ -21,7 +21,7 @@ defmodule ServiceRadarWebNG.SRQLPropertyTest do
             max_runs: PropertyOpts.max_runs()
           ) do
       result = ServiceRadarWebNG.SRQL.query_request(payload)
-      assert match?({:ok, _} | {:error, _}, result)
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
   end
 end
