@@ -65,13 +65,50 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           Logs
           <:subtitle>Showing up to {@limit} log entries.</:subtitle>
           <:actions>
-            <.link class="btn btn-ghost btn-sm" patch={~p"/logs?limit=#{@limit}"}>
+            <.ui_button variant="ghost" size="sm" patch={~p"/logs?#{%{limit: @limit}}"}>
               Reset
-            </.link>
+            </.ui_button>
+            <.ui_button
+              variant="ghost"
+              size="sm"
+              patch={~p"/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc", limit: @limit}}"}
+            >
+              Last 24h
+            </.ui_button>
+            <.ui_button
+              variant="ghost"
+              size="sm"
+              patch={
+                ~p"/logs?#{%{q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc", limit: @limit}}"
+              }
+            >
+              Errors
+            </.ui_button>
           </:actions>
         </.header>
 
-        <.srql_results_table id="logs" rows={@logs} empty_message="No log entries found." />
+        <.ui_panel>
+          <:header>
+            <div class="min-w-0">
+              <div class="text-sm font-semibold">Log Stream</div>
+              <div class="text-xs text-base-content/70">
+                Severity badges, timestamps, and message previews.
+              </div>
+            </div>
+            <div class="shrink-0 flex items-center gap-2">
+              <.ui_badge size="sm">{length(Enum.filter(@logs, &is_map/1))} rows</.ui_badge>
+            </div>
+          </:header>
+
+          <.srql_results_table
+            id="logs"
+            rows={@logs}
+            columns={~w(timestamp severity_text service_name body trace_id span_id)}
+            max_columns={7}
+            container={false}
+            empty_message="No log entries found."
+          />
+        </.ui_panel>
       </div>
     </Layouts.app>
     """

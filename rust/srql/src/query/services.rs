@@ -13,6 +13,7 @@ use crate::{
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
+use diesel::sql_types::BigInt;
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
@@ -22,9 +23,21 @@ type ServiceStatusTable = crate::schema::service_status::table;
 type ServiceStatusFromClause = FromClause<ServiceStatusTable>;
 type ServicesQuery<'a> =
     BoxedSelectStatement<'a, <ServiceStatusTable as AsQuery>::SqlType, ServiceStatusFromClause, Pg>;
+type ServicesStatsQuery<'a> = BoxedSelectStatement<'a, BigInt, ServiceStatusFromClause, Pg>;
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
+
+    if let Some(spec) = parse_stats_spec(plan.stats.as_deref())? {
+        let query = build_stats_query(plan, &spec)?;
+        let values: Vec<i64> = query
+            .load(conn)
+            .await
+            .map_err(|err| ServiceError::Internal(err.into()))?;
+        let count = values.into_iter().next().unwrap_or(0);
+        return Ok(vec![serde_json::json!({ spec.alias: count })]);
+    }
+
     let query = build_query(plan)?;
     let rows: Vec<ServiceStatusRow> = query
         .limit(plan.limit)
@@ -44,6 +57,34 @@ pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+    if let Some(spec) = parse_stats_spec(plan.stats.as_deref())? {
+        let query = build_stats_query(plan, &spec)?;
+        let sql = super::diesel_sql(&query)?;
+
+        let mut params = Vec::new();
+        if let Some(TimeRange { start, end }) = &plan.time_range {
+            params.push(BindParam::timestamptz(*start));
+            params.push(BindParam::timestamptz(*end));
+        }
+
+        for filter in &plan.filters {
+            collect_filter_params(&mut params, filter)?;
+        }
+
+        #[cfg(any(test, debug_assertions))]
+        {
+            let bind_count = super::diesel_bind_count(&query)?;
+            if bind_count != params.len() {
+                return Err(ServiceError::Internal(anyhow::anyhow!(
+                    "bind count mismatch (diesel {bind_count} vs params {})",
+                    params.len()
+                )));
+            }
+        }
+
+        return Ok((sql, params));
+    }
+
     let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
     let sql = super::diesel_sql(&query)?;
 
@@ -95,6 +136,72 @@ fn build_query(plan: &QueryPlan) -> Result<ServicesQuery<'static>> {
 
     query = apply_ordering(query, &plan.order);
     Ok(query)
+}
+
+#[derive(Debug, Clone)]
+struct ServicesStatsSpec {
+    alias: String,
+}
+
+fn parse_stats_spec(raw: Option<&str>) -> Result<Option<ServicesStatsSpec>> {
+    let raw = match raw {
+        Some(raw) if !raw.trim().is_empty() => raw.trim(),
+        _ => return Ok(None),
+    };
+
+    let tokens: Vec<&str> = raw.split_whitespace().collect();
+    if tokens.len() < 3 {
+        return Err(ServiceError::InvalidRequest(
+            "stats expressions must be of the form 'count() as alias'".into(),
+        ));
+    }
+
+    if !tokens[0].eq_ignore_ascii_case("count()") || !tokens[1].eq_ignore_ascii_case("as") {
+        return Err(ServiceError::InvalidRequest(
+            "services stats only support count()".into(),
+        ));
+    }
+
+    let alias = tokens[2]
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_lowercase();
+
+    if alias.is_empty()
+        || alias
+            .chars()
+            .any(|ch| !ch.is_ascii_alphanumeric() && ch != '_')
+    {
+        return Err(ServiceError::InvalidRequest(
+            "stats alias must be alphanumeric".into(),
+        ));
+    }
+
+    if tokens.len() > 3 {
+        return Err(ServiceError::InvalidRequest(
+            "services stats do not support grouping yet".into(),
+        ));
+    }
+
+    Ok(Some(ServicesStatsSpec { alias }))
+}
+
+fn build_stats_query(
+    plan: &QueryPlan,
+    spec: &ServicesStatsSpec,
+) -> Result<ServicesStatsQuery<'static>> {
+    let mut query = service_status.into_boxed::<Pg>();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        query = query.filter(col_timestamp.ge(*start).and(col_timestamp.le(*end)));
+    }
+
+    for filter in &plan.filters {
+        query = apply_filter(query, filter)?;
+    }
+
+    let select_sql = format!("coalesce(COUNT(*), 0) as {}", spec.alias);
+    Ok(query.select(diesel::dsl::sql::<BigInt>(&select_sql)))
 }
 
 fn apply_filter<'a>(mut query: ServicesQuery<'a>, filter: &Filter) -> Result<ServicesQuery<'a>> {

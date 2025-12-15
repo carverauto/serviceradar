@@ -62,15 +62,25 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   attr :id, :string, required: true
   attr :rows, :list, default: []
+  attr :columns, :list, default: nil
   attr :max_columns, :integer, default: 10
+  attr :container, :boolean, default: true
+  attr :class, :any, default: nil
   attr :empty_message, :string, default: "No results."
 
   def srql_results_table(assigns) do
-    columns = srql_columns(assigns.rows, assigns.max_columns)
+    columns =
+      assigns.columns
+      |> normalize_columns(assigns.rows, assigns.max_columns)
+
     assigns = assign(assigns, :columns, columns)
 
     ~H"""
-    <div class="overflow-x-auto rounded-xl border border-base-200 bg-base-100 shadow-sm">
+    <div class={[
+      "overflow-x-auto",
+      @container && "rounded-xl border border-base-200 bg-base-100 shadow-sm",
+      @class
+    ]}>
       <table id={@id} class="table table-sm table-zebra w-full">
         <thead>
           <tr>
@@ -95,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
             <tr id={"#{@id}-row-#{idx}"} class="hover:bg-base-200/40">
               <%= for col <- @columns do %>
                 <td class="whitespace-nowrap text-xs max-w-[24rem] truncate">
-                  {srql_cell(Map.get(row, col))}
+                  <.srql_cell col={col} value={Map.get(row, col)} />
                 </td>
               <% end %>
             </tr>
@@ -103,6 +113,37 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         </tbody>
       </table>
     </div>
+    """
+  end
+
+  attr :col, :string, required: true
+  attr :value, :any, default: nil
+
+  def srql_cell(assigns) do
+    assigns =
+      assigns
+      |> assign(:col_key, assigns.col |> to_string() |> String.trim() |> String.downcase())
+      |> assign(:formatted, format_cell(assigns.col, assigns.value))
+
+    ~H"""
+    <%= case @formatted do %>
+      <% {:time, %{display: display, iso: iso}} -> %>
+        <time datetime={iso} title={iso} class="font-mono text-[11px]">
+          {display}
+        </time>
+      <% {:link, %{href: href, label: label}} -> %>
+        <a href={href} target="_blank" rel="noreferrer" class="link link-hover font-mono text-[11px]">
+          {label}
+        </a>
+      <% {:severity, %{label: label, variant: variant}} -> %>
+        <.ui_badge variant={variant} size="xs">{label}</.ui_badge>
+      <% {:boolean, %{label: label, variant: variant}} -> %>
+        <.ui_badge variant={variant} size="xs">{label}</.ui_badge>
+      <% {:text, %{value: value, title: title}} -> %>
+        <span title={title}>{value}</span>
+      <% {:json, %{value: value, title: title}} -> %>
+        <span title={title} class="font-mono text-[11px]">{value}</span>
+    <% end %>
     """
   end
 
@@ -189,7 +230,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       <div class="flex flex-col gap-2">
         <%= for {k, v} <- @items do %>
           <div class="flex items-center gap-3">
-            <div class="w-48 truncate text-sm">{k}</div>
+            <div class="w-48 truncate text-sm" title={to_string(k)}>{format_category_label(k)}</div>
             <div class="flex-1">
               <div class="h-2 rounded-full bg-base-200 overflow-hidden">
                 <div
@@ -257,21 +298,239 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   defp srql_columns(_, _max), do: []
 
-  defp srql_cell(nil), do: ""
-  defp srql_cell(true), do: "true"
-  defp srql_cell(false), do: "false"
-  defp srql_cell(value) when is_binary(value), do: value
-  defp srql_cell(value) when is_number(value), do: to_string(value)
-  defp srql_cell(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-  defp srql_cell(%NaiveDateTime{} = dt), do: NaiveDateTime.to_string(dt)
+  defp normalize_columns(nil, rows, max_columns), do: srql_columns(rows, max_columns)
 
-  defp srql_cell(value) when is_list(value) or is_map(value) do
-    value
-    |> inspect(limit: 5, printable_limit: 1_000)
-    |> String.slice(0, 200)
+  defp normalize_columns(columns, rows, max_columns) when is_list(columns) do
+    columns =
+      columns
+      |> Enum.map(&to_string/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    if columns == [] do
+      srql_columns(rows, max_columns)
+    else
+      columns
+    end
   end
 
-  defp srql_cell(value), do: to_string(value)
+  defp normalize_columns(_columns, rows, max_columns), do: srql_columns(rows, max_columns)
+
+  defp format_cell(col, value) do
+    col = col |> to_string() |> String.trim()
+
+    cond do
+      is_nil(value) ->
+        {:text, %{value: "", title: nil}}
+
+      is_boolean(value) ->
+        {:boolean,
+         %{
+           label: if(value, do: "true", else: "false"),
+           variant: if(value, do: "success", else: "error")
+         }}
+
+      severity_column?(col) and is_binary(value) ->
+        {:severity, severity_badge(value)}
+
+      time_column?(col) and is_binary(value) ->
+        format_time_string(value)
+
+      is_binary(value) ->
+        format_text_string(value)
+
+      is_number(value) ->
+        {:text, %{value: to_string(value), title: nil}}
+
+      is_list(value) or is_map(value) ->
+        rendered =
+          value
+          |> inspect(limit: 5, printable_limit: 1_000)
+          |> String.slice(0, 200)
+
+        {:json, %{value: rendered, title: rendered}}
+
+      true ->
+        {:text, %{value: to_string(value), title: nil}}
+    end
+  end
+
+  defp severity_column?(col) do
+    col_key = col |> String.downcase()
+    col_key in ["severity", "severity_text", "level", "service_status"]
+  end
+
+  defp time_column?(col) do
+    col_key = col |> String.downcase()
+
+    String.ends_with?(col_key, "_at") or String.ends_with?(col_key, "_time") or
+      String.ends_with?(col_key, "_timestamp") or
+      col_key in ["timestamp", "event_timestamp", "last_seen", "first_seen"]
+  end
+
+  defp severity_badge(value) when is_binary(value) do
+    normalized = value |> String.trim() |> String.downcase()
+
+    variant =
+      cond do
+        normalized in ["critical", "fatal", "error"] -> "error"
+        normalized in ["warn", "warning", "high"] -> "warning"
+        normalized in ["info", "medium"] -> "info"
+        normalized in ["debug", "low", "ok", "healthy"] -> "success"
+        normalized in ["down", "offline", "unavailable"] -> "error"
+        normalized in ["up", "online", "available"] -> "success"
+        true -> "ghost"
+      end
+
+    %{label: value, variant: variant}
+  end
+
+  defp format_time_string(value) when is_binary(value) do
+    value = String.trim(value)
+
+    case parse_iso8601(value) do
+      {:ok, dt, iso} ->
+        {:time, %{display: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC"), iso: iso}}
+
+      :error ->
+        format_composite_string(value)
+    end
+  end
+
+  defp format_text_string(value) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      match?({:ok, _, _}, parse_iso8601(value)) ->
+        {:ok, dt, iso} = parse_iso8601(value)
+        {:time, %{display: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC"), iso: iso}}
+
+      url?(value) ->
+        {:link, %{href: value, label: url_label(value)}}
+
+      true ->
+        format_composite_string(value)
+    end
+  end
+
+  defp format_composite_string(value) when is_binary(value) do
+    case String.split(value, ",", parts: 2) do
+      [left, right] ->
+        left = String.trim(left)
+        right = String.trim(right)
+
+        with {:ok, dt, _iso} <- parse_iso8601(left) do
+          label = url_label(right)
+
+          if url?(right) do
+            {:text,
+             %{
+               value: "#{Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")} · #{label}",
+               title: value
+             }}
+          else
+            {:text,
+             %{
+               value: "#{Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")} · #{right}",
+               title: value
+             }}
+          end
+        else
+          _ -> {:text, %{value: value, title: value}}
+        end
+
+      _ ->
+        {:text, %{value: value, title: value}}
+    end
+  end
+
+  defp parse_iso8601(value) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      value == "" ->
+        :error
+
+      true ->
+        case DateTime.from_iso8601(value) do
+          {:ok, dt, _offset} ->
+            {:ok, dt, DateTime.to_iso8601(dt)}
+
+          {:error, _} ->
+            case NaiveDateTime.from_iso8601(value) do
+              {:ok, ndt} ->
+                dt = DateTime.from_naive!(ndt, "Etc/UTC")
+                {:ok, dt, DateTime.to_iso8601(dt)}
+
+              {:error, _} ->
+                :error
+            end
+        end
+    end
+  end
+
+  defp url?(value) when is_binary(value) do
+    String.starts_with?(value, "http://") or String.starts_with?(value, "https://")
+  end
+
+  defp url_label(value) when is_binary(value) do
+    uri = URI.parse(value)
+
+    host =
+      case uri.host do
+        nil ->
+          value
+
+        other ->
+          port =
+            case {uri.scheme, uri.port} do
+              {"http", nil} -> nil
+              {"https", nil} -> nil
+              {"http", 80} -> nil
+              {"https", 443} -> nil
+              {_scheme, port} -> port
+            end
+
+          if is_integer(port) do
+            "#{other}:#{port}"
+          else
+            other
+          end
+      end
+
+    path =
+      case uri.path do
+        nil -> ""
+        "/" -> ""
+        other -> other
+      end
+
+    label = host <> path
+
+    if is_binary(uri.query) and uri.query != "" do
+      label <> "?…"
+    else
+      label
+    end
+  end
+
+  defp format_category_label(value) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      match?({:ok, _, _}, parse_iso8601(value)) ->
+        {:ok, dt, _iso} = parse_iso8601(value)
+        Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
+
+      url?(value) ->
+        url_label(value)
+
+      true ->
+        value
+    end
+  end
+
+  defp format_category_label(value), do: to_string(value)
 
   attr :supported, :boolean, default: true
   attr :sync, :boolean, default: true

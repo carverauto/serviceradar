@@ -138,6 +138,14 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </li>
               <li>
                 <.sidebar_link
+                  href={~p"/analytics"}
+                  label="Analytics"
+                  icon="hero-chart-bar"
+                  active={@current_path == "/analytics"}
+                />
+              </li>
+              <li>
+                <.sidebar_link
                   href={~p"/devices"}
                   label="Devices"
                   icon="hero-computer-desktop"

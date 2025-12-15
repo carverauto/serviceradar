@@ -66,13 +66,54 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
           Services
           <:subtitle>Showing up to {@limit} services.</:subtitle>
           <:actions>
-            <.link class="btn btn-ghost btn-sm" patch={~p"/services?limit=#{@limit}"}>
+            <.ui_button variant="ghost" size="sm" patch={~p"/services?#{%{limit: @limit}}"}>
               Reset
-            </.link>
+            </.ui_button>
+            <.ui_button
+              variant="ghost"
+              size="sm"
+              patch={
+                ~p"/services?#{%{q: "in:services time:last_24h sort:timestamp:desc", limit: @limit}}"
+              }
+            >
+              Last 24h
+            </.ui_button>
+            <.ui_button
+              variant="ghost"
+              size="sm"
+              patch={
+                ~p"/services?#{%{q: "in:services available:false time:last_24h sort:timestamp:desc", limit: @limit}}"
+              }
+            >
+              Unavailable
+            </.ui_button>
           </:actions>
         </.header>
 
-        <.srql_results_table id="services" rows={@services} empty_message="No services found." />
+        <.ui_panel>
+          <:header>
+            <div class="min-w-0">
+              <div class="text-sm font-semibold">Service Status</div>
+              <div class="text-xs text-base-content/70">
+                Availability and recent status messages.
+              </div>
+            </div>
+            <div class="shrink-0 flex items-center gap-2">
+              <.ui_badge size="sm">{length(Enum.filter(@services, &is_map/1))} rows</.ui_badge>
+            </div>
+          </:header>
+
+          <.srql_results_table
+            id="services"
+            rows={@services}
+            columns={
+              ~w(timestamp available service_type service_name message device_id poller_id agent_id)
+            }
+            max_columns={8}
+            container={false}
+            empty_message="No services found."
+          />
+        </.ui_panel>
       </div>
     </Layouts.app>
     """

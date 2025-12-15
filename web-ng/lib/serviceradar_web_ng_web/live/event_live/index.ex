@@ -65,13 +65,52 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
           Events
           <:subtitle>Showing up to {@limit} events.</:subtitle>
           <:actions>
-            <.link class="btn btn-ghost btn-sm" patch={~p"/events?limit=#{@limit}"}>
+            <.ui_button variant="ghost" size="sm" patch={~p"/events?#{%{limit: @limit}}"}>
               Reset
-            </.link>
+            </.ui_button>
+            <.ui_button
+              variant="ghost"
+              size="sm"
+              patch={
+                ~p"/events?#{%{q: "in:events time:last_24h sort:event_timestamp:desc", limit: @limit}}"
+              }
+            >
+              Last 24h
+            </.ui_button>
+            <.ui_button
+              variant="ghost"
+              size="sm"
+              patch={
+                ~p"/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:event_timestamp:desc", limit: @limit}}"
+              }
+            >
+              Critical
+            </.ui_button>
           </:actions>
         </.header>
 
-        <.srql_results_table id="events" rows={@events} empty_message="No events found." />
+        <.ui_panel>
+          <:header>
+            <div class="min-w-0">
+              <div class="text-sm font-semibold">Event Stream</div>
+              <div class="text-xs text-base-content/70">
+                Severity, type, and message previews with SRQL-powered filters.
+              </div>
+            </div>
+            <div class="shrink-0 flex items-center gap-2">
+              <.ui_badge size="sm">{length(Enum.filter(@events, &is_map/1))} rows</.ui_badge>
+            </div>
+          </:header>
+
+          <.srql_results_table
+            id="events"
+            rows={@events}
+            columns={~w(event_timestamp severity event_type short_message host subject source id)}
+            max_columns={8}
+            container={false}
+            empty_message="No events found."
+          />
+        </.ui_panel>
       </div>
     </Layouts.app>
     """

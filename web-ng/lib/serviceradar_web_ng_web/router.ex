@@ -65,6 +65,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     live_session :require_authenticated_user,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
       live "/dashboard", DashboardLive.Index, :index
+      live "/analytics", AnalyticsLive.Index, :index
       live "/devices", DeviceLive.Index, :index
       live "/devices/:device_id", DeviceLive.Show, :show
       live "/pollers", PollerLive.Index, :index
