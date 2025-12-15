@@ -280,11 +280,15 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
     entity = Map.get(assigns.builder, "entity", "devices")
     config = Catalog.entity(entity)
+    supports_downsample = Map.get(config, :downsample, false)
+    series_fields = Map.get(config, :series_fields, [])
 
     assigns =
       assigns
       |> assign(:entities, Catalog.entities())
       |> assign(:config, config)
+      |> assign(:supports_downsample, supports_downsample)
+      |> assign(:series_fields, series_fields)
 
     ~H"""
     <.ui_panel>
@@ -349,6 +353,59 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                     </option>
                   </.ui_inline_select>
                 </.srql_builder_pill>
+
+                <div :if={@supports_downsample} class="flex flex-wrap items-center gap-4">
+                  <div class="text-xs text-base-content/60 font-medium">Downsample</div>
+
+                  <.srql_builder_pill label="Bucket">
+                    <.ui_inline_select name="builder[bucket]" disabled={not @supported}>
+                      <option value="" selected={(@builder["bucket"] || "") == ""}>
+                        (none)
+                      </option>
+                      <option value="15s" selected={@builder["bucket"] == "15s"}>15s</option>
+                      <option value="1m" selected={@builder["bucket"] == "1m"}>1m</option>
+                      <option value="5m" selected={@builder["bucket"] == "5m"}>5m</option>
+                      <option value="15m" selected={@builder["bucket"] == "15m"}>15m</option>
+                      <option value="1h" selected={@builder["bucket"] == "1h"}>1h</option>
+                      <option value="6h" selected={@builder["bucket"] == "6h"}>6h</option>
+                      <option value="1d" selected={@builder["bucket"] == "1d"}>1d</option>
+                    </.ui_inline_select>
+                  </.srql_builder_pill>
+
+                  <.srql_builder_pill label="Agg">
+                    <.ui_inline_select name="builder[agg]" disabled={not @supported}>
+                      <option value="avg" selected={(@builder["agg"] || "avg") == "avg"}>avg</option>
+                      <option value="min" selected={@builder["agg"] == "min"}>min</option>
+                      <option value="max" selected={@builder["agg"] == "max"}>max</option>
+                      <option value="sum" selected={@builder["agg"] == "sum"}>sum</option>
+                      <option value="count" selected={@builder["agg"] == "count"}>count</option>
+                    </.ui_inline_select>
+                  </.srql_builder_pill>
+
+                  <.srql_builder_pill label="Series">
+                    <%= if @series_fields == [] do %>
+                      <.ui_inline_input
+                        type="text"
+                        name="builder[series]"
+                        value={@builder["series"] || ""}
+                        placeholder="field"
+                        class="w-40 placeholder:text-base-content/40"
+                        disabled={not @supported}
+                      />
+                    <% else %>
+                      <.ui_inline_select name="builder[series]" disabled={not @supported}>
+                        <option value="" selected={(@builder["series"] || "") == ""}>
+                          (none)
+                        </option>
+                        <%= for field <- @series_fields do %>
+                          <option value={field} selected={@builder["series"] == field}>
+                            {field}
+                          </option>
+                        <% end %>
+                      </.ui_inline_select>
+                    <% end %>
+                  </.srql_builder_pill>
+                </div>
 
                 <div class="flex flex-col gap-3">
                   <div class="text-xs text-base-content/60 font-medium">Filters</div>

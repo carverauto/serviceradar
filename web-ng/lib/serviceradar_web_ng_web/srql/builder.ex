@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   @max_limit 500
   @allowed_filter_ops ["contains", "not_contains", "equals", "not_equals"]
+  @allowed_downsample_aggs ["avg", "min", "max", "sum", "count"]
 
   @type state :: map()
 
@@ -14,6 +15,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     %{
       "entity" => config.id,
       "time" => config.default_time || "",
+      "bucket" => config[:default_bucket] || "",
+      "agg" => config[:default_agg] || "avg",
+      "series" => config[:default_series_field] || "",
       "sort_field" => config.default_sort_field,
       "sort_dir" => config.default_sort_dir,
       "limit" => normalize_limit(limit),
@@ -30,6 +34,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   def build(%{} = state) do
     entity = Map.get(state, "entity", "devices")
     time = Map.get(state, "time", "")
+    bucket = Map.get(state, "bucket", "")
+    agg = Map.get(state, "agg", "avg")
+    series = Map.get(state, "series", "")
     sort_field = Map.get(state, "sort_field", default_sort_field(entity))
     sort_dir = Map.get(state, "sort_dir", "desc")
     limit = normalize_limit(Map.get(state, "limit", 100))
@@ -38,6 +45,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     tokens =
       ["in:#{entity}"]
       |> maybe_add_time(time)
+      |> maybe_add_downsample(entity, time, bucket, agg, series)
       |> maybe_add_filters(filters)
       |> maybe_add_sort(sort_field, sort_dir)
       |> Kernel.++(["limit:#{limit}"])
@@ -59,11 +67,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
     with {:ok, parts} <- parse_tokens(tokens),
          :ok <- reject_unknown_tokens(tokens, parts),
-         :ok <- validate_filter_fields(parts.entity, parts.filters) do
+         :ok <- validate_filter_fields(parts.entity, parts.filters),
+         :ok <- validate_downsample(parts.entity, parts.bucket, parts.agg, parts.series) do
       {:ok,
        %{
          "entity" => parts.entity,
          "time" => parts.time,
+         "bucket" => parts.bucket,
+         "agg" => parts.agg,
+         "series" => parts.series,
          "sort_field" => parts.sort_field,
          "sort_dir" => parts.sort_dir,
          "limit" => parts.limit,
@@ -96,9 +108,22 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
     filters = normalize_filters(entity, Map.get(state, "filters", []))
 
+    bucket = normalize_bucket(config, Map.get(state, "bucket"))
+    agg = normalize_agg(config, Map.get(state, "agg"))
+    series = normalize_series_field(config, Map.get(state, "series"))
+
+    time =
+      state
+      |> Map.get("time", "")
+      |> normalize_time()
+      |> ensure_downsample_time(config, bucket)
+
     %{
       "entity" => config.id,
-      "time" => normalize_time(Map.get(state, "time", "")),
+      "time" => time,
+      "bucket" => bucket,
+      "agg" => agg,
+      "series" => series,
       "sort_field" => normalize_sort_field(entity, Map.get(state, "sort_field")),
       "sort_dir" => sort_dir,
       "limit" => normalize_limit(Map.get(state, "limit", 100)),
@@ -113,6 +138,66 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   end
 
   defp normalize_time(_), do: ""
+
+  defp normalize_bucket(%{downsample: true} = config, value) do
+    candidate =
+      value
+      |> safe_to_string()
+      |> String.trim()
+
+    default = safe_to_string(Map.get(config, :default_bucket) || "")
+
+    cond do
+      candidate == "" -> default
+      Regex.match?(~r/^\d+(?:s|m|h|d)$/, candidate) -> candidate
+      true -> default
+    end
+  end
+
+  defp normalize_bucket(_config, _), do: ""
+
+  defp normalize_agg(%{downsample: true} = config, value) do
+    candidate =
+      value
+      |> safe_to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    default = safe_to_string(Map.get(config, :default_agg) || "avg")
+
+    if candidate in @allowed_downsample_aggs, do: candidate, else: default
+  end
+
+  defp normalize_agg(_config, _), do: "avg"
+
+  defp normalize_series_field(%{downsample: true} = config, value) do
+    candidate =
+      value
+      |> safe_to_string()
+      |> String.trim()
+
+    allowed = Map.get(config, :series_fields) || Map.get(config, "series_fields")
+    default = safe_to_string(Map.get(config, :default_series_field) || "")
+
+    cond do
+      candidate == "" -> default
+      is_list(allowed) and candidate in allowed -> candidate
+      is_nil(allowed) -> candidate
+      true -> default
+    end
+  end
+
+  defp normalize_series_field(_config, _), do: ""
+
+  defp ensure_downsample_time(time, %{downsample: true} = config, bucket) do
+    if bucket != "" and time == "" do
+      safe_to_string(config.default_time || "last_24h")
+    else
+      time
+    end
+  end
+
+  defp ensure_downsample_time(time, _config, _bucket), do: time
 
   defp normalize_sort_field(entity, field) when is_binary(field) do
     field = String.trim(field)
@@ -176,6 +261,37 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   defp maybe_add_time(tokens, nil), do: tokens
   defp maybe_add_time(tokens, time), do: tokens ++ ["time:#{time}"]
 
+  defp maybe_add_downsample(tokens, entity, time, bucket, agg, series) do
+    config = Catalog.entity(entity)
+
+    cond do
+      not Map.get(config, :downsample, false) ->
+        tokens
+
+      safe_to_string(bucket) |> String.trim() == "" ->
+        tokens
+
+      safe_to_string(time) |> String.trim() == "" ->
+        tokens
+
+      true ->
+        bucket = safe_to_string(bucket) |> String.trim()
+        agg = safe_to_string(agg) |> String.trim() |> String.downcase()
+        series = safe_to_string(series) |> String.trim()
+
+        tokens =
+          tokens
+          |> Kernel.++(["bucket:#{bucket}"])
+          |> Kernel.++(if agg != "", do: ["agg:#{agg}"], else: [])
+
+        if series != "" do
+          tokens ++ ["series:#{series}"]
+        else
+          tokens
+        end
+    end
+  end
+
   defp maybe_add_sort(tokens, "", _dir), do: tokens
   defp maybe_add_sort(tokens, nil, _dir), do: tokens
   defp maybe_add_sort(tokens, field, dir), do: tokens ++ ["sort:#{field}:#{dir}"]
@@ -214,6 +330,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     parts = %{
       entity: nil,
       time: "",
+      bucket: "",
+      agg: "avg",
+      series: "",
       sort_field: nil,
       sort_dir: "desc",
       limit: 100,
@@ -229,6 +348,18 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
         String.starts_with?(token, "time:") ->
           time = String.replace_prefix(token, "time:", "")
           {:cont, {:ok, %{acc | time: time}}}
+
+        String.starts_with?(token, "bucket:") ->
+          bucket = String.replace_prefix(token, "bucket:", "")
+          {:cont, {:ok, %{acc | bucket: bucket}}}
+
+        String.starts_with?(token, "agg:") ->
+          agg = String.replace_prefix(token, "agg:", "")
+          {:cont, {:ok, %{acc | agg: agg}}}
+
+        String.starts_with?(token, "series:") ->
+          series = String.replace_prefix(token, "series:", "")
+          {:cont, {:ok, %{acc | series: series}}}
 
         String.starts_with?(token, "sort:") ->
           sort = String.replace_prefix(token, "sort:", "")
@@ -307,7 +438,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   end
 
   defp reject_unknown_tokens(tokens, parts) do
-    known_prefixes = ["in:", "time:", "sort:", "limit:"]
+    known_prefixes = ["in:", "time:", "bucket:", "agg:", "series:", "sort:", "limit:"]
 
     unknown =
       Enum.reject(tokens, fn token ->
@@ -319,6 +450,42 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       end)
 
     if unknown == [], do: :ok, else: {:error, {:unsupported_tokens, unknown}}
+  end
+
+  defp validate_downsample(entity, bucket, agg, series) do
+    config = Catalog.entity(entity)
+
+    if Map.get(config, :downsample, false) do
+      bucket = safe_to_string(bucket) |> String.trim()
+      agg = safe_to_string(agg) |> String.trim() |> String.downcase()
+      series = safe_to_string(series) |> String.trim()
+
+      cond do
+        bucket == "" ->
+          :ok
+
+        not Regex.match?(~r/^\d+(?:s|m|h|d)$/, bucket) ->
+          {:error, {:invalid_bucket, bucket}}
+
+        agg != "" and agg not in @allowed_downsample_aggs ->
+          {:error, {:invalid_agg, agg}}
+
+        true ->
+          allowed = Map.get(config, :series_fields) || Map.get(config, "series_fields")
+
+          if series != "" and is_list(allowed) and series not in allowed do
+            {:error, {:unsupported_series_field, series}}
+          else
+            :ok
+          end
+      end
+    else
+      if safe_to_string(bucket) |> String.trim() != "" do
+        {:error, :downsample_not_supported}
+      else
+        :ok
+      end
+    end
   end
 
   defp validate_filter_fields(entity, filters) when entity in ["devices", "pollers"] do

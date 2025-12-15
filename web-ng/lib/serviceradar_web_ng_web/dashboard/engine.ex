@@ -23,7 +23,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Engine do
     plugins = Registry.plugins()
 
     Enum.reduce_while(plugins, nil, fn plugin, _acc ->
-      if function_exported?(plugin, :supports?, 1) and plugin.supports?(srql_response) do
+      if Code.ensure_loaded?(plugin) and plugin.supports?(srql_response) do
         {:halt, plugin_panel(plugin, srql_response)}
       else
         {:cont, nil}

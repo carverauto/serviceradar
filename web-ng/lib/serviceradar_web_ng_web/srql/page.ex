@@ -454,9 +454,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
          "logs",
          "device_updates",
          "otel_metrics",
+         "timeseries_metrics",
+         "snmp_metrics",
+         "rperf_metrics",
          "cpu_metrics",
          "memory_metrics",
-         "disk_metrics"
+         "disk_metrics",
+         "process_metrics"
        ] do
       tokens ++ ["time:last_7d"]
     else
