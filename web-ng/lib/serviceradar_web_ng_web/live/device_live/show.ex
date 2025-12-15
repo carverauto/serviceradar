@@ -136,6 +136,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     assigns =
       assigns
       |> assign(:device_row, device_row)
+      |> assign(
+        :metric_sections_to_render,
+        Enum.filter(assigns.metric_sections, fn section ->
+          is_binary(Map.get(section, :error)) or Map.get(section, :panels, []) != []
+        end)
+      )
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
@@ -173,8 +179,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             </div>
           </.ui_panel>
 
-          <div :if={@metric_sections != []} class="grid grid-cols-1 gap-4">
-            <%= for section <- @metric_sections do %>
+          <div :if={@metric_sections_to_render != []} class="grid grid-cols-1 gap-4">
+            <%= for section <- @metric_sections_to_render do %>
               <.ui_panel>
                 <:header>
                   <div class="min-w-0">
@@ -188,10 +194,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
                 <div :if={is_binary(section.error)} class="text-sm opacity-70">
                   {section.error}
-                </div>
-
-                <div :if={is_nil(section.error) and section.panels == []} class="text-sm opacity-70">
-                  No data returned for this metric query.
                 </div>
 
                 <div :if={is_nil(section.error)} class="grid grid-cols-1 gap-4">
@@ -304,7 +306,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       }
 
       case srql_module.query(query) do
-        {:ok, %{"results" => results} = resp} when is_list(results) ->
+        {:ok, %{"results" => results} = resp} when is_list(results) and results != [] ->
           viz =
             case Map.get(resp, "viz") do
               value when is_map(value) -> value
@@ -319,6 +321,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             |> prefer_visual_panels(results)
 
           %{base | panels: panels}
+
+        {:ok, %{"results" => results}} when is_list(results) ->
+          base
 
         {:ok, other} ->
           %{base | error: "unexpected SRQL response: #{inspect(other)}"}

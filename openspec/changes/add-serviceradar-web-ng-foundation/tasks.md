@@ -116,6 +116,16 @@
 - [x] 6.5 Add Device details page (SRQL-driven, with related charts where available).
 - [x] 6.6 Default Dashboard query to a metrics entity so charts render out-of-the-box.
 - [x] 6.7 Add CPU/memory/disk metric chart sections to Device details.
+- [ ] 6.8 Add `/analytics` hub page (SRQL-driven, chart-first).
+  - [ ] 6.8a Add sidebar navigation entry for Analytics.
+  - [ ] 6.8b Implement “KPI cards” (total devices, offline devices, high latency, failing services).
+  - [ ] 6.8c Add at least 4 visualization panels (timeseries/categories) with sensible defaults (no empty dashboard).
+  - [ ] 6.8d Add drill-down interactions (click KPI/chart -> navigate with pre-filtered SRQL).
+- [ ] 6.9 Upgrade `/devices` table for operational at-a-glance.
+  - [ ] 6.9a Add “Health & Metrics” column with Online/Offline + ICMP sparkline latency.
+  - [ ] 6.9b Query ICMP sparkline data in bulk (no per-row N+1 queries) for the current page device IDs.
+  - [ ] 6.9c Ensure bounded performance (downsample, cap points, conservative refresh).
+  - [ ] 6.9d Add tooltip/legend affordances for sparkline thresholds.
 
 ## 7. Kubernetes Cutover (Deferred)
 - [ ] 7.1 Add `serviceradar-web-ng` image build/push for k8s deployment.

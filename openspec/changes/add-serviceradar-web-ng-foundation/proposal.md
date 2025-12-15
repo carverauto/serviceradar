@@ -15,6 +15,7 @@
   - **Composable Dashboards:** Dashboards are built from one or more SRQL queries and auto-generate visualizations when the result shape is recognized; the visualization system MUST be modular and extensible.
 - **UI Parity & Improvements (Legacy `web/` -> `web-ng/`):**
   - Recreate the missing “Analytics” hub (summary KPIs + charts) using SRQL-driven queries and dashboard visualizations.
+  - The Analytics hub SHOULD serve as an operator overview (quick health check) with drill-down navigation into detail pages.
   - Enhance the Device Inventory table to include health signals (online/offline + ICMP sparkline latency) without per-row N+1 queries.
   - Standardize UI primitives using Tailwind + daisyUI, with components expressed via Phoenix function components.
 - **Database:** Connect Ecto to the existing Postgres/AGE instance.
