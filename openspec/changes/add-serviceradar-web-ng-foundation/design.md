@@ -157,13 +157,13 @@ The legacy UI in `web/` contains several top-level destinations that users expec
 | Legacy Route (`web/`) | Phoenix Route (`web-ng/`) | Status | Notes |
 | :--- | :--- | :--- | :--- |
 | `/dashboard` | `/dashboard` | ✅ Exists | SRQL-driven dashboard engine with plugins (timeseries, categories, topology, table). |
-| `/devices` | `/devices` | 🟡 Partial | Table exists; missing “Health & Metrics” column including ICMP sparkline. |
+| `/analytics` | `/analytics` | ✅ Exists | Operator overview hub (KPIs, charts, severity summaries, drill-down). |
+| `/devices` | `/devices` | ✅ Exists | Inventory table includes Online/Offline + bulk ICMP sparkline health column. |
 | `/devices/:id` | `/devices/:device_id` | ✅ Exists | SRQL-driven details page with metric charts (cpu/memory/disk). |
 | `/events` | `/events` | ✅ Exists | SRQL list page. |
 | `/logs` | `/logs` | ✅ Exists | SRQL list page. |
 | `/services` | `/services` | ✅ Exists | SRQL list page. |
 | `/interfaces` | `/interfaces` | ✅ Exists | SRQL list page. |
-| `/analytics` | (new) `/analytics` | ❌ Missing | Needs curated KPIs + charts/graphs (SRQL-driven), not just a generic table. |
 | `/metrics` | (new) `/metrics` | ❌ Missing | Legacy “system metrics” views; can be recreated via SRQL metrics entities + charts. |
 | `/network` | (new) `/network` | ❌ Missing | Network discovery, sweeps, SNMP summaries (likely mixes SRQL tables + purpose-built dashboards). |
 | `/observability` | (new) `/observability` | ❌ Missing | Logs/traces/metrics tabs; SRQL can cover read views, but may need richer UI patterns. |

@@ -178,33 +178,53 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   attr :spark, :map, required: true
 
   def icmp_sparkline(assigns) do
+    points = Map.get(assigns.spark, :points, [])
+    {polyline, area_path} = sparkline_paths(points)
+
     assigns =
       assigns
-      |> assign(:points, Map.get(assigns.spark, :points, []))
+      |> assign(:points, points)
       |> assign(:latest_ms, Map.get(assigns.spark, :latest_ms, 0.0))
       |> assign(:tone, Map.get(assigns.spark, :tone, "success"))
       |> assign(:title, Map.get(assigns.spark, :title))
-      |> assign(:polyline, sparkline_points(Map.get(assigns.spark, :points, [])))
+      |> assign(:polyline, polyline)
+      |> assign(:area_path, area_path)
+      |> assign(:stroke_color, tone_stroke(Map.get(assigns.spark, :tone, "success")))
+      |> assign(:spark_id, "spark-#{:erlang.phash2(Map.get(assigns.spark, :title, ""))}")
 
     ~H"""
     <div class="flex items-center gap-2">
-      <div class="h-8 w-20 rounded-md border border-base-200 bg-base-100 px-1 py-0.5">
-        <svg viewBox="0 0 400 120" class={["w-full h-full", tone_text(@tone)]}>
+      <div class="h-8 w-20 rounded-md border border-base-200 bg-base-100/60 px-1 py-0.5 overflow-hidden">
+        <svg viewBox="0 0 400 120" class="w-full h-full" preserveAspectRatio="none">
           <title>{@title || "ICMP latency"}</title>
+          <defs>
+            <linearGradient id={@spark_id} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stop-color={@stroke_color} stop-opacity="0.6" />
+              <stop offset="95%" stop-color={@stroke_color} stop-opacity="0.1" />
+            </linearGradient>
+          </defs>
+          <path d={@area_path} fill={"url(##{@spark_id})"} />
           <polyline
             fill="none"
-            stroke="currentColor"
-            stroke-width="2"
+            stroke={@stroke_color}
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
             points={@polyline}
           />
         </svg>
       </div>
-      <div class={["font-mono text-[11px]", tone_text(@tone)]}>
+      <div class={["font-mono text-[11px] font-semibold", tone_text(@tone)]}>
         {format_ms(@latest_ms)}
       </div>
     </div>
     """
   end
+
+  defp tone_stroke("error"), do: "#ff5555"
+  defp tone_stroke("warning"), do: "#ffb86c"
+  defp tone_stroke("success"), do: "#50fa7b"
+  defp tone_stroke(_), do: "#6272a4"
 
   defp tone_text("error"), do: "text-error"
   defp tone_text("warning"), do: "text-warning"
@@ -218,30 +238,55 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp format_ms(value) when is_integer(value), do: Integer.to_string(value) <> "ms"
   defp format_ms(_), do: "—"
 
-  defp sparkline_points(values) when is_list(values) do
+  defp sparkline_paths(values) when is_list(values) do
     values = Enum.filter(values, &is_number/1)
 
     case {values, Enum.min(values, fn -> 0 end), Enum.max(values, fn -> 0 end)} do
       {[], _, _} ->
-        ""
+        {"", ""}
 
       {_values, min_v, max_v} when min_v == max_v ->
-        Enum.with_index(values)
-        |> Enum.map(fn {_v, idx} ->
-          x = idx_to_x(idx, length(values))
-          "#{x},60"
-        end)
-        |> Enum.join(" ")
+        coords =
+          Enum.with_index(values)
+          |> Enum.map(fn {_v, idx} ->
+            x = idx_to_x(idx, length(values))
+            {x, 60}
+          end)
+
+        polyline = Enum.map_join(coords, " ", fn {x, y} -> "#{x},#{y}" end)
+        area_path = build_area_path(coords)
+        {polyline, area_path}
 
       {_values, min_v, max_v} ->
-        Enum.with_index(values)
-        |> Enum.map(fn {v, idx} ->
-          x = idx_to_x(idx, length(values))
-          y = 110 - round((v - min_v) / (max_v - min_v) * 100)
-          "#{x},#{y}"
-        end)
-        |> Enum.join(" ")
+        coords =
+          Enum.with_index(values)
+          |> Enum.map(fn {v, idx} ->
+            x = idx_to_x(idx, length(values))
+            y = 110 - round((v - min_v) / (max_v - min_v) * 100)
+            {x, y}
+          end)
+
+        polyline = Enum.map_join(coords, " ", fn {x, y} -> "#{x},#{y}" end)
+        area_path = build_area_path(coords)
+        {polyline, area_path}
     end
+  end
+
+  defp sparkline_paths(_), do: {"", ""}
+
+  defp build_area_path([]), do: ""
+
+  defp build_area_path(coords) do
+    [{first_x, _} | _] = coords
+    {last_x, _} = List.last(coords)
+    baseline = 115
+
+    path =
+      coords
+      |> Enum.map(fn {x, y} -> "#{x},#{y}" end)
+      |> Enum.join(" L ")
+
+    "M #{first_x},#{baseline} L #{path} L #{last_x},#{baseline} Z"
   end
 
   defp idx_to_x(_idx, 0), do: 0

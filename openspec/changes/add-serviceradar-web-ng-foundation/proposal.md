@@ -46,5 +46,9 @@
 - SRQL-first analytics UX implemented (query bar + builder + SRQL-driven list pages).
 - Dashboard renders charts/graphs when SRQL metadata supports it (Timeseries/Topology plugins), plus table fallback.
 - Device details page exists at `/devices/:device_id` (SRQL-driven), including related CPU/memory/disk metric charts.
-- UI parity gaps remain vs `web/`: `/analytics` hub, `/network`, `/observability`, `/identity`, and device list health (ICMP sparkline) are not yet ported.
+- Added `/analytics` hub as an operator overview (KPI cards, charts, severity summaries, drill-down links).
+- Upgraded `/devices` list for at-a-glance health (Online/Offline + bulk ICMP sparkline; no per-row N+1 queries).
+- Improved SRQL-driven list UX: table cell formatting (timestamps, URLs, severity badges) and page-level panels/quick filters for Events/Logs/Services.
+- Device details charts improved: hide empty metric sections, default CPU to aggregated trend, and render shaded/annotated timeseries charts.
+- UI parity gaps remain vs `web/`: `/network`, `/observability`, `/identity`, and `/admin/*` are not yet ported.
 - UI remains Tailwind + daisyUI (no Mishka Chelekom adoption at this time).

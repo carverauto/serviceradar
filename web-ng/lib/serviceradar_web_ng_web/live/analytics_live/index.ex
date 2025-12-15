@@ -509,21 +509,28 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       assigns
       |> assign_new(:tone, fn -> "neutral" end)
       |> assign(:tone_class, tone_class(assigns.tone))
+      |> assign(:card_class, card_class(assigns.tone))
+      |> assign(:value_class, value_class(assigns.tone))
 
     ~H"""
-    <.link href={@href} class="block">
+    <.link href={@href} class="block group">
       <div class={[
-        "rounded-xl border bg-base-100 shadow-sm hover:shadow-md transition-shadow",
-        "border-base-200 hover:border-base-300"
+        "rounded-xl border bg-base-100 shadow-sm transition-all duration-200",
+        "hover:shadow-lg hover:scale-[1.02]",
+        @card_class
       ]}>
-        <div class="p-4 flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <div class="text-xs font-semibold text-base-content/60">{@title}</div>
-            <div class="text-3xl font-semibold tracking-tight mt-1">{format_int(@value)}</div>
-            <div :if={is_binary(@desc)} class="text-xs text-base-content/60 mt-1">{@desc}</div>
+        <div class="p-5 flex items-start justify-between gap-4">
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+              {@title}
+            </div>
+            <div class={["text-4xl font-bold tracking-tight mt-2", @value_class]}>
+              {format_int(@value)}
+            </div>
+            <div :if={is_binary(@desc)} class="text-xs text-base-content/50 mt-2">{@desc}</div>
           </div>
-          <div class={["shrink-0 rounded-lg p-2 border", @tone_class]}>
-            <.icon :if={@icon} name={@icon} class="size-5" />
+          <div class={["shrink-0 rounded-xl p-3", @tone_class]}>
+            <.icon :if={@icon} name={@icon} class="size-6" />
           </div>
         </div>
       </div>
@@ -531,10 +538,21 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     """
   end
 
-  defp tone_class("warning"), do: "border-warning/30 bg-warning/10 text-warning"
-  defp tone_class("error"), do: "border-error/30 bg-error/10 text-error"
-  defp tone_class("success"), do: "border-success/30 bg-success/10 text-success"
-  defp tone_class(_), do: "border-base-200 bg-base-200/30 text-base-content/70"
+  defp tone_class("warning"), do: "bg-warning/20 text-warning"
+  defp tone_class("error"), do: "bg-error/20 text-error"
+  defp tone_class("success"), do: "bg-success/20 text-success"
+  defp tone_class("info"), do: "bg-info/20 text-info"
+  defp tone_class(_), do: "bg-primary/10 text-primary"
+
+  defp card_class("warning"), do: "border-warning/20 hover:border-warning/40"
+  defp card_class("error"), do: "border-error/20 hover:border-error/40"
+  defp card_class("success"), do: "border-success/20 hover:border-success/40"
+  defp card_class(_), do: "border-base-200 hover:border-primary/30"
+
+  defp value_class("warning"), do: "text-warning"
+  defp value_class("error"), do: "text-error"
+  defp value_class("success"), do: "text-success"
+  defp value_class(_), do: "text-base-content"
 
   defp format_int(v) when is_integer(v), do: Integer.to_string(v)
   defp format_int(v) when is_float(v), do: v |> trunc() |> Integer.to_string()

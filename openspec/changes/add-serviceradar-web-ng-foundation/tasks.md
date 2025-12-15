@@ -112,22 +112,58 @@
 - [x] 6.1 Move ServiceRadar branding/logo into the left navigation sidebar.
 - [x] 6.2 Reduce sidebar width and tighten spacing.
 - [x] 6.3 Improve table styling across SRQL-driven pages (readability, hover, truncation).
+- [x] 6.3a Format SRQL table cells (dates/URLs/badges) for readability.
+- [x] 6.3b Upgrade Events/Logs/Services pages with panels + quick filters.
 - [x] 6.4 Ensure Dashboard renders charts/graphs when results support it (not table-only).
 - [x] 6.5 Add Device details page (SRQL-driven, with related charts where available).
+- [x] 6.5a Hide metric sections when no data is present (no empty charts).
 - [x] 6.6 Default Dashboard query to a metrics entity so charts render out-of-the-box.
 - [x] 6.7 Add CPU/memory/disk metric chart sections to Device details.
-- [ ] 6.8 Add `/analytics` hub page (SRQL-driven, chart-first).
-  - [ ] 6.8a Add sidebar navigation entry for Analytics.
-  - [ ] 6.8b Implement “KPI cards” (total devices, offline devices, high latency, failing services).
-  - [ ] 6.8c Add at least 4 visualization panels (timeseries/categories) with sensible defaults (no empty dashboard).
-  - [ ] 6.8d Add drill-down interactions (click KPI/chart -> navigate with pre-filtered SRQL).
-- [ ] 6.9 Upgrade `/devices` table for operational at-a-glance.
-  - [ ] 6.9a Add “Health & Metrics” column with Online/Offline + ICMP sparkline latency.
-  - [ ] 6.9b Query ICMP sparkline data in bulk (no per-row N+1 queries) for the current page device IDs.
-  - [ ] 6.9c Ensure bounded performance (downsample, cap points, conservative refresh).
-  - [ ] 6.9d Add tooltip/legend affordances for sparkline thresholds.
+- [x] 6.7a Reduce CPU panel noise (aggregate across cores by default).
+- [x] 6.7b Improve timeseries charts (labels + shaded area + min/max/latest).
+- [x] 6.8 Add `/analytics` hub page (SRQL-driven, chart-first).
+  - [x] 6.8a Add sidebar navigation entry for Analytics.
+  - [x] 6.8b Implement “KPI cards” (total devices, offline devices, high latency, failing services).
+  - [x] 6.8c Add at least 4 visualization panels (timeseries/categories) with sensible defaults (no empty dashboard).
+  - [x] 6.8d Add drill-down interactions (click KPI/chart -> navigate with pre-filtered SRQL).
+- [x] 6.9 Upgrade `/devices` table for operational at-a-glance.
+  - [x] 6.9a Add “Health & Metrics” column with Online/Offline + ICMP sparkline latency.
+  - [x] 6.9b Query ICMP sparkline data in bulk (no per-row N+1 queries) for the current page device IDs.
+  - [x] 6.9c Ensure bounded performance (downsample, cap points, conservative refresh).
+  - [x] 6.9d Add tooltip/legend affordances for sparkline thresholds.
 
 ## 7. Kubernetes Cutover (Deferred)
 - [ ] 7.1 Add `serviceradar-web-ng` image build/push for k8s deployment.
 - [ ] 7.2 Update demo k8s ingress/service routing to point to `web-ng`.
 - [ ] 7.3 Remove Kong and SRQL HTTP service from k8s deployment.
+
+## 8. UI Polish Phase 2 (Dracula Theme & Styling)
+- [x] 8.1 Implement Dracula color theme in daisyUI config.
+  - [x] Update dark theme to use proper Dracula colors (purple, pink, cyan, green, orange).
+  - [x] Reduced border width to 1px for cleaner look.
+- [x] 8.2 Improve timeseries chart styling.
+  - [x] Update chart colors to Dracula palette (green, cyan, purple, pink, orange, yellow).
+  - [x] Improve gradient fills with higher opacity for better visibility.
+- [x] 8.3 Improve ICMP sparkline in device inventory.
+  - [x] Add gradient fill under the line (like React version).
+  - [x] Use SVG path for area fill instead of plain polyline.
+  - [x] Use Dracula colors for tone-based styling (green for success, orange for warning, red for error).
+  - [x] Improve line styling with rounded caps/joins.
+- [x] 8.4 Improve KPI cards in analytics dashboard.
+  - [x] Add larger icon boxes with better contrast.
+  - [x] Add hover scale effect for interactivity.
+  - [x] Use tone-based coloring for values (warning/error numbers stand out).
+  - [x] Add uppercase tracking for titles.
+
+## 9. Known Issues (To Investigate)
+- [ ] 9.1 SRQL stats query issue - "missing ':' in token" error.
+  - This error originates from the SRQL Rust parser (srql crate).
+  - Queries like `in:devices stats:count() as total` may use unsupported syntax.
+  - Requires investigation in `rust/srql` crate parser.
+- [ ] 9.2 KPI cards showing 0 total devices.
+  - Related to 9.1 - the stats queries may not be executing correctly.
+  - The `extract_count/1` function handles various result shapes but depends on valid SRQL response.
+- [ ] 9.3 Scalability considerations for 50k+ devices.
+  - Analytics dashboard should NOT show per-device charts at scale.
+  - KPI cards should use aggregate stats queries (once 9.1 is fixed).
+  - Consider adding pagination or sampling for large inventories.
