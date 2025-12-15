@@ -23,17 +23,14 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
     assert panel.assigns.spec[:x] == "timestamp"
   end
 
-  test "selects graph plugin when viz includes json result column" do
+  test "selects topology plugin when graph payload includes nodes and edges" do
     response = %{
-      "results" => [%{"nodes" => [], "edges" => []}],
-      "viz" => %{
-        "columns" => [%{"name" => "result", "type" => "jsonb"}],
-        "suggestions" => [%{"kind" => "table"}]
-      }
+      "results" => [%{"nodes" => [%{"id" => "n1", "label" => "Node"}], "edges" => []}],
+      "viz" => %{"columns" => [%{"name" => "result", "type" => "jsonb"}]}
     }
 
     [panel] = Engine.build_panels(response)
-    assert panel.plugin == Plugins.GraphResult
+    assert panel.plugin == Plugins.Topology
   end
 
   test "falls back to table plugin when no other plugin matches" do

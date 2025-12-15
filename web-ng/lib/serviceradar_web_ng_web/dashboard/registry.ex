@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Registry do
   def plugins do
     [
       Plugins.Timeseries,
+      Plugins.Topology,
       Plugins.GraphResult,
       Plugins.Categories,
       Plugins.Table

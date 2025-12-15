@@ -855,6 +855,38 @@ mod tests {
             "expected read-only error, got: {err}"
         );
     }
+
+    #[test]
+    fn translate_graph_cypher_wraps_rows_as_topology_payload() {
+        let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+        let request = QueryRequest {
+            query: "in:graph_cypher cypher:\"MATCH (n) RETURN n\" limit:10".to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response = translate_request(&config, request).expect("translation should succeed");
+        let sql = response.sql.to_lowercase();
+
+        assert!(
+            sql.contains("jsonb_build_object('nodes'"),
+            "expected topology wrapper in SQL, got: {}",
+            response.sql
+        );
+        assert!(
+            sql.contains("jsonb_build_array"),
+            "expected jsonb_build_array in SQL, got: {}",
+            response.sql
+        );
+        assert_eq!(
+            response.params.len(),
+            3,
+            "expected cypher + limit + offset binds, got: {:?}",
+            response.params
+        );
+    }
 }
 
 #[derive(Debug, Clone)]

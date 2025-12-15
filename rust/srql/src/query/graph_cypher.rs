@@ -55,7 +55,7 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 
 fn build_sql() -> String {
     format!(
-        "WITH _config AS (\n  SELECT set_config('search_path', 'ag_catalog,pg_catalog,\"$user\",public', false)\n)\nSELECT (result::text)::jsonb AS result\nFROM ag_catalog.cypher('{GRAPH_NAME}', ?) AS (result ag_catalog.agtype)\nLIMIT ? OFFSET ?"
+        "WITH _config AS (\n  SELECT set_config('search_path', 'ag_catalog,pg_catalog,\"$user\",public', false)\n),\n_rows AS (\n  SELECT (result::text)::jsonb AS r\n  FROM ag_catalog.cypher('{GRAPH_NAME}', ?) AS (result ag_catalog.agtype)\n  LIMIT ? OFFSET ?\n)\nSELECT\n  CASE\n    WHEN jsonb_typeof(r) = 'object' AND ((r ? 'nodes') OR (r ? 'vertices')) AND (r ? 'edges') THEN r\n    WHEN jsonb_typeof(r) = 'object' AND ((r ? 'start_id') OR (r ? 'end_id')) THEN jsonb_build_object(\n      'nodes', jsonb_build_array(\n        jsonb_build_object('id', r->>'start_id', 'label', r->>'start_id'),\n        jsonb_build_object('id', r->>'end_id', 'label', r->>'end_id')\n      ),\n      'edges', jsonb_build_array(r)\n    )\n    WHEN jsonb_typeof(r) = 'object' AND (r ? 'id') THEN jsonb_build_object('nodes', jsonb_build_array(r), 'edges', '[]'::jsonb)\n    ELSE jsonb_build_object('nodes', '[]'::jsonb, 'edges', '[]'::jsonb, 'rows', jsonb_build_array(r))\n  END AS result\nFROM _rows"
     )
 }
 

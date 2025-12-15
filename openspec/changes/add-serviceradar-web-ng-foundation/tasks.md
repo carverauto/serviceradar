@@ -86,7 +86,7 @@
   - [x] 4.3b Implement result-shape detection and visualization inference (prefer SRQL-provided metadata).
   - [x] 4.3c Implement a plugin/registry mechanism for adding new visualizations without rewriting the engine.
   - [x] 4.3d Implement time series widgets suitable for TimescaleDB hypertables (time-bounded windows, aggregation).
-  - [ ] 4.3e Implement relationship/topology widgets backed by Apache AGE graph queries.
+  - [x] 4.3e Implement relationship/topology widgets backed by Apache AGE graph queries.
   - [x] 4.3f Support deep-linking dashboards from SRQL (store query or dashboard definition in URL).
   - [ ] 4.3g Add tests for dashboard query execution and bounded error handling.
   - [x] 4.3h Add SRQL-first Dashboard LiveView at `/dashboard` (query bar + results table).
