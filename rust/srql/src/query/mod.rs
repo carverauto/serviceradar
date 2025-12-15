@@ -449,6 +449,8 @@ mod tests {
             database_url: "postgres://example/db".to_string(),
             max_pool_size: 1,
             pg_ssl_root_cert: None,
+            pg_ssl_cert: None,
+            pg_ssl_key: None,
             api_key: None,
             api_key_kv_key: None,
             allowed_origins: None,

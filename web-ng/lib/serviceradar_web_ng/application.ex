@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNG.Application do
     children = [
       ServiceRadarWebNGWeb.Telemetry,
       ServiceRadarWebNG.Repo,
+      ServiceRadarWebNG.SRQL.Engine,
       {DNSCluster,
        query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: ServiceRadarWebNG.PubSub},

@@ -9,9 +9,9 @@
   - [x] *Note:* Add `mix graph.ready` to validate AGE connectivity.
 
 ### SRQL Engine (Rustler)
-- [ ] 1.4 Refactor `rust/srql` to expose public library functions.
-- [ ] 1.5 Implement `native/srql_nif` in Phoenix (Async NIF pattern).
-- [ ] 1.6 Implement `ServiceRadarWebNG.SRQL` module.
+- [x] 1.4 Refactor `rust/srql` to expose public library functions.
+- [x] 1.5 Implement `native/srql_nif` in Phoenix (Async NIF pattern).
+- [x] 1.6 Implement `ServiceRadarWebNG.SRQL` module.
 
 ## 2. Authentication (Fresh Implementation)
 - [x] 2.1 Run `mix phx.gen.auth Accounts User ng_users`.
@@ -39,7 +39,7 @@
 ## 4. UI & API Implementation
 
 ### API Replacement
-- [ ] 4.1 Create `ServiceRadarWebNG.Api.QueryController` (SRQL endpoint).
+- [x] 4.1 Create `ServiceRadarWebNG.Api.QueryController` (SRQL endpoint).
 - [ ] 4.2 Create `ServiceRadarWebNG.Api.DeviceController`.
 
 ### Dashboard (LiveView)

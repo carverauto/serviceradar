@@ -17,6 +17,14 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :api_auth do
+    plug :accepts, ["json"]
+    plug :fetch_session
+    plug :protect_from_forgery
+    plug :fetch_current_scope_for_user
+    plug :require_authenticated_user
+  end
+
   scope "/", ServiceRadarWebNGWeb do
     pipe_through :browser
 
@@ -24,9 +32,11 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   # Other scopes may use custom stacks.
-  # scope "/api", ServiceRadarWebNGWeb do
-  #   pipe_through :api
-  # end
+  scope "/api", ServiceRadarWebNG.Api do
+    pipe_through :api_auth
+
+    post "/query", QueryController, :execute
+  end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:serviceradar_web_ng, :dev_routes) do
