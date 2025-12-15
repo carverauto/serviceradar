@@ -4,9 +4,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadarWebNGWeb.Dashboard.Engine
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
 
   @default_limit 50
   @max_limit 200
+  @metrics_limit 200
 
   @impl true
   def mount(_params, _session, socket) do
@@ -32,6 +34,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:device_id, nil)
      |> assign(:results, [])
      |> assign(:panels, [])
+     |> assign(:metric_sections, [])
      |> assign(:limit, @default_limit)
      |> assign(:srql, srql)}
   end
@@ -89,12 +92,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     srql_response = %{"results" => results, "viz" => viz}
 
+    metric_sections = load_metric_sections(srql_module, device_id)
+
     {:noreply,
      socket
      |> assign(:device_id, device_id)
      |> assign(:limit, limit)
      |> assign(:results, results)
      |> assign(:panels, Engine.build_panels(srql_response))
+     |> assign(:metric_sections, metric_sections)
      |> assign(:srql, srql)}
   end
 
@@ -167,6 +173,41 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             </div>
           </.ui_panel>
 
+          <div :if={@metric_sections != []} class="grid grid-cols-1 gap-4">
+            <%= for section <- @metric_sections do %>
+              <.ui_panel>
+                <:header>
+                  <div class="min-w-0">
+                    <div class="text-sm font-semibold">{section.title}</div>
+                    <div class="text-xs opacity-70">{section.subtitle}</div>
+                  </div>
+                  <div class="hidden md:block shrink-0 font-mono text-[10px] opacity-60 max-w-[28rem] truncate">
+                    {section.query}
+                  </div>
+                </:header>
+
+                <div :if={is_binary(section.error)} class="text-sm opacity-70">
+                  {section.error}
+                </div>
+
+                <div :if={is_nil(section.error) and section.panels == []} class="text-sm opacity-70">
+                  No data returned for this metric query.
+                </div>
+
+                <div :if={is_nil(section.error)} class="grid grid-cols-1 gap-4">
+                  <%= for panel <- section.panels do %>
+                    <.live_component
+                      module={panel.plugin}
+                      id={"device-#{@device_id}-#{section.key}-#{panel.id}"}
+                      title={panel.title}
+                      panel_assigns={panel.assigns}
+                    />
+                  <% end %>
+                </div>
+              </.ui_panel>
+            <% end %>
+          </div>
+
           <%= for panel <- @panels do %>
             <.live_component
               module={panel.plugin}
@@ -223,6 +264,98 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp escape_value(other), do: escape_value(to_string(other))
+
+  defp load_metric_sections(srql_module, device_id) do
+    device_id = escape_value(device_id)
+
+    [
+      %{
+        key: "cpu",
+        title: "CPU",
+        entity: "cpu_metrics",
+        series: "core_id",
+        subtitle: "last_24h · bucket 5m · avg"
+      },
+      %{
+        key: "memory",
+        title: "Memory",
+        entity: "memory_metrics",
+        series: "partition",
+        subtitle: "last_24h · bucket 5m · avg"
+      },
+      %{
+        key: "disk",
+        title: "Disk",
+        entity: "disk_metrics",
+        series: "mount_point",
+        subtitle: "last_24h · bucket 5m · avg"
+      }
+    ]
+    |> Enum.map(fn spec ->
+      query = metric_query(spec.entity, device_id, spec.series)
+
+      base = %{
+        key: spec.key,
+        title: spec.title,
+        subtitle: spec.subtitle,
+        query: query,
+        panels: [],
+        error: nil
+      }
+
+      case srql_module.query(query) do
+        {:ok, %{"results" => results} = resp} when is_list(results) ->
+          viz =
+            case Map.get(resp, "viz") do
+              value when is_map(value) -> value
+              _ -> nil
+            end
+
+          srql_response = %{"results" => results, "viz" => viz}
+
+          panels =
+            srql_response
+            |> Engine.build_panels()
+            |> prefer_visual_panels(results)
+
+          %{base | panels: panels}
+
+        {:ok, other} ->
+          %{base | error: "unexpected SRQL response: #{inspect(other)}"}
+
+        {:error, reason} ->
+          %{base | error: "SRQL error: #{format_error(reason)}"}
+      end
+    end)
+  end
+
+  defp prefer_visual_panels(panels, results) when is_list(panels) do
+    has_non_table? = Enum.any?(panels, &(&1.plugin != TablePlugin))
+
+    if results != [] and has_non_table? do
+      Enum.reject(panels, &(&1.plugin == TablePlugin))
+    else
+      panels
+    end
+  end
+
+  defp prefer_visual_panels(panels, _results), do: panels
+
+  defp metric_query(entity, device_id_escaped, series_field) do
+    series_field = to_string(series_field)
+
+    [
+      "in:#{entity}",
+      "device_id:\"#{device_id_escaped}\"",
+      "time:last_24h",
+      "bucket:5m",
+      "agg:avg",
+      "series:#{series_field}",
+      "sort:timestamp:desc",
+      "limit:#{@metrics_limit}"
+    ]
+    |> Enum.join(" ")
+  end
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)

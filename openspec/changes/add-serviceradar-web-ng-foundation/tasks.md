@@ -103,7 +103,7 @@
 - [x] 4.9 Implement Interfaces List view (SRQL-driven).
 - [x] 4.10 Add sidebar navigation layout (move analytics navigation to sidebar; keep SRQL query bar in the top header).
 
-## 5. Final Cutover
+## 5. Docker Compose Cutover (Local)
 - [x] 5.1 Update `docker-compose.yml` to expose `web-ng` on port 80/443.
 - [x] 5.2 Remove `kong` container from deployment.
 - [x] 5.3 Remove standalone `srql` HTTP service container from deployment (SRQL is now embedded in Phoenix via Rustler).
@@ -114,3 +114,10 @@
 - [x] 6.3 Improve table styling across SRQL-driven pages (readability, hover, truncation).
 - [x] 6.4 Ensure Dashboard renders charts/graphs when results support it (not table-only).
 - [x] 6.5 Add Device details page (SRQL-driven, with related charts where available).
+- [x] 6.6 Default Dashboard query to a metrics entity so charts render out-of-the-box.
+- [x] 6.7 Add CPU/memory/disk metric chart sections to Device details.
+
+## 7. Kubernetes Cutover (Deferred)
+- [ ] 7.1 Add `serviceradar-web-ng` image build/push for k8s deployment.
+- [ ] 7.2 Update demo k8s ingress/service routing to point to `web-ng`.
+- [ ] 7.3 Remove Kong and SRQL HTTP service from k8s deployment.

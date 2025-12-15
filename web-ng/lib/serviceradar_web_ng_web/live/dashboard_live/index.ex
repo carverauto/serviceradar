@@ -15,7 +15,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
      |> assign(:results, [])
      |> assign(:panels, [])
      |> assign(:limit, @default_limit)
-     |> SRQLPage.init("devices", default_limit: @default_limit, builder_available: true)}
+     |> SRQLPage.init("cpu_metrics", default_limit: @default_limit, builder_available: true)}
   end
 
   @impl true
@@ -44,7 +44,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   def handle_event("srql_builder_toggle", _params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "devices")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "cpu_metrics")}
   end
 
   def handle_event("srql_builder_change", params, socket) do
@@ -57,12 +57,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
   def handle_event("srql_builder_add_filter", params, socket) do
     {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "devices")}
+     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "cpu_metrics")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
     {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "devices")}
+     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "cpu_metrics")}
   end
 
   @impl true

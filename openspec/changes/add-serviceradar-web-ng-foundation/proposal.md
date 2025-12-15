@@ -26,23 +26,20 @@
 - **No API Compatibility:** The new API will follow Phoenix conventions, not strictly mimic the legacy Go API structure.
 - **No SRQL DB Runtime in NIF:** SRQL MUST NOT open database connections, manage a separate pool, or require a Tokio runtime inside the Phoenix process. Query execution is handled by Phoenix via Ecto.
 - **No SRQL Writes:** SRQL is the query engine for reads/analytics, not the primary mechanism for writes or stateful workflows (auth/settings/edge onboarding remain API + Ecto driven).
+- **No Kubernetes Cutover Yet:** We will iterate in the local Docker Compose stack before making any k8s routing/cutover changes.
 
 ## Impact
-- **Routing:** Nginx will eventually route `/*` and `/api/*` to Phoenix.
+- **Routing:** Local Docker Compose Nginx routes `/*` and `/api/*` to Phoenix for iteration; Kubernetes cutover is deferred.
 - **Security:** Phoenix becomes the sole Authority for Identity.
 - **Performance:** Elimination of internal HTTP hops for Query and API responses.
   - Translator-only SRQL reduces overhead (no extra DB pool/runtime in NIF) and consolidates DB access under Ecto.
 
 ## Status
-- In progress (Foundation + Auth + initial list views).
+- In progress (local compose iteration; k8s cutover deferred).
 - SRQL translator-only pivot complete: Rust now translates SRQL -> parameterized SQL + typed bind params + pagination metadata; Phoenix executes via Ecto using `ServiceRadarWebNG.Repo`.
 - Added safety checks: unit tests and debug-mode bind-count validation to ensure SQL placeholder arity matches returned params.
-- SRQL-first analytics UX implemented:
-  - Global SRQL query bar rendered from the app layout (LiveView-controlled state) and shows the exact query used by the page.
-  - Query builder panel renders under the header (no navbar height changes) with multi-filter support and operator selection.
-  - Query builder entity/field options are catalog-driven (easy to extend beyond devices/pollers).
-  - Shared SRQL page helper (`ServiceRadarWebNGWeb.SRQL.Page`) used by SRQL-driven pages with URL deep-linking via `?q=...`.
-  - SRQL-driven pages added: `/devices`, `/pollers`, `/events`, `/logs`, `/services`, `/interfaces`.
-  - Dashboard MVP added at `/dashboard` (SRQL-first) with initial result-shape inference and auto-visualizations (heuristics).
-  - Navigation moved to a sidebar to keep the top header focused on the SRQL query bar.
-- Composable dashboard architecture defined; full plugin engine + TimescaleDB/AGE panels remain.
+- SRQL-first analytics UX implemented (query bar + builder + SRQL-driven list pages).
+- Dashboard renders charts/graphs when SRQL metadata supports it (Timeseries/Topology plugins), plus table fallback.
+- Dashboard defaults to a timeseries-friendly metrics entity (e.g., `cpu_metrics`) so charts appear out-of-the-box.
+- Device details page exists at `/devices/:device_id` (SRQL-driven), including related CPU/memory/disk metric charts.
+- UI remains Tailwind + daisyUI (no Mishka Chelekom adoption at this time).
