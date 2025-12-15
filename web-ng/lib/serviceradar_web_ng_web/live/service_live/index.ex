@@ -73,15 +73,14 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
     query = Map.get(assigns.srql, :query, "")
-    has_filter = query != "" and query != nil
-    assigns = assign(assigns, :pagination, pagination) |> assign(:has_filter, has_filter) |> assign(:current_query, query)
+    has_filter = is_binary(query) and String.trim(query) != ""
+    assigns = assign(assigns, :pagination, pagination) |> assign(:has_filter, has_filter)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <div class="space-y-4">
-          <.active_filter_banner :if={@has_filter} query={@current_query} />
-          <.service_summary summary={@summary} />
+          <.service_summary summary={@summary} has_filter={@has_filter} />
 
           <.ui_panel>
             <:header>

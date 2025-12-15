@@ -346,6 +346,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   # Compute summary stats from logs
+  # Must match the same patterns as severity_badge for consistency
   defp compute_summary(logs) when is_list(logs) do
     initial = %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
 
@@ -354,11 +355,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
       updated =
         case severity do
-          s when s in ["fatal"] -> Map.update!(acc, :fatal, &(&1 + 1))
-          s when s in ["error"] -> Map.update!(acc, :error, &(&1 + 1))
-          s when s in ["warn", "warning"] -> Map.update!(acc, :warning, &(&1 + 1))
-          s when s in ["info"] -> Map.update!(acc, :info, &(&1 + 1))
-          s when s in ["debug", "trace"] -> Map.update!(acc, :debug, &(&1 + 1))
+          s when s in ["fatal", "critical"] -> Map.update!(acc, :fatal, &(&1 + 1))
+          s when s in ["error", "err"] -> Map.update!(acc, :error, &(&1 + 1))
+          s when s in ["warn", "warning", "high"] -> Map.update!(acc, :warning, &(&1 + 1))
+          s when s in ["info", "information", "medium"] -> Map.update!(acc, :info, &(&1 + 1))
+          s when s in ["debug", "trace", "low", "ok"] -> Map.update!(acc, :debug, &(&1 + 1))
           _ -> acc
         end
 
