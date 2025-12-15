@@ -28,4 +28,15 @@ defmodule ServiceRadarWebNG.Generators.SRQLGenerators do
     max_length = Keyword.get(opts, :max_length, 12)
     map_of(json_key(), json_value(), max_length: max_length)
   end
+
+  def untrusted_param_value do
+    one_of([
+      string(:printable, max_length: 200),
+      integer(),
+      boolean(),
+      constant(nil),
+      list_of(string(:printable, max_length: 40), max_length: 5),
+      map_of(json_key(max_length: 12), string(:printable, max_length: 60), max_length: 6)
+    ])
+  end
 end

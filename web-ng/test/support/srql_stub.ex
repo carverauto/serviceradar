@@ -3,6 +3,14 @@ defmodule ServiceRadarWebNG.TestSupport.SRQLStub do
 
   @behaviour ServiceRadarWebNG.SRQLBehaviour
 
+  def query(query) when is_binary(query) do
+    {:ok, %{"results" => [], "pagination" => %{}, "error" => nil}}
+  end
+
+  def query(_query) do
+    {:error, :invalid_query}
+  end
+
   @impl true
   def query_request(%{"query" => query}) when is_binary(query) do
     {:ok, %{"results" => [], "pagination" => %{}, "error" => nil}}

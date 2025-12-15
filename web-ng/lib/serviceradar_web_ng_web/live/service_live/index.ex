@@ -27,21 +27,20 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   @impl true
-  def handle_event("srql_change", %{"q" => query}, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_change", %{"q" => query})}
+  def handle_event("srql_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
   end
 
-  def handle_event("srql_submit", %{"q" => raw_query}, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_submit", %{"q" => raw_query}, fallback_path: "/services")}
+  def handle_event("srql_submit", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/services")}
   end
 
   def handle_event("srql_builder_toggle", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "services")}
   end
 
-  def handle_event("srql_builder_change", %{"builder" => params}, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", %{"builder" => params})}
+  def handle_event("srql_builder_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
   end
 
   def handle_event("srql_builder_apply", _params, socket) do

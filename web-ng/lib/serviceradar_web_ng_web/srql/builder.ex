@@ -79,7 +79,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     entity =
       state
       |> Map.get("entity", "devices")
-      |> to_string()
+      |> safe_to_string()
       |> String.trim()
       |> case do
         "" -> "devices"
@@ -182,8 +182,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp maybe_add_filters(tokens, filters) when is_list(filters) do
     Enum.reduce(filters, tokens, fn %{"field" => field, "op" => op, "value" => value}, acc ->
-      field = field |> to_string() |> String.trim()
-      value = value |> to_string() |> String.trim()
+      field = field |> safe_to_string() |> String.trim()
+      value = value |> safe_to_string() |> String.trim()
 
       if value == "" or field == "" do
         acc
@@ -361,21 +361,21 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
         %{
           "field" => normalize_filter_field(entity, field),
           "op" => normalize_filter_op(op),
-          "value" => value |> to_string()
+          "value" => value |> safe_to_string()
         }
 
       %{} = other ->
         %{
           "field" => normalize_filter_field(entity, Map.get(other, "field")),
           "op" => normalize_filter_op(Map.get(other, "op")),
-          "value" => Map.get(other, "value", "") |> to_string()
+          "value" => Map.get(other, "value", "") |> safe_to_string()
         }
 
       other ->
         %{
           "field" => default_search_field(entity),
           "op" => "contains",
-          "value" => to_string(other)
+          "value" => safe_to_string(other)
         }
     end)
   end
@@ -410,4 +410,20 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp normalize_filter_op(op) when op in @allowed_filter_ops, do: op
   defp normalize_filter_op(_), do: "contains"
+
+  defp safe_to_string(nil), do: ""
+  defp safe_to_string(value) when is_binary(value), do: value
+  defp safe_to_string(value) when is_integer(value), do: Integer.to_string(value)
+  defp safe_to_string(value) when is_float(value), do: :erlang.float_to_binary(value)
+  defp safe_to_string(value) when is_atom(value), do: Atom.to_string(value)
+
+  defp safe_to_string(value) when is_list(value) do
+    if Enum.all?(value, &is_integer/1) do
+      to_string(value)
+    else
+      inspect(value)
+    end
+  end
+
+  defp safe_to_string(value), do: inspect(value)
 end

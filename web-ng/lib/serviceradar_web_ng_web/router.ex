@@ -36,6 +36,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through :api_auth
 
     post "/query", QueryController, :execute
+    get "/devices", DeviceController, :index
+    get "/devices/:device_id", DeviceController, :show
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development

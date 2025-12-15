@@ -65,7 +65,7 @@
   - [x] *Note:* It MUST allow editing + re-running the query with bounded errors (no LiveView crashes).
   - [x] *Note:* It SHOULD support deep-linking by storing the SRQL query in the URL (shareable links).
 - [x] 4.0a Add SRQL-driven page helpers (common LiveView patterns: query state, loading/error states, query execution).
-- [ ] 4.0b Add property tests to ensure query input handling never crashes (malformed queries, malformed params).
+- [x] 4.0b Add property tests to ensure query input handling never crashes (malformed queries, malformed params).
 - [x] 4.0c Add an SRQL query builder UI accessible from the query bar (toggle icon + expandable panel).
   - [x] 4.0d Keep SRQL text as the source of truth; builder generates SRQL by updating the query bar.
   - [x] 4.0e Implement a bounded fallback state when SRQL can't be represented by the builder (no destructive rewrites).
@@ -77,8 +77,8 @@
 - [x] 4.1 Create `ServiceRadarWebNG.Api.QueryController` (SRQL endpoint).
   - [x] 4.1a Add property tests for request validation/decoding to ensure malformed JSON and random inputs never crash the endpoint.
 - [x] 4.1b Update `/api/query` implementation to translate SRQL -> SQL and execute via Ecto (translator-only plan).
-- [ ] 4.2 Create `ServiceRadarWebNG.Api.DeviceController`.
-  - [ ] 4.2a Include property tests for any new parsing/validation logic introduced by the device API (IDs, filters, and pagination).
+- [x] 4.2 Create `ServiceRadarWebNG.Api.DeviceController`.
+  - [x] 4.2a Include property tests for any new parsing/validation logic introduced by the device API (IDs, filters, and pagination).
 
 ### Dashboard (LiveView)
 - [ ] 4.3 Re-implement the main Dashboard using LiveView (SRQL-first and composable).

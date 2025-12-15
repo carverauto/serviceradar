@@ -62,7 +62,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         default_query(entity, limit)
       end
 
-    query = Map.get(params, "q", default_query)
+    query = normalize_query_param(Map.get(params, "q"), default_query)
 
     {builder_supported, builder_sync, builder_state} =
       if builder_available do
@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         {:error, reason} -> {[], "SRQL error: #{format_error(reason)}"}
       end
 
-    page_path = URI.parse(uri).path
+    page_path = uri |> normalize_uri() |> URI.parse() |> Map.get(:path)
 
     display_limit =
       query
@@ -113,16 +113,23 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
   def handle_event(socket, event, params, opts \\ [])
 
-  def handle_event(socket, "srql_change", %{"q" => query}, _opts) do
-    srql = update_srql(socket, &Map.put(&1, :draft, query))
-    Phoenix.Component.assign(socket, :srql, srql)
+  def handle_event(socket, "srql_change", params, _opts) do
+    case normalize_param_to_string(extract_param(params, "q")) do
+      nil ->
+        socket
+
+      query ->
+        srql = update_srql(socket, &Map.put(&1, :draft, query))
+        Phoenix.Component.assign(socket, :srql, srql)
+    end
   end
 
-  def handle_event(socket, "srql_submit", %{"q" => raw_query}, opts) do
+  def handle_event(socket, "srql_submit", params, opts) do
     srql = Map.get(socket.assigns, :srql, %{})
-    page_path = srql[:page_path] || Keyword.get(opts, :fallback_path, "/")
+    page_path = srql[:page_path] || Keyword.get(opts, :fallback_path) || "/"
 
-    query = raw_query |> to_string() |> String.trim()
+    raw_query = normalize_param_to_string(extract_param(params, "q")) || ""
+    query = raw_query |> String.trim()
     query = if query == "", do: to_string(srql[:query] || ""), else: query
 
     limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
@@ -149,6 +156,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         limit = Map.get(socket.assigns, limit_assign_key, 100)
 
         current = srql[:draft] || srql[:query] || ""
+        current = normalize_param_to_string(current) || ""
 
         {supported, sync, builder} =
           case Builder.parse(current) do
@@ -171,13 +179,19 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     end
   end
 
-  def handle_event(socket, "srql_builder_change", %{"builder" => params}, _opts) do
+  def handle_event(socket, "srql_builder_change", params, _opts) do
     srql = Map.get(socket.assigns, :srql, %{})
 
     if not Map.get(srql, :builder_available, false) do
       Phoenix.Component.assign(socket, :srql, srql)
     else
-      builder = Builder.update(Map.get(srql, :builder, %{}), params)
+      builder_params =
+        case extract_param(params, "builder") do
+          %{} = v -> v
+          _ -> %{}
+        end
+
+      builder = Builder.update(Map.get(srql, :builder, %{}), builder_params)
 
       updated = Map.put(srql, :builder, builder)
 
@@ -223,7 +237,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     end
   end
 
-  def handle_event(socket, "srql_builder_remove_filter", %{"idx" => idx}, opts) do
+  def handle_event(socket, "srql_builder_remove_filter", params, opts) do
     srql = Map.get(socket.assigns, :srql, %{})
 
     if not Map.get(srql, :builder_available, false) do
@@ -237,8 +251,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         |> Map.get("filters", [])
         |> List.wrap()
 
+      idx = extract_param(params, "idx")
+      raw_idx = normalize_param_to_string(idx) || ""
+
       index =
-        case Integer.parse(to_string(idx)) do
+        case Integer.parse(raw_idx) do
           {i, ""} -> i
           _ -> -1
         end
@@ -279,6 +296,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     end
   end
 
+  def handle_event(socket, _event, _params, _opts), do: socket
+
   defp srql_entity(srql, opts) do
     case Map.get(srql, :entity) || Keyword.get(opts, :entity) do
       value when is_binary(value) and value != "" -> value
@@ -291,6 +310,56 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     |> Map.get(:srql, %{})
     |> fun.()
   end
+
+  defp extract_param(%{} = params, key) when is_binary(key) do
+    case key do
+      "q" -> Map.get(params, "q") || Map.get(params, :q)
+      "builder" -> Map.get(params, "builder") || Map.get(params, :builder)
+      "idx" -> Map.get(params, "idx") || Map.get(params, :idx)
+      _ -> Map.get(params, key)
+    end
+  end
+
+  defp extract_param(_params, _key), do: nil
+
+  defp normalize_param_to_string(nil), do: nil
+  defp normalize_param_to_string(value) when is_binary(value), do: value
+
+  defp normalize_param_to_string([first | _]) when is_binary(first), do: first
+
+  defp normalize_param_to_string(value) when is_list(value) do
+    if Enum.all?(value, &is_integer/1) do
+      to_string(value)
+    else
+      inspect(value)
+    end
+  end
+
+  defp normalize_param_to_string(value) when is_integer(value), do: Integer.to_string(value)
+  defp normalize_param_to_string(value) when is_float(value), do: :erlang.float_to_binary(value)
+  defp normalize_param_to_string(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_param_to_string(value) when is_map(value), do: inspect(value)
+  defp normalize_param_to_string(value), do: inspect(value)
+
+  defp normalize_query_param(value, default_query) do
+    case normalize_param_to_string(value) do
+      nil ->
+        default_query
+
+      query ->
+        query
+        |> String.trim()
+        |> case do
+          "" -> default_query
+          other -> String.slice(other, 0, 4000)
+        end
+    end
+  end
+
+  defp normalize_uri(uri) when is_binary(uri), do: uri
+  defp normalize_uri(%URI{} = uri), do: URI.to_string(uri)
+  defp normalize_uri(nil), do: ""
+  defp normalize_uri(other), do: inspect(other)
 
   defp maybe_sync_builder_to_draft(srql) do
     if srql[:builder_supported] and srql[:builder_sync] do
@@ -342,7 +411,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       srql
       |> Map.get(:builder, %{})
       |> Map.get("entity")
-      |> to_string()
+      |> normalize_param_to_string()
+      |> case do
+        nil -> ""
+        value -> value
+      end
       |> String.trim()
 
     if candidate != "" do
