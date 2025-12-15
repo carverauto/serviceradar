@@ -32,8 +32,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
         {:error, reason} ->
           error_msg = format_error(reason)
+
           if String.contains?(error_msg, "unsupported filter") do
-            {nil, "Event detail view is not available - the events entity does not support ID-based filtering."}
+            {nil,
+             "Event detail view is not available - the events entity does not support ID-based filtering."}
           else
             {nil, "Failed to load event: #{error_msg}"}
           end
@@ -108,8 +110,16 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         <p class="text-sm whitespace-pre-wrap">{Map.get(@event, "short_message")}</p>
       </div>
 
-      <div :if={has_value?(@event, "message") and Map.get(@event, "message") != Map.get(@event, "short_message")} class="mt-4">
-        <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-2">Full Message</span>
+      <div
+        :if={
+          has_value?(@event, "message") and
+            Map.get(@event, "message") != Map.get(@event, "short_message")
+        }
+        class="mt-4"
+      >
+        <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-2">
+          Full Message
+        </span>
         <p class="text-sm whitespace-pre-wrap font-mono text-base-content/80 bg-base-200/30 p-3 rounded-lg">
           {Map.get(@event, "message")}
         </p>
@@ -122,7 +132,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp event_details(assigns) do
     # Fields to show in summary (exclude from details)
-    summary_fields = ~w(id event_id severity event_timestamp timestamp host source short_message message)
+    summary_fields =
+      ~w(id event_id severity event_timestamp timestamp host source short_message message)
 
     # Get remaining fields
     detail_fields =
@@ -158,11 +169,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   attr :value, :any, default: nil
 
   defp format_value(%{value: nil} = assigns) do
-    ~H"<span class='text-base-content/40'>—</span>"
+    ~H|<span class="text-base-content/40">—</span>|
   end
 
   defp format_value(%{value: ""} = assigns) do
-    ~H"<span class='text-base-content/40'>—</span>"
+    ~H|<span class="text-base-content/40">—</span>|
   end
 
   defp format_value(%{value: value} = assigns) when is_boolean(value) do
@@ -259,7 +270,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     value = String.trim(value)
 
     case DateTime.from_iso8601(value) do
-      {:ok, dt, _offset} -> {:ok, dt}
+      {:ok, dt, _offset} ->
+        {:ok, dt}
+
       {:error, _} ->
         case NaiveDateTime.from_iso8601(value) do
           {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}

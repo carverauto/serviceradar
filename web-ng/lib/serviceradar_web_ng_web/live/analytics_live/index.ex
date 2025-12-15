@@ -63,17 +63,21 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       services_list: "in:services time:last_1h sort:timestamp:desc limit:500",
       events: "in:events time:last_24h sort:event_timestamp:desc limit:#{@default_events_limit}",
       logs: "in:logs time:last_24h sort:timestamp:desc limit:#{@default_logs_limit}",
-      # Observability count queries for real totals (no time filter for total count)
-      metrics_count: "in:metrics stats:count() as total",
-      traces_count: "in:otel_traces stats:count() as total",
-      # Observability detail queries (for slow spans analysis) - recent only
-      traces: "in:otel_traces time:last_24h sort:timestamp:desc limit:#{@default_metrics_limit}",
+      # Observability summary (match legacy UI: last_24h window, trace summaries not raw spans)
+      metrics_count: "in:otel_metrics time:last_24h stats:count() as total",
+      trace_stats:
+        "in:otel_trace_summaries time:last_24h " <>
+          ~s|stats:"count() as total, sum(if(status_code != 1, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"|,
+      slow_traces: "in:otel_trace_summaries time:last_24h sort:duration_ms:desc limit:25",
       # High utilization - get recent CPU metrics
-      cpu_metrics: "in:cpu_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
+      cpu_metrics:
+        "in:cpu_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
       # High utilization - get recent Memory metrics
-      memory_metrics: "in:memory_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
+      memory_metrics:
+        "in:memory_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
       # High utilization - get recent Disk metrics
-      disk_metrics: "in:disk_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}"
+      disk_metrics:
+        "in:disk_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}"
       # TODO: Re-enable when backend supports rperf_targets entity
       # rperf_targets: "in:rperf_targets time:last_1h sort:timestamp:desc limit:50"
     }
@@ -90,7 +94,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         {:exit, reason}, acc -> Map.put(acc, :error, "query task exit: #{inspect(reason)}")
       end)
 
-    {stats, device_availability, events_summary, logs_summary, observability, high_utilization, bandwidth, error} =
+    {stats, device_availability, events_summary, logs_summary, observability, high_utilization,
+     bandwidth, error} =
       build_assigns(results)
 
     socket
@@ -144,18 +149,26 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
     # Build observability summary with real counts from stats queries
     metrics_total = extract_count(results[:metrics_count])
-    traces_total = extract_count(results[:traces_count])
-    traces_rows = extract_rows(results[:traces])
-    observability = build_observability_summary(metrics_total, traces_total, traces_rows)
+    trace_stats = extract_map(results[:trace_stats])
+    slow_traces_rows = extract_rows(results[:slow_traces])
+    observability = build_observability_summary(metrics_total, trace_stats, slow_traces_rows)
 
     # Build high utilization summary from CPU, Memory, and Disk metrics
     cpu_metrics_rows = extract_rows(results[:cpu_metrics])
     memory_metrics_rows = extract_rows(results[:memory_metrics])
     disk_metrics_rows = extract_rows(results[:disk_metrics])
-    high_utilization = build_high_utilization_summary(cpu_metrics_rows, memory_metrics_rows, disk_metrics_rows)
+
+    high_utilization =
+      build_high_utilization_summary(cpu_metrics_rows, memory_metrics_rows, disk_metrics_rows)
 
     # Bandwidth summary (disabled until rperf_targets entity is supported)
-    bandwidth = %{targets: [], total_download: 0.0, total_upload: 0.0, avg_latency: 0.0, target_count: 0}
+    bandwidth = %{
+      targets: [],
+      total_download: 0.0,
+      total_upload: 0.0,
+      avg_latency: 0.0,
+      target_count: 0
+    }
 
     error =
       Enum.find_value(results, fn
@@ -164,11 +177,15 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         _ -> nil
       end)
 
-    {stats, device_availability, events_summary, logs_summary, observability, high_utilization, bandwidth, error}
+    {stats, device_availability, events_summary, logs_summary, observability, high_utilization,
+     bandwidth, error}
   end
 
   defp extract_rows({:ok, %{"results" => rows}}) when is_list(rows), do: rows
   defp extract_rows(_), do: []
+
+  defp extract_map({:ok, %{"results" => [%{} = row | _]}}), do: row
+  defp extract_map(_), do: %{}
 
   defp count_unique_services(rows) when is_list(rows) do
     # Group by service_name and get most recent status for each
@@ -222,14 +239,20 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         |> Map.values()
         |> Enum.find(fn v -> is_integer(v) or is_float(v) or (is_binary(v) and v != "") end)
         |> case do
-          v when is_integer(v) -> v
-          v when is_float(v) -> trunc(v)
+          v when is_integer(v) ->
+            v
+
+          v when is_float(v) ->
+            trunc(v)
+
           v when is_binary(v) ->
             case Integer.parse(String.trim(v)) do
               {parsed, ""} -> parsed
               _ -> 0
             end
-          _ -> 0
+
+          _ ->
+            0
         end
 
       _ ->
@@ -267,7 +290,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     Map.merge(counts, %{total: length(rows), recent: recent})
   end
 
-  defp build_events_summary(_), do: %{critical: 0, high: 0, medium: 0, low: 0, total: 0, recent: []}
+  defp build_events_summary(_),
+    do: %{critical: 0, high: 0, medium: 0, low: 0, total: 0, recent: []}
 
   defp build_logs_summary(rows) when is_list(rows) do
     counts =
@@ -298,91 +322,28 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     Map.merge(counts, %{total: length(rows), recent: recent})
   end
 
-  defp build_logs_summary(_), do: %{fatal: 0, error: 0, warning: 0, info: 0, debug: 0, total: 0, recent: []}
+  defp build_logs_summary(_),
+    do: %{fatal: 0, error: 0, warning: 0, info: 0, debug: 0, total: 0, recent: []}
 
-  defp build_observability_summary(metrics_count, traces_count, traces_rows)
-       when is_integer(metrics_count) and is_integer(traces_count) and is_list(traces_rows) do
-    # Calculate duration from start_time_unix_nano and end_time_unix_nano (in nanoseconds)
-    # Duration in milliseconds = (end - start) / 1_000_000
-    durations =
-      traces_rows
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(fn trace ->
-        start_nano = extract_numeric(Map.get(trace, "start_time_unix_nano"))
-        end_nano = extract_numeric(Map.get(trace, "end_time_unix_nano"))
+  defp build_observability_summary(metrics_count, trace_stats, slow_traces)
+       when is_integer(metrics_count) and is_map(trace_stats) and is_list(slow_traces) do
+    traces_count = extract_numeric(Map.get(trace_stats, "total")) |> to_int()
+    error_traces = extract_numeric(Map.get(trace_stats, "error_traces")) |> to_int()
+    slow_traces_count = extract_numeric(Map.get(trace_stats, "slow_traces")) |> to_int()
 
-        cond do
-          is_number(start_nano) and is_number(end_nano) and end_nano > start_nano ->
-            (end_nano - start_nano) / 1_000_000  # Convert nano to ms
-
-          is_number(Map.get(trace, "duration")) ->
-            Map.get(trace, "duration")
-
-          is_number(Map.get(trace, "duration_ms")) ->
-            Map.get(trace, "duration_ms")
-
-          true ->
-            nil
-        end
-      end)
-      |> Enum.filter(&is_number/1)
-
-    avg_duration =
-      if length(durations) > 0 do
-        Enum.sum(durations) / length(durations)
-      else
-        0
-      end
-
-    # Calculate error rate from traces sample
-    # status_code: 0 = unset, 1 = ok, 2 = error
-    error_traces =
-      traces_rows
-      |> Enum.filter(&is_map/1)
-      |> Enum.count(fn trace ->
-        status_code = Map.get(trace, "status_code")
-        is_error = Map.get(trace, "is_error") || Map.get(trace, "error")
-        status_code == 2 or is_error == true
-      end)
-
-    sample_size = length(traces_rows)
     error_rate =
-      if sample_size > 0 do
-        Float.round(error_traces / sample_size * 100, 1)
+      if traces_count > 0 do
+        Float.round(error_traces / traces_count * 100.0, 1)
       else
         0.0
       end
 
-    # Find slow spans (duration > 1000ms)
+    # Trace summary stats don't currently support avg() in SRQL.
+    avg_duration = 0
+
     slow_spans =
-      traces_rows
+      slow_traces
       |> Enum.filter(&is_map/1)
-      |> Enum.map(fn trace ->
-        start_nano = extract_numeric(Map.get(trace, "start_time_unix_nano"))
-        end_nano = extract_numeric(Map.get(trace, "end_time_unix_nano"))
-
-        duration_ms =
-          cond do
-            is_number(start_nano) and is_number(end_nano) and end_nano > start_nano ->
-              (end_nano - start_nano) / 1_000_000
-
-            is_number(Map.get(trace, "duration")) ->
-              Map.get(trace, "duration")
-
-            is_number(Map.get(trace, "duration_ms")) ->
-              Map.get(trace, "duration_ms")
-
-            true ->
-              0
-          end
-
-        Map.put(trace, "duration_ms", duration_ms)
-      end)
-      |> Enum.filter(fn trace ->
-        duration = Map.get(trace, "duration_ms", 0)
-        is_number(duration) and duration > 1000
-      end)
-      |> Enum.sort_by(fn trace -> -Map.get(trace, "duration_ms", 0) end)
       |> Enum.take(5)
 
     %{
@@ -390,14 +351,27 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       traces_count: traces_count,
       avg_duration: avg_duration,
       error_rate: error_rate,
-      slow_spans_count: length(slow_spans),
+      slow_spans_count: slow_traces_count,
       slow_spans: slow_spans
     }
   end
 
-  defp build_observability_summary(_, _, _), do: %{metrics_count: 0, traces_count: 0, avg_duration: 0, error_rate: 0.0, slow_spans_count: 0, slow_spans: []}
+  defp build_observability_summary(_, _, _),
+    do: %{
+      metrics_count: 0,
+      traces_count: 0,
+      avg_duration: 0,
+      error_rate: 0.0,
+      slow_spans_count: 0,
+      slow_spans: []
+    }
 
-  defp build_high_utilization_summary(cpu_rows, memory_rows, disk_rows) when is_list(cpu_rows) and is_list(memory_rows) and is_list(disk_rows) do
+  defp to_int(value) when is_integer(value), do: value
+  defp to_int(value) when is_float(value), do: trunc(value)
+  defp to_int(_), do: 0
+
+  defp build_high_utilization_summary(cpu_rows, memory_rows, disk_rows)
+       when is_list(cpu_rows) and is_list(memory_rows) and is_list(disk_rows) do
     # Deduplicate CPU by host, keeping most recent
     unique_cpu_hosts =
       cpu_rows
@@ -434,7 +408,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     cpu_categorized =
       unique_cpu_hosts
       |> Enum.reduce(%{warning: [], critical: []}, fn row, acc ->
-        cpu_usage = extract_numeric(Map.get(row, "value") || Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") || Map.get(row, "user") || 0)
+        cpu_usage =
+          extract_numeric(
+            Map.get(row, "value") || Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") ||
+              Map.get(row, "user") || 0
+          )
 
         cond do
           cpu_usage >= 90 -> Map.update!(acc, :critical, &[row | &1])
@@ -447,7 +425,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     memory_categorized =
       unique_memory_hosts
       |> Enum.reduce(%{warning: [], critical: []}, fn row, acc ->
-        mem_usage = extract_numeric(Map.get(row, "percent") || Map.get(row, "value") || Map.get(row, "used_percent") || 0)
+        mem_usage =
+          extract_numeric(
+            Map.get(row, "percent") || Map.get(row, "value") || Map.get(row, "used_percent") || 0
+          )
 
         cond do
           mem_usage >= 90 -> Map.update!(acc, :critical, &[row | &1])
@@ -473,11 +454,21 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     high_cpu_services =
       unique_cpu_hosts
       |> Enum.filter(fn row ->
-        cpu = extract_numeric(Map.get(row, "value") || Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") || Map.get(row, "user") || 0)
+        cpu =
+          extract_numeric(
+            Map.get(row, "value") || Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") ||
+              Map.get(row, "user") || 0
+          )
+
         cpu >= 70
       end)
       |> Enum.sort_by(fn row ->
-        cpu = extract_numeric(Map.get(row, "value") || Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") || Map.get(row, "user") || 0)
+        cpu =
+          extract_numeric(
+            Map.get(row, "value") || Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") ||
+              Map.get(row, "user") || 0
+          )
+
         -cpu
       end)
       |> Enum.take(3)
@@ -486,11 +477,19 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     high_memory_services =
       unique_memory_hosts
       |> Enum.filter(fn row ->
-        mem = extract_numeric(Map.get(row, "percent") || Map.get(row, "value") || Map.get(row, "used_percent") || 0)
+        mem =
+          extract_numeric(
+            Map.get(row, "percent") || Map.get(row, "value") || Map.get(row, "used_percent") || 0
+          )
+
         mem >= 70
       end)
       |> Enum.sort_by(fn row ->
-        mem = extract_numeric(Map.get(row, "percent") || Map.get(row, "value") || Map.get(row, "used_percent") || 0)
+        mem =
+          extract_numeric(
+            Map.get(row, "percent") || Map.get(row, "value") || Map.get(row, "used_percent") || 0
+          )
+
         -mem
       end)
       |> Enum.take(3)
@@ -524,15 +523,31 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     }
   end
 
-  defp build_high_utilization_summary(_, _, _), do: %{cpu_warning: 0, cpu_critical: 0, memory_warning: 0, memory_critical: 0, disk_warning: 0, disk_critical: 0, cpu_services: [], memory_services: [], disk_services: [], total_cpu_hosts: 0, total_memory_hosts: 0, total_disk_mounts: 0}
+  defp build_high_utilization_summary(_, _, _),
+    do: %{
+      cpu_warning: 0,
+      cpu_critical: 0,
+      memory_warning: 0,
+      memory_critical: 0,
+      disk_warning: 0,
+      disk_critical: 0,
+      cpu_services: [],
+      memory_services: [],
+      disk_services: [],
+      total_cpu_hosts: 0,
+      total_memory_hosts: 0,
+      total_disk_mounts: 0
+    }
 
   defp extract_numeric(value) when is_number(value), do: value
+
   defp extract_numeric(value) when is_binary(value) do
     case Float.parse(value) do
       {num, _} -> num
       :error -> 0
     end
   end
+
   defp extract_numeric(_), do: 0
 
   defp normalize_severity(nil), do: ""
@@ -610,17 +625,19 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             subtitle="unique"
             icon="hero-exclamation-triangle"
             tone={if Map.get(@stats, :failing_services, 0) > 0, do: "error", else: "success"}
-            href={~p"/services?#{%{q: "in:services available:false time:last_1h sort:timestamp:desc limit:100"}}"}
+            href={
+              ~p"/services?#{%{q: "in:services available:false time:last_1h sort:timestamp:desc limit:100"}}"
+            }
           />
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
           <.device_availability_widget availability={@device_availability} loading={@loading} />
-          <.observability_widget data={@observability} loading={@loading} />
-          <.critical_events_widget summary={@events_summary} loading={@loading} />
-          <.critical_logs_widget summary={@logs_summary} loading={@loading} />
           <.high_utilization_widget data={@high_utilization} loading={@loading} />
           <.bandwidth_widget data={@bandwidth} loading={@loading} />
+          <.critical_logs_widget summary={@logs_summary} loading={@loading} />
+          <.observability_widget data={@observability} loading={@loading} />
+          <.critical_events_widget summary={@events_summary} loading={@loading} />
         </div>
 
         <div class="mt-3 text-xs text-base-content/40 flex items-center gap-2">
@@ -660,7 +677,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           </div>
           <div class="text-sm text-base-content/60">
             {@title}
-            <span :if={@subtitle} class="text-base-content/40"> | {@subtitle}</span>
+            <span :if={@subtitle} class="text-base-content/40"> |     {@subtitle}</span>
           </div>
         </div>
       </div>
@@ -828,7 +845,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <div class="text-sm font-semibold">Critical Events</div>
         </.link>
         <.link
-          href={~p"/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:event_timestamp:desc limit:100"}}"}
+          href={
+            ~p"/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:event_timestamp:desc limit:100"}}"
+          }
           class="text-base-content/60 hover:text-primary"
           title="View critical events"
         >
@@ -855,33 +874,44 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               count={Map.get(@summary, :critical, 0)}
               total={Map.get(@summary, :total, 0)}
               color="error"
-              href={~p"/events?#{%{q: "in:events severity:Critical time:last_24h sort:event_timestamp:desc limit:100"}}"}
+              href={
+                ~p"/events?#{%{q: "in:events severity:Critical time:last_24h sort:event_timestamp:desc limit:100"}}"
+              }
             />
             <.severity_row
               label="High"
               count={Map.get(@summary, :high, 0)}
               total={Map.get(@summary, :total, 0)}
               color="warning"
-              href={~p"/events?#{%{q: "in:events severity:High time:last_24h sort:event_timestamp:desc limit:100"}}"}
+              href={
+                ~p"/events?#{%{q: "in:events severity:High time:last_24h sort:event_timestamp:desc limit:100"}}"
+              }
             />
             <.severity_row
               label="Medium"
               count={Map.get(@summary, :medium, 0)}
               total={Map.get(@summary, :total, 0)}
               color="info"
-              href={~p"/events?#{%{q: "in:events severity:Medium time:last_24h sort:event_timestamp:desc limit:100"}}"}
+              href={
+                ~p"/events?#{%{q: "in:events severity:Medium time:last_24h sort:event_timestamp:desc limit:100"}}"
+              }
             />
             <.severity_row
               label="Low"
               count={Map.get(@summary, :low, 0)}
               total={Map.get(@summary, :total, 0)}
               color="primary"
-              href={~p"/events?#{%{q: "in:events severity:Low time:last_24h sort:event_timestamp:desc limit:100"}}"}
+              href={
+                ~p"/events?#{%{q: "in:events severity:Low time:last_24h sort:event_timestamp:desc limit:100"}}"
+              }
             />
           </tbody>
         </table>
 
-        <div :if={Map.get(@summary, :recent, []) == []} class="flex-1 flex items-center justify-center text-center">
+        <div
+          :if={Map.get(@summary, :recent, []) == []}
+          class="flex-1 flex items-center justify-center text-center"
+        >
           <div>
             <.icon name="hero-shield-check" class="size-8 mx-auto mb-2 text-success" />
             <p class="text-sm text-base-content/60">No critical events</p>
@@ -889,7 +919,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           </div>
         </div>
 
-        <div :if={Map.get(@summary, :recent, []) != []} class="flex-1 overflow-y-auto space-y-2 min-h-0">
+        <div
+          :if={Map.get(@summary, :recent, []) != []}
+          class="flex-1 overflow-y-auto space-y-2 min-h-0"
+        >
           <%= for event <- Map.get(@summary, :recent, []) do %>
             <.event_entry event={event} />
           <% end %>
@@ -910,7 +943,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <div class="text-sm font-semibold">Critical Logs</div>
         </.link>
         <.link
-          href={~p"/logs?#{%{q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc limit:100"}}"}
+          href={
+            ~p"/logs?#{%{q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc limit:100"}}"
+          }
           class="text-base-content/60 hover:text-primary"
           title="View critical logs"
         >
@@ -937,40 +972,53 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               count={Map.get(@summary, :fatal, 0)}
               total={Map.get(@summary, :total, 0)}
               color="error"
-              href={~p"/logs?#{%{q: "in:logs severity_text:(fatal,FATAL) time:last_24h sort:timestamp:desc limit:100"}}"}
+              href={
+                ~p"/logs?#{%{q: "in:logs severity_text:(fatal,FATAL) time:last_24h sort:timestamp:desc limit:100"}}"
+              }
             />
             <.severity_row
               label="Error"
               count={Map.get(@summary, :error, 0)}
               total={Map.get(@summary, :total, 0)}
               color="warning"
-              href={~p"/logs?#{%{q: "in:logs severity_text:(error,ERROR) time:last_24h sort:timestamp:desc limit:100"}}"}
+              href={
+                ~p"/logs?#{%{q: "in:logs severity_text:(error,ERROR) time:last_24h sort:timestamp:desc limit:100"}}"
+              }
             />
             <.severity_row
               label="Warning"
               count={Map.get(@summary, :warning, 0)}
               total={Map.get(@summary, :total, 0)}
               color="info"
-              href={~p"/logs?#{%{q: "in:logs severity_text:(warning,warn,WARNING,WARN) time:last_24h sort:timestamp:desc limit:100"}}"}
+              href={
+                ~p"/logs?#{%{q: "in:logs severity_text:(warning,warn,WARNING,WARN) time:last_24h sort:timestamp:desc limit:100"}}"
+              }
             />
             <.severity_row
               label="Info"
               count={Map.get(@summary, :info, 0)}
               total={Map.get(@summary, :total, 0)}
               color="primary"
-              href={~p"/logs?#{%{q: "in:logs severity_text:(info,INFO) time:last_24h sort:timestamp:desc limit:100"}}"}
+              href={
+                ~p"/logs?#{%{q: "in:logs severity_text:(info,INFO) time:last_24h sort:timestamp:desc limit:100"}}"
+              }
             />
             <.severity_row
               label="Debug"
               count={Map.get(@summary, :debug, 0)}
               total={Map.get(@summary, :total, 0)}
               color="neutral"
-              href={~p"/logs?#{%{q: "in:logs severity_text:(debug,trace,DEBUG,TRACE) time:last_24h sort:timestamp:desc limit:100"}}"}
+              href={
+                ~p"/logs?#{%{q: "in:logs severity_text:(debug,trace,DEBUG,TRACE) time:last_24h sort:timestamp:desc limit:100"}}"
+              }
             />
           </tbody>
         </table>
 
-        <div :if={Map.get(@summary, :recent, []) == []} class="flex-1 flex items-center justify-center text-center">
+        <div
+          :if={Map.get(@summary, :recent, []) == []}
+          class="flex-1 flex items-center justify-center text-center"
+        >
           <div>
             <.icon name="hero-document-check" class="size-8 mx-auto mb-2 text-success" />
             <p class="text-sm text-base-content/60">No fatal or error logs</p>
@@ -978,7 +1026,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           </div>
         </div>
 
-        <div :if={Map.get(@summary, :recent, []) != []} class="flex-1 overflow-y-auto space-y-2 min-h-0">
+        <div
+          :if={Map.get(@summary, :recent, []) != []}
+          class="flex-1 overflow-y-auto space-y-2 min-h-0"
+        >
           <%= for log <- Map.get(@summary, :recent, []) do %>
             <.log_entry log={log} />
           <% end %>
@@ -1016,7 +1067,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <div class="text-sm font-semibold">Observability</div>
         </.link>
         <.link
-          href={~p"/dashboard?#{%{q: "in:otel_traces time:last_1h sort:timestamp:desc limit:100"}}"}
+          href={
+            ~p"/dashboard?#{%{q: "in:otel_trace_summaries time:last_1h sort:timestamp:desc limit:100"}}"
+          }
           class="text-base-content/60 hover:text-primary"
           title="View traces"
         >
@@ -1042,8 +1095,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             <div class="text-xl font-bold text-info">{format_duration(@avg_duration)}</div>
             <div class="text-xs text-base-content/60">Avg Duration</div>
           </div>
-          <div class={["rounded-lg p-3 text-center", @error_rate > 5 && "bg-error/10" || "bg-base-200/50"]}>
-            <div class={["text-xl font-bold", @error_rate > 5 && "text-error" || "text-success"]}>
+          <div class={[
+            "rounded-lg p-3 text-center",
+            (@error_rate > 5 && "bg-error/10") || "bg-base-200/50"
+          ]}>
+            <div class={["text-xl font-bold", (@error_rate > 5 && "text-error") || "text-success"]}>
               {@error_rate}%
             </div>
             <div class="text-xs text-base-content/60">Error Rate</div>
@@ -1052,8 +1108,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
         <div class="flex-1 min-h-0">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-medium text-base-content/70">Slow Spans (&gt;1s)</span>
-            <span class={["text-xs font-bold", @slow_spans_count > 0 && "text-warning" || "text-base-content/50"]}>
+            <span class="text-xs font-medium text-base-content/70">Slow Traces (&gt;100ms)</span>
+            <span class={[
+              "text-xs font-bold",
+              (@slow_spans_count > 0 && "text-warning") || "text-base-content/50"
+            ]}>
               {@slow_spans_count}
             </span>
           </div>
@@ -1115,7 +1174,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     ~H"""
     <.ui_panel class="h-80">
       <:header>
-        <.link href={~p"/dashboard?#{%{q: "in:cpu_metrics time:last_1h sort:timestamp:desc"}}"} class="hover:text-primary transition-colors">
+        <.link
+          href={~p"/dashboard?#{%{q: "in:cpu_metrics time:last_1h sort:timestamp:desc"}}"}
+          class="hover:text-primary transition-colors"
+        >
           <div class="text-sm font-semibold">High Utilization</div>
         </.link>
         <.link
@@ -1138,37 +1200,68 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             <div class="flex flex-wrap items-center gap-1">
               <span :if={@cpu_critical > 0} class="badge badge-error badge-xs">{@cpu_critical}</span>
               <span :if={@cpu_warning > 0} class="badge badge-warning badge-xs">{@cpu_warning}</span>
-              <span :if={@cpu_critical == 0 and @cpu_warning == 0} class="badge badge-success badge-xs">OK</span>
+              <span
+                :if={@cpu_critical == 0 and @cpu_warning == 0}
+                class="badge badge-success badge-xs"
+              >
+                OK
+              </span>
             </div>
           </div>
           <div class="rounded-lg bg-base-200/50 p-2">
             <div class="text-[10px] text-base-content/60 mb-1">Memory</div>
             <div class="flex flex-wrap items-center gap-1">
-              <span :if={@memory_critical > 0} class="badge badge-error badge-xs">{@memory_critical}</span>
-              <span :if={@memory_warning > 0} class="badge badge-warning badge-xs">{@memory_warning}</span>
-              <span :if={@memory_critical == 0 and @memory_warning == 0} class="badge badge-success badge-xs">OK</span>
+              <span :if={@memory_critical > 0} class="badge badge-error badge-xs">
+                {@memory_critical}
+              </span>
+              <span :if={@memory_warning > 0} class="badge badge-warning badge-xs">
+                {@memory_warning}
+              </span>
+              <span
+                :if={@memory_critical == 0 and @memory_warning == 0}
+                class="badge badge-success badge-xs"
+              >
+                OK
+              </span>
             </div>
           </div>
           <div class="rounded-lg bg-base-200/50 p-2">
             <div class="text-[10px] text-base-content/60 mb-1">Disk</div>
             <div class="flex flex-wrap items-center gap-1">
-              <span :if={@disk_critical > 0} class="badge badge-error badge-xs">{@disk_critical}</span>
-              <span :if={@disk_warning > 0} class="badge badge-warning badge-xs">{@disk_warning}</span>
-              <span :if={@disk_critical == 0 and @disk_warning == 0} class="badge badge-success badge-xs">OK</span>
+              <span :if={@disk_critical > 0} class="badge badge-error badge-xs">
+                {@disk_critical}
+              </span>
+              <span :if={@disk_warning > 0} class="badge badge-warning badge-xs">
+                {@disk_warning}
+              </span>
+              <span
+                :if={@disk_critical == 0 and @disk_warning == 0}
+                class="badge badge-success badge-xs"
+              >
+                OK
+              </span>
             </div>
           </div>
         </div>
 
-        <div class="text-[10px] text-base-content/50 mb-2">{@total_cpu_hosts} CPU · {@total_memory_hosts} MEM · {@total_disk_mounts} disks</div>
+        <div class="text-[10px] text-base-content/50 mb-2">
+          {@total_cpu_hosts} CPU · {@total_memory_hosts} MEM · {@total_disk_mounts} disks
+        </div>
 
-        <div :if={@cpu_services == [] and @memory_services == [] and @disk_services == []} class="flex-1 flex items-center justify-center">
+        <div
+          :if={@cpu_services == [] and @memory_services == [] and @disk_services == []}
+          class="flex-1 flex items-center justify-center"
+        >
           <div class="text-center">
             <.icon name="hero-cpu-chip" class="size-6 mx-auto mb-1 text-success" />
             <p class="text-xs text-base-content/60">No high utilization</p>
           </div>
         </div>
 
-        <div :if={@cpu_services != [] or @memory_services != [] or @disk_services != []} class="flex-1 overflow-y-auto space-y-1 min-h-0">
+        <div
+          :if={@cpu_services != [] or @memory_services != [] or @disk_services != []}
+          class="flex-1 overflow-y-auto space-y-1 min-h-0"
+        >
           <%= for svc <- @cpu_services do %>
             <.utilization_row service={svc} type="cpu" />
           <% end %>
@@ -1206,7 +1299,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     ~H"""
     <.ui_panel class="h-80">
       <:header>
-        <.link href={~p"/dashboard?#{%{q: "in:rperf_targets time:last_1h sort:timestamp:desc"}}"} class="hover:text-primary transition-colors">
+        <.link
+          href={~p"/dashboard?#{%{q: "in:rperf_targets time:last_1h sort:timestamp:desc"}}"}
+          class="hover:text-primary transition-colors"
+        >
           <div class="text-sm font-semibold">Bandwidth Tracker</div>
         </.link>
         <.link
@@ -1279,7 +1375,13 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp utilization_row(assigns) do
     svc = assigns.service
-    cpu = extract_numeric(Map.get(svc, "value") || Map.get(svc, "cpu_usage") || Map.get(svc, "usage_percent") || Map.get(svc, "user") || 0)
+
+    cpu =
+      extract_numeric(
+        Map.get(svc, "value") || Map.get(svc, "cpu_usage") || Map.get(svc, "usage_percent") ||
+          Map.get(svc, "user") || 0
+      )
+
     mem = extract_numeric(Map.get(svc, "memory_usage") || Map.get(svc, "mem_percent") || 0)
     host = Map.get(svc, "host") || Map.get(svc, "device_id") || "Unknown"
 
@@ -1294,7 +1396,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       <div class="truncate flex-1 font-medium" title={@host}>{@host}</div>
       <div class="flex items-center gap-2 shrink-0">
         <span class={["badge badge-xs", cpu_badge_class(@cpu)]}>CPU {@cpu |> round()}%</span>
-        <span :if={@mem > 0} class={["badge badge-xs", cpu_badge_class(@mem)]}>MEM {@mem |> round()}%</span>
+        <span :if={@mem > 0} class={["badge badge-xs", cpu_badge_class(@mem)]}>
+          MEM {@mem |> round()}%
+        </span>
       </div>
     </div>
     """
@@ -1304,7 +1408,12 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp memory_utilization_row(assigns) do
     svc = assigns.service
-    percent = extract_numeric(Map.get(svc, "percent") || Map.get(svc, "value") || Map.get(svc, "used_percent") || 0)
+
+    percent =
+      extract_numeric(
+        Map.get(svc, "percent") || Map.get(svc, "value") || Map.get(svc, "used_percent") || 0
+      )
+
     host = Map.get(svc, "host") || Map.get(svc, "device_id") || "Unknown"
 
     assigns =
@@ -1316,7 +1425,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     <div class="flex items-center gap-2 p-1.5 rounded bg-base-200/50 text-xs">
       <div class="truncate flex-1 font-medium" title={@host}>{@host}</div>
       <div class="shrink-0">
-        <span class={["badge badge-xs", memory_badge_class(@percent)]}>MEM {@percent |> round()}%</span>
+        <span class={["badge badge-xs", memory_badge_class(@percent)]}>
+          MEM {@percent |> round()}%
+        </span>
       </div>
     </div>
     """
@@ -1343,7 +1454,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         <span class="text-base-content/50 ml-1" title={@mount}>{@mount}</span>
       </div>
       <div class="shrink-0">
-        <span class={["badge badge-xs", disk_badge_class(@percent)]}>DISK {@percent |> round()}%</span>
+        <span class={["badge badge-xs", disk_badge_class(@percent)]}>
+          DISK {@percent |> round()}%
+        </span>
       </div>
     </div>
     """
@@ -1365,8 +1478,13 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp disk_badge_class(_), do: "badge-ghost"
 
   defp span_name(span) when is_map(span) do
-    name = Map.get(span, "name") || Map.get(span, "span_name") || Map.get(span, "operation")
-    service = Map.get(span, "service_name")
+    name =
+      Map.get(span, "name") ||
+        Map.get(span, "span_name") ||
+        Map.get(span, "root_span_name") ||
+        Map.get(span, "operation")
+
+    service = Map.get(span, "service_name") || Map.get(span, "root_service_name")
 
     case {name, service} do
       {nil, nil} -> "Unknown"
@@ -1375,12 +1493,15 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       {n, svc} -> "#{svc}: #{n}"
     end
   end
+
   defp span_name(_), do: "Unknown"
 
   defp span_duration(span) when is_map(span) do
     # Use pre-calculated duration_ms if available, otherwise calculate
     case Map.get(span, "duration_ms") do
-      ms when is_number(ms) -> ms
+      ms when is_number(ms) ->
+        ms
+
       _ ->
         start_nano = extract_numeric(Map.get(span, "start_time_unix_nano"))
         end_nano = extract_numeric(Map.get(span, "end_time_unix_nano"))
@@ -1392,6 +1513,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         end
     end
   end
+
   defp span_duration(_), do: 0
 
   defp format_duration(ms) when is_number(ms) do
@@ -1401,6 +1523,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       true -> "#{round(ms)}ms"
     end
   end
+
   defp format_duration(_), do: "0ms"
 
   defp format_mbps(value) when is_number(value) do
@@ -1411,6 +1534,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       true -> "0"
     end
   end
+
   defp format_mbps(_), do: "0"
 
   attr :label, :string, required: true
@@ -1444,10 +1568,15 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     ~H"""
     <div class="p-2 rounded-lg bg-base-200/50 hover:bg-base-200 transition-colors">
       <div class="flex items-start gap-2">
-        <.icon name={severity_icon(@event["severity"])} class={["size-4 mt-0.5", severity_text_class(severity_color(@event["severity"]))]} />
+        <.icon
+          name={severity_icon(@event["severity"])}
+          class={["size-4 mt-0.5", severity_text_class(severity_color(@event["severity"]))]}
+        />
         <div class="flex-1 min-w-0">
           <div class="text-sm font-medium truncate">{@event["host"] || "Unknown"}</div>
-          <div class="text-xs text-base-content/60 truncate">{@event["short_message"] || "No details"}</div>
+          <div class="text-xs text-base-content/60 truncate">
+            {@event["short_message"] || "No details"}
+          </div>
           <div class={["text-xs", severity_text_class(severity_color(@event["severity"]))]}>
             {@event["severity"] || "Unknown"} · {format_relative_time(@event["event_timestamp"])}
           </div>
@@ -1463,7 +1592,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     ~H"""
     <div class="p-2 rounded-lg bg-base-200/50 hover:bg-base-200 transition-colors">
       <div class="flex items-start gap-2">
-        <.icon name={log_level_icon(@log["severity_text"])} class={["size-4 mt-0.5", severity_text_class(log_level_color(@log["severity_text"]))]} />
+        <.icon
+          name={log_level_icon(@log["severity_text"])}
+          class={["size-4 mt-0.5", severity_text_class(log_level_color(@log["severity_text"]))]}
+        />
         <div class="flex-1 min-w-0">
           <div class="text-sm font-medium truncate">{@log["service_name"] || "Unknown Service"}</div>
           <div class="text-xs text-base-content/60 truncate">{truncate_message(@log["body"])}</div>
@@ -1518,6 +1650,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   end
 
   defp truncate_message(nil), do: ""
+
   defp truncate_message(msg) when is_binary(msg) do
     if String.length(msg) > 80 do
       String.slice(msg, 0, 80) <> "..."
@@ -1525,6 +1658,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       msg
     end
   end
+
   defp truncate_message(_), do: ""
 
   defp format_relative_time(nil), do: "Unknown"

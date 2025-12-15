@@ -172,7 +172,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             No device row returned for this query.
           </div>
 
-          <div :if={is_map(@device_row)} class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+          <div
+            :if={is_map(@device_row)}
+            class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+          >
             <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
               <.kv_inline label="Hostname" value={Map.get(@device_row, "hostname")} />
               <.kv_inline label="IP" value={Map.get(@device_row, "ip")} mono />
@@ -435,7 +438,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         <div :if={@segments != []} class="h-6 flex rounded-lg overflow-hidden bg-base-200">
           <%= for seg <- @segments do %>
             <div
-              class={["h-full", seg.available && "bg-success" || "bg-error"]}
+              class={["h-full", (seg.available && "bg-success") || "bg-error"]}
               style={"width: #{seg.width}%"}
               title={seg.title}
             />
@@ -603,10 +606,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp latency_color(_), do: "success"
 
   defp disk_max_percent([]), do: 0.0
-  defp disk_max_percent(disks), do: Enum.max_by(disks, & &1.percent, fn -> %{percent: 0.0} end).percent
+
+  defp disk_max_percent(disks),
+    do: Enum.max_by(disks, & &1.percent, fn -> %{percent: 0.0} end).percent
 
   defp disk_max_mount([]), do: "—"
-  defp disk_max_mount(disks), do: Enum.max_by(disks, & &1.percent, fn -> %{mount_point: "—"} end).mount_point
+
+  defp disk_max_mount(disks),
+    do: Enum.max_by(disks, & &1.percent, fn -> %{mount_point: "—"} end).mount_point
 
   defp format_bytes(bytes) when is_number(bytes) do
     cond do
@@ -617,6 +624,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       true -> "#{bytes} B"
     end
   end
+
   defp format_bytes(_), do: "—"
 
   defp format_latency(ms) when is_float(ms), do: :erlang.float_to_binary(ms, decimals: 1)
@@ -632,7 +640,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     query =
       "in:timeseries_metrics metric_type:icmp device_id:\"#{escaped_id}\" " <>
-      "time:#{@availability_window} bucket:#{@availability_bucket} agg:count sort:timestamp:asc limit:100"
+        "time:#{@availability_window} bucket:#{@availability_bucket} agg:count sort:timestamp:asc limit:100"
 
     case srql_module.query(query) do
       {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
@@ -640,7 +648,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       _ ->
         # Fallback: try healthcheck_results
-        fallback_query = "in:healthcheck_results device_id:\"#{escaped_id}\" time:#{@availability_window} limit:200"
+        fallback_query =
+          "in:healthcheck_results device_id:\"#{escaped_id}\" time:#{@availability_window} limit:200"
 
         case srql_module.query(fallback_query) do
           {:ok, %{"results" => rows}} when is_list(rows) ->
@@ -656,7 +665,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     # Each row represents a bucket. If we got ICMP data, the device was online.
     # This is a simplified availability based on metric presence.
     total = length(rows)
-    online = Enum.count(rows, fn r -> is_map(r) and is_number(Map.get(r, "value")) and Map.get(r, "value") > 0 end)
+
+    online =
+      Enum.count(rows, fn r ->
+        is_map(r) and is_number(Map.get(r, "value")) and Map.get(r, "value") > 0
+      end)
+
     offline = total - online
 
     uptime_pct = if total > 0, do: Float.round(online / total * 100.0, 1), else: 0.0
@@ -687,9 +701,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp build_availability_from_healthchecks(rows) do
     total = length(rows)
-    online = Enum.count(rows, fn r ->
-      is_map(r) and (Map.get(r, "is_available") == true or Map.get(r, "available") == true)
-    end)
+
+    online =
+      Enum.count(rows, fn r ->
+        is_map(r) and (Map.get(r, "is_available") == true or Map.get(r, "available") == true)
+      end)
+
     offline = total - online
 
     uptime_pct = if total > 0, do: Float.round(online / total * 100.0, 1), else: 0.0
@@ -698,7 +715,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     segments =
       rows
       |> Enum.filter(&is_map/1)
-      |> Enum.take(48)  # Limit segments for display
+      # Limit segments for display
+      |> Enum.take(48)
       |> Enum.map(fn r ->
         available = Map.get(r, "is_available") == true or Map.get(r, "available") == true
         ts = Map.get(r, "timestamp") || Map.get(r, "checked_at", "")
@@ -746,14 +764,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     case srql_module.query(query) do
       {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
         # Get unique cores and calculate average
-        values = Enum.map(rows, fn r -> extract_numeric(Map.get(r, "value")) end)
-                 |> Enum.filter(&is_number/1)
+        values =
+          Enum.map(rows, fn r -> extract_numeric(Map.get(r, "value")) end)
+          |> Enum.filter(&is_number/1)
 
-        cores = rows
-                |> Enum.map(fn r -> Map.get(r, "core") || Map.get(r, "cpu_core") end)
-                |> Enum.filter(&is_binary/1)
-                |> Enum.uniq()
-                |> length()
+        cores =
+          rows
+          |> Enum.map(fn r -> Map.get(r, "core") || Map.get(r, "cpu_core") end)
+          |> Enum.filter(&is_binary/1)
+          |> Enum.uniq()
+          |> length()
 
         avg = if values != [], do: Enum.sum(values) / length(values), else: 0.0
 
@@ -804,7 +824,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         # Group by mount point and take the latest for each
         rows
         |> Enum.filter(&is_map/1)
-        |> Enum.group_by(fn r -> Map.get(r, "mount_point") || Map.get(r, "mount") || "unknown" end)
+        |> Enum.group_by(fn r ->
+          Map.get(r, "mount_point") || Map.get(r, "mount") || "unknown"
+        end)
         |> Enum.map(fn {mount, disk_rows} ->
           latest = List.first(disk_rows)
           used = extract_numeric(Map.get(latest, "used_bytes") || Map.get(latest, "value"))
@@ -832,7 +854,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp load_icmp_rtt(srql_module, escaped_id) do
-    query = "in:timeseries_metrics metric_type:icmp device_id:\"#{escaped_id}\" sort:timestamp:desc limit:1"
+    query =
+      "in:timeseries_metrics metric_type:icmp device_id:\"#{escaped_id}\" sort:timestamp:desc limit:1"
 
     case srql_module.query(query) do
       {:ok, %{"results" => [row | _]}} when is_map(row) ->
@@ -840,7 +863,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
         # Convert from nanoseconds if value is very large
         if is_number(value) do
-          if value > 1_000_000.0, do: Float.round(value / 1_000_000.0, 2), else: Float.round(value * 1.0, 2)
+          if value > 1_000_000.0,
+            do: Float.round(value / 1_000_000.0, 2),
+            else: Float.round(value * 1.0, 2)
         else
           nil
         end
@@ -935,11 +960,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     ~H"""
     <div class="flex items-center gap-3 p-2 rounded-lg bg-base-200/30">
-      <div class={["w-2.5 h-2.5 rounded-full shrink-0", @available && "bg-success" || "bg-error"]} />
+      <div class={["w-2.5 h-2.5 rounded-full shrink-0", (@available && "bg-success") || "bg-error"]} />
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
           <span class="text-sm font-medium truncate">{@service_name}</span>
-          <span :if={@service_type != ""} class="text-xs text-base-content/50 px-1.5 py-0.5 rounded bg-base-200">
+          <span
+            :if={@service_type != ""}
+            class="text-xs text-base-content/50 px-1.5 py-0.5 rounded bg-base-200"
+          >
             {@service_type}
           </span>
         </div>
@@ -954,43 +982,110 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp format_healthcheck_time(nil), do: ""
   defp format_healthcheck_time(""), do: ""
+
   defp format_healthcheck_time(ts) when is_binary(ts) do
     case DateTime.from_iso8601(ts) do
       {:ok, dt, _} -> Calendar.strftime(dt, "%H:%M:%S")
       _ -> ts
     end
   end
+
   defp format_healthcheck_time(_), do: ""
 
   defp load_healthcheck_summary(srql_module, device_id) do
-    escaped_id = escape_value(device_id)
+    case parse_service_device_id(device_id) do
+      {:service, "checker", checker_id} ->
+        case parse_checker_identity(checker_id) do
+          {:ok, service_name, agent_id} ->
+            query =
+              "in:services " <>
+                "service_name:\"#{escape_value(service_name)}\" " <>
+                "agent_id:\"#{escape_value(agent_id)}\" " <>
+                "time:last_24h sort:timestamp:desc limit:200"
 
-    # Query services table for this device (matches by device_id in service_status or agent_id)
-    # The device_id format is like "serviceradar:agent:docker-agent"
-    # We need to search in services where poller_id or agent_id contains part of this
+            case srql_module.query(query) do
+              {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
+                build_healthcheck_summary(rows)
 
-    # First try to get service status for this exact device_id
-    query = "in:services device_id:\"#{escaped_id}\" time:last_24h sort:timestamp:desc limit:50"
+              _ ->
+                nil
+            end
 
-    case srql_module.query(query) do
-      {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
-        build_healthcheck_summary(rows)
+          :error ->
+            nil
+        end
 
-      _ ->
-        # Try alternate approach: look for agent_id match
-        # Extract the agent portion from device_id (e.g., "docker-agent" from "serviceradar:agent:docker-agent")
-        agent_name = device_id |> String.split(":") |> List.last()
-        alt_query = "in:services agent_id:\"#{escape_value(agent_name)}\" time:last_24h sort:timestamp:desc limit:50"
+      {:service, "agent", agent_id} ->
+        query =
+          "in:services " <>
+            "agent_id:\"#{escape_value(agent_id)}\" " <>
+            "time:last_24h sort:timestamp:desc limit:200"
 
-        case srql_module.query(alt_query) do
+        case srql_module.query(query) do
           {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
             build_healthcheck_summary(rows)
 
           _ ->
             nil
         end
+
+      {:service, "poller", poller_id} ->
+        query =
+          "in:services " <>
+            "poller_id:\"#{escape_value(poller_id)}\" " <>
+            "time:last_24h sort:timestamp:desc limit:200"
+
+        case srql_module.query(query) do
+          {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
+            build_healthcheck_summary(rows)
+
+          _ ->
+            nil
+        end
+
+      {:service, _service_type, service_id} ->
+        # Best-effort fallback: show any recent service_status rows matching this service_id as service_name.
+        query =
+          "in:services " <>
+            "service_name:\"#{escape_value(service_id)}\" " <>
+            "time:last_24h sort:timestamp:desc limit:200"
+
+        case srql_module.query(query) do
+          {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
+            build_healthcheck_summary(rows)
+
+          _ ->
+            nil
+        end
+
+      _ ->
+        nil
     end
   end
+
+  defp parse_service_device_id(device_id) when is_binary(device_id) do
+    case String.split(device_id, ":", parts: 3) do
+      ["serviceradar", service_type, service_id] when service_type != "" and service_id != "" ->
+        {:service, service_type, service_id}
+
+      _ ->
+        :non_service
+    end
+  end
+
+  defp parse_service_device_id(_), do: :non_service
+
+  defp parse_checker_identity(checker_id) when is_binary(checker_id) do
+    case String.split(checker_id, "@", parts: 2) do
+      [service_name, agent_id] when service_name != "" and agent_id != "" ->
+        {:ok, service_name, agent_id}
+
+      _ ->
+        :error
+    end
+  end
+
+  defp parse_checker_identity(_), do: :error
 
   defp build_healthcheck_summary(rows) do
     # Group by service_name and take most recent status for each

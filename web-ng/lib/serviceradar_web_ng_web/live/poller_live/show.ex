@@ -149,11 +149,11 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Show do
   attr :value, :any, default: nil
 
   defp format_value(%{value: nil} = assigns) do
-    ~H"<span class='text-base-content/40'>—</span>"
+    ~H|<span class="text-base-content/40">—</span>|
   end
 
   defp format_value(%{value: ""} = assigns) do
-    ~H"<span class='text-base-content/40'>—</span>"
+    ~H|<span class="text-base-content/40">—</span>|
   end
 
   defp format_value(%{value: value} = assigns) when is_boolean(value) do
@@ -165,7 +165,7 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Show do
   end
 
   defp format_value(%{value: value} = assigns) when is_map(value) and map_size(value) == 0 do
-    ~H"<span class='text-base-content/40'>—</span>"
+    ~H|<span class="text-base-content/40">—</span>|
   end
 
   defp format_value(%{value: value} = assigns) when is_map(value) or is_list(value) do
@@ -240,7 +240,9 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Show do
     value = String.trim(value)
 
     case DateTime.from_iso8601(value) do
-      {:ok, dt, _offset} -> {:ok, dt}
+      {:ok, dt, _offset} ->
+        {:ok, dt}
+
       {:error, _} ->
         case NaiveDateTime.from_iso8601(value) do
           {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}

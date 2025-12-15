@@ -73,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
     query = Map.get(assigns.srql, :query, "")
-    has_filter = is_binary(query) and String.trim(query) != ""
+    has_filter = is_binary(query) and Regex.match?(~r/(?:^|\s)service_type:/, query)
     assigns = assign(assigns, :pagination, pagination) |> assign(:has_filter, has_filter)
 
     ~H"""
@@ -141,13 +141,26 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
         <div class="flex items-center justify-between">
           <div>
-            <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Unique Services</div>
+            <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">
+              Unique Services
+            </div>
             <div class="text-2xl font-bold">{@total}</div>
             <div class="text-xs text-base-content/50">from {@check_count} checks</div>
           </div>
           <div class="size-12 rounded-lg bg-base-200/50 flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" class="size-6 text-base-content/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="size-6 text-base-content/40"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
           </div>
         </div>
@@ -161,8 +174,19 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
             <div class="text-xs text-base-content/50">{@avail_pct}% healthy</div>
           </div>
           <div class="size-12 rounded-lg bg-success/10 flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" class="size-6 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="size-6 text-success"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M5 13l4 4L19 7"
+              />
             </svg>
           </div>
         </div>
@@ -175,16 +199,38 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
             <div class={["text-2xl font-bold", @unavailable > 0 && "text-error"]}>{@unavailable}</div>
             <div class="text-xs text-base-content/50">{100 - @avail_pct}% failing</div>
           </div>
-          <div class={["size-12 rounded-lg flex items-center justify-center", @unavailable > 0 && "bg-error/10", @unavailable == 0 && "bg-base-200/50"]}>
-            <svg xmlns="http://www.w3.org/2000/svg" class={["size-6", @unavailable > 0 && "text-error", @unavailable == 0 && "text-base-content/40"]} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          <div class={[
+            "size-12 rounded-lg flex items-center justify-center",
+            @unavailable > 0 && "bg-error/10",
+            @unavailable == 0 && "bg-base-200/50"
+          ]}>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class={[
+                "size-6",
+                @unavailable > 0 && "text-error",
+                @unavailable == 0 && "text-base-content/40"
+              ]}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </div>
         </div>
       </div>
     </div>
 
-    <div :if={map_size(@by_type) > 0} class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+    <div
+      :if={map_size(@by_type) > 0}
+      class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
+    >
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2">
           <div class="text-xs text-base-content/50 uppercase tracking-wider">By Service Type</div>
@@ -198,7 +244,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
         </div>
         <div class="flex items-center gap-1">
           <.link
-            patch={~p"/services?#{%{q: "in:services available:false time:last_1h sort:timestamp:desc"}}"}
+            patch={
+              ~p"/services?#{%{q: "in:services available:false time:last_1h sort:timestamp:desc"}}"
+            }
             class="btn btn-ghost btn-xs text-error"
           >
             Failing Only
@@ -221,6 +269,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   defp type_bar(assigns) do
     type_total = assigns.counts.available + assigns.counts.unavailable
     avail_pct = if type_total > 0, do: round(assigns.counts.available / type_total * 100), else: 0
+    fail_pct = if type_total > 0, do: 100 - avail_pct, else: 0
     bar_width = if assigns.total > 0, do: max(2, round(type_total / assigns.total * 100)), else: 0
 
     # Build SRQL query for this service type
@@ -230,6 +279,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       assigns
       |> assign(:type_total, type_total)
       |> assign(:avail_pct, avail_pct)
+      |> assign(:fail_pct, fail_pct)
       |> assign(:bar_width, bar_width)
       |> assign(:type_query, type_query)
 
@@ -239,17 +289,26 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       class="flex items-center gap-3 p-1.5 -mx-1.5 rounded-lg hover:bg-base-200/50 transition-colors cursor-pointer group"
       title={"Filter by #{@type}"}
     >
-      <div class="w-28 truncate text-xs font-medium group-hover:text-primary" title={@type}>{@type}</div>
+      <div class="w-28 truncate text-xs font-medium group-hover:text-primary" title={@type}>
+        {@type}
+      </div>
       <div class="flex-1 h-4 bg-base-200/50 rounded-full overflow-hidden flex">
         <div
+          :if={@avail_pct > 0}
           class="h-full bg-success/70 transition-all"
           style={"width: #{@avail_pct}%"}
           title={"#{@counts.available} available"}
         />
         <div
+          :if={@fail_pct > 0}
           class="h-full bg-error/70 transition-all"
-          style={"width: #{100 - @avail_pct}%"}
+          style={"width: #{@fail_pct}%"}
           title={"#{@counts.unavailable} unavailable"}
+        />
+        <div
+          :if={@avail_pct == 0 and @fail_pct == 0}
+          class="h-full bg-base-200/70"
+          style="width: 100%"
         />
       </div>
       <div class="w-16 text-right">
@@ -301,10 +360,16 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
               <td class="whitespace-nowrap text-xs">
                 <.status_badge available={Map.get(svc, "available")} />
               </td>
-              <td class="whitespace-nowrap text-xs truncate max-w-[8rem]" title={Map.get(svc, "service_type")}>
+              <td
+                class="whitespace-nowrap text-xs truncate max-w-[8rem]"
+                title={Map.get(svc, "service_type")}
+              >
                 {Map.get(svc, "service_type") || "—"}
               </td>
-              <td class="whitespace-nowrap text-xs truncate max-w-[12rem]" title={Map.get(svc, "service_name")}>
+              <td
+                class="whitespace-nowrap text-xs truncate max-w-[12rem]"
+                title={Map.get(svc, "service_name")}
+              >
                 {Map.get(svc, "service_name") || "—"}
               </td>
               <td class="text-xs truncate max-w-[28rem]" title={Map.get(svc, "message")}>
@@ -351,7 +416,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     value = String.trim(value)
 
     case DateTime.from_iso8601(value) do
-      {:ok, dt, _offset} -> {:ok, dt}
+      {:ok, dt, _offset} ->
+        {:ok, dt}
+
       {:error, _} ->
         case NaiveDateTime.from_iso8601(value) do
           {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
@@ -380,7 +447,13 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       |> Map.values()
 
     # Now compute summary from unique services only
-    initial = %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: length(services)}
+    initial = %{
+      total: 0,
+      available: 0,
+      unavailable: 0,
+      by_type: %{},
+      check_count: length(services)
+    }
 
     result =
       Enum.reduce(unique_services, initial, fn svc, acc ->
@@ -408,5 +481,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     result
   end
 
-  defp compute_summary(_), do: %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: 0}
+  defp compute_summary(_),
+    do: %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: 0}
 end

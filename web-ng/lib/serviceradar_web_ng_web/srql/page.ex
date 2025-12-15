@@ -48,8 +48,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
     builder =
       if builder_available do
-        srql
-        |> Map.get(:builder, Builder.default_state(entity, default_limit))
+        base =
+          if Map.has_key?(params, "q") do
+            Map.get(srql, :builder, Builder.default_state(entity, limit))
+          else
+            Builder.default_state(entity, limit)
+          end
+
+        base
         |> Map.put("entity", entity)
         |> Map.put("limit", limit)
       else

@@ -35,8 +35,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
         {:error, reason} ->
           # If log_id filter not supported, show helpful message
           error_msg = format_error(reason)
+
           if String.contains?(error_msg, "unsupported filter") do
-            {nil, "Log detail view is not available - the logs entity does not support ID-based filtering."}
+            {nil,
+             "Log detail view is not available - the logs entity does not support ID-based filtering."}
           else
             {nil, "Failed to load log: #{error_msg}"}
           end
@@ -124,7 +126,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp log_body(assigns) do
     body = Map.get(assigns.log, "body") || Map.get(assigns.log, "message") || ""
-    is_json = String.starts_with?(String.trim(body), "{") or String.starts_with?(String.trim(body), "[")
+
+    is_json =
+      String.starts_with?(String.trim(body), "{") or String.starts_with?(String.trim(body), "[")
 
     formatted_body =
       if is_json do
@@ -162,7 +166,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp log_details(assigns) do
     # Fields shown in summary or body (exclude from details)
-    summary_fields = ~w(id log_id severity_text severity_number timestamp observed_timestamp service_name scope_name trace_id span_id body message)
+    summary_fields =
+      ~w(id log_id severity_text severity_number timestamp observed_timestamp service_name scope_name trace_id span_id body message)
 
     # Get remaining fields
     detail_fields =
@@ -198,11 +203,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   attr :value, :any, default: nil
 
   defp format_value(%{value: nil} = assigns) do
-    ~H"<span class='text-base-content/40'>—</span>"
+    ~H|<span class="text-base-content/40">—</span>|
   end
 
   defp format_value(%{value: ""} = assigns) do
-    ~H"<span class='text-base-content/40'>—</span>"
+    ~H|<span class="text-base-content/40">—</span>|
   end
 
   defp format_value(%{value: value} = assigns) when is_boolean(value) do
@@ -299,7 +304,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     value = String.trim(value)
 
     case DateTime.from_iso8601(value) do
-      {:ok, dt, _offset} -> {:ok, dt}
+      {:ok, dt, _offset} ->
+        {:ok, dt}
+
       {:error, _} ->
         case NaiveDateTime.from_iso8601(value) do
           {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}

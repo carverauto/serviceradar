@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   @default_limit 20
   @max_limit 100
+  @default_stats_window "last_24h"
 
   @impl true
   def mount(_params, _session, socket) do
@@ -29,8 +30,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         max_limit: @max_limit
       )
 
-    # Compute summary from current page results
-    summary = compute_summary(socket.assigns.logs)
+    summary = load_summary(srql_module(), Map.get(socket.assigns.srql, :query))
+
+    summary =
+      case summary do
+        %{total: 0} when is_list(socket.assigns.logs) and socket.assigns.logs != [] ->
+          compute_summary(socket.assigns.logs)
+
+        other ->
+          other
+      end
 
     {:noreply, assign(socket, :summary, summary)}
   end
@@ -81,28 +90,28 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <.log_summary summary={@summary} />
 
           <.ui_panel>
-          <:header>
-            <div class="min-w-0">
-              <div class="text-sm font-semibold">Log Stream</div>
-              <div class="text-xs text-base-content/70">
-                Click any log entry to view full details.
+            <:header>
+              <div class="min-w-0">
+                <div class="text-sm font-semibold">Log Stream</div>
+                <div class="text-xs text-base-content/70">
+                  Click any log entry to view full details.
+                </div>
               </div>
+            </:header>
+
+            <.logs_table id="logs" logs={@logs} />
+
+            <div class="mt-4 pt-4 border-t border-base-200">
+              <.ui_pagination
+                prev_cursor={Map.get(@pagination, "prev_cursor")}
+                next_cursor={Map.get(@pagination, "next_cursor")}
+                base_path="/logs"
+                query={Map.get(@srql, :query, "")}
+                limit={@limit}
+                result_count={length(@logs)}
+              />
             </div>
-          </:header>
-
-          <.logs_table id="logs" logs={@logs} />
-
-          <div class="mt-4 pt-4 border-t border-base-200">
-            <.ui_pagination
-              prev_cursor={Map.get(@pagination, "prev_cursor")}
-              next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path="/logs"
-              query={Map.get(@srql, :query, "")}
-              limit={@limit}
-              result_count={length(@logs)}
-            />
-          </div>
-        </.ui_panel>
+          </.ui_panel>
         </div>
       </div>
     </Layouts.app>
@@ -135,7 +144,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <div class="flex items-center gap-1">
           <.link patch={~p"/logs"} class="btn btn-ghost btn-xs">All Logs</.link>
           <.link
-            patch={~p"/logs?#{%{q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc"}}"}
+            patch={
+              ~p"/logs?#{%{q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc"}}"
+            }
             class="btn btn-ghost btn-xs text-error"
           >
             Errors Only
@@ -145,9 +156,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <.level_stat label="Fatal" count={@fatal} total={@total} color="error" level="fatal,FATAL" />
         <.level_stat label="Error" count={@error} total={@total} color="warning" level="error,ERROR" />
-        <.level_stat label="Warning" count={@warning} total={@total} color="info" level="warn,warning,WARN,WARNING" />
+        <.level_stat
+          label="Warning"
+          count={@warning}
+          total={@total}
+          color="info"
+          level="warn,warning,WARN,WARNING"
+        />
         <.level_stat label="Info" count={@info} total={@total} color="primary" level="info,INFO" />
-        <.level_stat label="Debug" count={@debug} total={@total} color="success" level="debug,trace,DEBUG,TRACE" />
+        <.level_stat
+          label="Debug"
+          count={@debug}
+          total={@total}
+          color="success"
+          level="debug,trace,DEBUG,TRACE"
+        />
       </div>
     </div>
     """
@@ -299,6 +322,95 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  defp load_summary(srql_module, current_query) do
+    base_query = base_query_for_summary(current_query)
+
+    queries = %{
+      total: "#{base_query} stats:count() as total",
+      fatal: "#{base_query} severity_text:(fatal,FATAL) stats:count() as fatal",
+      error: "#{base_query} severity_text:(error,ERROR) stats:count() as error",
+      warning: "#{base_query} severity_text:(warning,warn,WARNING,WARN) stats:count() as warning",
+      info: "#{base_query} severity_text:(info,INFO) stats:count() as info",
+      debug: "#{base_query} severity_text:(debug,trace,DEBUG,TRACE) stats:count() as debug"
+    }
+
+    results =
+      Enum.reduce(queries, %{}, fn {key, query}, acc ->
+        Map.put(acc, key, srql_module.query(query))
+      end)
+
+    %{
+      total: extract_stat(results[:total], "total"),
+      fatal: extract_stat(results[:fatal], "fatal"),
+      error: extract_stat(results[:error], "error"),
+      warning: extract_stat(results[:warning], "warning"),
+      info: extract_stat(results[:info], "info"),
+      debug: extract_stat(results[:debug], "debug")
+    }
+  end
+
+  defp base_query_for_summary(nil), do: "in:logs time:#{@default_stats_window}"
+
+  defp base_query_for_summary(query) when is_binary(query) do
+    trimmed = String.trim(query)
+
+    cond do
+      trimmed == "" ->
+        "in:logs time:#{@default_stats_window}"
+
+      String.contains?(trimmed, "in:logs") ->
+        trimmed
+        |> strip_tokens_for_stats()
+        |> ensure_time_filter()
+
+      true ->
+        "in:logs time:#{@default_stats_window}"
+    end
+  end
+
+  defp base_query_for_summary(_), do: "in:logs time:#{@default_stats_window}"
+
+  defp strip_tokens_for_stats(query) do
+    query
+    |> Regex.replace(~r/(?:^|\s)limit:\S+/, "")
+    |> Regex.replace(~r/(?:^|\s)sort:\S+/, "")
+    |> Regex.replace(~r/(?:^|\s)cursor:\S+/, "")
+    |> String.trim()
+  end
+
+  defp ensure_time_filter(query) do
+    if Regex.match?(~r/(?:^|\s)time:\S+/, query) do
+      query
+    else
+      "#{query} time:#{@default_stats_window}"
+    end
+  end
+
+  defp extract_stat({:ok, %{"results" => [%{} = row | _]}}, key) when is_binary(key) do
+    row
+    |> Map.get(key)
+    |> to_int()
+  end
+
+  defp extract_stat({:ok, %{"results" => [value | _]}}, _key), do: to_int(value)
+  defp extract_stat(_result, _key), do: 0
+
+  defp to_int(value) when is_integer(value), do: value
+  defp to_int(value) when is_float(value), do: trunc(value)
+
+  defp to_int(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} -> parsed
+      _ -> 0
+    end
+  end
+
+  defp to_int(_), do: 0
+
+  defp srql_module do
+    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
+
   defp parse_timestamp(nil), do: :error
   defp parse_timestamp(""), do: :error
 
@@ -306,7 +418,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     value = String.trim(value)
 
     case DateTime.from_iso8601(value) do
-      {:ok, dt, _offset} -> {:ok, dt}
+      {:ok, dt, _offset} ->
+        {:ok, dt}
+
       {:error, _} ->
         case NaiveDateTime.from_iso8601(value) do
           {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
@@ -320,8 +434,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp log_service(log) do
     service =
       Map.get(log, "service_name") ||
-      Map.get(log, "source") ||
-      Map.get(log, "scope_name")
+        Map.get(log, "source") ||
+        Map.get(log, "scope_name")
 
     case service do
       nil -> "—"
@@ -334,8 +448,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp log_message(log) do
     message =
       Map.get(log, "body") ||
-      Map.get(log, "message") ||
-      Map.get(log, "short_message")
+        Map.get(log, "message") ||
+        Map.get(log, "short_message")
 
     case message do
       nil -> "—"
