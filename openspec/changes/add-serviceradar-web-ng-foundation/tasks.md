@@ -81,7 +81,7 @@
   - [x] 4.2a Include property tests for any new parsing/validation logic introduced by the device API (IDs, filters, and pagination).
 
 ### Dashboard (LiveView)
-- [ ] 4.3 Re-implement the main Dashboard using LiveView (SRQL-first and composable).
+- [x] 4.3 Re-implement the main Dashboard using LiveView (SRQL-first and composable).
   - [x] 4.3a Implement a composable dashboard engine (query-driven widgets, visualization selection).
   - [x] 4.3b Implement result-shape detection and visualization inference (prefer SRQL-provided metadata).
   - [x] 4.3c Implement a plugin/registry mechanism for adding new visualizations without rewriting the engine.
@@ -104,6 +104,13 @@
 - [x] 4.10 Add sidebar navigation layout (move analytics navigation to sidebar; keep SRQL query bar in the top header).
 
 ## 5. Final Cutover
-- [ ] 5.1 Update `docker-compose.yml` to expose `web-ng` on port 80/443.
-- [ ] 5.2 Remove `kong` container from deployment.
-- [ ] 5.3 Remove standalone `srql` HTTP service container from deployment (SRQL is now embedded in Phoenix via Rustler).
+- [x] 5.1 Update `docker-compose.yml` to expose `web-ng` on port 80/443.
+- [x] 5.2 Remove `kong` container from deployment.
+- [x] 5.3 Remove standalone `srql` HTTP service container from deployment (SRQL is now embedded in Phoenix via Rustler).
+
+## 6. UI Polish & UX (Follow-up)
+- [x] 6.1 Move ServiceRadar branding/logo into the left navigation sidebar.
+- [x] 6.2 Reduce sidebar width and tighten spacing.
+- [x] 6.3 Improve table styling across SRQL-driven pages (readability, hover, truncation).
+- [x] 6.4 Ensure Dashboard renders charts/graphs when results support it (not table-only).
+- [x] 6.5 Add Device details page (SRQL-driven, with related charts where available).

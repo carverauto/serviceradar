@@ -59,17 +59,6 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               >
                 <.icon name="hero-bars-3" class="size-5" />
               </label>
-
-              <.link href={~p"/"} class="flex items-center gap-2">
-                <img
-                  src={~p"/images/logo.svg"}
-                  alt="ServiceRadar"
-                  class="size-7 opacity-95"
-                  width="28"
-                  height="28"
-                />
-                <span class="font-semibold tracking-tight">ServiceRadar</span>
-              </.link>
             </div>
 
             <div class="flex-1 min-w-0">
@@ -124,8 +113,19 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
       <div :if={@signed_in?} class="drawer-side z-30">
         <label for="sr-sidebar" class="drawer-overlay" aria-label="Close navigation"></label>
-        <aside class="w-72 bg-base-100 border-r border-base-200 min-h-full flex flex-col">
-          <div class="p-4">
+        <aside class="w-56 bg-base-100 border-r border-base-200 min-h-full flex flex-col">
+          <div class="p-3">
+            <.link href={~p"/"} class="flex items-center gap-2 mb-4">
+              <img
+                src={~p"/images/logo.svg"}
+                alt="ServiceRadar"
+                class="size-7 opacity-95"
+                width="28"
+                height="28"
+              />
+              <span class="font-semibold tracking-tight">ServiceRadar</span>
+            </.link>
+
             <div class="text-xs font-semibold text-base-content/50 mb-2">Navigation</div>
             <ul class="menu menu-sm">
               <li>
@@ -187,7 +187,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
             </ul>
           </div>
 
-          <div class="mt-auto p-4 border-t border-base-200">
+          <div class="mt-auto p-3 border-t border-base-200">
             <div class="text-xs font-semibold text-base-content/50 mb-2">Account</div>
 
             <div class="text-sm text-base-content/80 truncate mb-3">

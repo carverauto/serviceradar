@@ -17,10 +17,13 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
       }
     }
 
-    [panel] = Engine.build_panels(response)
-    assert panel.plugin == Plugins.Timeseries
-    assert is_map(panel.assigns)
-    assert panel.assigns.spec[:x] == "timestamp"
+    panels = Engine.build_panels(response)
+    assert Enum.any?(panels, &(&1.plugin == Plugins.Timeseries))
+    assert Enum.any?(panels, &(&1.plugin == Plugins.Table))
+
+    timeseries_panel = Enum.find(panels, &(&1.plugin == Plugins.Timeseries))
+    assert is_map(timeseries_panel.assigns)
+    assert timeseries_panel.assigns.spec[:x] == "timestamp"
   end
 
   test "selects topology plugin when graph payload includes nodes and edges" do
@@ -29,13 +32,13 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
       "viz" => %{"columns" => [%{"name" => "result", "type" => "jsonb"}]}
     }
 
-    [panel] = Engine.build_panels(response)
-    assert panel.plugin == Plugins.Topology
+    panels = Engine.build_panels(response)
+    assert Enum.any?(panels, &(&1.plugin == Plugins.Topology))
+    assert Enum.any?(panels, &(&1.plugin == Plugins.Table))
   end
 
   test "falls back to table plugin when no other plugin matches" do
     response = %{"results" => [%{"a" => 1}], "viz" => %{"suggestions" => [%{"kind" => "table"}]}}
-    [panel] = Engine.build_panels(response)
-    assert panel.plugin == Plugins.Table
+    assert [%{plugin: Plugins.Table}] = Engine.build_panels(response)
   end
 end

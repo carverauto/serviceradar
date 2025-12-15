@@ -13,23 +13,43 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Engine do
         }
 
   def build_panels(%{} = srql_response) do
-    panel = build_panel(srql_response)
-    [panel]
+    plugins = Registry.plugins()
+
+    {table_plugins, other_plugins} =
+      Enum.split_with(plugins, fn plugin ->
+        plugin == ServiceRadarWebNGWeb.Dashboard.Plugins.Table
+      end)
+
+    other_panels =
+      other_plugins
+      |> Enum.filter(fn plugin ->
+        Code.ensure_loaded?(plugin) and plugin.supports?(srql_response)
+      end)
+      |> Enum.map(&plugin_panel(&1, srql_response))
+      |> Enum.reject(&is_nil/1)
+
+    table_panel =
+      case table_plugins do
+        [table_plugin | _] -> plugin_panel(table_plugin, srql_response)
+        _ -> nil
+      end
+
+    cond do
+      other_panels == [] ->
+        case table_panel do
+          %{} -> [table_panel]
+          _ -> [fallback_panel(srql_response)]
+        end
+
+      is_map(table_panel) ->
+        other_panels ++ [table_panel]
+
+      true ->
+        other_panels
+    end
   end
 
   def build_panels(_), do: [fallback_panel(%{"results" => []})]
-
-  defp build_panel(%{} = srql_response) do
-    plugins = Registry.plugins()
-
-    Enum.reduce_while(plugins, nil, fn plugin, _acc ->
-      if Code.ensure_loaded?(plugin) and plugin.supports?(srql_response) do
-        {:halt, plugin_panel(plugin, srql_response)}
-      else
-        {:cont, nil}
-      end
-    end) || fallback_panel(srql_response)
-  end
 
   defp plugin_panel(plugin, srql_response) do
     base = %{
@@ -44,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Engine do
         %{base | assigns: assigns}
 
       _ ->
-        fallback_panel(srql_response)
+        nil
     end
   end
 

@@ -82,7 +82,10 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
-  secret_key_base: "uarz4k4TPR8JU/ASE+T2fipnJD3oENLDYV5qGpuQx9qmFITYuBXjGNZDwWF4Pj13",
+  secret_key_base:
+    System.get_env("DEV_SECRET_KEY_BASE") ||
+      System.get_env("SECRET_KEY_BASE") ||
+      Base.encode64(:crypto.strong_rand_bytes(48)),
   watchers: [
     esbuild: {Esbuild, :install_and_run, [:serviceradar_web_ng, ~w(--sourcemap=inline --watch)]},
     tailwind: {Tailwind, :install_and_run, [:serviceradar_web_ng, ~w(--watch)]}

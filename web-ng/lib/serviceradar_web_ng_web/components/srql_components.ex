@@ -71,11 +71,13 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
     ~H"""
     <div class="overflow-x-auto rounded-xl border border-base-200 bg-base-100 shadow-sm">
-      <table id={@id} class="table table-sm w-full">
+      <table id={@id} class="table table-sm table-zebra w-full">
         <thead>
           <tr>
             <%= for col <- @columns do %>
-              <th class="whitespace-nowrap">{col}</th>
+              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+                {col}
+              </th>
             <% end %>
           </tr>
         </thead>
@@ -90,9 +92,9 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           </tr>
 
           <%= for {row, idx} <- Enum.with_index(@rows) do %>
-            <tr id={"#{@id}-row-#{idx}"}>
+            <tr id={"#{@id}-row-#{idx}"} class="hover:bg-base-200/40">
               <%= for col <- @columns do %>
-                <td class="whitespace-nowrap">
+                <td class="whitespace-nowrap text-xs max-w-[24rem] truncate">
                   {srql_cell(Map.get(row, col))}
                 </td>
               <% end %>
