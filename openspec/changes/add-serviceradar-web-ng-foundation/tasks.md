@@ -14,13 +14,13 @@
 - [x] 1.6 Implement `ServiceRadarWebNG.SRQL` module.
 
 ### Property-Based Testing (StreamData)
-- [ ] 1.7 Add `stream_data` (and `ExUnitProperties`) to the `web-ng` ExUnit suite.
-  - [ ] Add the dependency to `web-ng/mix.exs` (`stream_data`) under `only: :test`.
-  - [ ] Ensure `ExUnitProperties` is available in tests.
-- [ ] 1.8 Integrate property-based testing into the `web-ng` ExUnit suite.
-  - [ ] Add shared generators under `web-ng/test/support/generators/`.
-  - [ ] Add `web-ng/test/property/` with at least one starter property test.
-  - [ ] Ensure `mix test` runs property tests by default with bounded case-counts and an env override for deeper runs.
+- [x] 1.7 Add `stream_data` (and `ExUnitProperties`) to the `web-ng` ExUnit suite.
+  - [x] Add the dependency to `web-ng/mix.exs` (`stream_data`) under `only: :test`.
+  - [x] Ensure `ExUnitProperties` is available in tests.
+- [x] 1.8 Integrate property-based testing into the `web-ng` ExUnit suite.
+  - [x] Add shared generators under `web-ng/test/support/generators/`.
+  - [x] Add `web-ng/test/property/` with at least one starter property test.
+  - [x] Ensure `mix test` runs property tests by default with bounded case-counts and an env override for deeper runs.
 
 ## 2. Authentication (Fresh Implementation)
 - [x] 2.1 Run `mix phx.gen.auth Accounts User ng_users`.
