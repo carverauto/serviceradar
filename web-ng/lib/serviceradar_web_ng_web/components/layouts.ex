@@ -130,14 +130,6 @@ defmodule ServiceRadarWebNGWeb.Layouts do
             <ul class="menu menu-sm">
               <li>
                 <.sidebar_link
-                  href={~p"/dashboard"}
-                  label="Dashboard"
-                  icon="hero-squares-2x2"
-                  active={@current_path == "/dashboard"}
-                />
-              </li>
-              <li>
-                <.sidebar_link
                   href={~p"/analytics"}
                   label="Analytics"
                   icon="hero-chart-bar"

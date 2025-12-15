@@ -1,12 +1,8 @@
 defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadarWebNGWeb.Dashboard.Engine
-  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
-
-  @default_limit 200
-  @default_logs_limit 500
   @default_events_limit 500
+  @default_logs_limit 500
 
   @impl true
   def mount(_params, _session, socket) do
@@ -19,89 +15,60 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
      socket
      |> assign(:page_title, "Analytics")
      |> assign(:srql, srql)
-     |> assign(:range, "24h")
      |> assign(:loading, true)
      |> assign(:error, nil)
      |> assign(:refreshed_at, nil)
-     |> assign(:kpis, %{})
-     |> assign(:charts, %{})
-     |> assign(:summaries, %{})}
+     |> assign(:stats, %{})
+     |> assign(:device_availability, %{})
+     |> assign(:events_summary, %{})
+     |> assign(:logs_summary, %{})}
   end
 
   @impl true
-  def handle_params(params, _uri, socket) do
-    range = normalize_range(Map.get(params, "range"))
-    srql_module = srql_module()
-
-    socket =
-      socket
-      |> assign(:range, range)
-      |> assign(:loading, true)
-      |> assign(:error, nil)
-
-    {:noreply, load_analytics(socket, srql_module, range)}
+  def handle_params(_params, _uri, socket) do
+    {:noreply, load_analytics(socket)}
   end
 
   @impl true
   def handle_event("refresh", _params, socket) do
-    {:noreply,
-     load_analytics(assign(socket, :loading, true), srql_module(), socket.assigns.range)}
+    {:noreply, load_analytics(assign(socket, :loading, true))}
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
-  defp load_analytics(socket, srql_module, range) do
-    time_token = time_token_for_range(range)
-    cpu_query = "in:cpu_metrics time:#{time_token} bucket:10m agg:avg limit:#{@default_limit}"
-    mem_query = "in:memory_metrics time:#{time_token} bucket:10m agg:avg limit:#{@default_limit}"
-
-    icmp_query =
-      "in:timeseries_metrics metric_type:icmp time:last_1h bucket:5m agg:avg series:device_id limit:#{@default_limit}"
-
-    devices_total_query = "in:devices stats:count() as total"
-    devices_offline_query = "in:devices is_available:false stats:count() as offline"
-
-    services_failing_query =
-      "in:services available:false time:#{time_token} stats:count() as failing"
-
-    logs_query =
-      "in:logs time:#{time_token} sort:timestamp:desc limit:#{@default_logs_limit}"
-
-    events_query =
-      "in:events time:#{time_token} sort:event_timestamp:desc limit:#{@default_events_limit}"
+  defp load_analytics(socket) do
+    srql_module = srql_module()
 
     queries = %{
-      devices_total: devices_total_query,
-      devices_offline: devices_offline_query,
-      services_failing: services_failing_query,
-      cpu: cpu_query,
-      memory: mem_query,
-      icmp: icmp_query,
-      logs: logs_query,
-      events: events_query
+      devices_total: "in:devices stats:count() as total",
+      devices_online: "in:devices is_available:true stats:count() as online",
+      devices_offline: "in:devices is_available:false stats:count() as offline",
+      services_failing: "in:services available:false time:last_24h stats:count() as failing",
+      services_high_latency:
+        "in:services type:icmp response_time:[100000000,] time:last_24h stats:count() as high_latency",
+      events: "in:events time:last_24h sort:event_timestamp:desc limit:#{@default_events_limit}",
+      logs: "in:logs time:last_24h sort:timestamp:desc limit:#{@default_logs_limit}"
     }
 
     results =
       queries
       |> Task.async_stream(
-        fn {key, query} -> {key, query, srql_module.query(query)} end,
+        fn {key, query} -> {key, srql_module.query(query)} end,
         ordered: false,
         timeout: 30_000
       )
       |> Enum.reduce(%{}, fn
-        {:ok, {key, query, result}}, acc ->
-          Map.put(acc, key, %{query: query, result: result})
-
-        {:exit, reason}, acc ->
-          Map.put(acc, :error, "analytics query task exit: #{inspect(reason)}")
+        {:ok, {key, result}}, acc -> Map.put(acc, key, result)
+        {:exit, reason}, acc -> Map.put(acc, :error, "query task exit: #{inspect(reason)}")
       end)
 
-    {kpis, charts, summaries, error} = build_assigns(results)
+    {stats, device_availability, events_summary, logs_summary, error} = build_assigns(results)
 
     socket
-    |> assign(:kpis, kpis)
-    |> assign(:charts, charts)
-    |> assign(:summaries, summaries)
+    |> assign(:stats, stats)
+    |> assign(:device_availability, device_availability)
+    |> assign(:events_summary, events_summary)
+    |> assign(:logs_summary, logs_summary)
     |> assign(:refreshed_at, DateTime.utc_now())
     |> assign(:error, error)
     |> assign(:loading, false)
@@ -109,51 +76,52 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp build_assigns(results) do
     total_devices = extract_count(results[:devices_total])
+    online_devices = extract_count(results[:devices_online])
     offline_devices = extract_count(results[:devices_offline])
     failing_services = extract_count(results[:services_failing])
+    high_latency_services = extract_count(results[:services_high_latency])
 
-    logs_rows = extract_rows(results[:logs])
-    events_rows = extract_rows(results[:events])
-
-    logs_severity = severity_counts(logs_rows, "severity_text")
-    events_severity = severity_counts(events_rows, "severity")
-
-    high_latency_devices =
-      count_unique_high_latency_devices(metric_resp: results[:icmp], threshold_ms: 100.0)
-
-    kpis = %{
+    stats = %{
       total_devices: total_devices,
       offline_devices: offline_devices,
-      failing_services: failing_services,
-      high_latency_devices: high_latency_devices
+      high_latency_services: high_latency_services,
+      failing_services: failing_services
     }
 
-    charts = %{
-      cpu: build_panels(results[:cpu]),
-      memory: build_panels(results[:memory]),
-      icmp: build_panels(results[:icmp])
+    availability_pct =
+      if total_devices > 0 do
+        Float.round(online_devices / total_devices * 100, 1)
+      else
+        100.0
+      end
+
+    device_availability = %{
+      online: online_devices,
+      offline: offline_devices,
+      total: total_devices,
+      availability_pct: availability_pct
     }
 
-    summaries = %{
-      logs_severity: logs_severity,
-      events_severity: events_severity,
-      logs_sample: Enum.take(logs_rows, 8),
-      events_sample: Enum.take(events_rows, 8)
-    }
+    events_rows = extract_rows(results[:events])
+    logs_rows = extract_rows(results[:logs])
+
+    events_summary = build_events_summary(events_rows)
+    logs_summary = build_logs_summary(logs_rows)
 
     error =
       Enum.find_value(results, fn
-        {_key, %{result: {:error, reason}}} -> format_error(reason)
+        {:error, reason} -> format_error(reason)
+        {_key, {:error, reason}} -> format_error(reason)
         _ -> nil
       end)
 
-    {kpis, charts, summaries, error}
+    {stats, device_availability, events_summary, logs_summary, error}
   end
 
-  defp extract_rows(%{result: {:ok, %{"results" => rows}}}) when is_list(rows), do: rows
+  defp extract_rows({:ok, %{"results" => rows}}) when is_list(rows), do: rows
   defp extract_rows(_), do: []
 
-  defp extract_count(%{result: {:ok, %{"results" => [value | _]}}}) do
+  defp extract_count({:ok, %{"results" => [value | _]}}) do
     case value do
       v when is_integer(v) ->
         v
@@ -172,20 +140,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         |> Map.values()
         |> Enum.find(fn v -> is_integer(v) or is_float(v) or (is_binary(v) and v != "") end)
         |> case do
-          v when is_integer(v) ->
-            v
-
-          v when is_float(v) ->
-            trunc(v)
-
+          v when is_integer(v) -> v
+          v when is_float(v) -> trunc(v)
           v when is_binary(v) ->
             case Integer.parse(String.trim(v)) do
               {parsed, ""} -> parsed
               _ -> 0
             end
-
-          _ ->
-            0
+          _ -> 0
         end
 
       _ ->
@@ -195,140 +157,93 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp extract_count(_), do: 0
 
-  defp build_panels(%{query: query, result: {:ok, %{"results" => rows} = resp}})
-       when is_list(rows) do
-    viz =
-      case Map.get(resp, "viz") do
-        value when is_map(value) -> value
-        _ -> nil
-      end
+  defp build_events_summary(rows) when is_list(rows) do
+    counts =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(%{critical: 0, high: 0, medium: 0, low: 0}, fn row, acc ->
+        severity = row |> Map.get("severity") |> normalize_severity()
 
-    srql_response = %{"results" => rows, "viz" => viz}
+        case severity do
+          "Critical" -> Map.update!(acc, :critical, &(&1 + 1))
+          "High" -> Map.update!(acc, :high, &(&1 + 1))
+          "Medium" -> Map.update!(acc, :medium, &(&1 + 1))
+          "Low" -> Map.update!(acc, :low, &(&1 + 1))
+          _ -> acc
+        end
+      end)
 
-    panels =
-      srql_response
-      |> Engine.build_panels()
-      |> prefer_visual_panels(rows)
+    recent =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.filter(fn row ->
+        severity = row |> Map.get("severity") |> normalize_severity()
+        severity in ["Critical", "High"]
+      end)
+      |> Enum.take(5)
 
-    %{query: query, panels: panels, rows: rows, error: nil}
+    Map.merge(counts, %{total: length(rows), recent: recent})
   end
 
-  defp build_panels(%{query: query, result: {:error, reason}}),
-    do: %{query: query, panels: [], rows: [], error: format_error(reason)}
+  defp build_events_summary(_), do: %{critical: 0, high: 0, medium: 0, low: 0, total: 0, recent: []}
 
-  defp build_panels(%{query: query, result: {:ok, other}}),
-    do: %{
-      query: query,
-      panels: [],
-      rows: [],
-      error: "unexpected SRQL response: #{inspect(other)}"
-    }
+  defp build_logs_summary(rows) when is_list(rows) do
+    counts =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(%{fatal: 0, error: 0, warning: 0, info: 0, debug: 0}, fn row, acc ->
+        severity = row |> Map.get("severity_text") |> normalize_log_level()
 
-  defp build_panels(_), do: %{query: nil, panels: [], rows: [], error: nil}
+        case severity do
+          "Fatal" -> Map.update!(acc, :fatal, &(&1 + 1))
+          "Error" -> Map.update!(acc, :error, &(&1 + 1))
+          "Warning" -> Map.update!(acc, :warning, &(&1 + 1))
+          "Info" -> Map.update!(acc, :info, &(&1 + 1))
+          "Debug" -> Map.update!(acc, :debug, &(&1 + 1))
+          _ -> acc
+        end
+      end)
 
-  defp prefer_visual_panels(panels, results) when is_list(panels) do
-    has_non_table? = Enum.any?(panels, &(&1.plugin != TablePlugin))
+    recent =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.filter(fn row ->
+        severity = row |> Map.get("severity_text") |> normalize_log_level()
+        severity in ["Fatal", "Error"]
+      end)
+      |> Enum.take(5)
 
-    if results != [] and has_non_table? do
-      Enum.reject(panels, &(&1.plugin == TablePlugin))
-    else
-      panels
-    end
+    Map.merge(counts, %{total: length(rows), recent: recent})
   end
 
-  defp prefer_visual_panels(panels, _results), do: panels
-
-  defp severity_counts(rows, field) when is_list(rows) and is_binary(field) do
-    rows
-    |> Enum.filter(&is_map/1)
-    |> Enum.reduce(%{}, fn row, acc ->
-      key =
-        row
-        |> Map.get(field)
-        |> normalize_severity()
-
-      if key == "" do
-        acc
-      else
-        Map.update(acc, key, 1, &(&1 + 1))
-      end
-    end)
-    |> Enum.sort_by(fn {_k, v} -> -v end)
-  end
-
-  defp severity_counts(_rows, _field), do: []
+  defp build_logs_summary(_), do: %{fatal: 0, error: 0, warning: 0, info: 0, debug: 0, total: 0, recent: []}
 
   defp normalize_severity(nil), do: ""
 
   defp normalize_severity(value) do
-    value
-    |> to_string()
-    |> String.trim()
-    |> case do
-      "" -> ""
-      other -> other |> String.downcase() |> String.capitalize()
+    case value |> to_string() |> String.trim() |> String.downcase() do
+      "critical" -> "Critical"
+      "high" -> "High"
+      "medium" -> "Medium"
+      "low" -> "Low"
+      _ -> ""
     end
   end
 
-  defp count_unique_high_latency_devices(opts) when is_list(opts) do
-    metric_resp = Keyword.get(opts, :metric_resp)
-    threshold_ms = Keyword.get(opts, :threshold_ms, 100.0)
+  defp normalize_log_level(nil), do: ""
 
-    rows =
-      case metric_resp do
-        %{result: {:ok, %{"results" => rows}}} when is_list(rows) -> rows
-        _ -> []
-      end
-
-    rows
-    |> Enum.filter(&is_map/1)
-    |> Enum.reduce(MapSet.new(), fn row, acc ->
-      device_id = Map.get(row, "series") || Map.get(row, "device_id")
-      value = Map.get(row, "value")
-
-      if is_binary(device_id) and latency_ms(value) >= threshold_ms do
-        MapSet.put(acc, device_id)
-      else
-        acc
-      end
-    end)
-    |> MapSet.size()
-  end
-
-  defp latency_ms(value) when is_float(value) or is_integer(value) do
-    raw = if is_integer(value), do: value * 1.0, else: value
-    if raw > 1_000_000.0, do: raw / 1_000_000.0, else: raw
-  end
-
-  defp latency_ms(value) when is_binary(value) do
-    case Float.parse(String.trim(value)) do
-      {parsed, ""} -> latency_ms(parsed)
-      _ -> 0.0
+  defp normalize_log_level(value) do
+    case value |> to_string() |> String.trim() |> String.downcase() do
+      "fatal" -> "Fatal"
+      "error" -> "Error"
+      "warn" -> "Warning"
+      "warning" -> "Warning"
+      "info" -> "Info"
+      "debug" -> "Debug"
+      "trace" -> "Debug"
+      _ -> ""
     end
   end
-
-  defp latency_ms(_), do: 0.0
-
-  defp normalize_range(nil), do: "24h"
-
-  defp normalize_range(range) when is_binary(range) do
-    case range |> String.trim() |> String.downcase() do
-      "1h" -> "1h"
-      "24h" -> "24h"
-      "7d" -> "7d"
-      _ -> "24h"
-    end
-  end
-
-  defp normalize_range(_), do: "24h"
-
-  defp time_token_for_range("1h"), do: "last_1h"
-  defp time_token_for_range("7d"), do: "last_7d"
-  defp time_token_for_range(_), do: "last_24h"
-
-  defp range_label("1h"), do: "Last 1h"
-  defp range_label("7d"), do: "Last 7d"
-  defp range_label(_), do: "Last 24h"
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
@@ -341,16 +256,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   @impl true
   def render(assigns) do
-    kpis = assigns.kpis || %{}
-    charts = assigns.charts || %{}
-    summaries = assigns.summaries || %{}
-
-    assigns =
-      assigns
-      |> assign(:kpis, kpis)
-      |> assign(:charts, charts)
-      |> assign(:summaries, summaries)
-
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl">
@@ -358,39 +263,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <div class="min-w-0">
             <h1 class="text-2xl font-semibold tracking-tight">Analytics</h1>
             <p class="text-sm text-base-content/70 mt-1">
-              A quick health overview with drill-down into details.
+              Network health overview with drill-down into details.
             </p>
           </div>
 
-          <div class="flex items-center gap-2">
-            <.ui_dropdown>
-              <:trigger>
-                <.ui_button variant="outline" size="sm" class="gap-2">
-                  <.icon name="hero-clock" class="size-4 opacity-80" /> {range_label(@range)}
-                </.ui_button>
-              </:trigger>
-              <:item>
-                <.link patch={~p"/analytics?#{%{range: "1h"}}"} class="w-full">
-                  Last 1h
-                </.link>
-              </:item>
-              <:item>
-                <.link patch={~p"/analytics?#{%{range: "24h"}}"} class="w-full">
-                  Last 24h
-                </.link>
-              </:item>
-              <:item>
-                <.link patch={~p"/analytics?#{%{range: "7d"}}"} class="w-full">
-                  Last 7d
-                </.link>
-              </:item>
-            </.ui_dropdown>
-
-            <.ui_button variant="primary" size="sm" phx-click="refresh" class="gap-2">
-              <span :if={@loading} class="loading loading-spinner loading-xs" />
-              <.icon name="hero-arrow-path" class="size-4 opacity-80" /> Refresh
-            </.ui_button>
-          </div>
+          <.ui_button variant="primary" size="sm" phx-click="refresh" class="gap-2">
+            <span :if={@loading} class="loading loading-spinner loading-xs" />
+            <.icon name="hero-arrow-path" class="size-4 opacity-80" /> Refresh
+          </.ui_button>
         </div>
 
         <div :if={is_binary(@error)} class="mb-6">
@@ -400,86 +280,43 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
-          <.kpi_card
-            title="Total devices"
-            value={Map.get(@kpis, :total_devices, 0)}
-            desc="Inventory size"
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <.stat_card
+            title="Total Devices"
+            value={Map.get(@stats, :total_devices, 0)}
+            icon="hero-server"
             href={~p"/devices"}
-            icon="hero-computer-desktop"
           />
-          <.kpi_card
-            title="Offline devices"
-            value={Map.get(@kpis, :offline_devices, 0)}
-            desc="Availability"
-            href={
-              ~p"/devices?#{%{q: "in:devices is_available:false time:last_7d sort:last_seen:desc", limit: 100}}"
-            }
+          <.stat_card
+            title="Offline Devices"
+            value={Map.get(@stats, :offline_devices, 0)}
             icon="hero-signal-slash"
-            tone="warning"
-          />
-          <.kpi_card
-            title="Failing services"
-            value={Map.get(@kpis, :failing_services, 0)}
-            desc={range_label(@range)}
-            href={
-              ~p"/services?#{%{q: "in:services available:false time:#{time_token_for_range(@range)} sort:timestamp:desc", limit: 100}}"
-            }
-            icon="hero-wrench-screwdriver"
             tone="error"
+            href={~p"/devices?#{%{q: "in:devices is_available:false sort:last_seen:desc limit:100"}}"}
           />
-          <.kpi_card
-            title="High latency ICMP"
-            value={Map.get(@kpis, :high_latency_devices, 0)}
-            desc="> 100ms (last 1h)"
-            href={
-              ~p"/dashboard?#{%{q: "in:timeseries_metrics metric_type:icmp value:>100000000 time:last_1h sort:timestamp:desc limit:200", limit: 200}}"
-            }
-            icon="hero-wifi"
-            tone="warning"
+          <.stat_card
+            title="High Latency Services"
+            value={Map.get(@stats, :high_latency_services, 0)}
+            subtitle="> 100ms"
+            icon="hero-clock"
+            tone={if Map.get(@stats, :high_latency_services, 0) > 0, do: "warning", else: "neutral"}
+            href={~p"/services?#{%{q: "in:services type:icmp response_time:[100000000,] sort:timestamp:desc limit:100"}}"}
+          />
+          <.stat_card
+            title="Failing Services"
+            value={Map.get(@stats, :failing_services, 0)}
+            icon="hero-exclamation-triangle"
+            tone="error"
+            href={~p"/services?#{%{q: "in:services available:false sort:timestamp:desc limit:100"}}"}
           />
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <.chart_panel title="CPU usage" chart={Map.get(@charts, :cpu)} />
-          <.chart_panel title="Memory usage" chart={Map.get(@charts, :memory)} />
-          <.chart_panel title="ICMP latency" chart={Map.get(@charts, :icmp)} />
+        <h2 class="text-lg font-semibold mb-4">Network & Performance Analytics</h2>
 
-          <.ui_panel>
-            <:header>
-              <div class="min-w-0">
-                <div class="text-sm font-semibold">Recent signals</div>
-                <div class="text-xs text-base-content/70">
-                  Severity breakdown from the latest sample window.
-                </div>
-              </div>
-              <div class="shrink-0 flex items-center gap-2">
-                <.ui_button
-                  variant="ghost"
-                  size="sm"
-                  href={
-                    ~p"/events?#{%{q: "in:events time:#{time_token_for_range(@range)} sort:event_timestamp:desc", limit: 100}}"
-                  }
-                >
-                  Events →
-                </.ui_button>
-                <.ui_button
-                  variant="ghost"
-                  size="sm"
-                  href={
-                    ~p"/logs?#{%{q: "in:logs time:#{time_token_for_range(@range)} sort:timestamp:desc", limit: 100}}"
-                  }
-                >
-                  Logs →
-                </.ui_button>
-              </div>
-            </:header>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <.severity_panel title="Events" items={Map.get(@summaries, :events_severity, [])} />
-              <.severity_panel title="Logs" items={Map.get(@summaries, :logs_severity, [])} />
-            </div>
-          </.ui_panel>
+        <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+          <.device_availability_widget availability={@device_availability} loading={@loading} />
+          <.critical_events_widget summary={@events_summary} loading={@loading} />
+          <.critical_logs_widget summary={@logs_summary} loading={@loading} />
         </div>
 
         <div class="mt-6 text-xs text-base-content/60 flex items-center justify-between gap-3 flex-wrap">
@@ -490,7 +327,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             </span>
             <span :if={not is_struct(@refreshed_at, DateTime)}>—</span>
           </div>
-          <div class="font-mono opacity-60">SRQL-powered</div>
         </div>
       </div>
     </Layouts.app>
@@ -499,38 +335,29 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   attr :title, :string, required: true
   attr :value, :any, required: true
-  attr :desc, :string, default: nil
+  attr :subtitle, :string, default: nil
   attr :href, :string, required: true
   attr :icon, :string, default: nil
   attr :tone, :string, default: "neutral"
 
-  def kpi_card(assigns) do
-    assigns =
-      assigns
-      |> assign_new(:tone, fn -> "neutral" end)
-      |> assign(:tone_class, tone_class(assigns.tone))
-      |> assign(:card_class, card_class(assigns.tone))
-      |> assign(:value_class, value_class(assigns.tone))
-
+  def stat_card(assigns) do
     ~H"""
     <.link href={@href} class="block group">
       <div class={[
-        "rounded-xl border bg-base-100 shadow-sm transition-all duration-200",
-        "hover:shadow-lg hover:scale-[1.02]",
-        @card_class
+        "rounded-xl border bg-base-100 p-4 flex items-center gap-4",
+        "hover:shadow-md transition-shadow cursor-pointer",
+        tone_border(@tone)
       ]}>
-        <div class="p-5 flex items-start justify-between gap-4">
-          <div class="min-w-0 flex-1">
-            <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
-              {@title}
-            </div>
-            <div class={["text-4xl font-bold tracking-tight mt-2", @value_class]}>
-              {format_int(@value)}
-            </div>
-            <div :if={is_binary(@desc)} class="text-xs text-base-content/50 mt-2">{@desc}</div>
+        <div class={["p-3 rounded-lg", tone_bg(@tone)]}>
+          <.icon :if={@icon} name={@icon} class={["size-6", tone_icon(@tone)]} />
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class={["text-2xl font-bold", tone_value(@tone)]}>
+            {format_number(@value)}
           </div>
-          <div class={["shrink-0 rounded-xl p-3", @tone_class]}>
-            <.icon :if={@icon} name={@icon} class="size-6" />
+          <div class="text-sm text-base-content/60">
+            {@title}
+            <span :if={@subtitle} class="text-base-content/40"> | {@subtitle}</span>
           </div>
         </div>
       </div>
@@ -538,109 +365,447 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     """
   end
 
-  defp tone_class("warning"), do: "bg-warning/20 text-warning"
-  defp tone_class("error"), do: "bg-error/20 text-error"
-  defp tone_class("success"), do: "bg-success/20 text-success"
-  defp tone_class("info"), do: "bg-info/20 text-info"
-  defp tone_class(_), do: "bg-primary/10 text-primary"
+  defp tone_border("error"), do: "border-error/30"
+  defp tone_border("warning"), do: "border-warning/30"
+  defp tone_border("success"), do: "border-success/30"
+  defp tone_border(_), do: "border-base-200"
 
-  defp card_class("warning"), do: "border-warning/20 hover:border-warning/40"
-  defp card_class("error"), do: "border-error/20 hover:border-error/40"
-  defp card_class("success"), do: "border-success/20 hover:border-success/40"
-  defp card_class(_), do: "border-base-200 hover:border-primary/30"
+  defp tone_bg("error"), do: "bg-error/10"
+  defp tone_bg("warning"), do: "bg-warning/10"
+  defp tone_bg("success"), do: "bg-success/10"
+  defp tone_bg(_), do: "bg-primary/10"
 
-  defp value_class("warning"), do: "text-warning"
-  defp value_class("error"), do: "text-error"
-  defp value_class("success"), do: "text-success"
-  defp value_class(_), do: "text-base-content"
+  defp tone_icon("error"), do: "text-error"
+  defp tone_icon("warning"), do: "text-warning"
+  defp tone_icon("success"), do: "text-success"
+  defp tone_icon(_), do: "text-primary"
 
-  defp format_int(v) when is_integer(v), do: Integer.to_string(v)
-  defp format_int(v) when is_float(v), do: v |> trunc() |> Integer.to_string()
-  defp format_int(v) when is_binary(v), do: v
-  defp format_int(_), do: "0"
+  defp tone_value("error"), do: "text-error"
+  defp tone_value("warning"), do: "text-warning"
+  defp tone_value("success"), do: "text-success"
+  defp tone_value(_), do: "text-base-content"
 
-  attr :title, :string, required: true
-  attr :chart, :map, required: true
+  defp format_number(n) when is_integer(n) and n >= 1000 do
+    n |> Integer.to_string() |> add_commas()
+  end
 
-  def chart_panel(assigns) do
-    chart = assigns.chart || %{}
-    assigns = assign(assigns, :chart, chart)
+  defp format_number(n) when is_integer(n), do: Integer.to_string(n)
+  defp format_number(n) when is_float(n), do: n |> trunc() |> format_number()
+  defp format_number(_), do: "0"
+
+  defp add_commas(str) do
+    str
+    |> String.reverse()
+    |> String.graphemes()
+    |> Enum.chunk_every(3)
+    |> Enum.join(",")
+    |> String.reverse()
+  end
+
+  attr :availability, :map, required: true
+  attr :loading, :boolean, default: false
+
+  def device_availability_widget(assigns) do
+    total = Map.get(assigns.availability, :total, 0)
+    online = Map.get(assigns.availability, :online, 0)
+    offline = Map.get(assigns.availability, :offline, 0)
+    pct = Map.get(assigns.availability, :availability_pct, 100.0)
+
+    online_pct = if total > 0, do: Float.round(online / total * 100, 0), else: 100
+    offline_pct = if total > 0, do: Float.round(offline / total * 100, 0), else: 0
+
+    assigns =
+      assigns
+      |> assign(:online, online)
+      |> assign(:offline, offline)
+      |> assign(:total, total)
+      |> assign(:pct, pct)
+      |> assign(:online_pct, online_pct)
+      |> assign(:offline_pct, offline_pct)
 
     ~H"""
-    <.ui_panel>
+    <.ui_panel class="h-80">
       <:header>
-        <div class="min-w-0">
-          <div class="text-sm font-semibold">{@title}</div>
-          <div class="text-xs text-base-content/60 font-mono truncate">{Map.get(@chart, :query)}</div>
-        </div>
+        <.link href={~p"/devices"} class="hover:text-primary transition-colors">
+          <div class="text-sm font-semibold">Device Availability</div>
+        </.link>
+        <.link
+          href={~p"/devices?#{%{q: "in:devices is_available:false sort:last_seen:desc limit:100"}}"}
+          class="text-base-content/60 hover:text-primary"
+          title="View offline devices"
+        >
+          <.icon name="hero-arrow-top-right-on-square" class="size-4" />
+        </.link>
       </:header>
 
-      <div :if={is_binary(Map.get(@chart, :error))} class="text-sm text-base-content/70">
-        {Map.get(@chart, :error)}
+      <div :if={@loading} class="flex-1 flex items-center justify-center">
+        <span class="loading loading-spinner loading-md" />
       </div>
 
-      <div
-        :if={not is_binary(Map.get(@chart, :error)) and Map.get(@chart, :panels, []) == []}
-        class="text-sm text-base-content/70"
-      >
-        No data.
-      </div>
+      <div :if={not @loading} class="flex items-center gap-6 h-full">
+        <div class="flex-1">
+          <div class="relative w-32 h-32 mx-auto">
+            <svg viewBox="0 0 36 36" class="w-full h-full -rotate-90">
+              <circle
+                cx="18"
+                cy="18"
+                r="15.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="3"
+                class="text-error/30"
+              />
+              <circle
+                cx="18"
+                cy="18"
+                r="15.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="3"
+                stroke-dasharray={~s(#{@online_pct} #{100 - @online_pct})}
+                class="text-success"
+              />
+            </svg>
+            <div class="absolute inset-0 flex flex-col items-center justify-center">
+              <span class="text-2xl font-bold">{Float.round(@pct, 1)}%</span>
+              <span class="text-xs text-base-content/60">Availability</span>
+            </div>
+          </div>
+        </div>
 
-      <div :if={Map.get(@chart, :panels, []) != []} class="grid grid-cols-1 gap-4">
-        <%= for panel <- Map.get(@chart, :panels, []) do %>
-          <.live_component
-            module={panel.plugin}
-            id={"analytics-#{@title}-#{panel.id}"}
-            title={panel.title}
-            panel_assigns={panel.assigns}
-          />
-        <% end %>
+        <div class="flex-1 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-success" />
+              <span class="text-sm">Online</span>
+            </div>
+            <span class="font-semibold">{format_number(@online)}</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-error" />
+              <span class="text-sm">Offline</span>
+            </div>
+            <span class="font-semibold">{format_number(@offline)}</span>
+          </div>
+
+          <div :if={@offline > 0} class="mt-4 p-2 rounded-lg bg-error/10">
+            <div class="flex items-center gap-2 text-error text-sm">
+              <.icon name="hero-signal-slash" class="size-4" />
+              <span>{@offline} device{if @offline != 1, do: "s", else: ""} offline</span>
+            </div>
+          </div>
+        </div>
       </div>
     </.ui_panel>
     """
   end
 
-  attr :title, :string, required: true
-  attr :items, :list, default: []
+  attr :summary, :map, required: true
+  attr :loading, :boolean, default: false
 
-  def severity_panel(assigns) do
-    assigns = assign_new(assigns, :items, fn -> [] end)
+  def critical_events_widget(assigns) do
+    ~H"""
+    <.ui_panel class="h-80 flex flex-col">
+      <:header>
+        <.link href={~p"/events"} class="hover:text-primary transition-colors">
+          <div class="text-sm font-semibold">Critical Events</div>
+        </.link>
+        <.link
+          href={~p"/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:event_timestamp:desc limit:100"}}"}
+          class="text-base-content/60 hover:text-primary"
+          title="View critical events"
+        >
+          <.icon name="hero-arrow-top-right-on-square" class="size-4" />
+        </.link>
+      </:header>
+
+      <div :if={@loading} class="flex-1 flex items-center justify-center">
+        <span class="loading loading-spinner loading-md" />
+      </div>
+
+      <div :if={not @loading} class="flex-1 flex flex-col min-h-0">
+        <table class="table table-xs mb-3">
+          <thead>
+            <tr class="border-b border-base-200">
+              <th class="text-xs font-medium text-base-content/60">Severity</th>
+              <th class="text-center text-xs font-medium text-base-content/60">Count</th>
+              <th class="text-center text-xs font-medium text-base-content/60">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            <.severity_row
+              label="Critical"
+              count={Map.get(@summary, :critical, 0)}
+              total={Map.get(@summary, :total, 0)}
+              color="error"
+              href={~p"/events?#{%{q: "in:events severity:Critical time:last_24h sort:event_timestamp:desc limit:100"}}"}
+            />
+            <.severity_row
+              label="High"
+              count={Map.get(@summary, :high, 0)}
+              total={Map.get(@summary, :total, 0)}
+              color="warning"
+              href={~p"/events?#{%{q: "in:events severity:High time:last_24h sort:event_timestamp:desc limit:100"}}"}
+            />
+            <.severity_row
+              label="Medium"
+              count={Map.get(@summary, :medium, 0)}
+              total={Map.get(@summary, :total, 0)}
+              color="info"
+              href={~p"/events?#{%{q: "in:events severity:Medium time:last_24h sort:event_timestamp:desc limit:100"}}"}
+            />
+            <.severity_row
+              label="Low"
+              count={Map.get(@summary, :low, 0)}
+              total={Map.get(@summary, :total, 0)}
+              color="primary"
+              href={~p"/events?#{%{q: "in:events severity:Low time:last_24h sort:event_timestamp:desc limit:100"}}"}
+            />
+          </tbody>
+        </table>
+
+        <div :if={Map.get(@summary, :recent, []) == []} class="flex-1 flex items-center justify-center text-center">
+          <div>
+            <.icon name="hero-shield-check" class="size-8 mx-auto mb-2 text-success" />
+            <p class="text-sm text-base-content/60">No critical events</p>
+            <p class="text-xs text-base-content/40 mt-1">All systems reporting normally</p>
+          </div>
+        </div>
+
+        <div :if={Map.get(@summary, :recent, []) != []} class="flex-1 overflow-y-auto space-y-2">
+          <%= for event <- Map.get(@summary, :recent, []) do %>
+            <.event_entry event={event} />
+          <% end %>
+        </div>
+      </div>
+    </.ui_panel>
+    """
+  end
+
+  attr :summary, :map, required: true
+  attr :loading, :boolean, default: false
+
+  def critical_logs_widget(assigns) do
+    ~H"""
+    <.ui_panel class="h-80 flex flex-col">
+      <:header>
+        <.link href={~p"/logs"} class="hover:text-primary transition-colors">
+          <div class="text-sm font-semibold">Critical Logs</div>
+        </.link>
+        <.link
+          href={~p"/logs?#{%{q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc limit:100"}}"}
+          class="text-base-content/60 hover:text-primary"
+          title="View critical logs"
+        >
+          <.icon name="hero-arrow-top-right-on-square" class="size-4" />
+        </.link>
+      </:header>
+
+      <div :if={@loading} class="flex-1 flex items-center justify-center">
+        <span class="loading loading-spinner loading-md" />
+      </div>
+
+      <div :if={not @loading} class="flex-1 flex flex-col min-h-0">
+        <table class="table table-xs mb-3">
+          <thead>
+            <tr class="border-b border-base-200">
+              <th class="text-xs font-medium text-base-content/60">Level</th>
+              <th class="text-center text-xs font-medium text-base-content/60">Count</th>
+              <th class="text-center text-xs font-medium text-base-content/60">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            <.severity_row
+              label="Fatal"
+              count={Map.get(@summary, :fatal, 0)}
+              total={Map.get(@summary, :total, 0)}
+              color="error"
+              href={~p"/logs?#{%{q: "in:logs severity_text:(fatal,FATAL) time:last_24h sort:timestamp:desc limit:100"}}"}
+            />
+            <.severity_row
+              label="Error"
+              count={Map.get(@summary, :error, 0)}
+              total={Map.get(@summary, :total, 0)}
+              color="warning"
+              href={~p"/logs?#{%{q: "in:logs severity_text:(error,ERROR) time:last_24h sort:timestamp:desc limit:100"}}"}
+            />
+            <.severity_row
+              label="Warning"
+              count={Map.get(@summary, :warning, 0)}
+              total={Map.get(@summary, :total, 0)}
+              color="info"
+              href={~p"/logs?#{%{q: "in:logs severity_text:(warning,warn,WARNING,WARN) time:last_24h sort:timestamp:desc limit:100"}}"}
+            />
+            <.severity_row
+              label="Info"
+              count={Map.get(@summary, :info, 0)}
+              total={Map.get(@summary, :total, 0)}
+              color="primary"
+              href={~p"/logs?#{%{q: "in:logs severity_text:(info,INFO) time:last_24h sort:timestamp:desc limit:100"}}"}
+            />
+            <.severity_row
+              label="Debug"
+              count={Map.get(@summary, :debug, 0)}
+              total={Map.get(@summary, :total, 0)}
+              color="neutral"
+              href={~p"/logs?#{%{q: "in:logs severity_text:(debug,trace,DEBUG,TRACE) time:last_24h sort:timestamp:desc limit:100"}}"}
+            />
+          </tbody>
+        </table>
+
+        <div :if={Map.get(@summary, :recent, []) == []} class="flex-1 flex items-center justify-center text-center">
+          <div>
+            <.icon name="hero-document-check" class="size-8 mx-auto mb-2 text-success" />
+            <p class="text-sm text-base-content/60">No fatal or error logs</p>
+            <p class="text-xs text-base-content/40 mt-1">All systems logging normally</p>
+          </div>
+        </div>
+
+        <div :if={Map.get(@summary, :recent, []) != []} class="flex-1 overflow-y-auto space-y-2">
+          <%= for log <- Map.get(@summary, :recent, []) do %>
+            <.log_entry log={log} />
+          <% end %>
+        </div>
+      </div>
+    </.ui_panel>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :count, :integer, required: true
+  attr :total, :integer, required: true
+  attr :color, :string, required: true
+  attr :href, :string, required: true
+
+  def severity_row(assigns) do
+    pct = if assigns.total > 0, do: round(assigns.count / assigns.total * 100), else: 0
+    assigns = assign(assigns, :pct, pct)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-4">
-      <div class="text-xs font-semibold text-base-content/60 mb-3">{@title}</div>
+    <tr class="hover:bg-base-200/50 cursor-pointer" onclick={"window.location.href='#{@href}'"}>
+      <td class={severity_text_class(@color)}>{@label}</td>
+      <td class={["text-center font-bold", severity_text_class(@color)]}>{format_number(@count)}</td>
+      <td class={["text-center text-xs", severity_text_class(@color)]}>{@pct}%</td>
+    </tr>
+    """
+  end
 
-      <div :if={@items == []} class="text-sm text-base-content/70">No data.</div>
+  defp severity_text_class("error"), do: "text-error"
+  defp severity_text_class("warning"), do: "text-warning"
+  defp severity_text_class("info"), do: "text-info"
+  defp severity_text_class("primary"), do: "text-primary"
+  defp severity_text_class(_), do: "text-base-content/60"
 
-      <div :if={@items != []} class="space-y-2">
-        <%= for {label, count} <- @items do %>
-          <div class="flex items-center justify-between gap-3">
-            <div class="min-w-0 flex items-center gap-2">
-              <.ui_badge variant={severity_variant(label)} size="xs">{label}</.ui_badge>
-            </div>
-            <div class="font-mono text-xs opacity-70">{count}</div>
+  attr :event, :map, required: true
+
+  def event_entry(assigns) do
+    ~H"""
+    <div class="p-2 rounded-lg bg-base-200/50 hover:bg-base-200 transition-colors">
+      <div class="flex items-start gap-2">
+        <.icon name={severity_icon(@event["severity"])} class={["size-4 mt-0.5", severity_text_class(severity_color(@event["severity"]))]} />
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium truncate">{@event["host"] || "Unknown"}</div>
+          <div class="text-xs text-base-content/60 truncate">{@event["short_message"] || "No details"}</div>
+          <div class={["text-xs", severity_text_class(severity_color(@event["severity"]))]}>
+            {@event["severity"] || "Unknown"} · {format_relative_time(@event["event_timestamp"])}
           </div>
-        <% end %>
+        </div>
       </div>
     </div>
     """
   end
 
-  defp severity_variant(label) when is_binary(label) do
-    case label |> String.trim() |> String.downcase() do
-      "critical" -> "error"
-      "fatal" -> "error"
-      "error" -> "error"
-      "warn" -> "warning"
-      "warning" -> "warning"
-      "high" -> "warning"
-      "info" -> "info"
-      "medium" -> "info"
-      "debug" -> "ghost"
-      "low" -> "ghost"
-      _ -> "ghost"
+  attr :log, :map, required: true
+
+  def log_entry(assigns) do
+    ~H"""
+    <div class="p-2 rounded-lg bg-base-200/50 hover:bg-base-200 transition-colors">
+      <div class="flex items-start gap-2">
+        <.icon name={log_level_icon(@log["severity_text"])} class={["size-4 mt-0.5", severity_text_class(log_level_color(@log["severity_text"]))]} />
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium truncate">{@log["service_name"] || "Unknown Service"}</div>
+          <div class="text-xs text-base-content/60 truncate">{truncate_message(@log["body"])}</div>
+          <div class={["text-xs", severity_text_class(log_level_color(@log["severity_text"]))]}>
+            {normalize_log_level(@log["severity_text"])} · {format_relative_time(@log["timestamp"])}
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp severity_icon(severity) do
+    case normalize_severity(severity) do
+      "Critical" -> "hero-shield-exclamation"
+      "High" -> "hero-exclamation-triangle"
+      "Medium" -> "hero-exclamation-circle"
+      "Low" -> "hero-information-circle"
+      _ -> "hero-exclamation-circle"
     end
   end
 
-  defp severity_variant(_), do: "ghost"
+  defp severity_color(severity) do
+    case normalize_severity(severity) do
+      "Critical" -> "error"
+      "High" -> "warning"
+      "Medium" -> "info"
+      "Low" -> "primary"
+      _ -> "neutral"
+    end
+  end
+
+  defp log_level_icon(level) do
+    case normalize_log_level(level) do
+      "Fatal" -> "hero-x-circle"
+      "Error" -> "hero-exclamation-circle"
+      "Warning" -> "hero-exclamation-triangle"
+      "Info" -> "hero-information-circle"
+      "Debug" -> "hero-document-text"
+      _ -> "hero-document-text"
+    end
+  end
+
+  defp log_level_color(level) do
+    case normalize_log_level(level) do
+      "Fatal" -> "error"
+      "Error" -> "warning"
+      "Warning" -> "info"
+      "Info" -> "primary"
+      _ -> "neutral"
+    end
+  end
+
+  defp truncate_message(nil), do: ""
+  defp truncate_message(msg) when is_binary(msg) do
+    if String.length(msg) > 80 do
+      String.slice(msg, 0, 80) <> "..."
+    else
+      msg
+    end
+  end
+  defp truncate_message(_), do: ""
+
+  defp format_relative_time(nil), do: "Unknown"
+
+  defp format_relative_time(timestamp) when is_binary(timestamp) do
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, dt, _offset} ->
+        now = DateTime.utc_now()
+        diff_seconds = DateTime.diff(now, dt, :second)
+
+        cond do
+          diff_seconds < 60 -> "Just now"
+          diff_seconds < 3600 -> "#{div(diff_seconds, 60)}m ago"
+          diff_seconds < 86400 -> "#{div(diff_seconds, 3600)}h ago"
+          diff_seconds < 604_800 -> "#{div(diff_seconds, 86400)}d ago"
+          true -> Calendar.strftime(dt, "%b %d")
+        end
+
+      _ ->
+        "Unknown"
+    end
+  end
+
+  defp format_relative_time(_), do: "Unknown"
 end
