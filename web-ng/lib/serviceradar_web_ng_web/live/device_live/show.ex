@@ -275,22 +275,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         key: "cpu",
         title: "CPU",
         entity: "cpu_metrics",
-        series: "core_id",
-        subtitle: "last_24h · bucket 5m · avg"
+        series: nil,
+        subtitle: "last 24h · 5m buckets · avg across cores"
       },
       %{
         key: "memory",
         title: "Memory",
         entity: "memory_metrics",
         series: "partition",
-        subtitle: "last_24h · bucket 5m · avg"
+        subtitle: "last 24h · 5m buckets · avg"
       },
       %{
         key: "disk",
         title: "Disk",
         entity: "disk_metrics",
         series: "mount_point",
-        subtitle: "last_24h · bucket 5m · avg"
+        subtitle: "last 24h · 5m buckets · avg"
       }
     ]
     |> Enum.map(fn spec ->
@@ -347,19 +347,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp prefer_visual_panels(panels, _results), do: panels
 
   defp metric_query(entity, device_id_escaped, series_field) do
-    series_field = to_string(series_field)
+    series_field =
+      case series_field do
+        nil -> nil
+        "" -> nil
+        other -> to_string(other) |> String.trim()
+      end
 
-    [
-      "in:#{entity}",
-      "device_id:\"#{device_id_escaped}\"",
-      "time:last_24h",
-      "bucket:5m",
-      "agg:avg",
-      "series:#{series_field}",
-      "sort:timestamp:desc",
-      "limit:#{@metrics_limit}"
-    ]
-    |> Enum.join(" ")
+    tokens =
+      [
+        "in:#{entity}",
+        "device_id:\"#{device_id_escaped}\"",
+        "time:last_24h",
+        "bucket:5m",
+        "agg:avg",
+        "sort:timestamp:desc",
+        "limit:#{@metrics_limit}"
+      ]
+
+    tokens =
+      if is_binary(series_field) and series_field != "" do
+        List.insert_at(tokens, 5, "series:#{series_field}")
+      else
+        tokens
+      end
+
+    Enum.join(tokens, " ")
   end
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)

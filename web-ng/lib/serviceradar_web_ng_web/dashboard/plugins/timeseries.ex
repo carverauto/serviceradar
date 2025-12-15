@@ -9,6 +9,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   @max_series 6
   @max_points 200
+  @chart_width 600
+  @chart_height 180
+  @chart_pad 14
 
   @impl true
   def id, do: "timeseries"
@@ -69,7 +72,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       Enum.reduce(rows, %{}, fn row, acc ->
         series =
           if is_binary(series_key) do
-            Map.get(row, series_key) |> safe_to_string() |> String.trim()
+            row
+            |> Map.get(series_key)
+            |> safe_to_string()
+            |> String.trim()
+            |> normalize_series_label()
           else
             "series"
           end
@@ -141,38 +148,94 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   defp safe_to_string(value) when is_atom(value), do: Atom.to_string(value)
   defp safe_to_string(value), do: inspect(value)
 
-  defp sparkline(points) when is_list(points) do
+  defp normalize_series_label(""), do: "overall"
+  defp normalize_series_label(nil), do: "overall"
+  defp normalize_series_label(value), do: value
+
+  defp chart_paths(points) when is_list(points) do
     values = Enum.map(points, fn {_dt, v} -> v end)
 
-    case {values, Enum.min(values, fn -> 0 end), Enum.max(values, fn -> 0 end)} do
-      {[], _, _} ->
-        ""
+    case values do
+      [] ->
+        %{line: "", area: "", min: 0.0, max: 0.0, latest: nil}
 
-      {_values, min_v, max_v} when min_v == max_v ->
-        Enum.with_index(values)
-        |> Enum.map(fn {_v, idx} ->
-          x = idx_to_x(idx, length(values))
-          "#{x},60"
-        end)
-        |> Enum.join(" ")
+      _ ->
+        min_v = Enum.min(values, fn -> 0 end)
+        max_v = Enum.max(values, fn -> 0 end)
+        latest = List.last(values)
 
-      {_values, min_v, max_v} ->
-        Enum.with_index(values)
-        |> Enum.map(fn {v, idx} ->
-          x = idx_to_x(idx, length(values))
-          y = 110 - round((v - min_v) / (max_v - min_v) * 100)
-          "#{x},#{y}"
-        end)
-        |> Enum.join(" ")
+        coords =
+          Enum.with_index(values)
+          |> Enum.map(fn {v, idx} ->
+            x = idx_to_x(idx, length(values))
+            y = value_to_y(v, min_v, max_v)
+            {x, y}
+          end)
+
+        line =
+          coords
+          |> Enum.map(fn {x, y} -> "#{x},#{y}" end)
+          |> Enum.join(" ")
+
+        area =
+          case coords do
+            [] ->
+              ""
+
+            [{first_x, _} | _] ->
+              {last_x, _} = List.last(coords)
+
+              path =
+                coords
+                |> Enum.map(fn {x, y} -> "#{x},#{y}" end)
+                |> Enum.join(" L ")
+
+              "M #{first_x},#{baseline_y()} L " <>
+                path <>
+                " L #{last_x},#{baseline_y()} Z"
+          end
+
+        %{line: line, area: area, min: min_v, max: max_v, latest: latest}
     end
   end
 
-  defp idx_to_x(_idx, 0), do: 0
-  defp idx_to_x(0, _len), do: 0
+  defp value_to_y(_v, min_v, max_v) when min_v == max_v, do: round(@chart_height / 2)
+
+  defp value_to_y(v, min_v, max_v) do
+    usable = @chart_height - @chart_pad * 2
+    scaled = (v - min_v) / (max_v - min_v)
+    round(@chart_height - @chart_pad - scaled * usable)
+  end
+
+  defp baseline_y, do: @chart_height - @chart_pad
+
+  defp idx_to_x(_idx, 0), do: @chart_pad
+  defp idx_to_x(0, _len), do: @chart_pad
 
   defp idx_to_x(idx, len) when len > 1 do
-    round(idx / (len - 1) * 400)
+    usable = @chart_width - @chart_pad * 2
+    round(@chart_pad + idx / (len - 1) * usable)
   end
+
+  defp series_color(index) do
+    colors = [
+      {"#22c55e", "rgba(34,197,94,0.18)"},
+      {"#3b82f6", "rgba(59,130,246,0.18)"},
+      {"#f97316", "rgba(249,115,22,0.18)"},
+      {"#a855f7", "rgba(168,85,247,0.18)"},
+      {"#eab308", "rgba(234,179,8,0.18)"},
+      {"#14b8a6", "rgba(20,184,166,0.18)"}
+    ]
+
+    Enum.at(colors, rem(index, length(colors)))
+  end
+
+  defp dt_label(%DateTime{} = dt), do: Calendar.strftime(dt, "%b %-d %H:%M")
+  defp dt_label(_), do: ""
+
+  defp format_value(v) when is_float(v), do: :erlang.float_to_binary(v, decimals: 2)
+  defp format_value(v) when is_integer(v), do: Integer.to_string(v)
+  defp format_value(_), do: "—"
 
   @impl true
   def update(%{panel_assigns: panel_assigns} = assigns, socket) do
@@ -180,12 +243,21 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       socket
       |> assign(Map.drop(assigns, [:panel_assigns]))
       |> assign(panel_assigns || %{})
+      |> assign(:chart_width, @chart_width)
+      |> assign(:chart_height, @chart_height)
+      |> assign(:chart_pad, @chart_pad)
 
     {:ok, socket}
   end
 
   @impl true
   def render(assigns) do
+    assigns =
+      assigns
+      |> assign(:series_count, length(assigns.series_points || []))
+      |> assign(:first_dt, first_dt(assigns.series_points))
+      |> assign(:last_dt, last_dt(assigns.series_points))
+
     ~H"""
     <div id={"panel-#{@id}"}>
       <.ui_panel>
@@ -203,17 +275,76 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           </div>
         </:header>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <%= for {series, points} <- @series_points do %>
+        <div class="text-xs text-base-content/60 flex items-center justify-between gap-3 mb-3">
+          <div class="flex items-center gap-2">
+            <span class="font-semibold">{@series_count}</span>
+            <span>series</span>
+          </div>
+          <div class="font-mono">
+            <span :if={is_struct(@first_dt, DateTime)}>{dt_label(@first_dt)}</span>
+            <span class="opacity-60 px-1">→</span>
+            <span :if={is_struct(@last_dt, DateTime)}>{dt_label(@last_dt)}</span>
+          </div>
+        </div>
+
+        <div class={[
+          "grid gap-4",
+          @series_count > 1 && "grid-cols-1 md:grid-cols-2",
+          @series_count <= 1 && "grid-cols-1"
+        ]}>
+          <%= for {{series, points}, idx} <- Enum.with_index(@series_points) do %>
+            <% paths = chart_paths(points) %>
+            <% {stroke, _fill} = series_color(idx) %>
             <div class="rounded-xl border border-base-200 bg-base-100 p-4">
-              <div class="text-xs font-semibold mb-2 truncate">{series}</div>
-              <svg viewBox="0 0 400 120" class="w-full h-28">
+              <div class="flex items-start justify-between gap-3 mb-2">
+                <div class="min-w-0">
+                  <div class="text-xs font-semibold truncate">{series}</div>
+                  <div class="text-[11px] text-base-content/60">
+                    <span class="font-mono">{format_value(paths.latest)}</span>
+                    <span class="opacity-60"> latest</span>
+                    <span class="opacity-60 px-1">·</span>
+                    <span class="font-mono">{format_value(paths.min)}</span>
+                    <span class="opacity-60"> min</span>
+                    <span class="opacity-60 px-1">·</span>
+                    <span class="font-mono">{format_value(paths.max)}</span>
+                    <span class="opacity-60"> max</span>
+                  </div>
+                </div>
+
+                <div class="shrink-0 flex items-center gap-2">
+                  <span
+                    class="inline-block size-2 rounded-full"
+                    style={"background-color: #{stroke}"}
+                  />
+                </div>
+              </div>
+
+              <svg viewBox={"0 0 #{@chart_width} #{@chart_height}"} class="w-full h-40">
+                <defs>
+                  <linearGradient id={"series-fill-#{@id}-#{idx}"} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color={stroke} stop-opacity="0.22" />
+                    <stop offset="100%" stop-color={stroke} stop-opacity="0.04" />
+                  </linearGradient>
+                </defs>
+
+                <line
+                  x1={@chart_pad}
+                  y1={baseline_y()}
+                  x2={@chart_width - @chart_pad}
+                  y2={baseline_y()}
+                  stroke="currentColor"
+                  stroke-opacity="0.12"
+                  stroke-width="1"
+                />
+
+                <path d={paths.area} fill={"url(#series-fill-#{@id}-#{idx})"} />
                 <polyline
                   fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  class="text-primary"
-                  points={sparkline(points)}
+                  stroke={stroke}
+                  stroke-width="2.25"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  points={paths.line}
                 />
               </svg>
             </div>
@@ -223,4 +354,28 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     </div>
     """
   end
+
+  defp first_dt(series_points) when is_list(series_points) do
+    series_points
+    |> Enum.find_value(fn {_series, points} ->
+      case points do
+        [{%DateTime{} = dt, _} | _] -> dt
+        _ -> nil
+      end
+    end)
+  end
+
+  defp first_dt(_), do: nil
+
+  defp last_dt(series_points) when is_list(series_points) do
+    series_points
+    |> Enum.find_value(fn {_series, points} ->
+      case List.last(points) do
+        {%DateTime{} = dt, _} -> dt
+        _ -> nil
+      end
+    end)
+  end
+
+  defp last_dt(_), do: nil
 end
