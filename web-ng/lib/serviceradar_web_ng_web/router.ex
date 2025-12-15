@@ -62,10 +62,13 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     live_session :require_authenticated_user,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
+      live "/dashboard", DashboardLive.Index, :index
       live "/devices", DeviceLive.Index, :index
       live "/pollers", PollerLive.Index, :index
       live "/events", EventLive.Index, :index
       live "/logs", LogLive.Index, :index
+      live "/services", ServiceLive.Index, :index
+      live "/interfaces", InterfaceLive.Index, :index
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
     end

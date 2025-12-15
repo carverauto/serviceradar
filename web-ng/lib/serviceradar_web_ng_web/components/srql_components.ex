@@ -102,6 +102,145 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     """
   end
 
+  attr :viz, :any, default: :none
+
+  def srql_auto_viz(assigns) do
+    ~H"""
+    <.ui_panel>
+      <:header>
+        <div class="min-w-0">
+          <div class="text-sm font-semibold">Auto Visualization</div>
+          <div class="text-xs text-base-content/70">
+            A best-effort visualization inferred from the SRQL result set (beta).
+          </div>
+        </div>
+      </:header>
+
+      <div :if={@viz == :none} class="text-sm text-base-content/70">
+        No visualization detected yet. Try a timeseries query (timestamp + numeric value) or a grouped count.
+      </div>
+
+      <.timeseries_viz :if={match?({:timeseries, _}, @viz)} viz={@viz} />
+      <.categories_viz :if={match?({:categories, _}, @viz)} viz={@viz} />
+    </.ui_panel>
+    """
+  end
+
+  attr :viz, :any, required: true
+
+  defp timeseries_viz(%{viz: {:timeseries, %{x: x, y: y, points: points}}} = assigns) do
+    assigns =
+      assigns
+      |> assign(:x, x)
+      |> assign(:y, y)
+      |> assign(:points, points)
+      |> assign(:spark, sparkline(points))
+
+    ~H"""
+    <div class="flex flex-col gap-3">
+      <div class="text-xs text-base-content/60">
+        Timeseries: <span class="font-mono">{@y}</span> over <span class="font-mono">{@x}</span>
+      </div>
+
+      <div class="rounded-lg border border-base-200 bg-base-100 p-3">
+        <svg viewBox="0 0 400 120" class="w-full h-28">
+          <polyline
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            class="text-primary"
+            points={@spark}
+          />
+        </svg>
+      </div>
+    </div>
+    """
+  end
+
+  defp timeseries_viz(assigns), do: assigns |> assign(:viz, :none) |> timeseries_viz()
+
+  attr :viz, :any, required: true
+
+  defp categories_viz(
+         %{viz: {:categories, %{label: label, value: value, items: items}}} = assigns
+       ) do
+    max_v =
+      items
+      |> Enum.map(fn {_k, v} -> v end)
+      |> Enum.max(fn -> 1 end)
+
+    assigns =
+      assigns
+      |> assign(:label, label)
+      |> assign(:value, value)
+      |> assign(:items, items)
+      |> assign(:max_v, max_v)
+
+    ~H"""
+    <div class="flex flex-col gap-3">
+      <div class="text-xs text-base-content/60">
+        Categories: <span class="font-mono">{@value}</span> by <span class="font-mono">{@label}</span>
+      </div>
+
+      <div class="flex flex-col gap-2">
+        <%= for {k, v} <- @items do %>
+          <div class="flex items-center gap-3">
+            <div class="w-48 truncate text-sm">{k}</div>
+            <div class="flex-1">
+              <div class="h-2 rounded-full bg-base-200 overflow-hidden">
+                <div
+                  class="h-2 bg-primary/70"
+                  style={"width: #{round((v / @max_v) * 100)}%"}
+                />
+              </div>
+            </div>
+            <div class="w-20 text-right text-sm font-mono">{format_number(v)}</div>
+          </div>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  defp categories_viz(assigns), do: assigns |> assign(:viz, :none) |> categories_viz()
+
+  defp sparkline(points) when is_list(points) do
+    values = Enum.map(points, fn {_dt, v} -> v end)
+
+    case {values, Enum.min(values, fn -> 0 end), Enum.max(values, fn -> 0 end)} do
+      {[], _, _} ->
+        ""
+
+      {_values, min_v, max_v} when min_v == max_v ->
+        Enum.with_index(values)
+        |> Enum.map(fn {_v, idx} ->
+          x = idx_to_x(idx, length(values))
+          "#{x},60"
+        end)
+        |> Enum.join(" ")
+
+      {_values, min_v, max_v} ->
+        Enum.with_index(values)
+        |> Enum.map(fn {v, idx} ->
+          x = idx_to_x(idx, length(values))
+          y = 110 - round((v - min_v) / (max_v - min_v) * 100)
+          "#{x},#{y}"
+        end)
+        |> Enum.join(" ")
+    end
+  end
+
+  defp idx_to_x(_idx, 0), do: 0
+  defp idx_to_x(0, _len), do: 0
+
+  defp idx_to_x(idx, len) when len > 1 do
+    round(idx / (len - 1) * 400)
+  end
+
+  defp format_number(v) when is_float(v), do: :erlang.float_to_binary(v, decimals: 2)
+  defp format_number(v) when is_integer(v), do: Integer.to_string(v)
+  defp format_number(v), do: to_string(v)
+
   defp srql_columns([], _max), do: []
 
   defp srql_columns([first | _], max) when is_map(first) and is_integer(max) and max > 0 do

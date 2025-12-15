@@ -55,6 +55,11 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                 size="sm"
                 tabs={[
                   %{
+                    label: "Dashboard",
+                    href: ~p"/dashboard",
+                    active: Map.get(@srql, :page_path) == "/dashboard"
+                  },
+                  %{
                     label: "Devices",
                     href: ~p"/devices",
                     active: Map.get(@srql, :page_path) == "/devices"
@@ -69,7 +74,17 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                     href: ~p"/events",
                     active: Map.get(@srql, :page_path) == "/events"
                   },
-                  %{label: "Logs", href: ~p"/logs", active: Map.get(@srql, :page_path) == "/logs"}
+                  %{label: "Logs", href: ~p"/logs", active: Map.get(@srql, :page_path) == "/logs"},
+                  %{
+                    label: "Services",
+                    href: ~p"/services",
+                    active: Map.get(@srql, :page_path) == "/services"
+                  },
+                  %{
+                    label: "Interfaces",
+                    href: ~p"/interfaces",
+                    active: Map.get(@srql, :page_path) == "/interfaces"
+                  }
                 ]}
               />
             </div>
