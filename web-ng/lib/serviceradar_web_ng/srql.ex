@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNG.SRQL do
 
   alias ServiceRadarWebNG.SRQL.Engine
 
+  @behaviour ServiceRadarWebNG.SRQLBehaviour
+
   def query(query, opts \\ %{}) when is_binary(query) do
     Engine.query(%{
       "query" => query,

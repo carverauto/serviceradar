@@ -50,7 +50,7 @@
 
 ### API Replacement
 - [x] 4.1 Create `ServiceRadarWebNG.Api.QueryController` (SRQL endpoint).
-  - [ ] 4.1a Add property tests for request validation/decoding to ensure malformed JSON and random inputs never crash the endpoint.
+  - [x] 4.1a Add property tests for request validation/decoding to ensure malformed JSON and random inputs never crash the endpoint.
 - [ ] 4.2 Create `ServiceRadarWebNG.Api.DeviceController`.
   - [ ] 4.2a Include property tests for any new parsing/validation logic introduced by the device API (IDs, filters, and pagination).
 

@@ -27,6 +27,8 @@ config :serviceradar_web_ng,
 
 config :serviceradar_web_ng, ServiceRadarWebNG.Repo, migration_source: "ng_schema_migrations"
 
+config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
+
 # Configure the endpoint
 config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
   url: [host: "localhost"],
