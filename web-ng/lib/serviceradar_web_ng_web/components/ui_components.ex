@@ -312,6 +312,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :query, :string, default: ""
   attr :limit, :integer, default: 20
   attr :result_count, :integer, default: 0
+  attr :extra_params, :map, default: %{}
   attr :class, :any, default: nil
 
   def ui_pagination(assigns) do
@@ -329,7 +330,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       <div class="join">
         <.link
           :if={@has_prev}
-          patch={pagination_href(@base_path, @query, @limit, @prev_cursor)}
+          patch={pagination_href(@base_path, @query, @limit, @prev_cursor, @extra_params)}
           class="join-item btn btn-sm btn-outline"
         >
           <.icon name="hero-chevron-left" class="size-4" /> Previous
@@ -340,7 +341,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
         <.link
           :if={@has_next}
-          patch={pagination_href(@base_path, @query, @limit, @next_cursor)}
+          patch={pagination_href(@base_path, @query, @limit, @next_cursor, @extra_params)}
           class="join-item btn btn-sm btn-outline"
         >
           Next <.icon name="hero-chevron-right" class="size-4" />
@@ -353,10 +354,26 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
     """
   end
 
-  defp pagination_href(base_path, query, limit, cursor) do
-    params = %{"q" => query, "limit" => limit, "cursor" => cursor}
-    base_path <> "?" <> URI.encode_query(params)
+  defp pagination_href(base_path, query, limit, cursor, extra_params) do
+    base =
+      extra_params
+      |> normalize_query_params()
+      |> Map.merge(%{"q" => query, "limit" => limit, "cursor" => cursor})
+
+    base_path <> "?" <> URI.encode_query(base)
   end
+
+  defp normalize_query_params(%{} = params) do
+    params
+    |> Enum.reduce(%{}, fn
+      {k, v}, acc when is_atom(k) -> Map.put(acc, Atom.to_string(k), v)
+      {k, v}, acc when is_binary(k) -> Map.put(acc, k, v)
+      _, acc -> acc
+    end)
+    |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+  end
+
+  defp normalize_query_params(_), do: %{}
 
   defp pagination_text(count, _limit) when is_integer(count) and count > 0 do
     "Showing #{count} result#{if count != 1, do: "s", else: ""}"

@@ -102,8 +102,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Device</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Hostname</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">IP</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60" title="GRPC Health Check Status">Status</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60" title="ICMP Network Tests">Network</th>
+                  <th
+                    class="text-xs font-semibold text-base-content/70 bg-base-200/60"
+                    title="GRPC Health Check Status"
+                  >
+                    Status
+                  </th>
+                  <th
+                    class="text-xs font-semibold text-base-content/70 bg-base-200/60"
+                    title="ICMP Network Tests"
+                  >
+                    Network
+                  </th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Poller</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Last Seen</th>
                 </tr>
@@ -235,7 +245,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp tone_stroke("warning"), do: "#ffb86c"
   defp tone_stroke("success"), do: "#50fa7b"
   defp tone_stroke(_), do: "#6272a4"
-
 
   defp format_ms(value) when is_float(value) do
     :erlang.float_to_binary(value, decimals: 1) <> "ms"

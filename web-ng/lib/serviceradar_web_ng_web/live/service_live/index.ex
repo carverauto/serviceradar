@@ -429,17 +429,23 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp parse_timestamp(_), do: :error
 
-  # Compute summary stats from unique services (deduplicated by device_id:service_name)
-  # This prevents showing 50 checks for the same 5 services as "50 services"
+  # Compute summary stats from unique service instances (deduplicated by poller/agent + service identity)
+  # This prevents showing N status checks for the same service instance as "N services".
+  #
+  # Note: `in:services` is backed by the `service_status` table, which does NOT include `device_id`.
   defp compute_summary(services) when is_list(services) do
-    # First, deduplicate by device_id:service_name, keeping most recent (first in sorted list)
+    # Deduplicate by poller_id + agent_id + service_type + service_name, keeping most recent
+    # (first in sorted list).
     unique_services =
       services
       |> Enum.filter(&is_map/1)
       |> Enum.reduce(%{}, fn svc, acc ->
-        device_id = Map.get(svc, "device_id") || ""
+        poller_id = Map.get(svc, "poller_id") || ""
+        agent_id = Map.get(svc, "agent_id") || ""
+        service_type = Map.get(svc, "service_type") || ""
         service_name = Map.get(svc, "service_name") || ""
-        key = "#{device_id}:#{service_name}"
+
+        key = "#{poller_id}:#{agent_id}:#{service_type}:#{service_name}"
 
         # Keep first occurrence (most recent if sorted by timestamp desc)
         Map.put_new(acc, key, svc)
@@ -458,7 +464,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     result =
       Enum.reduce(unique_services, initial, fn svc, acc ->
         is_available = Map.get(svc, "available") == true
-        service_type = Map.get(svc, "service_type") || "unknown"
+
+        service_type =
+          svc
+          |> Map.get("service_type")
+          |> case do
+            nil -> "unknown"
+            "" -> "unknown"
+            v -> v |> to_string() |> String.trim() |> String.downcase()
+          end
 
         by_type =
           Map.update(acc.by_type, service_type, %{available: 0, unavailable: 0}, fn counts ->

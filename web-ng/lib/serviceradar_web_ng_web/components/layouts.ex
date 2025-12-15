@@ -163,10 +163,10 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </li>
               <li>
                 <.sidebar_link
-                  href={~p"/logs"}
-                  label="Logs"
+                  href={~p"/observability"}
+                  label="Observability"
                   icon="hero-rectangle-stack"
-                  active={@current_path == "/logs"}
+                  active={@current_path in ["/observability", "/logs"]}
                 />
               </li>
               <li>
@@ -190,7 +190,11 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
           <div class="mt-auto p-3 border-t border-base-200">
             <div class="dropdown dropdown-top w-full">
-              <div tabindex="0" role="button" class="flex items-center gap-2 p-2 rounded-lg hover:bg-base-200 cursor-pointer w-full">
+              <div
+                tabindex="0"
+                role="button"
+                class="flex items-center gap-2 p-2 rounded-lg hover:bg-base-200 cursor-pointer w-full"
+              >
                 <div class="avatar avatar-placeholder">
                   <div class="bg-neutral text-neutral-content w-8 rounded-full">
                     <span class="text-xs">{user_initials(@current_scope.user.email)}</span>
@@ -198,7 +202,10 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                 </div>
                 <.icon name="hero-chevron-up" class="size-3 text-base-content/50 ml-auto" />
               </div>
-              <ul tabindex="0" class="dropdown-content menu bg-base-200 rounded-box z-10 w-40 p-2 shadow-lg mb-2">
+              <ul
+                tabindex="0"
+                class="dropdown-content menu bg-base-200 rounded-box z-10 w-40 p-2 shadow-lg mb-2"
+              >
                 <li>
                   <.link href={~p"/users/settings"} class="text-sm">
                     <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
@@ -260,7 +267,10 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       <nav class="breadcrumbs text-sm">
         <ul>
           <li>
-            <.link href={~p"/analytics"} class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content">
+            <.link
+              href={~p"/analytics"}
+              class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content"
+            >
               <.icon name="hero-home-micro" class="size-3.5" />
             </.link>
           </li>
@@ -322,6 +332,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_label("pollers"), do: "Pollers"
   defp section_label("events"), do: "Events"
   defp section_label("logs"), do: "Logs"
+  defp section_label("observability"), do: "Observability"
   defp section_label("services"), do: "Services"
   defp section_label("interfaces"), do: "Interfaces"
   defp section_label(other), do: String.capitalize(other)

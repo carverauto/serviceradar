@@ -62,7 +62,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
             <span class="font-mono text-xs">{@log_id}</span>
           </:subtitle>
           <:actions>
-            <.ui_button href={~p"/logs"} variant="ghost" size="sm">
+            <.ui_button href={~p"/observability?#{%{tab: "logs"}}"} variant="ghost" size="sm">
               Back to logs
             </.ui_button>
           </:actions>

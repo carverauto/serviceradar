@@ -14,34 +14,82 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   def mount(_params, _session, socket) do
     {:ok,
      socket
-     |> assign(:page_title, "Logs")
+     |> assign(:page_title, "Observability")
+     |> assign(:active_tab, "logs")
      |> assign(:logs, [])
+     |> assign(:traces, [])
+     |> assign(:metrics, [])
      |> assign(:summary, %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0})
+     |> assign(:trace_stats, %{total: 0, error_traces: 0, slow_traces: 0})
+     |> assign(:metrics_total, 0)
      |> assign(:limit, @default_limit)
      |> SRQLPage.init("logs", default_limit: @default_limit)}
   end
 
   @impl true
   def handle_params(params, uri, socket) do
+    path = uri |> to_string() |> URI.parse() |> Map.get(:path)
+
+    tab =
+      case Map.get(params, "tab") do
+        "logs" -> "logs"
+        "traces" -> "traces"
+        "metrics" -> "metrics"
+        _ -> default_tab_for_path(path)
+      end
+
+    {entity, list_key} =
+      case tab do
+        "traces" -> {"otel_trace_summaries", :traces}
+        "metrics" -> {"otel_metrics", :metrics}
+        _ -> {"logs", :logs}
+      end
+
     socket =
       socket
-      |> SRQLPage.load_list(params, uri, :logs,
+      |> assign(:active_tab, tab)
+      |> assign(:logs, [])
+      |> assign(:traces, [])
+      |> assign(:metrics, [])
+      |> ensure_srql_entity(entity)
+      |> SRQLPage.load_list(params, uri, list_key,
         default_limit: @default_limit,
         max_limit: @max_limit
       )
 
-    summary = load_summary(srql_module(), Map.get(socket.assigns.srql, :query))
+    srql_module = srql_module()
 
-    summary =
-      case summary do
-        %{total: 0} when is_list(socket.assigns.logs) and socket.assigns.logs != [] ->
-          compute_summary(socket.assigns.logs)
+    socket =
+      case tab do
+        "traces" ->
+          socket
+          |> assign(:trace_stats, load_trace_stats(srql_module))
+          |> assign(:metrics_total, 0)
 
-        other ->
-          other
+        "metrics" ->
+          socket
+          |> assign(:metrics_total, load_metrics_total(srql_module))
+          |> assign(:trace_stats, %{total: 0, error_traces: 0, slow_traces: 0})
+
+        _ ->
+          summary = load_summary(srql_module, Map.get(socket.assigns.srql, :query))
+
+          summary =
+            case summary do
+              %{total: 0} when is_list(socket.assigns.logs) and socket.assigns.logs != [] ->
+                compute_summary(socket.assigns.logs)
+
+              other ->
+                other
+            end
+
+          socket
+          |> assign(:summary, summary)
+          |> assign(:trace_stats, %{total: 0, error_traces: 0, slow_traces: 0})
+          |> assign(:metrics_total, 0)
       end
 
-    {:noreply, assign(socket, :summary, summary)}
+    {:noreply, socket}
   end
 
   @impl true
@@ -50,11 +98,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   def handle_event("srql_submit", params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/logs")}
+    extra_params = %{"tab" => socket.assigns.active_tab}
+
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_submit", params,
+       fallback_path: "/observability",
+       extra_params: extra_params
+     )}
   end
 
   def handle_event("srql_builder_toggle", _params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "logs")}
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: current_entity(socket))}
   end
 
   def handle_event("srql_builder_change", params, socket) do
@@ -66,16 +121,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   def handle_event("srql_builder_run", _params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/logs")}
+    extra_params = %{"tab" => socket.assigns.active_tab}
+
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_run", %{},
+       fallback_path: "/observability",
+       extra_params: extra_params
+     )}
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "logs")}
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_add_filter", params,
+       entity: current_entity(socket)
+     )}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
     {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "logs")}
+     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params,
+       entity: current_entity(socket)
+     )}
   end
 
   @impl true
@@ -87,28 +153,44 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <div class="space-y-4">
-          <.log_summary summary={@summary} />
+          <div class="flex items-start justify-between gap-4">
+            <div class="min-w-0">
+              <div class="text-xl font-semibold">Observability</div>
+              <div class="text-sm text-base-content/60">
+                Unified view of logs, traces, and metrics.
+              </div>
+            </div>
+          </div>
+
+          <.observability_tabs active={@active_tab} />
+
+          <.log_summary :if={@active_tab == "logs"} summary={@summary} />
+          <.traces_summary :if={@active_tab == "traces"} stats={@trace_stats} />
+          <.metrics_summary :if={@active_tab == "metrics"} total={@metrics_total} />
 
           <.ui_panel>
             <:header>
               <div class="min-w-0">
-                <div class="text-sm font-semibold">Log Stream</div>
+                <div class="text-sm font-semibold">{panel_title(@active_tab)}</div>
                 <div class="text-xs text-base-content/70">
-                  Click any log entry to view full details.
+                  {panel_subtitle(@active_tab)}
                 </div>
               </div>
             </:header>
 
-            <.logs_table id="logs" logs={@logs} />
+            <.logs_table :if={@active_tab == "logs"} id="logs" logs={@logs} />
+            <.traces_table :if={@active_tab == "traces"} id="traces" traces={@traces} />
+            <.metrics_table :if={@active_tab == "metrics"} id="metrics" metrics={@metrics} />
 
             <div class="mt-4 pt-4 border-t border-base-200">
               <.ui_pagination
                 prev_cursor={Map.get(@pagination, "prev_cursor")}
                 next_cursor={Map.get(@pagination, "next_cursor")}
-                base_path="/logs"
+                base_path={Map.get(@srql, :page_path) || "/observability"}
                 query={Map.get(@srql, :query, "")}
                 limit={@limit}
-                result_count={length(@logs)}
+                result_count={panel_result_count(@active_tab, @logs, @traces, @metrics)}
+                extra_params={%{tab: @active_tab}}
               />
             </div>
           </.ui_panel>
@@ -142,10 +224,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       <div class="flex items-center justify-between mb-3">
         <div class="text-xs text-base-content/50 uppercase tracking-wider">Log Level Breakdown</div>
         <div class="flex items-center gap-1">
-          <.link patch={~p"/logs"} class="btn btn-ghost btn-xs">All Logs</.link>
+          <.link patch={~p"/observability?#{%{tab: "logs"}}"} class="btn btn-ghost btn-xs">
+            All Logs
+          </.link>
           <.link
             patch={
-              ~p"/logs?#{%{q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc"}}"
+              ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc"}}"
             }
             class="btn btn-ghost btn-xs text-error"
           >
@@ -193,7 +277,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <.link
-      patch={~p"/logs?#{%{q: @query}}"}
+      patch={~p"/observability?#{%{tab: "logs", q: @query}}"}
       class="rounded-lg bg-base-200/50 p-3 hover:bg-base-200 transition-colors cursor-pointer group"
     >
       <div class="flex items-center justify-between mb-1">
@@ -221,6 +305,92 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp color_bg("primary"), do: "bg-primary"
   defp color_bg("success"), do: "bg-success"
   defp color_bg(_), do: "bg-base-content"
+
+  attr :active, :string, required: true
+
+  defp observability_tabs(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-2">
+      <div class="flex flex-wrap gap-2">
+        <.tab_button id="logs" label="Logs" icon="hero-rectangle-stack" active={@active} />
+        <.tab_button id="traces" label="Traces" icon="hero-clock" active={@active} />
+        <.tab_button id="metrics" label="Metrics" icon="hero-chart-bar" active={@active} />
+      </div>
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :label, :string, required: true
+  attr :icon, :string, required: true
+  attr :active, :string, required: true
+
+  defp tab_button(assigns) do
+    active? = assigns.active == assigns.id
+    assigns = assign(assigns, :active?, active?)
+
+    ~H"""
+    <.link
+      patch={~p"/observability?#{%{tab: @id}}"}
+      class={[
+        "btn btn-sm rounded-lg flex items-center gap-2 transition-colors",
+        @active? && "btn-primary",
+        not @active? && "btn-ghost"
+      ]}
+    >
+      <.icon name={@icon} class="size-4" />
+      {@label}
+    </.link>
+    """
+  end
+
+  attr :stats, :map, required: true
+
+  defp traces_summary(assigns) do
+    total = Map.get(assigns.stats, :total, 0)
+    error_traces = Map.get(assigns.stats, :error_traces, 0)
+    slow_traces = Map.get(assigns.stats, :slow_traces, 0)
+    error_rate = if total > 0, do: Float.round(error_traces / total * 100.0, 1), else: 0.0
+
+    assigns =
+      assigns
+      |> assign(:total, total)
+      |> assign(:error_traces, error_traces)
+      |> assign(:slow_traces, slow_traces)
+      |> assign(:error_rate, error_rate)
+
+    ~H"""
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Traces (24h)</div>
+        <div class="text-2xl font-bold">{@total}</div>
+      </div>
+      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Error Rate</div>
+        <div class={["text-2xl font-bold", @error_rate > 5 && "text-error"]}>{@error_rate}%</div>
+        <div class="text-xs text-base-content/50">{@error_traces} error traces</div>
+      </div>
+      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Slow Traces</div>
+        <div class={["text-2xl font-bold", @slow_traces > 0 && "text-warning"]}>{@slow_traces}</div>
+        <div class="text-xs text-base-content/50">&gt;100ms</div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :total, :integer, required: true
+
+  defp metrics_summary(assigns) do
+    ~H"""
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Metrics (24h)</div>
+        <div class="text-2xl font-bold">{@total}</div>
+      </div>
+    </div>
+    """
+  end
 
   attr :id, :string, required: true
   attr :logs, :list, default: []
@@ -269,6 +439,139 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               </td>
               <td class="text-xs truncate max-w-[36rem]" title={log_message(log)}>
                 {log_message(log)}
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :traces, :list, default: []
+
+  defp traces_table(assigns) do
+    ~H"""
+    <div class="overflow-x-auto">
+      <table id={@id} class="table table-sm table-zebra w-full">
+        <thead>
+          <tr>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Time
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Service
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+              Operation
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
+              Duration
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
+              Errors
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :if={@traces == []}>
+            <td colspan="5" class="text-sm text-base-content/60 py-8 text-center">
+              No traces found.
+            </td>
+          </tr>
+
+          <%= for {trace, idx} <- Enum.with_index(@traces) do %>
+            <tr
+              id={"#{@id}-row-#{idx}"}
+              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              phx-click={JS.navigate(correlate_trace_href(trace))}
+            >
+              <td class="whitespace-nowrap text-xs font-mono">{format_timestamp(trace)}</td>
+              <td
+                class="whitespace-nowrap text-xs truncate max-w-[14rem]"
+                title={Map.get(trace, "root_service_name")}
+              >
+                {Map.get(trace, "root_service_name") || "—"}
+              </td>
+              <td class="text-xs truncate max-w-[28rem]" title={Map.get(trace, "root_span_name")}>
+                {Map.get(trace, "root_span_name") || "—"}
+              </td>
+              <td class="whitespace-nowrap text-xs font-mono text-right">
+                {format_duration_ms(Map.get(trace, "duration_ms"))}
+              </td>
+              <td class="whitespace-nowrap text-xs font-mono text-right">
+                <span class={error_count_class(Map.get(trace, "error_count", 0) |> to_int())}>
+                  {Map.get(trace, "error_count", 0) |> to_int()}
+                </span>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :metrics, :list, default: []
+
+  defp metrics_table(assigns) do
+    ~H"""
+    <div class="overflow-x-auto">
+      <table id={@id} class="table table-sm table-zebra w-full">
+        <thead>
+          <tr>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Time
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Service
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-36">
+              Type
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+              Operation
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
+              Slow
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :if={@metrics == []}>
+            <td colspan="5" class="text-sm text-base-content/60 py-8 text-center">
+              No metrics found.
+            </td>
+          </tr>
+
+          <%= for {metric, idx} <- Enum.with_index(@metrics) do %>
+            <tr
+              id={"#{@id}-row-#{idx}"}
+              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              phx-click={JS.navigate(correlate_metric_href(metric))}
+            >
+              <td class="whitespace-nowrap text-xs font-mono">{format_timestamp(metric)}</td>
+              <td
+                class="whitespace-nowrap text-xs truncate max-w-[14rem]"
+                title={Map.get(metric, "service_name")}
+              >
+                {Map.get(metric, "service_name") || "—"}
+              </td>
+              <td
+                class="whitespace-nowrap text-xs truncate max-w-[10rem]"
+                title={Map.get(metric, "metric_type")}
+              >
+                {Map.get(metric, "metric_type") || "—"}
+              </td>
+              <td class="text-xs truncate max-w-[28rem]" title={metric_operation(metric)}>
+                {metric_operation(metric)}
+              </td>
+              <td class="whitespace-nowrap text-xs font-mono text-right">
+                <span class={slow_badge_class(Map.get(metric, "is_slow"))}>
+                  {if Map.get(metric, "is_slow") == true, do: "YES", else: "—"}
+                </span>
               </td>
             </tr>
           <% end %>
@@ -429,6 +732,142 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp parse_timestamp(_), do: :error
+
+  defp panel_title("traces"), do: "Traces"
+  defp panel_title("metrics"), do: "Metrics"
+  defp panel_title(_), do: "Log Stream"
+
+  defp panel_subtitle("traces"), do: "Click a trace to jump to correlated logs."
+
+  defp panel_subtitle("metrics"),
+    do: "Click a metric to jump to correlated logs (if trace_id is present)."
+
+  defp panel_subtitle(_), do: "Click any log entry to view full details."
+
+  defp panel_result_count("traces", _logs, traces, _metrics), do: length(traces)
+  defp panel_result_count("metrics", _logs, _traces, metrics), do: length(metrics)
+  defp panel_result_count(_, logs, _traces, _metrics), do: length(logs)
+
+  defp default_tab_for_path("/observability"), do: "traces"
+  defp default_tab_for_path(_), do: "logs"
+
+  defp ensure_srql_entity(socket, entity) when is_binary(entity) do
+    current = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:entity)
+
+    if current == entity do
+      socket
+    else
+      SRQLPage.init(socket, entity, default_limit: @default_limit)
+    end
+  end
+
+  defp current_entity(socket) do
+    socket.assigns |> Map.get(:srql, %{}) |> Map.get(:entity) || "logs"
+  end
+
+  defp load_trace_stats(srql_module) do
+    query =
+      "in:otel_trace_summaries time:last_24h " <>
+        ~s|stats:"count() as total, sum(if(status_code != 1, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"|
+
+    case srql_module.query(query) do
+      {:ok, %{"results" => [%{} = row | _]}} ->
+        %{
+          total: row |> Map.get("total") |> to_int(),
+          error_traces: row |> Map.get("error_traces") |> to_int(),
+          slow_traces: row |> Map.get("slow_traces") |> to_int()
+        }
+
+      _ ->
+        %{total: 0, error_traces: 0, slow_traces: 0}
+    end
+  end
+
+  defp load_metrics_total(srql_module) do
+    query = "in:otel_metrics time:last_24h stats:count() as total"
+
+    case srql_module.query(query) do
+      {:ok, %{"results" => [%{} = row | _]}} -> row |> Map.get("total") |> to_int()
+      {:ok, %{"results" => [value | _]}} -> to_int(value)
+      _ -> 0
+    end
+  end
+
+  defp format_duration_ms(value) do
+    ms = extract_number(value)
+
+    cond do
+      not is_number(ms) -> "—"
+      ms >= 1000 -> "#{Float.round(ms / 1000.0, 2)}s"
+      true -> "#{Float.round(ms * 1.0, 1)}ms"
+    end
+  end
+
+  defp error_count_class(count) when is_integer(count) and count > 0, do: "text-error font-bold"
+  defp error_count_class(_), do: "text-base-content/60"
+
+  defp metric_operation(metric) do
+    http_route = Map.get(metric, "http_route")
+    http_method = Map.get(metric, "http_method")
+    grpc_service = Map.get(metric, "grpc_service")
+    grpc_method = Map.get(metric, "grpc_method")
+
+    cond do
+      is_binary(grpc_service) and grpc_service != "" and is_binary(grpc_method) and
+          grpc_method != "" ->
+        "#{grpc_service}/#{grpc_method}"
+
+      is_binary(http_method) and http_method != "" and is_binary(http_route) and http_route != "" ->
+        "#{http_method} #{http_route}"
+
+      is_binary(http_route) and http_route != "" ->
+        http_route
+
+      true ->
+        Map.get(metric, "span_name") || "—"
+    end
+  end
+
+  defp slow_badge_class(true), do: "text-warning font-bold"
+  defp slow_badge_class(_), do: "text-base-content/50"
+
+  defp correlate_trace_href(trace) do
+    trace_id = trace |> Map.get("trace_id") |> escape_srql_value()
+    q = "in:logs trace_id:\"#{trace_id}\" time:last_24h sort:timestamp:desc"
+    "/observability?" <> URI.encode_query(%{tab: "logs", q: q, limit: 50})
+  end
+
+  defp correlate_metric_href(metric) do
+    trace_id = metric |> Map.get("trace_id")
+
+    if is_binary(trace_id) and trace_id != "" do
+      q = "in:logs trace_id:\"#{escape_srql_value(trace_id)}\" time:last_24h sort:timestamp:desc"
+      "/observability?" <> URI.encode_query(%{tab: "logs", q: q, limit: 50})
+    else
+      "/observability?" <> URI.encode_query(%{tab: "logs"})
+    end
+  end
+
+  defp escape_srql_value(nil), do: ""
+
+  defp escape_srql_value(value) when is_binary(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("\"", "\\\"")
+  end
+
+  defp escape_srql_value(value), do: value |> to_string() |> escape_srql_value()
+
+  defp extract_number(value) when is_number(value), do: value
+
+  defp extract_number(value) when is_binary(value) do
+    case Float.parse(String.trim(value)) do
+      {n, ""} -> n
+      _ -> nil
+    end
+  end
+
+  defp extract_number(_), do: nil
 
   defp log_service(log) do
     service =

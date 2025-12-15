@@ -50,7 +50,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
   end
 
   def handle_event("srql_builder_run", _params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/interfaces")}
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/interfaces")}
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do

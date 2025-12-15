@@ -138,13 +138,19 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Index do
               class="hover:bg-base-200/40 cursor-pointer transition-colors"
               phx-click={JS.navigate(~p"/pollers/#{poller_id(poller)}")}
             >
-              <td class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]" title={poller_id(poller)}>
+              <td
+                class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]"
+                title={poller_id(poller)}
+              >
                 {poller_id(poller)}
               </td>
               <td class="whitespace-nowrap text-xs">
                 <.status_badge active={Map.get(poller, "is_active")} />
               </td>
-              <td class="whitespace-nowrap text-xs font-mono truncate max-w-[10rem]" title={poller_address(poller)}>
+              <td
+                class="whitespace-nowrap text-xs font-mono truncate max-w-[10rem]"
+                title={poller_address(poller)}
+              >
                 {poller_address(poller)}
               </td>
               <td class="whitespace-nowrap text-xs font-mono">
@@ -205,7 +211,9 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Index do
     value = String.trim(value)
 
     case DateTime.from_iso8601(value) do
-      {:ok, dt, _offset} -> {:ok, dt}
+      {:ok, dt, _offset} ->
+        {:ok, dt}
+
       {:error, _} ->
         case NaiveDateTime.from_iso8601(value) do
           {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}

@@ -81,28 +81,28 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
           <.event_summary summary={@summary} />
 
           <.ui_panel>
-          <:header>
-            <div class="min-w-0">
-              <div class="text-sm font-semibold">Event Stream</div>
-              <div class="text-xs text-base-content/70">
-                Click any event to view full details.
+            <:header>
+              <div class="min-w-0">
+                <div class="text-sm font-semibold">Event Stream</div>
+                <div class="text-xs text-base-content/70">
+                  Click any event to view full details.
+                </div>
               </div>
+            </:header>
+
+            <.events_table id="events" events={@events} />
+
+            <div class="mt-4 pt-4 border-t border-base-200">
+              <.ui_pagination
+                prev_cursor={Map.get(@pagination, "prev_cursor")}
+                next_cursor={Map.get(@pagination, "next_cursor")}
+                base_path="/events"
+                query={Map.get(@srql, :query, "")}
+                limit={@limit}
+                result_count={length(@events)}
+              />
             </div>
-          </:header>
-
-          <.events_table id="events" events={@events} />
-
-          <div class="mt-4 pt-4 border-t border-base-200">
-            <.ui_pagination
-              prev_cursor={Map.get(@pagination, "prev_cursor")}
-              next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path="/events"
-              query={Map.get(@srql, :query, "")}
-              limit={@limit}
-              result_count={length(@events)}
-            />
-          </div>
-        </.ui_panel>
+          </.ui_panel>
         </div>
       </div>
     </Layouts.app>
@@ -129,11 +129,15 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
       <div class="flex items-center justify-between mb-3">
-        <div class="text-xs text-base-content/50 uppercase tracking-wider">Event Severity Breakdown</div>
+        <div class="text-xs text-base-content/50 uppercase tracking-wider">
+          Event Severity Breakdown
+        </div>
         <div class="flex items-center gap-1">
           <.link patch={~p"/events"} class="btn btn-ghost btn-xs">All Events</.link>
           <.link
-            patch={~p"/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:event_timestamp:desc"}}"}
+            patch={
+              ~p"/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:event_timestamp:desc"}}"
+            }
             class="btn btn-ghost btn-xs text-error"
           >
             Critical/High
@@ -141,7 +145,13 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
         </div>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <.severity_stat label="Critical" count={@critical} total={@total} color="error" severity="Critical" />
+        <.severity_stat
+          label="Critical"
+          count={@critical}
+          total={@total}
+          color="error"
+          severity="Critical"
+        />
         <.severity_stat label="High" count={@high} total={@total} color="warning" severity="High" />
         <.severity_stat label="Medium" count={@medium} total={@total} color="info" severity="Medium" />
         <.severity_stat label="Low" count={@low} total={@total} color="success" severity="Low" />
@@ -301,7 +311,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     value = String.trim(value)
 
     case DateTime.from_iso8601(value) do
-      {:ok, dt, _offset} -> {:ok, dt}
+      {:ok, dt, _offset} ->
+        {:ok, dt}
+
       {:error, _} ->
         case NaiveDateTime.from_iso8601(value) do
           {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
@@ -316,9 +328,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     # Try various source fields in order of preference
     source =
       Map.get(event, "host") ||
-      Map.get(event, "source") ||
-      Map.get(event, "device_id") ||
-      Map.get(event, "subject")
+        Map.get(event, "source") ||
+        Map.get(event, "device_id") ||
+        Map.get(event, "subject")
 
     case source do
       nil -> "—"
@@ -332,9 +344,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     # Try various message fields in order of preference
     message =
       Map.get(event, "short_message") ||
-      Map.get(event, "message") ||
-      Map.get(event, "subject") ||
-      Map.get(event, "description")
+        Map.get(event, "message") ||
+        Map.get(event, "subject") ||
+        Map.get(event, "description")
 
     case message do
       nil -> "—"

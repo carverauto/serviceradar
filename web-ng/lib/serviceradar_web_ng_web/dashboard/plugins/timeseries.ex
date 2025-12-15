@@ -354,16 +354,29 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     ~H"""
     <div
       id={"chart-#{@id}-#{@data.idx}"}
-      class={["rounded-lg border border-base-200 bg-base-100 relative group", @compact && "p-3", not @compact && "p-4"]}
+      class={[
+        "rounded-lg border border-base-200 bg-base-100 relative group",
+        @compact && "p-3",
+        not @compact && "p-4"
+      ]}
       phx-hook="TimeseriesChart"
       data-points={Jason.encode!(@data.point_data)}
     >
       <div class="flex items-center justify-between gap-3 mb-2">
         <div class="flex items-center gap-2 min-w-0">
-          <span class="inline-block size-2 rounded-full shrink-0" style={"background-color: #{@data.stroke}"} />
-          <span class={["font-medium truncate", @compact && "text-xs", not @compact && "text-sm"]}>{@data.series}</span>
+          <span
+            class="inline-block size-2 rounded-full shrink-0"
+            style={"background-color: #{@data.stroke}"}
+          />
+          <span class={["font-medium truncate", @compact && "text-xs", not @compact && "text-sm"]}>
+            {@data.series}
+          </span>
         </div>
-        <div class={["text-base-content/60 font-mono shrink-0", @compact && "text-[10px]", not @compact && "text-xs"]}>
+        <div class={[
+          "text-base-content/60 font-mono shrink-0",
+          @compact && "text-[10px]",
+          not @compact && "text-xs"
+        ]}>
           <span style={"color: #{@data.stroke}"}>{format_value(@data.paths.latest)}</span>
         </div>
       </div>
@@ -391,8 +404,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             points={@data.paths.line}
           />
         </svg>
-
-        <!-- Hover tooltip - populated by JS -->
+        
+    <!-- Hover tooltip - populated by JS -->
         <div
           class="absolute hidden pointer-events-none bg-base-300 text-base-content text-xs px-2 py-1 rounded shadow-lg z-10 font-mono whitespace-nowrap"
           data-tooltip
@@ -406,7 +419,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         </div>
       </div>
 
-      <div class={["flex items-center justify-between text-base-content/50 mt-1", @compact && "text-[10px]", not @compact && "text-xs"]}>
+      <div class={[
+        "flex items-center justify-between text-base-content/50 mt-1",
+        @compact && "text-[10px]",
+        not @compact && "text-xs"
+      ]}>
         <span>min: <span class="font-mono">{format_value(@data.paths.min)}</span></span>
         <span>max: <span class="font-mono">{format_value(@data.paths.max)}</span></span>
       </div>

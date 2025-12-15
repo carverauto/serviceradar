@@ -161,6 +161,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   def handle_event(socket, "srql_submit", params, opts) do
     srql = Map.get(socket.assigns, :srql, %{})
     page_path = srql[:page_path] || Keyword.get(opts, :fallback_path) || "/"
+    extra_params = normalize_extra_params(Keyword.get(opts, :extra_params, %{}))
 
     raw_query = normalize_param_to_string(extract_param(params, "q")) || ""
     query = raw_query |> String.trim()
@@ -169,11 +170,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
     limit = Map.get(socket.assigns, limit_assign_key)
 
+    nav_params = Map.merge(extra_params, %{"q" => query, "limit" => limit})
+
     socket
     |> Phoenix.Component.assign(:srql, Map.put(srql, :builder_open, false))
-    |> Phoenix.LiveView.push_patch(
-      to: page_path <> "?" <> URI.encode_query(%{"q" => query, "limit" => limit})
-    )
+    |> Phoenix.LiveView.push_patch(to: page_path <> "?" <> URI.encode_query(nav_params))
   end
 
   def handle_event(socket, "srql_builder_toggle", _params, opts) do
@@ -333,6 +334,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   def handle_event(socket, "srql_builder_run", _params, opts) do
     srql = Map.get(socket.assigns, :srql, %{})
     page_path = srql[:page_path] || Keyword.get(opts, :fallback_path) || "/"
+    extra_params = normalize_extra_params(Keyword.get(opts, :extra_params, %{}))
 
     if not Map.get(srql, :builder_available, false) do
       socket
@@ -344,16 +346,28 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
       limit = Map.get(socket.assigns, limit_assign_key)
 
+      nav_params = Map.merge(extra_params, %{"q" => query, "limit" => limit})
+
       # Close builder and navigate with the new query
       socket
       |> Phoenix.Component.assign(:srql, Map.put(srql, :builder_open, false))
-      |> Phoenix.LiveView.push_patch(
-        to: page_path <> "?" <> URI.encode_query(%{"q" => query, "limit" => limit})
-      )
+      |> Phoenix.LiveView.push_patch(to: page_path <> "?" <> URI.encode_query(nav_params))
     end
   end
 
   def handle_event(socket, _event, _params, _opts), do: socket
+
+  defp normalize_extra_params(%{} = params) do
+    params
+    |> Enum.reduce(%{}, fn
+      {k, v}, acc when is_atom(k) -> Map.put(acc, Atom.to_string(k), v)
+      {k, v}, acc when is_binary(k) -> Map.put(acc, k, v)
+      _, acc -> acc
+    end)
+    |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+  end
+
+  defp normalize_extra_params(_), do: %{}
 
   defp srql_entity(srql, opts) do
     case Map.get(srql, :entity) || Keyword.get(opts, :entity) do

@@ -633,11 +633,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
         <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
           <.device_availability_widget availability={@device_availability} loading={@loading} />
-          <.high_utilization_widget data={@high_utilization} loading={@loading} />
-          <.bandwidth_widget data={@bandwidth} loading={@loading} />
-          <.critical_logs_widget summary={@logs_summary} loading={@loading} />
           <.observability_widget data={@observability} loading={@loading} />
           <.critical_events_widget summary={@events_summary} loading={@loading} />
+          <.critical_logs_widget summary={@logs_summary} loading={@loading} />
+          <.high_utilization_widget data={@high_utilization} loading={@loading} />
+          <.bandwidth_widget data={@bandwidth} loading={@loading} />
         </div>
 
         <div class="mt-3 text-xs text-base-content/40 flex items-center gap-2">
@@ -677,7 +677,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           </div>
           <div class="text-sm text-base-content/60">
             {@title}
-            <span :if={@subtitle} class="text-base-content/40"> |     {@subtitle}</span>
+            <span :if={@subtitle} class="text-base-content/40"> |      {@subtitle}</span>
           </div>
         </div>
       </div>
@@ -939,12 +939,15 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     ~H"""
     <div class="h-80 rounded-xl border border-base-200 bg-base-100 shadow-sm flex flex-col overflow-hidden">
       <header class="px-4 py-3 bg-base-200/40 flex items-start justify-between gap-3 shrink-0">
-        <.link href={~p"/logs"} class="hover:text-primary transition-colors">
+        <.link
+          href={~p"/observability?#{%{tab: "logs"}}"}
+          class="hover:text-primary transition-colors"
+        >
           <div class="text-sm font-semibold">Critical Logs</div>
         </.link>
         <.link
           href={
-            ~p"/logs?#{%{q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc limit:100"}}"
+            ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc limit:100"}}"
           }
           class="text-base-content/60 hover:text-primary"
           title="View critical logs"
@@ -973,7 +976,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="error"
               href={
-                ~p"/logs?#{%{q: "in:logs severity_text:(fatal,FATAL) time:last_24h sort:timestamp:desc limit:100"}}"
+                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(fatal,FATAL) time:last_24h sort:timestamp:desc limit:100"}}"
               }
             />
             <.severity_row
@@ -982,7 +985,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="warning"
               href={
-                ~p"/logs?#{%{q: "in:logs severity_text:(error,ERROR) time:last_24h sort:timestamp:desc limit:100"}}"
+                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(error,ERROR) time:last_24h sort:timestamp:desc limit:100"}}"
               }
             />
             <.severity_row
@@ -991,7 +994,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="info"
               href={
-                ~p"/logs?#{%{q: "in:logs severity_text:(warning,warn,WARNING,WARN) time:last_24h sort:timestamp:desc limit:100"}}"
+                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(warning,warn,WARNING,WARN) time:last_24h sort:timestamp:desc limit:100"}}"
               }
             />
             <.severity_row
@@ -1000,7 +1003,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="primary"
               href={
-                ~p"/logs?#{%{q: "in:logs severity_text:(info,INFO) time:last_24h sort:timestamp:desc limit:100"}}"
+                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(info,INFO) time:last_24h sort:timestamp:desc limit:100"}}"
               }
             />
             <.severity_row
@@ -1009,7 +1012,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="neutral"
               href={
-                ~p"/logs?#{%{q: "in:logs severity_text:(debug,trace,DEBUG,TRACE) time:last_24h sort:timestamp:desc limit:100"}}"
+                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(debug,trace,DEBUG,TRACE) time:last_24h sort:timestamp:desc limit:100"}}"
               }
             />
           </tbody>
