@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @default_limit 50
   @max_limit 200
   @metrics_limit 200
+  @availability_window "last_24h"
+  @availability_bucket "30m"
 
   @impl true
   def mount(_params, _session, socket) do
@@ -35,6 +37,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:results, [])
      |> assign(:panels, [])
      |> assign(:metric_sections, [])
+     |> assign(:sysmon_summary, nil)
+     |> assign(:availability, nil)
      |> assign(:limit, @default_limit)
      |> assign(:srql, srql)}
   end
@@ -93,6 +97,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     srql_response = %{"results" => results, "viz" => viz}
 
     metric_sections = load_metric_sections(srql_module, device_id)
+    sysmon_summary = load_sysmon_summary(srql_module, device_id)
+    availability = load_availability(srql_module, device_id)
 
     {:noreply,
      socket
@@ -101,6 +107,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:results, results)
      |> assign(:panels, Engine.build_panels(srql_response))
      |> assign(:metric_sections, metric_sections)
+     |> assign(:sysmon_summary, sysmon_summary)
+     |> assign(:availability, availability)
      |> assign(:srql, srql)}
   end
 
@@ -171,6 +179,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.kv_inline label="Version" value={Map.get(@device_row, "version_info")} />
             </div>
           </div>
+
+          <.availability_section :if={is_map(@availability)} availability={@availability} />
+
+          <.sysmon_summary_section :if={is_map(@sysmon_summary)} summary={@sysmon_summary} />
 
           <%= for section <- @metric_sections_to_render do %>
             <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
@@ -367,6 +379,482 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
+
+  # ---------------------------------------------------------------------------
+  # Availability Section
+  # ---------------------------------------------------------------------------
+
+  attr :availability, :map, required: true
+
+  def availability_section(assigns) do
+    uptime_pct = Map.get(assigns.availability, :uptime_pct, 0.0)
+    total_checks = Map.get(assigns.availability, :total_checks, 0)
+    online_checks = Map.get(assigns.availability, :online_checks, 0)
+    offline_checks = Map.get(assigns.availability, :offline_checks, 0)
+    segments = Map.get(assigns.availability, :segments, [])
+
+    assigns =
+      assigns
+      |> assign(:uptime_pct, uptime_pct)
+      |> assign(:total_checks, total_checks)
+      |> assign(:online_checks, online_checks)
+      |> assign(:offline_checks, offline_checks)
+      |> assign(:segments, segments)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200">
+        <span class="text-sm font-semibold">Availability (24h)</span>
+      </div>
+
+      <div class="p-4">
+        <div class="flex items-center gap-6 mb-4">
+          <div class="flex flex-col">
+            <span class="text-3xl font-bold tabular-nums">{format_pct(@uptime_pct)}%</span>
+            <span class="text-xs text-base-content/60">Uptime</span>
+          </div>
+          <div class="flex gap-4 text-sm">
+            <div class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-success"></span>
+              <span class="tabular-nums">{@online_checks}</span>
+              <span class="text-base-content/60">online</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-error"></span>
+              <span class="tabular-nums">{@offline_checks}</span>
+              <span class="text-base-content/60">offline</span>
+            </div>
+          </div>
+        </div>
+
+        <div :if={@segments != []} class="h-6 flex rounded-lg overflow-hidden bg-base-200">
+          <%= for seg <- @segments do %>
+            <div
+              class={["h-full", seg.available && "bg-success" || "bg-error"]}
+              style={"width: #{seg.width}%"}
+              title={seg.title}
+            />
+          <% end %>
+        </div>
+        <div :if={@segments == []} class="text-sm text-base-content/60">
+          No availability data found.
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
+  defp format_pct(value) when is_integer(value), do: Integer.to_string(value)
+  defp format_pct(_), do: "—"
+
+  # ---------------------------------------------------------------------------
+  # Sysmon Summary Section
+  # ---------------------------------------------------------------------------
+
+  attr :summary, :map, required: true
+
+  def sysmon_summary_section(assigns) do
+    cpu = Map.get(assigns.summary, :cpu, %{})
+    memory = Map.get(assigns.summary, :memory, %{})
+    disks = Map.get(assigns.summary, :disks, [])
+    icmp_rtt = Map.get(assigns.summary, :icmp_rtt)
+
+    assigns =
+      assigns
+      |> assign(:cpu, cpu)
+      |> assign(:memory, memory)
+      |> assign(:disks, disks)
+      |> assign(:icmp_rtt, icmp_rtt)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200">
+        <span class="text-sm font-semibold">System Metrics Overview</span>
+      </div>
+
+      <div class="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <.metric_card
+          title="CPU Usage"
+          value={format_pct(Map.get(@cpu, :avg_usage, 0.0))}
+          suffix="%"
+          subtitle={"#{Map.get(@cpu, :core_count, 0)} cores"}
+          icon="hero-cpu-chip"
+          color={cpu_color(Map.get(@cpu, :avg_usage, 0.0))}
+        />
+
+        <.metric_card
+          title="Memory"
+          value={format_pct(Map.get(@memory, :percent, 0.0))}
+          suffix="%"
+          subtitle={format_bytes(Map.get(@memory, :used_bytes, 0)) <> " / " <> format_bytes(Map.get(@memory, :total_bytes, 0))}
+          icon="hero-rectangle-stack"
+          color={memory_color(Map.get(@memory, :percent, 0.0))}
+        />
+
+        <.metric_card
+          :if={is_number(@icmp_rtt)}
+          title="Latency (ICMP)"
+          value={format_latency(@icmp_rtt)}
+          suffix="ms"
+          subtitle="Last check"
+          icon="hero-signal"
+          color={latency_color(@icmp_rtt)}
+        />
+
+        <.metric_card
+          :if={@disks != []}
+          title="Heaviest Disk"
+          value={format_pct(disk_max_percent(@disks))}
+          suffix="%"
+          subtitle={disk_max_mount(@disks)}
+          icon="hero-circle-stack"
+          color={disk_color(disk_max_percent(@disks))}
+        />
+      </div>
+
+      <div :if={@disks != []} class="px-4 pb-4">
+        <div class="text-xs font-semibold text-base-content/70 mb-2">Disk Utilization</div>
+        <div class="space-y-2">
+          <%= for disk <- Enum.take(Enum.sort_by(@disks, & &1.percent, :desc), 5) do %>
+            <.disk_bar disk={disk} />
+          <% end %>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :title, :string, required: true
+  attr :value, :string, required: true
+  attr :suffix, :string, default: ""
+  attr :subtitle, :string, default: ""
+  attr :icon, :string, required: true
+  attr :color, :string, default: "primary"
+
+  def metric_card(assigns) do
+    ~H"""
+    <div class="rounded-lg border border-base-200 bg-base-200/30 p-4">
+      <div class="flex items-center gap-2 mb-2">
+        <.icon name={@icon} class={["size-4", "text-#{@color}"]} />
+        <span class="text-xs text-base-content/70">{@title}</span>
+      </div>
+      <div class="flex items-baseline gap-1">
+        <span class={["text-2xl font-bold tabular-nums", "text-#{@color}"]}>{@value}</span>
+        <span class="text-sm text-base-content/60">{@suffix}</span>
+      </div>
+      <div :if={@subtitle != ""} class="text-xs text-base-content/50 mt-1">{@subtitle}</div>
+    </div>
+    """
+  end
+
+  attr :disk, :map, required: true
+
+  def disk_bar(assigns) do
+    pct = Map.get(assigns.disk, :percent, 0.0)
+    mount = Map.get(assigns.disk, :mount_point, "?")
+    used = format_bytes(Map.get(assigns.disk, :used_bytes, 0))
+    total = format_bytes(Map.get(assigns.disk, :total_bytes, 0))
+    color = disk_color(pct)
+
+    assigns =
+      assigns
+      |> assign(:pct, pct)
+      |> assign(:mount, mount)
+      |> assign(:used, used)
+      |> assign(:total, total)
+      |> assign(:color, color)
+
+    ~H"""
+    <div class="flex items-center gap-3">
+      <div class="w-24 truncate text-xs font-mono text-base-content/70" title={@mount}>{@mount}</div>
+      <div class="flex-1 h-2 bg-base-200 rounded-full overflow-hidden">
+        <div
+          class={["h-full rounded-full", "bg-#{@color}"]}
+          style={"width: #{min(@pct, 100)}%"}
+        />
+      </div>
+      <div class="w-24 text-right text-xs tabular-nums text-base-content/70">
+        {format_pct(@pct)}% <span class="text-base-content/50">({@used})</span>
+      </div>
+    </div>
+    """
+  end
+
+  defp cpu_color(pct) when pct >= 90, do: "error"
+  defp cpu_color(pct) when pct >= 70, do: "warning"
+  defp cpu_color(_), do: "success"
+
+  defp memory_color(pct) when pct >= 90, do: "error"
+  defp memory_color(pct) when pct >= 80, do: "warning"
+  defp memory_color(_), do: "info"
+
+  defp disk_color(pct) when pct >= 90, do: "error"
+  defp disk_color(pct) when pct >= 80, do: "warning"
+  defp disk_color(_), do: "primary"
+
+  defp latency_color(ms) when ms >= 200, do: "error"
+  defp latency_color(ms) when ms >= 100, do: "warning"
+  defp latency_color(_), do: "success"
+
+  defp disk_max_percent([]), do: 0.0
+  defp disk_max_percent(disks), do: Enum.max_by(disks, & &1.percent, fn -> %{percent: 0.0} end).percent
+
+  defp disk_max_mount([]), do: "—"
+  defp disk_max_mount(disks), do: Enum.max_by(disks, & &1.percent, fn -> %{mount_point: "—"} end).mount_point
+
+  defp format_bytes(bytes) when is_number(bytes) do
+    cond do
+      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776 * 1.0, 1)} TB"
+      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824 * 1.0, 1)} GB"
+      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576 * 1.0, 1)} MB"
+      bytes >= 1024 -> "#{Float.round(bytes / 1024 * 1.0, 1)} KB"
+      true -> "#{bytes} B"
+    end
+  end
+  defp format_bytes(_), do: "—"
+
+  defp format_latency(ms) when is_float(ms), do: :erlang.float_to_binary(ms, decimals: 1)
+  defp format_latency(ms) when is_integer(ms), do: Integer.to_string(ms)
+  defp format_latency(_), do: "—"
+
+  # ---------------------------------------------------------------------------
+  # Data Loading Functions
+  # ---------------------------------------------------------------------------
+
+  defp load_availability(srql_module, device_id) do
+    escaped_id = escape_value(device_id)
+
+    query =
+      "in:timeseries_metrics metric_type:icmp device_id:\"#{escaped_id}\" " <>
+      "time:#{@availability_window} bucket:#{@availability_bucket} agg:count sort:timestamp:asc limit:100"
+
+    case srql_module.query(query) do
+      {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
+        build_availability(rows)
+
+      _ ->
+        # Fallback: try healthcheck_results
+        fallback_query = "in:healthcheck_results device_id:\"#{escaped_id}\" time:#{@availability_window} limit:200"
+
+        case srql_module.query(fallback_query) do
+          {:ok, %{"results" => rows}} when is_list(rows) ->
+            build_availability_from_healthchecks(rows)
+
+          _ ->
+            nil
+        end
+    end
+  end
+
+  defp build_availability(rows) do
+    # Each row represents a bucket. If we got ICMP data, the device was online.
+    # This is a simplified availability based on metric presence.
+    total = length(rows)
+    online = Enum.count(rows, fn r -> is_map(r) and is_number(Map.get(r, "value")) and Map.get(r, "value") > 0 end)
+    offline = total - online
+
+    uptime_pct = if total > 0, do: Float.round(online / total * 100.0, 1), else: 0.0
+
+    segments =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn r ->
+        value = Map.get(r, "value")
+        ts = Map.get(r, "timestamp", "")
+        available = is_number(value) and value > 0
+
+        %{
+          available: available,
+          width: 100.0 / max(length(rows), 1),
+          title: "#{ts} - #{if available, do: "Online", else: "Offline"}"
+        }
+      end)
+
+    %{
+      uptime_pct: uptime_pct,
+      total_checks: total,
+      online_checks: online,
+      offline_checks: offline,
+      segments: segments
+    }
+  end
+
+  defp build_availability_from_healthchecks(rows) do
+    total = length(rows)
+    online = Enum.count(rows, fn r ->
+      is_map(r) and (Map.get(r, "is_available") == true or Map.get(r, "available") == true)
+    end)
+    offline = total - online
+
+    uptime_pct = if total > 0, do: Float.round(online / total * 100.0, 1), else: 0.0
+
+    # Build segments (group by time buckets if we have timestamps)
+    segments =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.take(48)  # Limit segments for display
+      |> Enum.map(fn r ->
+        available = Map.get(r, "is_available") == true or Map.get(r, "available") == true
+        ts = Map.get(r, "timestamp") || Map.get(r, "checked_at", "")
+
+        %{
+          available: available,
+          width: 100.0 / max(min(length(rows), 48), 1),
+          title: "#{ts} - #{if available, do: "Online", else: "Offline"}"
+        }
+      end)
+
+    %{
+      uptime_pct: uptime_pct,
+      total_checks: total,
+      online_checks: online,
+      offline_checks: offline,
+      segments: segments
+    }
+  end
+
+  defp load_sysmon_summary(srql_module, device_id) do
+    escaped_id = escape_value(device_id)
+
+    # Load CPU, Memory, Disk metrics in parallel (conceptually - in sequence here)
+    cpu_data = load_cpu_summary(srql_module, escaped_id)
+    memory_data = load_memory_summary(srql_module, escaped_id)
+    disk_data = load_disk_summary(srql_module, escaped_id)
+    icmp_rtt = load_icmp_rtt(srql_module, escaped_id)
+
+    if cpu_data || memory_data || disk_data != [] || icmp_rtt do
+      %{
+        cpu: cpu_data || %{},
+        memory: memory_data || %{},
+        disks: disk_data || [],
+        icmp_rtt: icmp_rtt
+      }
+    else
+      nil
+    end
+  end
+
+  defp load_cpu_summary(srql_module, escaped_id) do
+    query = "in:cpu_metrics device_id:\"#{escaped_id}\" sort:timestamp:desc limit:64"
+
+    case srql_module.query(query) do
+      {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
+        # Get unique cores and calculate average
+        values = Enum.map(rows, fn r -> extract_numeric(Map.get(r, "value")) end)
+                 |> Enum.filter(&is_number/1)
+
+        cores = rows
+                |> Enum.map(fn r -> Map.get(r, "core") || Map.get(r, "cpu_core") end)
+                |> Enum.filter(&is_binary/1)
+                |> Enum.uniq()
+                |> length()
+
+        avg = if values != [], do: Enum.sum(values) / length(values), else: 0.0
+
+        %{
+          avg_usage: Float.round(avg * 1.0, 1),
+          core_count: max(cores, 1),
+          timestamp: Map.get(List.first(rows), "timestamp")
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp load_memory_summary(srql_module, escaped_id) do
+    query = "in:memory_metrics device_id:\"#{escaped_id}\" sort:timestamp:desc limit:4"
+
+    case srql_module.query(query) do
+      {:ok, %{"results" => [row | _]}} when is_map(row) ->
+        used = extract_numeric(Map.get(row, "used_bytes") || Map.get(row, "value"))
+        total = extract_numeric(Map.get(row, "total_bytes"))
+
+        # Calculate percent if we have both
+        pct =
+          cond do
+            is_number(Map.get(row, "percent")) -> Map.get(row, "percent")
+            is_number(used) and is_number(total) and total > 0 -> used / total * 100.0
+            true -> 0.0
+          end
+
+        %{
+          used_bytes: used || 0,
+          total_bytes: total || 0,
+          percent: Float.round(pct * 1.0, 1),
+          timestamp: Map.get(row, "timestamp")
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp load_disk_summary(srql_module, escaped_id) do
+    query = "in:disk_metrics device_id:\"#{escaped_id}\" sort:timestamp:desc limit:24"
+
+    case srql_module.query(query) do
+      {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
+        # Group by mount point and take the latest for each
+        rows
+        |> Enum.filter(&is_map/1)
+        |> Enum.group_by(fn r -> Map.get(r, "mount_point") || Map.get(r, "mount") || "unknown" end)
+        |> Enum.map(fn {mount, disk_rows} ->
+          latest = List.first(disk_rows)
+          used = extract_numeric(Map.get(latest, "used_bytes") || Map.get(latest, "value"))
+          total = extract_numeric(Map.get(latest, "total_bytes"))
+
+          pct =
+            cond do
+              is_number(Map.get(latest, "percent")) -> Map.get(latest, "percent")
+              is_number(used) and is_number(total) and total > 0 -> used / total * 100.0
+              true -> 0.0
+            end
+
+          %{
+            mount_point: mount,
+            used_bytes: used || 0,
+            total_bytes: total || 0,
+            percent: Float.round(pct * 1.0, 1)
+          }
+        end)
+        |> Enum.sort_by(& &1.percent, :desc)
+
+      _ ->
+        []
+    end
+  end
+
+  defp load_icmp_rtt(srql_module, escaped_id) do
+    query = "in:timeseries_metrics metric_type:icmp device_id:\"#{escaped_id}\" sort:timestamp:desc limit:1"
+
+    case srql_module.query(query) do
+      {:ok, %{"results" => [row | _]}} when is_map(row) ->
+        value = extract_numeric(Map.get(row, "value"))
+
+        # Convert from nanoseconds if value is very large
+        if is_number(value) do
+          if value > 1_000_000.0, do: Float.round(value / 1_000_000.0, 2), else: Float.round(value * 1.0, 2)
+        else
+          nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_numeric(value) when is_number(value), do: value
+
+  defp extract_numeric(value) when is_binary(value) do
+    case Float.parse(String.trim(value)) do
+      {num, ""} -> num
+      _ -> nil
+    end
+  end
+
+  defp extract_numeric(_), do: nil
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)

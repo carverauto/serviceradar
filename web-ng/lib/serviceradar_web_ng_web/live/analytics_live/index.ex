@@ -442,14 +442,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       if length(targets_with_data) > 0 do
         Enum.sum(Enum.map(targets_with_data, & &1.latency_ms)) / length(targets_with_data)
       else
-        0
+        0.0
       end
 
     %{
       targets: targets_with_data,
-      total_download: Float.round(total_download, 2),
-      total_upload: Float.round(total_upload, 2),
-      avg_latency: Float.round(avg_latency, 1),
+      total_download: Float.round(total_download * 1.0, 2),
+      total_upload: Float.round(total_upload * 1.0, 2),
+      avg_latency: Float.round(avg_latency * 1.0, 1),
       target_count: length(targets_with_data)
     }
   end
@@ -661,15 +661,18 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     offline = Map.get(assigns.availability, :offline, 0)
     pct = Map.get(assigns.availability, :availability_pct, 100.0)
 
-    online_pct = if total > 0, do: Float.round(online / total * 100, 0), else: 100
-    offline_pct = if total > 0, do: Float.round(offline / total * 100, 0), else: 0
+    # Ensure pct is a float for display
+    pct_display = if is_number(pct), do: Float.round(pct * 1.0, 1), else: 100.0
+
+    online_pct = if total > 0, do: Float.round(online / total * 100.0, 0), else: 100.0
+    offline_pct = if total > 0, do: Float.round(offline / total * 100.0, 0), else: 0.0
 
     assigns =
       assigns
       |> assign(:online, online)
       |> assign(:offline, offline)
       |> assign(:total, total)
-      |> assign(:pct, pct)
+      |> assign(:pct, pct_display)
       |> assign(:online_pct, online_pct)
       |> assign(:offline_pct, offline_pct)
 
@@ -717,7 +720,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               />
             </svg>
             <div class="absolute inset-0 flex flex-col items-center justify-center">
-              <span class="text-2xl font-bold">{Float.round(@pct, 1)}%</span>
+              <span class="text-2xl font-bold">{@pct}%</span>
               <span class="text-xs text-base-content/60">Availability</span>
             </div>
           </div>
