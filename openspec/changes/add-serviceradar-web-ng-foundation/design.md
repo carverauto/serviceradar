@@ -44,3 +44,24 @@ We are transforming `srql` from a **standalone HTTP service** to an **embedded l
 - `core` writes to DB (Telemetry/Inventory ingestion).
 - `web-ng` reads/writes DB (Inventory edits, Auth, Settings).
 - External Load Balancer routes traffic to `web-ng`.
+
+## 7. Property-Based Testing (StreamData)
+
+### Goals
+- Catch edge-cases early for new Elixir contexts (especially token formats, parsing/validation, and serialization).
+- Keep most property tests pure (no DB) so they run fast and deterministically in CI.
+- Add targeted “safety net” properties at boundary layers (NIF input, JSON decoding/validation, changesets) to ensure garbage input never crashes the BEAM or the request process.
+
+### Framework Choice
+- Use `StreamData` via `ExUnitProperties` (standard Elixir ecosystem property-based testing).
+
+### Conventions
+- Put generators in `test/support/generators/*.ex` (shared across properties).
+- Put properties in `test/property/**/*_property_test.exs`.
+- Tag long-running properties with `@tag :slow_property` and keep CI defaults bounded (e.g., 50–200 cases/property) with an env override for deeper runs.
+- Property tests MUST be part of normal `mix test` execution (no separate “optional” suite), unless explicitly excluded for performance reasons with a documented CI job.
+
+### Starter Properties (Examples)
+- **NIF Safety Net:** For any printable string input, `ServiceRadarWebNG.SRQL.query/1` MUST return `{:ok, _}` or `{:error, _}` and MUST NOT crash the test process.
+- **Dual-Write Consistency:** For any sequence of create/update/delete operations on a Device, the Postgres row state MUST match the AGE node state after each operation.
+- **Changeset Fuzzing:** For generated JSON-like maps that mimic Go ingestion shapes, changesets MUST return `{:ok, _}` or `{:error, changeset}` and MUST NOT raise.

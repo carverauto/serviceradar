@@ -13,6 +13,15 @@
 - [x] 1.5 Implement `native/srql_nif` in Phoenix (Async NIF pattern).
 - [x] 1.6 Implement `ServiceRadarWebNG.SRQL` module.
 
+### Property-Based Testing (StreamData)
+- [ ] 1.7 Add `stream_data` (and `ExUnitProperties`) to the `web-ng` ExUnit suite.
+  - [ ] Add the dependency to `web-ng/mix.exs` (`stream_data`) under `only: :test`.
+  - [ ] Ensure `ExUnitProperties` is available in tests.
+- [ ] 1.8 Integrate property-based testing into the `web-ng` ExUnit suite.
+  - [ ] Add shared generators under `web-ng/test/support/generators/`.
+  - [ ] Add `web-ng/test/property/` with at least one starter property test.
+  - [ ] Ensure `mix test` runs property tests by default with bounded case-counts and an env override for deeper runs.
+
 ## 2. Authentication (Fresh Implementation)
 - [x] 2.1 Run `mix phx.gen.auth Accounts User ng_users`.
   - [x] *Note:* Using `ng_users` ensures we do not conflict with the legacy `users` table.
@@ -35,12 +44,15 @@
 ### Edge Onboarding
 - [ ] 3.4 Port `EdgeOnboardingPackage` schema (Shared Data).
 - [ ] 3.5 Implement token generation logic in Elixir.
+  - [ ] 3.5a Add property tests for token encode/decode invariants (round-trip, URL-safe encoding, and invalid input handling).
 
 ## 4. UI & API Implementation
 
 ### API Replacement
 - [x] 4.1 Create `ServiceRadarWebNG.Api.QueryController` (SRQL endpoint).
+  - [ ] 4.1a Add property tests for request validation/decoding to ensure malformed JSON and random inputs never crash the endpoint.
 - [ ] 4.2 Create `ServiceRadarWebNG.Api.DeviceController`.
+  - [ ] 4.2a Include property tests for any new parsing/validation logic introduced by the device API (IDs, filters, and pagination).
 
 ### Dashboard (LiveView)
 - [ ] 4.3 Re-implement the main Dashboard using LiveView.

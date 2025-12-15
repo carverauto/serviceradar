@@ -14,6 +14,7 @@
   - *App Data:* Fresh tables created/managed by Phoenix (Read/Write).
 - **Auth:** **Fresh Start.** Implement standard `phx.gen.auth` using a new table (e.g., `ng_users`). We will **not** use the legacy `users` table or migrate old credentials.
 - **Logic Porting:** Re-implement user-facing business logic from Go into Elixir Contexts.
+- **Testing:** Establish property-based testing patterns early using `StreamData` (`ExUnitProperties`) for core invariants (token formats, parsing/validation, and “never crash” boundaries like NIF input handling).
 
 ## Non-Goals
 - **No Go Changes:** We will not modify `serviceradar-core` source code.
