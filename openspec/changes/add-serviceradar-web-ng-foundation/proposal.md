@@ -1,34 +1,29 @@
-# Change: Add `serviceradar-web-ng` Phoenix foundation (side-by-side)
+# Change: Add `serviceradar-web-ng` (The New Monolith)
 
 ## Why
-- We want to incrementally migrate the ServiceRadar UI and API surface from the current Next.js + Go HTTP API split to a Phoenix LiveView application without disrupting existing deployments.
-- `serviceradar-core` remains the high-throughput ingestion daemon; however, the new UI/API work should begin without coupling to the existing Core HTTP APIs.
-- We want a first-class Elixir abstraction for Apache AGE graph queries (ported from the reference `guided/` app) and an embedded SRQL execution path (Rustler NIF) that does not rely on the existing SRQL HTTP service.
+- **Complete Replacement:** We are replacing the existing React/Next.js frontend and the Go HTTP API entirely. The new Phoenix application will be the sole interface for users and API clients.
+- **Architecture Shift:** Moving from Microservices (Kong + Go API + Rust Service + Next.js) to a Monolith (Phoenix + Embedded Rust).
+- **Core Isolation:** `serviceradar-core` (Go) is being demoted to a background ingestion daemon. It will continue to write to the DB, but its HTTP endpoints will be bypassed and eventually ignored.
+- **Simplification:** We are removing the need for the Kong API Gateway and the standalone SRQL HTTP service container. SRQL itself remains—it becomes an embedded library called via Rustler NIF.
 
 ## What Changes
-- Add a new Phoenix LiveView application named `serviceradar-web-ng` that runs alongside `serviceradar-web` (Next.js) during migration.
-- The new Phoenix application source SHALL live in the repository under `web-ng/`.
-- `serviceradar-web-ng` connects directly to the existing CNPG/Timescale/AGE Postgres database via Ecto (read-only schemas first).
-- Port/derive `ServiceRadarWebNG.Graph` from the reference `guided/guided/lib/guided/graph.ex` module, updating the graph name to `"serviceradar"` and adding safe parameterization patterns.
-- Embed the Rust SRQL engine (`rust/srql`) into the BEAM using Rustler, exposing an Elixir module (`ServiceRadarWebNG.SRQL`) that executes SRQL without calling the existing `/api/query` service.
-- Add minimal UI surfaces (health + query playgrounds) to validate DB connectivity, AGE queries, and SRQL embedding early.
+- **New App:** Create `web-ng/` hosting `:serviceradar_web_ng`.
+- **SRQL:** Embed `rust/srql` via Rustler (NIF) to run queries directly within the Phoenix VM, exposing a standard `ServiceRadarWebNG.SRQL` module.
+- **Database:** Connect Ecto to the existing Postgres/AGE instance.
+  - *Telemetry Data:* Mapped to existing tables (Read-Only).
+  - *App Data:* Fresh tables created/managed by Phoenix (Read/Write).
+- **Auth:** **Fresh Start.** Implement standard `phx.gen.auth` using a new table (e.g., `ng_users`). We will **not** use the legacy `users` table or migrate old credentials.
+- **Logic Porting:** Re-implement user-facing business logic from Go into Elixir Contexts.
 
 ## Non-Goals
-- `guided/` is a reference/sample app and is NOT part of ServiceRadar runtime; `serviceradar-web-ng` MUST NOT depend on `guided` as a deployed component.
-- No changes to `serviceradar-core` ingestion behavior, gRPC surfaces, or deployment topology.
-- No dependency on the existing Core HTTP API or the existing SRQL HTTP service for `serviceradar-web-ng`.
-- No wholesale port of the current Next.js UI in this change; this is the foundation for incremental feature delivery.
-- No schema ownership handover (Ecto migrations) in this change; that comes later after a validated snapshot/structure baseline.
+- **No Go Changes:** We will not modify `serviceradar-core` source code.
+- **No Auth Migration:** Legacy user accounts are abandoned. Users will register fresh accounts in the new system.
+- **No API Compatibility:** The new API will follow Phoenix conventions, not strictly mimic the legacy Go API structure.
 
 ## Impact
-- Affected specs: new `serviceradar-web-ng` capability (foundation, DB access, AGE graph, embedded SRQL).
-- Affected code:
-  - New Phoenix application (new directory; Mix project + assets).
-  - Docker Compose: optional new service and Nginx routing to expose `serviceradar-web-ng` without replacing Next.js.
-  - Kubernetes: optional new Deployment/Service/Ingress rules for demo environments.
-- Security considerations:
-  - `serviceradar-web-ng` introduces a new auth boundary; initial auth strategy must not weaken existing security guarantees.
-  - Rustler NIF code must be panic-safe to avoid taking down the BEAM.
+- **Routing:** Nginx will eventually route `/*` and `/api/*` to Phoenix.
+- **Security:** Phoenix becomes the sole Authority for Identity.
+- **Performance:** Elimination of internal HTTP hops for Query and API responses.
 
 ## Status
-- Proposed (spec-first; do not implement until approved).
+- Proposed.
