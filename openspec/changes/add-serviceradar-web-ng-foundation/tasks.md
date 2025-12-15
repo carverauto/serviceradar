@@ -61,14 +61,16 @@
 
 ### SRQL-First UX (Analytics Pages)
 - [x] 4.0 Add a global SRQL query bar in the top navigation for SRQL-driven pages.
-  - [ ] *Note:* It MUST display the exact SRQL query used to render the current view.
-  - [ ] *Note:* It MUST allow editing + re-running the query with bounded errors (no LiveView crashes).
+  - [x] *Note:* It MUST display the exact SRQL query used to render the current view.
+  - [x] *Note:* It MUST allow editing + re-running the query with bounded errors (no LiveView crashes).
   - [x] *Note:* It SHOULD support deep-linking by storing the SRQL query in the URL (shareable links).
 - [x] 4.0a Add SRQL-driven page helpers (common LiveView patterns: query state, loading/error states, query execution).
 - [ ] 4.0b Add property tests to ensure query input handling never crashes (malformed queries, malformed params).
 - [x] 4.0c Add an SRQL query builder UI accessible from the query bar (toggle icon + expandable panel).
   - [x] 4.0d Keep SRQL text as the source of truth; builder generates SRQL by updating the query bar.
   - [x] 4.0e Implement a bounded fallback state when SRQL can't be represented by the builder (no destructive rewrites).
+  - [x] 4.0f Render the builder panel under the navbar (no navbar height changes).
+  - [x] 4.0g Support multiple filters in the builder UI (add/remove).
 
 ### API Replacement
 - [x] 4.1 Create `ServiceRadarWebNG.Api.QueryController` (SRQL endpoint).

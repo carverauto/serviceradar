@@ -96,6 +96,13 @@ The query builder is a UI for constructing SRQL safely:
 - The builder produces SRQL output by updating the query bar text.
 - The builder attempts to parse/reflect the existing SRQL into builder state when possible.
 - If SRQL cannot be represented, the builder shows a bounded "read-only/limited" state and avoids destructive rewrites.
+- The builder UI uses a visual, node/pill style with connector affordances (instead of a generic stacked form) and supports multiple filters.
+
+### SRQL Page Helpers
+SRQL-driven pages share common patterns (query state, builder state, deep-linking, and execution). These are centralized in a helper module:
+- Pages initialize SRQL state (default query + builder state).
+- `handle_params/3` resolves `?q=` overrides and executes SRQL via the embedded translator + Ecto.
+- Common `handle_event/3` handlers manage query editing, submit, builder toggle, and builder edits.
 
 ### Composable Dashboard Engine
 Dashboards are built around SRQL queries and render "widgets" based on the query outputs:

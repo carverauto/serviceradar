@@ -375,7 +375,27 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                               <% end %>
                             </select>
 
-                            <span class="mx-2 text-xs text-base-content/50">contains</span>
+                            <select
+                              name={"builder[filters][#{idx}][op]"}
+                              class="bg-transparent text-xs text-base-content/70 outline-none disabled:opacity-60"
+                              disabled={not @supported}
+                            >
+                              <option
+                                value="contains"
+                                selected={(filter["op"] || "contains") == "contains"}
+                              >
+                                contains
+                              </option>
+                              <option value="not_contains" selected={filter["op"] == "not_contains"}>
+                                does not contain
+                              </option>
+                              <option value="equals" selected={filter["op"] == "equals"}>
+                                equals
+                              </option>
+                              <option value="not_equals" selected={filter["op"] == "not_equals"}>
+                                does not equal
+                              </option>
+                            </select>
 
                             <input
                               type="text"

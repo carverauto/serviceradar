@@ -37,4 +37,8 @@
 - In progress (Foundation + Auth + initial list views).
 - SRQL translator-only pivot complete: Rust now translates SRQL -> parameterized SQL + typed bind params + pagination metadata; Phoenix executes via Ecto using `ServiceRadarWebNG.Repo`.
 - Added safety checks: unit tests and debug-mode bind-count validation to ensure SQL placeholder arity matches returned params.
-- SRQL-first analytics and composable dashboard architecture defined; implementation work remains.
+- SRQL-first analytics UX implemented for initial pages:
+  - Global SRQL query bar rendered from the app layout (LiveView-controlled state).
+  - Query builder panel renders under the navbar (no navbar height changes) with multi-filter support.
+  - Shared SRQL page helper (`ServiceRadarWebNGWeb.SRQL.Page`) used by `/devices` and `/pollers`.
+- Composable dashboard architecture defined; implementation work remains.

@@ -168,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       |> Map.get("filters", [])
       |> List.wrap()
 
-    next = %{"field" => default_filter_field(entity, filters), "value" => ""}
+    next = %{"field" => default_filter_field(entity, filters), "op" => "contains", "value" => ""}
 
     updated_builder = Map.put(builder, "filters", filters ++ [next])
 
@@ -205,7 +205,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     updated_builder =
       if updated_filters == [] do
         Map.put(builder, "filters", [
-          %{"field" => default_filter_field(entity, []), "value" => ""}
+          %{"field" => default_filter_field(entity, []), "op" => "contains", "value" => ""}
         ])
       else
         Map.put(builder, "filters", updated_filters)
