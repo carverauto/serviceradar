@@ -12,8 +12,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       "sort_field" => default_sort_field(entity),
       "sort_dir" => "desc",
       "limit" => normalize_limit(limit),
-      "search_field" => default_search_field(entity),
-      "search" => ""
+      "filters" => [%{"field" => default_search_field(entity), "value" => ""}]
     }
   end
 
@@ -23,13 +22,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     sort_field = Map.get(state, "sort_field", default_sort_field(entity))
     sort_dir = Map.get(state, "sort_dir", "desc")
     limit = normalize_limit(Map.get(state, "limit", 100))
-    search_field = Map.get(state, "search_field", default_search_field(entity))
-    search = Map.get(state, "search", "") |> to_string() |> String.trim()
+    filters = normalize_filters(entity, Map.get(state, "filters", []))
 
     tokens =
       ["in:#{entity}"]
       |> maybe_add_time(time)
-      |> maybe_add_search(search_field, search)
+      |> maybe_add_filters(filters)
       |> Kernel.++(["sort:#{sort_field}:#{sort_dir}", "limit:#{limit}"])
 
     Enum.join(tokens, " ")
@@ -48,7 +46,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       |> String.split(~r/\s+/, trim: true)
 
     with {:ok, parts} <- parse_tokens(tokens),
-         :ok <- reject_unknown_tokens(tokens, parts) do
+         :ok <- reject_unknown_tokens(tokens, parts),
+         :ok <- validate_filter_fields(parts.entity, parts.filters) do
       {:ok,
        %{
          "entity" => parts.entity,
@@ -56,8 +55,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
          "sort_field" => parts.sort_field,
          "sort_dir" => parts.sort_dir,
          "limit" => parts.limit,
-         "search_field" => parts.search_field,
-         "search" => parts.search
+         "filters" => parts.filters
        }
        |> normalize_state()}
     end
@@ -78,14 +76,18 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
         _ -> "desc"
       end
 
+    filters =
+      state
+      |> Map.get("filters", [])
+      |> normalize_filters(entity)
+
     %{
       "entity" => entity,
       "time" => normalize_time(Map.get(state, "time", "")),
       "sort_field" => normalize_sort_field(entity, Map.get(state, "sort_field")),
       "sort_dir" => sort_dir,
       "limit" => normalize_limit(Map.get(state, "limit", 100)),
-      "search_field" => normalize_search_field(entity, Map.get(state, "search_field")),
-      "search" => Map.get(state, "search", "") |> to_string()
+      "filters" => filters
     }
   end
 
@@ -108,18 +110,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   end
 
   defp normalize_sort_field(entity, _), do: default_sort_field(entity)
-
-  defp normalize_search_field(entity, field) when is_binary(field) do
-    field = String.trim(field)
-
-    if field in allowed_search_fields(entity) do
-      field
-    else
-      default_search_field(entity)
-    end
-  end
-
-  defp normalize_search_field(entity, _), do: default_search_field(entity)
 
   defp normalize_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, @max_limit)
 
@@ -157,12 +147,17 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   defp maybe_add_time(tokens, nil), do: tokens
   defp maybe_add_time(tokens, time), do: tokens ++ ["time:#{time}"]
 
-  defp maybe_add_search(tokens, _field, ""), do: tokens
-  defp maybe_add_search(tokens, _field, nil), do: tokens
+  defp maybe_add_filters(tokens, filters) when is_list(filters) do
+    Enum.reduce(filters, tokens, fn %{"field" => field, "value" => value}, acc ->
+      value = value |> to_string() |> String.trim()
 
-  defp maybe_add_search(tokens, field, search) do
-    search = String.replace(search, " ", "\\ ")
-    tokens ++ ["#{field}:%#{search}%"]
+      if value == "" do
+        acc
+      else
+        escaped = String.replace(value, " ", "\\ ")
+        acc ++ ["#{field}:%#{escaped}%"]
+      end
+    end)
   end
 
   defp stringify_map(%{} = map) do
@@ -179,8 +174,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       sort_field: nil,
       sort_dir: "desc",
       limit: 100,
-      search_field: "",
-      search: ""
+      filters: []
     }
 
     Enum.reduce_while(tokens, {:ok, parts}, fn token, {:ok, acc} ->
@@ -212,7 +206,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
           case String.split(token, ":", parts: 2) do
             [field, value] ->
               value = String.trim(value)
-              {:cont, {:ok, %{acc | search_field: field, search: unwrap_like(value)}}}
+              filter = %{"field" => field, "value" => unwrap_like(value)}
+              {:cont, {:ok, %{acc | filters: acc.filters ++ [filter]}}}
 
             _ ->
               {:halt, {:error, :invalid_token}}
@@ -245,9 +240,71 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     unknown =
       Enum.reject(tokens, fn token ->
         Enum.any?(known_prefixes, &String.starts_with?(token, &1)) or
-          (parts.search_field != "" and String.starts_with?(token, parts.search_field <> ":"))
+          Enum.any?(parts.filters, fn %{"field" => field} ->
+            String.starts_with?(token, field <> ":")
+          end)
       end)
 
     if unknown == [], do: :ok, else: {:error, {:unsupported_tokens, unknown}}
   end
+
+  defp validate_filter_fields(entity, filters) when entity in ["devices", "pollers"] do
+    allowed = allowed_search_fields(entity)
+
+    invalid =
+      filters
+      |> Enum.map(&Map.get(&1, "field"))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.reject(&(&1 in allowed))
+
+    if invalid == [], do: :ok, else: {:error, {:unsupported_filter_fields, invalid}}
+  end
+
+  defp validate_filter_fields(_entity, _filters), do: {:error, :missing_entity}
+
+  defp normalize_filters(entity, filters) when is_list(filters) do
+    filters
+    |> Enum.map(fn
+      %{"field" => field, "value" => value} ->
+        %{
+          "field" => normalize_filter_field(entity, field),
+          "value" => value |> to_string()
+        }
+
+      %{} = other ->
+        %{
+          "field" => normalize_filter_field(entity, Map.get(other, "field")),
+          "value" => Map.get(other, "value", "") |> to_string()
+        }
+
+      other ->
+        %{"field" => default_search_field(entity), "value" => to_string(other)}
+    end)
+  end
+
+  defp normalize_filters(entity, %{} = filters_by_index) do
+    filters_by_index
+    |> Enum.sort_by(fn {k, _} ->
+      case Integer.parse(to_string(k)) do
+        {i, ""} -> i
+        _ -> 0
+      end
+    end)
+    |> Enum.map(fn {_k, v} -> v end)
+    |> normalize_filters(entity)
+  end
+
+  defp normalize_filters(entity, _), do: normalize_filters(entity, [])
+
+  defp normalize_filter_field(entity, field) when is_binary(field) do
+    field = String.trim(field)
+
+    if field in allowed_search_fields(entity) do
+      field
+    else
+      default_search_field(entity)
+    end
+  end
+
+  defp normalize_filter_field(entity, _), do: default_search_field(entity)
 end

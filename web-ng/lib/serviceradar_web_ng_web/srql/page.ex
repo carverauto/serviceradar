@@ -158,6 +158,67 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     Phoenix.Component.assign(socket, :srql, updated)
   end
 
+  def handle_event(socket, "srql_builder_add_filter", _params, opts) do
+    srql = Map.get(socket.assigns, :srql, %{})
+    entity = srql_entity(srql, opts)
+    builder = Map.get(srql, :builder, Builder.default_state(entity))
+
+    filters =
+      builder
+      |> Map.get("filters", [])
+      |> List.wrap()
+
+    next = %{"field" => default_filter_field(entity, filters), "value" => ""}
+
+    updated_builder = Map.put(builder, "filters", filters ++ [next])
+
+    updated =
+      srql
+      |> Map.put(:builder, updated_builder)
+      |> maybe_sync_builder_to_draft()
+
+    Phoenix.Component.assign(socket, :srql, updated)
+  end
+
+  def handle_event(socket, "srql_builder_remove_filter", %{"idx" => idx}, opts) do
+    srql = Map.get(socket.assigns, :srql, %{})
+    entity = srql_entity(srql, opts)
+    builder = Map.get(srql, :builder, Builder.default_state(entity))
+
+    filters =
+      builder
+      |> Map.get("filters", [])
+      |> List.wrap()
+
+    index =
+      case Integer.parse(to_string(idx)) do
+        {i, ""} -> i
+        _ -> -1
+      end
+
+    updated_filters =
+      filters
+      |> Enum.with_index()
+      |> Enum.reject(fn {_f, i} -> i == index end)
+      |> Enum.map(fn {f, _i} -> f end)
+
+    updated_builder =
+      if updated_filters == [] do
+        Map.put(builder, "filters", [
+          %{"field" => default_filter_field(entity, []), "value" => ""}
+        ])
+      else
+        Map.put(builder, "filters", updated_filters)
+      end
+
+    updated =
+      srql
+      |> Map.put(:builder, updated_builder)
+      |> maybe_sync_builder_to_draft()
+
+    Phoenix.Component.assign(socket, :srql, updated)
+  end
+
   def handle_event(socket, "srql_builder_apply", _params, _opts) do
     srql = Map.get(socket.assigns, :srql, %{})
     builder = Map.get(srql, :builder, %{})
@@ -184,6 +245,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     socket.assigns
     |> Map.get(:srql, %{})
     |> fun.()
+  end
+
+  defp maybe_sync_builder_to_draft(srql) do
+    if srql[:builder_supported] and srql[:builder_sync] do
+      Map.put(srql, :draft, Builder.build(srql[:builder] || %{}))
+    else
+      srql
+    end
   end
 
   defp srql_module do
@@ -218,4 +287,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
+
+  defp default_filter_field(entity, _filters) do
+    case entity do
+      "pollers" -> "poller_id"
+      _ -> "hostname"
+    end
+  end
 end

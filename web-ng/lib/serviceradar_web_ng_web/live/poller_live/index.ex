@@ -48,6 +48,16 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Index do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
   end
 
+  def handle_event("srql_builder_add_filter", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "pollers")}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "pollers")}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
