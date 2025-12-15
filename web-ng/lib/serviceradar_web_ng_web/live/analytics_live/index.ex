@@ -55,8 +55,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       devices_total: "in:devices stats:count() as total",
       devices_online: "in:devices is_available:true stats:count() as online",
       devices_offline: "in:devices is_available:false stats:count() as offline",
-      services_total: "in:services time:last_24h stats:count() as total",
-      services_failing: "in:services available:false time:last_24h stats:count() as failing",
+      # Get unique services by service_name in the last hour (most recent status)
+      services_list: "in:services time:last_1h sort:timestamp:desc limit:500",
       events: "in:events time:last_24h sort:event_timestamp:desc limit:#{@default_events_limit}",
       logs: "in:logs time:last_24h sort:timestamp:desc limit:#{@default_logs_limit}"
     }
@@ -89,13 +89,15 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     total_devices = extract_count(results[:devices_total])
     online_devices = extract_count(results[:devices_online])
     offline_devices = extract_count(results[:devices_offline])
-    total_services = extract_count(results[:services_total])
-    failing_services = extract_count(results[:services_failing])
+
+    # Calculate unique services from the services list
+    services_rows = extract_rows(results[:services_list])
+    {unique_services, failing_services} = count_unique_services(services_rows)
 
     stats = %{
       total_devices: total_devices,
       offline_devices: offline_devices,
-      total_services: total_services,
+      total_services: unique_services,
       failing_services: failing_services
     }
 
@@ -131,6 +133,39 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp extract_rows({:ok, %{"results" => rows}}) when is_list(rows), do: rows
   defp extract_rows(_), do: []
+
+  defp count_unique_services(rows) when is_list(rows) do
+    # Group by service_name and get most recent status for each
+    services_by_name =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(%{}, fn row, acc ->
+        service_name = Map.get(row, "service_name")
+        device_id = Map.get(row, "device_id")
+        # Use composite key of device_id + service_name to identify unique service instances
+        key = "#{device_id}:#{service_name}"
+
+        if is_binary(service_name) and service_name != "" do
+          # Keep most recent entry per service (rows are sorted by timestamp desc)
+          Map.put_new(acc, key, row)
+        else
+          acc
+        end
+      end)
+
+    unique_count = map_size(services_by_name)
+
+    failing_count =
+      services_by_name
+      |> Map.values()
+      |> Enum.count(fn row ->
+        Map.get(row, "available") == false
+      end)
+
+    {unique_count, failing_count}
+  end
+
+  defp count_unique_services(_), do: {0, 0}
 
   defp extract_count({:ok, %{"results" => [value | _]}}) do
     case value do
@@ -306,18 +341,19 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             href={~p"/devices?#{%{q: "in:devices is_available:false sort:last_seen:desc limit:100"}}"}
           />
           <.stat_card
-            title="Total Services"
+            title="Active Services"
             value={Map.get(@stats, :total_services, 0)}
-            subtitle="last 24h"
+            subtitle="unique"
             icon="hero-wrench-screwdriver"
             href={~p"/services"}
           />
           <.stat_card
             title="Failing Services"
             value={Map.get(@stats, :failing_services, 0)}
+            subtitle="unique"
             icon="hero-exclamation-triangle"
             tone={if Map.get(@stats, :failing_services, 0) > 0, do: "error", else: "success"}
-            href={~p"/services?#{%{q: "in:services available:false sort:timestamp:desc limit:100"}}"}
+            href={~p"/services?#{%{q: "in:services available:false time:last_1h sort:timestamp:desc limit:100"}}"}
           />
         </div>
 
@@ -526,8 +562,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   def critical_events_widget(assigns) do
     ~H"""
-    <.ui_panel class="h-80 flex flex-col overflow-hidden">
-      <:header>
+    <div class="h-80 rounded-xl border border-base-200 bg-base-100 shadow-sm flex flex-col overflow-hidden">
+      <header class="px-4 py-3 bg-base-200/40 flex items-start justify-between gap-3 shrink-0">
         <.link href={~p"/events"} class="hover:text-primary transition-colors">
           <div class="text-sm font-semibold">Critical Events</div>
         </.link>
@@ -538,13 +574,13 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
         </.link>
-      </:header>
+      </header>
 
       <div :if={@loading} class="flex-1 flex items-center justify-center">
         <span class="loading loading-spinner loading-md" />
       </div>
 
-      <div :if={not @loading} class="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div :if={not @loading} class="flex-1 flex flex-col min-h-0 px-4 py-4">
         <table class="table table-xs mb-3 shrink-0">
           <thead>
             <tr class="border-b border-base-200">
@@ -599,7 +635,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <% end %>
         </div>
       </div>
-    </.ui_panel>
+    </div>
     """
   end
 
@@ -608,8 +644,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   def critical_logs_widget(assigns) do
     ~H"""
-    <.ui_panel class="h-80 flex flex-col overflow-hidden">
-      <:header>
+    <div class="h-80 rounded-xl border border-base-200 bg-base-100 shadow-sm flex flex-col overflow-hidden">
+      <header class="px-4 py-3 bg-base-200/40 flex items-start justify-between gap-3 shrink-0">
         <.link href={~p"/logs"} class="hover:text-primary transition-colors">
           <div class="text-sm font-semibold">Critical Logs</div>
         </.link>
@@ -620,13 +656,13 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
         </.link>
-      </:header>
+      </header>
 
       <div :if={@loading} class="flex-1 flex items-center justify-center">
         <span class="loading loading-spinner loading-md" />
       </div>
 
-      <div :if={not @loading} class="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div :if={not @loading} class="flex-1 flex flex-col min-h-0 px-4 py-4">
         <table class="table table-xs mb-3 shrink-0">
           <thead>
             <tr class="border-b border-base-200">
@@ -688,7 +724,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <% end %>
         </div>
       </div>
-    </.ui_panel>
+    </div>
     """
   end
 

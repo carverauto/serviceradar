@@ -9,9 +9,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   @max_series 6
   @max_points 200
-  @chart_width 600
-  @chart_height 180
-  @chart_pad 14
+  @chart_width 800
+  @chart_height 140
+  @chart_pad 8
 
   @impl true
   def id, do: "timeseries"
@@ -240,10 +240,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   @impl true
   def update(%{panel_assigns: panel_assigns} = assigns, socket) do
+    compact = Map.get(panel_assigns || %{}, :compact, false)
+
     socket =
       socket
       |> assign(Map.drop(assigns, [:panel_assigns]))
       |> assign(panel_assigns || %{})
+      |> assign(:compact, compact)
       |> assign(:chart_width, @chart_width)
       |> assign(:chart_height, @chart_height)
       |> assign(:chart_pad, @chart_pad)
@@ -253,105 +256,160 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   @impl true
   def render(assigns) do
+    compact = Map.get(assigns, :compact, false)
+    series_points = assigns.series_points || []
+
+    # Pre-compute chart data for each series for hover functionality
+    series_data =
+      Enum.with_index(series_points)
+      |> Enum.map(fn {{series, points}, idx} ->
+        paths = chart_paths(points)
+        {stroke, _fill} = series_color(idx)
+        point_data = Enum.map(points, fn {dt, v} -> %{dt: dt_label(dt), v: v} end)
+        %{series: series, paths: paths, stroke: stroke, idx: idx, point_data: point_data}
+      end)
+
     assigns =
       assigns
-      |> assign(:series_count, length(assigns.series_points || []))
-      |> assign(:first_dt, first_dt(assigns.series_points))
-      |> assign(:last_dt, last_dt(assigns.series_points))
+      |> assign(:compact, compact)
+      |> assign(:series_count, length(series_points))
+      |> assign(:series_data, series_data)
+      |> assign(:first_dt, first_dt(series_points))
+      |> assign(:last_dt, last_dt(series_points))
 
+    if compact do
+      render_compact(assigns)
+    else
+      render_full(assigns)
+    end
+  end
+
+  defp render_compact(assigns) do
+    ~H"""
+    <div id={"panel-#{@id}"} class="p-4">
+      <div class={[
+        "grid gap-3",
+        @series_count > 1 && "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3",
+        @series_count == 1 && "grid-cols-1"
+      ]}>
+        <%= for data <- @series_data do %>
+          <.chart_card
+            id={@id}
+            data={data}
+            chart_width={@chart_width}
+            chart_height={@chart_height}
+            chart_pad={@chart_pad}
+            compact={true}
+          />
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  defp render_full(assigns) do
     ~H"""
     <div id={"panel-#{@id}"}>
       <.ui_panel>
         <:header>
           <div class="min-w-0">
-            <div class="text-sm font-semibold">Timeseries</div>
-            <div class="text-xs text-base-content/70">
-              <span class="font-mono">{@spec[:y]}</span>
-              <span class="opacity-70"> over </span>
-              <span class="font-mono">{@spec[:x]}</span>
-              <span :if={@spec[:series]} class="opacity-70">
-                (series: <span class="font-mono">{@spec[:series]}</span>)
-              </span>
-            </div>
+            <div class="text-sm font-semibold">{@title || "Timeseries"}</div>
           </div>
-        </:header>
-
-        <div class="text-xs text-base-content/60 flex items-center justify-between gap-3 mb-3">
-          <div class="flex items-center gap-2">
-            <span class="font-semibold">{@series_count}</span>
-            <span>series</span>
-          </div>
-          <div class="font-mono">
+          <div class="text-xs text-base-content/50 font-mono">
             <span :if={is_struct(@first_dt, DateTime)}>{dt_label(@first_dt)}</span>
-            <span class="opacity-60 px-1">→</span>
+            <span class="px-1">→</span>
             <span :if={is_struct(@last_dt, DateTime)}>{dt_label(@last_dt)}</span>
           </div>
-        </div>
+        </:header>
 
         <div class={[
           "grid gap-4",
           @series_count > 1 && "grid-cols-1 md:grid-cols-2",
           @series_count <= 1 && "grid-cols-1"
         ]}>
-          <%= for {{series, points}, idx} <- Enum.with_index(@series_points) do %>
-            <% paths = chart_paths(points) %>
-            <% {stroke, _fill} = series_color(idx) %>
-            <div class="rounded-xl border border-base-200 bg-base-100 p-4">
-              <div class="flex items-start justify-between gap-3 mb-2">
-                <div class="min-w-0">
-                  <div class="text-xs font-semibold truncate">{series}</div>
-                  <div class="text-[11px] text-base-content/60">
-                    <span class="font-mono">{format_value(paths.latest)}</span>
-                    <span class="opacity-60"> latest</span>
-                    <span class="opacity-60 px-1">·</span>
-                    <span class="font-mono">{format_value(paths.min)}</span>
-                    <span class="opacity-60"> min</span>
-                    <span class="opacity-60 px-1">·</span>
-                    <span class="font-mono">{format_value(paths.max)}</span>
-                    <span class="opacity-60"> max</span>
-                  </div>
-                </div>
-
-                <div class="shrink-0 flex items-center gap-2">
-                  <span
-                    class="inline-block size-2 rounded-full"
-                    style={"background-color: #{stroke}"}
-                  />
-                </div>
-              </div>
-
-              <svg viewBox={"0 0 #{@chart_width} #{@chart_height}"} class="w-full h-40">
-                <defs>
-                  <linearGradient id={"series-fill-#{@id}-#{idx}"} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color={stroke} stop-opacity="0.22" />
-                    <stop offset="100%" stop-color={stroke} stop-opacity="0.04" />
-                  </linearGradient>
-                </defs>
-
-                <line
-                  x1={@chart_pad}
-                  y1={baseline_y()}
-                  x2={@chart_width - @chart_pad}
-                  y2={baseline_y()}
-                  stroke="currentColor"
-                  stroke-opacity="0.12"
-                  stroke-width="1"
-                />
-
-                <path d={paths.area} fill={"url(#series-fill-#{@id}-#{idx})"} />
-                <polyline
-                  fill="none"
-                  stroke={stroke}
-                  stroke-width="2.25"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  points={paths.line}
-                />
-              </svg>
-            </div>
+          <%= for data <- @series_data do %>
+            <.chart_card
+              id={@id}
+              data={data}
+              chart_width={@chart_width}
+              chart_height={@chart_height}
+              chart_pad={@chart_pad}
+              compact={false}
+            />
           <% end %>
         </div>
       </.ui_panel>
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :data, :map, required: true
+  attr :chart_width, :integer, required: true
+  attr :chart_height, :integer, required: true
+  attr :chart_pad, :integer, required: true
+  attr :compact, :boolean, default: false
+
+  defp chart_card(assigns) do
+    ~H"""
+    <div
+      id={"chart-#{@id}-#{@data.idx}"}
+      class={["rounded-lg border border-base-200 bg-base-100 relative group", @compact && "p-3", not @compact && "p-4"]}
+      phx-hook="TimeseriesChart"
+      data-points={Jason.encode!(@data.point_data)}
+    >
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="inline-block size-2 rounded-full shrink-0" style={"background-color: #{@data.stroke}"} />
+          <span class={["font-medium truncate", @compact && "text-xs", not @compact && "text-sm"]}>{@data.series}</span>
+        </div>
+        <div class={["text-base-content/60 font-mono shrink-0", @compact && "text-[10px]", not @compact && "text-xs"]}>
+          <span style={"color: #{@data.stroke}"}>{format_value(@data.paths.latest)}</span>
+        </div>
+      </div>
+
+      <div class="relative">
+        <svg
+          viewBox={"0 0 #{@chart_width} #{@chart_height}"}
+          class={["w-full", @compact && "h-24", not @compact && "h-32"]}
+          preserveAspectRatio="none"
+        >
+          <defs>
+            <linearGradient id={"series-fill-#{@id}-#{@data.idx}"} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color={@data.stroke} stop-opacity="0.3" />
+              <stop offset="100%" stop-color={@data.stroke} stop-opacity="0.05" />
+            </linearGradient>
+          </defs>
+
+          <path d={@data.paths.area} fill={"url(#series-fill-#{@id}-#{@data.idx})"} />
+          <polyline
+            fill="none"
+            stroke={@data.stroke}
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            points={@data.paths.line}
+          />
+        </svg>
+
+        <!-- Hover tooltip - populated by JS -->
+        <div
+          class="absolute hidden pointer-events-none bg-base-300 text-base-content text-xs px-2 py-1 rounded shadow-lg z-10 font-mono whitespace-nowrap"
+          data-tooltip
+        >
+        </div>
+        <!-- Hover line -->
+        <div
+          class="absolute hidden pointer-events-none w-px bg-base-content/30 top-0 bottom-0"
+          data-hover-line
+        >
+        </div>
+      </div>
+
+      <div class={["flex items-center justify-between text-base-content/50 mt-1", @compact && "text-[10px]", not @compact && "text-xs"]}>
+        <span>min: <span class="font-mono">{format_value(@data.paths.min)}</span></span>
+        <span>max: <span class="font-mono">{format_value(@data.paths.max)}</span></span>
+      </div>
     </div>
     """
   end

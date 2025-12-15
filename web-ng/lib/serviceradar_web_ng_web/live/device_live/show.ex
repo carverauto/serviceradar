@@ -156,59 +156,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           </:actions>
         </.header>
 
-        <div class="grid grid-cols-1 gap-6">
-          <.ui_panel>
-            <:header>
-              <div class="min-w-0">
-                <div class="text-sm font-semibold">Overview</div>
-                <div class="text-xs text-base-content/70">Basic identity and current status.</div>
-              </div>
-            </:header>
-
-            <div :if={is_nil(@device_row)} class="text-sm text-base-content/70">
-              No device row returned for this query.
-            </div>
-
-            <div :if={is_map(@device_row)} class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <.kv label="Hostname" value={Map.get(@device_row, "hostname")} />
-              <.kv label="IP" value={Map.get(@device_row, "ip")} mono />
-              <.kv label="Poller" value={Map.get(@device_row, "poller_id")} mono />
-              <.kv label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
-              <.kv label="OS" value={Map.get(@device_row, "os_info")} />
-              <.kv label="Version" value={Map.get(@device_row, "version_info")} />
-            </div>
-          </.ui_panel>
-
-          <div :if={@metric_sections_to_render != []} class="grid grid-cols-1 gap-4">
-            <%= for section <- @metric_sections_to_render do %>
-              <.ui_panel>
-                <:header>
-                  <div class="min-w-0">
-                    <div class="text-sm font-semibold">{section.title}</div>
-                    <div class="text-xs opacity-70">{section.subtitle}</div>
-                  </div>
-                  <div class="hidden md:block shrink-0 font-mono text-[10px] opacity-60 max-w-[28rem] truncate">
-                    {section.query}
-                  </div>
-                </:header>
-
-                <div :if={is_binary(section.error)} class="text-sm opacity-70">
-                  {section.error}
-                </div>
-
-                <div :if={is_nil(section.error)} class="grid grid-cols-1 gap-4">
-                  <%= for panel <- section.panels do %>
-                    <.live_component
-                      module={panel.plugin}
-                      id={"device-#{@device_id}-#{section.key}-#{panel.id}"}
-                      title={panel.title}
-                      panel_assigns={panel.assigns}
-                    />
-                  <% end %>
-                </div>
-              </.ui_panel>
-            <% end %>
+        <div class="grid grid-cols-1 gap-4">
+          <div :if={is_nil(@device_row)} class="text-sm text-base-content/70 p-4">
+            No device row returned for this query.
           </div>
+
+          <div :if={is_map(@device_row)} class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+            <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+              <.kv_inline label="Hostname" value={Map.get(@device_row, "hostname")} />
+              <.kv_inline label="IP" value={Map.get(@device_row, "ip")} mono />
+              <.kv_inline label="Poller" value={Map.get(@device_row, "poller_id")} mono />
+              <.kv_inline label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
+              <.kv_inline label="OS" value={Map.get(@device_row, "os_info")} />
+              <.kv_inline label="Version" value={Map.get(@device_row, "version_info")} />
+            </div>
+          </div>
+
+          <%= for section <- @metric_sections_to_render do %>
+            <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+              <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                  <span class="text-sm font-semibold">{section.title}</span>
+                  <span class="text-xs text-base-content/50">{section.subtitle}</span>
+                </div>
+              </div>
+
+              <div :if={is_binary(section.error)} class="px-4 py-3 text-sm text-base-content/70">
+                {section.error}
+              </div>
+
+              <div :if={is_nil(section.error)}>
+                <%= for panel <- section.panels do %>
+                  <.live_component
+                    module={panel.plugin}
+                    id={"device-#{@device_id}-#{section.key}-#{panel.id}"}
+                    title={section.title}
+                    panel_assigns={Map.put(panel.assigns, :compact, true)}
+                  />
+                <% end %>
+              </div>
+            </div>
+          <% end %>
 
           <%= for panel <- @panels do %>
             <.live_component
@@ -228,13 +216,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr :value, :any, default: nil
   attr :mono, :boolean, default: false
 
-  def kv(assigns) do
+  def kv_inline(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 px-4 py-3">
-      <div class="text-xs font-semibold text-base-content/70 mb-1">{@label}</div>
-      <div class={["text-sm text-base-content truncate", @mono && "font-mono text-xs"]}>
+    <div class="flex items-center gap-2">
+      <span class="text-base-content/60">{@label}:</span>
+      <span class={["text-base-content", @mono && "font-mono text-xs"]}>
         {format_value(@value)}
-      </div>
+      </span>
     </div>
     """
   end

@@ -25,11 +25,70 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/serviceradar_web_ng"
 import topbar from "../vendor/topbar"
 
+// Custom hooks
+const Hooks = {
+  TimeseriesChart: {
+    mounted() {
+      const el = this.el
+      const svg = el.querySelector('svg')
+      const tooltip = el.querySelector('[data-tooltip]')
+      const hoverLine = el.querySelector('[data-hover-line]')
+      const pointsData = JSON.parse(el.dataset.points || '[]')
+
+      if (!svg || !tooltip || !hoverLine || pointsData.length === 0) return
+
+      const svgContainer = svg.parentElement
+
+      const showTooltip = (e) => {
+        const rect = svg.getBoundingClientRect()
+        const x = e.clientX - rect.left
+        const pct = Math.max(0, Math.min(1, x / rect.width))
+        const idx = Math.round(pct * (pointsData.length - 1))
+        const point = pointsData[idx]
+
+        if (point) {
+          const value = typeof point.v === 'number'
+            ? point.v.toFixed(2)
+            : point.v
+          tooltip.textContent = `${value} @ ${point.dt}`
+          tooltip.classList.remove('hidden')
+          hoverLine.classList.remove('hidden')
+
+          // Position tooltip
+          const tooltipX = Math.min(rect.width - tooltip.offsetWidth - 8, Math.max(8, x - tooltip.offsetWidth / 2))
+          tooltip.style.left = `${tooltipX}px`
+          tooltip.style.top = '-24px'
+
+          // Position hover line
+          hoverLine.style.left = `${x}px`
+        }
+      }
+
+      const hideTooltip = () => {
+        tooltip.classList.add('hidden')
+        hoverLine.classList.add('hidden')
+      }
+
+      svgContainer.addEventListener('mousemove', showTooltip)
+      svgContainer.addEventListener('mouseleave', hideTooltip)
+
+      // Store cleanup function
+      this.cleanup = () => {
+        svgContainer.removeEventListener('mousemove', showTooltip)
+        svgContainer.removeEventListener('mouseleave', hideTooltip)
+      }
+    },
+    destroyed() {
+      if (this.cleanup) this.cleanup()
+    }
+  }
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks},
+  hooks: {...colocatedHooks, ...Hooks},
 })
 
 // Show progress bar on live navigation and form submits
