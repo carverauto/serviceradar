@@ -26,10 +26,12 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   slot :inner_block, required: true
 
   def ui_button(%{rest: rest} = assigns) do
+    link_target = rest[:href] || rest[:navigate] || rest[:patch]
+
     assigns =
       assigns
       |> assign(:computed_class, ui_button_class(assigns))
-      |> assign(:link?, rest[:href] || rest[:navigate] || rest[:patch])
+      |> assign(:link?, link_target != nil)
 
     ~H"""
     <.link :if={@link?} class={@computed_class} {@rest}>
