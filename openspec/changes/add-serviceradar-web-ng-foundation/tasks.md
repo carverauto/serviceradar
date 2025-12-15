@@ -156,10 +156,10 @@
   - [x] Add uppercase tracking for titles.
 
 ## 9. Known Issues (To Investigate)
-- [ ] 9.1 SRQL stats query issue - "missing ':' in token" error.
+- [x] 9.1 SRQL stats query issue - "missing ':' in token" error.
   - This error originates from the SRQL Rust parser (srql crate).
-  - Queries like `in:devices stats:count() as total` may use unsupported syntax.
-  - Requires investigation in `rust/srql` crate parser.
+  - Fixed parser to accept unquoted `stats:count() as total` by consuming `as <alias>` tokens as part of the `stats` expression.
+  - Implemented in `rust/srql` crate parser with regression tests.
 - [ ] 9.2 KPI cards showing 0 total devices.
   - Related to 9.1 - the stats queries may not be executing correctly.
   - The `extract_count/1` function handles various result shapes but depends on valid SRQL response.

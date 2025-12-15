@@ -709,6 +709,21 @@ mod tests {
 
         let cases = [
             QueryRequest {
+                query: "in:devices stats:count() as total".to_string(),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query: "in:services available:false time:last_24h stats:count() as failing"
+                    .to_string(),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
                 query: "in:pollers is_healthy:true status:ready sort:agent_count:desc".to_string(),
                 limit: Some(10),
                 cursor: None,
