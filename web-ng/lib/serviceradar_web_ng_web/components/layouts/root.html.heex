@@ -34,6 +34,12 @@
     <ul class="menu menu-horizontal w-full relative z-10 flex items-center gap-4 px-4 sm:px-6 lg:px-8 justify-end">
       <%= if @current_scope do %>
         <li>
+          <.link href={~p"/devices"}>Devices</.link>
+        </li>
+        <li>
+          <.link href={~p"/pollers"}>Pollers</.link>
+        </li>
+        <li>
           {@current_scope.user.email}
         </li>
         <li>
