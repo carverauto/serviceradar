@@ -26,4 +26,4 @@
 - **Performance:** Elimination of internal HTTP hops for Query and API responses.
 
 ## Status
-- Proposed.
+- In progress (Foundation + Auth + initial list views).
