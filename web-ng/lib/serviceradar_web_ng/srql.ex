@@ -77,6 +77,12 @@ defmodule ServiceRadarWebNG.SRQL do
           end)
       end
 
+    viz =
+      case Map.get(translation, "viz") do
+        value when is_map(value) -> value
+        _ -> nil
+      end
+
     limit =
       translation
       |> get_in(["pagination", "limit"])
@@ -104,6 +110,7 @@ defmodule ServiceRadarWebNG.SRQL do
         "prev_cursor" => prev_cursor,
         "limit" => limit
       },
+      "viz" => viz,
       "error" => nil
     }
   end

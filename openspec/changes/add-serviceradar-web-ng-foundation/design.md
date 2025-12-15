@@ -97,12 +97,31 @@ The query builder is a UI for constructing SRQL safely:
 - The builder attempts to parse/reflect the existing SRQL into builder state when possible.
 - If SRQL cannot be represented, the builder shows a bounded "read-only/limited" state and avoids destructive rewrites.
 - The builder UI uses a visual, node/pill style with connector affordances (instead of a generic stacked form) and supports multiple filters.
+- The builder SHOULD be driven by a centralized catalog of entities and field options so adding a new SRQL collection is a data/config change, not a template rewrite.
 
 ### SRQL Page Helpers
 SRQL-driven pages share common patterns (query state, builder state, deep-linking, and execution). These are centralized in a helper module:
 - Pages initialize SRQL state (default query + builder state).
 - `handle_params/3` resolves `?q=` overrides and executes SRQL via the embedded translator + Ecto.
 - Common `handle_event/3` handlers manage query editing, submit, builder toggle, and builder edits.
+
+## 9. UI Components and Navigation Layout
+
+### Component Organization
+To keep the UI modular and swappable (Tailwind/daisyUI vs future alternatives), we centralize primitives as Phoenix function components:
+- `UIComponents`: reusable primitives (buttons, inputs, panels, badges, tabs, dropdowns, toolbars)
+- `SRQLComponents`: SRQL-specific composites (query bar, builder, results table, auto-viz panels)
+
+Feature LiveViews should prefer calling these components instead of hardcoding CSS classes in templates.
+
+### Navigation Layout
+To avoid a cluttered top bar as more SRQL analytics pages are added:
+- The SRQL query bar remains in the top header (always visible and consistent across SRQL-driven pages).
+- Authenticated navigation is moved into a left sidebar (responsive drawer on mobile).
+
+## 10. Future SRQL Composition (Open Question)
+Users will likely want to enrich a primary query with related collections (e.g., "devices matching X" plus "events for those devices").
+This suggests a future SRQL DSL extension for composing/expanding queries across entities (e.g., subquery piping or relationship expansion), which should be proposed explicitly as a follow-on change.
 
 ### Composable Dashboard Engine
 Dashboards are built around SRQL queries and render "widgets" based on the query outputs:

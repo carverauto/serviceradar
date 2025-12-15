@@ -19,10 +19,10 @@
   - [x] Add integration tests to validate SRQL translation + execution from Elixir.
   - [x] Add bind/placeholder arity validation in Rust (tests + debug checks).
   - [x] Ensure existing SRQL HTTP service behavior remains intact (run existing `rust/srql` tests).
-- [ ] 1.6b Extend SRQL translate output with visualization metadata (column types, semantic hints) to support composable dashboards.
-- [ ] 1.6c Extend SRQL to support query patterns required by dashboards:
-  - [ ] TimescaleDB-friendly time windowing and downsampling helpers.
-  - [ ] AGE relationship queries (compiled into SQL using AGE `cypher()`), so graph panels can be SRQL-driven.
+- [x] 1.6b Extend SRQL translate output with visualization metadata (column types, semantic hints) to support composable dashboards.
+- [x] 1.6c Extend SRQL to support query patterns required by dashboards:
+  - [x] TimescaleDB-friendly time windowing and downsampling helpers.
+  - [x] AGE relationship queries (compiled into SQL using AGE `cypher()`), so graph panels can be SRQL-driven.
 
 ### Property-Based Testing (StreamData)
 - [x] 1.7 Add `stream_data` (and `ExUnitProperties`) to the `web-ng` ExUnit suite.
@@ -71,6 +71,7 @@
   - [x] 4.0e Implement a bounded fallback state when SRQL can't be represented by the builder (no destructive rewrites).
   - [x] 4.0f Render the builder panel under the navbar (no navbar height changes).
   - [x] 4.0g Support multiple filters in the builder UI (add/remove).
+  - [x] 4.0h Drive builder entities/fields from a catalog (easy to extend beyond devices/pollers).
 
 ### API Replacement
 - [x] 4.1 Create `ServiceRadarWebNG.Api.QueryController` (SRQL endpoint).
@@ -86,14 +87,21 @@
   - [ ] 4.3c Implement a plugin/registry mechanism for adding new visualizations without rewriting the engine.
   - [ ] 4.3d Implement time series widgets suitable for TimescaleDB hypertables (time-bounded windows, aggregation).
   - [ ] 4.3e Implement relationship/topology widgets backed by Apache AGE graph queries.
-  - [ ] 4.3f Support deep-linking dashboards from SRQL (store query or dashboard definition in URL).
+  - [x] 4.3f Support deep-linking dashboards from SRQL (store query or dashboard definition in URL).
   - [ ] 4.3g Add tests for dashboard query execution and bounded error handling.
+  - [x] 4.3h Add SRQL-first Dashboard LiveView at `/dashboard` (query bar + results table).
+  - [x] 4.3i Add initial auto-viz inference (heuristics; replace with SRQL metadata in 1.6b/4.3b).
 - [x] 4.4 Implement Device List view.
   - [x] *Note:* Add authenticated `GET /devices` (initial scaffolding).
   - [x] 4.4a Migrate `/devices` to be SRQL-driven and show the active SRQL query in the global query bar.
 - [x] 4.5 Implement Poller List view.
   - [x] *Note:* Add authenticated `GET /pollers` (initial scaffolding).
   - [x] 4.5a Migrate `/pollers` to be SRQL-driven and show the active SRQL query in the global query bar.
+- [x] 4.6 Implement Events List view (SRQL-driven).
+- [x] 4.7 Implement Logs List view (SRQL-driven).
+- [x] 4.8 Implement Services List view (SRQL-driven).
+- [x] 4.9 Implement Interfaces List view (SRQL-driven).
+- [x] 4.10 Add sidebar navigation layout (move analytics navigation to sidebar; keep SRQL query bar in the top header).
 
 ## 5. Final Cutover
 - [ ] 5.1 Update `docker-compose.yml` to expose `web-ng` on port 80/443.

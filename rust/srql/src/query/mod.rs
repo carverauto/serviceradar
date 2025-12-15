@@ -96,7 +96,9 @@ mod device_graph;
 mod device_updates;
 mod devices;
 mod disk_metrics;
+mod downsample;
 mod events;
+mod graph_cypher;
 mod interfaces;
 mod logs;
 mod memory_metrics;
@@ -107,6 +109,7 @@ mod services;
 mod timeseries_metrics;
 mod trace_summaries;
 mod traces;
+mod viz;
 
 use crate::{
     config::AppConfig,
@@ -163,25 +166,30 @@ impl QueryEngine {
             ServiceError::Internal(anyhow::anyhow!("{err:?}"))
         })?;
 
-        let results = match plan.entity {
-            Entity::Devices => devices::execute(&mut conn, &plan).await?,
-            Entity::DeviceUpdates => device_updates::execute(&mut conn, &plan).await?,
-            Entity::DeviceGraph => device_graph::execute(&mut conn, &plan).await?,
-            Entity::Events => events::execute(&mut conn, &plan).await?,
-            Entity::Interfaces => interfaces::execute(&mut conn, &plan).await?,
-            Entity::Logs => logs::execute(&mut conn, &plan).await?,
-            Entity::Pollers => pollers::execute(&mut conn, &plan).await?,
-            Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
-            Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
-                timeseries_metrics::execute(&mut conn, &plan).await?
+        let results = if plan.downsample.is_some() {
+            downsample::execute(&mut conn, &plan).await?
+        } else {
+            match plan.entity {
+                Entity::Devices => devices::execute(&mut conn, &plan).await?,
+                Entity::DeviceUpdates => device_updates::execute(&mut conn, &plan).await?,
+                Entity::DeviceGraph => device_graph::execute(&mut conn, &plan).await?,
+                Entity::GraphCypher => graph_cypher::execute(&mut conn, &plan).await?,
+                Entity::Events => events::execute(&mut conn, &plan).await?,
+                Entity::Interfaces => interfaces::execute(&mut conn, &plan).await?,
+                Entity::Logs => logs::execute(&mut conn, &plan).await?,
+                Entity::Pollers => pollers::execute(&mut conn, &plan).await?,
+                Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
+                Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
+                    timeseries_metrics::execute(&mut conn, &plan).await?
+                }
+                Entity::CpuMetrics => cpu_metrics::execute(&mut conn, &plan).await?,
+                Entity::MemoryMetrics => memory_metrics::execute(&mut conn, &plan).await?,
+                Entity::DiskMetrics => disk_metrics::execute(&mut conn, &plan).await?,
+                Entity::ProcessMetrics => process_metrics::execute(&mut conn, &plan).await?,
+                Entity::Services => services::execute(&mut conn, &plan).await?,
+                Entity::TraceSummaries => trace_summaries::execute(&mut conn, &plan).await?,
+                Entity::Traces => traces::execute(&mut conn, &plan).await?,
             }
-            Entity::CpuMetrics => cpu_metrics::execute(&mut conn, &plan).await?,
-            Entity::MemoryMetrics => memory_metrics::execute(&mut conn, &plan).await?,
-            Entity::DiskMetrics => disk_metrics::execute(&mut conn, &plan).await?,
-            Entity::ProcessMetrics => process_metrics::execute(&mut conn, &plan).await?,
-            Entity::Services => services::execute(&mut conn, &plan).await?,
-            Entity::TraceSummaries => trace_summaries::execute(&mut conn, &plan).await?,
-            Entity::Traces => traces::execute(&mut conn, &plan).await?,
         };
 
         let pagination = self.build_pagination(&plan, results.len() as i64);
@@ -244,6 +252,7 @@ fn build_query_plan(
         offset,
         time_range,
         stats: ast.stats,
+        downsample: ast.downsample,
     })
 }
 
@@ -452,26 +461,32 @@ fn count_debug_binds_list(binds: &str) -> Option<usize> {
 pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<TranslateResponse> {
     let ast = parser::parse(&request.query)?;
     let plan = build_query_plan(config, &request, ast)?;
+    let viz = viz::meta_for_plan(&plan);
 
-    let (sql, params) = match plan.entity {
-        Entity::Devices => devices::to_sql_and_params(&plan)?,
-        Entity::DeviceUpdates => device_updates::to_sql_and_params(&plan)?,
-        Entity::DeviceGraph => device_graph::to_sql_and_params(&plan)?,
-        Entity::Events => events::to_sql_and_params(&plan)?,
-        Entity::Interfaces => interfaces::to_sql_and_params(&plan)?,
-        Entity::Logs => logs::to_sql_and_params(&plan)?,
-        Entity::Pollers => pollers::to_sql_and_params(&plan)?,
-        Entity::OtelMetrics => otel_metrics::to_sql_and_params(&plan)?,
-        Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
-            timeseries_metrics::to_sql_and_params(&plan)?
+    let (sql, params) = if plan.downsample.is_some() {
+        downsample::to_sql_and_params(&plan)?
+    } else {
+        match plan.entity {
+            Entity::Devices => devices::to_sql_and_params(&plan)?,
+            Entity::DeviceUpdates => device_updates::to_sql_and_params(&plan)?,
+            Entity::DeviceGraph => device_graph::to_sql_and_params(&plan)?,
+            Entity::GraphCypher => graph_cypher::to_sql_and_params(&plan)?,
+            Entity::Events => events::to_sql_and_params(&plan)?,
+            Entity::Interfaces => interfaces::to_sql_and_params(&plan)?,
+            Entity::Logs => logs::to_sql_and_params(&plan)?,
+            Entity::Pollers => pollers::to_sql_and_params(&plan)?,
+            Entity::OtelMetrics => otel_metrics::to_sql_and_params(&plan)?,
+            Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
+                timeseries_metrics::to_sql_and_params(&plan)?
+            }
+            Entity::CpuMetrics => cpu_metrics::to_sql_and_params(&plan)?,
+            Entity::MemoryMetrics => memory_metrics::to_sql_and_params(&plan)?,
+            Entity::DiskMetrics => disk_metrics::to_sql_and_params(&plan)?,
+            Entity::ProcessMetrics => process_metrics::to_sql_and_params(&plan)?,
+            Entity::Services => services::to_sql_and_params(&plan)?,
+            Entity::TraceSummaries => trace_summaries::to_sql_and_params(&plan)?,
+            Entity::Traces => traces::to_sql_and_params(&plan)?,
         }
-        Entity::CpuMetrics => cpu_metrics::to_sql_and_params(&plan)?,
-        Entity::MemoryMetrics => memory_metrics::to_sql_and_params(&plan)?,
-        Entity::DiskMetrics => disk_metrics::to_sql_and_params(&plan)?,
-        Entity::ProcessMetrics => process_metrics::to_sql_and_params(&plan)?,
-        Entity::Services => services::to_sql_and_params(&plan)?,
-        Entity::TraceSummaries => trace_summaries::to_sql_and_params(&plan)?,
-        Entity::Traces => traces::to_sql_and_params(&plan)?,
     };
 
     let next_cursor = Some(encode_cursor(plan.offset.saturating_add(plan.limit)));
@@ -489,6 +504,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             prev_cursor,
             limit: Some(plan.limit),
         },
+        viz,
     })
 }
 
@@ -746,6 +762,99 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn translate_includes_visualization_metadata() {
+        let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+        let request = QueryRequest {
+            query: "in:timeseries_metrics time:last_7d limit:10".to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response = translate_request(&config, request).expect("translation should succeed");
+        let viz = response.viz.expect("viz metadata should be present");
+
+        assert!(
+            viz.columns.iter().any(|col| {
+                col.name == "timestamp" && matches!(col.col_type, viz::ColumnType::Timestamptz)
+            }),
+            "expected timestamp column meta, got: {:?}",
+            viz.columns
+        );
+
+        assert!(
+            viz.suggestions
+                .iter()
+                .any(|s| matches!(s.kind, viz::VizKind::Timeseries)),
+            "expected timeseries suggestion, got: {:?}",
+            viz.suggestions
+        );
+    }
+
+    #[test]
+    fn translate_downsample_emits_time_bucket_query() {
+        let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+        let request = QueryRequest {
+            query:
+                "in:timeseries_metrics time:last_7d bucket:5m agg:avg series:metric_name limit:25"
+                    .to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response = translate_request(&config, request).expect("translation should succeed");
+
+        assert!(
+            response.sql.to_lowercase().contains("time_bucket("),
+            "expected time_bucket in SQL, got: {}",
+            response.sql
+        );
+        assert!(
+            response.sql.to_lowercase().contains("group by 1, 2"),
+            "expected group by bucket+series, got: {}",
+            response.sql
+        );
+
+        let viz = response.viz.expect("viz metadata should be present");
+        assert_eq!(viz.columns.len(), 3);
+        assert!(
+            viz.suggestions
+                .iter()
+                .any(|s| matches!(s.kind, viz::VizKind::Timeseries)),
+            "expected timeseries suggestion, got: {:?}",
+            viz.suggestions
+        );
+
+        assert!(
+            response.params.len() >= 4,
+            "expected time range + limit/offset params, got: {:?}",
+            response.params
+        );
+    }
+
+    #[test]
+    fn translate_graph_cypher_rejects_mutations() {
+        let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+        let request = QueryRequest {
+            query: "in:graph_cypher cypher:\"CREATE (n:Device {id:'x'}) RETURN 1 as result\""
+                .to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let err = translate_request(&config, request).expect_err("should reject write cypher");
+        assert!(
+            err.to_string().to_lowercase().contains("read-only"),
+            "expected read-only error, got: {err}"
+        );
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -757,6 +866,7 @@ pub struct QueryPlan {
     pub offset: i64,
     pub time_range: Option<TimeRange>,
     pub stats: Option<String>,
+    pub downsample: Option<crate::parser::DownsampleSpec>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -826,4 +936,6 @@ pub struct TranslateResponse {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub params: Vec<BindParam>,
     pub pagination: PaginationMeta,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub viz: Option<viz::VizMeta>,
 }

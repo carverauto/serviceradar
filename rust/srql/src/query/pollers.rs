@@ -316,6 +316,7 @@ mod tests {
             offset: 0,
             time_range: Some(TimeRange { start, end }),
             stats: None,
+            downsample: None,
         };
 
         let result = build_query(&plan);

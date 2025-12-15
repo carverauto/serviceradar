@@ -80,7 +80,7 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
         |> assign(:current_scope, Scope.for_user(user))
         |> UserAuth.log_in_user(user)
 
-      assert redirected_to(conn) == ~p"/users/settings"
+      assert redirected_to(conn) == ~p"/dashboard"
     end
 
     test "writes a cookie if remember_me was set in previous session", %{conn: conn, user: user} do

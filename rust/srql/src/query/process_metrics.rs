@@ -331,6 +331,7 @@ mod tests {
                 end: Utc::now() + ChronoDuration::minutes(1),
             }),
             stats: None,
+            downsample: None,
         };
 
         let err = build_query(&plan).err().expect("expected error");

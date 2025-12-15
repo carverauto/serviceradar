@@ -37,8 +37,12 @@
 - In progress (Foundation + Auth + initial list views).
 - SRQL translator-only pivot complete: Rust now translates SRQL -> parameterized SQL + typed bind params + pagination metadata; Phoenix executes via Ecto using `ServiceRadarWebNG.Repo`.
 - Added safety checks: unit tests and debug-mode bind-count validation to ensure SQL placeholder arity matches returned params.
-- SRQL-first analytics UX implemented for initial pages:
-  - Global SRQL query bar rendered from the app layout (LiveView-controlled state).
-  - Query builder panel renders under the navbar (no navbar height changes) with multi-filter support.
-  - Shared SRQL page helper (`ServiceRadarWebNGWeb.SRQL.Page`) used by `/devices` and `/pollers`.
-- Composable dashboard architecture defined; implementation work remains.
+- SRQL-first analytics UX implemented:
+  - Global SRQL query bar rendered from the app layout (LiveView-controlled state) and shows the exact query used by the page.
+  - Query builder panel renders under the header (no navbar height changes) with multi-filter support and operator selection.
+  - Query builder entity/field options are catalog-driven (easy to extend beyond devices/pollers).
+  - Shared SRQL page helper (`ServiceRadarWebNGWeb.SRQL.Page`) used by SRQL-driven pages with URL deep-linking via `?q=...`.
+  - SRQL-driven pages added: `/devices`, `/pollers`, `/events`, `/logs`, `/services`, `/interfaces`.
+  - Dashboard MVP added at `/dashboard` (SRQL-first) with initial result-shape inference and auto-visualizations (heuristics).
+  - Navigation moved to a sidebar to keep the top header focused on the SRQL query bar.
+- Composable dashboard architecture defined; full plugin engine + TimescaleDB/AGE panels remain.

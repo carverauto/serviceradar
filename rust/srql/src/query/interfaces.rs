@@ -503,6 +503,7 @@ mod tests {
             offset: 0,
             time_range: Some(TimeRange { start, end }),
             stats: Some(stats.to_string()),
+            downsample: None,
         }
     }
 }
