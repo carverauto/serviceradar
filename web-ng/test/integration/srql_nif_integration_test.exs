@@ -149,7 +149,15 @@ else
       poller_id = "srql-itest-" <> Ecto.UUID.generate()
       PostgrexHelpers.insert_poller(conn, poller_id)
 
-      on_exit(fn -> PostgrexHelpers.delete_poller(conn, poller_id) end)
+      on_exit(fn ->
+        if Process.alive?(conn) do
+          try do
+            PostgrexHelpers.delete_poller(conn, poller_id)
+          catch
+            :exit, _ -> :ok
+          end
+        end
+      end)
 
       {:ok, poller_id: poller_id}
     end

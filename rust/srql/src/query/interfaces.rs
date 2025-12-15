@@ -83,15 +83,40 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
 
     if let Some(spec) = parse_stats_spec(plan.stats.as_deref())? {
         let base = base_query(plan)?;
-        let count_sql = super::diesel_sql(&base.count())?;
+        let count = base.count();
+        let count_sql = super::diesel_sql(&count)?;
+
+        #[cfg(any(test, debug_assertions))]
+        {
+            let bind_count = super::diesel_bind_count(&count)?;
+            if bind_count != params.len() {
+                return Err(ServiceError::Internal(anyhow::anyhow!(
+                    "bind count mismatch (diesel {bind_count} vs params {})",
+                    params.len()
+                )));
+            }
+        }
+
         let sql = format!("SELECT ({count_sql}) AS {}", spec.alias);
         return Ok((sql, params));
     }
 
-    let query = build_query(plan)?;
-    let sql = super::diesel_sql(&query.limit(plan.limit).offset(plan.offset))?;
-    params.push(BindParam::Int(plan.limit));
-    params.push(BindParam::Int(plan.offset));
+    let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
+    let sql = super::diesel_sql(&query)?;
+
+    super::reconcile_limit_offset_binds(&sql, &mut params, plan.limit, plan.offset)?;
+
+    #[cfg(any(test, debug_assertions))]
+    {
+        let bind_count = super::diesel_bind_count(&query)?;
+        if bind_count != params.len() {
+            return Err(ServiceError::Internal(anyhow::anyhow!(
+                "bind count mismatch (diesel {bind_count} vs params {})",
+                params.len()
+            )));
+        }
+    }
+
     Ok((sql, params))
 }
 

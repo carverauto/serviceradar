@@ -75,8 +75,8 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
         return Ok((sql, params));
     }
 
-    let query = build_query(plan)?;
-    let sql = super::diesel_sql(&query.limit(plan.limit).offset(plan.offset))?;
+    let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
+    let sql = super::diesel_sql(&query)?;
 
     let mut params = Vec::new();
     if let Some(TimeRange { start, end }) = &plan.time_range {
@@ -88,8 +88,18 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
         collect_filter_params(&mut params, filter)?;
     }
 
-    params.push(BindParam::Int(plan.limit));
-    params.push(BindParam::Int(plan.offset));
+    super::reconcile_limit_offset_binds(&sql, &mut params, plan.limit, plan.offset)?;
+
+    #[cfg(any(test, debug_assertions))]
+    {
+        let bind_count = super::diesel_bind_count(&query)?;
+        if bind_count != params.len() {
+            return Err(ServiceError::Internal(anyhow::anyhow!(
+                "bind count mismatch (diesel {bind_count} vs params {})",
+                params.len()
+            )));
+        }
+    }
 
     Ok((sql, params))
 }

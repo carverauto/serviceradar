@@ -253,6 +253,65 @@ fn determine_limit(config: &AppConfig, candidate: Option<i64>) -> i64 {
     candidate.unwrap_or(default).clamp(1, max)
 }
 
+pub(super) fn max_dollar_placeholder(sql: &str) -> usize {
+    let bytes = sql.as_bytes();
+    let mut max = 0usize;
+    let mut i = 0usize;
+
+    while i < bytes.len() {
+        if bytes[i] != b'$' {
+            i += 1;
+            continue;
+        }
+
+        i += 1;
+        if i >= bytes.len() || !bytes[i].is_ascii_digit() {
+            continue;
+        }
+
+        let mut value = 0usize;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            value = value * 10 + (bytes[i] - b'0') as usize;
+            i += 1;
+        }
+
+        max = max.max(value);
+    }
+
+    max
+}
+
+pub(super) fn reconcile_limit_offset_binds(
+    sql: &str,
+    params: &mut Vec<BindParam>,
+    limit: i64,
+    offset: i64,
+) -> Result<()> {
+    let expected = max_dollar_placeholder(sql);
+    let current = params.len();
+    if expected < current {
+        return Err(ServiceError::Internal(anyhow::anyhow!(
+            "sql expects {expected} binds but {current} were collected"
+        )));
+    }
+
+    match expected.saturating_sub(current) {
+        0 => Ok(()),
+        1 => {
+            params.push(BindParam::Int(limit));
+            Ok(())
+        }
+        2 => {
+            params.push(BindParam::Int(limit));
+            params.push(BindParam::Int(offset));
+            Ok(())
+        }
+        extra => Err(ServiceError::Internal(anyhow::anyhow!(
+            "unexpected bind arity gap: {extra}"
+        ))),
+    }
+}
+
 pub(super) fn diesel_sql<T>(query: &T) -> Result<String>
 where
     T: diesel::query_builder::QueryFragment<diesel::pg::Pg>,
@@ -272,6 +331,122 @@ where
     })?;
 
     Ok(query_builder.finish())
+}
+
+#[cfg(any(test, debug_assertions))]
+pub(super) fn diesel_bind_count<T>(query: &T) -> Result<usize>
+where
+    T: diesel::query_builder::QueryFragment<diesel::pg::Pg>,
+{
+    let rendered = diesel::debug_query::<diesel::pg::Pg, _>(query).to_string();
+    let marker = "-- binds:";
+    let binds = rendered
+        .split_once(marker)
+        .map(|(_, suffix)| suffix.trim())
+        .ok_or_else(|| ServiceError::Internal(anyhow::anyhow!("missing binds marker")))?;
+
+    count_debug_binds_list(binds).ok_or_else(|| {
+        ServiceError::Internal(anyhow::anyhow!("failed to parse diesel debug bind list"))
+    })
+}
+
+#[cfg(any(test, debug_assertions))]
+fn count_debug_binds_list(binds: &str) -> Option<usize> {
+    let bytes = binds.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+        i += 1;
+    }
+
+    if i >= bytes.len() || bytes[i] != b'[' {
+        return None;
+    }
+
+    let mut bracket_depth = 0i32;
+    let mut paren_depth = 0i32;
+    let mut brace_depth = 0i32;
+    let mut in_string = false;
+    let mut escape = false;
+    let mut in_item = false;
+    let mut count = 0usize;
+
+    for &b in bytes[i..].iter() {
+        if in_string {
+            if escape {
+                escape = false;
+                continue;
+            }
+
+            if b == b'\\' {
+                escape = true;
+                continue;
+            }
+
+            if b == b'"' {
+                in_string = false;
+            }
+
+            continue;
+        }
+
+        match b {
+            b'"' => {
+                if bracket_depth == 1 && !in_item && brace_depth == 0 && paren_depth == 0 {
+                    in_item = true;
+                }
+                in_string = true;
+            }
+            b'[' => {
+                if bracket_depth == 1 && !in_item && brace_depth == 0 && paren_depth == 0 {
+                    in_item = true;
+                }
+                bracket_depth += 1;
+                if bracket_depth == 1 {
+                    in_item = false;
+                }
+            }
+            b']' => {
+                if bracket_depth == 1 && in_item {
+                    count += 1;
+                    in_item = false;
+                }
+                bracket_depth -= 1;
+                if bracket_depth <= 0 {
+                    break;
+                }
+            }
+            b'{' => {
+                if bracket_depth == 1 && !in_item && brace_depth == 0 && paren_depth == 0 {
+                    in_item = true;
+                }
+                brace_depth += 1
+            }
+            b'}' => brace_depth -= 1,
+            b'(' => {
+                if bracket_depth == 1 && !in_item && brace_depth == 0 && paren_depth == 0 {
+                    in_item = true;
+                }
+                paren_depth += 1
+            }
+            b')' => paren_depth -= 1,
+            b',' => {
+                if bracket_depth == 1 && brace_depth == 0 && paren_depth == 0 {
+                    if in_item {
+                        count += 1;
+                        in_item = false;
+                    }
+                }
+            }
+            b if b.is_ascii_whitespace() => {}
+            _ => {
+                if bracket_depth == 1 && !in_item {
+                    in_item = true;
+                }
+            }
+        }
+    }
+
+    Some(count)
 }
 
 pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<TranslateResponse> {
@@ -507,6 +682,68 @@ mod tests {
             request_timeout: StdDuration::from_secs(30),
             rate_limit_max_requests: 120,
             rate_limit_window: StdDuration::from_secs(60),
+        }
+    }
+
+    #[test]
+    fn translate_param_arity_matches_sql_placeholders() {
+        let config = test_config();
+
+        let cursor = encode_cursor(250);
+
+        let cases = [
+            QueryRequest {
+                query: "in:pollers is_healthy:true status:ready sort:agent_count:desc".to_string(),
+                limit: Some(10),
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query: "in:devices time:last_7d sort:last_seen:desc is_available:true discovery_sources:(sweep,armis)".to_string(),
+                limit: Some(20),
+                cursor: Some(cursor.clone()),
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query: "in:interfaces time:last_24h ip_addresses:(10.0.0.1,10.0.0.2) sort:timestamp:asc".to_string(),
+                limit: Some(5),
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query: "in:traces time:last_24h status_code:(1,2) kind:(1,2,3) sort:timestamp:desc".to_string(),
+                limit: Some(25),
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query: "in:device_graph device_id:dev-1 collector_owned_only:true include_topology:false".to_string(),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+        ];
+
+        for request in cases {
+            let response = match translate_request(&config, request.clone()) {
+                Ok(response) => response,
+                Err(err) => {
+                    panic!("translation failed for query '{}': {err:?}", request.query)
+                }
+            };
+            let max_placeholder = super::max_dollar_placeholder(&response.sql);
+            assert_eq!(
+                max_placeholder,
+                response.params.len(),
+                "sql placeholders must match params length\nsql: {}\nparams: {:?}",
+                response.sql,
+                response.params
+            );
         }
     }
 }
