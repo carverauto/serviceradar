@@ -15,18 +15,24 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      socket
      |> assign(:page_title, "Logs")
      |> assign(:logs, [])
+     |> assign(:summary, %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0})
      |> assign(:limit, @default_limit)
      |> SRQLPage.init("logs", default_limit: @default_limit)}
   end
 
   @impl true
   def handle_params(params, uri, socket) do
-    {:noreply,
-     socket
-     |> SRQLPage.load_list(params, uri, :logs,
-       default_limit: @default_limit,
-       max_limit: @max_limit
-     )}
+    socket =
+      socket
+      |> SRQLPage.load_list(params, uri, :logs,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
+
+    # Compute summary from current page results
+    summary = compute_summary(socket.assigns.logs)
+
+    {:noreply, assign(socket, :summary, summary)}
   end
 
   @impl true
@@ -71,33 +77,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
-        <.header>
-          Logs
-          <:subtitle>Log entries with severity filtering.</:subtitle>
-          <:actions>
-            <.ui_button variant="ghost" size="sm" patch={~p"/logs"}>
-              Reset
-            </.ui_button>
-            <.ui_button
-              variant="ghost"
-              size="sm"
-              patch={~p"/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc"}}"}
-            >
-              Last 24h
-            </.ui_button>
-            <.ui_button
-              variant="ghost"
-              size="sm"
-              patch={
-                ~p"/logs?#{%{q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc"}}"
-              }
-            >
-              Errors
-            </.ui_button>
-          </:actions>
-        </.header>
+        <div class="space-y-4">
+          <.log_summary summary={@summary} />
 
-        <.ui_panel>
+          <.ui_panel>
           <:header>
             <div class="min-w-0">
               <div class="text-sm font-semibold">Log Stream</div>
@@ -120,10 +103,101 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             />
           </div>
         </.ui_panel>
+        </div>
       </div>
     </Layouts.app>
     """
   end
+
+  attr :summary, :map, required: true
+
+  defp log_summary(assigns) do
+    total = assigns.summary.total
+    fatal = assigns.summary.fatal
+    error = assigns.summary.error
+    warning = assigns.summary.warning
+    info = assigns.summary.info
+    debug = assigns.summary.debug
+
+    assigns =
+      assigns
+      |> assign(:total, total)
+      |> assign(:fatal, fatal)
+      |> assign(:error, error)
+      |> assign(:warning, warning)
+      |> assign(:info, info)
+      |> assign(:debug, debug)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-xs text-base-content/50 uppercase tracking-wider">Log Level Breakdown</div>
+        <div class="flex items-center gap-1">
+          <.link patch={~p"/logs"} class="btn btn-ghost btn-xs">All Logs</.link>
+          <.link
+            patch={~p"/logs?#{%{q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc"}}"}
+            class="btn btn-ghost btn-xs text-error"
+          >
+            Errors Only
+          </.link>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <.level_stat label="Fatal" count={@fatal} total={@total} color="error" level="fatal,FATAL" />
+        <.level_stat label="Error" count={@error} total={@total} color="warning" level="error,ERROR" />
+        <.level_stat label="Warning" count={@warning} total={@total} color="info" level="warn,warning,WARN,WARNING" />
+        <.level_stat label="Info" count={@info} total={@total} color="primary" level="info,INFO" />
+        <.level_stat label="Debug" count={@debug} total={@total} color="success" level="debug,trace,DEBUG,TRACE" />
+      </div>
+    </div>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :count, :integer, required: true
+  attr :total, :integer, required: true
+  attr :color, :string, required: true
+  attr :level, :string, required: true
+
+  defp level_stat(assigns) do
+    pct = if assigns.total > 0, do: round(assigns.count / assigns.total * 100), else: 0
+    query = "in:logs severity_text:(#{assigns.level}) time:last_24h sort:timestamp:desc"
+
+    assigns =
+      assigns
+      |> assign(:pct, pct)
+      |> assign(:query, query)
+
+    ~H"""
+    <.link
+      patch={~p"/logs?#{%{q: @query}}"}
+      class="rounded-lg bg-base-200/50 p-3 hover:bg-base-200 transition-colors cursor-pointer group"
+    >
+      <div class="flex items-center justify-between mb-1">
+        <span class={["text-xs font-medium", color_class(@color)]}>{@label}</span>
+        <span class="text-xs text-base-content/50">{@pct}%</span>
+      </div>
+      <div class="text-xl font-bold group-hover:text-primary">{@count}</div>
+      <div class="h-1 bg-base-300 rounded-full mt-2 overflow-hidden">
+        <div class={["h-full rounded-full", color_bg(@color)]} style={"width: #{@pct}%"} />
+      </div>
+    </.link>
+    """
+  end
+
+  defp color_class("error"), do: "text-error"
+  defp color_class("warning"), do: "text-warning"
+  defp color_class("info"), do: "text-info"
+  defp color_class("primary"), do: "text-primary"
+  defp color_class("success"), do: "text-success"
+  defp color_class(_), do: "text-base-content"
+
+  defp color_bg("error"), do: "bg-error"
+  defp color_bg("warning"), do: "bg-warning"
+  defp color_bg("info"), do: "bg-info"
+  defp color_bg("primary"), do: "bg-primary"
+  defp color_bg("success"), do: "bg-success"
+  defp color_bg(_), do: "bg-base-content"
 
   attr :id, :string, required: true
   attr :logs, :list, default: []
@@ -270,4 +344,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       v -> v |> to_string() |> String.slice(0, 300)
     end
   end
+
+  # Compute summary stats from logs
+  defp compute_summary(logs) when is_list(logs) do
+    initial = %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
+
+    Enum.reduce(logs, initial, fn log, acc ->
+      severity = normalize_severity(Map.get(log, "severity_text"))
+
+      updated =
+        case severity do
+          s when s in ["fatal"] -> Map.update!(acc, :fatal, &(&1 + 1))
+          s when s in ["error"] -> Map.update!(acc, :error, &(&1 + 1))
+          s when s in ["warn", "warning"] -> Map.update!(acc, :warning, &(&1 + 1))
+          s when s in ["info"] -> Map.update!(acc, :info, &(&1 + 1))
+          s when s in ["debug", "trace"] -> Map.update!(acc, :debug, &(&1 + 1))
+          _ -> acc
+        end
+
+      Map.update!(updated, :total, &(&1 + 1))
+    end)
+  end
+
+  defp compute_summary(_), do: %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
 end

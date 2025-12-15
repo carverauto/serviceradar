@@ -63,13 +63,17 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       services_list: "in:services time:last_1h sort:timestamp:desc limit:500",
       events: "in:events time:last_24h sort:event_timestamp:desc limit:#{@default_events_limit}",
       logs: "in:logs time:last_24h sort:timestamp:desc limit:#{@default_logs_limit}",
-      # Observability queries
-      metrics: "in:metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
+      # Observability count queries for real totals
+      metrics_count: "in:metrics time:last_1h stats:count() as total",
+      traces_count: "in:traces time:last_1h stats:count() as total",
+      # Observability detail queries (for slow spans analysis)
       traces: "in:traces time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
       # High utilization - get recent CPU metrics
       cpu_metrics: "in:cpu_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
-      # Bandwidth - get rperf targets
-      rperf_targets: "in:rperf_targets time:last_1h sort:timestamp:desc limit:50"
+      # High utilization - get recent Disk metrics
+      disk_metrics: "in:disk_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}"
+      # TODO: Re-enable when backend supports rperf_targets entity
+      # rperf_targets: "in:rperf_targets time:last_1h sort:timestamp:desc limit:50"
     }
 
     results =
@@ -136,18 +140,19 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     events_summary = build_events_summary(events_rows)
     logs_summary = build_logs_summary(logs_rows)
 
-    # Build observability summary from metrics and traces
-    metrics_rows = extract_rows(results[:metrics])
+    # Build observability summary with real counts from stats queries
+    metrics_total = extract_count(results[:metrics_count])
+    traces_total = extract_count(results[:traces_count])
     traces_rows = extract_rows(results[:traces])
-    observability = build_observability_summary(metrics_rows, traces_rows)
+    observability = build_observability_summary(metrics_total, traces_total, traces_rows)
 
-    # Build high utilization summary from CPU metrics
+    # Build high utilization summary from CPU and Disk metrics
     cpu_metrics_rows = extract_rows(results[:cpu_metrics])
-    high_utilization = build_high_utilization_summary(cpu_metrics_rows)
+    disk_metrics_rows = extract_rows(results[:disk_metrics])
+    high_utilization = build_high_utilization_summary(cpu_metrics_rows, disk_metrics_rows)
 
-    # Build bandwidth summary from rperf targets
-    rperf_rows = extract_rows(results[:rperf_targets])
-    bandwidth = build_bandwidth_summary(rperf_rows)
+    # Bandwidth summary (disabled until rperf_targets entity is supported)
+    bandwidth = %{targets: [], total_download: 0.0, total_upload: 0.0, avg_latency: 0.0, target_count: 0}
 
     error =
       Enum.find_value(results, fn
@@ -292,10 +297,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp build_logs_summary(_), do: %{fatal: 0, error: 0, warning: 0, info: 0, debug: 0, total: 0, recent: []}
 
-  defp build_observability_summary(metrics_rows, traces_rows) when is_list(metrics_rows) and is_list(traces_rows) do
-    metrics_count = length(metrics_rows)
-    traces_count = length(traces_rows)
-
+  defp build_observability_summary(metrics_count, traces_count, traces_rows)
+       when is_integer(metrics_count) and is_integer(traces_count) and is_list(traces_rows) do
     # Calculate average duration from traces (if they have duration field)
     durations =
       traces_rows
@@ -312,7 +315,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         0
       end
 
-    # Calculate error rate from traces (if they have error or status field)
+    # Calculate error rate from traces sample (if they have error or status field)
     error_traces =
       traces_rows
       |> Enum.filter(&is_map/1)
@@ -322,9 +325,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         status == "error" or status == "ERROR" or is_error == true
       end)
 
+    sample_size = length(traces_rows)
     error_rate =
-      if traces_count > 0 do
-        Float.round(error_traces / traces_count * 100, 1)
+      if sample_size > 0 do
+        Float.round(error_traces / sample_size * 100, 1)
       else
         0.0
       end
@@ -349,11 +353,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     }
   end
 
-  defp build_observability_summary(_, _), do: %{metrics_count: 0, traces_count: 0, avg_duration: 0, error_rate: 0.0, slow_spans_count: 0, slow_spans: []}
+  defp build_observability_summary(_, _, _), do: %{metrics_count: 0, traces_count: 0, avg_duration: 0, error_rate: 0.0, slow_spans_count: 0, slow_spans: []}
 
-  defp build_high_utilization_summary(cpu_rows) when is_list(cpu_rows) do
-    # Deduplicate by host, keeping most recent
-    unique_hosts =
+  defp build_high_utilization_summary(cpu_rows, disk_rows) when is_list(cpu_rows) and is_list(disk_rows) do
+    # Deduplicate CPU by host, keeping most recent
+    unique_cpu_hosts =
       cpu_rows
       |> Enum.filter(&is_map/1)
       |> Enum.reduce(%{}, fn row, acc ->
@@ -362,53 +366,83 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       end)
       |> Map.values()
 
-    # Categorize by utilization level
-    categorized =
-      unique_hosts
-      |> Enum.reduce(%{cpu_warning: [], cpu_critical: [], memory_warning: [], memory_critical: []}, fn row, acc ->
-        cpu_usage = extract_numeric(Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") || Map.get(row, "user") || 0)
-        memory_usage = extract_numeric(Map.get(row, "memory_usage") || Map.get(row, "mem_percent") || 0)
+    # Deduplicate Disk by host+mount, keeping most recent
+    unique_disks =
+      disk_rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(%{}, fn row, acc ->
+        host = Map.get(row, "host") || Map.get(row, "device_id") || ""
+        mount = Map.get(row, "mount_point") || Map.get(row, "mount") || ""
+        key = "#{host}:#{mount}"
+        if host != "", do: Map.put_new(acc, key, row), else: acc
+      end)
+      |> Map.values()
 
-        acc =
-          cond do
-            cpu_usage >= 90 -> Map.update!(acc, :cpu_critical, &[row | &1])
-            cpu_usage >= 80 -> Map.update!(acc, :cpu_warning, &[row | &1])
-            true -> acc
-          end
+    # Categorize CPU by utilization level
+    cpu_categorized =
+      unique_cpu_hosts
+      |> Enum.reduce(%{warning: [], critical: []}, fn row, acc ->
+        cpu_usage = extract_numeric(Map.get(row, "value") || Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") || Map.get(row, "user") || 0)
 
         cond do
-          memory_usage >= 90 -> Map.update!(acc, :memory_critical, &[row | &1])
-          memory_usage >= 80 -> Map.update!(acc, :memory_warning, &[row | &1])
+          cpu_usage >= 90 -> Map.update!(acc, :critical, &[row | &1])
+          cpu_usage >= 80 -> Map.update!(acc, :warning, &[row | &1])
           true -> acc
         end
       end)
 
-    # Get top high utilization services
-    high_util_services =
-      unique_hosts
+    # Categorize Disk by utilization level
+    disk_categorized =
+      unique_disks
+      |> Enum.reduce(%{warning: [], critical: []}, fn row, acc ->
+        disk_usage = extract_numeric(Map.get(row, "percent") || Map.get(row, "value") || 0)
+
+        cond do
+          disk_usage >= 90 -> Map.update!(acc, :critical, &[row | &1])
+          disk_usage >= 85 -> Map.update!(acc, :warning, &[row | &1])
+          true -> acc
+        end
+      end)
+
+    # Get top high CPU utilization hosts
+    high_cpu_services =
+      unique_cpu_hosts
       |> Enum.filter(fn row ->
-        cpu = extract_numeric(Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") || Map.get(row, "user") || 0)
-        mem = extract_numeric(Map.get(row, "memory_usage") || Map.get(row, "mem_percent") || 0)
-        cpu >= 70 or mem >= 70
+        cpu = extract_numeric(Map.get(row, "value") || Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") || Map.get(row, "user") || 0)
+        cpu >= 70
       end)
       |> Enum.sort_by(fn row ->
-        cpu = extract_numeric(Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") || Map.get(row, "user") || 0)
-        mem = extract_numeric(Map.get(row, "memory_usage") || Map.get(row, "mem_percent") || 0)
-        -(cpu + mem)
+        cpu = extract_numeric(Map.get(row, "value") || Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") || Map.get(row, "user") || 0)
+        -cpu
       end)
-      |> Enum.take(8)
+      |> Enum.take(5)
+
+    # Get top high disk utilization
+    high_disk_services =
+      unique_disks
+      |> Enum.filter(fn row ->
+        disk = extract_numeric(Map.get(row, "percent") || Map.get(row, "value") || 0)
+        disk >= 70
+      end)
+      |> Enum.sort_by(fn row ->
+        disk = extract_numeric(Map.get(row, "percent") || Map.get(row, "value") || 0)
+        -disk
+      end)
+      |> Enum.take(5)
 
     %{
-      cpu_warning: length(categorized.cpu_warning),
-      cpu_critical: length(categorized.cpu_critical),
-      memory_warning: length(categorized.memory_warning),
-      memory_critical: length(categorized.memory_critical),
-      services: high_util_services,
-      total_hosts: length(unique_hosts)
+      cpu_warning: length(cpu_categorized.warning),
+      cpu_critical: length(cpu_categorized.critical),
+      disk_warning: length(disk_categorized.warning),
+      disk_critical: length(disk_categorized.critical),
+      cpu_services: high_cpu_services,
+      disk_services: high_disk_services,
+      total_cpu_hosts: length(unique_cpu_hosts),
+      total_disk_mounts: length(unique_disks)
     }
   end
 
-  defp build_high_utilization_summary(_), do: %{cpu_warning: 0, cpu_critical: 0, memory_warning: 0, memory_critical: 0, services: [], total_hosts: 0}
+  defp build_high_utilization_summary(_, _), do: %{cpu_warning: 0, cpu_critical: 0, disk_warning: 0, disk_critical: 0, cpu_services: [], disk_services: [], total_cpu_hosts: 0, total_disk_mounts: 0}
 
   defp build_bandwidth_summary(rperf_rows) when is_list(rperf_rows) do
     # Deduplicate by target name, keeping most recent
@@ -506,28 +540,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl">
-        <div class="flex items-start justify-between gap-4 flex-wrap mb-6">
-          <div class="min-w-0">
-            <h1 class="text-2xl font-semibold tracking-tight">Analytics</h1>
-            <p class="text-sm text-base-content/70 mt-1">
-              Network health overview with drill-down into details.
-            </p>
-          </div>
-
-          <div class="flex items-center gap-2 text-xs text-base-content/50">
-            <span :if={@loading} class="loading loading-spinner loading-xs" />
-            <span :if={not @loading}>Auto-refresh every 30s</span>
-          </div>
-        </div>
-
-        <div :if={is_binary(@error)} class="mb-6">
+        <div :if={is_binary(@error)} class="mb-4">
           <div role="alert" class="alert alert-error">
             <.icon name="hero-exclamation-triangle" class="size-5" />
             <span class="text-sm">{@error}</span>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           <.stat_card
             title="Total Devices"
             value={Map.get(@stats, :total_devices, 0)}
@@ -558,9 +578,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           />
         </div>
 
-        <h2 class="text-lg font-semibold mb-4">Network & Performance Analytics</h2>
-
-        <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
           <.device_availability_widget availability={@device_availability} loading={@loading} />
           <.observability_widget data={@observability} loading={@loading} />
           <.critical_events_widget summary={@events_summary} loading={@loading} />
@@ -569,14 +587,13 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <.bandwidth_widget data={@bandwidth} loading={@loading} />
         </div>
 
-        <div class="mt-6 text-xs text-base-content/60 flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <span class="font-semibold">Updated:</span>
-            <span :if={is_struct(@refreshed_at, DateTime)} class="font-mono">
-              {Calendar.strftime(@refreshed_at, "%Y-%m-%d %H:%M:%S UTC")}
-            </span>
-            <span :if={not is_struct(@refreshed_at, DateTime)}>—</span>
-          </div>
+        <div class="mt-3 text-xs text-base-content/40 flex items-center gap-2">
+          <span :if={@loading} class="loading loading-spinner loading-xs" />
+          <span :if={is_struct(@refreshed_at, DateTime)} class="font-mono">
+            Updated {Calendar.strftime(@refreshed_at, "%H:%M:%S")}
+          </span>
+          <span class="text-base-content/30">·</span>
+          <span>Auto-refresh 30s</span>
         </div>
       </div>
     </Layouts.app>
@@ -1033,19 +1050,23 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     data = assigns.data || %{}
     cpu_warning = Map.get(data, :cpu_warning, 0)
     cpu_critical = Map.get(data, :cpu_critical, 0)
-    memory_warning = Map.get(data, :memory_warning, 0)
-    memory_critical = Map.get(data, :memory_critical, 0)
-    services = Map.get(data, :services, [])
-    total_hosts = Map.get(data, :total_hosts, 0)
+    disk_warning = Map.get(data, :disk_warning, 0)
+    disk_critical = Map.get(data, :disk_critical, 0)
+    cpu_services = Map.get(data, :cpu_services, [])
+    disk_services = Map.get(data, :disk_services, [])
+    total_cpu_hosts = Map.get(data, :total_cpu_hosts, 0)
+    total_disk_mounts = Map.get(data, :total_disk_mounts, 0)
 
     assigns =
       assigns
       |> assign(:cpu_warning, cpu_warning)
       |> assign(:cpu_critical, cpu_critical)
-      |> assign(:memory_warning, memory_warning)
-      |> assign(:memory_critical, memory_critical)
-      |> assign(:services, services)
-      |> assign(:total_hosts, total_hosts)
+      |> assign(:disk_warning, disk_warning)
+      |> assign(:disk_critical, disk_critical)
+      |> assign(:cpu_services, cpu_services)
+      |> assign(:disk_services, disk_services)
+      |> assign(:total_cpu_hosts, total_cpu_hosts)
+      |> assign(:total_disk_mounts, total_disk_mounts)
 
     ~H"""
     <.ui_panel class="h-80">
@@ -1056,7 +1077,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         <.link
           href={~p"/dashboard?#{%{q: "in:cpu_metrics time:last_1h sort:timestamp:desc limit:100"}}"}
           class="text-base-content/60 hover:text-primary"
-          title="View CPU metrics"
+          title="View metrics"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
         </.link>
@@ -1067,37 +1088,40 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       </div>
 
       <div :if={not @loading} class="flex flex-col h-full">
-        <div class="grid grid-cols-2 gap-3 mb-4">
+        <div class="grid grid-cols-2 gap-2 mb-3">
           <div class="rounded-lg bg-base-200/50 p-2">
-            <div class="text-xs text-base-content/60 mb-1">CPU</div>
-            <div class="flex items-center gap-2">
-              <span :if={@cpu_critical > 0} class="badge badge-error badge-sm">{@cpu_critical} critical</span>
-              <span :if={@cpu_warning > 0} class="badge badge-warning badge-sm">{@cpu_warning} warning</span>
-              <span :if={@cpu_critical == 0 and @cpu_warning == 0} class="badge badge-success badge-sm">OK</span>
+            <div class="text-[10px] text-base-content/60 mb-1">CPU</div>
+            <div class="flex flex-wrap items-center gap-1">
+              <span :if={@cpu_critical > 0} class="badge badge-error badge-xs">{@cpu_critical}</span>
+              <span :if={@cpu_warning > 0} class="badge badge-warning badge-xs">{@cpu_warning}</span>
+              <span :if={@cpu_critical == 0 and @cpu_warning == 0} class="badge badge-success badge-xs">OK</span>
             </div>
           </div>
           <div class="rounded-lg bg-base-200/50 p-2">
-            <div class="text-xs text-base-content/60 mb-1">Memory</div>
-            <div class="flex items-center gap-2">
-              <span :if={@memory_critical > 0} class="badge badge-error badge-sm">{@memory_critical} critical</span>
-              <span :if={@memory_warning > 0} class="badge badge-warning badge-sm">{@memory_warning} warning</span>
-              <span :if={@memory_critical == 0 and @memory_warning == 0} class="badge badge-success badge-sm">OK</span>
+            <div class="text-[10px] text-base-content/60 mb-1">Disk</div>
+            <div class="flex flex-wrap items-center gap-1">
+              <span :if={@disk_critical > 0} class="badge badge-error badge-xs">{@disk_critical}</span>
+              <span :if={@disk_warning > 0} class="badge badge-warning badge-xs">{@disk_warning}</span>
+              <span :if={@disk_critical == 0 and @disk_warning == 0} class="badge badge-success badge-xs">OK</span>
             </div>
           </div>
         </div>
 
-        <div class="text-xs text-base-content/50 mb-2">{@total_hosts} hosts monitored</div>
+        <div class="text-[10px] text-base-content/50 mb-2">{@total_cpu_hosts} hosts · {@total_disk_mounts} mounts</div>
 
-        <div :if={@services == []} class="flex-1 flex items-center justify-center">
+        <div :if={@cpu_services == [] and @disk_services == []} class="flex-1 flex items-center justify-center">
           <div class="text-center">
             <.icon name="hero-cpu-chip" class="size-6 mx-auto mb-1 text-success" />
             <p class="text-xs text-base-content/60">No high utilization</p>
           </div>
         </div>
 
-        <div :if={@services != []} class="flex-1 overflow-y-auto space-y-1 min-h-0">
-          <%= for svc <- @services do %>
-            <.utilization_row service={svc} />
+        <div :if={@cpu_services != [] or @disk_services != []} class="flex-1 overflow-y-auto space-y-1 min-h-0">
+          <%= for svc <- @cpu_services do %>
+            <.utilization_row service={svc} type="cpu" />
+          <% end %>
+          <%= for svc <- @disk_services do %>
+            <.disk_utilization_row service={svc} />
           <% end %>
         </div>
       </div>
@@ -1196,10 +1220,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   end
 
   attr :service, :map, required: true
+  attr :type, :string, default: "cpu"
 
   defp utilization_row(assigns) do
     svc = assigns.service
-    cpu = extract_numeric(Map.get(svc, "cpu_usage") || Map.get(svc, "usage_percent") || Map.get(svc, "user") || 0)
+    cpu = extract_numeric(Map.get(svc, "value") || Map.get(svc, "cpu_usage") || Map.get(svc, "usage_percent") || Map.get(svc, "user") || 0)
     mem = extract_numeric(Map.get(svc, "memory_usage") || Map.get(svc, "mem_percent") || 0)
     host = Map.get(svc, "host") || Map.get(svc, "device_id") || "Unknown"
 
@@ -1220,10 +1245,42 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     """
   end
 
+  attr :service, :map, required: true
+
+  defp disk_utilization_row(assigns) do
+    svc = assigns.service
+    percent = extract_numeric(Map.get(svc, "percent") || Map.get(svc, "value") || 0)
+    host = Map.get(svc, "host") || Map.get(svc, "device_id") || "Unknown"
+    mount = Map.get(svc, "mount_point") || Map.get(svc, "mount") || "/"
+
+    assigns =
+      assigns
+      |> assign(:percent, percent)
+      |> assign(:host, host)
+      |> assign(:mount, mount)
+
+    ~H"""
+    <div class="flex items-center gap-2 p-1.5 rounded bg-base-200/50 text-xs">
+      <div class="truncate flex-1 min-w-0">
+        <span class="font-medium" title={@host}>{@host}</span>
+        <span class="text-base-content/50 ml-1" title={@mount}>{@mount}</span>
+      </div>
+      <div class="shrink-0">
+        <span class={["badge badge-xs", disk_badge_class(@percent)]}>DISK {@percent |> round()}%</span>
+      </div>
+    </div>
+    """
+  end
+
   defp cpu_badge_class(value) when value >= 90, do: "badge-error"
   defp cpu_badge_class(value) when value >= 80, do: "badge-warning"
   defp cpu_badge_class(value) when value >= 70, do: "badge-info"
   defp cpu_badge_class(_), do: "badge-ghost"
+
+  defp disk_badge_class(value) when value >= 90, do: "badge-error"
+  defp disk_badge_class(value) when value >= 85, do: "badge-warning"
+  defp disk_badge_class(value) when value >= 70, do: "badge-info"
+  defp disk_badge_class(_), do: "badge-ghost"
 
   defp span_name(span) when is_map(span) do
     Map.get(span, "name") || Map.get(span, "span_name") || Map.get(span, "operation") || "Unknown"

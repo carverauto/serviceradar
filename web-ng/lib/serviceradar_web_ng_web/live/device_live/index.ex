@@ -82,16 +82,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
-        <.header>
-          Devices
-          <:subtitle>Network device inventory.</:subtitle>
-          <:actions>
-            <.link class="btn btn-ghost btn-sm" patch={~p"/devices"}>
-              Reset
-            </.link>
-          </:actions>
-        </.header>
-
         <.ui_panel>
           <:header>
             <div class="flex items-center gap-2">
@@ -100,6 +90,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                 ICMP: {@icmp_error}
               </div>
             </div>
+            <.link class="btn btn-ghost btn-xs" patch={~p"/devices"}>
+              Reset
+            </.link>
           </:header>
 
           <div class="overflow-x-auto">
@@ -229,7 +222,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           />
         </svg>
       </div>
-      <div class="tabular-nums text-[11px] font-medium text-base-content">
+      <div class="tabular-nums text-[11px] font-bold text-base-content">
         {format_ms(@latest_ms)}
       </div>
     </div>
@@ -241,10 +234,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp tone_stroke("success"), do: "#50fa7b"
   defp tone_stroke(_), do: "#6272a4"
 
-  defp tone_text("error"), do: "text-error"
-  defp tone_text("warning"), do: "text-warning"
-  defp tone_text("success"), do: "text-success"
-  defp tone_text(_), do: "text-base-content/70"
 
   defp format_ms(value) when is_float(value) do
     :erlang.float_to_binary(value, decimals: 1) <> "ms"

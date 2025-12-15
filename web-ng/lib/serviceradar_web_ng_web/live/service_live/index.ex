@@ -77,32 +77,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
-        <.header>
-          Services
-          <:subtitle>Service availability and health status.</:subtitle>
-          <:actions>
-            <.ui_button variant="ghost" size="sm" patch={~p"/services"}>
-              Reset
-            </.ui_button>
-            <.ui_button
-              variant="ghost"
-              size="sm"
-              patch={~p"/services?#{%{q: "in:services time:last_1h sort:timestamp:desc"}}"}
-            >
-              Last Hour
-            </.ui_button>
-            <.ui_button
-              variant="ghost"
-              size="sm"
-              patch={
-                ~p"/services?#{%{q: "in:services available:false time:last_1h sort:timestamp:desc"}}"
-              }
-            >
-              Unavailable
-            </.ui_button>
-          </:actions>
-        </.header>
-
         <div class="space-y-4">
           <.service_summary summary={@summary} />
 
@@ -205,7 +179,23 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     </div>
 
     <div :if={map_size(@by_type) > 0} class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
-      <div class="text-xs text-base-content/50 uppercase tracking-wider mb-3">By Service Type</div>
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-xs text-base-content/50 uppercase tracking-wider">By Service Type</div>
+        <div class="flex items-center gap-1">
+          <.link
+            patch={~p"/services"}
+            class="btn btn-ghost btn-xs"
+          >
+            All Services
+          </.link>
+          <.link
+            patch={~p"/services?#{%{q: "in:services available:false time:last_1h sort:timestamp:desc"}}"}
+            class="btn btn-ghost btn-xs text-error"
+          >
+            Failing Only
+          </.link>
+        </div>
+      </div>
       <div class="space-y-2">
         <%= for {type, counts} <- Enum.sort_by(@by_type, fn {_, c} -> -(c.available + c.unavailable) end) |> Enum.take(8) do %>
           <.type_bar type={type} counts={counts} total={@total} />

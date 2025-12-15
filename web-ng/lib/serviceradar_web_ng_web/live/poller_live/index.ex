@@ -72,24 +72,16 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
-        <.header>
-          Pollers
-          <:subtitle>Data collection agents.</:subtitle>
-          <:actions>
-            <.ui_button variant="ghost" size="sm" patch={~p"/pollers"}>
-              Reset
-            </.ui_button>
-          </:actions>
-        </.header>
-
         <.ui_panel>
           <:header>
             <div class="min-w-0">
-              <div class="text-sm font-semibold">Poller Status</div>
-              <div class="text-xs text-base-content/70">
+              <span class="text-sm text-base-content/70">
                 Click a poller to view full details.
-              </div>
+              </span>
             </div>
+            <.ui_button variant="ghost" size="xs" patch={~p"/pollers"}>
+              Reset
+            </.ui_button>
           </:header>
 
           <.pollers_table id="pollers" pollers={@pollers} />
@@ -152,8 +144,8 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Index do
               <td class="whitespace-nowrap text-xs">
                 <.status_badge active={Map.get(poller, "is_active")} />
               </td>
-              <td class="whitespace-nowrap text-xs font-mono truncate max-w-[10rem]" title={Map.get(poller, "address")}>
-                {Map.get(poller, "address") || "—"}
+              <td class="whitespace-nowrap text-xs font-mono truncate max-w-[10rem]" title={poller_address(poller)}>
+                {poller_address(poller)}
               </td>
               <td class="whitespace-nowrap text-xs font-mono">
                 {format_timestamp(poller)}
@@ -185,6 +177,16 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Index do
 
   defp poller_id(poller) do
     Map.get(poller, "poller_id") || Map.get(poller, "id") || "unknown"
+  end
+
+  defp poller_address(poller) do
+    Map.get(poller, "address") ||
+      Map.get(poller, "poller_address") ||
+      Map.get(poller, "host") ||
+      Map.get(poller, "hostname") ||
+      Map.get(poller, "ip") ||
+      Map.get(poller, "ip_address") ||
+      "—"
   end
 
   defp format_timestamp(poller) do

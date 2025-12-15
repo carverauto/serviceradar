@@ -113,20 +113,19 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
       <div :if={@signed_in?} class="drawer-side z-30">
         <label for="sr-sidebar" class="drawer-overlay" aria-label="Close navigation"></label>
-        <aside class="w-56 bg-base-100 border-r border-base-200 min-h-full flex flex-col">
+        <aside class="w-48 bg-base-100 border-r border-base-200 min-h-full flex flex-col">
           <div class="p-3">
             <.link href={~p"/"} class="flex items-center gap-2 mb-4">
               <img
                 src={~p"/images/logo.svg"}
                 alt="ServiceRadar"
-                class="size-7 opacity-95"
-                width="28"
-                height="28"
+                class="size-6 opacity-95"
+                width="24"
+                height="24"
               />
-              <span class="font-semibold tracking-tight">ServiceRadar</span>
+              <span class="font-semibold text-sm tracking-tight">ServiceRadar</span>
             </.link>
 
-            <div class="text-xs font-semibold text-base-content/50 mb-2">Navigation</div>
             <ul class="menu menu-sm">
               <li>
                 <.sidebar_link
@@ -188,25 +187,27 @@ defmodule ServiceRadarWebNGWeb.Layouts do
           </div>
 
           <div class="mt-auto p-3 border-t border-base-200">
-            <div class="text-xs font-semibold text-base-content/50 mb-2">Account</div>
-
-            <div class="text-sm text-base-content/80 truncate mb-3">
-              {@current_scope.user.email}
-            </div>
-
-            <div class="flex flex-col gap-2">
-              <.ui_button href={~p"/users/settings"} variant="ghost" size="sm" class="justify-start">
-                <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
-              </.ui_button>
-              <.ui_button
-                href={~p"/users/log-out"}
-                method="delete"
-                variant="ghost"
-                size="sm"
-                class="justify-start"
-              >
-                <.icon name="hero-arrow-right-on-rectangle" class="size-4" /> Log out
-              </.ui_button>
+            <div class="dropdown dropdown-top w-full">
+              <div tabindex="0" role="button" class="flex items-center gap-2 p-2 rounded-lg hover:bg-base-200 cursor-pointer w-full">
+                <div class="avatar avatar-placeholder">
+                  <div class="bg-neutral text-neutral-content w-8 rounded-full">
+                    <span class="text-xs">{user_initials(@current_scope.user.email)}</span>
+                  </div>
+                </div>
+                <.icon name="hero-chevron-up" class="size-3 text-base-content/50 ml-auto" />
+              </div>
+              <ul tabindex="0" class="dropdown-content menu bg-base-200 rounded-box z-10 w-40 p-2 shadow-lg mb-2">
+                <li>
+                  <.link href={~p"/users/settings"} class="text-sm">
+                    <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
+                  </.link>
+                </li>
+                <li>
+                  <.link href={~p"/users/log-out"} method="delete" class="text-sm">
+                    <.icon name="hero-arrow-right-on-rectangle" class="size-4" /> Log out
+                  </.link>
+                </li>
+              </ul>
             </div>
           </div>
         </aside>
@@ -214,6 +215,16 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     </div>
     """
   end
+
+  defp user_initials(email) when is_binary(email) do
+    email
+    |> String.split("@")
+    |> List.first()
+    |> String.slice(0, 2)
+    |> String.upcase()
+  end
+
+  defp user_initials(_), do: "?"
 
   attr :href, :string, required: true
   attr :label, :string, required: true
