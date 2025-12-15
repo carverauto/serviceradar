@@ -882,8 +882,8 @@ mod tests {
         );
         assert_eq!(
             response.params.len(),
-            3,
-            "expected cypher + limit + offset binds, got: {:?}",
+            2,
+            "expected limit + offset binds, got: {:?}",
             response.params
         );
     }
