@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       %{
         device_id: device_id,
         hostname: "test-host",
+        is_available: true,
+        first_seen: ~U[2100-01-01 00:00:00Z],
         last_seen: ~U[2100-01-01 00:00:00Z]
       }
     ])
@@ -20,5 +22,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     {:ok, _lv, html} = live(conn, ~p"/devices?limit=10")
     assert html =~ device_id
     assert html =~ "test-host"
+    assert html =~ "in:devices"
   end
 end

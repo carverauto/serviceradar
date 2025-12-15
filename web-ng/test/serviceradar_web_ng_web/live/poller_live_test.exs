@@ -20,5 +20,6 @@ defmodule ServiceRadarWebNGWeb.PollerLiveTest do
     {:ok, _lv, html} = live(conn, ~p"/pollers?limit=10")
     assert html =~ poller_id
     assert html =~ "active"
+    assert html =~ "in:pollers"
   end
 end

@@ -70,3 +70,56 @@ We are transforming `srql` from a **standalone HTTP service** to an **embedded t
 - **NIF Safety Net:** For any printable string input, `ServiceRadarWebNG.SRQL.query/1` MUST return `{:ok, _}` or `{:error, _}` and MUST NOT crash the test process.
 - **Dual-Write Consistency:** For any sequence of create/update/delete operations on a Device, the Postgres row state MUST match the AGE node state after each operation.
 - **Changeset Fuzzing:** For generated JSON-like maps that mimic Go ingestion shapes, changesets MUST return `{:ok, _}` or `{:error, changeset}` and MUST NOT raise.
+
+## 8. SRQL-First Analytics UI and Composable Dashboards
+
+### Principle: "Query-first UI"
+For read-oriented pages (devices, pollers, metrics, traces, events, dashboards), SRQL is the primary interface:
+- Pages declare a default SRQL query.
+- The page executes that SRQL query via `POST /api/query`.
+- The global navigation displays the exact SRQL query used to render the view.
+- Users can edit and re-run the SRQL query to drive the page.
+
+Non-analytics flows (auth, settings, edge onboarding CRUD) can remain context/API driven and use Ecto directly.
+
+### Query Bar Contract
+The app provides a shared "Query Bar" in the top navigation for SRQL-driven pages:
+- Shows the active SRQL query string for the current page.
+- Allows editing and submission (re-runs query and updates page state).
+- Provides bounded error handling (invalid query shows an error panel, never crashes LiveView).
+- Supports deep-linking by encoding the query in the URL (for shareable dashboards/pages).
+- Provides a query builder toggle (icon) that expands a builder panel under the query bar.
+
+### Query Builder
+The query builder is a UI for constructing SRQL safely:
+- The SRQL text input remains the source of truth (execution always runs SRQL).
+- The builder produces SRQL output by updating the query bar text.
+- The builder attempts to parse/reflect the existing SRQL into builder state when possible.
+- If SRQL cannot be represented, the builder shows a bounded "read-only/limited" state and avoids destructive rewrites.
+
+### Composable Dashboard Engine
+Dashboards are built around SRQL queries and render "widgets" based on the query outputs:
+- A dashboard definition can contain one or more SRQL queries.
+- Each query result is mapped to one or more visualization candidates.
+- The user can select a visualization, and the dashboard composes the widgets.
+
+### Result Shape Detection and Visualization Hints
+The dashboard engine should prefer explicit metadata from SRQL translation/execution over heuristics:
+- Column names and types (time, numeric, categorical, id-like)
+- Semantic hints (unit, series key, suggested visualization types)
+- Pagination and time window semantics for hypertables
+
+If explicit hints are unavailable, the engine can fall back to conservative heuristics (e.g., if a "time" column exists, suggest a time series chart).
+
+### TimescaleDB and Apache AGE Coverage
+Composable dashboards must support both:
+- TimescaleDB hypertable patterns (time windows, aggregation/downsampling)
+- Apache AGE relationship exploration (device/asset/interface graphs)
+
+Preferred approach: keep SRQL as the unifying interface by extending the SRQL DSL/translator to express graph-oriented queries (compiled into SQL that uses AGE `cypher()`), so dashboards can treat graph data as another SRQL-backed data source.
+
+### Extensibility
+The dashboard system must be easy to extend:
+- Provide stable Elixir behaviours for new widgets/visualizations.
+- Keep visualizations pure where possible (inputs: SRQL string + result set + metadata; output: a LiveComponent render).
+- Make it straightforward to add a new visualization without modifying core dashboard code (registry/discovery pattern).

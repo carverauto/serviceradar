@@ -1,29 +1,119 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadarWebNG.Inventory
+  alias ServiceRadarWebNGWeb.SRQL.Builder
 
   @default_limit 100
   @max_limit 500
 
   @impl true
   def mount(_params, _session, socket) do
+    builder = Builder.default_state("devices", @default_limit)
+    query = Builder.build(builder)
+
     {:ok,
      socket
      |> assign(:page_title, "Devices")
+     |> assign(:devices, [])
      |> assign(:limit, @default_limit)
-     |> stream(:devices, [])}
+     |> assign(:srql_enabled, true)
+     |> assign(:srql_query, query)
+     |> assign(:srql_query_draft, query)
+     |> assign(:srql_error, nil)
+     |> assign(:srql_page_path, nil)
+     |> assign(:srql_builder_open, false)
+     |> assign(:srql_builder_supported, true)
+     |> assign(:srql_builder_sync, true)
+     |> assign(:srql_builder, builder)}
   end
 
   @impl true
-  def handle_params(params, _uri, socket) do
+  def handle_params(params, uri, socket) do
     limit = parse_limit(params["limit"])
-    devices = Inventory.list_devices(limit: limit)
+    default_query = Builder.build(%{socket.assigns.srql_builder | "limit" => limit})
+    query = Map.get(params, "q", default_query)
+
+    srql = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+
+    {devices, error} =
+      case srql.query(query) do
+        {:ok, %{"results" => results}} when is_list(results) -> {results, nil}
+        {:ok, other} -> {[], "unexpected SRQL response: #{inspect(other)}"}
+        {:error, reason} -> {[], "SRQL error: #{format_error(reason)}"}
+      end
+
+    display_limit = extract_limit_from_srql(query, limit)
 
     {:noreply,
      socket
-     |> assign(:limit, limit)
-     |> stream(:devices, devices, reset: true)}
+     |> assign(:srql_page_path, URI.parse(uri).path)
+     |> assign(:srql_query, query)
+     |> assign(:srql_query_draft, query)
+     |> assign(:srql_error, error)
+     |> assign(:devices, devices)
+     |> assign(:limit, display_limit)}
+  end
+
+  @impl true
+  def handle_event("srql_change", %{"q" => query}, socket) do
+    {:noreply, assign(socket, :srql_query_draft, query)}
+  end
+
+  def handle_event("srql_submit", %{"q" => raw_query}, socket) do
+    query = raw_query |> to_string() |> String.trim()
+    query = if query == "", do: socket.assigns.srql_query || "", else: query
+
+    path = socket.assigns.srql_page_path || "/devices"
+
+    {:noreply,
+     socket
+     |> assign(:srql_builder_open, false)
+     |> push_patch(to: path <> "?" <> URI.encode_query(%{"q" => query}))}
+  end
+
+  def handle_event("srql_builder_toggle", _params, socket) do
+    if socket.assigns.srql_builder_open do
+      {:noreply, assign(socket, :srql_builder_open, false)}
+    else
+      current = socket.assigns.srql_query_draft || socket.assigns.srql_query || ""
+
+      {supported, sync, builder} =
+        case Builder.parse(current) do
+          {:ok, builder} ->
+            {true, true, builder}
+
+          {:error, _reason} ->
+            {false, false, Builder.default_state("devices", socket.assigns.limit)}
+        end
+
+      {:noreply,
+       socket
+       |> assign(:srql_builder_open, true)
+       |> assign(:srql_builder_supported, supported)
+       |> assign(:srql_builder_sync, sync)
+       |> assign(:srql_builder, builder)}
+    end
+  end
+
+  def handle_event("srql_builder_change", %{"builder" => params}, socket) do
+    builder = Builder.update(socket.assigns.srql_builder, params)
+
+    socket =
+      socket
+      |> assign(:srql_builder, builder)
+      |> maybe_sync_builder_query()
+
+    {:noreply, socket}
+  end
+
+  def handle_event("srql_builder_apply", _params, socket) do
+    query = Builder.build(socket.assigns.srql_builder)
+
+    {:noreply,
+     socket
+     |> assign(:srql_builder_supported, true)
+     |> assign(:srql_builder_sync, true)
+     |> assign(:srql_query_draft, query)}
   end
 
   defp parse_limit(nil), do: @default_limit
@@ -48,19 +138,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       <div class="mx-auto max-w-7xl p-6">
         <.header>
           Devices
-          <:subtitle>Showing up to {@limit} devices from `unified_devices`.</:subtitle>
+          <:subtitle>Showing up to {@limit} devices.</:subtitle>
           <:actions>
-            <.link class="btn btn-ghost btn-sm" patch={~p"/devices?limit=#{@limit}"}>Refresh</.link>
+            <.link class="btn btn-ghost btn-sm" patch={~p"/devices?limit=#{@limit}"}>
+              Reset
+            </.link>
           </:actions>
         </.header>
 
-        <.table id="devices" rows={@streams.devices}>
-          <:col :let={{_id, d}} label="ID">{d.id}</:col>
-          <:col :let={{_id, d}} label="Hostname">{d.hostname}</:col>
-          <:col :let={{_id, d}} label="IP">{d.ip}</:col>
-          <:col :let={{_id, d}} label="Type">{d.device_type}</:col>
-          <:col :let={{_id, d}} label="Available?">{d.is_available}</:col>
-          <:col :let={{_id, d}} label="Last Seen">{format_datetime(d.last_seen)}</:col>
+        <.table id="devices" rows={@devices} row_id={&("device-" <> to_string(&1["device_id"]))}>
+          <:col :let={d} label="ID">{d["device_id"]}</:col>
+          <:col :let={d} label="Hostname">{d["hostname"]}</:col>
+          <:col :let={d} label="IP">{d["ip"]}</:col>
+          <:col :let={d} label="Type">{d["device_type"]}</:col>
+          <:col :let={d} label="Available?">{d["is_available"]}</:col>
+          <:col :let={d} label="Last Seen">{format_datetime(d["last_seen"])}</:col>
         </.table>
       </div>
     </Layouts.app>
@@ -68,5 +160,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp format_datetime(nil), do: ""
+  defp format_datetime(value) when is_binary(value), do: value
   defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
+
+  defp maybe_sync_builder_query(socket) do
+    if socket.assigns.srql_builder_supported and socket.assigns.srql_builder_sync do
+      assign(socket, :srql_query_draft, Builder.build(socket.assigns.srql_builder))
+    else
+      socket
+    end
+  end
+
+  defp extract_limit_from_srql(query, fallback) when is_binary(query) do
+    case Regex.run(~r/(?:^|\s)limit:(\d+)(?:\s|$)/, query) do
+      [_, raw] -> parse_limit(raw)
+      _ -> fallback
+    end
+  end
+
+  defp extract_limit_from_srql(_query, fallback), do: fallback
+
+  defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
+  defp format_error(%ArgumentError{} = err), do: Exception.message(err)
+  defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(reason), do: inspect(reason)
 end

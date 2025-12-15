@@ -19,6 +19,10 @@
   - [x] Add integration tests to validate SRQL translation + execution from Elixir.
   - [x] Add bind/placeholder arity validation in Rust (tests + debug checks).
   - [x] Ensure existing SRQL HTTP service behavior remains intact (run existing `rust/srql` tests).
+- [ ] 1.6b Extend SRQL translate output with visualization metadata (column types, semantic hints) to support composable dashboards.
+- [ ] 1.6c Extend SRQL to support query patterns required by dashboards:
+  - [ ] TimescaleDB-friendly time windowing and downsampling helpers.
+  - [ ] AGE relationship queries (compiled into SQL using AGE `cypher()`), so graph panels can be SRQL-driven.
 
 ### Property-Based Testing (StreamData)
 - [x] 1.7 Add `stream_data` (and `ExUnitProperties`) to the `web-ng` ExUnit suite.
@@ -39,21 +43,32 @@
 ## 3. Logic Porting (Shared Data)
 
 ### Inventory & Infrastructure
-- [ ] 3.1 Create Ecto schemas for `unified_devices`, `pollers`, `services` (no migrations).
+- [x] 3.1 Create Ecto schemas for `unified_devices`, `pollers`, `services` (no migrations).
   - [x] *Note:* Use `@primary_key {:id, :string, autogenerate: false}`.
   - [x] *Note:* "No migrations" means Phoenix does not own the table DDL—Go Core does. Phoenix CAN still read/write data to these tables.
   - [x] 3.1a Add `unified_devices` schema.
   - [x] 3.1b Add `pollers` schema.
-  - [ ] 3.1c Add `services` schema.
+  - [x] 3.1c Add `services` schema.
 - [x] 3.2 Implement `Inventory.list_devices`.
 - [x] 3.3 Implement `Infrastructure.list_pollers`.
 
 ### Edge Onboarding
-- [ ] 3.4 Port `EdgeOnboardingPackage` schema (Shared Data).
-- [ ] 3.5 Implement token generation logic in Elixir.
-  - [ ] 3.5a Add property tests for token encode/decode invariants (round-trip, URL-safe encoding, and invalid input handling).
+- [x] 3.4 Port `EdgeOnboardingPackage` schema (Shared Data).
+- [x] 3.5 Implement token generation logic in Elixir.
+  - [x] 3.5a Add property tests for token encode/decode invariants (round-trip, URL-safe encoding, and invalid input handling).
 
 ## 4. UI & API Implementation
+
+### SRQL-First UX (Analytics Pages)
+- [x] 4.0 Add a global SRQL query bar in the top navigation for SRQL-driven pages.
+  - [ ] *Note:* It MUST display the exact SRQL query used to render the current view.
+  - [ ] *Note:* It MUST allow editing + re-running the query with bounded errors (no LiveView crashes).
+  - [x] *Note:* It SHOULD support deep-linking by storing the SRQL query in the URL (shareable links).
+- [ ] 4.0a Add SRQL-driven page helpers (common LiveView patterns: query state, loading/error states, query execution).
+- [ ] 4.0b Add property tests to ensure query input handling never crashes (malformed queries, malformed params).
+- [x] 4.0c Add an SRQL query builder UI accessible from the query bar (toggle icon + expandable panel).
+  - [x] 4.0d Keep SRQL text as the source of truth; builder generates SRQL by updating the query bar.
+  - [x] 4.0e Implement a bounded fallback state when SRQL can't be represented by the builder (no destructive rewrites).
 
 ### API Replacement
 - [x] 4.1 Create `ServiceRadarWebNG.Api.QueryController` (SRQL endpoint).
@@ -63,11 +78,20 @@
   - [ ] 4.2a Include property tests for any new parsing/validation logic introduced by the device API (IDs, filters, and pagination).
 
 ### Dashboard (LiveView)
-- [ ] 4.3 Re-implement the main Dashboard using LiveView.
+- [ ] 4.3 Re-implement the main Dashboard using LiveView (SRQL-first and composable).
+  - [ ] 4.3a Implement a composable dashboard engine (query-driven widgets, visualization selection).
+  - [ ] 4.3b Implement result-shape detection and visualization inference (prefer SRQL-provided metadata).
+  - [ ] 4.3c Implement a plugin/registry mechanism for adding new visualizations without rewriting the engine.
+  - [ ] 4.3d Implement time series widgets suitable for TimescaleDB hypertables (time-bounded windows, aggregation).
+  - [ ] 4.3e Implement relationship/topology widgets backed by Apache AGE graph queries.
+  - [ ] 4.3f Support deep-linking dashboards from SRQL (store query or dashboard definition in URL).
+  - [ ] 4.3g Add tests for dashboard query execution and bounded error handling.
 - [x] 4.4 Implement Device List view.
-  - [x] *Note:* Add authenticated `GET /devices` backed by `Inventory.list_devices`.
+  - [x] *Note:* Add authenticated `GET /devices` (initial scaffolding).
+  - [x] 4.4a Migrate `/devices` to be SRQL-driven and show the active SRQL query in the global query bar.
 - [x] 4.5 Implement Poller List view.
-  - [x] *Note:* Add authenticated `GET /pollers` backed by `Infrastructure.list_pollers`.
+  - [x] *Note:* Add authenticated `GET /pollers` (initial scaffolding).
+  - [x] 4.5a Migrate `/pollers` to be SRQL-driven and show the active SRQL query in the global query bar.
 
 ## 5. Final Cutover
 - [ ] 5.1 Update `docker-compose.yml` to expose `web-ng` on port 80/443.

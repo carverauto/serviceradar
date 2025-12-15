@@ -10,6 +10,9 @@
 - **New App:** Create `web-ng/` hosting `:serviceradar_web_ng`.
 - **SRQL (Translator-Only):** Embed `rust/srql` via Rustler (NIF) as a *pure translator* that converts SRQL -> parameterized SQL (+ bind params + pagination metadata). Phoenix executes the SQL via Ecto/Postgrex using the existing `Repo` connection pool.
   - **Compatibility:** Translator-only mode MUST be additive. The existing SRQL HTTP service (and its query-execution behavior) remains supported during the migration.
+- **SRQL-First Analytics:** All read-oriented analytics views (devices, pollers, metrics, traces, events, dashboards) are driven by SRQL queries executed via `POST /api/query` (translate in Rust, execute in Phoenix via Ecto).
+  - **Query Visibility:** SRQL-driven pages MUST display the active SRQL query in a top navigation input (editable to re-run).
+  - **Composable Dashboards:** Dashboards are built from one or more SRQL queries and auto-generate visualizations when the result shape is recognized; the visualization system MUST be modular and extensible.
 - **Database:** Connect Ecto to the existing Postgres/AGE instance.
   - *Telemetry Data:* Mapped to existing tables (Read-Only).
   - *App Data:* Fresh tables created/managed by Phoenix (Read/Write).
@@ -22,6 +25,7 @@
 - **No Auth Migration:** Legacy user accounts are abandoned. Users will register fresh accounts in the new system.
 - **No API Compatibility:** The new API will follow Phoenix conventions, not strictly mimic the legacy Go API structure.
 - **No SRQL DB Runtime in NIF:** SRQL MUST NOT open database connections, manage a separate pool, or require a Tokio runtime inside the Phoenix process. Query execution is handled by Phoenix via Ecto.
+- **No SRQL Writes:** SRQL is the query engine for reads/analytics, not the primary mechanism for writes or stateful workflows (auth/settings/edge onboarding remain API + Ecto driven).
 
 ## Impact
 - **Routing:** Nginx will eventually route `/*` and `/api/*` to Phoenix.
@@ -33,3 +37,4 @@
 - In progress (Foundation + Auth + initial list views).
 - SRQL translator-only pivot complete: Rust now translates SRQL -> parameterized SQL + typed bind params + pagination metadata; Phoenix executes via Ecto using `ServiceRadarWebNG.Repo`.
 - Added safety checks: unit tests and debug-mode bind-count validation to ensure SQL placeholder arity matches returned params.
+- SRQL-first analytics and composable dashboard architecture defined; implementation work remains.
