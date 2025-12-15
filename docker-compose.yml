@@ -4,6 +4,10 @@ services:
   cert-generator:
     image: alpine:3.20
     container_name: serviceradar-cert-generator-mtls
+    environment:
+      # Optional extra SAN entries for `cnpg.pem` so clients can connect using a LAN IP
+      # (example: CNPG_CERT_EXTRA_IPS=192.168.2.134)
+      - CNPG_CERT_EXTRA_IPS=${CNPG_CERT_EXTRA_IPS:-}
     volumes:
       - cert-data:/certs
       - ./docker/compose/generate-certs.sh:/generate-certs.sh:ro
@@ -36,6 +40,8 @@ services:
       - POSTGRES_PASSWORD=${CNPG_PASSWORD:-serviceradar}
       - POSTGRES_DB=${CNPG_DATABASE:-serviceradar}
       - TS_TUNE=false
+    ports:
+      - "${CNPG_PUBLIC_BIND:-127.0.0.1}:${CNPG_PUBLIC_PORT:-5455}:5432"
     volumes:
       - cnpg-data:/var/lib/postgresql/data
       - ./docker/compose/cnpg-init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
