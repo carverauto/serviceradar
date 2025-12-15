@@ -73,20 +73,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           </:actions>
         </.header>
 
-        <.table id="devices" rows={@devices} row_id={&("device-" <> to_string(&1["device_id"]))}>
-          <:col :let={d} label="ID">{d["device_id"]}</:col>
-          <:col :let={d} label="Hostname">{d["hostname"]}</:col>
-          <:col :let={d} label="IP">{d["ip"]}</:col>
-          <:col :let={d} label="Type">{d["device_type"]}</:col>
-          <:col :let={d} label="Available?">{d["is_available"]}</:col>
-          <:col :let={d} label="Last Seen">{format_datetime(d["last_seen"])}</:col>
-        </.table>
+        <.srql_results_table id="devices" rows={@devices} empty_message="No devices found." />
       </div>
     </Layouts.app>
     """
   end
-
-  defp format_datetime(nil), do: ""
-  defp format_datetime(value) when is_binary(value), do: value
-  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
 end

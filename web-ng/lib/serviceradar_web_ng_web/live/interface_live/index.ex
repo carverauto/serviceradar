@@ -38,6 +38,28 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
      )}
   end
 
+  def handle_event("srql_builder_toggle", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "interfaces")}
+  end
+
+  def handle_event("srql_builder_change", %{"builder" => params}, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", %{"builder" => params})}
+  end
+
+  def handle_event("srql_builder_apply", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
+  end
+
+  def handle_event("srql_builder_add_filter", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "interfaces")}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "interfaces")}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""

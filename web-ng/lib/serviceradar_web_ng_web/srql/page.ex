@@ -6,10 +6,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
   def init(socket, entity, opts \\ []) when is_binary(entity) do
     default_limit = Keyword.get(opts, :default_limit, 100)
-    builder_available = Keyword.get(opts, :builder_available, entity in ["devices", "pollers"])
+    builder_available = Keyword.get(opts, :builder_available, true)
 
     {builder_supported, builder_sync, builder, query} =
-      if builder_available and entity in ["devices", "pollers"] do
+      if builder_available do
         builder = Builder.default_state(entity, default_limit)
         {true, true, builder, Builder.build(builder)}
       else
@@ -46,7 +46,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     limit = parse_limit(Map.get(params, "limit"), default_limit, max_limit)
 
     builder =
-      if builder_available and entity in ["devices", "pollers"] do
+      if builder_available do
         srql
         |> Map.get(:builder, Builder.default_state(entity, default_limit))
         |> Map.put("entity", entity)
@@ -56,7 +56,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       end
 
     default_query =
-      if builder_available and entity in ["devices", "pollers"] do
+      if builder_available do
         Builder.build(builder)
       else
         default_query(entity, limit)
@@ -65,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     query = Map.get(params, "q", default_query)
 
     {builder_supported, builder_sync, builder_state} =
-      if builder_available and entity in ["devices", "pollers"] do
+      if builder_available do
         case Builder.parse(query) do
           {:ok, parsed} -> {true, true, parsed}
           {:error, _} -> {false, false, builder}
@@ -198,7 +198,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     if not Map.get(srql, :builder_available, false) do
       Phoenix.Component.assign(socket, :srql, srql)
     else
-      entity = srql_entity(srql, opts)
+      entity = current_builder_entity(srql, opts)
       builder = Map.get(srql, :builder, Builder.default_state(entity))
 
       filters =
@@ -229,7 +229,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     if not Map.get(srql, :builder_available, false) do
       Phoenix.Component.assign(socket, :srql, srql)
     else
-      entity = srql_entity(srql, opts)
+      entity = current_builder_entity(srql, opts)
       builder = Map.get(srql, :builder, Builder.default_state(entity))
 
       filters =
@@ -249,14 +249,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         |> Enum.reject(fn {_f, i} -> i == index end)
         |> Enum.map(fn {f, _i} -> f end)
 
-      updated_builder =
-        if updated_filters == [] do
-          Map.put(builder, "filters", [
-            %{"field" => default_filter_field(entity, []), "op" => "contains", "value" => ""}
-          ])
-        else
-          Map.put(builder, "filters", updated_filters)
-        end
+      updated_builder = Map.put(builder, "filters", updated_filters)
 
       updated =
         srql
@@ -342,6 +335,21 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
   defp default_filter_field(entity, _filters) do
     Catalog.entity(entity).default_filter_field
+  end
+
+  defp current_builder_entity(srql, opts) do
+    candidate =
+      srql
+      |> Map.get(:builder, %{})
+      |> Map.get("entity")
+      |> to_string()
+      |> String.trim()
+
+    if candidate != "" do
+      candidate
+    else
+      srql_entity(srql, opts)
+    end
   end
 
   defp default_query(entity, limit) do

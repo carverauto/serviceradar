@@ -37,7 +37,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   def app(assigns) do
     assigns = assign_new(assigns, :srql, fn -> %{} end)
-    signed_in? = assigns[:current_scope] && assigns.current_scope.user
+    current_scope = assigns[:current_scope]
+    signed_in? = is_map(current_scope) and not is_nil(Map.get(current_scope, :user))
     current_path = Map.get(assigns.srql, :page_path)
     assigns = assign(assigns, signed_in?: signed_in?, current_path: current_path)
 

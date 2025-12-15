@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
     %{
       "entity" => config.id,
-      "time" => "",
+      "time" => config.default_time || "",
       "sort_field" => config.default_sort_field,
       "sort_dir" => config.default_sort_dir,
       "limit" => normalize_limit(limit),

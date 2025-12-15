@@ -36,6 +36,28 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      SRQLPage.handle_event(socket, "srql_submit", %{"q" => raw_query}, fallback_path: "/services")}
   end
 
+  def handle_event("srql_builder_toggle", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "services")}
+  end
+
+  def handle_event("srql_builder_change", %{"builder" => params}, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", %{"builder" => params})}
+  end
+
+  def handle_event("srql_builder_apply", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
+  end
+
+  def handle_event("srql_builder_add_filter", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "services")}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "services")}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""

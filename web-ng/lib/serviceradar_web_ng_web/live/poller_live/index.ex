@@ -73,20 +73,9 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Index do
           </:actions>
         </.header>
 
-        <.table id="pollers" rows={@pollers} row_id={&("poller-" <> to_string(&1["poller_id"]))}>
-          <:col :let={p} label="ID">{p["poller_id"]}</:col>
-          <:col :let={p} label="Status">{p["status"]}</:col>
-          <:col :let={p} label="Healthy?">{p["is_healthy"]}</:col>
-          <:col :let={p} label="Agents">{p["agent_count"]}</:col>
-          <:col :let={p} label="Checkers">{p["checker_count"]}</:col>
-          <:col :let={p} label="Last Seen">{format_datetime(p["last_seen"])}</:col>
-        </.table>
+        <.srql_results_table id="pollers" rows={@pollers} empty_message="No pollers found." />
       </div>
     </Layouts.app>
     """
   end
-
-  defp format_datetime(nil), do: ""
-  defp format_datetime(value) when is_binary(value), do: value
-  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
 end

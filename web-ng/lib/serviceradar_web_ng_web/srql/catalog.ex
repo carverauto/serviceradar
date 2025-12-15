@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "devices",
       label: "Devices",
+      default_time: "",
       default_sort_field: "last_seen",
       default_sort_dir: "desc",
       default_filter_field: "hostname",
@@ -13,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "pollers",
       label: "Pollers",
+      default_time: "",
       default_sort_field: "last_seen",
       default_sort_dir: "desc",
       default_filter_field: "poller_id",
@@ -21,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "events",
       label: "Events",
+      default_time: "last_7d",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
       default_filter_field: "event_type",
@@ -37,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "logs",
       label: "Logs",
+      default_time: "last_7d",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
       default_filter_field: "message",
@@ -45,6 +49,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "services",
       label: "Services",
+      default_time: "last_7d",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
       default_filter_field: "service_type",
@@ -61,6 +66,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "interfaces",
       label: "Interfaces",
+      default_time: "last_7d",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
       default_filter_field: "device_id",
@@ -83,6 +89,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       %{
         id: id,
         label: String.capitalize(id),
+        default_time: "",
         default_sort_field: "timestamp",
         default_sort_dir: "desc",
         default_filter_field: "",
