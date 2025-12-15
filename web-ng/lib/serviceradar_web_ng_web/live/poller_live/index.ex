@@ -1,10 +1,12 @@
 defmodule ServiceRadarWebNGWeb.PollerLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.UIComponents
+
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
-  @default_limit 200
-  @max_limit 500
+  @default_limit 20
+  @max_limit 100
 
   @impl true
   def mount(_params, _session, socket) do
@@ -59,20 +61,50 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Index do
 
   @impl true
   def render(assigns) do
+    pagination = get_in(assigns, [:srql, :pagination]) || %{}
+    assigns = assign(assigns, :pagination, pagination)
+
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <.header>
           Pollers
-          <:subtitle>Showing up to {@limit} pollers.</:subtitle>
+          <:subtitle>Data collection agents.</:subtitle>
           <:actions>
-            <.link class="btn btn-ghost btn-sm" patch={~p"/pollers?limit=#{@limit}"}>
+            <.ui_button variant="ghost" size="sm" patch={~p"/pollers"}>
               Reset
-            </.link>
+            </.ui_button>
           </:actions>
         </.header>
 
-        <.srql_results_table id="pollers" rows={@pollers} empty_message="No pollers found." />
+        <.ui_panel>
+          <:header>
+            <div class="min-w-0">
+              <div class="text-sm font-semibold">Poller Status</div>
+              <div class="text-xs text-base-content/70">
+                Active pollers and their configuration.
+              </div>
+            </div>
+          </:header>
+
+          <.srql_results_table
+            id="pollers"
+            rows={@pollers}
+            container={false}
+            empty_message="No pollers found."
+          />
+
+          <div class="mt-4 pt-4 border-t border-base-200">
+            <.ui_pagination
+              prev_cursor={Map.get(@pagination, "prev_cursor")}
+              next_cursor={Map.get(@pagination, "next_cursor")}
+              base_path="/pollers"
+              query={Map.get(@srql, :query, "")}
+              limit={@limit}
+              result_count={length(@pollers)}
+            />
+          </div>
+        </.ui_panel>
       </div>
     </Layouts.app>
     """

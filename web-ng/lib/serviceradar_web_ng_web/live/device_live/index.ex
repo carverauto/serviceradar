@@ -5,8 +5,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
-  @default_limit 100
-  @max_limit 500
+  @default_limit 20
+  @max_limit 100
   @sparkline_device_cap 200
   @sparkline_points_per_device 20
   @sparkline_bucket "5m"
@@ -72,14 +72,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   @impl true
   def render(assigns) do
+    pagination = get_in(assigns, [:srql, :pagination]) || %{}
+    assigns = assign(assigns, :pagination, pagination)
+
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <.header>
           Devices
-          <:subtitle>Showing up to {@limit} devices.</:subtitle>
+          <:subtitle>Network device inventory.</:subtitle>
           <:actions>
-            <.link class="btn btn-ghost btn-sm" patch={~p"/devices?limit=#{@limit}"}>
+            <.link class="btn btn-ghost btn-sm" patch={~p"/devices"}>
               Reset
             </.link>
           </:actions>
@@ -148,6 +151,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                 <% end %>
               </tbody>
             </table>
+          </div>
+
+          <div class="mt-4 pt-4 border-t border-base-200">
+            <.ui_pagination
+              prev_cursor={Map.get(@pagination, "prev_cursor")}
+              next_cursor={Map.get(@pagination, "next_cursor")}
+              base_path="/devices"
+              query={Map.get(@srql, :query, "")}
+              limit={@limit}
+              result_count={length(@devices)}
+            />
           </div>
         </.ui_panel>
       </div>

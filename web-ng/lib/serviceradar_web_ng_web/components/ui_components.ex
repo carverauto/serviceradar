@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   """
 
   use Phoenix.Component
+  import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
 
   attr :variant, :string,
     default: "primary",
@@ -299,4 +300,67 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   defp ui_badge_size_class("sm"), do: "badge-sm"
   defp ui_badge_size_class("md"), do: "badge-md"
   defp ui_badge_size_class(_), do: "badge-sm"
+
+  @doc """
+  Cursor-based pagination component for SRQL-driven pages.
+
+  Uses daisyUI join/button classes for styling.
+  """
+  attr :prev_cursor, :string, default: nil
+  attr :next_cursor, :string, default: nil
+  attr :base_path, :string, required: true
+  attr :query, :string, default: ""
+  attr :limit, :integer, default: 20
+  attr :result_count, :integer, default: 0
+  attr :class, :any, default: nil
+
+  def ui_pagination(assigns) do
+    assigns =
+      assigns
+      |> assign(:has_prev, is_binary(assigns.prev_cursor) and assigns.prev_cursor != "")
+      |> assign(:has_next, is_binary(assigns.next_cursor) and assigns.next_cursor != "")
+      |> assign(:showing_text, pagination_text(assigns.result_count, assigns.limit))
+
+    ~H"""
+    <div class={["flex items-center justify-between gap-4", @class]}>
+      <div class="text-sm text-base-content/60">
+        {@showing_text}
+      </div>
+      <div class="join">
+        <.link
+          :if={@has_prev}
+          patch={pagination_href(@base_path, @query, @limit, @prev_cursor)}
+          class="join-item btn btn-sm btn-outline"
+        >
+          <.icon name="hero-chevron-left" class="size-4" /> Previous
+        </.link>
+        <button :if={not @has_prev} class="join-item btn btn-sm btn-outline" disabled>
+          <.icon name="hero-chevron-left" class="size-4" /> Previous
+        </button>
+
+        <.link
+          :if={@has_next}
+          patch={pagination_href(@base_path, @query, @limit, @next_cursor)}
+          class="join-item btn btn-sm btn-outline"
+        >
+          Next <.icon name="hero-chevron-right" class="size-4" />
+        </.link>
+        <button :if={not @has_next} class="join-item btn btn-sm btn-outline" disabled>
+          Next <.icon name="hero-chevron-right" class="size-4" />
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  defp pagination_href(base_path, query, limit, cursor) do
+    params = %{"q" => query, "limit" => limit, "cursor" => cursor}
+    base_path <> "?" <> URI.encode_query(params)
+  end
+
+  defp pagination_text(count, _limit) when is_integer(count) and count > 0 do
+    "Showing #{count} result#{if count != 1, do: "s", else: ""}"
+  end
+
+  defp pagination_text(_, _), do: "No results"
 end

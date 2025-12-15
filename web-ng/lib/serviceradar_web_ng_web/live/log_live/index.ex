@@ -1,10 +1,12 @@
 defmodule ServiceRadarWebNGWeb.LogLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.UIComponents
+
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
-  @default_limit 100
-  @max_limit 500
+  @default_limit 20
+  @max_limit 100
 
   @impl true
   def mount(_params, _session, socket) do
@@ -58,20 +60,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   @impl true
   def render(assigns) do
+    pagination = get_in(assigns, [:srql, :pagination]) || %{}
+    assigns = assign(assigns, :pagination, pagination)
+
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <.header>
           Logs
-          <:subtitle>Showing up to {@limit} log entries.</:subtitle>
+          <:subtitle>Log entries with severity filtering.</:subtitle>
           <:actions>
-            <.ui_button variant="ghost" size="sm" patch={~p"/logs?#{%{limit: @limit}}"}>
+            <.ui_button variant="ghost" size="sm" patch={~p"/logs"}>
               Reset
             </.ui_button>
             <.ui_button
               variant="ghost"
               size="sm"
-              patch={~p"/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc", limit: @limit}}"}
+              patch={~p"/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc"}}"}
             >
               Last 24h
             </.ui_button>
@@ -79,7 +84,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               variant="ghost"
               size="sm"
               patch={
-                ~p"/logs?#{%{q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc", limit: @limit}}"
+                ~p"/logs?#{%{q: "in:logs severity_text:(fatal,error,FATAL,ERROR) time:last_24h sort:timestamp:desc"}}"
               }
             >
               Errors
@@ -95,9 +100,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 Severity badges, timestamps, and message previews.
               </div>
             </div>
-            <div class="shrink-0 flex items-center gap-2">
-              <.ui_badge size="sm">{length(Enum.filter(@logs, &is_map/1))} rows</.ui_badge>
-            </div>
           </:header>
 
           <.srql_results_table
@@ -108,6 +110,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             container={false}
             empty_message="No log entries found."
           />
+
+          <div class="mt-4 pt-4 border-t border-base-200">
+            <.ui_pagination
+              prev_cursor={Map.get(@pagination, "prev_cursor")}
+              next_cursor={Map.get(@pagination, "next_cursor")}
+              base_path="/logs"
+              query={Map.get(@srql, :query, "")}
+              limit={@limit}
+              result_count={length(@logs)}
+            />
+          </div>
         </.ui_panel>
       </div>
     </Layouts.app>

@@ -39,11 +39,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     entity = srql_entity(srql, opts)
     builder_available = Map.get(srql, :builder_available, false)
 
-    default_limit = Keyword.get(opts, :default_limit, 100)
-    max_limit = Keyword.get(opts, :max_limit, 500)
+    default_limit = Keyword.get(opts, :default_limit, 20)
+    max_limit = Keyword.get(opts, :max_limit, 100)
     limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
 
     limit = parse_limit(Map.get(params, "limit"), default_limit, max_limit)
+    cursor = normalize_optional_string(Map.get(params, "cursor"))
 
     builder =
       if builder_available do
@@ -76,8 +77,17 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
     srql_module = srql_module()
 
-    {results, error, viz_meta} =
-      case srql_module.query(query) do
+    {results, error, viz_meta, pagination} =
+      case srql_module.query(query, %{cursor: cursor, limit: limit}) do
+        {:ok, %{"results" => results, "pagination" => pag} = resp} when is_list(results) ->
+          viz =
+            case Map.get(resp, "viz") do
+              value when is_map(value) -> value
+              _ -> nil
+            end
+
+          {results, nil, viz, pag || %{}}
+
         {:ok, %{"results" => results} = resp} when is_list(results) ->
           viz =
             case Map.get(resp, "viz") do
@@ -85,13 +95,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
               _ -> nil
             end
 
-          {results, nil, viz}
+          {results, nil, viz, %{}}
 
         {:ok, other} ->
-          {[], "unexpected SRQL response: #{inspect(other)}", nil}
+          {[], "unexpected SRQL response: #{inspect(other)}", nil, %{}}
 
         {:error, reason} ->
-          {[], "SRQL error: #{format_error(reason)}", nil}
+          {[], "SRQL error: #{format_error(reason)}", nil, %{}}
       end
 
     page_path = uri |> normalize_uri() |> URI.parse() |> Map.get(:path)
@@ -114,7 +124,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         builder_available: builder_available,
         builder_supported: builder_supported,
         builder_sync: builder_sync,
-        builder: builder_state
+        builder: builder_state,
+        pagination: pagination
       })
 
     socket
@@ -122,6 +133,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     |> Phoenix.Component.assign(limit_assign_key, display_limit)
     |> Phoenix.Component.assign(list_assign_key, results)
   end
+
+  defp normalize_optional_string(nil), do: nil
+  defp normalize_optional_string(""), do: nil
+  defp normalize_optional_string(value) when is_binary(value), do: value
+  defp normalize_optional_string(_), do: nil
 
   def handle_event(socket, event, params, opts \\ [])
 

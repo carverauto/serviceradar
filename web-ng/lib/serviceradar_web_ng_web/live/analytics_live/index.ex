@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   @default_events_limit 500
   @default_logs_limit 500
+  @refresh_interval_ms :timer.seconds(30)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -10,6 +11,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       enabled: false,
       page_path: "/analytics"
     }
+
+    # Schedule auto-refresh if connected
+    if connected?(socket), do: schedule_refresh()
 
     {:ok,
      socket
@@ -30,11 +34,19 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   end
 
   @impl true
-  def handle_event("refresh", _params, socket) do
-    {:noreply, load_analytics(assign(socket, :loading, true))}
+  def handle_info(:refresh_data, socket) do
+    schedule_refresh()
+    {:noreply, load_analytics(socket)}
   end
 
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  @impl true
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  defp schedule_refresh do
+    Process.send_after(self(), :refresh_data, @refresh_interval_ms)
+  end
 
   defp load_analytics(socket) do
     srql_module = srql_module()
@@ -43,9 +55,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       devices_total: "in:devices stats:count() as total",
       devices_online: "in:devices is_available:true stats:count() as online",
       devices_offline: "in:devices is_available:false stats:count() as offline",
+      services_total: "in:services time:last_24h stats:count() as total",
       services_failing: "in:services available:false time:last_24h stats:count() as failing",
-      services_high_latency:
-        "in:services type:icmp response_time:[100000000,] time:last_24h stats:count() as high_latency",
       events: "in:events time:last_24h sort:event_timestamp:desc limit:#{@default_events_limit}",
       logs: "in:logs time:last_24h sort:timestamp:desc limit:#{@default_logs_limit}"
     }
@@ -78,13 +89,13 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     total_devices = extract_count(results[:devices_total])
     online_devices = extract_count(results[:devices_online])
     offline_devices = extract_count(results[:devices_offline])
+    total_services = extract_count(results[:services_total])
     failing_services = extract_count(results[:services_failing])
-    high_latency_services = extract_count(results[:services_high_latency])
 
     stats = %{
       total_devices: total_devices,
       offline_devices: offline_devices,
-      high_latency_services: high_latency_services,
+      total_services: total_services,
       failing_services: failing_services
     }
 
@@ -267,10 +278,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             </p>
           </div>
 
-          <.ui_button variant="primary" size="sm" phx-click="refresh" class="gap-2">
+          <div class="flex items-center gap-2 text-xs text-base-content/50">
             <span :if={@loading} class="loading loading-spinner loading-xs" />
-            <.icon name="hero-arrow-path" class="size-4 opacity-80" /> Refresh
-          </.ui_button>
+            <span :if={not @loading}>Auto-refresh every 30s</span>
+          </div>
         </div>
 
         <div :if={is_binary(@error)} class="mb-6">
@@ -291,22 +302,21 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             title="Offline Devices"
             value={Map.get(@stats, :offline_devices, 0)}
             icon="hero-signal-slash"
-            tone="error"
+            tone={if Map.get(@stats, :offline_devices, 0) > 0, do: "error", else: "success"}
             href={~p"/devices?#{%{q: "in:devices is_available:false sort:last_seen:desc limit:100"}}"}
           />
           <.stat_card
-            title="High Latency Services"
-            value={Map.get(@stats, :high_latency_services, 0)}
-            subtitle="> 100ms"
-            icon="hero-clock"
-            tone={if Map.get(@stats, :high_latency_services, 0) > 0, do: "warning", else: "neutral"}
-            href={~p"/services?#{%{q: "in:services type:icmp response_time:[100000000,] sort:timestamp:desc limit:100"}}"}
+            title="Total Services"
+            value={Map.get(@stats, :total_services, 0)}
+            subtitle="last 24h"
+            icon="hero-wrench-screwdriver"
+            href={~p"/services"}
           />
           <.stat_card
             title="Failing Services"
             value={Map.get(@stats, :failing_services, 0)}
             icon="hero-exclamation-triangle"
-            tone="error"
+            tone={if Map.get(@stats, :failing_services, 0) > 0, do: "error", else: "success"}
             href={~p"/services?#{%{q: "in:services available:false sort:timestamp:desc limit:100"}}"}
           />
         </div>
@@ -474,27 +484,37 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         </div>
 
         <div class="flex-1 space-y-3">
-          <div class="flex items-center justify-between">
+          <.link
+            href={~p"/devices?#{%{q: "in:devices is_available:true sort:last_seen:desc limit:20"}}"}
+            class="flex items-center justify-between hover:bg-base-200/50 rounded-lg p-2 -m-2 transition-colors"
+          >
             <div class="flex items-center gap-2">
               <span class="w-3 h-3 rounded-full bg-success" />
               <span class="text-sm">Online</span>
             </div>
             <span class="font-semibold">{format_number(@online)}</span>
-          </div>
-          <div class="flex items-center justify-between">
+          </.link>
+          <.link
+            href={~p"/devices?#{%{q: "in:devices is_available:false sort:last_seen:desc limit:20"}}"}
+            class="flex items-center justify-between hover:bg-base-200/50 rounded-lg p-2 -m-2 transition-colors"
+          >
             <div class="flex items-center gap-2">
               <span class="w-3 h-3 rounded-full bg-error" />
               <span class="text-sm">Offline</span>
             </div>
             <span class="font-semibold">{format_number(@offline)}</span>
-          </div>
+          </.link>
 
-          <div :if={@offline > 0} class="mt-4 p-2 rounded-lg bg-error/10">
+          <.link
+            :if={@offline > 0}
+            href={~p"/devices?#{%{q: "in:devices is_available:false sort:last_seen:desc limit:20"}}"}
+            class="block mt-4 p-2 rounded-lg bg-error/10 hover:bg-error/20 transition-colors"
+          >
             <div class="flex items-center gap-2 text-error text-sm">
               <.icon name="hero-signal-slash" class="size-4" />
               <span>{@offline} device{if @offline != 1, do: "s", else: ""} offline</span>
             </div>
-          </div>
+          </.link>
         </div>
       </div>
     </.ui_panel>
@@ -506,7 +526,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   def critical_events_widget(assigns) do
     ~H"""
-    <.ui_panel class="h-80 flex flex-col">
+    <.ui_panel class="h-80 flex flex-col overflow-hidden">
       <:header>
         <.link href={~p"/events"} class="hover:text-primary transition-colors">
           <div class="text-sm font-semibold">Critical Events</div>
@@ -524,8 +544,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         <span class="loading loading-spinner loading-md" />
       </div>
 
-      <div :if={not @loading} class="flex-1 flex flex-col min-h-0">
-        <table class="table table-xs mb-3">
+      <div :if={not @loading} class="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <table class="table table-xs mb-3 shrink-0">
           <thead>
             <tr class="border-b border-base-200">
               <th class="text-xs font-medium text-base-content/60">Severity</th>
@@ -573,7 +593,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           </div>
         </div>
 
-        <div :if={Map.get(@summary, :recent, []) != []} class="flex-1 overflow-y-auto space-y-2">
+        <div :if={Map.get(@summary, :recent, []) != []} class="flex-1 overflow-y-auto space-y-2 min-h-0">
           <%= for event <- Map.get(@summary, :recent, []) do %>
             <.event_entry event={event} />
           <% end %>
@@ -588,7 +608,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   def critical_logs_widget(assigns) do
     ~H"""
-    <.ui_panel class="h-80 flex flex-col">
+    <.ui_panel class="h-80 flex flex-col overflow-hidden">
       <:header>
         <.link href={~p"/logs"} class="hover:text-primary transition-colors">
           <div class="text-sm font-semibold">Critical Logs</div>
@@ -606,8 +626,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         <span class="loading loading-spinner loading-md" />
       </div>
 
-      <div :if={not @loading} class="flex-1 flex flex-col min-h-0">
-        <table class="table table-xs mb-3">
+      <div :if={not @loading} class="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <table class="table table-xs mb-3 shrink-0">
           <thead>
             <tr class="border-b border-base-200">
               <th class="text-xs font-medium text-base-content/60">Level</th>
@@ -662,7 +682,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           </div>
         </div>
 
-        <div :if={Map.get(@summary, :recent, []) != []} class="flex-1 overflow-y-auto space-y-2">
+        <div :if={Map.get(@summary, :recent, []) != []} class="flex-1 overflow-y-auto space-y-2 min-h-0">
           <%= for log <- Map.get(@summary, :recent, []) do %>
             <.log_entry log={log} />
           <% end %>

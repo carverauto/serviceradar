@@ -1,10 +1,12 @@
 defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.UIComponents
+
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
-  @default_limit 100
-  @max_limit 500
+  @default_limit 20
+  @max_limit 100
 
   @impl true
   def mount(_params, _session, socket) do
@@ -59,22 +61,23 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   @impl true
   def render(assigns) do
+    pagination = get_in(assigns, [:srql, :pagination]) || %{}
+    assigns = assign(assigns, :pagination, pagination)
+
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <.header>
           Services
-          <:subtitle>Showing up to {@limit} services.</:subtitle>
+          <:subtitle>Service availability and status.</:subtitle>
           <:actions>
-            <.ui_button variant="ghost" size="sm" patch={~p"/services?#{%{limit: @limit}}"}>
+            <.ui_button variant="ghost" size="sm" patch={~p"/services"}>
               Reset
             </.ui_button>
             <.ui_button
               variant="ghost"
               size="sm"
-              patch={
-                ~p"/services?#{%{q: "in:services time:last_24h sort:timestamp:desc", limit: @limit}}"
-              }
+              patch={~p"/services?#{%{q: "in:services time:last_24h sort:timestamp:desc"}}"}
             >
               Last 24h
             </.ui_button>
@@ -82,7 +85,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
               variant="ghost"
               size="sm"
               patch={
-                ~p"/services?#{%{q: "in:services available:false time:last_24h sort:timestamp:desc", limit: @limit}}"
+                ~p"/services?#{%{q: "in:services available:false time:last_24h sort:timestamp:desc"}}"
               }
             >
               Unavailable
@@ -98,9 +101,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
                 Availability and recent status messages.
               </div>
             </div>
-            <div class="shrink-0 flex items-center gap-2">
-              <.ui_badge size="sm">{length(Enum.filter(@services, &is_map/1))} rows</.ui_badge>
-            </div>
           </:header>
 
           <.srql_results_table
@@ -113,6 +113,17 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
             container={false}
             empty_message="No services found."
           />
+
+          <div class="mt-4 pt-4 border-t border-base-200">
+            <.ui_pagination
+              prev_cursor={Map.get(@pagination, "prev_cursor")}
+              next_cursor={Map.get(@pagination, "next_cursor")}
+              base_path="/services"
+              query={Map.get(@srql, :query, "")}
+              limit={@limit}
+              result_count={length(@services)}
+            />
+          </div>
         </.ui_panel>
       </div>
     </Layouts.app>
