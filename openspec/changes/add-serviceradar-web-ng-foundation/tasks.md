@@ -160,10 +160,61 @@
   - This error originates from the SRQL Rust parser (srql crate).
   - Fixed parser to accept unquoted `stats:count() as total` by consuming `as <alias>` tokens as part of the `stats` expression.
   - Implemented in `rust/srql` crate parser with regression tests.
-- [ ] 9.2 KPI cards showing 0 total devices.
-  - Related to 9.1 - the stats queries may not be executing correctly.
-  - The `extract_count/1` function handles various result shapes but depends on valid SRQL response.
-- [ ] 9.3 Scalability considerations for 50k+ devices.
-  - Analytics dashboard should NOT show per-device charts at scale.
-  - KPI cards should use aggregate stats queries (once 9.1 is fixed).
-  - Consider adding pagination or sampling for large inventories.
+- [x] 9.2 KPI cards showing 0 total devices.
+  - Fixed: Stats queries now execute correctly after 9.1 fix.
+  - Service counts now show unique services (by device_id:service_name composite key) instead of raw status check records.
+- [x] 9.3 Scalability considerations for 50k+ devices.
+  - Design principle established: All UI must work at scale (50k to 2mil assets).
+  - Analytics KPI cards use aggregate queries, not per-device iteration.
+  - Service counts use bounded queries with unique counting logic.
+  - Remaining scale considerations tracked in Section 10.
+
+## 10. UI Polish Phase 3 (Scale-First Design)
+
+**Design Principle:** All UI must work seamlessly from 1 device to 2 million devices.
+
+### Recent Fixes (Completed)
+- [x] 10.1 Fix critical logs/events widget scrolling in analytics dashboard.
+  - Changed from `ui_panel` to explicit flex structure with proper overflow handling.
+- [x] 10.2 Add hover tooltips to timeseries charts (like React/Recharts version).
+  - Added `TimeseriesChart` JavaScript hook with mousemove/mouseleave handlers.
+  - Tooltip shows value and timestamp at cursor position with vertical line indicator.
+- [x] 10.3 Make device details overview compact (inline key-value pairs).
+  - Replaced verbose table layout with horizontal flex wrap.
+- [x] 10.4 Fix timeseries chart width (was 1/5 of container, now full-width).
+  - Changed `preserveAspectRatio` and increased chart width to 800px.
+- [x] 10.5 Remove verbose timeseries labels ("Timeseries value over timestamp").
+  - Simplified chart headers to show series name + latest value only.
+- [x] 10.6 Fix service count showing all status checks instead of unique services.
+  - Count unique services by `device_id:service_name` composite key.
+  - Changed labels from "Total Services" to "Active Services (unique)".
+
+### Events Stream Improvements
+- [x] 10.7 Consolidate events table columns (reduce horizontal scroll).
+  - [x] Show only essential columns: timestamp, severity, source, message summary.
+  - [x] Hide `event_type` column (not populated in current data).
+  - [x] Map raw column names to human-readable labels (Time, Severity, Source, Message).
+- [x] 10.8 Add Event details page (`/events/:id`).
+  - [x] Show full event payload (all fields not shown in table).
+  - [x] Link from table row click to details page.
+  - [x] JSON syntax highlighting for structured payloads.
+
+### Logs Stream Improvements
+- [x] 10.9 Consolidate logs table columns (reduce horizontal scroll).
+  - [x] Show only essential columns: timestamp, level, service, message snippet.
+  - [x] Map raw column names to human-readable labels (Time, Level, Service, Message).
+- [x] 10.10 Add Log details page (`/logs/:id`).
+  - [x] Show full log entry (complete message body, all metadata).
+  - [x] Link from table row click to details page.
+  - [x] JSON syntax highlighting for structured log payloads.
+  - [x] Show trace/span IDs when available.
+
+### Services Page Improvements
+- [x] 10.11 Add visualization to Services availability page.
+  - [x] Add KPI cards (total checks, available, unavailable) with percentage.
+  - [x] Add "By Service Type" horizontal bar chart showing availability breakdown.
+  - [x] Design works at scale: computes stats from bounded page results only.
+  - [x] Groups by service type with color-coded available/unavailable bars.
+- [x] 10.12 Ensure Services page performs at 50k+ services.
+  - [x] Use pagination with bounded page sizes (default 50, max 200).
+  - [x] Aggregate counts computed from current page only (not full inventory).

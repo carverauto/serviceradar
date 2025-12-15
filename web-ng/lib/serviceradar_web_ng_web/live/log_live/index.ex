@@ -97,19 +97,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             <div class="min-w-0">
               <div class="text-sm font-semibold">Log Stream</div>
               <div class="text-xs text-base-content/70">
-                Severity badges, timestamps, and message previews.
+                Click any log entry to view full details.
               </div>
             </div>
           </:header>
 
-          <.srql_results_table
-            id="logs"
-            rows={@logs}
-            columns={~w(timestamp severity_text service_name body trace_id span_id)}
-            max_columns={7}
-            container={false}
-            empty_message="No log entries found."
-          />
+          <.logs_table id="logs" logs={@logs} />
 
           <div class="mt-4 pt-4 border-t border-base-200">
             <.ui_pagination
@@ -125,5 +118,155 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       </div>
     </Layouts.app>
     """
+  end
+
+  attr :id, :string, required: true
+  attr :logs, :list, default: []
+
+  defp logs_table(assigns) do
+    ~H"""
+    <div class="overflow-x-auto">
+      <table id={@id} class="table table-sm table-zebra w-full">
+        <thead>
+          <tr>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Time
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20">
+              Level
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-32">
+              Service
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+              Message
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :if={@logs == []}>
+            <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
+              No log entries found.
+            </td>
+          </tr>
+
+          <%= for {log, idx} <- Enum.with_index(@logs) do %>
+            <.link
+              navigate={~p"/logs/#{log_id(log)}"}
+              class="contents"
+            >
+              <tr
+                id={"#{@id}-row-#{idx}"}
+                class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              >
+                <td class="whitespace-nowrap text-xs font-mono">
+                  {format_timestamp(log)}
+                </td>
+                <td class="whitespace-nowrap text-xs">
+                  <.severity_badge value={Map.get(log, "severity_text")} />
+                </td>
+                <td class="whitespace-nowrap text-xs truncate max-w-[10rem]" title={log_service(log)}>
+                  {log_service(log)}
+                </td>
+                <td class="text-xs truncate max-w-[36rem]" title={log_message(log)}>
+                  {log_message(log)}
+                </td>
+              </tr>
+            </.link>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  attr :value, :any, default: nil
+
+  defp severity_badge(assigns) do
+    variant =
+      case normalize_severity(assigns.value) do
+        s when s in ["critical", "fatal", "error"] -> "error"
+        s when s in ["high", "warn", "warning"] -> "warning"
+        s when s in ["medium", "info"] -> "info"
+        s when s in ["low", "debug", "trace", "ok"] -> "success"
+        _ -> "ghost"
+      end
+
+    label =
+      case assigns.value do
+        nil -> "—"
+        "" -> "—"
+        v when is_binary(v) -> String.upcase(String.slice(v, 0, 5))
+        v -> v |> to_string() |> String.upcase() |> String.slice(0, 5)
+      end
+
+    assigns = assign(assigns, :variant, variant) |> assign(:label, label)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    """
+  end
+
+  defp normalize_severity(nil), do: ""
+  defp normalize_severity(v) when is_binary(v), do: v |> String.trim() |> String.downcase()
+  defp normalize_severity(v), do: v |> to_string() |> normalize_severity()
+
+  defp log_id(log) do
+    Map.get(log, "id") || Map.get(log, "log_id") || "unknown"
+  end
+
+  defp format_timestamp(log) do
+    ts = Map.get(log, "timestamp") || Map.get(log, "observed_timestamp")
+
+    case parse_timestamp(ts) do
+      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      _ -> ts || "—"
+    end
+  end
+
+  defp parse_timestamp(nil), do: :error
+  defp parse_timestamp(""), do: :error
+
+  defp parse_timestamp(value) when is_binary(value) do
+    value = String.trim(value)
+
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _offset} -> {:ok, dt}
+      {:error, _} ->
+        case NaiveDateTime.from_iso8601(value) do
+          {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+          {:error, _} -> :error
+        end
+    end
+  end
+
+  defp parse_timestamp(_), do: :error
+
+  defp log_service(log) do
+    service =
+      Map.get(log, "service_name") ||
+      Map.get(log, "source") ||
+      Map.get(log, "scope_name")
+
+    case service do
+      nil -> "—"
+      "" -> "—"
+      v when is_binary(v) -> v
+      v -> to_string(v)
+    end
+  end
+
+  defp log_message(log) do
+    message =
+      Map.get(log, "body") ||
+      Map.get(log, "message") ||
+      Map.get(log, "short_message")
+
+    case message do
+      nil -> "—"
+      "" -> "—"
+      v when is_binary(v) -> String.slice(v, 0, 300)
+      v -> v |> to_string() |> String.slice(0, 300)
+    end
   end
 end
