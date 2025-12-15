@@ -88,7 +88,7 @@
   - [x] 4.3d Implement time series widgets suitable for TimescaleDB hypertables (time-bounded windows, aggregation).
   - [x] 4.3e Implement relationship/topology widgets backed by Apache AGE graph queries.
   - [x] 4.3f Support deep-linking dashboards from SRQL (store query or dashboard definition in URL).
-  - [ ] 4.3g Add tests for dashboard query execution and bounded error handling.
+  - [x] 4.3g Add tests for dashboard query execution and bounded error handling.
   - [x] 4.3h Add SRQL-first Dashboard LiveView at `/dashboard` (query bar + results table).
   - [x] 4.3i Add initial auto-viz inference (heuristics; replace with SRQL metadata in 1.6b/4.3b).
 - [x] 4.4 Implement Device List view.
