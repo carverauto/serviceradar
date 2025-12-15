@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      socket
      |> assign(:page_title, "Services")
      |> assign(:services, [])
-     |> assign(:summary, %{total: 0, available: 0, unavailable: 0, by_type: %{}})
+     |> assign(:summary, %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: 0})
      |> assign(:limit, @default_limit)
      |> SRQLPage.init("services", default_limit: @default_limit)}
   end
@@ -53,6 +53,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   def handle_event("srql_builder_apply", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/services")}
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
@@ -138,6 +142,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     available = assigns.summary.available
     unavailable = assigns.summary.unavailable
     by_type = assigns.summary.by_type
+    check_count = Map.get(assigns.summary, :check_count, 0)
 
     # Calculate availability percentage
     avail_pct = if total > 0, do: round(available / total * 100), else: 0
@@ -149,15 +154,16 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       |> assign(:unavailable, unavailable)
       |> assign(:avail_pct, avail_pct)
       |> assign(:by_type, by_type)
+      |> assign(:check_count, check_count)
 
     ~H"""
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
         <div class="flex items-center justify-between">
           <div>
-            <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">This Page</div>
+            <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Unique Services</div>
             <div class="text-2xl font-bold">{@total}</div>
-            <div class="text-xs text-base-content/50">service checks</div>
+            <div class="text-xs text-base-content/50">from {@check_count} checks</div>
           </div>
           <div class="size-12 rounded-lg bg-base-200/50 flex items-center justify-center">
             <svg xmlns="http://www.w3.org/2000/svg" class="size-6 text-base-content/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -349,32 +355,51 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp parse_timestamp(_), do: :error
 
-  # Compute summary stats from current page of results (bounded, scale-friendly)
+  # Compute summary stats from unique services (deduplicated by device_id:service_name)
+  # This prevents showing 50 checks for the same 5 services as "50 services"
   defp compute_summary(services) when is_list(services) do
-    initial = %{total: 0, available: 0, unavailable: 0, by_type: %{}}
+    # First, deduplicate by device_id:service_name, keeping most recent (first in sorted list)
+    unique_services =
+      services
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(%{}, fn svc, acc ->
+        device_id = Map.get(svc, "device_id") || ""
+        service_name = Map.get(svc, "service_name") || ""
+        key = "#{device_id}:#{service_name}"
 
-    Enum.reduce(services, initial, fn svc, acc ->
-      is_available = Map.get(svc, "available") == true
-      service_type = Map.get(svc, "service_type") || "unknown"
+        # Keep first occurrence (most recent if sorted by timestamp desc)
+        Map.put_new(acc, key, svc)
+      end)
+      |> Map.values()
 
-      by_type =
-        Map.update(acc.by_type, service_type, %{available: 0, unavailable: 0}, fn counts ->
-          if is_available do
-            Map.update!(counts, :available, &(&1 + 1))
-          else
-            Map.update!(counts, :unavailable, &(&1 + 1))
-          end
-        end)
+    # Now compute summary from unique services only
+    initial = %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: length(services)}
 
-      %{
-        acc
-        | total: acc.total + 1,
-          available: acc.available + if(is_available, do: 1, else: 0),
-          unavailable: acc.unavailable + if(is_available, do: 0, else: 1),
-          by_type: by_type
-      }
-    end)
+    result =
+      Enum.reduce(unique_services, initial, fn svc, acc ->
+        is_available = Map.get(svc, "available") == true
+        service_type = Map.get(svc, "service_type") || "unknown"
+
+        by_type =
+          Map.update(acc.by_type, service_type, %{available: 0, unavailable: 0}, fn counts ->
+            if is_available do
+              Map.update!(counts, :available, &(&1 + 1))
+            else
+              Map.update!(counts, :unavailable, &(&1 + 1))
+            end
+          end)
+
+        %{
+          acc
+          | total: acc.total + 1,
+            available: acc.available + if(is_available, do: 1, else: 0),
+            unavailable: acc.unavailable + if(is_available, do: 0, else: 1),
+            by_type: by_type
+        }
+      end)
+
+    result
   end
 
-  defp compute_summary(_), do: %{total: 0, available: 0, unavailable: 0, by_type: %{}}
+  defp compute_summary(_), do: %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: 0}
 end

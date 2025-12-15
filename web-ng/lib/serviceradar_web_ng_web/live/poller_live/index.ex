@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Index do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias Phoenix.LiveView.JS
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 20
@@ -49,6 +50,10 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Index do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
   end
 
+  def handle_event("srql_builder_run", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/pollers")}
+  end
+
   def handle_event("srql_builder_add_filter", params, socket) do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "pollers")}
@@ -82,17 +87,12 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Index do
             <div class="min-w-0">
               <div class="text-sm font-semibold">Poller Status</div>
               <div class="text-xs text-base-content/70">
-                Active pollers and their configuration.
+                Click a poller to view full details.
               </div>
             </div>
           </:header>
 
-          <.srql_results_table
-            id="pollers"
-            rows={@pollers}
-            container={false}
-            empty_message="No pollers found."
-          />
+          <.pollers_table id="pollers" pollers={@pollers} />
 
           <div class="mt-4 pt-4 border-t border-base-200">
             <.ui_pagination
@@ -109,4 +109,108 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Index do
     </Layouts.app>
     """
   end
+
+  attr :id, :string, required: true
+  attr :pollers, :list, default: []
+
+  defp pollers_table(assigns) do
+    ~H"""
+    <div class="overflow-x-auto">
+      <table id={@id} class="table table-sm table-zebra w-full">
+        <thead>
+          <tr>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-48">
+              Poller ID
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+              Status
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Address
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+              Last Seen
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :if={@pollers == []}>
+            <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
+              No pollers found.
+            </td>
+          </tr>
+
+          <%= for {poller, idx} <- Enum.with_index(@pollers) do %>
+            <tr
+              id={"#{@id}-row-#{idx}"}
+              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              phx-click={JS.navigate(~p"/pollers/#{poller_id(poller)}")}
+            >
+              <td class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]" title={poller_id(poller)}>
+                {poller_id(poller)}
+              </td>
+              <td class="whitespace-nowrap text-xs">
+                <.status_badge active={Map.get(poller, "is_active")} />
+              </td>
+              <td class="whitespace-nowrap text-xs font-mono truncate max-w-[10rem]" title={Map.get(poller, "address")}>
+                {Map.get(poller, "address") || "—"}
+              </td>
+              <td class="whitespace-nowrap text-xs font-mono">
+                {format_timestamp(poller)}
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  attr :active, :any, default: nil
+
+  defp status_badge(assigns) do
+    {label, variant} =
+      case assigns.active do
+        true -> {"Active", "success"}
+        false -> {"Inactive", "error"}
+        _ -> {"Unknown", "ghost"}
+      end
+
+    assigns = assign(assigns, :label, label) |> assign(:variant, variant)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    """
+  end
+
+  defp poller_id(poller) do
+    Map.get(poller, "poller_id") || Map.get(poller, "id") || "unknown"
+  end
+
+  defp format_timestamp(poller) do
+    ts = Map.get(poller, "last_seen") || Map.get(poller, "updated_at")
+
+    case parse_timestamp(ts) do
+      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      _ -> ts || "—"
+    end
+  end
+
+  defp parse_timestamp(nil), do: :error
+  defp parse_timestamp(""), do: :error
+
+  defp parse_timestamp(value) when is_binary(value) do
+    value = String.trim(value)
+
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _offset} -> {:ok, dt}
+      {:error, _} ->
+        case NaiveDateTime.from_iso8601(value) do
+          {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+          {:error, _} -> :error
+        end
+    end
+  end
+
+  defp parse_timestamp(_), do: :error
 end

@@ -784,6 +784,15 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                     />
                   </.srql_builder_pill>
                 </div>
+
+                <div class="flex items-center gap-3 pt-4 mt-4 border-t border-base-200">
+                  <.ui_button variant="primary" size="sm" type="button" phx-click="srql_builder_run">
+                    Run Query
+                  </.ui_button>
+                  <span class="text-xs text-base-content/50">
+                    Execute the query built above
+                  </span>
+                </div>
               </div>
             </div>
           </div>

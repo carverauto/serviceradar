@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias Phoenix.LiveView.JS
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 20
@@ -47,6 +48,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   def handle_event("srql_builder_apply", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/events")}
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
@@ -153,28 +158,24 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
           </tr>
 
           <%= for {event, idx} <- Enum.with_index(@events) do %>
-            <.link
-              navigate={~p"/events/#{event_id(event)}"}
-              class="contents"
+            <tr
+              id={"#{@id}-row-#{idx}"}
+              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              phx-click={JS.navigate(~p"/events/#{event_id(event)}")}
             >
-              <tr
-                id={"#{@id}-row-#{idx}"}
-                class="hover:bg-base-200/40 cursor-pointer transition-colors"
-              >
-                <td class="whitespace-nowrap text-xs font-mono">
-                  {format_timestamp(event)}
-                </td>
-                <td class="whitespace-nowrap text-xs">
-                  <.severity_badge value={Map.get(event, "severity")} />
-                </td>
-                <td class="whitespace-nowrap text-xs truncate max-w-[12rem]" title={event_source(event)}>
-                  {event_source(event)}
-                </td>
-                <td class="text-xs truncate max-w-[32rem]" title={event_message(event)}>
-                  {event_message(event)}
-                </td>
-              </tr>
-            </.link>
+              <td class="whitespace-nowrap text-xs font-mono">
+                {format_timestamp(event)}
+              </td>
+              <td class="whitespace-nowrap text-xs">
+                <.severity_badge value={Map.get(event, "severity")} />
+              </td>
+              <td class="whitespace-nowrap text-xs truncate max-w-[12rem]" title={event_source(event)}>
+                {event_source(event)}
+              </td>
+              <td class="text-xs truncate max-w-[32rem]" title={event_message(event)}>
+                {event_message(event)}
+              </td>
+            </tr>
           <% end %>
         </tbody>
       </table>

@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias Phoenix.LiveView.JS
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 20
@@ -47,6 +48,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   def handle_event("srql_builder_apply", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/logs")}
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
@@ -151,28 +156,24 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </tr>
 
           <%= for {log, idx} <- Enum.with_index(@logs) do %>
-            <.link
-              navigate={~p"/logs/#{log_id(log)}"}
-              class="contents"
+            <tr
+              id={"#{@id}-row-#{idx}"}
+              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              phx-click={JS.navigate(~p"/logs/#{log_id(log)}")}
             >
-              <tr
-                id={"#{@id}-row-#{idx}"}
-                class="hover:bg-base-200/40 cursor-pointer transition-colors"
-              >
-                <td class="whitespace-nowrap text-xs font-mono">
-                  {format_timestamp(log)}
-                </td>
-                <td class="whitespace-nowrap text-xs">
-                  <.severity_badge value={Map.get(log, "severity_text")} />
-                </td>
-                <td class="whitespace-nowrap text-xs truncate max-w-[10rem]" title={log_service(log)}>
-                  {log_service(log)}
-                </td>
-                <td class="text-xs truncate max-w-[36rem]" title={log_message(log)}>
-                  {log_message(log)}
-                </td>
-              </tr>
-            </.link>
+              <td class="whitespace-nowrap text-xs font-mono">
+                {format_timestamp(log)}
+              </td>
+              <td class="whitespace-nowrap text-xs">
+                <.severity_badge value={Map.get(log, "severity_text")} />
+              </td>
+              <td class="whitespace-nowrap text-xs truncate max-w-[10rem]" title={log_service(log)}>
+                {log_service(log)}
+              </td>
+              <td class="text-xs truncate max-w-[36rem]" title={log_message(log)}>
+                {log_message(log)}
+              </td>
+            </tr>
           <% end %>
         </tbody>
       </table>

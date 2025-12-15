@@ -324,6 +324,29 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     end
   end
 
+  def handle_event(socket, "srql_builder_run", _params, opts) do
+    srql = Map.get(socket.assigns, :srql, %{})
+    page_path = srql[:page_path] || Keyword.get(opts, :fallback_path) || "/"
+
+    if not Map.get(srql, :builder_available, false) do
+      socket
+    else
+      # Build query from current builder state
+      builder = Map.get(srql, :builder, %{})
+      query = Builder.build(builder)
+
+      limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
+      limit = Map.get(socket.assigns, limit_assign_key)
+
+      # Close builder and navigate with the new query
+      socket
+      |> Phoenix.Component.assign(:srql, Map.put(srql, :builder_open, false))
+      |> Phoenix.LiveView.push_patch(
+        to: page_path <> "?" <> URI.encode_query(%{"q" => query, "limit" => limit})
+      )
+    end
+  end
+
   def handle_event(socket, _event, _params, _opts), do: socket
 
   defp srql_entity(srql, opts) do

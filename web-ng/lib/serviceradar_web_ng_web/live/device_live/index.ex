@@ -60,6 +60,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
   end
 
+  def handle_event("srql_builder_run", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/devices")}
+  end
+
   def handle_event("srql_builder_add_filter", params, socket) do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "devices")}
