@@ -34,8 +34,13 @@ We are transforming `srql` from a **standalone HTTP service** to an **embedded l
 - **Flow:** `UI -> Phoenix -> Rustler -> SRQL Lib -> Shared DB`.
 - **Deployment change:** The standalone `srql` HTTP container is no longer needed—queries go through Phoenix.
 
-## 5. Deployment
+## 5. Schema Ownership vs Data Access
+- **Schema ownership (DDL):** Go Core owns the table structure for `unified_devices`, `pollers`, metrics, etc. Phoenix does NOT generate migrations for these.
+- **Data access (DML):** Phoenix CAN read AND write to shared tables (e.g., editing device names, updating policies).
+- **Phoenix-owned tables:** `ng_users`, `ng_sessions`, etc. Phoenix owns both schema and data.
+
+## 6. Deployment
 - The `web-ng` container will be deployed alongside `core`.
-- `core` writes to DB (Telemetry/Inventory).
-- `web-ng` reads DB (Telemetry/Inventory) and writes DB (Auth/Settings).
+- `core` writes to DB (Telemetry/Inventory ingestion).
+- `web-ng` reads/writes DB (Inventory edits, Auth, Settings).
 - External Load Balancer routes traffic to `web-ng`.

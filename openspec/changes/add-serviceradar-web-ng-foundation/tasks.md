@@ -19,8 +19,9 @@
 ## 3. Logic Porting (Shared Data)
 
 ### Inventory & Infrastructure
-- [ ] 3.1 Create Read-Only Ecto schemas for `unified_devices`, `pollers`, `services`.
+- [ ] 3.1 Create Ecto schemas for `unified_devices`, `pollers`, `services` (no migrations).
   - [ ] *Note:* Use `@primary_key {:id, :string, autogenerate: false}`.
+  - [ ] *Note:* "No migrations" means Phoenix does not own the table DDL—Go Core does. Phoenix CAN still read/write data to these tables.
 - [ ] 3.2 Implement `Inventory.list_devices`.
 - [ ] 3.3 Implement `Infrastructure.list_pollers`.
 
