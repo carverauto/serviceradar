@@ -16,29 +16,17 @@ defmodule ServiceRadarWebNG.Graph do
 
   Returns `{:ok, result}` or `{:error, reason}`.
   """
-  def cypher(cypher_query, params \\ %{}) do
+  def cypher(cypher_query) when is_binary(cypher_query) do
     Repo.transaction(fn ->
       {:ok, _} = query(Repo, "LOAD 'age'", [], [])
       {:ok, _} = query(Repo, "SET search_path = #{@age_search_path}", [], [])
 
-      result =
-        case normalize_params(params) do
-          :none ->
-            sql_query = """
-            SELECT ag_catalog.agtype_to_text(result) as result
-            FROM ag_catalog.cypher($1, $2) as (result ag_catalog.agtype)
-            """
+      sql_query = """
+      SELECT ag_catalog.agtype_to_text(result) as result
+      FROM ag_catalog.cypher('#{@graph_name}', #{dollar_quote(cypher_query)}) as (result ag_catalog.agtype)
+      """
 
-            query(Repo, sql_query, [@graph_name, cypher_query], [])
-
-          params_json ->
-            sql_query = """
-            SELECT ag_catalog.agtype_to_text(result) as result
-            FROM ag_catalog.cypher($1, $2, $3) as (result ag_catalog.agtype)
-            """
-
-            query(Repo, sql_query, [@graph_name, cypher_query, params_json], [])
-        end
+      result = query(Repo, sql_query, [], [])
 
       case result do
         {:ok, data} -> data
@@ -50,8 +38,8 @@ defmodule ServiceRadarWebNG.Graph do
   @doc """
   Executes an openCypher query and parses each returned row into an Elixir value.
   """
-  def query(cypher_query, params \\ %{}) do
-    case cypher(cypher_query, params) do
+  def query(cypher_query) when is_binary(cypher_query) do
+    case cypher(cypher_query) do
       {:ok, result} ->
         parsed_rows = parse_agtype_results(result.rows)
         {:ok, parsed_rows}
@@ -61,23 +49,20 @@ defmodule ServiceRadarWebNG.Graph do
     end
   end
 
-  defp normalize_params(%{} = params) when map_size(params) == 0, do: :none
-  defp normalize_params(%{} = params), do: Jason.encode!(params)
-
-  defp normalize_params(params) when is_list(params) do
-    if params == [] do
-      :none
-    else
-      params_json =
-        params
-        |> Enum.with_index()
-        |> Map.new(fn {value, index} -> {"$#{index}", value} end)
-
-      Jason.encode!(params_json)
-    end
+  defp dollar_quote(query) do
+    tag = dollar_quote_tag(query)
+    "$#{tag}$#{query}$#{tag}$"
   end
 
-  defp normalize_params(_), do: :none
+  defp dollar_quote_tag(query) do
+    tag = "sr_#{Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)}"
+
+    if String.contains?(query, "$#{tag}$") do
+      dollar_quote_tag(query)
+    else
+      tag
+    end
+  end
 
   defp parse_agtype_results(rows) do
     Enum.map(rows, fn

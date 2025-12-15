@@ -70,8 +70,7 @@ config :serviceradar_web_ng, ServiceRadarWebNG.Repo,
   database:
     System.get_env("TEST_CNPG_DATABASE", "serviceradar_web_ng_test") <>
       (System.get_env("MIX_TEST_PARTITION") || ""),
-  ssl: cnpg_ssl_enabled,
-  ssl_opts: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: []),
+  ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
 

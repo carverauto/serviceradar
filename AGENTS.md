@@ -87,7 +87,7 @@ Use this playbook to run `web-ng/` on a workstation while connecting to the exis
 
 ### 1. Publish CNPG on the docker host
 
-- By default, CNPG is bound to loopback only. To allow LAN access, set these in the docker host `.env`:
+- By default, CNPG is bound to loopback only. To allow LAN access, set these in the docker host `.env` (or export them before running compose):
   - `CNPG_PUBLIC_BIND=0.0.0.0` (or a specific LAN interface IP)
   - `CNPG_PUBLIC_PORT=5455`
 
@@ -96,7 +96,7 @@ Use this playbook to run `web-ng/` on a workstation while connecting to the exis
 - If clients will connect by IP with `CNPG_SSL_MODE=verify-full`, add the host IP to the CNPG server cert SAN:
   - `CNPG_CERT_EXTRA_IPS=192.168.2.134`
   - Regenerate certs: `CNPG_CERT_EXTRA_IPS=192.168.2.134 docker compose up cert-generator`
-  - Restart CNPG: `docker compose up -d --force-recreate cnpg`
+  - Restart CNPG (and ensure bind env vars are applied): `CNPG_PUBLIC_BIND=0.0.0.0 CNPG_PUBLIC_PORT=5455 docker compose up -d --force-recreate cnpg`
 
 ### 3. Copy workstation client certs (keep out of git)
 

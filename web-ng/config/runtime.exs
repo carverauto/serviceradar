@@ -107,8 +107,7 @@ if config_env() == :prod do
 
   config :serviceradar_web_ng, ServiceRadarWebNG.Repo,
     url: repo_url,
-    ssl: cnpg_ssl_enabled,
-    ssl_opts: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: []),
+    ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     socket_options: maybe_ipv6
 

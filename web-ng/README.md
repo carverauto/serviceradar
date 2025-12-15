@@ -17,7 +17,7 @@ The repo’s `docker-compose.yml` publishes CNPG on `${CNPG_PUBLIC_BIND:-127.0.0
 
 1. On the docker host, ensure CNPG’s server cert allows IP-based clients (example IP: `192.168.2.134`):
    - Set `CNPG_CERT_EXTRA_IPS=192.168.2.134` and (re)run `docker compose up cert-generator` so `cnpg.pem` includes that SAN.
-   - Set `CNPG_PUBLIC_BIND=0.0.0.0` (or a specific LAN interface IP) so the published port is reachable from your workstation.
+   - Set `CNPG_PUBLIC_BIND=0.0.0.0` (or a specific LAN interface IP) so the published port is reachable from your workstation (put it in `.env` or export it before running compose).
    - Restart the `cnpg` container after regenerating `cnpg.pem`.
 
 2. Export client certs from the docker host and copy them to your workstation (keep them out of the repo):

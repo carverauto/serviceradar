@@ -16,7 +16,7 @@ defmodule Mix.Tasks.Graph.Ready do
 
     Mix.shell().info("Checking Apache AGE graph readiness...")
 
-    case Graph.query("RETURN 1 as ok") do
+    case Graph.query("RETURN 1") do
       {:ok, _} ->
         Mix.shell().info("✓ AGE is reachable and the `serviceradar` graph is queryable")
 
