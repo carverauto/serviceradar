@@ -31,3 +31,5 @@
 
 ## Status
 - In progress (Foundation + Auth + initial list views).
+- SRQL translator-only pivot complete: Rust now translates SRQL -> parameterized SQL + typed bind params + pagination metadata; Phoenix executes via Ecto using `ServiceRadarWebNG.Repo`.
+- Added safety checks: unit tests and debug-mode bind-count validation to ensure SQL placeholder arity matches returned params.

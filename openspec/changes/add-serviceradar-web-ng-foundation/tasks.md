@@ -17,6 +17,7 @@
   - [x] Update `native/srql_nif` to export translate-only functions (no Tokio runtime, no DB connections).
   - [x] Update Phoenix to execute translated SQL via Ecto using `ServiceRadarWebNG.Repo`.
   - [x] Add integration tests to validate SRQL translation + execution from Elixir.
+  - [x] Add bind/placeholder arity validation in Rust (tests + debug checks).
   - [x] Ensure existing SRQL HTTP service behavior remains intact (run existing `rust/srql` tests).
 
 ### Property-Based Testing (StreamData)
