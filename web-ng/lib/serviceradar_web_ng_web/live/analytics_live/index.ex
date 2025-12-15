@@ -487,52 +487,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp build_high_utilization_summary(_, _, _), do: %{cpu_warning: 0, cpu_critical: 0, memory_warning: 0, memory_critical: 0, disk_warning: 0, disk_critical: 0, cpu_services: [], memory_services: [], disk_services: [], total_cpu_hosts: 0, total_memory_hosts: 0, total_disk_mounts: 0}
 
-  defp build_bandwidth_summary(rperf_rows) when is_list(rperf_rows) do
-    # Deduplicate by target name, keeping most recent
-    unique_targets =
-      rperf_rows
-      |> Enum.filter(&is_map/1)
-      |> Enum.reduce(%{}, fn row, acc ->
-        name = Map.get(row, "target_name") || Map.get(row, "name") || Map.get(row, "target_id") || ""
-        if name != "", do: Map.put_new(acc, name, row), else: acc
-      end)
-      |> Map.values()
-
-    targets_with_data =
-      unique_targets
-      |> Enum.map(fn row ->
-        %{
-          name: Map.get(row, "target_name") || Map.get(row, "name") || "Unknown",
-          target_host: Map.get(row, "target_host") || Map.get(row, "host") || "",
-          download_mbps: extract_numeric(Map.get(row, "download_mbps") || Map.get(row, "rx_mbps") || 0),
-          upload_mbps: extract_numeric(Map.get(row, "upload_mbps") || Map.get(row, "tx_mbps") || 0),
-          latency_ms: extract_numeric(Map.get(row, "latency_ms") || Map.get(row, "rtt_ms") || 0),
-          timestamp: Map.get(row, "timestamp")
-        }
-      end)
-      |> Enum.take(10)
-
-    # Calculate overall stats
-    total_download = Enum.sum(Enum.map(targets_with_data, & &1.download_mbps))
-    total_upload = Enum.sum(Enum.map(targets_with_data, & &1.upload_mbps))
-    avg_latency =
-      if length(targets_with_data) > 0 do
-        Enum.sum(Enum.map(targets_with_data, & &1.latency_ms)) / length(targets_with_data)
-      else
-        0.0
-      end
-
-    %{
-      targets: targets_with_data,
-      total_download: Float.round(total_download * 1.0, 2),
-      total_upload: Float.round(total_upload * 1.0, 2),
-      avg_latency: Float.round(avg_latency * 1.0, 1),
-      target_count: length(targets_with_data)
-    }
-  end
-
-  defp build_bandwidth_summary(_), do: %{targets: [], total_download: 0.0, total_upload: 0.0, avg_latency: 0.0, target_count: 0}
-
   defp extract_numeric(value) when is_number(value), do: value
   defp extract_numeric(value) when is_binary(value) do
     case Float.parse(value) do

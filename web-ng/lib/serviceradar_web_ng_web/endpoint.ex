@@ -24,8 +24,7 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
     at: "/",
     from: :serviceradar_web_ng,
     gzip: not code_reloading?,
-    only: ServiceRadarWebNGWeb.static_paths(),
-    raise_on_missing_only: code_reloading?
+    only: ServiceRadarWebNGWeb.static_paths()
 
   # Code reloading can be explicitly enabled under the
   # :code_reloader configuration of your endpoint.
