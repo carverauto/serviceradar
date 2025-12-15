@@ -1,140 +1,57 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadarWebNGWeb.SRQL.Builder
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 100
   @max_limit 500
 
   @impl true
   def mount(_params, _session, socket) do
-    builder = Builder.default_state("devices", @default_limit)
-    query = Builder.build(builder)
-
     {:ok,
      socket
      |> assign(:page_title, "Devices")
      |> assign(:devices, [])
      |> assign(:limit, @default_limit)
-     |> assign(:srql_enabled, true)
-     |> assign(:srql_query, query)
-     |> assign(:srql_query_draft, query)
-     |> assign(:srql_error, nil)
-     |> assign(:srql_page_path, nil)
-     |> assign(:srql_builder_open, false)
-     |> assign(:srql_builder_supported, true)
-     |> assign(:srql_builder_sync, true)
-     |> assign(:srql_builder, builder)}
+     |> SRQLPage.init("devices", default_limit: @default_limit)}
   end
 
   @impl true
   def handle_params(params, uri, socket) do
-    limit = parse_limit(params["limit"])
-    default_query = Builder.build(%{socket.assigns.srql_builder | "limit" => limit})
-    query = Map.get(params, "q", default_query)
-
-    srql = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
-
-    {devices, error} =
-      case srql.query(query) do
-        {:ok, %{"results" => results}} when is_list(results) -> {results, nil}
-        {:ok, other} -> {[], "unexpected SRQL response: #{inspect(other)}"}
-        {:error, reason} -> {[], "SRQL error: #{format_error(reason)}"}
-      end
-
-    display_limit = extract_limit_from_srql(query, limit)
-
     {:noreply,
      socket
-     |> assign(:srql_page_path, URI.parse(uri).path)
-     |> assign(:srql_query, query)
-     |> assign(:srql_query_draft, query)
-     |> assign(:srql_error, error)
-     |> assign(:devices, devices)
-     |> assign(:limit, display_limit)}
+     |> SRQLPage.load_list(params, uri, :devices,
+       default_limit: @default_limit,
+       max_limit: @max_limit
+     )}
   end
 
   @impl true
   def handle_event("srql_change", %{"q" => query}, socket) do
-    {:noreply, assign(socket, :srql_query_draft, query)}
+    {:noreply, SRQLPage.handle_event(socket, "srql_change", %{"q" => query})}
   end
 
   def handle_event("srql_submit", %{"q" => raw_query}, socket) do
-    query = raw_query |> to_string() |> String.trim()
-    query = if query == "", do: socket.assigns.srql_query || "", else: query
-
-    path = socket.assigns.srql_page_path || "/devices"
-
     {:noreply,
-     socket
-     |> assign(:srql_builder_open, false)
-     |> push_patch(to: path <> "?" <> URI.encode_query(%{"q" => query}))}
+     SRQLPage.handle_event(socket, "srql_submit", %{"q" => raw_query}, fallback_path: "/devices")}
   end
 
   def handle_event("srql_builder_toggle", _params, socket) do
-    if socket.assigns.srql_builder_open do
-      {:noreply, assign(socket, :srql_builder_open, false)}
-    else
-      current = socket.assigns.srql_query_draft || socket.assigns.srql_query || ""
-
-      {supported, sync, builder} =
-        case Builder.parse(current) do
-          {:ok, builder} ->
-            {true, true, builder}
-
-          {:error, _reason} ->
-            {false, false, Builder.default_state("devices", socket.assigns.limit)}
-        end
-
-      {:noreply,
-       socket
-       |> assign(:srql_builder_open, true)
-       |> assign(:srql_builder_supported, supported)
-       |> assign(:srql_builder_sync, sync)
-       |> assign(:srql_builder, builder)}
-    end
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "devices")}
   end
 
   def handle_event("srql_builder_change", %{"builder" => params}, socket) do
-    builder = Builder.update(socket.assigns.srql_builder, params)
-
-    socket =
-      socket
-      |> assign(:srql_builder, builder)
-      |> maybe_sync_builder_query()
-
-    {:noreply, socket}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", %{"builder" => params})}
   end
 
   def handle_event("srql_builder_apply", _params, socket) do
-    query = Builder.build(socket.assigns.srql_builder)
-
-    {:noreply,
-     socket
-     |> assign(:srql_builder_supported, true)
-     |> assign(:srql_builder_sync, true)
-     |> assign(:srql_query_draft, query)}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
   end
-
-  defp parse_limit(nil), do: @default_limit
-
-  defp parse_limit(limit) when is_binary(limit) do
-    case Integer.parse(limit) do
-      {value, ""} -> parse_limit(value)
-      _ -> @default_limit
-    end
-  end
-
-  defp parse_limit(limit) when is_integer(limit) and limit > 0 do
-    min(limit, @max_limit)
-  end
-
-  defp parse_limit(_), do: @default_limit
 
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <.header>
           Devices
@@ -162,26 +79,4 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp format_datetime(nil), do: ""
   defp format_datetime(value) when is_binary(value), do: value
   defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-
-  defp maybe_sync_builder_query(socket) do
-    if socket.assigns.srql_builder_supported and socket.assigns.srql_builder_sync do
-      assign(socket, :srql_query_draft, Builder.build(socket.assigns.srql_builder))
-    else
-      socket
-    end
-  end
-
-  defp extract_limit_from_srql(query, fallback) when is_binary(query) do
-    case Regex.run(~r/(?:^|\s)limit:(\d+)(?:\s|$)/, query) do
-      [_, raw] -> parse_limit(raw)
-      _ -> fallback
-    end
-  end
-
-  defp extract_limit_from_srql(_query, fallback), do: fallback
-
-  defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
-  defp format_error(%ArgumentError{} = err), do: Exception.message(err)
-  defp format_error(reason) when is_binary(reason), do: reason
-  defp format_error(reason), do: inspect(reason)
 end

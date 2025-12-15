@@ -31,56 +31,6 @@
     </script>
   </head>
   <body>
-    <header class="sticky top-0 z-20 border-b border-base-200 bg-base-100/90 backdrop-blur">
-      <div class="px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-4">
-        <div class="flex items-center gap-2 shrink-0">
-          <.link href={~p"/"} class="flex items-center gap-2">
-            <img src={~p"/images/logo.svg"} width="28" class="opacity-90" />
-            <span class="font-semibold tracking-tight">ServiceRadar</span>
-          </.link>
-        </div>
-
-        <nav class="flex-1 flex items-center gap-4 min-w-0">
-          <%= if @current_scope do %>
-            <div class="flex items-center gap-2 shrink-0">
-              <.link href={~p"/devices"} class="btn btn-ghost btn-sm">Devices</.link>
-              <.link href={~p"/pollers"} class="btn btn-ghost btn-sm">Pollers</.link>
-            </div>
-          <% end %>
-
-          <div class="flex-1 min-w-0">
-            <.srql_query_bar
-              :if={assigns[:srql_enabled]}
-              query={assigns[:srql_query]}
-              draft={assigns[:srql_query_draft]}
-              error={assigns[:srql_error]}
-              builder_open={assigns[:srql_builder_open]}
-              builder_supported={assigns[:srql_builder_supported]}
-              builder_sync={assigns[:srql_builder_sync]}
-              builder={assigns[:srql_builder]}
-            />
-          </div>
-        </nav>
-
-        <div class="flex items-center gap-2 shrink-0">
-          <.theme_toggle />
-
-          <%= if @current_scope do %>
-            <div class="text-sm text-base-content/70 hidden sm:block">
-              {@current_scope.user.email}
-            </div>
-
-            <.link href={~p"/users/settings"} class="btn btn-ghost btn-sm">Settings</.link>
-            <.link href={~p"/users/log-out"} method="delete" class="btn btn-ghost btn-sm">
-              Log out
-            </.link>
-          <% else %>
-            <.link href={~p"/users/register"} class="btn btn-ghost btn-sm">Register</.link>
-            <.link href={~p"/users/log-in"} class="btn btn-primary btn-sm">Log in</.link>
-          <% end %>
-        </div>
-      </div>
-    </header>
     {@inner_content}
   </body>
 </html>

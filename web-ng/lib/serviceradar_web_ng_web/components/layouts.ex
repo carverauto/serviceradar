@@ -31,10 +31,66 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     default: nil,
     doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
 
+  attr :srql, :map, default: %{}, doc: "SRQL query bar state for SRQL-driven pages"
+
   slot :inner_block, required: true
 
   def app(assigns) do
+    assigns = assign_new(assigns, :srql, fn -> %{} end)
+
     ~H"""
+    <header class="sticky top-0 z-20 border-b border-base-200 bg-base-100/90 backdrop-blur">
+      <div class="px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-4">
+        <div class="flex items-center gap-2 shrink-0">
+          <.link href={~p"/"} class="flex items-center gap-2">
+            <img src={~p"/images/logo.svg"} width="28" class="opacity-90" />
+            <span class="font-semibold tracking-tight">ServiceRadar</span>
+          </.link>
+        </div>
+
+        <nav class="flex-1 flex items-center gap-4 min-w-0">
+          <%= if @current_scope do %>
+            <div class="flex items-center gap-2 shrink-0">
+              <.link href={~p"/devices"} class="btn btn-ghost btn-sm">Devices</.link>
+              <.link href={~p"/pollers"} class="btn btn-ghost btn-sm">Pollers</.link>
+            </div>
+          <% end %>
+
+          <div class="flex-1 min-w-0">
+            <.srql_query_bar
+              :if={Map.get(@srql, :enabled, false)}
+              query={Map.get(@srql, :query)}
+              draft={Map.get(@srql, :draft)}
+              error={Map.get(@srql, :error)}
+              loading={Map.get(@srql, :loading, false)}
+              builder_open={Map.get(@srql, :builder_open, false)}
+              builder_supported={Map.get(@srql, :builder_supported, true)}
+              builder_sync={Map.get(@srql, :builder_sync, true)}
+              builder={Map.get(@srql, :builder, %{})}
+            />
+          </div>
+        </nav>
+
+        <div class="flex items-center gap-2 shrink-0">
+          <.theme_toggle />
+
+          <%= if @current_scope do %>
+            <div class="text-sm text-base-content/70 hidden sm:block">
+              {@current_scope.user.email}
+            </div>
+
+            <.link href={~p"/users/settings"} class="btn btn-ghost btn-sm">Settings</.link>
+            <.link href={~p"/users/log-out"} method="delete" class="btn btn-ghost btn-sm">
+              Log out
+            </.link>
+          <% else %>
+            <.link href={~p"/users/register"} class="btn btn-ghost btn-sm">Register</.link>
+            <.link href={~p"/users/log-in"} class="btn btn-primary btn-sm">Log in</.link>
+          <% end %>
+        </div>
+      </div>
+    </header>
+
     <main class="px-4 py-6 sm:px-6 lg:px-8">
       {render_slot(@inner_block)}
     </main>
@@ -126,6 +182,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   attr :query, :string, default: nil
   attr :draft, :string, default: nil
   attr :error, :string, default: nil
+  attr :loading, :boolean, default: false
   attr :builder_open, :boolean, default: false
   attr :builder_supported, :boolean, default: true
   attr :builder_sync, :boolean, default: true
@@ -166,7 +223,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
         </button>
 
         <button type="submit" class="btn btn-primary btn-sm">
-          Run
+          <span :if={@loading} class="loading loading-spinner loading-xs" /> Run
         </button>
       </form>
 
