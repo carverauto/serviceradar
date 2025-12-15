@@ -371,11 +371,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp base_query_for_summary(_), do: "in:logs time:#{@default_stats_window}"
 
   defp strip_tokens_for_stats(query) do
-    query
-    |> Regex.replace(~r/(?:^|\s)limit:\S+/, "")
-    |> Regex.replace(~r/(?:^|\s)sort:\S+/, "")
-    |> Regex.replace(~r/(?:^|\s)cursor:\S+/, "")
-    |> String.trim()
+    query = Regex.replace(~r/(?:^|\s)limit:\S+/, query, "")
+    query = Regex.replace(~r/(?:^|\s)sort:\S+/, query, "")
+    query = Regex.replace(~r/(?:^|\s)cursor:\S+/, query, "")
+    query |> String.trim() |> String.replace(~r/\s+/, " ")
   end
 
   defp ensure_time_filter(query) do
