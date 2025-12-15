@@ -44,17 +44,9 @@ defmodule ServiceRadarWebNG.ApiQueryControllerPropertyTest do
       conn =
         Plug.Test.conn("POST", "/api/query", body)
         |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> ServiceRadarWebNGWeb.Endpoint.call([])
 
-      opts =
-        Plug.Parsers.init(
-          parsers: [:json],
-          pass: ["*/*"],
-          json_decoder: Jason
-        )
-
-      conn = Plug.Parsers.call(conn, opts)
-
-      assert conn.status in [400, 415]
+      assert conn.status == 400
     end
   end
 end
