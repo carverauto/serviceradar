@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   attr :query, :string, default: nil
   attr :draft, :string, default: nil
   attr :loading, :boolean, default: false
+  attr :builder_available, :boolean, default: true
   attr :builder_open, :boolean, default: false
   attr :builder_supported, :boolean, default: true
   attr :builder_sync, :boolean, default: true
@@ -40,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         </div>
 
         <.ui_icon_button
+          :if={@builder_available}
           active={@builder_open}
           aria-label="Toggle query builder"
           title="Query builder"
@@ -55,6 +57,78 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     </div>
     """
   end
+
+  attr :id, :string, required: true
+  attr :rows, :list, default: []
+  attr :max_columns, :integer, default: 10
+  attr :empty_message, :string, default: "No results."
+
+  def srql_results_table(assigns) do
+    columns = srql_columns(assigns.rows, assigns.max_columns)
+    assigns = assign(assigns, :columns, columns)
+
+    ~H"""
+    <div class="overflow-x-auto rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <table id={@id} class="table table-sm w-full">
+        <thead>
+          <tr>
+            <%= for col <- @columns do %>
+              <th class="whitespace-nowrap">{col}</th>
+            <% end %>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :if={@rows == []}>
+            <td
+              colspan={max(length(@columns), 1)}
+              class="text-sm text-base-content/60 py-8 text-center"
+            >
+              {@empty_message}
+            </td>
+          </tr>
+
+          <%= for {row, idx} <- Enum.with_index(@rows) do %>
+            <tr id={"#{@id}-row-#{idx}"}>
+              <%= for col <- @columns do %>
+                <td class="whitespace-nowrap">
+                  {srql_cell(Map.get(row, col))}
+                </td>
+              <% end %>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  defp srql_columns([], _max), do: []
+
+  defp srql_columns([first | _], max) when is_map(first) and is_integer(max) and max > 0 do
+    first
+    |> Map.keys()
+    |> Enum.map(&to_string/1)
+    |> Enum.sort()
+    |> Enum.take(max)
+  end
+
+  defp srql_columns(_, _max), do: []
+
+  defp srql_cell(nil), do: ""
+  defp srql_cell(true), do: "true"
+  defp srql_cell(false), do: "false"
+  defp srql_cell(value) when is_binary(value), do: value
+  defp srql_cell(value) when is_number(value), do: to_string(value)
+  defp srql_cell(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
+  defp srql_cell(%NaiveDateTime{} = dt), do: NaiveDateTime.to_string(dt)
+
+  defp srql_cell(value) when is_list(value) or is_map(value) do
+    value
+    |> inspect(limit: 5, printable_limit: 1_000)
+    |> String.slice(0, 200)
+  end
+
+  defp srql_cell(value), do: to_string(value)
 
   attr :supported, :boolean, default: true
   attr :sync, :boolean, default: true

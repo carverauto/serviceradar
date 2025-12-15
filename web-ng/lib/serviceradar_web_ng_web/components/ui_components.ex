@@ -139,6 +139,76 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   end
 
   attr :class, :any, default: nil
+  slot :left
+  slot :right
+  slot :inner_block
+
+  def ui_toolbar(assigns) do
+    ~H"""
+    <div class={["flex items-center justify-between gap-3", @class]}>
+      <div class="flex items-center gap-2 min-w-0">
+        {render_slot(@left)}
+        {render_slot(@inner_block)}
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        {render_slot(@right)}
+      </div>
+    </div>
+    """
+  end
+
+  attr :tabs, :list, required: true
+  attr :size, :string, default: "sm", values: ~w(xs sm md)
+  attr :class, :any, default: nil
+
+  def ui_tabs(assigns) do
+    ~H"""
+    <nav class={["flex items-center gap-1", @class]}>
+      <%= for tab <- @tabs do %>
+        <.ui_button
+          size={@size}
+          variant={Map.get(tab, :variant, "ghost")}
+          active={Map.get(tab, :active, false)}
+          href={Map.get(tab, :href)}
+          patch={Map.get(tab, :patch)}
+          navigate={Map.get(tab, :navigate)}
+        >
+          {Map.get(tab, :label)}
+        </.ui_button>
+      <% end %>
+    </nav>
+    """
+  end
+
+  attr :align, :string, default: "end", values: ~w(start end)
+  attr :class, :any, default: nil
+  slot :trigger, required: true
+  slot :item, required: true
+
+  def ui_dropdown(assigns) do
+    align_class =
+      case assigns.align do
+        "start" -> "dropdown-start"
+        _ -> "dropdown-end"
+      end
+
+    assigns = assign(assigns, :align_class, align_class)
+
+    ~H"""
+    <details class={["dropdown", @align_class, @class]}>
+      <summary class="list-none">
+        {render_slot(@trigger)}
+      </summary>
+      <ul class="menu dropdown-content bg-base-100 rounded-box z-30 w-56 p-2 shadow border border-base-200 mt-2">
+        <%= for item <- @item do %>
+          <li>{render_slot(item)}</li>
+        <% end %>
+      </ul>
+    </details>
+    """
+  end
+
+  attr :class, :any, default: nil
   attr :header_class, :any, default: nil
   attr :body_class, :any, default: nil
 

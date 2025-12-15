@@ -3,10 +3,17 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
   alias ServiceRadarWebNGWeb.SRQL.Builder
 
-  def init(socket, entity, opts \\ []) when entity in ["devices", "pollers"] do
+  def init(socket, entity, opts \\ []) when is_binary(entity) do
     default_limit = Keyword.get(opts, :default_limit, 100)
-    builder = Builder.default_state(entity, default_limit)
-    query = Builder.build(builder)
+    builder_available = Keyword.get(opts, :builder_available, entity in ["devices", "pollers"])
+
+    {builder_supported, builder_sync, builder, query} =
+      if builder_available and entity in ["devices", "pollers"] do
+        builder = Builder.default_state(entity, default_limit)
+        {true, true, builder, Builder.build(builder)}
+      else
+        {false, false, %{}, default_query(entity, default_limit)}
+      end
 
     srql = %{
       enabled: true,
@@ -16,9 +23,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       draft: query,
       error: nil,
       loading: false,
+      builder_available: builder_available,
       builder_open: false,
-      builder_supported: true,
-      builder_sync: true,
+      builder_supported: builder_supported,
+      builder_sync: builder_sync,
       builder: builder
     }
 
@@ -28,6 +36,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   def load_list(socket, params, uri, list_assign_key, opts \\ []) when is_atom(list_assign_key) do
     srql = Map.get(socket.assigns, :srql, %{})
     entity = srql_entity(srql, opts)
+    builder_available = Map.get(srql, :builder_available, false)
 
     default_limit = Keyword.get(opts, :default_limit, 100)
     max_limit = Keyword.get(opts, :max_limit, 500)
@@ -36,18 +45,32 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     limit = parse_limit(Map.get(params, "limit"), default_limit, max_limit)
 
     builder =
-      srql
-      |> Map.get(:builder, Builder.default_state(entity, default_limit))
-      |> Map.put("entity", entity)
-      |> Map.put("limit", limit)
+      if builder_available and entity in ["devices", "pollers"] do
+        srql
+        |> Map.get(:builder, Builder.default_state(entity, default_limit))
+        |> Map.put("entity", entity)
+        |> Map.put("limit", limit)
+      else
+        %{}
+      end
 
-    default_query = Builder.build(builder)
+    default_query =
+      if builder_available and entity in ["devices", "pollers"] do
+        Builder.build(builder)
+      else
+        default_query(entity, limit)
+      end
+
     query = Map.get(params, "q", default_query)
 
     {builder_supported, builder_sync, builder_state} =
-      case Builder.parse(query) do
-        {:ok, parsed} -> {true, true, parsed}
-        {:error, _} -> {false, false, builder}
+      if builder_available and entity in ["devices", "pollers"] do
+        case Builder.parse(query) do
+          {:ok, parsed} -> {true, true, parsed}
+          {:error, _} -> {false, false, builder}
+        end
+      else
+        {false, false, %{}}
       end
 
     srql_module = srql_module()
@@ -75,6 +98,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         draft: query,
         error: error,
         loading: false,
+        builder_available: builder_available,
         builder_supported: builder_supported,
         builder_sync: builder_sync,
         builder: builder_state
@@ -113,130 +137,157 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   def handle_event(socket, "srql_builder_toggle", _params, opts) do
     srql = Map.get(socket.assigns, :srql, %{})
 
-    if Map.get(srql, :builder_open, false) do
+    if not Map.get(srql, :builder_available, false) do
       Phoenix.Component.assign(socket, :srql, Map.put(srql, :builder_open, false))
     else
-      entity = srql_entity(srql, opts)
-      limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
-      limit = Map.get(socket.assigns, limit_assign_key, 100)
+      if Map.get(srql, :builder_open, false) do
+        Phoenix.Component.assign(socket, :srql, Map.put(srql, :builder_open, false))
+      else
+        entity = srql_entity(srql, opts)
+        limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
+        limit = Map.get(socket.assigns, limit_assign_key, 100)
 
-      current = srql[:draft] || srql[:query] || ""
+        current = srql[:draft] || srql[:query] || ""
 
-      {supported, sync, builder} =
-        case Builder.parse(current) do
-          {:ok, builder} ->
-            {true, true, builder}
+        {supported, sync, builder} =
+          case Builder.parse(current) do
+            {:ok, builder} ->
+              {true, true, builder}
 
-          {:error, _reason} ->
-            {false, false, Builder.default_state(entity, limit)}
-        end
+            {:error, _reason} ->
+              {false, false, Builder.default_state(entity, limit)}
+          end
 
-      updated =
-        srql
-        |> Map.put(:builder_open, true)
-        |> Map.put(:builder_supported, supported)
-        |> Map.put(:builder_sync, sync)
-        |> Map.put(:builder, builder)
+        updated =
+          srql
+          |> Map.put(:builder_open, true)
+          |> Map.put(:builder_supported, supported)
+          |> Map.put(:builder_sync, sync)
+          |> Map.put(:builder, builder)
 
-      Phoenix.Component.assign(socket, :srql, updated)
+        Phoenix.Component.assign(socket, :srql, updated)
+      end
     end
   end
 
   def handle_event(socket, "srql_builder_change", %{"builder" => params}, _opts) do
     srql = Map.get(socket.assigns, :srql, %{})
-    builder = Builder.update(Map.get(srql, :builder, %{}), params)
 
-    updated = Map.put(srql, :builder, builder)
+    if not Map.get(srql, :builder_available, false) do
+      Phoenix.Component.assign(socket, :srql, srql)
+    else
+      builder = Builder.update(Map.get(srql, :builder, %{}), params)
 
-    updated =
-      if updated[:builder_supported] and updated[:builder_sync] do
-        Map.put(updated, :draft, Builder.build(builder))
-      else
-        updated
-      end
+      updated = Map.put(srql, :builder, builder)
 
-    Phoenix.Component.assign(socket, :srql, updated)
+      updated =
+        if updated[:builder_supported] and updated[:builder_sync] do
+          Map.put(updated, :draft, Builder.build(builder))
+        else
+          updated
+        end
+
+      Phoenix.Component.assign(socket, :srql, updated)
+    end
   end
 
   def handle_event(socket, "srql_builder_add_filter", _params, opts) do
     srql = Map.get(socket.assigns, :srql, %{})
-    entity = srql_entity(srql, opts)
-    builder = Map.get(srql, :builder, Builder.default_state(entity))
 
-    filters =
-      builder
-      |> Map.get("filters", [])
-      |> List.wrap()
+    if not Map.get(srql, :builder_available, false) do
+      Phoenix.Component.assign(socket, :srql, srql)
+    else
+      entity = srql_entity(srql, opts)
+      builder = Map.get(srql, :builder, Builder.default_state(entity))
 
-    next = %{"field" => default_filter_field(entity, filters), "op" => "contains", "value" => ""}
+      filters =
+        builder
+        |> Map.get("filters", [])
+        |> List.wrap()
 
-    updated_builder = Map.put(builder, "filters", filters ++ [next])
+      next = %{
+        "field" => default_filter_field(entity, filters),
+        "op" => "contains",
+        "value" => ""
+      }
 
-    updated =
-      srql
-      |> Map.put(:builder, updated_builder)
-      |> maybe_sync_builder_to_draft()
+      updated_builder = Map.put(builder, "filters", filters ++ [next])
 
-    Phoenix.Component.assign(socket, :srql, updated)
+      updated =
+        srql
+        |> Map.put(:builder, updated_builder)
+        |> maybe_sync_builder_to_draft()
+
+      Phoenix.Component.assign(socket, :srql, updated)
+    end
   end
 
   def handle_event(socket, "srql_builder_remove_filter", %{"idx" => idx}, opts) do
     srql = Map.get(socket.assigns, :srql, %{})
-    entity = srql_entity(srql, opts)
-    builder = Map.get(srql, :builder, Builder.default_state(entity))
 
-    filters =
-      builder
-      |> Map.get("filters", [])
-      |> List.wrap()
+    if not Map.get(srql, :builder_available, false) do
+      Phoenix.Component.assign(socket, :srql, srql)
+    else
+      entity = srql_entity(srql, opts)
+      builder = Map.get(srql, :builder, Builder.default_state(entity))
 
-    index =
-      case Integer.parse(to_string(idx)) do
-        {i, ""} -> i
-        _ -> -1
-      end
+      filters =
+        builder
+        |> Map.get("filters", [])
+        |> List.wrap()
 
-    updated_filters =
-      filters
-      |> Enum.with_index()
-      |> Enum.reject(fn {_f, i} -> i == index end)
-      |> Enum.map(fn {f, _i} -> f end)
+      index =
+        case Integer.parse(to_string(idx)) do
+          {i, ""} -> i
+          _ -> -1
+        end
 
-    updated_builder =
-      if updated_filters == [] do
-        Map.put(builder, "filters", [
-          %{"field" => default_filter_field(entity, []), "op" => "contains", "value" => ""}
-        ])
-      else
-        Map.put(builder, "filters", updated_filters)
-      end
+      updated_filters =
+        filters
+        |> Enum.with_index()
+        |> Enum.reject(fn {_f, i} -> i == index end)
+        |> Enum.map(fn {f, _i} -> f end)
 
-    updated =
-      srql
-      |> Map.put(:builder, updated_builder)
-      |> maybe_sync_builder_to_draft()
+      updated_builder =
+        if updated_filters == [] do
+          Map.put(builder, "filters", [
+            %{"field" => default_filter_field(entity, []), "op" => "contains", "value" => ""}
+          ])
+        else
+          Map.put(builder, "filters", updated_filters)
+        end
 
-    Phoenix.Component.assign(socket, :srql, updated)
+      updated =
+        srql
+        |> Map.put(:builder, updated_builder)
+        |> maybe_sync_builder_to_draft()
+
+      Phoenix.Component.assign(socket, :srql, updated)
+    end
   end
 
   def handle_event(socket, "srql_builder_apply", _params, _opts) do
     srql = Map.get(socket.assigns, :srql, %{})
-    builder = Map.get(srql, :builder, %{})
-    query = Builder.build(builder)
 
-    updated =
-      srql
-      |> Map.put(:builder_supported, true)
-      |> Map.put(:builder_sync, true)
-      |> Map.put(:draft, query)
+    if not Map.get(srql, :builder_available, false) do
+      Phoenix.Component.assign(socket, :srql, srql)
+    else
+      builder = Map.get(srql, :builder, %{})
+      query = Builder.build(builder)
 
-    Phoenix.Component.assign(socket, :srql, updated)
+      updated =
+        srql
+        |> Map.put(:builder_supported, true)
+        |> Map.put(:builder_sync, true)
+        |> Map.put(:draft, query)
+
+      Phoenix.Component.assign(socket, :srql, updated)
+    end
   end
 
   defp srql_entity(srql, opts) do
     case Map.get(srql, :entity) || Keyword.get(opts, :entity) do
-      "devices" -> "devices"
-      "pollers" -> "pollers"
+      value when is_binary(value) and value != "" -> value
       _ -> "devices"
     end
   end
@@ -292,6 +343,33 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     case entity do
       "pollers" -> "poller_id"
       _ -> "hostname"
+    end
+  end
+
+  defp default_query(entity, limit) do
+    limit = parse_limit(limit, 100, 500)
+
+    tokens =
+      ["in:#{entity}"]
+      |> maybe_add_default_time(entity)
+      |> Kernel.++(["limit:#{limit}"])
+
+    Enum.join(tokens, " ")
+  end
+
+  defp maybe_add_default_time(tokens, entity) do
+    if entity in [
+         "events",
+         "logs",
+         "device_updates",
+         "otel_metrics",
+         "cpu_metrics",
+         "memory_metrics",
+         "disk_metrics"
+       ] do
+      tokens ++ ["time:last_7d"]
+    else
+      tokens
     end
   end
 end

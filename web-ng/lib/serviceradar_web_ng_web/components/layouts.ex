@@ -51,8 +51,27 @@ defmodule ServiceRadarWebNGWeb.Layouts do
         <nav class="flex-1 flex items-center gap-4 min-w-0">
           <%= if @current_scope do %>
             <div class="flex items-center gap-2 shrink-0">
-              <.link href={~p"/devices"} class="btn btn-ghost btn-sm">Devices</.link>
-              <.link href={~p"/pollers"} class="btn btn-ghost btn-sm">Pollers</.link>
+              <.ui_tabs
+                size="sm"
+                tabs={[
+                  %{
+                    label: "Devices",
+                    href: ~p"/devices",
+                    active: Map.get(@srql, :page_path) == "/devices"
+                  },
+                  %{
+                    label: "Pollers",
+                    href: ~p"/pollers",
+                    active: Map.get(@srql, :page_path) == "/pollers"
+                  },
+                  %{
+                    label: "Events",
+                    href: ~p"/events",
+                    active: Map.get(@srql, :page_path) == "/events"
+                  },
+                  %{label: "Logs", href: ~p"/logs", active: Map.get(@srql, :page_path) == "/logs"}
+                ]}
+              />
             </div>
           <% end %>
 
@@ -62,6 +81,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               query={Map.get(@srql, :query)}
               draft={Map.get(@srql, :draft)}
               loading={Map.get(@srql, :loading, false)}
+              builder_available={Map.get(@srql, :builder_available, false)}
               builder_open={Map.get(@srql, :builder_open, false)}
               builder_supported={Map.get(@srql, :builder_supported, true)}
               builder_sync={Map.get(@srql, :builder_sync, true)}
@@ -78,13 +98,13 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               {@current_scope.user.email}
             </div>
 
-            <.link href={~p"/users/settings"} class="btn btn-ghost btn-sm">Settings</.link>
-            <.link href={~p"/users/log-out"} method="delete" class="btn btn-ghost btn-sm">
+            <.ui_button href={~p"/users/settings"} variant="ghost" size="sm">Settings</.ui_button>
+            <.ui_button href={~p"/users/log-out"} method="delete" variant="ghost" size="sm">
               Log out
-            </.link>
+            </.ui_button>
           <% else %>
-            <.link href={~p"/users/register"} class="btn btn-ghost btn-sm">Register</.link>
-            <.link href={~p"/users/log-in"} class="btn btn-primary btn-sm">Log in</.link>
+            <.ui_button href={~p"/users/register"} variant="ghost" size="sm">Register</.ui_button>
+            <.ui_button href={~p"/users/log-in"} variant="primary" size="sm">Log in</.ui_button>
           <% end %>
         </div>
       </div>
