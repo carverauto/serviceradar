@@ -13,6 +13,10 @@
 - **SRQL-First Analytics:** All read-oriented analytics views (devices, pollers, metrics, traces, events, dashboards) are driven by SRQL queries executed via `POST /api/query` (translate in Rust, execute in Phoenix via Ecto).
   - **Query Visibility:** SRQL-driven pages MUST display the active SRQL query in a top navigation input (editable to re-run).
   - **Composable Dashboards:** Dashboards are built from one or more SRQL queries and auto-generate visualizations when the result shape is recognized; the visualization system MUST be modular and extensible.
+- **UI Parity & Improvements (Legacy `web/` -> `web-ng/`):**
+  - Recreate the missing “Analytics” hub (summary KPIs + charts) using SRQL-driven queries and dashboard visualizations.
+  - Enhance the Device Inventory table to include health signals (online/offline + ICMP sparkline latency) without per-row N+1 queries.
+  - Standardize UI primitives using Tailwind + daisyUI, with components expressed via Phoenix function components.
 - **Database:** Connect Ecto to the existing Postgres/AGE instance.
   - *Telemetry Data:* Mapped to existing tables (Read-Only).
   - *App Data:* Fresh tables created/managed by Phoenix (Read/Write).
@@ -40,6 +44,6 @@
 - Added safety checks: unit tests and debug-mode bind-count validation to ensure SQL placeholder arity matches returned params.
 - SRQL-first analytics UX implemented (query bar + builder + SRQL-driven list pages).
 - Dashboard renders charts/graphs when SRQL metadata supports it (Timeseries/Topology plugins), plus table fallback.
-- Dashboard defaults to a timeseries-friendly metrics entity (e.g., `cpu_metrics`) so charts appear out-of-the-box.
 - Device details page exists at `/devices/:device_id` (SRQL-driven), including related CPU/memory/disk metric charts.
+- UI parity gaps remain vs `web/`: `/analytics` hub, `/network`, `/observability`, `/identity`, and device list health (ICMP sparkline) are not yet ported.
 - UI remains Tailwind + daisyUI (no Mishka Chelekom adoption at this time).
