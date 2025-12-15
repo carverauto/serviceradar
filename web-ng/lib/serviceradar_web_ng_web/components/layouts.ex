@@ -104,6 +104,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
           </div>
         </div>
 
+        <.breadcrumb_bar :if={@current_path} current_path={@current_path} />
+
         <main class="px-4 py-6 sm:px-6 lg:px-8 flex-1">
           {render_slot(@inner_block)}
         </main>
@@ -246,6 +248,103 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     </.link>
     """
   end
+
+  attr :current_path, :string, required: true
+
+  defp breadcrumb_bar(assigns) do
+    crumbs = build_breadcrumbs(assigns.current_path)
+    assigns = assign(assigns, :crumbs, crumbs)
+
+    ~H"""
+    <div class="px-4 sm:px-6 lg:px-8 py-2 border-b border-base-200 bg-base-100/50">
+      <nav class="breadcrumbs text-sm">
+        <ul>
+          <li>
+            <.link href={~p"/analytics"} class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content">
+              <.icon name="hero-home-micro" class="size-3.5" />
+            </.link>
+          </li>
+          <li :for={crumb <- @crumbs}>
+            <.link
+              :if={crumb.href}
+              href={crumb.href}
+              class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content"
+            >
+              <.icon :if={crumb.icon} name={crumb.icon} class="size-3.5" />
+              <span>{crumb.label}</span>
+            </.link>
+            <span
+              :if={!crumb.href}
+              class="flex items-center gap-1.5 font-medium"
+            >
+              <.icon :if={crumb.icon} name={crumb.icon} class="size-3.5" />
+              <span>{crumb.label}</span>
+            </span>
+          </li>
+        </ul>
+      </nav>
+    </div>
+    """
+  end
+
+  defp build_breadcrumbs(path) when is_binary(path) do
+    segments =
+      path
+      |> String.trim_leading("/")
+      |> String.split("/")
+      |> Enum.reject(&(&1 == ""))
+
+    case segments do
+      [] ->
+        []
+
+      [section] ->
+        [%{label: section_label(section), icon: section_icon(section), href: nil}]
+
+      [section, id] ->
+        [
+          %{label: section_label(section), icon: section_icon(section), href: "/#{section}"},
+          %{label: format_id(id), icon: nil, href: nil}
+        ]
+
+      [section, id | _rest] ->
+        [
+          %{label: section_label(section), icon: section_icon(section), href: "/#{section}"},
+          %{label: format_id(id), icon: nil, href: nil}
+        ]
+    end
+  end
+
+  defp build_breadcrumbs(_), do: []
+
+  defp section_label("analytics"), do: "Analytics"
+  defp section_label("devices"), do: "Devices"
+  defp section_label("pollers"), do: "Pollers"
+  defp section_label("events"), do: "Events"
+  defp section_label("logs"), do: "Logs"
+  defp section_label("services"), do: "Services"
+  defp section_label("interfaces"), do: "Interfaces"
+  defp section_label(other), do: String.capitalize(other)
+
+  defp section_icon("analytics"), do: "hero-chart-bar-micro"
+  defp section_icon("devices"), do: "hero-computer-desktop-micro"
+  defp section_icon("pollers"), do: "hero-signal-micro"
+  defp section_icon("events"), do: "hero-bolt-micro"
+  defp section_icon("logs"), do: "hero-rectangle-stack-micro"
+  defp section_icon("services"), do: "hero-wrench-screwdriver-micro"
+  defp section_icon("interfaces"), do: "hero-arrows-right-left-micro"
+  defp section_icon(_), do: nil
+
+  defp format_id(id) when is_binary(id) do
+    # If it's a long ID (like a UUID), truncate it
+    if String.length(id) > 12 do
+      String.slice(id, 0, 8) <> "..."
+    else
+      id
+    end
+  end
+
+  defp format_id(id), do: to_string(id)
 
   @doc """
   Shows the flash group with standard titles and content.

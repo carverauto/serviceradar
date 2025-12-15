@@ -102,14 +102,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Device</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Hostname</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">IP</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Health</th>
+                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60" title="GRPC Health Check Status">Status</th>
+                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60" title="ICMP Network Tests">Network</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Poller</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Last Seen</th>
                 </tr>
               </thead>
               <tbody>
                 <tr :if={@devices == []}>
-                  <td colspan="6" class="py-8 text-center text-sm text-base-content/60">
+                  <td colspan="7" class="py-8 text-center text-sm text-base-content/60">
                     No devices found.
                   </td>
                 </tr>
@@ -132,10 +133,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     <td class="text-sm max-w-[18rem] truncate">{Map.get(row, "hostname") || "—"}</td>
                     <td class="font-mono text-xs">{Map.get(row, "ip") || "—"}</td>
                     <td class="text-xs">
-                      <div class="flex items-center gap-2">
-                        <.availability_badge available={Map.get(row, "is_available")} />
-                        <.icmp_sparkline :if={is_map(icmp)} spark={icmp} />
-                      </div>
+                      <.availability_badge available={Map.get(row, "is_available")} />
+                    </td>
+                    <td class="text-xs">
+                      <.icmp_sparkline :if={is_map(icmp)} spark={icmp} />
+                      <span :if={not is_map(icmp)} class="text-base-content/40">—</span>
                     </td>
                     <td class="font-mono text-xs">{Map.get(row, "poller_id") || "—"}</td>
                     <td class="font-mono text-xs">
@@ -202,7 +204,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
     ~H"""
     <div class="flex items-center gap-2">
-      <div class="h-8 w-20 rounded-md border border-base-200 bg-base-100/60 px-1 py-0.5 overflow-hidden">
+      <div class="h-8 w-20 rounded-md bg-base-200/30 px-1 py-0.5 overflow-hidden">
         <svg viewBox="0 0 400 120" class="w-full h-full" preserveAspectRatio="none">
           <title>{@title || "ICMP latency"}</title>
           <defs>

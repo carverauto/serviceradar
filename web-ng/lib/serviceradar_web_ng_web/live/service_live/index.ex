@@ -72,12 +72,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
-    assigns = assign(assigns, :pagination, pagination)
+    query = Map.get(assigns.srql, :query, "")
+    has_filter = query != "" and query != nil
+    assigns = assign(assigns, :pagination, pagination) |> assign(:has_filter, has_filter) |> assign(:current_query, query)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <div class="space-y-4">
+          <.active_filter_banner :if={@has_filter} query={@current_query} />
           <.service_summary summary={@summary} />
 
           <.ui_panel>
@@ -108,6 +111,35 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     </Layouts.app>
     """
   end
+
+  attr :query, :string, required: true
+
+  defp active_filter_banner(assigns) do
+    ~H"""
+    <div class="rounded-lg bg-info/10 border border-info/20 p-3 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-2 min-w-0">
+        <.icon name="hero-funnel" class="size-4 text-info shrink-0" />
+        <span class="text-sm text-base-content/80 truncate">
+          Filtered view: <span class="font-mono text-xs">{truncate_query(@query)}</span>
+        </span>
+      </div>
+      <.link patch={~p"/services"} class="btn btn-ghost btn-sm gap-1">
+        <.icon name="hero-x-mark" class="size-4" />
+        Clear Filter
+      </.link>
+    </div>
+    """
+  end
+
+  defp truncate_query(query) when is_binary(query) do
+    if String.length(query) > 60 do
+      String.slice(query, 0, 60) <> "..."
+    else
+      query
+    end
+  end
+
+  defp truncate_query(_), do: ""
 
   attr :summary, :map, required: true
 
