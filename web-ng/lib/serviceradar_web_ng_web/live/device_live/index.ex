@@ -94,14 +94,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
         <.ui_panel>
           <:header>
-            <div class="min-w-0">
-              <div class="text-sm font-semibold">Devices</div>
-              <div class="text-xs text-base-content/70">
-                Click a device to view details.
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-base-content/70">Click a device row to view details</span>
+              <div :if={is_binary(@icmp_error)} class="badge badge-warning badge-sm">
+                ICMP: {@icmp_error}
               </div>
-            </div>
-            <div :if={is_binary(@icmp_error)} class="text-xs text-warning">
-              ICMP sparkline: {@icmp_error}
             </div>
           </:header>
 

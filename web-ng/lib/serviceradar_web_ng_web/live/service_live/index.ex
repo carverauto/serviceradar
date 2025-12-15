@@ -224,15 +224,23 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     avail_pct = if type_total > 0, do: round(assigns.counts.available / type_total * 100), else: 0
     bar_width = if assigns.total > 0, do: max(2, round(type_total / assigns.total * 100)), else: 0
 
+    # Build SRQL query for this service type
+    type_query = "in:services service_type:\"#{assigns.type}\" time:last_1h sort:timestamp:desc"
+
     assigns =
       assigns
       |> assign(:type_total, type_total)
       |> assign(:avail_pct, avail_pct)
       |> assign(:bar_width, bar_width)
+      |> assign(:type_query, type_query)
 
     ~H"""
-    <div class="flex items-center gap-3">
-      <div class="w-28 truncate text-xs font-medium" title={@type}>{@type}</div>
+    <.link
+      patch={~p"/services?#{%{q: @type_query}}"}
+      class="flex items-center gap-3 p-1.5 -mx-1.5 rounded-lg hover:bg-base-200/50 transition-colors cursor-pointer group"
+      title={"Filter by #{@type}"}
+    >
+      <div class="w-28 truncate text-xs font-medium group-hover:text-primary" title={@type}>{@type}</div>
       <div class="flex-1 h-4 bg-base-200/50 rounded-full overflow-hidden flex">
         <div
           class="h-full bg-success/70 transition-all"
@@ -249,7 +257,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
         <span class="text-xs font-mono">{@type_total}</span>
         <span class="text-[10px] text-base-content/50 ml-1">({@avail_pct}%)</span>
       </div>
-    </div>
+    </.link>
     """
   end
 

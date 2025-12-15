@@ -16,7 +16,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   @impl true
   def handle_params(%{"event_id" => event_id}, _uri, socket) do
-    query = "in:events id:\"#{escape_value(event_id)}\" limit:1"
+    # Try event_id first since id may not be supported
+    query = "in:events event_id:\"#{escape_value(event_id)}\" limit:1"
 
     {event, error} =
       case srql_module().query(query) do
@@ -24,13 +25,18 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           {event, nil}
 
         {:ok, %{"results" => []}} ->
-          {nil, "Event not found"}
+          {nil, "Event not found. Note: Event detail view requires event_id field support."}
 
         {:ok, _other} ->
           {nil, "Unexpected response format"}
 
         {:error, reason} ->
-          {nil, "Failed to load event: #{format_error(reason)}"}
+          error_msg = format_error(reason)
+          if String.contains?(error_msg, "unsupported filter") do
+            {nil, "Event detail view is not available - the events entity does not support ID-based filtering."}
+          else
+            {nil, "Failed to load event: #{error_msg}"}
+          end
       end
 
     {:noreply,

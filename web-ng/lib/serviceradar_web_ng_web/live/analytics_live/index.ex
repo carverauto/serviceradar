@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   @default_events_limit 500
   @default_logs_limit 500
+  @default_metrics_limit 100
   @refresh_interval_ms :timer.seconds(30)
 
   @impl true
@@ -25,7 +26,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
      |> assign(:stats, %{})
      |> assign(:device_availability, %{})
      |> assign(:events_summary, %{})
-     |> assign(:logs_summary, %{})}
+     |> assign(:logs_summary, %{})
+     |> assign(:observability, %{})
+     |> assign(:high_utilization, %{})
+     |> assign(:bandwidth, %{})}
   end
 
   @impl true
@@ -58,7 +62,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       # Get unique services by service_name in the last hour (most recent status)
       services_list: "in:services time:last_1h sort:timestamp:desc limit:500",
       events: "in:events time:last_24h sort:event_timestamp:desc limit:#{@default_events_limit}",
-      logs: "in:logs time:last_24h sort:timestamp:desc limit:#{@default_logs_limit}"
+      logs: "in:logs time:last_24h sort:timestamp:desc limit:#{@default_logs_limit}",
+      # Observability queries
+      metrics: "in:metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
+      traces: "in:traces time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
+      # High utilization - get recent CPU metrics
+      cpu_metrics: "in:cpu_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
+      # Bandwidth - get rperf targets
+      rperf_targets: "in:rperf_targets time:last_1h sort:timestamp:desc limit:50"
     }
 
     results =
@@ -73,13 +84,17 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         {:exit, reason}, acc -> Map.put(acc, :error, "query task exit: #{inspect(reason)}")
       end)
 
-    {stats, device_availability, events_summary, logs_summary, error} = build_assigns(results)
+    {stats, device_availability, events_summary, logs_summary, observability, high_utilization, bandwidth, error} =
+      build_assigns(results)
 
     socket
     |> assign(:stats, stats)
     |> assign(:device_availability, device_availability)
     |> assign(:events_summary, events_summary)
     |> assign(:logs_summary, logs_summary)
+    |> assign(:observability, observability)
+    |> assign(:high_utilization, high_utilization)
+    |> assign(:bandwidth, bandwidth)
     |> assign(:refreshed_at, DateTime.utc_now())
     |> assign(:error, error)
     |> assign(:loading, false)
@@ -121,6 +136,19 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     events_summary = build_events_summary(events_rows)
     logs_summary = build_logs_summary(logs_rows)
 
+    # Build observability summary from metrics and traces
+    metrics_rows = extract_rows(results[:metrics])
+    traces_rows = extract_rows(results[:traces])
+    observability = build_observability_summary(metrics_rows, traces_rows)
+
+    # Build high utilization summary from CPU metrics
+    cpu_metrics_rows = extract_rows(results[:cpu_metrics])
+    high_utilization = build_high_utilization_summary(cpu_metrics_rows)
+
+    # Build bandwidth summary from rperf targets
+    rperf_rows = extract_rows(results[:rperf_targets])
+    bandwidth = build_bandwidth_summary(rperf_rows)
+
     error =
       Enum.find_value(results, fn
         {:error, reason} -> format_error(reason)
@@ -128,7 +156,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         _ -> nil
       end)
 
-    {stats, device_availability, events_summary, logs_summary, error}
+    {stats, device_availability, events_summary, logs_summary, observability, high_utilization, bandwidth, error}
   end
 
   defp extract_rows({:ok, %{"results" => rows}}) when is_list(rows), do: rows
@@ -264,6 +292,179 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp build_logs_summary(_), do: %{fatal: 0, error: 0, warning: 0, info: 0, debug: 0, total: 0, recent: []}
 
+  defp build_observability_summary(metrics_rows, traces_rows) when is_list(metrics_rows) and is_list(traces_rows) do
+    metrics_count = length(metrics_rows)
+    traces_count = length(traces_rows)
+
+    # Calculate average duration from traces (if they have duration field)
+    durations =
+      traces_rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn trace ->
+        Map.get(trace, "duration") || Map.get(trace, "duration_ms") || 0
+      end)
+      |> Enum.filter(&is_number/1)
+
+    avg_duration =
+      if length(durations) > 0 do
+        Enum.sum(durations) / length(durations)
+      else
+        0
+      end
+
+    # Calculate error rate from traces (if they have error or status field)
+    error_traces =
+      traces_rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.count(fn trace ->
+        status = Map.get(trace, "status") || Map.get(trace, "status_code")
+        is_error = Map.get(trace, "is_error") || Map.get(trace, "error")
+        status == "error" or status == "ERROR" or is_error == true
+      end)
+
+    error_rate =
+      if traces_count > 0 do
+        Float.round(error_traces / traces_count * 100, 1)
+      else
+        0.0
+      end
+
+    # Find slow spans (duration > 1000ms)
+    slow_spans =
+      traces_rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.filter(fn trace ->
+        duration = Map.get(trace, "duration") || Map.get(trace, "duration_ms") || 0
+        is_number(duration) and duration > 1000
+      end)
+      |> Enum.take(5)
+
+    %{
+      metrics_count: metrics_count,
+      traces_count: traces_count,
+      avg_duration: avg_duration,
+      error_rate: error_rate,
+      slow_spans_count: length(slow_spans),
+      slow_spans: slow_spans
+    }
+  end
+
+  defp build_observability_summary(_, _), do: %{metrics_count: 0, traces_count: 0, avg_duration: 0, error_rate: 0.0, slow_spans_count: 0, slow_spans: []}
+
+  defp build_high_utilization_summary(cpu_rows) when is_list(cpu_rows) do
+    # Deduplicate by host, keeping most recent
+    unique_hosts =
+      cpu_rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(%{}, fn row, acc ->
+        host = Map.get(row, "host") || Map.get(row, "device_id") || ""
+        if host != "", do: Map.put_new(acc, host, row), else: acc
+      end)
+      |> Map.values()
+
+    # Categorize by utilization level
+    categorized =
+      unique_hosts
+      |> Enum.reduce(%{cpu_warning: [], cpu_critical: [], memory_warning: [], memory_critical: []}, fn row, acc ->
+        cpu_usage = extract_numeric(Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") || Map.get(row, "user") || 0)
+        memory_usage = extract_numeric(Map.get(row, "memory_usage") || Map.get(row, "mem_percent") || 0)
+
+        acc =
+          cond do
+            cpu_usage >= 90 -> Map.update!(acc, :cpu_critical, &[row | &1])
+            cpu_usage >= 80 -> Map.update!(acc, :cpu_warning, &[row | &1])
+            true -> acc
+          end
+
+        cond do
+          memory_usage >= 90 -> Map.update!(acc, :memory_critical, &[row | &1])
+          memory_usage >= 80 -> Map.update!(acc, :memory_warning, &[row | &1])
+          true -> acc
+        end
+      end)
+
+    # Get top high utilization services
+    high_util_services =
+      unique_hosts
+      |> Enum.filter(fn row ->
+        cpu = extract_numeric(Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") || Map.get(row, "user") || 0)
+        mem = extract_numeric(Map.get(row, "memory_usage") || Map.get(row, "mem_percent") || 0)
+        cpu >= 70 or mem >= 70
+      end)
+      |> Enum.sort_by(fn row ->
+        cpu = extract_numeric(Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") || Map.get(row, "user") || 0)
+        mem = extract_numeric(Map.get(row, "memory_usage") || Map.get(row, "mem_percent") || 0)
+        -(cpu + mem)
+      end)
+      |> Enum.take(8)
+
+    %{
+      cpu_warning: length(categorized.cpu_warning),
+      cpu_critical: length(categorized.cpu_critical),
+      memory_warning: length(categorized.memory_warning),
+      memory_critical: length(categorized.memory_critical),
+      services: high_util_services,
+      total_hosts: length(unique_hosts)
+    }
+  end
+
+  defp build_high_utilization_summary(_), do: %{cpu_warning: 0, cpu_critical: 0, memory_warning: 0, memory_critical: 0, services: [], total_hosts: 0}
+
+  defp build_bandwidth_summary(rperf_rows) when is_list(rperf_rows) do
+    # Deduplicate by target name, keeping most recent
+    unique_targets =
+      rperf_rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(%{}, fn row, acc ->
+        name = Map.get(row, "target_name") || Map.get(row, "name") || Map.get(row, "target_id") || ""
+        if name != "", do: Map.put_new(acc, name, row), else: acc
+      end)
+      |> Map.values()
+
+    targets_with_data =
+      unique_targets
+      |> Enum.map(fn row ->
+        %{
+          name: Map.get(row, "target_name") || Map.get(row, "name") || "Unknown",
+          target_host: Map.get(row, "target_host") || Map.get(row, "host") || "",
+          download_mbps: extract_numeric(Map.get(row, "download_mbps") || Map.get(row, "rx_mbps") || 0),
+          upload_mbps: extract_numeric(Map.get(row, "upload_mbps") || Map.get(row, "tx_mbps") || 0),
+          latency_ms: extract_numeric(Map.get(row, "latency_ms") || Map.get(row, "rtt_ms") || 0),
+          timestamp: Map.get(row, "timestamp")
+        }
+      end)
+      |> Enum.take(10)
+
+    # Calculate overall stats
+    total_download = Enum.sum(Enum.map(targets_with_data, & &1.download_mbps))
+    total_upload = Enum.sum(Enum.map(targets_with_data, & &1.upload_mbps))
+    avg_latency =
+      if length(targets_with_data) > 0 do
+        Enum.sum(Enum.map(targets_with_data, & &1.latency_ms)) / length(targets_with_data)
+      else
+        0
+      end
+
+    %{
+      targets: targets_with_data,
+      total_download: Float.round(total_download, 2),
+      total_upload: Float.round(total_upload, 2),
+      avg_latency: Float.round(avg_latency, 1),
+      target_count: length(targets_with_data)
+    }
+  end
+
+  defp build_bandwidth_summary(_), do: %{targets: [], total_download: 0.0, total_upload: 0.0, avg_latency: 0.0, target_count: 0}
+
+  defp extract_numeric(value) when is_number(value), do: value
+  defp extract_numeric(value) when is_binary(value) do
+    case Float.parse(value) do
+      {num, _} -> num
+      :error -> 0
+    end
+  end
+  defp extract_numeric(_), do: 0
+
   defp normalize_severity(nil), do: ""
 
   defp normalize_severity(value) do
@@ -361,8 +562,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
         <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
           <.device_availability_widget availability={@device_availability} loading={@loading} />
+          <.observability_widget data={@observability} loading={@loading} />
           <.critical_events_widget summary={@events_summary} loading={@loading} />
           <.critical_logs_widget summary={@logs_summary} loading={@loading} />
+          <.high_utilization_widget data={@high_utilization} loading={@loading} />
+          <.bandwidth_widget data={@bandwidth} loading={@loading} />
         </div>
 
         <div class="mt-6 text-xs text-base-content/60 flex items-center justify-between gap-3 flex-wrap">
@@ -727,6 +931,325 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     </div>
     """
   end
+
+  attr :data, :map, required: true
+  attr :loading, :boolean, default: false
+
+  def observability_widget(assigns) do
+    data = assigns.data || %{}
+    metrics_count = Map.get(data, :metrics_count, 0)
+    traces_count = Map.get(data, :traces_count, 0)
+    avg_duration = Map.get(data, :avg_duration, 0)
+    error_rate = Map.get(data, :error_rate, 0.0)
+    slow_spans_count = Map.get(data, :slow_spans_count, 0)
+    slow_spans = Map.get(data, :slow_spans, [])
+
+    assigns =
+      assigns
+      |> assign(:metrics_count, metrics_count)
+      |> assign(:traces_count, traces_count)
+      |> assign(:avg_duration, avg_duration)
+      |> assign(:error_rate, error_rate)
+      |> assign(:slow_spans_count, slow_spans_count)
+      |> assign(:slow_spans, slow_spans)
+
+    ~H"""
+    <.ui_panel class="h-80">
+      <:header>
+        <.link href={~p"/dashboard"} class="hover:text-primary transition-colors">
+          <div class="text-sm font-semibold">Observability</div>
+        </.link>
+        <.link
+          href={~p"/dashboard?#{%{q: "in:traces time:last_1h sort:timestamp:desc limit:100"}}"}
+          class="text-base-content/60 hover:text-primary"
+          title="View traces"
+        >
+          <.icon name="hero-arrow-top-right-on-square" class="size-4" />
+        </.link>
+      </:header>
+
+      <div :if={@loading} class="flex-1 flex items-center justify-center">
+        <span class="loading loading-spinner loading-md" />
+      </div>
+
+      <div :if={not @loading} class="flex flex-col h-full">
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div class="rounded-lg bg-base-200/50 p-3 text-center">
+            <div class="text-xl font-bold text-primary">{format_number(@metrics_count)}</div>
+            <div class="text-xs text-base-content/60">Metrics</div>
+          </div>
+          <div class="rounded-lg bg-base-200/50 p-3 text-center">
+            <div class="text-xl font-bold text-secondary">{format_number(@traces_count)}</div>
+            <div class="text-xs text-base-content/60">Traces</div>
+          </div>
+          <div class="rounded-lg bg-base-200/50 p-3 text-center">
+            <div class="text-xl font-bold text-info">{format_duration(@avg_duration)}</div>
+            <div class="text-xs text-base-content/60">Avg Duration</div>
+          </div>
+          <div class={["rounded-lg p-3 text-center", @error_rate > 5 && "bg-error/10" || "bg-base-200/50"]}>
+            <div class={["text-xl font-bold", @error_rate > 5 && "text-error" || "text-success"]}>
+              {@error_rate}%
+            </div>
+            <div class="text-xs text-base-content/60">Error Rate</div>
+          </div>
+        </div>
+
+        <div class="flex-1 min-h-0">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-medium text-base-content/70">Slow Spans (&gt;1s)</span>
+            <span class={["text-xs font-bold", @slow_spans_count > 0 && "text-warning" || "text-base-content/50"]}>
+              {@slow_spans_count}
+            </span>
+          </div>
+
+          <div :if={@slow_spans == []} class="flex items-center justify-center py-4">
+            <div class="text-center">
+              <.icon name="hero-bolt" class="size-6 mx-auto mb-1 text-success" />
+              <p class="text-xs text-base-content/60">No slow spans</p>
+            </div>
+          </div>
+
+          <div :if={@slow_spans != []} class="space-y-1 overflow-y-auto max-h-24">
+            <%= for span <- @slow_spans do %>
+              <div class="flex items-center justify-between text-xs p-1.5 rounded bg-warning/10">
+                <span class="truncate max-w-[60%]" title={span_name(span)}>{span_name(span)}</span>
+                <span class="font-mono text-warning">{format_duration(span_duration(span))}</span>
+              </div>
+            <% end %>
+          </div>
+        </div>
+      </div>
+    </.ui_panel>
+    """
+  end
+
+  attr :data, :map, required: true
+  attr :loading, :boolean, default: false
+
+  def high_utilization_widget(assigns) do
+    data = assigns.data || %{}
+    cpu_warning = Map.get(data, :cpu_warning, 0)
+    cpu_critical = Map.get(data, :cpu_critical, 0)
+    memory_warning = Map.get(data, :memory_warning, 0)
+    memory_critical = Map.get(data, :memory_critical, 0)
+    services = Map.get(data, :services, [])
+    total_hosts = Map.get(data, :total_hosts, 0)
+
+    assigns =
+      assigns
+      |> assign(:cpu_warning, cpu_warning)
+      |> assign(:cpu_critical, cpu_critical)
+      |> assign(:memory_warning, memory_warning)
+      |> assign(:memory_critical, memory_critical)
+      |> assign(:services, services)
+      |> assign(:total_hosts, total_hosts)
+
+    ~H"""
+    <.ui_panel class="h-80">
+      <:header>
+        <.link href={~p"/dashboard?#{%{q: "in:cpu_metrics time:last_1h sort:timestamp:desc"}}"} class="hover:text-primary transition-colors">
+          <div class="text-sm font-semibold">High Utilization</div>
+        </.link>
+        <.link
+          href={~p"/dashboard?#{%{q: "in:cpu_metrics time:last_1h sort:timestamp:desc limit:100"}}"}
+          class="text-base-content/60 hover:text-primary"
+          title="View CPU metrics"
+        >
+          <.icon name="hero-arrow-top-right-on-square" class="size-4" />
+        </.link>
+      </:header>
+
+      <div :if={@loading} class="flex-1 flex items-center justify-center">
+        <span class="loading loading-spinner loading-md" />
+      </div>
+
+      <div :if={not @loading} class="flex flex-col h-full">
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div class="rounded-lg bg-base-200/50 p-2">
+            <div class="text-xs text-base-content/60 mb-1">CPU</div>
+            <div class="flex items-center gap-2">
+              <span :if={@cpu_critical > 0} class="badge badge-error badge-sm">{@cpu_critical} critical</span>
+              <span :if={@cpu_warning > 0} class="badge badge-warning badge-sm">{@cpu_warning} warning</span>
+              <span :if={@cpu_critical == 0 and @cpu_warning == 0} class="badge badge-success badge-sm">OK</span>
+            </div>
+          </div>
+          <div class="rounded-lg bg-base-200/50 p-2">
+            <div class="text-xs text-base-content/60 mb-1">Memory</div>
+            <div class="flex items-center gap-2">
+              <span :if={@memory_critical > 0} class="badge badge-error badge-sm">{@memory_critical} critical</span>
+              <span :if={@memory_warning > 0} class="badge badge-warning badge-sm">{@memory_warning} warning</span>
+              <span :if={@memory_critical == 0 and @memory_warning == 0} class="badge badge-success badge-sm">OK</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-xs text-base-content/50 mb-2">{@total_hosts} hosts monitored</div>
+
+        <div :if={@services == []} class="flex-1 flex items-center justify-center">
+          <div class="text-center">
+            <.icon name="hero-cpu-chip" class="size-6 mx-auto mb-1 text-success" />
+            <p class="text-xs text-base-content/60">No high utilization</p>
+          </div>
+        </div>
+
+        <div :if={@services != []} class="flex-1 overflow-y-auto space-y-1 min-h-0">
+          <%= for svc <- @services do %>
+            <.utilization_row service={svc} />
+          <% end %>
+        </div>
+      </div>
+    </.ui_panel>
+    """
+  end
+
+  attr :data, :map, required: true
+  attr :loading, :boolean, default: false
+
+  def bandwidth_widget(assigns) do
+    data = assigns.data || %{}
+    targets = Map.get(data, :targets, [])
+    total_download = Map.get(data, :total_download, 0.0)
+    total_upload = Map.get(data, :total_upload, 0.0)
+    avg_latency = Map.get(data, :avg_latency, 0.0)
+    target_count = Map.get(data, :target_count, 0)
+
+    assigns =
+      assigns
+      |> assign(:targets, targets)
+      |> assign(:total_download, total_download)
+      |> assign(:total_upload, total_upload)
+      |> assign(:avg_latency, avg_latency)
+      |> assign(:target_count, target_count)
+
+    ~H"""
+    <.ui_panel class="h-80">
+      <:header>
+        <.link href={~p"/dashboard?#{%{q: "in:rperf_targets time:last_1h sort:timestamp:desc"}}"} class="hover:text-primary transition-colors">
+          <div class="text-sm font-semibold">Bandwidth Tracker</div>
+        </.link>
+        <.link
+          href={~p"/dashboard?#{%{q: "in:rperf_targets time:last_1h sort:timestamp:desc limit:50"}}"}
+          class="text-base-content/60 hover:text-primary"
+          title="View bandwidth data"
+        >
+          <.icon name="hero-arrow-top-right-on-square" class="size-4" />
+        </.link>
+      </:header>
+
+      <div :if={@loading} class="flex-1 flex items-center justify-center">
+        <span class="loading loading-spinner loading-md" />
+      </div>
+
+      <div :if={not @loading} class="flex flex-col h-full">
+        <div class="grid grid-cols-3 gap-2 mb-4">
+          <div class="rounded-lg bg-success/10 p-2 text-center">
+            <div class="text-lg font-bold text-success">{format_mbps(@total_download)}</div>
+            <div class="text-[10px] text-base-content/60">Download</div>
+          </div>
+          <div class="rounded-lg bg-primary/10 p-2 text-center">
+            <div class="text-lg font-bold text-primary">{format_mbps(@total_upload)}</div>
+            <div class="text-[10px] text-base-content/60">Upload</div>
+          </div>
+          <div class="rounded-lg bg-base-200/50 p-2 text-center">
+            <div class="text-lg font-bold">{@avg_latency}ms</div>
+            <div class="text-[10px] text-base-content/60">Avg Latency</div>
+          </div>
+        </div>
+
+        <div class="text-xs text-base-content/50 mb-2">{@target_count} targets</div>
+
+        <div :if={@targets == []} class="flex-1 flex items-center justify-center">
+          <div class="text-center">
+            <.icon name="hero-signal" class="size-6 mx-auto mb-1 text-base-content/40" />
+            <p class="text-xs text-base-content/60">No bandwidth data</p>
+          </div>
+        </div>
+
+        <div :if={@targets != []} class="flex-1 overflow-y-auto min-h-0">
+          <table class="table table-xs w-full">
+            <thead>
+              <tr class="text-[10px]">
+                <th class="text-base-content/60">Target</th>
+                <th class="text-right text-base-content/60">DL</th>
+                <th class="text-right text-base-content/60">UL</th>
+                <th class="text-right text-base-content/60">Lat</th>
+              </tr>
+            </thead>
+            <tbody>
+              <%= for target <- @targets do %>
+                <tr class="hover:bg-base-200/50">
+                  <td class="truncate max-w-[100px] text-xs" title={target.name}>{target.name}</td>
+                  <td class="text-right text-xs text-success">{format_mbps(target.download_mbps)}</td>
+                  <td class="text-right text-xs text-primary">{format_mbps(target.upload_mbps)}</td>
+                  <td class="text-right text-xs font-mono">{round(target.latency_ms)}ms</td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </.ui_panel>
+    """
+  end
+
+  attr :service, :map, required: true
+
+  defp utilization_row(assigns) do
+    svc = assigns.service
+    cpu = extract_numeric(Map.get(svc, "cpu_usage") || Map.get(svc, "usage_percent") || Map.get(svc, "user") || 0)
+    mem = extract_numeric(Map.get(svc, "memory_usage") || Map.get(svc, "mem_percent") || 0)
+    host = Map.get(svc, "host") || Map.get(svc, "device_id") || "Unknown"
+
+    assigns =
+      assigns
+      |> assign(:cpu, cpu)
+      |> assign(:mem, mem)
+      |> assign(:host, host)
+
+    ~H"""
+    <div class="flex items-center gap-2 p-1.5 rounded bg-base-200/50 text-xs">
+      <div class="truncate flex-1 font-medium" title={@host}>{@host}</div>
+      <div class="flex items-center gap-2 shrink-0">
+        <span class={["badge badge-xs", cpu_badge_class(@cpu)]}>CPU {@cpu |> round()}%</span>
+        <span :if={@mem > 0} class={["badge badge-xs", cpu_badge_class(@mem)]}>MEM {@mem |> round()}%</span>
+      </div>
+    </div>
+    """
+  end
+
+  defp cpu_badge_class(value) when value >= 90, do: "badge-error"
+  defp cpu_badge_class(value) when value >= 80, do: "badge-warning"
+  defp cpu_badge_class(value) when value >= 70, do: "badge-info"
+  defp cpu_badge_class(_), do: "badge-ghost"
+
+  defp span_name(span) when is_map(span) do
+    Map.get(span, "name") || Map.get(span, "span_name") || Map.get(span, "operation") || "Unknown"
+  end
+  defp span_name(_), do: "Unknown"
+
+  defp span_duration(span) when is_map(span) do
+    Map.get(span, "duration") || Map.get(span, "duration_ms") || 0
+  end
+  defp span_duration(_), do: 0
+
+  defp format_duration(ms) when is_number(ms) do
+    cond do
+      ms >= 60_000 -> "#{Float.round(ms / 60_000, 1)}m"
+      ms >= 1000 -> "#{Float.round(ms / 1000, 1)}s"
+      true -> "#{round(ms)}ms"
+    end
+  end
+  defp format_duration(_), do: "0ms"
+
+  defp format_mbps(value) when is_number(value) do
+    cond do
+      value >= 1000 -> "#{Float.round(value / 1000, 1)} Gbps"
+      value >= 1 -> "#{Float.round(value, 1)} Mbps"
+      value > 0 -> "#{round(value * 1000)} Kbps"
+      true -> "0"
+    end
+  end
+  defp format_mbps(_), do: "0"
 
   attr :label, :string, required: true
   attr :count, :integer, required: true

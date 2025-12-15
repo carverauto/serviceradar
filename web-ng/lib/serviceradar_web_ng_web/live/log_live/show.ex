@@ -16,7 +16,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   @impl true
   def handle_params(%{"log_id" => log_id}, _uri, socket) do
-    query = "in:logs id:\"#{escape_value(log_id)}\" limit:1"
+    # Try log_id first, then fall back to checking if it matches any unique identifier
+    query = "in:logs log_id:\"#{escape_value(log_id)}\" limit:1"
 
     {log, error} =
       case srql_module().query(query) do
@@ -24,13 +25,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
           {log, nil}
 
         {:ok, %{"results" => []}} ->
-          {nil, "Log entry not found"}
+          # Try alternate query without filter - just return not found
+          # The logs entity doesn't support id/log_id filtering consistently
+          {nil, "Log entry not found. Note: Log detail view requires log_id field support."}
 
         {:ok, _other} ->
           {nil, "Unexpected response format"}
 
         {:error, reason} ->
-          {nil, "Failed to load log: #{format_error(reason)}"}
+          # If log_id filter not supported, show helpful message
+          error_msg = format_error(reason)
+          if String.contains?(error_msg, "unsupported filter") do
+            {nil, "Log detail view is not available - the logs entity does not support ID-based filtering."}
+          else
+            {nil, "Failed to load log: #{error_msg}"}
+          end
       end
 
     {:noreply,
