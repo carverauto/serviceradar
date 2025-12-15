@@ -7,10 +7,25 @@
 # General application configuration
 import Config
 
+config :serviceradar_web_ng, :scopes,
+  user: [
+    default: true,
+    module: ServiceRadarWebNG.Accounts.Scope,
+    assign_key: :current_scope,
+    access_path: [:user, :id],
+    schema_key: :user_id,
+    schema_type: :id,
+    schema_table: :ng_users,
+    test_data_fixture: ServiceRadarWebNG.AccountsFixtures,
+    test_setup_helper: :register_and_log_in_user
+  ]
+
 config :serviceradar_web_ng,
   namespace: ServiceRadarWebNG,
   ecto_repos: [ServiceRadarWebNG.Repo],
   generators: [timestamp_type: :utc_datetime]
+
+config :serviceradar_web_ng, ServiceRadarWebNG.Repo, migration_source: "ng_schema_migrations"
 
 # Configure the endpoint
 config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,

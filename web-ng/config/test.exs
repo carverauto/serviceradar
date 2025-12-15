@@ -1,5 +1,8 @@
 import Config
 
+# Only in tests, remove the complexity from the password hashing algorithm
+config :bcrypt_elixir, :log_rounds, 1
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used
@@ -68,7 +71,7 @@ config :serviceradar_web_ng, ServiceRadarWebNG.Repo,
   hostname: System.get_env("TEST_CNPG_HOST", System.get_env("CNPG_HOST", "localhost")),
   port: String.to_integer(System.get_env("TEST_CNPG_PORT", System.get_env("CNPG_PORT", "5432"))),
   database:
-    System.get_env("TEST_CNPG_DATABASE", "serviceradar_web_ng_test") <>
+    System.get_env("TEST_CNPG_DATABASE", System.get_env("CNPG_DATABASE", "serviceradar")) <>
       (System.get_env("MIX_TEST_PARTITION") || ""),
   ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
   pool: Ecto.Adapters.SQL.Sandbox,
