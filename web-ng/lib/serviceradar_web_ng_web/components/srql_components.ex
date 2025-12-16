@@ -789,9 +789,6 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                   <.ui_button variant="primary" size="sm" type="button" phx-click="srql_builder_run">
                     Run Query
                   </.ui_button>
-                  <span class="text-xs text-base-content/50">
-                    Execute the query built above
-                  </span>
                 </div>
               </div>
             </div>

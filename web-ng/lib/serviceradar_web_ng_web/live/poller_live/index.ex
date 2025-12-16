@@ -73,16 +73,6 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <.ui_panel>
-          <:header>
-            <div class="min-w-0">
-              <span class="text-sm text-base-content/70">
-                Click a poller to view full details.
-              </span>
-            </div>
-            <.ui_button variant="ghost" size="xs" patch={~p"/pollers"}>
-              Reset
-            </.ui_button>
-          </:header>
 
           <.pollers_table id="pollers" pollers={@pollers} />
 

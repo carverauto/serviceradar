@@ -96,15 +96,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       <div class="mx-auto max-w-7xl p-6">
         <.ui_panel>
           <:header>
-            <div class="flex items-center gap-2">
-              <span class="text-sm text-base-content/70">Click a device row to view details</span>
-              <div :if={is_binary(@icmp_error)} class="badge badge-warning badge-sm">
-                ICMP: {@icmp_error}
-              </div>
+            <div :if={is_binary(@icmp_error)} class="badge badge-warning badge-sm">
+              ICMP: {@icmp_error}
             </div>
-            <.link class="btn btn-ghost btn-xs" patch={~p"/devices"}>
-              Reset
-            </.link>
           </:header>
 
           <div class="overflow-x-auto">
@@ -270,36 +264,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   attr :has_sysmon, :boolean, default: false
 
   def metrics_presence(assigns) do
-    assigns =
-      assigns
-      |> assign(:snmp_class, (assigns.has_snmp && "opacity-100") || "opacity-40")
-      |> assign(:sysmon_class, (assigns.has_sysmon && "opacity-100") || "opacity-40")
-
     ~H"""
-    <div class="flex flex-wrap items-center gap-1">
-      <.ui_badge
-        variant={if @has_snmp, do: "info", else: "ghost"}
-        size="xs"
-        class={@snmp_class}
-        title={
-          if @has_snmp, do: "SNMP metrics available (last 24h)", else: "No SNMP metrics (last 24h)"
-        }
-      >
-        SNMP
-      </.ui_badge>
-      <.ui_badge
-        variant={if @has_sysmon, do: "success", else: "ghost"}
-        size="xs"
-        class={@sysmon_class}
-        title={
-          if @has_sysmon,
-            do: "Sysmon metrics available (last 24h)",
-            else: "No Sysmon metrics (last 24h)"
-        }
-      >
-        Sysmon
-      </.ui_badge>
+    <div :if={@has_snmp or @has_sysmon} class="flex items-center gap-2">
+      <span :if={@has_snmp} class="tooltip" data-tip="SNMP metrics available (last 24h)">
+        <.icon name="hero-signal" class="size-4 text-info" />
+      </span>
+      <span :if={@has_sysmon} class="tooltip" data-tip="Sysmon metrics available (last 24h)">
+        <.icon name="hero-cpu-chip" class="size-4 text-success" />
+      </span>
     </div>
+    <span :if={not @has_snmp and not @has_sysmon} class="text-base-content/40">—</span>
     """
   end
 

@@ -1219,7 +1219,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       <div :if={not @loading} class="flex flex-col h-full">
         <div class="grid grid-cols-3 gap-2 mb-3">
           <div class="rounded-lg bg-base-200/50 p-2">
-            <div class="text-[10px] text-base-content/60 mb-1">CPU</div>
+            <div class="flex items-center gap-1 text-[10px] text-base-content/60 mb-1">
+              <.icon name="hero-cpu-chip" class="size-3" /> CPU
+            </div>
             <div class="flex flex-wrap items-center gap-1">
               <span :if={@cpu_critical > 0} class="badge badge-error badge-xs">{@cpu_critical}</span>
               <span :if={@cpu_warning > 0} class="badge badge-warning badge-xs">{@cpu_warning}</span>
@@ -1232,7 +1234,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             </div>
           </div>
           <div class="rounded-lg bg-base-200/50 p-2">
-            <div class="text-[10px] text-base-content/60 mb-1">Memory</div>
+            <div class="flex items-center gap-1 text-[10px] text-base-content/60 mb-1">
+              <.icon name="hero-circle-stack" class="size-3" /> Memory
+            </div>
             <div class="flex flex-wrap items-center gap-1">
               <span :if={@memory_critical > 0} class="badge badge-error badge-xs">
                 {@memory_critical}
@@ -1249,7 +1253,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             </div>
           </div>
           <div class="rounded-lg bg-base-200/50 p-2">
-            <div class="text-[10px] text-base-content/60 mb-1">Disk</div>
+            <div class="flex items-center gap-1 text-[10px] text-base-content/60 mb-1">
+              <.icon name="hero-server-stack" class="size-3" /> Disk
+            </div>
             <div class="flex flex-wrap items-center gap-1">
               <span :if={@disk_critical > 0} class="badge badge-error badge-xs">
                 {@disk_critical}
