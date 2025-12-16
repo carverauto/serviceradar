@@ -24,11 +24,6 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     Ok(row.map(|r| vec![r.result]).unwrap_or_default())
 }
 
-pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
-    ensure_entity(plan)?;
-    Ok(DEVICE_GRAPH_QUERY.trim().to_string())
-}
-
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
     let params = extract_params(plan)?;

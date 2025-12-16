@@ -53,14 +53,6 @@ pub(super) async fn execute(
     Ok(rows.into_iter().map(DeviceRow::into_json).collect())
 }
 
-pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
-    ensure_entity(plan)?;
-    let query = build_query(plan)?;
-    let sql =
-        diesel::debug_query::<Pg, _>(&query.limit(plan.limit).offset(plan.offset)).to_string();
-    Ok(sql)
-}
-
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
     if let Some(spec) = parse_stats_spec(plan.stats.as_deref())? {

@@ -327,7 +327,7 @@ where
 {
     use diesel::query_builder::QueryBuilder as _;
 
-    let backend = diesel::pg::Pg::default();
+    let backend = diesel::pg::Pg;
     let mut query_builder = <diesel::pg::Pg as diesel::backend::Backend>::QueryBuilder::default();
     diesel::query_builder::QueryFragment::<diesel::pg::Pg>::to_sql(
         query,
@@ -439,11 +439,9 @@ fn count_debug_binds_list(binds: &str) -> Option<usize> {
             }
             b')' => paren_depth -= 1,
             b',' => {
-                if bracket_depth == 1 && brace_depth == 0 && paren_depth == 0 {
-                    if in_item {
-                        count += 1;
-                        in_item = false;
-                    }
+                if bracket_depth == 1 && brace_depth == 0 && paren_depth == 0 && in_item {
+                    count += 1;
+                    in_item = false;
                 }
             }
             b if b.is_ascii_whitespace() => {}
@@ -529,7 +527,7 @@ mod tests {
         assert!(matches!(plan.order[0].direction, OrderDirection::Desc));
         assert!(has_availability_filter(&plan, true));
 
-        let sql = devices::to_debug_sql(&plan).expect("should build SQL for docs query");
+        let (sql, _) = devices::to_sql_and_params(&plan).expect("should build SQL for docs query");
         assert!(
             sql.to_lowercase()
                 .contains("\"unified_devices\".\"is_available\" = $3"),
@@ -547,7 +545,7 @@ mod tests {
         assert!(plan.time_range.is_some());
         assert!(has_availability_filter(&plan, false));
 
-        let sql = devices::to_debug_sql(&plan).expect("should build SQL for docs query");
+        let (sql, _) = devices::to_sql_and_params(&plan).expect("should build SQL for docs query");
         assert!(
             sql.to_lowercase()
                 .contains("\"unified_devices\".\"is_available\" = $3"),
@@ -631,7 +629,7 @@ mod tests {
 
         assert!(matches!(plan.entity, Entity::Interfaces));
         assert_eq!(plan.limit, 5);
-        let sql = interfaces::to_debug_sql(&plan).expect("should build interfaces SQL");
+        let (sql, _) = interfaces::to_sql_and_params(&plan).expect("should build interfaces SQL");
         let lower = sql.to_lowercase();
         assert!(
             lower.contains("coalesce(") && lower.contains("ip_addresses"),
@@ -648,7 +646,7 @@ mod tests {
         assert!(matches!(plan.entity, Entity::Pollers));
         assert_eq!(plan.limit, 10);
         assert_eq!(plan.order[0].field, "agent_count");
-        let sql = pollers::to_debug_sql(&plan).expect("should build pollers SQL");
+        let (sql, _) = pollers::to_sql_and_params(&plan).expect("should build pollers SQL");
         let lower = sql.to_lowercase();
         assert!(
             lower.contains("\"pollers\".\"is_healthy\" =")

@@ -50,12 +50,6 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
         .collect())
 }
 
-pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
-    let scope = ensure_entity(plan)?;
-    let query = build_query(plan, scope)?;
-    Ok(diesel::debug_query::<Pg, _>(&query.limit(plan.limit).offset(plan.offset)).to_string())
-}
-
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     let scope = ensure_entity(plan)?;
     let query = build_query(plan, scope)?

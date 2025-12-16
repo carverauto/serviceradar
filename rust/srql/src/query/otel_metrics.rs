@@ -52,16 +52,6 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     Ok(rows.into_iter().map(OtelMetricRow::into_json).collect())
 }
 
-pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
-    ensure_entity(plan)?;
-    if let Some(stats_sql) = build_stats_query(plan)? {
-        return Ok(stats_sql.sql);
-    }
-
-    let query = build_query(plan)?;
-    Ok(diesel::debug_query::<Pg, _>(&query.limit(plan.limit).offset(plan.offset)).to_string())
-}
-
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
 

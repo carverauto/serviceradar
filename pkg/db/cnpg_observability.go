@@ -17,19 +17,8 @@ const (
 	defaultTracesTable  = "otel_traces"
 )
 
-// InsertOTELLogs persists OTEL log rows into the configured CNPG table.
-func (db *DB) InsertOTELLogs(ctx context.Context, table string, rows []models.OTELLogRow) error {
-	if len(rows) == 0 {
-		return nil
-	}
-
-	if !db.cnpgConfigured() {
-		return ErrCNPGUnavailable
-	}
-
-	sanitized, canonical := sanitizeObservabilityTable(table, defaultLogsTable)
-
-	query := fmt.Sprintf(`INSERT INTO %s (
+const (
+	otelLogsInsertSQL = `INSERT INTO %s (
 		timestamp,
 		trace_id,
 		span_id,
@@ -47,50 +36,9 @@ func (db *DB) InsertOTELLogs(ctx context.Context, table string, rows []models.OT
 		$1,$2,$3,$4,$5,
 		$6,$7,$8,$9,$10,
 		$11,$12,$13
-	) ON CONFLICT DO NOTHING`, sanitized)
+	) ON CONFLICT DO NOTHING`
 
-	batch := &pgx.Batch{}
-	now := time.Now().UTC()
-
-	for i := range rows {
-		ts := rows[i].Timestamp
-		if ts.IsZero() {
-			ts = now
-		}
-
-		batch.Queue(query,
-			ts.UTC(),
-			rows[i].TraceID,
-			rows[i].SpanID,
-			rows[i].SeverityText,
-			rows[i].SeverityNumber,
-			rows[i].Body,
-			rows[i].ServiceName,
-			rows[i].ServiceVersion,
-			rows[i].ServiceInstance,
-			rows[i].ScopeName,
-			rows[i].ScopeVersion,
-			rows[i].Attributes,
-			rows[i].ResourceAttributes,
-		)
-	}
-
-	return db.sendCNPG(ctx, batch, fmt.Sprintf("%s logs", canonical))
-}
-
-// InsertOTELMetrics persists OTEL metric rows into the configured CNPG table.
-func (db *DB) InsertOTELMetrics(ctx context.Context, table string, rows []models.OTELMetricRow) error {
-	if len(rows) == 0 {
-		return nil
-	}
-
-	if !db.cnpgConfigured() {
-		return ErrCNPGUnavailable
-	}
-
-	sanitized, canonical := sanitizeObservabilityTable(table, defaultMetricsTable)
-
-	query := fmt.Sprintf(`INSERT INTO %s (
+	otelMetricsInsertSQL = `INSERT INTO %s (
 		timestamp,
 		trace_id,
 		span_id,
@@ -115,56 +63,9 @@ func (db *DB) InsertOTELMetrics(ctx context.Context, table string, rows []models
 		$6,$7,$8,$9,$10,
 		$11,$12,$13,$14,$15,
 		$16,$17,$18,$19
-	) ON CONFLICT DO NOTHING`, sanitized)
+	) ON CONFLICT DO NOTHING`
 
-	batch := &pgx.Batch{}
-	now := time.Now().UTC()
-
-	for i := range rows {
-		ts := rows[i].Timestamp
-		if ts.IsZero() {
-			ts = now
-		}
-
-		batch.Queue(query,
-			ts.UTC(),
-			rows[i].TraceID,
-			rows[i].SpanID,
-			rows[i].ServiceName,
-			rows[i].SpanName,
-			rows[i].SpanKind,
-			rows[i].DurationMs,
-			rows[i].DurationSeconds,
-			rows[i].MetricType,
-			rows[i].HTTPMethod,
-			rows[i].HTTPRoute,
-			rows[i].HTTPStatusCode,
-			rows[i].GRPCService,
-			rows[i].GRPCMethod,
-			rows[i].GRPCStatusCode,
-			rows[i].IsSlow,
-			rows[i].Component,
-			rows[i].Level,
-			rows[i].Unit,
-		)
-	}
-
-	return db.sendCNPG(ctx, batch, fmt.Sprintf("%s metrics", canonical))
-}
-
-// InsertOTELTraces persists OTEL trace rows into the configured CNPG table.
-func (db *DB) InsertOTELTraces(ctx context.Context, table string, rows []models.OTELTraceRow) error {
-	if len(rows) == 0 {
-		return nil
-	}
-
-	if !db.cnpgConfigured() {
-		return ErrCNPGUnavailable
-	}
-
-	sanitized, canonical := sanitizeObservabilityTable(table, defaultTracesTable)
-
-	query := fmt.Sprintf(`INSERT INTO %s (
+	otelTracesInsertSQL = `INSERT INTO %s (
 		timestamp,
 		trace_id,
 		span_id,
@@ -189,41 +90,195 @@ func (db *DB) InsertOTELTraces(ctx context.Context, table string, rows []models.
 		$6,$7,$8,$9,$10,
 		$11,$12,$13,$14,$15,
 		$16,$17,$18,$19
-	) ON CONFLICT DO NOTHING`, sanitized)
+	) ON CONFLICT DO NOTHING`
+)
+
+type otelRowInserter interface {
+	RowCount() int
+	TimestampAt(rowIndex int) time.Time
+	QueueRow(batch *pgx.Batch, query string, rowIndex int, timestamp time.Time)
+}
+
+type otelLogInserter struct {
+	rows []models.OTELLogRow
+}
+
+func (inserter otelLogInserter) RowCount() int { return len(inserter.rows) }
+
+func (inserter otelLogInserter) TimestampAt(rowIndex int) time.Time {
+	return inserter.rows[rowIndex].Timestamp
+}
+
+func (inserter otelLogInserter) QueueRow(batch *pgx.Batch, query string, rowIndex int, timestamp time.Time) {
+	row := inserter.rows[rowIndex]
+	batch.Queue(query,
+		timestamp,
+		row.TraceID,
+		row.SpanID,
+		row.SeverityText,
+		row.SeverityNumber,
+		row.Body,
+		row.ServiceName,
+		row.ServiceVersion,
+		row.ServiceInstance,
+		row.ScopeName,
+		row.ScopeVersion,
+		row.Attributes,
+		row.ResourceAttributes,
+	)
+}
+
+type otelMetricInserter struct {
+	rows []models.OTELMetricRow
+}
+
+func (inserter otelMetricInserter) RowCount() int { return len(inserter.rows) }
+
+func (inserter otelMetricInserter) TimestampAt(rowIndex int) time.Time {
+	return inserter.rows[rowIndex].Timestamp
+}
+
+func (inserter otelMetricInserter) QueueRow(batch *pgx.Batch, query string, rowIndex int, timestamp time.Time) {
+	row := inserter.rows[rowIndex]
+	batch.Queue(query,
+		timestamp,
+		row.TraceID,
+		row.SpanID,
+		row.ServiceName,
+		row.SpanName,
+		row.SpanKind,
+		row.DurationMs,
+		row.DurationSeconds,
+		row.MetricType,
+		row.HTTPMethod,
+		row.HTTPRoute,
+		row.HTTPStatusCode,
+		row.GRPCService,
+		row.GRPCMethod,
+		row.GRPCStatusCode,
+		row.IsSlow,
+		row.Component,
+		row.Level,
+		row.Unit,
+	)
+}
+
+type otelTraceInserter struct {
+	rows []models.OTELTraceRow
+}
+
+func (inserter otelTraceInserter) RowCount() int { return len(inserter.rows) }
+
+func (inserter otelTraceInserter) TimestampAt(rowIndex int) time.Time {
+	return inserter.rows[rowIndex].Timestamp
+}
+
+func (inserter otelTraceInserter) QueueRow(batch *pgx.Batch, query string, rowIndex int, timestamp time.Time) {
+	row := inserter.rows[rowIndex]
+	batch.Queue(query,
+		timestamp,
+		row.TraceID,
+		row.SpanID,
+		row.ParentSpanID,
+		row.Name,
+		row.Kind,
+		row.StartTimeUnixNano,
+		row.EndTimeUnixNano,
+		row.ServiceName,
+		row.ServiceVersion,
+		row.ServiceInstance,
+		row.ScopeName,
+		row.ScopeVersion,
+		row.StatusCode,
+		row.StatusMessage,
+		row.Attributes,
+		row.ResourceAttributes,
+		row.Events,
+		row.Links,
+	)
+}
+
+func buildOTELLogsInsertQuery(sanitizedTable string) string {
+	return fmt.Sprintf(otelLogsInsertSQL, sanitizedTable)
+}
+
+func buildOTELMetricsInsertQuery(sanitizedTable string) string {
+	return fmt.Sprintf(otelMetricsInsertSQL, sanitizedTable)
+}
+
+func buildOTELTracesInsertQuery(sanitizedTable string) string {
+	return fmt.Sprintf(otelTracesInsertSQL, sanitizedTable)
+}
+
+func (db *DB) insertOTELRows(
+	ctx context.Context,
+	table string,
+	defaultTable string,
+	kind string,
+	rowCount int,
+	buildQuery func(sanitizedTable string) string,
+	timestampAt func(rowIndex int) time.Time,
+	queueRow func(batch *pgx.Batch, query string, rowIndex int, timestamp time.Time),
+) error {
+	if rowCount == 0 {
+		return nil
+	}
+
+	if !db.cnpgConfigured() {
+		return ErrCNPGUnavailable
+	}
+
+	sanitizedTable, canonicalTable := sanitizeObservabilityTable(table, defaultTable)
+	query := buildQuery(sanitizedTable)
 
 	batch := &pgx.Batch{}
 	now := time.Now().UTC()
 
-	for i := range rows {
-		ts := rows[i].Timestamp
+	for rowIndex := 0; rowIndex < rowCount; rowIndex++ {
+		ts := timestampAt(rowIndex)
 		if ts.IsZero() {
 			ts = now
 		}
 
-		batch.Queue(query,
-			ts.UTC(),
-			rows[i].TraceID,
-			rows[i].SpanID,
-			rows[i].ParentSpanID,
-			rows[i].Name,
-			rows[i].Kind,
-			rows[i].StartTimeUnixNano,
-			rows[i].EndTimeUnixNano,
-			rows[i].ServiceName,
-			rows[i].ServiceVersion,
-			rows[i].ServiceInstance,
-			rows[i].ScopeName,
-			rows[i].ScopeVersion,
-			rows[i].StatusCode,
-			rows[i].StatusMessage,
-			rows[i].Attributes,
-			rows[i].ResourceAttributes,
-			rows[i].Events,
-			rows[i].Links,
-		)
+		queueRow(batch, query, rowIndex, ts.UTC())
 	}
 
-	return db.sendCNPG(ctx, batch, fmt.Sprintf("%s traces", canonical))
+	return db.sendCNPG(ctx, batch, fmt.Sprintf("%s %s", canonicalTable, kind))
+}
+
+func (db *DB) insertOTEL(
+	ctx context.Context,
+	table string,
+	defaultTable string,
+	kind string,
+	buildQuery func(sanitizedTable string) string,
+	inserter otelRowInserter,
+) error {
+	return db.insertOTELRows(
+		ctx,
+		table,
+		defaultTable,
+		kind,
+		inserter.RowCount(),
+		buildQuery,
+		inserter.TimestampAt,
+		inserter.QueueRow,
+	)
+}
+
+// InsertOTELLogs persists OTEL log rows into the configured CNPG table.
+func (db *DB) InsertOTELLogs(ctx context.Context, table string, rows []models.OTELLogRow) error {
+	return db.insertOTEL(ctx, table, defaultLogsTable, "logs", buildOTELLogsInsertQuery, otelLogInserter{rows: rows})
+}
+
+// InsertOTELMetrics persists OTEL metric rows into the configured CNPG table.
+func (db *DB) InsertOTELMetrics(ctx context.Context, table string, rows []models.OTELMetricRow) error {
+	return db.insertOTEL(ctx, table, defaultMetricsTable, "metrics", buildOTELMetricsInsertQuery, otelMetricInserter{rows: rows})
+}
+
+// InsertOTELTraces persists OTEL trace rows into the configured CNPG table.
+func (db *DB) InsertOTELTraces(ctx context.Context, table string, rows []models.OTELTraceRow) error {
+	return db.insertOTEL(ctx, table, defaultTracesTable, "traces", buildOTELTracesInsertQuery, otelTraceInserter{rows: rows})
 }
 
 func sanitizeObservabilityTable(tableName, defaultName string) (string, string) {

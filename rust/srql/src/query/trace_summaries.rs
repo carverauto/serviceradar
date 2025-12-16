@@ -61,12 +61,6 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     }
 }
 
-pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
-    ensure_entity(plan)?;
-    let summary_query = build_summary_query(plan)?;
-    Ok(summary_query.sql)
-}
-
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
     let summary_query = build_summary_query(plan)?;

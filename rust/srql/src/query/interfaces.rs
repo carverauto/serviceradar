@@ -56,19 +56,6 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
         .collect())
 }
 
-pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
-    ensure_entity(plan)?;
-
-    if parse_stats_spec(plan.stats.as_deref())?.is_some() {
-        let base = base_query(plan)?;
-        let sql = diesel::debug_query::<Pg, _>(&base.count()).to_string();
-        return Ok(sql);
-    }
-
-    let query = build_query(plan)?;
-    Ok(diesel::debug_query::<Pg, _>(&query.limit(plan.limit).offset(plan.offset)).to_string())
-}
-
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
 
@@ -477,7 +464,7 @@ mod tests {
             .expect("stats expected");
         assert_eq!(spec.alias, "interface_count");
 
-        let sql = to_debug_sql(&plan).expect("stats SQL should be generated");
+        let (sql, _) = to_sql_and_params(&plan).expect("stats SQL should be generated");
         assert!(
             sql.to_lowercase().contains("count("),
             "unexpected stats SQL: {}",
