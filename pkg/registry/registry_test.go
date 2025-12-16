@@ -47,7 +47,7 @@ func allowCanonicalizationQueries(mockDB *db.MockService) {
 		AnyTimes()
 	// IdentityEngine calls BatchGetDeviceIDsByIdentifier to resolve strong identifiers
 	mockDB.EXPECT().
-		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any()).
+		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).
 		AnyTimes()
 	// IdentityEngine calls UpsertDeviceIdentifiers to persist identifier mappings
@@ -1285,7 +1285,7 @@ func TestProcessBatchDeviceUpdates_MergesSweepIntoCanonicalDevice(t *testing.T) 
 
 	// IdentityEngine mocks
 	mockDB.EXPECT().
-		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any()).
+		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).
 		AnyTimes()
 	mockDB.EXPECT().
@@ -1345,7 +1345,7 @@ func TestReconcileSightingsMergesSweepSightingsByIP(t *testing.T) {
 
 	// IdentityEngine mocks
 	mockDB.EXPECT().
-		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any()).
+		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).
 		AnyTimes()
 	mockDB.EXPECT().
@@ -1451,7 +1451,7 @@ func TestReconcileSightingsPromotesEligibleSightings(t *testing.T) {
 		Return([]*models.UnifiedDevice{}, nil).
 		AnyTimes()
 	mockDB.EXPECT().
-		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any()).
+		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).
 		AnyTimes()
 
@@ -1732,7 +1732,7 @@ func TestProcessBatchDeviceUpdates_SweepAttachedToCanonicalGetsMetadata(t *testi
 		AnyTimes()
 
 	mockDB.EXPECT().
-		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any()).
+		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil, nil).
 		AnyTimes()
 

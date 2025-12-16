@@ -86,7 +86,7 @@ type identityEngineCache struct {
 	maxSize int
 
 	// Maps strong identifiers to device IDs
-	// Key format: "<type>:<value>" e.g., "armis_device_id:12345"
+	// Key format: "<partition>:<type>:<value>" e.g., "default:armis_device_id:12345"
 	strongIDToDeviceID map[string]engineCacheEntry
 
 	// Maps IP addresses to device IDs (weak identifier, lower priority)
@@ -184,19 +184,27 @@ func (e *IdentityEngine) ExtractStrongIdentifiers(update *models.DeviceUpdate) *
 
 	// Build cache keys for strong identifiers
 	if ids.ArmisID != "" {
-		ids.CacheKeys = append(ids.CacheKeys, IdentifierTypeArmis+":"+ids.ArmisID)
+		ids.CacheKeys = append(ids.CacheKeys, strongIdentifierCacheKey(ids.Partition, IdentifierTypeArmis, ids.ArmisID))
 	}
 	if ids.IntegrationID != "" {
-		ids.CacheKeys = append(ids.CacheKeys, IdentifierTypeIntegration+":"+ids.IntegrationID)
+		ids.CacheKeys = append(ids.CacheKeys, strongIdentifierCacheKey(ids.Partition, IdentifierTypeIntegration, ids.IntegrationID))
 	}
 	if ids.NetboxID != "" {
-		ids.CacheKeys = append(ids.CacheKeys, IdentifierTypeNetbox+":"+ids.NetboxID)
+		ids.CacheKeys = append(ids.CacheKeys, strongIdentifierCacheKey(ids.Partition, IdentifierTypeNetbox, ids.NetboxID))
 	}
 	if ids.MAC != "" {
-		ids.CacheKeys = append(ids.CacheKeys, IdentifierTypeMAC+":"+ids.MAC)
+		ids.CacheKeys = append(ids.CacheKeys, strongIdentifierCacheKey(ids.Partition, IdentifierTypeMAC, ids.MAC))
 	}
 
 	return ids
+}
+
+func strongIdentifierCacheKey(partition, idType, idValue string) string {
+	partition = strings.TrimSpace(partition)
+	if partition == "" {
+		partition = defaultPartition
+	}
+	return partition + ":" + idType + ":" + strings.TrimSpace(idValue)
 }
 
 // ResolveDeviceID resolves a device update to a canonical ServiceRadar device ID.
@@ -489,11 +497,97 @@ func (e *IdentityEngine) batchLookupByStrongIdentifiers(
 		return matches
 	}
 
-	// Collect all identifiers by type
-	armisIDs := make([]string, 0)
-	integrationIDs := make([]string, 0)
-	netboxIDs := make([]string, 0)
-	macs := make([]string, 0)
+	updatesByPartition := groupUpdatesByPartition(updates, updateIdentifiers)
+	for partition, partitionUpdates := range updatesByPartition {
+		partitionMatches := e.batchLookupByStrongIdentifiersForPartition(ctx, partition, partitionUpdates, updateIdentifiers)
+		for update, deviceID := range partitionMatches {
+			matches[update] = deviceID
+		}
+	}
+
+	return matches
+}
+
+func groupUpdatesByPartition(updates []*models.DeviceUpdate, updateIdentifiers map[*models.DeviceUpdate]*StrongIdentifiers) map[string][]*models.DeviceUpdate {
+	updatesByPartition := make(map[string][]*models.DeviceUpdate)
+	for _, update := range updates {
+		ids := updateIdentifiers[update]
+		if ids == nil {
+			continue
+		}
+
+		partition := strings.TrimSpace(ids.Partition)
+		if partition == "" {
+			partition = defaultPartition
+		}
+
+		updatesByPartition[partition] = append(updatesByPartition[partition], update)
+	}
+	return updatesByPartition
+}
+
+func (e *IdentityEngine) batchLookupByStrongIdentifiersForPartition(
+	ctx context.Context,
+	partition string,
+	updates []*models.DeviceUpdate,
+	updateIdentifiers map[*models.DeviceUpdate]*StrongIdentifiers,
+) map[*models.DeviceUpdate]string {
+	matches := make(map[*models.DeviceUpdate]string)
+	if e == nil || e.db == nil || len(updates) == 0 {
+		return matches
+	}
+
+	identifierSets := collectStrongIdentifierSets(updates, updateIdentifiers)
+	identifierToDevice := make(map[string]string)
+
+	for _, entry := range []struct {
+		idType string
+		values map[string]struct{}
+	}{
+		{IdentifierTypeArmis, identifierSets.armisIDs},
+		{IdentifierTypeIntegration, identifierSets.integrationIDs},
+		{IdentifierTypeNetbox, identifierSets.netboxIDs},
+		{IdentifierTypeMAC, identifierSets.macs},
+	} {
+		for key, deviceID := range e.batchLookupIdentifierType(ctx, entry.idType, entry.values, partition) {
+			identifierToDevice[key] = deviceID
+		}
+	}
+
+	for _, update := range updates {
+		ids := updateIdentifiers[update]
+		if ids == nil {
+			continue
+		}
+
+		for _, key := range ids.CacheKeys {
+			if deviceID := identifierToDevice[key]; deviceID != "" {
+				matches[update] = deviceID
+				break
+			}
+		}
+	}
+
+	return matches
+}
+
+type strongIdentifierSets struct {
+	armisIDs       map[string]struct{}
+	integrationIDs map[string]struct{}
+	netboxIDs      map[string]struct{}
+	macs           map[string]struct{}
+}
+
+func collectStrongIdentifierSets(
+	updates []*models.DeviceUpdate,
+	updateIdentifiers map[*models.DeviceUpdate]*StrongIdentifiers,
+) strongIdentifierSets {
+	sets := strongIdentifierSets{
+		armisIDs:       make(map[string]struct{}),
+		integrationIDs: make(map[string]struct{}),
+		netboxIDs:      make(map[string]struct{}),
+		macs:           make(map[string]struct{}),
+	}
 
 	for _, update := range updates {
 		ids := updateIdentifiers[update]
@@ -501,72 +595,48 @@ func (e *IdentityEngine) batchLookupByStrongIdentifiers(
 			continue
 		}
 		if ids.ArmisID != "" {
-			armisIDs = append(armisIDs, ids.ArmisID)
+			sets.armisIDs[ids.ArmisID] = struct{}{}
 		}
 		if ids.IntegrationID != "" {
-			integrationIDs = append(integrationIDs, ids.IntegrationID)
+			sets.integrationIDs[ids.IntegrationID] = struct{}{}
 		}
 		if ids.NetboxID != "" {
-			netboxIDs = append(netboxIDs, ids.NetboxID)
+			sets.netboxIDs[ids.NetboxID] = struct{}{}
 		}
 		if ids.MAC != "" {
-			macs = append(macs, ids.MAC)
+			sets.macs[ids.MAC] = struct{}{}
 		}
 	}
 
-	// Batch query each identifier type
-	identifierToDevice := make(map[string]string)
+	return sets
+}
 
-	if len(armisIDs) > 0 {
-		results, err := e.db.BatchGetDeviceIDsByIdentifier(ctx, IdentifierTypeArmis, armisIDs)
-		if err == nil {
-			for idValue, deviceID := range results {
-				identifierToDevice[IdentifierTypeArmis+":"+idValue] = deviceID
-			}
-		}
+func (e *IdentityEngine) batchLookupIdentifierType(
+	ctx context.Context,
+	identifierType string,
+	identifierValues map[string]struct{},
+	partition string,
+) map[string]string {
+	matches := make(map[string]string)
+	if e == nil || e.db == nil || identifierType == "" || len(identifierValues) == 0 {
+		return matches
 	}
 
-	if len(integrationIDs) > 0 {
-		results, err := e.db.BatchGetDeviceIDsByIdentifier(ctx, IdentifierTypeIntegration, integrationIDs)
-		if err == nil {
-			for idValue, deviceID := range results {
-				identifierToDevice[IdentifierTypeIntegration+":"+idValue] = deviceID
-			}
-		}
+	values := make([]string, 0, len(identifierValues))
+	for v := range identifierValues {
+		values = append(values, v)
 	}
 
-	if len(netboxIDs) > 0 {
-		results, err := e.db.BatchGetDeviceIDsByIdentifier(ctx, IdentifierTypeNetbox, netboxIDs)
-		if err == nil {
-			for idValue, deviceID := range results {
-				identifierToDevice[IdentifierTypeNetbox+":"+idValue] = deviceID
-			}
-		}
+	results, err := e.db.BatchGetDeviceIDsByIdentifier(ctx, identifierType, values, partition)
+	if err != nil {
+		return matches
 	}
 
-	if len(macs) > 0 {
-		results, err := e.db.BatchGetDeviceIDsByIdentifier(ctx, IdentifierTypeMAC, macs)
-		if err == nil {
-			for idValue, deviceID := range results {
-				identifierToDevice[IdentifierTypeMAC+":"+idValue] = deviceID
-			}
-		}
-	}
-
-	// Match updates to device IDs (respecting priority order)
-	for _, update := range updates {
-		ids := updateIdentifiers[update]
-		if ids == nil {
+	for idValue, deviceID := range results {
+		if deviceID == "" {
 			continue
 		}
-
-		// Check in priority order
-		for _, key := range ids.CacheKeys {
-			if deviceID := identifierToDevice[key]; deviceID != "" {
-				matches[update] = deviceID
-				break
-			}
-		}
+		matches[strongIdentifierCacheKey(partition, identifierType, idValue)] = deviceID
 	}
 
 	return matches

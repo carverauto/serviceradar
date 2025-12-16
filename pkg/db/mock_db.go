@@ -1254,6 +1254,7 @@ func (mr *MockServiceMockRecorder) WithTx(ctx, fn any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithTx", reflect.TypeOf((*MockService)(nil).WithTx), ctx, fn)
 }
+
 // QueryRegistryRows mocks base method.
 func (m *MockService) QueryRegistryRows(ctx context.Context, query string, args ...interface{}) (Rows, error) {
 	m.ctrl.T.Helper()
@@ -1290,18 +1291,18 @@ func (mr *MockServiceMockRecorder) GetDeviceIDByIdentifier(ctx, identifierType, 
 }
 
 // BatchGetDeviceIDsByIdentifier mocks base method.
-func (m *MockService) BatchGetDeviceIDsByIdentifier(ctx context.Context, identifierType string, identifierValues []string) (map[string]string, error) {
+func (m *MockService) BatchGetDeviceIDsByIdentifier(ctx context.Context, identifierType string, identifierValues []string, partition string) (map[string]string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BatchGetDeviceIDsByIdentifier", ctx, identifierType, identifierValues)
+	ret := m.ctrl.Call(m, "BatchGetDeviceIDsByIdentifier", ctx, identifierType, identifierValues, partition)
 	ret0, _ := ret[0].(map[string]string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // BatchGetDeviceIDsByIdentifier indicates an expected call of BatchGetDeviceIDsByIdentifier.
-func (mr *MockServiceMockRecorder) BatchGetDeviceIDsByIdentifier(ctx, identifierType, identifierValues any) *gomock.Call {
+func (mr *MockServiceMockRecorder) BatchGetDeviceIDsByIdentifier(ctx, identifierType, identifierValues, partition any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchGetDeviceIDsByIdentifier", reflect.TypeOf((*MockService)(nil).BatchGetDeviceIDsByIdentifier), ctx, identifierType, identifierValues)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchGetDeviceIDsByIdentifier", reflect.TypeOf((*MockService)(nil).BatchGetDeviceIDsByIdentifier), ctx, identifierType, identifierValues, partition)
 }
 
 // MockRows is a mock of Rows interface.
