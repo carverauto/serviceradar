@@ -216,12 +216,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp extract_float(_), do: 0.0
 
-  defp to_float(nil), do: 0.0
-  defp to_float(%Decimal{} = d), do: Decimal.to_float(d)
-  defp to_float(v) when is_float(v), do: v
-  defp to_float(v) when is_integer(v), do: v * 1.0
-  defp to_float(_), do: 0.0
-
   defp load_analytics(socket) do
     srql_module = srql_module()
 
@@ -246,7 +240,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         ~s|in:logs time:last_24h severity_text:(debug,trace,DEBUG,TRACE) stats:"count() as debug"|,
       trace_stats:
         "in:otel_trace_summaries time:last_24h " <>
-          ~s|stats:"count() as total, sum(if(status_code != 1, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"|,
+          ~s|stats:"count() as total, sum(if(status_code = 2, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"|,
       slow_spans: "in:otel_metrics time:last_24h is_slow:true sort:duration_ms:desc limit:25",
       # High utilization - get recent CPU metrics
       cpu_metrics:
@@ -568,7 +562,20 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     traces_count =
       extract_numeric(Map.get(trace_stats, "total") || Map.get(trace_stats, "count")) |> to_int()
 
+    error_traces =
+      extract_numeric(Map.get(trace_stats, "error_traces")) |> to_int()
+
+    # Use trace error rate (status_code = 2) for primary error metric
+    # This is more meaningful than HTTP status code errors
     error_rate =
+      if traces_count > 0 do
+        Float.round(error_traces / traces_count * 100.0, 1)
+      else
+        0.0
+      end
+
+    # HTTP/gRPC error rate as secondary metric
+    http_error_rate =
       if metrics_total > 0 do
         Float.round(metrics_error / metrics_total * 100.0, 1)
       else
@@ -585,6 +592,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       traces_count: traces_count,
       avg_duration: avg_duration_ms,
       error_rate: error_rate,
+      http_error_rate: http_error_rate,
+      error_traces: error_traces,
       slow_spans_count: metrics_slow,
       slow_spans: slow_spans
     }
@@ -596,6 +605,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       traces_count: 0,
       avg_duration: 0,
       error_rate: 0.0,
+      http_error_rate: 0.0,
+      error_traces: 0,
       slow_spans_count: 0,
       slow_spans: []
     }

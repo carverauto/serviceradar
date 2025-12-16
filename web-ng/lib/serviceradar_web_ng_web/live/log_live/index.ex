@@ -1727,7 +1727,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp load_trace_stats(srql_module) do
     query =
       "in:otel_trace_summaries time:last_24h " <>
-        ~s|stats:"count() as total, sum(if(status_code != 1, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"|
+        ~s|stats:"count() as total, sum(if(status_code = 2, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"|
 
     case srql_module.query(query) do
       {:ok, %{"results" => [%{} = raw | _]}} ->
