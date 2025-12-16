@@ -629,3 +629,68 @@ impl TraceSummaryRow {
         })
     }
 }
+
+// Continuous aggregate models for observability dashboards
+#[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::logs_hourly_stats)]
+pub struct LogsHourlyStatsRow {
+    pub bucket: DateTime<Utc>,
+    pub service_name: Option<String>,
+    pub total_count: i64,
+    pub fatal_count: i64,
+    pub error_count: i64,
+    pub warning_count: i64,
+    pub info_count: i64,
+    pub debug_count: i64,
+}
+
+impl LogsHourlyStatsRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "bucket": self.bucket,
+            "service_name": self.service_name,
+            "total_count": self.total_count,
+            "fatal_count": self.fatal_count,
+            "error_count": self.error_count,
+            "warning_count": self.warning_count,
+            "info_count": self.info_count,
+            "debug_count": self.debug_count,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::otel_metrics_hourly_stats)]
+pub struct OtelMetricsHourlyStatsRow {
+    pub bucket: DateTime<Utc>,
+    pub service_name: Option<String>,
+    pub metric_type: Option<String>,
+    pub total_count: i64,
+    pub slow_count: i64,
+    pub error_count: i64,
+    pub http_4xx_count: i64,
+    pub http_5xx_count: i64,
+    pub grpc_error_count: i64,
+    pub avg_duration_ms: Option<f64>,
+    pub p95_duration_ms: Option<f64>,
+    pub max_duration_ms: Option<f64>,
+}
+
+impl OtelMetricsHourlyStatsRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "bucket": self.bucket,
+            "service_name": self.service_name,
+            "metric_type": self.metric_type,
+            "total_count": self.total_count,
+            "slow_count": self.slow_count,
+            "error_count": self.error_count,
+            "http_4xx_count": self.http_4xx_count,
+            "http_5xx_count": self.http_5xx_count,
+            "grpc_error_count": self.grpc_error_count,
+            "avg_duration_ms": self.avg_duration_ms,
+            "p95_duration_ms": self.p95_duration_ms,
+            "max_duration_ms": self.max_duration_ms,
+        })
+    }
+}

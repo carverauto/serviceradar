@@ -303,3 +303,38 @@ diesel::table! {
         created_at -> Timestamptz,
     }
 }
+
+// Continuous aggregates for observability dashboards
+diesel::table! {
+    use diesel::sql_types::*;
+
+    logs_hourly_stats (bucket, service_name) {
+        bucket -> Timestamptz,
+        service_name -> Nullable<Text>,
+        total_count -> Int8,
+        fatal_count -> Int8,
+        error_count -> Int8,
+        warning_count -> Int8,
+        info_count -> Int8,
+        debug_count -> Int8,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    otel_metrics_hourly_stats (bucket, service_name, metric_type) {
+        bucket -> Timestamptz,
+        service_name -> Nullable<Text>,
+        metric_type -> Nullable<Text>,
+        total_count -> Int8,
+        slow_count -> Int8,
+        error_count -> Int8,
+        http_4xx_count -> Int8,
+        http_5xx_count -> Int8,
+        grpc_error_count -> Int8,
+        avg_duration_ms -> Nullable<Float8>,
+        p95_duration_ms -> Nullable<Float8>,
+        max_duration_ms -> Nullable<Float8>,
+    }
+}

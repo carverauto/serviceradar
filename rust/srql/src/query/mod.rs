@@ -101,8 +101,10 @@ mod events;
 mod graph_cypher;
 mod interfaces;
 mod logs;
+mod logs_hourly_stats;
 mod memory_metrics;
 mod otel_metrics;
+mod otel_metrics_hourly_stats;
 mod pollers;
 mod process_metrics;
 mod services;
@@ -177,8 +179,12 @@ impl QueryEngine {
                 Entity::Events => events::execute(&mut conn, &plan).await?,
                 Entity::Interfaces => interfaces::execute(&mut conn, &plan).await?,
                 Entity::Logs => logs::execute(&mut conn, &plan).await?,
+                Entity::LogsHourlyStats => logs_hourly_stats::execute(&mut conn, &plan).await?,
                 Entity::Pollers => pollers::execute(&mut conn, &plan).await?,
                 Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
+                Entity::OtelMetricsHourlyStats => {
+                    otel_metrics_hourly_stats::execute(&mut conn, &plan).await?
+                }
                 Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
                     timeseries_metrics::execute(&mut conn, &plan).await?
                 }
@@ -472,8 +478,10 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::Events => events::to_sql_and_params(&plan)?,
             Entity::Interfaces => interfaces::to_sql_and_params(&plan)?,
             Entity::Logs => logs::to_sql_and_params(&plan)?,
+            Entity::LogsHourlyStats => logs_hourly_stats::to_sql_and_params(&plan)?,
             Entity::Pollers => pollers::to_sql_and_params(&plan)?,
             Entity::OtelMetrics => otel_metrics::to_sql_and_params(&plan)?,
+            Entity::OtelMetricsHourlyStats => otel_metrics_hourly_stats::to_sql_and_params(&plan)?,
             Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
                 timeseries_metrics::to_sql_and_params(&plan)?
             }

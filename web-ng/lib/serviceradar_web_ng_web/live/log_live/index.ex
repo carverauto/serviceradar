@@ -1520,7 +1520,60 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp load_summary(srql_module, current_query) do
+  defp load_summary(_srql_module, current_query) do
+    # For unfiltered queries (default view), use the fast continuous aggregate
+    if is_nil(current_query) or current_query == "" or
+         String.starts_with?(String.trim(current_query || ""), "in:logs") do
+      load_summary_from_cagg()
+    else
+      # For filtered queries, fall back to SRQL stats (slower but accurate)
+      load_summary_from_srql(current_query)
+    end
+  end
+
+  # Load log summary from continuous aggregate (fast path)
+  defp load_summary_from_cagg do
+    srql_module = srql_module()
+
+    case srql_module.query("in:logs_hourly_stats time:last_24h") do
+      {:ok, %{"results" => rows}} when is_list(rows) and length(rows) > 0 ->
+        aggregate_logs_summary(rows)
+
+      {:ok, _} ->
+        %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
+
+      {:error, reason} ->
+        require Logger
+        Logger.warning("Failed to load logs summary from cagg: #{inspect(reason)}")
+        %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
+    end
+  rescue
+    e ->
+      require Logger
+      Logger.warning("Failed to load logs summary from cagg: #{inspect(e)}")
+      %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
+  end
+
+  defp aggregate_logs_summary(rows) when is_list(rows) do
+    initial = %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
+
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.reduce(initial, fn row, acc ->
+      %{
+        total: acc.total + to_int(row["total_count"]),
+        fatal: acc.fatal + to_int(row["fatal_count"]),
+        error: acc.error + to_int(row["error_count"]),
+        warning: acc.warning + to_int(row["warning_count"]),
+        info: acc.info + to_int(row["info_count"]),
+        debug: acc.debug + to_int(row["debug_count"])
+      }
+    end)
+  end
+
+  # Load log summary from SRQL stats (slow path for filtered queries)
+  defp load_summary_from_srql(current_query) do
+    srql_module = srql_module()
     base_query = base_query_for_summary(current_query)
 
     stats_expr =
@@ -1732,47 +1785,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   # Load duration stats from the continuous aggregation for full 24h data
+  # Only uses 'span' metric_type since histograms/gauges have invalid duration data
   defp load_duration_stats_from_cagg do
-    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+    srql_module = srql_module()
 
-    query =
-      from(s in "otel_metrics_hourly_stats",
-        where: s.bucket >= ^cutoff,
-        select: %{
-          total_count: sum(s.total_count),
-          avg_duration_ms:
-            fragment(
-              "CASE WHEN SUM(?) > 0 THEN SUM(? * ?) / SUM(?) ELSE 0 END",
-              s.total_count,
-              s.avg_duration_ms,
-              s.total_count,
-              s.total_count
-            ),
-          p95_duration_ms: max(s.p95_duration_ms)
-        }
-      )
+    # Query otel_metrics_hourly_stats filtered to span metric_type only
+    case srql_module.query("in:otel_metrics_hourly_stats time:last_24h metric_type:span") do
+      {:ok, %{"results" => rows}} when is_list(rows) and length(rows) > 0 ->
+        aggregate_duration_stats(rows)
 
-    case Repo.one(query) do
-      %{total_count: total} = stats when not is_nil(total) and total > 0 ->
-        avg = case stats.avg_duration_ms do
-          %Decimal{} = d -> Decimal.to_float(d)
-          n when is_number(n) -> n * 1.0
-          _ -> 0.0
-        end
+      {:ok, _} ->
+        %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
 
-        p95 = case stats.p95_duration_ms do
-          %Decimal{} = d -> Decimal.to_float(d)
-          n when is_number(n) -> n * 1.0
-          _ -> 0.0
-        end
-
-        %{
-          avg_duration_ms: avg,
-          p95_duration_ms: p95,
-          sample_size: to_int(total)
-        }
-
-      _ ->
+      {:error, reason} ->
+        require Logger
+        Logger.warning("Failed to load duration stats from cagg: #{inspect(reason)}")
         %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
     end
   rescue
@@ -1781,6 +1808,56 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       Logger.warning("Failed to load duration stats from cagg: #{inspect(e)}")
       %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
   end
+
+  defp aggregate_duration_stats(rows) when is_list(rows) do
+    initial = %{total_count: 0, weighted_duration: 0.0, p95_max: 0.0}
+
+    agg =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(initial, fn row, acc ->
+        total = to_int(row["total_count"])
+        avg_ms = to_float_val(row["avg_duration_ms"])
+        p95_ms = to_float_val(row["p95_duration_ms"])
+
+        if total > 0 do
+          %{
+            total_count: acc.total_count + total,
+            weighted_duration: acc.weighted_duration + avg_ms * total,
+            p95_max: max(acc.p95_max, p95_ms)
+          }
+        else
+          acc
+        end
+      end)
+
+    avg_duration =
+      if agg.total_count > 0 do
+        agg.weighted_duration / agg.total_count
+      else
+        0.0
+      end
+
+    %{
+      avg_duration_ms: avg_duration,
+      p95_duration_ms: agg.p95_max,
+      sample_size: agg.total_count
+    }
+  end
+
+  defp to_float_val(nil), do: 0.0
+  defp to_float_val(%Decimal{} = d), do: Decimal.to_float(d)
+  defp to_float_val(v) when is_float(v), do: v
+  defp to_float_val(v) when is_integer(v), do: v * 1.0
+
+  defp to_float_val(v) when is_binary(v) do
+    case Float.parse(v) do
+      {n, _} -> n
+      :error -> 0.0
+    end
+  end
+
+  defp to_float_val(_), do: 0.0
 
   # Load sparkline data for gauge/counter metrics
   # Returns a map of metric_name -> list of {bucket, avg_value} tuples

@@ -1,8 +1,6 @@
 defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
-  import Ecto.Query
-  alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Logger
@@ -101,49 +99,21 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     Process.send_after(self(), :refresh_data, @refresh_interval_ms)
   end
 
-  # Query the continuous aggregation for efficient pre-computed stats
+  # Query the continuous aggregation for efficient pre-computed stats via SRQL
+  # Duration stats are only calculated from 'span' metric_type (histograms/gauges have invalid duration data)
   defp get_hourly_metrics_stats do
-    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+    srql_module = srql_module()
 
-    query =
-      from(s in "otel_metrics_hourly_stats",
-        where: s.bucket >= ^cutoff,
-        select: %{
-          total_count: sum(s.total_count),
-          error_count: sum(s.error_count),
-          slow_count: sum(s.slow_count),
-          http_4xx_count: sum(s.http_4xx_count),
-          http_5xx_count: sum(s.http_5xx_count),
-          grpc_error_count: sum(s.grpc_error_count),
-          avg_duration_ms:
-            fragment(
-              "CASE WHEN SUM(?) > 0 THEN SUM(? * ?) / SUM(?) ELSE 0 END",
-              s.total_count,
-              s.avg_duration_ms,
-              s.total_count,
-              s.total_count
-            ),
-          p95_duration_ms: max(s.p95_duration_ms),
-          max_duration_ms: max(s.max_duration_ms)
-        }
-      )
+    case srql_module.query("in:otel_metrics_hourly_stats time:last_24h") do
+      {:ok, %{"results" => rows}} when is_list(rows) and length(rows) > 0 ->
+        aggregate_hourly_stats(rows)
 
-    case Repo.one(query) do
-      %{total_count: total} = stats when not is_nil(total) ->
-        %{
-          total: to_int(total),
-          error: to_int(stats.error_count),
-          slow: to_int(stats.slow_count),
-          http_4xx: to_int(stats.http_4xx_count),
-          http_5xx: to_int(stats.http_5xx_count),
-          grpc_error: to_int(stats.grpc_error_count),
-          avg_duration_ms: to_float(stats.avg_duration_ms),
-          p95_duration_ms: to_float(stats.p95_duration_ms),
-          max_duration_ms: to_float(stats.max_duration_ms)
-        }
+      {:ok, _} ->
+        Logger.debug("Hourly metrics stats not available (empty results)")
+        nil
 
-      _ ->
-        Logger.debug("Hourly metrics stats not available, falling back to SRQL queries")
+      {:error, reason} ->
+        Logger.warning("Failed to query hourly metrics stats: #{inspect(reason)}")
         nil
     end
   rescue
@@ -151,6 +121,100 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       Logger.warning("Failed to query hourly metrics stats: #{inspect(error)}")
       nil
   end
+
+  # Aggregate rows from otel_metrics_hourly_stats CAGG
+  # Duration stats use only 'span' metric_type (histograms/gauges have invalid duration data)
+  defp aggregate_hourly_stats(rows) when is_list(rows) do
+    initial = %{
+      total_count: 0,
+      error_count: 0,
+      slow_count: 0,
+      http_4xx_count: 0,
+      http_5xx_count: 0,
+      grpc_error_count: 0,
+      span_total_count: 0,
+      span_weighted_duration: 0.0,
+      span_p95_max: 0.0,
+      span_max_duration: 0.0
+    }
+
+    agg =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(initial, fn row, acc ->
+        total = extract_int(row["total_count"])
+        metric_type = row["metric_type"]
+
+        base_updates = %{
+          total_count: acc.total_count + total,
+          error_count: acc.error_count + extract_int(row["error_count"]),
+          slow_count: acc.slow_count + extract_int(row["slow_count"]),
+          http_4xx_count: acc.http_4xx_count + extract_int(row["http_4xx_count"]),
+          http_5xx_count: acc.http_5xx_count + extract_int(row["http_5xx_count"]),
+          grpc_error_count: acc.grpc_error_count + extract_int(row["grpc_error_count"])
+        }
+
+        # Only aggregate duration stats for 'span' metric_type
+        if metric_type == "span" and total > 0 do
+          avg_ms = extract_float(row["avg_duration_ms"])
+          p95_ms = extract_float(row["p95_duration_ms"])
+          max_ms = extract_float(row["max_duration_ms"])
+
+          Map.merge(acc, base_updates)
+          |> Map.put(:span_total_count, acc.span_total_count + total)
+          |> Map.put(:span_weighted_duration, acc.span_weighted_duration + avg_ms * total)
+          |> Map.put(:span_p95_max, max(acc.span_p95_max, p95_ms))
+          |> Map.put(:span_max_duration, max(acc.span_max_duration, max_ms))
+        else
+          Map.merge(acc, base_updates)
+        end
+      end)
+
+    avg_duration =
+      if agg.span_total_count > 0 do
+        agg.span_weighted_duration / agg.span_total_count
+      else
+        0.0
+      end
+
+    %{
+      total: agg.total_count,
+      error: agg.error_count,
+      slow: agg.slow_count,
+      http_4xx: agg.http_4xx_count,
+      http_5xx: agg.http_5xx_count,
+      grpc_error: agg.grpc_error_count,
+      avg_duration_ms: avg_duration,
+      p95_duration_ms: agg.span_p95_max,
+      max_duration_ms: agg.span_max_duration
+    }
+  end
+
+  defp extract_int(nil), do: 0
+  defp extract_int(v) when is_integer(v), do: v
+  defp extract_int(v) when is_float(v), do: trunc(v)
+
+  defp extract_int(v) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, _} -> n
+      :error -> 0
+    end
+  end
+
+  defp extract_int(_), do: 0
+
+  defp extract_float(nil), do: 0.0
+  defp extract_float(v) when is_float(v), do: v
+  defp extract_float(v) when is_integer(v), do: v * 1.0
+
+  defp extract_float(v) when is_binary(v) do
+    case Float.parse(v) do
+      {n, _} -> n
+      :error -> 0.0
+    end
+  end
+
+  defp extract_float(_), do: 0.0
 
   defp to_float(nil), do: 0.0
   defp to_float(%Decimal{} = d), do: Decimal.to_float(d)
