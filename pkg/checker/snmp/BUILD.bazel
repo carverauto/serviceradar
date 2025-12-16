@@ -35,6 +35,7 @@ go_test(
     name = "snmp_test",
     srcs = [
         "aggregator_test.go",
+        "client_conversion_test.go",
         "collector_test.go",
         "service_deadlock_test.go",
         "service_test.go",

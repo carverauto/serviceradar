@@ -206,23 +206,21 @@ const defaultTimeTickDuration = time.Second / 100
 func (*SNMPClientImpl) convertVariable(variable gosnmp.SnmpPDU) (interface{}, error) {
 	// Map of SNMP types to conversion functions
 	conversionMap := map[gosnmp.Asn1BER]func(gosnmp.SnmpPDU) interface{}{
-		gosnmp.Boolean:           convertBoolean,
-		gosnmp.BitString:         convertBitString,
-		gosnmp.Null:              convertNull,
-		gosnmp.ObjectDescription: convertObjectDescription,
-		gosnmp.Opaque:            convertOpaque,
-		gosnmp.NsapAddress:       convertNsapAddress,
-		gosnmp.Uinteger32:        convertUinteger32,
-		gosnmp.OpaqueFloat:       convertOpaqueFloat,
-		gosnmp.OpaqueDouble:      convertOpaqueDouble,
-		gosnmp.Integer:           convertInteger,
-		gosnmp.OctetString:       convertOctetString,
-		gosnmp.ObjectIdentifier:  convertObjectIdentifier,
-		gosnmp.IPAddress:         convertIPAddress,
-		gosnmp.Counter32:         convertCounter32Gauge32,
-		gosnmp.Gauge32:           convertCounter32Gauge32,
-		gosnmp.Counter64:         convertCounter64,
-		gosnmp.TimeTicks:         convertTimeTicks,
+		gosnmp.Boolean:          convertBoolean,
+		gosnmp.BitString:        convertBitString,
+		gosnmp.Null:             convertNull,
+		gosnmp.Opaque:           convertOpaque,
+		gosnmp.NsapAddress:      convertNsapAddress,
+		gosnmp.Uinteger32:       convertUinteger32,
+		gosnmp.OpaqueFloat:      convertOpaqueFloat,
+		gosnmp.OpaqueDouble:     convertOpaqueDouble,
+		gosnmp.Integer:          convertInteger,
+		gosnmp.ObjectIdentifier: convertObjectIdentifier,
+		gosnmp.IPAddress:        convertIPAddress,
+		gosnmp.Counter32:        convertCounter32Gauge32,
+		gosnmp.Gauge32:          convertCounter32Gauge32,
+		gosnmp.Counter64:        convertCounter64,
+		gosnmp.TimeTicks:        convertTimeTicks,
 	}
 
 	// Check for types that need an error return
@@ -241,6 +239,14 @@ func (*SNMPClientImpl) convertVariable(variable gosnmp.SnmpPDU) (interface{}, er
 	// Check for EndOfContents and UnknownType explicitly
 	if variable.Type == gosnmp.UnknownType {
 		return convertEndOfContents(variable)
+	}
+
+	if variable.Type == gosnmp.ObjectDescription {
+		return convertObjectDescription(variable)
+	}
+
+	if variable.Type == gosnmp.OctetString {
+		return convertOctetString(variable)
 	}
 
 	// Look up the appropriate conversion function
@@ -264,8 +270,13 @@ func convertNull(gosnmp.SnmpPDU) interface{} {
 	return nil
 }
 
-func convertObjectDescription(variable gosnmp.SnmpPDU) interface{} {
-	return string(variable.Value.(byte))
+func convertObjectDescription(variable gosnmp.SnmpPDU) (interface{}, error) {
+	bytes, ok := variable.Value.([]byte)
+	if !ok {
+		return nil, fmt.Errorf("%w: ObjectDescription expected []byte, got %T", ErrSNMPConvert, variable.Value)
+	}
+
+	return string(bytes), nil
 }
 
 func convertOpaque(variable gosnmp.SnmpPDU) interface{} {
@@ -292,8 +303,13 @@ func convertInteger(variable gosnmp.SnmpPDU) interface{} {
 	return variable.Value.(int)
 }
 
-func convertOctetString(variable gosnmp.SnmpPDU) interface{} {
-	return string(variable.Value.(byte))
+func convertOctetString(variable gosnmp.SnmpPDU) (interface{}, error) {
+	bytes, ok := variable.Value.([]byte)
+	if !ok {
+		return nil, fmt.Errorf("%w: OctetString expected []byte, got %T", ErrSNMPConvert, variable.Value)
+	}
+
+	return string(bytes), nil
 }
 
 func convertObjectIdentifier(variable gosnmp.SnmpPDU) interface{} {
