@@ -816,7 +816,7 @@ func (m *MCPServer) executeSRQLQueryWithParams(ctx context.Context, query string
 
 	executor, ok := m.queryExecutor.(ParameterizedQueryExecutor)
 	if !ok {
-		return nil, fmt.Errorf("query executor does not support parameterized SRQL queries")
+		return nil, fmt.Errorf("%w", errParameterizedSRQLNotSupported)
 	}
 
 	return executor.ExecuteSRQLQueryWithParams(ctx, transformedQuery, params, limit)

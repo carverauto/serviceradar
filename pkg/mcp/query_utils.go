@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -12,6 +13,8 @@ const (
 	showDevicesQuery = "SHOW devices"
 	defaultLimit     = 100
 )
+
+var errParameterizedSRQLNotSupported = errors.New("query executor does not support parameterized SRQL queries")
 
 // getEntityTimestampField returns the appropriate timestamp field name for each entity type
 func getEntityTimestampField(entity string) string {
@@ -71,7 +74,7 @@ func executeSRQL(ctx context.Context, executor QueryExecutor, query string, para
 
 	parameterized, ok := executor.(ParameterizedQueryExecutor)
 	if !ok {
-		return nil, fmt.Errorf("query executor does not support parameterized SRQL queries")
+		return nil, fmt.Errorf("%w", errParameterizedSRQLNotSupported)
 	}
 
 	return parameterized.ExecuteSRQLQueryWithParams(ctx, query, params, limit)
