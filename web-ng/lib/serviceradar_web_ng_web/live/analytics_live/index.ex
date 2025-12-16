@@ -60,24 +60,32 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_event("srql_builder_toggle", _params, socket) do
-    srql = socket.assigns.srql
-    new_srql = Map.put(srql, :builder_open, not Map.get(srql, :builder_open, false))
-    {:noreply, assign(socket, :srql, new_srql)}
+  def handle_event("srql_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
   end
 
-  def handle_event("srql_change", %{"query" => query}, socket) do
-    srql = socket.assigns.srql
-    new_srql = Map.put(srql, :draft, query)
-    {:noreply, assign(socket, :srql, new_srql)}
+  def handle_event("srql_submit", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/analytics")}
+  end
+
+  def handle_event("srql_builder_toggle", _params, socket) do
+    entity = get_in(socket.assigns, [:srql, :builder, "entity"]) || "devices"
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: entity)}
   end
 
   def handle_event("srql_builder_change", params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
   end
 
+  def handle_event("srql_builder_apply", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/analytics")}
+  end
+
   def handle_event("srql_builder_add_filter", params, socket) do
-    # Get entity from builder state, default to "devices"
     entity = get_in(socket.assigns, [:srql, :builder, "entity"]) || "devices"
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: entity)}
   end
