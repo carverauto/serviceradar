@@ -36,6 +36,7 @@ go_test(
     srcs = [
         "aggregator_test.go",
         "collector_test.go",
+        "service_deadlock_test.go",
         "service_test.go",
     ],
     embed = [":snmp"],
