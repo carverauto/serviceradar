@@ -758,12 +758,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       targets
       |> Enum.map(& &1.download_mbps)
       |> Enum.sum()
+      |> to_float()
 
     avg_latency =
       if length(targets) > 0 do
         targets
         |> Enum.map(& &1.latency_ms)
         |> Enum.sum()
+        |> to_float()
         |> Kernel./(length(targets))
         |> Float.round(2)
       else
