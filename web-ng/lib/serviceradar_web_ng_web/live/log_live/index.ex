@@ -825,38 +825,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp metric_viz(assigns) do
     metric_type = normalize_string(Map.get(assigns.metric, "metric_type")) || ""
-    unit = normalize_string(Map.get(assigns.metric, "unit"))
 
-    # Determine if this metric has a meaningful visualization
-    # Only show viz for timing/duration metrics
-    is_timing = is_timing_unit?(unit) or is_timing_metric?(assigns.metric)
-
-    assigns =
-      assigns
-      |> assign(:metric_type, metric_type)
-      |> assign(:is_timing, is_timing)
+    assigns = assign(assigns, :metric_type, metric_type)
 
     ~H"""
     <%= case @metric_type do %>
       <% "histogram" -> %>
         <.histogram_viz metric={@metric} />
       <% _ -> %>
-        <%= if @is_timing do %>
-          <.duration_gauge metric={@metric} />
-        <% else %>
-          <span class="text-base-content/30">—</span>
-        <% end %>
+        <%!-- Gauges and counters don't need a viz bar - value column is sufficient --%>
+        <span class="text-base-content/30">—</span>
     <% end %>
     """
   end
-
-  # Check if unit indicates a duration/timing metric
-  defp is_timing_unit?(nil), do: false
-  defp is_timing_unit?(unit) when is_binary(unit) do
-    unit_lower = String.downcase(unit)
-    unit_lower in ["s", "ms", "ns", "us", "µs", "seconds", "milliseconds", "nanoseconds", "microseconds"]
-  end
-  defp is_timing_unit?(_), do: false
 
   attr :metric, :map, required: true
 
@@ -907,44 +888,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  attr :metric, :map, required: true
-
-  # Duration gauge for timing metrics (gauges/counters with duration unit)
-  defp duration_gauge(assigns) do
-    duration_ms = extract_duration_value(assigns.metric)
-
-    # Scale 0-1000ms to 0-100% width
-    pct =
-      cond do
-        not is_number(duration_ms) or duration_ms <= 0 -> 0
-        duration_ms >= 1000 -> 100
-        true -> duration_ms / 10
-      end
-
-    # Color based on duration (same as histogram_viz)
-    bar_color =
-      cond do
-        not is_number(duration_ms) or duration_ms <= 0 -> "bg-base-content/20"
-        duration_ms >= 500 -> "bg-error"
-        duration_ms >= 100 -> "bg-warning"
-        true -> "bg-success"
-      end
-
-    assigns =
-      assigns
-      |> assign(:pct, pct)
-      |> assign(:bar_color, bar_color)
-      |> assign(:duration_ms, duration_ms)
-
-    ~H"""
-    <div class="flex items-center gap-2 w-20" title={if is_number(@duration_ms) and @duration_ms > 0, do: "#{Float.round(@duration_ms * 1.0, 1)}ms", else: "no duration"}>
-      <div class="flex-1 h-1.5 bg-base-200 rounded-full overflow-hidden">
-        <div class={[@bar_color, "h-full rounded-full transition-all"]} style={"width: #{@pct}%"}></div>
-      </div>
-    </div>
-    """
-  end
-
   # Slow span threshold (in ms) - spans exceeding this are considered slow
   @slow_threshold_ms 500
 
@@ -953,13 +896,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp slow_span_viz(assigns) do
     is_slow = Map.get(assigns.metric, "is_slow") == true
     duration_ms = extract_duration_ms(assigns.metric)
-    unit = normalize_string(Map.get(assigns.metric, "unit"))
+    metric_type = normalize_string(Map.get(assigns.metric, "metric_type")) || ""
 
-    # Only show slow span viz for timing metrics
-    is_timing = is_timing_unit?(unit) or is_timing_metric?(assigns.metric)
+    # Slow span viz is ONLY for actual request spans (not gauges, histograms, or counters)
+    # These are metrics that represent individual HTTP/gRPC requests with timing
+    is_span_metric = metric_type not in ["gauge", "histogram", "counter", "sum"] and
+                     is_timing_metric?(assigns.metric)
 
-    # If not a timing span or no duration, show nothing (not even dash)
-    if not is_timing or is_nil(duration_ms) or duration_ms == 0 do
+    # If not a span metric or no duration, show nothing
+    if not is_span_metric or is_nil(duration_ms) or duration_ms == 0 do
       ~H"""
       <span></span>
       """
