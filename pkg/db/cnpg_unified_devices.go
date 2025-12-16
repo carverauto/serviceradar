@@ -489,8 +489,7 @@ func (db *DB) DeleteDevices(ctx context.Context, deviceIDs []string) error {
 	}
 
 	// Execute audit log batch
-	br := db.conn().SendBatch(ctx, batch)
-	if err := br.Close(); err != nil {
+	if err := sendBatchExecAll(ctx, batch, db.conn().SendBatch, "device deletion audit"); err != nil {
 		db.logger.Warn().Err(err).Msg("Failed to log device deletions to audit trail")
 		// Continue with deletion even if audit fails
 	}
