@@ -1,0 +1,87 @@
+---
+slug: simplifying-observability-elixir-rustler-cnpg
+title: "From Fragmented to Fluid: Simplifying ServiceRadar with Elixir, Rustler, and CloudNativePG"
+authors: [mfreeman]
+tags: [elixir, phoenix, rust, rustler, postgres, timescaledb, age, architecture]
+date: 2025-12-16
+description: "How the staging branch replaced a React/Kong/SRQL microservice trio with a Phoenix LiveView UI that embeds the Rust SRQL engine and speaks directly to CNPG (Timescale + Apache AGE)."
+---
+
+In observability, complexity is the enemy. We used to ask a React app to talk through Kong to Go APIs that then called a standalone Rust SRQL service. Every CVE in the JS stack and every hop between services added toil.
+
+Staging now runs a very different shape:
+
+- **Phoenix + LiveView (`web-ng`)** is the experience layer.
+- **Rustler-embedded SRQL** runs inside the Phoenix app as a NIF, no extra service.
+- **CNPG with TimescaleDB + Apache AGE** is the single data store the UI queries directly.
+- **Go core** still orchestrates agents, pollers, and ingestion into CNPG.
+
+<!-- truncate -->
+
+## What Changed in Staging
+
+### 1) Frontend: Phoenix LiveView replaces the React/Kong path
+- Live routes (analytics, devices, pollers, events, logs) are all served from `web-ng` with authenticated `live_session`s, so SRQL traffic stays inside Phoenix and skips the Kong hop in staging.
+- API callers inside the UI use the `/api/query` controller, which runs server-side in the Phoenix process—no client-side SRQL calls or gateway detours.
+
+### 2) Query Engine: SRQL lives in-process via Rustler
+- `web-ng/native/srql_nif` wraps `srql::query::translate_request/2` as a NIF scheduled on Dirty CPU threads, so BEAM schedulers stay responsive.
+- `ServiceRadarWebNG.SRQL` decodes the translation, executes the generated SQL through Ecto’s Postgres adapter, and normalizes pagination/cursor results for LiveView.
+- This removed the standalone SRQL microservice and the Kong-secured `/api/query` proxy from the hot path.
+
+### 3) Data Store: Everything on CloudNativePG
+- The UI points straight at CNPG; no Proton sidecar. Timescale hypertables back metrics; Apache AGE powers graph queries (`ServiceRadarWebNG.Graph`) with a quick readiness task (`mix graph.ready`).
+- One cluster now serves relational inventory/RBAC, metrics, and topology, so schema changes and migrations stay in one place.
+
+### 4) Core Still Runs in Go
+- `serviceradar-core` continues to coordinate pollers/agents and push writes into CNPG (via the existing NATS JetStream + writers), so the LiveView layer reads from the same authoritative store.
+
+## Why This Matters
+
+- **Fewer moving parts:** No Kong hop for SRQL, no extra Rust service to deploy, fewer TLS certs to juggle.
+- **Lower latency:** Queries translate and run in-process—no network round-trips between UI and SRQL.
+- **Operational clarity:** One database (CNPG) with Timescale + AGE means consistent backups, HA, and observability of the observability stack.
+- **Developer focus:** Security patching effort drops without the React dependency stack; the BEAM handles concurrent LiveView sessions with less glue code.
+
+## Shipping and What’s Next
+
+Available in staging today:
+- Phoenix LiveView UI (`web-ng`)
+- Rustler SRQL NIF and `/api/query` controller
+- Direct CNPG access (Timescale + AGE) with `mix graph.ready`
+- Go core ingestion into the same CNPG cluster
+- **`pg_notify` → LiveView pushes** for “tail -f” style streams; staging already uses notifications to push updates, and this will ship in the next release cut.
+
+We are keeping the legacy Next.js UI around during the cutover; Phoenix is the default in staging and will become the sole UI once the remaining pages are migrated.
+
+## If You Want to Try It
+
+1) Point `web-ng` at CNPG (Docker or k8s):
+```bash
+cd web-ng
+export CNPG_HOST=127.0.0.1
+export CNPG_PORT=5455
+export CNPG_DATABASE=serviceradar
+export CNPG_USERNAME=serviceradar
+export CNPG_PASSWORD=serviceradar
+export CNPG_SSL_MODE=verify-full
+export CNPG_CERT_DIR=/path/to/certs
+mix graph.ready
+mix phx.server
+```
+
+2) Exercise SRQL through the Phoenix API:
+```bash
+curl -s -X POST http://localhost:4000/api/query \
+  -H "content-type: application/json" \
+  -d '{"query":"SHOW devices LIMIT 20"}'
+```
+
+3) Explore the graph path:
+```elixir
+ServiceRadarWebNG.Graph.query("MATCH (d:Device) RETURN d LIMIT 5")
+```
+
+## Takeaways
+
+We consolidated UI, query planning, and data access into a single Phoenix application while keeping Go focused on orchestration and ingestion. Timescale and AGE live under one CNPG roof, and SRQL now runs as a library, not a microservice. The result is a smaller blast radius, faster queries, and simpler ops—setting us up to layer real-time `pg_notify` updates and more LiveView-native experiences next.
