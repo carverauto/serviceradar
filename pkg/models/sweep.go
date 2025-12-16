@@ -88,7 +88,7 @@ type Config struct {
 type SweepMode string
 
 const (
-	ModeTCP        SweepMode = "tcp"        // SYN scanning (fast but breaks conntrack)
+	ModeTCP        SweepMode = "tcp"         // SYN scanning (fast but breaks conntrack)
 	ModeTCPConnect SweepMode = "tcp_connect" // TCP connect scanning (safe for conntrack)
 	ModeICMP       SweepMode = "icmp"
 )
@@ -160,6 +160,89 @@ type PortResult struct {
 	RespTime  time.Duration `json:"response_time"`
 	Service   string        `json:"service,omitempty"` // Optional service identification
 }
+
+// DeepCopyHostResult returns a snapshot copy of src that does not alias any of the
+// pointer/slice/map fields of the source HostResult.
+func DeepCopyHostResult(src *HostResult) HostResult {
+	if src == nil {
+		return HostResult{}
+	}
+
+	dst := HostResult{
+		Host:         src.Host,
+		Available:    src.Available,
+		FirstSeen:    src.FirstSeen,
+		LastSeen:     src.LastSeen,
+		ResponseTime: src.ResponseTime,
+	}
+
+	copiedPortResults := make(map[*PortResult]*PortResult)
+	copiedByPort := make(map[int]*PortResult)
+
+	if src.PortResults != nil {
+		dst.PortResults = make([]*PortResult, 0, len(src.PortResults))
+		for _, pr := range src.PortResults {
+			if pr == nil {
+				dst.PortResults = append(dst.PortResults, nil)
+				continue
+			}
+
+			prCopy := &PortResult{
+				Port:      pr.Port,
+				Available: pr.Available,
+				RespTime:  pr.RespTime,
+				Service:   pr.Service,
+			}
+
+			copiedPortResults[pr] = prCopy
+			copiedByPort[pr.Port] = prCopy
+			dst.PortResults = append(dst.PortResults, prCopy)
+		}
+	}
+
+	if src.PortMap != nil {
+		dst.PortMap = make(map[int]*PortResult, len(src.PortMap))
+		for port, pr := range src.PortMap {
+			if pr == nil {
+				dst.PortMap[port] = nil
+				continue
+			}
+
+			if prCopy, ok := copiedPortResults[pr]; ok {
+				dst.PortMap[port] = prCopy
+				continue
+			}
+
+			if prCopy, ok := copiedByPort[port]; ok {
+				dst.PortMap[port] = prCopy
+				continue
+			}
+
+			prCopy := &PortResult{
+				Port:      pr.Port,
+				Available: pr.Available,
+				RespTime:  pr.RespTime,
+				Service:   pr.Service,
+			}
+
+			copiedPortResults[pr] = prCopy
+			copiedByPort[port] = prCopy
+			dst.PortMap[port] = prCopy
+			dst.PortResults = append(dst.PortResults, prCopy)
+		}
+	}
+
+	if src.ICMPStatus != nil {
+		dst.ICMPStatus = &ICMPStatus{
+			Available:  src.ICMPStatus.Available,
+			RoundTrip:  src.ICMPStatus.RoundTrip,
+			PacketLoss: src.ICMPStatus.PacketLoss,
+		}
+	}
+
+	return dst
+}
+
 type PortCount struct {
 	Port      int `json:"port"`
 	Available int `json:"available"`
