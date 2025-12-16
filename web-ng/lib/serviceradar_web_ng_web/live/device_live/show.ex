@@ -220,7 +220,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
           <%= for panel <- @panels do %>
             <%= if panel.plugin == TablePlugin and length(@results) == 1 and is_map(@device_row) do %>
-              <.single_row_panel row={@device_row} title="Raw Fields" />
+              <.device_properties_card row={@device_row} />
             <% else %>
               <.live_component
                 module={panel.plugin}
@@ -237,9 +237,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   attr :row, :map, required: true
-  attr :title, :string, default: "Details"
 
-  defp single_row_panel(assigns) do
+  defp device_properties_card(assigns) do
     row = assigns.row || %{}
 
     keys =
@@ -248,26 +247,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> Enum.map(&to_string/1)
       |> Enum.uniq()
 
-    # Metadata is excluded since its contents are already displayed in other sections
-    # (ICMP stats, hostname, poller info, etc.)
+    # Exclude metadata and fields already shown in the header card
+    excluded = ["metadata", "hostname", "ip", "poller_id", "last_seen", "os_info", "version_info"]
+    keys = Enum.reject(keys, &(&1 in excluded))
+
+    # Order remaining keys nicely
     preferred = [
       "device_id",
-      "hostname",
-      "ip",
-      "poller_id",
       "agent_id",
       "device_type",
       "service_type",
       "service_status",
       "is_available",
-      "last_seen",
-      "last_heartbeat",
-      "os_info",
-      "version_info"
+      "last_heartbeat"
     ]
-
-    # Filter out metadata from the keys entirely
-    keys = Enum.reject(keys, &(&1 == "metadata"))
 
     {preferred_keys, other_keys} =
       Enum.split_with(keys, fn k -> k in preferred end)
@@ -277,63 +270,65 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> Enum.filter(&(&1 in preferred_keys))
       |> Kernel.++(Enum.sort(other_keys))
 
+    # Only show if there are properties to display
     assigns =
       assigns
       |> assign(:ordered_keys, ordered_keys)
       |> assign(:row, row)
+      |> assign(:has_properties, ordered_keys != [])
 
     ~H"""
-    <.ui_panel>
-      <:header>
-        <div class="min-w-0">
-          <div class="text-sm font-semibold">{@title}</div>
-          <div class="text-xs text-base-content/60">
-            Single-row result; rendered as cards to avoid horizontal scrolling.
-          </div>
-        </div>
-      </:header>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <%= for key <- @ordered_keys do %>
-          <.kv_card label={key} value={Map.get(@row, key)} />
-        <% end %>
+    <div :if={@has_properties} class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+        <span class="text-sm font-semibold">Device Properties</span>
+        <span class="text-xs text-base-content/50">{length(@ordered_keys)} fields</span>
       </div>
-    </.ui_panel>
-    """
-  end
 
-  attr :label, :string, required: true
-  attr :value, :any, default: nil
-
-  defp kv_card(assigns) do
-    value = assigns.value
-    assigns = assign(assigns, :value, value)
-
-    ~H"""
-    <div class="rounded-lg border border-base-200 bg-base-100 p-3">
-      <div class="text-[11px] uppercase tracking-wider text-base-content/50 mb-1">{@label}</div>
-      <div class="text-sm break-words">
-        {render_kv_value(@value)}
+      <div class="p-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1.5 text-sm">
+          <%= for key <- @ordered_keys do %>
+            <div class="flex items-baseline gap-2 min-w-0 py-0.5">
+              <span class="text-base-content/50 shrink-0 text-xs">{format_label(key)}:</span>
+              <span
+                class="font-mono text-xs truncate"
+                title={format_prop_value(Map.get(@row, key))}
+              >
+                {format_prop_value(Map.get(@row, key))}
+              </span>
+            </div>
+          <% end %>
+        </div>
       </div>
     </div>
     """
   end
 
-  defp render_kv_value(nil), do: "—"
-  defp render_kv_value(""), do: "—"
-
-  defp render_kv_value(value) when is_binary(value) do
-    String.slice(value, 0, 600)
+  defp format_label(key) when is_binary(key) do
+    key
+    |> String.replace("_", " ")
+    |> String.split(" ")
+    |> Enum.map(&String.capitalize/1)
+    |> Enum.join(" ")
   end
 
-  defp render_kv_value(value) when is_number(value), do: to_string(value)
-  defp render_kv_value(value) when is_boolean(value), do: if(value, do: "true", else: "false")
+  defp format_label(key), do: to_string(key)
 
-  defp render_kv_value(value) when is_list(value) or is_map(value) do
-    inspect(value, pretty: true, limit: 30, printable_limit: 2000)
+  defp format_prop_value(nil), do: "—"
+  defp format_prop_value(""), do: "—"
+  defp format_prop_value(true), do: "Yes"
+  defp format_prop_value(false), do: "No"
+  defp format_prop_value(value) when is_binary(value), do: String.slice(value, 0, 100)
+  defp format_prop_value(value) when is_number(value), do: to_string(value)
+
+  defp format_prop_value(value) when is_list(value) or is_map(value) do
+    "#{map_size_or_length(value)} items"
   end
 
-  defp render_kv_value(value), do: inspect(value)
+  defp format_prop_value(value), do: inspect(value) |> String.slice(0, 50)
+
+  defp map_size_or_length(value) when is_map(value), do: map_size(value)
+  defp map_size_or_length(value) when is_list(value), do: length(value)
+  defp map_size_or_length(_), do: 0
 
   attr :label, :string, required: true
   attr :value, :any, default: nil
