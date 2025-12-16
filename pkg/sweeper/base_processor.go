@@ -301,7 +301,7 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 
 	case models.ModeTCP:
 		p.processTCPResult(shard, host, result)
-		
+
 	case models.ModeTCPConnect:
 		p.processTCPResult(shard, host, result)
 	}
@@ -439,7 +439,7 @@ func (p *BaseProcessor) collectShardSummaries() []shardSummary {
 					summary.icmpHosts++
 				}
 
-				summary.hosts = append(summary.hosts, *host)
+				summary.hosts = append(summary.hosts, models.DeepCopyHostResult(host))
 			}
 
 			summary.totalHosts = len(shard.hostMap)
@@ -789,7 +789,7 @@ func (p *BaseProcessor) processShardForSummary(
 	// Stream host data and count
 	for _, host := range shard.hostMap {
 		select {
-		case hostCh <- *host:
+		case hostCh <- models.DeepCopyHostResult(host):
 			if host.Available {
 				result.availableHosts++
 			}
