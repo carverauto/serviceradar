@@ -95,10 +95,12 @@ func (m *MCPServer) registerGetAlertsTool() {
 
 			// Build filters for high-severity events
 			var filters []string
+			var queryParams []any
 			filters = append(filters, "severity IN ('critical', 'high', 'alert')")
 
 			if alertArgs.PollerID != "" {
-				filters = append(filters, fmt.Sprintf("poller_id = '%s'", alertArgs.PollerID))
+				filters = append(filters, "poller_id = $1")
+				queryParams = append(queryParams, alertArgs.PollerID)
 			}
 
 			if alertArgs.StartTime != nil {
@@ -116,7 +118,7 @@ func (m *MCPServer) registerGetAlertsTool() {
 			m.logger.Debug().Str("query", query).Msg("Executing alerts query")
 
 			// Execute SRQL query via API
-			results, err := m.executeSRQLQuery(ctx, query, limit)
+			results, err := m.executeSRQLQueryWithParams(ctx, query, queryParams, limit)
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute alerts query: %w", err)
 			}

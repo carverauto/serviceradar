@@ -80,14 +80,14 @@ func (m *MCPServer) registerDeviceTools() {
 				return nil, errDeviceIDRequired
 			}
 
-			// Build SRQL query for specific device
-			filter := fmt.Sprintf("device_id = '%s'", deviceIDArgs.DeviceID)
+			// Build SRQL query for specific device (parameterized)
+			filter := "device_id = $1"
 			query := BuildSRQL("devices", filter, "", 1, false)
 
 			m.logger.Debug().Str("device_id", deviceIDArgs.DeviceID).Str("query", query).Msg("Retrieving device")
 
 			// Execute SRQL query via API
-			results, err := m.executeSRQLQuery(ctx, query, 1)
+			results, err := m.executeSRQLQueryWithParams(ctx, query, []any{deviceIDArgs.DeviceID}, 1)
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute device query: %w", err)
 			}

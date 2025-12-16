@@ -91,11 +91,13 @@ func (m *MCPServer) registerGetRecentSweepsTool() {
 			timeFilter := BuildTimeRangeFilter(&startTime, nil, "timestamp")
 
 			var filters []string
+			var queryParams []any
 			if timeFilter != "" {
 				filters = append(filters, timeFilter)
 			}
 			if recentArgs.PollerID != "" {
-				filters = append(filters, fmt.Sprintf("poller_id = '%s'", recentArgs.PollerID))
+				filters = append(filters, "poller_id = $1")
+				queryParams = append(queryParams, recentArgs.PollerID)
 			}
 
 			combinedFilter := CombineFilters(filters...)
@@ -111,7 +113,7 @@ func (m *MCPServer) registerGetRecentSweepsTool() {
 				Msg("Executing recent sweeps query")
 
 			// Execute SRQL query via API
-			results, err := m.executeSRQLQuery(ctx, query, limit)
+			results, err := m.executeSRQLQueryWithParams(ctx, query, queryParams, limit)
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute recent sweeps query: %w", err)
 			}
@@ -148,11 +150,13 @@ func (m *MCPServer) registerGetSweepSummaryTool() {
 			timeFilter := BuildTimeRangeFilter(summaryArgs.StartTime, summaryArgs.EndTime, "timestamp")
 
 			var filters []string
+			var queryParams []any
 			if timeFilter != "" {
 				filters = append(filters, timeFilter)
 			}
 			if summaryArgs.PollerID != "" {
-				filters = append(filters, fmt.Sprintf("poller_id = '%s'", summaryArgs.PollerID))
+				filters = append(filters, "poller_id = $1")
+				queryParams = append(queryParams, summaryArgs.PollerID)
 			}
 
 			combinedFilter := CombineFilters(filters...)
@@ -167,7 +171,7 @@ func (m *MCPServer) registerGetSweepSummaryTool() {
 				Msg("Executing sweep summary query")
 
 			// Execute SRQL query via API
-			results, err := m.executeSRQLQuery(ctx, query, 0)
+			results, err := m.executeSRQLQueryWithParams(ctx, query, queryParams, 0)
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute sweep summary query: %w", err)
 			}

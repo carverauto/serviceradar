@@ -3,6 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "mcp",
     srcs = [
+        "binds.go",
         "builder.go",
         "errors.go",
         "query_utils.go",
@@ -27,6 +28,7 @@ go_library(
 go_test(
     name = "mcp_test",
     srcs = [
+        "parameterized_queries_test.go",
         "server_test.go",
         "tools_graph_test.go",
     ],
