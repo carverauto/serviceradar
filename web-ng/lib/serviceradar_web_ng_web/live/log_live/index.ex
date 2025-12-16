@@ -999,15 +999,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     # Get metric name from multiple possible fields
     metric_name = get_metric_name(metric)
     metric_type = normalize_string(Map.get(metric, "metric_type"))
+    # NEW: Check for explicit unit field from backend
+    unit = normalize_string(Map.get(metric, "unit"))
 
     # PRIORITY 0: Histograms are distributions - show sample count, not a single value
     # Trying to show one number for a histogram is misleading
     if metric_type == "histogram" do
       format_histogram_value(metric)
     else
-      # PRIORITY 1: Check metric name for explicit unit hints
-      # This takes precedence over field presence since OTEL often puts values in duration_ms
+      # PRIORITY 0.5: If we have an explicit unit field, use it directly
+      # This is the most reliable way to format metrics correctly
       cond do
+        unit != nil ->
+          format_with_explicit_unit(metric, unit)
+
         is_bytes_metric?(metric_name) ->
           format_bytes_value(metric)
 
@@ -1030,6 +1035,107 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         true ->
           "—"
       end
+    end
+  end
+
+  # Format metric value using explicit unit field from backend
+  defp format_with_explicit_unit(metric, unit) do
+    value = extract_primary_value(metric)
+
+    if is_nil(value) do
+      "—"
+    else
+      case unit do
+        # Duration units
+        "ms" -> format_ms_value(value)
+        "s" -> format_seconds_value(value)
+        "ns" -> format_ns_value(value)
+        "us" -> format_us_value(value)
+        # Byte units
+        "bytes" -> format_bytes_from_value(value)
+        "By" -> format_bytes_from_value(value)
+        "kb" -> format_bytes_from_value(value * 1024)
+        "KiB" -> format_bytes_from_value(value * 1024)
+        "mb" -> format_bytes_from_value(value * 1024 * 1024)
+        "MiB" -> format_bytes_from_value(value * 1024 * 1024)
+        "gb" -> format_bytes_from_value(value * 1024 * 1024 * 1024)
+        "GiB" -> format_bytes_from_value(value * 1024 * 1024 * 1024)
+        # Count/dimensionless
+        "1" -> format_count_from_value(value)
+        "{request}" -> format_count_from_value(value)
+        "{connection}" -> format_count_from_value(value)
+        "{thread}" -> format_count_from_value(value)
+        "{goroutine}" -> format_count_from_value(value)
+        # Percentage
+        "%" -> "#{Float.round(value * 1.0, 1)}%"
+        # Default: show value with unit suffix
+        _ -> "#{format_compact_value(value)} #{unit}"
+      end
+    end
+  end
+
+  defp extract_primary_value(metric) do
+    cond do
+      is_number(metric["value"]) -> metric["value"]
+      is_binary(metric["value"]) -> extract_number(metric["value"])
+      is_number(metric["duration_ms"]) -> metric["duration_ms"]
+      is_binary(metric["duration_ms"]) -> extract_number(metric["duration_ms"])
+      is_number(metric["sum"]) -> metric["sum"]
+      is_binary(metric["sum"]) -> extract_number(metric["sum"])
+      is_number(metric["count"]) -> metric["count"]
+      is_binary(metric["count"]) -> extract_number(metric["count"])
+      true -> nil
+    end
+  end
+
+  defp format_ms_value(ms) when is_number(ms) do
+    cond do
+      ms >= 60_000 -> "#{Float.round(ms / 60_000, 1)}m"
+      ms >= 1000 -> "#{Float.round(ms / 1000, 2)}s"
+      true -> "#{Float.round(ms * 1.0, 1)}ms"
+    end
+  end
+
+  defp format_seconds_value(s) when is_number(s) do
+    ms = s * 1000
+    format_ms_value(ms)
+  end
+
+  defp format_ns_value(ns) when is_number(ns) do
+    ms = ns / 1_000_000
+    format_ms_value(ms)
+  end
+
+  defp format_us_value(us) when is_number(us) do
+    ms = us / 1000
+    format_ms_value(ms)
+  end
+
+  defp format_bytes_from_value(bytes) when is_number(bytes) do
+    cond do
+      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776 * 1.0, 1)} TB"
+      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824 * 1.0, 1)} GB"
+      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576 * 1.0, 1)} MB"
+      bytes >= 1024 -> "#{Float.round(bytes / 1024 * 1.0, 1)} KB"
+      true -> "#{trunc(bytes)} B"
+    end
+  end
+
+  defp format_count_from_value(count) when is_number(count) do
+    cond do
+      count >= 1_000_000 -> "#{Float.round(count / 1_000_000 * 1.0, 1)}M"
+      count >= 1_000 -> "#{Float.round(count / 1_000 * 1.0, 1)}k"
+      is_float(count) -> "#{trunc(count)}"
+      true -> "#{count}"
+    end
+  end
+
+  defp format_compact_value(value) when is_number(value) do
+    cond do
+      value >= 1_000_000 -> "#{Float.round(value / 1_000_000 * 1.0, 1)}M"
+      value >= 1_000 -> "#{Float.round(value / 1_000 * 1.0, 1)}k"
+      is_float(value) -> "#{Float.round(value, 2)}"
+      true -> "#{value}"
     end
   end
 

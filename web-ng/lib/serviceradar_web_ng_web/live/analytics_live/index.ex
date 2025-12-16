@@ -1,6 +1,11 @@
 defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
+  import Ecto.Query
+  alias ServiceRadarWebNG.Repo
+
+  require Logger
+
   @default_events_limit 500
   @default_logs_limit 500
   @default_metrics_limit 100
@@ -54,14 +59,86 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_event("srql_builder_toggle", _params, socket) do
+    srql = socket.assigns.srql
+    new_srql = Map.put(srql, :builder_open, not Map.get(srql, :builder_open, false))
+    {:noreply, assign(socket, :srql, new_srql)}
+  end
+
+  def handle_event("srql_change", %{"query" => query}, socket) do
+    srql = socket.assigns.srql
+    new_srql = Map.put(srql, :draft, query)
+    {:noreply, assign(socket, :srql, new_srql)}
+  end
+
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   defp schedule_refresh do
     Process.send_after(self(), :refresh_data, @refresh_interval_ms)
   end
 
+  # Query the continuous aggregation for efficient pre-computed stats
+  defp get_hourly_metrics_stats do
+    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+
+    query =
+      from(s in "otel_metrics_hourly_stats",
+        where: s.bucket >= ^cutoff,
+        select: %{
+          total_count: sum(s.total_count),
+          error_count: sum(s.error_count),
+          slow_count: sum(s.slow_count),
+          http_4xx_count: sum(s.http_4xx_count),
+          http_5xx_count: sum(s.http_5xx_count),
+          grpc_error_count: sum(s.grpc_error_count),
+          avg_duration_ms:
+            fragment(
+              "CASE WHEN SUM(?) > 0 THEN SUM(? * ?) / SUM(?) ELSE 0 END",
+              s.total_count,
+              s.avg_duration_ms,
+              s.total_count,
+              s.total_count
+            ),
+          p95_duration_ms: max(s.p95_duration_ms),
+          max_duration_ms: max(s.max_duration_ms)
+        }
+      )
+
+    case Repo.one(query) do
+      %{total_count: total} = stats when not is_nil(total) ->
+        %{
+          total: to_int(total),
+          error: to_int(stats.error_count),
+          slow: to_int(stats.slow_count),
+          http_4xx: to_int(stats.http_4xx_count),
+          http_5xx: to_int(stats.http_5xx_count),
+          grpc_error: to_int(stats.grpc_error_count),
+          avg_duration_ms: to_float(stats.avg_duration_ms),
+          p95_duration_ms: to_float(stats.p95_duration_ms),
+          max_duration_ms: to_float(stats.max_duration_ms)
+        }
+
+      _ ->
+        Logger.debug("Hourly metrics stats not available, falling back to SRQL queries")
+        nil
+    end
+  rescue
+    error ->
+      Logger.warning("Failed to query hourly metrics stats: #{inspect(error)}")
+      nil
+  end
+
+  defp to_float(nil), do: 0.0
+  defp to_float(%Decimal{} = d), do: Decimal.to_float(d)
+  defp to_float(v) when is_float(v), do: v
+  defp to_float(v) when is_integer(v), do: v * 1.0
+  defp to_float(_), do: 0.0
+
   defp load_analytics(socket) do
     srql_module = srql_module()
+
+    # Try to get metrics stats from continuous aggregation first (more efficient)
+    hourly_stats = get_hourly_metrics_stats()
 
     queries = %{
       devices_total: ~s|in:devices stats:"count() as total"|,
@@ -79,16 +156,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       logs_info: ~s|in:logs time:last_24h severity_text:(info,INFO) stats:"count() as info"|,
       logs_debug:
         ~s|in:logs time:last_24h severity_text:(debug,trace,DEBUG,TRACE) stats:"count() as debug"|,
-      # Observability summary (match legacy UI: last_24h window, trace summaries not raw spans)
-      metrics_total: ~s|in:otel_metrics time:last_24h stats:"count() as total"|,
-      metrics_slow: ~s|in:otel_metrics time:last_24h is_slow:true stats:"count() as total"|,
-      # Note: 'level' filter is not supported for otel_metrics - use HTTP status codes instead
-      metrics_error_http4:
-        ~s|in:otel_metrics time:last_24h http_status_code:4% stats:"count() as total"|,
-      metrics_error_http5:
-        ~s|in:otel_metrics time:last_24h http_status_code:5% stats:"count() as total"|,
-      metrics_error_grpc:
-        ~s|in:otel_metrics time:last_24h !grpc_status_code:0 !grpc_status_code:"" stats:"count() as total"|,
       trace_stats:
         "in:otel_trace_summaries time:last_24h " <>
           ~s|stats:"count() as total, sum(if(status_code != 1, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"|,
@@ -106,6 +173,23 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       # rperf_targets: "in:rperf_targets time:last_1h sort:timestamp:desc limit:50"
     }
 
+    # Only add SRQL fallback queries if hourly stats failed
+    queries =
+      if is_nil(hourly_stats) do
+        Map.merge(queries, %{
+          metrics_total: ~s|in:otel_metrics time:last_24h stats:"count() as total"|,
+          metrics_slow: ~s|in:otel_metrics time:last_24h is_slow:true stats:"count() as total"|,
+          metrics_error_http4:
+            ~s|in:otel_metrics time:last_24h http_status_code:4% stats:"count() as total"|,
+          metrics_error_http5:
+            ~s|in:otel_metrics time:last_24h http_status_code:5% stats:"count() as total"|,
+          metrics_error_grpc:
+            ~s|in:otel_metrics time:last_24h !grpc_status_code:0 !grpc_status_code:"" stats:"count() as total"|
+        })
+      else
+        queries
+      end
+
     results =
       queries
       |> Task.async_stream(
@@ -117,6 +201,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         {:ok, {key, result}}, acc -> Map.put(acc, key, result)
         {:exit, reason}, acc -> Map.put(acc, :error, "query task exit: #{inspect(reason)}")
       end)
+
+    # Merge in hourly stats if available
+    results =
+      if hourly_stats do
+        Map.put(results, :hourly_stats, hourly_stats)
+      else
+        results
+      end
 
     {stats, device_availability, events_summary, logs_summary, observability, high_utilization,
      bandwidth, error} =
@@ -181,23 +273,32 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
     logs_summary = build_logs_summary(logs_rows, logs_counts)
 
-    # Build observability summary with real counts from stats queries
-    metrics_total = extract_count(results[:metrics_total])
-    metrics_slow = extract_count(results[:metrics_slow])
-    metrics_error_http4 = extract_count(results[:metrics_error_http4])
-    metrics_error_http5 = extract_count(results[:metrics_error_http5])
-    metrics_error_grpc = extract_count(results[:metrics_error_grpc])
+    # Build observability summary - prefer pre-computed hourly stats if available
+    {metrics_total, metrics_error, metrics_slow, avg_duration} =
+      case Map.get(results, :hourly_stats) do
+        %{total: total, error: error, slow: slow, avg_duration_ms: avg_ms} ->
+          # Use efficient pre-computed stats from continuous aggregation
+          {total, error, slow, avg_ms}
+
+        _ ->
+          # Fallback to individual SRQL query results
+          total = extract_count(results[:metrics_total])
+          slow = extract_count(results[:metrics_slow])
+          http4 = extract_count(results[:metrics_error_http4])
+          http5 = extract_count(results[:metrics_error_http5])
+          grpc = extract_count(results[:metrics_error_grpc])
+          {total, http4 + http5 + grpc, slow, 0}
+      end
+
     trace_stats = extract_map(results[:trace_stats])
     slow_spans_rows = extract_rows(results[:slow_spans])
-
-    # Combine HTTP 4xx, 5xx, and gRPC errors as the total error count
-    metrics_error = metrics_error_http4 + metrics_error_http5 + metrics_error_grpc
 
     observability =
       build_observability_summary(
         metrics_total,
         metrics_error,
         metrics_slow,
+        avg_duration,
         trace_stats,
         slow_spans_rows
       )
@@ -364,11 +465,12 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
          metrics_total,
          metrics_error,
          metrics_slow,
+         avg_duration_ms,
          trace_stats,
          slow_spans
        )
        when is_integer(metrics_total) and is_integer(metrics_error) and is_integer(metrics_slow) and
-              is_map(trace_stats) and is_list(slow_spans) do
+              is_number(avg_duration_ms) and is_map(trace_stats) and is_list(slow_spans) do
     trace_stats =
       case Map.get(trace_stats, "payload") do
         %{} = payload -> payload
@@ -385,9 +487,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         0.0
       end
 
-    # Trace summary stats don't currently support avg() in SRQL.
-    avg_duration = 0
-
     slow_spans =
       slow_spans
       |> Enum.filter(&is_map/1)
@@ -396,14 +495,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     %{
       metrics_count: metrics_total,
       traces_count: traces_count,
-      avg_duration: avg_duration,
+      avg_duration: avg_duration_ms,
       error_rate: error_rate,
       slow_spans_count: metrics_slow,
       slow_spans: slow_spans
     }
   end
 
-  defp build_observability_summary(_, _, _, _, _),
+  defp build_observability_summary(_, _, _, _, _, _),
     do: %{
       metrics_count: 0,
       traces_count: 0,
@@ -413,8 +512,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       slow_spans: []
     }
 
+  defp to_int(nil), do: 0
   defp to_int(value) when is_integer(value), do: value
   defp to_int(value) when is_float(value), do: trunc(value)
+  defp to_int(%Decimal{} = d), do: Decimal.to_integer(d)
   defp to_int(_), do: 0
 
   defp build_high_utilization_summary(cpu_rows, memory_rows, disk_rows)

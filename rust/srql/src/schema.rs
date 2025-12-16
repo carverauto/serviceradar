@@ -180,6 +180,7 @@ diesel::table! {
         is_slow -> Nullable<Bool>,
         component -> Nullable<Text>,
         level -> Nullable<Text>,
+        unit -> Nullable<Text>,
         created_at -> Timestamptz,
     }
 }
