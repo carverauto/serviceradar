@@ -999,21 +999,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     metric_name = get_metric_name(metric)
     metric_type = normalize_string(Map.get(metric, "metric_type"))
 
-    # PRIORITY 1: Check metric name for unit hints (bytes, count, etc.)
+    # PRIORITY 1: Check metric name for explicit unit hints
     # This takes precedence over field presence since OTEL often puts values in duration_ms
     cond do
       is_bytes_metric?(metric_name) ->
         format_bytes_value(metric)
 
-      is_count_metric?(metric_name) ->
+      is_count_metric?(metric_name) or is_stats_metric?(metric_name) ->
         format_count_value(metric)
 
-      # PRIORITY 2: For metrics without unit hints in name, check field types
-      # Only treat as duration if it looks like actual timing data (HTTP/gRPC spans)
-      is_timing_span?(metric) and has_duration_field?(metric) ->
+      # PRIORITY 2: Only format as duration if:
+      # - Metric name explicitly suggests duration/latency/time, OR
+      # - It's a span type with actual HTTP/gRPC context (not just empty attributes)
+      is_duration_metric?(metric_name) and has_duration_field?(metric) ->
         format_duration_value(metric)
 
-      # PRIORITY 3: Raw value fallback
+      is_actual_timing_span?(metric) and has_duration_field?(metric) ->
+        format_duration_value(metric)
+
+      # PRIORITY 3: Raw value fallback - just show the number, no units
       has_any_value?(metric) ->
         format_raw_value(metric, metric_type)
 
@@ -1059,12 +1063,60 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       String.contains?(downcased, "threads")
   end
 
-  defp is_timing_span?(metric) do
-    # Check if this looks like an actual timing span (HTTP request, gRPC call, etc.)
-    has_http = is_binary(metric["http_route"]) or is_binary(metric["http_method"])
-    has_grpc = is_binary(metric["grpc_service"]) or is_binary(metric["grpc_method"])
-    has_http or has_grpc
+  # Stats/counter-like metrics (processed, skipped, etc.)
+  defp is_stats_metric?(nil), do: false
+  defp is_stats_metric?(""), do: false
+
+  defp is_stats_metric?(name) when is_binary(name) do
+    downcased = String.downcase(name)
+
+    String.contains?(downcased, "_stats_") or
+      String.contains?(downcased, "processed") or
+      String.contains?(downcased, "skipped") or
+      String.contains?(downcased, "inferred") or
+      String.contains?(downcased, "canonical") or
+      String.contains?(downcased, "requests") or
+      String.contains?(downcased, "connections") or
+      String.contains?(downcased, "errors") or
+      String.contains?(downcased, "failures")
   end
+
+  # Check if metric name explicitly suggests it's a duration/timing metric
+  defp is_duration_metric?(nil), do: false
+  defp is_duration_metric?(""), do: false
+
+  defp is_duration_metric?(name) when is_binary(name) do
+    downcased = String.downcase(name)
+
+    String.contains?(downcased, "duration") or
+      String.contains?(downcased, "latency") or
+      String.contains?(downcased, "_time") or
+      String.ends_with?(downcased, "time") or
+      String.contains?(downcased, "elapsed") or
+      String.contains?(downcased, "response_ms") or
+      String.contains?(downcased, "request_ms")
+  end
+
+  # Check if this is an actual timing span with real HTTP/gRPC context (not empty strings)
+  defp is_actual_timing_span?(metric) do
+    has_http =
+      is_non_empty_string?(metric["http_route"]) or
+        is_non_empty_string?(metric["http_method"])
+
+    has_grpc =
+      is_non_empty_string?(metric["grpc_service"]) or
+        is_non_empty_string?(metric["grpc_method"])
+
+    # Also check for span type
+    is_span = normalize_string(Map.get(metric, "metric_type")) == "span"
+
+    (has_http or has_grpc) and is_span
+  end
+
+  defp is_non_empty_string?(nil), do: false
+  defp is_non_empty_string?(""), do: false
+  defp is_non_empty_string?(s) when is_binary(s), do: String.trim(s) != ""
+  defp is_non_empty_string?(_), do: false
 
   defp has_duration_field?(metric) do
     is_number(metric["duration_ms"]) or is_binary(metric["duration_ms"]) or

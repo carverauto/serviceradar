@@ -279,7 +279,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
           </li>
           <li :for={crumb <- @crumbs}>
             <.link
-              :if={crumb.href}
+              :if={crumb.href != nil}
               href={crumb.href}
               class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content"
               title={crumb.label}
@@ -288,7 +288,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               <span>{crumb.label}</span>
             </.link>
             <span
-              :if={not crumb.href}
+              :if={crumb.href == nil}
               class="flex items-center gap-1.5 font-medium text-base-content truncate max-w-[20rem]"
               title={crumb.label}
             >
