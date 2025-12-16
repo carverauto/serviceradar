@@ -62,7 +62,15 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       # Get unique services by service_name in the last hour (most recent status)
       services_list: "in:services time:last_1h sort:timestamp:desc limit:500",
       events: "in:events time:last_24h sort:event_timestamp:desc limit:#{@default_events_limit}",
-      logs: "in:logs time:last_24h sort:timestamp:desc limit:#{@default_logs_limit}",
+      logs_recent: "in:logs time:last_24h sort:timestamp:desc limit:#{@default_logs_limit}",
+      logs_total: ~s|in:logs time:last_24h stats:"count() as total"|,
+      logs_fatal: ~s|in:logs time:last_24h severity_text:(fatal,FATAL) stats:"count() as fatal"|,
+      logs_error: ~s|in:logs time:last_24h severity_text:(error,ERROR) stats:"count() as error"|,
+      logs_warning:
+        ~s|in:logs time:last_24h severity_text:(warning,warn,WARNING,WARN) stats:"count() as warning"|,
+      logs_info: ~s|in:logs time:last_24h severity_text:(info,INFO) stats:"count() as info"|,
+      logs_debug:
+        ~s|in:logs time:last_24h severity_text:(debug,trace,DEBUG,TRACE) stats:"count() as debug"|,
       # Observability summary (match legacy UI: last_24h window, trace summaries not raw spans)
       metrics_count: ~s|in:otel_metrics time:last_24h stats:"count() as total"|,
       trace_stats:
@@ -142,10 +150,20 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     }
 
     events_rows = extract_rows(results[:events])
-    logs_rows = extract_rows(results[:logs])
-
     events_summary = build_events_summary(events_rows)
-    logs_summary = build_logs_summary(logs_rows)
+
+    logs_rows = extract_rows(results[:logs_recent])
+
+    logs_counts = %{
+      total: extract_count(results[:logs_total]),
+      fatal: extract_count(results[:logs_fatal]),
+      error: extract_count(results[:logs_error]),
+      warning: extract_count(results[:logs_warning]),
+      info: extract_count(results[:logs_info]),
+      debug: extract_count(results[:logs_debug])
+    }
+
+    logs_summary = build_logs_summary(logs_rows, logs_counts)
 
     # Build observability summary with real counts from stats queries
     metrics_total = extract_count(results[:metrics_count])
@@ -293,23 +311,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp build_events_summary(_),
     do: %{critical: 0, high: 0, medium: 0, low: 0, total: 0, recent: []}
 
-  defp build_logs_summary(rows) when is_list(rows) do
-    counts =
-      rows
-      |> Enum.filter(&is_map/1)
-      |> Enum.reduce(%{fatal: 0, error: 0, warning: 0, info: 0, debug: 0}, fn row, acc ->
-        severity = row |> Map.get("severity_text") |> normalize_log_level()
-
-        case severity do
-          "Fatal" -> Map.update!(acc, :fatal, &(&1 + 1))
-          "Error" -> Map.update!(acc, :error, &(&1 + 1))
-          "Warning" -> Map.update!(acc, :warning, &(&1 + 1))
-          "Info" -> Map.update!(acc, :info, &(&1 + 1))
-          "Debug" -> Map.update!(acc, :debug, &(&1 + 1))
-          _ -> acc
-        end
-      end)
-
+  defp build_logs_summary(rows, %{} = counts) when is_list(rows) do
     recent =
       rows
       |> Enum.filter(&is_map/1)
@@ -319,10 +321,12 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       end)
       |> Enum.take(5)
 
-    Map.merge(counts, %{total: length(rows), recent: recent})
+    counts
+    |> Map.take([:total, :fatal, :error, :warning, :info, :debug])
+    |> Map.put(:recent, recent)
   end
 
-  defp build_logs_summary(_),
+  defp build_logs_summary(_rows, _counts),
     do: %{fatal: 0, error: 0, warning: 0, info: 0, debug: 0, total: 0, recent: []}
 
   defp build_observability_summary(metrics_count, trace_stats, slow_traces)
@@ -690,7 +694,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           </div>
           <div class="text-sm text-base-content/60">
             {@title}
-            <span :if={@subtitle} class="text-base-content/40"> |        {@subtitle}</span>
+            <span :if={@subtitle} class="text-base-content/40">
+              {" | "}
+              {@subtitle}
+            </span>
           </div>
         </div>
       </div>
@@ -1079,12 +1086,12 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     ~H"""
     <.ui_panel class="h-80">
       <:header>
-        <.link href={~p"/dashboard"} class="hover:text-primary transition-colors">
+        <.link href={~p"/observability"} class="hover:text-primary transition-colors">
           <div class="text-sm font-semibold">Observability</div>
         </.link>
         <.link
           href={
-            ~p"/dashboard?#{%{q: "in:otel_trace_summaries time:last_1h sort:timestamp:desc limit:100"}}"
+            ~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h sort:timestamp:desc limit:100"}}"
           }
           class="text-base-content/60 hover:text-primary"
           title="View traces"

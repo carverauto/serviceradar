@@ -129,6 +129,17 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
     has_filter = Map.get(assigns, :has_filter, false)
 
+    max_type_total =
+      by_type
+      |> Map.values()
+      |> Enum.map(fn counts ->
+        Map.get(counts, :available, 0) + Map.get(counts, :unavailable, 0)
+      end)
+      |> case do
+        [] -> 0
+        values -> Enum.max(values)
+      end
+
     assigns =
       assigns
       |> assign(:total, total)
@@ -138,6 +149,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       |> assign(:by_type, by_type)
       |> assign(:check_count, check_count)
       |> assign(:has_filter, has_filter)
+      |> assign(:max_type_total, max_type_total)
 
     ~H"""
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -258,7 +270,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       </div>
       <div class="space-y-2">
         <%= for {type, counts} <- Enum.sort_by(@by_type, fn {_, c} -> -(c.available + c.unavailable) end) |> Enum.take(8) do %>
-          <.type_bar type={type} counts={counts} total={@total} />
+          <.type_bar type={type} counts={counts} max_total={@max_type_total} />
         <% end %>
       </div>
     </div>
@@ -267,13 +279,19 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   attr :type, :string, required: true
   attr :counts, :map, required: true
-  attr :total, :integer, required: true
+  attr :max_total, :integer, required: true
 
   defp type_bar(assigns) do
     type_total = assigns.counts.available + assigns.counts.unavailable
     avail_pct = if type_total > 0, do: round(assigns.counts.available / type_total * 100), else: 0
     fail_pct = if type_total > 0, do: 100 - avail_pct, else: 0
-    bar_width = if assigns.total > 0, do: max(2, round(type_total / assigns.total * 100)), else: 0
+
+    volume_pct =
+      cond do
+        type_total <= 0 -> 0
+        assigns.max_total <= 0 -> 100
+        true -> max(6, round(type_total / assigns.max_total * 100))
+      end
 
     # Build SRQL query for this service type
     type_query = "in:services service_type:\"#{assigns.type}\" time:last_1h sort:timestamp:desc"
@@ -283,7 +301,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       |> assign(:type_total, type_total)
       |> assign(:avail_pct, avail_pct)
       |> assign(:fail_pct, fail_pct)
-      |> assign(:bar_width, bar_width)
+      |> assign(:volume_pct, volume_pct)
       |> assign(:type_query, type_query)
 
     ~H"""
@@ -295,24 +313,26 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       <div class="w-28 truncate text-xs font-medium group-hover:text-primary" title={@type}>
         {@type}
       </div>
-      <div class="flex-1 h-4 bg-base-200/50 rounded-full overflow-hidden flex">
-        <div
-          :if={@avail_pct > 0}
-          class="h-full bg-success/70 transition-all"
-          style={"width: #{@avail_pct}%"}
-          title={"#{@counts.available} available"}
-        />
-        <div
-          :if={@fail_pct > 0}
-          class="h-full bg-error/70 transition-all"
-          style={"width: #{@fail_pct}%"}
-          title={"#{@counts.unavailable} unavailable"}
-        />
-        <div
-          :if={@avail_pct == 0 and @fail_pct == 0}
-          class="h-full bg-base-200/70"
-          style="width: 100%"
-        />
+      <div class="flex-1 h-4 bg-base-200/50 rounded-full overflow-hidden">
+        <div class="h-full flex" style={"width: #{@volume_pct}%"}>
+          <div
+            :if={@avail_pct > 0}
+            class="h-full bg-success/70 transition-all"
+            style={"width: #{@avail_pct}%"}
+            title={"#{@counts.available} available"}
+          />
+          <div
+            :if={@fail_pct > 0}
+            class="h-full bg-error/70 transition-all"
+            style={"width: #{@fail_pct}%"}
+            title={"#{@counts.unavailable} unavailable"}
+          />
+          <div
+            :if={@avail_pct == 0 and @fail_pct == 0}
+            class="h-full bg-base-200/70"
+            style="width: 100%"
+          />
+        </div>
       </div>
       <div class="w-16 text-right">
         <span class="text-xs font-mono">{@type_total}</span>
@@ -389,8 +409,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   attr :available, :any, default: nil
 
   defp status_badge(assigns) do
+    available = normalize_available(assigns.available)
+
     {label, variant} =
-      case assigns.available do
+      case available do
         true -> {"OK", "success"}
         false -> {"FAIL", "error"}
         _ -> {"—", "ghost"}
@@ -525,7 +547,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
     result =
       Enum.reduce(unique_services, initial, fn svc, acc ->
-        is_available = Map.get(svc, "available") == true
+        is_available = normalize_available(Map.get(svc, "available")) == true
 
         service_type =
           svc
@@ -563,4 +585,23 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
+
+  defp normalize_available(true), do: true
+  defp normalize_available(false), do: false
+  defp normalize_available(1), do: true
+  defp normalize_available(0), do: false
+
+  defp normalize_available(value) when is_binary(value) do
+    case String.trim(String.downcase(value)) do
+      "true" -> true
+      "t" -> true
+      "1" -> true
+      "false" -> false
+      "f" -> false
+      "0" -> false
+      _ -> nil
+    end
+  end
+
+  defp normalize_available(_), do: nil
 end

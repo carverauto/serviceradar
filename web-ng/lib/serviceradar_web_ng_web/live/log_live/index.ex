@@ -852,6 +852,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     query = Regex.replace(~r/(?:^|\s)limit:\S+/, query, "")
     query = Regex.replace(~r/(?:^|\s)sort:\S+/, query, "")
     query = Regex.replace(~r/(?:^|\s)cursor:\S+/, query, "")
+    query = Regex.replace(~r/(?:^|\s)stats:(?:"[^"]*"|\S+)/, query, "")
     query |> String.trim() |> String.replace(~r/\s+/, " ")
   end
 
