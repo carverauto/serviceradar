@@ -362,6 +362,8 @@ pub struct OtelMetricRow {
     pub component: Option<String>,
     pub level: Option<String>,
     pub unit: Option<String>,
+    pub metric_name: Option<String>,
+    pub value: Option<f64>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -387,6 +389,8 @@ impl OtelMetricRow {
             "component": self.component,
             "level": self.level,
             "unit": self.unit,
+            "metric_name": self.metric_name,
+            "value": self.value,
         })
     }
 }

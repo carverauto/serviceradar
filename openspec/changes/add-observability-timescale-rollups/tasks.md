@@ -26,7 +26,10 @@
 - [x] Logs page queries `otel_metrics_hourly_stats` for duration stats via SRQL
 - [x] Fix duration stats to only use `metric_type = 'span'` (histograms had invalid duration data)
 - [x] Migrate direct Ecto queries to SRQL (analytics_live.ex, log_live.ex)
-- [~] Sparklines still use direct Ecto for time_bucket aggregation on raw metrics (acceptable)
+- [x] Add `metric_name` and `value` columns to otel_metrics (migration 00000000000004)
+- [x] Add SRQL downsample support for `OtelMetrics` entity
+- [x] Implement sparklines via SRQL downsample (`in:otel_metrics bucket:5m series:metric_name agg:avg`)
+- [x] Remove unused Ecto imports from log_live.ex
 
 ## 4. Documentation
 - [ ] Add an operator runbook describing:
@@ -40,10 +43,11 @@
 - [ ] Validate dashboard latency improvements by comparing raw SRQL stats vs rollup queries
 
 ## Current Status
-- **otel_metrics**: CAGG exists, SRQL entity support complete, web-ng queries via SRQL
+- **otel_metrics**: CAGG exists, SRQL entity support complete, web-ng queries via SRQL, downsample support added
 - **logs**: CAGG exists, SRQL entity support complete, web-ng queries via SRQL
 - **traces**: CAGG not yet created
-- **sparklines**: Still uses direct Ecto for time_bucket on raw otel_metrics (acceptable for now)
+- **sparklines**: Implemented via SRQL downsample with `metric_name` and `value` columns (migration 00000000000004)
+- **direct Ecto**: Eliminated from analytics_live.ex and log_live.ex - all queries go through SRQL
 
 ## SRQL Query Examples
 ```
@@ -55,6 +59,12 @@ in:otel_metrics_hourly_stats time:last_24h metric_type:span sort:bucket:desc
 
 # Filter by service
 in:logs_hourly_stats time:last_7d service_name:serviceradar-core
+
+# Sparklines: downsample gauge/counter metrics into 5-minute buckets
+in:otel_metrics time:last_2h metric_type:(gauge,counter) bucket:5m series:metric_name agg:avg
+
+# Downsample specific metrics by name
+in:otel_metrics time:last_2h metric_name:(cpu_usage,memory_bytes) bucket:5m series:metric_name agg:avg
 ```
 
 ## Known Issues Fixed

@@ -1,11 +1,9 @@
 defmodule ServiceRadarWebNGWeb.LogLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
-  import Ecto.Query
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
-  alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 20
@@ -1859,8 +1857,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp to_float_val(_), do: 0.0
 
-  # Load sparkline data for gauge/counter metrics
-  # Returns a map of metric_name -> list of {bucket, avg_value} tuples
+  # Load sparkline data for gauge/counter metrics via SRQL downsample
+  # Returns a map of metric_name -> list of values for sparkline visualization
+  # Uses 5-minute buckets over the last 2 hours (24 data points)
   defp load_sparklines(metrics) when is_list(metrics) do
     # Extract unique metric names for gauges and counters
     metric_names =
@@ -1876,41 +1875,63 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     if metric_names == [] do
       %{}
     else
-      # Query last 2 hours of data, bucketed into 5-minute intervals (24 points)
-      cutoff = DateTime.add(DateTime.utc_now(), -2, :hour)
+      load_sparklines_via_srql(metric_names)
+    end
+  end
 
-      query =
-        from(m in "otel_metrics",
-          where: m.metric_name in ^metric_names and m.timestamp >= ^cutoff,
-          group_by: [m.metric_name, fragment("time_bucket('5 minutes', ?)", m.timestamp)],
-          order_by: [m.metric_name, fragment("time_bucket('5 minutes', ?)", m.timestamp)],
-          select: %{
-            metric_name: m.metric_name,
-            bucket: fragment("time_bucket('5 minutes', ?)", m.timestamp),
-            avg_value: avg(m.value)
-          }
+  defp load_sparklines(_), do: %{}
+
+  # Query SRQL for sparkline data using downsample
+  defp load_sparklines_via_srql(metric_names) when is_list(metric_names) do
+    srql_module = srql_module()
+
+    # Build filter for metric names - quote special characters and join with comma
+    metric_filter =
+      metric_names
+      |> Enum.map(&quote_srql_filter_value/1)
+      |> Enum.join(",")
+
+    # Query: 2 hour time range, 5 minute buckets, grouped by metric_name, avg aggregation
+    query = "in:otel_metrics time:last_2h metric_type:(gauge,counter) metric_name:(#{metric_filter}) bucket:5m series:metric_name agg:avg"
+
+    case srql_module.query(query) do
+      {:ok, %{"results" => rows}} when is_list(rows) ->
+        # Group results by series (metric_name) and extract values
+        rows
+        |> Enum.filter(&is_map/1)
+        |> Enum.group_by(
+          fn row -> row["series"] end,
+          fn row -> to_float_val(row["value"]) end
         )
+        |> Enum.reject(fn {k, _v} -> is_nil(k) or k == "" end)
+        |> Map.new()
 
-      query
-      |> Repo.all()
-      |> Enum.group_by(& &1.metric_name, fn row ->
-        # Extract just the numeric value for sparklines
-        case row.avg_value do
-          %Decimal{} = d -> Decimal.to_float(d)
-          n when is_number(n) -> n * 1.0
-          _ -> 0.0
-        end
-      end)
+      {:ok, _} ->
+        %{}
+
+      {:error, reason} ->
+        require Logger
+        Logger.warning("Failed to load sparklines via SRQL: #{inspect(reason)}")
+        %{}
     end
   rescue
     e ->
-      # Log error but don't crash - sparklines are nice-to-have
       require Logger
       Logger.warning("Failed to load sparklines: #{inspect(e)}")
       %{}
   end
 
-  defp load_sparklines(_), do: %{}
+  # Quote SRQL filter values that contain special characters
+  defp quote_srql_filter_value(value) when is_binary(value) do
+    # If value contains special chars, wrap in quotes and escape inner quotes
+    if String.contains?(value, [" ", ",", ":", "(", ")", "\"", "'"]) do
+      "\"" <> escape_srql_value(value) <> "\""
+    else
+      value
+    end
+  end
+
+  defp quote_srql_filter_value(value), do: to_string(value)
 
   defp compute_error_rate(total, errors) when is_integer(total) and total > 0 do
     Float.round(errors / total * 100.0, 1)

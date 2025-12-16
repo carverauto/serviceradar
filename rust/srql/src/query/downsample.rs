@@ -56,6 +56,7 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
         Entity::MemoryMetrics => ("memory_metrics", "timestamp", "usage_percent", None),
         Entity::DiskMetrics => ("disk_metrics", "timestamp", "usage_percent", None),
         Entity::ProcessMetrics => ("process_metrics", "timestamp", "cpu_usage", None),
+        Entity::OtelMetrics => ("otel_metrics", "timestamp", "value", None),
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "downsample is only supported for metric entities".into(),
@@ -214,6 +215,20 @@ fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
                 )))
             }
         },
+        Entity::OtelMetrics => match series.as_str() {
+            "metric_name" => "metric_name".to_string(),
+            "metric_type" => "metric_type".to_string(),
+            "service_name" => "service_name".to_string(),
+            "span_name" => "span_name".to_string(),
+            "component" => "component".to_string(),
+            "level" => "level".to_string(),
+            "unit" => "unit".to_string(),
+            other => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "unsupported series field '{other}' for {table}"
+                )))
+            }
+        },
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "downsample is only supported for metric entities".into(),
@@ -247,6 +262,7 @@ fn filter_clause(
         Entity::MemoryMetrics => memory_filter_clause(filter),
         Entity::DiskMetrics => disk_filter_clause(filter),
         Entity::ProcessMetrics => process_filter_clause(filter),
+        Entity::OtelMetrics => otel_metrics_filter_clause(filter),
         _ => Err(ServiceError::InvalidRequest(
             "downsample is only supported for metric entities".into(),
         )),
@@ -456,6 +472,18 @@ fn process_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)>
         "memory_usage" => int_clause("memory_usage", filter, true),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for downsample process_metrics: '{other}'"
+        ))),
+    }
+}
+
+fn otel_metrics_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
+    match filter.field.as_str() {
+        "metric_name" | "metric_type" | "service_name" | "span_name" | "span_kind" | "component"
+        | "level" | "unit" | "http_method" | "http_route" | "http_status_code" | "grpc_service"
+        | "grpc_method" | "grpc_status_code" => text_clause(filter.field.as_str(), filter),
+        "value" | "duration_ms" => float_clause(filter.field.as_str(), filter, true),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for downsample otel_metrics: '{other}'"
         ))),
     }
 }
