@@ -39,6 +39,7 @@ type OTELMetricRow struct {
 	IsSlow          bool
 	Component       string
 	Level           string
+	Unit            string // Unit of measurement (e.g., "ms", "s", "bytes", "1" for counts)
 }
 
 // OTELTraceRow stores a single OTEL trace span row.

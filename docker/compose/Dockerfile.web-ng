@@ -1,0 +1,71 @@
+FROM hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    pkg-config \
+    protobuf-compiler \
+    libssl-dev \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+WORKDIR /app
+
+COPY web-ng/mix.exs web-ng/mix.lock ./web-ng/
+COPY web-ng/config ./web-ng/config
+COPY web-ng/lib ./web-ng/lib
+COPY web-ng/priv ./web-ng/priv
+COPY web-ng/assets ./web-ng/assets
+COPY web-ng/native ./web-ng/native
+
+COPY proto ./proto
+
+COPY rust/srql ./rust/srql
+COPY rust/kvutil ./rust/kvutil
+
+RUN mkdir -p /app/rust \
+  && cat > /app/rust/Cargo.toml <<'EOF'
+[workspace]
+resolver = "2"
+members = [
+  "srql",
+  "kvutil",
+]
+
+[workspace.dependencies]
+tonic = { version = "0.12", features = ["tls"] }
+prost = "0.13"
+tonic-build = "0.12"
+tokio = { version = "1" }
+tokio-stream = "0.1"
+EOF
+
+WORKDIR /app/web-ng
+
+ENV MIX_ENV=prod
+
+RUN mix local.hex --force && mix local.rebar --force
+RUN mix deps.get --only prod
+RUN mix deps.compile
+RUN mix compile
+RUN mix assets.deploy
+
+FROM hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app/web-ng
+
+ENV MIX_ENV=prod
+
+COPY --from=build /app/web-ng /app/web-ng
+
+EXPOSE 4000
+
+CMD ["sh", "-lc", "mix ecto.migrate && exec mix phx.server"]

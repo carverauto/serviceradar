@@ -1,4 +1,4 @@
-use super::QueryPlan;
+use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     models::TraceSpanRow,
@@ -40,10 +40,35 @@ pub(super) async fn execute(
     Ok(rows.into_iter().map(TraceSpanRow::into_json).collect())
 }
 
-pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
+pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
-    let query = build_query(plan)?;
-    Ok(diesel::debug_query::<Pg, _>(&query.limit(plan.limit).offset(plan.offset)).to_string())
+    let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
+    let sql = super::diesel_sql(&query)?;
+
+    let mut params = Vec::new();
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        params.push(BindParam::timestamptz(*start));
+        params.push(BindParam::timestamptz(*end));
+    }
+
+    for filter in &plan.filters {
+        collect_filter_params(&mut params, filter)?;
+    }
+
+    super::reconcile_limit_offset_binds(&sql, &mut params, plan.limit, plan.offset)?;
+
+    #[cfg(any(test, debug_assertions))]
+    {
+        let bind_count = super::diesel_bind_count(&query)?;
+        if bind_count != params.len() {
+            return Err(ServiceError::Internal(anyhow::anyhow!(
+                "bind count mismatch (diesel {bind_count} vs params {})",
+                params.len()
+            )));
+        }
+    }
+
+    Ok((sql, params))
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
@@ -116,6 +141,85 @@ fn apply_filter<'a>(mut query: TracesQuery<'a>, filter: &Filter) -> Result<Trace
     }
 
     Ok(query)
+}
+
+fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(());
+            }
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for text filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn collect_i32_list(params: &mut Vec<BindParam>, filter: &Filter, err: &str) -> Result<()> {
+    let values: Vec<i32> = filter
+        .value
+        .as_list()?
+        .iter()
+        .map(|v| v.parse::<i32>())
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|_| ServiceError::InvalidRequest(err.into()))?;
+    if values.is_empty() {
+        return Ok(());
+    }
+    params.push(BindParam::IntArray(
+        values.into_iter().map(i64::from).collect(),
+    ));
+    Ok(())
+}
+
+fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.field.as_str() {
+        "trace_id" | "span_id" | "parent_span_id" | "service_name" | "service.name"
+        | "service_version" | "service_instance" | "scope_name" | "scope_version" | "name"
+        | "span_name" | "status_message" => collect_text_params(params, filter),
+        "status_code" => match filter.op {
+            FilterOp::Eq | FilterOp::NotEq => {
+                let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
+                    ServiceError::InvalidRequest("status_code must be an integer".into())
+                })?;
+                params.push(BindParam::Int(i64::from(value)));
+                Ok(())
+            }
+            FilterOp::In | FilterOp::NotIn => {
+                collect_i32_list(params, filter, "status_code list must be integers")
+            }
+            _ => Err(ServiceError::InvalidRequest(
+                "status_code filter only supports equality or list comparisons".into(),
+            )),
+        },
+        "kind" | "span_kind" => match filter.op {
+            FilterOp::Eq | FilterOp::NotEq => {
+                let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
+                    ServiceError::InvalidRequest("span kind must be an integer".into())
+                })?;
+                params.push(BindParam::Int(i64::from(value)));
+                Ok(())
+            }
+            FilterOp::In | FilterOp::NotIn => {
+                collect_i32_list(params, filter, "span kind list must be integers")
+            }
+            _ => Err(ServiceError::InvalidRequest(
+                "kind filter only supports equality comparisons".into(),
+            )),
+        },
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for traces: '{other}'"
+        ))),
+    }
 }
 
 fn apply_status_code_filter<'a>(
@@ -279,6 +383,7 @@ mod tests {
             offset: 0,
             time_range: Some(TimeRange { start, end }),
             stats: None,
+            downsample: None,
         };
 
         let result = build_query(&plan);

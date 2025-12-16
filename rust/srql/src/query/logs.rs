@@ -1,4 +1,4 @@
-use super::QueryPlan;
+use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     models::LogRow,
@@ -52,10 +52,36 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     Ok(rows.into_iter().map(LogRow::into_json).collect())
 }
 
-pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
+pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+
+    if let Some(stats_sql) = build_stats_query(plan)? {
+        let sql = rewrite_placeholders(&stats_sql.sql);
+        let params = stats_sql
+            .binds
+            .into_iter()
+            .map(bind_param_from_stats)
+            .collect();
+        return Ok((sql, params));
+    }
+
     let query = build_query(plan)?;
-    Ok(diesel::debug_query::<Pg, _>(&query.limit(plan.limit).offset(plan.offset)).to_string())
+    let sql = super::diesel_sql(&query.limit(plan.limit).offset(plan.offset))?;
+
+    let mut params = Vec::new();
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        params.push(BindParam::timestamptz(*start));
+        params.push(BindParam::timestamptz(*end));
+    }
+
+    for filter in &plan.filters {
+        collect_filter_params(&mut params, filter)?;
+    }
+
+    params.push(BindParam::Int(plan.limit));
+    params.push(BindParam::Int(plan.offset));
+
+    Ok((sql, params))
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
@@ -118,6 +144,77 @@ impl SqlBindValue {
             SqlBindValue::Int(value) => query.bind::<Int4, _>(*value),
             SqlBindValue::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
         }
+    }
+}
+
+fn bind_param_from_stats(value: SqlBindValue) -> BindParam {
+    match value {
+        SqlBindValue::Text(value) => BindParam::Text(value),
+        SqlBindValue::Int(value) => BindParam::Int(i64::from(value)),
+        SqlBindValue::Timestamp(value) => BindParam::timestamptz(value),
+    }
+}
+
+fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(());
+            }
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for text filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.field.as_str() {
+        "trace_id" | "span_id" | "service_name" | "service_version" | "service_instance"
+        | "scope_name" | "scope_version" | "severity_text" | "severity" | "level" | "body" => {
+            collect_text_params(params, filter)
+        }
+        "severity_number" => match filter.op {
+            FilterOp::Eq | FilterOp::NotEq => {
+                let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
+                    ServiceError::InvalidRequest("severity_number must be an integer".into())
+                })?;
+                params.push(BindParam::Int(i64::from(value)));
+                Ok(())
+            }
+            FilterOp::In | FilterOp::NotIn => {
+                let values: Vec<i32> = filter
+                    .value
+                    .as_list()?
+                    .iter()
+                    .map(|v| v.parse::<i32>())
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(|_| {
+                        ServiceError::InvalidRequest("severity_number list must be integers".into())
+                    })?;
+                if values.is_empty() {
+                    return Ok(());
+                }
+                params.push(BindParam::IntArray(
+                    values.into_iter().map(i64::from).collect(),
+                ));
+                Ok(())
+            }
+            _ => Err(ServiceError::InvalidRequest(
+                "severity_number filter does not support this operator".into(),
+            )),
+        },
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for logs: '{other}'"
+        ))),
     }
 }
 
@@ -614,6 +711,7 @@ mod tests {
             offset: 0,
             time_range: Some(TimeRange { start, end }),
             stats: Some(stats.to_string()),
+            downsample: None,
         }
     }
 
@@ -633,6 +731,7 @@ mod tests {
             offset: 0,
             time_range: Some(TimeRange { start, end }),
             stats: None,
+            downsample: None,
         };
 
         let result = build_query(&plan);
@@ -664,6 +763,7 @@ mod tests {
             offset: 0,
             time_range: Some(TimeRange { start, end }),
             stats: Some("count() as total".to_string()),
+            downsample: None,
         };
 
         let result = build_stats_query(&plan);

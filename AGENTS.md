@@ -34,7 +34,14 @@ ServiceRadar is a multi-component system made up of Go services (core, sync, reg
 - `k8s/demo/` – Demo cluster manifests (faker, core, sync, CNPG, etc.).
 - `docker/`, `docker/images/` – Container builds and push targets.
 - `web/` – Next.js UI and API routes.
+- `web-ng/` – Phoenix (next-gen) UI/API monolith.
 - `proto/` – Protobuf definitions and generated Go code.
+
+## Per-Directory Agent Guides
+
+This file applies repo-wide, but subdirectories may include their own `AGENTS.md` with more specific rules; always read and follow the closest one to the code you are editing.
+
+- `web-ng/AGENTS.md` – Phoenix/Elixir/LiveView/Ecto/HEEx guidelines (must follow for any `web-ng/**` changes).
 
 ## Build & Test Commands
 
@@ -79,6 +86,45 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 - Pull fresh images: `APP_TAG=sha-<sha> docker compose pull`.
 - Restart the stack: `APP_TAG=sha-<sha> docker compose up -d --force-recreate`.
 - Verify: `docker compose ps` (one-shot jobs like cert-generator/config-updater exit once finished; nginx may sit in "health: starting" briefly).
+
+## Web-NG Remote Dev (CNPG)
+
+Use this playbook to run `web-ng/` on a workstation while connecting to the existing CNPG instance running on the docker host (example: `192.168.2.134`).
+
+### 1. Publish CNPG on the docker host
+
+- By default, CNPG is bound to loopback only. To allow LAN access, set these in the docker host `.env` (or export them before running compose):
+  - `CNPG_PUBLIC_BIND=0.0.0.0` (or a specific LAN interface IP)
+  - `CNPG_PUBLIC_PORT=5455`
+
+### 2. Ensure CNPG TLS cert supports IP-based clients (verify-full)
+
+- If clients will connect by IP with `CNPG_SSL_MODE=verify-full`, add the host IP to the CNPG server cert SAN:
+  - `CNPG_CERT_EXTRA_IPS=192.168.2.134`
+  - Regenerate certs: `CNPG_CERT_EXTRA_IPS=192.168.2.134 docker compose up cert-generator`
+  - Restart CNPG (and ensure bind env vars are applied): `CNPG_PUBLIC_BIND=0.0.0.0 CNPG_PUBLIC_PORT=5455 docker compose up -d --force-recreate cnpg`
+
+### 3. Copy workstation client certs (keep out of git)
+
+- Determine the cert volume name: `docker volume ls | rg 'cert-data'`
+- Copy out these files from the volume to a private directory on your workstation:
+  - `root.pem`
+  - `workstation.pem`
+  - `workstation-key.pem`
+
+### 4. Run Phoenix from your workstation
+
+```bash
+cd web-ng
+export CNPG_HOST=192.168.2.134
+export CNPG_PORT=5455
+export CNPG_DATABASE=serviceradar
+export CNPG_USERNAME=serviceradar
+export CNPG_PASSWORD=serviceradar
+export CNPG_SSL_MODE=verify-full
+export CNPG_CERT_DIR=/path/to/private/serviceradar-certs
+mix phx.server
+```
 
 ## Edge Onboarding Testing with Docker mTLS Stack
 

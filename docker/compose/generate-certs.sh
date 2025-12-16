@@ -65,12 +65,24 @@ generate_cert() {
     local san=$3
     
     if [ -f "$CERT_DIR/$component.pem" ]; then
-        echo "Certificate for $component already exists, ensuring permissions."
-        chmod 600 "$CERT_DIR/$component-key.pem" 2>/dev/null || true
-        if [ "$component" = "cnpg" ]; then
-            chown 26:999 "$CERT_DIR/$component-key.pem" "$CERT_DIR/$component.pem" 2>/dev/null || true
+        if [ "$component" = "cnpg" ] && [ -n "${CNPG_CERT_EXTRA_IPS:-}" ]; then
+            for ip in $(echo "$CNPG_CERT_EXTRA_IPS" | tr ',' ' '); do
+                if ! openssl x509 -in "$CERT_DIR/$component.pem" -noout -text | grep -q "IP Address:${ip}"; then
+                    echo "CNPG certificate is missing SAN IP ${ip}; regenerating cnpg certificate..."
+                    rm -f "$CERT_DIR/$component.pem" "$CERT_DIR/$component-key.pem"
+                    break
+                fi
+            done
         fi
-        return
+
+        if [ -f "$CERT_DIR/$component.pem" ]; then
+            echo "Certificate for $component already exists, ensuring permissions."
+            chmod 600 "$CERT_DIR/$component-key.pem" 2>/dev/null || true
+            if [ "$component" = "cnpg" ]; then
+                chown 26:999 "$CERT_DIR/$component-key.pem" "$CERT_DIR/$component.pem" 2>/dev/null || true
+            fi
+            return
+        fi
     fi
     
     echo "Generating certificate for $component..."
@@ -147,7 +159,17 @@ generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent.serviceradar,DNS
 generate_cert "web" "web.serviceradar" "DNS:web,DNS:web.serviceradar,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
 generate_cert "db-event-writer" "db-event-writer.serviceradar" "DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:serviceradar-db-event-writer,DNS:localhost,IP:127.0.0.1"
 generate_cert "srql" "srql.serviceradar" "DNS:srql,DNS:srql.serviceradar,DNS:serviceradar-srql,DNS:localhost,IP:127.0.0.1"
-generate_cert "cnpg" "cnpg.serviceradar" "DNS:cnpg,DNS:cnpg-rw,DNS:cnpg.serviceradar,DNS:cnpg-rw.serviceradar,DNS:serviceradar-cnpg,DNS:localhost,IP:127.0.0.1"
+
+CNPG_SAN="DNS:cnpg,DNS:cnpg-rw,DNS:cnpg.serviceradar,DNS:cnpg-rw.serviceradar,DNS:serviceradar-cnpg,DNS:localhost,IP:127.0.0.1"
+if [ -n "${CNPG_CERT_EXTRA_IPS:-}" ]; then
+    for ip in $(echo "$CNPG_CERT_EXTRA_IPS" | tr ',' ' '); do
+        CNPG_SAN="${CNPG_SAN},IP:${ip}"
+    done
+fi
+generate_cert "cnpg" "cnpg.serviceradar" "${CNPG_SAN}"
+
+# Client cert intended for developers connecting from outside the Docker network
+generate_cert "workstation" "workstation.serviceradar" "DNS:workstation,DNS:workstation.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Other services
 generate_cert "snmp-checker" "snmp-checker.serviceradar" "DNS:snmp-checker,DNS:snmp-checker.serviceradar,DNS:serviceradar-snmp-checker,DNS:agent.serviceradar,DNS:localhost,IP:127.0.0.1"
