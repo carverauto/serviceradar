@@ -61,23 +61,29 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </label>
             </div>
 
-            <div class="flex-1 min-w-0 flex items-center gap-4">
-              <div class="flex-1 min-w-0">
-                <.breadcrumb_nav :if={@current_path} current_path={@current_path} />
-              </div>
+            <div class="flex-1 min-w-0 w-full">
+              <div class={[
+                "grid gap-3 w-full",
+                Map.get(@srql, :enabled, false) &&
+                  "sm:grid-cols-[minmax(0,1fr)_minmax(0,56rem)] sm:items-center sm:gap-4",
+                not Map.get(@srql, :enabled, false) && "sm:grid-cols-1"
+              ]}>
+                <div class="min-w-0">
+                  <.breadcrumb_nav :if={@current_path} current_path={@current_path} />
+                </div>
 
-              <div class="w-full sm:w-auto flex justify-end">
-                <.srql_query_bar
-                  :if={Map.get(@srql, :enabled, false)}
-                  query={Map.get(@srql, :query)}
-                  draft={Map.get(@srql, :draft)}
-                  loading={Map.get(@srql, :loading, false)}
-                  builder_available={Map.get(@srql, :builder_available, false)}
-                  builder_open={Map.get(@srql, :builder_open, false)}
-                  builder_supported={Map.get(@srql, :builder_supported, true)}
-                  builder_sync={Map.get(@srql, :builder_sync, true)}
-                  builder={Map.get(@srql, :builder, %{})}
-                />
+                <div :if={Map.get(@srql, :enabled, false)} class="w-full sm:justify-self-end">
+                  <.srql_query_bar
+                    query={Map.get(@srql, :query)}
+                    draft={Map.get(@srql, :draft)}
+                    loading={Map.get(@srql, :loading, false)}
+                    builder_available={Map.get(@srql, :builder_available, false)}
+                    builder_open={Map.get(@srql, :builder_open, false)}
+                    builder_supported={Map.get(@srql, :builder_supported, true)}
+                    builder_sync={Map.get(@srql, :builder_sync, true)}
+                    builder={Map.get(@srql, :builder, %{})}
+                  />
+                </div>
               </div>
             </div>
 
