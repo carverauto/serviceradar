@@ -11,6 +11,7 @@ pub enum Entity {
     DeviceUpdates,
     Interfaces,
     DeviceGraph,
+    GraphCypher,
     Events,
     Logs,
     Services,
@@ -35,10 +36,28 @@ pub struct QueryAst {
     pub limit: Option<i64>,
     pub time_filter: Option<TimeFilterSpec>,
     pub stats: Option<String>,
+    pub downsample: Option<DownsampleSpec>,
 }
 
 const MAX_STATS_EXPR_LEN: usize = 1024;
 const MAX_FILTER_LIST_VALUES: usize = 200;
+const MAX_DOWNSAMPLE_BUCKET_SECS: i64 = 31 * 24 * 60 * 60;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownsampleAgg {
+    Avg,
+    Min,
+    Max,
+    Sum,
+    Count,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownsampleSpec {
+    pub bucket_seconds: i64,
+    pub agg: DownsampleAgg,
+    pub series: Option<String>,
+}
 
 #[derive(Debug, Clone)]
 pub struct Filter {
@@ -106,8 +125,12 @@ pub fn parse(input: &str) -> Result<QueryAst> {
     let mut limit = None;
     let mut time_filter = None;
     let mut stats = None;
+    let mut downsample_bucket_seconds: Option<i64> = None;
+    let mut downsample_agg = DownsampleAgg::Avg;
+    let mut downsample_series: Option<String> = None;
 
-    for token in tokenize(input) {
+    let mut tokens = tokenize(input).into_iter().peekable();
+    while let Some(token) = tokens.next() {
         let (raw_key, raw_value) = split_token(&token)?;
         let key = raw_key.trim().to_lowercase();
         let value = parse_value(raw_value);
@@ -134,8 +157,49 @@ pub fn parse(input: &str) -> Result<QueryAst> {
             "time" | "timeframe" => {
                 time_filter = Some(parse_time_value(value.as_scalar()?)?);
             }
+            "bucket" | "downsample" => {
+                downsample_bucket_seconds = Some(parse_bucket_seconds(value.as_scalar()?)?);
+            }
+            "agg" => {
+                downsample_agg = parse_downsample_agg(value.as_scalar()?)?;
+            }
+            "series" => {
+                downsample_series = normalize_optional_string(value.as_scalar()?);
+            }
             "stats" => {
-                let expr = value.as_scalar()?.to_string();
+                let mut expr = value.as_scalar()?.to_string();
+
+                if tokens
+                    .peek()
+                    .is_some_and(|next| next.as_str().eq_ignore_ascii_case("as"))
+                {
+                    let _ = tokens.next();
+                    let alias_token = tokens.next().ok_or_else(|| {
+                        ServiceError::InvalidRequest(
+                            "stats aliases must be of the form 'stats:expr as alias'".into(),
+                        )
+                    })?;
+                    if alias_token.contains(':') {
+                        return Err(ServiceError::InvalidRequest(
+                            "stats aliases must be of the form 'stats:expr as alias'".into(),
+                        ));
+                    }
+
+                    let alias = alias_token
+                        .trim()
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .to_string();
+                    if alias.is_empty() {
+                        return Err(ServiceError::InvalidRequest(
+                            "stats aliases must be of the form 'stats:expr as alias'".into(),
+                        ));
+                    }
+
+                    expr.push_str(" as ");
+                    expr.push_str(&alias);
+                }
+
                 if expr.trim().len() > MAX_STATS_EXPR_LEN {
                     return Err(ServiceError::InvalidRequest(format!(
                         "stats expression must be <= {MAX_STATS_EXPR_LEN} characters"
@@ -164,6 +228,12 @@ pub fn parse(input: &str) -> Result<QueryAst> {
         ServiceError::InvalidRequest("queries must include an in:<entity> token".into())
     })?;
 
+    let downsample = downsample_bucket_seconds.map(|bucket_seconds| DownsampleSpec {
+        bucket_seconds,
+        agg: downsample_agg,
+        series: downsample_series,
+    });
+
     Ok(QueryAst {
         entity,
         filters,
@@ -171,6 +241,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
         limit,
         time_filter,
         stats,
+        downsample,
     })
 }
 
@@ -179,6 +250,7 @@ fn parse_entity(raw: &str) -> Result<Entity> {
     match normalized.as_str() {
         "devices" | "device" | "device_inventory" => Ok(Entity::Devices),
         "device_graph" | "devicegraph" | "graph" => Ok(Entity::DeviceGraph),
+        "graph_cypher" | "graphcypher" | "cypher" => Ok(Entity::GraphCypher),
         "device_updates" | "device_update" | "updates" => Ok(Entity::DeviceUpdates),
         "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
         "events" | "activity" => Ok(Entity::Events),
@@ -200,6 +272,70 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),
+    }
+}
+
+fn parse_bucket_seconds(raw: &str) -> Result<i64> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "bucket requires a duration like 5m, 1h".into(),
+        ));
+    }
+
+    let raw = raw.to_lowercase();
+    let (number_part, unit_part) = raw.split_at(raw.len().saturating_sub(1));
+    let value = number_part
+        .parse::<i64>()
+        .map_err(|_| ServiceError::InvalidRequest("bucket duration must be an integer".into()))?;
+
+    if value <= 0 {
+        return Err(ServiceError::InvalidRequest(
+            "bucket duration must be positive".into(),
+        ));
+    }
+
+    let multiplier = match unit_part {
+        "s" => 1,
+        "m" => 60,
+        "h" => 60 * 60,
+        "d" => 24 * 60 * 60,
+        _ => {
+            return Err(ServiceError::InvalidRequest(
+                "bucket supports only s|m|h|d suffixes".into(),
+            ))
+        }
+    };
+
+    let seconds = value.saturating_mul(multiplier);
+    if seconds <= 0 || seconds > MAX_DOWNSAMPLE_BUCKET_SECS {
+        return Err(ServiceError::InvalidRequest(format!(
+            "bucket duration must be between 1s and {}d",
+            MAX_DOWNSAMPLE_BUCKET_SECS / (24 * 60 * 60)
+        )));
+    }
+    Ok(seconds)
+}
+
+fn parse_downsample_agg(raw: &str) -> Result<DownsampleAgg> {
+    match raw.trim().to_lowercase().as_str() {
+        "avg" | "mean" => Ok(DownsampleAgg::Avg),
+        "min" => Ok(DownsampleAgg::Min),
+        "max" => Ok(DownsampleAgg::Max),
+        "sum" => Ok(DownsampleAgg::Sum),
+        "count" => Ok(DownsampleAgg::Count),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported agg '{other}' (use avg|min|max|sum|count)"
+        ))),
+    }
+}
+
+fn normalize_optional_string(raw: &str) -> Option<String> {
+    let value = raw.trim().trim_matches('"').trim_matches('\'').trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
     }
 }
 
@@ -461,6 +597,25 @@ mod tests {
     fn parses_stats_expression() {
         let ast = parse("in:logs stats:\"count() as total\" time:last_24h").unwrap();
         assert_eq!(ast.stats.as_deref(), Some("count() as total"));
+    }
+
+    #[test]
+    fn parses_unquoted_stats_alias() {
+        let ast = parse("in:devices stats:count() as total").unwrap();
+        assert_eq!(ast.stats.as_deref(), Some("count() as total"));
+    }
+
+    #[test]
+    fn parses_unquoted_stats_alias_with_following_tokens() {
+        let ast = parse("in:devices stats:count() as total time:last_7d").unwrap();
+        assert_eq!(ast.stats.as_deref(), Some("count() as total"));
+        assert!(ast.time_filter.is_some());
+    }
+
+    #[test]
+    fn rejects_stats_alias_missing_identifier() {
+        let err = parse("in:devices stats:count() as").unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
     }
 
     #[test]

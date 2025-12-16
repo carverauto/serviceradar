@@ -1,4 +1,4 @@
-use super::QueryPlan;
+use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     models::ProcessMetricRow,
@@ -37,10 +37,35 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     Ok(rows.into_iter().map(ProcessMetricRow::into_json).collect())
 }
 
-pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
+pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
-    let query = build_query(plan)?;
-    Ok(diesel::debug_query::<Pg, _>(&query.limit(plan.limit).offset(plan.offset)).to_string())
+    let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
+    let sql = super::diesel_sql(&query)?;
+
+    let mut params = Vec::new();
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        params.push(BindParam::timestamptz(*start));
+        params.push(BindParam::timestamptz(*end));
+    }
+
+    for filter in &plan.filters {
+        collect_filter_params(&mut params, filter)?;
+    }
+
+    super::reconcile_limit_offset_binds(&sql, &mut params, plan.limit, plan.offset)?;
+
+    #[cfg(any(test, debug_assertions))]
+    {
+        let bind_count = super::diesel_bind_count(&query)?;
+        if bind_count != params.len() {
+            return Err(ServiceError::Internal(anyhow::anyhow!(
+                "bind count mismatch (diesel {bind_count} vs params {})",
+                params.len()
+            )));
+        }
+    }
+
+    Ok((sql, params))
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
@@ -65,6 +90,53 @@ fn build_query(plan: &QueryPlan) -> Result<ProcessQuery<'static>> {
 
     query = apply_ordering(query, &plan.order);
     Ok(query)
+}
+
+fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(());
+            }
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for text filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.field.as_str() {
+        "poller_id" | "agent_id" | "host_id" | "device_id" | "partition" | "name" | "status"
+        | "start_time" => collect_text_params(params, filter),
+        "pid" => {
+            params.push(BindParam::Int(i64::from(parse_i32(
+                filter.value.as_scalar()?,
+            )?)));
+            Ok(())
+        }
+        "cpu_usage" => {
+            params.push(BindParam::Float(f64::from(parse_f32(
+                filter.value.as_scalar()?,
+            )?)));
+            Ok(())
+        }
+        "memory_usage" => {
+            params.push(BindParam::Int(parse_i64(filter.value.as_scalar()?)?));
+            Ok(())
+        }
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for process_metrics: '{other}'"
+        ))),
+    }
 }
 
 fn apply_filter<'a>(mut query: ProcessQuery<'a>, filter: &Filter) -> Result<ProcessQuery<'a>> {
@@ -253,6 +325,7 @@ mod tests {
                 end: Utc::now() + ChronoDuration::minutes(1),
             }),
             stats: None,
+            downsample: None,
         };
 
         let err = build_query(&plan).err().expect("expected error");

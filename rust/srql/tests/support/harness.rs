@@ -100,6 +100,8 @@ fn test_config(database_url: String) -> AppConfig {
         database_url,
         max_pool_size: 5,
         pg_ssl_root_cert: None,
+        pg_ssl_cert: None,
+        pg_ssl_key: None,
         api_key: Some(API_KEY.to_string()),
         api_key_kv_key: None,
         allowed_origins: None,

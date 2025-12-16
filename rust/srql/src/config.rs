@@ -12,6 +12,8 @@ pub struct AppConfig {
     pub database_url: String,
     pub max_pool_size: u32,
     pub pg_ssl_root_cert: Option<String>,
+    pub pg_ssl_cert: Option<String>,
+    pub pg_ssl_key: Option<String>,
     pub api_key: Option<String>,
     pub api_key_kv_key: Option<String>,
     pub allowed_origins: Option<Vec<String>>,
@@ -119,6 +121,8 @@ impl AppConfig {
             database_url,
             max_pool_size: raw.srql_max_pool_size,
             pg_ssl_root_cert: env::var("PGSSLROOTCERT").ok(),
+            pg_ssl_cert: env::var("PGSSLCERT").ok(),
+            pg_ssl_key: env::var("PGSSLKEY").ok(),
             api_key: raw.srql_api_key,
             api_key_kv_key: raw.srql_api_key_kv_key,
             allowed_origins,
@@ -128,6 +132,25 @@ impl AppConfig {
             rate_limit_max_requests: raw.srql_rate_limit_max.max(1),
             rate_limit_window: Duration::from_secs(raw.srql_rate_limit_window_secs.max(1)),
         })
+    }
+
+    pub fn embedded(database_url: String) -> Self {
+        Self {
+            listen_addr: "127.0.0.1:0".parse().expect("valid socket addr"),
+            database_url,
+            max_pool_size: default_pool_size(),
+            pg_ssl_root_cert: None,
+            pg_ssl_cert: None,
+            pg_ssl_key: None,
+            api_key: None,
+            api_key_kv_key: None,
+            allowed_origins: None,
+            default_limit: default_limit(),
+            max_limit: default_max_limit(),
+            request_timeout: Duration::from_secs(default_timeout_secs()),
+            rate_limit_max_requests: default_rate_limit_requests(),
+            rate_limit_window: Duration::from_secs(default_rate_limit_window_secs()),
+        }
     }
 }
 

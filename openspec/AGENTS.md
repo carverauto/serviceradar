@@ -446,6 +446,78 @@ helm push serviceradar-1.0.71-pre2.tgz oci://ghcr.io/carverauto/charts
 rm serviceradar-1.0.71-pre2.tgz
 ```
 
+## Development Environment
+
+### Docker Compose Stack
+
+The `docker-compose.yml` in the project root provides the full development stack. Key services:
+- **cnpg** - PostgreSQL with TimescaleDB (port 5455)
+- **core** - ServiceRadar core service (ports 8090, 9090, 50052)
+- **nats** - NATS messaging (ports 4222, 6222, 8222)
+- **datasvc** - Data service (port 50057)
+
+### Starting the Stack
+
+```bash
+# Start all services
+docker compose up -d
+
+# Check service health
+docker compose ps
+docker logs serviceradar-core-mtls --tail 50
+```
+
+### Database Access
+
+By default, CNPG binds to `127.0.0.1:5455` for security. For remote access during development:
+
+```bash
+# Allow external connections (for remote dev)
+CNPG_PUBLIC_BIND=0.0.0.0 docker compose up -d cnpg
+
+# Or restart the whole stack with external DB access
+CNPG_PUBLIC_BIND=0.0.0.0 docker compose up -d
+```
+
+### Elixir Web App (web-ng)
+
+The Phoenix LiveView app in `web-ng/` connects to CNPG. To run locally:
+
+```bash
+cd web-ng
+
+# Connect to local docker stack
+CNPG_HOST=localhost CNPG_PORT=5455 mix phx.server
+
+# Connect to remote docker host
+CNPG_HOST=192.168.2.134 CNPG_PORT=5455 mix phx.server
+```
+
+Access the app at http://localhost:4000
+
+### Environment Variables
+
+Common development overrides:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CNPG_PUBLIC_BIND` | `127.0.0.1` | Database bind address |
+| `CNPG_PUBLIC_PORT` | `5455` | Database external port |
+| `CNPG_HOST` | `cnpg` (in docker) | Database hostname |
+| `CNPG_PORT` | `5432` | Database port |
+| `CNPG_USERNAME` | `serviceradar` | Database user |
+| `CNPG_PASSWORD` | `serviceradar` | Database password |
+| `APP_TAG` | `v1.0.67` | Container image tag |
+
+### Rebuilding After Code Changes
+
+```bash
+# Rebuild specific service with git SHA tag (for dev)
+APP_TAG=sha-$(git rev-parse --short HEAD) docker compose up -d --build core
+
+# Or pull latest from registry
+APP_TAG=v1.0.78 docker compose pull && APP_TAG=v1.0.78 docker compose up -d
+```
+
 ## Best Practices
 
 ### Simplicity First

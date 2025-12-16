@@ -361,6 +361,7 @@ pub struct OtelMetricRow {
     pub is_slow: Option<bool>,
     pub component: Option<String>,
     pub level: Option<String>,
+    pub unit: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -385,6 +386,7 @@ impl OtelMetricRow {
             "is_slow": self.is_slow,
             "component": self.component,
             "level": self.level,
+            "unit": self.unit,
         })
     }
 }

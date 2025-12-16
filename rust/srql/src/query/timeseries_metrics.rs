@@ -1,6 +1,6 @@
 //! SRQL support for timeseries-backed metrics (generic, SNMP, and rperf).
 
-use super::QueryPlan;
+use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     models::TimeseriesMetricRow,
@@ -50,10 +50,42 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
         .collect())
 }
 
-pub(super) fn to_debug_sql(plan: &QueryPlan) -> Result<String> {
+pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     let scope = ensure_entity(plan)?;
-    let query = build_query(plan, scope)?;
-    Ok(diesel::debug_query::<Pg, _>(&query.limit(plan.limit).offset(plan.offset)).to_string())
+    let query = build_query(plan, scope)?
+        .limit(plan.limit)
+        .offset(plan.offset);
+    let sql = super::diesel_sql(&query)?;
+
+    let mut params = Vec::new();
+
+    if let MetricScope::Forced(metric_type) = scope {
+        params.push(BindParam::Text(metric_type.to_string()));
+    }
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        params.push(BindParam::timestamptz(*start));
+        params.push(BindParam::timestamptz(*end));
+    }
+
+    for filter in &plan.filters {
+        collect_filter_params(&mut params, filter)?;
+    }
+
+    super::reconcile_limit_offset_binds(&sql, &mut params, plan.limit, plan.offset)?;
+
+    #[cfg(any(test, debug_assertions))]
+    {
+        let bind_count = super::diesel_bind_count(&query)?;
+        if bind_count != params.len() {
+            return Err(ServiceError::Internal(anyhow::anyhow!(
+                "bind count mismatch (diesel {bind_count} vs params {})",
+                params.len()
+            )));
+        }
+    }
+
+    Ok((sql, params))
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<MetricScope<'static>> {
@@ -125,6 +157,51 @@ fn apply_filter<'a>(
     }
 
     Ok(query)
+}
+
+fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(());
+            }
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for text filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.field.as_str() {
+        "poller_id" | "agent_id" | "metric_name" | "metric_type" | "device_id"
+        | "target_device_ip" | "partition" => collect_text_params(params, filter),
+        "if_index" => {
+            let value = filter
+                .value
+                .as_scalar()?
+                .parse::<i32>()
+                .map_err(|_| ServiceError::InvalidRequest("invalid if_index value".into()))?;
+            params.push(BindParam::Int(i64::from(value)));
+            Ok(())
+        }
+        "value" => {
+            let value = parse_f64(filter.value.as_scalar()?)?;
+            params.push(BindParam::Float(value));
+            Ok(())
+        }
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for timeseries_metrics: '{other}'"
+        ))),
+    }
 }
 
 fn apply_if_index_filter<'a>(
@@ -288,6 +365,7 @@ mod tests {
             offset: 0,
             time_range: Some(TimeRange { start, end }),
             stats: None,
+            downsample: None,
         };
 
         let result = build_query(&plan, MetricScope::Any);

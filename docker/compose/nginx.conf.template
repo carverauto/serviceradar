@@ -1,4 +1,4 @@
-# ServiceRadar Web Interface - Nginx Configuration for Docker Compose
+# ServiceRadar Web-NG Interface - Nginx Configuration for Docker Compose
 
 # DNS resolver for dynamic service discovery
 # Docker uses 127.0.0.11 by default (configurable via DNS_RESOLVER env)
@@ -32,164 +32,32 @@ server {
     proxy_buffers 4 256k;
     proxy_busy_buffers_size 256k;
 
-    # Static assets from Next.js
-    location /_next/ {
-        # Use variable to force runtime DNS resolution
-        set $web_upstream http://web:3000;
+    # Use variable to force runtime DNS resolution
+    set $web_upstream http://web-ng:4000;
+
+    # Phoenix LiveView WebSocket endpoint
+    location /live/websocket {
         proxy_pass $web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # WebSocket streaming endpoint - proxy to API upstream
-    location /api/stream {
-        # Use variable to force runtime DNS resolution
-        # API_UPSTREAM provided via container env; default set in compose
-        set $api_upstream $API_UPSTREAM;
-        proxy_pass $api_upstream;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Authorization $http_authorization;
-        proxy_set_header X-API-Key $http_x_api_key;
         proxy_set_header Cookie $http_cookie;
 
-        # WebSocket specific headers
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        
-        # Timeout settings for WebSocket connections
-        proxy_read_timeout 86400;
-        proxy_send_timeout 86400;
-        proxy_connect_timeout 60;
-        
-        # Keep-alive and buffering settings for streaming
-        proxy_buffering off;
-        proxy_cache off;
-    }
-
-    # API routes handled by Next.js (auth, nodes, status, pollers, admin tooling, SRQL proxy)
-    location ~ ^/api/(auth|nodes|status|pollers|devices|mcp|config|admin|kv|services|query) {
-        # Use variable to force runtime DNS resolution
-        set $web_upstream http://web:3000;
-        proxy_pass $web_upstream;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # Swagger UI routes
-    location /swagger/ {
-        # Use variable to force runtime DNS resolution
-        set $core_upstream http://core:8090;
-        proxy_pass $core_upstream;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Authorization $http_authorization;
-        proxy_pass_header Authorization;
-        proxy_set_header X-API-Key $http_x_api_key;
-
-        # Allow preflight requests
-        if ($request_method = 'OPTIONS') {
-            add_header 'Access-Control-Allow-Origin' '*';
-            add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
-            add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization, X-API-Key';
-            add_header 'Access-Control-Max-Age' 1728000;
-            add_header 'Content-Type' 'text/plain charset=UTF-8';
-            add_header 'Content-Length' 0;
-            return 204;
-        }
-
-        proxy_read_timeout 300;
-        proxy_connect_timeout 300;
-    }
-
-    # API docs redirect
-    location = /api-docs {
-        # Use variable to force runtime DNS resolution
-        set $core_upstream http://core:8090;
-        proxy_pass $core_upstream;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Authorization $http_authorization;
-        proxy_set_header X-API-Key $http_x_api_key;
-    }
-
-    # Fix double slashes in API URLs (frontend bug workaround)
-    location = /api//query {
-        # Use variable to force runtime DNS resolution
-        set $api_upstream $API_UPSTREAM;
-        proxy_pass $api_upstream/api/query$is_args$args;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Authorization $http_authorization;
-        proxy_set_header X-API-Key $http_x_api_key;
-        proxy_set_header Cookie $http_cookie;
-        
-        # WebSocket support
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_cache_bypass $http_upgrade;
         proxy_read_timeout 86400;
-    }
-
-    # Backend API routes (catch-all) -> API upstream
-    location /api/ {
-        # Use variable to force runtime DNS resolution
-        set $api_upstream $API_UPSTREAM;
-        proxy_pass $api_upstream;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Authorization $http_authorization;
-        proxy_set_header X-API-Key $http_x_api_key;
-
-        # IMPORTANT: Forward cookies to backend for authentication
-        proxy_set_header Cookie $http_cookie;
-
-        # WebSocket support for /api/stream
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_cache_bypass $http_upgrade;
-        proxy_read_timeout 86400;
-    }
-
-    # Auth API routes
-    location /auth/ {
-        # Use variable to force runtime DNS resolution
-        set $core_upstream http://core:8090;
-        proxy_pass $core_upstream;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Cookie $http_cookie;
-        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
-        add_header Access-Control-Allow-Headers "Content-Type, Authorization, X-API-Key" always;
     }
 
     # Main app
     location / {
-        # Use variable to force runtime DNS resolution
-        set $web_upstream http://web:3000;
         proxy_pass $web_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Cookie $http_cookie;
     }
 }
