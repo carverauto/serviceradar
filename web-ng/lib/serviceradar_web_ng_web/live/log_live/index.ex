@@ -938,6 +938,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:threshold_pct, threshold_pct)
         |> assign(:duration_pct, duration_pct)
         |> assign(:color, color)
+        |> assign(:threshold_ms, @slow_threshold_ms)
 
       ~H"""
       <div :if={@show} class="flex items-center gap-2 min-w-[5rem]">
@@ -948,7 +949,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <div
             class="absolute top-0 h-full w-px bg-base-content/50"
             style={"left: #{@threshold_pct}%"}
-            title={"Threshold: #{@slow_threshold_ms}ms"}
+            title={"Threshold: #{@threshold_ms}ms"}
           />
         </div>
         <span :if={@is_slow} class="text-[10px] text-warning font-semibold">SLOW</span>
