@@ -17,7 +17,6 @@ func TestUpsertPollerStatusSQL_PreservesRegistrationMetadata(t *testing.T) {
 
 	assert.Contains(t, normalized, "ON CONFLICT (poller_id) DO UPDATE SET")
 
-	assert.Contains(t, normalized, "first_seen = COALESCE(pollers.first_seen, EXCLUDED.first_seen)")
 	assert.Contains(t, normalized, "last_seen = EXCLUDED.last_seen")
 	assert.Contains(t, normalized, "is_healthy = EXCLUDED.is_healthy")
 	assert.Contains(t, normalized, "updated_at = EXCLUDED.updated_at")
@@ -26,6 +25,7 @@ func TestUpsertPollerStatusSQL_PreservesRegistrationMetadata(t *testing.T) {
 	assert.NotContains(t, normalized, "registration_source = EXCLUDED.registration_source")
 	assert.NotContains(t, normalized, "status = EXCLUDED.status")
 	assert.NotContains(t, normalized, "spiffe_identity = EXCLUDED.spiffe_identity")
+	assert.NotContains(t, normalized, "first_seen =")
 	assert.NotContains(t, normalized, "metadata = EXCLUDED.metadata")
 	assert.NotContains(t, normalized, "created_by = EXCLUDED.created_by")
 	assert.NotContains(t, normalized, "agent_count = EXCLUDED.agent_count")

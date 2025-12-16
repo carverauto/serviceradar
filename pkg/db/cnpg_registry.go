@@ -46,8 +46,7 @@ INSERT INTO pollers (
 ) VALUES (
 	$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
 )
-	ON CONFLICT (poller_id) DO UPDATE SET
-	first_seen = COALESCE(pollers.first_seen, EXCLUDED.first_seen),
+ON CONFLICT (poller_id) DO UPDATE SET
 	last_seen = EXCLUDED.last_seen,
 	is_healthy = EXCLUDED.is_healthy,
 	updated_at = EXCLUDED.updated_at`
