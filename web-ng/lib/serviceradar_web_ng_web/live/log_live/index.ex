@@ -282,7 +282,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
       <div class="flex items-center justify-between mb-3">
-        <div class="text-xs text-base-content/50 uppercase tracking-wider">Log Level Breakdown</div>
+        <div class="flex items-center gap-3">
+          <div class="text-xs text-base-content/50 uppercase tracking-wider">Log Level Breakdown</div>
+          <div class="text-sm font-semibold text-base-content">
+            {format_compact_int(@total)} <span class="text-xs font-normal text-base-content/60">total (24h)</span>
+          </div>
+        </div>
         <div class="flex items-center gap-1">
           <.link patch={~p"/observability?#{%{tab: "logs"}}"} class="btn btn-ghost btn-xs">
             All Logs
@@ -1706,10 +1711,43 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp compute_error_rate(_total, _errors), do: 0.0
 
   defp compute_trace_latency(rows) do
-    duration_stats = compute_duration_stats(rows, "duration_ms")
+    # For trace summaries, don't filter by is_timing_metric since traces are inherently timing data
+    duration_stats = compute_trace_duration_stats(rows)
     services = unique_services_from_traces(rows)
     Map.put(duration_stats, :service_count, map_size(services))
   end
+
+  # Compute duration stats specifically for trace summaries (no HTTP/gRPC filter needed)
+  defp compute_trace_duration_stats(rows) when is_list(rows) do
+    durations =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn row -> extract_number(Map.get(row, "duration_ms")) end)
+      |> Enum.filter(&is_number/1)
+      |> Enum.filter(fn ms -> ms >= 0 and ms < 3_600_000 end)
+
+    sample_size = length(durations)
+
+    avg =
+      if sample_size > 0 do
+        Enum.sum(durations) / sample_size
+      else
+        0.0
+      end
+
+    p95 =
+      if sample_size > 0 do
+        sorted = Enum.sort(durations)
+        idx = trunc(Float.floor(sample_size * 0.95))
+        Enum.at(sorted, min(idx, sample_size - 1)) || 0.0
+      else
+        0.0
+      end
+
+    %{avg_duration_ms: avg, p95_duration_ms: p95, sample_size: sample_size}
+  end
+
+  defp compute_trace_duration_stats(_), do: %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
 
   defp unique_services_from_traces(rows) when is_list(rows) do
     rows
