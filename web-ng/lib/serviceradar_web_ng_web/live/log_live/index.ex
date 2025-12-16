@@ -841,22 +841,39 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr :metric, :map, required: true
 
   defp histogram_viz(assigns) do
-    # For histograms, show bucket count or a distribution indicator
-    count = extract_histogram_count(assigns.metric)
-    assigns = assign(assigns, :count, count)
+    # For histograms with duration data, show a duration-based gauge bar
+    # Most OTEL histograms are duration distributions
+    duration_ms = extract_duration_value(assigns.metric)
+
+    # Use reasonable bounds for duration visualization (0-1000ms as typical range)
+    # Anything over 1s will show as full bar
+    pct =
+      cond do
+        not is_number(duration_ms) or duration_ms <= 0 -> 0
+        duration_ms >= 1000 -> 100
+        true -> duration_ms / 10  # 0-1000ms maps to 0-100%
+      end
+
+    # Color based on duration
+    bar_color =
+      cond do
+        not is_number(duration_ms) or duration_ms <= 0 -> "bg-base-content/20"
+        duration_ms >= 500 -> "bg-error"
+        duration_ms >= 100 -> "bg-warning"
+        true -> "bg-success"
+      end
+
+    assigns =
+      assigns
+      |> assign(:pct, pct)
+      |> assign(:bar_color, bar_color)
+      |> assign(:duration_ms, duration_ms)
 
     ~H"""
-    <div class="flex items-center gap-1.5" title={"#{@count} samples"}>
-      <div class="flex items-end gap-px h-4">
-        <div class="w-1 h-1 bg-info/40 rounded-sm"></div>
-        <div class="w-1 h-2 bg-info/50 rounded-sm"></div>
-        <div class="w-1 h-3 bg-info/70 rounded-sm"></div>
-        <div class="w-1 h-4 bg-info rounded-sm"></div>
-        <div class="w-1 h-3 bg-info/70 rounded-sm"></div>
-        <div class="w-1 h-2 bg-info/50 rounded-sm"></div>
-        <div class="w-1 h-1 bg-info/40 rounded-sm"></div>
+    <div class="flex items-center gap-2 w-20" title={if is_number(@duration_ms) and @duration_ms > 0, do: "#{Float.round(@duration_ms * 1.0, 1)}ms", else: "no duration"}>
+      <div class="flex-1 h-1.5 bg-base-200 rounded-full overflow-hidden">
+        <div class={[@bar_color, "h-full rounded-full transition-all"]} style={"width: #{@pct}%"}></div>
       </div>
-      <span :if={@count > 0} class="text-[10px] text-base-content/50">{@count}</span>
     </div>
     """
   end
