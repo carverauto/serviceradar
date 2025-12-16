@@ -702,9 +702,8 @@ func (m *MCPServer) executeGetDevice(ctx context.Context, args json.RawMessage) 
 		return nil, errDeviceIDRequired
 	}
 
-	query := fmt.Sprintf("SHOW devices WHERE device_id = '%s' LIMIT 1", params.DeviceID)
-
-	return m.queryExecutor.ExecuteSRQLQuery(ctx, query, 1)
+	query := "SHOW devices WHERE device_id = $1 LIMIT 1"
+	return m.executeSRQLQueryWithParams(ctx, query, []any{params.DeviceID}, 1)
 }
 
 func (m *MCPServer) executeQueryEvents(ctx context.Context, args json.RawMessage) (interface{}, error) {
@@ -726,13 +725,14 @@ func (m *MCPServer) executeQueryEvents(ctx context.Context, args json.RawMessage
 		query := showEventsQuery
 		conditions := []string{}
 		timestampField := getEntityTimestampField("events")
+		binds := &srqlBindBuilder{}
 
 		if params.StartTime != "" {
-			conditions = append(conditions, fmt.Sprintf("%s >= '%s'", timestampField, params.StartTime))
+			conditions = append(conditions, fmt.Sprintf("%s >= %s", timestampField, binds.Bind(params.StartTime)))
 		}
 
 		if params.EndTime != "" {
-			conditions = append(conditions, fmt.Sprintf("%s <= '%s'", timestampField, params.EndTime))
+			conditions = append(conditions, fmt.Sprintf("%s <= %s", timestampField, binds.Bind(params.EndTime)))
 		}
 
 		if len(conditions) > 0 {
@@ -748,9 +748,11 @@ func (m *MCPServer) executeQueryEvents(ctx context.Context, args json.RawMessage
 
 		query += fmt.Sprintf(" ORDER BY %s DESC LIMIT %d", timestampField, params.Limit)
 		params.Query = query
+
+		return m.executeSRQLQueryWithParams(ctx, params.Query, binds.params, params.Limit)
 	}
 
-	return m.queryExecutor.ExecuteSRQLQuery(ctx, params.Query, params.Limit)
+	return m.executeSRQLQuery(ctx, params.Query, params.Limit)
 }
 
 func (m *MCPServer) executeExecuteSRQL(ctx context.Context, args json.RawMessage) (interface{}, error) {
@@ -799,10 +801,25 @@ func (m *MCPServer) executeGetRecentLogs(ctx context.Context, args json.RawMessa
 // executeSRQLQuery executes an SRQL query directly via the query executor
 // It handles transformations for unsupported entity types like sweep_results
 func (m *MCPServer) executeSRQLQuery(ctx context.Context, query string, limit int) ([]map[string]interface{}, error) {
+	return m.executeSRQLQueryWithParams(ctx, query, nil, limit)
+}
+
+// executeSRQLQueryWithParams executes an SRQL query with bound parameters via a parameter-capable query executor.
+// If params is empty, this falls back to plain ExecuteSRQLQuery.
+func (m *MCPServer) executeSRQLQueryWithParams(ctx context.Context, query string, params []any, limit int) ([]map[string]interface{}, error) {
 	// Transform sweep_results queries to devices queries with sweep discovery source filter
 	transformedQuery := m.transformSweepResultsQuery(query)
 
-	return m.queryExecutor.ExecuteSRQLQuery(ctx, transformedQuery, limit)
+	if len(params) == 0 {
+		return m.queryExecutor.ExecuteSRQLQuery(ctx, transformedQuery, limit)
+	}
+
+	executor, ok := m.queryExecutor.(ParameterizedQueryExecutor)
+	if !ok {
+		return nil, fmt.Errorf("%w", errParameterizedSRQLNotSupported)
+	}
+
+	return executor.ExecuteSRQLQueryWithParams(ctx, transformedQuery, params, limit)
 }
 
 // transformSweepResultsQuery transforms sweep_results queries to equivalent devices queries

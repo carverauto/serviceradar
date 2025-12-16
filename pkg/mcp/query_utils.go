@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -12,6 +13,8 @@ const (
 	showDevicesQuery = "SHOW devices"
 	defaultLimit     = 100
 )
+
+var errParameterizedSRQLNotSupported = errors.New("query executor does not support parameterized SRQL queries")
 
 // getEntityTimestampField returns the appropriate timestamp field name for each entity type
 func getEntityTimestampField(entity string) string {
@@ -57,20 +60,41 @@ type QueryExecutor interface {
 	ExecuteSRQLQuery(ctx context.Context, query string, limit int) ([]map[string]interface{}, error)
 }
 
-func buildLogQuery(params LogQueryParams) string {
+// ParameterizedQueryExecutor extends QueryExecutor with parameter binding support.
+// Implementations MUST treat params as bound values (not text concatenated into query).
+type ParameterizedQueryExecutor interface {
+	QueryExecutor
+	ExecuteSRQLQueryWithParams(ctx context.Context, query string, params []any, limit int) ([]map[string]interface{}, error)
+}
+
+func executeSRQL(ctx context.Context, executor QueryExecutor, query string, params []any, limit int) ([]map[string]interface{}, error) {
+	if len(params) == 0 {
+		return executor.ExecuteSRQLQuery(ctx, query, limit)
+	}
+
+	parameterized, ok := executor.(ParameterizedQueryExecutor)
+	if !ok {
+		return nil, fmt.Errorf("%w", errParameterizedSRQLNotSupported)
+	}
+
+	return parameterized.ExecuteSRQLQueryWithParams(ctx, query, params, limit)
+}
+
+func buildLogQuery(params LogQueryParams) (string, []any) {
 	query := showLogsQuery
 	conditions := []string{}
+	binds := &srqlBindBuilder{}
 
 	if params.Filter != "" {
 		conditions = append(conditions, params.Filter)
 	}
 
 	if params.StartTime != "" {
-		conditions = append(conditions, fmt.Sprintf("_tp_time >= '%s'", params.StartTime))
+		conditions = append(conditions, fmt.Sprintf("_tp_time >= %s", binds.Bind(params.StartTime)))
 	}
 
 	if params.EndTime != "" {
-		conditions = append(conditions, fmt.Sprintf("_tp_time <= '%s'", params.EndTime))
+		conditions = append(conditions, fmt.Sprintf("_tp_time <= %s", binds.Bind(params.EndTime)))
 	}
 
 	if len(conditions) > 0 {
@@ -88,14 +112,15 @@ func buildLogQuery(params LogQueryParams) string {
 
 	query += fmt.Sprintf(" LIMIT %d", params.Limit)
 
-	return query
+	return query, binds.params
 }
 
-func buildRecentLogsQuery(params RecentLogsParams) string {
+func buildRecentLogsQuery(params RecentLogsParams) (string, []any) {
 	query := showLogsQuery
 
+	binds := &srqlBindBuilder{}
 	if params.PollerID != "" {
-		query += fmt.Sprintf(" WHERE poller_id = '%s'", params.PollerID)
+		query += fmt.Sprintf(" WHERE poller_id = %s", binds.Bind(params.PollerID))
 	}
 
 	if params.Limit <= 0 {
@@ -104,7 +129,7 @@ func buildRecentLogsQuery(params RecentLogsParams) string {
 
 	query += fmt.Sprintf(" ORDER BY _tp_time DESC LIMIT %d", params.Limit)
 
-	return query
+	return query, binds.params
 }
 
 func executeQueryLogs(ctx context.Context, args json.RawMessage, executor QueryExecutor) ([]map[string]interface{}, error) {
@@ -116,9 +141,8 @@ func executeQueryLogs(ctx context.Context, args json.RawMessage, executor QueryE
 		}
 	}
 
-	query := buildLogQuery(params)
-
-	return executor.ExecuteSRQLQuery(ctx, query, params.Limit)
+	query, binds := buildLogQuery(params)
+	return executeSRQL(ctx, executor, query, binds, params.Limit)
 }
 
 func executeGetRecentLogs(ctx context.Context, args json.RawMessage, executor QueryExecutor) ([]map[string]interface{}, error) {
@@ -134,18 +158,18 @@ func executeGetRecentLogs(ctx context.Context, args json.RawMessage, executor Qu
 		params.Limit = defaultLimit
 	}
 
-	query := buildRecentLogsQuery(params)
-
-	return executor.ExecuteSRQLQuery(ctx, query, params.Limit)
+	query, binds := buildRecentLogsQuery(params)
+	return executeSRQL(ctx, executor, query, binds, params.Limit)
 }
 
-func buildDevicesQuery(params ListDevicesParams) string {
+func buildDevicesQuery(params ListDevicesParams) (string, []any) {
 	query := showDevicesQuery
 
+	binds := &srqlBindBuilder{}
 	var conditions []string
 
 	if params.Type != "" {
-		conditions = append(conditions, fmt.Sprintf("device_type = '%s'", params.Type))
+		conditions = append(conditions, fmt.Sprintf("device_type = %s", binds.Bind(params.Type)))
 	}
 
 	if params.Status != "" {
@@ -163,7 +187,7 @@ func buildDevicesQuery(params ListDevicesParams) string {
 				condition = fmt.Sprintf("is_available = %s", params.Status)
 			} else {
 				// Fallback: assume it's a custom status field
-				condition = fmt.Sprintf("status = '%s'", params.Status)
+				condition = fmt.Sprintf("status = %s", binds.Bind(params.Status))
 			}
 		}
 
@@ -183,7 +207,7 @@ func buildDevicesQuery(params ListDevicesParams) string {
 
 	query += fmt.Sprintf(" LIMIT %d", params.Limit)
 
-	return query
+	return query, binds.params
 }
 
 func executeListDevices(ctx context.Context, args json.RawMessage, executor QueryExecutor) ([]map[string]interface{}, error) {
@@ -195,7 +219,6 @@ func executeListDevices(ctx context.Context, args json.RawMessage, executor Quer
 		}
 	}
 
-	query := buildDevicesQuery(params)
-
-	return executor.ExecuteSRQLQuery(ctx, query, params.Limit)
+	query, binds := buildDevicesQuery(params)
+	return executeSRQL(ctx, executor, query, binds, params.Limit)
 }
