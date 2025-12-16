@@ -131,40 +131,144 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   attr :event, :map, required: true
 
   defp event_details(assigns) do
-    # Fields to show in summary (exclude from details)
+    # Fields already shown in summary
     summary_fields =
       ~w(id event_id severity event_timestamp timestamp host source short_message message)
 
-    # Get remaining fields
-    detail_fields =
+    # CloudEvents metadata fields (show separately)
+    cloudevents_fields = ~w(specversion datacontenttype type)
+
+    # Get nested data if present
+    data = Map.get(assigns.event, "data", %{})
+    has_data = is_map(data) and map_size(data) > 0
+
+    # Get CloudEvents metadata
+    ce_fields =
+      assigns.event
+      |> Map.take(cloudevents_fields)
+      |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+      |> Enum.sort_by(fn {k, _v} -> cloudevents_order(k) end)
+
+    # Other fields (not summary, not CloudEvents, not data)
+    other_fields =
       assigns.event
       |> Map.keys()
-      |> Enum.reject(&(&1 in summary_fields))
+      |> Enum.reject(&(&1 in summary_fields or &1 in cloudevents_fields or &1 == "data"))
       |> Enum.sort()
 
-    assigns = assign(assigns, :detail_fields, detail_fields)
+    assigns =
+      assigns
+      |> assign(:ce_fields, ce_fields)
+      |> assign(:other_fields, other_fields)
+      |> assign(:data, data)
+      |> assign(:has_data, has_data)
 
     ~H"""
-    <div :if={@detail_fields != []} class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
-      <div class="px-4 py-3 border-b border-base-200">
-        <span class="text-sm font-semibold">Additional Details</span>
+    <%!-- CloudEvents Metadata --%>
+    <div :if={@ce_fields != []} class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6">
+      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-4">
+        Event Metadata
+      </span>
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <%= for {field, value} <- @ce_fields do %>
+          <div class="flex flex-col gap-1">
+            <span class="text-xs text-base-content/50">{field_label(field)}</span>
+            <span class="text-sm font-mono">{value}</span>
+          </div>
+        <% end %>
       </div>
+    </div>
 
-      <div class="divide-y divide-base-200">
-        <%= for field <- @detail_fields do %>
-          <div class="px-4 py-3 flex items-start gap-4">
-            <span class="text-xs text-base-content/50 w-32 shrink-0 pt-0.5">
-              {humanize_field(field)}
-            </span>
-            <span class="text-sm flex-1 break-all">
-              <.format_value value={Map.get(@event, field)} />
-            </span>
+    <%!-- Event Data Payload --%>
+    <div :if={@has_data} class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6">
+      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-4">
+        Event Payload
+      </span>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+        <%= for {field, value} <- Enum.sort(@data) do %>
+          <div class="flex flex-col gap-0.5 min-w-0">
+            <span class="text-xs text-base-content/50">{field_label(field)}</span>
+            <.inline_value value={value} />
+          </div>
+        <% end %>
+      </div>
+    </div>
+
+    <%!-- Other Fields --%>
+    <div
+      :if={@other_fields != []}
+      class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6"
+    >
+      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-4">
+        Additional Fields
+      </span>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+        <%= for field <- @other_fields do %>
+          <div class="flex flex-col gap-0.5 min-w-0">
+            <span class="text-xs text-base-content/50">{field_label(field)}</span>
+            <.inline_value value={Map.get(@event, field)} />
           </div>
         <% end %>
       </div>
     </div>
     """
   end
+
+  # Render values inline (not in pre blocks)
+  attr :value, :any, default: nil
+
+  defp inline_value(%{value: nil} = assigns) do
+    ~H|<span class="text-base-content/40 text-sm">—</span>|
+  end
+
+  defp inline_value(%{value: ""} = assigns) do
+    ~H|<span class="text-base-content/40 text-sm">—</span>|
+  end
+
+  defp inline_value(%{value: value} = assigns) when is_boolean(value) do
+    ~H|<span class="text-sm font-mono">{to_string(@value)}</span>|
+  end
+
+  defp inline_value(%{value: value} = assigns) when is_number(value) do
+    ~H|<span class="text-sm font-mono">{to_string(@value)}</span>|
+  end
+
+  defp inline_value(%{value: value} = assigns) when is_map(value) or is_list(value) do
+    # For nested objects, show a compact summary
+    summary =
+      case value do
+        m when is_map(m) -> "{#{map_size(m)} fields}"
+        l when is_list(l) -> "[#{length(l)} items]"
+      end
+
+    assigns = assign(assigns, :summary, summary)
+
+    ~H|<span class="text-sm text-base-content/60">{@summary}</span>|
+  end
+
+  defp inline_value(%{value: value} = assigns) when is_binary(value) do
+    # Truncate long values
+    display =
+      if String.length(value) > 100 do
+        String.slice(value, 0, 100) <> "…"
+      else
+        value
+      end
+
+    assigns = assign(assigns, :display, display)
+
+    ~H|<span class="text-sm break-words" title={@value}>{@display}</span>|
+  end
+
+  defp inline_value(assigns) do
+    ~H|<span class="text-sm">{to_string(@value)}</span>|
+  end
+
+  # CloudEvents field ordering
+  defp cloudevents_order("specversion"), do: 0
+  defp cloudevents_order("type"), do: 1
+  defp cloudevents_order("datacontenttype"), do: 2
+  defp cloudevents_order(_), do: 99
 
   attr :value, :any, default: nil
 
@@ -290,6 +394,43 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       _ -> true
     end
   end
+
+  # Known field label mappings
+  @field_labels %{
+    # CloudEvents
+    "specversion" => "Spec Version",
+    "datacontenttype" => "Content Type",
+    "type" => "Event Type",
+    # Common fields
+    "_remote_addr" => "Remote Address",
+    "short_message" => "Message",
+    "timestamp" => "Timestamp",
+    "event_timestamp" => "Event Time",
+    "created_at" => "Created At",
+    "updated_at" => "Updated At",
+    "trace_id" => "Trace ID",
+    "span_id" => "Span ID",
+    "http_method" => "HTTP Method",
+    "http_route" => "HTTP Route",
+    "http_status_code" => "Status Code",
+    "grpc_service" => "gRPC Service",
+    "grpc_method" => "gRPC Method",
+    "grpc_status_code" => "gRPC Status",
+    "service_name" => "Service",
+    "host" => "Host",
+    "level" => "Level",
+    "severity" => "Severity",
+    "version" => "Version"
+  }
+
+  defp field_label(field) when is_binary(field) do
+    case Map.get(@field_labels, field) do
+      nil -> humanize_field(field)
+      label -> label
+    end
+  end
+
+  defp field_label(field), do: to_string(field)
 
   defp humanize_field(field) when is_binary(field) do
     field
