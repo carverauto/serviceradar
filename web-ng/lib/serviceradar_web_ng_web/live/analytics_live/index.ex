@@ -1337,6 +1337,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     traces_count = Map.get(data, :traces_count, 0)
     avg_duration = Map.get(data, :avg_duration, 0)
     error_rate = Map.get(data, :error_rate, 0.0)
+    http_error_rate = Map.get(data, :http_error_rate, 0.0)
     slow_spans_count = Map.get(data, :slow_spans_count, 0)
     slow_spans = Map.get(data, :slow_spans, [])
 
@@ -1346,6 +1347,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       |> assign(:traces_count, traces_count)
       |> assign(:avg_duration, avg_duration)
       |> assign(:error_rate, error_rate)
+      |> assign(:http_error_rate, http_error_rate)
       |> assign(:slow_spans_count, slow_spans_count)
       |> assign(:slow_spans, slow_spans)
 
@@ -1386,12 +1388,30 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           </div>
           <div class={[
             "rounded-lg p-3 text-center",
-            (@error_rate > 5 && "bg-error/10") || "bg-base-200/50"
+            ((@error_rate > 5 or @http_error_rate > 5) && "bg-error/10") || "bg-base-200/50"
           ]}>
-            <div class={["text-xl font-bold", (@error_rate > 5 && "text-error") || "text-success"]}>
-              {@error_rate}%
+            <div class="flex items-center justify-center gap-2">
+              <div class="text-center">
+                <div class={[
+                  "text-lg font-bold",
+                  (@error_rate > 5 && "text-error") || "text-success"
+                ]}>
+                  {@error_rate}%
+                </div>
+                <div class="text-[10px] text-base-content/50">Trace</div>
+              </div>
+              <div class="text-base-content/30">|</div>
+              <div class="text-center">
+                <div class={[
+                  "text-lg font-bold",
+                  (@http_error_rate > 5 && "text-error") || "text-success"
+                ]}>
+                  {@http_error_rate}%
+                </div>
+                <div class="text-[10px] text-base-content/50">HTTP</div>
+              </div>
             </div>
-            <div class="text-xs text-base-content/60">Error Rate</div>
+            <div class="text-xs text-base-content/60 mt-1">Error Rates</div>
           </div>
         </div>
 

@@ -444,24 +444,32 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-      <.obs_stat title="Total Traces" value={format_compact_int(@total)} icon="hero-clock" />
+      <.obs_stat
+        title="Total Traces"
+        value={format_compact_int(@total)}
+        icon="hero-clock"
+        href={~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h sort:timestamp:desc limit:100"}}"}
+      />
       <.obs_stat
         title="Successful"
         value={format_compact_int(@successful)}
         icon="hero-check-circle"
         tone="success"
+        href={~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h status_code:1 sort:timestamp:desc limit:100"}}"}
       />
       <.obs_stat
         title="Errors"
         value={format_compact_int(@error_traces)}
         icon="hero-x-circle"
         tone={if @error_traces > 0, do: "error", else: "success"}
+        href={~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h status_code:2 sort:timestamp:desc limit:100"}}"}
       />
       <.obs_stat
         title="Error Rate"
         value={"#{format_pct(@error_rate)}%"}
         icon="hero-trending-up"
         tone={if @error_rate > 1.0, do: "error", else: "success"}
+        href={~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h status_code:2 sort:timestamp:desc limit:100"}}"}
       />
       <.obs_stat
         title="Avg Duration"
@@ -469,6 +477,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         subtitle={if @sample_size > 0, do: "sample (#{@sample_size})", else: "sample"}
         icon="hero-chart-bar"
         tone="info"
+        href={~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h sort:duration_ms:desc limit:100"}}"}
       />
       <.obs_stat
         title="P95 Duration"
@@ -476,6 +485,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         subtitle={if @services_count > 0, do: "#{@services_count} services", else: "sample"}
         icon="hero-bolt"
         tone="warning"
+        href={~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h duration_ms:>100 sort:duration_ms:desc limit:100"}}"}
       />
     </div>
     """
@@ -504,24 +514,32 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-      <.obs_stat title="Total Metrics" value={format_compact_int(@total)} icon="hero-chart-bar" />
+      <.obs_stat
+        title="Total Metrics"
+        value={format_compact_int(@total)}
+        icon="hero-chart-bar"
+        href={~p"/observability?#{%{tab: "metrics", q: "in:otel_metrics time:last_24h sort:timestamp:desc limit:100"}}"}
+      />
       <.obs_stat
         title="Slow Spans"
         value={format_compact_int(@slow_spans)}
         icon="hero-bolt"
         tone={if @slow_spans > 0, do: "warning", else: "success"}
+        href={~p"/observability?#{%{tab: "metrics", q: "in:otel_metrics time:last_24h is_slow:true sort:duration_ms:desc limit:100"}}"}
       />
       <.obs_stat
         title="Errors"
         value={format_compact_int(@error_spans)}
         icon="hero-exclamation-triangle"
         tone={if @error_spans > 0, do: "error", else: "success"}
+        href={~p"/observability?#{%{tab: "metrics", q: "in:otel_metrics time:last_24h http_status_code:5% sort:timestamp:desc limit:100"}}"}
       />
       <.obs_stat
         title="Error Rate"
         value={"#{format_pct(@error_rate)}%"}
         icon="hero-trending-up"
         tone={if @error_rate > 1.0, do: "error", else: "success"}
+        href={~p"/observability?#{%{tab: "metrics", q: "in:otel_metrics time:last_24h http_status_code:5% sort:timestamp:desc limit:100"}}"}
       />
       <.obs_stat
         title="Avg Duration"
@@ -529,6 +547,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         subtitle={if @sample_size > 0, do: "sample (#{@sample_size})", else: "sample"}
         icon="hero-clock"
         tone="info"
+        href={~p"/observability?#{%{tab: "metrics", q: "in:otel_metrics time:last_24h sort:duration_ms:desc limit:100"}}"}
       />
       <.obs_stat
         title="P95 Duration"
@@ -536,6 +555,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         subtitle="sample"
         icon="hero-chart-bar"
         tone="neutral"
+        href={~p"/observability?#{%{tab: "metrics", q: "in:otel_metrics time:last_24h is_slow:true sort:duration_ms:desc limit:100"}}"}
       />
     </div>
     """
@@ -546,6 +566,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr :subtitle, :string, default: nil
   attr :icon, :string, required: true
   attr :tone, :string, default: "neutral", values: ~w(neutral success warning error info)
+  attr :href, :string, default: nil
 
   defp obs_stat(assigns) do
     {bg, fg} =
@@ -560,20 +581,40 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     assigns = assign(assigns, :bg, bg) |> assign(:fg, fg)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-3">
-      <div class="flex items-center gap-2">
-        <div class={["size-8 rounded-lg flex items-center justify-center shrink-0", @bg]}>
-          <.icon name={@icon} class={["size-4", @fg]} />
+    <%= if @href do %>
+      <.link
+        href={@href}
+        class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-3 block hover:border-primary/50 hover:shadow-md transition-all cursor-pointer"
+      >
+        <div class="flex items-center gap-2">
+          <div class={["size-8 rounded-lg flex items-center justify-center shrink-0", @bg]}>
+            <.icon name={@icon} class={["size-4", @fg]} />
+          </div>
+          <div class="min-w-0">
+            <div class="text-xs text-base-content/60 truncate">{@title}</div>
+            <div class="text-lg font-bold tabular-nums truncate">{@value}</div>
+            <div :if={is_binary(@subtitle)} class="text-[10px] text-base-content/50 truncate">
+              {@subtitle}
+            </div>
+          </div>
         </div>
-        <div class="min-w-0">
-          <div class="text-xs text-base-content/60 truncate">{@title}</div>
-          <div class="text-lg font-bold tabular-nums truncate">{@value}</div>
-          <div :if={is_binary(@subtitle)} class="text-[10px] text-base-content/50 truncate">
-            {@subtitle}
+      </.link>
+    <% else %>
+      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-3">
+        <div class="flex items-center gap-2">
+          <div class={["size-8 rounded-lg flex items-center justify-center shrink-0", @bg]}>
+            <.icon name={@icon} class={["size-4", @fg]} />
+          </div>
+          <div class="min-w-0">
+            <div class="text-xs text-base-content/60 truncate">{@title}</div>
+            <div class="text-lg font-bold tabular-nums truncate">{@value}</div>
+            <div :if={is_binary(@subtitle)} class="text-[10px] text-base-content/50 truncate">
+              {@subtitle}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    <% end %>
     """
   end
 
