@@ -192,9 +192,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         "in:memory_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
       # High utilization - get recent Disk metrics
       disk_metrics:
-        "in:disk_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}"
-      # TODO: Re-enable when backend supports rperf_targets entity
-      # rperf_targets: "in:rperf_targets time:last_1h sort:timestamp:desc limit:50"
+        "in:disk_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
+      # Bandwidth tracking - query rperf metrics
+      rperf_metrics: "in:rperf_metrics time:last_1h sort:timestamp:desc limit:100"
     }
 
     # Only add SRQL fallback queries if hourly stats failed
@@ -335,14 +335,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     high_utilization =
       build_high_utilization_summary(cpu_metrics_rows, memory_metrics_rows, disk_metrics_rows)
 
-    # Bandwidth summary (disabled until rperf_targets entity is supported)
-    bandwidth = %{
-      targets: [],
-      total_download: 0.0,
-      total_upload: 0.0,
-      avg_latency: 0.0,
-      target_count: 0
-    }
+    # Build bandwidth summary from rperf metrics
+    rperf_rows = extract_rows(results[:rperf_metrics])
+    bandwidth = build_bandwidth_summary(rperf_rows)
 
     error =
       Enum.find_value(results, fn
@@ -710,6 +705,109 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       total_memory_hosts: 0,
       total_disk_mounts: 0
     }
+
+  defp build_bandwidth_summary(rows) when is_list(rows) do
+    # Group by target, keeping most recent metrics per target
+    targets_by_name =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(%{}, fn row, acc ->
+        # Extract target from metric_name (format: rperf_<target>) or metadata
+        target = extract_rperf_target(row)
+
+        if is_binary(target) and target != "" do
+          # Keep most recent entry per target (rows are sorted by timestamp desc)
+          Map.put_new(acc, target, row)
+        else
+          acc
+        end
+      end)
+
+    # Build target list with bandwidth data
+    targets =
+      targets_by_name
+      |> Map.values()
+      |> Enum.map(fn row ->
+        metadata = Map.get(row, "metadata") || %{}
+
+        # Extract metrics from metadata or value field
+        bits_per_second =
+          extract_numeric(
+            get_in(metadata, ["bits_per_second"]) ||
+              Map.get(row, "value") ||
+              0
+          )
+
+        jitter_ms = extract_numeric(get_in(metadata, ["jitter_ms"]) || 0)
+        loss_percent = extract_numeric(get_in(metadata, ["loss_percent"]) || 0)
+
+        %{
+          name: extract_rperf_target(row),
+          download_mbps: bits_per_second / 1_000_000,
+          upload_mbps: 0.0,
+          latency_ms: jitter_ms,
+          loss_percent: loss_percent,
+          success: get_in(metadata, ["success"]) || true
+        }
+      end)
+      |> Enum.sort_by(& &1.download_mbps, :desc)
+      |> Enum.take(5)
+
+    # Calculate totals
+    total_download =
+      targets
+      |> Enum.map(& &1.download_mbps)
+      |> Enum.sum()
+
+    avg_latency =
+      if length(targets) > 0 do
+        targets
+        |> Enum.map(& &1.latency_ms)
+        |> Enum.sum()
+        |> Kernel./(length(targets))
+        |> Float.round(2)
+      else
+        0.0
+      end
+
+    %{
+      targets: targets,
+      total_download: Float.round(total_download, 2),
+      total_upload: 0.0,
+      avg_latency: avg_latency,
+      target_count: map_size(targets_by_name)
+    }
+  end
+
+  defp build_bandwidth_summary(_),
+    do: %{
+      targets: [],
+      total_download: 0.0,
+      total_upload: 0.0,
+      avg_latency: 0.0,
+      target_count: 0
+    }
+
+  defp extract_rperf_target(row) when is_map(row) do
+    # Try metadata first
+    metadata = Map.get(row, "metadata") || %{}
+
+    case get_in(metadata, ["target"]) do
+      target when is_binary(target) and target != "" ->
+        target
+
+      _ ->
+        # Fall back to parsing metric_name (format: rperf_<target>)
+        metric_name = Map.get(row, "metric_name") || ""
+
+        case String.split(metric_name, "rperf_", parts: 2) do
+          [_, target] when target != "" -> String.replace(target, "_", ".")
+          _ -> Map.get(row, "target_device_ip") || ""
+        end
+    end
+  end
+
+  defp extract_rperf_target(_), do: ""
 
   defp extract_numeric(value) when is_number(value), do: value
 
@@ -1520,13 +1618,13 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     <.ui_panel class="h-80">
       <:header>
         <.link
-          href={~p"/dashboard?#{%{q: "in:rperf_targets time:last_1h sort:timestamp:desc"}}"}
+          href={~p"/dashboard?#{%{q: "in:rperf_metrics time:last_1h sort:timestamp:desc"}}"}
           class="hover:text-primary transition-colors"
         >
           <div class="text-sm font-semibold">Bandwidth Tracker</div>
         </.link>
         <.link
-          href={~p"/dashboard?#{%{q: "in:rperf_targets time:last_1h sort:timestamp:desc limit:50"}}"}
+          href={~p"/dashboard?#{%{q: "in:rperf_metrics time:last_1h sort:timestamp:desc limit:50"}}"}
           class="text-base-content/60 hover:text-primary"
           title="View bandwidth data"
         >
