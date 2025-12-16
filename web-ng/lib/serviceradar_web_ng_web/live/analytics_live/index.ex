@@ -55,6 +55,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp load_analytics(socket) do
     srql_module = srql_module()
 
+    metrics_stats_expr =
+      ~s|count() as total, | <>
+        ~s|sum(if(is_slow = true, 1, 0)) as slow_spans, | <>
+        ~s|sum(if((coalesce(lower(level), '') = 'error') OR ((http_status_code IS NOT NULL AND http_status_code != '') AND (http_status_code LIKE '4%' OR http_status_code LIKE '5%')) OR ((grpc_status_code IS NOT NULL AND grpc_status_code != '') AND grpc_status_code != '0'), 1, 0)) as error_spans|
+
     queries = %{
       devices_total: ~s|in:devices stats:"count() as total"|,
       devices_online: ~s|in:devices is_available:true stats:"count() as online"|,
@@ -72,11 +77,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       logs_debug:
         ~s|in:logs time:last_24h severity_text:(debug,trace,DEBUG,TRACE) stats:"count() as debug"|,
       # Observability summary (match legacy UI: last_24h window, trace summaries not raw spans)
-      metrics_count: ~s|in:otel_metrics time:last_24h stats:"count() as total"|,
+      metrics_stats: ~s|in:otel_metrics time:last_24h stats:"#{metrics_stats_expr}"|,
       trace_stats:
         "in:otel_trace_summaries time:last_24h " <>
           ~s|stats:"count() as total, sum(if(status_code != 1, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"|,
-      slow_traces: "in:otel_trace_summaries time:last_24h sort:duration_ms:desc limit:25",
+      slow_spans: "in:otel_metrics time:last_24h is_slow:true sort:duration_ms:desc limit:25",
       # High utilization - get recent CPU metrics
       cpu_metrics:
         "in:cpu_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
@@ -166,10 +171,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     logs_summary = build_logs_summary(logs_rows, logs_counts)
 
     # Build observability summary with real counts from stats queries
-    metrics_total = extract_count(results[:metrics_count])
+    metrics_stats = extract_map(results[:metrics_stats])
     trace_stats = extract_map(results[:trace_stats])
-    slow_traces_rows = extract_rows(results[:slow_traces])
-    observability = build_observability_summary(metrics_total, trace_stats, slow_traces_rows)
+    slow_spans_rows = extract_rows(results[:slow_spans])
+    observability = build_observability_summary(metrics_stats, trace_stats, slow_spans_rows)
 
     # Build high utilization summary from CPU, Memory, and Disk metrics
     cpu_metrics_rows = extract_rows(results[:cpu_metrics])
@@ -329,28 +334,38 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp build_logs_summary(_rows, _counts),
     do: %{fatal: 0, error: 0, warning: 0, info: 0, debug: 0, total: 0, recent: []}
 
-  defp build_observability_summary(metrics_count, trace_stats, slow_traces)
-       when is_integer(metrics_count) and is_map(trace_stats) and is_list(slow_traces) do
+  defp build_observability_summary(metrics_stats, trace_stats, slow_spans)
+       when is_map(metrics_stats) and is_map(trace_stats) and is_list(slow_spans) do
+    metrics_stats =
+      case Map.get(metrics_stats, "payload") do
+        %{} = payload -> payload
+        _ -> metrics_stats
+      end
+
     trace_stats =
       case Map.get(trace_stats, "payload") do
         %{} = payload -> payload
         _ -> trace_stats
       end
 
+    metrics_count =
+      extract_numeric(Map.get(metrics_stats, "total") || Map.get(metrics_stats, "count"))
+      |> to_int()
+
+    metrics_error_spans =
+      extract_numeric(Map.get(metrics_stats, "error_spans") || Map.get(metrics_stats, "errors"))
+      |> to_int()
+
+    metrics_slow_spans =
+      extract_numeric(Map.get(metrics_stats, "slow_spans") || Map.get(metrics_stats, "slow"))
+      |> to_int()
+
     traces_count =
       extract_numeric(Map.get(trace_stats, "total") || Map.get(trace_stats, "count")) |> to_int()
 
-    error_traces =
-      extract_numeric(Map.get(trace_stats, "error_traces") || Map.get(trace_stats, "errors"))
-      |> to_int()
-
-    slow_traces_count =
-      extract_numeric(Map.get(trace_stats, "slow_traces") || Map.get(trace_stats, "slow"))
-      |> to_int()
-
     error_rate =
-      if traces_count > 0 do
-        Float.round(error_traces / traces_count * 100.0, 1)
+      if metrics_count > 0 do
+        Float.round(metrics_error_spans / metrics_count * 100.0, 1)
       else
         0.0
       end
@@ -359,7 +374,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     avg_duration = 0
 
     slow_spans =
-      slow_traces
+      slow_spans
       |> Enum.filter(&is_map/1)
       |> Enum.take(5)
 
@@ -368,7 +383,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       traces_count: traces_count,
       avg_duration: avg_duration,
       error_rate: error_rate,
-      slow_spans_count: slow_traces_count,
+      slow_spans_count: metrics_slow_spans,
       slow_spans: slow_spans
     }
   end
@@ -650,11 +665,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
         <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
           <.device_availability_widget availability={@device_availability} loading={@loading} />
-          <.high_utilization_widget data={@high_utilization} loading={@loading} />
-          <.bandwidth_widget data={@bandwidth} loading={@loading} />
-          <.critical_logs_widget summary={@logs_summary} loading={@loading} />
           <.observability_widget data={@observability} loading={@loading} />
           <.critical_events_widget summary={@events_summary} loading={@loading} />
+          <.critical_logs_widget summary={@logs_summary} loading={@loading} />
+          <.high_utilization_widget data={@high_utilization} loading={@loading} />
+          <.bandwidth_widget data={@bandwidth} loading={@loading} />
         </div>
 
         <div class="mt-3 text-xs text-base-content/40 flex items-center gap-2">
@@ -732,6 +747,42 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp format_number(n) when is_integer(n), do: Integer.to_string(n)
   defp format_number(n) when is_float(n), do: n |> trunc() |> format_number()
   defp format_number(_), do: "0"
+
+  defp format_compact_number(n) when is_float(n), do: n |> trunc() |> format_compact_number()
+
+  defp format_compact_number(n) when is_integer(n) do
+    sign = if n < 0, do: "-", else: ""
+    abs_n = abs(n)
+
+    formatted =
+      cond do
+        abs_n >= 1_000_000_000 ->
+          compact_decimal(abs_n / 1_000_000_000.0, 1) <> "B"
+
+        abs_n >= 1_000_000 ->
+          compact_decimal(abs_n / 1_000_000.0, 1) <> "M"
+
+        abs_n >= 100_000 ->
+          Integer.to_string(div(abs_n, 1000)) <> "k"
+
+        abs_n >= 1_000 ->
+          compact_decimal(abs_n / 1000.0, 1) <> "k"
+
+        true ->
+          Integer.to_string(abs_n)
+      end
+
+    sign <> formatted
+  end
+
+  defp format_compact_number(_), do: "0"
+
+  defp compact_decimal(value, decimals) when is_number(value) and is_integer(decimals) do
+    value
+    |> :erlang.float_to_binary(decimals: decimals)
+    |> String.trim_trailing("0")
+    |> String.trim_trailing(".")
+  end
 
   defp add_commas(str) do
     str
@@ -1107,11 +1158,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       <div :if={not @loading} class="flex flex-col h-full">
         <div class="grid grid-cols-2 gap-3 mb-4">
           <div class="rounded-lg bg-base-200/50 p-3 text-center">
-            <div class="text-xl font-bold text-primary">{format_number(@metrics_count)}</div>
+            <div class="text-xl font-bold text-primary">{format_compact_number(@metrics_count)}</div>
             <div class="text-xs text-base-content/60">Metrics</div>
           </div>
           <div class="rounded-lg bg-base-200/50 p-3 text-center">
-            <div class="text-xl font-bold text-secondary">{format_number(@traces_count)}</div>
+            <div class="text-xl font-bold text-secondary">{format_compact_number(@traces_count)}</div>
             <div class="text-xs text-base-content/60">Traces</div>
           </div>
           <div class="rounded-lg bg-base-200/50 p-3 text-center">
@@ -1131,12 +1182,12 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
         <div class="flex-1 min-h-0">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-medium text-base-content/70">Slow Traces (&gt;100ms)</span>
+            <span class="text-xs font-medium text-base-content/70">Slow Spans</span>
             <span class={[
               "text-xs font-bold",
               (@slow_spans_count > 0 && "text-warning") || "text-base-content/50"
             ]}>
-              {@slow_spans_count}
+              {format_compact_number(@slow_spans_count)}
             </span>
           </div>
 

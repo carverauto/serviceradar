@@ -585,24 +585,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
         {@type}
       </div>
       <div class="flex-1 h-4 bg-base-200/50 rounded-full overflow-hidden">
-        <div class="h-full flex" style={"width: #{@volume_pct}%"}>
-          <div
-            :if={@avail_pct > 0}
-            class="h-full bg-success/70 transition-all"
-            style={"width: #{@avail_pct}%"}
-            title={"#{@counts.available} available"}
-          />
-          <div
-            :if={@fail_pct > 0}
-            class="h-full bg-error/70 transition-all"
-            style={"width: #{@fail_pct}%"}
-            title={"#{@counts.unavailable} unavailable"}
-          />
-          <div
-            :if={@avail_pct == 0 and @fail_pct == 0}
-            class="h-full bg-base-200/70"
-            style="width: 100%"
-          />
+        <div class="h-full rounded-full overflow-hidden" style={"width: #{@volume_pct}%"}>
+          <div class="h-full w-full bg-success/60 relative" title={"#{@counts.available} available"}>
+            <div
+              :if={@fail_pct > 0}
+              class="absolute inset-y-0 right-0 bg-error/70"
+              style={"width: #{@fail_pct}%"}
+              title={"#{@counts.unavailable} unavailable"}
+            />
+          </div>
         </div>
       </div>
       <div class="w-16 text-right">
@@ -656,15 +647,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
               </td>
               <td
                 class="whitespace-nowrap text-xs truncate max-w-[8rem]"
-                title={Map.get(svc, "service_type")}
+                title={service_type_value(svc)}
               >
-                {Map.get(svc, "service_type") || "—"}
+                {service_type_value(svc) || "—"}
               </td>
               <td
                 class="whitespace-nowrap text-xs truncate max-w-[12rem]"
-                title={Map.get(svc, "service_name")}
+                title={service_name_value(svc)}
               >
-                {Map.get(svc, "service_name") || "—"}
+                {service_name_value(svc) || "—"}
               </td>
               <td class="text-xs truncate max-w-[28rem]" title={Map.get(svc, "message")}>
                 {Map.get(svc, "message") || "—"}
@@ -797,8 +788,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       |> Enum.reduce(%{}, fn svc, acc ->
         poller_id = Map.get(svc, "poller_id") || ""
         agent_id = Map.get(svc, "agent_id") || ""
-        service_type = Map.get(svc, "service_type") || ""
-        service_name = Map.get(svc, "service_name") || ""
+        service_type = service_type_value(svc) || ""
+        service_name = service_name_value(svc) || ""
 
         key = "#{poller_id}:#{agent_id}:#{service_type}:#{service_name}"
 
@@ -822,7 +813,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
         service_type =
           svc
-          |> Map.get("service_type")
+          |> service_type_value()
           |> case do
             nil -> "unknown"
             "" -> "unknown"
@@ -875,4 +866,22 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   defp normalize_available(_), do: nil
+
+  defp service_type_value(%{} = svc) do
+    Map.get(svc, "service_type") ||
+      Map.get(svc, "type") ||
+      Map.get(svc, "check_type") ||
+      Map.get(svc, "service_kind")
+  end
+
+  defp service_type_value(_), do: nil
+
+  defp service_name_value(%{} = svc) do
+    Map.get(svc, "service_name") ||
+      Map.get(svc, "name") ||
+      Map.get(svc, "service") ||
+      Map.get(svc, "check_name")
+  end
+
+  defp service_name_value(_), do: nil
 end

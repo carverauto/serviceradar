@@ -48,7 +48,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
       <div class="drawer-content flex min-h-screen flex-col">
         <header class="sticky top-0 z-20 border-b border-base-200 bg-base-100/90 backdrop-blur">
-          <div class="px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-4">
+          <div class="px-4 sm:px-6 lg:px-8 py-3 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
             <div class="flex items-center gap-3 shrink-0">
               <label
                 :if={@signed_in?}
@@ -61,22 +61,28 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </label>
             </div>
 
-            <div class="flex-1 min-w-0">
-              <.srql_query_bar
-                :if={Map.get(@srql, :enabled, false)}
-                query={Map.get(@srql, :query)}
-                draft={Map.get(@srql, :draft)}
-                loading={Map.get(@srql, :loading, false)}
-                builder_available={Map.get(@srql, :builder_available, false)}
-                builder_open={Map.get(@srql, :builder_open, false)}
-                builder_supported={Map.get(@srql, :builder_supported, true)}
-                builder_sync={Map.get(@srql, :builder_sync, true)}
-                builder={Map.get(@srql, :builder, %{})}
-              />
+            <div class="flex-1 min-w-0 flex items-center gap-4">
+              <div class="flex-1 min-w-0">
+                <.breadcrumb_nav :if={@current_path} current_path={@current_path} />
+              </div>
+
+              <div class="w-full sm:w-auto flex justify-end">
+                <.srql_query_bar
+                  :if={Map.get(@srql, :enabled, false)}
+                  query={Map.get(@srql, :query)}
+                  draft={Map.get(@srql, :draft)}
+                  loading={Map.get(@srql, :loading, false)}
+                  builder_available={Map.get(@srql, :builder_available, false)}
+                  builder_open={Map.get(@srql, :builder_open, false)}
+                  builder_supported={Map.get(@srql, :builder_supported, true)}
+                  builder_sync={Map.get(@srql, :builder_sync, true)}
+                  builder={Map.get(@srql, :builder, %{})}
+                />
+              </div>
             </div>
 
             <div class="flex items-center gap-2 shrink-0">
-              <.theme_toggle />
+              <.theme_toggle :if={not @signed_in?} />
 
               <%= if not @signed_in? do %>
                 <.ui_button href={~p"/users/register"} variant="ghost" size="sm">Register</.ui_button>
@@ -103,8 +109,6 @@ defmodule ServiceRadarWebNGWeb.Layouts do
             />
           </div>
         </div>
-
-        <.breadcrumb_bar :if={@current_path} current_path={@current_path} />
 
         <main class="px-4 py-6 sm:px-6 lg:px-8 flex-1">
           {render_slot(@inner_block)}
@@ -196,8 +200,16 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </div>
               <ul
                 tabindex="0"
-                class="dropdown-content menu bg-base-200 rounded-box z-10 w-40 p-2 shadow-lg mb-2"
+                class="dropdown-content menu bg-base-200 rounded-box z-10 w-56 p-2 shadow-lg mb-2"
               >
+                <li>
+                  <div class="flex flex-col gap-2">
+                    <span class="text-[10px] uppercase tracking-wider text-base-content/60">
+                      Theme
+                    </span>
+                    <.theme_toggle />
+                  </div>
+                </li>
                 <li>
                   <.link href={~p"/users/settings"} class="text-sm">
                     <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
@@ -250,42 +262,43 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   attr :current_path, :string, required: true
 
-  defp breadcrumb_bar(assigns) do
+  defp breadcrumb_nav(assigns) do
     crumbs = build_breadcrumbs(assigns.current_path)
     assigns = assign(assigns, :crumbs, crumbs)
 
     ~H"""
-    <div class="px-4 sm:px-6 lg:px-8 py-2 border-b border-base-200 bg-base-100/50">
-      <nav class="breadcrumbs text-sm">
-        <ul>
-          <li>
-            <.link
-              href={~p"/analytics"}
-              class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content"
-            >
-              <.icon name="hero-home-micro" class="size-3.5" />
-            </.link>
-          </li>
-          <li :for={crumb <- @crumbs}>
-            <.link
-              :if={crumb.href}
-              href={crumb.href}
-              class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content"
-            >
-              <.icon :if={crumb.icon} name={crumb.icon} class="size-3.5" />
-              <span>{crumb.label}</span>
-            </.link>
-            <span
-              :if={!crumb.href}
-              class="flex items-center gap-1.5 font-medium"
-            >
-              <.icon :if={crumb.icon} name={crumb.icon} class="size-3.5" />
-              <span>{crumb.label}</span>
-            </span>
-          </li>
-        </ul>
-      </nav>
-    </div>
+    <nav class="breadcrumbs text-xs sm:text-sm">
+      <ul class="min-w-0">
+        <li>
+          <.link
+            href={~p"/analytics"}
+            class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content"
+            title="Analytics"
+          >
+            <.icon name="hero-home-micro" class="size-3.5" />
+          </.link>
+        </li>
+        <li :for={crumb <- @crumbs}>
+          <.link
+            :if={crumb.href}
+            href={crumb.href}
+            class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content min-w-0"
+            title={crumb.label}
+          >
+            <.icon :if={crumb.icon} name={crumb.icon} class="size-3.5 shrink-0" />
+            <span class="truncate max-w-[18rem]">{crumb.label}</span>
+          </.link>
+          <span
+            :if={!crumb.href}
+            class="flex items-center gap-1.5 font-medium min-w-0"
+            title={crumb.label}
+          >
+            <.icon :if={crumb.icon} name={crumb.icon} class="size-3.5 shrink-0" />
+            <span class="truncate max-w-[18rem]">{crumb.label}</span>
+          </span>
+        </li>
+      </ul>
+    </nav>
     """
   end
 

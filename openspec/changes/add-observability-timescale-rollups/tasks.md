@@ -1,7 +1,7 @@
 # Tasks
 
 ## 1. Schema / Migrations (CNPG)
-- [ ] Confirm the next migration number under `pkg/db/cnpg/migrations/` (this checkout currently has only `00000000000001_schema.up.sql`).
+- [ ] Confirm the next migration number under `pkg/db/cnpg/migrations/` (currently only `00000000000001_schema.up.sql` exists, so the next is expected to be `00000000000002`).
 - [ ] Add an idempotent CNPG migration `pkg/db/cnpg/migrations/<NN>_observability_rollups.up.sql` that:
   - [ ] Creates a 5-minute CAGG for `otel_metrics` KPIs (total/errors/slow/avg/p95).
   - [ ] Creates a 5-minute CAGG for trace-like KPIs based on `otel_traces` root spans (total/errors/avg/p95).
@@ -26,4 +26,3 @@
 ## 4. Follow-ups (Not part of this change)
 - [ ] Update `web-ng` Observability + Analytics KPI cards to query rollups when available, with a safe fallback to raw hypertables.
 - [ ] If needed, evaluate `timescaledb_toolkit` for cheaper p95 percentiles at scale.
-

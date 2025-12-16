@@ -691,6 +691,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr :metrics, :list, default: []
 
   defp metrics_table(assigns) do
+    values =
+      assigns.metrics
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(&metric_value_ms/1)
+      |> Enum.filter(&is_number/1)
+
+    {min_v, max_v} =
+      case values do
+        [] -> {0.0, 0.0}
+        _ -> {Enum.min(values), Enum.max(values)}
+      end
+
+    assigns =
+      assigns
+      |> assign(:min_v, min_v)
+      |> assign(:max_v, max_v)
+
     ~H"""
     <div class="overflow-x-auto">
       <table id={@id} class="table table-sm table-zebra w-full">
@@ -709,23 +726,28 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               Operation
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
+              Value
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-32">
+              Viz
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
               Slow
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20 text-right">
+              Logs
             </th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@metrics == []}>
-            <td colspan="5" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="8" class="text-sm text-base-content/60 py-8 text-center">
               No metrics found.
             </td>
           </tr>
 
           <%= for {metric, idx} <- Enum.with_index(@metrics) do %>
-            <tr
-              id={"#{@id}-row-#{idx}"}
-              class="hover:bg-base-200/40 cursor-pointer transition-colors"
-              phx-click={JS.navigate(correlate_metric_href(metric))}
-            >
+            <tr id={"#{@id}-row-#{idx}"} class="hover:bg-base-200/40 transition-colors">
               <td class="whitespace-nowrap text-xs font-mono">{format_timestamp(metric)}</td>
               <td
                 class="whitespace-nowrap text-xs truncate max-w-[14rem]"
@@ -737,14 +759,53 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 class="whitespace-nowrap text-xs truncate max-w-[10rem]"
                 title={Map.get(metric, "metric_type")}
               >
-                {Map.get(metric, "metric_type") || "—"}
+                <span class="inline-flex items-center gap-2">
+                  <span class={metric_type_badge_class(metric)}>
+                    {Map.get(metric, "metric_type") || "—"}
+                  </span>
+                </span>
               </td>
               <td class="text-xs truncate max-w-[28rem]" title={metric_operation(metric)}>
-                {metric_operation(metric)}
+                <.link
+                  :if={is_binary(Map.get(metric, "span_id")) and Map.get(metric, "span_id") != ""}
+                  navigate={~p"/observability/metrics/#{Map.get(metric, "span_id")}"}
+                  class="link link-hover"
+                >
+                  {metric_operation(metric)}
+                </.link>
+                <span :if={
+                  not (is_binary(Map.get(metric, "span_id")) and Map.get(metric, "span_id") != "")
+                }>
+                  {metric_operation(metric)}
+                </span>
+              </td>
+              <td class="whitespace-nowrap text-xs font-mono text-right">
+                {format_metric_value(metric)}
+              </td>
+              <td class="whitespace-nowrap text-xs">
+                <.metric_bar value={metric_value_ms(metric)} min_v={@min_v} max_v={@max_v} />
               </td>
               <td class="whitespace-nowrap text-xs font-mono text-right">
                 <span class={slow_badge_class(Map.get(metric, "is_slow"))}>
                   {if Map.get(metric, "is_slow") == true, do: "YES", else: "—"}
+                </span>
+              </td>
+              <td class="whitespace-nowrap text-xs text-right">
+                <.link
+                  :if={is_binary(Map.get(metric, "trace_id")) and Map.get(metric, "trace_id") != ""}
+                  navigate={correlate_metric_href(metric)}
+                  class="btn btn-ghost btn-xs"
+                  title="View correlated logs"
+                >
+                  <.icon name="hero-arrow-top-right-on-square" class="size-4" />
+                </.link>
+                <span
+                  :if={
+                    not (is_binary(Map.get(metric, "trace_id")) and Map.get(metric, "trace_id") != "")
+                  }
+                  class="text-base-content/40"
+                >
+                  —
                 </span>
               </td>
             </tr>
@@ -754,6 +815,76 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     </div>
     """
   end
+
+  attr :value, :any, default: nil
+  attr :min_v, :float, default: 0.0
+  attr :max_v, :float, default: 0.0
+
+  defp metric_bar(assigns) do
+    v = assigns.value
+    min_v = assigns.min_v
+    max_v = assigns.max_v
+
+    pct =
+      cond do
+        not is_number(v) -> 0
+        max_v <= min_v -> 100
+        true -> round((v - min_v) / (max_v - min_v) * 100)
+      end
+
+    pct = pct |> max(0) |> min(100)
+
+    assigns = assign(assigns, :pct, pct)
+
+    ~H"""
+    <div class="h-2 w-full bg-base-200/60 rounded-full overflow-hidden">
+      <div class="h-full bg-info/60 rounded-full" style={"width: #{@pct}%"} />
+    </div>
+    """
+  end
+
+  defp metric_type_badge_class(metric) do
+    case metric |> Map.get("metric_type") |> normalize_severity() do
+      "histogram" -> "badge badge-sm badge-info"
+      "gauge" -> "badge badge-sm badge-success"
+      "counter" -> "badge badge-sm badge-primary"
+      _ -> "badge badge-sm badge-ghost"
+    end
+  end
+
+  defp format_metric_value(metric) do
+    value = metric_value_ms(metric)
+
+    if is_number(value) do
+      "#{Float.round(value * 1.0, 1)}ms"
+    else
+      "—"
+    end
+  end
+
+  defp metric_value_ms(metric) when is_map(metric) do
+    cond do
+      is_number(metric["duration_ms"]) ->
+        metric["duration_ms"] * 1.0
+
+      is_binary(metric["duration_ms"]) ->
+        extract_number(metric["duration_ms"])
+
+      is_number(metric["duration_seconds"]) ->
+        metric["duration_seconds"] * 1000.0
+
+      is_binary(metric["duration_seconds"]) ->
+        case extract_number(metric["duration_seconds"]) do
+          n when is_number(n) -> n * 1000.0
+          _ -> nil
+        end
+
+      true ->
+        nil
+    end
+  end
+
+  defp metric_value_ms(_), do: nil
 
   attr :value, :any, default: nil
 
@@ -802,29 +933,36 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp load_summary(srql_module, current_query) do
     base_query = base_query_for_summary(current_query)
 
-    queries = %{
-      total: ~s|#{base_query} stats:"count() as total"|,
-      fatal: ~s|#{base_query} severity_text:(fatal,FATAL) stats:"count() as fatal"|,
-      error: ~s|#{base_query} severity_text:(error,ERROR) stats:"count() as error"|,
-      warning:
-        ~s|#{base_query} severity_text:(warning,warn,WARNING,WARN) stats:"count() as warning"|,
-      info: ~s|#{base_query} severity_text:(info,INFO) stats:"count() as info"|,
-      debug: ~s|#{base_query} severity_text:(debug,trace,DEBUG,TRACE) stats:"count() as debug"|
-    }
+    stats_expr =
+      ~s|count() as total, | <>
+        ~s|sum(if(severity_text = 'fatal' OR severity_text = 'FATAL', 1, 0)) as fatal, | <>
+        ~s|sum(if(severity_text = 'error' OR severity_text = 'ERROR', 1, 0)) as error, | <>
+        ~s|sum(if(severity_text = 'warning' OR severity_text = 'warn' OR severity_text = 'WARNING' OR severity_text = 'WARN', 1, 0)) as warning, | <>
+        ~s|sum(if(severity_text = 'info' OR severity_text = 'INFO', 1, 0)) as info, | <>
+        ~s|sum(if(severity_text = 'debug' OR severity_text = 'trace' OR severity_text = 'DEBUG' OR severity_text = 'TRACE', 1, 0)) as debug|
 
-    results =
-      Enum.reduce(queries, %{}, fn {key, query}, acc ->
-        Map.put(acc, key, srql_module.query(query))
-      end)
+    query = ~s|#{base_query} stats:"#{stats_expr}"|
 
-    %{
-      total: extract_stat(results[:total], "total"),
-      fatal: extract_stat(results[:fatal], "fatal"),
-      error: extract_stat(results[:error], "error"),
-      warning: extract_stat(results[:warning], "warning"),
-      info: extract_stat(results[:info], "info"),
-      debug: extract_stat(results[:debug], "debug")
-    }
+    case srql_module.query(query) do
+      {:ok, %{"results" => [%{} = raw | _]}} ->
+        row =
+          case Map.get(raw, "payload") do
+            %{} = payload -> payload
+            _ -> raw
+          end
+
+        %{
+          total: row |> Map.get("total") |> to_int(),
+          fatal: row |> Map.get("fatal") |> to_int(),
+          error: row |> Map.get("error") |> to_int(),
+          warning: row |> Map.get("warning") |> to_int(),
+          info: row |> Map.get("info") |> to_int(),
+          debug: row |> Map.get("debug") |> to_int()
+        }
+
+      _ ->
+        %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
+    end
   end
 
   defp base_query_for_summary(nil), do: "in:logs time:#{@default_stats_window}"
@@ -863,21 +1001,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       "#{query} time:#{@default_stats_window}"
     end
   end
-
-  defp extract_stat({:ok, %{"results" => [%{} = row | _]}}, key) when is_binary(key) do
-    row =
-      case Map.get(row, "payload") do
-        %{} = payload -> payload
-        _ -> row
-      end
-
-    row
-    |> Map.get(key)
-    |> to_int()
-  end
-
-  defp extract_stat({:ok, %{"results" => [value | _]}}, _key), do: to_int(value)
-  defp extract_stat(_result, _key), do: 0
 
   defp to_int(value) when is_integer(value), do: value
   defp to_int(value) when is_float(value), do: trunc(value)
@@ -972,31 +1095,31 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp load_metrics_counts(srql_module) do
-    total_query = ~s|in:otel_metrics time:last_24h stats:"count() as total"|
-    slow_query = ~s|in:otel_metrics time:last_24h is_slow:true stats:"count() as total"|
+    stats_expr =
+      ~s|count() as total, | <>
+        ~s|sum(if(is_slow = true, 1, 0)) as slow_spans, | <>
+        ~s|sum(if((coalesce(lower(level), '') = 'error') OR ((http_status_code IS NOT NULL AND http_status_code != '') AND (http_status_code LIKE '4%' OR http_status_code LIKE '5%')) OR ((grpc_status_code IS NOT NULL AND grpc_status_code != '') AND grpc_status_code != '0'), 1, 0)) as error_spans|
 
-    error_query =
-      ~s|in:otel_metrics time:last_24h http_status_code:(400,404,500,503) stats:"count() as total"|
+    query = ~s|in:otel_metrics time:last_24h stats:"#{stats_expr}"|
 
-    total = extract_stats_count(srql_module.query(total_query), "total")
-    slow_spans = extract_stats_count(srql_module.query(slow_query), "total")
-    error_spans = extract_stats_count(srql_module.query(error_query), "total")
+    case srql_module.query(query) do
+      {:ok, %{"results" => [%{} = raw | _]}} ->
+        row =
+          case Map.get(raw, "payload") do
+            %{} = payload -> payload
+            _ -> raw
+          end
 
-    %{total: total, slow_spans: slow_spans, error_spans: error_spans}
+        %{
+          total: row |> Map.get("total") |> to_int(),
+          slow_spans: row |> Map.get("slow_spans") |> to_int(),
+          error_spans: row |> Map.get("error_spans") |> to_int()
+        }
+
+      _ ->
+        %{total: 0, slow_spans: 0, error_spans: 0}
+    end
   end
-
-  defp extract_stats_count({:ok, %{"results" => [%{} = raw | _]}}, key) when is_binary(key) do
-    row =
-      case Map.get(raw, "payload") do
-        %{} = payload -> payload
-        _ -> raw
-      end
-
-    row |> Map.get(key) |> to_int()
-  end
-
-  defp extract_stats_count({:ok, %{"results" => [value | _]}}, _key), do: to_int(value)
-  defp extract_stats_count(_result, _key), do: 0
 
   defp compute_error_rate(total, errors) when is_integer(total) and total > 0 do
     Float.round(errors / total * 100.0, 1)

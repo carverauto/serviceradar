@@ -219,18 +219,117 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <% end %>
 
           <%= for panel <- @panels do %>
-            <.live_component
-              module={panel.plugin}
-              id={"device-#{panel.id}"}
-              title={panel.title}
-              panel_assigns={panel.assigns}
-            />
+            <%= if panel.plugin == TablePlugin and length(@results) == 1 and is_map(@device_row) do %>
+              <.single_row_panel row={@device_row} title="Raw Fields" />
+            <% else %>
+              <.live_component
+                module={panel.plugin}
+                id={"device-#{panel.id}"}
+                title={panel.title}
+                panel_assigns={panel.assigns}
+              />
+            <% end %>
           <% end %>
         </div>
       </div>
     </Layouts.app>
     """
   end
+
+  attr :row, :map, required: true
+  attr :title, :string, default: "Details"
+
+  defp single_row_panel(assigns) do
+    row = assigns.row || %{}
+
+    keys =
+      row
+      |> Map.keys()
+      |> Enum.map(&to_string/1)
+      |> Enum.uniq()
+
+    preferred = [
+      "device_id",
+      "hostname",
+      "ip",
+      "poller_id",
+      "agent_id",
+      "device_type",
+      "service_type",
+      "service_status",
+      "is_available",
+      "last_seen",
+      "last_heartbeat",
+      "os_info",
+      "version_info",
+      "metadata"
+    ]
+
+    {preferred_keys, other_keys} =
+      Enum.split_with(keys, fn k -> k in preferred end)
+
+    ordered_keys =
+      preferred
+      |> Enum.filter(&(&1 in preferred_keys))
+      |> Kernel.++(Enum.sort(other_keys))
+
+    assigns =
+      assigns
+      |> assign(:ordered_keys, ordered_keys)
+      |> assign(:row, row)
+
+    ~H"""
+    <.ui_panel>
+      <:header>
+        <div class="min-w-0">
+          <div class="text-sm font-semibold">{@title}</div>
+          <div class="text-xs text-base-content/60">
+            Single-row result; rendered as cards to avoid horizontal scrolling.
+          </div>
+        </div>
+      </:header>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <%= for key <- @ordered_keys do %>
+          <.kv_card label={key} value={Map.get(@row, key)} />
+        <% end %>
+      </div>
+    </.ui_panel>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+
+  defp kv_card(assigns) do
+    value = assigns.value
+    assigns = assign(assigns, :value, value)
+
+    ~H"""
+    <div class="rounded-lg border border-base-200 bg-base-100 p-3">
+      <div class="text-[11px] uppercase tracking-wider text-base-content/50 mb-1">{@label}</div>
+      <div class="text-sm break-words">
+        {render_kv_value(@value)}
+      </div>
+    </div>
+    """
+  end
+
+  defp render_kv_value(nil), do: "—"
+  defp render_kv_value(""), do: "—"
+
+  defp render_kv_value(value) when is_binary(value) do
+    String.slice(value, 0, 600)
+  end
+
+  defp render_kv_value(value) when is_number(value), do: to_string(value)
+  defp render_kv_value(value) when is_boolean(value), do: if(value, do: "true", else: "false")
+
+  defp render_kv_value(value) when is_list(value) or is_map(value) do
+    inspect(value, pretty: true, limit: 30, printable_limit: 2000)
+  end
+
+  defp render_kv_value(value), do: inspect(value)
 
   attr :label, :string, required: true
   attr :value, :any, default: nil

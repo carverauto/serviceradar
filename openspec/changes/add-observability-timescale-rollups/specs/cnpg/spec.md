@@ -1,33 +1,20 @@
+# cnpg Specification (Delta): Observability rollups
+
 ## ADDED Requirements
 
-### Requirement: Observability KPI rollups are available via Timescale continuous aggregates
-The CNPG schema MUST provide TimescaleDB continuous aggregates that summarize Observability telemetry (`logs`, `otel_metrics`, `otel_traces`) into time-bucketed KPI rollups suitable for fast dashboard queries.
+### Requirement: Timescale continuous aggregates for observability KPIs
+The system SHALL create TimescaleDB continuous aggregates (5-minute buckets) that summarize observability KPIs from `logs`, `otel_metrics`, and `otel_traces` so dashboards can query rollups instead of raw hypertables.
 
-#### Scenario: Metrics KPI rollup exists and is queryable
-- **GIVEN** a CNPG cluster initialized by ServiceRadar migrations
-- **WHEN** an operator queries the materialized view for `otel_metrics` rollups
-- **THEN** it returns time-bucketed totals including at least total count, error count, slow count, and duration aggregates.
+#### Scenario: Rollup objects exist after migration
+- **GIVEN** a CNPG cluster where `pkg/db/cnpg/migrations/<NN>_observability_rollups.up.sql` has been applied
+- **WHEN** an operator queries `timescaledb_information.continuous_aggregates` (or `pg_matviews`)
+- **THEN** continuous aggregates exist for `logs` severity counts, `otel_metrics` KPIs, and trace-like KPIs derived from `otel_traces` root spans.
 
-#### Scenario: Trace KPI rollup exists and is queryable
-- **GIVEN** a CNPG cluster initialized by ServiceRadar migrations
-- **WHEN** an operator queries the materialized view for `otel_traces` rollups
-- **THEN** it returns time-bucketed totals including at least total “trace-like” count and error count.
+### Requirement: Rollups include refresh policies and recovery guidance
+The system SHALL attach refresh policies for each observability rollup and document verification and recovery steps for operators.
 
-#### Scenario: Logs severity rollup exists and is queryable
-- **GIVEN** a CNPG cluster initialized by ServiceRadar migrations
-- **WHEN** an operator queries the materialized view for `logs` severity rollups
-- **THEN** it returns time-bucketed counts for common severities (error, warn, info, debug).
-
-### Requirement: Observability rollups refresh automatically and failures are observable
-Continuous aggregate refresh policies for Observability rollups MUST be installed and operators MUST be able to detect refresh failures via TimescaleDB system views.
-
-#### Scenario: Refresh policies are installed
-- **GIVEN** the Observability rollups have been created
-- **WHEN** an operator queries `timescaledb_information.jobs` for `policy_refresh_continuous_aggregate`
-- **THEN** refresh jobs exist for each Observability rollup continuous aggregate.
-
-#### Scenario: Refresh failures appear in job_errors
-- **GIVEN** a refresh policy encounters an error
-- **WHEN** an operator queries `timescaledb_information.job_errors` ordered by `finish_time`
-- **THEN** the job ID and error message are visible for triage.
+#### Scenario: Refresh jobs exist and report healthy state
+- **GIVEN** the observability rollups are installed
+- **WHEN** an operator queries `timescaledb_information.jobs` and `timescaledb_information.job_errors`
+- **THEN** each rollup has a refresh job configured and no recent refresh failures are reported.
 
