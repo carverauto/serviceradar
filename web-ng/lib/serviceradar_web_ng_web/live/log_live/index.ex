@@ -1139,14 +1139,63 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  # Histograms are distributions - show count of samples, not a single value
+  # Histograms are distributions - show duration if available, otherwise sample count
   defp format_histogram_value(metric) do
+    # For gRPC/HTTP histograms, duration_ms is the most meaningful value
+    duration_ms = extract_duration_value(metric)
+    unit = normalize_string(Map.get(metric, "unit"))
+
+    cond do
+      # If we have a duration value, show it
+      is_number(duration_ms) and duration_ms > 0 ->
+        format_duration_ms(duration_ms)
+
+      # If we have an explicit unit with a value, use that
+      unit != nil ->
+        value = extract_primary_value(metric)
+        if is_number(value) and value > 0 do
+          format_with_explicit_unit(metric, unit)
+        else
+          format_histogram_count_or_dash(metric)
+        end
+
+      # Fallback to sample count
+      true ->
+        format_histogram_count_or_dash(metric)
+    end
+  end
+
+  defp format_histogram_count_or_dash(metric) do
     count = extract_histogram_count(metric)
 
     if count > 0 do
       "#{format_number(count)} samples"
     else
       "—"
+    end
+  end
+
+  defp extract_duration_value(metric) do
+    cond do
+      is_number(metric["duration_ms"]) -> metric["duration_ms"]
+      is_binary(metric["duration_ms"]) -> extract_number(metric["duration_ms"])
+      is_number(metric["duration_seconds"]) -> metric["duration_seconds"] * 1000
+      is_binary(metric["duration_seconds"]) ->
+        case extract_number(metric["duration_seconds"]) do
+          nil -> nil
+          val -> val * 1000
+        end
+      true -> nil
+    end
+  end
+
+  defp format_duration_ms(ms) when is_number(ms) do
+    cond do
+      ms >= 60_000 -> "#{Float.round(ms / 60_000, 1)}m"
+      ms >= 1000 -> "#{Float.round(ms / 1000, 2)}s"
+      ms >= 1 -> "#{Float.round(ms * 1.0, 1)}ms"
+      ms > 0 -> "#{Float.round(ms * 1000, 0)}µs"
+      true -> "0ms"
     end
   end
 
@@ -1755,16 +1804,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp format_compact_int(n) when is_integer(n), do: Integer.to_string(n)
   defp format_compact_int(_), do: "0"
-
-  defp format_duration_ms(value) do
-    ms = extract_number(value)
-
-    cond do
-      not is_number(ms) -> "—"
-      ms >= 1000 -> "#{Float.round(ms / 1000.0, 2)}s"
-      true -> "#{Float.round(ms * 1.0, 1)}ms"
-    end
-  end
 
   defp error_count_class(count) when is_integer(count) and count > 0, do: "text-error font-bold"
   defp error_count_class(_), do: "text-base-content/60"
