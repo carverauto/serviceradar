@@ -17,13 +17,13 @@
 package mcp
 
 import (
-    "context"
-    "testing"
+	"context"
+	"testing"
 
-    "github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/assert"
 
-    "github.com/carverauto/serviceradar/pkg/core/auth"
-    "github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/core/auth"
+	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
 // mockQueryExecutor implements local QueryExecutor for testing

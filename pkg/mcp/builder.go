@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -166,7 +167,14 @@ func (g *GenericFilterBuilder) BuildFilters(args json.RawMessage, binds *srqlBin
 	}
 
 	// Process field mappings
-	for jsonField, sqlField := range g.FieldMappings {
+	jsonFields := make([]string, 0, len(g.FieldMappings))
+	for jsonField := range g.FieldMappings {
+		jsonFields = append(jsonFields, jsonField)
+	}
+	sort.Strings(jsonFields)
+
+	for _, jsonField := range jsonFields {
+		sqlField := g.FieldMappings[jsonField]
 		if value, exists := rawArgs[jsonField]; exists && value != nil {
 			if strValue, ok := value.(string); ok && strValue != "" {
 				additionalFilters = append(additionalFilters, fmt.Sprintf("%s = %s", sqlField, binds.Bind(strValue)))
