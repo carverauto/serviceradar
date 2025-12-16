@@ -1014,6 +1014,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp to_int(_), do: 0
 
+  defp extract_stats_count({:ok, %{"results" => [%{} = raw | _]}}, key) when is_binary(key) do
+    row =
+      case Map.get(raw, "payload") do
+        %{} = payload -> payload
+        _ -> raw
+      end
+
+    row |> Map.get(key) |> to_int()
+  end
+
+  defp extract_stats_count({:ok, %{"results" => [value | _]}}, _key), do: to_int(value)
+  defp extract_stats_count(_result, _key), do: 0
+
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
@@ -1095,30 +1108,37 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp load_metrics_counts(srql_module) do
-    stats_expr =
-      ~s|count() as total, | <>
-        ~s|sum(if(is_slow = true, 1, 0)) as slow_spans, | <>
-        ~s|sum(if((coalesce(lower(level), '') = 'error') OR ((http_status_code IS NOT NULL AND http_status_code != '') AND (http_status_code LIKE '4%' OR http_status_code LIKE '5%')) OR ((grpc_status_code IS NOT NULL AND grpc_status_code != '') AND grpc_status_code != '0'), 1, 0)) as error_spans|
+    total_query = ~s|in:otel_metrics time:last_24h stats:"count() as total"|
+    slow_query = ~s|in:otel_metrics time:last_24h is_slow:true stats:"count() as total"|
 
-    query = ~s|in:otel_metrics time:last_24h stats:"#{stats_expr}"|
+    error_level_query =
+      ~s|in:otel_metrics time:last_24h level:(error,ERROR) stats:"count() as total"|
 
-    case srql_module.query(query) do
-      {:ok, %{"results" => [%{} = raw | _]}} ->
-        row =
-          case Map.get(raw, "payload") do
-            %{} = payload -> payload
-            _ -> raw
-          end
+    error_http4_query =
+      ~s|in:otel_metrics time:last_24h http_status_code:4% stats:"count() as total"|
 
-        %{
-          total: row |> Map.get("total") |> to_int(),
-          slow_spans: row |> Map.get("slow_spans") |> to_int(),
-          error_spans: row |> Map.get("error_spans") |> to_int()
-        }
+    error_http5_query =
+      ~s|in:otel_metrics time:last_24h http_status_code:5% stats:"count() as total"|
 
-      _ ->
-        %{total: 0, slow_spans: 0, error_spans: 0}
-    end
+    error_grpc_query =
+      ~s|in:otel_metrics time:last_24h !grpc_status_code:0 !grpc_status_code:"" stats:"count() as total"|
+
+    total = extract_stats_count(srql_module.query(total_query), "total")
+    slow_spans = extract_stats_count(srql_module.query(slow_query), "total")
+
+    error_level = extract_stats_count(srql_module.query(error_level_query), "total")
+
+    error_spans =
+      if error_level > 0 do
+        error_level
+      else
+        error_http4 = extract_stats_count(srql_module.query(error_http4_query), "total")
+        error_http5 = extract_stats_count(srql_module.query(error_http5_query), "total")
+        error_grpc = extract_stats_count(srql_module.query(error_grpc_query), "total")
+        error_http4 + error_http5 + error_grpc
+      end
+
+    %{total: total, slow_spans: slow_spans, error_spans: error_spans}
   end
 
   defp compute_error_rate(total, errors) when is_integer(total) and total > 0 do

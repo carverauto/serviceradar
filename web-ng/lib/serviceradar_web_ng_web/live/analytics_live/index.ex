@@ -55,11 +55,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp load_analytics(socket) do
     srql_module = srql_module()
 
-    metrics_stats_expr =
-      ~s|count() as total, | <>
-        ~s|sum(if(is_slow = true, 1, 0)) as slow_spans, | <>
-        ~s|sum(if((coalesce(lower(level), '') = 'error') OR ((http_status_code IS NOT NULL AND http_status_code != '') AND (http_status_code LIKE '4%' OR http_status_code LIKE '5%')) OR ((grpc_status_code IS NOT NULL AND grpc_status_code != '') AND grpc_status_code != '0'), 1, 0)) as error_spans|
-
     queries = %{
       devices_total: ~s|in:devices stats:"count() as total"|,
       devices_online: ~s|in:devices is_available:true stats:"count() as online"|,
@@ -77,7 +72,16 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       logs_debug:
         ~s|in:logs time:last_24h severity_text:(debug,trace,DEBUG,TRACE) stats:"count() as debug"|,
       # Observability summary (match legacy UI: last_24h window, trace summaries not raw spans)
-      metrics_stats: ~s|in:otel_metrics time:last_24h stats:"#{metrics_stats_expr}"|,
+      metrics_total: ~s|in:otel_metrics time:last_24h stats:"count() as total"|,
+      metrics_slow: ~s|in:otel_metrics time:last_24h is_slow:true stats:"count() as total"|,
+      metrics_error_level:
+        ~s|in:otel_metrics time:last_24h level:(error,ERROR) stats:"count() as total"|,
+      metrics_error_http4:
+        ~s|in:otel_metrics time:last_24h http_status_code:4% stats:"count() as total"|,
+      metrics_error_http5:
+        ~s|in:otel_metrics time:last_24h http_status_code:5% stats:"count() as total"|,
+      metrics_error_grpc:
+        ~s|in:otel_metrics time:last_24h !grpc_status_code:0 !grpc_status_code:"" stats:"count() as total"|,
       trace_stats:
         "in:otel_trace_summaries time:last_24h " <>
           ~s|stats:"count() as total, sum(if(status_code != 1, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"|,
@@ -171,10 +175,30 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     logs_summary = build_logs_summary(logs_rows, logs_counts)
 
     # Build observability summary with real counts from stats queries
-    metrics_stats = extract_map(results[:metrics_stats])
+    metrics_total = extract_count(results[:metrics_total])
+    metrics_slow = extract_count(results[:metrics_slow])
+    metrics_error_level = extract_count(results[:metrics_error_level])
+    metrics_error_http4 = extract_count(results[:metrics_error_http4])
+    metrics_error_http5 = extract_count(results[:metrics_error_http5])
+    metrics_error_grpc = extract_count(results[:metrics_error_grpc])
     trace_stats = extract_map(results[:trace_stats])
     slow_spans_rows = extract_rows(results[:slow_spans])
-    observability = build_observability_summary(metrics_stats, trace_stats, slow_spans_rows)
+
+    metrics_error =
+      if metrics_error_level > 0 do
+        metrics_error_level
+      else
+        metrics_error_http4 + metrics_error_http5 + metrics_error_grpc
+      end
+
+    observability =
+      build_observability_summary(
+        metrics_total,
+        metrics_error,
+        metrics_slow,
+        trace_stats,
+        slow_spans_rows
+      )
 
     # Build high utilization summary from CPU, Memory, and Disk metrics
     cpu_metrics_rows = extract_rows(results[:cpu_metrics])
@@ -334,38 +358,27 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp build_logs_summary(_rows, _counts),
     do: %{fatal: 0, error: 0, warning: 0, info: 0, debug: 0, total: 0, recent: []}
 
-  defp build_observability_summary(metrics_stats, trace_stats, slow_spans)
-       when is_map(metrics_stats) and is_map(trace_stats) and is_list(slow_spans) do
-    metrics_stats =
-      case Map.get(metrics_stats, "payload") do
-        %{} = payload -> payload
-        _ -> metrics_stats
-      end
-
+  defp build_observability_summary(
+         metrics_total,
+         metrics_error,
+         metrics_slow,
+         trace_stats,
+         slow_spans
+       )
+       when is_integer(metrics_total) and is_integer(metrics_error) and is_integer(metrics_slow) and
+              is_map(trace_stats) and is_list(slow_spans) do
     trace_stats =
       case Map.get(trace_stats, "payload") do
         %{} = payload -> payload
         _ -> trace_stats
       end
 
-    metrics_count =
-      extract_numeric(Map.get(metrics_stats, "total") || Map.get(metrics_stats, "count"))
-      |> to_int()
-
-    metrics_error_spans =
-      extract_numeric(Map.get(metrics_stats, "error_spans") || Map.get(metrics_stats, "errors"))
-      |> to_int()
-
-    metrics_slow_spans =
-      extract_numeric(Map.get(metrics_stats, "slow_spans") || Map.get(metrics_stats, "slow"))
-      |> to_int()
-
     traces_count =
       extract_numeric(Map.get(trace_stats, "total") || Map.get(trace_stats, "count")) |> to_int()
 
     error_rate =
-      if metrics_count > 0 do
-        Float.round(metrics_error_spans / metrics_count * 100.0, 1)
+      if metrics_total > 0 do
+        Float.round(metrics_error / metrics_total * 100.0, 1)
       else
         0.0
       end
@@ -379,16 +392,16 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       |> Enum.take(5)
 
     %{
-      metrics_count: metrics_count,
+      metrics_count: metrics_total,
       traces_count: traces_count,
       avg_duration: avg_duration,
       error_rate: error_rate,
-      slow_spans_count: metrics_slow_spans,
+      slow_spans_count: metrics_slow,
       slow_spans: slow_spans
     }
   end
 
-  defp build_observability_summary(_, _, _),
+  defp build_observability_summary(_, _, _, _, _),
     do: %{
       metrics_count: 0,
       traces_count: 0,
