@@ -477,7 +477,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         subtitle={if @sample_size > 0, do: "sample (#{@sample_size})", else: "sample"}
         icon="hero-chart-bar"
         tone="info"
-        href={~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h sort:duration_ms:desc limit:100"}}"}
       />
       <.obs_stat
         title="P95 Duration"
@@ -485,7 +484,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         subtitle={if @services_count > 0, do: "#{@services_count} services", else: "sample"}
         icon="hero-bolt"
         tone="warning"
-        href={~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h sort:duration_ms:desc limit:100"}}"}
       />
     </div>
     """
