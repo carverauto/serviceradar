@@ -2,6 +2,7 @@ package db
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,27 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
+
+func TestUpsertPollerStatusSQL_PreservesRegistrationMetadata(t *testing.T) {
+	normalized := strings.Join(strings.Fields(upsertPollerStatusSQL), " ")
+
+	assert.Contains(t, normalized, "ON CONFLICT (poller_id) DO UPDATE SET")
+
+	assert.Contains(t, normalized, "last_seen = EXCLUDED.last_seen")
+	assert.Contains(t, normalized, "is_healthy = EXCLUDED.is_healthy")
+	assert.Contains(t, normalized, "updated_at = EXCLUDED.updated_at")
+
+	assert.NotContains(t, normalized, "component_id = EXCLUDED.component_id")
+	assert.NotContains(t, normalized, "registration_source = EXCLUDED.registration_source")
+	assert.NotContains(t, normalized, "status = EXCLUDED.status")
+	assert.NotContains(t, normalized, "spiffe_identity = EXCLUDED.spiffe_identity")
+	assert.NotContains(t, normalized, "first_seen =")
+	assert.NotContains(t, normalized, "metadata = EXCLUDED.metadata")
+	assert.NotContains(t, normalized, "created_by = EXCLUDED.created_by")
+	assert.NotContains(t, normalized, "agent_count = EXCLUDED.agent_count")
+	assert.NotContains(t, normalized, "checker_count = EXCLUDED.checker_count")
+	assert.NotContains(t, normalized, "first_registered = EXCLUDED.first_registered")
+}
 
 func TestBuildCNPGPollerStatusArgs(t *testing.T) {
 	now := time.Date(2025, time.June, 10, 12, 0, 0, 0, time.UTC)

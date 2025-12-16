@@ -47,18 +47,8 @@ INSERT INTO pollers (
 	$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
 )
 ON CONFLICT (poller_id) DO UPDATE SET
-	component_id = EXCLUDED.component_id,
-	registration_source = EXCLUDED.registration_source,
-	status = EXCLUDED.status,
-	spiffe_identity = EXCLUDED.spiffe_identity,
-	first_registered = EXCLUDED.first_registered,
-	first_seen = EXCLUDED.first_seen,
 	last_seen = EXCLUDED.last_seen,
-	metadata = EXCLUDED.metadata,
-	created_by = EXCLUDED.created_by,
 	is_healthy = EXCLUDED.is_healthy,
-	agent_count = EXCLUDED.agent_count,
-	checker_count = EXCLUDED.checker_count,
 	updated_at = EXCLUDED.updated_at`
 
 	insertPollerHistorySQL = `
