@@ -57,14 +57,27 @@ RUN mix assets.deploy
 FROM hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     ca-certificates \
+    curl \
+    git \
   && rm -rf /var/lib/apt/lists/*
+
+# Install Rust for NIF compilation at runtime
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Install hex and rebar for mix commands at runtime
+RUN mix local.hex --force && mix local.rebar --force
 
 WORKDIR /app/web-ng
 
 ENV MIX_ENV=prod
 
 COPY --from=build /app/web-ng /app/web-ng
+COPY --from=build /app/rust /app/rust
+COPY --from=build /root/.mix /root/.mix
+COPY --from=build /root/.cargo /root/.cargo
 
 EXPOSE 4000
 
