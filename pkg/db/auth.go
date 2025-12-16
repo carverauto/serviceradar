@@ -157,8 +157,7 @@ func (db *DB) StoreBatchUsers(ctx context.Context, users []*models.User) error {
 		)
 	}
 
-	br := db.pgPool.SendBatch(ctx, batch)
-	if err := br.Close(); err != nil {
+	if err := sendBatchExecAll(ctx, batch, db.conn().SendBatch, "users"); err != nil {
 		return fmt.Errorf("failed to store batch users: %w", err)
 	}
 

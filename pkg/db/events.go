@@ -80,8 +80,7 @@ func (db *DB) InsertEvents(ctx context.Context, rows []*models.EventRow) error {
 		)
 	}
 
-	br := db.pgPool.SendBatch(ctx, batch)
-	if err := br.Close(); err != nil {
+	if err := sendBatchExecAll(ctx, batch, db.conn().SendBatch, "events"); err != nil {
 		return fmt.Errorf("failed to insert events: %w", err)
 	}
 
