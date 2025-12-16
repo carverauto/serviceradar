@@ -89,14 +89,14 @@ func WithoutPreallocation() InMemoryStoreOption {
 // InMemoryStore implements Store interface for temporary storage.
 type InMemoryStore struct {
 	// Sharded to reduce lock contention under high write rates
-	shards      []*storeShard
-	shardCount  int
-	processor   ResultProcessor
-	maxResults  int
-	cleanupDone chan struct{}
-	lastCleanup time.Time
+	shards          []*storeShard
+	shardCount      int
+	processor       ResultProcessor
+	maxResults      int
+	cleanupDone     chan struct{}
+	lastCleanup     time.Time
 	cleanupInterval time.Duration
-	logger      logger.Logger
+	logger          logger.Logger
 }
 
 // storeShard holds a partition of results and its own lock.
@@ -134,13 +134,13 @@ func NewInMemoryStore(processor ResultProcessor, log logger.Logger, opts ...InMe
 	}
 
 	s := &InMemoryStore{
-		shards:      make([]*storeShard, shards),
-		shardCount:  shards,
-		processor:   processor,
-		maxResults:  cfg.maxResults,
-		cleanupDone: cleanupChan,
+		shards:          make([]*storeShard, shards),
+		shardCount:      shards,
+		processor:       processor,
+		maxResults:      cfg.maxResults,
+		cleanupDone:     cleanupChan,
 		cleanupInterval: cfg.cleanupInterval,
-		logger:      log,
+		logger:          log,
 	}
 
 	// Pre-allocate per-shard capacity to reduce growslice.
@@ -405,7 +405,7 @@ func (*InMemoryStore) updateHostTimestamps(host *models.HostResult, r *models.Re
 func (*InMemoryStore) convertToSlice(hostMap map[string]*models.HostResult) []models.HostResult {
 	hosts := make([]models.HostResult, 0, len(hostMap))
 	for _, host := range hostMap {
-		hosts = append(hosts, *host)
+		hosts = append(hosts, models.DeepCopyHostResult(host))
 	}
 
 	return hosts
@@ -508,7 +508,7 @@ func (*InMemoryStore) buildSummary(
 			availableHosts++
 		}
 
-		hosts = append(hosts, *host)
+		hosts = append(hosts, models.DeepCopyHostResult(host))
 	}
 
 	ports := make([]models.PortCount, 0, len(portCounts))
