@@ -15,7 +15,8 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
      |> assign(:metric, nil)
      |> assign(:recent, [])
      |> assign(:histogram, nil)
-     |> assign(:error, nil)}
+     |> assign(:error, nil)
+     |> assign(:recent_window, @recent_window)}
   end
 
   @impl true

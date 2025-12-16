@@ -270,40 +270,47 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   defp breadcrumb_nav(assigns) do
     crumbs = build_breadcrumbs(assigns.current_path)
-    assigns = assign(assigns, :crumbs, crumbs)
+    # Split into section crumbs (with href) and detail crumb (without href, typically the ID)
+    {section_crumbs, detail_crumb} =
+      case Enum.split_with(crumbs, & &1.href) do
+        {sections, [detail]} -> {sections, detail}
+        {sections, []} -> {sections, nil}
+        {sections, [detail | _]} -> {sections, detail}
+      end
+
+    assigns =
+      assigns
+      |> assign(:section_crumbs, section_crumbs)
+      |> assign(:detail_crumb, detail_crumb)
 
     ~H"""
-    <nav class="breadcrumbs text-xs sm:text-sm">
-      <ul class="min-w-0">
-        <li>
-          <.link
-            href={~p"/analytics"}
-            class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content"
-            title="Analytics"
-          >
-            <.icon name="hero-home-micro" class="size-3.5" />
-          </.link>
-        </li>
-        <li :for={crumb <- @crumbs}>
-          <.link
-            :if={crumb.href}
-            href={crumb.href}
-            class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content min-w-0"
-            title={crumb.label}
-          >
-            <.icon :if={crumb.icon} name={crumb.icon} class="size-3.5 shrink-0" />
-            <span class="truncate max-w-[18rem]">{crumb.label}</span>
-          </.link>
-          <span
-            :if={!crumb.href}
-            class="flex items-center gap-1.5 font-medium min-w-0"
-            title={crumb.label}
-          >
-            <.icon :if={crumb.icon} name={crumb.icon} class="size-3.5 shrink-0" />
-            <span class="truncate max-w-[18rem]">{crumb.label}</span>
-          </span>
-        </li>
-      </ul>
+    <nav class="text-xs sm:text-sm">
+      <div class="breadcrumbs">
+        <ul class="min-w-0">
+          <li>
+            <.link
+              href={~p"/analytics"}
+              class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content"
+              title="Analytics"
+            >
+              <.icon name="hero-home-micro" class="size-3.5" />
+            </.link>
+          </li>
+          <li :for={crumb <- @section_crumbs}>
+            <.link
+              href={crumb.href}
+              class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content min-w-0"
+              title={crumb.label}
+            >
+              <.icon :if={crumb.icon} name={crumb.icon} class="size-3.5 shrink-0" />
+              <span>{crumb.label}</span>
+            </.link>
+          </li>
+        </ul>
+      </div>
+      <div :if={@detail_crumb} class="font-medium text-sm truncate mt-0.5" title={@detail_crumb.label}>
+        {@detail_crumb.label}
+      </div>
     </nav>
     """
   end

@@ -853,21 +853,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp format_metric_value(metric) do
-    # Determine what kind of value this metric has and format appropriately
-    metric_name = Map.get(metric, "span_name") || ""
-    metric_type = Map.get(metric, "metric_type") || ""
+    # Get metric name from multiple possible fields
+    metric_name = get_metric_name(metric)
+    metric_type = normalize_string(Map.get(metric, "metric_type"))
 
+    # PRIORITY 1: Check metric name for unit hints (bytes, count, etc.)
+    # This takes precedence over field presence since OTEL often puts values in duration_ms
     cond do
-      # Duration metrics - check for duration fields first
-      is_duration_metric?(metric) ->
-        format_duration_value(metric)
-
-      # Byte metrics - check metric name for "bytes" suffix
       is_bytes_metric?(metric_name) ->
         format_bytes_value(metric)
 
-      # Counters and histograms often have raw values
-      has_raw_value?(metric) ->
+      is_count_metric?(metric_name) ->
+        format_count_value(metric)
+
+      # PRIORITY 2: For metrics without unit hints in name, check field types
+      # Only treat as duration if it looks like actual timing data (HTTP/gRPC spans)
+      is_timing_span?(metric) and has_duration_field?(metric) ->
+        format_duration_value(metric)
+
+      # PRIORITY 3: Raw value fallback
+      has_any_value?(metric) ->
         format_raw_value(metric, metric_type)
 
       true ->
@@ -875,22 +880,60 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp is_duration_metric?(metric) do
+  defp get_metric_name(metric) do
+    # Check multiple fields where the metric name might be stored
+    normalize_string(Map.get(metric, "span_name")) ||
+      normalize_string(Map.get(metric, "metric_name")) ||
+      normalize_string(Map.get(metric, "name")) ||
+      ""
+  end
+
+  defp normalize_string(nil), do: nil
+  defp normalize_string(""), do: nil
+  defp normalize_string(s) when is_binary(s), do: String.trim(s)
+  defp normalize_string(_), do: nil
+
+  defp is_bytes_metric?(nil), do: false
+  defp is_bytes_metric?(""), do: false
+
+  defp is_bytes_metric?(name) when is_binary(name) do
+    downcased = String.downcase(name)
+
+    String.contains?(downcased, "bytes") or
+      String.contains?(downcased, "memory") or
+      String.contains?(downcased, "heap") or
+      String.contains?(downcased, "alloc")
+  end
+
+  defp is_count_metric?(nil), do: false
+  defp is_count_metric?(""), do: false
+
+  defp is_count_metric?(name) when is_binary(name) do
+    downcased = String.downcase(name)
+
+    String.ends_with?(downcased, "_count") or
+      String.ends_with?(downcased, "_total") or
+      String.contains?(downcased, "goroutines") or
+      String.contains?(downcased, "threads")
+  end
+
+  defp is_timing_span?(metric) do
+    # Check if this looks like an actual timing span (HTTP request, gRPC call, etc.)
+    has_http = is_binary(metric["http_route"]) or is_binary(metric["http_method"])
+    has_grpc = is_binary(metric["grpc_service"]) or is_binary(metric["grpc_method"])
+    has_http or has_grpc
+  end
+
+  defp has_duration_field?(metric) do
     is_number(metric["duration_ms"]) or is_binary(metric["duration_ms"]) or
       is_number(metric["duration_seconds"]) or is_binary(metric["duration_seconds"])
   end
 
-  defp is_bytes_metric?(name) when is_binary(name) do
-    downcased = String.downcase(name)
-    String.ends_with?(downcased, "_bytes") or String.contains?(downcased, "bytes")
-  end
-
-  defp is_bytes_metric?(_), do: false
-
-  defp has_raw_value?(metric) do
+  defp has_any_value?(metric) do
     is_number(metric["value"]) or is_binary(metric["value"]) or
       is_number(metric["sum"]) or is_binary(metric["sum"]) or
-      is_number(metric["count"]) or is_binary(metric["count"])
+      is_number(metric["count"]) or is_binary(metric["count"]) or
+      is_number(metric["duration_ms"]) or is_binary(metric["duration_ms"])
   end
 
   defp format_duration_value(metric) do
@@ -922,12 +965,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp format_bytes_value(metric) do
+    # Extract value from any available field (OTEL often puts values in unexpected places)
     bytes =
       cond do
         is_number(metric["value"]) -> metric["value"]
         is_binary(metric["value"]) -> extract_number(metric["value"]) || 0
         is_number(metric["sum"]) -> metric["sum"]
         is_binary(metric["sum"]) -> extract_number(metric["sum"]) || 0
+        is_number(metric["duration_ms"]) -> metric["duration_ms"]
+        is_binary(metric["duration_ms"]) -> extract_number(metric["duration_ms"]) || 0
         true -> 0
       end
 
@@ -940,6 +986,28 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  defp format_count_value(metric) do
+    count =
+      cond do
+        is_number(metric["value"]) -> metric["value"]
+        is_binary(metric["value"]) -> extract_number(metric["value"]) || 0
+        is_number(metric["sum"]) -> metric["sum"]
+        is_binary(metric["sum"]) -> extract_number(metric["sum"]) || 0
+        is_number(metric["count"]) -> metric["count"]
+        is_binary(metric["count"]) -> extract_number(metric["count"]) || 0
+        is_number(metric["duration_ms"]) -> metric["duration_ms"]
+        is_binary(metric["duration_ms"]) -> extract_number(metric["duration_ms"]) || 0
+        true -> 0
+      end
+
+    cond do
+      count >= 1_000_000 -> "#{Float.round(count / 1_000_000 * 1.0, 1)}M"
+      count >= 1_000 -> "#{Float.round(count / 1_000 * 1.0, 1)}k"
+      is_float(count) -> "#{Float.round(count, 0) |> trunc()}"
+      true -> "#{trunc(count)}"
+    end
+  end
+
   defp format_raw_value(metric, _metric_type) do
     value =
       cond do
@@ -949,11 +1017,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         is_binary(metric["sum"]) -> extract_number(metric["sum"])
         is_number(metric["count"]) -> metric["count"]
         is_binary(metric["count"]) -> extract_number(metric["count"])
+        is_number(metric["duration_ms"]) -> metric["duration_ms"]
+        is_binary(metric["duration_ms"]) -> extract_number(metric["duration_ms"])
         true -> nil
       end
 
     if is_number(value) do
-      # Format based on magnitude
       cond do
         value >= 1_000_000 -> "#{Float.round(value / 1_000_000 * 1.0, 1)}M"
         value >= 1_000 -> "#{Float.round(value / 1_000 * 1.0, 1)}k"
@@ -1287,11 +1356,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp unique_services_from_traces(_), do: %{}
 
   defp compute_duration_stats(rows, field) when is_list(rows) and is_binary(field) do
+    # Only include metrics that are actual timing spans (HTTP/gRPC requests)
+    # Exclude gauge/counter metrics where duration_ms contains non-duration values
     durations =
       rows
       |> Enum.filter(&is_map/1)
+      |> Enum.filter(&is_timing_metric?/1)
       |> Enum.map(fn row -> extract_number(Map.get(row, field)) end)
       |> Enum.filter(&is_number/1)
+      # Filter out obviously wrong values (> 1 hour in ms is suspicious for a single request)
+      |> Enum.filter(fn ms -> ms >= 0 and ms < 3_600_000 end)
 
     sample_size = length(durations)
 
@@ -1316,6 +1390,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp compute_duration_stats(_rows, _field),
     do: %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
+
+  # Check if a metric row represents an actual timing measurement (HTTP/gRPC/trace span)
+  # rather than a gauge/counter that happens to have a duration_ms field
+  defp is_timing_metric?(row) when is_map(row) do
+    metric_name = Map.get(row, "span_name") || Map.get(row, "metric_name") || ""
+    downcased = String.downcase(metric_name)
+
+    # Exclude known non-timing metrics
+    is_bytes = String.contains?(downcased, "bytes") or String.contains?(downcased, "heap") or
+               String.contains?(downcased, "memory") or String.contains?(downcased, "alloc")
+    is_count = String.ends_with?(downcased, "_count") or String.ends_with?(downcased, "_total") or
+               String.contains?(downcased, "goroutines") or String.contains?(downcased, "threads")
+
+    # Include if it has HTTP/gRPC attributes OR is not a known non-timing metric
+    has_http = is_binary(Map.get(row, "http_route")) or is_binary(Map.get(row, "http_method"))
+    has_grpc = is_binary(Map.get(row, "grpc_service")) or is_binary(Map.get(row, "grpc_method"))
+
+    (has_http or has_grpc) and not is_bytes and not is_count
+  end
+
+  defp is_timing_metric?(_), do: false
 
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
   defp format_pct(value) when is_integer(value), do: Integer.to_string(value)
