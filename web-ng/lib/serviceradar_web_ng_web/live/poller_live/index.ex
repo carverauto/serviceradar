@@ -73,7 +73,6 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <.ui_panel>
-
           <.pollers_table id="pollers" pollers={@pollers} />
 
           <div class="mt-4 pt-4 border-t border-base-200">

@@ -492,21 +492,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     disks = Map.get(assigns.summary, :disks, [])
     icmp_rtt = Map.get(assigns.summary, :icmp_rtt)
 
+    has_cpu = is_map(cpu) and not is_nil(Map.get(cpu, :timestamp))
+    has_memory = is_map(memory) and not is_nil(Map.get(memory, :timestamp))
+
     assigns =
       assigns
       |> assign(:cpu, cpu)
       |> assign(:memory, memory)
       |> assign(:disks, disks)
       |> assign(:icmp_rtt, icmp_rtt)
+      |> assign(:has_cpu, has_cpu)
+      |> assign(:has_memory, has_memory)
 
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
       <div class="px-4 py-3 border-b border-base-200">
-        <span class="text-sm font-semibold">System Metrics Overview</span>
+        <span class="text-sm font-semibold">System Metrics (Sysmon)</span>
       </div>
 
       <div class="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <.metric_card
+          :if={@has_cpu}
           title="CPU Usage"
           value={format_pct(Map.get(@cpu, :avg_usage, 0.0))}
           suffix="%"
@@ -516,6 +522,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         />
 
         <.metric_card
+          :if={@has_memory}
           title="Memory"
           value={format_pct(Map.get(@memory, :percent, 0.0))}
           suffix="%"
@@ -770,7 +777,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     disk_data = load_disk_summary(srql_module, escaped_id)
     icmp_rtt = load_icmp_rtt(srql_module, escaped_id)
 
-    if cpu_data || memory_data || disk_data != [] || icmp_rtt do
+    has_sysmon_metrics = is_map(cpu_data) or is_map(memory_data) or disk_data != []
+
+    if has_sysmon_metrics do
       %{
         cpu: cpu_data || %{},
         memory: memory_data || %{},

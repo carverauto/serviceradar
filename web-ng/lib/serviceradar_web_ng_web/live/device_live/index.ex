@@ -166,7 +166,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       <span :if={not is_map(icmp)} class="text-base-content/40">—</span>
                     </td>
                     <td class="text-xs">
-                      <.metrics_presence has_snmp={has_snmp} has_sysmon={has_sysmon} />
+                      <.metrics_presence
+                        device_id={device_id}
+                        has_snmp={has_snmp}
+                        has_sysmon={has_sysmon}
+                      />
                     </td>
                     <td class="font-mono text-xs">{Map.get(row, "poller_id") || "—"}</td>
                     <td class="font-mono text-xs">
@@ -260,16 +264,53 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     """
   end
 
+  attr :device_id, :string, default: nil
   attr :has_snmp, :boolean, default: false
   attr :has_sysmon, :boolean, default: false
 
   def metrics_presence(assigns) do
+    device_path =
+      if is_binary(assigns.device_id) and String.trim(assigns.device_id) != "" do
+        ~p"/devices/#{assigns.device_id}"
+      else
+        nil
+      end
+
+    assigns = assign(assigns, :device_path, device_path)
+
     ~H"""
     <div :if={@has_snmp or @has_sysmon} class="flex items-center gap-2">
-      <span :if={@has_snmp} class="tooltip" data-tip="SNMP metrics available (last 24h)">
+      <.link
+        :if={@has_snmp and is_binary(@device_path)}
+        navigate={@device_path}
+        class="tooltip inline-flex hover:opacity-90"
+        data-tip="SNMP metrics available (last 24h)"
+        aria-label="View device details (SNMP metrics available)"
+      >
+        <.icon name="hero-signal" class="size-4 text-info" />
+      </.link>
+      <span
+        :if={@has_snmp and not is_binary(@device_path)}
+        class="tooltip"
+        data-tip="SNMP metrics available (last 24h)"
+      >
         <.icon name="hero-signal" class="size-4 text-info" />
       </span>
-      <span :if={@has_sysmon} class="tooltip" data-tip="Sysmon metrics available (last 24h)">
+
+      <.link
+        :if={@has_sysmon and is_binary(@device_path)}
+        navigate={@device_path}
+        class="tooltip inline-flex hover:opacity-90"
+        data-tip="Sysmon metrics available (last 24h)"
+        aria-label="View device details (Sysmon metrics available)"
+      >
+        <.icon name="hero-cpu-chip" class="size-4 text-success" />
+      </.link>
+      <span
+        :if={@has_sysmon and not is_binary(@device_path)}
+        class="tooltip"
+        data-tip="Sysmon metrics available (last 24h)"
+      >
         <.icon name="hero-cpu-chip" class="size-4 text-success" />
       </span>
     </div>

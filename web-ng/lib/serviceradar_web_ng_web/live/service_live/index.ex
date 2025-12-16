@@ -3,12 +3,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias Phoenix.LiveView.JS
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 50
   @max_limit 200
   @summary_window "last_1h"
   @summary_limit 2000
+  @pollers_default_limit 10
+  @pollers_max_limit 50
 
   @impl true
   def mount(_params, _session, socket) do
@@ -18,6 +21,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      |> assign(:services, [])
      |> assign(:summary, %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: 0})
      |> assign(:limit, @default_limit)
+     |> assign(:params, %{})
+     |> assign(:pollers, [])
+     |> assign(:pollers_limit, @pollers_default_limit)
+     |> assign(:pollers_pagination, %{"prev_cursor" => nil, "next_cursor" => nil})
      |> SRQLPage.init("services", default_limit: @default_limit)}
   end
 
@@ -29,12 +36,18 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
         default_limit: @default_limit,
         max_limit: @max_limit
       )
+      |> assign(:params, params)
 
     # Compute summary from a bounded recent window, so the "By Service Type" panel reflects more
     # than just the current page of results (but remains scale-safe).
     summary = load_summary(socket)
 
-    {:noreply, assign(socket, :summary, summary)}
+    socket =
+      socket
+      |> assign(:summary, summary)
+      |> load_pollers(params)
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -77,12 +90,24 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
     query = Map.get(assigns.srql, :query, "")
     has_filter = is_binary(query) and Regex.match?(~r/(?:^|\s)(?:service_type|type):/, query)
-    assigns = assign(assigns, :pagination, pagination) |> assign(:has_filter, has_filter)
+    pollers_pagination = Map.get(assigns, :pollers_pagination, %{}) || %{}
+
+    assigns =
+      assigns
+      |> assign(:pagination, pagination)
+      |> assign(:has_filter, has_filter)
+      |> assign(:pollers_pagination, pollers_pagination)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <div class="space-y-4">
+          <.pollers_panel
+            params={@params}
+            pollers={@pollers}
+            pagination={@pollers_pagination}
+            limit={@pollers_limit}
+          />
           <.service_summary summary={@summary} has_filter={@has_filter} />
 
           <.ui_panel>
@@ -113,6 +138,252 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     </Layouts.app>
     """
   end
+
+  attr :params, :map, default: %{}
+  attr :pollers, :list, default: []
+  attr :pagination, :map, default: %{}
+  attr :limit, :integer, default: @pollers_default_limit
+
+  defp pollers_panel(assigns) do
+    pollers = assigns.pollers || []
+    prev_cursor = Map.get(assigns.pagination, "prev_cursor")
+    next_cursor = Map.get(assigns.pagination, "next_cursor")
+
+    assigns =
+      assigns
+      |> assign(:pollers, pollers)
+      |> assign(:prev_cursor, prev_cursor)
+      |> assign(:next_cursor, next_cursor)
+      |> assign(:has_prev, is_binary(prev_cursor) and prev_cursor != "")
+      |> assign(:has_next, is_binary(next_cursor) and next_cursor != "")
+      |> assign(:showing_text, pollers_pagination_text(length(pollers)))
+
+    ~H"""
+    <.ui_panel>
+      <:header>
+        <div class="min-w-0">
+          <div class="text-sm font-semibold">Pollers</div>
+          <div class="text-xs text-base-content/70">
+            Pollers self-report and may not show up in service checks.
+          </div>
+        </div>
+        <.link
+          href={~p"/pollers"}
+          class="text-base-content/60 hover:text-primary"
+          title="View all pollers"
+        >
+          <.icon name="hero-arrow-top-right-on-square" class="size-4" />
+        </.link>
+      </:header>
+
+      <div class="overflow-x-auto">
+        <table class="table table-sm table-zebra w-full">
+          <thead>
+            <tr>
+              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-48">
+                Poller ID
+              </th>
+              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+                Status
+              </th>
+              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+                Address
+              </th>
+              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+                Last Seen
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :if={@pollers == []}>
+              <td colspan="4" class="text-sm text-base-content/60 py-6 text-center">
+                No pollers found.
+              </td>
+            </tr>
+
+            <%= for {poller, idx} <- Enum.with_index(@pollers) do %>
+              <tr
+                id={"services-poller-row-#{idx}"}
+                class="hover:bg-base-200/40 cursor-pointer transition-colors"
+                phx-click={JS.navigate(~p"/pollers/#{poller_id(poller)}")}
+              >
+                <td
+                  class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]"
+                  title={poller_id(poller)}
+                >
+                  {poller_id(poller)}
+                </td>
+                <td class="whitespace-nowrap text-xs">
+                  <.poller_status_badge poller={poller} />
+                </td>
+                <td
+                  class="whitespace-nowrap text-xs font-mono truncate max-w-[10rem]"
+                  title={poller_address(poller)}
+                >
+                  {poller_address(poller)}
+                </td>
+                <td class="whitespace-nowrap text-xs font-mono">
+                  {poller_last_seen(poller)}
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-3 pt-3 border-t border-base-200 flex items-center justify-between gap-4">
+        <div class="text-sm text-base-content/60">{@showing_text}</div>
+        <div class="join">
+          <.link
+            :if={@has_prev}
+            patch={pollers_page_href(@params, @limit, @prev_cursor)}
+            class="join-item btn btn-sm btn-outline"
+          >
+            <.icon name="hero-chevron-left" class="size-4" /> Previous
+          </.link>
+          <button :if={not @has_prev} class="join-item btn btn-sm btn-outline" disabled>
+            <.icon name="hero-chevron-left" class="size-4" /> Previous
+          </button>
+
+          <.link
+            :if={@has_next}
+            patch={pollers_page_href(@params, @limit, @next_cursor)}
+            class="join-item btn btn-sm btn-outline"
+          >
+            Next <.icon name="hero-chevron-right" class="size-4" />
+          </.link>
+          <button :if={not @has_next} class="join-item btn btn-sm btn-outline" disabled>
+            Next <.icon name="hero-chevron-right" class="size-4" />
+          </button>
+        </div>
+      </div>
+    </.ui_panel>
+    """
+  end
+
+  attr :poller, :map, required: true
+
+  defp poller_status_badge(assigns) do
+    active = Map.get(assigns.poller, "is_active")
+
+    {label, variant} =
+      case active do
+        true -> {"Active", "success"}
+        false -> {"Inactive", "error"}
+        _ -> {"Unknown", "ghost"}
+      end
+
+    assigns = assign(assigns, :label, label) |> assign(:variant, variant)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    """
+  end
+
+  defp poller_id(%{} = poller) do
+    Map.get(poller, "poller_id") || Map.get(poller, "id") || "unknown"
+  end
+
+  defp poller_id(_), do: "unknown"
+
+  defp poller_address(%{} = poller) do
+    Map.get(poller, "address") ||
+      Map.get(poller, "poller_address") ||
+      Map.get(poller, "host") ||
+      Map.get(poller, "hostname") ||
+      Map.get(poller, "ip") ||
+      Map.get(poller, "ip_address") ||
+      "—"
+  end
+
+  defp poller_address(_), do: "—"
+
+  defp poller_last_seen(%{} = poller) do
+    ts = Map.get(poller, "last_seen") || Map.get(poller, "updated_at")
+
+    case parse_timestamp(ts) do
+      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      _ -> ts || "—"
+    end
+  end
+
+  defp poller_last_seen(_), do: "—"
+
+  defp pollers_pagination_text(count) when is_integer(count) and count > 0 do
+    "Showing #{count} poller#{if count != 1, do: "s", else: ""}"
+  end
+
+  defp pollers_pagination_text(_), do: "No pollers"
+
+  defp pollers_page_href(params, limit, cursor) do
+    base =
+      params
+      |> normalize_params()
+      |> Map.put("pollers_limit", limit)
+      |> Map.put("pollers_cursor", cursor)
+      |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+
+    qs = URI.encode_query(base)
+    if qs == "", do: "/services", else: "/services?" <> qs
+  end
+
+  defp normalize_params(%{} = params) do
+    params
+    |> Enum.reduce(%{}, fn
+      {k, v}, acc when is_atom(k) -> Map.put(acc, Atom.to_string(k), v)
+      {k, v}, acc when is_binary(k) -> Map.put(acc, k, v)
+      _, acc -> acc
+    end)
+  end
+
+  defp normalize_params(_), do: %{}
+
+  defp load_pollers(socket, params) when is_map(params) do
+    limit = parse_pollers_limit(Map.get(params, "pollers_limit"))
+    cursor = normalize_optional_string(Map.get(params, "pollers_cursor"))
+    query = "in:pollers sort:last_seen:desc limit:#{limit}"
+
+    case srql_module().query(query, %{cursor: cursor, limit: limit}) do
+      {:ok, %{"results" => results} = resp} when is_list(results) ->
+        pagination =
+          case Map.get(resp, "pagination") do
+            %{} = pag -> pag
+            _ -> %{}
+          end
+
+        socket
+        |> assign(:pollers, results)
+        |> assign(:pollers_limit, limit)
+        |> assign(:pollers_pagination, pagination)
+
+      _ ->
+        socket
+        |> assign(:pollers, [])
+        |> assign(:pollers_limit, limit)
+        |> assign(:pollers_pagination, %{"prev_cursor" => nil, "next_cursor" => nil})
+    end
+  end
+
+  defp load_pollers(socket, _), do: socket
+
+  defp parse_pollers_limit(nil), do: @pollers_default_limit
+
+  defp parse_pollers_limit(value) when is_integer(value) and value > 0,
+    do: min(value, @pollers_max_limit)
+
+  defp parse_pollers_limit(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {n, ""} -> parse_pollers_limit(n)
+      _ -> @pollers_default_limit
+    end
+  end
+
+  defp parse_pollers_limit(_), do: @pollers_default_limit
+
+  defp normalize_optional_string(nil), do: nil
+  defp normalize_optional_string(""), do: nil
+  defp normalize_optional_string(value) when is_binary(value), do: value
+  defp normalize_optional_string(_), do: nil
 
   attr :summary, :map, required: true
   attr :has_filter, :boolean, default: false
