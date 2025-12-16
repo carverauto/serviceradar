@@ -101,8 +101,10 @@ func (m *MCPServer) registerLogTools() {
 			}
 
 			var filter string
+			var queryParams []any
 			if recentArgs.PollerID != "" {
-				filter = fmt.Sprintf("poller_id = '%s'", recentArgs.PollerID)
+				filter = "poller_id = $1"
+				queryParams = []any{recentArgs.PollerID}
 			}
 
 			// Build SRQL query for recent logs
@@ -115,7 +117,7 @@ func (m *MCPServer) registerLogTools() {
 				Msg("Executing recent logs query")
 
 			// Execute SRQL query via API
-			results, err := m.executeSRQLQuery(ctx, query, limit)
+			results, err := m.executeSRQLQueryWithParams(ctx, query, queryParams, limit)
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute recent logs query: %w", err)
 			}

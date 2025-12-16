@@ -138,11 +138,11 @@ func BuildFilteredQuery(entity string, params FilterQueryParams, additionalFilte
 }
 
 // FilterHandlerFunc represents a function that builds additional filters for a specific entity type
-type FilterHandlerFunc func(args json.RawMessage) ([]string, map[string]interface{}, error)
+type FilterHandlerFunc func(args json.RawMessage, binds *srqlBindBuilder) ([]string, map[string]interface{}, error)
 
 // FilterBuilder defines an interface for building entity-specific filters
 type FilterBuilder interface {
-	BuildFilters(args json.RawMessage) ([]string, map[string]interface{}, error)
+	BuildFilters(args json.RawMessage, binds *srqlBindBuilder) ([]string, map[string]interface{}, error)
 }
 
 // GenericFilterBuilder implements FilterBuilder with configurable field mappings
@@ -152,7 +152,7 @@ type GenericFilterBuilder struct {
 }
 
 // BuildFilters builds filters for a generic entity using field mappings
-func (g *GenericFilterBuilder) BuildFilters(args json.RawMessage) (
+func (g *GenericFilterBuilder) BuildFilters(args json.RawMessage, binds *srqlBindBuilder) (
 	additionalFilters []string, responseFilters map[string]interface{}, err error) {
 	var rawArgs map[string]interface{}
 
@@ -161,12 +161,15 @@ func (g *GenericFilterBuilder) BuildFilters(args json.RawMessage) (
 	}
 
 	responseFilters = make(map[string]interface{})
+	if binds == nil {
+		binds = &srqlBindBuilder{}
+	}
 
 	// Process field mappings
 	for jsonField, sqlField := range g.FieldMappings {
 		if value, exists := rawArgs[jsonField]; exists && value != nil {
 			if strValue, ok := value.(string); ok && strValue != "" {
-				additionalFilters = append(additionalFilters, fmt.Sprintf("%s = '%s'", sqlField, strValue))
+				additionalFilters = append(additionalFilters, fmt.Sprintf("%s = %s", sqlField, binds.Bind(strValue)))
 			}
 		}
 	}
@@ -187,6 +190,8 @@ func (m *MCPServer) BuildGenericFilterTool(name, description, entity, resultsKey
 		Name:        name,
 		Description: description,
 		Handler: func(ctx context.Context, args json.RawMessage) (interface{}, error) {
+			binds := &srqlBindBuilder{}
+
 			// Extract common filter parameters
 			var commonParams FilterQueryParams
 			if err := json.Unmarshal(args, &commonParams); err != nil {
@@ -194,7 +199,7 @@ func (m *MCPServer) BuildGenericFilterTool(name, description, entity, resultsKey
 			}
 
 			// Get entity-specific filters and response filters
-			additionalFilters, responseFilters, err := filterHandler(args)
+			additionalFilters, responseFilters, err := filterHandler(args, binds)
 			if err != nil {
 				return nil, err
 			}
@@ -205,7 +210,7 @@ func (m *MCPServer) BuildGenericFilterTool(name, description, entity, resultsKey
 			m.logger.Debug().Str("query", query).Msgf("Executing %s query", entity)
 
 			// Execute SRQL query via API
-			results, err := m.executeSRQLQuery(ctx, query, commonParams.Limit)
+			results, err := m.executeSRQLQueryWithParams(ctx, query, binds.params, commonParams.Limit)
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute %s query: %w", entity, err)
 			}
