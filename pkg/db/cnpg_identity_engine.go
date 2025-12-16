@@ -45,7 +45,8 @@ LIMIT 1`
 SELECT identifier_value, device_id
 FROM device_identifiers
 WHERE identifier_type = $1
-  AND identifier_value = ANY($2)`
+  AND identifier_value = ANY($2)
+  AND partition = $3`
 
 	// SQL for upserting device identifiers (new schema with partition)
 	upsertDeviceIdentifierNewSQL = `
@@ -88,14 +89,18 @@ func (db *DB) GetDeviceIDByIdentifier(ctx context.Context, identifierType, ident
 
 // BatchGetDeviceIDsByIdentifier looks up device IDs for multiple identifier values of the same type.
 // Returns a map of identifier_value -> device_id.
-func (db *DB) BatchGetDeviceIDsByIdentifier(ctx context.Context, identifierType string, identifierValues []string) (map[string]string, error) {
+func (db *DB) BatchGetDeviceIDsByIdentifier(ctx context.Context, identifierType string, identifierValues []string, partition string) (map[string]string, error) {
 	result := make(map[string]string)
 
 	if !db.useCNPGWrites() || identifierType == "" || len(identifierValues) == 0 {
 		return result, nil
 	}
 
-	rows, err := db.conn().Query(ctx, batchGetDeviceIDsByIdentifierSQL, identifierType, identifierValues)
+	if partition == "" {
+		partition = defaultPartitionValue
+	}
+
+	rows, err := db.conn().Query(ctx, batchGetDeviceIDsByIdentifierSQL, identifierType, identifierValues, partition)
 	if err != nil {
 		return result, err
 	}

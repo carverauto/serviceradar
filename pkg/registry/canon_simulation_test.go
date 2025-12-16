@@ -300,11 +300,11 @@ func TestDIREIdentityResolution(t *testing.T) {
 func setupDIREMockDB(mockDB *db.MockService, identifierStore map[string]string) {
 	// Mock BatchGetDeviceIDsByIdentifier to check if identifier already exists
 	mockDB.EXPECT().
-		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, identifierType string, identifierValues []string) (map[string]string, error) {
+		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, identifierType string, identifierValues []string, partition string) (map[string]string, error) {
 			result := make(map[string]string)
 			for _, val := range identifierValues {
-				key := identifierType + ":" + val
+				key := strongIdentifierCacheKey(partition, identifierType, val)
 				if deviceID, ok := identifierStore[key]; ok {
 					result[val] = deviceID
 				}
@@ -318,7 +318,7 @@ func setupDIREMockDB(mockDB *db.MockService, identifierStore map[string]string) 
 		UpsertDeviceIdentifiers(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, identifiers []*models.DeviceIdentifier) error {
 			for _, id := range identifiers {
-				key := id.IDType + ":" + id.IDValue
+				key := strongIdentifierCacheKey(id.Partition, id.IDType, id.IDValue)
 				identifierStore[key] = id.DeviceID
 			}
 			return nil

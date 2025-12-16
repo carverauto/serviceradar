@@ -177,7 +177,7 @@ type Service interface {
 
 	// Device identifier lookup operations (for IdentityEngine).
 	GetDeviceIDByIdentifier(ctx context.Context, identifierType, identifierValue, partition string) (string, error)
-	BatchGetDeviceIDsByIdentifier(ctx context.Context, identifierType string, identifierValues []string) (map[string]string, error)
+	BatchGetDeviceIDsByIdentifier(ctx context.Context, identifierType string, identifierValues []string, partition string) (map[string]string, error)
 }
 
 // SysmonMetricsProvider interface defines operations for system monitoring metrics.
