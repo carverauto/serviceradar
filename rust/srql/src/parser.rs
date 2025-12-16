@@ -14,9 +14,11 @@ pub enum Entity {
     GraphCypher,
     Events,
     Logs,
+    LogsHourlyStats,
     Services,
     Pollers,
     OtelMetrics,
+    OtelMetricsHourlyStats,
     RperfMetrics,
     CpuMetrics,
     MemoryMetrics,
@@ -255,9 +257,13 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
         "events" | "activity" => Ok(Entity::Events),
         "logs" => Ok(Entity::Logs),
+        "logs_hourly_stats" | "logs_hourly" | "logs_stats" => Ok(Entity::LogsHourlyStats),
         "services" | "service" => Ok(Entity::Services),
         "pollers" | "poller" => Ok(Entity::Pollers),
         "otel_metrics" | "metrics" => Ok(Entity::OtelMetrics),
+        "otel_metrics_hourly_stats" | "metrics_hourly_stats" | "metrics_hourly" | "metrics_stats" => {
+            Ok(Entity::OtelMetricsHourlyStats)
+        }
         "rperf_metrics" | "rperf" => Ok(Entity::RperfMetrics),
         "cpu_metrics" | "cpu" => Ok(Entity::CpuMetrics),
         "memory_metrics" | "memory" => Ok(Entity::MemoryMetrics),

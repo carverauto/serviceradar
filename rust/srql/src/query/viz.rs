@@ -285,6 +285,44 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 series: None,
             }],
         },
+        Entity::LogsHourlyStats => VizMeta {
+            columns: vec![
+                col("bucket", ColumnType::Timestamptz, Some(ColumnSemantic::Time)),
+                col("service_name", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col(
+                    "total_count",
+                    ColumnType::Int,
+                    Some(ColumnSemantic::Value),
+                ),
+                col(
+                    "fatal_count",
+                    ColumnType::Int,
+                    Some(ColumnSemantic::Value),
+                ),
+                col(
+                    "error_count",
+                    ColumnType::Int,
+                    Some(ColumnSemantic::Value),
+                ),
+                col(
+                    "warning_count",
+                    ColumnType::Int,
+                    Some(ColumnSemantic::Value),
+                ),
+                col("info_count", ColumnType::Int, Some(ColumnSemantic::Value)),
+                col(
+                    "debug_count",
+                    ColumnType::Int,
+                    Some(ColumnSemantic::Value),
+                ),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Timeseries,
+                x: Some("bucket".to_string()),
+                y: Some("total_count".to_string()),
+                series: Some("service_name".to_string()),
+            }],
+        },
         Entity::Traces => VizMeta {
             columns: vec![
                 col(
@@ -383,6 +421,60 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 x: None,
                 y: None,
                 series: None,
+            }],
+        },
+        Entity::OtelMetricsHourlyStats => VizMeta {
+            columns: vec![
+                col("bucket", ColumnType::Timestamptz, Some(ColumnSemantic::Time)),
+                col("service_name", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("metric_type", ColumnType::Text, None),
+                col(
+                    "total_count",
+                    ColumnType::Int,
+                    Some(ColumnSemantic::Value),
+                ),
+                col(
+                    "avg_duration_ms",
+                    ColumnType::Float,
+                    Some(ColumnSemantic::Value),
+                )
+                .with_unit("ms"),
+                col(
+                    "min_duration_ms",
+                    ColumnType::Float,
+                    Some(ColumnSemantic::Value),
+                )
+                .with_unit("ms"),
+                col(
+                    "max_duration_ms",
+                    ColumnType::Float,
+                    Some(ColumnSemantic::Value),
+                )
+                .with_unit("ms"),
+                col(
+                    "p95_duration_ms",
+                    ColumnType::Float,
+                    Some(ColumnSemantic::Value),
+                )
+                .with_unit("ms"),
+                col(
+                    "p99_duration_ms",
+                    ColumnType::Float,
+                    Some(ColumnSemantic::Value),
+                )
+                .with_unit("ms"),
+                col(
+                    "error_count",
+                    ColumnType::Int,
+                    Some(ColumnSemantic::Value),
+                ),
+                col("slow_count", ColumnType::Int, Some(ColumnSemantic::Value)),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Timeseries,
+                x: Some("bucket".to_string()),
+                y: Some("avg_duration_ms".to_string()),
+                series: Some("service_name".to_string()),
             }],
         },
         Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => VizMeta {
