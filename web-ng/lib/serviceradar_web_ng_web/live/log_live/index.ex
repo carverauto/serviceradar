@@ -853,15 +853,119 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp format_metric_value(metric) do
-    value = metric_value_ms(metric)
+    # Determine what kind of value this metric has and format appropriately
+    metric_name = Map.get(metric, "span_name") || ""
+    metric_type = Map.get(metric, "metric_type") || ""
+
+    cond do
+      # Duration metrics - check for duration fields first
+      is_duration_metric?(metric) ->
+        format_duration_value(metric)
+
+      # Byte metrics - check metric name for "bytes" suffix
+      is_bytes_metric?(metric_name) ->
+        format_bytes_value(metric)
+
+      # Counters and histograms often have raw values
+      has_raw_value?(metric) ->
+        format_raw_value(metric, metric_type)
+
+      true ->
+        "—"
+    end
+  end
+
+  defp is_duration_metric?(metric) do
+    is_number(metric["duration_ms"]) or is_binary(metric["duration_ms"]) or
+      is_number(metric["duration_seconds"]) or is_binary(metric["duration_seconds"])
+  end
+
+  defp is_bytes_metric?(name) when is_binary(name) do
+    downcased = String.downcase(name)
+    String.ends_with?(downcased, "_bytes") or String.contains?(downcased, "bytes")
+  end
+
+  defp is_bytes_metric?(_), do: false
+
+  defp has_raw_value?(metric) do
+    is_number(metric["value"]) or is_binary(metric["value"]) or
+      is_number(metric["sum"]) or is_binary(metric["sum"]) or
+      is_number(metric["count"]) or is_binary(metric["count"])
+  end
+
+  defp format_duration_value(metric) do
+    ms =
+      cond do
+        is_number(metric["duration_ms"]) ->
+          metric["duration_ms"] * 1.0
+
+        is_binary(metric["duration_ms"]) ->
+          extract_number(metric["duration_ms"]) || 0.0
+
+        is_number(metric["duration_seconds"]) ->
+          metric["duration_seconds"] * 1000.0
+
+        is_binary(metric["duration_seconds"]) ->
+          case extract_number(metric["duration_seconds"]) do
+            n when is_number(n) -> n * 1000.0
+            _ -> 0.0
+          end
+
+        true ->
+          0.0
+      end
+
+    cond do
+      ms >= 1000 -> "#{Float.round(ms / 1000.0, 2)}s"
+      true -> "#{Float.round(ms * 1.0, 1)}ms"
+    end
+  end
+
+  defp format_bytes_value(metric) do
+    bytes =
+      cond do
+        is_number(metric["value"]) -> metric["value"]
+        is_binary(metric["value"]) -> extract_number(metric["value"]) || 0
+        is_number(metric["sum"]) -> metric["sum"]
+        is_binary(metric["sum"]) -> extract_number(metric["sum"]) || 0
+        true -> 0
+      end
+
+    cond do
+      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776 * 1.0, 1)} TB"
+      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824 * 1.0, 1)} GB"
+      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576 * 1.0, 1)} MB"
+      bytes >= 1024 -> "#{Float.round(bytes / 1024 * 1.0, 1)} KB"
+      true -> "#{trunc(bytes)} B"
+    end
+  end
+
+  defp format_raw_value(metric, _metric_type) do
+    value =
+      cond do
+        is_number(metric["value"]) -> metric["value"]
+        is_binary(metric["value"]) -> extract_number(metric["value"])
+        is_number(metric["sum"]) -> metric["sum"]
+        is_binary(metric["sum"]) -> extract_number(metric["sum"])
+        is_number(metric["count"]) -> metric["count"]
+        is_binary(metric["count"]) -> extract_number(metric["count"])
+        true -> nil
+      end
 
     if is_number(value) do
-      "#{Float.round(value * 1.0, 1)}ms"
+      # Format based on magnitude
+      cond do
+        value >= 1_000_000 -> "#{Float.round(value / 1_000_000 * 1.0, 1)}M"
+        value >= 1_000 -> "#{Float.round(value / 1_000 * 1.0, 1)}k"
+        is_float(value) -> "#{Float.round(value, 2)}"
+        true -> "#{trunc(value)}"
+      end
     else
       "—"
     end
   end
 
+  # Used for the visualization bar - extracts numeric value for comparison
   defp metric_value_ms(metric) when is_map(metric) do
     cond do
       is_number(metric["duration_ms"]) ->
@@ -878,6 +982,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           n when is_number(n) -> n * 1000.0
           _ -> nil
         end
+
+      # Fall back to raw value for the bar visualization
+      is_number(metric["value"]) ->
+        metric["value"] * 1.0
+
+      is_binary(metric["value"]) ->
+        extract_number(metric["value"])
+
+      is_number(metric["sum"]) ->
+        metric["sum"] * 1.0
+
+      is_binary(metric["sum"]) ->
+        extract_number(metric["sum"])
 
       true ->
         nil

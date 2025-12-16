@@ -13,8 +13,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       query: "",
       draft: "",
       loading: false,
-      builder_available: false,
+      builder_available: true,
       builder_open: false,
+      builder_supported: true,
+      builder_sync: true,
+      builder: %{},
       page_path: "/analytics"
     }
 
