@@ -29,10 +29,9 @@ import (
 
 // Check implements the checker interface by returning the overall status of all SNMP targets.
 func (s *SNMPService) Check(ctx context.Context) (available bool, msg string) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Re-using the GetStatus logic to get the detailed map
+	// NOTE: Avoid recursive RWMutex read locking. GetStatus performs its own locking and
+	// Check must not hold a read lock while calling GetStatus, otherwise a waiting writer
+	// can deadlock the service due to RWMutex write-preferring semantics.
 	statusMap, err := s.GetStatus(ctx)
 	if err != nil {
 		return false, string(jsonError(fmt.Sprintf("Error getting detailed SNMP status: %v", err)))
