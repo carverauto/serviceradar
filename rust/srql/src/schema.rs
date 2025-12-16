@@ -181,6 +181,8 @@ diesel::table! {
         component -> Nullable<Text>,
         level -> Nullable<Text>,
         unit -> Nullable<Text>,
+        metric_name -> Nullable<Text>,
+        value -> Nullable<Float8>,
         created_at -> Timestamptz,
     }
 }
