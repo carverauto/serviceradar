@@ -455,7 +455,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         value={format_compact_int(@successful)}
         icon="hero-check-circle"
         tone="success"
-        href={~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h status_code:1 sort:timestamp:desc limit:100"}}"}
+        href={~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h !status_code:2 sort:timestamp:desc limit:100"}}"}
       />
       <.obs_stat
         title="Errors"
@@ -485,7 +485,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         subtitle={if @services_count > 0, do: "#{@services_count} services", else: "sample"}
         icon="hero-bolt"
         tone="warning"
-        href={~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h duration_ms:>100 sort:duration_ms:desc limit:100"}}"}
+        href={~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h sort:duration_ms:desc limit:100"}}"}
       />
     </div>
     """
