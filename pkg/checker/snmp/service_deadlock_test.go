@@ -18,26 +18,23 @@
 package snmp
 
 import (
+	_ "embed"
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"path/filepath"
-	"runtime"
 	"testing"
 )
+
+//go:embed service.go
+var snmpServiceSource string
 
 func TestCheckDoesNotRLockAndCallGetStatus(t *testing.T) {
 	t.Helper()
 
 	fileSet := token.NewFileSet()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("unable to locate test file path via runtime.Caller")
-	}
-	filePath := filepath.Join(filepath.Dir(thisFile), "service.go")
-	parsed, err := parser.ParseFile(fileSet, filePath, nil, 0)
+	parsed, err := parser.ParseFile(fileSet, "service.go", snmpServiceSource, 0)
 	if err != nil {
-		t.Fatalf("parse %s: %v", filePath, err)
+		t.Fatalf("parse service.go: %v", err)
 	}
 
 	var checkDecl *ast.FuncDecl
@@ -53,11 +50,11 @@ func TestCheckDoesNotRLockAndCallGetStatus(t *testing.T) {
 	}
 
 	if checkDecl == nil || checkDecl.Body == nil || len(checkDecl.Recv.List) == 0 {
-		t.Fatalf("Check method not found in %s", filePath)
+		t.Fatal("Check method not found in service.go")
 	}
 
 	if len(checkDecl.Recv.List[0].Names) == 0 || checkDecl.Recv.List[0].Names[0] == nil || checkDecl.Recv.List[0].Names[0].Name == "" {
-		t.Fatalf("unable to determine Check receiver identifier in %s", filePath)
+		t.Fatal("unable to determine Check receiver identifier in service.go")
 	}
 	receiverName := checkDecl.Recv.List[0].Names[0].Name
 

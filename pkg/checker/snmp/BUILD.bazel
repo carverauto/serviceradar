@@ -39,6 +39,7 @@ go_test(
         "service_deadlock_test.go",
         "service_test.go",
     ],
+    embedsrcs = ["service.go"],
     embed = [":snmp"],
     deps = [
         "//pkg/logger",
