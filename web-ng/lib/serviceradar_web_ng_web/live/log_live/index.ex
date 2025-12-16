@@ -1000,32 +1000,54 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     metric_name = get_metric_name(metric)
     metric_type = normalize_string(Map.get(metric, "metric_type"))
 
-    # PRIORITY 1: Check metric name for explicit unit hints
-    # This takes precedence over field presence since OTEL often puts values in duration_ms
-    cond do
-      is_bytes_metric?(metric_name) ->
-        format_bytes_value(metric)
+    # PRIORITY 0: Histograms are distributions - show sample count, not a single value
+    # Trying to show one number for a histogram is misleading
+    if metric_type == "histogram" do
+      format_histogram_value(metric)
+    else
+      # PRIORITY 1: Check metric name for explicit unit hints
+      # This takes precedence over field presence since OTEL often puts values in duration_ms
+      cond do
+        is_bytes_metric?(metric_name) ->
+          format_bytes_value(metric)
 
-      is_count_metric?(metric_name) or is_stats_metric?(metric_name) ->
-        format_count_value(metric)
+        is_count_metric?(metric_name) or is_stats_metric?(metric_name) ->
+          format_count_value(metric)
 
-      # PRIORITY 2: Only format as duration if:
-      # - Metric name explicitly suggests duration/latency/time, OR
-      # - It's a span type with actual HTTP/gRPC context (not just empty attributes)
-      is_duration_metric?(metric_name) and has_duration_field?(metric) ->
-        format_duration_value(metric)
+        # PRIORITY 2: Only format as duration if:
+        # - Metric name explicitly suggests duration/latency/time, OR
+        # - It's a span type with actual HTTP/gRPC context (not just empty attributes)
+        is_duration_metric?(metric_name) and has_duration_field?(metric) ->
+          format_duration_value(metric)
 
-      is_actual_timing_span?(metric) and has_duration_field?(metric) ->
-        format_duration_value(metric)
+        is_actual_timing_span?(metric) and has_duration_field?(metric) ->
+          format_duration_value(metric)
 
-      # PRIORITY 3: Raw value fallback - just show the number, no units
-      has_any_value?(metric) ->
-        format_raw_value(metric, metric_type)
+        # PRIORITY 3: Raw value fallback - just show the number, no units
+        has_any_value?(metric) ->
+          format_raw_value(metric, metric_type)
 
-      true ->
-        "—"
+        true ->
+          "—"
+      end
     end
   end
+
+  # Histograms are distributions - show count of samples, not a single value
+  defp format_histogram_value(metric) do
+    count = extract_histogram_count(metric)
+
+    if count > 0 do
+      "#{format_number(count)} samples"
+    else
+      "—"
+    end
+  end
+
+  defp format_number(n) when n >= 1_000_000, do: "#{Float.round(n / 1_000_000 * 1.0, 1)}M"
+  defp format_number(n) when n >= 1_000, do: "#{Float.round(n / 1_000 * 1.0, 1)}k"
+  defp format_number(n) when is_float(n), do: "#{trunc(n)}"
+  defp format_number(n), do: "#{n}"
 
   defp get_metric_name(metric) do
     # Check multiple fields where the metric name might be stored
