@@ -9,7 +9,12 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   @impl true
   def mount(_params, _session, socket) do
     srql = %{
-      enabled: false,
+      enabled: true,
+      query: "",
+      draft: "",
+      loading: false,
+      builder_available: false,
+      builder_open: false,
       page_path: "/analytics"
     }
 
@@ -74,8 +79,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       # Observability summary (match legacy UI: last_24h window, trace summaries not raw spans)
       metrics_total: ~s|in:otel_metrics time:last_24h stats:"count() as total"|,
       metrics_slow: ~s|in:otel_metrics time:last_24h is_slow:true stats:"count() as total"|,
-      metrics_error_level:
-        ~s|in:otel_metrics time:last_24h level:(error,ERROR) stats:"count() as total"|,
+      # Note: 'level' filter is not supported for otel_metrics - use HTTP status codes instead
       metrics_error_http4:
         ~s|in:otel_metrics time:last_24h http_status_code:4% stats:"count() as total"|,
       metrics_error_http5:
@@ -177,19 +181,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     # Build observability summary with real counts from stats queries
     metrics_total = extract_count(results[:metrics_total])
     metrics_slow = extract_count(results[:metrics_slow])
-    metrics_error_level = extract_count(results[:metrics_error_level])
     metrics_error_http4 = extract_count(results[:metrics_error_http4])
     metrics_error_http5 = extract_count(results[:metrics_error_http5])
     metrics_error_grpc = extract_count(results[:metrics_error_grpc])
     trace_stats = extract_map(results[:trace_stats])
     slow_spans_rows = extract_rows(results[:slow_spans])
 
-    metrics_error =
-      if metrics_error_level > 0 do
-        metrics_error_level
-      else
-        metrics_error_http4 + metrics_error_http5 + metrics_error_grpc
-      end
+    # Combine HTTP 4xx, 5xx, and gRPC errors as the total error count
+    metrics_error = metrics_error_http4 + metrics_error_http5 + metrics_error_grpc
 
     observability =
       build_observability_summary(
@@ -678,11 +677,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
         <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
           <.device_availability_widget availability={@device_availability} loading={@loading} />
-          <.observability_widget data={@observability} loading={@loading} />
-          <.critical_events_widget summary={@events_summary} loading={@loading} />
-          <.critical_logs_widget summary={@logs_summary} loading={@loading} />
           <.high_utilization_widget data={@high_utilization} loading={@loading} />
           <.bandwidth_widget data={@bandwidth} loading={@loading} />
+          <.critical_logs_widget summary={@logs_summary} loading={@loading} />
+          <.observability_widget data={@observability} loading={@loading} />
+          <.critical_events_widget summary={@events_summary} loading={@loading} />
         </div>
 
         <div class="mt-3 text-xs text-base-content/40 flex items-center gap-2">

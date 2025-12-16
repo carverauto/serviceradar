@@ -248,6 +248,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> Enum.map(&to_string/1)
       |> Enum.uniq()
 
+    # Metadata is excluded since its contents are already displayed in other sections
+    # (ICMP stats, hostname, poller info, etc.)
     preferred = [
       "device_id",
       "hostname",
@@ -261,9 +263,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       "last_seen",
       "last_heartbeat",
       "os_info",
-      "version_info",
-      "metadata"
+      "version_info"
     ]
+
+    # Filter out metadata from the keys entirely
+    keys = Enum.reject(keys, &(&1 == "metadata"))
 
     {preferred_keys, other_keys} =
       Enum.split_with(keys, fn k -> k in preferred end)
