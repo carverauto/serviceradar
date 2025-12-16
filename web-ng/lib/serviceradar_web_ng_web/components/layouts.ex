@@ -48,53 +48,45 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
       <div class="drawer-content flex min-h-screen flex-col">
         <header class="sticky top-0 z-20 border-b border-base-200 bg-base-100/90 backdrop-blur">
-          <div class="px-4 sm:px-6 lg:px-8 py-3 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-            <div class="flex items-center gap-3 shrink-0">
+          <div class="px-4 sm:px-6 lg:px-8 py-3 flex flex-col gap-2">
+            <%!-- Top row: hamburger, SRQL bar, and auth buttons --%>
+            <div class="flex items-center gap-3">
               <label
                 :if={@signed_in?}
                 for="sr-sidebar"
-                class="btn btn-ghost btn-sm lg:hidden"
+                class="btn btn-ghost btn-sm lg:hidden shrink-0"
                 aria-label="Open navigation"
                 title="Open navigation"
               >
                 <.icon name="hero-bars-3" class="size-5" />
               </label>
-            </div>
 
-            <div class="flex-1 min-w-0 w-full">
-              <div class={[
-                "grid gap-3 w-full",
-                Map.get(@srql, :enabled, false) &&
-                  "sm:grid-cols-[minmax(0,1fr)_minmax(0,56rem)] sm:items-center sm:gap-4",
-                not Map.get(@srql, :enabled, false) && "sm:grid-cols-1"
-              ]}>
-                <div class="min-w-0">
-                  <.breadcrumb_nav :if={@current_path} current_path={@current_path} />
-                </div>
+              <div :if={Map.get(@srql, :enabled, false)} class="flex-1 min-w-0">
+                <.srql_query_bar
+                  query={Map.get(@srql, :query)}
+                  draft={Map.get(@srql, :draft)}
+                  loading={Map.get(@srql, :loading, false)}
+                  builder_available={Map.get(@srql, :builder_available, false)}
+                  builder_open={Map.get(@srql, :builder_open, false)}
+                  builder_supported={Map.get(@srql, :builder_supported, true)}
+                  builder_sync={Map.get(@srql, :builder_sync, true)}
+                  builder={Map.get(@srql, :builder, %{})}
+                />
+              </div>
+              <div :if={not Map.get(@srql, :enabled, false)} class="flex-1"></div>
 
-                <div :if={Map.get(@srql, :enabled, false)} class="w-full sm:justify-self-end">
-                  <.srql_query_bar
-                    query={Map.get(@srql, :query)}
-                    draft={Map.get(@srql, :draft)}
-                    loading={Map.get(@srql, :loading, false)}
-                    builder_available={Map.get(@srql, :builder_available, false)}
-                    builder_open={Map.get(@srql, :builder_open, false)}
-                    builder_supported={Map.get(@srql, :builder_supported, true)}
-                    builder_sync={Map.get(@srql, :builder_sync, true)}
-                    builder={Map.get(@srql, :builder, %{})}
-                  />
-                </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <.theme_toggle :if={not @signed_in?} />
+
+                <%= if not @signed_in? do %>
+                  <.ui_button href={~p"/users/register"} variant="ghost" size="sm">Register</.ui_button>
+                  <.ui_button href={~p"/users/log-in"} variant="primary" size="sm">Log in</.ui_button>
+                <% end %>
               </div>
             </div>
 
-            <div class="flex items-center gap-2 shrink-0">
-              <.theme_toggle :if={not @signed_in?} />
-
-              <%= if not @signed_in? do %>
-                <.ui_button href={~p"/users/register"} variant="ghost" size="sm">Register</.ui_button>
-                <.ui_button href={~p"/users/log-in"} variant="primary" size="sm">Log in</.ui_button>
-              <% end %>
-            </div>
+            <%!-- Second row: breadcrumb navigation (all on one line) --%>
+            <.breadcrumb_nav :if={@current_path} current_path={@current_path} />
           </div>
         </header>
 
@@ -270,46 +262,40 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   defp breadcrumb_nav(assigns) do
     crumbs = build_breadcrumbs(assigns.current_path)
-    # Split into section crumbs (with href) and detail crumb (without href, typically the ID)
-    {section_crumbs, detail_crumb} =
-      case Enum.split_with(crumbs, & &1.href) do
-        {sections, [detail]} -> {sections, detail}
-        {sections, []} -> {sections, nil}
-        {sections, [detail | _]} -> {sections, detail}
-      end
-
-    assigns =
-      assigns
-      |> assign(:section_crumbs, section_crumbs)
-      |> assign(:detail_crumb, detail_crumb)
+    assigns = assign(assigns, :crumbs, crumbs)
 
     ~H"""
     <nav class="text-xs sm:text-sm">
       <div class="breadcrumbs">
-        <ul class="min-w-0">
+        <ul class="flex items-center flex-wrap min-w-0">
           <li>
             <.link
               href={~p"/analytics"}
               class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content"
-              title="Analytics"
+              title="Home"
             >
               <.icon name="hero-home-micro" class="size-3.5" />
             </.link>
           </li>
-          <li :for={crumb <- @section_crumbs}>
+          <li :for={crumb <- @crumbs}>
             <.link
+              :if={crumb.href}
               href={crumb.href}
-              class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content min-w-0"
+              class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content"
               title={crumb.label}
             >
               <.icon :if={crumb.icon} name={crumb.icon} class="size-3.5 shrink-0" />
               <span>{crumb.label}</span>
             </.link>
+            <span
+              :if={not crumb.href}
+              class="flex items-center gap-1.5 font-medium text-base-content truncate max-w-[20rem]"
+              title={crumb.label}
+            >
+              {crumb.label}
+            </span>
           </li>
         </ul>
-      </div>
-      <div :if={@detail_crumb} class="font-medium text-sm truncate mt-0.5" title={@detail_crumb.label}>
-        {@detail_crumb.label}
       </div>
     </nav>
     """

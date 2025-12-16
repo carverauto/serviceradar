@@ -783,12 +783,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 {format_metric_value(metric)}
               </td>
               <td class="whitespace-nowrap text-xs">
-                <.metric_bar value={metric_value_ms(metric)} min_v={@min_v} max_v={@max_v} />
+                <.metric_viz metric={metric} min_v={@min_v} max_v={@max_v} />
               </td>
-              <td class="whitespace-nowrap text-xs font-mono text-right">
-                <span class={slow_badge_class(Map.get(metric, "is_slow"))}>
-                  {if Map.get(metric, "is_slow") == true, do: "YES", else: "—"}
-                </span>
+              <td class="whitespace-nowrap text-xs">
+                <.slow_span_viz metric={metric} />
               </td>
               <td class="whitespace-nowrap text-xs text-right">
                 <.link
@@ -816,12 +814,63 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
-  attr :value, :any, default: nil
+  attr :metric, :map, required: true
   attr :min_v, :float, default: 0.0
   attr :max_v, :float, default: 0.0
 
-  defp metric_bar(assigns) do
-    v = assigns.value
+  defp metric_viz(assigns) do
+    metric_type = normalize_string(Map.get(assigns.metric, "metric_type")) || ""
+
+    assigns = assign(assigns, :metric_type, metric_type)
+
+    ~H"""
+    <%= case @metric_type do %>
+      <% "histogram" -> %>
+        <.histogram_viz metric={@metric} />
+      <% _ -> %>
+        <.gauge_bar metric={@metric} min_v={@min_v} max_v={@max_v} />
+    <% end %>
+    """
+  end
+
+  attr :metric, :map, required: true
+
+  defp histogram_viz(assigns) do
+    # For histograms, show bucket count or a distribution indicator
+    count = extract_histogram_count(assigns.metric)
+    assigns = assign(assigns, :count, count)
+
+    ~H"""
+    <div class="flex items-center gap-1.5" title={"#{@count} samples"}>
+      <div class="flex items-end gap-px h-4">
+        <div class="w-1 h-1 bg-info/40 rounded-sm"></div>
+        <div class="w-1 h-2 bg-info/50 rounded-sm"></div>
+        <div class="w-1 h-3 bg-info/70 rounded-sm"></div>
+        <div class="w-1 h-4 bg-info rounded-sm"></div>
+        <div class="w-1 h-3 bg-info/70 rounded-sm"></div>
+        <div class="w-1 h-2 bg-info/50 rounded-sm"></div>
+        <div class="w-1 h-1 bg-info/40 rounded-sm"></div>
+      </div>
+      <span :if={@count > 0} class="text-[10px] text-base-content/50">{@count}</span>
+    </div>
+    """
+  end
+
+  defp extract_histogram_count(metric) do
+    cond do
+      is_number(metric["count"]) -> trunc(metric["count"])
+      is_binary(metric["count"]) -> trunc(extract_number(metric["count"]) || 0)
+      is_number(metric["bucket_count"]) -> trunc(metric["bucket_count"])
+      true -> 0
+    end
+  end
+
+  attr :metric, :map, required: true
+  attr :min_v, :float, default: 0.0
+  attr :max_v, :float, default: 0.0
+
+  defp gauge_bar(assigns) do
+    v = metric_value_for_viz(assigns.metric)
     min_v = assigns.min_v
     max_v = assigns.max_v
 
@@ -842,6 +891,99 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     </div>
     """
   end
+
+  # Slow span threshold (in ms) - spans exceeding this are considered slow
+  @slow_threshold_ms 500
+
+  attr :metric, :map, required: true
+
+  defp slow_span_viz(assigns) do
+    is_slow = Map.get(assigns.metric, "is_slow") == true
+    duration_ms = extract_duration_ms(assigns.metric)
+
+    # If not a timing span or no duration, show nothing
+    if is_nil(duration_ms) or duration_ms == 0 do
+      assigns = assign(assigns, :show, false)
+
+      ~H"""
+      <span :if={not @show} class="text-base-content/40">—</span>
+      """
+    else
+      # Calculate how far beyond threshold we are
+      # Max display is 3x the threshold (everything beyond that caps at 100%)
+      threshold = @slow_threshold_ms
+      max_display = threshold * 3
+
+      # Percentage of the threshold bar (0-33% = under threshold, 33-100% = over)
+      threshold_pct = round(threshold / max_display * 100)
+
+      # Actual duration percentage
+      duration_pct = round(min(duration_ms, max_display) / max_display * 100)
+
+      # Color based on duration relative to threshold
+      color =
+        cond do
+          duration_ms <= threshold * 0.5 -> "bg-success"
+          duration_ms <= threshold -> "bg-success/70"
+          duration_ms <= threshold * 1.5 -> "bg-warning"
+          duration_ms <= threshold * 2 -> "bg-warning/80"
+          true -> "bg-error"
+        end
+
+      assigns =
+        assigns
+        |> assign(:show, true)
+        |> assign(:is_slow, is_slow)
+        |> assign(:duration_ms, duration_ms)
+        |> assign(:threshold_pct, threshold_pct)
+        |> assign(:duration_pct, duration_pct)
+        |> assign(:color, color)
+
+      ~H"""
+      <div :if={@show} class="flex items-center gap-2 min-w-[5rem]">
+        <div class="relative h-3 w-16 bg-base-200/60 rounded-sm overflow-visible">
+          <%!-- Duration bar --%>
+          <div class={"h-full rounded-sm #{@color}"} style={"width: #{@duration_pct}%"} />
+          <%!-- Threshold marker line --%>
+          <div
+            class="absolute top-0 h-full w-px bg-base-content/50"
+            style={"left: #{@threshold_pct}%"}
+            title={"Threshold: #{@slow_threshold_ms}ms"}
+          />
+        </div>
+        <span :if={@is_slow} class="text-[10px] text-warning font-semibold">SLOW</span>
+      </div>
+      """
+    end
+  end
+
+  defp extract_duration_ms(metric) do
+    cond do
+      is_number(metric["duration_ms"]) -> metric["duration_ms"]
+      is_binary(metric["duration_ms"]) -> extract_number(metric["duration_ms"])
+      is_number(metric["duration_seconds"]) -> metric["duration_seconds"] * 1000
+      is_binary(metric["duration_seconds"]) ->
+        case extract_number(metric["duration_seconds"]) do
+          n when is_number(n) -> n * 1000
+          _ -> nil
+        end
+      true -> nil
+    end
+  end
+
+  # Get numeric value for visualization bar (excludes histograms)
+  defp metric_value_for_viz(metric) when is_map(metric) do
+    metric_type = normalize_string(Map.get(metric, "metric_type")) || ""
+
+    # Don't use duration_ms for histograms as it contains aggregate data
+    if metric_type == "histogram" do
+      nil
+    else
+      metric_value_ms(metric)
+    end
+  end
+
+  defp metric_value_for_viz(_), do: nil
 
   defp metric_type_badge_class(metric) do
     case metric |> Map.get("metric_type") |> normalize_severity() do
@@ -1467,9 +1609,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         Map.get(metric, "span_name") || "—"
     end
   end
-
-  defp slow_badge_class(true), do: "text-warning font-bold"
-  defp slow_badge_class(_), do: "text-base-content/50"
 
   defp correlate_trace_href(trace) do
     trace_id = trace |> Map.get("trace_id") |> escape_srql_value()
