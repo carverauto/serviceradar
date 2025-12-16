@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "devices",
       label: "Devices",
+      route: "/devices",
       default_time: "",
       default_sort_field: "last_seen",
       default_sort_dir: "desc",
@@ -15,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "pollers",
       label: "Pollers",
+      route: "/pollers",
       default_time: "",
       default_sort_field: "last_seen",
       default_sort_dir: "desc",
@@ -25,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "events",
       label: "Events",
+      route: "/events",
       default_time: "last_7d",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -43,6 +46,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "logs",
       label: "Logs",
+      route: "/logs",
       default_time: "last_7d",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -53,6 +57,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "services",
       label: "Services",
+      route: "/services",
       default_time: "last_7d",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -71,6 +76,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "interfaces",
       label: "Interfaces",
+      route: "/interfaces",
       default_time: "last_7d",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -89,6 +95,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "timeseries_metrics",
       label: "Timeseries Metrics",
+      route: "/dashboard",
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -121,6 +128,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "snmp_metrics",
       label: "SNMP Metrics",
+      route: "/dashboard",
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -151,6 +159,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "rperf_metrics",
       label: "rPerf Metrics",
+      route: "/dashboard",
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -181,6 +190,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "cpu_metrics",
       label: "CPU Metrics",
+      route: "/dashboard",
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -213,6 +223,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "memory_metrics",
       label: "Memory Metrics",
+      route: "/dashboard",
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -227,6 +238,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "disk_metrics",
       label: "Disk Metrics",
+      route: "/dashboard",
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -257,6 +269,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "process_metrics",
       label: "Process Metrics",
+      route: "/dashboard",
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",

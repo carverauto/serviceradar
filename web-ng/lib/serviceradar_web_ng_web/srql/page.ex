@@ -160,7 +160,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
   def handle_event(socket, "srql_submit", params, opts) do
     srql = Map.get(socket.assigns, :srql, %{})
-    page_path = srql[:page_path] || Keyword.get(opts, :fallback_path) || "/"
+    fallback_path = Keyword.get(opts, :fallback_path) || "/"
     extra_params = normalize_extra_params(Keyword.get(opts, :extra_params, %{}))
 
     raw_query = normalize_param_to_string(extract_param(params, "q")) || ""
@@ -170,11 +170,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
     limit = Map.get(socket.assigns, limit_assign_key)
 
+    # Extract entity from query and determine the target route
+    target_path = entity_route_from_query(query, fallback_path)
+    current_path = srql[:page_path] || fallback_path
+
     nav_params = Map.merge(extra_params, %{"q" => query, "limit" => limit})
 
     socket
     |> Phoenix.Component.assign(:srql, Map.put(srql, :builder_open, false))
-    |> Phoenix.LiveView.push_patch(to: page_path <> "?" <> URI.encode_query(nav_params))
+    |> navigate_to_path(target_path, current_path, nav_params)
   end
 
   def handle_event(socket, "srql_builder_toggle", _params, opts) do
@@ -333,7 +337,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
   def handle_event(socket, "srql_builder_run", _params, opts) do
     srql = Map.get(socket.assigns, :srql, %{})
-    page_path = srql[:page_path] || Keyword.get(opts, :fallback_path) || "/"
+    fallback_path = Keyword.get(opts, :fallback_path) || "/"
     extra_params = normalize_extra_params(Keyword.get(opts, :extra_params, %{}))
 
     if not Map.get(srql, :builder_available, false) do
@@ -346,16 +350,45 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
       limit = Map.get(socket.assigns, limit_assign_key)
 
+      # Extract entity from builder and determine the target route
+      queried_entity = Map.get(builder, "entity", "devices")
+      target_path = Catalog.entity(queried_entity)[:route] || fallback_path
+      current_path = srql[:page_path] || fallback_path
+
       nav_params = Map.merge(extra_params, %{"q" => query, "limit" => limit})
 
       # Close builder and navigate with the new query
       socket
       |> Phoenix.Component.assign(:srql, Map.put(srql, :builder_open, false))
-      |> Phoenix.LiveView.push_patch(to: page_path <> "?" <> URI.encode_query(nav_params))
+      |> navigate_to_path(target_path, current_path, nav_params)
     end
   end
 
   def handle_event(socket, _event, _params, _opts), do: socket
+
+  # Extracts entity from SRQL query and returns the appropriate route
+  defp entity_route_from_query(query, fallback_path) when is_binary(query) do
+    case Regex.run(~r/(?:^|\s)in:(\S+)/, query) do
+      [_, entity] ->
+        Catalog.entity(entity)[:route] || fallback_path
+
+      _ ->
+        fallback_path
+    end
+  end
+
+  defp entity_route_from_query(_query, fallback_path), do: fallback_path
+
+  # Navigates to target path - uses push_patch if same path, push_navigate if different
+  defp navigate_to_path(socket, target_path, current_path, params) do
+    url = target_path <> "?" <> URI.encode_query(params)
+
+    if target_path == current_path do
+      Phoenix.LiveView.push_patch(socket, to: url)
+    else
+      Phoenix.LiveView.push_navigate(socket, to: url)
+    end
+  end
 
   defp normalize_extra_params(%{} = params) do
     params

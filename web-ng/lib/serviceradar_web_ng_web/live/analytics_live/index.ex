@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   import Ecto.Query
   alias ServiceRadarWebNG.Repo
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Logger
 
@@ -69,6 +70,21 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     srql = socket.assigns.srql
     new_srql = Map.put(srql, :draft, query)
     {:noreply, assign(socket, :srql, new_srql)}
+  end
+
+  def handle_event("srql_builder_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
+  end
+
+  def handle_event("srql_builder_add_filter", params, socket) do
+    # Get entity from builder state, default to "devices"
+    entity = get_in(socket.assigns, [:srql, :builder, "entity"]) || "devices"
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: entity)}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    entity = get_in(socket.assigns, [:srql, :builder, "entity"]) || "devices"
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: entity)}
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}

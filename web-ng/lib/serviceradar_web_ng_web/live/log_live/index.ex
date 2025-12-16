@@ -1,9 +1,11 @@
 defmodule ServiceRadarWebNGWeb.LogLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
+  import Ecto.Query
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
+  alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 20
@@ -19,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:logs, [])
      |> assign(:traces, [])
      |> assign(:metrics, [])
+     |> assign(:sparklines, %{})
      |> assign(:summary, %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0})
      |> assign(:trace_stats, %{total: 0, error_traces: 0, slow_traces: 0})
      |> assign(:trace_latency, %{
@@ -93,7 +96,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
         "metrics" ->
           metrics_counts = load_metrics_counts(srql_module)
-          duration_stats = compute_duration_stats(socket.assigns.metrics, "duration_ms")
+          # Query duration stats from continuous aggregation for full 24h data
+          duration_stats = load_duration_stats_from_cagg()
 
           metrics_stats =
             metrics_counts
@@ -103,8 +107,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               compute_error_rate(metrics_counts.total, metrics_counts.error_spans)
             )
 
+          # Load sparkline data for gauge/counter metrics
+          sparklines = load_sparklines(socket.assigns.metrics)
+
           socket
           |> assign(:metrics_stats, metrics_stats)
+          |> assign(:sparklines, sparklines)
           |> assign(:trace_stats, %{total: 0, error_traces: 0, slow_traces: 0})
           |> assign(:trace_latency, %{
             avg_duration_ms: 0.0,
@@ -240,7 +248,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
             <.logs_table :if={@active_tab == "logs"} id="logs" logs={@logs} />
             <.traces_table :if={@active_tab == "traces"} id="traces" traces={@traces} />
-            <.metrics_table :if={@active_tab == "metrics"} id="metrics" metrics={@metrics} />
+            <.metrics_table :if={@active_tab == "metrics"} id="metrics" metrics={@metrics} sparklines={@sparklines} />
 
             <div class="mt-4 pt-4 border-t border-base-200">
               <.ui_pagination
@@ -694,6 +702,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   attr :id, :string, required: true
   attr :metrics, :list, default: []
+  attr :sparklines, :map, default: %{}
 
   defp metrics_table(assigns) do
     values =
@@ -734,10 +743,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               Value
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-32">
-              Viz
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
-              Slow
+              Trend
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20 text-right">
               Logs
@@ -746,7 +752,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </thead>
         <tbody>
           <tr :if={@metrics == []}>
-            <td colspan="8" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="7" class="text-sm text-base-content/60 py-8 text-center">
               No metrics found.
             </td>
           </tr>
@@ -788,10 +794,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 {format_metric_value(metric)}
               </td>
               <td class="whitespace-nowrap text-xs">
-                <.metric_viz metric={metric} min_v={@min_v} max_v={@max_v} />
-              </td>
-              <td class="whitespace-nowrap text-xs">
-                <.slow_span_viz metric={metric} />
+                <.metric_viz metric={metric} sparklines={@sparklines} />
               </td>
               <td class="whitespace-nowrap text-xs text-right">
                 <.link
@@ -820,23 +823,132 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   attr :metric, :map, required: true
-  attr :min_v, :float, default: 0.0
-  attr :max_v, :float, default: 0.0
+  attr :sparklines, :map, default: %{}
 
   defp metric_viz(assigns) do
     metric_type = normalize_string(Map.get(assigns.metric, "metric_type")) || ""
+    metric_name = Map.get(assigns.metric, "metric_name")
 
-    assigns = assign(assigns, :metric_type, metric_type)
+    # Get sparkline data for this metric
+    sparkline_data = Map.get(assigns.sparklines, metric_name, [])
+
+    assigns =
+      assigns
+      |> assign(:metric_type, metric_type)
+      |> assign(:sparkline_data, sparkline_data)
 
     ~H"""
     <%= case @metric_type do %>
       <% "histogram" -> %>
         <.histogram_viz metric={@metric} />
+      <% type when type in ["gauge", "counter"] -> %>
+        <%= if length(@sparkline_data) >= 3 do %>
+          <.sparkline data={@sparkline_data} />
+        <% else %>
+          <span class="text-base-content/30">—</span>
+        <% end %>
+      <% "span" -> %>
+        <.span_duration_viz metric={@metric} />
       <% _ -> %>
-        <%!-- Gauges and counters don't need a viz bar - value column is sufficient --%>
         <span class="text-base-content/30">—</span>
     <% end %>
     """
+  end
+
+  attr :data, :list, required: true
+
+  defp sparkline(assigns) do
+    data = assigns.data
+    min_val = Enum.min(data)
+    max_val = Enum.max(data)
+    range = max_val - min_val
+
+    # Normalize to 0-100 range for SVG, with some padding
+    points =
+      data
+      |> Enum.with_index()
+      |> Enum.map(fn {val, idx} ->
+        x = idx / max(length(data) - 1, 1) * 100
+        y = if range > 0, do: 100 - (val - min_val) / range * 80 - 10, else: 50
+        "#{Float.round(x, 1)},#{Float.round(y, 1)}"
+      end)
+      |> Enum.join(" ")
+
+    # Determine trend color based on first vs last value
+    first_val = List.first(data) || 0
+    last_val = List.last(data) || 0
+    trend_color = if last_val > first_val * 1.1, do: "stroke-warning", else: "stroke-info"
+
+    assigns =
+      assigns
+      |> assign(:points, points)
+      |> assign(:trend_color, trend_color)
+
+    ~H"""
+    <svg viewBox="0 0 100 100" class="w-20 h-6" preserveAspectRatio="none">
+      <polyline
+        points={@points}
+        fill="none"
+        class={[@trend_color, "opacity-70"]}
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+    """
+  end
+
+  attr :metric, :map, required: true
+
+  # Duration visualization for span-type metrics
+  defp span_duration_viz(assigns) do
+    duration_ms = extract_duration_ms(assigns.metric)
+    is_slow = Map.get(assigns.metric, "is_slow") == true
+
+    # If no duration, show dash
+    if is_nil(duration_ms) or duration_ms <= 0 do
+      ~H"""
+      <span class="text-base-content/30">—</span>
+      """
+    else
+      # Scale 0-1500ms to 0-100% (threshold at 500ms = 33%)
+      threshold_ms = 500
+      max_display_ms = threshold_ms * 3
+      pct = min(duration_ms / max_display_ms * 100, 100)
+      threshold_pct = threshold_ms / max_display_ms * 100
+
+      # Color based on duration relative to threshold
+      bar_color =
+        cond do
+          duration_ms <= threshold_ms * 0.5 -> "bg-success"
+          duration_ms <= threshold_ms -> "bg-success/70"
+          duration_ms <= threshold_ms * 1.5 -> "bg-warning"
+          duration_ms <= threshold_ms * 2 -> "bg-warning/80"
+          true -> "bg-error"
+        end
+
+      assigns =
+        assigns
+        |> assign(:pct, pct)
+        |> assign(:threshold_pct, threshold_pct)
+        |> assign(:bar_color, bar_color)
+        |> assign(:is_slow, is_slow)
+        |> assign(:duration_ms, duration_ms)
+
+      ~H"""
+      <div class="flex items-center gap-2 min-w-[5rem]" title={"#{Float.round(@duration_ms * 1.0, 1)}ms"}>
+        <div class="relative h-2 w-16 bg-base-200/60 rounded-sm overflow-visible">
+          <div class={"h-full rounded-sm #{@bar_color}"} style={"width: #{@pct}%"} />
+          <div
+            class="absolute top-0 h-full w-px bg-base-content/40"
+            style={"left: #{@threshold_pct}%"}
+            title="500ms threshold"
+          />
+        </div>
+        <span :if={@is_slow} class="text-[10px] text-warning font-semibold">SLOW</span>
+      </div>
+      """
+    end
   end
 
   attr :metric, :map, required: true
@@ -885,76 +997,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       is_binary(metric["count"]) -> trunc(extract_number(metric["count"]) || 0)
       is_number(metric["bucket_count"]) -> trunc(metric["bucket_count"])
       true -> 0
-    end
-  end
-
-  # Slow span threshold (in ms) - spans exceeding this are considered slow
-  @slow_threshold_ms 500
-
-  attr :metric, :map, required: true
-
-  defp slow_span_viz(assigns) do
-    is_slow = Map.get(assigns.metric, "is_slow") == true
-    duration_ms = extract_duration_ms(assigns.metric)
-    metric_type = normalize_string(Map.get(assigns.metric, "metric_type")) || ""
-
-    # Slow span viz is ONLY for actual request spans (not gauges, histograms, or counters)
-    # These are metrics that represent individual HTTP/gRPC requests with timing
-    is_span_metric = metric_type not in ["gauge", "histogram", "counter", "sum"] and
-                     is_timing_metric?(assigns.metric)
-
-    # If not a span metric or no duration, show nothing
-    if not is_span_metric or is_nil(duration_ms) or duration_ms == 0 do
-      ~H"""
-      <span></span>
-      """
-    else
-      # Calculate how far beyond threshold we are
-      # Max display is 3x the threshold (everything beyond that caps at 100%)
-      threshold = @slow_threshold_ms
-      max_display = threshold * 3
-
-      # Percentage of the threshold bar (0-33% = under threshold, 33-100% = over)
-      threshold_pct = round(threshold / max_display * 100)
-
-      # Actual duration percentage
-      duration_pct = round(min(duration_ms, max_display) / max_display * 100)
-
-      # Color based on duration relative to threshold
-      color =
-        cond do
-          duration_ms <= threshold * 0.5 -> "bg-success"
-          duration_ms <= threshold -> "bg-success/70"
-          duration_ms <= threshold * 1.5 -> "bg-warning"
-          duration_ms <= threshold * 2 -> "bg-warning/80"
-          true -> "bg-error"
-        end
-
-      assigns =
-        assigns
-        |> assign(:show, true)
-        |> assign(:is_slow, is_slow)
-        |> assign(:duration_ms, duration_ms)
-        |> assign(:threshold_pct, threshold_pct)
-        |> assign(:duration_pct, duration_pct)
-        |> assign(:color, color)
-        |> assign(:threshold_ms, @slow_threshold_ms)
-
-      ~H"""
-      <div :if={@show} class="flex items-center gap-2 min-w-[5rem]">
-        <div class="relative h-3 w-16 bg-base-200/60 rounded-sm overflow-visible">
-          <%!-- Duration bar --%>
-          <div class={"h-full rounded-sm #{@color}"} style={"width: #{@duration_pct}%"} />
-          <%!-- Threshold marker line --%>
-          <div
-            class="absolute top-0 h-full w-px bg-base-content/50"
-            style={"left: #{@threshold_pct}%"}
-            title={"Threshold: #{@threshold_ms}ms"}
-          />
-        </div>
-        <span :if={@is_slow} class="text-[10px] text-warning font-semibold">SLOW</span>
-      </div>
-      """
     end
   end
 
@@ -1007,8 +1049,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
         # PRIORITY 2: Only format as duration if:
         # - Metric name explicitly suggests duration/latency/time, OR
-        # - It's a span type with actual HTTP/gRPC context (not just empty attributes)
+        # - It's a span type (all spans should show duration if available)
         is_duration_metric?(metric_name) and has_duration_field?(metric) ->
+          format_duration_value(metric)
+
+        # Spans should always show duration_ms - that's their primary metric
+        metric_type == "span" and has_duration_field?(metric) ->
           format_duration_value(metric)
 
         is_actual_timing_span?(metric) and has_duration_field?(metric) ->
@@ -1685,6 +1731,110 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     %{total: total, slow_spans: slow_spans, error_spans: error_spans}
   end
 
+  # Load duration stats from the continuous aggregation for full 24h data
+  defp load_duration_stats_from_cagg do
+    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+
+    query =
+      from(s in "otel_metrics_hourly_stats",
+        where: s.bucket >= ^cutoff,
+        select: %{
+          total_count: sum(s.total_count),
+          avg_duration_ms:
+            fragment(
+              "CASE WHEN SUM(?) > 0 THEN SUM(? * ?) / SUM(?) ELSE 0 END",
+              s.total_count,
+              s.avg_duration_ms,
+              s.total_count,
+              s.total_count
+            ),
+          p95_duration_ms: max(s.p95_duration_ms)
+        }
+      )
+
+    case Repo.one(query) do
+      %{total_count: total} = stats when not is_nil(total) and total > 0 ->
+        avg = case stats.avg_duration_ms do
+          %Decimal{} = d -> Decimal.to_float(d)
+          n when is_number(n) -> n * 1.0
+          _ -> 0.0
+        end
+
+        p95 = case stats.p95_duration_ms do
+          %Decimal{} = d -> Decimal.to_float(d)
+          n when is_number(n) -> n * 1.0
+          _ -> 0.0
+        end
+
+        %{
+          avg_duration_ms: avg,
+          p95_duration_ms: p95,
+          sample_size: to_int(total)
+        }
+
+      _ ->
+        %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
+    end
+  rescue
+    e ->
+      require Logger
+      Logger.warning("Failed to load duration stats from cagg: #{inspect(e)}")
+      %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
+  end
+
+  # Load sparkline data for gauge/counter metrics
+  # Returns a map of metric_name -> list of {bucket, avg_value} tuples
+  defp load_sparklines(metrics) when is_list(metrics) do
+    # Extract unique metric names for gauges and counters
+    metric_names =
+      metrics
+      |> Enum.filter(fn m ->
+        type = normalize_string(Map.get(m, "metric_type"))
+        type in ["gauge", "counter"]
+      end)
+      |> Enum.map(fn m -> Map.get(m, "metric_name") end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    if metric_names == [] do
+      %{}
+    else
+      # Query last 2 hours of data, bucketed into 5-minute intervals (24 points)
+      cutoff = DateTime.add(DateTime.utc_now(), -2, :hour)
+
+      query =
+        from(m in "otel_metrics",
+          where: m.metric_name in ^metric_names and m.timestamp >= ^cutoff,
+          group_by: [m.metric_name, fragment("time_bucket('5 minutes', ?)", m.timestamp)],
+          order_by: [m.metric_name, fragment("time_bucket('5 minutes', ?)", m.timestamp)],
+          select: %{
+            metric_name: m.metric_name,
+            bucket: fragment("time_bucket('5 minutes', ?)", m.timestamp),
+            avg_value: avg(m.value)
+          }
+        )
+
+      query
+      |> Repo.all()
+      |> Enum.group_by(& &1.metric_name, fn row ->
+        # Extract just the numeric value for sparklines
+        case row.avg_value do
+          %Decimal{} = d -> Decimal.to_float(d)
+          n when is_number(n) -> n * 1.0
+          _ -> 0.0
+        end
+      end)
+    end
+  rescue
+    e ->
+      # Log error but don't crash - sparklines are nice-to-have
+      require Logger
+      Logger.warning("Failed to load sparklines: #{inspect(e)}")
+      %{}
+  end
+
+  defp load_sparklines(_), do: %{}
+
   defp compute_error_rate(total, errors) when is_integer(total) and total > 0 do
     Float.round(errors / total * 100.0, 1)
   end
@@ -1745,63 +1895,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp unique_services_from_traces(_), do: %{}
-
-  defp compute_duration_stats(rows, field) when is_list(rows) and is_binary(field) do
-    # Only include metrics that are actual timing spans (HTTP/gRPC requests)
-    # Exclude gauge/counter metrics where duration_ms contains non-duration values
-    durations =
-      rows
-      |> Enum.filter(&is_map/1)
-      |> Enum.filter(&is_timing_metric?/1)
-      |> Enum.map(fn row -> extract_number(Map.get(row, field)) end)
-      |> Enum.filter(&is_number/1)
-      # Filter out obviously wrong values (> 1 hour in ms is suspicious for a single request)
-      |> Enum.filter(fn ms -> ms >= 0 and ms < 3_600_000 end)
-
-    sample_size = length(durations)
-
-    avg =
-      if sample_size > 0 do
-        Enum.sum(durations) / sample_size
-      else
-        0.0
-      end
-
-    p95 =
-      if sample_size > 0 do
-        sorted = Enum.sort(durations)
-        idx = trunc(Float.floor(sample_size * 0.95))
-        Enum.at(sorted, min(idx, sample_size - 1)) || 0.0
-      else
-        0.0
-      end
-
-    %{avg_duration_ms: avg, p95_duration_ms: p95, sample_size: sample_size}
-  end
-
-  defp compute_duration_stats(_rows, _field),
-    do: %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
-
-  # Check if a metric row represents an actual timing measurement (HTTP/gRPC/trace span)
-  # rather than a gauge/counter that happens to have a duration_ms field
-  defp is_timing_metric?(row) when is_map(row) do
-    metric_name = Map.get(row, "span_name") || Map.get(row, "metric_name") || ""
-    downcased = String.downcase(metric_name)
-
-    # Exclude known non-timing metrics
-    is_bytes = String.contains?(downcased, "bytes") or String.contains?(downcased, "heap") or
-               String.contains?(downcased, "memory") or String.contains?(downcased, "alloc")
-    is_count = String.ends_with?(downcased, "_count") or String.ends_with?(downcased, "_total") or
-               String.contains?(downcased, "goroutines") or String.contains?(downcased, "threads")
-
-    # Include if it has HTTP/gRPC attributes OR is not a known non-timing metric
-    has_http = is_binary(Map.get(row, "http_route")) or is_binary(Map.get(row, "http_method"))
-    has_grpc = is_binary(Map.get(row, "grpc_service")) or is_binary(Map.get(row, "grpc_method"))
-
-    (has_http or has_grpc) and not is_bytes and not is_count
-  end
-
-  defp is_timing_metric?(_), do: false
 
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
   defp format_pct(value) when is_integer(value), do: Integer.to_string(value)
