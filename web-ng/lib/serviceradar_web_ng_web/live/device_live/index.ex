@@ -12,6 +12,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   @sparkline_bucket "5m"
   @sparkline_window "last_1h"
   @sparkline_threshold_ms 100.0
+  @presence_window "last_24h"
+  @presence_bucket "24h"
+  @presence_device_cap 200
 
   @impl true
   def mount(_params, _session, socket) do
@@ -21,6 +24,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:devices, [])
      |> assign(:icmp_sparklines, %{})
      |> assign(:icmp_error, nil)
+     |> assign(:snmp_presence, %{})
+     |> assign(:sysmon_presence, %{})
      |> assign(:limit, @default_limit)
      |> SRQLPage.init("devices", default_limit: @default_limit)}
   end
@@ -35,8 +40,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       )
 
     {icmp_sparklines, icmp_error} = load_icmp_sparklines(srql_module(), socket.assigns.devices)
+    {snmp_presence, sysmon_presence} = load_metric_presence(srql_module(), socket.assigns.devices)
 
-    {:noreply, assign(socket, icmp_sparklines: icmp_sparklines, icmp_error: icmp_error)}
+    {:noreply,
+     assign(socket,
+       icmp_sparklines: icmp_sparklines,
+       icmp_error: icmp_error,
+       snmp_presence: snmp_presence,
+       sysmon_presence: sysmon_presence
+     )}
   end
 
   @impl true
@@ -114,13 +126,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   >
                     Network
                   </th>
+                  <th
+                    class="text-xs font-semibold text-base-content/70 bg-base-200/60"
+                    title="Telemetry availability for this device"
+                  >
+                    Metrics
+                  </th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Poller</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Last Seen</th>
                 </tr>
               </thead>
               <tbody>
                 <tr :if={@devices == []}>
-                  <td colspan="7" class="py-8 text-center text-sm text-base-content/60">
+                  <td colspan="8" class="py-8 text-center text-sm text-base-content/60">
                     No devices found.
                   </td>
                 </tr>
@@ -129,6 +147,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   <% device_id = Map.get(row, "device_id") || Map.get(row, "id") %>
                   <% icmp =
                     if is_binary(device_id), do: Map.get(@icmp_sparklines, device_id), else: nil %>
+                  <% has_snmp =
+                    is_binary(device_id) and Map.get(@snmp_presence, device_id, false) == true %>
+                  <% has_sysmon =
+                    is_binary(device_id) and Map.get(@sysmon_presence, device_id, false) == true %>
                   <tr class="hover:bg-base-200/40">
                     <td class="font-mono text-xs">
                       <.link
@@ -148,6 +170,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     <td class="text-xs">
                       <.icmp_sparkline :if={is_map(icmp)} spark={icmp} />
                       <span :if={not is_map(icmp)} class="text-base-content/40">—</span>
+                    </td>
+                    <td class="text-xs">
+                      <.metrics_presence has_snmp={has_snmp} has_sysmon={has_sysmon} />
                     </td>
                     <td class="font-mono text-xs">{Map.get(row, "poller_id") || "—"}</td>
                     <td class="font-mono text-xs">
@@ -237,6 +262,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       <div class="tabular-nums text-[11px] font-bold text-base-content">
         {format_ms(@latest_ms)}
       </div>
+    </div>
+    """
+  end
+
+  attr :has_snmp, :boolean, default: false
+  attr :has_sysmon, :boolean, default: false
+
+  def metrics_presence(assigns) do
+    assigns =
+      assigns
+      |> assign(:snmp_class, (assigns.has_snmp && "opacity-100") || "opacity-40")
+      |> assign(:sysmon_class, (assigns.has_sysmon && "opacity-100") || "opacity-40")
+
+    ~H"""
+    <div class="flex flex-wrap items-center gap-1">
+      <.ui_badge
+        variant={if @has_snmp, do: "info", else: "ghost"}
+        size="xs"
+        class={@snmp_class}
+        title={
+          if @has_snmp, do: "SNMP metrics available (last 24h)", else: "No SNMP metrics (last 24h)"
+        }
+      >
+        SNMP
+      </.ui_badge>
+      <.ui_badge
+        variant={if @has_sysmon, do: "success", else: "ghost"}
+        size="xs"
+        class={@sysmon_class}
+        title={
+          if @has_sysmon,
+            do: "Sysmon metrics available (last 24h)",
+            else: "No Sysmon metrics (last 24h)"
+        }
+      >
+        Sysmon
+      </.ui_badge>
     </div>
     """
   end
@@ -421,6 +483,86 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     |> String.replace("\"", "\\\"")
     |> then(&"\"#{&1}\"")
   end
+
+  defp load_metric_presence(srql_module, devices) do
+    device_ids =
+      devices
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn row -> Map.get(row, "device_id") || Map.get(row, "id") end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+      |> Enum.take(@presence_device_cap)
+
+    if device_ids == [] do
+      {%{}, %{}}
+    else
+      list = Enum.map_join(device_ids, ",", &escape_list_value/1)
+      limit = min(length(device_ids) * 3, 2000)
+
+      snmp_query =
+        [
+          "in:snmp_metrics",
+          "device_id:(#{list})",
+          "time:#{@presence_window}",
+          "bucket:#{@presence_bucket}",
+          "agg:count",
+          "series:device_id",
+          "limit:#{limit}"
+        ]
+        |> Enum.join(" ")
+
+      sysmon_query =
+        [
+          "in:cpu_metrics",
+          "device_id:(#{list})",
+          "time:#{@presence_window}",
+          "bucket:#{@presence_bucket}",
+          "agg:count",
+          "series:device_id",
+          "limit:#{limit}"
+        ]
+        |> Enum.join(" ")
+
+      {snmp_presence, sysmon_presence} =
+        [snmp: snmp_query, sysmon: sysmon_query]
+        |> Task.async_stream(
+          fn {key, query} -> {key, srql_module.query(query)} end,
+          ordered: false,
+          timeout: 30_000
+        )
+        |> Enum.reduce({%{}, %{}}, fn
+          {:ok, {:snmp, {:ok, %{"results" => rows}}}}, {_snmp, sysmon} ->
+            {presence_from_downsample(rows), sysmon}
+
+          {:ok, {:sysmon, {:ok, %{"results" => rows}}}}, {snmp, _sysmon} ->
+            {snmp, presence_from_downsample(rows)}
+
+          _, acc ->
+            acc
+        end)
+
+      {snmp_presence, sysmon_presence}
+    end
+  end
+
+  defp presence_from_downsample(rows) when is_list(rows) do
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.reduce(%{}, fn row, acc ->
+      series = Map.get(row, "series")
+      value = Map.get(row, "value")
+
+      if is_binary(series) and series != "" and is_number(value) and value > 0 do
+        Map.put(acc, series, true)
+      else
+        acc
+      end
+    end)
+  end
+
+  defp presence_from_downsample(_), do: %{}
 
   defp build_icmp_sparklines(rows) when is_list(rows) do
     rows

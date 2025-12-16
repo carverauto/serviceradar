@@ -412,38 +412,62 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
       <div class="px-4 py-3 border-b border-base-200">
-        <span class="text-sm font-semibold">Availability (24h)</span>
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="text-sm font-semibold">Availability Timeline</div>
+            <div class="text-xs text-base-content/60">
+              Last 24h · each block = 30m bucket · green = online, red = offline
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="text-sm font-semibold tabular-nums">{format_pct(@uptime_pct)}%</div>
+            <div class="text-xs text-base-content/60">uptime (bucketed)</div>
+          </div>
+        </div>
       </div>
 
       <div class="p-4">
-        <div class="flex items-center gap-6 mb-4">
-          <div class="flex flex-col">
-            <span class="text-3xl font-bold tabular-nums">{format_pct(@uptime_pct)}%</span>
-            <span class="text-xs text-base-content/60">Uptime</span>
+        <div :if={@segments != []} class="space-y-2">
+          <div class="flex items-center justify-between text-xs text-base-content/60">
+            <span>24h ago</span>
+            <span>now</span>
           </div>
-          <div class="flex gap-4 text-sm">
-            <div class="flex items-center gap-2">
-              <span class="w-3 h-3 rounded-full bg-success"></span>
-              <span class="tabular-nums">{@online_checks}</span>
-              <span class="text-base-content/60">online</span>
+
+          <div class="h-6 rounded-lg bg-base-200/50 p-0.5">
+            <div class="h-full grid grid-flow-col auto-cols-fr gap-px rounded-md overflow-hidden bg-base-300/60">
+              <%= for {seg, idx} <- Enum.with_index(@segments) do %>
+                <div
+                  class={[
+                    "h-full transition-opacity",
+                    (seg.available && "bg-success") || "bg-error",
+                    idx == 0 && "rounded-l-sm",
+                    idx == length(@segments) - 1 && "rounded-r-sm"
+                  ]}
+                  title={seg.title}
+                />
+              <% end %>
             </div>
-            <div class="flex items-center gap-2">
-              <span class="w-3 h-3 rounded-full bg-error"></span>
-              <span class="tabular-nums">{@offline_checks}</span>
-              <span class="text-base-content/60">offline</span>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <div class="flex items-center gap-4">
+              <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-sm bg-success"></span>
+                <span class="tabular-nums font-semibold">{@online_checks}</span>
+                <span class="text-base-content/60">online buckets</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-sm bg-error"></span>
+                <span class="tabular-nums font-semibold">{@offline_checks}</span>
+                <span class="text-base-content/60">offline buckets</span>
+              </div>
+            </div>
+            <div class="text-xs text-base-content/50 tabular-nums">
+              {@total_checks} total buckets
             </div>
           </div>
         </div>
 
-        <div :if={@segments != []} class="h-6 flex rounded-lg overflow-hidden bg-base-200">
-          <%= for seg <- @segments do %>
-            <div
-              class={["h-full", (seg.available && "bg-success") || "bg-error"]}
-              style={"width: #{seg.width}%"}
-              title={seg.title}
-            />
-          <% end %>
-        </div>
         <div :if={@segments == []} class="text-sm text-base-content/60">
           No availability data found.
         </div>

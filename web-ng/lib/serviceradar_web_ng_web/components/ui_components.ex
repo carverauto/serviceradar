@@ -129,13 +129,14 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :variant, :string, default: "ghost", values: ~w(ghost warning success error info)
   attr :size, :string, default: "sm", values: ~w(xs sm md)
   attr :class, :any, default: nil
+  attr :rest, :global
   slot :inner_block, required: true
 
   def ui_badge(assigns) do
     assigns = assign(assigns, :computed_class, ui_badge_class(assigns))
 
     ~H"""
-    <span class={@computed_class}>{render_slot(@inner_block)}</span>
+    <span class={@computed_class} {@rest}>{render_slot(@inner_block)}</span>
     """
   end
 

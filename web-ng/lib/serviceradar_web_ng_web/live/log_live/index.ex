@@ -21,7 +21,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:metrics, [])
      |> assign(:summary, %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0})
      |> assign(:trace_stats, %{total: 0, error_traces: 0, slow_traces: 0})
-     |> assign(:metrics_total, 0)
+     |> assign(:trace_latency, %{
+       avg_duration_ms: 0.0,
+       p95_duration_ms: 0.0,
+       service_count: 0,
+       sample_size: 0
+     })
+     |> assign(:metrics_stats, %{
+       total: 0,
+       slow_spans: 0,
+       error_spans: 0,
+       error_rate: 0.0,
+       avg_duration_ms: 0.0,
+       p95_duration_ms: 0.0,
+       sample_size: 0
+     })
      |> assign(:limit, @default_limit)
      |> SRQLPage.init("logs", default_limit: @default_limit)}
   end
@@ -62,14 +76,42 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     socket =
       case tab do
         "traces" ->
+          trace_latency = compute_trace_latency(socket.assigns.traces)
+
           socket
           |> assign(:trace_stats, load_trace_stats(srql_module))
-          |> assign(:metrics_total, 0)
+          |> assign(:trace_latency, trace_latency)
+          |> assign(:metrics_stats, %{
+            total: 0,
+            slow_spans: 0,
+            error_spans: 0,
+            error_rate: 0.0,
+            avg_duration_ms: 0.0,
+            p95_duration_ms: 0.0,
+            sample_size: 0
+          })
 
         "metrics" ->
+          metrics_counts = load_metrics_counts(srql_module)
+          duration_stats = compute_duration_stats(socket.assigns.metrics, "duration_ms")
+
+          metrics_stats =
+            metrics_counts
+            |> Map.merge(duration_stats)
+            |> Map.put(
+              :error_rate,
+              compute_error_rate(metrics_counts.total, metrics_counts.error_spans)
+            )
+
           socket
-          |> assign(:metrics_total, load_metrics_total(srql_module))
+          |> assign(:metrics_stats, metrics_stats)
           |> assign(:trace_stats, %{total: 0, error_traces: 0, slow_traces: 0})
+          |> assign(:trace_latency, %{
+            avg_duration_ms: 0.0,
+            p95_duration_ms: 0.0,
+            service_count: 0,
+            sample_size: 0
+          })
 
         _ ->
           summary = load_summary(srql_module, Map.get(socket.assigns.srql, :query))
@@ -86,7 +128,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           socket
           |> assign(:summary, summary)
           |> assign(:trace_stats, %{total: 0, error_traces: 0, slow_traces: 0})
-          |> assign(:metrics_total, 0)
+          |> assign(:trace_latency, %{
+            avg_duration_ms: 0.0,
+            p95_duration_ms: 0.0,
+            service_count: 0,
+            sample_size: 0
+          })
+          |> assign(:metrics_stats, %{
+            total: 0,
+            slow_spans: 0,
+            error_spans: 0,
+            error_rate: 0.0,
+            avg_duration_ms: 0.0,
+            p95_duration_ms: 0.0,
+            sample_size: 0
+          })
       end
 
     {:noreply, socket}
@@ -165,8 +221,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <.observability_tabs active={@active_tab} />
 
           <.log_summary :if={@active_tab == "logs"} summary={@summary} />
-          <.traces_summary :if={@active_tab == "traces"} stats={@trace_stats} />
-          <.metrics_summary :if={@active_tab == "metrics"} total={@metrics_total} />
+          <.traces_summary
+            :if={@active_tab == "traces"}
+            stats={@trace_stats}
+            latency={@trace_latency}
+          />
+          <.metrics_summary :if={@active_tab == "metrics"} stats={@metrics_stats} />
 
           <.ui_panel>
             <:header>
@@ -345,48 +405,162 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   attr :stats, :map, required: true
+  attr :latency, :map, required: true
 
   defp traces_summary(assigns) do
     total = Map.get(assigns.stats, :total, 0)
     error_traces = Map.get(assigns.stats, :error_traces, 0)
     slow_traces = Map.get(assigns.stats, :slow_traces, 0)
     error_rate = if total > 0, do: Float.round(error_traces / total * 100.0, 1), else: 0.0
+    successful = max(total - error_traces, 0)
+
+    avg_duration_ms = Map.get(assigns.latency, :avg_duration_ms, 0.0)
+    p95_duration_ms = Map.get(assigns.latency, :p95_duration_ms, 0.0)
+    services_count = Map.get(assigns.latency, :service_count, 0)
+    sample_size = Map.get(assigns.latency, :sample_size, 0)
 
     assigns =
       assigns
       |> assign(:total, total)
+      |> assign(:successful, successful)
       |> assign(:error_traces, error_traces)
       |> assign(:slow_traces, slow_traces)
       |> assign(:error_rate, error_rate)
+      |> assign(:avg_duration_ms, avg_duration_ms)
+      |> assign(:p95_duration_ms, p95_duration_ms)
+      |> assign(:services_count, services_count)
+      |> assign(:sample_size, sample_size)
 
     ~H"""
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
-        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Traces (24h)</div>
-        <div class="text-2xl font-bold">{@total}</div>
-      </div>
-      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
-        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Error Rate</div>
-        <div class={["text-2xl font-bold", @error_rate > 5 && "text-error"]}>{@error_rate}%</div>
-        <div class="text-xs text-base-content/50">{@error_traces} error traces</div>
-      </div>
-      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
-        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Slow Traces</div>
-        <div class={["text-2xl font-bold", @slow_traces > 0 && "text-warning"]}>{@slow_traces}</div>
-        <div class="text-xs text-base-content/50">&gt;100ms</div>
-      </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+      <.obs_stat title="Total Traces" value={format_compact_int(@total)} icon="hero-clock" />
+      <.obs_stat
+        title="Successful"
+        value={format_compact_int(@successful)}
+        icon="hero-check-circle"
+        tone="success"
+      />
+      <.obs_stat
+        title="Errors"
+        value={format_compact_int(@error_traces)}
+        icon="hero-x-circle"
+        tone={if @error_traces > 0, do: "error", else: "success"}
+      />
+      <.obs_stat
+        title="Error Rate"
+        value={"#{format_pct(@error_rate)}%"}
+        icon="hero-trending-up"
+        tone={if @error_rate > 1.0, do: "error", else: "success"}
+      />
+      <.obs_stat
+        title="Avg Duration"
+        value={format_duration_ms(@avg_duration_ms)}
+        subtitle={if @sample_size > 0, do: "sample (#{@sample_size})", else: "sample"}
+        icon="hero-chart-bar"
+        tone="info"
+      />
+      <.obs_stat
+        title="P95 Duration"
+        value={format_duration_ms(@p95_duration_ms)}
+        subtitle={if @services_count > 0, do: "#{@services_count} services", else: "sample"}
+        icon="hero-bolt"
+        tone="warning"
+      />
     </div>
     """
   end
 
-  attr :total, :integer, required: true
+  attr :stats, :map, required: true
 
   defp metrics_summary(assigns) do
+    total = Map.get(assigns.stats, :total, 0)
+    slow_spans = Map.get(assigns.stats, :slow_spans, 0)
+    error_spans = Map.get(assigns.stats, :error_spans, 0)
+    error_rate = Map.get(assigns.stats, :error_rate, 0.0)
+    avg_duration_ms = Map.get(assigns.stats, :avg_duration_ms, 0.0)
+    p95_duration_ms = Map.get(assigns.stats, :p95_duration_ms, 0.0)
+    sample_size = Map.get(assigns.stats, :sample_size, 0)
+
+    assigns =
+      assigns
+      |> assign(:total, total)
+      |> assign(:slow_spans, slow_spans)
+      |> assign(:error_spans, error_spans)
+      |> assign(:error_rate, error_rate)
+      |> assign(:avg_duration_ms, avg_duration_ms)
+      |> assign(:p95_duration_ms, p95_duration_ms)
+      |> assign(:sample_size, sample_size)
+
     ~H"""
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4">
-        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1">Metrics (24h)</div>
-        <div class="text-2xl font-bold">{@total}</div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+      <.obs_stat title="Total Metrics" value={format_compact_int(@total)} icon="hero-chart-bar" />
+      <.obs_stat
+        title="Slow Spans"
+        value={format_compact_int(@slow_spans)}
+        icon="hero-bolt"
+        tone={if @slow_spans > 0, do: "warning", else: "success"}
+      />
+      <.obs_stat
+        title="Errors"
+        value={format_compact_int(@error_spans)}
+        icon="hero-exclamation-triangle"
+        tone={if @error_spans > 0, do: "error", else: "success"}
+      />
+      <.obs_stat
+        title="Error Rate"
+        value={"#{format_pct(@error_rate)}%"}
+        icon="hero-trending-up"
+        tone={if @error_rate > 1.0, do: "error", else: "success"}
+      />
+      <.obs_stat
+        title="Avg Duration"
+        value={format_duration_ms(@avg_duration_ms)}
+        subtitle={if @sample_size > 0, do: "sample (#{@sample_size})", else: "sample"}
+        icon="hero-clock"
+        tone="info"
+      />
+      <.obs_stat
+        title="P95 Duration"
+        value={format_duration_ms(@p95_duration_ms)}
+        subtitle="sample"
+        icon="hero-chart-bar"
+        tone="neutral"
+      />
+    </div>
+    """
+  end
+
+  attr :title, :string, required: true
+  attr :value, :string, required: true
+  attr :subtitle, :string, default: nil
+  attr :icon, :string, required: true
+  attr :tone, :string, default: "neutral", values: ~w(neutral success warning error info)
+
+  defp obs_stat(assigns) do
+    {bg, fg} =
+      case assigns.tone do
+        "success" -> {"bg-success/10", "text-success"}
+        "warning" -> {"bg-warning/10", "text-warning"}
+        "error" -> {"bg-error/10", "text-error"}
+        "info" -> {"bg-info/10", "text-info"}
+        _ -> {"bg-base-200/50", "text-base-content/60"}
+      end
+
+    assigns = assign(assigns, :bg, bg) |> assign(:fg, fg)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-3">
+      <div class="flex items-center gap-2">
+        <div class={["size-8 rounded-lg flex items-center justify-center shrink-0", @bg]}>
+          <.icon name={@icon} class={["size-4", @fg]} />
+        </div>
+        <div class="min-w-0">
+          <div class="text-xs text-base-content/60 truncate">{@title}</div>
+          <div class="text-lg font-bold tabular-nums truncate">{@value}</div>
+          <div :if={is_binary(@subtitle)} class="text-[10px] text-base-content/50 truncate">
+            {@subtitle}
+          </div>
+        </div>
       </div>
     </div>
     """
@@ -629,12 +803,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     base_query = base_query_for_summary(current_query)
 
     queries = %{
-      total: "#{base_query} stats:count() as total",
-      fatal: "#{base_query} severity_text:(fatal,FATAL) stats:count() as fatal",
-      error: "#{base_query} severity_text:(error,ERROR) stats:count() as error",
-      warning: "#{base_query} severity_text:(warning,warn,WARNING,WARN) stats:count() as warning",
-      info: "#{base_query} severity_text:(info,INFO) stats:count() as info",
-      debug: "#{base_query} severity_text:(debug,trace,DEBUG,TRACE) stats:count() as debug"
+      total: ~s|#{base_query} stats:"count() as total"|,
+      fatal: ~s|#{base_query} severity_text:(fatal,FATAL) stats:"count() as fatal"|,
+      error: ~s|#{base_query} severity_text:(error,ERROR) stats:"count() as error"|,
+      warning:
+        ~s|#{base_query} severity_text:(warning,warn,WARNING,WARN) stats:"count() as warning"|,
+      info: ~s|#{base_query} severity_text:(info,INFO) stats:"count() as info"|,
+      debug: ~s|#{base_query} severity_text:(debug,trace,DEBUG,TRACE) stats:"count() as debug"|
     }
 
     results =
@@ -689,6 +864,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp extract_stat({:ok, %{"results" => [%{} = row | _]}}, key) when is_binary(key) do
+    row =
+      case Map.get(row, "payload") do
+        %{} = payload -> payload
+        _ -> row
+      end
+
     row
     |> Map.get(key)
     |> to_int()
@@ -771,7 +952,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         ~s|stats:"count() as total, sum(if(status_code != 1, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"|
 
     case srql_module.query(query) do
-      {:ok, %{"results" => [%{} = row | _]}} ->
+      {:ok, %{"results" => [%{} = raw | _]}} ->
+        row =
+          case Map.get(raw, "payload") do
+            %{} = payload -> payload
+            _ -> raw
+          end
+
         %{
           total: row |> Map.get("total") |> to_int(),
           error_traces: row |> Map.get("error_traces") |> to_int(),
@@ -783,15 +970,112 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp load_metrics_total(srql_module) do
-    query = "in:otel_metrics time:last_24h stats:count() as total"
+  defp load_metrics_counts(srql_module) do
+    total_query = ~s|in:otel_metrics time:last_24h stats:"count() as total"|
+    slow_query = ~s|in:otel_metrics time:last_24h is_slow:true stats:"count() as total"|
 
-    case srql_module.query(query) do
-      {:ok, %{"results" => [%{} = row | _]}} -> row |> Map.get("total") |> to_int()
-      {:ok, %{"results" => [value | _]}} -> to_int(value)
-      _ -> 0
-    end
+    error_query =
+      ~s|in:otel_metrics time:last_24h http_status_code:(400,404,500,503) stats:"count() as total"|
+
+    total = extract_stats_count(srql_module.query(total_query), "total")
+    slow_spans = extract_stats_count(srql_module.query(slow_query), "total")
+    error_spans = extract_stats_count(srql_module.query(error_query), "total")
+
+    %{total: total, slow_spans: slow_spans, error_spans: error_spans}
   end
+
+  defp extract_stats_count({:ok, %{"results" => [%{} = raw | _]}}, key) when is_binary(key) do
+    row =
+      case Map.get(raw, "payload") do
+        %{} = payload -> payload
+        _ -> raw
+      end
+
+    row |> Map.get(key) |> to_int()
+  end
+
+  defp extract_stats_count({:ok, %{"results" => [value | _]}}, _key), do: to_int(value)
+  defp extract_stats_count(_result, _key), do: 0
+
+  defp compute_error_rate(total, errors) when is_integer(total) and total > 0 do
+    Float.round(errors / total * 100.0, 1)
+  end
+
+  defp compute_error_rate(_total, _errors), do: 0.0
+
+  defp compute_trace_latency(rows) do
+    duration_stats = compute_duration_stats(rows, "duration_ms")
+    services = unique_services_from_traces(rows)
+    Map.put(duration_stats, :service_count, map_size(services))
+  end
+
+  defp unique_services_from_traces(rows) when is_list(rows) do
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.reduce(%{}, fn row, acc ->
+      name = Map.get(row, "root_service_name") || Map.get(row, "service_name")
+
+      if is_binary(name) and String.trim(name) != "" do
+        Map.put(acc, name, true)
+      else
+        acc
+      end
+    end)
+  end
+
+  defp unique_services_from_traces(_), do: %{}
+
+  defp compute_duration_stats(rows, field) when is_list(rows) and is_binary(field) do
+    durations =
+      rows
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn row -> extract_number(Map.get(row, field)) end)
+      |> Enum.filter(&is_number/1)
+
+    sample_size = length(durations)
+
+    avg =
+      if sample_size > 0 do
+        Enum.sum(durations) / sample_size
+      else
+        0.0
+      end
+
+    p95 =
+      if sample_size > 0 do
+        sorted = Enum.sort(durations)
+        idx = trunc(Float.floor(sample_size * 0.95))
+        Enum.at(sorted, min(idx, sample_size - 1)) || 0.0
+      else
+        0.0
+      end
+
+    %{avg_duration_ms: avg, p95_duration_ms: p95, sample_size: sample_size}
+  end
+
+  defp compute_duration_stats(_rows, _field),
+    do: %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
+
+  defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
+  defp format_pct(value) when is_integer(value), do: Integer.to_string(value)
+  defp format_pct(_), do: "0.0"
+
+  defp format_compact_int(n) when is_integer(n) and n >= 1_000_000 do
+    :erlang.float_to_binary(n / 1_000_000, decimals: 1)
+    |> String.trim_trailing("0")
+    |> String.trim_trailing(".")
+    |> Kernel.<>("M")
+  end
+
+  defp format_compact_int(n) when is_integer(n) and n >= 1_000 do
+    :erlang.float_to_binary(n / 1_000, decimals: 1)
+    |> String.trim_trailing("0")
+    |> String.trim_trailing(".")
+    |> Kernel.<>("k")
+  end
+
+  defp format_compact_int(n) when is_integer(n), do: Integer.to_string(n)
+  defp format_compact_int(_), do: "0"
 
   defp format_duration_ms(value) do
     ms = extract_number(value)

@@ -56,15 +56,15 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     srql_module = srql_module()
 
     queries = %{
-      devices_total: "in:devices stats:count() as total",
-      devices_online: "in:devices is_available:true stats:count() as online",
-      devices_offline: "in:devices is_available:false stats:count() as offline",
+      devices_total: ~s|in:devices stats:"count() as total"|,
+      devices_online: ~s|in:devices is_available:true stats:"count() as online"|,
+      devices_offline: ~s|in:devices is_available:false stats:"count() as offline"|,
       # Get unique services by service_name in the last hour (most recent status)
       services_list: "in:services time:last_1h sort:timestamp:desc limit:500",
       events: "in:events time:last_24h sort:event_timestamp:desc limit:#{@default_events_limit}",
       logs: "in:logs time:last_24h sort:timestamp:desc limit:#{@default_logs_limit}",
       # Observability summary (match legacy UI: last_24h window, trace summaries not raw spans)
-      metrics_count: "in:otel_metrics time:last_24h stats:count() as total",
+      metrics_count: ~s|in:otel_metrics time:last_24h stats:"count() as total"|,
       trace_stats:
         "in:otel_trace_summaries time:last_24h " <>
           ~s|stats:"count() as total, sum(if(status_code != 1, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"|,
@@ -327,9 +327,22 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp build_observability_summary(metrics_count, trace_stats, slow_traces)
        when is_integer(metrics_count) and is_map(trace_stats) and is_list(slow_traces) do
-    traces_count = extract_numeric(Map.get(trace_stats, "total")) |> to_int()
-    error_traces = extract_numeric(Map.get(trace_stats, "error_traces")) |> to_int()
-    slow_traces_count = extract_numeric(Map.get(trace_stats, "slow_traces")) |> to_int()
+    trace_stats =
+      case Map.get(trace_stats, "payload") do
+        %{} = payload -> payload
+        _ -> trace_stats
+      end
+
+    traces_count =
+      extract_numeric(Map.get(trace_stats, "total") || Map.get(trace_stats, "count")) |> to_int()
+
+    error_traces =
+      extract_numeric(Map.get(trace_stats, "error_traces") || Map.get(trace_stats, "errors"))
+      |> to_int()
+
+    slow_traces_count =
+      extract_numeric(Map.get(trace_stats, "slow_traces") || Map.get(trace_stats, "slow"))
+      |> to_int()
 
     error_rate =
       if traces_count > 0 do
@@ -633,11 +646,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
         <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
           <.device_availability_widget availability={@device_availability} loading={@loading} />
-          <.observability_widget data={@observability} loading={@loading} />
-          <.critical_events_widget summary={@events_summary} loading={@loading} />
-          <.critical_logs_widget summary={@logs_summary} loading={@loading} />
           <.high_utilization_widget data={@high_utilization} loading={@loading} />
           <.bandwidth_widget data={@bandwidth} loading={@loading} />
+          <.critical_logs_widget summary={@logs_summary} loading={@loading} />
+          <.observability_widget data={@observability} loading={@loading} />
+          <.critical_events_widget summary={@events_summary} loading={@loading} />
         </div>
 
         <div class="mt-3 text-xs text-base-content/40 flex items-center gap-2">
@@ -677,7 +690,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           </div>
           <div class="text-sm text-base-content/60">
             {@title}
-            <span :if={@subtitle} class="text-base-content/40"> |      {@subtitle}</span>
+            <span :if={@subtitle} class="text-base-content/40"> |        {@subtitle}</span>
           </div>
         </div>
       </div>

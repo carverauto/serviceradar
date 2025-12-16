@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   @default_limit 50
   @max_limit 200
+  @summary_window "last_1h"
+  @summary_limit 2000
 
   @impl true
   def mount(_params, _session, socket) do
@@ -28,8 +30,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
         max_limit: @max_limit
       )
 
-    # Compute summary from current page results (scale-friendly: works on bounded data)
-    summary = compute_summary(socket.assigns.services)
+    # Compute summary from a bounded recent window, so the "By Service Type" panel reflects more
+    # than just the current page of results (but remains scale-safe).
+    summary = load_summary(socket)
 
     {:noreply, assign(socket, :summary, summary)}
   end
@@ -73,7 +76,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
     query = Map.get(assigns.srql, :query, "")
-    has_filter = is_binary(query) and Regex.match?(~r/(?:^|\s)service_type:/, query)
+    has_filter = is_binary(query) and Regex.match?(~r/(?:^|\s)(?:service_type|type):/, query)
     assigns = assign(assigns, :pagination, pagination) |> assign(:has_filter, has_filter)
 
     ~H"""
@@ -313,7 +316,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       </div>
       <div class="w-16 text-right">
         <span class="text-xs font-mono">{@type_total}</span>
-        <span class="text-[10px] text-base-content/50 ml-1">({@avail_pct}%)</span>
+        <span class="text-[10px] text-base-content/50 ml-1">({@fail_pct}% fail)</span>
       </div>
     </.link>
     """
@@ -429,6 +432,65 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp parse_timestamp(_), do: :error
 
+  defp load_summary(socket) do
+    current_query = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:query)
+    summary_query = summary_query_for(current_query)
+
+    case srql_module().query(summary_query, %{limit: @summary_limit}) do
+      {:ok, %{"results" => results}} when is_list(results) ->
+        compute_summary(results)
+
+      _ ->
+        compute_summary(socket.assigns.services)
+    end
+  end
+
+  defp summary_query_for(nil), do: "in:services time:#{@summary_window} sort:timestamp:desc"
+
+  defp summary_query_for(query) when is_binary(query) do
+    trimmed = String.trim(query)
+
+    cond do
+      trimmed == "" ->
+        "in:services time:#{@summary_window} sort:timestamp:desc"
+
+      String.contains?(trimmed, "in:services") ->
+        trimmed
+        |> strip_tokens_for_summary()
+        |> ensure_summary_time_filter()
+        |> ensure_summary_sort()
+
+      true ->
+        "in:services time:#{@summary_window} sort:timestamp:desc"
+    end
+  end
+
+  defp summary_query_for(_), do: "in:services time:#{@summary_window} sort:timestamp:desc"
+
+  defp strip_tokens_for_summary(query) do
+    query = Regex.replace(~r/(?:^|\s)limit:\S+/, query, "")
+    query = Regex.replace(~r/(?:^|\s)sort:\S+/, query, "")
+    query = Regex.replace(~r/(?:^|\s)cursor:\S+/, query, "")
+    query |> String.trim() |> String.replace(~r/\s+/, " ")
+  end
+
+  defp ensure_summary_time_filter(query) do
+    if Regex.match?(~r/(?:^|\s)time:\S+/, query) do
+      Regex.replace(~r/(?:^|\s)time:\S+/, query, " time:#{@summary_window}")
+      |> String.trim()
+    else
+      "#{query} time:#{@summary_window}"
+    end
+  end
+
+  defp ensure_summary_sort(query) do
+    if Regex.match?(~r/(?:^|\s)sort:\S+/, query) do
+      query
+    else
+      "#{query} sort:timestamp:desc"
+    end
+  end
+
   # Compute summary stats from unique service instances (deduplicated by poller/agent + service identity)
   # This prevents showing N status checks for the same service instance as "N services".
   #
@@ -497,4 +559,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp compute_summary(_),
     do: %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: 0}
+
+  defp srql_module do
+    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
 end
