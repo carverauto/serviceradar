@@ -1,0 +1,7 @@
+diff --git a/bzlmod/BUILD.bazel b/bzlmod/BUILD.bazel
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/bzlmod/BUILD.bazel
+@@ -0,0 +1 @@
++exports_files(["extensions.bzl"])

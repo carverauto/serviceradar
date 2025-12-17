@@ -52,6 +52,7 @@ PACKAGES = {
         "priority": "optional",
         "deb_depends": ["systemd"],
         "rpm_requires": ["systemd"],
+        "rpm_tags": [],
         "files": [
             {
                 "src": "//web-ng:release_tar",

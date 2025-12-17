@@ -36,6 +36,8 @@ build --repo_env=OPENSSL_INCLUDE_DIR=/usr/include
 build --repo_env=OPENSSL_NO_VENDOR=
 build --repo_env=OPENSSL_NO_PKG_CONFIG=
 build --repo_env=RULES_ERLANG_SKIP_SYSTEM=1
+build --repo_env=RULES_ELIXIR_SKIP_SYSTEM=1
+build --repo_env=RULES_PYTHON_LOCAL_PYTHON=/usr/bin/python3
 build --repo_env=NEXT_SKIP_TURBO=1
 build --repo_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build --repo_env=TURBOPACK=

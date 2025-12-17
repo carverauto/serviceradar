@@ -1,4 +1,4 @@
 exports_files([
     "skip_system_erlang.patch",
-    "default_toolchain_internal.patch",
+    "add_bzlmod_build.patch",
 ])

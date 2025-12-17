@@ -46,7 +46,15 @@ single_version_override(
     patch_strip = 1,
     patches = [
         "//third_party/patches/rules_erlang:skip_system_erlang.patch",
-        "//third_party/patches/rules_erlang:default_toolchain_internal.patch",
+        "//third_party/patches/rules_erlang:add_bzlmod_build.patch",
+    ],
+)
+
+single_version_override(
+    module_name = "rules_elixir",
+    patch_strip = 1,
+    patches = [
+        "//third_party/patches/rules_elixir:skip_system_elixir.patch",
     ],
 )
 
@@ -79,6 +87,15 @@ register_toolchains(
     "@erlang_config//otp_28_1:toolchain_major_minor",
     "@elixir_config//elixir_1_19_4:toolchain",
 )
+
+# Force toolchain resolution to use the hermetic Erlang toolchains (avoid the
+# upstream rules_erlang \"external\" toolchains that rely on host OTP).
+toolchain_resolution_overrides = {
+    "@rules_erlang//tools:toolchain_type": [
+        "@erlang_config//otp_28_1:toolchain_major",
+        "@erlang_config//otp_28_1:toolchain_major_minor",
+    ],
+}
 
 # --- Java Toolchain  ----------------------------------
 
@@ -113,10 +130,9 @@ register_toolchains("//build/python_toolchain:py3_toolchain")
 
 # --- RPM & package Toolchain  ----------------------------------
 
-find_rpm = use_extension("@rules_pkg//toolchains/rpm:rpmbuild_configure.bzl", "find_system_rpmbuild_bzlmod")
-use_repo(find_rpm, "rules_pkg_rpmbuild")
-
-register_toolchains("@rules_pkg_rpmbuild//:all")
+# Prefer a fixed Linux rpmbuild so remote/RBE builds stay hermetic. We skip the
+# host autodetect toolchain (would point at Homebrew on macOS).
+register_toolchains("//build/rpm_toolchain:rpmbuild_linux_toolchain")
 
 # --- CC Toolchain  ----------------------------------
 

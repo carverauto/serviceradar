@@ -1,8 +1,0 @@
---- a/MODULE.bazel
-+++ b/MODULE.bazel
-@@ -58,4 +58,4 @@ register_toolchains(
--    "@erlang_config//external:toolchain_major",
--    "@erlang_config//external:toolchain_major_minor",
-+    "@erlang_config//otp_28_1:toolchain_major",
-+    "@erlang_config//otp_28_1:toolchain_major_minor",
- )

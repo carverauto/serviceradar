@@ -451,7 +451,7 @@
     },
     "@@rules_elixir+//bzlmod:extensions.bzl%elixir_config": {
       "general": {
-        "bzlTransitiveDigest": "ohoT9jmBnvAHOfB4OsOb7JBw77WEicWKthjpKqEIdR4=",
+        "bzlTransitiveDigest": "TTUZulTBD4S++NWPsUfH8UW2a0GrbXDCjed/tEdVJo0=",
         "usagesDigest": "194SyhC2pFItSJlU4NKMf3vJwAOEYvbQIiH61fb2aYo=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
@@ -490,7 +490,7 @@
     },
     "@@rules_erlang+//bzlmod:extensions.bzl%erlang_config": {
       "general": {
-        "bzlTransitiveDigest": "iithLT3jDg30lYh8i3/iXG2wlfj25SHZUnzR3Z7m824=",
+        "bzlTransitiveDigest": "yfUa/vwTQLAtLFsuWtj6rwcFkvwXtGviTKBAxWTy15s=",
         "usagesDigest": "liFVPEtnvTAPYkAhUbFyq8OYGTjOzpqiPOsaSPTifHA=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
@@ -1740,22 +1740,6 @@
             "bazel_skylib+"
           ]
         ]
-      }
-    },
-    "@@rules_pkg+//toolchains/rpm:rpmbuild_configure.bzl%find_system_rpmbuild_bzlmod": {
-      "general": {
-        "bzlTransitiveDigest": "B5+jkTTzKQTZ6KUhRFS1FMM7bu1H6uMRvQ234e9yIgA=",
-        "usagesDigest": "C2n6/iinOCV7A7c7ARz9Q3oW6bkBXSqTa8F1CWpESvA=",
-        "recordedFileInputs": {},
-        "recordedDirentsInputs": {},
-        "envVariables": {},
-        "generatedRepoSpecs": {
-          "rules_pkg_rpmbuild": {
-            "repoRuleId": "@@rules_pkg+//toolchains/rpm:rpmbuild_configure.bzl%build_repo_for_rpmbuild_toolchain",
-            "attributes": {}
-          }
-        },
-        "recordedRepoMappingEntries": []
       }
     },
     "@@rules_python+//python/uv:uv.bzl%uv": {

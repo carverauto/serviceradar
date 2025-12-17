@@ -1,0 +1,72 @@
+--- a/repositories/elixir_config.bzl
++++ b/repositories/elixir_config.bzl
+@@ -38,6 +38,11 @@ def _impl(repository_ctx):
+             elixir_home = repository_ctx.attr.elixir_homes.get(name, None),
+         )
+ 
++    # If we intentionally skipped probing a host-installed Elixir, still provide
++    # a default "external" entry so default toolchain registration succeeds.
++    if _DEFAULT_EXTERNAL_ELIXIR_PACKAGE_NAME not in elixir_installations and elixir_installations:
++        elixir_installations[_DEFAULT_EXTERNAL_ELIXIR_PACKAGE_NAME] = elixir_installations[list(elixir_installations.keys())[0]]
++
+     for (name, props) in elixir_installations.items():
+         if props.type == INSTALLATION_TYPE_EXTERNAL:
+             repository_ctx.template(
+@@ -101,6 +106,7 @@ elixir_config = repository_rule(
+     environ = [
+         ELIXIR_HOME_ENV_VAR,
+         "PATH",
++        "RULES_ELIXIR_SKIP_SYSTEM",
+     ],
+     local = True,
+ )
+@@ -123,6 +129,10 @@ def _is_windows(repository_ctx):
+     return repository_ctx.os.name.lower().find("windows") != -1
+ 
+ def _default_elixir_dict(repository_ctx):
++    # Allow consumers to opt out of discovering a host-installed Elixir
++    # when they want fully hermetic builds (e.g., remote execution or CI).
++    if repository_ctx.os.environ.get("RULES_ELIXIR_SKIP_SYSTEM") == "1":
++        return {}
+     if _is_windows(repository_ctx):
+         if ELIXIR_HOME_ENV_VAR in repository_ctx.os.environ:
+             elixir_home = repository_ctx.os.environ[ELIXIR_HOME_ENV_VAR]
+@@ -194,7 +204,9 @@ def _build_file_content(elixir_installations):
+ 
+ """
+ 
+-    default_installation = elixir_installations[_DEFAULT_EXTERNAL_ELIXIR_PACKAGE_NAME]
++    # Prefer the first configured installation as the default instead of assuming
++    # a host system Elixir exists everywhere (e.g., on remote executors).
++    default_installation = elixir_installations.values()[0]
+ 
+     build_file_content += """\
+ constraint_setting(
+@@ -224,7 +236,7 @@ def _build_file_content(elixir_installations):
+         build_file_content += """\
+ constraint_value(
+     name = "elixir_{identifier}",
+     constraint_setting = ":elixir_version",
+ )
+ 
+ platform(
+     name = "elixir_{identifier}_platform",
+     constraint_values = [
+         ":elixir_{identifier}",
+     ],
+ )
+ 
+ """.format(identifier = identifier)
+ 
+     return build_file_content
+--- a/private/elixir_build.bzl
++++ b/private/elixir_build.bzl
+@@ -140,7 +140,7 @@
+         ctx.toolchains["@rules_erlang//tools:toolchain_type"].otpinfo,
+         ElixirInfo(
+             release_dir = release_dir,
+-            elixir_home = None,
++            elixir_home = release_dir.path,
+             version_file = version_file,
+         ),
+     ]
