@@ -36,4 +36,4 @@ zfs = ["dep:libzetta"]
 tonic-build = "0.9"
 
 [dev-dependencies]
-rcgen = "0.12"
+rcgen = "0.14"

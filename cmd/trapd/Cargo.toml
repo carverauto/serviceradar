@@ -30,4 +30,4 @@ config-bootstrap = { path = "../../rust/config-bootstrap" }
 tonic-build = { workspace = true }
 
 [dev-dependencies]
-rcgen = "0.12"
+rcgen = "0.14"
