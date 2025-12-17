@@ -34,6 +34,16 @@ service Bundle {
     // The caller must present a downstream X509-SVID.
     rpc PublishJWTAuthority(PublishJWTAuthorityRequest) returns (PublishJWTAuthorityResponse);
 
+    // Publishes a downstream WIT authority to the SPIRE server. If the server
+    // is itself a downstream server (i.e. configured with an UpstreamAuthority
+    // plugin), the WIT authority is published further upstream using the
+    // UpstreamAuthority plugin. If the server is not a downstream server, or
+    // if the UpstreamAuthority does not support publishing WIT authorities,
+    // the server appends the WIT authority to its own bundle.
+    //
+    // The caller must present a downstream X509-SVID.
+    rpc PublishWITAuthority(PublishWITAuthorityRequest) returns (PublishWITAuthorityResponse);
+
     // Lists federated bundles.
     //
     // The caller must be local or present an admin X509-SVID.
@@ -87,6 +97,9 @@ message AppendBundleRequest {
 
     // An output mask indicating which bundle fields are set in the response.
     spire.api.types.BundleMask output_mask = 3;
+
+    // WIT authorities to append.
+    repeated spire.api.types.WITKey wit_authorities = 4;
 }
 
 message PublishJWTAuthorityRequest {
@@ -98,6 +111,17 @@ message PublishJWTAuthorityResponse {
     // The JWT authorities for the trust domain.
     repeated spire.api.types.JWTKey jwt_authorities = 1;
 }
+
+message PublishWITAuthorityRequest {
+    // Required. The WIT authority to publish.
+    spire.api.types.WITKey wit_authority = 1;
+}
+
+message PublishWITAuthorityResponse {
+    // The WIT authorities for the trust domain.
+    repeated spire.api.types.WITKey wit_authorities = 1;
+}
+
 
 message ListFederatedBundlesRequest {
     // An output mask indicating which bundle fields are set in the response.
