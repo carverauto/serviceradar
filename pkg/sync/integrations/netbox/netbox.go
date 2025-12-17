@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -67,13 +68,7 @@ func parseTCPPorts(config *models.SourceConfig) []int {
 // Fetch retrieves devices from NetBox for discovery purposes only.
 // This method focuses purely on data discovery and does not perform state reconciliation.
 func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.DeviceUpdate, error) {
-	resp, err := n.fetchDevices(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer n.closeResponse(resp)
-
-	deviceResp, err := n.decodeResponse(resp)
+	deviceResp, deviceCount, pagesFetched, err := n.fetchAllDevices(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -83,6 +78,8 @@ func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mo
 
 	n.Logger.Info().
 		Int("devices_discovered", len(deviceResp.Results)).
+		Int("devices_reported_by_netbox", deviceCount).
+		Int("pages_fetched", pagesFetched).
 		Int("sweep_results_generated", len(currentEvents)).
 		Msg("Completed NetBox discovery operation")
 
@@ -125,7 +122,7 @@ func (n *NetboxIntegration) Reconcile(ctx context.Context) error {
 		Msg("Successfully queried device states from ServiceRadar for reconciliation")
 
 	// Fetch current devices from NetBox to identify retractions
-	resp, err := n.fetchDevices(ctx)
+	deviceResp, deviceCount, pagesFetched, err := n.fetchAllDevices(ctx)
 	if err != nil {
 		n.Logger.Error().
 			Err(err).
@@ -133,19 +130,15 @@ func (n *NetboxIntegration) Reconcile(ctx context.Context) error {
 
 		return err
 	}
-	defer n.closeResponse(resp)
-
-	deviceResp, err := n.decodeResponse(resp)
-	if err != nil {
-		n.Logger.Error().
-			Err(err).
-			Msg("Failed to decode NetBox response during reconciliation")
-
-		return err
-	}
 
 	// Process current devices to get current events
 	_, _, currentEvents := n.processDevices(ctx, deviceResp)
+
+	n.Logger.Info().
+		Int("devices_discovered", len(deviceResp.Results)).
+		Int("devices_reported_by_netbox", deviceCount).
+		Int("pages_fetched", pagesFetched).
+		Msg("Fetched current NetBox inventory for reconciliation")
 
 	// Generate retraction events
 	retractionEvents := n.generateRetractionEvents(currentEvents, existingRadarDevices)
@@ -235,10 +228,7 @@ func (n *NetboxIntegration) generateRetractionEvents(
 	return retractionEvents
 }
 
-// fetchDevices sends the HTTP request to the NetBox API.
-func (n *NetboxIntegration) fetchDevices(ctx context.Context) (*http.Response, error) {
-	url := n.Config.Endpoint + "/api/dcim/devices/"
-
+func (n *NetboxIntegration) fetchDevicesFromURL(ctx context.Context, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, err
@@ -272,6 +262,69 @@ func (n *NetboxIntegration) fetchDevices(ctx context.Context) (*http.Response, e
 	}
 
 	return resp, nil
+}
+
+func (n *NetboxIntegration) resolveNextURL(currentURL, nextURL string) (string, error) {
+	nextParsed, err := neturl.Parse(nextURL)
+	if err != nil {
+		return "", fmt.Errorf("parse next url: %w", err)
+	}
+
+	if nextParsed.IsAbs() {
+		return nextParsed.String(), nil
+	}
+
+	currentParsed, err := neturl.Parse(currentURL)
+	if err != nil {
+		return "", fmt.Errorf("parse current url: %w", err)
+	}
+
+	return currentParsed.ResolveReference(nextParsed).String(), nil
+}
+
+func (n *NetboxIntegration) fetchAllDevices(ctx context.Context) (DeviceResponse, int, int, error) {
+	firstURL := n.Config.Endpoint + "/api/dcim/devices/"
+
+	var allDevices []Device
+
+	deviceCount := 0
+	pagesFetched := 0
+	nextURL := firstURL
+
+	for nextURL != "" {
+		pagesFetched++
+
+		resp, err := n.fetchDevicesFromURL(ctx, nextURL)
+		if err != nil {
+			return DeviceResponse{}, 0, pagesFetched, err
+		}
+
+		deviceResp, err := n.decodeResponse(resp)
+		n.closeResponse(resp)
+		if err != nil {
+			return DeviceResponse{}, 0, pagesFetched, err
+		}
+
+		if pagesFetched == 1 {
+			deviceCount = deviceResp.Count
+		}
+
+		allDevices = append(allDevices, deviceResp.Results...)
+
+		nextURL = ""
+		if deviceResp.Next != nil && *deviceResp.Next != "" {
+			resolved, err := n.resolveNextURL(resp.Request.URL.String(), *deviceResp.Next)
+			if err != nil {
+				return DeviceResponse{}, 0, pagesFetched, err
+			}
+			nextURL = resolved
+		}
+	}
+
+	return DeviceResponse{
+		Results: allDevices,
+		Count:   deviceCount,
+	}, deviceCount, pagesFetched, nil
 }
 
 // closeResponse closes the HTTP response body, logging any errors.
