@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -273,9 +272,13 @@ func TestCreateMTLSPackageMintsClientCertificate(t *testing.T) {
 	keyBytes := bytes.Repeat([]byte{0x55}, 32)
 	encKey := base64.StdEncoding.EncodeToString(keyBytes)
 
+	certDir := t.TempDir()
+	require.NoError(t, testgrpc.GenerateTestCertificates(certDir))
+
 	cfg := &models.EdgeOnboardingConfig{
-		Enabled:       true,
-		EncryptionKey: encKey,
+		Enabled:         true,
+		EncryptionKey:   encKey,
+		MTLSCertBaseDir: certDir,
 	}
 
 	svc, err := newEdgeOnboardingService(cfg, nil, nil, mockDB, nil, nil, nil, logger.NewTestLogger())
@@ -285,9 +288,6 @@ func TestCreateMTLSPackageMintsClientCertificate(t *testing.T) {
 	// Deterministic timestamps and download token source
 	svc.now = func() time.Time { return time.Date(2025, time.January, 2, 3, 4, 5, 0, time.UTC) }
 	svc.rand = bytes.NewReader(bytes.Repeat([]byte{0x01}, 128))
-
-	certDir := t.TempDir()
-	require.NoError(t, testgrpc.GenerateTestCertificates(certDir))
 
 	mockDB.EXPECT().
 		ListEdgeOnboardingPollerIDs(
@@ -318,14 +318,13 @@ func TestCreateMTLSPackageMintsClientCertificate(t *testing.T) {
 		CheckerKind:   "sysmon",
 		SecurityMode:  "mtls",
 		CreatedBy:     "admin@example.com",
-		MetadataJSON: fmt.Sprintf(`{
-				"security_mode":"mtls",
-				"poller_endpoint":"poller.serviceradar:50053",
-				"core_endpoint":"core:50052",
-				"checker_endpoint":"192.168.2.134:50083",
-				"cert_dir":%q,
-				"server_name":"poller.serviceradar"
-			}`, certDir),
+		MetadataJSON: `{
+			"security_mode":"mtls",
+			"poller_endpoint":"poller.serviceradar:50053",
+			"core_endpoint":"core:50052",
+			"checker_endpoint":"192.168.2.134:50083",
+			"server_name":"poller.serviceradar"
+		}`,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -381,6 +380,61 @@ func TestCreateMTLSPackageMintsClientCertificate(t *testing.T) {
 	decrypted, err := svc.cipher.Decrypt(storedPkg.BundleCiphertext)
 	require.NoError(t, err)
 	assert.JSONEq(t, string(result.MTLSBundle), string(decrypted))
+}
+
+func TestCreateMTLSPackageRejectsCAPathTraversal(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	keyBytes := bytes.Repeat([]byte{0x77}, 32)
+	encKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	certDir := t.TempDir()
+	require.NoError(t, testgrpc.GenerateTestCertificates(certDir))
+
+	cfg := &models.EdgeOnboardingConfig{
+		Enabled:         true,
+		EncryptionKey:   encKey,
+		MTLSCertBaseDir: certDir,
+	}
+
+	svc, err := newEdgeOnboardingService(cfg, nil, nil, mockDB, nil, nil, nil, logger.NewTestLogger())
+	require.NoError(t, err)
+
+	mockDB.EXPECT().
+		ListEdgeOnboardingPollerIDs(
+			gomock.Any(),
+			models.EdgeOnboardingStatusIssued,
+			models.EdgeOnboardingStatusDelivered,
+			models.EdgeOnboardingStatusActivated,
+		).
+		Return([]string{}, nil).
+		AnyTimes()
+	mockDB.EXPECT().ListEdgeOnboardingPackages(gomock.Any(), gomock.Any()).
+		Return([]*models.EdgeOnboardingPackage{}, nil).
+		AnyTimes()
+
+	_, err = svc.CreatePackage(context.Background(), &models.EdgeOnboardingCreateRequest{
+		Label:         "sysmon mTLS traversal",
+		ComponentID:   "sysmon-1",
+		ComponentType: models.EdgeOnboardingComponentTypeChecker,
+		ParentType:    models.EdgeOnboardingComponentTypeAgent,
+		ParentID:      "agent-1",
+		PollerID:      "edge-poller",
+		CheckerKind:   "sysmon",
+		SecurityMode:  "mtls",
+		CreatedBy:     "admin@example.com",
+		MetadataJSON: `{
+			"security_mode":"mtls",
+			"cert_dir":"/etc",
+			"ca_cert_path":"/etc/shadow",
+			"ca_key_path":"/etc/shadow"
+		}`,
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, models.ErrEdgeOnboardingInvalidRequest)
+	require.ErrorIs(t, err, ErrPathOutsideAllowedDir)
 }
 
 func TestEdgeOnboardingCreatePackagePollerConflict(t *testing.T) {

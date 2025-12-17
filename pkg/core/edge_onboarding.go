@@ -2116,51 +2116,9 @@ func (s *edgeOnboardingService) createMTLSPackage(ctx context.Context, params *m
 }
 
 func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboardingComponentType, componentID string, metadata map[string]string, now time.Time) (*mtls.Bundle, error) {
-	certDir := strings.TrimSpace(metadata["cert_dir"])
-	if certDir == "" {
-		certDir = defaultCertDir
-	}
-
-	caPath := firstNonEmpty(strings.TrimSpace(metadata["ca_cert_path"]), filepath.Join(certDir, "root.pem"))
-	caKeyPath := firstNonEmpty(strings.TrimSpace(metadata["ca_key_path"]), filepath.Join(certDir, "root-key.pem"))
-
-	// Validate paths to prevent path traversal attacks
-	absCertDir, err := filepath.Abs(certDir)
+	caPEM, caCert, caKey, err := s.loadMTLSCA(metadata)
 	if err != nil {
-		return nil, fmt.Errorf("invalid cert_dir path: %w", err)
-	}
-	absCaPath, err := filepath.Abs(caPath)
-	if err != nil {
-		return nil, fmt.Errorf("invalid ca_cert_path: %w", err)
-	}
-	absCaKeyPath, err := filepath.Abs(caKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("invalid ca_key_path: %w", err)
-	}
-	// Ensure CA cert and key paths are within the allowed certDir
-	if !strings.HasPrefix(absCaPath, absCertDir+string(filepath.Separator)) {
-		return nil, fmt.Errorf("ca_cert_path %q outside %q: %w", caPath, certDir, ErrPathOutsideAllowedDir)
-	}
-	if !strings.HasPrefix(absCaKeyPath, absCertDir+string(filepath.Separator)) {
-		return nil, fmt.Errorf("ca_key_path %q outside %q: %w", caKeyPath, certDir, ErrPathOutsideAllowedDir)
-	}
-
-	caPEM, err := os.ReadFile(absCaPath)
-	if err != nil {
-		return nil, fmt.Errorf("read ca cert from %s: %w", absCaPath, err)
-	}
-	caCert, err := parseCACertificate(caPEM)
-	if err != nil {
-		return nil, fmt.Errorf("parse ca certificate: %w", err)
-	}
-
-	caKeyBytes, err := os.ReadFile(absCaKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("read ca key from %s: %w", absCaKeyPath, err)
-	}
-	caKey, err := parsePrivateKey(caKeyBytes)
-	if err != nil {
-		return nil, fmt.Errorf("parse ca key: %w", err)
+		return nil, err
 	}
 
 	clientName := strings.TrimSpace(metadataValue(metadata, componentType, "client_cert_name"))
@@ -2228,6 +2186,72 @@ func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboard
 		GeneratedAt: now.UTC().Format(time.RFC3339),
 		ExpiresAt:   now.Add(clientCertTTL).UTC().Format(time.RFC3339),
 	}, nil
+}
+
+func (s *edgeOnboardingService) loadMTLSCA(metadata map[string]string) ([]byte, *x509.Certificate, crypto.Signer, error) {
+	caBaseDir := strings.TrimSpace(s.cfg.MTLSCertBaseDir)
+	if caBaseDir == "" {
+		caBaseDir = defaultCertDir
+	}
+
+	absCABaseDir, err := filepath.Abs(caBaseDir)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("invalid mtls_cert_base_dir path: %w", err)
+	}
+
+	absCaPath, err := resolvePathWithinDir(absCABaseDir, strings.TrimSpace(metadata["ca_cert_path"]), "root.pem")
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("invalid ca_cert_path: %w", err)
+	}
+
+	absCaKeyPath, err := resolvePathWithinDir(absCABaseDir, strings.TrimSpace(metadata["ca_key_path"]), "root-key.pem")
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("invalid ca_key_path: %w", err)
+	}
+
+	caPEM, err := os.ReadFile(absCaPath)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("read ca cert from %s: %w", absCaPath, err)
+	}
+	caCert, err := parseCACertificate(caPEM)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("parse ca certificate: %w", err)
+	}
+
+	caKeyBytes, err := os.ReadFile(absCaKeyPath)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("read ca key from %s: %w", absCaKeyPath, err)
+	}
+	caKey, err := parsePrivateKey(caKeyBytes)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("parse ca key: %w", err)
+	}
+
+	return caPEM, caCert, caKey, nil
+}
+
+func resolvePathWithinDir(absBaseDir, rawPath, defaultFilename string) (string, error) {
+	candidate := strings.TrimSpace(rawPath)
+	if candidate == "" {
+		candidate = filepath.Join(absBaseDir, defaultFilename)
+	} else if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(absBaseDir, candidate)
+	}
+
+	absCandidate, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", err
+	}
+
+	rel, err := filepath.Rel(absBaseDir, absCandidate)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", ErrPathOutsideAllowedDir
+	}
+
+	return absCandidate, nil
 }
 
 func mintClientCertificate(caCert *x509.Certificate, caKey crypto.Signer, clientName, serverName string, endpoints map[string]string, now time.Time, ttl time.Duration) (string, string, error) {
@@ -2454,15 +2478,6 @@ func uniqueStrings(values []string) []string {
 
 func uniqueNonEmpty(values ...string) []string {
 	return uniqueStrings(values)
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if trimmed := strings.TrimSpace(v); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }
 
 func validatePollerMetadata(meta map[string]string) error {
