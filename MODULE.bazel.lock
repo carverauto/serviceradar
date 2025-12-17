@@ -452,7 +452,7 @@
     "@@rules_elixir+//bzlmod:extensions.bzl%elixir_config": {
       "general": {
         "bzlTransitiveDigest": "ohoT9jmBnvAHOfB4OsOb7JBw77WEicWKthjpKqEIdR4=",
-        "usagesDigest": "R3XW1e1HVg3u5ZYznxFBcuHly++y2BGGf+ncqxcUSqI=",
+        "usagesDigest": "194SyhC2pFItSJlU4NKMf3vJwAOEYvbQIiH61fb2aYo=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -490,8 +490,8 @@
     },
     "@@rules_erlang+//bzlmod:extensions.bzl%erlang_config": {
       "general": {
-        "bzlTransitiveDigest": "Hu32F6vz3y8dYVjG00yqCpbUEZEIcKykDj7JEMgMy/c=",
-        "usagesDigest": "8y6sHx+iPB18CJm/MUIsibgIILI0Uk6sYev5rE5mL1I=",
+        "bzlTransitiveDigest": "iithLT3jDg30lYh8i3/iXG2wlfj25SHZUnzR3Z7m824=",
+        "usagesDigest": "liFVPEtnvTAPYkAhUbFyq8OYGTjOzpqiPOsaSPTifHA=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},

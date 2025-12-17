@@ -28,18 +28,12 @@ def _mix_release_impl(ctx):
     inputs = depset(toolchain_inputs + ctx.files.srcs + ctx.files.data + ctx.files.extra_dir_srcs)
 
     extra_copy_cmds = []
-    extra_tmp_copy_cmds = []
     for d in ctx.attr.extra_dirs:
         parent = d.rpartition("/")[0] or "."
         extra_copy_cmds.append(
             'mkdir -p "$WORKDIR/{parent}"\nrsync -a "$EXECROOT/{dir}/" "$WORKDIR/{dir}/"\n'.format(
                 dir = d,
                 parent = parent,
-            ),
-        )
-        extra_tmp_copy_cmds.append(
-            'mkdir -p "$TMPDIR/{dir}"\nrsync -a "$EXECROOT/{dir}/" "$TMPDIR/{dir}/"\n'.format(
-                dir = d,
             ),
         )
 
@@ -67,26 +61,27 @@ export PATH="$(dirname "$CARGO"):$(dirname "$RUSTC"):/opt/homebrew/bin:{elixir_h
 mkdir -p "$HOME"
 WORKDIR=$(mktemp -d)
 export CARGO_TARGET_DIR="$WORKDIR/_cargo_target"
-export RUSTLER_TEMP_DIR="$WORKDIR/_rustler"
+TMPROOT="$WORKDIR/_tmp"
 SYS_TMP=$(python3 - <<'PY'
-import tempfile, os
+import tempfile
 print(tempfile.gettempdir())
 PY
 )
-TMPROOT="$SYS_TMP"
 mkdir -p "$TMPROOT"
 export TMPDIR="$TMPROOT"
 export RUSTLER_TMPDIR="$TMPROOT"
+export RUSTLER_TEMP_DIR="$TMPROOT"
 rsync -a "{src_dir}/" "$WORKDIR/"
 {extra_copy}
 cp "$EXECROOT/Cargo.toml" "$WORKDIR/Cargo.toml"
 [ -f "$EXECROOT/Cargo.lock" ] && cp "$EXECROOT/Cargo.lock" "$WORKDIR/Cargo.lock"
-cp "$EXECROOT/Cargo.toml" "$TMPDIR/Cargo.toml"
-[ -f "$EXECROOT/Cargo.lock" ] && cp "$EXECROOT/Cargo.lock" "$TMPDIR/Cargo.lock"
-mkdir -p "$SYS_TMP/rust/srql" "$SYS_TMP/rust/kvutil"
-rsync -a "$EXECROOT/rust/srql/" "$SYS_TMP/rust/srql/"
-rsync -a "$EXECROOT/rust/kvutil/" "$SYS_TMP/rust/kvutil/"
-{extra_tmp_copy}
+mkdir -p "$WORKDIR/rust/srql" "$WORKDIR/rust/kvutil"
+rsync -a "$EXECROOT/rust/srql/" "$WORKDIR/rust/srql/"
+rsync -a "$EXECROOT/rust/kvutil/" "$WORKDIR/rust/kvutil/"
+mkdir -p "$TMPROOT/rust/kvutil/proto"
+rsync -a "$EXECROOT/proto/" "$TMPROOT/rust/kvutil/proto/"
+mkdir -p "$SYS_TMP/rust/kvutil/proto"
+rsync -a "$EXECROOT/proto/" "$SYS_TMP/rust/kvutil/proto/"
 
 cd "$WORKDIR"
 chmod -R u+w .
@@ -106,8 +101,9 @@ mix assets.deploy
 RELEASE_DIR=$(mktemp -d)
 mix release --path "$RELEASE_DIR"
 
-# Package release to tar output
-tar -czf "{tar_out}" -C "$RELEASE_DIR" .
+# Package release to tar output (ensure parent exists, write via absolute path)
+mkdir -p "$(dirname "$EXECROOT/{tar_out}")"
+tar -czf "$EXECROOT/{tar_out}" -C "$RELEASE_DIR" .
 """.format(
             elixir_home = elixir_home,
             erlang_home = erlang_home,
@@ -118,7 +114,6 @@ tar -czf "{tar_out}" -C "$RELEASE_DIR" .
             cargo_dir = cargo.dirname,
             rustc_dir = rustc.dirname,
             extra_copy = "".join(extra_copy_cmds),
-            extra_tmp_copy = "".join(extra_tmp_copy_cmds),
         ),
         use_default_shell_env = False,
     )

@@ -27,10 +27,12 @@ mix_release(
     out = "serviceradar-web-ng-release.tar.gz",
     src_dir = "web-ng",
     extra_dirs = [
+        "proto",
         "rust/srql",
         "rust/kvutil",
     ],
     extra_dir_srcs = [
+        "//proto:kv_proto_src",
         "//rust/srql:srcs",
         "//rust/kvutil:srcs",
     ],

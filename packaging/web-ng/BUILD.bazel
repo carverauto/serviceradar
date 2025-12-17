@@ -1,8 +1,11 @@
 load("//packaging:package_rules.bzl", "serviceradar_package_from_config")
 load("//packaging:packages.bzl", "PACKAGES")
 
-package(default_visibility = ["//visibility:public"])
-package(default_compatible_with = ["@platforms//os:linux"])
+# Packaging targets are platform-agnostic here; downstream constraints are handled
+# by the individual rules/runtimes as needed.
+package(
+    default_visibility = ["//visibility:public"],
+)
 
 serviceradar_package_from_config(
     name = "web_ng",
