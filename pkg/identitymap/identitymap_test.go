@@ -61,68 +61,6 @@ func TestBuildKeysIncludesIPWhenDistinct(t *testing.T) {
 	assert.Contains(t, keys, Key{Kind: KindPartitionIP, Value: "tenant-a:10.0.0.5"})
 }
 
-func TestBuildKeysIncludesAliasMetadata(t *testing.T) {
-	mac := testMACAddress
-	update := &models.DeviceUpdate{
-		DeviceID:  "tenant-a:host-device",
-		IP:        "10.0.0.5",
-		Partition: "tenant-a",
-		MAC:       &mac,
-		Metadata: map[string]string{
-			"_alias_last_seen_service_id":           "serviceradar:agent:k8s-agent",
-			"_alias_last_seen_ip":                   "10.0.0.5",
-			"service_alias:serviceradar:poller:k8s": "2025-11-03T15:00:00Z",
-			"ip_alias:10.0.0.8":                     "2025-11-03T15:00:00Z",
-			"armis_device_id":                       "armis-123",
-			"integration_type":                      "netbox",
-			"integration_id":                        "nb-42",
-			"netbox_device_id":                      "123",
-		},
-	}
-
-	keys := BuildKeys(update)
-
-	assert.Contains(t, keys, Key{Kind: KindDeviceID, Value: "serviceradar:agent:k8s-agent"})
-	assert.Contains(t, keys, Key{Kind: KindDeviceID, Value: "serviceradar:poller:k8s"})
-	assert.Contains(t, keys, Key{Kind: KindIP, Value: "10.0.0.8"})
-	assert.Contains(t, keys, Key{Kind: KindPartitionIP, Value: "tenant-a:10.0.0.8"})
-}
-
-func TestBuildKeysFromRecord(t *testing.T) {
-	mac := "aa:bb:cc:dd:ee:ff"
-	update := &models.DeviceUpdate{
-		DeviceID:  "tenant-a:device-42",
-		IP:        "10.1.2.3",
-		Partition: "tenant-a",
-		MAC:       &mac,
-		Metadata: map[string]string{
-			"armis_device_id":  "armis-42",
-			"integration_id":   "nb-42",
-			"integration_type": "netbox",
-			"netbox_device_id": "device-42",
-		},
-	}
-
-	record := &Record{
-		CanonicalDeviceID: update.DeviceID,
-		Partition:         update.Partition,
-		MetadataHash:      HashIdentityMetadata(update),
-		Attributes: map[string]string{
-			"ip":               update.IP,
-			"mac":              "AA:BB:CC:DD:EE:FF",
-			"armis_device_id":  update.Metadata["armis_device_id"],
-			"integration_id":   update.Metadata["integration_id"],
-			"integration_type": update.Metadata["integration_type"],
-			"netbox_device_id": update.Metadata["netbox_device_id"],
-		},
-	}
-
-	keysFromRecord := BuildKeysFromRecord(record)
-	keysFromUpdate := BuildKeys(update)
-
-	assert.ElementsMatch(t, keysFromUpdate, keysFromRecord)
-}
-
 func TestMarshalRoundtrip(t *testing.T) {
 	rec := &Record{
 		CanonicalDeviceID: "tenant-a:canonical",

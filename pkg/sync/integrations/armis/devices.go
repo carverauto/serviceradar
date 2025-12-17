@@ -30,7 +30,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -860,14 +859,12 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 
 // processDevices converts devices to KV data and extracts IPs.
 type armisDeviceContext struct {
-	device      *Device
-	label       string
-	query       models.QueryConfig
-	primaryIP   string
-	allIPs      []string
-	event       *models.DeviceUpdate
-	keys        []identitymap.Key
-	orderedKeys []identitymap.Key
+	device    *Device
+	label     string
+	query     models.QueryConfig
+	primaryIP string
+	allIPs    []string
+	event     *models.DeviceUpdate
 }
 
 func (a *ArmisIntegration) processDevices(
@@ -902,46 +899,20 @@ func (a *ArmisIntegration) processDevices(
 
 		primaryIP := allIPs[0]
 		event := a.createDeviceUpdateEventWithAllIPs(d, primaryIP, allIPs, deviceLabels[d.ID], now)
-		keys := identitymap.BuildKeys(event)
-		ordered := identitymap.PrioritizeKeys(keys)
 
 		contexts = append(contexts, armisDeviceContext{
-			device:      d,
-			label:       deviceLabels[d.ID],
-			query:       deviceQueries[d.ID],
-			primaryIP:   primaryIP,
-			allIPs:      allIPs,
-			event:       event,
-			keys:        keys,
-			orderedKeys: ordered,
+			device:    d,
+			label:     deviceLabels[d.ID],
+			query:     deviceQueries[d.ID],
+			primaryIP: primaryIP,
+			allIPs:    allIPs,
+			event:     event,
 		})
 
 		ips = append(ips, primaryIP+"/32")
 	}
 
-	entries, fetchErr := a.prefetchCanonicalEntries(ctx, contexts)
-
 	for _, ctxDevice := range contexts {
-		var (
-			canonicalRecord *identitymap.Record
-			revision        uint64
-		)
-
-		if len(entries) != 0 {
-			canonicalRecord, revision = a.resolveCanonicalRecord(entries, ctxDevice.orderedKeys)
-		}
-
-		if canonicalRecord == nil && fetchErr != nil {
-			if rec, rev := a.lookupCanonicalRecordDirect(ctx, ctxDevice.keys); rec != nil {
-				canonicalRecord = rec
-				revision = rev
-			}
-		}
-
-		if canonicalRecord != nil {
-			a.attachCanonicalMetadata(ctxDevice.event, canonicalRecord, revision)
-		}
-
 		events = append(events, ctxDevice.event)
 
 		deviceTarget := models.DeviceTarget{
@@ -961,22 +932,6 @@ func (a *ArmisIntegration) processDevices(
 			},
 		}
 
-		if canonicalRecord != nil {
-			if deviceTarget.Metadata == nil {
-				deviceTarget.Metadata = make(map[string]string)
-			}
-			deviceTarget.Metadata["canonical_device_id"] = canonicalRecord.CanonicalDeviceID
-			if canonicalRecord.Partition != "" {
-				deviceTarget.Metadata["canonical_partition"] = canonicalRecord.Partition
-			}
-			if canonicalRecord.MetadataHash != "" {
-				deviceTarget.Metadata["canonical_metadata_hash"] = canonicalRecord.MetadataHash
-			}
-			if revision != 0 {
-				deviceTarget.Metadata["canonical_revision"] = strconv.FormatUint(revision, 10)
-			}
-		}
-
 		deviceTargets = append(deviceTargets, deviceTarget)
 
 		a.Logger.Debug().
@@ -988,113 +943,6 @@ func (a *ArmisIntegration) processDevices(
 	}
 
 	return data, ips, events, deviceTargets
-}
-
-func (a *ArmisIntegration) prefetchCanonicalEntries(ctx context.Context, contexts []armisDeviceContext) (map[string]*proto.BatchGetEntry, error) {
-	// Canonical identity resolution now happens centrally in the core registry.
-	// The sync service should avoid hammering the KV store with speculative reads.
-	return nil, nil
-}
-
-func (a *ArmisIntegration) resolveCanonicalRecord(entries map[string]*proto.BatchGetEntry, ordered []identitymap.Key) (*identitymap.Record, uint64) {
-	if len(entries) == 0 || len(ordered) == 0 {
-		return nil, 0
-	}
-
-	for _, key := range ordered {
-		sanitized := key.KeyPath(identitymap.DefaultNamespace)
-		entry, ok := entries[sanitized]
-		if !ok || !entry.GetFound() || len(entry.GetValue()) == 0 {
-			continue
-		}
-
-		record, err := identitymap.UnmarshalRecord(entry.GetValue())
-		if err != nil {
-			a.Logger.Debug().
-				Err(err).
-				Str("identity_kind", key.Kind.String()).
-				Str("identity_value", key.Value).
-				Msg("Failed to unmarshal canonical identity record")
-			continue
-		}
-
-		a.Logger.Debug().
-			Str("identity_kind", key.Kind.String()).
-			Str("identity_value", key.Value).
-			Str("canonical_device_id", record.CanonicalDeviceID).
-			Msg("Resolved canonical identity for Armis device")
-
-		return record, entry.GetRevision()
-	}
-
-	return nil, 0
-}
-
-func (a *ArmisIntegration) lookupCanonicalRecordDirect(ctx context.Context, keys []identitymap.Key) (*identitymap.Record, uint64) {
-	if a.KVClient == nil || len(keys) == 0 {
-		return nil, 0
-	}
-
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	ordered := identitymap.PrioritizeKeys(keys)
-	if len(ordered) == 0 {
-		return nil, 0
-	}
-
-	seenPaths := make(map[string]struct{}, len(ordered))
-	paths := make([]string, 0, len(ordered))
-	for _, key := range ordered {
-		sanitized := key.KeyPath(identitymap.DefaultNamespace)
-		if _, ok := seenPaths[sanitized]; ok {
-			continue
-		}
-		seenPaths[sanitized] = struct{}{}
-		paths = append(paths, sanitized)
-	}
-
-	resp, err := a.KVClient.BatchGet(ctx, &proto.BatchGetRequest{Keys: paths})
-	if err != nil {
-		a.Logger.Debug().Err(err).Msg("Armis identity map lookup failed")
-		return nil, 0
-	}
-
-	entries := make(map[string]*proto.BatchGetEntry, len(resp.GetResults()))
-	for _, entry := range resp.GetResults() {
-		if entry == nil {
-			continue
-		}
-		entries[entry.GetKey()] = entry
-	}
-
-	return a.resolveCanonicalRecord(entries, ordered)
-}
-
-func (a *ArmisIntegration) attachCanonicalMetadata(event *models.DeviceUpdate, record *identitymap.Record, revision uint64) {
-	if event == nil || record == nil {
-		return
-	}
-
-	if event.Metadata == nil {
-		event.Metadata = make(map[string]string)
-	}
-
-	event.Metadata["canonical_device_id"] = record.CanonicalDeviceID
-	if record.Partition != "" {
-		event.Metadata["canonical_partition"] = record.Partition
-	}
-	if record.MetadataHash != "" {
-		event.Metadata["canonical_metadata_hash"] = record.MetadataHash
-	}
-	if revision != 0 {
-		event.Metadata["canonical_revision"] = strconv.FormatUint(revision, 10)
-	}
-
-	if hostname, ok := record.Attributes["hostname"]; ok && hostname != "" {
-		event.Metadata["canonical_hostname"] = hostname
-	}
 }
 
 // createDeviceUpdateEventWithAllIPs creates a DeviceUpdate event with all IP addresses in metadata

@@ -2,13 +2,11 @@ package netbox
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
-	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -118,16 +116,14 @@ func (*fakeKVClient) ListKeys(context.Context, *proto.ListKeysRequest, ...grpc.C
 }
 
 func TestProcessDevices_DoesNotHydrateCanonicalMetadata(t *testing.T) {
-	canonical := &identitymap.Record{CanonicalDeviceID: "canonical-42", Partition: "prod", MetadataHash: "hash"}
-	payload, err := identitymap.MarshalRecord(canonical)
-	require.NoError(t, err)
-
 	fake := &fakeKVClient{
 		getFn: func(ctx context.Context, req *proto.GetRequest, _ ...grpc.CallOption) (*proto.GetResponse, error) {
-			if strings.Contains(req.Key, "/netbox-id/1") {
-				return &proto.GetResponse{Value: payload, Found: true, Revision: 7}, nil
-			}
-			return &proto.GetResponse{Found: false}, nil
+			t.Fatalf("processDevices should not issue KV identity lookups (Get): %s", req.GetKey())
+			return nil, nil
+		},
+		batchGetFn: func(ctx context.Context, req *proto.BatchGetRequest, _ ...grpc.CallOption) (*proto.BatchGetResponse, error) {
+			t.Fatalf("processDevices should not issue KV identity lookups (BatchGet): %v", req.GetKeys())
+			return nil, nil
 		},
 	}
 
@@ -161,65 +157,6 @@ func TestProcessDevices_DoesNotHydrateCanonicalMetadata(t *testing.T) {
 	_, hasCanonical := events[0].Metadata["canonical_device_id"]
 	require.False(t, hasCanonical, "sync should not hydrate canonical metadata")
 	require.Empty(t, data)
-}
-
-func TestProcessDevices_SkipsCanonicalPrefetch(t *testing.T) {
-	fake := &fakeKVClient{}
-	var captured [][]string
-	fake.batchGetFn = func(ctx context.Context, req *proto.BatchGetRequest, _ ...grpc.CallOption) (*proto.BatchGetResponse, error) {
-		keys := append([]string(nil), req.GetKeys()...)
-		captured = append(captured, keys)
-		resp := &proto.BatchGetResponse{Results: make([]*proto.BatchGetEntry, len(keys))}
-		for i, key := range keys {
-			resp.Results[i] = &proto.BatchGetEntry{Key: key, Found: false}
-		}
-		return resp, nil
-	}
-
-	integ := &NetboxIntegration{
-		Config:   &models.SourceConfig{AgentID: "agent", PollerID: "poller", Partition: "part"},
-		KvClient: fake,
-		Logger:   logger.NewTestLogger(),
-	}
-
-	resp := DeviceResponse{Results: []Device{
-		{
-			ID:   1,
-			Name: "host1",
-			Role: struct {
-				ID   int    "json:\"id\""
-				Name string "json:\"name\""
-			}{ID: 1, Name: "role"},
-			Site: struct {
-				ID   int    "json:\"id\""
-				Name string "json:\"name\""
-			}{ID: 1, Name: "site"},
-			PrimaryIP4: struct {
-				ID      int    "json:\"id\""
-				Address string "json:\"address\""
-			}{ID: 1, Address: "10.0.0.1/32"},
-		},
-		{
-			ID:   2,
-			Name: "host2",
-			Role: struct {
-				ID   int    "json:\"id\""
-				Name string "json:\"name\""
-			}{ID: 2, Name: "role"},
-			Site: struct {
-				ID   int    "json:\"id\""
-				Name string "json:\"name\""
-			}{ID: 2, Name: "site"},
-			PrimaryIP4: struct {
-				ID      int    "json:\"id\""
-				Address string "json:\"address\""
-			}{ID: 2, Address: "10.0.0.2/32"},
-		},
-	}}
-
-	_, _, events := integ.processDevices(context.Background(), resp)
-	require.Len(t, events, 2)
-	require.Empty(t, captured, "sync should not issue KV BatchGet calls")
 }
 
 func TestParseTCPPorts(t *testing.T) {
