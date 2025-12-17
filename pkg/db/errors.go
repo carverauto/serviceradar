@@ -88,6 +88,10 @@ var (
 
 	ErrCNPGRowsNotInitialized = errors.New("cnpg rows not initialized")
 
+	// CNPG configuration helpers.
+
+	ErrCNPGConfigMissing = errors.New("cnpg: missing configuration")
+
 	// TLS helpers.
 
 	ErrCNPGLackingTLSFiles = errors.New("cnpg tls requires cert_file, key_file, and ca_file")

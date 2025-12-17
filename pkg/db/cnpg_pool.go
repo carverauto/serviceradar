@@ -30,9 +30,14 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+const (
+	cnpgSSLModeDisable    = "disable"
+	cnpgSSLModeVerifyFull = "verify-full"
+)
+
 func resolveCNPGSSLMode(cfg *models.CNPGDatabase) (string, error) {
 	if cfg == nil {
-		return "", fmt.Errorf("cnpg: missing configuration")
+		return "", ErrCNPGConfigMissing
 	}
 
 	sslMode := strings.TrimSpace(cfg.SSLMode)
@@ -42,14 +47,14 @@ func resolveCNPGSSLMode(cfg *models.CNPGDatabase) (string, error) {
 
 	if sslMode == "" {
 		if cfg.TLS != nil {
-			sslMode = "verify-full"
+			sslMode = cnpgSSLModeVerifyFull
 		} else {
-			sslMode = "disable"
+			sslMode = cnpgSSLModeDisable
 		}
 	}
 
 	sslMode = strings.ToLower(sslMode)
-	if cfg.TLS != nil && sslMode == "disable" {
+	if cfg.TLS != nil && sslMode == cnpgSSLModeDisable {
 		return "", ErrCNPGTLSDisabled
 	}
 
@@ -70,7 +75,7 @@ func resolveCNPGTLSPath(cfg *models.CNPGDatabase, path string) string {
 
 func buildCNPGConnURL(cfg *models.CNPGDatabase) (url.URL, error) {
 	if cfg == nil {
-		return url.URL{}, fmt.Errorf("cnpg: missing configuration")
+		return url.URL{}, ErrCNPGConfigMissing
 	}
 
 	connURL := url.URL{
