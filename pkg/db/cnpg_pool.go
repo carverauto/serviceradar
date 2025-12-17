@@ -18,12 +18,10 @@ package db
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,6 +29,117 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
+
+const (
+	cnpgSSLModeDisable    = "disable"
+	cnpgSSLModeVerifyFull = "verify-full"
+)
+
+func resolveCNPGSSLMode(cfg *models.CNPGDatabase) (string, error) {
+	if cfg == nil {
+		return "", ErrCNPGConfigMissing
+	}
+
+	sslMode := strings.TrimSpace(cfg.SSLMode)
+	if sslMode == "" && cfg.ExtraRuntimeParams != nil {
+		sslMode = strings.TrimSpace(cfg.ExtraRuntimeParams["sslmode"])
+	}
+
+	if sslMode == "" {
+		if cfg.TLS != nil {
+			sslMode = cnpgSSLModeVerifyFull
+		} else {
+			sslMode = cnpgSSLModeDisable
+		}
+	}
+
+	sslMode = strings.ToLower(sslMode)
+	if cfg.TLS != nil && sslMode == cnpgSSLModeDisable {
+		return "", ErrCNPGTLSDisabled
+	}
+
+	return sslMode, nil
+}
+
+func resolveCNPGTLSPath(cfg *models.CNPGDatabase, path string) string {
+	if cfg == nil || path == "" {
+		return path
+	}
+
+	if filepath.IsAbs(path) || cfg.CertDir == "" {
+		return path
+	}
+
+	return filepath.Join(cfg.CertDir, path)
+}
+
+func buildCNPGConnURL(cfg *models.CNPGDatabase) (url.URL, error) {
+	if cfg == nil {
+		return url.URL{}, ErrCNPGConfigMissing
+	}
+
+	connURL := url.URL{
+		Scheme: "postgres",
+		Host:   fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		Path:   "/" + cfg.Database,
+	}
+
+	if cfg.Username != "" {
+		if cfg.Password != "" {
+			connURL.User = url.UserPassword(cfg.Username, cfg.Password)
+		} else {
+			connURL.User = url.User(cfg.Username)
+		}
+	}
+
+	query := connURL.Query()
+
+	if cfg.ApplicationName != "" {
+		query.Set("application_name", cfg.ApplicationName)
+	}
+
+	for k, v := range cfg.ExtraRuntimeParams {
+		if k == "" {
+			continue
+		}
+
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+
+		switch strings.ToLower(k) {
+		case "sslmode", "sslcert", "sslkey", "sslrootcert":
+			continue
+		default:
+			query.Set(k, v)
+		}
+	}
+
+	sslMode, err := resolveCNPGSSLMode(cfg)
+	if err != nil {
+		return url.URL{}, err
+	}
+	query.Set("sslmode", sslMode)
+
+	if cfg.TLS != nil {
+		certFile := resolveCNPGTLSPath(cfg, cfg.TLS.CertFile)
+		keyFile := resolveCNPGTLSPath(cfg, cfg.TLS.KeyFile)
+		caFile := resolveCNPGTLSPath(cfg, cfg.TLS.CAFile)
+
+		if certFile == "" || keyFile == "" || caFile == "" {
+			return url.URL{}, ErrCNPGLackingTLSFiles
+		}
+
+		query.Set("sslcert", certFile)
+		query.Set("sslkey", keyFile)
+		query.Set("sslrootcert", caFile)
+	}
+
+	connURL.RawQuery = query.Encode()
+
+	return connURL, nil
+}
 
 // NewCNPGPool dials the configured CNPG cluster and returns a pgx pool that can
 // be used for Timescale-backed reads/writes.
@@ -44,41 +153,10 @@ func NewCNPGPool(ctx context.Context, cfg *models.CNPGDatabase, log logger.Logge
 		cnpg.Port = 5432
 	}
 
-	connURL := url.URL{
-		Scheme: "postgres",
-		Host:   fmt.Sprintf("%s:%d", cnpg.Host, cnpg.Port),
-		Path:   "/" + cnpg.Database,
+	connURL, err := buildCNPGConnURL(&cnpg)
+	if err != nil {
+		return nil, err
 	}
-
-	if cnpg.Username != "" {
-		if cnpg.Password != "" {
-			connURL.User = url.UserPassword(cnpg.Username, cnpg.Password)
-		} else {
-			connURL.User = url.User(cnpg.Username)
-		}
-	}
-
-	query := connURL.Query()
-
-	sslMode := cnpg.SSLMode
-	if sslMode == "" {
-		sslMode = "disable"
-	}
-	query.Set("sslmode", sslMode)
-
-	if cnpg.ApplicationName != "" {
-		query.Set("application_name", cnpg.ApplicationName)
-	}
-
-	for k, v := range cnpg.ExtraRuntimeParams {
-		if k == "" {
-			continue
-		}
-
-		query.Set(k, v)
-	}
-
-	connURL.RawQuery = query.Encode()
 
 	poolConfig, err := pgxpool.ParseConfig(connURL.String())
 	if err != nil {
@@ -106,7 +184,13 @@ func NewCNPGPool(ctx context.Context, cfg *models.CNPGDatabase, log logger.Logge
 	}
 
 	for k, v := range cnpg.ExtraRuntimeParams {
+		k = strings.TrimSpace(k)
 		if k == "" {
+			continue
+		}
+
+		switch strings.ToLower(k) {
+		case "sslmode", "sslcert", "sslkey", "sslrootcert":
 			continue
 		}
 
@@ -116,12 +200,6 @@ func NewCNPGPool(ctx context.Context, cfg *models.CNPGDatabase, log logger.Logge
 	if cnpg.StatementTimeout > 0 {
 		timeout := time.Duration(cnpg.StatementTimeout) / time.Millisecond
 		poolConfig.ConnConfig.RuntimeParams["statement_timeout"] = fmt.Sprintf("%d", timeout)
-	}
-
-	if tlsConfig, err := buildCNPGTLSConfig(&cnpg); err != nil {
-		return nil, err
-	} else if tlsConfig != nil {
-		poolConfig.ConnConfig.TLSConfig = tlsConfig
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
@@ -146,52 +224,4 @@ func newCNPGPool(ctx context.Context, config *models.CoreServiceConfig, log logg
 	}
 
 	return NewCNPGPool(ctx, config.CNPG, log)
-}
-
-func buildCNPGTLSConfig(cfg *models.CNPGDatabase) (*tls.Config, error) {
-	if cfg == nil || cfg.TLS == nil {
-		return nil, nil
-	}
-
-	resolve := func(path string) string {
-		if path == "" {
-			return path
-		}
-
-		if filepath.IsAbs(path) || cfg.CertDir == "" {
-			return path
-		}
-
-		return filepath.Join(cfg.CertDir, path)
-	}
-
-	certFile := resolve(cfg.TLS.CertFile)
-	keyFile := resolve(cfg.TLS.KeyFile)
-	caFile := resolve(cfg.TLS.CAFile)
-
-	if certFile == "" || keyFile == "" || caFile == "" {
-		return nil, ErrCNPGLackingTLSFiles
-	}
-
-	clientCert, err := tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
-		return nil, fmt.Errorf("cnpg tls: failed to load client keypair: %w", err)
-	}
-
-	caBytes, err := os.ReadFile(caFile)
-	if err != nil {
-		return nil, fmt.Errorf("cnpg tls: failed to read CA file: %w", err)
-	}
-
-	caPool := x509.NewCertPool()
-	if !caPool.AppendCertsFromPEM(caBytes) {
-		return nil, ErrCNPGAppendCACert
-	}
-
-	return &tls.Config{
-		Certificates: []tls.Certificate{clientCert},
-		RootCAs:      caPool,
-		MinVersion:   tls.VersionTLS12,
-		ServerName:   cfg.Host,
-	}, nil
 }
