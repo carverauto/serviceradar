@@ -73,8 +73,7 @@ type Server struct {
 	DeviceRegistry      registry.Manager
 	ServiceRegistry     registry.ServiceManager
 	deviceSearchPlanner *search.Planner
-	identityKVClient    identityKVClient
-	identityKVCloser    func() error
+	kvClientCloser      func() error // closer for KV connection (used for edge onboarding)
 	eventPublisher      *natsutil.EventPublisher
 	natsConn            *nats.Conn
 	discoveryService    DiscoveryService
