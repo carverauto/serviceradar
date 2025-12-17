@@ -26,34 +26,45 @@ where
         let (tx, rx) = mpsc::unbounded_channel();
         let pinned_path = pinned_path.filter(|s| !s.is_empty());
         let service_name_clone = service_name.clone();
+        let mut last_bytes: Option<Vec<u8>> = None;
         kv_client
             .watch_apply(&kv_key, {
                 let pinned_path = pinned_path.clone();
-                move |bytes| match parse_config::<T>(bytes, format) {
-                    Ok(mut cfg) => {
-                        if let Err(err) =
-                            apply_pinned_overlay(&mut cfg, pinned_path.as_deref(), format)
-                        {
+                move |bytes| {
+                    if let Some(prev) = last_bytes.as_ref() {
+                        if prev.as_slice() == bytes {
+                            return;
+                        }
+                    }
+
+                    match parse_config::<T>(bytes, format) {
+                        Ok(mut cfg) => {
+                            if let Err(err) =
+                                apply_pinned_overlay(&mut cfg, pinned_path.as_deref(), format)
+                            {
+                                tracing::warn!(
+                                    service = %service_name_clone,
+                                    error = %err,
+                                    "failed to apply pinned config to KV update"
+                                );
+                                return;
+                            }
+
+                            last_bytes = Some(bytes.to_vec());
+                            if tx.send(cfg).is_err() {
+                                tracing::debug!(
+                                    service = %service_name_clone,
+                                    "config watcher receiver dropped; stopping watch task"
+                                );
+                            }
+                        }
+                        Err(err) => {
                             tracing::warn!(
                                 service = %service_name_clone,
                                 error = %err,
-                                "failed to apply pinned config to KV update"
-                            );
-                            return;
-                        }
-                        if tx.send(cfg).is_err() {
-                            tracing::debug!(
-                                service = %service_name_clone,
-                                "config watcher receiver dropped; stopping watch task"
+                                "failed to parse config update from KV"
                             );
                         }
-                    }
-                    Err(err) => {
-                        tracing::warn!(
-                            service = %service_name_clone,
-                            error = %err,
-                            "failed to parse config update from KV"
-                        );
                     }
                 }
             })

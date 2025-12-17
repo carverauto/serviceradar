@@ -78,7 +78,7 @@
                     "details": "serviceradar-datasvc:50057"
                 },
                 {
-                    "service_type": "grpc",
+                    "service_type": "port",
                     "service_name": "nats",
                     "details": "nats:4222"
                 },
