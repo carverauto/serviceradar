@@ -402,6 +402,142 @@ tar -czf "$@" -C "$${ROOT}" .
 """,
 )
 
+# web-ng (Phoenix) -----------------------------------------------------------
+
+genrule(
+    name = "web_ng_release_rootfs_amd64",
+    srcs = ["//web-ng:release_tar"],
+    outs = ["web_ng_release_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+TAR=$(location //web-ng:release_tar)
+ROOT=$(@D)/rootfs
+rm -rf "$${ROOT}"
+mkdir -p "$${ROOT}/app"
+tar -xzf "$${TAR}" -C "$${ROOT}/app"
+tar -czf "$@" -C "$${ROOT}" .
+""",
+)
+
+oci_image(
+    name = "web_ng_image_base_amd64",
+    base = "@debian_bookworm_slim//:debian_bookworm_slim_amd64",
+    tars = [":web_ng_release_rootfs_amd64"],
+    entrypoint = ["/app/bin/serviceradar_web_ng"],
+    env = {
+        "HOME": "/app",
+        "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
+        "PHX_SERVER": "true",
+        "MIX_ENV": "prod",
+    },
+    workdir = "/app",
+    exposed_ports = ["4000/tcp"],
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-web-ng",
+    },
+)
+
+genrule(
+    name = "web_ng_build_info_json",
+    srcs = [
+        ":web_ng_image_base_amd64.digest",
+        "//docker/images:core_image_amd64.digest",
+        "//:VERSION",
+    ],
+    outs = ["web_ng_build_info.json"],
+    stamp = True,
+    cmd = """
+set -euo pipefail
+
+web_digest_file="$(location :web_ng_image_base_amd64.digest)"
+core_digest_file="$(location //docker/images:core_image_amd64.digest)"
+version_file="$(location //:VERSION)"
+info_file="bazel-out/stable-status.txt"
+
+web_digest=$$(cat "$$web_digest_file")
+if [[ "$$web_digest" != sha256:* ]]; then
+  echo "unexpected web-ng base digest format: $$web_digest" >&2
+  exit 1
+fi
+
+web_short=$${web_digest#sha256:}
+web_short=$$(printf '%s' "$$web_short" | cut -c1-12)
+
+core_digest=$$(cat "$$core_digest_file")
+if [[ "$$core_digest" != sha256:* ]]; then
+  echo "unexpected core digest format: $$core_digest" >&2
+  exit 1
+fi
+
+core_short=$${core_digest#sha256:}
+core_short=$$(printf '%s' "$$core_short" | cut -c1-12)
+
+commit_sha="dev"
+if [[ -f "$$info_file" ]]; then
+  commit_sha=$$(grep -m1 '^STABLE_COMMIT_SHA ' "$$info_file" | awk '{print $$2}')
+  if [[ -z "$$commit_sha" ]]; then
+    commit_sha="dev"
+  fi
+fi
+commit_short=$$(printf '%s' "$$commit_sha" | cut -c1-12)
+
+if [[ -f "$$version_file" ]]; then
+  version=$$(tr -d '\\n' < "$$version_file")
+else
+  version="dev"
+fi
+
+build_time="$${BUILD_TIMESTAMP:-$$(date -u +"%Y-%m-%dT%H:%M:%SZ")}"
+
+cat > "$@" <<EOF
+{
+  "version": "$$version",
+  "buildTime": "$$build_time",
+  "webBuildId": "sha-$$commit_short",
+  "webImageDigest": "$$web_digest",
+  "coreBuildId": "sha-$$core_short"
+}
+EOF
+""",
+)
+
+pkg_tar(
+    name = "web_ng_build_info_layer_amd64",
+    files = {
+        ":web_ng_build_info_json": "app/priv/static/build-info.json",
+    },
+    modes = {
+        "app/priv/static/build-info.json": "0644",
+    },
+    package_dir = "/",
+)
+
+oci_image(
+    name = "web_ng_image_amd64",
+    base = ":web_ng_image_base_amd64",
+    tars = [
+        ":web_ng_build_info_layer_amd64",
+    ],
+    entrypoint = ["/app/bin/serviceradar_web_ng"],
+    env = {
+        "HOME": "/app",
+        "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
+        "PHX_SERVER": "true",
+        "MIX_ENV": "prod",
+    },
+    workdir = "/app",
+    exposed_ports = ["4000/tcp"],
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-web-ng",
+    },
+)
+
+oci_load(
+    name = "web_ng_image_amd64_tar",
+    image = ":web_ng_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-web:local"],
+)
+
 pkg_tar(
     name = "core_layer_amd64",
     files = {
@@ -1267,50 +1403,6 @@ oci_image(
         ":web_build_info_standalone_layer_amd64",
         ":web_build_info_standalone_nested_layer_amd64",
     ],
-)
-
-oci_load(
-    name = "web_image_amd64_tar",
-    image = ":web_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-web:local"],
-)
-
-pkg_tar(
-    name = "srql_layer_amd64",
-    files = {
-        "//rust/srql:srql_bin": "usr/local/bin/serviceradar-srql",
-        "//docker/compose:entrypoint-srql.sh": "usr/local/bin/entrypoint.sh",
-    },
-    modes = {
-        "usr/local/bin/serviceradar-srql": "0755",
-        "usr/local/bin/entrypoint.sh": "0755",
-    },
-    empty_dirs = [
-        "etc/serviceradar/certs",
-    ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "srql_image_amd64",
-    base = "@ubuntu_noble//:ubuntu_noble",
-    tars = [":srql_layer_amd64"],
-    entrypoint = ["/usr/local/bin/entrypoint.sh"],
-    cmd = ["serviceradar-srql"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
-    exposed_ports = ["8080/tcp"],
-    workdir = "/app",
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-srql",
-    },
-)
-
-oci_load(
-    name = "srql_image_amd64_tar",
-    image = ":srql_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-srql:local"],
 )
 
 pkg_tar(

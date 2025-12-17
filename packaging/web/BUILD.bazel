@@ -24,5 +24,5 @@ copy_to_directory(
 
 serviceradar_package_from_config(
     name = "web",
-    config = PACKAGES["web"],
+    config = PACKAGES["web-legacy"],
 )

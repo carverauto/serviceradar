@@ -43,6 +43,38 @@ PACKAGES = {
             "/etc/serviceradar/api.env",
         ],
     },
+    "web-ng": {
+        "package_name": "serviceradar-web",
+        "description": "ServiceRadar Phoenix web UI (web-ng)",
+        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+        "architecture": "amd64",
+        "section": "utils",
+        "priority": "optional",
+        "deb_depends": ["systemd"],
+        "rpm_requires": ["systemd"],
+        "files": [
+            {
+                "src": "//web-ng:release_tar",
+                "dest": "/usr/local/share/serviceradar-web/serviceradar-web.tar.gz",
+                "mode": "0644",
+            },
+            {
+                "src": "config/web-ng.env",
+                "dest": "/etc/serviceradar/web-ng.env",
+                "mode": "0644",
+                "rpm_filetag": "config(noreplace)",
+            },
+        ],
+        "systemd": {
+            "src": "systemd/serviceradar-web-ng.service",
+            "dest": "/lib/systemd/system/serviceradar-web-ng.service",
+        },
+        "postinst": "scripts/postinstall.sh",
+        "prerm": "scripts/preremove.sh",
+        "conffiles": [
+            "/etc/serviceradar/web-ng.env",
+        ],
+    },
     "agent": {
         "package_name": "serviceradar-agent",
         "description": "ServiceRadar Agent Service",
@@ -653,9 +685,9 @@ PACKAGES = {
         # Custom spec template to disable AutoReq for ZFS binary's optional dependencies
         "rpm_spec_template": "//packaging/sysmon:template.spec.tpl",
     },
-    "web": {
-        "package_name": "serviceradar-web",
-        "description": "ServiceRadar web dashboard",
+    "web-legacy": {
+        "package_name": "serviceradar-web-legacy",
+        "description": "ServiceRadar legacy Next.js web dashboard",
         "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
         "architecture": "amd64",
         "section": "utils",
@@ -665,38 +697,38 @@ PACKAGES = {
         "files": [
             {
                 "src": "config/web.json",
-                "dest": "/etc/serviceradar/web.json",
+                "dest": "/etc/serviceradar/web-legacy.json",
                 "mode": "0644",
                 "rpm_filetag": "config(noreplace)",
             },
             {
                 "src": "config/nginx.conf",
-                "dest": "/etc/nginx/conf.d/serviceradar-web.conf",
+                "dest": "/etc/nginx/conf.d/serviceradar-web-legacy.conf",
                 "mode": "0644",
                 "rpm_filetag": "config(noreplace)",
             },
             {
                 "src": "//packaging/web:bundle_root",
-                "dest": "/usr/local/share/serviceradar-web/",
+                "dest": "/usr/local/share/serviceradar-web-legacy/",
             },
             {
                 "src": "//packaging/web:bundle_next",
-                "dest": "/usr/local/share/serviceradar-web/.next/",
+                "dest": "/usr/local/share/serviceradar-web-legacy/.next/",
             },
             {
                 "src": "//web:public_flat",
-                "dest": "/usr/local/share/serviceradar-web/public/",
+                "dest": "/usr/local/share/serviceradar-web-legacy/public/",
             },
         ],
         "systemd": {
             "src": "systemd/serviceradar-web.service",
-            "dest": "/lib/systemd/system/serviceradar-web.service",
+            "dest": "/lib/systemd/system/serviceradar-web-legacy.service",
         },
         "postinst": "scripts/postinstall.sh",
         "prerm": "scripts/preremove.sh",
         "conffiles": [
-            "/etc/serviceradar/web.json",
-            "/etc/nginx/conf.d/serviceradar-web.conf",
+            "/etc/serviceradar/web-legacy.json",
+            "/etc/nginx/conf.d/serviceradar-web-legacy.conf",
         ],
     },
     "cli": {

@@ -106,13 +106,6 @@ data:
           "use_device_search_planner": true,
           "require_device_registry": true
         },
-        "srql": {
-          "enabled": false,
-          "base_url": "",
-          "api_key": "",
-          "timeout": "15s",
-          "path": "/api/query"
-        },
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
@@ -953,11 +946,10 @@ data:
               | .cnpg.password = $pwd
               | .cnpg.ssl_mode = $ssl
               | .cnpg.cert_dir = $certdir
-              | .auth.jwt_secret = $jwt
-              | .auth.jwt_expiration = "24h"
-             | .auth.local_users.admin = $bcrypt
-             | .api_key = $api_key
-             | (if .srql != null then (.srql.api_key = $api_key) else . end)
+             | .auth.jwt_secret = $jwt
+             | .auth.jwt_expiration = "24h"
+            | .auth.local_users.admin = $bcrypt
+            | .api_key = $api_key
              | (if (.logging? // null) != null and (.logging.otel? // null) != null
                 then (.logging.otel.headers = ((.logging.otel.headers // {}) + {"x-api-key": $api_key}))
                 else .
