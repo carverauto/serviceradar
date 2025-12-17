@@ -557,7 +557,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         <div class="min-w-0">
           <div class="text-sm font-semibold">Query Builder</div>
           <div class="text-xs text-base-content/70">
-            Compose a query visually. SRQL text remains the source of truth.
+            Compose a query visually.
           </div>
         </div>
 
