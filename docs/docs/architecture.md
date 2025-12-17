@@ -202,77 +202,21 @@ To fix this, the Device Registry now picks a canonical identity per real-world d
 
 **Note:** KV is NOT used for device identity resolution. CNPG (PostgreSQL) is the authoritative source for identity via the `device_identifiers` table. The IdentityEngine in `pkg/registry` uses strong identifiers (Armis ID, MAC, etc.) to generate deterministic `sr:` UUIDs and stores mappings in CNPG with an in-memory cache for performance.
 
-### Why the backfill exists
-
-Before the canonicalization rules were introduced, the database already contained duplicate `device_id`s—some with long-running poller history. The new registry logic keeps things clean going forward, but we still need to reconcile the backlog so reporting and alerting stay accurate. The one-off backfill job walks the existing Timescale tables, identifies duplicate identities, and emits tombstone `DeviceUpdate` messages to fold the old IDs into their canonical equivalents.
-
-Run the backfill from the `serviceradar-core` binary when you are ready to migrate historical data:
-
-```bash
-serviceradar-core --config /etc/serviceradar/core.json --backfill-identities
-```
-
-Key CLI flags:
-
-- `--backfill-identities` runs the identity de-duplication and exits without starting gRPC/HTTP services.
-- `--backfill-ips` (default `true`) also merges sweep-generated aliases that only differ by IP.
-- `--backfill-dry-run` prints what would merge without publishing tombstones—use this on staging first to validate cardinality.
-- `--seed-kv-only` **[REMOVED]** This flag has been removed since KV is no longer used for identity resolution. CNPG is the authoritative source.
-
 ### Monitoring identity lookups
 
-The core lookup path and backfill tooling emit OpenTelemetry metrics so operators can see how identity resolution behaves in real time:
+The core lookup path emits OpenTelemetry metrics so operators can see how identity resolution behaves in real time:
 
-- `identitymap_kv_publish_total` **[DEPRECATED]** KV is no longer used for identity resolution. This metric remains for legacy cleanup workflows only.
-- `identitymap_conflict_total` **[DEPRECATED]** KV conflicts are no longer relevant since identity resolution uses CNPG exclusively.
 - `identitymap_lookup_latency_seconds` (labels: `resolved_via=db|miss|error`, `found=true|false`) measures end-to-end latency for resolving canonical devices via CNPG.
 
-Conflicts are also logged with the key path and gRPC status code whenever JetStream rejects an optimistic update. Feed these metrics into the OTEL collector (`cmd/otel`) to populate the Prometheus dashboards used during rollout.
+Feed these metrics into the OTEL collector (`cmd/otel`) to populate Prometheus dashboards.
 
-### Exporting canonical identity metrics
+### Legacy KV cleanup
 
-1. Enable OTEL metrics in the core configuration. The same block that controls OTEL logging now wires the metric exporter:
+If upgrading from a previous deployment that used KV for identity caching, use the `kv-sweep` tool to remove any orphaned `device_canonical_map/*` entries:
 
-   ```jsonc
-   {
-     "logging": {
-       "level": "info",
-       "otel": {
-         "enabled": true,
-         "endpoint": "otel-collector.default.svc.cluster.local:4317",
-         "insecure": true
-       }
-     }
-   }
-   ```
-
-   The endpoint should point at the OTLP gRPC listener exposed by `cmd/otel` (or any compatible collector).
-
-2. Update the OTEL collector to expose a Prometheus scrape endpoint. The stock `cmd/otel/otel.toml` now includes:
-
-   ```toml
-   [server.metrics]
-   bind_address = "0.0.0.0"
-   port = 9464
-   ```
-
-   With this block in place the collector serves the aggregated counters at `http://<collector-host>:9464/metrics`.
-
-3. Add the new time series to Grafana or Alertmanager. Common queries include:
-
-   - `histogram_quantile(0.95, rate(identitymap_lookup_latency_seconds_bucket[5m]))` – watches the p95 lookup latency across the fleet.
-   - `identitymap_lookup_latency_seconds{resolved_via="db"}` – tracks CNPG-resolved identity lookups.
-
-4. During feature rollout, chart the metrics alongside the backfill jobs. Pair the Prometheus dashboard with the staging commands in the next section to verify seeding runs beforehand.
-
-### Rollout checklist
-
-1. **Staging dry-run:** run `serviceradar-core --config /etc/serviceradar/core.json --backfill-identities --backfill-dry-run` to validate the planned merges and cardinality.
-2. **Commit the backfill:** rerun the job without `--backfill-dry-run` to emit the tombstones and fold historical rows.
-3. **Post-rollout watch:** monitor `identitymap_lookup_latency_seconds` for at least one sweep interval and investigate sustained p95 regressions.
-4. **Legacy KV cleanup (optional):** Use the `kv-sweep` tool to remove any orphaned `device_canonical_map/*` entries from previous deployments.
-
-When the backfill finishes it logs the totals and exits. After that, the Device Registry enforces the same canonicalization rules for all future DeviceUpdate events flowing from Armis, KV sweeps, and Poller results.
+```bash
+kv-sweep --bucket serviceradar-datasvc --prefix device_canonical_map/ --delete
+```
 
 ## Security Architecture
 

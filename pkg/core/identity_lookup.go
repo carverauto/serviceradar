@@ -324,3 +324,13 @@ func netboxLookupQuery(id string) string {
             ORDER BY _tp_time DESC
             LIMIT 1`, esc, esc)
 }
+
+// partitionFromDeviceID extracts the partition prefix from a device ID.
+// Device IDs have the format "partition:ip" or similar compound keys.
+func partitionFromDeviceID(deviceID string) string {
+	parts := strings.Split(deviceID, ":")
+	if len(parts) >= 2 {
+		return parts[0]
+	}
+	return "default"
+}

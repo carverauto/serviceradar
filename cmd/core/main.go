@@ -55,28 +55,6 @@ import (
 	"github.com/carverauto/serviceradar/cmd/core/app"
 )
 
-type coreFlags struct {
-	ConfigPath     string
-	Backfill       bool
-	BackfillDryRun bool
-	BackfillIPs    bool
-}
-
-func parseFlags() coreFlags {
-	configPath := flag.String("config", "/etc/serviceradar/core.json", "Path to core config file")
-	backfill := flag.Bool("backfill-identities", false, "Run one-time identity backfill (Armis/NetBox) and exit")
-	backfillDryRun := flag.Bool("backfill-dry-run", false, "If set with --backfill-identities, only log actions without writing")
-	backfillIPs := flag.Bool("backfill-ips", true, "Also backfill sweep-only device IDs by IP aliasing into canonical identities")
-	flag.Parse()
-
-	return coreFlags{
-		ConfigPath:     *configPath,
-		Backfill:       *backfill,
-		BackfillDryRun: *backfillDryRun,
-		BackfillIPs:    *backfillIPs,
-	}
-}
-
 func main() {
 	if err := run(); err != nil {
 		log.Fatalf("Fatal error: %v", err)
@@ -84,14 +62,13 @@ func main() {
 }
 
 func run() error {
-	opts := parseFlags()
+	configPath := flag.String("config", "/etc/serviceradar/core.json", "Path to core config file")
+	flag.Parse()
+
 	watchEnabled := parseEnvBool("CONFIG_WATCH_ENABLED", true)
 	appOptions := app.Options{
-		ConfigPath:      opts.ConfigPath,
-		BackfillEnabled: opts.Backfill,
-		BackfillDryRun:  opts.BackfillDryRun,
-		BackfillIPs:     opts.BackfillIPs,
-		DisableWatch:    !watchEnabled,
+		ConfigPath:   *configPath,
+		DisableWatch: !watchEnabled,
 	}
 
 	return app.Run(context.Background(), appOptions)
