@@ -20,6 +20,18 @@ filegroup(
 mix_release(
     name = "release_tar",
     srcs = [":srcs"],
+    data = [
+        "//:Cargo.toml",
+        "//:Cargo.lock",
+    ],
     out = "serviceradar-web-ng-release.tar.gz",
     src_dir = "web-ng",
+    extra_dirs = [
+        "rust/srql",
+        "rust/kvutil",
+    ],
+    extra_dir_srcs = [
+        "//rust/srql:srcs",
+        "//rust/kvutil:srcs",
+    ],
 )

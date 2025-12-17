@@ -75,6 +75,9 @@ config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]
 
+# Pin Rustler temp dir to an explicitly writable path when provided by the build system
+config :rustler, :tmp_dir, System.get_env("RUSTLER_TMPDIR") || System.tmp_dir!()
+
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 

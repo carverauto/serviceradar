@@ -2,6 +2,7 @@ load("//packaging:package_rules.bzl", "serviceradar_package_from_config")
 load("//packaging:packages.bzl", "PACKAGES")
 
 package(default_visibility = ["//visibility:public"])
+package(default_compatible_with = ["@platforms//os:linux"])
 
 serviceradar_package_from_config(
     name = "web_ng",

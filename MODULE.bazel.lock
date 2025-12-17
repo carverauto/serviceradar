@@ -449,6 +449,102 @@
         ]
       }
     },
+    "@@rules_elixir+//bzlmod:extensions.bzl%elixir_config": {
+      "general": {
+        "bzlTransitiveDigest": "ohoT9jmBnvAHOfB4OsOb7JBw77WEicWKthjpKqEIdR4=",
+        "usagesDigest": "R3XW1e1HVg3u5ZYznxFBcuHly++y2BGGf+ncqxcUSqI=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "elixir_config": {
+            "repoRuleId": "@@rules_elixir+//repositories:elixir_config.bzl%elixir_config",
+            "attributes": {
+              "types": {
+                "elixir_1_19_4": "internal"
+              },
+              "versions": {
+                "elixir_1_19_4": "1.19.4"
+              },
+              "urls": {
+                "elixir_1_19_4": "https://github.com/elixir-lang/elixir/archive/refs/tags/v1.19.4.tar.gz"
+              },
+              "strip_prefixs": {
+                "elixir_1_19_4": "elixir-1.19.4"
+              },
+              "sha256s": {
+                "elixir_1_19_4": "a2df9d5411fc53d97ec17c069765c8fb781f8dc36c4e06ec1cd4b189340d364b"
+              },
+              "elixir_homes": {}
+            }
+          }
+        },
+        "recordedRepoMappingEntries": [
+          [
+            "rules_elixir+",
+            "rules_erlang",
+            "rules_erlang+"
+          ]
+        ]
+      }
+    },
+    "@@rules_erlang+//bzlmod:extensions.bzl%erlang_config": {
+      "general": {
+        "bzlTransitiveDigest": "Hu32F6vz3y8dYVjG00yqCpbUEZEIcKykDj7JEMgMy/c=",
+        "usagesDigest": "8y6sHx+iPB18CJm/MUIsibgIILI0Uk6sYev5rE5mL1I=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "erlang_config": {
+            "repoRuleId": "@@rules_erlang+//repositories:erlang_config.bzl%erlang_config",
+            "attributes": {
+              "rules_erlang_workspace": "@rules_erlang",
+              "types": {
+                "otp_28_1": "internal"
+              },
+              "versions": {
+                "otp_28_1": "28.1"
+              },
+              "urls": {
+                "otp_28_1": "https://github.com/erlang/otp/releases/download/OTP-28.1/otp_src_28.1.tar.gz"
+              },
+              "strip_prefixs": {
+                "otp_28_1": "otp_src_28.1"
+              },
+              "sha256s": {
+                "otp_28_1": "c7c6fe06a3bf0031187d4cb10d30e11de119b38bdba7cd277898f75d53bdb218"
+              },
+              "erlang_homes": {},
+              "pre_configure_cmdss": {
+                "otp_28_1": []
+              },
+              "extra_configure_optss": {
+                "otp_28_1": []
+              },
+              "post_configure_cmdss": {
+                "otp_28_1": []
+              },
+              "extra_make_optss": {
+                "otp_28_1": []
+              }
+            }
+          }
+        },
+        "recordedRepoMappingEntries": [
+          [
+            "rules_erlang+",
+            "bazel_skylib",
+            "bazel_skylib+"
+          ],
+          [
+            "rules_erlang+",
+            "bazel_tools",
+            "bazel_tools"
+          ]
+        ]
+      }
+    },
     "@@rules_foreign_cc+//foreign_cc:extensions.bzl%ext": {
       "general": {
         "bzlTransitiveDigest": "yVMNe4Uu+Q9dCzPT8bYN25kDb/hyl95FLfyK6Vw52kM=",

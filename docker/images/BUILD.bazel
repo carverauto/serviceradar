@@ -408,6 +408,7 @@ genrule(
     name = "web_ng_release_rootfs_amd64",
     srcs = ["//web-ng:release_tar"],
     outs = ["web_ng_release_rootfs_amd64.tar"],
+    target_compatible_with = ["@platforms//os:linux"],
     cmd = """
 set -euo pipefail
 TAR=$(location //web-ng:release_tar)
@@ -421,7 +422,8 @@ tar -czf "$@" -C "$${ROOT}" .
 
 oci_image(
     name = "web_ng_image_base_amd64",
-    base = "@debian_bookworm_slim//:debian_bookworm_slim_amd64",
+    target_compatible_with = ["@platforms//os:linux"],
+    base = "@debian_bookworm_slim_linux_amd64//:debian_bookworm_slim_linux_amd64",
     tars = [":web_ng_release_rootfs_amd64"],
     entrypoint = ["/app/bin/serviceradar_web_ng"],
     env = {
@@ -446,6 +448,7 @@ genrule(
     ],
     outs = ["web_ng_build_info.json"],
     stamp = True,
+    target_compatible_with = ["@platforms//os:linux"],
     cmd = """
 set -euo pipefail
 
@@ -510,10 +513,12 @@ pkg_tar(
         "app/priv/static/build-info.json": "0644",
     },
     package_dir = "/",
+    target_compatible_with = ["@platforms//os:linux"],
 )
 
 oci_image(
     name = "web_ng_image_amd64",
+    target_compatible_with = ["@platforms//os:linux"],
     base = ":web_ng_image_base_amd64",
     tars = [
         ":web_ng_build_info_layer_amd64",

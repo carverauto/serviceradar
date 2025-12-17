@@ -701,37 +701,6 @@ PACKAGES = {
         "postinst": "scripts/postinstall.sh",
         "prerm": "scripts/preremove.sh",
     },
-    "srql": {
-        "package_name": "serviceradar-srql",
-        "description": "ServiceRadar SRQL Rust query service",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "net",
-        "priority": "optional",
-        "deb_depends": ["systemd", "ca-certificates", "curl", "libpq5", "liblz4-1", "libzstd1", "libssl3"],
-        "rpm_requires": ["systemd", "ca-certificates", "curl", "libpq", "lz4", "zstd", "openssl"],
-        "binary": {
-            "target": "//rust/srql:srql_bin",
-            "dest": "/usr/local/bin/serviceradar-srql",
-        },
-        "files": [
-            {
-                "src": "config/srql.env",
-                "dest": "/etc/serviceradar/srql.env",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-srql.service",
-            "dest": "/lib/systemd/system/serviceradar-srql.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/prerm.sh",
-        "conffiles": [
-            "/etc/serviceradar/srql.env",
-        ],
-    },
     "otel": {
         "package_name": "serviceradar-otel",
         "description": "ServiceRadar OTEL Collector",

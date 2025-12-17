@@ -165,6 +165,19 @@ build:darwin_pkg --repo_env=BAZEL=/usr/local/bin/bazel
 build:darwin_pkg --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 build:darwin_pkg --config=no_remote
 
+# macOS local hermetic builds (prefer Homebrew GCC/Clang toolchain to avoid Apple clang flag gaps)
+# Usage: bazel build --config=darwin_local <targets>
+build:darwin_local --repo_env=CC=/opt/homebrew/bin/gcc-14
+build:darwin_local --repo_env=CXX=/opt/homebrew/bin/g++-14
+build:darwin_local --action_env=CC=/opt/homebrew/bin/gcc-14
+build:darwin_local --action_env=CXX=/opt/homebrew/bin/g++-14
+build:darwin_local --features=fully_static_link --copt=-Wno-unused-command-line-argument
+build:darwin_local --host_copt=-Wno-unused-command-line-argument
+build:darwin_local --linkopt=-Wno-unused-command-line-argument
+build:darwin_local --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+build:darwin_local --strategy=CppCompile=local
+build:darwin_local --strategy=CppLink=local
+
 # EL9-compatible builds using Oracle Linux 9 RBE executor (glibc 2.34)
 # Use this for RPM packages targeting RHEL/AlmaLinux/Rocky/Oracle Linux 9
 # Note: We duplicate remote_base settings here instead of inheriting, to ensure
