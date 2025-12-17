@@ -908,7 +908,7 @@ dependencies = [
  "bitflags 2.10.0",
  "chrono",
  "delegate-attr",
- "hostname 0.4.1",
+ "hostname",
  "serde 1.0.228",
  "serde_json 1.0.145",
  "snafu",
@@ -2141,17 +2141,6 @@ dependencies = [
 
 [[package]]
 name = "hostname"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c731c3e10504cc8ed35cfe2f1db4c9274c3d35fa486e3b31df46f068ef3e867"
-dependencies = [
- "libc",
- "match_cfg",
- "winapi 0.3.9",
-]
-
-[[package]]
-name = "hostname"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a56f203cd1c76362b69e3863fd987520ac36cf70a8c92627449b2f64a8cf7d65"
@@ -2921,12 +2910,6 @@ name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
-
-[[package]]
-name = "match_cfg"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffbee8634e0d45d258acb448e7eaab3fce7a0a467395d4d9f228e3c1f01fb2e4"
 
 [[package]]
 name = "matchers"
@@ -5583,7 +5566,7 @@ dependencies = [
  "config-bootstrap",
  "edge-onboarding",
  "env_logger 0.10.2",
- "hostname 0.3.1",
+ "hostname",
  "libc",
  "libzetta",
  "log 0.4.28",
