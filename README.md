@@ -9,6 +9,7 @@
 # ServiceRadar
 
 <img width="1470" height="836" alt="Screenshot 2025-12-16 at 10 09 19 PM" src="https://github.com/user-attachments/assets/e64ca26b-f4d8-42df-ab81-2de1d7941f92" />
+<img width="1470" height="836" alt="Screenshot 2025-12-16 at 10 11 40 PM" src="https://github.com/user-attachments/assets/5dff0ec7-2282-498d-8123-0850acac37e0" />
 
 [![CI](https://github.com/carverauto/serviceradar/actions/workflows/main.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/main.yml)
 [![Go Linter](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml)
