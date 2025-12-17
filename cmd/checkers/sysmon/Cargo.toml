@@ -17,7 +17,7 @@ env_logger = "0.10"
 tonic-health = "0.9"
 tonic-reflection = "0.9"
 tonic = { version = "0.9", features = ["tls"] }
-clap = "~2.33.3"
+clap = "~4.5.51"
 anyhow = "1.0"
 sysinfo = "0.34.2"
 libzetta = { version = "0.5.0", optional = true }
