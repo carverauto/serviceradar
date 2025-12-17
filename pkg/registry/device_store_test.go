@@ -78,6 +78,63 @@ func TestUpsertAndGetDeviceRecord(t *testing.T) {
 	}
 }
 
+func TestCloneDeviceRecord_EmptyMetadataMapDoesNotAlias(t *testing.T) {
+	original := &DeviceRecord{
+		DeviceID: testDeviceID1,
+		IP:       "10.0.0.1",
+		Metadata: map[string]string{},
+	}
+
+	clone1 := cloneDeviceRecord(original)
+	if clone1 == nil {
+		t.Fatalf("expected clone to be non-nil")
+	}
+
+	clone1.Metadata["k"] = "v1"
+
+	if len(original.Metadata) != 0 {
+		t.Fatalf("expected original metadata to remain empty, got %#v", original.Metadata)
+	}
+
+	clone2 := cloneDeviceRecord(original)
+	if clone2 == nil {
+		t.Fatalf("expected second clone to be non-nil")
+	}
+	if _, ok := clone2.Metadata["k"]; ok {
+		t.Fatalf("expected second clone metadata to not include prior clone mutation, got %#v", clone2.Metadata)
+	}
+}
+
+func TestCloneDeviceRecord_EmptySlicesWithCapacityDoNotAlias(t *testing.T) {
+	original := &DeviceRecord{
+		DeviceID:         testDeviceID1,
+		IP:               "10.0.0.1",
+		DiscoverySources: make([]string, 0, 1),
+		Capabilities:     make([]string, 0, 1),
+	}
+
+	clone1 := cloneDeviceRecord(original)
+	if clone1 == nil {
+		t.Fatalf("expected clone to be non-nil")
+	}
+	clone1.DiscoverySources = append(clone1.DiscoverySources, "a")
+	clone1.Capabilities = append(clone1.Capabilities, "icmp")
+
+	clone2 := cloneDeviceRecord(original)
+	if clone2 == nil {
+		t.Fatalf("expected second clone to be non-nil")
+	}
+	clone2.DiscoverySources = append(clone2.DiscoverySources, "b")
+	clone2.Capabilities = append(clone2.Capabilities, "snmp")
+
+	if got := clone1.DiscoverySources[0]; got != "a" {
+		t.Fatalf("expected clone1 discovery source to remain %q, got %q", "a", got)
+	}
+	if got := clone1.Capabilities[0]; got != "icmp" {
+		t.Fatalf("expected clone1 capability to remain %q, got %q", "icmp", got)
+	}
+}
+
 func TestUpsertUpdatesIndexes(t *testing.T) {
 	reg := newTestDeviceRegistry()
 
