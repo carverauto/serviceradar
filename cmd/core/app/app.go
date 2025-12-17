@@ -226,7 +226,9 @@ func runBackfill(ctx context.Context, server *core.Server, mainLogger logger.Log
 	}
 	mainLogger.Info().Msg(startMsg)
 
-	if err := core.BackfillIdentityTombstones(ctx, server.DB, server.IdentityKVClient(), mainLogger, opts); err != nil {
+	// KV is no longer used for identity resolution - pass nil.
+	// The backfill functions handle nil gracefully and skip KV operations.
+	if err := core.BackfillIdentityTombstones(ctx, server.DB, nil, mainLogger, opts); err != nil {
 		return err
 	}
 
@@ -239,7 +241,8 @@ func runBackfill(ctx context.Context, server *core.Server, mainLogger logger.Log
 		}
 		mainLogger.Info().Msg(ipMsg)
 
-		if err := core.BackfillIPAliasTombstones(ctx, server.DB, server.IdentityKVClient(), mainLogger, opts); err != nil {
+		// KV is no longer used for identity resolution - pass nil.
+		if err := core.BackfillIPAliasTombstones(ctx, server.DB, nil, mainLogger, opts); err != nil {
 			return err
 		}
 	}

@@ -12,9 +12,20 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// identityKVClient defines the KV operations needed for legacy identity backfill tooling.
+// This interface is used only by BackfillIdentityTombstones and BackfillIPAliasTombstones.
+// Note: KV is no longer used for identity resolution in normal operation - CNPG is authoritative.
+type identityKVClient interface {
+	Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
+	PutIfAbsent(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error)
+	Update(ctx context.Context, in *proto.UpdateRequest, opts ...grpc.CallOption) (*proto.UpdateResponse, error)
+	Delete(ctx context.Context, in *proto.DeleteRequest, opts ...grpc.CallOption) (*proto.DeleteResponse, error)
+}
 
 // identityRow holds a single unified_devices row with the identity key extracted.
 type identityRow struct {

@@ -9,7 +9,6 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
-	"google.golang.org/grpc"
 	grpccodes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -23,14 +22,8 @@ var (
 	errUnsupportedIdentityKind = errors.New("identity lookup: unsupported identity kind")
 )
 
-type identityKVClient interface {
-	Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
-	PutIfAbsent(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error)
-	Update(ctx context.Context, in *proto.UpdateRequest, opts ...grpc.CallOption) (*proto.UpdateResponse, error)
-	Delete(ctx context.Context, in *proto.DeleteRequest, opts ...grpc.CallOption) (*proto.DeleteResponse, error)
-}
-
-// GetCanonicalDevice resolves a set of identity keys to the canonical device record maintained in KV.
+// GetCanonicalDevice resolves a set of identity keys to the canonical device record via CNPG.
+// KV is not used for identity resolution - CNPG is the authoritative source.
 func (s *Server) GetCanonicalDevice(ctx context.Context, req *proto.GetCanonicalDeviceRequest) (*proto.GetCanonicalDeviceResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "GetCanonicalDevice")
 	defer span.End()
@@ -47,41 +40,14 @@ func (s *Server) GetCanonicalDevice(ctx context.Context, req *proto.GetCanonical
 		return nil, status.Error(grpccodes.InvalidArgument, "identity keys are required")
 	}
 
-	namespace := strings.TrimSpace(req.GetNamespace())
-	if namespace == "" {
-		namespace = identitymap.DefaultNamespace
-	}
-
 	span.SetAttributes(
 		attribute.Int("identity.count", len(req.GetIdentityKeys())),
-		attribute.String("namespace", namespace),
 	)
 
 	// Normalize identity keys and append optional IP hint if provided.
 	keys := normalizeIdentityKeys(req)
 
-	// Attempt KV lookups in order.
-	for _, key := range keys {
-		rec, revision, err := s.lookupIdentityFromKV(ctx, namespace, key)
-		if err != nil {
-			s.logger.Warn().Err(err).Str("key", key.KeyPath(namespace)).Msg("identity KV lookup failed")
-			span.RecordError(err)
-			continue
-		}
-		if rec != nil {
-			span.SetStatus(otelcodes.Ok, "resolved via kv")
-			resolvedVia = "kv"
-			found = true
-			return &proto.GetCanonicalDeviceResponse{
-				Found:      true,
-				Record:     rec.ToProto(),
-				MatchedKey: key.ToProto(),
-				Revision:   revision,
-			}, nil
-		}
-	}
-
-	// Fallback to database correlation when KV misses.
+	// Resolve via CNPG-backed database lookup.
 	record, matchedKey, err := s.lookupIdentityFromDB(ctx, keys)
 	if err != nil {
 		span.RecordError(err)
@@ -94,53 +60,14 @@ func (s *Server) GetCanonicalDevice(ctx context.Context, req *proto.GetCanonical
 		return &proto.GetCanonicalDeviceResponse{Found: false}, nil
 	}
 
-	hydrate := false
-	if ok, err := s.hydrateIdentityKV(ctx, namespace, matchedKey, record); err != nil {
-		// Hydration failure is logged but does not fail the lookup response.
-		s.logger.Warn().Err(err).Str("key", matchedKey.KeyPath(namespace)).Msg("failed to hydrate identity kv")
-		span.RecordError(err)
-	} else {
-		hydrate = ok
-	}
-
-	span.SetStatus(otelcodes.Ok, "resolved via db fallback")
+	span.SetStatus(otelcodes.Ok, "resolved via db")
 	resolvedVia = "db"
 	found = true
 	return &proto.GetCanonicalDeviceResponse{
 		Found:      true,
 		Record:     record.ToProto(),
 		MatchedKey: matchedKey.ToProto(),
-		Hydrated:   hydrate,
 	}, nil
-}
-
-func (s *Server) lookupIdentityFromKV(ctx context.Context, namespace string, key identitymap.Key) (*identitymap.Record, uint64, error) {
-	if s.identityKVClient == nil {
-		return nil, 0, nil
-	}
-	resp, err := s.identityKVClient.Get(ctx, &proto.GetRequest{Key: key.KeyPath(namespace)})
-	if err != nil {
-		return nil, 0, err
-	}
-	if !resp.GetFound() || len(resp.GetValue()) == 0 {
-		return nil, resp.GetRevision(), nil
-	}
-	rec, err := identitymap.UnmarshalRecord(resp.GetValue())
-	if err != nil {
-		if errors.Is(err, identitymap.ErrCorruptRecord) {
-			if s.logger != nil {
-				s.logger.Warn().Err(err).Str("key", key.KeyPath(namespace)).Msg("Skipping corrupt canonical identity record from KV")
-			}
-			if _, delErr := s.identityKVClient.Delete(ctx, &proto.DeleteRequest{Key: key.KeyPath(namespace)}); delErr != nil {
-				if s.logger != nil {
-					s.logger.Warn().Err(delErr).Str("key", key.KeyPath(namespace)).Msg("Failed to delete corrupt canonical identity record from KV")
-				}
-			}
-			return nil, resp.GetRevision(), nil
-		}
-		return nil, 0, err
-	}
-	return rec, resp.GetRevision(), nil
 }
 
 func (s *Server) lookupIdentityFromDB(ctx context.Context, keys []identitymap.Key) (*identitymap.Record, identitymap.Key, error) {
@@ -223,61 +150,6 @@ func (s *Server) lookupDeviceIDByQuery(ctx context.Context, query string) (strin
 	}
 	id, _ := rows[0]["device_id"].(string)
 	return id, nil
-}
-
-func (s *Server) hydrateIdentityKV(ctx context.Context, namespace string, key identitymap.Key, record *identitymap.Record) (bool, error) {
-	if s.identityKVClient == nil || record == nil {
-		return false, nil
-	}
-
-	payload, err := identitymap.MarshalRecord(record)
-	if err != nil {
-		return false, err
-	}
-
-	_, err = s.identityKVClient.PutIfAbsent(ctx, &proto.PutRequest{Key: key.KeyPath(namespace), Value: payload})
-	if err == nil {
-		return true, nil
-	}
-
-	//exhaustive:ignore
-	switch status.Code(err) {
-	case grpccodes.AlreadyExists:
-		resp, getErr := s.identityKVClient.Get(ctx, &proto.GetRequest{Key: key.KeyPath(namespace)})
-		if getErr != nil {
-			return false, getErr
-		}
-		existing, unmarshalErr := identitymap.UnmarshalRecord(resp.GetValue())
-		if unmarshalErr != nil {
-			if errors.Is(unmarshalErr, identitymap.ErrCorruptRecord) {
-				if s.logger != nil {
-					s.logger.Warn().Err(unmarshalErr).Str("key", key.KeyPath(namespace)).Msg("Overwriting corrupt canonical identity entry during hydration")
-				}
-			} else {
-				return false, unmarshalErr
-			}
-		}
-		if existing != nil && existing.MetadataHash == record.MetadataHash {
-			return false, nil
-		}
-		_, updErr := s.identityKVClient.Update(ctx, &proto.UpdateRequest{
-			Key:        key.KeyPath(namespace),
-			Value:      payload,
-			Revision:   resp.GetRevision(),
-			TtlSeconds: 0,
-		})
-		if updErr != nil {
-			if status.Code(updErr) == grpccodes.Aborted {
-				return false, nil
-			}
-			return false, updErr
-		}
-		return true, nil
-	case grpccodes.Unimplemented:
-		return false, nil
-	default:
-		return false, err
-	}
 }
 
 func buildRecordFromUnifiedDevice(device *models.UnifiedDevice) *identitymap.Record {

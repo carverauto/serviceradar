@@ -1,3 +1,9 @@
+// kv-sweep is a maintenance tool for cleaning up legacy device_canonical_map/* entries in KV.
+//
+// DEPRECATION NOTICE: As of the remove-identity-kv-cache change, KV is no longer used for
+// device identity resolution. CNPG is the authoritative source for identity. This tool
+// remains useful only for cleaning up legacy KV entries from previous deployments.
+// The -rehydrate flag has been removed since GetCanonicalDevice no longer writes to KV.
 package main
 
 import (
@@ -13,19 +19,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"google.golang.org/grpc"
 
-	"github.com/carverauto/serviceradar/pkg/config/bootstrap"
 	"github.com/carverauto/serviceradar/pkg/identitymap"
-	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
-	identitymappb "github.com/carverauto/serviceradar/proto/identitymap/v1"
 )
 
 type sweepConfig struct {
@@ -46,9 +45,6 @@ type sweepConfig struct {
 	dryRun          bool
 	reportPath      string
 	dumpDir         string
-	rehydrate       bool
-	coreAddress     string
-	coreRole        string
 	timeout         time.Duration
 }
 
@@ -66,19 +62,11 @@ type sweepStats struct {
 	corruptRecords int
 	deleted        int
 	deleteFailures int
-	rehydrated     int
-	rehydrateFail  int
 	startedAt      time.Time
 }
 
 var (
-	errBucketRequired           = errors.New("bucket is required")
-	errRehydrateCoreAddress     = errors.New("rehydrate requested but CORE_ADDRESS not provided")
-	errCoreAddressNotConfigured = errors.New("CORE_ADDRESS not configured")
-	errInvalidKeyPath           = errors.New("invalid key path")
-	errUnknownIdentitySegment   = errors.New("unknown identity kind segment")
-	errInvalidHexEscape         = errors.New("invalid hex escape length in sanitized segment")
-	errUnsafeASCIICharacter     = errors.New("decoded character out of safe ASCII range")
+	errBucketRequired = errors.New("bucket is required")
 )
 
 func main() {
@@ -110,20 +98,15 @@ func parseFlags() sweepConfig {
 	flag.StringVar(&cfg.dumpDir, "dump-dir", "", "directory to dump raw payloads for corrupt entries")
 	flag.DurationVar(&cfg.timeout, "timeout", 5*time.Second, "per-key operation timeout")
 
-	flag.BoolVar(&cfg.rehydrate, "rehydrate", false, "call CoreService.GetCanonicalDevice after deleting corrupt entries")
-	flag.StringVar(&cfg.coreAddress, "core-address", os.Getenv("CORE_ADDRESS"), "core gRPC address (overrides CORE_ADDRESS env when set)")
-	flag.StringVar(&cfg.coreRole, "core-role", string(models.RoleAgent), "service role identity to present to core when rehydrating")
-
 	flag.Parse()
 
 	return cfg
 }
 
 func run(cfg sweepConfig) error {
+	log.Println("NOTE: KV is no longer used for identity resolution. This tool cleans up legacy entries.")
+
 	if err := validateSweepConfig(cfg); err != nil {
-		return err
-	}
-	if err := ensureCoreAddress(cfg); err != nil {
 		return err
 	}
 
@@ -153,23 +136,13 @@ func run(cfg sweepConfig) error {
 	stats := sweepStats{startedAt: time.Now()}
 	var problems []corruptRecord
 
-	var coreClient proto.CoreServiceClient
-	var coreCleanup func()
-	if cfg.rehydrate && !cfg.dryRun {
-		coreClient, coreCleanup, err = connectCore(ctx, cfg)
-		if err != nil {
-			return fmt.Errorf("connect to core: %w", err)
-		}
-		defer coreCleanup()
-	}
-
 	if cfg.dumpDir != "" {
 		if err := os.MkdirAll(cfg.dumpDir, 0o755); err != nil {
 			return fmt.Errorf("create dump dir: %w", err)
 		}
 	}
 
-	if err := scanBucket(ctx, kv, cfg, &stats, &problems, coreClient); err != nil {
+	if err := scanBucket(ctx, kv, cfg, &stats, &problems); err != nil {
 		return err
 	}
 
@@ -186,15 +159,13 @@ func run(cfg sweepConfig) error {
 		}
 	}
 
-	log.Printf("Scanned %d keys (prefix match %d); valid=%d corrupt=%d deleted=%d (%d failures) rehydrated=%d (%d failures) in %s",
+	log.Printf("Scanned %d keys (prefix match %d); valid=%d corrupt=%d deleted=%d (%d failures) in %s",
 		stats.totalKeys,
 		stats.filteredKeys,
 		stats.validRecords,
 		stats.corruptRecords,
 		stats.deleted,
 		stats.deleteFailures,
-		stats.rehydrated,
-		stats.rehydrateFail,
 		time.Since(stats.startedAt).Round(time.Millisecond),
 	)
 
@@ -217,32 +188,12 @@ func validateSweepConfig(cfg sweepConfig) error {
 	return nil
 }
 
-func ensureCoreAddress(cfg sweepConfig) error {
-	if !cfg.rehydrate {
-		return nil
-	}
-
-	if cfg.coreAddress != "" {
-		if err := os.Setenv("CORE_ADDRESS", cfg.coreAddress); err != nil {
-			return fmt.Errorf("set CORE_ADDRESS: %w", err)
-		}
-		return nil
-	}
-
-	if os.Getenv("CORE_ADDRESS") == "" {
-		return errRehydrateCoreAddress
-	}
-
-	return nil
-}
-
 func scanBucket(
 	ctx context.Context,
 	kv nats.KeyValue,
 	cfg sweepConfig,
 	stats *sweepStats,
 	problems *[]corruptRecord,
-	coreClient proto.CoreServiceClient,
 ) error {
 	lister, err := kv.ListKeys()
 	if err != nil {
@@ -261,7 +212,7 @@ func scanBucket(
 			break
 		}
 
-		if err := processKey(ctx, kv, key, cfg, stats, problems, coreClient); err != nil {
+		if err := processKey(ctx, kv, key, cfg, stats, problems); err != nil {
 			log.Printf("WARN: %v", err)
 		}
 	}
@@ -276,7 +227,6 @@ func processKey(
 	cfg sweepConfig,
 	stats *sweepStats,
 	problems *[]corruptRecord,
-	coreClient proto.CoreServiceClient,
 ) error {
 	entry, err := kv.Get(key)
 	if err != nil {
@@ -285,7 +235,7 @@ func processKey(
 
 	value := entry.Value()
 	if _, err := identitymap.UnmarshalRecord(value); err != nil {
-		handleCorruptEntry(ctx, cfg, kv, key, entry, value, stats, problems, coreClient, err)
+		handleCorruptEntry(cfg, kv, key, entry, value, stats, problems, err)
 		return nil
 	}
 
@@ -294,7 +244,6 @@ func processKey(
 }
 
 func handleCorruptEntry(
-	ctx context.Context,
 	cfg sweepConfig,
 	kv nats.KeyValue,
 	key string,
@@ -302,7 +251,6 @@ func handleCorruptEntry(
 	value []byte,
 	stats *sweepStats,
 	problems *[]corruptRecord,
-	coreClient proto.CoreServiceClient,
 	parseErr error,
 ) {
 	stats.corruptRecords++
@@ -329,15 +277,6 @@ func handleCorruptEntry(
 		} else {
 			stats.deleted++
 			log.Printf("Deleted %s (rev=%d)", key, entry.Revision())
-		}
-	}
-
-	if cfg.rehydrate && !cfg.dryRun && coreClient != nil {
-		if err := requestRehydrate(ctx, coreClient, key); err != nil {
-			stats.rehydrateFail++
-			log.Printf("WARN: rehydrate request for %s failed: %v", key, err)
-		} else {
-			stats.rehydrated++
 		}
 	}
 
@@ -450,143 +389,4 @@ func getenvDefault(key, fallback string) string {
 		return val
 	}
 	return fallback
-}
-
-func connectCore(ctx context.Context, cfg sweepConfig) (proto.CoreServiceClient, func(), error) {
-	role := models.ServiceRole(cfg.coreRole)
-	dialOpts, closeProvider, err := bootstrap.BuildCoreDialOptionsFromEnv(ctx, role, logger.NewTestLogger())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	address := cfg.coreAddress
-	if address == "" {
-		address = os.Getenv("CORE_ADDRESS")
-	}
-	if address == "" {
-		return nil, nil, errCoreAddressNotConfigured
-	}
-
-	conn, err := grpc.NewClient(address, dialOpts...)
-	if err != nil {
-		closeProvider()
-		return nil, nil, err
-	}
-
-	cleanup := func() {
-		_ = conn.Close()
-		closeProvider()
-	}
-	return proto.NewCoreServiceClient(conn), cleanup, nil
-}
-
-func requestRehydrate(ctx context.Context, client proto.CoreServiceClient, keyPath string) error {
-	key, err := keyFromPath(keyPath)
-	if err != nil {
-		return err
-	}
-
-	req := &proto.GetCanonicalDeviceRequest{
-		Namespace: identitymap.DefaultNamespace,
-		IdentityKeys: []*identitymappb.IdentityKey{
-			{
-				Kind:  key.Kind,
-				Value: key.Value,
-			},
-		},
-	}
-
-	_, err = client.GetCanonicalDevice(ctx, req)
-	return err
-}
-
-func keyFromPath(path string) (identitymap.Key, error) {
-	trimmed := strings.Trim(path, "/")
-	parts := strings.Split(trimmed, "/")
-	if len(parts) < 3 {
-		return identitymap.Key{}, fmt.Errorf("%w: %s", errInvalidKeyPath, path)
-	}
-
-	kind, err := kindFromSegment(parts[1])
-	if err != nil {
-		return identitymap.Key{}, err
-	}
-
-	value, err := unsanitizeSegment(strings.Join(parts[2:], "/"))
-	if err != nil {
-		return identitymap.Key{}, fmt.Errorf("decode key %s: %w", path, err)
-	}
-
-	return identitymap.Key{
-		Kind:  kind,
-		Value: value,
-	}, nil
-}
-
-func kindFromSegment(seg string) (identitymap.Kind, error) {
-	switch seg {
-	case "device-id":
-		return identitymap.KindDeviceID, nil
-	case "armis-id":
-		return identitymap.KindArmisID, nil
-	case "netbox-id":
-		return identitymap.KindNetboxID, nil
-	case "mac":
-		return identitymap.KindMAC, nil
-	case "ip":
-		return identitymap.KindIP, nil
-	case "partition-ip":
-		return identitymap.KindPartitionIP, nil
-	default:
-		return identitymap.KindUnspecified, fmt.Errorf("%w: %s", errUnknownIdentitySegment, seg)
-	}
-}
-
-func unsanitizeSegment(seg string) (string, error) {
-	if !strings.Contains(seg, "=") {
-		return seg, nil
-	}
-
-	var b strings.Builder
-	b.Grow(len(seg))
-
-	for i := 0; i < len(seg); i++ {
-		ch := seg[i]
-		if ch != '=' {
-			b.WriteByte(ch)
-			continue
-		}
-
-		j := i + 1
-		for j < len(seg) && isHexDigit(seg[j]) {
-			j++
-		}
-
-		if j == i+1 {
-			// Lone '='; leave as-is.
-			b.WriteByte('=')
-			continue
-		}
-
-		hexRun := seg[i+1 : j]
-		if len(hexRun)%2 != 0 {
-			return "", fmt.Errorf("%w after '=' in %q", errInvalidHexEscape, seg)
-		}
-
-		val, err := strconv.ParseInt(hexRun, 16, 32)
-		if err != nil {
-			return "", err
-		}
-		if val < 0x20 || val > 0x7E {
-			return "", fmt.Errorf("%w in %q", errUnsafeASCIICharacter, seg)
-		}
-		b.WriteByte(byte(val))
-		i = j - 1
-	}
-
-	return b.String(), nil
-}
-
-func isHexDigit(b byte) bool {
-	return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')
 }

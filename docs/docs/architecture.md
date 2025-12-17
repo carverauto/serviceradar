@@ -200,7 +200,7 @@ To fix this, the Device Registry now picks a canonical identity per real-world d
 - **Sweep normalization**: Any sweep-only alias (`partition:ip`) is merged into the canonical record so Poller results land on the device the UI already knows about.
 - **Metadata hints**: `_merged_into` markers are written on non-canonical rows so downstream consumers can recognise historical merges.
 
-JetStream key/value buckets disallow characters such as `:` in key segments, so identity keys stored in KV use an `=<HEX>` escape sequence for any disallowed rune (for example, the MAC `AA:BB` is stored as `AA=3ABB`). Callers use the shared helpers in `pkg/identitymap` before interacting with KV so lookups and cache hydration remain consistent regardless of the original identifier format.
+**Note:** KV is NOT used for device identity resolution. CNPG (PostgreSQL) is the authoritative source for identity via the `device_identifiers` table. The IdentityEngine in `pkg/registry` uses strong identifiers (Armis ID, MAC, etc.) to generate deterministic `sr:` UUIDs and stores mappings in CNPG with an in-memory cache for performance.
 
 ### Why the backfill exists
 
@@ -217,15 +217,15 @@ Key CLI flags:
 - `--backfill-identities` runs the identity de-duplication and exits without starting gRPC/HTTP services.
 - `--backfill-ips` (default `true`) also merges sweep-generated aliases that only differ by IP.
 - `--backfill-dry-run` prints what would merge without publishing tombstones—use this on staging first to validate cardinality.
-- `--seed-kv-only` seeds the identity KV cache (optional) without emitting tombstones. Pair this with `--backfill-dry-run` during staged rollouts if you want to warm KV caches before mutating historic device rows.
+- `--seed-kv-only` **[DEPRECATED]** This flag has no effect since KV is no longer used for identity resolution. CNPG is the authoritative source.
 
 ### Monitoring identity lookups
 
 The core lookup path and backfill tooling emit OpenTelemetry metrics so operators can see how identity resolution behaves in real time:
 
-- `identitymap_kv_publish_total` (labels: `outcome=created|updated|unchanged|dry_run`) counts KV writes attempted by KV seeding/backfill workflows.
-- `identitymap_conflict_total` (labels: `reason=aborted|already_exists|retry_exhausted`) tracks CAS contention or retry exhaustion during KV seeding/backfill.
-- `identitymap_lookup_latency_seconds` (labels: `resolved_via=kv|db|miss|error`, `found=true|false`) measures end-to-end latency for resolving canonical devices.
+- `identitymap_kv_publish_total` **[DEPRECATED]** KV is no longer used for identity resolution. This metric remains for legacy cleanup workflows only.
+- `identitymap_conflict_total` **[DEPRECATED]** KV conflicts are no longer relevant since identity resolution uses CNPG exclusively.
+- `identitymap_lookup_latency_seconds` (labels: `resolved_via=db|miss|error`, `found=true|false`) measures end-to-end latency for resolving canonical devices via CNPG.
 
 Conflicts are also logged with the key path and gRPC status code whenever JetStream rejects an optimistic update. Feed these metrics into the OTEL collector (`cmd/otel`) to populate the Prometheus dashboards used during rollout.
 
@@ -260,17 +260,17 @@ Conflicts are also logged with the key path and gRPC status code whenever JetStr
 
 3. Add the new time series to Grafana or Alertmanager. Common queries include:
 
-   - `identitymap_conflict_total{reason="retry_exhausted"}` – highlights KV contention or retries during seeding/backfill.
    - `histogram_quantile(0.95, rate(identitymap_lookup_latency_seconds_bucket[5m]))` – watches the p95 lookup latency across the fleet.
+   - `identitymap_lookup_latency_seconds{resolved_via="db"}` – tracks CNPG-resolved identity lookups.
 
 4. During feature rollout, chart the metrics alongside the backfill jobs. Pair the Prometheus dashboard with the staging commands in the next section to verify seeding runs beforehand.
 
 ### Rollout checklist
 
 1. **Staging dry-run:** run `serviceradar-core --config /etc/serviceradar/core.json --backfill-identities --backfill-dry-run` to validate the planned merges and cardinality.
-2. **Optional KV seed:** rerun with `--seed-kv-only --backfill-dry-run` if you want to pre-populate KV caches without emitting tombstones.
-3. **Commit the backfill:** rerun the job without `--backfill-dry-run` (and optionally with `--seed-kv-only=false`) to emit the tombstones and fold historical rows.
-4. **Post-rollout watch:** monitor `identitymap_lookup_latency_seconds` for at least one sweep interval and investigate sustained p95 regressions.
+2. **Commit the backfill:** rerun the job without `--backfill-dry-run` to emit the tombstones and fold historical rows.
+3. **Post-rollout watch:** monitor `identitymap_lookup_latency_seconds` for at least one sweep interval and investigate sustained p95 regressions.
+4. **Legacy KV cleanup (optional):** Use the `kv-sweep` tool to remove any orphaned `device_canonical_map/*` entries from previous deployments.
 
 When the backfill finishes it logs the totals and exits. After that, the Device Registry enforces the same canonicalization rules for all future DeviceUpdate events flowing from Armis, KV sweeps, and Poller results.
 
