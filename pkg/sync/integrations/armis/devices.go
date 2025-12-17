@@ -868,15 +868,11 @@ type armisDeviceContext struct {
 }
 
 func (a *ArmisIntegration) processDevices(
-	ctx context.Context,
+	_ context.Context,
 	devices []Device,
 	deviceLabels map[int]string,
 	deviceQueries map[int]models.QueryConfig,
 ) (data map[string][]byte, ips []string, events []*models.DeviceUpdate, deviceTargets []models.DeviceTarget) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(devices)*2) // Allocate more space for multiple IPs per device
 	events = make([]*models.DeviceUpdate, 0, len(devices))

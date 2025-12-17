@@ -301,15 +301,11 @@ type netboxDeviceContext struct {
 	network string
 }
 
-func (n *NetboxIntegration) processDevices(ctx context.Context, deviceResp DeviceResponse) (
+func (n *NetboxIntegration) processDevices(_ context.Context, deviceResp DeviceResponse) (
 	data map[string][]byte,
 	ips []string,
 	events []*models.DeviceUpdate,
 ) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(deviceResp.Results))
 	events = make([]*models.DeviceUpdate, 0, len(deviceResp.Results))
