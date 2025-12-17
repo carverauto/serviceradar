@@ -685,52 +685,6 @@ PACKAGES = {
         # Custom spec template to disable AutoReq for ZFS binary's optional dependencies
         "rpm_spec_template": "//packaging/sysmon:template.spec.tpl",
     },
-    "web-legacy": {
-        "package_name": "serviceradar-web-legacy",
-        "description": "ServiceRadar legacy Next.js web dashboard",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd", "nginx"],
-        "rpm_requires": ["systemd", "nginx"],
-        "files": [
-            {
-                "src": "config/web.json",
-                "dest": "/etc/serviceradar/web-legacy.json",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-            {
-                "src": "config/nginx.conf",
-                "dest": "/etc/nginx/conf.d/serviceradar-web-legacy.conf",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-            {
-                "src": "//packaging/web:bundle_root",
-                "dest": "/usr/local/share/serviceradar-web-legacy/",
-            },
-            {
-                "src": "//packaging/web:bundle_next",
-                "dest": "/usr/local/share/serviceradar-web-legacy/.next/",
-            },
-            {
-                "src": "//web:public_flat",
-                "dest": "/usr/local/share/serviceradar-web-legacy/public/",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-web.service",
-            "dest": "/lib/systemd/system/serviceradar-web-legacy.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/web-legacy.json",
-            "/etc/nginx/conf.d/serviceradar-web-legacy.conf",
-        ],
-    },
     "cli": {
         "package_name": "serviceradar-cli",
         "description": "ServiceRadar CLI tool",
