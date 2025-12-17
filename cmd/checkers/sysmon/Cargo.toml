@@ -33,7 +33,7 @@ edge-onboarding = { path = "../../../rust/edge-onboarding" }
 zfs = ["dep:libzetta"]
 
 [build-dependencies]
-tonic-build = "0.9"
+tonic-build = "0.14"
 
 [dev-dependencies]
 rcgen = "0.12"
