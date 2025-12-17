@@ -210,14 +210,6 @@ The core lookup path emits OpenTelemetry metrics so operators can see how identi
 
 Feed these metrics into the OTEL collector (`cmd/otel`) to populate Prometheus dashboards.
 
-### Legacy KV cleanup
-
-If upgrading from a previous deployment that used KV for identity caching, use the `kv-sweep` tool to remove any orphaned `device_canonical_map/*` entries:
-
-```bash
-kv-sweep --bucket serviceradar-datasvc --prefix device_canonical_map/ --delete
-```
-
 ## Security Architecture
 
 ServiceRadar implements multiple layers of security:
