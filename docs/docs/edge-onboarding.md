@@ -75,6 +75,11 @@ load balancers change:
 > Keep the metadata focused on connectivity. Arbitrary keys are persisted but
 > ignored by the bootstrap scripts.
 
+For mTLS packages, Core reads the CA certificate/key from a Core-side base directory
+(`edge_onboarding.mtls_cert_base_dir`, default `/etc/serviceradar/certs`). If you
+provide `ca_cert_path` / `ca_key_path` in `metadata_json`, they MUST resolve to
+paths within that directory; attempts to reference other paths are rejected.
+
 ---
 
 ## 3. Poller Onboarding (Current)

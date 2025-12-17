@@ -253,6 +253,7 @@ type EdgeOnboardingConfig struct {
 	JoinTokenTTL           Duration                     `json:"join_token_ttl,omitempty"`
 	DownloadTokenTTL       Duration                     `json:"download_token_ttl,omitempty"`
 	PollerIDPrefix         string                       `json:"poller_id_prefix,omitempty"`
+	MTLSCertBaseDir        string                       `json:"mtls_cert_base_dir,omitempty"`
 }
 
 // SRQLConfig configures the external SRQL microservice integration.
