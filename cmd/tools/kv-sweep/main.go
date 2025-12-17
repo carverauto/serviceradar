@@ -221,7 +221,7 @@ func scanBucket(
 }
 
 func processKey(
-	ctx context.Context,
+	_ context.Context,
 	kv nats.KeyValue,
 	key string,
 	cfg sweepConfig,
