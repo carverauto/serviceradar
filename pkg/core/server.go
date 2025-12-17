@@ -131,19 +131,17 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 
 	metricsManager := metrics.NewManager(metricsConfig, database, log)
 
-	// Initialize KV client for features that still need it (edge onboarding, identity lookups)
-	// Note: The identity map PUBLISHER is disabled - we no longer write identity keys to KV
-	// because it caused massive write amplification (5-6 keys per device = 300 writes/sec).
-	// Identity RESOLUTION now uses CNPG (unified_devices table) instead.
+	// Initialize KV client for edge onboarding.
+	// Note: KV is NOT used for identity resolution - CNPG is the authoritative source.
 	var (
-		kvClient         proto.KVServiceClient
-		identityKVCloser func() error
+		kvClient       proto.KVServiceClient
+		kvClientCloser func() error
 	)
 	if client, closer, err := cfgutil.NewKVServiceClientFromEnv(ctx, models.RoleCore); err != nil {
 		log.Warn().Err(err).Msg("Failed to initialize KV client")
 	} else if client != nil {
 		kvClient = client
-		identityKVCloser = closer
+		kvClientCloser = closer
 	}
 
 	// Initialize the authoritative device registry with DIRE (Device Identity and Reconciliation Engine)
@@ -239,8 +237,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 		logger:              log,
 		tracer:              otel.Tracer("serviceradar-core"),
-		identityKVClient:    kvClient,
-		identityKVCloser:    identityKVCloser,
+		kvClientCloser:      kvClientCloser,
 		canonicalCache:      newCanonicalCache(10 * time.Minute),
 		deviceSearchPlanner: deviceSearchPlanner,
 		templateRegistry:    templateregistry.New(log),
@@ -483,11 +480,11 @@ func (s *Server) Stop(ctx context.Context) error {
 		s.grpcServer.Stop(ctx)
 	}
 
-	if s.identityKVCloser != nil {
-		if err := s.identityKVCloser(); err != nil {
-			s.logger.Warn().Err(err).Msg("Failed to close identity map KV client")
+	if s.kvClientCloser != nil {
+		if err := s.kvClientCloser(); err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to close KV client")
 		}
-		s.identityKVCloser = nil
+		s.kvClientCloser = nil
 	}
 
 	// MCP server support removed
@@ -505,18 +502,6 @@ func (s *Server) Stop(ctx context.Context) error {
 	close(s.ShutdownChan)
 
 	return nil
-}
-
-// IdentityKVClient exposes the KV client used for canonical identity operations.
-func (s *Server) IdentityKVClient() identityKVClient {
-	if s == nil {
-		return nil
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return s.identityKVClient
 }
 
 // GetMetricsManager returns the metrics collector instance.

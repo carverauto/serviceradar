@@ -30,13 +30,8 @@ var (
 
 // Options contains runtime configuration derived from CLI flags.
 type Options struct {
-	ConfigPath        string
-	BackfillEnabled   bool
-	BackfillDryRun    bool
-	BackfillSeedKV    bool
-	BackfillIPs       bool
-	BackfillNamespace string
-	DisableWatch      bool
+	ConfigPath   string
+	DisableWatch bool
 }
 
 // Run boots the core service using the provided options.
@@ -129,15 +124,6 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	if opts.BackfillEnabled {
-		backfillOpts := core.BackfillOptions{
-			DryRun:     opts.BackfillDryRun,
-			SeedKVOnly: opts.BackfillSeedKV,
-			Namespace:  opts.BackfillNamespace,
-		}
-		return runBackfill(ctx, server, mainLogger, backfillOpts, opts.BackfillIPs)
-	}
-
 	apiOptions := bootstrap.BuildAPIServerOptions(&cfg, mainLogger, spireAdminClient)
 
 	requireDeviceRegistry := cfg.Features.RequireDeviceRegistry != nil && *cfg.Features.RequireDeviceRegistry
@@ -217,39 +203,4 @@ func Run(ctx context.Context, opts Options) error {
 			return !strings.HasPrefix(info.FullMethodName, "/proto.KVService/")
 		},
 	})
-}
-
-func runBackfill(ctx context.Context, server *core.Server, mainLogger logger.Logger, opts core.BackfillOptions, includeIPs bool) error {
-	startMsg := "Starting identity backfill (Armis/NetBox) ..."
-	if opts.DryRun {
-		startMsg = "Starting identity backfill (Armis/NetBox) in DRY-RUN mode ..."
-	}
-	mainLogger.Info().Msg(startMsg)
-
-	if err := core.BackfillIdentityTombstones(ctx, server.DB, server.IdentityKVClient(), mainLogger, opts); err != nil {
-		return err
-	}
-
-	if includeIPs {
-		ipMsg := "Starting IP alias backfill ..."
-		if opts.DryRun {
-			ipMsg = "Starting IP alias backfill (DRY-RUN) ..."
-		} else if opts.SeedKVOnly {
-			ipMsg = "Starting IP alias backfill (KV seeding only) ..."
-		}
-		mainLogger.Info().Msg(ipMsg)
-
-		if err := core.BackfillIPAliasTombstones(ctx, server.DB, server.IdentityKVClient(), mainLogger, opts); err != nil {
-			return err
-		}
-	}
-
-	completionMsg := "Backfill completed. Exiting."
-	if opts.DryRun {
-		completionMsg = "Backfill DRY-RUN completed. Exiting."
-	} else if opts.SeedKVOnly {
-		completionMsg = "Backfill KV seeding completed. Exiting."
-	}
-	mainLogger.Info().Msg(completionMsg)
-	return nil
 }
