@@ -195,13 +195,13 @@ func cloneDeviceRecord(src *DeviceRecord) *DeviceRecord {
 		dst.CollectorAgentID = &collectorAgentID
 	}
 
-	if len(src.DiscoverySources) > 0 {
-		dst.DiscoverySources = append([]string(nil), src.DiscoverySources...)
+	if src.DiscoverySources != nil {
+		dst.DiscoverySources = append(make([]string, 0, len(src.DiscoverySources)), src.DiscoverySources...)
 	}
-	if len(src.Capabilities) > 0 {
-		dst.Capabilities = append([]string(nil), src.Capabilities...)
+	if src.Capabilities != nil {
+		dst.Capabilities = append(make([]string, 0, len(src.Capabilities)), src.Capabilities...)
 	}
-	if len(src.Metadata) > 0 {
+	if src.Metadata != nil {
 		meta := make(map[string]string, len(src.Metadata))
 		for k, v := range src.Metadata {
 			meta[k] = v
