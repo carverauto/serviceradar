@@ -217,7 +217,7 @@ Key CLI flags:
 - `--backfill-identities` runs the identity de-duplication and exits without starting gRPC/HTTP services.
 - `--backfill-ips` (default `true`) also merges sweep-generated aliases that only differ by IP.
 - `--backfill-dry-run` prints what would merge without publishing tombstones—use this on staging first to validate cardinality.
-- `--seed-kv-only` **[DEPRECATED]** This flag has no effect since KV is no longer used for identity resolution. CNPG is the authoritative source.
+- `--seed-kv-only` **[REMOVED]** This flag has been removed since KV is no longer used for identity resolution. CNPG is the authoritative source.
 
 ### Monitoring identity lookups
 

@@ -59,7 +59,6 @@ type coreFlags struct {
 	ConfigPath     string
 	Backfill       bool
 	BackfillDryRun bool
-	BackfillSeedKV bool
 	BackfillIPs    bool
 }
 
@@ -67,7 +66,6 @@ func parseFlags() coreFlags {
 	configPath := flag.String("config", "/etc/serviceradar/core.json", "Path to core config file")
 	backfill := flag.Bool("backfill-identities", false, "Run one-time identity backfill (Armis/NetBox) and exit")
 	backfillDryRun := flag.Bool("backfill-dry-run", false, "If set with --backfill-identities, only log actions without writing")
-	backfillSeedKV := flag.Bool("seed-kv-only", false, "Seed canonical identity map without emitting tombstones")
 	backfillIPs := flag.Bool("backfill-ips", true, "Also backfill sweep-only device IDs by IP aliasing into canonical identities")
 	flag.Parse()
 
@@ -75,7 +73,6 @@ func parseFlags() coreFlags {
 		ConfigPath:     *configPath,
 		Backfill:       *backfill,
 		BackfillDryRun: *backfillDryRun,
-		BackfillSeedKV: *backfillSeedKV,
 		BackfillIPs:    *backfillIPs,
 	}
 }
@@ -90,13 +87,11 @@ func run() error {
 	opts := parseFlags()
 	watchEnabled := parseEnvBool("CONFIG_WATCH_ENABLED", true)
 	appOptions := app.Options{
-		ConfigPath:        opts.ConfigPath,
-		BackfillEnabled:   opts.Backfill,
-		BackfillDryRun:    opts.BackfillDryRun,
-		BackfillSeedKV:    opts.BackfillSeedKV,
-		BackfillIPs:       opts.BackfillIPs,
-		BackfillNamespace: "",
-		DisableWatch:      !watchEnabled,
+		ConfigPath:      opts.ConfigPath,
+		BackfillEnabled: opts.Backfill,
+		BackfillDryRun:  opts.BackfillDryRun,
+		BackfillIPs:     opts.BackfillIPs,
+		DisableWatch:    !watchEnabled,
 	}
 
 	return app.Run(context.Background(), appOptions)
