@@ -93,30 +93,6 @@ func BuildKeys(update *models.DeviceUpdate) []Key {
 				add(KindNetboxID, id)
 			}
 		}
-
-		if aliasService := strings.TrimSpace(update.Metadata["_alias_last_seen_service_id"]); aliasService != "" {
-			add(KindDeviceID, aliasService)
-		}
-		if aliasIP := strings.TrimSpace(update.Metadata["_alias_last_seen_ip"]); aliasIP != "" {
-			add(KindIP, aliasIP)
-			add(KindPartitionIP, partitionIPValue(update.Partition, aliasIP))
-		}
-
-		for key := range update.Metadata {
-			switch {
-			case strings.HasPrefix(key, "service_alias:"):
-				aliasID := strings.TrimSpace(strings.TrimPrefix(key, "service_alias:"))
-				if aliasID != "" {
-					add(KindDeviceID, aliasID)
-				}
-			case strings.HasPrefix(key, "ip_alias:"):
-				aliasIP := strings.TrimSpace(strings.TrimPrefix(key, "ip_alias:"))
-				if aliasIP != "" {
-					add(KindIP, aliasIP)
-					add(KindPartitionIP, partitionIPValue(update.Partition, aliasIP))
-				}
-			}
-		}
 	}
 
 	if update.MAC != nil {
@@ -126,40 +102,6 @@ func BuildKeys(update *models.DeviceUpdate) []Key {
 	}
 
 	return keys
-}
-
-// BuildKeysFromRecord reconstructs the identity keys for a canonical record.
-func BuildKeysFromRecord(record *Record) []Key {
-	if record == nil {
-		return nil
-	}
-
-	update := &models.DeviceUpdate{
-		DeviceID:  record.CanonicalDeviceID,
-		Partition: record.Partition,
-	}
-
-	if record.Attributes != nil {
-		if ip := strings.TrimSpace(record.Attributes["ip"]); ip != "" {
-			update.IP = ip
-		}
-		if mac := strings.TrimSpace(record.Attributes["mac"]); mac != "" {
-			macUpper := strings.ToUpper(mac)
-			update.MAC = &macUpper
-		}
-
-		metaKeys := []string{"armis_device_id", "integration_id", "integration_type", "netbox_device_id"}
-		for _, key := range metaKeys {
-			if val := strings.TrimSpace(record.Attributes[key]); val != "" {
-				if update.Metadata == nil {
-					update.Metadata = make(map[string]string)
-				}
-				update.Metadata[key] = val
-			}
-		}
-	}
-
-	return BuildKeys(update)
 }
 
 // HashIdentityMetadata produces a stable fingerprint of identity-relevant fields for a device update.
