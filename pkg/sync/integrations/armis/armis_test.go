@@ -33,7 +33,6 @@ import (
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 
-	"github.com/carverauto/serviceradar/pkg/identitymap"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -1206,16 +1205,14 @@ func (*fakeKVClient) ListKeys(context.Context, *proto.ListKeysRequest, ...grpc.C
 }
 
 func TestProcessDevices_DoesNotHydrateCanonicalMetadata(t *testing.T) {
-	canonical := &identitymap.Record{CanonicalDeviceID: "canon-99", Partition: "prod", MetadataHash: "hash"}
-	payload, err := identitymap.MarshalRecord(canonical)
-	require.NoError(t, err)
-
 	fake := &fakeKVClient{
 		getFn: func(ctx context.Context, req *proto.GetRequest, _ ...grpc.CallOption) (*proto.GetResponse, error) {
-			if strings.Contains(req.Key, "/armis-id/1") {
-				return &proto.GetResponse{Value: payload, Found: true, Revision: 11}, nil
-			}
-			return &proto.GetResponse{Found: false}, nil
+			t.Fatalf("processDevices should not issue KV identity lookups (Get): %s", req.GetKey())
+			return nil, nil
+		},
+		batchGetFn: func(ctx context.Context, req *proto.BatchGetRequest, _ ...grpc.CallOption) (*proto.BatchGetResponse, error) {
+			t.Fatalf("processDevices should not issue KV identity lookups (BatchGet): %v", req.GetKeys())
+			return nil, nil
 		},
 	}
 
@@ -1238,45 +1235,6 @@ func TestProcessDevices_DoesNotHydrateCanonicalMetadata(t *testing.T) {
 	require.False(t, hasTargetCanonical, "device targets should not include canonical metadata from sync")
 
 	require.Empty(t, data)
-}
-
-func TestProcessDevices_SkipsCanonicalPrefetch(t *testing.T) {
-	fake := &fakeKVClient{}
-	var captured [][]string
-	fake.batchGetFn = func(ctx context.Context, req *proto.BatchGetRequest, _ ...grpc.CallOption) (*proto.BatchGetResponse, error) {
-		keys := append([]string(nil), req.GetKeys()...)
-		captured = append(captured, keys)
-		resp := &proto.BatchGetResponse{Results: make([]*proto.BatchGetEntry, len(keys))}
-		for i, key := range keys {
-			resp.Results[i] = &proto.BatchGetEntry{Key: key, Found: false}
-		}
-		return resp, nil
-	}
-
-	integ := &ArmisIntegration{
-		Config:   &models.SourceConfig{AgentID: "agent", PollerID: "poller", Partition: "part"},
-		KVClient: fake,
-		Logger:   logger.NewTestLogger(),
-	}
-
-	devices := []Device{
-		{ID: 1, IPAddress: "10.0.0.1,10.0.0.2", MacAddress: "aa:bb:cc:dd:ee:ff", Name: "dev1"},
-		{ID: 2, IPAddress: "10.0.1.1", MacAddress: "11:22:33:44:55:66", Name: "dev2"},
-	}
-
-	labels := map[int]string{
-		1: "query1",
-		2: "query2",
-	}
-
-	queries := map[int]models.QueryConfig{
-		1: {Label: "query1", SweepModes: []models.SweepMode{models.ModeTCP}},
-		2: {Label: "query2", SweepModes: []models.SweepMode{models.ModeICMP}},
-	}
-
-	_, _, events, _ := integ.processDevices(context.Background(), devices, labels, queries)
-	require.Len(t, events, 2)
-	require.Empty(t, captured, "sync should not issue KV BatchGet calls for canonical prefetch")
 }
 
 func TestPrepareArmisUpdateFromDeviceStates(t *testing.T) {

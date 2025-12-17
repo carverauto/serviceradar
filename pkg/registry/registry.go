@@ -65,7 +65,6 @@ type DeviceRegistry struct {
 	db                       db.Service
 	logger                   logger.Logger
 	identityEngine           *IdentityEngine
-	identityPublisher        *identityPublisher
 	firstSeenLookupChunkSize int
 	identityCfg              *models.IdentityReconciliationConfig
 	graphWriter              GraphWriter
@@ -263,11 +262,6 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 				}
 			}
 		}
-	}
-
-	// Publish identity map for downstream consumers
-	if len(valid) > 0 {
-		r.publishIdentityMap(ctx, valid)
 	}
 
 	// Annotate first_seen timestamps
