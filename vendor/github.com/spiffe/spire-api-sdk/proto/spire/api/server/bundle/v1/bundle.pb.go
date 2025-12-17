@@ -73,7 +73,7 @@ func (x BatchDeleteFederatedBundleRequest_Mode) Number() protoreflect.EnumNumber
 
 // Deprecated: Use BatchDeleteFederatedBundleRequest_Mode.Descriptor instead.
 func (BatchDeleteFederatedBundleRequest_Mode) EnumDescriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{15, 0}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{17, 0}
 }
 
 type CountBundlesRequest struct {
@@ -209,9 +209,11 @@ type AppendBundleRequest struct {
 	// JWT authorities to append.
 	JwtAuthorities []*types.JWTKey `protobuf:"bytes,2,rep,name=jwt_authorities,json=jwtAuthorities,proto3" json:"jwt_authorities,omitempty"`
 	// An output mask indicating which bundle fields are set in the response.
-	OutputMask    *types.BundleMask `protobuf:"bytes,3,opt,name=output_mask,json=outputMask,proto3" json:"output_mask,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	OutputMask *types.BundleMask `protobuf:"bytes,3,opt,name=output_mask,json=outputMask,proto3" json:"output_mask,omitempty"`
+	// WIT authorities to append.
+	WitAuthorities []*types.WITKey `protobuf:"bytes,4,rep,name=wit_authorities,json=witAuthorities,proto3" json:"wit_authorities,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AppendBundleRequest) Reset() {
@@ -261,6 +263,13 @@ func (x *AppendBundleRequest) GetJwtAuthorities() []*types.JWTKey {
 func (x *AppendBundleRequest) GetOutputMask() *types.BundleMask {
 	if x != nil {
 		return x.OutputMask
+	}
+	return nil
+}
+
+func (x *AppendBundleRequest) GetWitAuthorities() []*types.WITKey {
+	if x != nil {
+		return x.WitAuthorities
 	}
 	return nil
 }
@@ -355,6 +364,96 @@ func (x *PublishJWTAuthorityResponse) GetJwtAuthorities() []*types.JWTKey {
 	return nil
 }
 
+type PublishWITAuthorityRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Required. The WIT authority to publish.
+	WitAuthority  *types.WITKey `protobuf:"bytes,1,opt,name=wit_authority,json=witAuthority,proto3" json:"wit_authority,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PublishWITAuthorityRequest) Reset() {
+	*x = PublishWITAuthorityRequest{}
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishWITAuthorityRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishWITAuthorityRequest) ProtoMessage() {}
+
+func (x *PublishWITAuthorityRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishWITAuthorityRequest.ProtoReflect.Descriptor instead.
+func (*PublishWITAuthorityRequest) Descriptor() ([]byte, []int) {
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *PublishWITAuthorityRequest) GetWitAuthority() *types.WITKey {
+	if x != nil {
+		return x.WitAuthority
+	}
+	return nil
+}
+
+type PublishWITAuthorityResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The WIT authorities for the trust domain.
+	WitAuthorities []*types.WITKey `protobuf:"bytes,1,rep,name=wit_authorities,json=witAuthorities,proto3" json:"wit_authorities,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PublishWITAuthorityResponse) Reset() {
+	*x = PublishWITAuthorityResponse{}
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishWITAuthorityResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishWITAuthorityResponse) ProtoMessage() {}
+
+func (x *PublishWITAuthorityResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishWITAuthorityResponse.ProtoReflect.Descriptor instead.
+func (*PublishWITAuthorityResponse) Descriptor() ([]byte, []int) {
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *PublishWITAuthorityResponse) GetWitAuthorities() []*types.WITKey {
+	if x != nil {
+		return x.WitAuthorities
+	}
+	return nil
+}
+
 type ListFederatedBundlesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// An output mask indicating which bundle fields are set in the response.
@@ -370,7 +469,7 @@ type ListFederatedBundlesRequest struct {
 
 func (x *ListFederatedBundlesRequest) Reset() {
 	*x = ListFederatedBundlesRequest{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[6]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -382,7 +481,7 @@ func (x *ListFederatedBundlesRequest) String() string {
 func (*ListFederatedBundlesRequest) ProtoMessage() {}
 
 func (x *ListFederatedBundlesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[6]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -395,7 +494,7 @@ func (x *ListFederatedBundlesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFederatedBundlesRequest.ProtoReflect.Descriptor instead.
 func (*ListFederatedBundlesRequest) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{6}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListFederatedBundlesRequest) GetOutputMask() *types.BundleMask {
@@ -433,7 +532,7 @@ type ListFederatedBundlesResponse struct {
 
 func (x *ListFederatedBundlesResponse) Reset() {
 	*x = ListFederatedBundlesResponse{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[7]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -445,7 +544,7 @@ func (x *ListFederatedBundlesResponse) String() string {
 func (*ListFederatedBundlesResponse) ProtoMessage() {}
 
 func (x *ListFederatedBundlesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[7]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -458,7 +557,7 @@ func (x *ListFederatedBundlesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFederatedBundlesResponse.ProtoReflect.Descriptor instead.
 func (*ListFederatedBundlesResponse) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{7}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListFederatedBundlesResponse) GetBundles() []*types.Bundle {
@@ -487,7 +586,7 @@ type GetFederatedBundleRequest struct {
 
 func (x *GetFederatedBundleRequest) Reset() {
 	*x = GetFederatedBundleRequest{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[8]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -499,7 +598,7 @@ func (x *GetFederatedBundleRequest) String() string {
 func (*GetFederatedBundleRequest) ProtoMessage() {}
 
 func (x *GetFederatedBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[8]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -512,7 +611,7 @@ func (x *GetFederatedBundleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetFederatedBundleRequest.ProtoReflect.Descriptor instead.
 func (*GetFederatedBundleRequest) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{8}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetFederatedBundleRequest) GetTrustDomain() string {
@@ -541,7 +640,7 @@ type BatchCreateFederatedBundleRequest struct {
 
 func (x *BatchCreateFederatedBundleRequest) Reset() {
 	*x = BatchCreateFederatedBundleRequest{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[9]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -553,7 +652,7 @@ func (x *BatchCreateFederatedBundleRequest) String() string {
 func (*BatchCreateFederatedBundleRequest) ProtoMessage() {}
 
 func (x *BatchCreateFederatedBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[9]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -566,7 +665,7 @@ func (x *BatchCreateFederatedBundleRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use BatchCreateFederatedBundleRequest.ProtoReflect.Descriptor instead.
 func (*BatchCreateFederatedBundleRequest) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{9}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *BatchCreateFederatedBundleRequest) GetBundle() []*types.Bundle {
@@ -593,7 +692,7 @@ type BatchCreateFederatedBundleResponse struct {
 
 func (x *BatchCreateFederatedBundleResponse) Reset() {
 	*x = BatchCreateFederatedBundleResponse{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[10]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -605,7 +704,7 @@ func (x *BatchCreateFederatedBundleResponse) String() string {
 func (*BatchCreateFederatedBundleResponse) ProtoMessage() {}
 
 func (x *BatchCreateFederatedBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[10]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -618,7 +717,7 @@ func (x *BatchCreateFederatedBundleResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use BatchCreateFederatedBundleResponse.ProtoReflect.Descriptor instead.
 func (*BatchCreateFederatedBundleResponse) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{10}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *BatchCreateFederatedBundleResponse) GetResults() []*BatchCreateFederatedBundleResponse_Result {
@@ -642,7 +741,7 @@ type BatchUpdateFederatedBundleRequest struct {
 
 func (x *BatchUpdateFederatedBundleRequest) Reset() {
 	*x = BatchUpdateFederatedBundleRequest{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[11]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -654,7 +753,7 @@ func (x *BatchUpdateFederatedBundleRequest) String() string {
 func (*BatchUpdateFederatedBundleRequest) ProtoMessage() {}
 
 func (x *BatchUpdateFederatedBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[11]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -667,7 +766,7 @@ func (x *BatchUpdateFederatedBundleRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use BatchUpdateFederatedBundleRequest.ProtoReflect.Descriptor instead.
 func (*BatchUpdateFederatedBundleRequest) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{11}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *BatchUpdateFederatedBundleRequest) GetBundle() []*types.Bundle {
@@ -701,7 +800,7 @@ type BatchUpdateFederatedBundleResponse struct {
 
 func (x *BatchUpdateFederatedBundleResponse) Reset() {
 	*x = BatchUpdateFederatedBundleResponse{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[12]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -713,7 +812,7 @@ func (x *BatchUpdateFederatedBundleResponse) String() string {
 func (*BatchUpdateFederatedBundleResponse) ProtoMessage() {}
 
 func (x *BatchUpdateFederatedBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[12]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -726,7 +825,7 @@ func (x *BatchUpdateFederatedBundleResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use BatchUpdateFederatedBundleResponse.ProtoReflect.Descriptor instead.
 func (*BatchUpdateFederatedBundleResponse) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{12}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *BatchUpdateFederatedBundleResponse) GetResults() []*BatchUpdateFederatedBundleResponse_Result {
@@ -748,7 +847,7 @@ type BatchSetFederatedBundleRequest struct {
 
 func (x *BatchSetFederatedBundleRequest) Reset() {
 	*x = BatchSetFederatedBundleRequest{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[13]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -760,7 +859,7 @@ func (x *BatchSetFederatedBundleRequest) String() string {
 func (*BatchSetFederatedBundleRequest) ProtoMessage() {}
 
 func (x *BatchSetFederatedBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[13]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -773,7 +872,7 @@ func (x *BatchSetFederatedBundleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchSetFederatedBundleRequest.ProtoReflect.Descriptor instead.
 func (*BatchSetFederatedBundleRequest) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{13}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *BatchSetFederatedBundleRequest) GetBundle() []*types.Bundle {
@@ -800,7 +899,7 @@ type BatchSetFederatedBundleResponse struct {
 
 func (x *BatchSetFederatedBundleResponse) Reset() {
 	*x = BatchSetFederatedBundleResponse{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[14]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -812,7 +911,7 @@ func (x *BatchSetFederatedBundleResponse) String() string {
 func (*BatchSetFederatedBundleResponse) ProtoMessage() {}
 
 func (x *BatchSetFederatedBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[14]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -825,7 +924,7 @@ func (x *BatchSetFederatedBundleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchSetFederatedBundleResponse.ProtoReflect.Descriptor instead.
 func (*BatchSetFederatedBundleResponse) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{14}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *BatchSetFederatedBundleResponse) GetResults() []*BatchSetFederatedBundleResponse_Result {
@@ -847,7 +946,7 @@ type BatchDeleteFederatedBundleRequest struct {
 
 func (x *BatchDeleteFederatedBundleRequest) Reset() {
 	*x = BatchDeleteFederatedBundleRequest{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[15]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -859,7 +958,7 @@ func (x *BatchDeleteFederatedBundleRequest) String() string {
 func (*BatchDeleteFederatedBundleRequest) ProtoMessage() {}
 
 func (x *BatchDeleteFederatedBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[15]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -872,7 +971,7 @@ func (x *BatchDeleteFederatedBundleRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use BatchDeleteFederatedBundleRequest.ProtoReflect.Descriptor instead.
 func (*BatchDeleteFederatedBundleRequest) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{15}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *BatchDeleteFederatedBundleRequest) GetTrustDomains() []string {
@@ -899,7 +998,7 @@ type BatchDeleteFederatedBundleResponse struct {
 
 func (x *BatchDeleteFederatedBundleResponse) Reset() {
 	*x = BatchDeleteFederatedBundleResponse{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[16]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -911,7 +1010,7 @@ func (x *BatchDeleteFederatedBundleResponse) String() string {
 func (*BatchDeleteFederatedBundleResponse) ProtoMessage() {}
 
 func (x *BatchDeleteFederatedBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[16]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -924,7 +1023,7 @@ func (x *BatchDeleteFederatedBundleResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use BatchDeleteFederatedBundleResponse.ProtoReflect.Descriptor instead.
 func (*BatchDeleteFederatedBundleResponse) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{16}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *BatchDeleteFederatedBundleResponse) GetResults() []*BatchDeleteFederatedBundleResponse_Result {
@@ -946,7 +1045,7 @@ type BatchCreateFederatedBundleResponse_Result struct {
 
 func (x *BatchCreateFederatedBundleResponse_Result) Reset() {
 	*x = BatchCreateFederatedBundleResponse_Result{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[17]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -958,7 +1057,7 @@ func (x *BatchCreateFederatedBundleResponse_Result) String() string {
 func (*BatchCreateFederatedBundleResponse_Result) ProtoMessage() {}
 
 func (x *BatchCreateFederatedBundleResponse_Result) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[17]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -971,7 +1070,7 @@ func (x *BatchCreateFederatedBundleResponse_Result) ProtoReflect() protoreflect.
 
 // Deprecated: Use BatchCreateFederatedBundleResponse_Result.ProtoReflect.Descriptor instead.
 func (*BatchCreateFederatedBundleResponse_Result) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{10, 0}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{12, 0}
 }
 
 func (x *BatchCreateFederatedBundleResponse_Result) GetStatus() *types.Status {
@@ -1000,7 +1099,7 @@ type BatchUpdateFederatedBundleResponse_Result struct {
 
 func (x *BatchUpdateFederatedBundleResponse_Result) Reset() {
 	*x = BatchUpdateFederatedBundleResponse_Result{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[18]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1012,7 +1111,7 @@ func (x *BatchUpdateFederatedBundleResponse_Result) String() string {
 func (*BatchUpdateFederatedBundleResponse_Result) ProtoMessage() {}
 
 func (x *BatchUpdateFederatedBundleResponse_Result) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[18]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1025,7 +1124,7 @@ func (x *BatchUpdateFederatedBundleResponse_Result) ProtoReflect() protoreflect.
 
 // Deprecated: Use BatchUpdateFederatedBundleResponse_Result.ProtoReflect.Descriptor instead.
 func (*BatchUpdateFederatedBundleResponse_Result) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{12, 0}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{14, 0}
 }
 
 func (x *BatchUpdateFederatedBundleResponse_Result) GetStatus() *types.Status {
@@ -1054,7 +1153,7 @@ type BatchSetFederatedBundleResponse_Result struct {
 
 func (x *BatchSetFederatedBundleResponse_Result) Reset() {
 	*x = BatchSetFederatedBundleResponse_Result{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[19]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1066,7 +1165,7 @@ func (x *BatchSetFederatedBundleResponse_Result) String() string {
 func (*BatchSetFederatedBundleResponse_Result) ProtoMessage() {}
 
 func (x *BatchSetFederatedBundleResponse_Result) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[19]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1079,7 +1178,7 @@ func (x *BatchSetFederatedBundleResponse_Result) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use BatchSetFederatedBundleResponse_Result.ProtoReflect.Descriptor instead.
 func (*BatchSetFederatedBundleResponse_Result) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{14, 0}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{16, 0}
 }
 
 func (x *BatchSetFederatedBundleResponse_Result) GetStatus() *types.Status {
@@ -1109,7 +1208,7 @@ type BatchDeleteFederatedBundleResponse_Result struct {
 
 func (x *BatchDeleteFederatedBundleResponse_Result) Reset() {
 	*x = BatchDeleteFederatedBundleResponse_Result{}
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[20]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1121,7 +1220,7 @@ func (x *BatchDeleteFederatedBundleResponse_Result) String() string {
 func (*BatchDeleteFederatedBundleResponse_Result) ProtoMessage() {}
 
 func (x *BatchDeleteFederatedBundleResponse_Result) ProtoReflect() protoreflect.Message {
-	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[20]
+	mi := &file_spire_api_server_bundle_v1_bundle_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1134,7 +1233,7 @@ func (x *BatchDeleteFederatedBundleResponse_Result) ProtoReflect() protoreflect.
 
 // Deprecated: Use BatchDeleteFederatedBundleResponse_Result.ProtoReflect.Descriptor instead.
 func (*BatchDeleteFederatedBundleResponse_Result) Descriptor() ([]byte, []int) {
-	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{16, 0}
+	return file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP(), []int{18, 0}
 }
 
 func (x *BatchDeleteFederatedBundleResponse_Result) GetStatus() *types.Status {
@@ -1161,16 +1260,21 @@ const file_spire_api_server_bundle_v1_bundle_proto_rawDesc = "" +
 	"\x05count\x18\x01 \x01(\x05R\x05count\"P\n" +
 	"\x10GetBundleRequest\x12<\n" +
 	"\voutput_mask\x18\x01 \x01(\v2\x1b.spire.api.types.BundleMaskR\n" +
-	"outputMask\"\xe2\x01\n" +
+	"outputMask\"\xa4\x02\n" +
 	"\x13AppendBundleRequest\x12K\n" +
 	"\x10x509_authorities\x18\x01 \x03(\v2 .spire.api.types.X509CertificateR\x0fx509Authorities\x12@\n" +
 	"\x0fjwt_authorities\x18\x02 \x03(\v2\x17.spire.api.types.JWTKeyR\x0ejwtAuthorities\x12<\n" +
 	"\voutput_mask\x18\x03 \x01(\v2\x1b.spire.api.types.BundleMaskR\n" +
-	"outputMask\"Z\n" +
+	"outputMask\x12@\n" +
+	"\x0fwit_authorities\x18\x04 \x03(\v2\x17.spire.api.types.WITKeyR\x0ewitAuthorities\"Z\n" +
 	"\x1aPublishJWTAuthorityRequest\x12<\n" +
 	"\rjwt_authority\x18\x01 \x01(\v2\x17.spire.api.types.JWTKeyR\fjwtAuthority\"_\n" +
 	"\x1bPublishJWTAuthorityResponse\x12@\n" +
-	"\x0fjwt_authorities\x18\x01 \x03(\v2\x17.spire.api.types.JWTKeyR\x0ejwtAuthorities\"\x97\x01\n" +
+	"\x0fjwt_authorities\x18\x01 \x03(\v2\x17.spire.api.types.JWTKeyR\x0ejwtAuthorities\"Z\n" +
+	"\x1aPublishWITAuthorityRequest\x12<\n" +
+	"\rwit_authority\x18\x01 \x01(\v2\x17.spire.api.types.WITKeyR\fwitAuthority\"_\n" +
+	"\x1bPublishWITAuthorityResponse\x12@\n" +
+	"\x0fwit_authorities\x18\x01 \x03(\v2\x17.spire.api.types.WITKeyR\x0ewitAuthorities\"\x97\x01\n" +
 	"\x1bListFederatedBundlesRequest\x12<\n" +
 	"\voutput_mask\x18\x01 \x01(\v2\x1b.spire.api.types.BundleMaskR\n" +
 	"outputMask\x12\x1b\n" +
@@ -1226,13 +1330,13 @@ const file_spire_api_server_bundle_v1_bundle_proto_rawDesc = "" +
 	"\aresults\x18\x01 \x03(\v2E.spire.api.server.bundle.v1.BatchDeleteFederatedBundleResponse.ResultR\aresults\x1a\\\n" +
 	"\x06Result\x12/\n" +
 	"\x06status\x18\x01 \x01(\v2\x17.spire.api.types.StatusR\x06status\x12!\n" +
-	"\ftrust_domain\x18\x02 \x01(\tR\vtrustDomain2\x93\n" +
-	"\n" +
+	"\ftrust_domain\x18\x02 \x01(\tR\vtrustDomain2\x9c\v\n" +
 	"\x06Bundle\x12q\n" +
 	"\fCountBundles\x12/.spire.api.server.bundle.v1.CountBundlesRequest\x1a0.spire.api.server.bundle.v1.CountBundlesResponse\x12R\n" +
 	"\tGetBundle\x12,.spire.api.server.bundle.v1.GetBundleRequest\x1a\x17.spire.api.types.Bundle\x12X\n" +
 	"\fAppendBundle\x12/.spire.api.server.bundle.v1.AppendBundleRequest\x1a\x17.spire.api.types.Bundle\x12\x86\x01\n" +
-	"\x13PublishJWTAuthority\x126.spire.api.server.bundle.v1.PublishJWTAuthorityRequest\x1a7.spire.api.server.bundle.v1.PublishJWTAuthorityResponse\x12\x89\x01\n" +
+	"\x13PublishJWTAuthority\x126.spire.api.server.bundle.v1.PublishJWTAuthorityRequest\x1a7.spire.api.server.bundle.v1.PublishJWTAuthorityResponse\x12\x86\x01\n" +
+	"\x13PublishWITAuthority\x126.spire.api.server.bundle.v1.PublishWITAuthorityRequest\x1a7.spire.api.server.bundle.v1.PublishWITAuthorityResponse\x12\x89\x01\n" +
 	"\x14ListFederatedBundles\x127.spire.api.server.bundle.v1.ListFederatedBundlesRequest\x1a8.spire.api.server.bundle.v1.ListFederatedBundlesResponse\x12d\n" +
 	"\x12GetFederatedBundle\x125.spire.api.server.bundle.v1.GetFederatedBundleRequest\x1a\x17.spire.api.types.Bundle\x12\x9b\x01\n" +
 	"\x1aBatchCreateFederatedBundle\x12=.spire.api.server.bundle.v1.BatchCreateFederatedBundleRequest\x1a>.spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse\x12\x9b\x01\n" +
@@ -1253,7 +1357,7 @@ func file_spire_api_server_bundle_v1_bundle_proto_rawDescGZIP() []byte {
 }
 
 var file_spire_api_server_bundle_v1_bundle_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_spire_api_server_bundle_v1_bundle_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_spire_api_server_bundle_v1_bundle_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_spire_api_server_bundle_v1_bundle_proto_goTypes = []any{
 	(BatchDeleteFederatedBundleRequest_Mode)(0),       // 0: spire.api.server.bundle.v1.BatchDeleteFederatedBundleRequest.Mode
 	(*CountBundlesRequest)(nil),                       // 1: spire.api.server.bundle.v1.CountBundlesRequest
@@ -1262,81 +1366,89 @@ var file_spire_api_server_bundle_v1_bundle_proto_goTypes = []any{
 	(*AppendBundleRequest)(nil),                       // 4: spire.api.server.bundle.v1.AppendBundleRequest
 	(*PublishJWTAuthorityRequest)(nil),                // 5: spire.api.server.bundle.v1.PublishJWTAuthorityRequest
 	(*PublishJWTAuthorityResponse)(nil),               // 6: spire.api.server.bundle.v1.PublishJWTAuthorityResponse
-	(*ListFederatedBundlesRequest)(nil),               // 7: spire.api.server.bundle.v1.ListFederatedBundlesRequest
-	(*ListFederatedBundlesResponse)(nil),              // 8: spire.api.server.bundle.v1.ListFederatedBundlesResponse
-	(*GetFederatedBundleRequest)(nil),                 // 9: spire.api.server.bundle.v1.GetFederatedBundleRequest
-	(*BatchCreateFederatedBundleRequest)(nil),         // 10: spire.api.server.bundle.v1.BatchCreateFederatedBundleRequest
-	(*BatchCreateFederatedBundleResponse)(nil),        // 11: spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse
-	(*BatchUpdateFederatedBundleRequest)(nil),         // 12: spire.api.server.bundle.v1.BatchUpdateFederatedBundleRequest
-	(*BatchUpdateFederatedBundleResponse)(nil),        // 13: spire.api.server.bundle.v1.BatchUpdateFederatedBundleResponse
-	(*BatchSetFederatedBundleRequest)(nil),            // 14: spire.api.server.bundle.v1.BatchSetFederatedBundleRequest
-	(*BatchSetFederatedBundleResponse)(nil),           // 15: spire.api.server.bundle.v1.BatchSetFederatedBundleResponse
-	(*BatchDeleteFederatedBundleRequest)(nil),         // 16: spire.api.server.bundle.v1.BatchDeleteFederatedBundleRequest
-	(*BatchDeleteFederatedBundleResponse)(nil),        // 17: spire.api.server.bundle.v1.BatchDeleteFederatedBundleResponse
-	(*BatchCreateFederatedBundleResponse_Result)(nil), // 18: spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse.Result
-	(*BatchUpdateFederatedBundleResponse_Result)(nil), // 19: spire.api.server.bundle.v1.BatchUpdateFederatedBundleResponse.Result
-	(*BatchSetFederatedBundleResponse_Result)(nil),    // 20: spire.api.server.bundle.v1.BatchSetFederatedBundleResponse.Result
-	(*BatchDeleteFederatedBundleResponse_Result)(nil), // 21: spire.api.server.bundle.v1.BatchDeleteFederatedBundleResponse.Result
-	(*types.BundleMask)(nil),                          // 22: spire.api.types.BundleMask
-	(*types.X509Certificate)(nil),                     // 23: spire.api.types.X509Certificate
-	(*types.JWTKey)(nil),                              // 24: spire.api.types.JWTKey
-	(*types.Bundle)(nil),                              // 25: spire.api.types.Bundle
-	(*types.Status)(nil),                              // 26: spire.api.types.Status
+	(*PublishWITAuthorityRequest)(nil),                // 7: spire.api.server.bundle.v1.PublishWITAuthorityRequest
+	(*PublishWITAuthorityResponse)(nil),               // 8: spire.api.server.bundle.v1.PublishWITAuthorityResponse
+	(*ListFederatedBundlesRequest)(nil),               // 9: spire.api.server.bundle.v1.ListFederatedBundlesRequest
+	(*ListFederatedBundlesResponse)(nil),              // 10: spire.api.server.bundle.v1.ListFederatedBundlesResponse
+	(*GetFederatedBundleRequest)(nil),                 // 11: spire.api.server.bundle.v1.GetFederatedBundleRequest
+	(*BatchCreateFederatedBundleRequest)(nil),         // 12: spire.api.server.bundle.v1.BatchCreateFederatedBundleRequest
+	(*BatchCreateFederatedBundleResponse)(nil),        // 13: spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse
+	(*BatchUpdateFederatedBundleRequest)(nil),         // 14: spire.api.server.bundle.v1.BatchUpdateFederatedBundleRequest
+	(*BatchUpdateFederatedBundleResponse)(nil),        // 15: spire.api.server.bundle.v1.BatchUpdateFederatedBundleResponse
+	(*BatchSetFederatedBundleRequest)(nil),            // 16: spire.api.server.bundle.v1.BatchSetFederatedBundleRequest
+	(*BatchSetFederatedBundleResponse)(nil),           // 17: spire.api.server.bundle.v1.BatchSetFederatedBundleResponse
+	(*BatchDeleteFederatedBundleRequest)(nil),         // 18: spire.api.server.bundle.v1.BatchDeleteFederatedBundleRequest
+	(*BatchDeleteFederatedBundleResponse)(nil),        // 19: spire.api.server.bundle.v1.BatchDeleteFederatedBundleResponse
+	(*BatchCreateFederatedBundleResponse_Result)(nil), // 20: spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse.Result
+	(*BatchUpdateFederatedBundleResponse_Result)(nil), // 21: spire.api.server.bundle.v1.BatchUpdateFederatedBundleResponse.Result
+	(*BatchSetFederatedBundleResponse_Result)(nil),    // 22: spire.api.server.bundle.v1.BatchSetFederatedBundleResponse.Result
+	(*BatchDeleteFederatedBundleResponse_Result)(nil), // 23: spire.api.server.bundle.v1.BatchDeleteFederatedBundleResponse.Result
+	(*types.BundleMask)(nil),                          // 24: spire.api.types.BundleMask
+	(*types.X509Certificate)(nil),                     // 25: spire.api.types.X509Certificate
+	(*types.JWTKey)(nil),                              // 26: spire.api.types.JWTKey
+	(*types.WITKey)(nil),                              // 27: spire.api.types.WITKey
+	(*types.Bundle)(nil),                              // 28: spire.api.types.Bundle
+	(*types.Status)(nil),                              // 29: spire.api.types.Status
 }
 var file_spire_api_server_bundle_v1_bundle_proto_depIdxs = []int32{
-	22, // 0: spire.api.server.bundle.v1.GetBundleRequest.output_mask:type_name -> spire.api.types.BundleMask
-	23, // 1: spire.api.server.bundle.v1.AppendBundleRequest.x509_authorities:type_name -> spire.api.types.X509Certificate
-	24, // 2: spire.api.server.bundle.v1.AppendBundleRequest.jwt_authorities:type_name -> spire.api.types.JWTKey
-	22, // 3: spire.api.server.bundle.v1.AppendBundleRequest.output_mask:type_name -> spire.api.types.BundleMask
-	24, // 4: spire.api.server.bundle.v1.PublishJWTAuthorityRequest.jwt_authority:type_name -> spire.api.types.JWTKey
-	24, // 5: spire.api.server.bundle.v1.PublishJWTAuthorityResponse.jwt_authorities:type_name -> spire.api.types.JWTKey
-	22, // 6: spire.api.server.bundle.v1.ListFederatedBundlesRequest.output_mask:type_name -> spire.api.types.BundleMask
-	25, // 7: spire.api.server.bundle.v1.ListFederatedBundlesResponse.bundles:type_name -> spire.api.types.Bundle
-	22, // 8: spire.api.server.bundle.v1.GetFederatedBundleRequest.output_mask:type_name -> spire.api.types.BundleMask
-	25, // 9: spire.api.server.bundle.v1.BatchCreateFederatedBundleRequest.bundle:type_name -> spire.api.types.Bundle
-	22, // 10: spire.api.server.bundle.v1.BatchCreateFederatedBundleRequest.output_mask:type_name -> spire.api.types.BundleMask
-	18, // 11: spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse.results:type_name -> spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse.Result
-	25, // 12: spire.api.server.bundle.v1.BatchUpdateFederatedBundleRequest.bundle:type_name -> spire.api.types.Bundle
-	22, // 13: spire.api.server.bundle.v1.BatchUpdateFederatedBundleRequest.input_mask:type_name -> spire.api.types.BundleMask
-	22, // 14: spire.api.server.bundle.v1.BatchUpdateFederatedBundleRequest.output_mask:type_name -> spire.api.types.BundleMask
-	19, // 15: spire.api.server.bundle.v1.BatchUpdateFederatedBundleResponse.results:type_name -> spire.api.server.bundle.v1.BatchUpdateFederatedBundleResponse.Result
-	25, // 16: spire.api.server.bundle.v1.BatchSetFederatedBundleRequest.bundle:type_name -> spire.api.types.Bundle
-	22, // 17: spire.api.server.bundle.v1.BatchSetFederatedBundleRequest.output_mask:type_name -> spire.api.types.BundleMask
-	20, // 18: spire.api.server.bundle.v1.BatchSetFederatedBundleResponse.results:type_name -> spire.api.server.bundle.v1.BatchSetFederatedBundleResponse.Result
-	0,  // 19: spire.api.server.bundle.v1.BatchDeleteFederatedBundleRequest.mode:type_name -> spire.api.server.bundle.v1.BatchDeleteFederatedBundleRequest.Mode
-	21, // 20: spire.api.server.bundle.v1.BatchDeleteFederatedBundleResponse.results:type_name -> spire.api.server.bundle.v1.BatchDeleteFederatedBundleResponse.Result
-	26, // 21: spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse.Result.status:type_name -> spire.api.types.Status
-	25, // 22: spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse.Result.bundle:type_name -> spire.api.types.Bundle
-	26, // 23: spire.api.server.bundle.v1.BatchUpdateFederatedBundleResponse.Result.status:type_name -> spire.api.types.Status
-	25, // 24: spire.api.server.bundle.v1.BatchUpdateFederatedBundleResponse.Result.bundle:type_name -> spire.api.types.Bundle
-	26, // 25: spire.api.server.bundle.v1.BatchSetFederatedBundleResponse.Result.status:type_name -> spire.api.types.Status
-	25, // 26: spire.api.server.bundle.v1.BatchSetFederatedBundleResponse.Result.bundle:type_name -> spire.api.types.Bundle
-	26, // 27: spire.api.server.bundle.v1.BatchDeleteFederatedBundleResponse.Result.status:type_name -> spire.api.types.Status
-	1,  // 28: spire.api.server.bundle.v1.Bundle.CountBundles:input_type -> spire.api.server.bundle.v1.CountBundlesRequest
-	3,  // 29: spire.api.server.bundle.v1.Bundle.GetBundle:input_type -> spire.api.server.bundle.v1.GetBundleRequest
-	4,  // 30: spire.api.server.bundle.v1.Bundle.AppendBundle:input_type -> spire.api.server.bundle.v1.AppendBundleRequest
-	5,  // 31: spire.api.server.bundle.v1.Bundle.PublishJWTAuthority:input_type -> spire.api.server.bundle.v1.PublishJWTAuthorityRequest
-	7,  // 32: spire.api.server.bundle.v1.Bundle.ListFederatedBundles:input_type -> spire.api.server.bundle.v1.ListFederatedBundlesRequest
-	9,  // 33: spire.api.server.bundle.v1.Bundle.GetFederatedBundle:input_type -> spire.api.server.bundle.v1.GetFederatedBundleRequest
-	10, // 34: spire.api.server.bundle.v1.Bundle.BatchCreateFederatedBundle:input_type -> spire.api.server.bundle.v1.BatchCreateFederatedBundleRequest
-	12, // 35: spire.api.server.bundle.v1.Bundle.BatchUpdateFederatedBundle:input_type -> spire.api.server.bundle.v1.BatchUpdateFederatedBundleRequest
-	14, // 36: spire.api.server.bundle.v1.Bundle.BatchSetFederatedBundle:input_type -> spire.api.server.bundle.v1.BatchSetFederatedBundleRequest
-	16, // 37: spire.api.server.bundle.v1.Bundle.BatchDeleteFederatedBundle:input_type -> spire.api.server.bundle.v1.BatchDeleteFederatedBundleRequest
-	2,  // 38: spire.api.server.bundle.v1.Bundle.CountBundles:output_type -> spire.api.server.bundle.v1.CountBundlesResponse
-	25, // 39: spire.api.server.bundle.v1.Bundle.GetBundle:output_type -> spire.api.types.Bundle
-	25, // 40: spire.api.server.bundle.v1.Bundle.AppendBundle:output_type -> spire.api.types.Bundle
-	6,  // 41: spire.api.server.bundle.v1.Bundle.PublishJWTAuthority:output_type -> spire.api.server.bundle.v1.PublishJWTAuthorityResponse
-	8,  // 42: spire.api.server.bundle.v1.Bundle.ListFederatedBundles:output_type -> spire.api.server.bundle.v1.ListFederatedBundlesResponse
-	25, // 43: spire.api.server.bundle.v1.Bundle.GetFederatedBundle:output_type -> spire.api.types.Bundle
-	11, // 44: spire.api.server.bundle.v1.Bundle.BatchCreateFederatedBundle:output_type -> spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse
-	13, // 45: spire.api.server.bundle.v1.Bundle.BatchUpdateFederatedBundle:output_type -> spire.api.server.bundle.v1.BatchUpdateFederatedBundleResponse
-	15, // 46: spire.api.server.bundle.v1.Bundle.BatchSetFederatedBundle:output_type -> spire.api.server.bundle.v1.BatchSetFederatedBundleResponse
-	17, // 47: spire.api.server.bundle.v1.Bundle.BatchDeleteFederatedBundle:output_type -> spire.api.server.bundle.v1.BatchDeleteFederatedBundleResponse
-	38, // [38:48] is the sub-list for method output_type
-	28, // [28:38] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	24, // 0: spire.api.server.bundle.v1.GetBundleRequest.output_mask:type_name -> spire.api.types.BundleMask
+	25, // 1: spire.api.server.bundle.v1.AppendBundleRequest.x509_authorities:type_name -> spire.api.types.X509Certificate
+	26, // 2: spire.api.server.bundle.v1.AppendBundleRequest.jwt_authorities:type_name -> spire.api.types.JWTKey
+	24, // 3: spire.api.server.bundle.v1.AppendBundleRequest.output_mask:type_name -> spire.api.types.BundleMask
+	27, // 4: spire.api.server.bundle.v1.AppendBundleRequest.wit_authorities:type_name -> spire.api.types.WITKey
+	26, // 5: spire.api.server.bundle.v1.PublishJWTAuthorityRequest.jwt_authority:type_name -> spire.api.types.JWTKey
+	26, // 6: spire.api.server.bundle.v1.PublishJWTAuthorityResponse.jwt_authorities:type_name -> spire.api.types.JWTKey
+	27, // 7: spire.api.server.bundle.v1.PublishWITAuthorityRequest.wit_authority:type_name -> spire.api.types.WITKey
+	27, // 8: spire.api.server.bundle.v1.PublishWITAuthorityResponse.wit_authorities:type_name -> spire.api.types.WITKey
+	24, // 9: spire.api.server.bundle.v1.ListFederatedBundlesRequest.output_mask:type_name -> spire.api.types.BundleMask
+	28, // 10: spire.api.server.bundle.v1.ListFederatedBundlesResponse.bundles:type_name -> spire.api.types.Bundle
+	24, // 11: spire.api.server.bundle.v1.GetFederatedBundleRequest.output_mask:type_name -> spire.api.types.BundleMask
+	28, // 12: spire.api.server.bundle.v1.BatchCreateFederatedBundleRequest.bundle:type_name -> spire.api.types.Bundle
+	24, // 13: spire.api.server.bundle.v1.BatchCreateFederatedBundleRequest.output_mask:type_name -> spire.api.types.BundleMask
+	20, // 14: spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse.results:type_name -> spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse.Result
+	28, // 15: spire.api.server.bundle.v1.BatchUpdateFederatedBundleRequest.bundle:type_name -> spire.api.types.Bundle
+	24, // 16: spire.api.server.bundle.v1.BatchUpdateFederatedBundleRequest.input_mask:type_name -> spire.api.types.BundleMask
+	24, // 17: spire.api.server.bundle.v1.BatchUpdateFederatedBundleRequest.output_mask:type_name -> spire.api.types.BundleMask
+	21, // 18: spire.api.server.bundle.v1.BatchUpdateFederatedBundleResponse.results:type_name -> spire.api.server.bundle.v1.BatchUpdateFederatedBundleResponse.Result
+	28, // 19: spire.api.server.bundle.v1.BatchSetFederatedBundleRequest.bundle:type_name -> spire.api.types.Bundle
+	24, // 20: spire.api.server.bundle.v1.BatchSetFederatedBundleRequest.output_mask:type_name -> spire.api.types.BundleMask
+	22, // 21: spire.api.server.bundle.v1.BatchSetFederatedBundleResponse.results:type_name -> spire.api.server.bundle.v1.BatchSetFederatedBundleResponse.Result
+	0,  // 22: spire.api.server.bundle.v1.BatchDeleteFederatedBundleRequest.mode:type_name -> spire.api.server.bundle.v1.BatchDeleteFederatedBundleRequest.Mode
+	23, // 23: spire.api.server.bundle.v1.BatchDeleteFederatedBundleResponse.results:type_name -> spire.api.server.bundle.v1.BatchDeleteFederatedBundleResponse.Result
+	29, // 24: spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse.Result.status:type_name -> spire.api.types.Status
+	28, // 25: spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse.Result.bundle:type_name -> spire.api.types.Bundle
+	29, // 26: spire.api.server.bundle.v1.BatchUpdateFederatedBundleResponse.Result.status:type_name -> spire.api.types.Status
+	28, // 27: spire.api.server.bundle.v1.BatchUpdateFederatedBundleResponse.Result.bundle:type_name -> spire.api.types.Bundle
+	29, // 28: spire.api.server.bundle.v1.BatchSetFederatedBundleResponse.Result.status:type_name -> spire.api.types.Status
+	28, // 29: spire.api.server.bundle.v1.BatchSetFederatedBundleResponse.Result.bundle:type_name -> spire.api.types.Bundle
+	29, // 30: spire.api.server.bundle.v1.BatchDeleteFederatedBundleResponse.Result.status:type_name -> spire.api.types.Status
+	1,  // 31: spire.api.server.bundle.v1.Bundle.CountBundles:input_type -> spire.api.server.bundle.v1.CountBundlesRequest
+	3,  // 32: spire.api.server.bundle.v1.Bundle.GetBundle:input_type -> spire.api.server.bundle.v1.GetBundleRequest
+	4,  // 33: spire.api.server.bundle.v1.Bundle.AppendBundle:input_type -> spire.api.server.bundle.v1.AppendBundleRequest
+	5,  // 34: spire.api.server.bundle.v1.Bundle.PublishJWTAuthority:input_type -> spire.api.server.bundle.v1.PublishJWTAuthorityRequest
+	7,  // 35: spire.api.server.bundle.v1.Bundle.PublishWITAuthority:input_type -> spire.api.server.bundle.v1.PublishWITAuthorityRequest
+	9,  // 36: spire.api.server.bundle.v1.Bundle.ListFederatedBundles:input_type -> spire.api.server.bundle.v1.ListFederatedBundlesRequest
+	11, // 37: spire.api.server.bundle.v1.Bundle.GetFederatedBundle:input_type -> spire.api.server.bundle.v1.GetFederatedBundleRequest
+	12, // 38: spire.api.server.bundle.v1.Bundle.BatchCreateFederatedBundle:input_type -> spire.api.server.bundle.v1.BatchCreateFederatedBundleRequest
+	14, // 39: spire.api.server.bundle.v1.Bundle.BatchUpdateFederatedBundle:input_type -> spire.api.server.bundle.v1.BatchUpdateFederatedBundleRequest
+	16, // 40: spire.api.server.bundle.v1.Bundle.BatchSetFederatedBundle:input_type -> spire.api.server.bundle.v1.BatchSetFederatedBundleRequest
+	18, // 41: spire.api.server.bundle.v1.Bundle.BatchDeleteFederatedBundle:input_type -> spire.api.server.bundle.v1.BatchDeleteFederatedBundleRequest
+	2,  // 42: spire.api.server.bundle.v1.Bundle.CountBundles:output_type -> spire.api.server.bundle.v1.CountBundlesResponse
+	28, // 43: spire.api.server.bundle.v1.Bundle.GetBundle:output_type -> spire.api.types.Bundle
+	28, // 44: spire.api.server.bundle.v1.Bundle.AppendBundle:output_type -> spire.api.types.Bundle
+	6,  // 45: spire.api.server.bundle.v1.Bundle.PublishJWTAuthority:output_type -> spire.api.server.bundle.v1.PublishJWTAuthorityResponse
+	8,  // 46: spire.api.server.bundle.v1.Bundle.PublishWITAuthority:output_type -> spire.api.server.bundle.v1.PublishWITAuthorityResponse
+	10, // 47: spire.api.server.bundle.v1.Bundle.ListFederatedBundles:output_type -> spire.api.server.bundle.v1.ListFederatedBundlesResponse
+	28, // 48: spire.api.server.bundle.v1.Bundle.GetFederatedBundle:output_type -> spire.api.types.Bundle
+	13, // 49: spire.api.server.bundle.v1.Bundle.BatchCreateFederatedBundle:output_type -> spire.api.server.bundle.v1.BatchCreateFederatedBundleResponse
+	15, // 50: spire.api.server.bundle.v1.Bundle.BatchUpdateFederatedBundle:output_type -> spire.api.server.bundle.v1.BatchUpdateFederatedBundleResponse
+	17, // 51: spire.api.server.bundle.v1.Bundle.BatchSetFederatedBundle:output_type -> spire.api.server.bundle.v1.BatchSetFederatedBundleResponse
+	19, // 52: spire.api.server.bundle.v1.Bundle.BatchDeleteFederatedBundle:output_type -> spire.api.server.bundle.v1.BatchDeleteFederatedBundleResponse
+	42, // [42:53] is the sub-list for method output_type
+	31, // [31:42] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_spire_api_server_bundle_v1_bundle_proto_init() }
@@ -1350,7 +1462,7 @@ func file_spire_api_server_bundle_v1_bundle_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_spire_api_server_bundle_v1_bundle_proto_rawDesc), len(file_spire_api_server_bundle_v1_bundle_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   21,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
