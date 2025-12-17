@@ -76,11 +76,17 @@ func getRequiredRoles(path, method string, routeProtection map[string]interface{
 
 	// Check for exact match first
 	if protection, exists := routeProtection[path]; exists {
-		return parseProtection(protection, method)
+		roles := parseProtection(protection, method)
+		if len(roles) > 0 {
+			return roles
+		}
 	}
 
 	// Check for wildcard matches
 	for pattern, protection := range routeProtection {
+		if !strings.HasSuffix(pattern, "/*") {
+			continue
+		}
 		if matchesPattern(path, pattern) {
 			return parseProtection(protection, method)
 		}
@@ -136,12 +142,12 @@ func HasPermission(user *models.User, permission string, config *models.RBACConf
 				if perm == "*" {
 					return true
 				}
-				
+
 				// Check exact match
 				if perm == permission {
 					return true
 				}
-				
+
 				// Check category wildcard (e.g., "config:*" matches "config:read")
 				if strings.HasSuffix(perm, ":*") {
 					category := strings.TrimSuffix(perm, ":*")
@@ -152,7 +158,7 @@ func HasPermission(user *models.User, permission string, config *models.RBACConf
 			}
 		}
 	}
-	
+
 	return false
 }
 
