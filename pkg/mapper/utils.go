@@ -224,9 +224,9 @@ func (e *DiscoveryEngine) collectIPsFromRange(ip net.IP, ipNet *net.IPNet, hostB
 
 		copy(ipCopy, ip)
 
-		for i := ipCopy.Mask(ipNet.Mask); ipNet.Contains(ip) && count < defaultMaxIPRange; incrementIP(ip) {
-			// changed from ip to i, to avoid modifying the original IP
-			ipStr := i.String()
+		for ip := ipCopy.Mask(ipNet.Mask); ipNet.Contains(ip) && count < defaultMaxIPRange; incrementIP(ip) {
+			// Use a local copy so we don't mutate the caller's IP while iterating.
+			ipStr := ip.String()
 
 			if !seen[ipStr] {
 				targets = append(targets, ipStr)
@@ -254,15 +254,26 @@ func (e *DiscoveryEngine) collectIPsFromRange(ip net.IP, ipNet *net.IPNet, hostB
 
 // filterNetworkAndBroadcast removes network and broadcast addresses from the targets
 func filterNetworkAndBroadcast(targets []string, ip net.IP, ipNet *net.IPNet) []string {
+	ipv4 := ip.To4()
+	if ipv4 == nil {
+		return targets
+	}
+
+	mask := ipNet.Mask
+	if len(mask) != net.IPv4len {
+		ones, _ := mask.Size()
+		mask = net.CIDRMask(ones, 8*net.IPv4len)
+	}
+
 	// Skip first and last IP if they exist in the targets
-	networkIP := ip.Mask(ipNet.Mask).String()
+	networkIP := ipv4.Mask(mask).String()
 
 	// Calculate broadcast IP
-	broadcastIP := make(net.IP, len(ip))
-	copy(broadcastIP, ip.Mask(ipNet.Mask))
+	broadcastIP := make(net.IP, net.IPv4len)
+	copy(broadcastIP, ipv4.Mask(mask))
 
 	for i := range broadcastIP {
-		broadcastIP[i] |= ^ipNet.Mask[i]
+		broadcastIP[i] |= ^mask[i]
 	}
 
 	broadcastIPStr := broadcastIP.String()
