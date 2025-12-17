@@ -102,6 +102,6 @@ type Device struct {
 type DeviceResponse struct {
 	Results  []Device `json:"results"`
 	Count    int      `json:"count"`
-	Next     string   `json:"next"`     // Pagination URL
-	Previous string   `json:"previous"` // Pagination URL
+	Next     *string  `json:"next"`     // Pagination URL (NetBox uses null when absent)
+	Previous *string  `json:"previous"` // Pagination URL (NetBox uses null when absent)
 }
