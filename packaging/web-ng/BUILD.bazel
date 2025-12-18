@@ -8,6 +8,6 @@ package(
 )
 
 serviceradar_package_from_config(
-    name = "web_ng",
+    name = "web-ng",
     config = PACKAGES["web-ng"],
 )
