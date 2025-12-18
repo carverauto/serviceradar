@@ -71,21 +71,6 @@ func (mr *MockServiceMockRecorder) CleanupStaleOCSFDevices(arg0, arg1 any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStaleOCSFDevices", reflect.TypeOf((*MockService)(nil).CleanupStaleOCSFDevices), arg0, arg1)
 }
 
-// CleanupStaleUnifiedDevices mocks base method.
-func (m *MockService) CleanupStaleUnifiedDevices(arg0 context.Context, arg1 time.Duration) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CleanupStaleUnifiedDevices", arg0, arg1)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CleanupStaleUnifiedDevices indicates an expected call of CleanupStaleUnifiedDevices.
-func (mr *MockServiceMockRecorder) CleanupStaleUnifiedDevices(arg0, arg1 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStaleUnifiedDevices", reflect.TypeOf((*MockService)(nil).CleanupStaleUnifiedDevices), arg0, arg1)
-}
-
 // Close mocks base method.
 func (m *MockService) Close() error {
 	m.ctrl.T.Helper()
@@ -128,21 +113,6 @@ func (m *MockService) CountOCSFDevices(arg0 context.Context) (int64, error) {
 func (mr *MockServiceMockRecorder) CountOCSFDevices(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountOCSFDevices", reflect.TypeOf((*MockService)(nil).CountOCSFDevices), arg0)
-}
-
-// CountUnifiedDevices mocks base method.
-func (m *MockService) CountUnifiedDevices(arg0 context.Context) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountUnifiedDevices", arg0)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CountUnifiedDevices indicates an expected call of CountUnifiedDevices.
-func (mr *MockServiceMockRecorder) CountUnifiedDevices(arg0 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountUnifiedDevices", reflect.TypeOf((*MockService)(nil).CountUnifiedDevices), arg0)
 }
 
 // DeleteEdgeOnboardingPackage mocks base method.
@@ -717,51 +687,6 @@ func (mr *MockServiceMockRecorder) GetSweepHostStates(arg0, arg1, arg2 any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSweepHostStates", reflect.TypeOf((*MockService)(nil).GetSweepHostStates), arg0, arg1, arg2)
 }
 
-// GetUnifiedDevice mocks base method.
-func (m *MockService) GetUnifiedDevice(arg0 context.Context, arg1 string) (*models.UnifiedDevice, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetUnifiedDevice", arg0, arg1)
-	ret0, _ := ret[0].(*models.UnifiedDevice)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetUnifiedDevice indicates an expected call of GetUnifiedDevice.
-func (mr *MockServiceMockRecorder) GetUnifiedDevice(arg0, arg1 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUnifiedDevice", reflect.TypeOf((*MockService)(nil).GetUnifiedDevice), arg0, arg1)
-}
-
-// GetUnifiedDevicesByIP mocks base method.
-func (m *MockService) GetUnifiedDevicesByIP(arg0 context.Context, arg1 string) ([]*models.UnifiedDevice, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetUnifiedDevicesByIP", arg0, arg1)
-	ret0, _ := ret[0].([]*models.UnifiedDevice)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetUnifiedDevicesByIP indicates an expected call of GetUnifiedDevicesByIP.
-func (mr *MockServiceMockRecorder) GetUnifiedDevicesByIP(arg0, arg1 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUnifiedDevicesByIP", reflect.TypeOf((*MockService)(nil).GetUnifiedDevicesByIP), arg0, arg1)
-}
-
-// GetUnifiedDevicesByIPsOrIDs mocks base method.
-func (m *MockService) GetUnifiedDevicesByIPsOrIDs(arg0 context.Context, arg1, arg2 []string) ([]*models.UnifiedDevice, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetUnifiedDevicesByIPsOrIDs", arg0, arg1, arg2)
-	ret0, _ := ret[0].([]*models.UnifiedDevice)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetUnifiedDevicesByIPsOrIDs indicates an expected call of GetUnifiedDevicesByIPsOrIDs.
-func (mr *MockServiceMockRecorder) GetUnifiedDevicesByIPsOrIDs(arg0, arg1, arg2 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUnifiedDevicesByIPsOrIDs", reflect.TypeOf((*MockService)(nil).GetUnifiedDevicesByIPsOrIDs), arg0, arg1, arg2)
-}
-
 // GetUserByID mocks base method.
 func (m *MockService) GetUserByID(arg0 context.Context, arg1 string) (*models.User, error) {
 	m.ctrl.T.Helper()
@@ -1050,33 +975,18 @@ func (mr *MockServiceMockRecorder) ListSubnetPolicies(arg0, arg1 any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSubnetPolicies", reflect.TypeOf((*MockService)(nil).ListSubnetPolicies), arg0, arg1)
 }
 
-// ListUnifiedDevices mocks base method.
-func (m *MockService) ListUnifiedDevices(arg0 context.Context, arg1, arg2 int) ([]*models.UnifiedDevice, error) {
+// LockOCSFDevices mocks base method.
+func (m *MockService) LockOCSFDevices(arg0 context.Context, arg1 []string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListUnifiedDevices", arg0, arg1, arg2)
-	ret0, _ := ret[0].([]*models.UnifiedDevice)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListUnifiedDevices indicates an expected call of ListUnifiedDevices.
-func (mr *MockServiceMockRecorder) ListUnifiedDevices(arg0, arg1, arg2 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnifiedDevices", reflect.TypeOf((*MockService)(nil).ListUnifiedDevices), arg0, arg1, arg2)
-}
-
-// LockUnifiedDevices mocks base method.
-func (m *MockService) LockUnifiedDevices(arg0 context.Context, arg1 []string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LockUnifiedDevices", arg0, arg1)
+	ret := m.ctrl.Call(m, "LockOCSFDevices", arg0, arg1)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// LockUnifiedDevices indicates an expected call of LockUnifiedDevices.
-func (mr *MockServiceMockRecorder) LockUnifiedDevices(arg0, arg1 any) *gomock.Call {
+// LockOCSFDevices indicates an expected call of LockOCSFDevices.
+func (mr *MockServiceMockRecorder) LockOCSFDevices(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockUnifiedDevices", reflect.TypeOf((*MockService)(nil).LockUnifiedDevices), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockOCSFDevices", reflect.TypeOf((*MockService)(nil).LockOCSFDevices), arg0, arg1)
 }
 
 // MarkSightingsPromoted mocks base method.

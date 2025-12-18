@@ -76,7 +76,7 @@ func (r *DeviceRegistry) SyncRegistryFromCNPG(ctx context.Context) (int, error) 
 	}
 
 	// Get CNPG count for drift detection
-	cnpgCount, cnpgErr := r.db.CountUnifiedDevices(ctx)
+	cnpgCount, cnpgErr := r.db.CountOCSFDevices(ctx)
 	if cnpgErr != nil {
 		if r.logger != nil {
 			r.logger.Warn().Err(cnpgErr).Msg("Failed to count CNPG devices during registry sync")

@@ -9,21 +9,19 @@ import (
 )
 
 func TestBuildAliasHistory(t *testing.T) {
-	device := &models.UnifiedDevice{
-		DeviceID: "default:10.0.0.5",
-		Metadata: &models.DiscoveredField[map[string]string]{
-			Value: map[string]string{
-				"_alias_last_seen_at":                   "2025-11-03T15:00:00Z",
-				"_alias_collector_ip":                   "10.42.111.114",
-				"_alias_last_seen_service_id":           "serviceradar:agent:k8s-agent",
-				"_alias_last_seen_ip":                   "10.0.0.5",
-				"service_alias:serviceradar:poller:k8s": "2025-11-03T14:00:00Z",
-				"ip_alias:10.0.0.8":                     "2025-11-03T14:30:00Z",
-			},
+	device := &models.OCSFDevice{
+		UID: "default:10.0.0.5",
+		Metadata: map[string]string{
+			"_alias_last_seen_at":                   "2025-11-03T15:00:00Z",
+			"_alias_collector_ip":                   "10.42.111.114",
+			"_alias_last_seen_service_id":           "serviceradar:agent:k8s-agent",
+			"_alias_last_seen_ip":                   "10.0.0.5",
+			"service_alias:serviceradar:poller:k8s": "2025-11-03T14:00:00Z",
+			"ip_alias:10.0.0.8":                     "2025-11-03T14:30:00Z",
 		},
 	}
 
-	history := buildAliasHistory(device)
+	history := buildAliasHistoryOCSF(device)
 	assert.NotNil(t, history)
 	assert.Equal(t, "2025-11-03T15:00:00Z", history.LastSeenAt)
 	assert.Equal(t, "10.42.111.114", history.CollectorIP)
@@ -52,6 +50,6 @@ func TestBuildAliasHistory(t *testing.T) {
 }
 
 func TestBuildAliasHistoryNil(t *testing.T) {
-	assert.Nil(t, buildAliasHistory(nil))
-	assert.Nil(t, buildAliasHistory(&models.UnifiedDevice{}))
+	assert.Nil(t, buildAliasHistoryOCSF(nil))
+	assert.Nil(t, buildAliasHistoryOCSF(&models.OCSFDevice{}))
 }

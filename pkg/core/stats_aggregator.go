@@ -674,7 +674,7 @@ func (a *StatsAggregator) maybeReportDiscrepancy(ctx context.Context, records []
 	cnpgTotal := cnpgSnapshot
 	var err error
 	if cnpgTotal <= 0 {
-		cnpgTotal, err = a.dbService.CountUnifiedDevices(ctx)
+		cnpgTotal, err = a.dbService.CountOCSFDevices(ctx)
 		if err != nil {
 			a.logger.Warn().Err(err).Msg("Failed to count CNPG devices during stats diagnostics")
 			return
@@ -757,7 +757,7 @@ func (a *StatsAggregator) reconcileWithCNPG(ctx context.Context, records []*regi
 		return records, 0
 	}
 
-	cnpgTotal, err := a.dbService.CountUnifiedDevices(ctx)
+	cnpgTotal, err := a.dbService.CountOCSFDevices(ctx)
 	if err != nil {
 		if a.logger != nil {
 			a.logger.Warn().

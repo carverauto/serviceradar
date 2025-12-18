@@ -2659,58 +2659,6 @@ func (s *APIServer) getDeviceMetricsStatus(w http.ResponseWriter, _ *http.Reques
 
 // Helper functions for device registry integration
 
-func buildAliasHistory(device *models.UnifiedDevice) *DeviceAliasHistory {
-	if device == nil || device.Metadata == nil || device.Metadata.Value == nil {
-		return nil
-	}
-
-	record := devicealias.FromMetadata(device.Metadata.Value)
-	if record == nil {
-		return nil
-	}
-
-	history := DeviceAliasHistory{
-		LastSeenAt:       record.LastSeenAt,
-		CollectorIP:      record.CollectorIP,
-		CurrentServiceID: record.CurrentServiceID,
-		CurrentIP:        record.CurrentIP,
-	}
-
-	if len(record.Services) > 0 {
-		ids := make([]string, 0, len(record.Services))
-		for id := range record.Services {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
-		for _, id := range ids {
-			history.Services = append(history.Services, DeviceAliasRecord{
-				ID:         id,
-				LastSeenAt: strings.TrimSpace(record.Services[id]),
-			})
-		}
-	}
-
-	if len(record.IPs) > 0 {
-		ips := make([]string, 0, len(record.IPs))
-		for ip := range record.IPs {
-			ips = append(ips, ip)
-		}
-		sort.Strings(ips)
-		for _, ip := range ips {
-			history.IPs = append(history.IPs, DeviceAliasRecord{
-				IP:         ip,
-				LastSeenAt: strings.TrimSpace(record.IPs[ip]),
-			})
-		}
-	}
-
-	if len(history.Services) == 0 && len(history.IPs) == 0 {
-		return nil
-	}
-
-	return &history
-}
-
 func buildAliasHistoryOCSF(device *models.OCSFDevice) *DeviceAliasHistory {
 	if device == nil || device.Metadata == nil {
 		return nil
@@ -2798,64 +2746,6 @@ func splitDeviceID(deviceID string) (string, string) {
 	}
 
 	return partition, ip
-}
-
-// getFieldValue extracts the value from a DiscoveredField, returning nil if the field is nil
-func getFieldValue[T any](field *models.DiscoveredField[T]) interface{} {
-	if field == nil {
-		return nil
-	}
-
-	return field.Value
-}
-
-// filterDevices filters unified devices based on search term and status
-func filterDevices(devices []*models.UnifiedDevice, searchTerm, status string, logger logger.Logger) []*models.UnifiedDevice {
-	filtered := make([]*models.UnifiedDevice, 0, len(devices))
-
-	for _, device := range devices {
-		// Filter out merged devices (safety net) - ALWAYS apply this filter
-		if device.Metadata != nil && device.Metadata.Value != nil {
-			if deleted, ok := device.Metadata.Value["_deleted"]; ok && strings.EqualFold(deleted, "true") {
-				logger.Debug().Str("device_id", device.DeviceID).Msg("Filtering out deleted device")
-				continue
-			}
-			if deleted, ok := device.Metadata.Value["deleted"]; ok && strings.EqualFold(deleted, "true") {
-				logger.Debug().Str("device_id", device.DeviceID).Msg("Filtering out deleted device")
-				continue
-			}
-			if mergedInto, hasMerged := device.Metadata.Value["_merged_into"]; hasMerged {
-				logger.Debug().Str("device_id", device.DeviceID).Str("merged_into", mergedInto).Msg("Filtering out merged device")
-
-				continue // Skip merged devices
-			}
-		}
-
-		// Apply search filter
-		if searchTerm != "" {
-			searchLower := strings.ToLower(searchTerm)
-			if !strings.Contains(strings.ToLower(device.IP), searchLower) &&
-				!strings.Contains(strings.ToLower(device.DeviceID), searchLower) {
-				// Check hostname if available
-				if device.Hostname == nil || !strings.Contains(strings.ToLower(device.Hostname.Value), searchLower) {
-					continue
-				}
-			}
-		}
-
-		// Apply status filter
-		if status == "online" && !device.IsAvailable {
-			continue
-		}
-
-		if status == "offline" && device.IsAvailable {
-			continue
-		}
-
-		filtered = append(filtered, device)
-	}
-
-	return filtered
 }
 
 // filterOCSFDevices filters OCSF devices based on search term and status

@@ -230,12 +230,6 @@ FOR UPDATE`
 	return nil
 }
 
-// LockUnifiedDevices is deprecated, use LockOCSFDevices instead.
-// Kept for backward compatibility.
-func (db *DB) LockUnifiedDevices(ctx context.Context, ips []string) error {
-	return db.LockOCSFDevices(ctx, ips)
-}
-
 // QueryCNPGRows executes a query against the CNPG pool and returns a Rows implementation.
 func (db *DB) QueryCNPGRows(ctx context.Context, query string, args ...interface{}) (Rows, error) {
 	if !db.cnpgConfigured() {

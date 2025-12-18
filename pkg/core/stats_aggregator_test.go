@@ -702,7 +702,7 @@ func TestStatsAggregatorPrunesInferredRecordsToMatchCNPG(t *testing.T) {
 
 	mockDB := db.NewMockService(ctrl)
 	mockDB.EXPECT().
-		CountUnifiedDevices(gomock.Any()).
+		CountOCSFDevices(gomock.Any()).
 		Return(int64(1), nil)
 	mockDB.EXPECT().
 		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), gomock.AssignableToTypeOf([]string{})).

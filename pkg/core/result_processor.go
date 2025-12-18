@@ -326,28 +326,6 @@ func canonicalSnapshotFromOCSFDevice(device *models.OCSFDevice) canonicalSnapsho
 	return snapshot
 }
 
-// canonicalSnapshotFromDevice converts an in-memory UnifiedDevice to a canonicalSnapshot.
-func canonicalSnapshotFromDevice(device *models.UnifiedDevice) canonicalSnapshot {
-	if device == nil {
-		return canonicalSnapshot{}
-	}
-
-	snapshot := canonicalSnapshot{
-		DeviceID: strings.TrimSpace(device.DeviceID),
-		IP:       strings.TrimSpace(device.IP),
-	}
-
-	if device.MAC != nil {
-		snapshot.MAC = strings.TrimSpace(device.MAC.Value)
-	}
-
-	if device.Metadata != nil && len(device.Metadata.Value) > 0 {
-		snapshot.Metadata = device.Metadata.Value
-	}
-
-	return snapshot
-}
-
 func snapshotHasStrongIdentity(snapshot canonicalSnapshot) bool {
 	if strings.TrimSpace(snapshot.DeviceID) != "" {
 		return true
