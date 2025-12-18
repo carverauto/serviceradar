@@ -43,6 +43,39 @@ PACKAGES = {
             "/etc/serviceradar/api.env",
         ],
     },
+    "web-ng": {
+        "package_name": "serviceradar-web",
+        "description": "ServiceRadar Phoenix web UI (web-ng)",
+        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+        "architecture": "amd64",
+        "section": "utils",
+        "priority": "optional",
+        "deb_depends": ["systemd"],
+        "rpm_requires": ["systemd"],
+        "rpm_tags": [],
+        "files": [
+            {
+                "src": "//web-ng:release_tar",
+                "dest": "/usr/local/share/serviceradar-web/serviceradar-web.tar.gz",
+                "mode": "0644",
+            },
+            {
+                "src": "config/web-ng.env",
+                "dest": "/etc/serviceradar/web-ng.env",
+                "mode": "0644",
+                "rpm_filetag": "config(noreplace)",
+            },
+        ],
+        "systemd": {
+            "src": "systemd/serviceradar-web-ng.service",
+            "dest": "/lib/systemd/system/serviceradar-web-ng.service",
+        },
+        "postinst": "scripts/postinstall.sh",
+        "prerm": "scripts/preremove.sh",
+        "conffiles": [
+            "/etc/serviceradar/web-ng.env",
+        ],
+    },
     "agent": {
         "package_name": "serviceradar-agent",
         "description": "ServiceRadar Agent Service",
@@ -653,52 +686,6 @@ PACKAGES = {
         # Custom spec template to disable AutoReq for ZFS binary's optional dependencies
         "rpm_spec_template": "//packaging/sysmon:template.spec.tpl",
     },
-    "web": {
-        "package_name": "serviceradar-web",
-        "description": "ServiceRadar web dashboard",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd", "nginx"],
-        "rpm_requires": ["systemd", "nginx"],
-        "files": [
-            {
-                "src": "config/web.json",
-                "dest": "/etc/serviceradar/web.json",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-            {
-                "src": "config/nginx.conf",
-                "dest": "/etc/nginx/conf.d/serviceradar-web.conf",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-            {
-                "src": "//packaging/web:bundle_root",
-                "dest": "/usr/local/share/serviceradar-web/",
-            },
-            {
-                "src": "//packaging/web:bundle_next",
-                "dest": "/usr/local/share/serviceradar-web/.next/",
-            },
-            {
-                "src": "//web:public_flat",
-                "dest": "/usr/local/share/serviceradar-web/public/",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-web.service",
-            "dest": "/lib/systemd/system/serviceradar-web.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/web.json",
-            "/etc/nginx/conf.d/serviceradar-web.conf",
-        ],
-    },
     "cli": {
         "package_name": "serviceradar-cli",
         "description": "ServiceRadar CLI tool",
@@ -714,37 +701,6 @@ PACKAGES = {
         },
         "postinst": "scripts/postinstall.sh",
         "prerm": "scripts/preremove.sh",
-    },
-    "srql": {
-        "package_name": "serviceradar-srql",
-        "description": "ServiceRadar SRQL Rust query service",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "net",
-        "priority": "optional",
-        "deb_depends": ["systemd", "ca-certificates", "curl", "libpq5", "liblz4-1", "libzstd1", "libssl3"],
-        "rpm_requires": ["systemd", "ca-certificates", "curl", "libpq", "lz4", "zstd", "openssl"],
-        "binary": {
-            "target": "//rust/srql:srql_bin",
-            "dest": "/usr/local/bin/serviceradar-srql",
-        },
-        "files": [
-            {
-                "src": "config/srql.env",
-                "dest": "/etc/serviceradar/srql.env",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-srql.service",
-            "dest": "/lib/systemd/system/serviceradar-srql.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/prerm.sh",
-        "conffiles": [
-            "/etc/serviceradar/srql.env",
-        ],
     },
     "otel": {
         "package_name": "serviceradar-otel",

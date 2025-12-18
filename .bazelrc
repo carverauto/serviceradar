@@ -35,6 +35,9 @@ build --repo_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
 build --repo_env=OPENSSL_INCLUDE_DIR=/usr/include
 build --repo_env=OPENSSL_NO_VENDOR=
 build --repo_env=OPENSSL_NO_PKG_CONFIG=
+build --repo_env=RULES_ERLANG_SKIP_SYSTEM=1
+build --repo_env=RULES_ELIXIR_SKIP_SYSTEM=1
+build --repo_env=RULES_PYTHON_LOCAL_PYTHON=/usr/bin/python3
 build --repo_env=NEXT_SKIP_TURBO=1
 build --repo_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build --repo_env=TURBOPACK=
@@ -97,6 +100,7 @@ build:remote_base --host_platform=//build/rbe:rbe_platform
 build:remote_base --platforms=//build/rbe:rbe_platform
 build:remote_base --crosstool_top=@buildbuddy_toolchain//:toolchain
 build:remote_base --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
+build:remote_base --extra_execution_platforms=//build/rbe:rbe_platform
 # Note: EL9 platform with ZFS support is available via --config=el9
 # Do NOT add EL9 to extra_execution_platforms here, as it causes glibc mismatches
 # for other targets. Use --config=el9 explicitly for ZFS builds.
@@ -164,6 +168,21 @@ build:darwin_pkg --repo_env=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/o
 build:darwin_pkg --repo_env=BAZEL=/usr/local/bin/bazel
 build:darwin_pkg --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 build:darwin_pkg --config=no_remote
+
+# macOS local hermetic builds (prefer Homebrew GCC/Clang toolchain to avoid Apple clang flag gaps)
+# Usage: bazel build --config=darwin_local <targets>
+build:darwin_local --repo_env=CC=/opt/homebrew/bin/gcc-14
+build:darwin_local --repo_env=CXX=/opt/homebrew/bin/g++-14
+build:darwin_local --action_env=CC=/opt/homebrew/bin/gcc-14
+build:darwin_local --action_env=CXX=/opt/homebrew/bin/g++-14
+build:darwin_local --features=fully_static_link --copt=-Wno-unused-command-line-argument
+build:darwin_local --host_copt=-Wno-unused-command-line-argument
+build:darwin_local --linkopt=-Wno-unused-command-line-argument
+build:darwin_local --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+build:darwin_local --strategy=CppCompile=local
+build:darwin_local --strategy=CppLink=local
+# Ensure rules_pkg tar uses host Python on macOS
+build:darwin_local --action_env=RULES_PKG_PYTHON=/usr/bin/python3
 
 # EL9-compatible builds using Oracle Linux 9 RBE executor (glibc 2.34)
 # Use this for RPM packages targeting RHEL/AlmaLinux/Rocky/Oracle Linux 9

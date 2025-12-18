@@ -1,0 +1,44 @@
+--- a/repositories/erlang_config.bzl
++++ b/repositories/erlang_config.bzl
+@@ -48,6 +48,11 @@ def _impl(repository_ctx):
+             extra_make_opts = repository_ctx.attr.extra_make_optss.get(name, []),
+         )
+ 
++    # If we intentionally skipped probing a host-installed OTP, still provide
++    # a default "external" entry so default toolchain registration succeeds.
++    if _DEFAULT_EXTERNAL_ERLANG_PACKAGE_NAME not in erlang_installations and erlang_installations:
++        erlang_installations[_DEFAULT_EXTERNAL_ERLANG_PACKAGE_NAME] = erlang_installations[list(erlang_installations.keys())[0]]
++
+     for (name, props) in erlang_installations.items():
+         if props.type == INSTALLATION_TYPE_EXTERNAL:
+             repository_ctx.template(
+@@ -130,6 +135,7 @@ erlang_config = repository_rule(
+     environ = [
+         ERLANG_HOME_ENV_VAR,
+         "PATH",
++        "RULES_ERLANG_SKIP_SYSTEM",
+     ],
+     local = True,
+ )
+@@ -154,6 +160,10 @@ def _erlang_home_from_erl_path(repositor
+     return repository_ctx.os.name.lower().find("windows") != -1
+ 
+ def _default_erlang_dict(repository_ctx):
++    # Allow consumers to opt out of discovering a host-installed Erlang/OTP
++    # when they want fully hermetic builds (e.g. remote execution or CI).
++    if repository_ctx.os.environ.get("RULES_ERLANG_SKIP_SYSTEM") == "1":
++        return {}
+     if _is_windows(repository_ctx):
+         if ERLANG_HOME_ENV_VAR in repository_ctx.os.environ:
+             erlang_home = repository_ctx.os.environ[ERLANG_HOME_ENV_VAR]
+@@ -228,7 +238,9 @@ def _build_file_content(erlang_installat
+ 
+ """
+ 
+-    default_installation = erlang_installations[_DEFAULT_EXTERNAL_ERLANG_PACKAGE_NAME]
++    # Prefer the first configured installation as the default instead of
++    # assuming a host system OTP exists everywhere (e.g., on remote executors).
++    default_installation = erlang_installations.values()[0]
+ 
+     build_file_content += """\
+ constraint_setting(

@@ -20,7 +20,6 @@ exports_files(
 exports_files(["nginx.conf.template"])
 
 exports_files([
-    "entrypoint-srql.sh",
     "tools-profile.sh",
     "tools-entrypoint.sh",
     "tools-motd.txt",

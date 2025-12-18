@@ -1,0 +1,39 @@
+load("//build:mix_release.bzl", "mix_release")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "node_modules/**",
+            "tmp/**",
+            ".git/**",
+        ],
+    ),
+)
+
+mix_release(
+    name = "release_tar",
+    srcs = [":srcs"],
+    data = [
+        "//:Cargo.toml",
+        "//:Cargo.lock",
+    ],
+    out = "serviceradar-web-ng-release.tar.gz",
+    src_dir = "web-ng",
+    extra_dirs = [
+        "proto",
+        "rust/srql",
+        "rust/kvutil",
+    ],
+    extra_dir_srcs = [
+        "//proto:kv_proto_src",
+        "//rust/srql:srcs",
+        "//rust/kvutil:srcs",
+    ],
+)

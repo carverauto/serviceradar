@@ -1,0 +1,25 @@
+load("@rules_python//python:defs.bzl", "py_runtime", "py_runtime_pair")
+
+package(default_visibility = ["//visibility:public"])
+
+# Host (macOS) Python toolchain using system interpreter.
+py_runtime(
+    name = "py3_runtime",
+    interpreter_path = "/usr/bin/python3",
+    python_version = "PY3",
+)
+
+py_runtime_pair(
+    name = "py3_runtime_pair",
+    py3_runtime = ":py3_runtime",
+)
+
+toolchain(
+    name = "py3_toolchain",
+    toolchain = ":py3_runtime_pair",
+    toolchain_type = "@rules_python//python:toolchain_type",
+    exec_compatible_with = [
+        "@platforms//os:macos",
+        "@platforms//cpu:arm64",
+    ],
+)

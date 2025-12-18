@@ -14,6 +14,8 @@ bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "protobuf", version = "29.1", repo_name = "com_google_protobuf")
 bazel_dep(name = "rules_oci", version = "2.2.6")
 bazel_dep(name = "rules_pkg", version = "1.1.0")
+bazel_dep(name = "rules_erlang", version = "3.16.0")
+bazel_dep(name = "rules_elixir", version = "1.1.0")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "bazel_features", version = "1.32.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "8.14.0", repo_name = "rules_java")
@@ -39,12 +41,61 @@ single_version_override(
     patches = ["//third_party/patches/rules_java:openbsd_jni_header.patch"],
 )
 
+single_version_override(
+    module_name = "rules_erlang",
+    patch_strip = 1,
+    patches = [
+        "//third_party/patches/rules_erlang:skip_system_erlang.patch",
+        "//third_party/patches/rules_erlang:add_bzlmod_build.patch",
+    ],
+)
+
+single_version_override(
+    module_name = "rules_elixir",
+    patch_strip = 1,
+    patches = [
+        "//third_party/patches/rules_elixir:skip_system_elixir.patch",
+    ],
+)
+
 host_platform_ext = use_extension("@platforms//host:extension.bzl", "host_platform")
 use_repo(host_platform_ext, "host_platform")
 
 # --- Version Extension (reads VERSION file at load time) ----------------------------------
 version_ext = use_extension("//build:version.bzl", "version_ext")
 use_repo(version_ext, "serviceradar_version")
+
+# --- Erlang/Elixir toolchains (hermetic for web-ng builds) -------------------
+erlang_config_ext = use_extension("@rules_erlang//bzlmod:extensions.bzl", "erlang_config")
+erlang_config_ext.internal_erlang_from_github_release(
+    name = "otp_28_1",
+    sha256 = "c7c6fe06a3bf0031187d4cb10d30e11de119b38bdba7cd277898f75d53bdb218",
+    version = "28.1",
+)
+use_repo(erlang_config_ext, "erlang_config")
+
+elixir_config_ext = use_extension("@rules_elixir//bzlmod:extensions.bzl", "elixir_config")
+elixir_config_ext.internal_elixir_from_github_release(
+    name = "elixir_1_19_4",
+    sha256 = "a2df9d5411fc53d97ec17c069765c8fb781f8dc36c4e06ec1cd4b189340d364b",
+    version = "1.19.4",
+)
+use_repo(elixir_config_ext, "elixir_config")
+
+register_toolchains(
+    "@erlang_config//otp_28_1:toolchain_major",
+    "@erlang_config//otp_28_1:toolchain_major_minor",
+    "@elixir_config//elixir_1_19_4:toolchain",
+)
+
+# Force toolchain resolution to use the hermetic Erlang toolchains (avoid the
+# upstream rules_erlang \"external\" toolchains that rely on host OTP).
+toolchain_resolution_overrides = {
+    "@rules_erlang//tools:toolchain_type": [
+        "@erlang_config//otp_28_1:toolchain_major",
+        "@erlang_config//otp_28_1:toolchain_major_minor",
+    ],
+}
 
 # --- Java Toolchain  ----------------------------------
 
@@ -74,12 +125,14 @@ register_toolchains(
     "@remotejdk11_macos_aarch64//:all",
 )
 
+# --- Python toolchain for rules_pkg on macOS -------------------
+register_toolchains("//build/python_toolchain:py3_toolchain")
+
 # --- RPM & package Toolchain  ----------------------------------
 
-find_rpm = use_extension("@rules_pkg//toolchains/rpm:rpmbuild_configure.bzl", "find_system_rpmbuild_bzlmod")
-use_repo(find_rpm, "rules_pkg_rpmbuild")
-
-register_toolchains("@rules_pkg_rpmbuild//:all")
+# Prefer a fixed Linux rpmbuild so remote/RBE builds stay hermetic. We skip the
+# host autodetect toolchain (would point at Homebrew on macOS).
+register_toolchains("//build/rpm_toolchain:rpmbuild_linux_toolchain")
 
 # --- CC Toolchain  ----------------------------------
 
@@ -134,6 +187,7 @@ use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 register_toolchains("//build/toolchains:rbe_cc_toolchain")
 
 register_execution_platforms(
+    "@platforms//host:host",
     "//build/rbe:rbe_platform",
 )
 

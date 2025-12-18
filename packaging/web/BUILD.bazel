@@ -1,8 +1,9 @@
 load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
-load("//packaging:package_rules.bzl", "serviceradar_package_from_config")
-load("//packaging:packages.bzl", "PACKAGES")
 
 package(default_visibility = ["//visibility:public"])
+
+# Legacy bundle targets for old Next.js web frontend.
+# Note: web-ng packaging is now in //packaging/web-ng
 
 copy_to_directory(
     name = "bundle_root",
@@ -20,9 +21,4 @@ copy_to_directory(
     include_srcs_patterns = [".next/**"],
     replace_prefixes = {".next": ""},
     visibility = ["//visibility:public"],
-)
-
-serviceradar_package_from_config(
-    name = "web",
-    config = PACKAGES["web"],
 )
