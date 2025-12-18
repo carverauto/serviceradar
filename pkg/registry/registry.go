@@ -1520,14 +1520,14 @@ func (r *DeviceRegistry) fetchExistingFirstSeen(ctx context.Context, deviceIDs [
 			end = len(missing)
 		}
 
-		devices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, nil, missing[start:end])
+		devices, err := r.db.GetOCSFDevicesByIPsOrIDs(ctx, nil, missing[start:end])
 		if err != nil {
 			return nil, fmt.Errorf("lookup existing devices: %w", err)
 		}
 
 		for _, device := range devices {
-			if device != nil && device.DeviceID != "" && !device.FirstSeen.IsZero() {
-				result[device.DeviceID] = device.FirstSeen.UTC()
+			if device != nil && device.UID != "" && device.FirstSeenTime != nil && !device.FirstSeenTime.IsZero() {
+				result[device.UID] = device.FirstSeenTime.UTC()
 			}
 		}
 	}

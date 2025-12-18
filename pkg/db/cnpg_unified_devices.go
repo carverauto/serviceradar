@@ -31,29 +31,28 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-// unifiedDevicesSelection is the base SELECT for querying unified_devices.
-// With the DIRE simplification, there are no tombstones or soft deletes to filter out.
-// All devices in the table are active.
+// unifiedDevicesSelection is the base SELECT for querying ocsf_devices with backward-compatible field mapping.
+// Maps OCSF fields to legacy UnifiedDevice structure for compatibility with existing code.
 const unifiedDevicesSelection = `
 SELECT
-	device_id,
+	uid AS device_id,
 	ip,
 	poller_id,
 	hostname,
 	mac,
 	discovery_sources,
 	is_available,
-	first_seen,
-	last_seen,
+	first_seen_time AS first_seen,
+	last_seen_time AS last_seen,
 	metadata,
 	agent_id,
-	device_type,
-	service_type,
-	service_status,
-	last_heartbeat,
-	os_info,
-	version_info
-FROM unified_devices
+	type AS device_type,
+	NULL::text AS service_type,
+	NULL::text AS service_status,
+	NULL::timestamptz AS last_heartbeat,
+	os->>'name' AS os_info,
+	NULL::text AS version_info
+FROM ocsf_devices
 WHERE 1=1`
 
 func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error {
@@ -428,8 +427,8 @@ func (db *DB) cnpgListUnifiedDevices(ctx context.Context, limit, offset int) ([]
 }
 
 func (db *DB) cnpgCountUnifiedDevices(ctx context.Context) (int64, error) {
-	// Simple count - no tombstone/deleted filtering needed with DIRE simplification
-	const query = `SELECT COUNT(*) FROM unified_devices`
+	// Count from ocsf_devices (OCSF-aligned device inventory)
+	const query = `SELECT COUNT(*) FROM ocsf_devices`
 
 	var count int64
 	if err := db.conn().QueryRow(ctx, query).Scan(&count); err != nil {
@@ -627,11 +626,11 @@ func (db *DB) CleanupStaleUnifiedDevices(ctx context.Context, retention time.Dur
 	}
 
 	result, err := db.conn().Exec(ctx,
-		`DELETE FROM unified_devices WHERE last_seen < $1`,
+		`DELETE FROM ocsf_devices WHERE last_seen_time < $1`,
 		time.Now().UTC().Add(-retention),
 	)
 	if err != nil {
-		return 0, fmt.Errorf("failed to cleanup stale unified devices: %w", err)
+		return 0, fmt.Errorf("failed to cleanup stale ocsf devices: %w", err)
 	}
 
 	return result.RowsAffected(), nil
@@ -648,12 +647,12 @@ func (db *DB) GetStaleIPOnlyDevices(ctx context.Context, ttl time.Duration) ([]s
 	// 1. No strong identifiers (MAC, Armis ID, Netbox ID)
 	// 2. Last seen older than TTL
 	const query = `
-	SELECT device_id
-	FROM unified_devices
-	WHERE mac IS NULL
+	SELECT uid
+	FROM ocsf_devices
+	WHERE (mac IS NULL OR mac = '')
 	  AND metadata->>'armis_device_id' IS NULL
 	  AND metadata->>'netbox_device_id' IS NULL
-	  AND last_seen < $1`
+	  AND last_seen_time < $1`
 
 	rows, err := db.conn().Query(ctx, query, time.Now().UTC().Add(-ttl))
 	if err != nil {
@@ -699,8 +698,8 @@ func (db *DB) DeleteDevices(ctx context.Context, deviceIDs []string) error {
 		// Continue with deletion even if audit fails
 	}
 
-	// Hard delete the devices
-	const deleteQuery = `DELETE FROM unified_devices WHERE device_id = ANY($1)`
+	// Hard delete the devices from ocsf_devices
+	const deleteQuery = `DELETE FROM ocsf_devices WHERE uid = ANY($1)`
 	_, err := db.conn().Exec(ctx, deleteQuery, deviceIDs)
 	if err != nil {
 		return fmt.Errorf("failed to delete devices: %w", err)
