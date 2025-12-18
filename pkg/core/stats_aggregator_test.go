@@ -705,9 +705,9 @@ func TestStatsAggregatorPrunesInferredRecordsToMatchCNPG(t *testing.T) {
 		CountUnifiedDevices(gomock.Any()).
 		Return(int64(1), nil)
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), gomock.AssignableToTypeOf([]string{})).
-		Return([]*models.UnifiedDevice{
-			{DeviceID: "default:canonical-1"},
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), gomock.AssignableToTypeOf([]string{})).
+		Return([]*models.OCSFDevice{
+			{UID: "default:canonical-1"},
 		}, nil).
 		AnyTimes()
 

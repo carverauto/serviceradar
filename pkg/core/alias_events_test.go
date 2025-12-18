@@ -47,11 +47,11 @@ func TestBuildAliasLifecycleEvents_NewAlias(t *testing.T) {
 	}
 
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), []string{deviceID}).
-		Return([]*models.UnifiedDevice{
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), []string{deviceID}).
+		Return([]*models.OCSFDevice{
 			{
-				DeviceID: deviceID,
-				Metadata: &models.DiscoveredField[map[string]string]{Value: existingMetadata},
+				UID:      deviceID,
+				Metadata: existingMetadata,
 			},
 		}, nil)
 
@@ -102,11 +102,11 @@ func TestBuildAliasLifecycleEvents_NoChange(t *testing.T) {
 	}
 
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), []string{deviceID}).
-		Return([]*models.UnifiedDevice{
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), []string{deviceID}).
+		Return([]*models.OCSFDevice{
 			{
-				DeviceID: deviceID,
-				Metadata: &models.DiscoveredField[map[string]string]{Value: existingMetadata},
+				UID:      deviceID,
+				Metadata: existingMetadata,
 			},
 		}, nil)
 

@@ -24,14 +24,14 @@ func TestGetCanonicalDevice_FromDB(t *testing.T) {
 
 	mockDB := db.NewMockService(ctrl)
 
-	device := &models.UnifiedDevice{
-		DeviceID:         "tenant:device-1",
+	device := &models.OCSFDevice{
+		UID:              "tenant:device-1",
 		IP:               "10.10.0.5",
-		Metadata:         &models.DiscoveredField[map[string]string]{Value: map[string]string{"armis_device_id": "armis-1"}},
-		DiscoverySources: []models.DiscoverySourceInfo{{Source: models.DiscoverySourceArmis}},
+		Metadata:         map[string]string{"armis_device_id": "armis-1", "discovery_source": "armis"},
+		DiscoverySources: []string{"armis"},
 	}
 
-	mockDB.EXPECT().GetUnifiedDevice(gomock.Any(), "tenant:device-1").Return(device, nil)
+	mockDB.EXPECT().GetOCSFDevice(gomock.Any(), "tenant:device-1").Return(device, nil)
 
 	server := &Server{
 		DB:     mockDB,
@@ -59,7 +59,7 @@ func TestGetCanonicalDevice_NotFound(t *testing.T) {
 
 	mockDB := db.NewMockService(ctrl)
 
-	mockDB.EXPECT().GetUnifiedDevice(gomock.Any(), "nonexistent").Return(nil, nil)
+	mockDB.EXPECT().GetOCSFDevice(gomock.Any(), "nonexistent").Return(nil, nil)
 
 	server := &Server{
 		DB:     mockDB,
@@ -86,14 +86,14 @@ func TestGetCanonicalDevice_ByIP(t *testing.T) {
 
 	mockDB := db.NewMockService(ctrl)
 
-	device := &models.UnifiedDevice{
-		DeviceID:         "sr:12345678-1234-1234-1234-123456789abc",
+	device := &models.OCSFDevice{
+		UID:              "sr:12345678-1234-1234-1234-123456789abc",
 		IP:               "192.168.1.100",
-		Metadata:         &models.DiscoveredField[map[string]string]{Value: map[string]string{}},
-		DiscoverySources: []models.DiscoverySourceInfo{{Source: models.DiscoverySourceSweep}},
+		Metadata:         map[string]string{"discovery_source": "sweep"},
+		DiscoverySources: []string{"sweep"},
 	}
 
-	mockDB.EXPECT().GetUnifiedDevicesByIPsOrIDs(gomock.Any(), []string{"192.168.1.100"}, nil).Return([]*models.UnifiedDevice{device}, nil)
+	mockDB.EXPECT().GetOCSFDevicesByIPsOrIDs(gomock.Any(), []string{"192.168.1.100"}, nil).Return([]*models.OCSFDevice{device}, nil)
 
 	server := &Server{
 		DB:     mockDB,

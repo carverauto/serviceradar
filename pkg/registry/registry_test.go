@@ -1249,9 +1249,10 @@ func TestProcessBatchDeviceUpdates_MergesSweepIntoCanonicalDevice(t *testing.T) 
 		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, query string, _ ...interface{}) ([]map[string]interface{}, error) {
 			// Return canonical device mapping for IP query
+			// Note: Query returns "uid" not "device_id" (OCSF schema)
 			if strings.Contains(query, "10.1.1.1") {
 				return []map[string]interface{}{
-					{"ip": "10.1.1.1", "device_id": "sr:canonical"},
+					{"ip": "10.1.1.1", "uid": "sr:canonical"},
 				}, nil
 			}
 			return []map[string]interface{}{}, nil
@@ -1334,9 +1335,10 @@ func TestReconcileSightingsMergesSweepSightingsByIP(t *testing.T) {
 	mockDB.EXPECT().
 		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, query string, _ ...interface{}) ([]map[string]interface{}, error) {
+			// Note: Query returns "uid" not "device_id" (OCSF schema)
 			if strings.Contains(query, "10.2.2.2") {
 				return []map[string]interface{}{
-					{"ip": "10.2.2.2", "device_id": "sr:merge-target"},
+					{"ip": "10.2.2.2", "uid": "sr:merge-target"},
 				}, nil
 			}
 			return []map[string]interface{}{}, nil
@@ -1702,9 +1704,10 @@ func TestProcessBatchDeviceUpdates_SweepAttachedToCanonicalGetsMetadata(t *testi
 		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, query string, _ ...interface{}) ([]map[string]interface{}, error) {
 			// Return canonical device mapping for IP query
+			// Note: Query returns "uid" not "device_id" (OCSF schema)
 			if strings.Contains(query, sweepIP) {
 				return []map[string]interface{}{
-					{"ip": sweepIP, "device_id": canonicalDeviceID},
+					{"ip": sweepIP, "uid": canonicalDeviceID},
 				}, nil
 			}
 			return []map[string]interface{}{}, nil

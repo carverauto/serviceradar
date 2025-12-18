@@ -204,6 +204,7 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 		deletedBy = user.Email
 	}
 
+	// populateFromUnified populates the update from an in-memory registry device.
 	populateFromUnified := func(existing *models.UnifiedDevice) {
 		if existing == nil {
 			return
@@ -242,6 +243,45 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// populateFromOCSF populates the update from an OCSF device from the database.
+	populateFromOCSF := func(existing *models.OCSFDevice) {
+		if existing == nil {
+			return
+		}
+
+		update.IP = existing.IP
+		if partition == "" {
+			partition = partitionFromDeviceID(existing.UID)
+			update.Partition = partition
+		}
+
+		if existing.Hostname != "" {
+			host := existing.Hostname
+			update.Hostname = &host
+		}
+		if existing.MAC != "" {
+			mac := strings.ToUpper(existing.MAC)
+			update.MAC = &mac
+		}
+		if existing.Metadata != nil {
+			if part, ok := existing.Metadata["canonical_partition"]; ok && part != "" {
+				update.Partition = part
+				update.Metadata["canonical_partition"] = part
+			}
+			if canonicalID, ok := existing.Metadata["canonical_device_id"]; ok && canonicalID != "" {
+				update.Metadata["canonical_device_id"] = canonicalID
+			}
+			if revision, ok := existing.Metadata["canonical_revision"]; ok && revision != "" {
+				update.Metadata["_previous_revision"] = revision
+			}
+			for _, key := range []string{"armis_device_id", "integration_id", "integration_type", "netbox_device_id"} {
+				if val := existing.Metadata[key]; val != "" {
+					update.Metadata[key] = val
+				}
+			}
+		}
+	}
+
 	var unified *models.UnifiedDevice
 	if s.deviceRegistry != nil {
 		device, err := s.deviceRegistry.GetDevice(ctx, deviceID)
@@ -266,8 +306,8 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 
 	if unified != nil {
 		populateFromUnified(unified)
-	} else if existing, err := s.dbService.GetUnifiedDevice(ctx, deviceID); err == nil {
-		populateFromUnified(existing)
+	} else if existing, err := s.dbService.GetOCSFDevice(ctx, deviceID); err == nil {
+		populateFromOCSF(existing)
 	} else {
 		s.logger.Warn().Err(err).Str("device_id", deviceID).Msg("Failed to fetch existing device before tombstone")
 	}

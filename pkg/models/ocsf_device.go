@@ -238,6 +238,50 @@ func (d *OCSFDevice) GetRiskLevelName() string {
 	return ""
 }
 
+// ToLegacyDevice converts an OCSFDevice to the legacy Device format for compatibility
+func (d *OCSFDevice) ToLegacyDevice() *Device {
+	if d == nil {
+		return nil
+	}
+
+	device := &Device{
+		DeviceID:         d.UID,
+		AgentID:          d.AgentID,
+		PollerID:         d.PollerID,
+		DiscoverySources: d.DiscoverySources,
+		IP:               d.IP,
+		MAC:              d.MAC,
+		Hostname:         d.Hostname,
+		DeviceType:       d.GetTypeName(),
+		Metadata:         make(map[string]interface{}),
+	}
+
+	if d.FirstSeenTime != nil {
+		device.FirstSeen = *d.FirstSeenTime
+	}
+	if d.LastSeenTime != nil {
+		device.LastSeen = *d.LastSeenTime
+	}
+	if d.IsAvailable != nil {
+		device.IsAvailable = *d.IsAvailable
+	}
+
+	// Convert OS info to string if available
+	if d.OS != nil && d.OS.Name != "" {
+		device.OSInfo = d.OS.Name
+		if d.OS.Version != "" {
+			device.OSInfo += " " + d.OS.Version
+		}
+	}
+
+	// Copy metadata
+	for k, v := range d.Metadata {
+		device.Metadata[k] = v
+	}
+
+	return device
+}
+
 // RiskLevelFromScore derives the OCSF risk level from a numeric score (0-100)
 func RiskLevelFromScore(score int) (int, string) {
 	switch {

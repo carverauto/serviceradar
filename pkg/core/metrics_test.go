@@ -171,8 +171,8 @@ func TestProcessSysmonMetrics_EmitsStallEventAfterEmptyPayloads(t *testing.T) {
 		SetCollectorCapabilities(gomock.Any(), gomock.AssignableToTypeOf(&models.CollectorCapability{})).
 		AnyTimes()
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), []string{"192.0.2.10"}, gomock.Nil()).
-		Return([]*models.UnifiedDevice{}, nil).
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), []string{"192.0.2.10"}, gomock.Nil()).
+		Return([]*models.OCSFDevice{}, nil).
 		AnyTimes()
 
 	server := &Server{
@@ -219,8 +219,8 @@ func TestProcessGRPCService_SysmonPrefixedName(t *testing.T) {
 		SetCollectorCapabilities(gomock.Any(), gomock.Any()).
 		AnyTimes()
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), []string{"192.0.2.10"}, gomock.Nil()).
-		Return([]*models.UnifiedDevice{}, nil).
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), []string{"192.0.2.10"}, gomock.Nil()).
+		Return([]*models.OCSFDevice{}, nil).
 		AnyTimes()
 
 	server := &Server{

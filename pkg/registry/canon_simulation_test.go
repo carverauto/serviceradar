@@ -331,10 +331,10 @@ func setupDIREMockDB(mockDB *db.MockService, identifierStore map[string]string) 
 		Return(nil).
 		AnyTimes()
 
-	// Mock GetUnifiedDevicesByIPsOrIDs - return empty for now (devices don't exist yet)
+	// Mock GetOCSFDevicesByIPsOrIDs - return empty for now (devices don't exist yet)
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]*models.UnifiedDevice{}, nil).
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*models.OCSFDevice{}, nil).
 		AnyTimes()
 
 	// Mock ExecuteQuery - return empty results

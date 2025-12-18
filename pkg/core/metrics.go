@@ -1022,7 +1022,7 @@ func (s *Server) fetchCanonicalSnapshot(ctx context.Context, ip string) (canonic
 		return canonicalSnapshot{}, false
 	}
 
-	devices, err := s.DB.GetUnifiedDevicesByIPsOrIDs(ctx, []string{ip}, nil)
+	devices, err := s.DB.GetOCSFDevicesByIPsOrIDs(ctx, []string{ip}, nil)
 	if err != nil {
 		s.logger.Warn().Err(err).Str("ip", ip).Msg("Failed to fetch canonical device by IP")
 		return canonicalSnapshot{}, false
@@ -1033,14 +1033,12 @@ func (s *Server) fetchCanonicalSnapshot(ctx context.Context, ip string) (canonic
 			continue
 		}
 		snapshot := canonicalSnapshot{
-			DeviceID: strings.TrimSpace(device.DeviceID),
+			DeviceID: strings.TrimSpace(device.UID),
 			IP:       strings.TrimSpace(device.IP),
+			MAC:      strings.TrimSpace(device.MAC),
 		}
-		if device.MAC != nil {
-			snapshot.MAC = strings.TrimSpace(device.MAC.Value)
-		}
-		if device.Metadata != nil && device.Metadata.Value != nil {
-			snapshot.Metadata = device.Metadata.Value
+		if device.Metadata != nil {
+			snapshot.Metadata = device.Metadata
 		}
 
 		if strings.TrimSpace(snapshot.DeviceID) == "" {

@@ -939,7 +939,7 @@ func sampleRegistryExcessIDs(
 			return nil
 		}
 
-		devices, err := dbService.GetUnifiedDevicesByIPsOrIDs(ctx, nil, buffer)
+		devices, err := dbService.GetOCSFDevicesByIPsOrIDs(ctx, nil, buffer)
 		if err != nil {
 			return err
 		}
@@ -949,7 +949,7 @@ func sampleRegistryExcessIDs(
 			if device == nil {
 				continue
 			}
-			id := strings.TrimSpace(device.DeviceID)
+			id := strings.TrimSpace(device.UID)
 			if id == "" {
 				continue
 			}

@@ -195,7 +195,7 @@ func TestReportStatus(t *testing.T) {
 
 	// Mock ExecuteQuery for device lookup
 	mockDB.EXPECT().ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).Return([]map[string]interface{}{}, nil).AnyTimes()
-	mockDB.EXPECT().GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).Return([]*models.UnifiedDevice{}, nil).AnyTimes()
+	mockDB.EXPECT().GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).Return([]*models.OCSFDevice{}, nil).AnyTimes()
 
 	// Mock GetDeviceByID for device lookup
 	mockDB.EXPECT().GetDeviceByID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
@@ -379,8 +379,8 @@ func TestProcessSweepData(t *testing.T) {
 	tests := getSweepTestCases(now)
 
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]*models.UnifiedDevice{}, nil).
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*models.OCSFDevice{}, nil).
 		AnyTimes()
 
 	for i := range tests {
