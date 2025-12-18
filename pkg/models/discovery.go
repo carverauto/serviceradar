@@ -21,6 +21,97 @@ import (
 	"time"
 )
 
+// DiscoverySource represents the different ways devices can be discovered
+type DiscoverySource string
+
+const (
+	DiscoverySourceSNMP         DiscoverySource = "snmp"
+	DiscoverySourceMapper       DiscoverySource = "mapper"
+	DiscoverySourceIntegration  DiscoverySource = "integration"
+	DiscoverySourceNetFlow      DiscoverySource = "netflow"
+	DiscoverySourceManual       DiscoverySource = "manual"
+	DiscoverySourceSweep        DiscoverySource = "sweep"
+	DiscoverySourceSighting     DiscoverySource = "sighting"
+	DiscoverySourceSelfReported DiscoverySource = "self-reported"
+	DiscoverySourceArmis        DiscoverySource = "armis"
+	DiscoverySourceNetbox       DiscoverySource = "netbox"
+	DiscoverySourceSysmon       DiscoverySource = "sysmon"
+	DiscoverySourceServiceRadar DiscoverySource = "serviceradar" // ServiceRadar infrastructure components
+
+	// Confidence levels for discovery sources (1-10 scale)
+	ConfidenceLowUnknown         = 1  // Low confidence - unknown source
+	ConfidenceMediumSweep        = 5  // Medium confidence - network sweep
+	ConfidenceMediumTraffic      = 6  // Medium confidence - traffic analysis
+	ConfidenceMediumMonitoring   = 6  // Medium confidence - system monitoring
+	ConfidenceGoodExternal       = 7  // Good confidence - external system
+	ConfidenceGoodSecurity       = 7  // Good confidence - external security system
+	ConfidenceGoodDocumentation  = 7  // Good confidence - network documentation system
+	ConfidenceHighNetworkMapping = 8  // High confidence - network mapping
+	ConfidenceHighSelfReported   = 8  // High confidence - device reported itself
+	ConfidenceHighSNMP           = 9  // High confidence - active SNMP query
+	ConfidenceHighestManual      = 10 // Highest confidence - human input
+)
+
+// DiscoverySourceInfo tracks when and how a device was discovered by each source
+type DiscoverySourceInfo struct {
+	Source     DiscoverySource `json:"source"`
+	AgentID    string          `json:"agent_id"`
+	PollerID   string          `json:"poller_id"`
+	FirstSeen  time.Time       `json:"first_seen"`
+	LastSeen   time.Time       `json:"last_seen"`
+	Confidence int             `json:"confidence"`
+}
+
+// DeviceUpdate represents an update to a device from a discovery source
+type DeviceUpdate struct {
+	DeviceID    string            `json:"device_id"`
+	IP          string            `json:"ip"`
+	Source      DiscoverySource   `json:"source"`
+	AgentID     string            `json:"agent_id"`
+	PollerID    string            `json:"poller_id"`
+	Partition   string            `json:"partition,omitempty"`    // Optional partition for multi-tenant systems
+	ServiceType *ServiceType      `json:"service_type,omitempty"` // Type of service component (poller/agent/checker)
+	ServiceID   string            `json:"service_id,omitempty"`   // ID of the service component
+	Timestamp   time.Time         `json:"timestamp"`
+	Hostname    *string           `json:"hostname,omitempty"`
+	MAC         *string           `json:"mac,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+	IsAvailable bool              `json:"is_available"`
+	Confidence  int               `json:"confidence"`
+}
+
+// GetSourceConfidence returns the confidence level for a discovery source
+func GetSourceConfidence(source DiscoverySource) int {
+	switch source {
+	case DiscoverySourceSNMP:
+		return ConfidenceHighSNMP // High confidence - active SNMP query
+	case DiscoverySourceMapper:
+		return ConfidenceHighNetworkMapping // High confidence - network mapping
+	case DiscoverySourceIntegration:
+		return ConfidenceGoodExternal // Good confidence - external system
+	case DiscoverySourceArmis:
+		return ConfidenceGoodSecurity // Good confidence - external security system
+	case DiscoverySourceNetFlow:
+		return ConfidenceMediumTraffic // Medium confidence - traffic analysis
+	case DiscoverySourceSweep:
+		return ConfidenceMediumSweep // Medium confidence - network sweep
+	case DiscoverySourceSighting:
+		return ConfidenceMediumSweep // Medium confidence - promoted sighting
+	case DiscoverySourceSelfReported:
+		return ConfidenceHighSelfReported // High confidence - device reported itself
+	case DiscoverySourceManual:
+		return ConfidenceHighestManual // Highest confidence - human input
+	case DiscoverySourceNetbox:
+		return ConfidenceGoodDocumentation // Good confidence - network documentation system
+	case DiscoverySourceSysmon:
+		return ConfidenceMediumMonitoring // Medium confidence - system monitoring
+	case DiscoverySourceServiceRadar:
+		return ConfidenceHighSelfReported // High confidence - ServiceRadar infrastructure component
+	default:
+		return ConfidenceLowUnknown // Low confidence - unknown source
+	}
+}
+
 // DiscoveredInterface represents a network interface discovered by the system
 type DiscoveredInterface struct {
 	Timestamp     time.Time       `json:"timestamp"`

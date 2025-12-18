@@ -49,7 +49,7 @@ func TestE2E_FakerInventoryCount(t *testing.T) {
 	
 	var finalCount int64
 	assert.Eventually(t, func() bool {
-		count, err := database.CountUnifiedDevices(ctx)
+		count, err := database.CountOCSFDevices(ctx)
 		if err != nil {
 			t.Logf("Error counting devices: %v", err)
 			return false
