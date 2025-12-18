@@ -4,6 +4,7 @@ go_library(
     name = "db",
     srcs = [
         "auth.go",
+        "cnpg_device_updates.go",
         "cnpg_device_updates_metrics.go",
         "cnpg_device_updates_retry.go",
         "cnpg_discovery.go",
@@ -18,8 +19,8 @@ go_library(
         "cnpg_identity_reconciliation_queries.go",
         "cnpg_identity_reconciliation_upserts.go",
         "cnpg_edge_onboarding.go",
+        "cnpg_ocsf_devices.go",
         "cnpg_pool.go",
-        "cnpg_unified_devices.go",
         "cnpg_sweep.go",
         "constants.go",
         "db.go",
@@ -38,7 +39,6 @@ go_library(
         "sql_parser.go",
         "services.go",
         "sweep.go",
-        "unified_devices.go",
     ],
     embedsrcs = glob([
         "cnpg/migrations/*.sql",
