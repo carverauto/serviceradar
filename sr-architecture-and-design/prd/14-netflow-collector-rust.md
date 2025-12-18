@@ -48,9 +48,9 @@ ServiceRadar currently lacks a first-class, production-ready path to ingest high
 
 ```mermaid
 flowchart LR
-  Exporters[Network devices\n(export NetFlow/IPFIX)] -->|UDP 2055/4739...| Collector[serviceradar-netflow-collector\n(Rust)]
-  Collector -->|raw flow records| Broker[(Message Broker\nNATS JetStream)]
-  Broker -->|consume raw| Zen[serviceradar-zen\nrule-based ETL]
+  Exporters["Network devices<br/>export NetFlow/IPFIX"] -->|UDP 2055/4739...| Collector["serviceradar-netflow-collector<br/>Rust"]
+  Collector -->|raw flow records| Broker["Message Broker<br/>NATS JetStream"]
+  Broker -->|consume raw| Zen["serviceradar-zen<br/>rule-based ETL"]
   Zen -->|publish OCSF| Broker
   Broker -->|consume OCSF| DBWriter[db-event-writer]
   DBWriter --> CNPG[(CNPG/Timescale)]
