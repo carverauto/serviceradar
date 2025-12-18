@@ -48,7 +48,7 @@ The platform needs a robust, deployable BMP collector that integrates with exist
 
 ```mermaid
 flowchart LR
-  Routers["BGP devices<br/>export BMP over TCP"] -->|TCP 11019 (typical)| Collector["serviceradar-bmp-collector<br/>Rust (risotto-based)"]
+  Routers["BGP devices<br/>export BMP over TCP"] -->|TCP 11019| Collector["serviceradar-bmp-collector<br/>Rust, risotto-based"]
   Collector -->|raw BMP events| Broker["Message Broker<br/>NATS JetStream"]
   Broker -->|consume raw| Zen["serviceradar-zen<br/>rule-based ETL"]
   Zen -->|publish OCSF network_activity| Broker
