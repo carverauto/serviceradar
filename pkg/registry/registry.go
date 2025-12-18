@@ -977,7 +977,7 @@ func (r *DeviceRegistry) blockPromotionForCardinalityDrift(ctx context.Context) 
 		return false
 	}
 
-	current, err := r.db.CountUnifiedDevices(ctx)
+	current, err := r.db.CountOCSFDevices(ctx)
 	if err != nil {
 		r.logger.Warn().Err(err).Msg("Failed to count devices for identity drift check")
 		recordIdentityDriftMetrics(0, int64(drift.BaselineDevices), drift.TolerancePercent, false)
@@ -1881,7 +1881,7 @@ func ensureCanonicalDeviceIDMetadata(updates []*models.DeviceUpdate) {
 	}
 }
 
-func (r *DeviceRegistry) GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
+func (r *DeviceRegistry) GetDevice(ctx context.Context, deviceID string) (*models.OCSFDevice, error) {
 	trimmed := strings.TrimSpace(deviceID)
 	if trimmed == "" {
 		return nil, fmt.Errorf("%w: %s", ErrDeviceNotFound, deviceID)
@@ -1897,19 +1897,19 @@ func (r *DeviceRegistry) GetDevice(ctx context.Context, deviceID string) (*model
 		return nil, fmt.Errorf("%w: %s", ErrDeviceNotFound, trimmed)
 	}
 
-	return UnifiedDeviceFromRecord(record), nil
+	return OCSFDeviceFromRecord(record), nil
 }
 
-func (r *DeviceRegistry) GetDeviceByIDStrict(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
+func (r *DeviceRegistry) GetDeviceByIDStrict(ctx context.Context, deviceID string) (*models.OCSFDevice, error) {
 	return r.GetDevice(ctx, deviceID)
 }
 
-func (r *DeviceRegistry) GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error) {
+func (r *DeviceRegistry) GetDevicesByIP(ctx context.Context, ip string) ([]*models.OCSFDevice, error) {
 	records := r.FindDevicesByIP(ip)
-	return UnifiedDeviceSlice(records), nil
+	return OCSFDeviceSlice(records), nil
 }
 
-func (r *DeviceRegistry) ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error) {
+func (r *DeviceRegistry) ListDevices(ctx context.Context, limit, offset int) ([]*models.OCSFDevice, error) {
 	records := r.snapshotRecords()
 	if len(records) == 0 {
 		return nil, nil
@@ -1918,7 +1918,7 @@ func (r *DeviceRegistry) ListDevices(ctx context.Context, limit, offset int) ([]
 	sortRecordsByLastSeenDesc(records)
 
 	if offset >= len(records) {
-		return []*models.UnifiedDevice{}, nil
+		return []*models.OCSFDevice{}, nil
 	}
 
 	end := len(records)
@@ -1927,11 +1927,11 @@ func (r *DeviceRegistry) ListDevices(ctx context.Context, limit, offset int) ([]
 	}
 
 	window := records[offset:end]
-	return UnifiedDeviceSlice(window), nil
+	return OCSFDeviceSlice(window), nil
 }
 
 // SearchDevices returns devices whose indexed fields contain the query string.
-func (r *DeviceRegistry) SearchDevices(query string, limit int) []*models.UnifiedDevice {
+func (r *DeviceRegistry) SearchDevices(query string, limit int) []*models.OCSFDevice {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil
@@ -2031,22 +2031,22 @@ func (r *DeviceRegistry) SearchDevices(query string, limit int) []*models.Unifie
 		matchedRecords = matchedRecords[:limit]
 	}
 
-	return UnifiedDeviceSlice(matchedRecords)
+	return OCSFDeviceSlice(matchedRecords)
 }
 
-func (r *DeviceRegistry) FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error) {
+func (r *DeviceRegistry) FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.OCSFDevice, error) {
 	primaryRecord, ok := r.GetDeviceRecord(deviceID)
 	if !ok || primaryRecord == nil {
 		return nil, fmt.Errorf("%w: %s", ErrDeviceNotFound, deviceID)
 	}
 
 	relatedRecords := r.FindDevicesByIP(primaryRecord.IP)
-	result := make([]*models.UnifiedDevice, 0, len(relatedRecords))
+	result := make([]*models.OCSFDevice, 0, len(relatedRecords))
 	for _, record := range relatedRecords {
 		if record.DeviceID == primaryRecord.DeviceID {
 			continue
 		}
-		result = append(result, UnifiedDeviceFromRecord(record))
+		result = append(result, OCSFDeviceFromRecord(record))
 	}
 
 	return result, nil

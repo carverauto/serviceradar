@@ -239,7 +239,7 @@ func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []mod
 					continue
 				}
 
-				snapshot := canonicalSnapshotFromDevice(device)
+				snapshot := canonicalSnapshotFromOCSFDevice(device)
 				if !snapshotHasStrongIdentity(snapshot) {
 					continue
 				}

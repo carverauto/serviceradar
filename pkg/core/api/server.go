@@ -2045,7 +2045,7 @@ func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWr
 	filteredDevices := devices
 	if searchTerm := strings.TrimSpace(params["searchTerm"].(string)); searchTerm != "" {
 		if searcher, ok := s.deviceRegistry.(interface {
-			SearchDevices(query string, limit int) []*models.UnifiedDevice
+			SearchDevices(query string, limit int) []*models.OCSFDevice
 		}); ok {
 			if searched := searcher.SearchDevices(searchTerm, params["limit"].(int)); len(searched) > 0 {
 				filteredDevices = searched
@@ -2054,7 +2054,7 @@ func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWr
 			}
 		}
 	}
-	filteredDevices = filterDevices(filteredDevices, "", params["status"].(string), s.logger)
+	filteredDevices = filterOCSFDevices(filteredDevices, "", params["status"].(string), s.logger)
 
 	// Apply device merging if requested
 	if params["mergedStr"].(string) == "true" {
@@ -2089,7 +2089,7 @@ func allowUnauthenticatedEdgePackageDownload(r *http.Request) bool {
 func (s *APIServer) sendDeviceRegistryResponse(
 	ctx context.Context,
 	w http.ResponseWriter,
-	devices []*models.UnifiedDevice,
+	devices []*models.OCSFDevice,
 	metricSummary map[string]map[string]bool,
 ) {
 	payload := s.buildDeviceRecords(ctx, devices, metricSummary)
@@ -2102,7 +2102,7 @@ func (s *APIServer) sendDeviceRegistryResponse(
 
 func (s *APIServer) buildDeviceRecords(
 	ctx context.Context,
-	devices []*models.UnifiedDevice,
+	devices []*models.OCSFDevice,
 	metricSummary map[string]map[string]bool,
 ) []map[string]interface{} {
 	if len(devices) == 0 {
@@ -2116,36 +2116,42 @@ func (s *APIServer) buildDeviceRecords(
 			continue
 		}
 
+		isAvailable := device.IsAvailable != nil && *device.IsAvailable
+
 		entry := map[string]interface{}{
-			"device_id":         device.DeviceID,
+			"device_id":         device.UID,
 			"ip":                device.IP,
-			"hostname":          getFieldValue(device.Hostname),
-			"mac":               getFieldValue(device.MAC),
-			"first_seen":        device.FirstSeen,
-			"last_seen":         device.LastSeen,
-			"is_available":      device.IsAvailable,
-			"device_type":       device.DeviceType,
-			"service_type":      device.ServiceType,
-			"service_status":    device.ServiceStatus,
-			"last_heartbeat":    device.LastHeartbeat,
-			"os_info":           device.OSInfo,
-			"version_info":      device.VersionInfo,
+			"hostname":          device.Hostname,
+			"mac":               device.MAC,
+			"first_seen":        device.FirstSeenTime,
+			"last_seen":         device.LastSeenTime,
+			"is_available":      isAvailable,
+			"device_type":       device.GetTypeName(),
 			"discovery_sources": device.DiscoverySources,
-			"metadata":          getFieldValue(device.Metadata),
+			"metadata":          device.Metadata,
 		}
 
-		if history := buildAliasHistory(device); history != nil {
+		// Add OS info if available
+		if device.OS != nil && device.OS.Name != "" {
+			osInfo := device.OS.Name
+			if device.OS.Version != "" {
+				osInfo += " " + device.OS.Version
+			}
+			entry["os_info"] = osInfo
+		}
+
+		if history := buildAliasHistoryOCSF(device); history != nil {
 			entry["alias_history"] = history
 		}
 
-		if s.deviceRegistry != nil && device.DeviceID != "" {
-			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, device.DeviceID); ok {
+		if s.deviceRegistry != nil && device.UID != "" {
+			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, device.UID); ok {
 				if resp := toCollectorCapabilityResponse(record); resp != nil {
 					entry["collector_capabilities"] = resp
 				}
 			}
 
-			if snapshots := s.deviceRegistry.ListDeviceCapabilitySnapshots(ctx, device.DeviceID); len(snapshots) > 0 {
+			if snapshots := s.deviceRegistry.ListDeviceCapabilitySnapshots(ctx, device.UID); len(snapshots) > 0 {
 				if resp := toCapabilitySnapshotResponses(snapshots); len(resp) > 0 {
 					entry["capability_snapshots"] = resp
 				}
@@ -2153,7 +2159,7 @@ func (s *APIServer) buildDeviceRecords(
 		}
 
 		if metricSummary != nil {
-			if summary := metricSummary[device.DeviceID]; len(summary) > 0 {
+			if summary := metricSummary[device.UID]; len(summary) > 0 {
 				entry["metrics_summary"] = summary
 			}
 		}
@@ -2164,13 +2170,13 @@ func (s *APIServer) buildDeviceRecords(
 	return response
 }
 
-func (s *APIServer) convertSRQLRowsToDevices(ctx context.Context, rows []map[string]interface{}) []*models.UnifiedDevice {
+func (s *APIServer) convertSRQLRowsToDevices(ctx context.Context, rows []map[string]interface{}) []*models.OCSFDevice {
 	if s.deviceRegistry == nil || len(rows) == 0 {
 		return nil
 	}
 
 	seen := make(map[string]struct{}, len(rows))
-	devices := make([]*models.UnifiedDevice, 0, len(rows))
+	devices := make([]*models.OCSFDevice, 0, len(rows))
 
 	for _, row := range rows {
 		deviceID := extractDeviceID(row)
@@ -2227,7 +2233,7 @@ func (s *APIServer) fallbackToDBDeviceList(ctx context.Context, w http.ResponseW
 		return
 	}
 
-	devices, err := s.dbService.ListUnifiedDevices(ctx, params["limit"].(int), params["offset"].(int))
+	devices, err := s.dbService.ListOCSFDevices(ctx, params["limit"].(int), params["offset"].(int))
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Error listing devices from database")
 		writeError(w, "Failed to retrieve devices", http.StatusInternalServerError)
@@ -2235,12 +2241,12 @@ func (s *APIServer) fallbackToDBDeviceList(ctx context.Context, w http.ResponseW
 	}
 
 	// Filter based on search/status to match registry path behavior
-	filtered := filterDevices(devices, params["searchTerm"].(string), params["status"].(string), s.logger)
+	filtered := filterOCSFDevices(devices, params["searchTerm"].(string), params["status"].(string), s.logger)
 	metricSummary := s.fetchDeviceMetricSummary(ctx, filtered)
 	s.sendDeviceRegistryResponse(ctx, w, filtered, metricSummary)
 }
 
-func (s *APIServer) fetchDeviceMetricSummary(ctx context.Context, devices []*models.UnifiedDevice) map[string]map[string]bool {
+func (s *APIServer) fetchDeviceMetricSummary(ctx context.Context, devices []*models.OCSFDevice) map[string]map[string]bool {
 	if s.dbService == nil || len(devices) == 0 {
 		return nil
 	}
@@ -2250,10 +2256,10 @@ func (s *APIServer) fetchDeviceMetricSummary(ctx context.Context, devices []*mod
 		if device == nil {
 			continue
 		}
-		if device.DeviceID == "" {
+		if device.UID == "" {
 			continue
 		}
-		deviceIDs = append(deviceIDs, device.DeviceID)
+		deviceIDs = append(deviceIDs, device.UID)
 	}
 
 	if len(deviceIDs) == 0 {
@@ -2337,31 +2343,31 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 
 	// Try device registry first (enhanced device data with discovery sources)
 	if s.deviceRegistry != nil {
-		unifiedDevice, err := s.deviceRegistry.GetDeviceByIDStrict(ctx, deviceID)
+		ocsfDevice, err := s.deviceRegistry.GetDeviceByIDStrict(ctx, deviceID)
 		if err == nil {
-			legacy := unifiedDevice.ToLegacyDevice()
+			legacy := ocsfDevice.ToLegacyDevice()
 			resp := deviceResponse{
 				Device:       legacy,
-				AliasHistory: buildAliasHistory(unifiedDevice),
+				AliasHistory: buildAliasHistoryOCSF(ocsfDevice),
 			}
-			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, unifiedDevice.DeviceID); ok {
+			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, ocsfDevice.UID); ok {
 				resp.CollectorCapabilities = toCollectorCapabilityResponse(record)
 			}
-			if snapshots := s.deviceRegistry.ListDeviceCapabilitySnapshots(ctx, unifiedDevice.DeviceID); len(snapshots) > 0 {
+			if snapshots := s.deviceRegistry.ListDeviceCapabilitySnapshots(ctx, ocsfDevice.UID); len(snapshots) > 0 {
 				resp.CapabilitySnapshots = toCapabilitySnapshotResponses(snapshots)
 			}
-			if summary := s.fetchDeviceMetricSummary(ctx, []*models.UnifiedDevice{unifiedDevice}); summary != nil {
-				if metrics := summary[unifiedDevice.DeviceID]; len(metrics) > 0 {
+			if summary := s.fetchDeviceMetricSummary(ctx, []*models.OCSFDevice{ocsfDevice}); summary != nil {
+				if metrics := summary[ocsfDevice.UID]; len(metrics) > 0 {
 					resp.MetricsSummary = metrics
 				}
 			}
 
 			payload := struct {
 				*deviceResponse
-				DiscoveryInfo *models.UnifiedDevice `json:"discovery_info,omitempty"`
+				DiscoveryInfo *models.OCSFDevice `json:"discovery_info,omitempty"`
 			}{
 				deviceResponse: &resp,
-				DiscoveryInfo:  unifiedDevice,
+				DiscoveryInfo:  ocsfDevice,
 			}
 
 			w.Header().Set("Content-Type", "application/json")
@@ -2413,13 +2419,13 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if s.deviceRegistry != nil {
-		if unified, err := s.deviceRegistry.GetDevice(ctx, deviceID); err == nil && unified != nil {
-			legacyDevice = unified.ToLegacyDevice()
-			aliasHistory = buildAliasHistory(unified)
-			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, unified.DeviceID); ok {
+		if ocsfDevice, err := s.deviceRegistry.GetDevice(ctx, deviceID); err == nil && ocsfDevice != nil {
+			legacyDevice = ocsfDevice.ToLegacyDevice()
+			aliasHistory = buildAliasHistoryOCSF(ocsfDevice)
+			if record, ok := s.deviceRegistry.GetCollectorCapabilities(ctx, ocsfDevice.UID); ok {
 				collectorCapabilities = toCollectorCapabilityResponse(record)
 			}
-			if snapshots := s.deviceRegistry.ListDeviceCapabilitySnapshots(ctx, unified.DeviceID); len(snapshots) > 0 {
+			if snapshots := s.deviceRegistry.ListDeviceCapabilitySnapshots(ctx, ocsfDevice.UID); len(snapshots) > 0 {
 				capabilitySnapshots = toCapabilitySnapshotResponses(snapshots)
 			}
 		}
@@ -2444,8 +2450,8 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 		CapabilitySnapshots:   capabilitySnapshots,
 	}
 
-	if summary := s.fetchDeviceMetricSummary(ctx, []*models.UnifiedDevice{{
-		DeviceID: deviceID,
+	if summary := s.fetchDeviceMetricSummary(ctx, []*models.OCSFDevice{{
+		UID: deviceID,
 	}}); summary != nil {
 		if metrics := summary[deviceID]; len(metrics) > 0 {
 			response.MetricsSummary = metrics
@@ -2698,6 +2704,58 @@ func buildAliasHistory(device *models.UnifiedDevice) *DeviceAliasHistory {
 		}
 	}
 
+	if len(history.Services) == 0 && len(history.IPs) == 0 {
+		return nil
+	}
+
+	return &history
+}
+
+func buildAliasHistoryOCSF(device *models.OCSFDevice) *DeviceAliasHistory {
+	if device == nil || device.Metadata == nil {
+		return nil
+	}
+
+	record := devicealias.FromMetadata(device.Metadata)
+	if record == nil {
+		return nil
+	}
+
+	history := DeviceAliasHistory{
+		LastSeenAt:       record.LastSeenAt,
+		CollectorIP:      record.CollectorIP,
+		CurrentServiceID: record.CurrentServiceID,
+		CurrentIP:        record.CurrentIP,
+	}
+
+	if len(record.Services) > 0 {
+		ids := make([]string, 0, len(record.Services))
+		for id := range record.Services {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			history.Services = append(history.Services, DeviceAliasRecord{
+				ID:         id,
+				LastSeenAt: strings.TrimSpace(record.Services[id]),
+			})
+		}
+	}
+
+	if len(record.IPs) > 0 {
+		ips := make([]string, 0, len(record.IPs))
+		for ip := range record.IPs {
+			ips = append(ips, ip)
+		}
+		sort.Strings(ips)
+		for _, ip := range ips {
+			history.IPs = append(history.IPs, DeviceAliasRecord{
+				IP:         ip,
+				LastSeenAt: strings.TrimSpace(record.IPs[ip]),
+			})
+		}
+	}
+
 	if history.CollectorIP == "" && len(history.Services) == 0 && len(history.IPs) == 0 &&
 		history.LastSeenAt == "" && history.CurrentServiceID == "" && history.CurrentIP == "" {
 		return nil
@@ -2800,13 +2858,66 @@ func filterDevices(devices []*models.UnifiedDevice, searchTerm, status string, l
 	return filtered
 }
 
+// filterOCSFDevices filters OCSF devices based on search term and status
+func filterOCSFDevices(devices []*models.OCSFDevice, searchTerm, status string, logger logger.Logger) []*models.OCSFDevice {
+	filtered := make([]*models.OCSFDevice, 0, len(devices))
+
+	for _, device := range devices {
+		if device == nil {
+			continue
+		}
+
+		// Filter out merged/deleted devices (safety net) - ALWAYS apply this filter
+		if device.Metadata != nil {
+			if deleted, ok := device.Metadata["_deleted"]; ok && strings.EqualFold(deleted, "true") {
+				logger.Debug().Str("device_id", device.UID).Msg("Filtering out deleted device")
+				continue
+			}
+			if deleted, ok := device.Metadata["deleted"]; ok && strings.EqualFold(deleted, "true") {
+				logger.Debug().Str("device_id", device.UID).Msg("Filtering out deleted device")
+				continue
+			}
+			if mergedInto, hasMerged := device.Metadata["_merged_into"]; hasMerged {
+				logger.Debug().Str("device_id", device.UID).Str("merged_into", mergedInto).Msg("Filtering out merged device")
+				continue // Skip merged devices
+			}
+		}
+
+		// Apply search filter
+		if searchTerm != "" {
+			searchLower := strings.ToLower(searchTerm)
+			if !strings.Contains(strings.ToLower(device.IP), searchLower) &&
+				!strings.Contains(strings.ToLower(device.UID), searchLower) {
+				// Check hostname if available
+				if !strings.Contains(strings.ToLower(device.Hostname), searchLower) {
+					continue
+				}
+			}
+		}
+
+		// Apply status filter
+		isAvailable := device.IsAvailable != nil && *device.IsAvailable
+		if status == "online" && !isAvailable {
+			continue
+		}
+
+		if status == "offline" && isAvailable {
+			continue
+		}
+
+		filtered = append(filtered, device)
+	}
+
+	return filtered
+}
+
 // mergeRelatedDevices merges devices that share IPs into unified views
 // This provides application-level device unification for the device listing API
 func mergeRelatedDevices(
 	ctx context.Context,
 	registry DeviceRegistryService,
-	devices []*models.UnifiedDevice,
-	logger logger.Logger) []*models.UnifiedDevice {
+	devices []*models.OCSFDevice,
+	logger logger.Logger) []*models.OCSFDevice {
 	if registry == nil || len(devices) == 0 {
 		return devices
 	}
@@ -2814,31 +2925,36 @@ func mergeRelatedDevices(
 	// Track which devices have been processed to avoid duplicates
 	processed := make(map[string]bool)
 
-	mergedDevices := make([]*models.UnifiedDevice, 0, len(devices))
+	mergedDevices := make([]*models.OCSFDevice, 0, len(devices))
 
 	for _, device := range devices {
-		if processed[device.DeviceID] {
+		if device == nil {
+			continue
+		}
+		if processed[device.UID] {
 			continue // Skip if already processed as part of a merge
 		}
 
 		// Try to get the strict view of this device (ID only, no IP fallback)
-		mergedDevice, err := registry.GetDeviceByIDStrict(ctx, device.DeviceID)
+		mergedDevice, err := registry.GetDeviceByIDStrict(ctx, device.UID)
 		if err != nil {
-			logger.Warn().Err(err).Str("device_id", device.DeviceID).Msg("Failed to get merged device")
+			logger.Warn().Err(err).Str("device_id", device.UID).Msg("Failed to get merged device")
 			// Fallback to original device if merging fails
 			mergedDevices = append(mergedDevices, device)
-			processed[device.DeviceID] = true
+			processed[device.UID] = true
 
 			continue
 		}
 
 		// Find all related devices in the original list and mark them as processed
-		relatedDevices, err := registry.FindRelatedDevices(ctx, device.DeviceID)
+		relatedDevices, err := registry.FindRelatedDevices(ctx, device.UID)
 		if err != nil {
-			logger.Warn().Err(err).Str("device_id", device.DeviceID).Msg("Failed to find related devices")
+			logger.Warn().Err(err).Str("device_id", device.UID).Msg("Failed to find related devices")
 		} else {
 			for _, related := range relatedDevices {
-				processed[related.DeviceID] = true
+				if related != nil {
+					processed[related.UID] = true
+				}
 			}
 		}
 

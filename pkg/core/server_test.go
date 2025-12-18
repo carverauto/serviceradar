@@ -365,7 +365,7 @@ func TestProcessSweepData(t *testing.T) {
 		AnyTimes()
 	mockDeviceRegistry.EXPECT().
 		GetDevicesByIP(gomock.Any(), gomock.Any()).
-		Return([]*models.UnifiedDevice{}, nil).
+		Return([]*models.OCSFDevice{}, nil).
 		AnyTimes()
 
 	server := &Server{

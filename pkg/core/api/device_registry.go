@@ -204,45 +204,6 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 		deletedBy = user.Email
 	}
 
-	// populateFromUnified populates the update from an in-memory registry device.
-	populateFromUnified := func(existing *models.UnifiedDevice) {
-		if existing == nil {
-			return
-		}
-
-		update.IP = existing.IP
-		if partition == "" {
-			partition = partitionFromDeviceID(existing.DeviceID)
-			update.Partition = partition
-		}
-
-		if existing.Hostname != nil && existing.Hostname.Value != "" {
-			host := existing.Hostname.Value
-			update.Hostname = &host
-		}
-		if existing.MAC != nil && existing.MAC.Value != "" {
-			mac := strings.ToUpper(existing.MAC.Value)
-			update.MAC = &mac
-		}
-		if existing.Metadata != nil && existing.Metadata.Value != nil {
-			if part, ok := existing.Metadata.Value["canonical_partition"]; ok && part != "" {
-				update.Partition = part
-				update.Metadata["canonical_partition"] = part
-			}
-			if canonicalID, ok := existing.Metadata.Value["canonical_device_id"]; ok && canonicalID != "" {
-				update.Metadata["canonical_device_id"] = canonicalID
-			}
-			if revision, ok := existing.Metadata.Value["canonical_revision"]; ok && revision != "" {
-				update.Metadata["_previous_revision"] = revision
-			}
-			for _, key := range []string{"armis_device_id", "integration_id", "integration_type", "netbox_device_id"} {
-				if val := existing.Metadata.Value[key]; val != "" {
-					update.Metadata[key] = val
-				}
-			}
-		}
-	}
-
 	// populateFromOCSF populates the update from an OCSF device from the database.
 	populateFromOCSF := func(existing *models.OCSFDevice) {
 		if existing == nil {
@@ -282,7 +243,7 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var unified *models.UnifiedDevice
+	var unified *models.OCSFDevice
 	if s.deviceRegistry != nil {
 		device, err := s.deviceRegistry.GetDevice(ctx, deviceID)
 		switch {
@@ -305,7 +266,7 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if unified != nil {
-		populateFromUnified(unified)
+		populateFromOCSF(unified)
 	} else if existing, err := s.dbService.GetOCSFDevice(ctx, deviceID); err == nil {
 		populateFromOCSF(existing)
 	} else {
