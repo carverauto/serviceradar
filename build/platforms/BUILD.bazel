@@ -25,6 +25,8 @@ platform(
     constraint_values = [
         "@platforms//os:linux",
         "@platforms//cpu:x86_64",
+        "@erlang_config//:erlang_internal",
+        "@elixir_config//:elixir_internal",
     ],
     visibility = ["//visibility:public"],
 )
@@ -34,6 +36,8 @@ platform(
     constraint_values = [
         "@platforms//os:linux",
         "@platforms//cpu:aarch64",
+        "@erlang_config//:erlang_internal",
+        "@elixir_config//:elixir_internal",
     ],
     visibility = ["//visibility:public"],
 )
@@ -63,6 +67,8 @@ platform(
         "@platforms//os:linux",
         "@platforms//cpu:x86_64",
         "@rules_pkg//pkg:not_compatible",
+        "@erlang_config//:erlang_internal",
+        "@elixir_config//:elixir_internal",
     ],
     visibility = ["//visibility:public"],
 )
@@ -73,6 +79,8 @@ platform(
     constraint_values = [
         "@platforms//os:linux",
         "@platforms//cpu:x86_64",
+        "@erlang_config//:erlang_internal",
+        "@elixir_config//:elixir_internal",
     ],
     exec_properties = {
         "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.20",
@@ -89,6 +97,8 @@ platform(
     constraint_values = [
         "@platforms//os:linux",
         "@platforms//cpu:aarch64",
+        "@erlang_config//:erlang_internal",
+        "@elixir_config//:elixir_internal",
     ],
     exec_properties = {
         "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.20",
@@ -117,6 +127,8 @@ platform(
         "@platforms//os:linux",
         "@platforms//cpu:x86_64",
         ":has_zfs",
+        "@erlang_config//:erlang_internal",
+        "@elixir_config//:elixir_internal",
     ],
     exec_properties = {
         "container-image": "docker://ghcr.io/carverauto/serviceradar/rbe-executor-el9:v1.0.23",

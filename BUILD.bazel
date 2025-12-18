@@ -16,7 +16,11 @@ gazelle(
     name = "gazelle",
 )
 
-exports_files(["VERSION"])
+exports_files([
+    "VERSION",
+    "Cargo.toml",
+    "Cargo.lock",
+])
 
 # Custom RBE platform using Oracle Linux 9 based executor image
 platform(

@@ -120,6 +120,10 @@
     "https://bcr.bazel.build/modules/rules_cc/0.1.5/MODULE.bazel": "88dfc9361e8b5ae1008ac38f7cdfd45ad738e4fa676a3ad67d19204f045a1fd8",
     "https://bcr.bazel.build/modules/rules_cc/0.2.4/MODULE.bazel": "1ff1223dfd24f3ecf8f028446d4a27608aa43c3f41e346d22838a4223980b8cc",
     "https://bcr.bazel.build/modules/rules_cc/0.2.4/source.json": "2bd87ef9b41d4753eadf65175745737135cba0e70b479bdc204ef0c67404d0c4",
+    "https://bcr.bazel.build/modules/rules_elixir/1.1.0/MODULE.bazel": "6a1c07d4d576e9615879779db86bee0c13dceb9457a861bcfdbd1edc2f2c1849",
+    "https://bcr.bazel.build/modules/rules_elixir/1.1.0/source.json": "3ac0b624e4fecda7cff676477904807aee3ad3c0ea4da5bb925fb3c9cc97d9cf",
+    "https://bcr.bazel.build/modules/rules_erlang/3.16.0/MODULE.bazel": "dcf0ecc074384441f804dd53eb027ffc5596e4f09fdb50f428db8ebd290e9e83",
+    "https://bcr.bazel.build/modules/rules_erlang/3.16.0/source.json": "7e45c3a7394bbe83e2e1fa3cc9078dc4069ac4be7ff07c95eb28d7ffba4cbe34",
     "https://bcr.bazel.build/modules/rules_foreign_cc/0.9.0/MODULE.bazel": "c9e8c682bf75b0e7c704166d79b599f93b72cfca5ad7477df596947891feeef6",
     "https://bcr.bazel.build/modules/rules_foreign_cc/0.9.0/source.json": "8be72488e3139bdca3af856fecc3860d0c480ba52e67b4035d0741b19e6d96d7",
     "https://bcr.bazel.build/modules/rules_fuzzing/0.5.2/MODULE.bazel": "40c97d1144356f52905566c55811f13b299453a14ac7769dfba2ac38192337a8",
@@ -439,6 +443,102 @@
           ],
           [
             "buildifier_prebuilt+",
+            "bazel_tools",
+            "bazel_tools"
+          ]
+        ]
+      }
+    },
+    "@@rules_elixir+//bzlmod:extensions.bzl%elixir_config": {
+      "general": {
+        "bzlTransitiveDigest": "TTUZulTBD4S++NWPsUfH8UW2a0GrbXDCjed/tEdVJo0=",
+        "usagesDigest": "194SyhC2pFItSJlU4NKMf3vJwAOEYvbQIiH61fb2aYo=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "elixir_config": {
+            "repoRuleId": "@@rules_elixir+//repositories:elixir_config.bzl%elixir_config",
+            "attributes": {
+              "types": {
+                "elixir_1_19_4": "internal"
+              },
+              "versions": {
+                "elixir_1_19_4": "1.19.4"
+              },
+              "urls": {
+                "elixir_1_19_4": "https://github.com/elixir-lang/elixir/archive/refs/tags/v1.19.4.tar.gz"
+              },
+              "strip_prefixs": {
+                "elixir_1_19_4": "elixir-1.19.4"
+              },
+              "sha256s": {
+                "elixir_1_19_4": "a2df9d5411fc53d97ec17c069765c8fb781f8dc36c4e06ec1cd4b189340d364b"
+              },
+              "elixir_homes": {}
+            }
+          }
+        },
+        "recordedRepoMappingEntries": [
+          [
+            "rules_elixir+",
+            "rules_erlang",
+            "rules_erlang+"
+          ]
+        ]
+      }
+    },
+    "@@rules_erlang+//bzlmod:extensions.bzl%erlang_config": {
+      "general": {
+        "bzlTransitiveDigest": "yfUa/vwTQLAtLFsuWtj6rwcFkvwXtGviTKBAxWTy15s=",
+        "usagesDigest": "liFVPEtnvTAPYkAhUbFyq8OYGTjOzpqiPOsaSPTifHA=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "erlang_config": {
+            "repoRuleId": "@@rules_erlang+//repositories:erlang_config.bzl%erlang_config",
+            "attributes": {
+              "rules_erlang_workspace": "@rules_erlang",
+              "types": {
+                "otp_28_1": "internal"
+              },
+              "versions": {
+                "otp_28_1": "28.1"
+              },
+              "urls": {
+                "otp_28_1": "https://github.com/erlang/otp/releases/download/OTP-28.1/otp_src_28.1.tar.gz"
+              },
+              "strip_prefixs": {
+                "otp_28_1": "otp_src_28.1"
+              },
+              "sha256s": {
+                "otp_28_1": "c7c6fe06a3bf0031187d4cb10d30e11de119b38bdba7cd277898f75d53bdb218"
+              },
+              "erlang_homes": {},
+              "pre_configure_cmdss": {
+                "otp_28_1": []
+              },
+              "extra_configure_optss": {
+                "otp_28_1": []
+              },
+              "post_configure_cmdss": {
+                "otp_28_1": []
+              },
+              "extra_make_optss": {
+                "otp_28_1": []
+              }
+            }
+          }
+        },
+        "recordedRepoMappingEntries": [
+          [
+            "rules_erlang+",
+            "bazel_skylib",
+            "bazel_skylib+"
+          ],
+          [
+            "rules_erlang+",
             "bazel_tools",
             "bazel_tools"
           ]
@@ -1640,22 +1740,6 @@
             "bazel_skylib+"
           ]
         ]
-      }
-    },
-    "@@rules_pkg+//toolchains/rpm:rpmbuild_configure.bzl%find_system_rpmbuild_bzlmod": {
-      "general": {
-        "bzlTransitiveDigest": "B5+jkTTzKQTZ6KUhRFS1FMM7bu1H6uMRvQ234e9yIgA=",
-        "usagesDigest": "C2n6/iinOCV7A7c7ARz9Q3oW6bkBXSqTa8F1CWpESvA=",
-        "recordedFileInputs": {},
-        "recordedDirentsInputs": {},
-        "envVariables": {},
-        "generatedRepoSpecs": {
-          "rules_pkg_rpmbuild": {
-            "repoRuleId": "@@rules_pkg+//toolchains/rpm:rpmbuild_configure.bzl%build_repo_for_rpmbuild_toolchain",
-            "attributes": {}
-          }
-        },
-        "recordedRepoMappingEntries": []
       }
     },
     "@@rules_python+//python/uv:uv.bzl%uv": {

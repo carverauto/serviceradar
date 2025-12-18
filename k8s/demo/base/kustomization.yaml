@@ -23,7 +23,6 @@ resources:
 - serviceradar-kong.yaml
 - serviceradar-sync.yaml
 - serviceradar-rperf-checker.yaml
-- serviceradar-srql.yaml
 - serviceradar-faker.yaml
 - serviceradar-db-event-writer-config.yaml
 - secret-generator-job.yaml

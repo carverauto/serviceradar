@@ -52,7 +52,6 @@
       {"identity": "CN=snmp-checker.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "spiffe://carverauto.dev/services/rperf-client", "role": "writer"},
       {"identity": "CN=rperf-client.serviceradar,O=ServiceRadar", "role": "writer"},
-      {"identity": "CN=srql.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "CN=web.serviceradar,O=ServiceRadar", "role": "reader"}
     ]
   },

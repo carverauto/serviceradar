@@ -128,7 +128,7 @@ def serviceradar_package(
         rpm_release = "1",
         summary = None,
         version_file = "//:VERSION",
-        rpm_tags = ["no-remote-exec"],
+        rpm_tags = [],
         rpm_disable_remote = False,
         rpm_spec_template = None,
     ):

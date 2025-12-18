@@ -16,7 +16,8 @@ RUN set -eux; \
       protobuf-compiler \
       libssl-dev \
       curl \
-      jq; \
+      jq \
+      rpm; \
     rm -rf /var/lib/apt/lists/*
 
 # Install cosign for container signing/attestation

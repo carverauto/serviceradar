@@ -5,6 +5,8 @@ platform(
         "@platforms//cpu:x86_64",
         "@platforms//os:linux",
         "@bazel_tools//tools/cpp:gcc",
+        "@erlang_config//:erlang_internal",
+        "@elixir_config//:elixir_internal",
     ],
     exec_properties = {
         "OSFamily": "Linux",

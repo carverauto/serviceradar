@@ -33,11 +33,8 @@ image:
     faker: *appTag
     rperfChecker: *appTag
     tools: *appTag
-    srql: *appTag
     kong: "3.7"
     kongConfig: *appTag
-srql:
-  enabled: true
 kong:
   enabled: true
 kv:

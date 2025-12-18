@@ -59,7 +59,6 @@ images:
   newTag: sha-022d570f8aeb461a2a105ed2065e77f0a5aaf41843c045e1199dadc4a2bedbb3
 - name: ghcr.io/carverauto/serviceradar-tools
   newTag: sha-36d2645dd651d05d25ec1fb427f27578948cb4c6b985cf1fb65982c1635fb9df
-- name: ghcr.io/carverauto/serviceradar-srql
   newTag: sha-1a10f7b7285e325fdec698dac3be7a74ac918841ce5e25de530f56af01235ddd
 
 vars:
