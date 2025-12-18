@@ -50,21 +50,34 @@
   - [x] 2.4.6 Update pkg/db/devices.go to use OCSF methods with ToLegacyDevice()
   - [x] 2.4.7 Update pkg/core/api/device_registry.go with populateFromOCSF helper
 
-## 3. Unified Devices Migration Status
+## 3. Legacy UnifiedDevice Removal (COMPLETED)
 
-- [x] 3.1 pkg/db/cnpg_unified_devices.go KEPT for in-memory registry compatibility
-  - The DeviceRegistry in pkg/registry/ still uses UnifiedDevice type for in-memory cache
-  - unifiedDevicesSelection query provides backward-compat SQL aliases
-  - Functions cnpgGetUnifiedDevice, cnpgGetUnifiedDevicesByIP still needed for registry
-- [x] 3.2 All pkg/core code migrated to OCSF methods
-  - Verified: `grep GetUnifiedDevicesByIPsOrIDs pkg/core` returns NO matches
-- [x] 3.3 All test mocks updated to use OCSF methods
-  - pkg/core/alias_events_test.go
-  - pkg/core/identity_lookup_test.go
-  - pkg/core/metrics_test.go
-  - pkg/core/stats_aggregator_test.go
-  - pkg/core/performance_integration_test.go
-  - pkg/core/server_test.go
+- [x] 3.1 Migrate registry to use OCSF types
+  - [x] 3.1.1 Update pkg/registry/device_transform.go to use OCSFDevice converters
+  - [x] 3.1.2 Remove legacy DeviceRecordFromUnified, UnifiedDeviceFromRecord functions
+  - [x] 3.1.3 Add DeviceRecordFromOCSF, OCSFDeviceFromRecord, OCSFDeviceSlice functions
+  - [x] 3.1.4 Update device_transform_test.go with OCSF-focused tests
+- [x] 3.2 Update database interface
+  - [x] 3.2.1 Replace LockUnifiedDevices with LockOCSFDevices in interfaces.go
+  - [x] 3.2.2 Remove legacy GetUnifiedDevice, GetUnifiedDevicesByIP methods
+  - [x] 3.2.3 Remove CountUnifiedDevices (use CountOCSFDevices)
+  - [x] 3.2.4 Regenerate mocks with go generate
+- [x] 3.3 Delete legacy database files
+  - [x] 3.3.1 Create pkg/db/cnpg_device_updates.go with needed helpers
+  - [x] 3.3.2 Delete pkg/db/cnpg_unified_devices.go
+  - [x] 3.3.3 Delete pkg/db/unified_devices.go
+  - [x] 3.3.4 Remove legacy error definitions from errors.go
+- [x] 3.4 Consolidate model files
+  - [x] 3.4.1 Merge DiscoverySource types from unified_device.go into discovery.go
+  - [x] 3.4.2 Delete pkg/models/unified_device.go
+- [x] 3.5 Update all tests to use OCSF methods
+  - [x] 3.5.1 Update pkg/registry/retraction_processing_test.go (LockOCSFDevices)
+  - [x] 3.5.2 Update pkg/registry/batch_optimization_test.go (LockOCSFDevices)
+  - [x] 3.5.3 Update pkg/registry/hydrate_test.go (LockOCSFDevices)
+  - [x] 3.5.4 Update pkg/registry/service_device_test.go (LockOCSFDevices)
+  - [x] 3.5.5 Update tests/e2e/inventory/inventory_test.go (CountOCSFDevices)
+- [x] 3.6 Verify no UnifiedDevice references remain
+  - grep confirms zero matches in .go files
 
 ## 4. SRQL Updates
 
