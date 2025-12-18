@@ -43,25 +43,56 @@ const (
 	OCSFDeviceTypeOther        = 99
 )
 
-// OCSFDeviceTypeNames maps type IDs to human-readable names
-var OCSFDeviceTypeNames = map[int]string{
-	OCSFDeviceTypeUnknown:      "Unknown",
-	OCSFDeviceTypeServer:       "Server",
-	OCSFDeviceTypeDesktop:      "Desktop",
-	OCSFDeviceTypeLaptop:       "Laptop",
-	OCSFDeviceTypeTablet:       "Tablet",
-	OCSFDeviceTypeMobile:       "Mobile",
-	OCSFDeviceTypeVirtual:      "Virtual",
-	OCSFDeviceTypeIOT:          "IOT",
-	OCSFDeviceTypeBrowser:      "Browser",
-	OCSFDeviceTypeFirewall:     "Firewall",
-	OCSFDeviceTypeSwitch:       "Switch",
-	OCSFDeviceTypeHub:          "Hub",
-	OCSFDeviceTypeRouter:       "Router",
-	OCSFDeviceTypeIDS:          "IDS",
-	OCSFDeviceTypeIPS:          "IPS",
-	OCSFDeviceTypeLoadBalancer: "Load Balancer",
-	OCSFDeviceTypeOther:        "Other",
+// Device type name string constants
+const (
+	DeviceTypeNameServer   = "Server"
+	DeviceTypeNameDesktop  = "Desktop"
+	DeviceTypeNameMobile   = "Mobile"
+	DeviceTypeNameFirewall = "Firewall"
+	DeviceTypeNameSwitch   = "Switch"
+	DeviceTypeNameRouter   = "Router"
+)
+
+// getDeviceTypeName returns the human-readable name for a device type ID.
+func getDeviceTypeName(typeID int) string {
+	switch typeID {
+	case OCSFDeviceTypeUnknown:
+		return "Unknown"
+	case OCSFDeviceTypeServer:
+		return DeviceTypeNameServer
+	case OCSFDeviceTypeDesktop:
+		return DeviceTypeNameDesktop
+	case OCSFDeviceTypeLaptop:
+		return "Laptop"
+	case OCSFDeviceTypeTablet:
+		return "Tablet"
+	case OCSFDeviceTypeMobile:
+		return DeviceTypeNameMobile
+	case OCSFDeviceTypeVirtual:
+		return "Virtual"
+	case OCSFDeviceTypeIOT:
+		return "IOT"
+	case OCSFDeviceTypeBrowser:
+		return "Browser"
+	case OCSFDeviceTypeFirewall:
+		return DeviceTypeNameFirewall
+	case OCSFDeviceTypeSwitch:
+		return DeviceTypeNameSwitch
+	case OCSFDeviceTypeHub:
+		return "Hub"
+	case OCSFDeviceTypeRouter:
+		return DeviceTypeNameRouter
+	case OCSFDeviceTypeIDS:
+		return "IDS"
+	case OCSFDeviceTypeIPS:
+		return "IPS"
+	case OCSFDeviceTypeLoadBalancer:
+		return "Load Balancer"
+	case OCSFDeviceTypeOther:
+		return "Other"
+	default:
+		return "Unknown"
+	}
 }
 
 // OCSF Risk Level IDs
@@ -74,14 +105,24 @@ const (
 	OCSFRiskLevelOther    = 99
 )
 
-// OCSFRiskLevelNames maps risk level IDs to names
-var OCSFRiskLevelNames = map[int]string{
-	OCSFRiskLevelInfo:     "Info",
-	OCSFRiskLevelLow:      "Low",
-	OCSFRiskLevelMedium:   "Medium",
-	OCSFRiskLevelHigh:     "High",
-	OCSFRiskLevelCritical: "Critical",
-	OCSFRiskLevelOther:    "Other",
+// getRiskLevelName returns the human-readable name for a risk level ID.
+func getRiskLevelName(levelID int) string {
+	switch levelID {
+	case OCSFRiskLevelInfo:
+		return "Info"
+	case OCSFRiskLevelLow:
+		return "Low"
+	case OCSFRiskLevelMedium:
+		return "Medium"
+	case OCSFRiskLevelHigh:
+		return "High"
+	case OCSFRiskLevelCritical:
+		return "Critical"
+	case OCSFRiskLevelOther:
+		return "Other"
+	default:
+		return ""
+	}
 }
 
 // OCSFDevice represents a device aligned with OCSF v1.7.0 Device object schema
@@ -219,10 +260,7 @@ func (d *OCSFDevice) GetTypeName() string {
 	if d.Type != "" {
 		return d.Type
 	}
-	if name, ok := OCSFDeviceTypeNames[d.TypeID]; ok {
-		return name
-	}
-	return "Unknown"
+	return getDeviceTypeName(d.TypeID)
 }
 
 // GetRiskLevelName returns the human-readable name for the risk level
@@ -231,9 +269,7 @@ func (d *OCSFDevice) GetRiskLevelName() string {
 		return d.RiskLevel
 	}
 	if d.RiskLevelID != nil {
-		if name, ok := OCSFRiskLevelNames[*d.RiskLevelID]; ok {
-			return name
-		}
+		return getRiskLevelName(*d.RiskLevelID)
 	}
 	return ""
 }

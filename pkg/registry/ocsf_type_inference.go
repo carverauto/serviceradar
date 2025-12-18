@@ -88,21 +88,21 @@ func (i *OCSFTypeInference) inferFromArmisCategory(category string) (int, string
 
 	switch {
 	case strings.Contains(categoryLower, "firewall"):
-		return models.OCSFDeviceTypeFirewall, "Firewall"
+		return models.OCSFDeviceTypeFirewall, models.DeviceTypeNameFirewall
 	case strings.Contains(categoryLower, "router"):
-		return models.OCSFDeviceTypeRouter, "Router"
+		return models.OCSFDeviceTypeRouter, models.DeviceTypeNameRouter
 	case strings.Contains(categoryLower, "switch"):
-		return models.OCSFDeviceTypeSwitch, "Switch"
+		return models.OCSFDeviceTypeSwitch, models.DeviceTypeNameSwitch
 	case strings.Contains(categoryLower, "server"):
-		return models.OCSFDeviceTypeServer, "Server"
+		return models.OCSFDeviceTypeServer, models.DeviceTypeNameServer
 	case strings.Contains(categoryLower, "desktop"):
-		return models.OCSFDeviceTypeDesktop, "Desktop"
+		return models.OCSFDeviceTypeDesktop, models.DeviceTypeNameDesktop
 	case strings.Contains(categoryLower, "laptop"):
 		return models.OCSFDeviceTypeLaptop, "Laptop"
 	case strings.Contains(categoryLower, "tablet"):
 		return models.OCSFDeviceTypeTablet, "Tablet"
 	case strings.Contains(categoryLower, "mobile"), strings.Contains(categoryLower, "phone"):
-		return models.OCSFDeviceTypeMobile, "Mobile"
+		return models.OCSFDeviceTypeMobile, models.DeviceTypeNameMobile
 	case strings.Contains(categoryLower, "iot"), strings.Contains(categoryLower, "sensor"),
 		strings.Contains(categoryLower, "camera"), strings.Contains(categoryLower, "hvac"),
 		strings.Contains(categoryLower, "smart"):
@@ -126,23 +126,23 @@ func (i *OCSFTypeInference) inferFromDeviceType(deviceType string) (int, string)
 
 	switch typeLower {
 	case "server":
-		return models.OCSFDeviceTypeServer, "Server"
+		return models.OCSFDeviceTypeServer, models.DeviceTypeNameServer
 	case "desktop", "workstation":
-		return models.OCSFDeviceTypeDesktop, "Desktop"
+		return models.OCSFDeviceTypeDesktop, models.DeviceTypeNameDesktop
 	case "laptop", "notebook":
 		return models.OCSFDeviceTypeLaptop, "Laptop"
 	case "router":
-		return models.OCSFDeviceTypeRouter, "Router"
+		return models.OCSFDeviceTypeRouter, models.DeviceTypeNameRouter
 	case "switch":
-		return models.OCSFDeviceTypeSwitch, "Switch"
+		return models.OCSFDeviceTypeSwitch, models.DeviceTypeNameSwitch
 	case "firewall":
-		return models.OCSFDeviceTypeFirewall, "Firewall"
+		return models.OCSFDeviceTypeFirewall, models.DeviceTypeNameFirewall
 	case "iot", "sensor":
 		return models.OCSFDeviceTypeIOT, "IOT"
 	case "virtual", "vm":
 		return models.OCSFDeviceTypeVirtual, "Virtual"
 	case "mobile", "phone":
-		return models.OCSFDeviceTypeMobile, "Mobile"
+		return models.OCSFDeviceTypeMobile, models.DeviceTypeNameMobile
 	case "tablet":
 		return models.OCSFDeviceTypeTablet, "Tablet"
 	case "network_device":
@@ -161,11 +161,11 @@ func (i *OCSFTypeInference) inferFromSNMPSysDescr(sysDescr string) (int, string)
 	if strings.Contains(sysDescrLower, "cisco") {
 		switch {
 		case strings.Contains(sysDescrLower, "router") || strings.Contains(sysDescrLower, "ios"):
-			return models.OCSFDeviceTypeRouter, "Router"
+			return models.OCSFDeviceTypeRouter, models.DeviceTypeNameRouter
 		case strings.Contains(sysDescrLower, "switch") || strings.Contains(sysDescrLower, "catalyst"):
-			return models.OCSFDeviceTypeSwitch, "Switch"
+			return models.OCSFDeviceTypeSwitch, models.DeviceTypeNameSwitch
 		case strings.Contains(sysDescrLower, "asa") || strings.Contains(sysDescrLower, "firewall"):
-			return models.OCSFDeviceTypeFirewall, "Firewall"
+			return models.OCSFDeviceTypeFirewall, models.DeviceTypeNameFirewall
 		}
 	}
 
@@ -173,26 +173,26 @@ func (i *OCSFTypeInference) inferFromSNMPSysDescr(sysDescr string) (int, string)
 	if strings.Contains(sysDescrLower, "juniper") || strings.Contains(sysDescrLower, "junos") {
 		switch {
 		case strings.Contains(sysDescrLower, "router") || strings.Contains(sysDescrLower, "mx"):
-			return models.OCSFDeviceTypeRouter, "Router"
+			return models.OCSFDeviceTypeRouter, models.DeviceTypeNameRouter
 		case strings.Contains(sysDescrLower, "switch") || strings.Contains(sysDescrLower, "ex"):
-			return models.OCSFDeviceTypeSwitch, "Switch"
+			return models.OCSFDeviceTypeSwitch, models.DeviceTypeNameSwitch
 		case strings.Contains(sysDescrLower, "srx") || strings.Contains(sysDescrLower, "firewall"):
-			return models.OCSFDeviceTypeFirewall, "Firewall"
+			return models.OCSFDeviceTypeFirewall, models.DeviceTypeNameFirewall
 		}
 	}
 
 	// Generic network device detection
 	switch {
 	case strings.Contains(sysDescrLower, "router"):
-		return models.OCSFDeviceTypeRouter, "Router"
+		return models.OCSFDeviceTypeRouter, models.DeviceTypeNameRouter
 	case strings.Contains(sysDescrLower, "switch"):
-		return models.OCSFDeviceTypeSwitch, "Switch"
+		return models.OCSFDeviceTypeSwitch, models.DeviceTypeNameSwitch
 	case strings.Contains(sysDescrLower, "firewall"):
-		return models.OCSFDeviceTypeFirewall, "Firewall"
+		return models.OCSFDeviceTypeFirewall, models.DeviceTypeNameFirewall
 	case strings.Contains(sysDescrLower, "linux"):
-		return models.OCSFDeviceTypeServer, "Server"
+		return models.OCSFDeviceTypeServer, models.DeviceTypeNameServer
 	case strings.Contains(sysDescrLower, "windows"):
-		return models.OCSFDeviceTypeServer, "Server"
+		return models.OCSFDeviceTypeServer, models.DeviceTypeNameServer
 	}
 
 	return models.OCSFDeviceTypeUnknown, ""
@@ -204,13 +204,13 @@ func (i *OCSFTypeInference) inferFromNetboxRole(role string) (int, string) {
 
 	switch {
 	case strings.Contains(roleLower, "router"):
-		return models.OCSFDeviceTypeRouter, "Router"
+		return models.OCSFDeviceTypeRouter, models.DeviceTypeNameRouter
 	case strings.Contains(roleLower, "switch"):
-		return models.OCSFDeviceTypeSwitch, "Switch"
+		return models.OCSFDeviceTypeSwitch, models.DeviceTypeNameSwitch
 	case strings.Contains(roleLower, "firewall"):
-		return models.OCSFDeviceTypeFirewall, "Firewall"
+		return models.OCSFDeviceTypeFirewall, models.DeviceTypeNameFirewall
 	case strings.Contains(roleLower, "server"):
-		return models.OCSFDeviceTypeServer, "Server"
+		return models.OCSFDeviceTypeServer, models.DeviceTypeNameServer
 	case strings.Contains(roleLower, "load balancer"), strings.Contains(roleLower, "lb"):
 		return models.OCSFDeviceTypeLoadBalancer, "Load Balancer"
 	}
@@ -224,17 +224,17 @@ func (i *OCSFTypeInference) inferFromOSType(osType string) (int, string) {
 
 	switch {
 	case strings.Contains(osTypeLower, "ios"), strings.Contains(osTypeLower, "android"):
-		return models.OCSFDeviceTypeMobile, "Mobile"
+		return models.OCSFDeviceTypeMobile, models.DeviceTypeNameMobile
 	case strings.Contains(osTypeLower, "macos"), strings.Contains(osTypeLower, "mac os"):
-		return models.OCSFDeviceTypeDesktop, "Desktop"
+		return models.OCSFDeviceTypeDesktop, models.DeviceTypeNameDesktop
 	case strings.Contains(osTypeLower, "windows server"):
-		return models.OCSFDeviceTypeServer, "Server"
+		return models.OCSFDeviceTypeServer, models.DeviceTypeNameServer
 	case strings.Contains(osTypeLower, "windows"):
-		return models.OCSFDeviceTypeDesktop, "Desktop"
+		return models.OCSFDeviceTypeDesktop, models.DeviceTypeNameDesktop
 	case strings.Contains(osTypeLower, "linux") && strings.Contains(osTypeLower, "server"):
-		return models.OCSFDeviceTypeServer, "Server"
+		return models.OCSFDeviceTypeServer, models.DeviceTypeNameServer
 	case strings.Contains(osTypeLower, "esxi"), strings.Contains(osTypeLower, "hypervisor"):
-		return models.OCSFDeviceTypeServer, "Server"
+		return models.OCSFDeviceTypeServer, models.DeviceTypeNameServer
 	}
 
 	return models.OCSFDeviceTypeUnknown, ""
@@ -251,7 +251,7 @@ func (i *OCSFTypeInference) inferFromServiceType(serviceType string) (int, strin
 		strings.Contains(serviceTypeLower, "core"),
 		strings.Contains(serviceTypeLower, "checker"):
 		// ServiceRadar components are typically running on servers/VMs
-		return models.OCSFDeviceTypeServer, "Server"
+		return models.OCSFDeviceTypeServer, models.DeviceTypeNameServer
 	}
 
 	return models.OCSFDeviceTypeUnknown, ""

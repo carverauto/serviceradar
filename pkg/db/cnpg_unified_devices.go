@@ -249,22 +249,22 @@ func inferTypeFromArmisCategory(category string) (int, string) {
 	categoryLower := strings.ToLower(category)
 	switch {
 	case strings.Contains(categoryLower, "firewall"):
-		return models.OCSFDeviceTypeFirewall, "Firewall"
+		return models.OCSFDeviceTypeFirewall, models.DeviceTypeNameFirewall
 	case strings.Contains(categoryLower, "router"):
-		return models.OCSFDeviceTypeRouter, "Router"
+		return models.OCSFDeviceTypeRouter, models.DeviceTypeNameRouter
 	case strings.Contains(categoryLower, "switch"):
-		return models.OCSFDeviceTypeSwitch, "Switch"
+		return models.OCSFDeviceTypeSwitch, models.DeviceTypeNameSwitch
 	case strings.Contains(categoryLower, "server"):
-		return models.OCSFDeviceTypeServer, "Server"
+		return models.OCSFDeviceTypeServer, models.DeviceTypeNameServer
 	case strings.Contains(categoryLower, "desktop"):
-		return models.OCSFDeviceTypeDesktop, "Desktop"
+		return models.OCSFDeviceTypeDesktop, models.DeviceTypeNameDesktop
 	case strings.Contains(categoryLower, "laptop"):
 		return models.OCSFDeviceTypeLaptop, "Laptop"
 	case strings.Contains(categoryLower, "iot"), strings.Contains(categoryLower, "sensor"),
 		strings.Contains(categoryLower, "camera"):
 		return models.OCSFDeviceTypeIOT, "IOT"
 	case strings.Contains(categoryLower, "mobile"), strings.Contains(categoryLower, "phone"):
-		return models.OCSFDeviceTypeMobile, "Mobile"
+		return models.OCSFDeviceTypeMobile, models.DeviceTypeNameMobile
 	}
 	return models.OCSFDeviceTypeUnknown, ""
 }
@@ -273,17 +273,17 @@ func inferTypeFromDeviceType(deviceType string) (int, string) {
 	typeLower := strings.ToLower(deviceType)
 	switch typeLower {
 	case "server":
-		return models.OCSFDeviceTypeServer, "Server"
+		return models.OCSFDeviceTypeServer, models.DeviceTypeNameServer
 	case "desktop", "workstation":
-		return models.OCSFDeviceTypeDesktop, "Desktop"
+		return models.OCSFDeviceTypeDesktop, models.DeviceTypeNameDesktop
 	case "laptop", "notebook":
 		return models.OCSFDeviceTypeLaptop, "Laptop"
 	case "router":
-		return models.OCSFDeviceTypeRouter, "Router"
+		return models.OCSFDeviceTypeRouter, models.DeviceTypeNameRouter
 	case "switch":
-		return models.OCSFDeviceTypeSwitch, "Switch"
+		return models.OCSFDeviceTypeSwitch, models.DeviceTypeNameSwitch
 	case "firewall":
-		return models.OCSFDeviceTypeFirewall, "Firewall"
+		return models.OCSFDeviceTypeFirewall, models.DeviceTypeNameFirewall
 	case "iot", "sensor":
 		return models.OCSFDeviceTypeIOT, "IOT"
 	}
@@ -294,15 +294,15 @@ func inferTypeFromSNMPSysDescr(sysDescr string) (int, string) {
 	sysDescrLower := strings.ToLower(sysDescr)
 	switch {
 	case strings.Contains(sysDescrLower, "router") || (strings.Contains(sysDescrLower, "cisco") && strings.Contains(sysDescrLower, "ios")):
-		return models.OCSFDeviceTypeRouter, "Router"
+		return models.OCSFDeviceTypeRouter, models.DeviceTypeNameRouter
 	case strings.Contains(sysDescrLower, "switch") || strings.Contains(sysDescrLower, "catalyst"):
-		return models.OCSFDeviceTypeSwitch, "Switch"
+		return models.OCSFDeviceTypeSwitch, models.DeviceTypeNameSwitch
 	case strings.Contains(sysDescrLower, "asa") || strings.Contains(sysDescrLower, "firewall"):
-		return models.OCSFDeviceTypeFirewall, "Firewall"
+		return models.OCSFDeviceTypeFirewall, models.DeviceTypeNameFirewall
 	case strings.Contains(sysDescrLower, "linux"):
-		return models.OCSFDeviceTypeServer, "Server"
+		return models.OCSFDeviceTypeServer, models.DeviceTypeNameServer
 	case strings.Contains(sysDescrLower, "windows"):
-		return models.OCSFDeviceTypeServer, "Server"
+		return models.OCSFDeviceTypeServer, models.DeviceTypeNameServer
 	}
 	return models.OCSFDeviceTypeUnknown, ""
 }

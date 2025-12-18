@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -449,44 +448,10 @@ func (db *DB) CountOCSFDevices(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
-// DeleteOCSFDevices permanently removes the specified devices
+// DeleteOCSFDevices permanently removes the specified devices.
+// This is an alias for DeleteDevices which operates on the same ocsf_devices table.
 func (db *DB) DeleteOCSFDevices(ctx context.Context, uids []string) error {
-	if len(uids) == 0 || !db.cnpgConfigured() {
-		return nil
-	}
-
-	// First, log the deletion to device_updates for audit trail
-	batch := &pgx.Batch{}
-	now := time.Now().UTC()
-	for _, uid := range uids {
-		batch.Queue(
-			`INSERT INTO device_updates (
-				observed_at, device_id, discovery_source, partition, agent_id, poller_id, metadata
-			) VALUES ($1, $2, 'serviceradar', 'default', '', '', '{"_action": "deleted"}'::jsonb)`,
-			now, uid,
-		)
-	}
-
-	// Execute audit log batch
-	if err := sendBatchExecAll(ctx, batch, db.conn().SendBatch, "ocsf device deletion audit"); err != nil {
-		db.logger.Warn().Err(err).Msg("Failed to log OCSF device deletions to audit trail")
-	}
-
-	// Hard delete the devices
-	const deleteQuery = `DELETE FROM ocsf_devices WHERE uid = ANY($1)`
-	_, err := db.conn().Exec(ctx, deleteQuery, uids)
-	if err != nil {
-		return fmt.Errorf("failed to delete OCSF devices: %w", err)
-	}
-
-	// Also remove from device_identifiers table
-	const deleteIdentifiersQuery = `DELETE FROM device_identifiers WHERE device_id = ANY($1)`
-	_, err = db.conn().Exec(ctx, deleteIdentifiersQuery, uids)
-	if err != nil {
-		db.logger.Warn().Err(err).Msg("Failed to delete device identifiers for OCSF devices")
-	}
-
-	return nil
+	return db.DeleteDevices(ctx, uids)
 }
 
 // CleanupStaleOCSFDevices removes devices not seen within the retention period
@@ -522,244 +487,216 @@ func gatherOCSFDevices(rows pgx.Rows) ([]*models.OCSFDevice, error) {
 	return devices, rows.Err()
 }
 
+// ocsfDeviceScanTargets holds the nullable scan targets for an OCSF device.
+type ocsfDeviceScanTargets struct {
+	deviceType        sql.NullString
+	name              sql.NullString
+	hostname          sql.NullString
+	ip                sql.NullString
+	mac               sql.NullString
+	uidAlt            sql.NullString
+	vendorName        sql.NullString
+	model             sql.NullString
+	domain            sql.NullString
+	zone              sql.NullString
+	subnetUID         sql.NullString
+	vlanUID           sql.NullString
+	region            sql.NullString
+	firstSeenTime     sql.NullTime
+	lastSeenTime      sql.NullTime
+	riskLevelID       sql.NullInt32
+	riskLevel         sql.NullString
+	riskScore         sql.NullInt32
+	isManaged         sql.NullBool
+	isCompliant       sql.NullBool
+	isTrusted         sql.NullBool
+	pollerID          sql.NullString
+	agentID           sql.NullString
+	isAvailable       sql.NullBool
+	osJSON            []byte
+	hwInfoJSON        []byte
+	networkIfacesJSON []byte
+	ownerJSON         []byte
+	orgJSON           []byte
+	groupsJSON        []byte
+	agentListJSON     []byte
+	metadataJSON      []byte
+	discoverySources  []string
+}
+
 func scanOCSFDevice(row pgx.Row) (*models.OCSFDevice, error) {
-	var (
-		d                 models.OCSFDevice
-		deviceType        sql.NullString
-		name              sql.NullString
-		hostname          sql.NullString
-		ip                sql.NullString
-		mac               sql.NullString
-		uidAlt            sql.NullString
-		vendorName        sql.NullString
-		model             sql.NullString
-		domain            sql.NullString
-		zone              sql.NullString
-		subnetUID         sql.NullString
-		vlanUID           sql.NullString
-		region            sql.NullString
-		firstSeenTime     sql.NullTime
-		lastSeenTime      sql.NullTime
-		riskLevelID       sql.NullInt32
-		riskLevel         sql.NullString
-		riskScore         sql.NullInt32
-		isManaged         sql.NullBool
-		isCompliant       sql.NullBool
-		isTrusted         sql.NullBool
-		osJSON            []byte
-		hwInfoJSON        []byte
-		networkIfacesJSON []byte
-		ownerJSON         []byte
-		orgJSON           []byte
-		groupsJSON        []byte
-		agentListJSON     []byte
-		pollerID          sql.NullString
-		agentID           sql.NullString
-		discoverySources  []string
-		isAvailable       sql.NullBool
-		metadataJSON      []byte
-	)
+	var d models.OCSFDevice
+	var t ocsfDeviceScanTargets
 
 	if err := row.Scan(
 		&d.UID,
 		&d.TypeID,
-		&deviceType,
-		&name,
-		&hostname,
-		&ip,
-		&mac,
-		&uidAlt,
-		&vendorName,
-		&model,
-		&domain,
-		&zone,
-		&subnetUID,
-		&vlanUID,
-		&region,
-		&firstSeenTime,
-		&lastSeenTime,
+		&t.deviceType,
+		&t.name,
+		&t.hostname,
+		&t.ip,
+		&t.mac,
+		&t.uidAlt,
+		&t.vendorName,
+		&t.model,
+		&t.domain,
+		&t.zone,
+		&t.subnetUID,
+		&t.vlanUID,
+		&t.region,
+		&t.firstSeenTime,
+		&t.lastSeenTime,
 		&d.CreatedTime,
 		&d.ModifiedTime,
-		&riskLevelID,
-		&riskLevel,
-		&riskScore,
-		&isManaged,
-		&isCompliant,
-		&isTrusted,
-		&osJSON,
-		&hwInfoJSON,
-		&networkIfacesJSON,
-		&ownerJSON,
-		&orgJSON,
-		&groupsJSON,
-		&agentListJSON,
-		&pollerID,
-		&agentID,
-		&discoverySources,
-		&isAvailable,
-		&metadataJSON,
+		&t.riskLevelID,
+		&t.riskLevel,
+		&t.riskScore,
+		&t.isManaged,
+		&t.isCompliant,
+		&t.isTrusted,
+		&t.osJSON,
+		&t.hwInfoJSON,
+		&t.networkIfacesJSON,
+		&t.ownerJSON,
+		&t.orgJSON,
+		&t.groupsJSON,
+		&t.agentListJSON,
+		&t.pollerID,
+		&t.agentID,
+		&t.discoverySources,
+		&t.isAvailable,
+		&t.metadataJSON,
 	); err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToScanOCSFDeviceRow, err)
 	}
 
-	// Map nullable fields
-	if deviceType.Valid {
-		d.Type = deviceType.String
-	}
-	if name.Valid {
-		d.Name = name.String
-	}
-	if hostname.Valid {
-		d.Hostname = hostname.String
-	}
-	if ip.Valid {
-		d.IP = ip.String
-	}
-	if mac.Valid {
-		d.MAC = mac.String
-	}
-	if uidAlt.Valid {
-		d.UIDAlt = uidAlt.String
-	}
-	if vendorName.Valid {
-		d.VendorName = vendorName.String
-	}
-	if model.Valid {
-		d.Model = model.String
-	}
-	if domain.Valid {
-		d.Domain = domain.String
-	}
-	if zone.Valid {
-		d.Zone = zone.String
-	}
-	if subnetUID.Valid {
-		d.SubnetUID = subnetUID.String
-	}
-	if vlanUID.Valid {
-		d.VlanUID = vlanUID.String
-	}
-	if region.Valid {
-		d.Region = region.String
-	}
-	if firstSeenTime.Valid {
-		d.FirstSeenTime = &firstSeenTime.Time
-	}
-	if lastSeenTime.Valid {
-		d.LastSeenTime = &lastSeenTime.Time
-	}
-	if riskLevelID.Valid {
-		v := int(riskLevelID.Int32)
-		d.RiskLevelID = &v
-	}
-	if riskLevel.Valid {
-		d.RiskLevel = riskLevel.String
-	}
-	if riskScore.Valid {
-		v := int(riskScore.Int32)
-		d.RiskScore = &v
-	}
-	if isManaged.Valid {
-		d.IsManaged = &isManaged.Bool
-	}
-	if isCompliant.Valid {
-		d.IsCompliant = &isCompliant.Bool
-	}
-	if isTrusted.Valid {
-		d.IsTrusted = &isTrusted.Bool
-	}
-	if pollerID.Valid {
-		d.PollerID = pollerID.String
-	}
-	if agentID.Valid {
-		d.AgentID = agentID.String
-	}
-	if isAvailable.Valid {
-		d.IsAvailable = &isAvailable.Bool
-	}
-
-	d.DiscoverySources = discoverySources
-
-	// Unmarshal JSONB fields
-	if len(osJSON) > 0 {
-		var os models.OCSFDeviceOS
-		if err := json.Unmarshal(osJSON, &os); err == nil {
-			d.OS = &os
-		}
-	}
-	if len(hwInfoJSON) > 0 {
-		var hwInfo models.OCSFDeviceHWInfo
-		if err := json.Unmarshal(hwInfoJSON, &hwInfo); err == nil {
-			d.HWInfo = &hwInfo
-		}
-	}
-	if len(networkIfacesJSON) > 0 {
-		var ifaces []models.OCSFNetworkInterface
-		if err := json.Unmarshal(networkIfacesJSON, &ifaces); err == nil {
-			d.NetworkInterfaces = ifaces
-		}
-	}
-	if len(ownerJSON) > 0 {
-		var owner models.OCSFUser
-		if err := json.Unmarshal(ownerJSON, &owner); err == nil {
-			d.Owner = &owner
-		}
-	}
-	if len(orgJSON) > 0 {
-		var org models.OCSFOrganization
-		if err := json.Unmarshal(orgJSON, &org); err == nil {
-			d.Org = &org
-		}
-	}
-	if len(groupsJSON) > 0 {
-		var groups []models.OCSFGroup
-		if err := json.Unmarshal(groupsJSON, &groups); err == nil {
-			d.Groups = groups
-		}
-	}
-	if len(agentListJSON) > 0 {
-		var agents []models.OCSFAgent
-		if err := json.Unmarshal(agentListJSON, &agents); err == nil {
-			d.AgentList = agents
-		}
-	}
-	if len(metadataJSON) > 0 {
-		var metadata map[string]string
-		if err := json.Unmarshal(metadataJSON, &metadata); err == nil {
-			d.Metadata = metadata
-		}
-	}
+	mapOCSFDeviceNullableFields(&d, &t)
+	unmarshalOCSFDeviceJSONFields(&d, &t)
 
 	return &d, nil
 }
 
-// dedupeOCSFDevices removes duplicate devices by UID, keeping the most recently seen
-func dedupeOCSFDevices(devices []*models.OCSFDevice) []*models.OCSFDevice {
-	if len(devices) == 0 {
-		return devices
-	}
+// mapOCSFDeviceNullableFields maps nullable scan targets to device fields.
+func mapOCSFDeviceNullableFields(d *models.OCSFDevice, t *ocsfDeviceScanTargets) {
+	// String fields
+	d.Type = nullStringValue(t.deviceType)
+	d.Name = nullStringValue(t.name)
+	d.Hostname = nullStringValue(t.hostname)
+	d.IP = nullStringValue(t.ip)
+	d.MAC = nullStringValue(t.mac)
+	d.UIDAlt = nullStringValue(t.uidAlt)
+	d.VendorName = nullStringValue(t.vendorName)
+	d.Model = nullStringValue(t.model)
+	d.Domain = nullStringValue(t.domain)
+	d.Zone = nullStringValue(t.zone)
+	d.SubnetUID = nullStringValue(t.subnetUID)
+	d.VlanUID = nullStringValue(t.vlanUID)
+	d.Region = nullStringValue(t.region)
+	d.RiskLevel = nullStringValue(t.riskLevel)
+	d.PollerID = nullStringValue(t.pollerID)
+	d.AgentID = nullStringValue(t.agentID)
 
-	seen := make(map[string]*models.OCSFDevice, len(devices))
-	for _, device := range devices {
-		if device == nil {
-			continue
+	// Time fields
+	d.FirstSeenTime = nullTimePointer(t.firstSeenTime)
+	d.LastSeenTime = nullTimePointer(t.lastSeenTime)
+
+	// Integer pointer fields
+	d.RiskLevelID = nullInt32Pointer(t.riskLevelID)
+	d.RiskScore = nullInt32Pointer(t.riskScore)
+
+	// Boolean pointer fields
+	d.IsManaged = nullBoolPointer(t.isManaged)
+	d.IsCompliant = nullBoolPointer(t.isCompliant)
+	d.IsTrusted = nullBoolPointer(t.isTrusted)
+	d.IsAvailable = nullBoolPointer(t.isAvailable)
+
+	// Slice field
+	d.DiscoverySources = t.discoverySources
+}
+
+// unmarshalOCSFDeviceJSONFields unmarshals JSONB fields into device structs.
+func unmarshalOCSFDeviceJSONFields(d *models.OCSFDevice, t *ocsfDeviceScanTargets) {
+	if len(t.osJSON) > 0 {
+		var os models.OCSFDeviceOS
+		if err := json.Unmarshal(t.osJSON, &os); err == nil {
+			d.OS = &os
 		}
-		seen[device.UID] = device
 	}
-
-	result := make([]*models.OCSFDevice, 0, len(seen))
-	for _, device := range seen {
-		result = append(result, device)
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].LastSeenTime == nil || result[j].LastSeenTime == nil {
-			return false
+	if len(t.hwInfoJSON) > 0 {
+		var hwInfo models.OCSFDeviceHWInfo
+		if err := json.Unmarshal(t.hwInfoJSON, &hwInfo); err == nil {
+			d.HWInfo = &hwInfo
 		}
-		return result[i].LastSeenTime.After(*result[j].LastSeenTime)
-	})
+	}
+	if len(t.networkIfacesJSON) > 0 {
+		var ifaces []models.OCSFNetworkInterface
+		if err := json.Unmarshal(t.networkIfacesJSON, &ifaces); err == nil {
+			d.NetworkInterfaces = ifaces
+		}
+	}
+	if len(t.ownerJSON) > 0 {
+		var owner models.OCSFUser
+		if err := json.Unmarshal(t.ownerJSON, &owner); err == nil {
+			d.Owner = &owner
+		}
+	}
+	if len(t.orgJSON) > 0 {
+		var org models.OCSFOrganization
+		if err := json.Unmarshal(t.orgJSON, &org); err == nil {
+			d.Org = &org
+		}
+	}
+	if len(t.groupsJSON) > 0 {
+		var groups []models.OCSFGroup
+		if err := json.Unmarshal(t.groupsJSON, &groups); err == nil {
+			d.Groups = groups
+		}
+	}
+	if len(t.agentListJSON) > 0 {
+		var agents []models.OCSFAgent
+		if err := json.Unmarshal(t.agentListJSON, &agents); err == nil {
+			d.AgentList = agents
+		}
+	}
+	if len(t.metadataJSON) > 0 {
+		var metadata map[string]string
+		if err := json.Unmarshal(t.metadataJSON, &metadata); err == nil {
+			d.Metadata = metadata
+		}
+	}
+}
 
-	return result
+// nullStringValue returns the string value if valid, empty string otherwise.
+func nullStringValue(ns sql.NullString) string {
+	if ns.Valid {
+		return ns.String
+	}
+	return ""
+}
+
+// nullTimePointer returns a pointer to the time if valid, nil otherwise.
+func nullTimePointer(nt sql.NullTime) *time.Time {
+	if nt.Valid {
+		return &nt.Time
+	}
+	return nil
+}
+
+// nullInt32Pointer returns a pointer to the int value if valid, nil otherwise.
+func nullInt32Pointer(ni sql.NullInt32) *int {
+	if ni.Valid {
+		v := int(ni.Int32)
+		return &v
+	}
+	return nil
+}
+
+// nullBoolPointer returns a pointer to the bool value if valid, nil otherwise.
+func nullBoolPointer(nb sql.NullBool) *bool {
+	if nb.Valid {
+		return &nb.Bool
+	}
+	return nil
 }
 
 // Helper functions for nullable values
