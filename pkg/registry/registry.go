@@ -1142,19 +1142,19 @@ func (r *DeviceRegistry) resolveIdentifiers(
 
 func (r *DeviceRegistry) resolveArmisIDsCNPG(ctx context.Context, ids []string, out map[string]string) error {
 	const query = `
-SELECT metadata->>'armis_device_id' AS id, device_id
-FROM unified_devices
+SELECT metadata->>'armis_device_id' AS id, uid
+FROM ocsf_devices
 WHERE metadata ? 'armis_device_id'
   AND metadata->>'armis_device_id' = ANY($1)
-ORDER BY updated_at DESC`
+ORDER BY modified_time DESC`
 
 	return r.resolveIdentifiersCNPG(ctx, ids, query, nil, out)
 }
 
 func (r *DeviceRegistry) resolveIPsToCanonicalCNPG(ctx context.Context, ips []string, out map[string]string) error {
 	const query = `
-SELECT DISTINCT ON (ip) ip, device_id
-FROM unified_devices
+SELECT DISTINCT ON (ip) ip, uid
+FROM ocsf_devices
 WHERE ip = ANY($1)
   AND (
         metadata ? 'armis_device_id'
@@ -1163,7 +1163,7 @@ WHERE ip = ANY($1)
       )
   AND COALESCE(lower(metadata->>'_deleted'),'false') <> 'true'
   AND COALESCE(lower(metadata->>'deleted'),'false') <> 'true'
-ORDER BY ip, last_seen DESC`
+ORDER BY ip, last_seen_time DESC`
 
 	argBuilder := func(chunk []string) []interface{} {
 		return []interface{}{chunk, integrationTypeNetbox}
@@ -1281,15 +1281,15 @@ func (r *DeviceRegistry) resolveArmisIDs(ctx context.Context, ids []string, out 
 	}
 
 	buildQuery := func(list string) string {
-		return fmt.Sprintf(`SELECT device_id, metadata['armis_device_id'] AS id, _tp_time
-              FROM table(unified_devices)
-              WHERE has(map_keys(metadata), 'armis_device_id')
-                AND metadata['armis_device_id'] IN (%s)
-              ORDER BY _tp_time DESC`, list)
+		return fmt.Sprintf(`SELECT uid, metadata->>'armis_device_id' AS id, modified_time
+              FROM ocsf_devices
+              WHERE metadata ? 'armis_device_id'
+                AND metadata->>'armis_device_id' IN (%s)
+              ORDER BY modified_time DESC`, list)
 	}
 	extract := func(row map[string]any) (string, string) {
 		idVal, _ := row["id"].(string)
-		dev, _ := row["device_id"].(string)
+		dev, _ := row["uid"].(string)
 		return idVal, dev
 	}
 	return r.resolveIdentifiers(ctx, ids, out, buildQuery, extract)
@@ -1359,17 +1359,17 @@ func (r *DeviceRegistry) resolveIPsToCanonical(ctx context.Context, ips []string
 			buildQuery := func(list string) string {
 				return fmt.Sprintf(`SELECT
                 ip,
-                arg_max(device_id, _tp_time) AS device_id
-              FROM table(unified_devices)
+                uid
+              FROM ocsf_devices
               WHERE ip IN (%s)
-                AND (has(map_keys(metadata),'armis_device_id')
-                     OR (has(map_keys(metadata),'integration_type') AND metadata['integration_type']='%s')
+                AND (metadata ? 'armis_device_id'
+                     OR (metadata ? 'integration_type' AND metadata->>'integration_type'='%s')
                      OR (mac IS NOT NULL AND mac != ''))
-              GROUP BY ip`, list, integrationTypeNetbox)
+              ORDER BY modified_time DESC`, list, integrationTypeNetbox)
 			}
 			extract := func(row map[string]any) (string, string) {
 				ip, _ := row["ip"].(string)
-				dev, _ := row["device_id"].(string)
+				dev, _ := row["uid"].(string)
 				return ip, dev
 			}
 

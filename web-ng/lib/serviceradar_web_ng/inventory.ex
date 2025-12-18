@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNG.Inventory do
 
     Repo.all(
       from(d in Device,
-        order_by: [desc: d.last_seen],
+        order_by: [desc: d.last_seen_time],
         limit: ^limit,
         offset: ^offset
       )

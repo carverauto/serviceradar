@@ -1,26 +1,52 @@
 -- Deterministic CNPG schema subset for SRQL API tests.
 -- The harness drops tables before creation so each test starts cleanly.
 
-DROP TABLE IF EXISTS unified_devices;
+DROP TABLE IF EXISTS ocsf_devices;
 
-CREATE TABLE unified_devices (
-    device_id         TEXT        PRIMARY KEY,
-    ip                TEXT,
-    poller_id         TEXT,
-    agent_id          TEXT,
-    hostname          TEXT,
-    mac               TEXT,
-    discovery_sources TEXT[],
-    is_available      BOOLEAN     NOT NULL DEFAULT FALSE,
-    first_seen        TIMESTAMPTZ NOT NULL,
-    last_seen         TIMESTAMPTZ NOT NULL,
-    metadata          JSONB       NOT NULL DEFAULT '{}'::jsonb,
-    device_type       TEXT,
-    service_type      TEXT,
-    service_status    TEXT,
-    last_heartbeat    TIMESTAMPTZ,
-    os_info           TEXT,
-    version_info      TEXT
+CREATE TABLE ocsf_devices (
+    -- OCSF Core Identity
+    uid                 TEXT        PRIMARY KEY,
+    type_id             INT         NOT NULL DEFAULT 0,
+    type                TEXT,
+    name                TEXT,
+    hostname            TEXT,
+    ip                  TEXT,
+    mac                 TEXT,
+    -- OCSF Extended Identity
+    uid_alt             TEXT,
+    vendor_name         TEXT,
+    model               TEXT,
+    domain              TEXT,
+    zone                TEXT,
+    subnet_uid          TEXT,
+    vlan_uid            TEXT,
+    region              TEXT,
+    -- OCSF Temporal
+    first_seen_time     TIMESTAMPTZ,
+    last_seen_time      TIMESTAMPTZ,
+    created_time        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    modified_time       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- OCSF Risk and Compliance
+    risk_level_id       INT,
+    risk_level          TEXT,
+    risk_score          INT,
+    is_managed          BOOLEAN,
+    is_compliant        BOOLEAN,
+    is_trusted          BOOLEAN,
+    -- OCSF Nested Objects (JSONB)
+    os                  JSONB,
+    hw_info             JSONB,
+    network_interfaces  JSONB,
+    owner               JSONB,
+    org                 JSONB,
+    groups              JSONB,
+    agent_list          JSONB,
+    -- ServiceRadar-specific fields
+    poller_id           TEXT,
+    agent_id            TEXT,
+    discovery_sources   TEXT[],
+    is_available        BOOLEAN,
+    metadata            JSONB
 );
 
 DROP TABLE IF EXISTS pollers;

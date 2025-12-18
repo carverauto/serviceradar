@@ -116,9 +116,9 @@ func diagnoseCollapse(ctx context.Context, t *testing.T, database db.Service) {
 
 	// Check for tombstone chains
 	rows, err := executor.ExecuteQuery(ctx, `
-		SELECT COUNT(*) as count 
-		FROM unified_devices 
-		WHERE metadata->>'_merged_into' IS NOT NULL 
+		SELECT COUNT(*) as count
+		FROM ocsf_devices
+		WHERE metadata->>'_merged_into' IS NOT NULL
 		  AND metadata->>'_merged_into' != ''
 	`)
 	if err == nil && len(rows) > 0 {
@@ -128,7 +128,7 @@ func diagnoseCollapse(ctx context.Context, t *testing.T, database db.Service) {
 	// Check for top merge targets (black holes)
 	rows, err = executor.ExecuteQuery(ctx, `
 		SELECT metadata->>'_merged_into' as target, COUNT(*) as merged_count
-		FROM unified_devices
+		FROM ocsf_devices
 		WHERE metadata->>'_merged_into' IS NOT NULL
 		GROUP BY 1
 		ORDER BY 2 DESC

@@ -579,7 +579,7 @@ func TestStatsAggregatorCountsServiceComponentsEvenWithFallbackRecords(t *testin
 
 func TestStatsAggregatorCountsAllSweepDevices(t *testing.T) {
 	// This test verifies that all devices are counted regardless of discovery source
-	// or whether they have strong identity markers. The database (unified_devices)
+	// or whether they have strong identity markers. The database (ocsf_devices)
 	// is the source of truth - if a device is in the registry, it should be counted.
 	log := logger.NewTestLogger()
 	reg := registry.NewDeviceRegistry(nil, log)

@@ -290,9 +290,9 @@ func macLookupQuery(mac string) string {
 	if mac == "" {
 		return ""
 	}
-	return fmt.Sprintf(`SELECT device_id FROM table(unified_devices)
+	return fmt.Sprintf(`SELECT uid FROM ocsf_devices
             WHERE mac = '%s'
-            ORDER BY _tp_time DESC
+            ORDER BY modified_time DESC
             LIMIT 1`, escapeLiteral(mac))
 }
 
@@ -301,11 +301,11 @@ func armisLookupQuery(armis string) string {
 	if armis == "" {
 		return ""
 	}
-	return fmt.Sprintf(`SELECT device_id
-            FROM table(unified_devices)
-            WHERE has(map_keys(metadata), 'armis_device_id')
-              AND metadata['armis_device_id'] = '%s'
-            ORDER BY _tp_time DESC
+	return fmt.Sprintf(`SELECT uid
+            FROM ocsf_devices
+            WHERE metadata ? 'armis_device_id'
+              AND metadata->>'armis_device_id' = '%s'
+            ORDER BY modified_time DESC
             LIMIT 1`, escapeLiteral(armis))
 }
 
@@ -315,13 +315,13 @@ func netboxLookupQuery(id string) string {
 		return ""
 	}
 	esc := escapeLiteral(id)
-	return fmt.Sprintf(`SELECT device_id
-            FROM table(unified_devices)
-            WHERE has(map_keys(metadata), 'integration_type')
-              AND metadata['integration_type'] = 'netbox'
-              AND ((has(map_keys(metadata), 'integration_id') AND metadata['integration_id'] = '%s')
-                OR (has(map_keys(metadata), 'netbox_device_id') = 1 AND metadata['netbox_device_id'] = '%s'))
-            ORDER BY _tp_time DESC
+	return fmt.Sprintf(`SELECT uid
+            FROM ocsf_devices
+            WHERE metadata ? 'integration_type'
+              AND metadata->>'integration_type' = 'netbox'
+              AND ((metadata ? 'integration_id' AND metadata->>'integration_id' = '%s')
+                OR (metadata ? 'netbox_device_id' AND metadata->>'netbox_device_id' = '%s'))
+            ORDER BY modified_time DESC
             LIMIT 1`, esc, esc)
 }
 

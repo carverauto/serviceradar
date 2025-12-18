@@ -62,11 +62,12 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 	}
 
 	batch := &pgx.Batch{}
+	now := time.Now().UTC()
 
 	for _, update := range updates {
 		observed := update.Timestamp
 		if observed.IsZero() {
-			observed = time.Now().UTC()
+			observed = now
 		}
 
 		if update.Partition == "" {
@@ -119,48 +120,87 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 			metaBytes,
 		)
 
-		// Upsert into unified_devices (current state table)
-		// This maintains the source of truth for device inventory
+		// Upsert into ocsf_devices (OCSF-aligned device inventory)
 		discoverySources := []string{arbitrarySource}
+
+		// Infer OCSF type from metadata
+		typeID, typeName := inferOCSFTypeFromMetadata(update.Metadata)
+
+		// Extract vendor and model from metadata
+		vendorName := coalesceMetadata(update.Metadata, "vendor", "manufacturer", "armis_manufacturer")
+		model := coalesceMetadata(update.Metadata, "model", "armis_model")
+
+		// Extract risk information if present
+		var riskScore *int
+		var riskLevelID *int
+		var riskLevel string
+		if rs := update.Metadata["risk_score"]; rs != "" {
+			if score, err := parseMetadataInt(rs); err == nil {
+				riskScore = &score
+				levelID, levelName := models.RiskLevelFromScore(score)
+				riskLevelID = &levelID
+				riskLevel = levelName
+			}
+		}
+
+		// Build OS JSONB from metadata
+		osJSON := buildOSJSONFromMetadata(update.Metadata)
+
+		// Build hw_info JSONB from metadata
+		hwInfoJSON := buildHWInfoJSONFromMetadata(update.Metadata)
+
 		batch.Queue(
-			`INSERT INTO unified_devices (
-				device_id,
-				ip,
-				poller_id,
-				agent_id,
-				hostname,
-				mac,
-				discovery_sources,
-				is_available,
-				first_seen,
-				last_seen,
-				metadata,
-				updated_at
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10::jsonb,NOW())
-			ON CONFLICT (device_id) DO UPDATE SET
-				ip = COALESCE(NULLIF(EXCLUDED.ip, ''), unified_devices.ip),
-				poller_id = COALESCE(NULLIF(EXCLUDED.poller_id, ''), unified_devices.poller_id),
-				agent_id = COALESCE(NULLIF(EXCLUDED.agent_id, ''), unified_devices.agent_id),
-				hostname = COALESCE(EXCLUDED.hostname, unified_devices.hostname),
-				mac = COALESCE(EXCLUDED.mac, unified_devices.mac),
+			`INSERT INTO ocsf_devices (
+				uid, type_id, type, hostname, ip, mac,
+				vendor_name, model,
+				first_seen_time, last_seen_time, created_time, modified_time,
+				risk_level_id, risk_level, risk_score,
+				os, hw_info,
+				poller_id, agent_id, discovery_sources, is_available, metadata
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,$18,$19,$20::jsonb)
+			ON CONFLICT (uid) DO UPDATE SET
+				type_id = CASE WHEN ocsf_devices.type_id = 0 THEN EXCLUDED.type_id ELSE ocsf_devices.type_id END,
+				type = CASE WHEN ocsf_devices.type_id = 0 THEN EXCLUDED.type ELSE ocsf_devices.type END,
+				hostname = COALESCE(NULLIF(EXCLUDED.hostname, ''), ocsf_devices.hostname),
+				ip = COALESCE(NULLIF(EXCLUDED.ip, ''), ocsf_devices.ip),
+				mac = COALESCE(NULLIF(EXCLUDED.mac, ''), ocsf_devices.mac),
+				vendor_name = COALESCE(NULLIF(EXCLUDED.vendor_name, ''), ocsf_devices.vendor_name),
+				model = COALESCE(NULLIF(EXCLUDED.model, ''), ocsf_devices.model),
+				last_seen_time = EXCLUDED.last_seen_time,
+				modified_time = EXCLUDED.modified_time,
+				risk_level_id = COALESCE(EXCLUDED.risk_level_id, ocsf_devices.risk_level_id),
+				risk_level = COALESCE(NULLIF(EXCLUDED.risk_level, ''), ocsf_devices.risk_level),
+				risk_score = COALESCE(EXCLUDED.risk_score, ocsf_devices.risk_score),
+				os = COALESCE(EXCLUDED.os, ocsf_devices.os),
+				hw_info = COALESCE(EXCLUDED.hw_info, ocsf_devices.hw_info),
+				poller_id = COALESCE(NULLIF(EXCLUDED.poller_id, ''), ocsf_devices.poller_id),
+				agent_id = COALESCE(NULLIF(EXCLUDED.agent_id, ''), ocsf_devices.agent_id),
 				discovery_sources = (
 					SELECT array_agg(DISTINCT src) FROM unnest(
-						array_cat(unified_devices.discovery_sources, EXCLUDED.discovery_sources)
+						array_cat(ocsf_devices.discovery_sources, EXCLUDED.discovery_sources)
 					) AS src WHERE src IS NOT NULL
 				),
 				is_available = EXCLUDED.is_available,
-				last_seen = EXCLUDED.last_seen,
-				metadata = unified_devices.metadata || EXCLUDED.metadata,
-				updated_at = NOW()`,
+				metadata = ocsf_devices.metadata || EXCLUDED.metadata`,
 			update.DeviceID,
+			typeID,
+			nullableString(typeName),
+			toNullableString(update.Hostname),
 			update.IP,
+			toNullableString(update.MAC),
+			nullableString(vendorName),
+			nullableString(model),
+			observed,
+			now,
+			riskLevelID,
+			nullableString(riskLevel),
+			riskScore,
+			nullableBytes(osJSON),
+			nullableBytes(hwInfoJSON),
 			update.PollerID,
 			update.AgentID,
-			toNullableString(update.Hostname),
-			toNullableString(update.MAC),
 			discoverySources,
 			update.IsAvailable,
-			observed,
 			metaBytes,
 		)
 	}
@@ -174,6 +214,171 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 	}
 
 	return db.sendCNPGWithRetry(ctx, batch, "device_updates")
+}
+
+// inferOCSFTypeFromMetadata infers OCSF device type from metadata
+func inferOCSFTypeFromMetadata(metadata map[string]string) (int, string) {
+	if metadata == nil {
+		return models.OCSFDeviceTypeUnknown, "Unknown"
+	}
+
+	// Check for explicit type from Armis
+	if armisCategory := metadata["armis_category"]; armisCategory != "" {
+		if typeID, typeName := inferTypeFromArmisCategory(armisCategory); typeID != models.OCSFDeviceTypeUnknown {
+			return typeID, typeName
+		}
+	}
+
+	// Check for device type from source system
+	if deviceType := metadata["device_type"]; deviceType != "" {
+		if typeID, typeName := inferTypeFromDeviceType(deviceType); typeID != models.OCSFDeviceTypeUnknown {
+			return typeID, typeName
+		}
+	}
+
+	// Check SNMP sysDescr for network device hints
+	if sysDescr := metadata["snmp_sys_descr"]; sysDescr != "" {
+		if typeID, typeName := inferTypeFromSNMPSysDescr(sysDescr); typeID != models.OCSFDeviceTypeUnknown {
+			return typeID, typeName
+		}
+	}
+
+	return models.OCSFDeviceTypeUnknown, "Unknown"
+}
+
+func inferTypeFromArmisCategory(category string) (int, string) {
+	categoryLower := strings.ToLower(category)
+	switch {
+	case strings.Contains(categoryLower, "firewall"):
+		return models.OCSFDeviceTypeFirewall, "Firewall"
+	case strings.Contains(categoryLower, "router"):
+		return models.OCSFDeviceTypeRouter, "Router"
+	case strings.Contains(categoryLower, "switch"):
+		return models.OCSFDeviceTypeSwitch, "Switch"
+	case strings.Contains(categoryLower, "server"):
+		return models.OCSFDeviceTypeServer, "Server"
+	case strings.Contains(categoryLower, "desktop"):
+		return models.OCSFDeviceTypeDesktop, "Desktop"
+	case strings.Contains(categoryLower, "laptop"):
+		return models.OCSFDeviceTypeLaptop, "Laptop"
+	case strings.Contains(categoryLower, "iot"), strings.Contains(categoryLower, "sensor"),
+		strings.Contains(categoryLower, "camera"):
+		return models.OCSFDeviceTypeIOT, "IOT"
+	case strings.Contains(categoryLower, "mobile"), strings.Contains(categoryLower, "phone"):
+		return models.OCSFDeviceTypeMobile, "Mobile"
+	}
+	return models.OCSFDeviceTypeUnknown, ""
+}
+
+func inferTypeFromDeviceType(deviceType string) (int, string) {
+	typeLower := strings.ToLower(deviceType)
+	switch typeLower {
+	case "server":
+		return models.OCSFDeviceTypeServer, "Server"
+	case "desktop", "workstation":
+		return models.OCSFDeviceTypeDesktop, "Desktop"
+	case "laptop", "notebook":
+		return models.OCSFDeviceTypeLaptop, "Laptop"
+	case "router":
+		return models.OCSFDeviceTypeRouter, "Router"
+	case "switch":
+		return models.OCSFDeviceTypeSwitch, "Switch"
+	case "firewall":
+		return models.OCSFDeviceTypeFirewall, "Firewall"
+	case "iot", "sensor":
+		return models.OCSFDeviceTypeIOT, "IOT"
+	}
+	return models.OCSFDeviceTypeUnknown, ""
+}
+
+func inferTypeFromSNMPSysDescr(sysDescr string) (int, string) {
+	sysDescrLower := strings.ToLower(sysDescr)
+	switch {
+	case strings.Contains(sysDescrLower, "router") || (strings.Contains(sysDescrLower, "cisco") && strings.Contains(sysDescrLower, "ios")):
+		return models.OCSFDeviceTypeRouter, "Router"
+	case strings.Contains(sysDescrLower, "switch") || strings.Contains(sysDescrLower, "catalyst"):
+		return models.OCSFDeviceTypeSwitch, "Switch"
+	case strings.Contains(sysDescrLower, "asa") || strings.Contains(sysDescrLower, "firewall"):
+		return models.OCSFDeviceTypeFirewall, "Firewall"
+	case strings.Contains(sysDescrLower, "linux"):
+		return models.OCSFDeviceTypeServer, "Server"
+	case strings.Contains(sysDescrLower, "windows"):
+		return models.OCSFDeviceTypeServer, "Server"
+	}
+	return models.OCSFDeviceTypeUnknown, ""
+}
+
+func coalesceMetadata(metadata map[string]string, keys ...string) string {
+	for _, key := range keys {
+		if v := metadata[key]; v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func parseMetadataInt(s string) (int, error) {
+	var v int
+	_, err := fmt.Sscanf(s, "%d", &v)
+	return v, err
+}
+
+func buildOSJSONFromMetadata(metadata map[string]string) []byte {
+	os := map[string]interface{}{}
+	hasData := false
+
+	if v := metadata["os_name"]; v != "" {
+		os["name"] = v
+		hasData = true
+	}
+	if v := metadata["os_type"]; v != "" {
+		os["type"] = v
+		hasData = true
+	}
+	if v := metadata["os_version"]; v != "" {
+		os["version"] = v
+		hasData = true
+	}
+	if v := metadata["kernel_release"]; v != "" {
+		os["kernel_release"] = v
+		hasData = true
+	}
+
+	if !hasData {
+		return nil
+	}
+
+	b, _ := json.Marshal(os)
+	return b
+}
+
+func buildHWInfoJSONFromMetadata(metadata map[string]string) []byte {
+	hw := map[string]interface{}{}
+	hasData := false
+
+	if v := metadata["cpu_architecture"]; v != "" {
+		hw["cpu_architecture"] = v
+		hasData = true
+	}
+	if v := metadata["cpu_type"]; v != "" {
+		hw["cpu_type"] = v
+		hasData = true
+	}
+	if v := metadata["serial_number"]; v != "" {
+		hw["serial_number"] = v
+		hasData = true
+	}
+	if v := metadata["hw_uuid"]; v != "" {
+		hw["uuid"] = v
+		hasData = true
+	}
+
+	if !hasData {
+		return nil
+	}
+
+	b, _ := json.Marshal(hw)
+	return b
 }
 
 func (db *DB) cnpgGetUnifiedDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {

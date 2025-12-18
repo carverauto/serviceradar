@@ -23,7 +23,7 @@ type Metrics struct {
 	Enabled             bool  `json:"enabled"`
 	Retention           int32 `json:"retention"`
 	MaxPollers          int32 `json:"max_pollers"`
-	DeviceRetentionDays int32 `json:"device_retention_days,omitempty"` // Days to keep devices in unified_devices (default: 3)
+	DeviceRetentionDays int32 `json:"device_retention_days,omitempty"` // Days to keep devices in ocsf_devices (default: 3)
 }
 
 // WriteBufferConfig configures the database write buffer for performance optimization

@@ -3,12 +3,13 @@ use crate::{
     error::{Result, ServiceError},
     models::DeviceRow,
     parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
-    schema::unified_devices::dsl::{
-        agent_id as col_agent_id, device_id as col_device_id, device_type as col_device_type,
-        first_seen as col_first_seen, hostname as col_hostname, ip as col_ip,
-        is_available as col_is_available, last_seen as col_last_seen, mac as col_mac,
-        poller_id as col_poller_id, service_status as col_service_status,
-        service_type as col_service_type, unified_devices, version_info as col_version_info,
+    schema::ocsf_devices::dsl::{
+        agent_id as col_agent_id, device_type as col_device_type,
+        first_seen_time as col_first_seen_time, hostname as col_hostname, ip as col_ip,
+        is_available as col_is_available, last_seen_time as col_last_seen_time, mac as col_mac,
+        model as col_model, ocsf_devices, poller_id as col_poller_id,
+        risk_level as col_risk_level, type_id as col_type_id, uid as col_uid,
+        vendor_name as col_vendor_name,
     },
     time::TimeRange,
 };
@@ -20,10 +21,10 @@ use diesel::sql_types::{Array, BigInt, Bool, Text};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
-type UnifiedDevicesTable = crate::schema::unified_devices::table;
-type DeviceFromClause = FromClause<UnifiedDevicesTable>;
+type OcsfDevicesTable = crate::schema::ocsf_devices::table;
+type DeviceFromClause = FromClause<OcsfDevicesTable>;
 type DeviceQuery<'a> =
-    BoxedSelectStatement<'a, <UnifiedDevicesTable as AsQuery>::SqlType, DeviceFromClause, Pg>;
+    BoxedSelectStatement<'a, <OcsfDevicesTable as AsQuery>::SqlType, DeviceFromClause, Pg>;
 type DeviceStatsQuery<'a> = BoxedSelectStatement<'a, BigInt, DeviceFromClause, Pg>;
 
 pub(super) async fn execute(
@@ -124,10 +125,10 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 }
 
 fn build_query(plan: &QueryPlan) -> Result<DeviceQuery<'static>> {
-    let mut query = unified_devices.into_boxed::<Pg>();
+    let mut query = ocsf_devices.into_boxed::<Pg>();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        query = query.filter(col_last_seen.ge(*start).and(col_last_seen.le(*end)));
+        query = query.filter(col_last_seen_time.ge(*start).and(col_last_seen_time.le(*end)));
     }
 
     for filter in &plan.filters {
@@ -190,10 +191,10 @@ fn build_stats_query(
     plan: &QueryPlan,
     spec: &DeviceStatsSpec,
 ) -> Result<DeviceStatsQuery<'static>> {
-    let mut query = unified_devices.into_boxed::<Pg>();
+    let mut query = ocsf_devices.into_boxed::<Pg>();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        query = query.filter(col_last_seen.ge(*start).and(col_last_seen.le(*end)));
+        query = query.filter(col_last_seen_time.ge(*start).and(col_last_seen_time.le(*end)));
     }
 
     for filter in &plan.filters {
@@ -206,8 +207,9 @@ fn build_stats_query(
 
 fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<DeviceQuery<'a>> {
     match filter.field.as_str() {
-        "device_id" => {
-            query = apply_text_filter!(query, filter, col_device_id)?;
+        // Support both OCSF "uid" and legacy "device_id" for backward compatibility
+        "uid" | "device_id" => {
+            query = apply_text_filter!(query, filter, col_uid)?;
         }
         "hostname" => {
             query = apply_text_filter_no_lists!(
@@ -260,7 +262,8 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
                 "is_available only supports equality"
             )?;
         }
-        "device_type" => {
+        // OCSF device type (string name like "Server", "Router", etc.)
+        "type" | "device_type" => {
             query = apply_eq_filter!(
                 query,
                 filter,
@@ -269,22 +272,49 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
                 "device_type filter only supports equality"
             )?;
         }
-        "service_type" => {
+        // OCSF device type_id (numeric enum)
+        "type_id" => {
+            let type_id: i32 = filter
+                .value
+                .as_scalar()?
+                .parse()
+                .map_err(|_| ServiceError::InvalidRequest("type_id must be an integer".into()))?;
             query = apply_eq_filter!(
                 query,
                 filter,
-                col_service_type,
-                filter.value.as_scalar()?.to_string(),
-                "service_type filter only supports equality"
+                col_type_id,
+                type_id,
+                "type_id filter only supports equality"
             )?;
         }
-        "service_status" => {
+        // OCSF vendor_name
+        "vendor_name" => {
             query = apply_eq_filter!(
                 query,
                 filter,
-                col_service_status,
+                col_vendor_name,
                 filter.value.as_scalar()?.to_string(),
-                "service_status filter only supports equality"
+                "vendor_name filter only supports equality"
+            )?;
+        }
+        // OCSF model
+        "model" => {
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_model,
+                filter.value.as_scalar()?.to_string(),
+                "model filter only supports equality"
+            )?;
+        }
+        // OCSF risk_level
+        "risk_level" => {
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_risk_level,
+                filter.value.as_scalar()?.to_string(),
+                "risk_level filter only supports equality"
             )?;
         }
         "discovery_sources" => {
@@ -343,10 +373,20 @@ fn collect_text_params(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "device_id" => collect_text_params(params, filter, true),
+        "uid" | "device_id" => collect_text_params(params, filter, true),
         "hostname" | "ip" | "mac" => collect_text_params(params, filter, false),
-        "poller_id" | "agent_id" | "device_type" | "service_type" | "service_status" => {
+        "poller_id" | "agent_id" | "type" | "device_type" | "vendor_name" | "model"
+        | "risk_level" => {
             params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        "type_id" => {
+            let type_id: i64 = filter
+                .value
+                .as_scalar()?
+                .parse()
+                .map_err(|_| ServiceError::InvalidRequest("type_id must be an integer".into()))?;
+            params.push(BindParam::Int(type_id));
             Ok(())
         }
         "is_available" => {
@@ -376,37 +416,39 @@ fn apply_ordering<'a>(mut query: DeviceQuery<'a>, order: &[OrderClause]) -> Devi
         query = if !applied {
             applied = true;
             match clause.field.as_str() {
-                "device_id" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_device_id.asc()),
-                    OrderDirection::Desc => query.order(col_device_id.desc()),
+                // Support both OCSF "uid" and legacy "device_id"
+                "uid" | "device_id" => match clause.direction {
+                    OrderDirection::Asc => query.order(col_uid.asc()),
+                    OrderDirection::Desc => query.order(col_uid.desc()),
                 },
-                "first_seen" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_first_seen.asc()),
-                    OrderDirection::Desc => query.order(col_first_seen.desc()),
+                // Support both OCSF and legacy time field names
+                "first_seen_time" | "first_seen" => match clause.direction {
+                    OrderDirection::Asc => query.order(col_first_seen_time.asc()),
+                    OrderDirection::Desc => query.order(col_first_seen_time.desc()),
                 },
-                "last_seen" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_last_seen.asc()),
-                    OrderDirection::Desc => query.order(col_last_seen.desc()),
+                "last_seen_time" | "last_seen" => match clause.direction {
+                    OrderDirection::Asc => query.order(col_last_seen_time.asc()),
+                    OrderDirection::Desc => query.order(col_last_seen_time.desc()),
                 },
-                "version_info" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_version_info.asc()),
-                    OrderDirection::Desc => query.order(col_version_info.desc()),
+                "type_id" => match clause.direction {
+                    OrderDirection::Asc => query.order(col_type_id.asc()),
+                    OrderDirection::Desc => query.order(col_type_id.desc()),
                 },
                 _ => query,
             }
         } else {
             match clause.field.as_str() {
-                "device_id" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_device_id.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_device_id.desc()),
+                "uid" | "device_id" => match clause.direction {
+                    OrderDirection::Asc => query.then_order_by(col_uid.asc()),
+                    OrderDirection::Desc => query.then_order_by(col_uid.desc()),
                 },
-                "first_seen" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_first_seen.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_first_seen.desc()),
+                "first_seen_time" | "first_seen" => match clause.direction {
+                    OrderDirection::Asc => query.then_order_by(col_first_seen_time.asc()),
+                    OrderDirection::Desc => query.then_order_by(col_first_seen_time.desc()),
                 },
-                "last_seen" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_last_seen.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_last_seen.desc()),
+                "last_seen_time" | "last_seen" => match clause.direction {
+                    OrderDirection::Asc => query.then_order_by(col_last_seen_time.asc()),
+                    OrderDirection::Desc => query.then_order_by(col_last_seen_time.desc()),
                 },
                 _ => query,
             }
@@ -415,8 +457,8 @@ fn apply_ordering<'a>(mut query: DeviceQuery<'a>, order: &[OrderClause]) -> Devi
 
     if !applied {
         query = query
-            .order(col_last_seen.desc())
-            .then_order_by(col_device_id.desc());
+            .order(col_last_seen_time.desc())
+            .then_order_by(col_uid.desc());
     }
 
     query

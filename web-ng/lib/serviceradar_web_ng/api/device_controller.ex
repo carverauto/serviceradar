@@ -60,7 +60,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
 
     query =
       from(d in query,
-        order_by: [desc: d.last_seen],
+        order_by: [desc: d.last_seen_time],
         limit: ^opts.limit,
         offset: ^opts.offset
       )
@@ -206,7 +206,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   defp maybe_apply_search(query, search) when is_binary(search) do
     like = "%#{escape_like(search)}%"
 
-    where = dynamic([d], ilike(d.hostname, ^like) or ilike(d.ip, ^like) or ilike(d.id, ^like))
+    where = dynamic([d], ilike(d.hostname, ^like) or ilike(d.ip, ^like) or ilike(d.uid, ^like))
 
     from(d in query, where: ^where)
   end
@@ -229,7 +229,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   defp maybe_apply_device_type(query, nil), do: query
 
   defp maybe_apply_device_type(query, device_type) when is_binary(device_type) do
-    from(d in query, where: d.device_type == ^device_type)
+    from(d in query, where: d.type == ^device_type)
   end
 
   defp maybe_apply_device_type(query, _), do: query
@@ -253,24 +253,53 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
 
   defp device_to_map(%Device{} = device) do
     %{
-      "device_id" => device.id,
+      # Primary identifier (OCSF uid, aliased as device_id for backward compatibility)
+      "device_id" => device.uid,
+      "uid" => device.uid,
+      # OCSF Core Identity
+      "type_id" => device.type_id,
+      "type" => device.type,
+      "name" => device.name,
       "hostname" => device.hostname,
       "ip" => device.ip,
+      "mac" => device.mac,
+      # OCSF Extended Identity
+      "uid_alt" => device.uid_alt,
+      "vendor_name" => device.vendor_name,
+      "model" => device.model,
+      "domain" => device.domain,
+      "zone" => device.zone,
+      "subnet_uid" => device.subnet_uid,
+      "vlan_uid" => device.vlan_uid,
+      "region" => device.region,
+      # OCSF Temporal (with backward-compatible aliases)
+      "first_seen_time" => normalize_value(device.first_seen_time),
+      "last_seen_time" => normalize_value(device.last_seen_time),
+      "first_seen" => normalize_value(device.first_seen_time),
+      "last_seen" => normalize_value(device.last_seen_time),
+      "created_time" => normalize_value(device.created_time),
+      "modified_time" => normalize_value(device.modified_time),
+      # OCSF Risk and Compliance
+      "risk_level_id" => device.risk_level_id,
+      "risk_level" => device.risk_level,
+      "risk_score" => device.risk_score,
+      "is_managed" => device.is_managed,
+      "is_compliant" => device.is_compliant,
+      "is_trusted" => device.is_trusted,
+      # OCSF Nested Objects
+      "os" => device.os,
+      "hw_info" => device.hw_info,
+      "network_interfaces" => device.network_interfaces,
+      "owner" => device.owner,
+      "org" => device.org,
+      "groups" => device.groups,
+      "agent_list" => device.agent_list,
+      # ServiceRadar-specific fields
       "poller_id" => device.poller_id,
       "agent_id" => device.agent_id,
-      "mac" => device.mac,
       "discovery_sources" => device.discovery_sources,
       "is_available" => device.is_available,
-      "first_seen" => normalize_value(device.first_seen),
-      "last_seen" => normalize_value(device.last_seen),
-      "metadata" => device.metadata,
-      "device_type" => device.device_type,
-      "service_type" => device.service_type,
-      "service_status" => device.service_status,
-      "last_heartbeat" => normalize_value(device.last_heartbeat),
-      "os_info" => device.os_info,
-      "version_info" => device.version_info,
-      "updated_at" => normalize_value(device.updated_at)
+      "metadata" => device.metadata
     }
   end
 

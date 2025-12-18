@@ -361,7 +361,7 @@ func hasAnyCapability(sets map[string]map[string]struct{}, deviceID string) bool
 
 
 func shouldCountRecord(record *registry.DeviceRecord) bool {
-	// Count all non-nil records. The database (unified_devices) is the source of truth
+	// Count all non-nil records. The database (ocsf_devices) is the source of truth
 	// and already filters merged/deleted devices. If a device made it into the registry,
 	// it should be counted in stats - even sweep-only devices without strong identity.
 	// This prevents legitimate discovered devices from being hidden in the UI.
@@ -486,7 +486,7 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 			continue
 		}
 		// DIRE: No tombstone filtering. The database is the source of truth.
-		// All devices in unified_devices are active - no soft deletes or merge chains.
+		// All devices in ocsf_devices are active - no soft deletes or merge chains.
 
 		// All records (including pollers, agents, global services) are counted as devices.
 		// Even if service components share an IP with other devices, they maintain

@@ -123,7 +123,7 @@ type Service interface {
 	GetDeviceByID(ctx context.Context, deviceID string) (*models.Device, error)
 	GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, error)
 
-	// Unified Device operations.
+	// Unified Device operations (legacy - to be deprecated).
 
 	GetUnifiedDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
 	GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
@@ -134,6 +134,19 @@ type Service interface {
 	GetStaleIPOnlyDevices(ctx context.Context, ttl time.Duration) ([]string, error)
 	SoftDeleteDevices(ctx context.Context, deviceIDs []string) error
 	LockUnifiedDevices(ctx context.Context, ips []string) error
+
+	// OCSF Device operations (OCSF v1.7.0 aligned).
+
+	GetOCSFDevice(ctx context.Context, uid string) (*models.OCSFDevice, error)
+	GetOCSFDevicesByIP(ctx context.Context, ip string) ([]*models.OCSFDevice, error)
+	GetOCSFDevicesByIPsOrIDs(ctx context.Context, ips []string, uids []string) ([]*models.OCSFDevice, error)
+	ListOCSFDevices(ctx context.Context, limit, offset int) ([]*models.OCSFDevice, error)
+	ListOCSFDevicesByType(ctx context.Context, typeID int, limit, offset int) ([]*models.OCSFDevice, error)
+	CountOCSFDevices(ctx context.Context) (int64, error)
+	CleanupStaleOCSFDevices(ctx context.Context, retention time.Duration) (int64, error)
+	UpsertOCSFDevice(ctx context.Context, device *models.OCSFDevice) error
+	UpsertOCSFDeviceBatch(ctx context.Context, devices []*models.OCSFDevice) error
+	DeleteOCSFDevices(ctx context.Context, uids []string) error
 
 	// Transaction support
 	WithTx(ctx context.Context, fn func(tx Service) error) error

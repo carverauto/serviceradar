@@ -530,7 +530,7 @@ mod tests {
         let (sql, _) = devices::to_sql_and_params(&plan).expect("should build SQL for docs query");
         assert!(
             sql.to_lowercase()
-                .contains("\"unified_devices\".\"is_available\" = $3"),
+                .contains("\"ocsf_devices\".\"is_available\" = $3"),
             "expected SQL to include availability predicate, got: {sql}"
         );
     }
@@ -548,7 +548,7 @@ mod tests {
         let (sql, _) = devices::to_sql_and_params(&plan).expect("should build SQL for docs query");
         assert!(
             sql.to_lowercase()
-                .contains("\"unified_devices\".\"is_available\" = $3"),
+                .contains("\"ocsf_devices\".\"is_available\" = $3"),
             "expected SQL to include availability predicate, got: {sql}"
         );
     }

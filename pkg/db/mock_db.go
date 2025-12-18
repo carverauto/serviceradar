@@ -57,6 +57,21 @@ func (mr *MockServiceMockRecorder) CleanupStaleUnifiedDevices(ctx, retention any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStaleUnifiedDevices", reflect.TypeOf((*MockService)(nil).CleanupStaleUnifiedDevices), ctx, retention)
 }
 
+// CleanupStaleOCSFDevices mocks base method.
+func (m *MockService) CleanupStaleOCSFDevices(ctx context.Context, retention time.Duration) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CleanupStaleOCSFDevices", ctx, retention)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CleanupStaleOCSFDevices indicates an expected call of CleanupStaleOCSFDevices.
+func (mr *MockServiceMockRecorder) CleanupStaleOCSFDevices(ctx, retention any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStaleOCSFDevices", reflect.TypeOf((*MockService)(nil).CleanupStaleOCSFDevices), ctx, retention)
+}
+
 // Close mocks base method.
 func (m *MockService) Close() error {
 	m.ctrl.T.Helper()
