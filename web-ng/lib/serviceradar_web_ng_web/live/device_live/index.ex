@@ -110,6 +110,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">IP</th>
                   <th
                     class="text-xs font-semibold text-base-content/70 bg-base-200/60"
+                    title="OCSF Device Type"
+                  >
+                    Type
+                  </th>
+                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Vendor</th>
+                  <th
+                    class="text-xs font-semibold text-base-content/70 bg-base-200/60"
                     title="GRPC Health Check Status"
                   >
                     Status
@@ -126,13 +133,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   >
                     Metrics
                   </th>
+                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Risk</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Poller</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Last Seen</th>
                 </tr>
               </thead>
               <tbody>
                 <tr :if={@devices == []}>
-                  <td colspan="8" class="py-8 text-center text-sm text-base-content/60">
+                  <td colspan="11" class="py-8 text-center text-sm text-base-content/60">
                     No devices found.
                   </td>
                 </tr>
@@ -159,6 +167,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     <td class="text-sm max-w-[18rem] truncate">{Map.get(row, "hostname") || "—"}</td>
                     <td class="font-mono text-xs">{Map.get(row, "ip") || "—"}</td>
                     <td class="text-xs">
+                      <.device_type_badge type={Map.get(row, "type")} type_id={Map.get(row, "type_id")} />
+                    </td>
+                    <td class="text-xs max-w-[8rem] truncate">{Map.get(row, "vendor_name") || "—"}</td>
+                    <td class="text-xs">
                       <.availability_badge available={Map.get(row, "is_available")} />
                     </td>
                     <td class="text-xs">
@@ -171,6 +183,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                         has_snmp={has_snmp}
                         has_sysmon={has_sysmon}
                       />
+                    </td>
+                    <td class="text-xs">
+                      <.risk_level_badge risk_level={Map.get(row, "risk_level")} />
                     </td>
                     <td class="font-mono text-xs">{Map.get(row, "poller_id") || "—"}</td>
                     <td class="font-mono text-xs">
@@ -217,6 +232,82 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
     """
   end
+
+  attr :type, :string, default: nil
+  attr :type_id, :integer, default: nil
+
+  def device_type_badge(assigns) do
+    label = device_type_label(assigns.type, assigns.type_id)
+    icon = device_type_icon(assigns.type_id)
+
+    assigns =
+      assigns
+      |> assign(:label, label)
+      |> assign(:icon, icon)
+
+    ~H"""
+    <div class="flex items-center gap-1" title={"Type ID: #{@type_id}"}>
+      <.icon :if={@icon} name={@icon} class="size-3.5 text-base-content/60" />
+      <span class="text-base-content/80">{@label}</span>
+    </div>
+    """
+  end
+
+  defp device_type_label(type, _type_id) when is_binary(type) and type != "", do: type
+  defp device_type_label(_type, 0), do: "Unknown"
+  defp device_type_label(_type, 1), do: "Server"
+  defp device_type_label(_type, 2), do: "Desktop"
+  defp device_type_label(_type, 3), do: "Laptop"
+  defp device_type_label(_type, 4), do: "Tablet"
+  defp device_type_label(_type, 5), do: "Mobile"
+  defp device_type_label(_type, 6), do: "Virtual"
+  defp device_type_label(_type, 7), do: "IOT"
+  defp device_type_label(_type, 8), do: "Browser"
+  defp device_type_label(_type, 9), do: "Firewall"
+  defp device_type_label(_type, 10), do: "Switch"
+  defp device_type_label(_type, 11), do: "Hub"
+  defp device_type_label(_type, 12), do: "Router"
+  defp device_type_label(_type, 13), do: "IDS"
+  defp device_type_label(_type, 14), do: "IPS"
+  defp device_type_label(_type, 15), do: "Load Balancer"
+  defp device_type_label(_type, 99), do: "Other"
+  defp device_type_label(_type, _type_id), do: "—"
+
+  defp device_type_icon(1), do: "hero-server"
+  defp device_type_icon(2), do: "hero-computer-desktop"
+  defp device_type_icon(3), do: "hero-computer-desktop"
+  defp device_type_icon(4), do: "hero-device-tablet"
+  defp device_type_icon(5), do: "hero-device-phone-mobile"
+  defp device_type_icon(6), do: "hero-cube"
+  defp device_type_icon(7), do: "hero-cpu-chip"
+  defp device_type_icon(9), do: "hero-shield-check"
+  defp device_type_icon(10), do: "hero-square-3-stack-3d"
+  defp device_type_icon(12), do: "hero-arrows-right-left"
+  defp device_type_icon(15), do: "hero-scale"
+  defp device_type_icon(_), do: nil
+
+  attr :risk_level, :string, default: nil
+
+  def risk_level_badge(assigns) do
+    {label, variant} = risk_level_style(assigns.risk_level)
+
+    assigns =
+      assigns
+      |> assign(:label, label)
+      |> assign(:variant, variant)
+
+    ~H"""
+    <.ui_badge :if={@label != "—"} variant={@variant} size="xs">{@label}</.ui_badge>
+    <span :if={@label == "—"} class="text-base-content/40">—</span>
+    """
+  end
+
+  defp risk_level_style("Critical"), do: {"Critical", "error"}
+  defp risk_level_style("High"), do: {"High", "warning"}
+  defp risk_level_style("Medium"), do: {"Medium", "info"}
+  defp risk_level_style("Low"), do: {"Low", "success"}
+  defp risk_level_style("Info"), do: {"Info", "ghost"}
+  defp risk_level_style(_), do: {"—", "ghost"}
 
   attr :spark, :map, required: true
 

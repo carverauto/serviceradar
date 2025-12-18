@@ -179,12 +179,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
               <.kv_inline label="Hostname" value={Map.get(@device_row, "hostname")} />
               <.kv_inline label="IP" value={Map.get(@device_row, "ip")} mono />
+              <.kv_inline label="Type" value={Map.get(@device_row, "type")} />
+              <.kv_inline label="Vendor" value={Map.get(@device_row, "vendor_name")} />
+              <.kv_inline label="Model" value={Map.get(@device_row, "model")} />
               <.kv_inline label="Poller" value={Map.get(@device_row, "poller_id")} mono />
               <.kv_inline label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
-              <.kv_inline label="OS" value={Map.get(@device_row, "os_info")} />
-              <.kv_inline label="Version" value={Map.get(@device_row, "version_info")} />
             </div>
           </div>
+
+          <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
 
           <.availability_section :if={is_map(@availability)} availability={@availability} />
 
@@ -349,6 +352,291 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_value(""), do: "—"
   defp format_value(v) when is_binary(v), do: v
   defp format_value(v), do: to_string(v)
+
+  # ---------------------------------------------------------------------------
+  # OCSF Information Section (OS, Hardware, Network, Compliance)
+  # ---------------------------------------------------------------------------
+
+  attr :device_row, :map, required: true
+
+  def ocsf_info_section(assigns) do
+    os = Map.get(assigns.device_row, "os")
+    hw_info = Map.get(assigns.device_row, "hw_info")
+    network_interfaces = Map.get(assigns.device_row, "network_interfaces") || []
+    risk_level = Map.get(assigns.device_row, "risk_level")
+    risk_score = Map.get(assigns.device_row, "risk_score")
+    is_managed = Map.get(assigns.device_row, "is_managed")
+    is_compliant = Map.get(assigns.device_row, "is_compliant")
+    is_trusted = Map.get(assigns.device_row, "is_trusted")
+
+    has_os = is_map(os) and map_size(os) > 0
+    has_hw = is_map(hw_info) and map_size(hw_info) > 0
+    has_ifaces = is_list(network_interfaces) and network_interfaces != []
+    has_compliance = not is_nil(risk_level) or not is_nil(is_managed) or not is_nil(is_compliant)
+
+    has_any = has_os or has_hw or has_ifaces or has_compliance
+
+    assigns =
+      assigns
+      |> assign(:os, os)
+      |> assign(:hw_info, hw_info)
+      |> assign(:network_interfaces, network_interfaces)
+      |> assign(:risk_level, risk_level)
+      |> assign(:risk_score, risk_score)
+      |> assign(:is_managed, is_managed)
+      |> assign(:is_compliant, is_compliant)
+      |> assign(:is_trusted, is_trusted)
+      |> assign(:has_os, has_os)
+      |> assign(:has_hw, has_hw)
+      |> assign(:has_ifaces, has_ifaces)
+      |> assign(:has_compliance, has_compliance)
+      |> assign(:has_any, has_any)
+
+    ~H"""
+    <div :if={@has_any} class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <.os_info_card :if={@has_os} os={@os} />
+      <.hw_info_card :if={@has_hw} hw_info={@hw_info} />
+      <.compliance_card
+        :if={@has_compliance}
+        risk_level={@risk_level}
+        risk_score={@risk_score}
+        is_managed={@is_managed}
+        is_compliant={@is_compliant}
+        is_trusted={@is_trusted}
+      />
+      <.network_interfaces_card :if={@has_ifaces} interfaces={@network_interfaces} />
+    </div>
+    """
+  end
+
+  attr :os, :map, required: true
+
+  defp os_info_card(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-cpu-chip" class="size-4 text-info" />
+          <span class="text-sm font-semibold">Operating System</span>
+        </div>
+      </div>
+      <div class="p-4">
+        <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <.kv_block :if={Map.get(@os, "name")} label="Name" value={Map.get(@os, "name")} />
+          <.kv_block :if={Map.get(@os, "type")} label="Type" value={Map.get(@os, "type")} />
+          <.kv_block :if={Map.get(@os, "version")} label="Version" value={Map.get(@os, "version")} />
+          <.kv_block :if={Map.get(@os, "build")} label="Build" value={Map.get(@os, "build")} />
+          <.kv_block :if={Map.get(@os, "edition")} label="Edition" value={Map.get(@os, "edition")} />
+          <.kv_block
+            :if={Map.get(@os, "kernel_release")}
+            label="Kernel"
+            value={Map.get(@os, "kernel_release")}
+          />
+          <.kv_block :if={Map.get(@os, "cpu_bits")} label="Arch" value={"#{Map.get(@os, "cpu_bits")}-bit"} />
+          <.kv_block :if={Map.get(@os, "lang")} label="Language" value={Map.get(@os, "lang")} />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :hw_info, :map, required: true
+
+  defp hw_info_card(assigns) do
+    ram_size = Map.get(assigns.hw_info, "ram_size")
+    ram_display = if is_number(ram_size), do: format_bytes(ram_size), else: nil
+
+    assigns = assign(assigns, :ram_display, ram_display)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-server" class="size-4 text-success" />
+          <span class="text-sm font-semibold">Hardware Info</span>
+        </div>
+      </div>
+      <div class="p-4">
+        <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <.kv_block
+            :if={Map.get(@hw_info, "cpu_type")}
+            label="CPU Type"
+            value={Map.get(@hw_info, "cpu_type")}
+          />
+          <.kv_block
+            :if={Map.get(@hw_info, "cpu_architecture")}
+            label="Architecture"
+            value={Map.get(@hw_info, "cpu_architecture")}
+          />
+          <.kv_block
+            :if={Map.get(@hw_info, "cpu_cores")}
+            label="CPU Cores"
+            value={Map.get(@hw_info, "cpu_cores")}
+          />
+          <.kv_block
+            :if={Map.get(@hw_info, "cpu_count")}
+            label="CPU Count"
+            value={Map.get(@hw_info, "cpu_count")}
+          />
+          <.kv_block
+            :if={Map.get(@hw_info, "cpu_speed_mhz")}
+            label="CPU Speed"
+            value={"#{Map.get(@hw_info, "cpu_speed_mhz")} MHz"}
+          />
+          <.kv_block :if={@ram_display} label="RAM" value={@ram_display} />
+          <.kv_block
+            :if={Map.get(@hw_info, "serial_number")}
+            label="Serial"
+            value={Map.get(@hw_info, "serial_number")}
+          />
+          <.kv_block
+            :if={Map.get(@hw_info, "chassis")}
+            label="Chassis"
+            value={Map.get(@hw_info, "chassis")}
+          />
+          <.kv_block
+            :if={Map.get(@hw_info, "bios_manufacturer")}
+            label="BIOS Vendor"
+            value={Map.get(@hw_info, "bios_manufacturer")}
+          />
+          <.kv_block
+            :if={Map.get(@hw_info, "bios_ver")}
+            label="BIOS Version"
+            value={Map.get(@hw_info, "bios_ver")}
+          />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :risk_level, :string, default: nil
+  attr :risk_score, :integer, default: nil
+  attr :is_managed, :boolean, default: nil
+  attr :is_compliant, :boolean, default: nil
+  attr :is_trusted, :boolean, default: nil
+
+  defp compliance_card(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-shield-check" class="size-4 text-warning" />
+          <span class="text-sm font-semibold">Risk & Compliance</span>
+        </div>
+      </div>
+      <div class="p-4">
+        <div class="flex flex-wrap gap-4">
+          <div :if={@risk_level} class="flex items-center gap-2">
+            <span class="text-xs text-base-content/60">Risk Level:</span>
+            <.risk_badge level={@risk_level} />
+          </div>
+          <div :if={@risk_score} class="flex items-center gap-2">
+            <span class="text-xs text-base-content/60">Risk Score:</span>
+            <span class="font-semibold tabular-nums">{@risk_score}</span>
+          </div>
+          <div :if={not is_nil(@is_managed)} class="flex items-center gap-2">
+            <span class="text-xs text-base-content/60">Managed:</span>
+            <.bool_badge value={@is_managed} />
+          </div>
+          <div :if={not is_nil(@is_compliant)} class="flex items-center gap-2">
+            <span class="text-xs text-base-content/60">Compliant:</span>
+            <.bool_badge value={@is_compliant} />
+          </div>
+          <div :if={not is_nil(@is_trusted)} class="flex items-center gap-2">
+            <span class="text-xs text-base-content/60">Trusted:</span>
+            <.bool_badge value={@is_trusted} />
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :level, :string, required: true
+
+  defp risk_badge(assigns) do
+    {color, _} =
+      case assigns.level do
+        "Critical" -> {"error", "Critical"}
+        "High" -> {"warning", "High"}
+        "Medium" -> {"info", "Medium"}
+        "Low" -> {"success", "Low"}
+        _ -> {"ghost", assigns.level}
+      end
+
+    assigns = assign(assigns, :color, color)
+
+    ~H"""
+    <span class={["badge badge-sm", "badge-#{@color}"]}>{@level}</span>
+    """
+  end
+
+  attr :value, :boolean, required: true
+
+  defp bool_badge(assigns) do
+    {label, color} = if assigns.value, do: {"Yes", "success"}, else: {"No", "error"}
+    assigns = assigns |> assign(:label, label) |> assign(:color, color)
+
+    ~H"""
+    <span class={["badge badge-sm", "badge-#{@color}"]}>{@label}</span>
+    """
+  end
+
+  attr :interfaces, :list, required: true
+
+  defp network_interfaces_card(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm lg:col-span-2">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-signal" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Network Interfaces</span>
+          <span class="text-xs text-base-content/50">({length(@interfaces)} interfaces)</span>
+        </div>
+      </div>
+      <div class="p-4">
+        <div class="overflow-x-auto">
+          <table class="table table-xs w-full">
+            <thead>
+              <tr>
+                <th class="text-xs">Name</th>
+                <th class="text-xs">IP</th>
+                <th class="text-xs">MAC</th>
+                <th class="text-xs">Type</th>
+              </tr>
+            </thead>
+            <tbody>
+              <%= for iface <- Enum.take(@interfaces, 10) do %>
+                <tr>
+                  <td class="font-mono text-xs">{Map.get(iface, "name") || "—"}</td>
+                  <td class="font-mono text-xs">{Map.get(iface, "ip") || "—"}</td>
+                  <td class="font-mono text-xs">{Map.get(iface, "mac") || "—"}</td>
+                  <td class="text-xs">{Map.get(iface, "type") || "—"}</td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+        <div :if={length(@interfaces) > 10} class="text-xs text-base-content/50 mt-2">
+          Showing 10 of {length(@interfaces)} interfaces
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+
+  defp kv_block(assigns) do
+    ~H"""
+    <div>
+      <div class="text-xs text-base-content/50">{@label}</div>
+      <div class="font-medium">{format_value(@value)}</div>
+    </div>
+    """
+  end
 
   defp parse_limit(nil, default, _max), do: default
 

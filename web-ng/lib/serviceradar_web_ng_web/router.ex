@@ -37,6 +37,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     post "/query", QueryController, :execute
     get "/devices", DeviceController, :index
+    get "/devices/ocsf/export", DeviceController, :ocsf_export
     get "/devices/:device_id", DeviceController, :show
   end
 

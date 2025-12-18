@@ -68,49 +68,49 @@
 
 ## 4. SRQL Updates
 
-- [ ] 4.1 Update SRQL schema in `rust/srql/`
-  - [ ] 4.1.1 Remove unified_devices from Diesel schema
-  - [ ] 4.1.2 Add ocsf_devices table to Diesel schema
-  - [ ] 4.1.3 Define OCSFDevice model struct
+- [x] 4.1 Update SRQL schema in `rust/srql/`
+  - [x] 4.1.1 Remove unified_devices from Diesel schema
+  - [x] 4.1.2 Add ocsf_devices table to Diesel schema
+  - [x] 4.1.3 Define OCSFDevice model struct
 
-- [ ] 4.2 Update query planner for OCSF table
-  - [ ] 4.2.1 Update device queries to use ocsf_devices
+- [x] 4.2 Update query planner for OCSF table
+  - [x] 4.2.1 Update device queries to use ocsf_devices
   - [ ] 4.2.2 Support JSONB path queries for nested objects (os, hw_info)
-  - [ ] 4.2.3 Add type_id filtering support
+  - [x] 4.2.3 Add type_id filtering support
 
 ## 5. API Layer
 
-- [ ] 5.1 Update device API responses
-  - [ ] 5.1.1 Return OCSF-shaped device JSON from device endpoints
-  - [ ] 5.1.2 Ensure field names match OCSF spec (camelCase)
+- [x] 5.1 Update device API responses
+  - [x] 5.1.1 Return OCSF-shaped device JSON from device endpoints
+  - [x] 5.1.2 Ensure field names match OCSF spec (snake_case per OCSF standard)
 
-- [ ] 5.2 Add OCSF export endpoint
-  - [ ] 5.2.1 Create `/api/devices/ocsf/export` endpoint
-  - [ ] 5.2.2 Support filtering by type_id, time range
-  - [ ] 5.2.3 Add pagination for large exports
+- [x] 5.2 Add OCSF export endpoint
+  - [x] 5.2.1 Create `/api/devices/ocsf/export` endpoint
+  - [x] 5.2.2 Support filtering by type_id, time range
+  - [x] 5.2.3 Add pagination for large exports
 
 ## 6. Web-ng Updates
 
-- [ ] 6.1 Update device list component
-  - [ ] 6.1.1 Display `type` instead of legacy device_type
-  - [ ] 6.1.2 Add vendor_name and model columns
-  - [ ] 6.1.3 Add risk_level indicator
+- [x] 6.1 Update device list component
+  - [x] 6.1.1 Display `type` instead of legacy device_type
+  - [x] 6.1.2 Add vendor_name and model columns
+  - [x] 6.1.3 Add risk_level indicator
 
-- [ ] 6.2 Update device detail view
-  - [ ] 6.2.1 Display OS information from `os` JSONB
-  - [ ] 6.2.2 Display hardware info from `hw_info` JSONB
-  - [ ] 6.2.3 Display network interfaces
-  - [ ] 6.2.4 Display compliance/management status flags
+- [x] 6.2 Update device detail view
+  - [x] 6.2.1 Display OS information from `os` JSONB
+  - [x] 6.2.2 Display hardware info from `hw_info` JSONB
+  - [x] 6.2.3 Display network interfaces
+  - [x] 6.2.4 Display compliance/management status flags
 
-- [ ] 6.3 Add device type filtering
-  - [ ] 6.3.1 Add type_id filter dropdown with OCSF types
-  - [ ] 6.3.2 Add type icons for visual identification
+- [x] 6.3 Add device type filtering
+  - [x] 6.3.1 Add type_id filter dropdown with OCSF types (via SRQL)
+  - [x] 6.3.2 Add type icons for visual identification
 
 ## 7. Documentation
 
-- [ ] 7.1 Document OCSF schema in `docs/docs/ocsf-device-schema.md`
-- [ ] 7.2 Update architecture docs with new data model
-- [ ] 7.3 Document OCSF export endpoint usage
+- [x] 7.1 Document OCSF schema in `docs/docs/ocsf-device-schema.md`
+- [x] 7.2 Update architecture docs with new data model (included in ocsf-device-schema.md)
+- [x] 7.3 Document OCSF export endpoint usage (included in ocsf-device-schema.md)
 
 ## 8. Testing
 
