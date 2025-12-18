@@ -333,6 +333,36 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
                 query.filter(expr)
             };
         }
+        // JSONB path queries for os object
+        "os.name" => {
+            query = apply_jsonb_text_filter(query, filter, "os", "name")?;
+        }
+        "os.version" => {
+            query = apply_jsonb_text_filter(query, filter, "os", "version")?;
+        }
+        "os.type" => {
+            query = apply_jsonb_text_filter(query, filter, "os", "type")?;
+        }
+        // JSONB path queries for hw_info object
+        "hw_info.serial_number" => {
+            query = apply_jsonb_text_filter(query, filter, "hw_info", "serial_number")?;
+        }
+        "hw_info.cpu_type" => {
+            query = apply_jsonb_text_filter(query, filter, "hw_info", "cpu_type")?;
+        }
+        "hw_info.cpu_architecture" => {
+            query = apply_jsonb_text_filter(query, filter, "hw_info", "cpu_architecture")?;
+        }
+        // JSONB path queries for metadata (arbitrary keys)
+        field if field.starts_with("metadata.") => {
+            let key = field.strip_prefix("metadata.").unwrap();
+            if !is_valid_jsonb_key(key) {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "invalid metadata key '{key}'"
+                )));
+            }
+            query = apply_jsonb_text_filter(query, filter, "metadata", key)?;
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field '{other}'"
@@ -404,6 +434,23 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
             params.push(BindParam::TextArray(values));
             Ok(())
         }
+        // JSONB path fields - all use text bind params
+        "os.name" | "os.version" | "os.type" | "hw_info.serial_number" | "hw_info.cpu_type"
+        | "hw_info.cpu_architecture" => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        // Dynamic metadata.* fields
+        field if field.starts_with("metadata.") => {
+            let key = field.strip_prefix("metadata.").unwrap();
+            if !is_valid_jsonb_key(key) {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "invalid metadata key '{key}'"
+                )));
+            }
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field '{other}'"
         ))),
@@ -470,6 +517,55 @@ fn parse_bool(raw: &str) -> Result<bool> {
         "false" | "0" | "no" => Ok(false),
         _ => Err(ServiceError::InvalidRequest(format!(
             "invalid boolean value '{raw}'"
+        ))),
+    }
+}
+
+/// Validates that a JSONB key is safe to use in a query.
+/// Only allows alphanumeric characters, underscores, and hyphens.
+fn is_valid_jsonb_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= 64
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// Applies a text filter to a JSONB field path using the ->> operator.
+/// Supports equality, inequality, and LIKE operations.
+fn apply_jsonb_text_filter<'a>(
+    query: DeviceQuery<'a>,
+    filter: &Filter,
+    column: &str,
+    key: &str,
+) -> Result<DeviceQuery<'a>> {
+    // Construct the JSONB text extraction expression: column->>'key'
+    let jsonb_expr = format!("{column}->>'{key}'");
+    let value = filter.value.as_scalar()?.to_string();
+
+    match filter.op {
+        FilterOp::Eq => {
+            let expr = sql::<Bool>(&format!("{jsonb_expr} = ")).bind::<Text, _>(value);
+            Ok(query.filter(expr))
+        }
+        FilterOp::NotEq => {
+            let expr = sql::<Bool>(&format!("({jsonb_expr} IS NULL OR {jsonb_expr} != "))
+                .bind::<Text, _>(value)
+                .sql(")");
+            Ok(query.filter(expr))
+        }
+        FilterOp::Like => {
+            let expr = sql::<Bool>(&format!("{jsonb_expr} ILIKE ")).bind::<Text, _>(value);
+            Ok(query.filter(expr))
+        }
+        FilterOp::NotLike => {
+            let expr = sql::<Bool>(&format!("({jsonb_expr} IS NULL OR {jsonb_expr} NOT ILIKE "))
+                .bind::<Text, _>(value)
+                .sql(")");
+            Ok(query.filter(expr))
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "JSONB field '{column}.{key}' only supports equality and LIKE filters"
         ))),
     }
 }

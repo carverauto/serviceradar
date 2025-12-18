@@ -88,7 +88,11 @@
 
 - [x] 4.2 Update query planner for OCSF table
   - [x] 4.2.1 Update device queries to use ocsf_devices
-  - [ ] 4.2.2 Support JSONB path queries for nested objects (os, hw_info)
+  - [x] 4.2.2 Support JSONB path queries for nested objects (os, hw_info)
+    - Added `os.name`, `os.version`, `os.type` filters
+    - Added `hw_info.serial_number`, `hw_info.cpu_type`, `hw_info.cpu_architecture` filters
+    - Added dynamic `metadata.*` filters for arbitrary JSONB keys
+    - Supports equality (=), inequality (!=), and LIKE operations
   - [x] 4.2.3 Add type_id filtering support
 
 ## 5. API Layer
@@ -130,5 +134,11 @@
 - [x] 8.1 All pkg/core tests passing with OCSF mocks
 - [x] 8.2 All pkg/db tests passing
 - [x] 8.3 Type inference tests working
-- [ ] 8.4 Add SRQL tests for OCSF device queries
-- [ ] 8.5 E2E test: device discovery flows to OCSF table correctly
+- [x] 8.4 Add SRQL tests for OCSF device queries
+  - Added 7 new test cases in comprehensive_queries.rs
+  - Tests cover: os.name, os.version, metadata.site, metadata.packet_loss_bucket
+  - Tests cover: JSONB equality, LIKE patterns, combined filters
+- [x] 8.5 E2E test: device discovery flows to OCSF table correctly
+  - tests/e2e/inventory/inventory_test.go uses CountOCSFDevices
+  - Added validateOCSFDeviceStructure() for OCSF field validation
+  - Verifies UID, temporal fields, type_id, vendor_name are populated

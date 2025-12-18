@@ -111,6 +111,66 @@ async fn comprehensive_queries_match_fixtures() {
                 assert_eq!(body["results"][0]["device_id"], "device-beta")
             })),
         },
+        // JSONB path queries for os field
+        TestCase {
+            // os.name:IOS-XE -> device-alpha only
+            query: "in:devices os.name:IOS-XE",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["device_id"], "device-alpha")
+            })),
+        },
+        TestCase {
+            // os.name with LIKE pattern -> match devices with "OS" in os name
+            // IOS-XE, NX-OS, PAN-OS, IOS all contain "OS"
+            query: "in:devices os.name:%OS%",
+            expected_count: 4,
+            validator: None,
+        },
+        TestCase {
+            // os.version:17.9.3 -> device-alpha only
+            query: "in:devices os.version:17.9.3",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["device_id"], "device-alpha")
+            })),
+        },
+        // JSONB path queries for metadata field
+        TestCase {
+            // metadata.site:dfw-edge -> device-alpha and device-beta
+            query: "in:devices metadata.site:dfw-edge",
+            expected_count: 2,
+            validator: Some(Box::new(|body| {
+                let results = body["results"].as_array().unwrap();
+                let ids: Vec<&str> = results
+                    .iter()
+                    .map(|r| r["device_id"].as_str().unwrap())
+                    .collect();
+                assert!(ids.contains(&"device-alpha"));
+                assert!(ids.contains(&"device-beta"));
+            })),
+        },
+        TestCase {
+            // metadata.packet_loss_bucket:low -> device-alpha and device-delta
+            query: "in:devices metadata.packet_loss_bucket:low",
+            expected_count: 2,
+            validator: Some(Box::new(|body| {
+                let results = body["results"].as_array().unwrap();
+                let ids: Vec<&str> = results
+                    .iter()
+                    .map(|r| r["device_id"].as_str().unwrap())
+                    .collect();
+                assert!(ids.contains(&"device-alpha"));
+                assert!(ids.contains(&"device-delta"));
+            })),
+        },
+        // Combined JSONB and scalar filters
+        TestCase {
+            // os.name with LIKE and is_available:true
+            query: "in:devices os.name:%OS% is_available:true",
+            expected_count: 3, // alpha, gamma, delta (beta is not available)
+            validator: None,
+        },
     ];
 
     with_srql_harness(|harness| async move {
