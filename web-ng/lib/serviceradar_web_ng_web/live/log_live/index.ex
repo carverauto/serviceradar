@@ -248,7 +248,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
             <.logs_table :if={@active_tab == "logs"} id="logs" logs={@logs} />
             <.traces_table :if={@active_tab == "traces"} id="traces" traces={@traces} />
-            <.metrics_table :if={@active_tab == "metrics"} id="metrics" metrics={@metrics} sparklines={@sparklines} />
+            <.metrics_table
+              :if={@active_tab == "metrics"}
+              id="metrics"
+              metrics={@metrics}
+              sparklines={@sparklines}
+            />
 
             <div class="mt-4 pt-4 border-t border-base-200">
               <.ui_pagination
@@ -293,7 +298,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <div class="flex items-center gap-3">
           <div class="text-xs text-base-content/50 uppercase tracking-wider">Log Level Breakdown</div>
           <div class="text-sm font-semibold text-base-content">
-            {format_compact_int(@total)} <span class="text-xs font-normal text-base-content/60">total (24h)</span>
+            {format_compact_int(@total)}
+            <span class="text-xs font-normal text-base-content/60">total (24h)</span>
           </div>
         </div>
         <div class="flex items-center gap-1">
@@ -936,7 +942,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:duration_ms, duration_ms)
 
       ~H"""
-      <div class="flex items-center gap-2 min-w-[5rem]" title={"#{Float.round(@duration_ms * 1.0, 1)}ms"}>
+      <div
+        class="flex items-center gap-2 min-w-[5rem]"
+        title={"#{Float.round(@duration_ms * 1.0, 1)}ms"}
+      >
         <div class="relative h-2 w-16 bg-base-200/60 rounded-sm overflow-visible">
           <div class={"h-full rounded-sm #{@bar_color}"} style={"width: #{@pct}%"} />
           <div
@@ -964,7 +973,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       cond do
         not is_number(duration_ms) or duration_ms <= 0 -> 0
         duration_ms >= 1000 -> 100
-        true -> duration_ms / 10  # 0-1000ms maps to 0-100%
+        # 0-1000ms maps to 0-100%
+        true -> duration_ms / 10
       end
 
     # Color based on duration
@@ -983,9 +993,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:duration_ms, duration_ms)
 
     ~H"""
-    <div class="flex items-center gap-2 w-20" title={if is_number(@duration_ms) and @duration_ms > 0, do: "#{Float.round(@duration_ms * 1.0, 1)}ms", else: "no duration"}>
+    <div
+      class="flex items-center gap-2 w-20"
+      title={
+        if is_number(@duration_ms) and @duration_ms > 0,
+          do: "#{Float.round(@duration_ms * 1.0, 1)}ms",
+          else: "no duration"
+      }
+    >
       <div class="flex-1 h-1.5 bg-base-200 rounded-full overflow-hidden">
-        <div class={[@bar_color, "h-full rounded-full transition-all"]} style={"width: #{@pct}%"}></div>
+        <div class={[@bar_color, "h-full rounded-full transition-all"]} style={"width: #{@pct}%"}>
+        </div>
       </div>
     </div>
     """
@@ -1002,15 +1020,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp extract_duration_ms(metric) do
     cond do
-      is_number(metric["duration_ms"]) -> metric["duration_ms"]
-      is_binary(metric["duration_ms"]) -> extract_number(metric["duration_ms"])
-      is_number(metric["duration_seconds"]) -> metric["duration_seconds"] * 1000
+      is_number(metric["duration_ms"]) ->
+        metric["duration_ms"]
+
+      is_binary(metric["duration_ms"]) ->
+        extract_number(metric["duration_ms"])
+
+      is_number(metric["duration_seconds"]) ->
+        metric["duration_seconds"] * 1000
+
       is_binary(metric["duration_seconds"]) ->
         case extract_number(metric["duration_seconds"]) do
           n when is_number(n) -> n * 1000
           _ -> nil
         end
-      true -> nil
+
+      true ->
+        nil
     end
   end
 
@@ -1185,6 +1211,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       # If we have an explicit unit with a value, use that
       unit != nil ->
         value = extract_primary_value(metric)
+
         if is_number(value) and value > 0 do
           format_with_explicit_unit(metric, unit)
         else
@@ -1209,15 +1236,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp extract_duration_value(metric) do
     cond do
-      is_number(metric["duration_ms"]) -> metric["duration_ms"]
-      is_binary(metric["duration_ms"]) -> extract_number(metric["duration_ms"])
-      is_number(metric["duration_seconds"]) -> metric["duration_seconds"] * 1000
+      is_number(metric["duration_ms"]) ->
+        metric["duration_ms"]
+
+      is_binary(metric["duration_ms"]) ->
+        extract_number(metric["duration_ms"])
+
+      is_number(metric["duration_seconds"]) ->
+        metric["duration_seconds"] * 1000
+
       is_binary(metric["duration_seconds"]) ->
         case extract_number(metric["duration_seconds"]) do
           nil -> nil
           val -> val * 1000
         end
-      true -> nil
+
+      true ->
+        nil
     end
   end
 
@@ -1754,17 +1789,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     case Repo.one(query) do
       %{total_count: total} = stats when not is_nil(total) and total > 0 ->
-        avg = case stats.avg_duration_ms do
-          %Decimal{} = d -> Decimal.to_float(d)
-          n when is_number(n) -> n * 1.0
-          _ -> 0.0
-        end
+        avg =
+          case stats.avg_duration_ms do
+            %Decimal{} = d -> Decimal.to_float(d)
+            n when is_number(n) -> n * 1.0
+            _ -> 0.0
+          end
 
-        p95 = case stats.p95_duration_ms do
-          %Decimal{} = d -> Decimal.to_float(d)
-          n when is_number(n) -> n * 1.0
-          _ -> 0.0
-        end
+        p95 =
+          case stats.p95_duration_ms do
+            %Decimal{} = d -> Decimal.to_float(d)
+            n when is_number(n) -> n * 1.0
+            _ -> 0.0
+          end
 
         %{
           avg_duration_ms: avg,
@@ -1878,7 +1915,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     %{avg_duration_ms: avg, p95_duration_ms: p95, sample_size: sample_size}
   end
 
-  defp compute_trace_duration_stats(_), do: %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
+  defp compute_trace_duration_stats(_),
+    do: %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
 
   defp unique_services_from_traces(rows) when is_list(rows) do
     rows

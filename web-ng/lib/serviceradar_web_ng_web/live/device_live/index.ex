@@ -167,9 +167,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     <td class="text-sm max-w-[18rem] truncate">{Map.get(row, "hostname") || "—"}</td>
                     <td class="font-mono text-xs">{Map.get(row, "ip") || "—"}</td>
                     <td class="text-xs">
-                      <.device_type_badge type={Map.get(row, "type")} type_id={Map.get(row, "type_id")} />
+                      <.device_type_badge
+                        type={Map.get(row, "type")}
+                        type_id={Map.get(row, "type_id")}
+                      />
                     </td>
-                    <td class="text-xs max-w-[8rem] truncate">{Map.get(row, "vendor_name") || "—"}</td>
+                    <td class="text-xs max-w-[8rem] truncate">
+                      {Map.get(row, "vendor_name") || "—"}
+                    </td>
                     <td class="text-xs">
                       <.availability_badge available={Map.get(row, "is_available")} />
                     </td>

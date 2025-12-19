@@ -432,7 +432,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             label="Kernel"
             value={Map.get(@os, "kernel_release")}
           />
-          <.kv_block :if={Map.get(@os, "cpu_bits")} label="Arch" value={"#{Map.get(@os, "cpu_bits")}-bit"} />
+          <.kv_block
+            :if={Map.get(@os, "cpu_bits")}
+            label="Arch"
+            value={"#{Map.get(@os, "cpu_bits")}-bit"}
+          />
           <.kv_block :if={Map.get(@os, "lang")} label="Language" value={Map.get(@os, "lang")} />
         </div>
       </div>

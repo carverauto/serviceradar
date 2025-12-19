@@ -82,7 +82,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   end
 
   def handle_event("srql_builder_run", _params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/analytics")}
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/analytics")}
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
@@ -92,7 +93,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   def handle_event("srql_builder_remove_filter", params, socket) do
     entity = get_in(socket.assigns, [:srql, :builder, "entity"]) || "devices"
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: entity)}
+
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: entity)}
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}

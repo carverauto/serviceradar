@@ -74,6 +74,7 @@ defmodule ServiceRadarWebNG.SRQL do
             columns
             |> Enum.zip(row)
             |> Map.new(fn {col, val} -> {col, normalize_value(val)} end)
+            |> normalize_row_aliases()
           end)
       end
 
@@ -113,6 +114,24 @@ defmodule ServiceRadarWebNG.SRQL do
       "viz" => viz,
       "error" => nil
     }
+  end
+
+  defp normalize_row_aliases(row) when is_map(row) do
+    row
+    |> maybe_alias("uid", "device_id")
+    |> maybe_alias("type", "device_type")
+    |> maybe_alias("first_seen_time", "first_seen")
+    |> maybe_alias("last_seen_time", "last_seen")
+  end
+
+  defp normalize_row_aliases(row), do: row
+
+  defp maybe_alias(row, from, to) do
+    cond do
+      Map.has_key?(row, to) -> row
+      Map.has_key?(row, from) -> Map.put(row, to, Map.get(row, from))
+      true -> row
+    end
   end
 
   defp normalize_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
