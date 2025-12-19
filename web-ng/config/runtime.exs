@@ -125,6 +125,22 @@ if config_env() == :prod do
 
   host = System.get_env("PHX_HOST") || "localhost"
 
+  dev_routes =
+    case System.get_env("SERVICERADAR_DEV_ROUTES") do
+      "true" -> true
+      "1" -> true
+      "yes" -> true
+      _ -> false
+    end
+
+  local_mailer =
+    case System.get_env("SERVICERADAR_LOCAL_MAILER") do
+      "true" -> true
+      "1" -> true
+      "yes" -> true
+      _ -> false
+    end
+
   check_origin =
     case System.get_env("PHX_CHECK_ORIGIN") do
       nil -> :conn
@@ -135,6 +151,11 @@ if config_env() == :prod do
     end
 
   config :serviceradar_web_ng, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+  config :serviceradar_web_ng, dev_routes: dev_routes
+
+  if local_mailer do
+    config :swoosh, local: true
+  end
 
   config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
