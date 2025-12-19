@@ -10,13 +10,16 @@ use crate::{
     },
     time::TimeRange,
 };
+use chrono::{DateTime, Utc};
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
-use diesel::sql_types::BigInt;
+use diesel::sql_query;
+use diesel::sql_types::{BigInt, Jsonb};
 use diesel::PgTextExpressionMethods;
+use diesel::QueryableByName;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
-
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 type ServiceStatusTable = crate::schema::service_status::table;
@@ -25,8 +28,51 @@ type ServicesQuery<'a> =
     BoxedSelectStatement<'a, <ServiceStatusTable as AsQuery>::SqlType, ServiceStatusFromClause, Pg>;
 type ServicesStatsQuery<'a> = BoxedSelectStatement<'a, BigInt, ServiceStatusFromClause, Pg>;
 
+/// Raw SQL result for rollup stats query - returns JSONB payload
+#[derive(Debug, QueryableByName)]
+struct ServicesRollupStatsSql {
+    #[diesel(sql_type = Jsonb)]
+    payload: Value,
+}
+
+/// Payload structure for services availability rollup stats
+#[derive(Debug, Serialize, Deserialize)]
+struct ServicesRollupStatsPayload {
+    total: i64,
+    available: i64,
+    unavailable: i64,
+    availability_pct: f64,
+}
+
+/// Bind value types for rollup stats queries
+#[derive(Debug, Clone)]
+enum SqlBindValue {
+    Timestamptz(DateTime<Utc>),
+    Text(String),
+}
+
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
+
+    // Handle rollup_stats queries (pre-computed CAGGs)
+    if let Some(rollup_result) = build_rollup_stats_query(plan)? {
+        let rows: Vec<ServicesRollupStatsSql> = rollup_result
+            .query
+            .load(conn)
+            .await
+            .map_err(|err| ServiceError::Internal(err.into()))?;
+
+        if let Some(row) = rows.into_iter().next() {
+            return Ok(vec![row.payload]);
+        }
+        // Return empty stats if no data
+        return Ok(vec![serde_json::json!({
+            "total": 0,
+            "available": 0,
+            "unavailable": 0,
+            "availability_pct": 0.0
+        })]);
+    }
 
     if let Some(spec) = parse_stats_spec(plan.stats.as_deref())? {
         let query = build_stats_query(plan, &spec)?;
@@ -51,6 +97,20 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+
+    // Handle rollup_stats queries (pre-computed CAGGs)
+    if let Some(rollup_result) = build_rollup_stats_query(plan)? {
+        let params: Vec<BindParam> = rollup_result
+            .binds
+            .into_iter()
+            .map(|v| match v {
+                SqlBindValue::Timestamptz(dt) => BindParam::timestamptz(dt),
+                SqlBindValue::Text(s) => BindParam::Text(s),
+            })
+            .collect();
+        return Ok((rollup_result.sql, params));
+    }
+
     if let Some(spec) = parse_stats_spec(plan.stats.as_deref())? {
         let query = build_stats_query(plan, &spec)?;
         let sql = super::diesel_sql(&query)?;
@@ -196,6 +256,125 @@ fn build_stats_query(
 
     let select_sql = format!("coalesce(COUNT(*), 0) as {}", spec.alias);
     Ok(query.select(diesel::dsl::sql::<BigInt>(&select_sql)))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rollup Stats (pre-computed CAGG queries)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Result of building a rollup stats query
+struct ServicesRollupStatsResult {
+    sql: String,
+    binds: Vec<SqlBindValue>,
+    query: diesel::query_builder::BoxedSqlQuery<'static, Pg, diesel::query_builder::SqlQuery>,
+}
+
+/// Build a rollup stats query if the plan specifies rollup_stats
+fn build_rollup_stats_query(plan: &QueryPlan) -> Result<Option<ServicesRollupStatsResult>> {
+    let rollup_type = match &plan.rollup_stats {
+        Some(t) => t.as_str(),
+        None => return Ok(None),
+    };
+
+    match rollup_type {
+        "availability" => build_availability_rollup_stats(plan),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported rollup_stats type for services: '{other}' (supported: availability)"
+        ))),
+    }
+}
+
+/// Build query for services availability rollup stats from services_availability_5m CAGG
+fn build_availability_rollup_stats(plan: &QueryPlan) -> Result<Option<ServicesRollupStatsResult>> {
+    let mut sql = String::from(
+        r#"SELECT jsonb_build_object(
+    'total', COALESCE(SUM(total_count), 0)::bigint,
+    'available', COALESCE(SUM(available_count), 0)::bigint,
+    'unavailable', COALESCE(SUM(unavailable_count), 0)::bigint,
+    'availability_pct', CASE
+        WHEN COALESCE(SUM(total_count), 0) = 0 THEN 0.0
+        ELSE (COALESCE(SUM(available_count), 0)::float / COALESCE(SUM(total_count), 0)::float) * 100.0
+    END
+) AS payload
+FROM services_availability_5m"#,
+    );
+
+    let mut binds: Vec<SqlBindValue> = Vec::new();
+    let mut where_clauses: Vec<String> = Vec::new();
+    let mut bind_idx = 1;
+
+    // Add time range filter
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        where_clauses.push(format!("bucket >= ${} AND bucket <= ${}", bind_idx, bind_idx + 1));
+        binds.push(SqlBindValue::Timestamptz(*start));
+        binds.push(SqlBindValue::Timestamptz(*end));
+        bind_idx += 2;
+    }
+
+    // Add service_name filter if present
+    for filter in &plan.filters {
+        if filter.field == "service_name" || filter.field == "name" {
+            if let Some(clause) = build_rollup_text_clause("service_name", filter, &mut binds, &mut bind_idx)? {
+                where_clauses.push(clause);
+            }
+        }
+        if filter.field == "service_type" || filter.field == "type" {
+            if let Some(clause) = build_rollup_text_clause("service_type", filter, &mut binds, &mut bind_idx)? {
+                where_clauses.push(clause);
+            }
+        }
+    }
+
+    if !where_clauses.is_empty() {
+        sql.push_str(" WHERE ");
+        sql.push_str(&where_clauses.join(" AND "));
+    }
+
+    // Build the query with bind parameters
+    let mut query = sql_query(sql.clone()).into_boxed::<Pg>();
+
+    for bind in &binds {
+        match bind {
+            SqlBindValue::Timestamptz(dt) => {
+                query = query.bind::<diesel::sql_types::Timestamptz, _>(*dt);
+            }
+            SqlBindValue::Text(s) => {
+                query = query.bind::<diesel::sql_types::Text, _>(s.clone());
+            }
+        }
+    }
+
+    Ok(Some(ServicesRollupStatsResult { sql, binds, query }))
+}
+
+/// Build a WHERE clause for text filters in rollup queries
+fn build_rollup_text_clause(
+    column: &str,
+    filter: &Filter,
+    binds: &mut Vec<SqlBindValue>,
+    bind_idx: &mut usize,
+) -> Result<Option<String>> {
+    match filter.op {
+        FilterOp::Eq => {
+            let clause = format!("{} = ${}", column, *bind_idx);
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            *bind_idx += 1;
+            Ok(Some(clause))
+        }
+        FilterOp::NotEq => {
+            let clause = format!("{} != ${}", column, *bind_idx);
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            *bind_idx += 1;
+            Ok(Some(clause))
+        }
+        FilterOp::Like => {
+            let clause = format!("{} LIKE ${}", column, *bind_idx);
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            *bind_idx += 1;
+            Ok(Some(clause))
+        }
+        _ => Ok(None), // Other operators not supported for rollup text filters
+    }
 }
 
 fn apply_filter<'a>(mut query: ServicesQuery<'a>, filter: &Filter) -> Result<ServicesQuery<'a>> {
@@ -358,6 +537,7 @@ mod tests {
             time_range: Some(TimeRange { start, end }),
             stats: None,
             downsample: None,
+            rollup_stats: None,
         };
 
         let result = build_query(&plan);

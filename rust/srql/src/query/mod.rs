@@ -256,6 +256,7 @@ fn build_query_plan(
         time_range,
         stats: ast.stats,
         downsample,
+        rollup_stats: ast.rollup_stats,
     })
 }
 
@@ -967,6 +968,8 @@ pub struct QueryPlan {
     pub time_range: Option<TimeRange>,
     pub stats: Option<String>,
     pub downsample: Option<crate::parser::DownsampleSpec>,
+    /// Rollup stats type for querying pre-computed CAGGs (e.g., "severity", "summary", "availability")
+    pub rollup_stats: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]

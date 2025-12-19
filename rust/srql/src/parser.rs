@@ -37,6 +37,8 @@ pub struct QueryAst {
     pub time_filter: Option<TimeFilterSpec>,
     pub stats: Option<String>,
     pub downsample: Option<DownsampleSpec>,
+    /// Rollup stats type for querying pre-computed CAGGs (e.g., "severity", "summary", "availability")
+    pub rollup_stats: Option<String>,
 }
 
 const MAX_STATS_EXPR_LEN: usize = 1024;
@@ -128,6 +130,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
     let mut downsample_bucket_seconds: Option<i64> = None;
     let mut downsample_agg = DownsampleAgg::Avg;
     let mut downsample_series: Option<String> = None;
+    let mut rollup_stats: Option<String> = None;
 
     let mut tokens = tokenize(input).into_iter().peekable();
     while let Some(token) = tokens.next() {
@@ -207,6 +210,15 @@ pub fn parse(input: &str) -> Result<QueryAst> {
                 }
                 stats = Some(expr);
             }
+            "rollup_stats" => {
+                let stat_type = value.as_scalar()?.trim().to_lowercase();
+                if stat_type.is_empty() {
+                    return Err(ServiceError::InvalidRequest(
+                        "rollup_stats requires a type (e.g., rollup_stats:severity)".into(),
+                    ));
+                }
+                rollup_stats = Some(stat_type);
+            }
             "window" | "bounded" | "mode" => {
                 // Aggregations and streaming hints are ignored for now.
                 continue;
@@ -242,6 +254,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
         time_filter,
         stats,
         downsample,
+        rollup_stats,
     })
 }
 
@@ -639,6 +652,28 @@ mod tests {
             .join(",");
         let query = format!("in:logs service:({values})");
         let err = parse(&query).unwrap_err();
+        assert!(matches!(err, ServiceError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn parses_rollup_stats_keyword() {
+        let ast = parse("in:logs time:last_24h rollup_stats:severity").unwrap();
+        assert!(matches!(ast.entity, Entity::Logs));
+        assert_eq!(ast.rollup_stats.as_deref(), Some("severity"));
+        assert!(ast.time_filter.is_some());
+    }
+
+    #[test]
+    fn parses_rollup_stats_with_filters() {
+        let ast = parse("in:logs service_name:core time:last_24h rollup_stats:severity").unwrap();
+        assert_eq!(ast.rollup_stats.as_deref(), Some("severity"));
+        assert_eq!(ast.filters.len(), 1);
+        assert_eq!(ast.filters[0].field, "service_name");
+    }
+
+    #[test]
+    fn rejects_empty_rollup_stats() {
+        let err = parse("in:logs rollup_stats:").unwrap_err();
         assert!(matches!(err, ServiceError::InvalidRequest(_)));
     }
 }
