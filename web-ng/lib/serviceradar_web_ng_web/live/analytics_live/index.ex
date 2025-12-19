@@ -588,6 +588,24 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp extract_numeric(_), do: 0
 
+  defp utilization_cpu(svc) do
+    svc
+    |> first_present(["value", "cpu_usage", "usage_percent", "user"], 0)
+    |> extract_numeric()
+  end
+
+  defp utilization_mem(svc) do
+    svc
+    |> first_present(["memory_usage", "mem_percent"], 0)
+    |> extract_numeric()
+  end
+
+  defp utilization_host(svc), do: first_present(svc, ["host", "uid"], "Unknown")
+
+  defp first_present(map, keys, default) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, default, &Map.get(map, &1))
+  end
+
   defp normalize_trace_stats(trace_stats) do
     case Map.get(trace_stats, "payload") do
       %{} = payload -> payload
@@ -1552,20 +1570,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp utilization_row(assigns) do
     svc = assigns.service
 
-    cpu =
-      extract_numeric(
-        Map.get(svc, "value") || Map.get(svc, "cpu_usage") || Map.get(svc, "usage_percent") ||
-          Map.get(svc, "user") || 0
-      )
-
-    mem = extract_numeric(Map.get(svc, "memory_usage") || Map.get(svc, "mem_percent") || 0)
-    host = Map.get(svc, "host") || Map.get(svc, "uid") || Map.get(svc, "device_id") || "Unknown"
-
     assigns =
       assigns
-      |> assign(:cpu, cpu)
-      |> assign(:mem, mem)
-      |> assign(:host, host)
+      |> assign(:cpu, utilization_cpu(svc))
+      |> assign(:mem, utilization_mem(svc))
+      |> assign(:host, utilization_host(svc))
 
     ~H"""
     <div class="flex items-center gap-2 p-1.5 rounded bg-base-200/50 text-xs">
@@ -1590,7 +1599,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         Map.get(svc, "percent") || Map.get(svc, "value") || Map.get(svc, "used_percent") || 0
       )
 
-    host = Map.get(svc, "host") || Map.get(svc, "uid") || Map.get(svc, "device_id") || "Unknown"
+    host = utilization_host(svc)
 
     assigns =
       assigns
