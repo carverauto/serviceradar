@@ -111,7 +111,7 @@ services:
 
   # Configuration Updater (runs after cert generation to update configs with secrets)
   config-updater:
-    image: ghcr.io/carverauto/serviceradar-config-updater:latest
+    image: ghcr.io/carverauto/serviceradar-config-updater:${APP_TAG:-latest}
     container_name: serviceradar-config-updater
     volumes:
       - cert-data:/etc/serviceradar/certs
@@ -153,7 +153,7 @@ services:
 
   # ServiceRadar Core Service
   core:
-    image: ghcr.io/carverauto/serviceradar-core:latest
+    image: ghcr.io/carverauto/serviceradar-core:${APP_TAG:-latest}
     container_name: serviceradar-core
     mem_limit: 8g
     mem_reservation: 4g
@@ -207,7 +207,7 @@ services:
 
   # ServiceRadar Web (Phoenix)
   web-ng:
-    image: ghcr.io/carverauto/serviceradar-web-ng:latest
+    image: ghcr.io/carverauto/serviceradar-web-ng:${APP_TAG:-latest}
     container_name: serviceradar-web-ng
     environment:
       - PORT=4000
@@ -236,17 +236,16 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  nginx:
-    image: nginx:1.27-alpine
-    container_name: serviceradar-nginx
+  caddy:
+    image: caddy:2.8.4-alpine
+    container_name: serviceradar-caddy
+    user: "0:0"
     ports:
       - "80:80"
       - "443:443"
-    environment:
-      - DNS_RESOLVER=127.0.0.11
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
-      - ./docker/compose/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./docker/compose/Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       cert-permissions-fixer:
         condition: service_completed_successfully
@@ -265,7 +264,7 @@ services:
 
   # ServiceRadar Poller Service
   poller:
-    image: ghcr.io/carverauto/serviceradar-poller:latest
+    image: ghcr.io/carverauto/serviceradar-poller:${APP_TAG:-latest}
     container_name: serviceradar-poller
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
@@ -334,7 +333,7 @@ services:
 
   # ServiceRadar Agent Service
   agent:
-    image: ghcr.io/carverauto/serviceradar-agent:latest
+    image: ghcr.io/carverauto/serviceradar-agent:${APP_TAG:-latest}
     container_name: serviceradar-agent
     volumes:
       - ./docker/compose/agent.docker.json:/etc/serviceradar/agent.json:ro
@@ -422,7 +421,7 @@ services:
 
   # ServiceRadar Data Service (KV + object store via NATS JetStream)
   datasvc:
-    image: ghcr.io/carverauto/serviceradar-datasvc:latest
+    image: ghcr.io/carverauto/serviceradar-datasvc:${APP_TAG:-latest}
     container_name: serviceradar-datasvc
     cpus: "2.0"
     ports:
@@ -461,7 +460,7 @@ services:
 
   # Seed poller configuration/template into KV so the Admin UI has defaults.
   poller-kv-seed:
-    image: ghcr.io/carverauto/serviceradar-tools:latest
+    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
     container_name: serviceradar-poller-kv-seed
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
@@ -486,7 +485,7 @@ services:
 
   # ServiceRadar Sync Service (Device discovery synchronization)
   sync:
-    image: ghcr.io/carverauto/serviceradar-sync:latest
+    image: ghcr.io/carverauto/serviceradar-sync:${APP_TAG:-latest}
     container_name: serviceradar-sync
     ports:
       - "50058:50058"  # gRPC port
@@ -540,7 +539,7 @@ services:
 
   # ServiceRadar OTEL Service (OpenTelemetry collector)
   otel:
-    image: ghcr.io/carverauto/serviceradar-otel:latest
+    image: ghcr.io/carverauto/serviceradar-otel:${APP_TAG:-latest}
     container_name: serviceradar-otel
     ports:
       - "4317:4317"  # OTEL gRPC port
@@ -595,7 +594,7 @@ services:
 
   # ServiceRadar Flowgger Service (Syslog collector)
   flowgger:
-    image: ghcr.io/carverauto/serviceradar-flowgger:latest
+    image: ghcr.io/carverauto/serviceradar-flowgger:${APP_TAG:-latest}
     container_name: serviceradar-flowgger
     ports:
       - "514:514/udp"  # Syslog UDP port
@@ -654,7 +653,7 @@ services:
 
   # ServiceRadar Trapd Service (SNMP trap collector)
   trapd:
-    image: ghcr.io/carverauto/serviceradar-trapd:latest
+    image: ghcr.io/carverauto/serviceradar-trapd:${APP_TAG:-latest}
     container_name: serviceradar-trapd
     ports:
       - "162:162/udp"  # SNMP trap UDP port
@@ -713,7 +712,7 @@ services:
 
   # ServiceRadar Zen Service (Event processing and rule engine)
   zen:
-    image: ghcr.io/carverauto/serviceradar-zen:latest
+    image: ghcr.io/carverauto/serviceradar-zen:${APP_TAG:-latest}
     container_name: serviceradar-zen
     ports:
       - "50040:50040"  # gRPC port
@@ -777,7 +776,7 @@ services:
 
   # ServiceRadar DB Event Writer Service (NATS to Database bridge)
   db-event-writer:
-    image: ghcr.io/carverauto/serviceradar-db-event-writer:latest
+    image: ghcr.io/carverauto/serviceradar-db-event-writer:${APP_TAG:-latest}
     container_name: serviceradar-db-event-writer
     ports:
       - "50041:50041"  # gRPC port
@@ -834,7 +833,7 @@ services:
 
   # ServiceRadar Mapper - SNMP Network Discovery Service
   mapper:
-    image: ghcr.io/carverauto/serviceradar-mapper:latest
+    image: ghcr.io/carverauto/serviceradar-mapper:${APP_TAG:-latest}
     container_name: serviceradar-mapper
     ports:
       - "50056:50056"  # gRPC port
@@ -882,7 +881,7 @@ services:
 
   # ServiceRadar SNMP Checker - SNMP Polling Service
   snmp-checker:
-    image: ghcr.io/carverauto/serviceradar-snmp-checker:latest
+    image: ghcr.io/carverauto/serviceradar-snmp-checker:${APP_TAG:-latest}
     container_name: serviceradar-snmp-checker
     ports:
       - "50054:50054"  # gRPC port
@@ -916,7 +915,7 @@ services:
 
   # ServiceRadar rperf Client - Network Performance Testing Service
   rperf-client:
-    image: ghcr.io/carverauto/serviceradar-rperf-client:latest
+    image: ghcr.io/carverauto/serviceradar-rperf-client:${APP_TAG:-latest}
     container_name: serviceradar-rperf-client
     ports:
       - "50059:50059"  # gRPC port

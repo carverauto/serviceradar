@@ -64,7 +64,7 @@ services:
     restart: unless-stopped
 
   config-updater:
-    image: ghcr.io/carverauto/serviceradar-config-updater:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-config-updater:${APP_TAG:-latest}
     container_name: serviceradar-config-updater-mtls
     volumes:
       - cert-data:/etc/serviceradar/certs
@@ -107,7 +107,7 @@ services:
       - serviceradar-net
 
   core:
-    image: ghcr.io/carverauto/serviceradar-core:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-core:${APP_TAG:-latest}
     container_name: serviceradar-core-mtls
     mem_limit: 8g
     mem_reservation: 4g
@@ -185,7 +185,7 @@ services:
     restart: unless-stopped
 
   datasvc:
-    image: ghcr.io/carverauto/serviceradar-datasvc:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-datasvc:${APP_TAG:-latest}
     container_name: serviceradar-datasvc-mtls
     cpus: "2.0"
     ports:
@@ -217,7 +217,7 @@ services:
     restart: unless-stopped
 
   poller-kv-seed:
-    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
     container_name: serviceradar-poller-kv-seed-mtls
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
@@ -241,7 +241,7 @@ services:
       - serviceradar-net
 
   checker-templates-seed:
-    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
     container_name: serviceradar-checker-templates-seed-mtls
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
@@ -265,7 +265,7 @@ services:
       - serviceradar-net
 
   agent:
-    image: ghcr.io/carverauto/serviceradar-agent:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-agent:${APP_TAG:-latest}
     container_name: serviceradar-agent-mtls
     volumes:
       - ./docker/compose/agent.mtls.json:/etc/serviceradar/agent.json:ro
@@ -307,7 +307,7 @@ services:
     restart: unless-stopped
 
   poller:
-    image: ghcr.io/carverauto/serviceradar-poller:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-poller:${APP_TAG:-latest}
     container_name: serviceradar-poller-mtls
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
@@ -354,7 +354,7 @@ services:
     restart: unless-stopped
 
   sync:
-    image: ghcr.io/carverauto/serviceradar-sync:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-sync:${APP_TAG:-latest}
     container_name: serviceradar-sync-mtls
     ports:
       - "50058:50058"
@@ -391,7 +391,7 @@ services:
     restart: unless-stopped
 
   otel:
-    image: ghcr.io/carverauto/serviceradar-otel:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-otel:${APP_TAG:-latest}
     container_name: serviceradar-otel-mtls
     ports:
       - "4317:4317"
@@ -421,7 +421,7 @@ services:
     restart: unless-stopped
 
   flowgger:
-    image: ghcr.io/carverauto/serviceradar-flowgger:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-flowgger:${APP_TAG:-latest}
     container_name: serviceradar-flowgger-mtls
     ports:
       - "514:514/udp"
@@ -454,7 +454,7 @@ services:
     restart: unless-stopped
 
   trapd:
-    image: ghcr.io/carverauto/serviceradar-trapd:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-trapd:${APP_TAG:-latest}
     container_name: serviceradar-trapd-mtls
     ports:
       - "162:162/udp"
@@ -487,7 +487,7 @@ services:
     restart: unless-stopped
 
   zen:
-    image: ghcr.io/carverauto/serviceradar-zen:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-zen:${APP_TAG:-latest}
     container_name: serviceradar-zen-mtls
     ports:
       - "50040:50040"
@@ -519,7 +519,7 @@ services:
     restart: unless-stopped
 
   db-event-writer:
-    image: ghcr.io/carverauto/serviceradar-db-event-writer:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-db-event-writer:${APP_TAG:-latest}
     container_name: serviceradar-db-event-writer-mtls
     ports:
       - "50041:50041"
@@ -562,7 +562,7 @@ services:
     restart: unless-stopped
 
   mapper:
-    image: ghcr.io/carverauto/serviceradar-mapper:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-mapper:${APP_TAG:-latest}
     container_name: serviceradar-mapper-mtls
     ports:
       - "50056:50056"
@@ -598,7 +598,7 @@ services:
     restart: unless-stopped
 
   snmp-checker:
-    image: ghcr.io/carverauto/serviceradar-snmp-checker:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-snmp-checker:${APP_TAG:-latest}
     container_name: serviceradar-snmp-checker-mtls
     ports:
       - "50054:50054"
@@ -629,7 +629,7 @@ services:
     restart: unless-stopped
 
   rperf-client:
-    image: ghcr.io/carverauto/serviceradar-rperf-client:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-rperf-client:${APP_TAG:-latest}
     container_name: serviceradar-rperf-client-mtls
     ports:
       - "50059:50059"
@@ -660,7 +660,7 @@ services:
     restart: unless-stopped
 
   web-ng:
-    image: ghcr.io/carverauto/serviceradar-web-ng:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-web-ng:${APP_TAG:-latest}
     container_name: serviceradar-web-ng-mtls
     environment:
       - PORT=4000
@@ -691,17 +691,16 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  nginx:
-    image: nginx:1.27-alpine
-    container_name: serviceradar-nginx-mtls
+  caddy:
+    image: caddy:2.8.4-alpine
+    container_name: serviceradar-caddy-mtls
+    user: "0:0"
     ports:
       - "80:80"
       - "443:443"
-    environment:
-      - DNS_RESOLVER=127.0.0.11
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
-      - ./docker/compose/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./docker/compose/Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       cert-permissions-fixer:
         condition: service_completed_successfully
