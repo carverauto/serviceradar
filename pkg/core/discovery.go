@@ -859,10 +859,10 @@ func (s *discoveryService) emitInterfacesToGraph(
 			s.logger.Warn().Err(err).Str("device_ip", deviceIP).Msg("graph: failed to resolve device by IP")
 			continue
 		}
-		if len(devices) == 0 || devices[0] == nil || strings.TrimSpace(devices[0].DeviceID) == "" {
+		if len(devices) == 0 || devices[0] == nil || strings.TrimSpace(devices[0].UID) == "" {
 			continue
 		}
-		canonicalByIP[deviceIP] = strings.TrimSpace(devices[0].DeviceID)
+		canonicalByIP[deviceIP] = strings.TrimSpace(devices[0].UID)
 	}
 
 	if len(canonicalByIP) == 0 {
@@ -1009,7 +1009,7 @@ func (s *discoveryService) emitTopologyToGraph(ctx context.Context, events []*mo
 		if err != nil || len(devs) == 0 || devs[0] == nil {
 			return ""
 		}
-		id := strings.TrimSpace(devs[0].DeviceID)
+		id := strings.TrimSpace(devs[0].UID)
 		if id != "" {
 			canonicalByIP[ip] = id
 		}

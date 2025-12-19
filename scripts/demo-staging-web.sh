@@ -4,7 +4,7 @@ set -euo pipefail
 NS="${1:-demo-staging}"
 
 echo "[demo-staging-web] Pushing web image (latest)..."
-bazel run --config=remote --stamp //docker/images:web_image_amd64_push
+bazel run --config=remote --stamp //docker/images:web_ng_image_amd64_push
 
 echo "[demo-staging-web] Restarting web deployment in namespace ${NS}..."
 kubectl -n "${NS}" rollout restart deployment/serviceradar-web

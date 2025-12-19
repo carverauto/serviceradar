@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   def load_list(socket, params, uri, list_assign_key, opts \\ []) when is_atom(list_assign_key) do
     srql = Map.get(socket.assigns, :srql, %{})
     entity = srql_entity(srql, opts)
-    builder_available = Map.get(srql, :builder_available, false)
+    builder_available = builder_available?(srql)
 
     default_limit = Keyword.get(opts, :default_limit, 20)
     max_limit = Keyword.get(opts, :max_limit, 100)
@@ -46,69 +46,16 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     limit = parse_limit(Map.get(params, "limit"), default_limit, max_limit)
     cursor = normalize_optional_string(Map.get(params, "cursor"))
 
-    builder =
-      if builder_available do
-        base =
-          if Map.has_key?(params, "q") do
-            Map.get(srql, :builder, Builder.default_state(entity, limit))
-          else
-            Builder.default_state(entity, limit)
-          end
-
-        base
-        |> Map.put("entity", entity)
-        |> Map.put("limit", limit)
-      else
-        %{}
-      end
-
-    default_query =
-      if builder_available do
-        Builder.build(builder)
-      else
-        default_query(entity, limit)
-      end
-
+    builder = build_builder_state(params, srql, entity, limit, builder_available)
+    default_query = default_query_for(builder_available, builder, entity, limit)
     query = normalize_query_param(Map.get(params, "q"), default_query)
 
     {builder_supported, builder_sync, builder_state} =
-      if builder_available do
-        case Builder.parse(query) do
-          {:ok, parsed} -> {true, true, parsed}
-          {:error, _} -> {false, false, builder}
-        end
-      else
-        {false, false, %{}}
-      end
+      parse_builder_state(builder_available, query, builder)
 
     srql_module = srql_module()
 
-    {results, error, viz_meta, pagination} =
-      case srql_module.query(query, %{cursor: cursor, limit: limit}) do
-        {:ok, %{"results" => results, "pagination" => pag} = resp} when is_list(results) ->
-          viz =
-            case Map.get(resp, "viz") do
-              value when is_map(value) -> value
-              _ -> nil
-            end
-
-          {results, nil, viz, pag || %{}}
-
-        {:ok, %{"results" => results} = resp} when is_list(results) ->
-          viz =
-            case Map.get(resp, "viz") do
-              value when is_map(value) -> value
-              _ -> nil
-            end
-
-          {results, nil, viz, %{}}
-
-        {:ok, other} ->
-          {[], "unexpected SRQL response: #{inspect(other)}", nil, %{}}
-
-        {:error, reason} ->
-          {[], "SRQL error: #{format_error(reason)}", nil, %{}}
-      end
+    {results, error, viz_meta, pagination} = srql_results(srql_module, query, cursor, limit)
 
     page_path = uri |> normalize_uri() |> URI.parse() |> Map.get(:path)
 
@@ -184,46 +131,17 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   def handle_event(socket, "srql_builder_toggle", _params, opts) do
     srql = Map.get(socket.assigns, :srql, %{})
 
-    if not Map.get(srql, :builder_available, false) do
-      Phoenix.Component.assign(socket, :srql, Map.put(srql, :builder_open, false))
+    if builder_available?(srql) do
+      toggle_builder(socket, srql, opts)
     else
-      if Map.get(srql, :builder_open, false) do
-        Phoenix.Component.assign(socket, :srql, Map.put(srql, :builder_open, false))
-      else
-        entity = srql_entity(srql, opts)
-        limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
-        limit = Map.get(socket.assigns, limit_assign_key, 100)
-
-        current = srql[:draft] || srql[:query] || ""
-        current = normalize_param_to_string(current) || ""
-
-        {supported, sync, builder} =
-          case Builder.parse(current) do
-            {:ok, builder} ->
-              {true, true, builder}
-
-            {:error, _reason} ->
-              {false, false, Builder.default_state(entity, limit)}
-          end
-
-        updated =
-          srql
-          |> Map.put(:builder_open, true)
-          |> Map.put(:builder_supported, supported)
-          |> Map.put(:builder_sync, sync)
-          |> Map.put(:builder, builder)
-
-        Phoenix.Component.assign(socket, :srql, updated)
-      end
+      Phoenix.Component.assign(socket, :srql, Map.put(srql, :builder_open, false))
     end
   end
 
   def handle_event(socket, "srql_builder_change", params, _opts) do
     srql = Map.get(socket.assigns, :srql, %{})
 
-    if not Map.get(srql, :builder_available, false) do
-      Phoenix.Component.assign(socket, :srql, srql)
-    else
+    if builder_available?(srql) do
       builder_params =
         case extract_param(params, "builder") do
           %{} = v -> v
@@ -242,15 +160,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         end
 
       Phoenix.Component.assign(socket, :srql, updated)
+    else
+      Phoenix.Component.assign(socket, :srql, srql)
     end
   end
 
   def handle_event(socket, "srql_builder_add_filter", _params, opts) do
     srql = Map.get(socket.assigns, :srql, %{})
 
-    if not Map.get(srql, :builder_available, false) do
-      Phoenix.Component.assign(socket, :srql, srql)
-    else
+    if builder_available?(srql) do
       entity = current_builder_entity(srql, opts)
       builder = Map.get(srql, :builder, Builder.default_state(entity))
 
@@ -273,15 +191,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         |> maybe_sync_builder_to_draft()
 
       Phoenix.Component.assign(socket, :srql, updated)
+    else
+      Phoenix.Component.assign(socket, :srql, srql)
     end
   end
 
   def handle_event(socket, "srql_builder_remove_filter", params, opts) do
     srql = Map.get(socket.assigns, :srql, %{})
 
-    if not Map.get(srql, :builder_available, false) do
-      Phoenix.Component.assign(socket, :srql, srql)
-    else
+    if builder_available?(srql) do
       entity = current_builder_entity(srql, opts)
       builder = Map.get(srql, :builder, Builder.default_state(entity))
 
@@ -313,15 +231,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         |> maybe_sync_builder_to_draft()
 
       Phoenix.Component.assign(socket, :srql, updated)
+    else
+      Phoenix.Component.assign(socket, :srql, srql)
     end
   end
 
   def handle_event(socket, "srql_builder_apply", _params, _opts) do
     srql = Map.get(socket.assigns, :srql, %{})
 
-    if not Map.get(srql, :builder_available, false) do
-      Phoenix.Component.assign(socket, :srql, srql)
-    else
+    if builder_available?(srql) do
       builder = Map.get(srql, :builder, %{})
       query = Builder.build(builder)
 
@@ -332,6 +250,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         |> Map.put(:draft, query)
 
       Phoenix.Component.assign(socket, :srql, updated)
+    else
+      Phoenix.Component.assign(socket, :srql, srql)
     end
   end
 
@@ -340,9 +260,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     fallback_path = Keyword.get(opts, :fallback_path) || "/"
     extra_params = normalize_extra_params(Keyword.get(opts, :extra_params, %{}))
 
-    if not Map.get(srql, :builder_available, false) do
-      socket
-    else
+    if builder_available?(srql) do
       # Build query from current builder state
       builder = Map.get(srql, :builder, %{})
       query = Builder.build(builder)
@@ -361,6 +279,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       socket
       |> Phoenix.Component.assign(:srql, Map.put(srql, :builder_open, false))
       |> navigate_to_path(target_path, current_path, nav_params)
+    else
+      socket
     end
   end
 
@@ -457,6 +377,89 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
           "" -> default_query
           other -> String.slice(other, 0, 4000)
         end
+    end
+  end
+
+  defp builder_available?(srql), do: Map.get(srql, :builder_available, false)
+
+  defp build_builder_state(params, srql, entity, limit, true) do
+    base =
+      if Map.has_key?(params, "q") do
+        Map.get(srql, :builder, Builder.default_state(entity, limit))
+      else
+        Builder.default_state(entity, limit)
+      end
+
+    base
+    |> Map.put("entity", entity)
+    |> Map.put("limit", limit)
+  end
+
+  defp build_builder_state(_params, _srql, _entity, _limit, false), do: %{}
+
+  defp default_query_for(true, builder, _entity, _limit), do: Builder.build(builder)
+  defp default_query_for(false, _builder, entity, limit), do: default_query(entity, limit)
+
+  defp parse_builder_state(true, query, builder) do
+    case Builder.parse(query) do
+      {:ok, parsed} -> {true, true, parsed}
+      {:error, _} -> {false, false, builder}
+    end
+  end
+
+  defp parse_builder_state(false, _query, _builder), do: {false, false, %{}}
+
+  defp srql_results(srql_module, query, cursor, limit) do
+    case srql_module.query(query, %{cursor: cursor, limit: limit}) do
+      {:ok, %{"results" => results, "pagination" => pag} = resp} when is_list(results) ->
+        {results, nil, extract_viz(resp), pag || %{}}
+
+      {:ok, %{"results" => results} = resp} when is_list(results) ->
+        {results, nil, extract_viz(resp), %{}}
+
+      {:ok, other} ->
+        {[], "unexpected SRQL response: #{inspect(other)}", nil, %{}}
+
+      {:error, reason} ->
+        {[], "SRQL error: #{format_error(reason)}", nil, %{}}
+    end
+  end
+
+  defp extract_viz(resp) do
+    case Map.get(resp, "viz") do
+      value when is_map(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp toggle_builder(socket, srql, opts) do
+    if Map.get(srql, :builder_open, false) do
+      Phoenix.Component.assign(socket, :srql, Map.put(srql, :builder_open, false))
+    else
+      entity = srql_entity(srql, opts)
+      limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
+      limit = Map.get(socket.assigns, limit_assign_key, 100)
+
+      current = srql[:draft] || srql[:query] || ""
+      current = normalize_param_to_string(current) || ""
+
+      {supported, sync, builder} = parse_builder_for_toggle(current, entity, limit)
+
+      updated =
+        srql
+        |> Map.put(:builder_open, true)
+        |> Map.put(:builder_supported, supported)
+        |> Map.put(:builder_sync, sync)
+        |> Map.put(:builder, builder)
+
+      Phoenix.Component.assign(socket, :srql, updated)
+    end
+  end
+
+  defp parse_builder_for_toggle(current, entity, limit) do
+    case Builder.parse(current) do
+      {:ok, builder} -> {true, true, builder}
+      {:error, _} -> {false, false, Builder.default_state(entity, limit)}
     end
   end
 

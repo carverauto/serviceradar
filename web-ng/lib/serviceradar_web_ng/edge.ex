@@ -1,4 +1,6 @@
 defmodule ServiceRadarWebNG.Edge do
+  @moduledoc false
+
   alias ServiceRadarWebNG.Edge.OnboardingToken
 
   def encode_onboarding_token(package_id, download_token, core_api_url \\ nil) do

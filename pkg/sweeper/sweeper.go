@@ -104,9 +104,9 @@ func (s *NetworkSweeper) kvWatchBackoff() kvWatchBackoffSettings {
 type DeviceRegistryService interface {
 	ProcessSweepResult(ctx context.Context, result *models.SweepResult) error
 	UpdateDevice(ctx context.Context, update *models.DeviceUpdate) error
-	GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
-	GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
-	ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
+	GetDevice(ctx context.Context, deviceID string) (*models.OCSFDevice, error)
+	GetDevicesByIP(ctx context.Context, ip string) ([]*models.OCSFDevice, error)
+	ListDevices(ctx context.Context, limit, offset int) ([]*models.OCSFDevice, error)
 }
 
 // NetworkSweeper implements both Sweeper and SweepService interfaces.

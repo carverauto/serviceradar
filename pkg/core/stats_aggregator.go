@@ -361,7 +361,7 @@ func hasAnyCapability(sets map[string]map[string]struct{}, deviceID string) bool
 
 
 func shouldCountRecord(record *registry.DeviceRecord) bool {
-	// Count all non-nil records. The database (unified_devices) is the source of truth
+	// Count all non-nil records. The database (ocsf_devices) is the source of truth
 	// and already filters merged/deleted devices. If a device made it into the registry,
 	// it should be counted in stats - even sweep-only devices without strong identity.
 	// This prevents legitimate discovered devices from being hidden in the UI.
@@ -486,7 +486,7 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 			continue
 		}
 		// DIRE: No tombstone filtering. The database is the source of truth.
-		// All devices in unified_devices are active - no soft deletes or merge chains.
+		// All devices in ocsf_devices are active - no soft deletes or merge chains.
 
 		// All records (including pollers, agents, global services) are counted as devices.
 		// Even if service components share an IP with other devices, they maintain
@@ -674,7 +674,7 @@ func (a *StatsAggregator) maybeReportDiscrepancy(ctx context.Context, records []
 	cnpgTotal := cnpgSnapshot
 	var err error
 	if cnpgTotal <= 0 {
-		cnpgTotal, err = a.dbService.CountUnifiedDevices(ctx)
+		cnpgTotal, err = a.dbService.CountOCSFDevices(ctx)
 		if err != nil {
 			a.logger.Warn().Err(err).Msg("Failed to count CNPG devices during stats diagnostics")
 			return
@@ -757,7 +757,7 @@ func (a *StatsAggregator) reconcileWithCNPG(ctx context.Context, records []*regi
 		return records, 0
 	}
 
-	cnpgTotal, err := a.dbService.CountUnifiedDevices(ctx)
+	cnpgTotal, err := a.dbService.CountOCSFDevices(ctx)
 	if err != nil {
 		if a.logger != nil {
 			a.logger.Warn().
@@ -939,7 +939,7 @@ func sampleRegistryExcessIDs(
 			return nil
 		}
 
-		devices, err := dbService.GetUnifiedDevicesByIPsOrIDs(ctx, nil, buffer)
+		devices, err := dbService.GetOCSFDevicesByIPsOrIDs(ctx, nil, buffer)
 		if err != nil {
 			return err
 		}
@@ -949,7 +949,7 @@ func sampleRegistryExcessIDs(
 			if device == nil {
 				continue
 			}
-			id := strings.TrimSpace(device.DeviceID)
+			id := strings.TrimSpace(device.UID)
 			if id == "" {
 				continue
 			}

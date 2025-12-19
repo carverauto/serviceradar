@@ -1,4 +1,6 @@
 defmodule ServiceRadarWebNG.Infrastructure.Service do
+  @moduledoc false
+
   use Ecto.Schema
 
   @primary_key false

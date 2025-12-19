@@ -42,10 +42,10 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 }
 
 // FindRelatedDevices mocks base method.
-func (m *MockManager) FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error) {
+func (m *MockManager) FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.OCSFDevice, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FindRelatedDevices", ctx, deviceID)
-	ret0, _ := ret[0].([]*models.UnifiedDevice)
+	ret0, _ := ret[0].([]*models.OCSFDevice)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -57,10 +57,10 @@ func (mr *MockManagerMockRecorder) FindRelatedDevices(ctx, deviceID any) *gomock
 }
 
 // GetDevice mocks base method.
-func (m *MockManager) GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
+func (m *MockManager) GetDevice(ctx context.Context, deviceID string) (*models.OCSFDevice, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDevice", ctx, deviceID)
-	ret0, _ := ret[0].(*models.UnifiedDevice)
+	ret0, _ := ret[0].(*models.OCSFDevice)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -72,10 +72,10 @@ func (mr *MockManagerMockRecorder) GetDevice(ctx, deviceID any) *gomock.Call {
 }
 
 // GetDeviceByIDStrict mocks base method.
-func (m *MockManager) GetDeviceByIDStrict(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
+func (m *MockManager) GetDeviceByIDStrict(ctx context.Context, deviceID string) (*models.OCSFDevice, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDeviceByIDStrict", ctx, deviceID)
-	ret0, _ := ret[0].(*models.UnifiedDevice)
+	ret0, _ := ret[0].(*models.OCSFDevice)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -87,10 +87,10 @@ func (mr *MockManagerMockRecorder) GetDeviceByIDStrict(ctx, deviceID any) *gomoc
 }
 
 // GetDevicesByIP mocks base method.
-func (m *MockManager) GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error) {
+func (m *MockManager) GetDevicesByIP(ctx context.Context, ip string) ([]*models.OCSFDevice, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDevicesByIP", ctx, ip)
-	ret0, _ := ret[0].([]*models.UnifiedDevice)
+	ret0, _ := ret[0].([]*models.OCSFDevice)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -102,10 +102,10 @@ func (mr *MockManagerMockRecorder) GetDevicesByIP(ctx, ip any) *gomock.Call {
 }
 
 // ListDevices mocks base method.
-func (m *MockManager) ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error) {
+func (m *MockManager) ListDevices(ctx context.Context, limit, offset int) ([]*models.OCSFDevice, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListDevices", ctx, limit, offset)
-	ret0, _ := ret[0].([]*models.UnifiedDevice)
+	ret0, _ := ret[0].([]*models.OCSFDevice)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

@@ -239,7 +239,7 @@ func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []mod
 					continue
 				}
 
-				snapshot := canonicalSnapshotFromDevice(device)
+				snapshot := canonicalSnapshotFromOCSFDevice(device)
 				if !snapshotHasStrongIdentity(snapshot) {
 					continue
 				}
@@ -277,7 +277,7 @@ func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []mod
 			continue
 		}
 
-		devices, err := s.DB.GetUnifiedDevicesByIPsOrIDs(ctx, chunk, nil)
+		devices, err := s.DB.GetOCSFDevicesByIPsOrIDs(ctx, chunk, nil)
 		if err != nil {
 			s.logger.Warn().Err(err).Msg("Failed to fetch canonical devices for sweep hydration")
 			continue
@@ -292,7 +292,7 @@ func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []mod
 				continue
 			}
 
-			snapshot := canonicalSnapshotFromDevice(device)
+			snapshot := canonicalSnapshotFromOCSFDevice(device)
 
 			if !snapshotHasStrongIdentity(snapshot) {
 				continue
@@ -308,22 +308,19 @@ func (s *Server) lookupCanonicalSweepIdentities(ctx context.Context, hosts []mod
 	return result
 }
 
-func canonicalSnapshotFromDevice(device *models.UnifiedDevice) canonicalSnapshot {
+func canonicalSnapshotFromOCSFDevice(device *models.OCSFDevice) canonicalSnapshot {
 	if device == nil {
 		return canonicalSnapshot{}
 	}
 
 	snapshot := canonicalSnapshot{
-		DeviceID: strings.TrimSpace(device.DeviceID),
+		DeviceID: strings.TrimSpace(device.UID),
 		IP:       strings.TrimSpace(device.IP),
+		MAC:      strings.TrimSpace(device.MAC),
 	}
 
-	if device.MAC != nil {
-		snapshot.MAC = strings.TrimSpace(device.MAC.Value)
-	}
-
-	if device.Metadata != nil && device.Metadata.Value != nil {
-		snapshot.Metadata = device.Metadata.Value
+	if device.Metadata != nil {
+		snapshot.Metadata = device.Metadata
 	}
 
 	return snapshot

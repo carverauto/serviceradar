@@ -42,8 +42,8 @@ func allowCanonicalizationQueries(mockDB *db.MockService) {
 		Return([]map[string]interface{}{}, nil).
 		AnyTimes()
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]*models.UnifiedDevice{}, nil).
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*models.OCSFDevice{}, nil).
 		AnyTimes()
 	// IdentityEngine calls BatchGetDeviceIDsByIdentifier to resolve strong identifiers
 	mockDB.EXPECT().
@@ -198,19 +198,19 @@ func TestSearchDevices(t *testing.T) {
 
 	results := reg.SearchDevices("edge", 10)
 	require.Len(t, results, 2)
-	assert.Equal(t, "default:10.3.0.1", results[0].DeviceID)
+	assert.Equal(t, "default:10.3.0.1", results[0].UID)
 
 	results = reg.SearchDevices("10.3.0.", 1)
 	require.Len(t, results, 1)
-	assert.Equal(t, "default:10.3.0.1", results[0].DeviceID)
+	assert.Equal(t, "default:10.3.0.1", results[0].UID)
 
 	results = reg.SearchDevices("default:10.3.0.2", 5)
 	require.NotEmpty(t, results)
-	assert.Equal(t, "default:10.3.0.2", results[0].DeviceID, "exact device_id match should rank highest")
+	assert.Equal(t, "default:10.3.0.2", results[0].UID, "exact device_id match should rank highest")
 
 	results = reg.SearchDevices("10.3.0.2", 5)
 	require.NotEmpty(t, results)
-	assert.Equal(t, "default:10.3.0.2", results[0].DeviceID, "exact IP match should outrank others")
+	assert.Equal(t, "default:10.3.0.2", results[0].UID, "exact IP match should outrank others")
 }
 
 func TestDeviceRegistry_ProcessBatchDeviceUpdates(t *testing.T) {
@@ -702,11 +702,11 @@ func TestAnnotateFirstSeenFallsBackToDB(t *testing.T) {
 
 	// Set up specific expectation BEFORE allowCanonicalizationQueries
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), gomock.AssignableToTypeOf([]string{})).
-		Return([]*models.UnifiedDevice{
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), gomock.AssignableToTypeOf([]string{})).
+		Return([]*models.OCSFDevice{
 			{
-				DeviceID:  deviceID,
-				FirstSeen: existing,
+				UID:           deviceID,
+				FirstSeenTime: &existing,
 			},
 		}, nil).
 		Times(1)
@@ -1205,7 +1205,7 @@ func TestReconcileSightingsBlocksOnCardinalityDrift(t *testing.T) {
 	mockDB := db.NewMockService(ctrl)
 	allowCanonicalizationQueries(mockDB)
 	mockDB.EXPECT().
-		CountUnifiedDevices(gomock.Any()).
+		CountOCSFDevices(gomock.Any()).
 		Return(int64(52000), nil)
 	mockDB.EXPECT().
 		ListActiveSightings(gomock.Any(), "", sweepSightingMergeBatchSize, 0).
@@ -1249,9 +1249,10 @@ func TestProcessBatchDeviceUpdates_MergesSweepIntoCanonicalDevice(t *testing.T) 
 		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, query string, _ ...interface{}) ([]map[string]interface{}, error) {
 			// Return canonical device mapping for IP query
+			// Note: Query returns "uid" not "device_id" (OCSF schema)
 			if strings.Contains(query, "10.1.1.1") {
 				return []map[string]interface{}{
-					{"ip": "10.1.1.1", "device_id": "sr:canonical"},
+					{"ip": "10.1.1.1", "uid": "sr:canonical"},
 				}, nil
 			}
 			return []map[string]interface{}{}, nil
@@ -1259,27 +1260,27 @@ func TestProcessBatchDeviceUpdates_MergesSweepIntoCanonicalDevice(t *testing.T) 
 		AnyTimes()
 
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, ips []string, deviceIDs []string) ([]*models.UnifiedDevice, error) {
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, ips []string, uids []string) ([]*models.OCSFDevice, error) {
 			if len(ips) > 0 {
-				return []*models.UnifiedDevice{
+				return []*models.OCSFDevice{
 					{
-						DeviceID: "sr:canonical",
-						IP:       ips[0],
-						MAC:      &models.DiscoveredField[string]{Value: "aa:bb:cc:dd:ee:ff"},
+						UID: "sr:canonical",
+						IP:  ips[0],
+						MAC: "aa:bb:cc:dd:ee:ff",
 					},
 				}, nil
 			}
-			if len(deviceIDs) > 0 {
-				return []*models.UnifiedDevice{
+			if len(uids) > 0 {
+				return []*models.OCSFDevice{
 					{
-						DeviceID: deviceIDs[0],
-						IP:       "10.1.1.1",
-						MAC:      &models.DiscoveredField[string]{Value: "aa:bb:cc:dd:ee:ff"},
+						UID: uids[0],
+						IP:  "10.1.1.1",
+						MAC: "aa:bb:cc:dd:ee:ff",
 					},
 				}, nil
 			}
-			return []*models.UnifiedDevice{}, nil
+			return []*models.OCSFDevice{}, nil
 		}).
 		AnyTimes()
 
@@ -1334,9 +1335,10 @@ func TestReconcileSightingsMergesSweepSightingsByIP(t *testing.T) {
 	mockDB.EXPECT().
 		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, query string, _ ...interface{}) ([]map[string]interface{}, error) {
+			// Note: Query returns "uid" not "device_id" (OCSF schema)
 			if strings.Contains(query, "10.2.2.2") {
 				return []map[string]interface{}{
-					{"ip": "10.2.2.2", "device_id": "sr:merge-target"},
+					{"ip": "10.2.2.2", "uid": "sr:merge-target"},
 				}, nil
 			}
 			return []map[string]interface{}{}, nil
@@ -1387,27 +1389,27 @@ func TestReconcileSightingsMergesSweepSightingsByIP(t *testing.T) {
 		Return([]*models.NetworkSighting{sighting}, nil)
 
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, ips []string, deviceIDs []string) ([]*models.UnifiedDevice, error) {
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, ips []string, uids []string) ([]*models.OCSFDevice, error) {
 			if len(ips) > 0 {
-				return []*models.UnifiedDevice{
+				return []*models.OCSFDevice{
 					{
-						DeviceID: "sr:merge-target",
-						IP:       ips[0],
-						MAC:      &models.DiscoveredField[string]{Value: "AA:BB:CC:DD:EE:11"},
+						UID: "sr:merge-target",
+						IP:  ips[0],
+						MAC: "AA:BB:CC:DD:EE:11",
 					},
 				}, nil
 			}
-			if len(deviceIDs) > 0 {
-				return []*models.UnifiedDevice{
+			if len(uids) > 0 {
+				return []*models.OCSFDevice{
 					{
-						DeviceID: deviceIDs[0],
-						IP:       "10.2.2.2",
-						MAC:      &models.DiscoveredField[string]{Value: "AA:BB:CC:DD:EE:11"},
+						UID: uids[0],
+						IP:  "10.2.2.2",
+						MAC: "AA:BB:CC:DD:EE:11",
 					},
 				}, nil
 			}
-			return []*models.UnifiedDevice{}, nil
+			return []*models.OCSFDevice{}, nil
 		}).
 		AnyTimes()
 
@@ -1447,8 +1449,8 @@ func TestReconcileSightingsPromotesEligibleSightings(t *testing.T) {
 		Return([]map[string]interface{}{}, nil).
 		AnyTimes()
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]*models.UnifiedDevice{}, nil).
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*models.OCSFDevice{}, nil).
 		AnyTimes()
 	mockDB.EXPECT().
 		BatchGetDeviceIDsByIdentifier(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
@@ -1702,9 +1704,10 @@ func TestProcessBatchDeviceUpdates_SweepAttachedToCanonicalGetsMetadata(t *testi
 		ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, query string, _ ...interface{}) ([]map[string]interface{}, error) {
 			// Return canonical device mapping for IP query
+			// Note: Query returns "uid" not "device_id" (OCSF schema)
 			if strings.Contains(query, sweepIP) {
 				return []map[string]interface{}{
-					{"ip": sweepIP, "device_id": canonicalDeviceID},
+					{"ip": sweepIP, "uid": canonicalDeviceID},
 				}, nil
 			}
 			return []map[string]interface{}{}, nil
@@ -1712,17 +1715,17 @@ func TestProcessBatchDeviceUpdates_SweepAttachedToCanonicalGetsMetadata(t *testi
 		AnyTimes()
 
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, ips []string, deviceIDs []string) ([]*models.UnifiedDevice, error) {
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, ips []string, uids []string) ([]*models.OCSFDevice, error) {
 			if len(ips) > 0 {
-				return []*models.UnifiedDevice{
+				return []*models.OCSFDevice{
 					{
-						DeviceID: canonicalDeviceID,
-						IP:       ips[0],
+						UID: canonicalDeviceID,
+						IP:  ips[0],
 					},
 				}, nil
 			}
-			return []*models.UnifiedDevice{}, nil
+			return []*models.OCSFDevice{}, nil
 		}).
 		AnyTimes()
 
@@ -1810,12 +1813,12 @@ func TestGetDeviceByIDStrictAndByIP(t *testing.T) {
 	// Test 1: Looking up agent by ID should return agent
 	device, err := reg.GetDeviceByIDStrict(ctx, "serviceradar:agent:docker-agent")
 	require.NoError(t, err)
-	assert.Equal(t, "serviceradar:agent:docker-agent", device.DeviceID)
+	assert.Equal(t, "serviceradar:agent:docker-agent", device.UID)
 
 	// Test 2: Looking up poller by ID should return poller
 	device, err = reg.GetDeviceByIDStrict(ctx, "serviceradar:poller:docker-poller")
 	require.NoError(t, err)
-	assert.Equal(t, "serviceradar:poller:docker-poller", device.DeviceID)
+	assert.Equal(t, "serviceradar:poller:docker-poller", device.UID)
 
 	// Test 3: Looking up a non-existent device ID should return ErrDeviceNotFound,
 	// NOT the first device at some IP
@@ -1827,7 +1830,7 @@ func TestGetDeviceByIDStrictAndByIP(t *testing.T) {
 	devicesAtIP, err := reg.GetDevicesByIP(ctx, sharedIP)
 	require.NoError(t, err)
 	require.Len(t, devicesAtIP, 2)
-	deviceIDs := []string{devicesAtIP[0].DeviceID, devicesAtIP[1].DeviceID}
+	deviceIDs := []string{devicesAtIP[0].UID, devicesAtIP[1].UID}
 	assert.Contains(t, deviceIDs, agentRecord.DeviceID)
 	assert.Contains(t, deviceIDs, pollerRecord.DeviceID)
 }

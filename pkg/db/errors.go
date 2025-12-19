@@ -97,9 +97,4 @@ var (
 	ErrCNPGLackingTLSFiles = errors.New("cnpg tls requires cert_file, key_file, and ca_file")
 	ErrCNPGAppendCACert    = errors.New("cnpg tls: unable to append CA certificate")
 	ErrCNPGTLSDisabled     = errors.New("cnpg tls configuration requires sslmode not be disable")
-
-	// Unified Device errors.
-	errUnifiedDeviceNotFound        = errors.New("unified device not found")
-	errFailedToQueryUnifiedDevice   = errors.New("failed to query unified device")
-	errFailedToScanUnifiedDeviceRow = errors.New("failed to scan unified device row")
 )

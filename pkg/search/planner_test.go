@@ -10,11 +10,11 @@ import (
 
 type noopRegistry struct{}
 
-func (noopRegistry) ListDevices(context.Context, int, int) ([]*models.UnifiedDevice, error) {
+func (noopRegistry) ListDevices(context.Context, int, int) ([]*models.OCSFDevice, error) {
 	return nil, nil
 }
-func (noopRegistry) SearchDevices(string, int) []*models.UnifiedDevice { return nil }
-func (noopRegistry) GetDevice(context.Context, string) (*models.UnifiedDevice, error) {
+func (noopRegistry) SearchDevices(string, int) []*models.OCSFDevice { return nil }
+func (noopRegistry) GetDevice(context.Context, string) (*models.OCSFDevice, error) {
 	return nil, nil
 }
 func (noopRegistry) GetCollectorCapabilities(context.Context, string) (*models.CollectorCapability, bool) {
@@ -23,18 +23,18 @@ func (noopRegistry) GetCollectorCapabilities(context.Context, string) (*models.C
 func (noopRegistry) HasDeviceCapability(context.Context, string, string) bool { return false }
 
 type mockRegistry struct {
-	device         *models.UnifiedDevice
+	device         *models.OCSFDevice
 	err            error
 	getDeviceCalls int
 }
 
-func (m *mockRegistry) ListDevices(context.Context, int, int) ([]*models.UnifiedDevice, error) {
-	return []*models.UnifiedDevice{}, nil
+func (m *mockRegistry) ListDevices(context.Context, int, int) ([]*models.OCSFDevice, error) {
+	return []*models.OCSFDevice{}, nil
 }
-func (m *mockRegistry) SearchDevices(string, int) []*models.UnifiedDevice {
-	return []*models.UnifiedDevice{}
+func (m *mockRegistry) SearchDevices(string, int) []*models.OCSFDevice {
+	return []*models.OCSFDevice{}
 }
-func (m *mockRegistry) GetDevice(context.Context, string) (*models.UnifiedDevice, error) {
+func (m *mockRegistry) GetDevice(context.Context, string) (*models.OCSFDevice, error) {
 	m.getDeviceCalls++
 	return m.device, m.err
 }
@@ -60,8 +60,8 @@ func TestSupportsRegistryRejectsDeviceIDFilters(t *testing.T) {
 func TestExecuteRegistryFiltersByDeviceIDWhenSRQLUnavailable(t *testing.T) {
 	t.Parallel()
 
-	device := &models.UnifiedDevice{
-		DeviceID: "serviceradar:agent:docker-agent",
+	device := &models.OCSFDevice{
+		UID: "serviceradar:agent:docker-agent",
 	}
 	reg := &mockRegistry{device: device}
 
@@ -81,7 +81,7 @@ func TestExecuteRegistryFiltersByDeviceIDWhenSRQLUnavailable(t *testing.T) {
 	if reg.getDeviceCalls != 1 {
 		t.Fatalf("expected GetDevice to be called once, got %d", reg.getDeviceCalls)
 	}
-	if len(devices) != 1 || devices[0].DeviceID != device.DeviceID {
+	if len(devices) != 1 || devices[0].UID != device.UID {
 		t.Fatalf("unexpected devices returned: %+v", devices)
 	}
 	if pagination.Limit != 5 || pagination.Offset != 0 {

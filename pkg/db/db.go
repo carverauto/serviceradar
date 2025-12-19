@@ -204,8 +204,8 @@ func (db *DB) WithTx(ctx context.Context, fn func(tx Service) error) error {
 	return nil
 }
 
-// LockUnifiedDevices locks the specified IPs in the unified_devices table for update.
-func (db *DB) LockUnifiedDevices(ctx context.Context, ips []string) error {
+// LockOCSFDevices locks the specified IPs in the ocsf_devices table for update.
+func (db *DB) LockOCSFDevices(ctx context.Context, ips []string) error {
 	if len(ips) == 0 {
 		return nil
 	}
@@ -218,13 +218,13 @@ func (db *DB) LockUnifiedDevices(ctx context.Context, ips []string) error {
 	// We use NO KEY UPDATE to avoid blocking foreign key checks if we're not modifying PKs
 	// (though we might modify PK if we delete? No, we update rows).
 	const query = `
-SELECT 1 FROM unified_devices 
-WHERE ip = ANY($1) 
+SELECT 1 FROM ocsf_devices
+WHERE ip = ANY($1)
 FOR UPDATE`
 
 	_, err := db.conn().Exec(ctx, query, ips)
 	if err != nil {
-		return fmt.Errorf("failed to lock unified devices: %w", err)
+		return fmt.Errorf("failed to lock OCSF devices: %w", err)
 	}
 
 	return nil

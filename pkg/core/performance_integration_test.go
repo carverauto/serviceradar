@@ -66,8 +66,8 @@ func TestSyncResultsPerformanceOptimization(t *testing.T) {
 				Return([]map[string]interface{}{}, nil).
 				AnyTimes()
 			mockDB.EXPECT().
-				GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
-				Return([]*models.UnifiedDevice{}, nil).
+				GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+				Return([]*models.OCSFDevice{}, nil).
 				AnyTimes()
 			testLogger := logger.NewTestLogger()
 			realRegistry := registry.NewDeviceRegistry(mockDB, testLogger)
@@ -134,8 +134,8 @@ func TestRepeatedSyncCallsPerformance(t *testing.T) {
 		Return([]map[string]interface{}{}, nil).
 		AnyTimes()
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]*models.UnifiedDevice{}, nil).
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*models.OCSFDevice{}, nil).
 		AnyTimes()
 	testLogger := logger.NewTestLogger()
 	realRegistry := registry.NewDeviceRegistry(mockDB, testLogger)
@@ -232,8 +232,8 @@ func TestDatabaseCallCounting(t *testing.T) {
 
 	// Execute
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]*models.UnifiedDevice{}, nil).
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]*models.OCSFDevice{}, nil).
 		AnyTimes()
 
 	err := discoveryService.ProcessSyncResults(ctx, "test-poller", "test", serviceStatus, sightingsJSON, time.Now())

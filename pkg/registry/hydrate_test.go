@@ -23,48 +23,37 @@ func TestHydrateFromStoreLoadsDevices(t *testing.T) {
 	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
 		return fn(mockDB)
 	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockDB.EXPECT().LockOCSFDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	reg := NewDeviceRegistry(mockDB, logger.NewTestLogger())
 
 	first := time.Unix(1700000000, 0).UTC()
 	last := first.Add(5 * time.Minute)
+	isAvailable := true
 
-	batch := []*models.UnifiedDevice{
+	batch := []*models.OCSFDevice{
 		{
-			DeviceID:    "device-1",
-			IP:          "10.0.0.10",
-			FirstSeen:   first,
-			LastSeen:    last,
-			IsAvailable: true,
-			DiscoverySources: []models.DiscoverySourceInfo{
-				{
-					Source:     models.DiscoverySourceSweep,
-					AgentID:    "agent-1",
-					PollerID:   "poller-1",
-					Confidence: 5,
-					LastSeen:   last,
-				},
-			},
+			UID:              "device-1",
+			IP:               "10.0.0.10",
+			FirstSeenTime:    &first,
+			LastSeenTime:     &last,
+			IsAvailable:      &isAvailable,
+			AgentID:          "agent-1",
+			PollerID:         "poller-1",
+			DiscoverySources: []string{string(models.DiscoverySourceSweep)},
 		},
 		{
-			DeviceID:  "device-2",
-			IP:        "10.0.0.20",
-			FirstSeen: first,
-			LastSeen:  last,
-			DiscoverySources: []models.DiscoverySourceInfo{
-				{
-					Source:     models.DiscoverySourceNetbox,
-					AgentID:    "agent-2",
-					PollerID:   "poller-2",
-					Confidence: 7,
-					LastSeen:   last,
-				},
-			},
+			UID:              "device-2",
+			IP:               "10.0.0.20",
+			FirstSeenTime:    &first,
+			LastSeenTime:     &last,
+			AgentID:          "agent-2",
+			PollerID:         "poller-2",
+			DiscoverySources: []string{string(models.DiscoverySourceNetbox)},
 		},
 	}
 
 	mockDB.EXPECT().
-		ListUnifiedDevices(gomock.Any(), hydrateBatchSize, 0).
+		ListOCSFDevices(gomock.Any(), hydrateBatchSize, 0).
 		Return(batch, nil)
 
 	mockDB.EXPECT().
@@ -72,7 +61,7 @@ func TestHydrateFromStoreLoadsDevices(t *testing.T) {
 		Return([]map[string]any{}, nil)
 
 	mockDB.EXPECT().
-		CountUnifiedDevices(gomock.Any()).
+		CountOCSFDevices(gomock.Any()).
 		Return(int64(len(batch)), nil)
 
 	count, err := reg.HydrateFromStore(context.Background())
@@ -84,8 +73,8 @@ func TestHydrateFromStoreLoadsDevices(t *testing.T) {
 	}
 
 	for _, device := range batch {
-		if got, ok := reg.GetDeviceRecord(device.DeviceID); !ok || got == nil {
-			t.Fatalf("expected device %s in registry", device.DeviceID)
+		if got, ok := reg.GetDeviceRecord(device.UID); !ok || got == nil {
+			t.Fatalf("expected device %s in registry", device.UID)
 		}
 	}
 }
@@ -98,7 +87,7 @@ func TestHydrateFromStorePreservesExistingStateOnError(t *testing.T) {
 	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
 		return fn(mockDB)
 	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockDB.EXPECT().LockOCSFDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	reg := NewDeviceRegistry(mockDB, logger.NewTestLogger())
 
 	existing := &DeviceRecord{
@@ -109,7 +98,7 @@ func TestHydrateFromStorePreservesExistingStateOnError(t *testing.T) {
 	reg.UpsertDeviceRecord(existing)
 
 	mockDB.EXPECT().
-		ListUnifiedDevices(gomock.Any(), hydrateBatchSize, 0).
+		ListOCSFDevices(gomock.Any(), hydrateBatchSize, 0).
 		Return(nil, errHydrateTestBoom)
 
 	if _, err := reg.HydrateFromStore(context.Background()); err == nil {
@@ -129,7 +118,7 @@ func TestHydrateFromStoreHonorsContextCancellation(t *testing.T) {
 	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
 		return fn(mockDB)
 	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockDB.EXPECT().LockOCSFDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	reg := NewDeviceRegistry(mockDB, logger.NewTestLogger())
 
 	ctx, cancel := context.WithCancel(context.Background())

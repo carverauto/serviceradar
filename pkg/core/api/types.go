@@ -144,11 +144,11 @@ type KVEndpoint struct {
 
 // DeviceRegistryService interface for accessing the device registry
 type DeviceRegistryService interface {
-	GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
-	GetDeviceByIDStrict(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
-	GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
-	ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
-	FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error)
+	GetDevice(ctx context.Context, deviceID string) (*models.OCSFDevice, error)
+	GetDeviceByIDStrict(ctx context.Context, deviceID string) (*models.OCSFDevice, error)
+	GetDevicesByIP(ctx context.Context, ip string) ([]*models.OCSFDevice, error)
+	ListDevices(ctx context.Context, limit, offset int) ([]*models.OCSFDevice, error)
+	FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.OCSFDevice, error)
 	GetCollectorCapabilities(ctx context.Context, deviceID string) (*models.CollectorCapability, bool)
 	ListDeviceCapabilitySnapshots(ctx context.Context, deviceID string) []*models.DeviceCapabilitySnapshot
 	ReconcileSightings(ctx context.Context) error

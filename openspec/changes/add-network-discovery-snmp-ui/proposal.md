@@ -66,7 +66,7 @@
 - Use a gitignored `docker-compose.override.yml` to:
   - pin services to `ghcr.io/carverauto/serviceradar-*:local` images
   - KV-enable `snmp-checker` via environment variables (no secrets required)
-- Build/load local images via Bazel `oci_load` targets (e.g. `//docker/images:web_image_amd64_tar`) and recreate services.
+- Build/load local images via Bazel `oci_load` targets (e.g. `//docker/images:web_ng_image_amd64_tar`) and recreate services.
 - Set secrets at runtime via Core admin config APIs (never check secrets into the repo).
 
 ## Impact

@@ -22,20 +22,20 @@ type Manager interface {
 	// ProcessBatchDeviceUpdates handles a batch of sightings for efficiency.
 	ProcessBatchDeviceUpdates(ctx context.Context, updates []*models.DeviceUpdate) error
 
-	// GetDevice retrieves a unified device by its device ID.
-	GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
+	// GetDevice retrieves an OCSF device by its device ID.
+	GetDevice(ctx context.Context, deviceID string) (*models.OCSFDevice, error)
 
-	// GetDeviceByIDStrict retrieves a unified device by device ID only (no IP fallback).
-	GetDeviceByIDStrict(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
+	// GetDeviceByIDStrict retrieves an OCSF device by device ID only (no IP fallback).
+	GetDeviceByIDStrict(ctx context.Context, deviceID string) (*models.OCSFDevice, error)
 
-	// GetDevicesByIP retrieves all unified devices that have the given IP.
-	GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
+	// GetDevicesByIP retrieves all OCSF devices that have the given IP.
+	GetDevicesByIP(ctx context.Context, ip string) ([]*models.OCSFDevice, error)
 
-	// ListDevices retrieves a paginated list of unified devices.
-	ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
+	// ListDevices retrieves a paginated list of OCSF devices.
+	ListDevices(ctx context.Context, limit, offset int) ([]*models.OCSFDevice, error)
 
 	// FindRelatedDevices finds all devices that are related to the given device ID.
-	FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error)
+	FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.OCSFDevice, error)
 
 	// SetCollectorCapabilities stores explicit collector capability information for a device.
 	SetCollectorCapabilities(ctx context.Context, capability *models.CollectorCapability)

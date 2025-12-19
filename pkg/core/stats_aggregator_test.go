@@ -579,7 +579,7 @@ func TestStatsAggregatorCountsServiceComponentsEvenWithFallbackRecords(t *testin
 
 func TestStatsAggregatorCountsAllSweepDevices(t *testing.T) {
 	// This test verifies that all devices are counted regardless of discovery source
-	// or whether they have strong identity markers. The database (unified_devices)
+	// or whether they have strong identity markers. The database (ocsf_devices)
 	// is the source of truth - if a device is in the registry, it should be counted.
 	log := logger.NewTestLogger()
 	reg := registry.NewDeviceRegistry(nil, log)
@@ -702,12 +702,12 @@ func TestStatsAggregatorPrunesInferredRecordsToMatchCNPG(t *testing.T) {
 
 	mockDB := db.NewMockService(ctrl)
 	mockDB.EXPECT().
-		CountUnifiedDevices(gomock.Any()).
+		CountOCSFDevices(gomock.Any()).
 		Return(int64(1), nil)
 	mockDB.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), gomock.AssignableToTypeOf([]string{})).
-		Return([]*models.UnifiedDevice{
-			{DeviceID: "default:canonical-1"},
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Nil(), gomock.AssignableToTypeOf([]string{})).
+		Return([]*models.OCSFDevice{
+			{UID: "default:canonical-1"},
 		}, nil).
 		AnyTimes()
 

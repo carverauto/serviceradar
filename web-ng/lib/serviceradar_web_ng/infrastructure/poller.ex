@@ -1,4 +1,6 @@
 defmodule ServiceRadarWebNG.Infrastructure.Poller do
+  @moduledoc false
+
   use Ecto.Schema
 
   @primary_key {:id, :string, autogenerate: false, source: :poller_id}

@@ -572,13 +572,13 @@ func (s *Server) runMetricsCleanup(ctx context.Context) {
 				s.logger.Error().Msg("Metrics manager is nil")
 			}
 
-			// Cleanup stale unified devices
+			// Cleanup stale OCSF devices
 			if s.DB != nil {
-				deleted, err := s.DB.CleanupStaleUnifiedDevices(ctx, unifiedDevicesRetention)
+				deleted, err := s.DB.CleanupStaleOCSFDevices(ctx, unifiedDevicesRetention)
 				if err != nil {
-					s.logger.Error().Err(err).Msg("Failed to cleanup stale unified devices")
+					s.logger.Error().Err(err).Msg("Failed to cleanup stale OCSF devices")
 				} else if deleted > 0 {
-					s.logger.Info().Int64("deleted_count", deleted).Msg("Cleaned up stale unified devices")
+					s.logger.Info().Int64("deleted_count", deleted).Msg("Cleaned up stale OCSF devices")
 				}
 			}
 		}

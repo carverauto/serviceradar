@@ -13,9 +13,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Viz do
   def infer(rows) when is_list(rows) do
     rows = Enum.filter(rows, &is_map/1)
 
-    with {:ok, inferred} <- infer_timeseries(rows) do
-      inferred
-    else
+    case infer_timeseries(rows) do
+      {:ok, inferred} ->
+        inferred
+
       _ ->
         case infer_categories(rows) do
           {:ok, inferred} -> inferred

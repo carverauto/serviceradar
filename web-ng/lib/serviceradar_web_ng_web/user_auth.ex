@@ -1,4 +1,6 @@
 defmodule ServiceRadarWebNGWeb.UserAuth do
+  @moduledoc false
+
   use ServiceRadarWebNGWeb, :verified_routes
 
   import Plug.Conn
@@ -76,16 +78,20 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   defp ensure_user_token(conn) do
-    if token = get_session(conn, :user_token) do
-      {token, conn}
-    else
-      conn = fetch_cookies(conn, signed: [@remember_me_cookie])
+    case get_session(conn, :user_token) do
+      token when is_binary(token) ->
+        {token, conn}
 
-      if token = conn.cookies[@remember_me_cookie] do
-        {token, conn |> put_token_in_session(token) |> put_session(:user_remember_me, true)}
-      else
-        nil
-      end
+      _ ->
+        conn = fetch_cookies(conn, signed: [@remember_me_cookie])
+
+        case conn.cookies[@remember_me_cookie] do
+          token when is_binary(token) ->
+            {token, conn |> put_token_in_session(token) |> put_session(:user_remember_me, true)}
+
+          _ ->
+            nil
+        end
     end
   end
 

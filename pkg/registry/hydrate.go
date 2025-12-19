@@ -36,7 +36,7 @@ func (r *DeviceRegistry) HydrateFromStore(ctx context.Context) (int, error) {
 			return 0, fmt.Errorf("hydrate aborted: %w", err)
 		}
 
-		devices, err := r.db.ListUnifiedDevices(ctx, hydrateBatchSize, offset)
+		devices, err := r.db.ListOCSFDevices(ctx, hydrateBatchSize, offset)
 		if err != nil {
 			return 0, fmt.Errorf("hydrate registry: %w", err)
 		}
@@ -45,7 +45,7 @@ func (r *DeviceRegistry) HydrateFromStore(ctx context.Context) (int, error) {
 		}
 
 		for _, device := range devices {
-			record := DeviceRecordFromUnified(device)
+			record := DeviceRecordFromOCSF(device)
 			if record == nil {
 				continue
 			}
@@ -98,7 +98,7 @@ func (r *DeviceRegistry) reportHydrationDiscrepancy(ctx context.Context, records
 		return
 	}
 
-	dbCount, err := r.db.CountUnifiedDevices(ctx)
+	dbCount, err := r.db.CountOCSFDevices(ctx)
 	if err != nil {
 		r.logger.Warn().Err(err).Msg("Failed to count database devices during registry hydration diagnostics")
 		return

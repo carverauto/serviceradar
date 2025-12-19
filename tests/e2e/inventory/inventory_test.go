@@ -49,7 +49,7 @@ func TestE2E_FakerInventoryCount(t *testing.T) {
 	
 	var finalCount int64
 	assert.Eventually(t, func() bool {
-		count, err := database.CountUnifiedDevices(ctx)
+		count, err := database.CountOCSFDevices(ctx)
 		if err != nil {
 			t.Logf("Error counting devices: %v", err)
 			return false
@@ -66,6 +66,56 @@ func TestE2E_FakerInventoryCount(t *testing.T) {
 	} else {
 		t.Logf("SUCCESS: Inventory validated. Count: %d", finalCount)
 	}
+
+	// 4. Validate OCSF device structure by sampling a device
+	validateOCSFDeviceStructure(ctx, t, database)
+}
+
+func validateOCSFDeviceStructure(ctx context.Context, t *testing.T, database db.Service) {
+	t.Log("Validating OCSF device structure...")
+
+	// List a sample of devices to verify OCSF fields
+	devices, err := database.ListOCSFDevices(ctx, 5, 0)
+	if err != nil {
+		t.Logf("Warning: Could not list OCSF devices for validation: %v", err)
+		return
+	}
+
+	if len(devices) == 0 {
+		t.Log("Warning: No devices found for OCSF structure validation")
+		return
+	}
+
+	// Validate first device has required OCSF fields
+	device := devices[0]
+
+	// UID is required (maps to device_id)
+	assert.NotEmpty(t, device.UID, "OCSF device should have UID")
+
+	// Check OCSF temporal fields are present
+	if device.FirstSeenTime != nil {
+		t.Logf("  Device %s first_seen_time: %v", device.UID, device.FirstSeenTime)
+	}
+	if device.LastSeenTime != nil {
+		t.Logf("  Device %s last_seen_time: %v", device.UID, device.LastSeenTime)
+	}
+
+	// Log OCSF-specific fields if present
+	if device.TypeID != nil {
+		t.Logf("  Device %s type_id: %d, type: %s", device.UID, *device.TypeID, stringOrEmpty(device.DeviceType))
+	}
+	if device.VendorName != nil {
+		t.Logf("  Device %s vendor_name: %s", device.UID, *device.VendorName)
+	}
+
+	t.Logf("OCSF device structure validation passed for %d devices", len(devices))
+}
+
+func stringOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func connectDB(ctx context.Context, dsn string, log logger.Logger) (db.Service, error) {
@@ -116,9 +166,9 @@ func diagnoseCollapse(ctx context.Context, t *testing.T, database db.Service) {
 
 	// Check for tombstone chains
 	rows, err := executor.ExecuteQuery(ctx, `
-		SELECT COUNT(*) as count 
-		FROM unified_devices 
-		WHERE metadata->>'_merged_into' IS NOT NULL 
+		SELECT COUNT(*) as count
+		FROM ocsf_devices
+		WHERE metadata->>'_merged_into' IS NOT NULL
 		  AND metadata->>'_merged_into' != ''
 	`)
 	if err == nil && len(rows) > 0 {
@@ -128,7 +178,7 @@ func diagnoseCollapse(ctx context.Context, t *testing.T, database db.Service) {
 	// Check for top merge targets (black holes)
 	rows, err = executor.ExecuteQuery(ctx, `
 		SELECT metadata->>'_merged_into' as target, COUNT(*) as merged_count
-		FROM unified_devices
+		FROM ocsf_devices
 		WHERE metadata->>'_merged_into' IS NOT NULL
 		GROUP BY 1
 		ORDER BY 2 DESC

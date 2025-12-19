@@ -64,7 +64,7 @@ func TestSimplifiedRegistryBehavior(t *testing.T) {
 	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
 		return fn(mockDB)
 	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockDB.EXPECT().LockOCSFDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			allowCanonicalizationQueries(mockDB)
 			testLogger := logger.NewTestLogger()
 			registry := NewDeviceRegistry(mockDB, testLogger)
@@ -101,7 +101,7 @@ func TestEmptyBatchHandling(t *testing.T) {
 	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
 		return fn(mockDB)
 	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockDB.EXPECT().LockOCSFDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)
@@ -127,7 +127,7 @@ func TestNormalizationBehavior(t *testing.T) {
 	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
 		return fn(mockDB)
 	}).AnyTimes()
-	mockDB.EXPECT().LockUnifiedDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockDB.EXPECT().LockOCSFDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	allowCanonicalizationQueries(mockDB)
 	testLogger := logger.NewTestLogger()
 	registry := NewDeviceRegistry(mockDB, testLogger)

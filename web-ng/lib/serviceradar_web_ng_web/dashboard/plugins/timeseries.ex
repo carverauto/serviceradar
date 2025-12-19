@@ -174,26 +174,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
         line =
           coords
-          |> Enum.map(fn {x, y} -> "#{x},#{y}" end)
-          |> Enum.join(" ")
+          |> Enum.map_join(" ", fn {x, y} -> "#{x},#{y}" end)
 
-        area =
-          case coords do
-            [] ->
-              ""
-
-            [{first_x, _} | _] ->
-              {last_x, _} = List.last(coords)
-
-              path =
-                coords
-                |> Enum.map(fn {x, y} -> "#{x},#{y}" end)
-                |> Enum.join(" L ")
-
-              "M #{first_x},#{baseline_y()} L " <>
-                path <>
-                " L #{last_x},#{baseline_y()} Z"
-          end
+        area = area_path(coords)
 
         %{line: line, area: area, min: min_v, max: max_v, latest: latest}
     end
@@ -205,6 +188,20 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     usable = @chart_height - @chart_pad * 2
     scaled = (v - min_v) / (max_v - min_v)
     round(@chart_height - @chart_pad - scaled * usable)
+  end
+
+  defp area_path([]), do: ""
+
+  defp area_path([{first_x, _} | _] = coords) do
+    {last_x, _} = List.last(coords)
+
+    path =
+      coords
+      |> Enum.map_join(" L ", fn {x, y} -> "#{x},#{y}" end)
+
+    "M #{first_x},#{baseline_y()} L " <>
+      path <>
+      " L #{last_x},#{baseline_y()} Z"
   end
 
   defp baseline_y, do: @chart_height - @chart_pad

@@ -45,17 +45,17 @@ func (s *Server) buildAliasLifecycleEvents(ctx context.Context, updates []*model
 	sort.Strings(deviceIDs)
 
 	existingRecords := make(map[string]*devicealias.Record, len(deviceIDs))
-	devices, err := s.DB.GetUnifiedDevicesByIPsOrIDs(ctx, nil, deviceIDs)
+	devices, err := s.DB.GetOCSFDevicesByIPsOrIDs(ctx, nil, deviceIDs)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, device := range devices {
-		if device == nil || device.Metadata == nil || device.Metadata.Value == nil {
+		if device == nil || device.Metadata == nil {
 			continue
 		}
-		if record := devicealias.FromMetadata(device.Metadata.Value); record != nil {
-			existingRecords[strings.TrimSpace(device.DeviceID)] = record
+		if record := devicealias.FromMetadata(device.Metadata); record != nil {
+			existingRecords[strings.TrimSpace(device.UID)] = record
 		}
 	}
 

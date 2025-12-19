@@ -642,13 +642,13 @@ func (e *IdentityEngine) batchLookupIdentifierType(
 	return matches
 }
 
-// lookupByIP queries unified_devices for a device with the given IP
+// lookupByIP queries ocsf_devices for a device with the given IP
 func (e *IdentityEngine) lookupByIP(ctx context.Context, ip string) (string, error) {
 	if e == nil || e.db == nil || ip == "" {
 		return "", nil
 	}
 
-	devices, err := e.db.GetUnifiedDevicesByIPsOrIDs(ctx, []string{ip}, nil)
+	devices, err := e.db.GetOCSFDevicesByIPsOrIDs(ctx, []string{ip}, nil)
 	if err != nil {
 		return "", err
 	}
@@ -658,8 +658,8 @@ func (e *IdentityEngine) lookupByIP(ctx context.Context, ip string) (string, err
 			continue
 		}
 		// Only return devices with ServiceRadar UUIDs
-		if IsServiceRadarUUID(device.DeviceID) {
-			return device.DeviceID, nil
+		if IsServiceRadarUUID(device.UID) {
+			return device.UID, nil
 		}
 	}
 

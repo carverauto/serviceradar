@@ -179,6 +179,8 @@ lint: get-golangcilint ## Run linting checks
 	@cd cmd/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd cmd/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/srql && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy --all-targets -- -D warnings
+	@echo "$(COLOR_BOLD)Running web-ng Credo$(COLOR_RESET)"
+	@cd web-ng && mix credo --all
 
 .PHONY: test
 test: $(TEST_PREREQS) ## Run all tests with coverage

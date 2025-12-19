@@ -99,9 +99,7 @@ else
 
       conn = start_supervised!({Postgrex, PostgrexHelpers.connection_opts()})
 
-      if not PostgrexHelpers.age_available?(conn) do
-        {:skip, "Apache AGE is not available (ag_catalog.cypher missing)"}
-      else
+      if PostgrexHelpers.age_available?(conn) do
         case PostgrexHelpers.ensure_graph(conn, @graph_name) do
           :ok ->
             :ok
@@ -109,6 +107,8 @@ else
           {:error, err} ->
             {:skip, "Apache AGE graph #{@graph_name} not available: #{inspect(err)}"}
         end
+      else
+        {:skip, "Apache AGE is not available (ag_catalog.cypher missing)"}
       end
     end
 

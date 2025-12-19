@@ -4,24 +4,57 @@ diesel::table! {
     use diesel::pg::sql_types::Array;
     use diesel::sql_types::*;
 
-    unified_devices (device_id) {
-        device_id -> Text,
+    /// OCSF Device Inventory (aligned with OCSF v1.7.0 Device object)
+    ocsf_devices (uid) {
+        // OCSF Core Identity
+        uid -> Text,
+        type_id -> Int4,
+        #[sql_name = "type"]
+        device_type -> Nullable<Text>,
+        name -> Nullable<Text>,
+        hostname -> Nullable<Text>,
         ip -> Nullable<Text>,
+        mac -> Nullable<Text>,
+
+        // OCSF Extended Identity
+        uid_alt -> Nullable<Text>,
+        vendor_name -> Nullable<Text>,
+        model -> Nullable<Text>,
+        domain -> Nullable<Text>,
+        zone -> Nullable<Text>,
+        subnet_uid -> Nullable<Text>,
+        vlan_uid -> Nullable<Text>,
+        region -> Nullable<Text>,
+
+        // OCSF Temporal
+        first_seen_time -> Nullable<Timestamptz>,
+        last_seen_time -> Nullable<Timestamptz>,
+        created_time -> Timestamptz,
+        modified_time -> Timestamptz,
+
+        // OCSF Risk and Compliance
+        risk_level_id -> Nullable<Int4>,
+        risk_level -> Nullable<Text>,
+        risk_score -> Nullable<Int4>,
+        is_managed -> Nullable<Bool>,
+        is_compliant -> Nullable<Bool>,
+        is_trusted -> Nullable<Bool>,
+
+        // OCSF Nested Objects (JSONB)
+        os -> Nullable<Jsonb>,
+        hw_info -> Nullable<Jsonb>,
+        network_interfaces -> Nullable<Jsonb>,
+        owner -> Nullable<Jsonb>,
+        org -> Nullable<Jsonb>,
+        groups -> Nullable<Jsonb>,
+        agent_list -> Nullable<Jsonb>,
+
+        // ServiceRadar-specific fields
         poller_id -> Nullable<Text>,
         agent_id -> Nullable<Text>,
-        hostname -> Nullable<Text>,
-        mac -> Nullable<Text>,
         discovery_sources -> Nullable<Array<Text>>,
-        is_available -> Bool,
-        first_seen -> Timestamptz,
-        last_seen -> Timestamptz,
+        is_available -> Nullable<Bool>,
         metadata -> Nullable<Jsonb>,
-        device_type -> Nullable<Text>,
-        service_type -> Nullable<Text>,
-        service_status -> Nullable<Text>,
-        last_heartbeat -> Nullable<Timestamptz>,
-        os_info -> Nullable<Text>,
-        version_info -> Nullable<Text>,
     }
 }
 

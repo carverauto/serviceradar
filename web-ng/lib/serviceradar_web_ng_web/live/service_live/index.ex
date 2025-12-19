@@ -780,69 +780,66 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   #
   # Note: `in:services` is backed by the `service_status` table, which does NOT include `device_id`.
   defp compute_summary(services) when is_list(services) do
-    # Deduplicate by poller_id + agent_id + service_type + service_name, keeping most recent
-    # (first in sorted list).
-    unique_services =
-      services
-      |> Enum.filter(&is_map/1)
-      |> Enum.reduce(%{}, fn svc, acc ->
-        poller_id = Map.get(svc, "poller_id") || ""
-        agent_id = Map.get(svc, "agent_id") || ""
-        service_type = service_type_value(svc) || ""
-        service_name = service_name_value(svc) || ""
-
-        key = "#{poller_id}:#{agent_id}:#{service_type}:#{service_name}"
-
-        # Keep first occurrence (most recent if sorted by timestamp desc)
-        Map.put_new(acc, key, svc)
-      end)
-      |> Map.values()
-
-    # Now compute summary from unique services only
-    initial = %{
-      total: 0,
-      available: 0,
-      unavailable: 0,
-      by_type: %{},
-      check_count: length(services)
-    }
-
-    result =
-      Enum.reduce(unique_services, initial, fn svc, acc ->
-        is_available = normalize_available(Map.get(svc, "available")) == true
-
-        service_type =
-          svc
-          |> service_type_value()
-          |> case do
-            nil -> "unknown"
-            "" -> "unknown"
-            v -> v |> to_string() |> String.trim() |> String.downcase()
-          end
-
-        by_type =
-          Map.update(acc.by_type, service_type, %{available: 0, unavailable: 0}, fn counts ->
-            if is_available do
-              Map.update!(counts, :available, &(&1 + 1))
-            else
-              Map.update!(counts, :unavailable, &(&1 + 1))
-            end
-          end)
-
-        %{
-          acc
-          | total: acc.total + 1,
-            available: acc.available + if(is_available, do: 1, else: 0),
-            unavailable: acc.unavailable + if(is_available, do: 0, else: 1),
-            by_type: by_type
-        }
-      end)
-
-    result
+    unique_services = dedupe_services(services)
+    initial = base_summary(length(services))
+    Enum.reduce(unique_services, initial, &accumulate_service/2)
   end
 
   defp compute_summary(_),
     do: %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: 0}
+
+  defp dedupe_services(services) do
+    services
+    |> Enum.filter(&is_map/1)
+    |> Enum.reduce(%{}, fn svc, acc ->
+      Map.put_new(acc, service_identity_key(svc), svc)
+    end)
+    |> Map.values()
+  end
+
+  defp service_identity_key(svc) do
+    poller_id = Map.get(svc, "poller_id") || ""
+    agent_id = Map.get(svc, "agent_id") || ""
+    service_type = service_type_value(svc) || ""
+    service_name = service_name_value(svc) || ""
+
+    "#{poller_id}:#{agent_id}:#{service_type}:#{service_name}"
+  end
+
+  defp base_summary(check_count) do
+    %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: check_count}
+  end
+
+  defp accumulate_service(svc, acc) do
+    is_available = normalize_available(Map.get(svc, "available")) == true
+    service_type = normalize_service_type(service_type_value(svc))
+    by_type = update_by_type(acc.by_type, service_type, is_available)
+
+    %{
+      acc
+      | total: acc.total + 1,
+        available: acc.available + if(is_available, do: 1, else: 0),
+        unavailable: acc.unavailable + if(is_available, do: 0, else: 1),
+        by_type: by_type
+    }
+  end
+
+  defp normalize_service_type(nil), do: "unknown"
+  defp normalize_service_type(""), do: "unknown"
+
+  defp normalize_service_type(value) do
+    value |> to_string() |> String.trim() |> String.downcase()
+  end
+
+  defp update_by_type(by_type, service_type, is_available) do
+    Map.update(by_type, service_type, %{available: 0, unavailable: 0}, fn counts ->
+      if is_available do
+        Map.update!(counts, :available, &(&1 + 1))
+      else
+        Map.update!(counts, :unavailable, &(&1 + 1))
+      end
+    end)
+  end
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)

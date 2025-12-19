@@ -82,7 +82,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   end
 
   def handle_event("srql_builder_run", _params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/analytics")}
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/analytics")}
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
@@ -92,7 +93,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   def handle_event("srql_builder_remove_filter", params, socket) do
     entity = get_in(socket.assigns, [:srql, :builder, "entity"]) || "devices"
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: entity)}
+
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: entity)}
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
@@ -193,7 +196,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       # High utilization - get recent Disk metrics
       disk_metrics:
         "in:disk_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}"
-      # TODO: Re-enable when backend supports rperf_targets entity
+      # Re-enable when backend supports rperf_targets entity.
       # rperf_targets: "in:rperf_targets time:last_1h sort:timestamp:desc limit:50"
     }
 
@@ -395,46 +398,44 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp count_unique_services(_), do: {0, 0}
 
   defp extract_count({:ok, %{"results" => [value | _]}}) do
-    case value do
-      v when is_integer(v) ->
-        v
-
-      v when is_float(v) ->
-        trunc(v)
-
-      v when is_binary(v) ->
-        case Integer.parse(String.trim(v)) do
-          {parsed, ""} -> parsed
-          _ -> 0
-        end
-
-      %{} = row ->
-        row
-        |> Map.values()
-        |> Enum.find(fn v -> is_integer(v) or is_float(v) or (is_binary(v) and v != "") end)
-        |> case do
-          v when is_integer(v) ->
-            v
-
-          v when is_float(v) ->
-            trunc(v)
-
-          v when is_binary(v) ->
-            case Integer.parse(String.trim(v)) do
-              {parsed, ""} -> parsed
-              _ -> 0
-            end
-
-          _ ->
-            0
-        end
-
-      _ ->
-        0
-    end
+    extract_count_value(value)
   end
 
   defp extract_count(_), do: 0
+
+  defp extract_count_value(value) when is_integer(value), do: value
+  defp extract_count_value(value) when is_float(value), do: trunc(value)
+
+  defp extract_count_value(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} -> parsed
+      _ -> 0
+    end
+  end
+
+  defp extract_count_value(%{} = row) do
+    row
+    |> Map.values()
+    |> Enum.find_value(&parse_count_value/1)
+    |> case do
+      nil -> 0
+      count -> count
+    end
+  end
+
+  defp extract_count_value(_), do: 0
+
+  defp parse_count_value(value) when is_integer(value), do: value
+  defp parse_count_value(value) when is_float(value), do: trunc(value)
+
+  defp parse_count_value(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_count_value(_), do: nil
 
   defp build_events_summary(rows) when is_list(rows) do
     counts =
@@ -454,10 +455,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
     recent =
       rows
-      |> Enum.filter(&is_map/1)
       |> Enum.filter(fn row ->
-        severity = row |> Map.get("severity") |> normalize_severity()
-        severity in ["Critical", "High"]
+        is_map(row) and
+          (row |> Map.get("severity") |> normalize_severity()) in ["Critical", "High"]
       end)
       |> Enum.take(5)
 
@@ -470,10 +470,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp build_logs_summary(rows, %{} = counts) when is_list(rows) do
     recent =
       rows
-      |> Enum.filter(&is_map/1)
       |> Enum.filter(fn row ->
-        severity = row |> Map.get("severity_text") |> normalize_log_level()
-        severity in ["Fatal", "Error"]
+        is_map(row) and
+          (row |> Map.get("severity_text") |> normalize_log_level()) in ["Fatal", "Error"]
       end)
       |> Enum.take(5)
 
@@ -496,20 +495,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
        when is_integer(metrics_total) and is_integer(metrics_error) and is_integer(metrics_slow) and
               is_number(avg_duration_ms) and is_map(trace_stats) and is_list(slow_spans) do
     trace_stats =
-      case Map.get(trace_stats, "payload") do
-        %{} = payload -> payload
-        _ -> trace_stats
-      end
+      normalize_trace_stats(trace_stats)
 
-    traces_count =
-      extract_numeric(Map.get(trace_stats, "total") || Map.get(trace_stats, "count")) |> to_int()
-
-    error_rate =
-      if metrics_total > 0 do
-        Float.round(metrics_error / metrics_total * 100.0, 1)
-      else
-        0.0
-      end
+    traces_count = trace_total_count(trace_stats)
+    error_rate = compute_error_rate(metrics_total, metrics_error)
 
     slow_spans =
       slow_spans
@@ -544,140 +533,17 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp build_high_utilization_summary(cpu_rows, memory_rows, disk_rows)
        when is_list(cpu_rows) and is_list(memory_rows) and is_list(disk_rows) do
-    # Deduplicate CPU by host, keeping most recent
-    unique_cpu_hosts =
-      cpu_rows
-      |> Enum.filter(&is_map/1)
-      |> Enum.reduce(%{}, fn row, acc ->
-        host = Map.get(row, "host") || Map.get(row, "device_id") || ""
-        if host != "", do: Map.put_new(acc, host, row), else: acc
-      end)
-      |> Map.values()
+    unique_cpu_hosts = dedupe_by_key(cpu_rows, &host_key/1)
+    unique_memory_hosts = dedupe_by_key(memory_rows, &host_key/1)
+    unique_disks = dedupe_by_key(disk_rows, &disk_key/1)
 
-    # Deduplicate Memory by host, keeping most recent
-    unique_memory_hosts =
-      memory_rows
-      |> Enum.filter(&is_map/1)
-      |> Enum.reduce(%{}, fn row, acc ->
-        host = Map.get(row, "host") || Map.get(row, "device_id") || ""
-        if host != "", do: Map.put_new(acc, host, row), else: acc
-      end)
-      |> Map.values()
+    cpu_categorized = categorize_utilization(unique_cpu_hosts, &cpu_usage/1, 80, 90)
+    memory_categorized = categorize_utilization(unique_memory_hosts, &memory_usage/1, 85, 90)
+    disk_categorized = categorize_utilization(unique_disks, &disk_usage/1, 85, 90)
 
-    # Deduplicate Disk by host+mount, keeping most recent
-    unique_disks =
-      disk_rows
-      |> Enum.filter(&is_map/1)
-      |> Enum.reduce(%{}, fn row, acc ->
-        host = Map.get(row, "host") || Map.get(row, "device_id") || ""
-        mount = Map.get(row, "mount_point") || Map.get(row, "mount") || ""
-        key = "#{host}:#{mount}"
-        if host != "", do: Map.put_new(acc, key, row), else: acc
-      end)
-      |> Map.values()
-
-    # Categorize CPU by utilization level
-    cpu_categorized =
-      unique_cpu_hosts
-      |> Enum.reduce(%{warning: [], critical: []}, fn row, acc ->
-        cpu_usage =
-          extract_numeric(
-            Map.get(row, "value") || Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") ||
-              Map.get(row, "user") || 0
-          )
-
-        cond do
-          cpu_usage >= 90 -> Map.update!(acc, :critical, &[row | &1])
-          cpu_usage >= 80 -> Map.update!(acc, :warning, &[row | &1])
-          true -> acc
-        end
-      end)
-
-    # Categorize Memory by utilization level
-    memory_categorized =
-      unique_memory_hosts
-      |> Enum.reduce(%{warning: [], critical: []}, fn row, acc ->
-        mem_usage =
-          extract_numeric(
-            Map.get(row, "percent") || Map.get(row, "value") || Map.get(row, "used_percent") || 0
-          )
-
-        cond do
-          mem_usage >= 90 -> Map.update!(acc, :critical, &[row | &1])
-          mem_usage >= 85 -> Map.update!(acc, :warning, &[row | &1])
-          true -> acc
-        end
-      end)
-
-    # Categorize Disk by utilization level
-    disk_categorized =
-      unique_disks
-      |> Enum.reduce(%{warning: [], critical: []}, fn row, acc ->
-        disk_usage = extract_numeric(Map.get(row, "percent") || Map.get(row, "value") || 0)
-
-        cond do
-          disk_usage >= 90 -> Map.update!(acc, :critical, &[row | &1])
-          disk_usage >= 85 -> Map.update!(acc, :warning, &[row | &1])
-          true -> acc
-        end
-      end)
-
-    # Get top high CPU utilization hosts
-    high_cpu_services =
-      unique_cpu_hosts
-      |> Enum.filter(fn row ->
-        cpu =
-          extract_numeric(
-            Map.get(row, "value") || Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") ||
-              Map.get(row, "user") || 0
-          )
-
-        cpu >= 70
-      end)
-      |> Enum.sort_by(fn row ->
-        cpu =
-          extract_numeric(
-            Map.get(row, "value") || Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") ||
-              Map.get(row, "user") || 0
-          )
-
-        -cpu
-      end)
-      |> Enum.take(3)
-
-    # Get top high memory utilization hosts
-    high_memory_services =
-      unique_memory_hosts
-      |> Enum.filter(fn row ->
-        mem =
-          extract_numeric(
-            Map.get(row, "percent") || Map.get(row, "value") || Map.get(row, "used_percent") || 0
-          )
-
-        mem >= 70
-      end)
-      |> Enum.sort_by(fn row ->
-        mem =
-          extract_numeric(
-            Map.get(row, "percent") || Map.get(row, "value") || Map.get(row, "used_percent") || 0
-          )
-
-        -mem
-      end)
-      |> Enum.take(3)
-
-    # Get top high disk utilization
-    high_disk_services =
-      unique_disks
-      |> Enum.filter(fn row ->
-        disk = extract_numeric(Map.get(row, "percent") || Map.get(row, "value") || 0)
-        disk >= 70
-      end)
-      |> Enum.sort_by(fn row ->
-        disk = extract_numeric(Map.get(row, "percent") || Map.get(row, "value") || 0)
-        -disk
-      end)
-      |> Enum.take(3)
+    high_cpu_services = top_utilization(unique_cpu_hosts, &cpu_usage/1, 70, 3)
+    high_memory_services = top_utilization(unique_memory_hosts, &memory_usage/1, 70, 3)
+    high_disk_services = top_utilization(unique_disks, &disk_usage/1, 70, 3)
 
     %{
       cpu_warning: length(cpu_categorized.warning),
@@ -721,6 +587,96 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   end
 
   defp extract_numeric(_), do: 0
+
+  defp normalize_trace_stats(trace_stats) do
+    case Map.get(trace_stats, "payload") do
+      %{} = payload -> payload
+      _ -> trace_stats
+    end
+  end
+
+  defp trace_total_count(trace_stats) do
+    trace_stats
+    |> Map.get("total", Map.get(trace_stats, "count"))
+    |> extract_numeric()
+    |> to_int()
+  end
+
+  defp compute_error_rate(total, errors) do
+    if total > 0 do
+      Float.round(errors / total * 100.0, 1)
+    else
+      0.0
+    end
+  end
+
+  defp dedupe_by_key(rows, key_fun) do
+    rows
+    |> Enum.filter(&is_map/1)
+    |> Enum.reduce(%{}, fn row, acc ->
+      key = key_fun.(row)
+
+      if is_binary(key) and key != "" do
+        Map.put_new(acc, key, row)
+      else
+        acc
+      end
+    end)
+    |> Map.values()
+  end
+
+  defp host_key(row) do
+    Map.get(row, "host") || Map.get(row, "device_id") || ""
+  end
+
+  defp disk_key(row) do
+    host = host_key(row)
+    mount = Map.get(row, "mount_point") || Map.get(row, "mount") || ""
+
+    if host == "" do
+      ""
+    else
+      "#{host}:#{mount}"
+    end
+  end
+
+  defp categorize_utilization(rows, value_fun, warning_threshold, critical_threshold) do
+    Enum.reduce(rows, %{warning: [], critical: []}, fn row, acc ->
+      value = value_fun.(row)
+
+      cond do
+        value >= critical_threshold -> Map.update!(acc, :critical, &[row | &1])
+        value >= warning_threshold -> Map.update!(acc, :warning, &[row | &1])
+        true -> acc
+      end
+    end)
+  end
+
+  defp top_utilization(rows, value_fun, min_threshold, limit) do
+    rows
+    |> Enum.map(fn row -> {value_fun.(row), row} end)
+    |> Enum.filter(fn {value, _row} -> value >= min_threshold end)
+    |> Enum.sort_by(fn {value, _row} -> -value end)
+    |> Enum.take(limit)
+    |> Enum.map(fn {_value, row} -> row end)
+  end
+
+  defp cpu_usage(row) do
+    extract_numeric(
+      Map.get(row, "value") || Map.get(row, "cpu_usage") || Map.get(row, "usage_percent") ||
+        Map.get(row, "user") || 0
+    )
+  end
+
+  defp memory_usage(row) do
+    extract_numeric(
+      Map.get(row, "percent") || Map.get(row, "value") || Map.get(row, "used_percent") || 0
+    )
+  end
+
+  defp disk_usage(row) do
+    extract_numeric(Map.get(row, "percent") || Map.get(row, "value") || 0)
+  end
 
   defp normalize_severity(nil), do: ""
 
@@ -1892,7 +1848,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         cond do
           diff_seconds < 60 -> "Just now"
           diff_seconds < 3600 -> "#{div(diff_seconds, 60)}m ago"
-          diff_seconds < 86400 -> "#{div(diff_seconds, 3600)}h ago"
+          diff_seconds < 86_400 -> "#{div(diff_seconds, 3600)}h ago"
           diff_seconds < 604_800 -> "#{div(diff_seconds, 86400)}d ago"
           true -> Calendar.strftime(dt, "%b %d")
         end
