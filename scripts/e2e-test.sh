@@ -238,7 +238,7 @@ test_srql_query() {
 }
 
 test_health_endpoint() {
-    # Test Kong gateway health (if available)
+    # Test gateway health (if available)
     local result
     result=$(http_request "GET" "/health")
 

@@ -72,8 +72,9 @@ Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and en
    ```
 
 6. **Access ServiceRadar**:
-   - Web Interface: http://localhost (nginx on port 80)
-   - API via nginx: http://localhost/api/
+   - Web Interface: https://localhost (Caddy on port 443, self-signed)
+   - HTTP fallback: http://localhost (Caddy on port 80)
+   - API via Caddy: https://localhost/api/
    - Username: `admin`
    - Password: (from step 5)
 
@@ -99,7 +100,7 @@ The stack automatically handles certificate generation and configuration:
 3. **cert-permissions-fixer** - Sets proper certificate ownership (one-shot)
 4. **nats** - Message broker with mTLS
 5. **datasvc, core, poller, agent** - Core services
-6. **checkers, web, etc.** - Additional services
+6. **checkers, web-ng, etc.** - Additional services
 
 ## Test Your Setup
 
@@ -131,35 +132,6 @@ bazel run //docker/images:agent_image_amd64_push
 # Or push every image in one go
 bazel run //docker/images:push_all
 ```
-
-## Optional: Enable Kong Gateway (Community, DB-less + JWKS)
-
-Run Kong OSS locally and proxy `/api/*` through it. A pre-start helper fetches Core's JWKS and generates a DB-less config, so keys are fresh each startup.
-
-1) Generate DB-less config then start Kong (profile `kong`):
-   ```bash
-   docker compose --profile kong up -d kong-config kong
-   ```
-
-2) Point Nginx to Kong by setting API_UPSTREAM when starting Nginx (TLS terminates at Nginx; internal hop is HTTP):
-   ```bash
-   API_UPSTREAM=http://kong:8000 docker compose up -d nginx
-   ```
-
-3) Validate Admin API:
-   ```bash
-   curl -s http://localhost:8001/
-   ```
-
-4) Client HTTPS terminates at Nginx (optional):
-   - If you map 443:443 and provide certs to Nginx, clients use HTTPS to Nginx.
-   - Behind Nginx, Kong and Core communicate over HTTP only.
-
-Notes:
-- No license or Postgres required (community, DB-less).
-- Override JWKS/service/route via env: `JWKS_URL`, `KONG_SERVICE_URL`, `KONG_ROUTE_PATH`.
-- The default Nginx config proxies `/api/*` directly to Core. Set `API_UPSTREAM` to route via Kong.
-
 
 ## Common Commands
 
@@ -210,7 +182,7 @@ sudo setenforce 0
 
 **Firewall blocking ports**:
 ```bash
-sudo firewall-cmd --add-port=80/tcp --permanent    # Web UI (nginx)
+sudo firewall-cmd --add-port=80/tcp --permanent    # Web UI (Caddy)
 sudo firewall-cmd --add-port=443/tcp --permanent   # Web UI HTTPS (optional)
 sudo firewall-cmd --add-port=8090/tcp --permanent  # Core API (direct)
 sudo firewall-cmd --reload

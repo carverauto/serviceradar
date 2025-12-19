@@ -19,8 +19,7 @@ flowchart TB
     subgraph Cluster["Kubernetes Cluster"]
         subgraph Ingress["Edge Layer"]
             ING[Ingress Controller]
-            WEB[Web UI<br/>Next.js :3000]
-            KONG[Kong Gateway<br/>:8000]
+            WEB[Web UI<br/>Phoenix :4000]
         end
 
         subgraph API["API Layer"]
@@ -54,10 +53,10 @@ flowchart TB
     %% User traffic flow
     User -->|HTTPS| ING
     ING --> WEB
+    ING -->|/api/*| WEB
+    ING -->|/api/query| WEB
     WEB -->|SSR API| CORE
-    WEB -->|/api/*| KONG
-    KONG -->|JWT validated| CORE
-    KONG -->|/api/query| SRQL
+    WEB -->|SRQL queries| SRQL
 
     %% Edge agent flow
     EdgeAgent <-->|gRPC mTLS| POLLER
@@ -81,8 +80,8 @@ flowchart TB
 ```
 
 **Traffic flow summary:**
-- **User requests** → Ingress → Web UI (static/SSR) or Kong (API)
-- **Kong** validates JWTs and routes to Core (control plane) or SRQL (queries)
+- **User requests** → Ingress → Web UI (static/SSR) and Core (API)
+- **Web-NG** serves `/api/*`, `/api/query`, and `/api/stream`
 - **Edge agents** connect via gRPC mTLS to the Poller
 - **NATS JetStream** provides pub/sub messaging and KV storage for all services
 - **SPIRE** issues X.509 certificates to all workloads via DaemonSet agents
@@ -93,7 +92,7 @@ flowchart TB
 
 - **Persistent storage (~150GiB/node baseline)**: CNPG consumes the majority (3×100Gi PVCs from `k8s/demo/base/spire/cnpg-cluster.yaml`). JetStream adds 30Gi (`k8s/demo/base/serviceradar-nats.yaml`), OTEL 10Gi (`k8s/demo/base/serviceradar-otel.yaml`), and several 5Gi claims for Core, Datasvc, Mapper, Zen, DB event writer, plus 1Gi claims for Faker/Flowgger/Cert jobs. Spread the CNPG replicas across at least three nodes with SSD-class volumes; the extra PVCs lift per-node needs to roughly 150Gi of usable capacity when co-scheduled with CNPG.
 
-- **CPU / memory (requested)**: Core 1 CPU / 4Gi, Poller 0.5 CPU / 2Gi (`k8s/demo/base/serviceradar-core.yaml`, `serviceradar-poller.yaml`); Kong 0.5 CPU / 1Gi; Web 0.2 CPU / 512Mi; Datasvc 0.5 CPU / 128Mi; SRQL 0.1 CPU / 128Mi; NATS 1 CPU / 8Gi; OTEL 0.2 CPU / 256Mi. The steady-state floor is ~4 vCPU and ~16 GiB for the core path, before adding optional sync/checker pods or horizontal scaling.
+- **CPU / memory (requested)**: Core 1 CPU / 4Gi, Poller 0.5 CPU / 2Gi (`k8s/demo/base/serviceradar-core.yaml`, `serviceradar-poller.yaml`); Web 0.2 CPU / 512Mi; Datasvc 0.5 CPU / 128Mi; SRQL 0.1 CPU / 128Mi; NATS 1 CPU / 8Gi; OTEL 0.2 CPU / 256Mi. The steady-state floor is ~4 vCPU and ~16 GiB for the core path, before adding optional sync/checker pods or horizontal scaling.
 
 - **Identity plane**: SPIRE server (StatefulSet) and daemonset agents must be running; services expect the workload socket at `/run/spire/sockets/agent.sock` and SPIFFE IDs derived from `spire.trustDomain` in `values.yaml`.
 
@@ -137,14 +136,14 @@ The Poller coordinates monitoring activities and is responsible for:
 The Core Service is the central component that:
 
 - Receives and processes reports from Pollers
-- Provides an API for the Web UI on port 8090
+- Provides an internal control-plane API on port 8090
 - Triggers alerts based on configurable thresholds
 - Stores historical monitoring data
 - Manages webhook notifications
 
 **Technical Details:**
 - Exposes a gRPC service on port 50052 for Poller connections
-- Provides a RESTful API on port 8090 for the Web UI
+- Provides a RESTful API on port 8090 for internal services
 - Uses role-based security model
 - Implements webhook templating for flexible notifications
 
@@ -155,22 +154,20 @@ The Web UI provides a modern dashboard interface that:
 - Visualizes the status of monitored services
 - Displays historical performance data
 - Provides configuration management
-- Proxies all authenticated API calls through the Kong gateway
+- Calls Core APIs directly via the edge proxy and serves SRQL queries
 
 **Technical Details:**
-- Built with Next.js in SSR mode for security and performance
-- Exposed through the cluster ingress to `serviceradar-web` (port 3000)
-- Exchanges JWTs with Kong, which validates them against the Core JWKS endpoint
+- Built with Phoenix LiveView for server-rendered, stateful dashboards
+- Exposed through the cluster ingress to `serviceradar-web-ng` (port 4000)
+- Exchanges JWTs directly with the Core API; the edge proxy only terminates TLS
 - Supports responsive design for mobile and desktop
 
-### API Gateway (Kong)
+### Edge Proxy (Ingress/Caddy/Nginx)
 
-The Kong API gateway enforces edge security and traffic policy:
+The edge proxy terminates TLS and routes user traffic:
 
-- Terminates incoming Web UI API traffic on port 9080 (HTTP) or 9443 (HTTPS)
-- Validates RS256-signed JWTs using the Core service’s JWKS published at `/auth/jwks.json`
-- Applies rate limits, request shaping, and header normalization before forwarding to the Core API
-- Caches JWKS responses and refreshes keys automatically when the Core rotates signing material
+- Routes `/` and `/api/*` to `serviceradar-web-ng`
+- Preserves WebSocket headers for LiveView and SRQL streaming
 
 ### SPIFFE Identity Plane
 
@@ -186,8 +183,8 @@ workflow see [SPIFFE / SPIRE Identity Platform](spiffe-identity.md).
 The SRQL microservice executes ServiceRadar Query Language requests:
 
 - Exposes `/api/query` (HTTP) and `/api/stream` (WebSocket) for bounded and streaming query execution
-- Runs as an OCaml/Dream application that translates SRQL to Timescale-compatible SQL before dispatching the query
-- Shares Kong’s JWT policy; validated user tokens grant access to query endpoints without additional secrets
+- Runs as a Rust service (or embedded SRQL engine) that translates SRQL to Timescale-compatible SQL before dispatching the query
+- Honors SRQL auth configuration (API key or core-issued JWTs) while relying on the edge proxy for TLS
 - Streams results back to the Web UI, which renders them in explorers and dashboards
 
 ## Device Identity Canonicalization
@@ -260,38 +257,36 @@ SweepCheck[Network Sweep]
     class SNMPCheck,DuskCheck,SweepCheck client
 ```
 
-### API Gateway Authentication Flow
+### Web UI Authentication Flow
 
-Kong validates every user-facing API call before it reaches the Core service:
+The edge proxy routes user traffic while the Core API validates JWTs:
 
 ```mermaid
 sequenceDiagram
     participant User as User (Browser)
-    participant WebUI as Web UI (Next.js)
-    participant Kong as Kong Gateway
+    participant Edge as Edge Proxy
+    participant WebUI as Web UI (Phoenix)
     participant Core as Core API
-    participant SRQL as SRQL Service
+    participant SRQL as SRQL Engine
 
-    User->>WebUI: Submit credentials
-    WebUI->>Kong: POST /api/auth/login
-    Kong->>Core: Forward request
-    Core-->>WebUI: RS256 JWT + refresh token
-    WebUI->>Kong: Subsequent API call with JWT
-    Kong->>Kong: Validate JWT via cached JWKS
-    alt Control-plane request
-        Kong->>Core: Forward authorized request
-        Core-->>Kong: Response data
-    else SRQL query
-        Kong->>SRQL: Forward /api/query
-        SRQL-->>Kong: Query results
-    end
-    Kong-->>WebUI: Response
-    WebUI-->>User: Rendered UI
+    User->>Edge: HTTPS request
+    Edge->>WebUI: Route / or /api/query
+    User->>Edge: POST /api/auth/login
+    Edge->>WebUI: Forward login request
+    WebUI-->>User: RS256 JWT + refresh token
+    User->>Edge: /api/* with JWT
+    Edge->>WebUI: Forward API request
+    WebUI-->>User: Response data
+    User->>Edge: /api/query with JWT
+    Edge->>WebUI: Forward SRQL request
+    WebUI->>SRQL: Execute query
+    SRQL-->>WebUI: Query results
+    WebUI-->>User: Response
 ```
 
-- The Core publishes its signing keys at `https://<core-host>/auth/jwks.json`. Kong’s JWT plugin fetches and caches those keys, refreshing when it sees a new `kid`.
+- Web-NG issues and validates JWTs; expose `https://<web-host>/auth/jwks.json` when external validators need the public keys.
 - JWTs are issued with short expirations; the Web UI rotates them server-side using the refresh token flow.
-- Downstream services (pollers, sync workers) continue to use mTLS and service credentials, while end-user requests are always funneled through Kong.
+- Downstream services (pollers, sync workers) continue to use mTLS and service credentials.
 
 For deployment specifics, pair this section with the [Authentication Configuration](./auth-configuration.md) and [TLS Security](./tls-security.md) guides.
 

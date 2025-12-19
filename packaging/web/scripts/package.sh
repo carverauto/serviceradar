@@ -17,6 +17,9 @@
 # package.sh for serviceradar-web component - Prepares files for Debian packaging
 set -e
 
+echo "Legacy serviceradar-web packaging is disabled. Use web-ng instead." >&2
+exit 1
+
 # Define package version
 VERSION=${VERSION:-1.0.34}
 

@@ -7,7 +7,7 @@ ServiceRadar is a distributed monitoring platform for infrastructure that lives 
 - Go services (`cmd/core`, `cmd/poller`, `cmd/agent`, `cmd/sync`, `cmd/datasvc`, etc.) built with Bazel/Go modules power the control plane, discovery, and sync integrations.
 - Rust components (rule engine, collectors, flow/log agents) live under `rust/` and share bootstrap/config libraries for KV-backed hot reloads.
 - Rust SRQL service (`rust/srql`) translates `/api/query` requests into CNPG queries using Diesel + pooled connections.
-- Next.js + React web UI (`web/`) is served through Nginx, fronted by Kong for API enforcement, and talks to the core API plus SRQL endpoints.
+- Phoenix LiveView web UI (`web-ng/`) is served through an edge proxy (Caddy/Nginx/Ingress) and talks to the core API plus SRQL endpoints; legacy Next.js code remains in `web/` for reference only.
 - CNPG/Timescale stores high-volume telemetry; SRQL and the core ingest layer both target Postgres hypertables (docs/docs/architecture.md).
 - NATS JetStream backs the KV/datasvc configuration API that components use to watch and reload config (docs/docs/kv-configuration.md).
 - SPIFFE/SPIRE handles workload identity and issues the mTLS credentials that every internal gRPC/HTTP hop relies on.
@@ -24,12 +24,12 @@ ServiceRadar is a distributed monitoring platform for infrastructure that lives 
 
 ### Architecture Patterns
 ServiceRadar is layered (docs/docs/architecture.md):
-- **User Edge**: Next.js web UI → Nginx → Kong; Kong validates RS256 JWTs via the core JWKS before forwarding to APIs.
-- **Service Layer**: Go `core` handles control-plane APIs and webhooks while OCaml `srql` translates analytics queries and `datasvc` exposes KV over gRPC.
+- **User Edge**: Phoenix web UI → edge proxy (Caddy/Nginx/Ingress); the proxy terminates TLS and routes `/api/*` to web-ng.
+- **Service Layer**: Go `core` handles control-plane APIs and webhooks while Rust `srql` translates analytics queries and `datasvc` exposes KV over gRPC.
 - **Monitoring Layer**: Stateless pollers fan out to gRPC agents deployed on monitored hosts; pollers combine push/pull checks (HTTP, ICMP, SNMP, custom checkers).
 - **Identity Plane**: SPIRE server/controller/workload agents mint SPIFFE identities used for every mutual-TLS hop.
 - **Data Layer**: CNPG/Timescale hypertables capture raw events; SRQL and the registry build MV pipelines (device tables, planner, etc.).
-Kong decouples user/API policy from the core, while watchers + KV descriptors keep service configs synchronized across demo and customer clusters (docs/docs/agents.md).
+Edge proxies terminate TLS and route traffic; watchers + KV descriptors keep service configs synchronized across demo and customer clusters (docs/docs/agents.md).
 
 ### Testing Strategy
 - `make lint` / `make test` (or targeted `go test ./pkg/... ./cmd/...`) cover Go services; run `golangci-lint` locally when touching critical paths.
@@ -48,13 +48,13 @@ Kong decouples user/API policy from the core, while watchers + KV descriptors ke
 - Monitoring focus: SNMP/LLDP/CDP discovery, OTEL metrics, syslog ingestion, network mapper graph, Dusk node health, and specialized rule engines (README.md).
 - Device pipeline: In demo, Armis faker → sync → core → CNPG maintains 50–70k canonical devices; runbook in docs/docs/agents.md covers pausing sync, truncating tables, recreating the MV, and verifying counts.
 - KV-backed configuration: datasvc exposes KV gRPC endpoints that populate `/api/admin/config` descriptors; watchers mirror config into services and agent-scoped checkers follow the `agents/<id>/checkers/<service>/<service>.json` layout.
-- Identity & security: SPIRE-issued certs + mTLS across agents/pollers/core/datasvc, Kong JWT enforcement for user/API traffic, API keys for internal automation, and webhook integrations for Discord/others (docs/docs/intro.md, docs/docs/architecture.md).
+- Identity & security: SPIRE-issued certs + mTLS across agents/pollers/core/datasvc, core-issued JWTs for user/API traffic, API keys for internal automation, and webhook integrations for Discord/others (docs/docs/intro.md, docs/docs/architecture.md).
 - Analytics: SRQL gives a key:value DSL that maps to CNPG SQL; device registry/search planner keep hot-path reads in memory while CNPG handles historical queries.
 
 ## Important Constraints
 - Must operate across unreliable links; pollers continue querying agents locally and buffer until core connectivity returns.
 - All internal RPCs require mTLS with SPIFFE identities; KV, pollers, agents, and sync will refuse plaintext (docs/docs/kv-configuration.md, docs/docs/tls-security.md).
-- Kong is the policy enforcement point—JWT/JWKS must stay in sync with core or the web UI cannot reach APIs.
+- Core is the policy enforcement point—JWT/JWKS must stay in sync with clients or the web UI cannot reach APIs.
 - KV service expects co-located NATS JetStream and enforces RBAC per certificate DN; watchers rely on `CONFIG_SOURCE=kv` to auto-reload.
 - CNPG datasets (device_updates/unified_devices) must stay pruned to keep queries fast and storage bounded; follow the reset procedure before reseeding demo data.
 - Docker/Bazel outputs must target both AMD64 and ARM64; CI enforces multi-arch builds.
@@ -62,7 +62,7 @@ Kong decouples user/API policy from the core, while watchers + KV descriptors ke
 ## External Dependencies
 - **CNPG / TimescaleDB** – primary telemetry database and analytics engine.
 - **NATS JetStream** – distributed KV backing datasvc and configuration watchers (docs/docs/kv-configuration.md).
-- **Kong API Gateway + Nginx** – sits between the web UI and core/SRQL APIs enforcing JWT auth (docs/docs/architecture.md).
+- **Edge proxy (Caddy/Nginx/Ingress)** – terminates TLS and routes traffic to web-ng and core (docs/docs/architecture.md).
 - **SPIFFE/SPIRE** – identity plane issuing certs for all workloads (docs/docs/spiffe-identity.md, docs/docs/spire-onboarding-plan.md).
 - **Discord/Webhooks** – alert delivery target from the core service (README.md).
 - **NetBox/Armis/edge tooling** – sync integrations and faker workloads supplying device data (docs/docs/agents.md, docs/docs/netbox.md).

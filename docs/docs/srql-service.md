@@ -5,7 +5,7 @@ title: SRQL Service Configuration
 
 # SRQL Service Configuration
 
-The SRQL microservice powers `/api/query` and `/translate` by translating SRQL statements to CNPG SQL. It normally sits behind the same HTTPS ingress as the web UI (Kong, nginx, etc.). This page documents the new authentication and rate-limiting controls so operators know how to secure the endpoint.
+The SRQL microservice powers `/api/query` and `/translate` by translating SRQL statements to CNPG SQL. It sits behind the same HTTPS ingress as the web UI (Caddy/nginx/Ingress). This page documents the authentication and rate-limiting controls so operators know how to secure the endpoint.
 
 ## API Key Authentication
 
@@ -51,7 +51,7 @@ Implementation details:
 
 ## Deployment Checklist
 
-1. **Ingress TLS:** Keep nginx/Kong terminating TLS in front of SRQL; the service itself only speaks plain HTTP.
+1. **Ingress TLS:** Keep the edge proxy (Caddy/nginx/Ingress) terminating TLS in front of SRQL; the service itself only speaks plain HTTP.
 2. **Datasvc connectivity:** When using KV-backed keys, ensure the pod has:
    - `KV_ADDRESS`, `KV_SERVER_SPIFFE_ID`, and the mTLS cert volume (see the [KV configuration guide](./kv-configuration.md)).
    - Network access to the datasvc endpoint.

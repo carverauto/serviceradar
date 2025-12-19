@@ -211,7 +211,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
        ) do
     max_v =
       items
-      |> Enum.map(fn {_k, v} -> v end)
+      |> Enum.map(fn {_k, v} -> to_number(v) end)
       |> Enum.max(fn -> 1.0 end)
       |> ensure_positive_max()
 
@@ -230,13 +230,14 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
       <div class="flex flex-col gap-2">
         <%= for {k, v} <- @items do %>
+          <% v_num = to_number(v) %>
           <div class="flex items-center gap-3">
             <div class="w-48 truncate text-sm" title={to_string(k)}>{format_category_label(k)}</div>
             <div class="flex-1">
               <div class="h-2 rounded-full bg-base-200 overflow-hidden">
                 <div
                   class="h-2 bg-primary/70"
-                  style={"width: #{max(round((v / @max_v) * 100), 0)}%"}
+                  style={"width: #{max(round((v_num / @max_v) * 100), 0)}%"}
                 />
               </div>
             </div>
@@ -288,6 +289,17 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   defp format_number(v) when is_integer(v), do: Integer.to_string(v)
   defp format_number(v), do: to_string(v)
 
+  defp to_number(value) when is_number(value), do: value
+
+  defp to_number(value) when is_binary(value) do
+    case Float.parse(value) do
+      {parsed, _rest} -> parsed
+      :error -> 0
+    end
+  end
+
+  defp to_number(_value), do: 0
+
   defp srql_columns([], _max), do: []
 
   defp srql_columns([first | _], max) when is_map(first) and is_integer(max) and max > 0 do
@@ -300,7 +312,11 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   defp srql_columns(_, _max), do: []
 
-  defp normalize_columns(nil, rows, max_columns), do: srql_columns(rows, max_columns)
+  defp normalize_columns(nil, rows, max_columns) do
+    rows
+    |> srql_columns(max_columns)
+    |> filter_device_id_column()
+  end
 
   defp normalize_columns(columns, rows, max_columns) when is_list(columns) do
     columns =
@@ -309,14 +325,31 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 == ""))
 
-    if columns == [] do
-      srql_columns(rows, max_columns)
+    columns =
+      if columns == [] do
+        srql_columns(rows, max_columns)
+      else
+        columns
+      end
+
+    filter_device_id_column(columns)
+  end
+
+  defp normalize_columns(_columns, rows, max_columns) do
+    rows
+    |> srql_columns(max_columns)
+    |> filter_device_id_column()
+  end
+
+  defp filter_device_id_column(columns) when is_list(columns) do
+    if "uid" in columns do
+      Enum.reject(columns, &(&1 == "device_id"))
     else
       columns
     end
   end
 
-  defp normalize_columns(_columns, rows, max_columns), do: srql_columns(rows, max_columns)
+  defp filter_device_id_column(columns), do: columns
 
   defp format_cell(col, value) do
     col = col |> to_string() |> String.trim()

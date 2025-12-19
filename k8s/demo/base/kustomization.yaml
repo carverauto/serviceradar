@@ -7,7 +7,7 @@ resources:
 - serviceradar-nats.yaml
 - serviceradar-datasvc.yaml
 - serviceradar-core.yaml
-- serviceradar-web.yaml
+- serviceradar-web-ng.yaml
 - serviceradar-agent.yaml
 - serviceradar-poller.yaml
 - serviceradar-snmp-checker.yaml
@@ -20,7 +20,6 @@ resources:
 - serviceradar-mapper.yaml
 - serviceradar-trapd.yaml
 - serviceradar-tools.yaml
-- serviceradar-kong.yaml
 - serviceradar-sync.yaml
 - serviceradar-rperf-checker.yaml
 - serviceradar-faker.yaml

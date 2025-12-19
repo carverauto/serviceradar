@@ -330,6 +330,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     source =
       Map.get(event, "host") ||
         Map.get(event, "source") ||
+        Map.get(event, "uid") ||
         Map.get(event, "device_id") ||
         Map.get(event, "subject")
 

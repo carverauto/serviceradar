@@ -125,6 +125,7 @@ defmodule ServiceRadarWebNG.SRQL do
 
   defp normalize_row_aliases(row) when is_map(row) do
     row
+    |> maybe_alias("device_id", "uid")
     |> maybe_alias("type", "device_type")
     |> maybe_alias("first_seen_time", "first_seen")
     |> maybe_alias("last_seen_time", "last_seen")

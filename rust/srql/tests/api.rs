@@ -253,7 +253,7 @@ async fn check_timeseries_metrics_query_returns_rows(harness: &SrqlTestHarness) 
     );
     assert!(
         rows.iter()
-            .all(|row| row.get("device_id").and_then(|v| v.as_str()) == Some("device-alpha")),
+            .all(|row| row.get("uid").and_then(|v| v.as_str()) == Some("device-alpha")),
         "all rows should belong to device-alpha: {body}"
     );
 }

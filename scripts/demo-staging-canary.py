@@ -11,7 +11,7 @@ sys.dont_write_bytecode = True
 
 SERVICE_TAG_KEYS = [
     "core",
-    "web",
+    "webNg",
     "datasvc",
     "agent",
     "poller",
@@ -28,7 +28,6 @@ SERVICE_TAG_KEYS = [
     "rperfChecker",
     "tools",
     "srql",
-    "kongConfig",
 ]
 
 
@@ -99,13 +98,12 @@ def main() -> int:
     for key in SERVICE_TAG_KEYS:
         tags[key] = args.base_tag
 
-    tags["web"] = args.web_tag
+    tags["webNg"] = args.web_tag
     if args.core_tag is not None:
         tags["core"] = args.core_tag
 
     # Preserve explicit base chart tags unless already provided.
     tags.setdefault("nats", "2.12.2-alpine")
-    tags.setdefault("kong", "3.7")
 
     patched_values_yaml = dump_values(values)
     kubectl_patch_application(

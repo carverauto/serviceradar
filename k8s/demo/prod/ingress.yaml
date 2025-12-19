@@ -24,105 +24,45 @@ spec:
   - host: demo.serviceradar.cloud
     http:
       paths:
-      # Static assets from Next.js
-      - path: /_next
+      # Static assets from Phoenix
+      - path: /assets
         pathType: Prefix
         backend:
           service:
-            name: serviceradar-web
+            name: serviceradar-web-ng
             port:
-              number: 3000
-      
-      # WebSocket streaming endpoint
-      - path: /api/stream
-        pathType: Exact
-        backend:
-          service:
-            name: serviceradar-kong
-            port:
-              number: 8000
-      
-      # API routes handled by Next.js
-      - path: /api/auth
+              number: 4000
+
+      # Backend API routes (web-ng)
+      - path: /api/query
         pathType: Prefix
         backend:
           service:
-            name: serviceradar-web
+            name: serviceradar-web-ng
             port:
-              number: 3000
-      - path: /api/nodes
-        pathType: Prefix
-        backend:
-          service:
-            name: serviceradar-web
-            port:
-              number: 3000
-      - path: /api/status
-        pathType: Prefix
-        backend:
-          service:
-            name: serviceradar-web
-            port:
-              number: 3000
-      - path: /api/admin
-        pathType: Prefix
-        backend:
-          service:
-            name: serviceradar-web
-            port:
-              number: 3000
-      - path: /api/pollers
-        pathType: Prefix
-        backend:
-          service:
-            name: serviceradar-web
-            port:
-              number: 3000
-      - path: /api/devices
-        pathType: Prefix
-        backend:
-          service:
-            name: serviceradar-web
-            port:
-              number: 3000
-      - path: /api/kv
-        pathType: Prefix
-        backend:
-          service:
-            name: serviceradar-web
-            port:
-              number: 3000
-      - path: /api/config
-        pathType: Prefix
-        backend:
-          service:
-            name: serviceradar-web
-            port:
-              number: 3000
-      
-      # Backend API routes (catch-all for core service)
+              number: 4000
       - path: /api
         pathType: Prefix
         backend:
           service:
-            name: serviceradar-kong
+            name: serviceradar-web-ng
             port:
-              number: 8000
-      
+              number: 4000
+
       # Auth API routes
       - path: /auth
         pathType: Prefix
         backend:
           service:
-            name: serviceradar-core
+            name: serviceradar-web-ng
             port:
-              number: 8090
-      
+              number: 4000
+
       # Main app (default)
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: serviceradar-web
+            name: serviceradar-web-ng
             port:
-              number: 3000
+              number: 4000

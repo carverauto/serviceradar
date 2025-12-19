@@ -778,7 +778,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   # Compute summary stats from unique service instances (deduplicated by poller/agent + service identity)
   # This prevents showing N status checks for the same service instance as "N services".
   #
-  # Note: `in:services` is backed by the `service_status` table, which does NOT include `device_id`.
+  # Note: `in:services` is backed by the `service_status` table, which does NOT include `uid`.
   defp compute_summary(services) when is_list(services) do
     unique_services = dedupe_services(services)
     initial = base_summary(length(services))

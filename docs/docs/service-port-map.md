@@ -21,7 +21,7 @@ The following table lists the primary ServiceRadar components and their default 
 | Zen Service       | 50040        | gRPC/TCP    | Zen service for device management        |
 | DB Event Writer   | 50041        | gRPC/TCP    | Writes events to the CNPG/Timescale DB   |
 | Mapper            | 50056        | gRPC/TCP    | Network Discovery and Mapper Service     |
-| Web UI (Next.js)  | 3000         | HTTP/TCP    | Web interface (accessed via Nginx)       |
+| Web UI (web-ng)   | 4000         | HTTP/TCP    | Phoenix LiveView interface (reverse proxy recommended) |
 | Nginx             | 80/443       | HTTP(S)/TCP | Web UI reverse proxy                     |
 
 ## Storage and Configuration
@@ -62,7 +62,7 @@ The following table lists the primary ServiceRadar components and their default 
 ### Security Recommendations
 
 - **NATS JetStream** (port 4222) is configured by default to listen only on localhost (`127.0.0.1`) for security reasons. Only expose this externally if absolutely necessary.
-- **Next.js Web UI** (port 3000) should not be directly exposed to the internet. Use Nginx as a reverse proxy as configured by default.
+- **Web-NG UI** (port 4000) should not be directly exposed to the internet. Use a reverse proxy (Caddy/Nginx) for TLS termination.
 - When using mTLS security, ensure certificates are correctly deployed to each component.
 
 ### Firewall Configuration
@@ -99,12 +99,12 @@ Each component's port can be customized in its respective configuration file:
 | Poller | `/etc/serviceradar/poller.json` |
 | KV Store | `/etc/serviceradar/datasvc.json` |
 | Sync Service | `/etc/serviceradar/sync.json` |
-| Web UI | `/etc/serviceradar/web.json` |
+| Web UI | `/etc/serviceradar/web-ng.env` |
 | SNMP Checker | `/etc/serviceradar/checkers/snmp.json` |
 | Dusk Checker | `/etc/serviceradar/checkers/dusk.json` |
 | rperf Checker | `/etc/serviceradar/checkers/rperf.json` |
 | NATS Server | `/etc/nats/nats-server.conf` |
-| Nginx | `/etc/nginx/conf.d/serviceradar-web.conf` |
+| Nginx | `/etc/nginx/conf.d/serviceradar-web-ng.conf` |
 
 ## Next Steps
 

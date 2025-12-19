@@ -7,7 +7,7 @@ This guide provides complete instructions for deploying ServiceRadar to Kubernet
 The ServiceRadar Kubernetes deployment includes:
 - **Core**: Main API server and business logic
 - **CNPG / TimescaleDB**: CloudNativePG cluster hosting telemetry + registry data
-- **Web**: Next.js frontend application
+- **Web-NG**: Phoenix LiveView frontend application
 - **NATS**: Message broker for inter-service communication
 - **Agent**: Network scanning and monitoring agent
 - **Poller**: Orchestrates monitoring tasks
@@ -89,7 +89,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: serviceradar-web
+            name: serviceradar-web-ng
             port:
               name: http
 ```
@@ -127,14 +127,14 @@ kubectl get ingress -n <namespace>
 ### Test API Connectivity
 ```bash
 # Via ingress (replace with your domain)
-curl -k https://your-domain.com/api/auth/status
+curl -k https://your-domain.com/users/log-in
 
 # Via port-forward
-kubectl port-forward -n <namespace> svc/serviceradar-web 3000:3000
-curl http://localhost:3000/api/auth/status
+kubectl port-forward -n <namespace> svc/serviceradar-web-ng 4000:4000
+curl http://localhost:4000/users/log-in
 ```
 
-Expected response: `{"authEnabled":true}`
+Expected response: an HTML login page (HTTP 200).
 
 ### Test Authentication
 ```bash
@@ -142,8 +142,8 @@ Expected response: `{"authEnabled":true}`
 ADMIN_PASSWORD=$(kubectl get secret serviceradar-secrets -n <namespace> \
   -o jsonpath='{.data.admin-password}' | base64 -d)
 
-# Login
-curl -X POST https://your-domain.com/api/auth/login \
+# Login (core API)
+curl -X POST https://your-domain.com/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"'$ADMIN_PASSWORD'"}'
 ```
@@ -153,7 +153,7 @@ curl -X POST https://your-domain.com/api/auth/login \
 ### Service Dependencies
 ```
 ┌─────────────┐    ┌─────────────┐    ┌──────────────┐
-│    Web      │───▶│    Core     │───▶│  CNPG / TSDB │
+│   Web-NG    │───▶│    Core     │───▶│  CNPG / TSDB │
 └─────────────┘    └─────────────┘    └──────────────┘
                            │
                     ┌─────────────┐
@@ -170,7 +170,7 @@ curl -X POST https://your-domain.com/api/auth/login \
 ```
 
 ### Data Flow
-1. **Web** → **Core**: User requests via REST API
+1. **Web-NG** → **Core**: User requests via REST API
 2. **Core** → **CNPG/Timescale**: Database queries and analytics
 3. **Core** → **NATS**: Event publishing and subscriptions
 4. **Poller** → **Agent**: Orchestrates monitoring tasks
@@ -183,14 +183,14 @@ curl -X POST https://your-domain.com/api/auth/login \
 Default resource allocations:
 - **Core**: 500m CPU, 512Mi RAM (limits: 2 CPU, 2Gi RAM)
 - **CNPG (3 pods)**: 500m CPU, 1Gi RAM each (limits: 2 CPU, 4Gi RAM)
-- **Web**: 100m CPU, 128Mi RAM (limits: 500m CPU, 512Mi RAM)
+- **Web-NG**: 100m CPU, 128Mi RAM (limits: 500m CPU, 512Mi RAM)
 - **Others**: 50m CPU, 64Mi RAM (limits: 200m CPU, 256Mi RAM)
 
 ### Horizontal Scaling
 Most services support horizontal scaling:
 ```bash
 kubectl scale deployment serviceradar-core --replicas=3 -n <namespace>
-kubectl scale deployment serviceradar-web --replicas=2 -n <namespace>
+kubectl scale deployment serviceradar-web-ng --replicas=2 -n <namespace>
 ```
 
 **Note**: Scale CNPG by editing the `Cluster` resource; the operator manages primary/replica placement automatically.
@@ -272,10 +272,9 @@ Feature flags (including the device search planner) are sourced from the `servic
    ```bash
    kubectl rollout restart deployment/serviceradar-core -n <namespace>
    ```
-4. For web UI flags (e.g. `NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER`), update the environment variables on the deployment:
+4. Restart the web UI if you need it to pick up updated server-side settings:
    ```bash
-   kubectl set env deployment/serviceradar-web NEXT_PUBLIC_FEATURE_DEVICE_SEARCH_PLANNER=true FEATURE_DEVICE_SEARCH_PLANNER=true -n <namespace>
-   kubectl rollout restart deployment/serviceradar-web -n <namespace>
+   kubectl rollout restart deployment/serviceradar-web-ng -n <namespace>
    ```
 
 Changes made via `deploy.sh` are persisted to the ConfigMap; remember to re-run the script if the base configuration is updated in source control.

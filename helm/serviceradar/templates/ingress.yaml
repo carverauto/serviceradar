@@ -25,11 +25,25 @@ spec:
     - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
+          - path: /api/query
+            pathType: Prefix
+            backend:
+              service:
+                name: serviceradar-web-ng
+                port:
+                  name: http
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: serviceradar-web-ng
+                port:
+                  name: http
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: serviceradar-web
+                name: serviceradar-web-ng
                 port:
                   name: http
 {{- end }}

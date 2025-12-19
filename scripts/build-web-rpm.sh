@@ -16,6 +16,10 @@
 
 set -e
 
+# Legacy web packaging is retired; keep script for reference only.
+echo "Legacy serviceradar-web RPM build is disabled. Use web-ng packaging." >&2
+exit 1
+
 # Native RPM build script for serviceradar-web
 # Runs directly on Oracle Linux 9 without Docker
 

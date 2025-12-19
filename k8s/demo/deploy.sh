@@ -135,8 +135,8 @@ kubectl wait --for=condition=available --timeout=180s deployment/serviceradar-da
 # Wait for Core
 kubectl wait --for=condition=available --timeout=180s deployment/serviceradar-core -n $NAMESPACE
 
-# Wait for Web
-kubectl wait --for=condition=available --timeout=180s deployment/serviceradar-web -n $NAMESPACE
+# Wait for Web-NG
+kubectl wait --for=condition=available --timeout=180s deployment/serviceradar-web-ng -n $NAMESPACE
 
 # Get service endpoints
 echo ""
@@ -154,13 +154,13 @@ if [ "$INGRESS_URL" != "Not configured" ]; then
     echo "🌐 Access ServiceRadar at: https://$INGRESS_URL"
 else
     # Try to get LoadBalancer IP from web service
-    LB_IP=$(kubectl get svc serviceradar-web -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+    LB_IP=$(kubectl get svc serviceradar-web-ng -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
     if [ -n "$LB_IP" ]; then
-        echo "🌐 Access ServiceRadar at: http://$LB_IP:3000"
+        echo "🌐 Access ServiceRadar at: http://$LB_IP:4000"
     else
         echo "🌐 Use port-forward to access ServiceRadar:"
-        echo "   kubectl port-forward -n $NAMESPACE svc/serviceradar-web 3000:3000"
-        echo "   Then access at: http://localhost:3000"
+        echo "   kubectl port-forward -n $NAMESPACE svc/serviceradar-web-ng 4000:4000"
+        echo "   Then access at: http://localhost:4000"
     fi
 fi
 

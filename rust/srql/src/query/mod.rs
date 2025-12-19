@@ -244,15 +244,18 @@ fn build_query_plan(
         .map(|spec| spec.resolve(Utc::now()))
         .transpose()?;
 
+    let (filters, order, downsample) =
+        normalize_device_aliases(&ast.entity, ast.filters, ast.order, ast.downsample);
+
     Ok(QueryPlan {
         entity: ast.entity,
-        filters: ast.filters,
-        order: ast.order,
+        filters,
+        order,
         limit,
         offset,
         time_range,
         stats: ast.stats,
-        downsample: ast.downsample,
+        downsample,
     })
 }
 
@@ -260,6 +263,58 @@ fn determine_limit(config: &AppConfig, candidate: Option<i64>) -> i64 {
     let default = config.default_limit;
     let max = config.max_limit;
     candidate.unwrap_or(default).clamp(1, max)
+}
+
+fn normalize_device_aliases(
+    entity: &Entity,
+    filters: Vec<crate::parser::Filter>,
+    order: Vec<crate::parser::OrderClause>,
+    downsample: Option<crate::parser::DownsampleSpec>,
+) -> (
+    Vec<crate::parser::Filter>,
+    Vec<crate::parser::OrderClause>,
+    Option<crate::parser::DownsampleSpec>,
+) {
+    let filters = filters
+        .into_iter()
+        .map(|mut filter| {
+            if let Some(mapped) = normalize_device_field(entity, &filter.field) {
+                filter.field = mapped;
+            }
+            filter
+        })
+        .collect();
+
+    let order = order
+        .into_iter()
+        .map(|mut clause| {
+            if let Some(mapped) = normalize_device_field(entity, &clause.field) {
+                clause.field = mapped;
+            }
+            clause
+        })
+        .collect();
+
+    let downsample = downsample.map(|mut spec| {
+        if let Some(series) = spec.series.as_mut() {
+            if let Some(mapped) = normalize_device_field(entity, series) {
+                *series = mapped;
+            }
+        }
+        spec
+    });
+
+    (filters, order, downsample)
+}
+
+fn normalize_device_field(entity: &Entity, field: &str) -> Option<String> {
+    if field.eq_ignore_ascii_case("uid") && !matches!(entity, Entity::Devices) {
+        Some("device_id".to_string())
+    } else if field.eq_ignore_ascii_case("device_id") && matches!(entity, Entity::Devices) {
+        Some("uid".to_string())
+    } else {
+        None
+    }
 }
 
 pub(super) fn max_dollar_placeholder(sql: &str) -> usize {

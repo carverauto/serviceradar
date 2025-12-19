@@ -166,12 +166,6 @@ systemctl restart serviceradar-core || {
 }
 
 # Only restart web if it's installed
-if systemctl list-unit-files | grep -q serviceradar-web.service; then
-    echo "Restarting serviceradar-web service..."
-    systemctl restart serviceradar-web || {
-        echo "Failed to start serviceradar-web service. Check logs with: journalctl -xeu serviceradar-web"
-    }
-fi
 
 # Only restart nginx if it's installed
 if command -v nginx >/dev/null && systemctl list-unit-files | grep -q nginx.service; then
