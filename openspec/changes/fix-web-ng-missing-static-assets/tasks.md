@@ -15,7 +15,7 @@
 - [x] 3.3 Verify `web-ng/priv/static/robots.txt` is preserved
 
 ## 4. Test container builds
-- [ ] 4.1 Build and run Docker Compose stack with `docker compose up -d`
-- [ ] 4.2 Verify favicon appears in browser tab
-- [ ] 4.3 Verify ServiceRadar logo appears in sidebar navigation
-- [ ] 4.4 Test with Bazel-built OCI image: `bazel run //docker/images:web_ng_image_amd64_tar && docker run -it ghcr.io/carverauto/serviceradar-web-ng:local`
+- [x] 4.1 Build and run Docker Compose stack with `docker compose up -d`
+- [x] 4.2 Verify favicon appears in browser tab
+- [x] 4.3 Verify ServiceRadar logo appears in sidebar navigation
+- [x] 4.4 Test with Bazel-built OCI image (pushed as `ghcr.io/carverauto/serviceradar-web-ng:v1.0.78`)
