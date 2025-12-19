@@ -21,7 +21,7 @@ Follow the prompts to select your desired components and optional checkers.
 For automated deployments, use the following options:
 
 ### All-in-One Installation
-Installs all components (`serviceradar-agent`, `serviceradar-core`, `serviceradar-datasvc`, `serviceradar-nats`, `serviceradar-poller`, `serviceradar-web`, plus optional checkers).
+Installs all components (`serviceradar-agent`, `serviceradar-core`, `serviceradar-datasvc`, `serviceradar-nats`, `serviceradar-poller`, `serviceradar-web-ng`, plus optional checkers).
 
 ```bash
 # Without checkers
@@ -32,7 +32,7 @@ curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/in
 ```
 
 ### Core + Web UI Installation
-Installs core components (`serviceradar-core`, `serviceradar-web`, `serviceradar-nats`, `serviceradar-datasvc`, plus optional checkers).
+Installs core components (`serviceradar-core`, `serviceradar-web-ng`, `serviceradar-nats`, `serviceradar-datasvc`, plus optional checkers).
 
 ```bash
 # Without checkers
@@ -85,15 +85,17 @@ ServiceRadar supports optional checkers that extend monitoring capabilities:
 
 If you prefer to manually install individual components, you can download and install the Debian packages directly:
 
+Note: The Phoenix `web-ng` UI is the active frontend. The legacy Next.js build is deprecated.
+
 ```bash
 # Download components
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent_1.0.52.deb \
      -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-poller_1.0.52.deb \
      -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-core_1.0.52.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-web_1.0.52.deb
+     -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-web-ng_1.0.52.deb
 
 # Install components as needed
-sudo dpkg -i serviceradar-agent_1.0.52.deb serviceradar-poller_1.0.52.deb serviceradar-core_1.0.52.deb serviceradar-web_1.0.52.deb
+sudo dpkg -i serviceradar-agent_1.0.52.deb serviceradar-poller_1.0.52.deb serviceradar-core_1.0.52.deb serviceradar-web-ng_1.0.52.deb
 ```
 
 ## Architecture Overview
@@ -103,7 +105,7 @@ ServiceRadar uses a distributed architecture with four main components:
 1. **Agent**: Runs on monitored hosts, provides service status through gRPC
 2. **Poller**: Coordinates monitoring activities, can run anywhere in your network
 3. **Core Service**: Receives reports from pollers, provides API, and sends alerts
-4. **Web UI**: Provides a modern dashboard interface with Nginx as a reverse proxy
+4. **Web-NG UI**: Provides the Phoenix LiveView dashboard (optionally fronted by a reverse proxy)
 
 ## Configuration
 

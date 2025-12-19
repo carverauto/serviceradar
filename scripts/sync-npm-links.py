@@ -216,6 +216,12 @@ def update_module_use_repo(
 
 
 def main() -> int:
+    print(
+        "Legacy Next.js Bazel npm link sync is disabled; serviceradar-web is deprecated.",
+        file=sys.stderr,
+    )
+    return 1
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="only check, do not write")
     args = ap.parse_args()

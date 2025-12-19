@@ -559,11 +559,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         [
           "in:timeseries_metrics",
           "metric_type:icmp",
-          "device_id:(#{Enum.map_join(device_uids, ",", &escape_list_value/1)})",
+          "uid:(#{Enum.map_join(device_uids, ",", &escape_list_value/1)})",
           "time:#{@sparkline_window}",
           "bucket:#{@sparkline_bucket}",
           "agg:avg",
-          "series:device_id",
+          "series:uid",
           "limit:#{min(length(device_uids) * @sparkline_points_per_device, 4000)}"
         ]
         |> Enum.join(" ")
@@ -608,11 +608,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       snmp_query =
         [
           "in:snmp_metrics",
-          "device_id:(#{list})",
+          "uid:(#{list})",
           "time:#{@presence_window}",
           "bucket:#{@presence_bucket}",
           "agg:count",
-          "series:device_id",
+          "series:uid",
           "limit:#{limit}"
         ]
         |> Enum.join(" ")
@@ -620,11 +620,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       sysmon_query =
         [
           "in:cpu_metrics",
-          "device_id:(#{list})",
+          "uid:(#{list})",
           "time:#{@presence_window}",
           "bucket:#{@presence_bucket}",
           "agg:count",
-          "series:device_id",
+          "series:uid",
           "limit:#{limit}"
         ]
         |> Enum.join(" ")
@@ -672,22 +672,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     rows
     |> Enum.filter(&is_map/1)
     |> Enum.reduce(%{}, &accumulate_icmp_point/2)
-    |> Map.new(fn {device_id, points} ->
-      {device_id, icmp_sparkline_data(points)}
+    |> Map.new(fn {device_uid, points} ->
+      {device_uid, icmp_sparkline_data(points)}
     end)
   end
 
   defp build_icmp_sparklines(_), do: %{}
 
   defp accumulate_icmp_point(row, acc) do
-    device_id = Map.get(row, "series") || Map.get(row, "device_id")
+    device_uid = Map.get(row, "series") || Map.get(row, "uid") || Map.get(row, "device_id")
     timestamp = Map.get(row, "timestamp")
     value_ms = latency_ms(Map.get(row, "value"))
 
-    if is_binary(device_id) and value_ms > 0 do
+    if is_binary(device_uid) and value_ms > 0 do
       Map.update(
         acc,
-        device_id,
+        device_uid,
         [%{ts: timestamp, v: value_ms}],
         fn existing -> existing ++ [%{ts: timestamp, v: value_ms}] end
       )

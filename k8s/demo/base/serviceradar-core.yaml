@@ -24,7 +24,7 @@ spec:
         - name: ghcr-io-cred
       initContainers:
       - name: init-core-jwks
-        image: ghcr.io/carverauto/serviceradar-kong-config:latest
+        image: ghcr.io/carverauto/serviceradar-tools:latest
         imagePullPolicy: Always
         command:
         - /bin/sh

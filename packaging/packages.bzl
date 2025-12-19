@@ -44,7 +44,7 @@ PACKAGES = {
         ],
     },
     "web-ng": {
-        "package_name": "serviceradar-web",
+        "package_name": "serviceradar-web-ng",
         "description": "ServiceRadar Phoenix web UI (web-ng)",
         "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
         "architecture": "amd64",
@@ -56,7 +56,7 @@ PACKAGES = {
         "files": [
             {
                 "src": "//web-ng:release_tar",
-                "dest": "/usr/local/share/serviceradar-web/serviceradar-web.tar.gz",
+                "dest": "/usr/local/share/serviceradar-web-ng/serviceradar-web-ng.tar.gz",
                 "mode": "0644",
             },
             {
@@ -415,47 +415,6 @@ PACKAGES = {
         "conffiles": [
             "/etc/serviceradar/flowgger.toml",
         ],
-    },
-    "kong": {
-        "package_name": "serviceradar-kong",
-        "description": "Wrapper package bundling Kong Gateway OSS for air-gapped installs",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "net",
-        "priority": "optional",
-        "deb_depends": ["systemd", "ca-certificates", "serviceradar-cli"],
-        "rpm_requires": ["systemd", "ca-certificates", "serviceradar-cli"],
-        "files": [
-            {
-                "src": "config/kong.conf",
-                "dest": "/etc/kong/kong.conf",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-            {
-                "src": "scripts/kong-wrapper.sh",
-                "dest": "/usr/share/serviceradar-kong/scripts/kong-wrapper.sh",
-                "mode": "0755",
-            },
-        ],
-        "trees": [
-            {
-                "patterns": ["vendor/**"],
-                "strip_prefix": "vendor",
-                "dest": "/usr/share/serviceradar-kong/vendor",
-                "allow_empty": True,
-            },
-        ],
-        "directories": [
-            {"path": "/usr/share/serviceradar-kong", "mode": "0755"},
-            {"path": "/usr/share/serviceradar-kong/scripts", "mode": "0755"},
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-kong.service",
-            "dest": "/lib/systemd/system/serviceradar-kong.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
     },
     "nats": {
         "package_name": "serviceradar-nats",

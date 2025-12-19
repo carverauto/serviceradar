@@ -156,7 +156,7 @@ generate_cert "mapper" "mapper.serviceradar" "DNS:mapper,DNS:mapper.serviceradar
 # Services that are clients to others
 generate_cert "poller" "poller.serviceradar" "DNS:poller,DNS:poller.serviceradar,DNS:serviceradar-poller,DNS:localhost,IP:127.0.0.1"
 generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "web" "web.serviceradar" "DNS:web,DNS:web.serviceradar,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
+generate_cert "web" "web.serviceradar" "DNS:web,DNS:web.serviceradar,DNS:serviceradar-web-ng,DNS:web-ng,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
 generate_cert "db-event-writer" "db-event-writer.serviceradar" "DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:serviceradar-db-event-writer,DNS:localhost,IP:127.0.0.1"
 
 CNPG_SAN="DNS:cnpg,DNS:cnpg-rw,DNS:cnpg.serviceradar,DNS:cnpg-rw.serviceradar,DNS:serviceradar-cnpg,DNS:localhost,IP:127.0.0.1"

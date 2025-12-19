@@ -72,7 +72,7 @@ Update your Nginx configuration to use SSL:
 1. Edit or create the ServiceRadar Nginx configuration file:
 
 ```bash
-sudo nano /etc/nginx/conf.d/serviceradar-web.conf
+sudo nano /etc/nginx/conf.d/serviceradar-web-ng.conf
 ```
 
 2. Replace the content with the following configuration:
@@ -94,27 +94,34 @@ server {
     ssl_prefer_server_ciphers on;
     
     # Static assets
-    location /_next/ {
-        proxy_pass http://127.0.0.1:3000;
+    location /assets/ {
+        proxy_pass http://127.0.0.1:4000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     
-    # API routes handled by Next.js
-    location ~ ^/api/(auth|pollers|status|config) {
-        proxy_pass http://127.0.0.1:3000;
+    # SRQL routes
+    location /api/query {
+        proxy_pass http://127.0.0.1:4000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
-    
-    # Backend API routes (protected by Kong)
+
+    location /api/stream {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # API routes
     location /api/ {
-        # Kong should be running locally (standalone or native)
-        proxy_pass http://127.0.0.1:9080;
+        proxy_pass http://127.0.0.1:4000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -123,7 +130,7 @@ server {
     
     # Auth API routes
     location /auth/ {
-        proxy_pass http://localhost:8090;
+        proxy_pass http://localhost:4000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -134,7 +141,7 @@ server {
     
     # Main app
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:4000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

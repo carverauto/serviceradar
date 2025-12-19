@@ -7,6 +7,8 @@ title: Installation Guide
 
 ServiceRadar components are distributed as Debian packages for Ubuntu/Debian systems and RPM packages for RHEL/Oracle Linux systems. Below are the recommended installation steps for different deployment scenarios.
 
+> Note: The legacy Next.js UI (`serviceradar-web`) is deprecated. The Phoenix `serviceradar-web-ng` package is now the supported web UI.
+
 ## Debian/Ubuntu Installation
 
 ### Standard Setup (Recommended)
@@ -33,8 +35,8 @@ To install the web UI (dashboard):
 
 ```bash
 # Download and install web UI
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-web_1.0.52.deb
-sudo dpkg -i serviceradar-web_1.0.52.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-web-ng_1.0.52.deb
+sudo dpkg -i serviceradar-web-ng_1.0.52.deb
 ```
 
 ### Optional Components
@@ -233,12 +235,8 @@ sudo dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.
 # Enable CodeReady Builder repository (Oracle Linux only)
 sudo dnf config-manager --set-enabled ol9_codeready_builder
 
-# Install Node.js 20
-sudo dnf module enable -y nodejs:20
-sudo dnf install -y nodejs
-
-# Install Nginx
-sudo dnf install -y nginx
+# Note: Node.js/Nginx are only required for the legacy Next.js UI.
+# The Phoenix web-ng UI does not require them.
 ```
 
 ### Standard Setup (Recommended)
@@ -249,7 +247,7 @@ Download the latest ServiceRadar RPM packages from the releases page:
 
 ```bash
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-core-1.0.52-1.el9.x86_64.rpm
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-web-1.0.52-1.el9.x86_64.rpm
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-web-ng-1.0.52-1.el9.x86_64.rpm
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-1.0.52-1.el9.x86_64.rpm
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-poller-1.0.52-1.el9.x86_64.rpm
 ```
@@ -267,7 +265,7 @@ sudo dnf install -y ./serviceradar-core-1.0.52-1.el9.x86_64.rpm
 The web UI provides a dashboard interface:
 
 ```bash
-sudo dnf install -y ./serviceradar-web-1.0.52-1.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-web-ng-1.0.52-1.el9.x86_64.rpm
 ```
 
 #### 4. Install Agent and Poller
@@ -408,9 +406,9 @@ Check that all services are running correctly:
 sudo systemctl status serviceradar-core
 
 # Check web UI service
-sudo systemctl status serviceradar-web
+sudo systemctl status serviceradar-web-ng
 
-# Check Nginx
+# Check reverse proxy (optional)
 sudo systemctl status nginx
 
 # Check agent (on monitored host)
@@ -445,30 +443,22 @@ If a service fails to start, check the logs:
 sudo journalctl -xeu serviceradar-core
 
 # Check web UI logs
-sudo journalctl -xeu serviceradar-web
+sudo journalctl -xeu serviceradar-web-ng
 
-# Check Nginx logs
+# Check reverse proxy logs (optional)
 sudo cat /var/log/nginx/error.log
-sudo cat /var/log/nginx/serviceradar-web.error.log
 
 # Check NATS Server logs (if installed)
 sudo cat /var/log/nats/nats.log
 ```
 
-### Node.js Issues (Web UI)
+### Web UI Issues (Web-NG)
 
-If the web UI service fails with Node.js errors:
+If the web UI service fails to start, confirm the release files and env configuration:
 
 ```bash
-# Check Node.js version
-node --version
-
-# For Debian/Ubuntu
-sudo apt install -y nodejs npm
-
-# For RHEL/Oracle Linux
-sudo dnf module enable -y nodejs:20
-sudo dnf install -y nodejs
+sudo systemctl status serviceradar-web-ng
+sudo journalctl -xeu serviceradar-web-ng
 ```
 
 ### SELinux Issues (RHEL/Oracle Linux)
@@ -527,14 +517,14 @@ If needed, you can uninstall ServiceRadar components:
 
 #### Debian/Ubuntu:
 ```bash
-sudo apt remove -y serviceradar-core serviceradar-web serviceradar-agent serviceradar-poller
+sudo apt remove -y serviceradar-core serviceradar-web-ng serviceradar-agent serviceradar-poller
 sudo apt remove -y serviceradar-nats serviceradar-datasvc
 sudo apt remove -y nats-server
 ```
 
 #### RHEL/Oracle Linux:
 ```bash
-sudo dnf remove -y serviceradar-core serviceradar-web serviceradar-agent serviceradar-poller
+sudo dnf remove -y serviceradar-core serviceradar-web-ng serviceradar-agent serviceradar-poller
 sudo dnf remove -y serviceradar-nats serviceradar-datasvc
 sudo dnf remove -y nats-server
 ```

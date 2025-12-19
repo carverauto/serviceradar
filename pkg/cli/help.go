@@ -10,7 +10,6 @@ Usage:
   serviceradar update-config [options]
   serviceradar update-poller [options]
   serviceradar generate-tls [options]
-  serviceradar render-kong [options]
   serviceradar generate-jwt-keys [options]
   serviceradar spire-join-token [options]
 
@@ -19,7 +18,6 @@ Commands:
   update-config    Update core.json with new admin password hash
   update-poller    Manage service checks in poller.json
   generate-tls     Generate mTLS certificates for ServiceRadar services
-  render-kong      Render Kong DB-less config from Core JWKS
   generate-jwt-keys Generate RS256 keypair and update core.json
   spire-join-token  Request a join token from Core and optionally register a downstream entry
   edge package create  Issue a new onboarding package and emit the structured token
@@ -85,16 +83,6 @@ Examples:
     -downstream-spiffe-id spiffe://carverauto.dev/ns/demo/poller-nested-spire \
     -selector unix:uid:0 -selector unix:gid:0 \
     -selector unix:user:root -selector unix:path:/opt/spire/bin/spire-server
-
-Options for render-kong:
-  -jwks string       JWKS URL (default http://core:8090/auth/jwks.json)
-  -service string    upstream service URL (default http://core:8090)
-  -path string       route path prefix (default /api)
-  -out string        output kong.yml path (default /etc/kong/kong.yml)
-  -key-claim string  JWT key claim (default kid)
-
-Example:
-  serviceradar render-kong -jwks http://core:8090/auth/jwks.json -service http://core:8090 -path /api -out /etc/kong/kong.yml
 
 Options for generate-jwt-keys:
   -file string       path to core.json (default /etc/serviceradar/config/core.json)

@@ -6,9 +6,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=-/etc/serviceradar/web-ng.env
-WorkingDirectory=/usr/local/share/serviceradar-web
-ExecStart=/usr/local/share/serviceradar-web/bin/serviceradar_web_ng start
-ExecStop=/usr/local/share/serviceradar-web/bin/serviceradar_web_ng stop
+WorkingDirectory=/usr/local/share/serviceradar-web-ng
+ExecStart=/usr/local/share/serviceradar-web-ng/bin/serviceradar_web_ng start
+ExecStop=/usr/local/share/serviceradar-web-ng/bin/serviceradar_web_ng stop
 Restart=on-failure
 User=root
 Group=root

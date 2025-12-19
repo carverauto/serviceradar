@@ -5,11 +5,11 @@ title: Authentication Configuration
 
 # Authentication Configuration
 
-ServiceRadar supports user authentication to secure access to the monitoring dashboard and API. This guide explains how to configure authentication options, including the local user authentication system.
+ServiceRadar supports user authentication to secure access to the monitoring dashboard and API. Web-NG owns the user-facing auth flows; core.json auth settings are legacy/internal and should not be exposed through the edge proxy.
 
-## RS256 + JWKS (for API Gateways)
+## RS256 + JWKS (for edge proxies or external clients)
 
-For deployments behind an API Gateway (e.g., Kong), you can switch JWT signing to RS256 and expose a JWKS endpoint so the gateway validates tokens without sharing secrets.
+For deployments that need external JWT validation (edge proxies, API clients, or tooling), you can switch JWT signing to RS256 and expose a JWKS endpoint so validators do not need the private key.
 
 Add these fields under `auth` in `core.json`:
 

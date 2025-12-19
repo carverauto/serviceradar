@@ -1,49 +1,82 @@
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $pg := default (dict) .Values.spire.postgres -}}
+{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
+{{- $webNg := default (dict) .Values.webNg -}}
+{{- $webHost := default .Values.ingress.host $webNg.host -}}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: serviceradar-web
+  name: serviceradar-web-ng
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: serviceradar-web
+      app: serviceradar-web-ng
   template:
     metadata:
       labels:
-        app: serviceradar-web
+        app: serviceradar-web-ng
+      annotations:
+        checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
-      - name: web
-        image: ghcr.io/carverauto/serviceradar-web:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "web") }}
+      - name: web-ng
+        image: ghcr.io/carverauto/serviceradar-web-ng:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "webNg") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         ports:
-        - containerPort: 3000
+        - containerPort: 4000
           name: http
         env:
-        - name: NODE_ENV
-          value: "production"
-        - name: NEXT_PUBLIC_API_URL
-          value: "http://localhost/api"
-        - name: NEXT_INTERNAL_API_URL
-          value: "http://serviceradar-core:8090"
-        - name: NEXT_INTERNAL_SRQL_URL
-          value: "http://serviceradar-kong:8000"
-        - name: AUTH_ENABLED
+        - name: PORT
+          value: "4000"
+        - name: PHX_SERVER
           value: "true"
-        - name: API_KEY
+        - name: PHX_HOST
+          value: {{ default "serviceradar-web-ng" $webHost | quote }}
+        - name: PHX_CHECK_ORIGIN
+          value: {{ default "false" $webNg.checkOrigin | quote }}
+        - name: SERVICERADAR_DEV_ROUTES
+          value: {{ default "false" $webNg.devRoutes | quote }}
+        - name: SERVICERADAR_LOCAL_MAILER
+          value: {{ default "false" $webNg.localMailer | quote }}
+        - name: SECRET_KEY_BASE
           valueFrom:
             secretKeyRef:
               name: serviceradar-secrets
-              key: api-key
-        - name: JWT_SECRET
+              key: web-ng-secret-key-base
+        - name: CNPG_HOST
+          value: {{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) $cnpg.host | quote }}
+        - name: CNPG_PORT
+          value: {{ default 5432 $cnpg.port | quote }}
+        - name: CNPG_DATABASE
+          value: {{ default "serviceradar" $cnpg.database | quote }}
+        - name: CNPG_USERNAME
           valueFrom:
             secretKeyRef:
-              name: serviceradar-secrets
-              key: jwt-secret
-        envFrom:
-        - secretRef:
-            name: serviceradar-secrets
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: username
+        - name: CNPG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: password
+        - name: CNPG_SSL_MODE
+          value: {{ default "verify-full" $cnpg.sslmode | quote }}
+        - name: CNPG_CA_FILE
+          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+        - name: CNPG_CERT_FILE
+          value: "/etc/serviceradar/certs/web.pem"
+        - name: CNPG_KEY_FILE
+          value: "/etc/serviceradar/certs/web-key.pem"
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: {{ $cnpgClusterName }}-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
         resources:
           limits:
             cpu: "1"
@@ -54,7 +87,7 @@ spec:
         livenessProbe:
           httpGet:
             path: /
-            port: 3000
+            port: 4000
           initialDelaySeconds: 30
           periodSeconds: 30
           timeoutSeconds: 10
@@ -62,20 +95,27 @@ spec:
         readinessProbe:
           httpGet:
             path: /
-            port: 3000
+            port: 4000
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
+      volumes:
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: {{ $cnpgClusterName }}-ca
+        secret:
+          secretName: {{ $cnpgClusterName }}-ca
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: serviceradar-web
+  name: serviceradar-web-ng
 spec:
   selector:
-    app: serviceradar-web
+    app: serviceradar-web-ng
   ports:
   - name: http
-    port: 3000
+    port: 4000
     targetPort: http

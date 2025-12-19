@@ -48,8 +48,23 @@ build --@io_bazel_rules_go//go/config:pure
 
 # Standard test ergonomics: show failing logs and retry known flaky tests once.
 test --test_output=errors
+test --test_strategy=standalone
+test --remote_executor=
 test --action_env=SRQL_TEST_DATABASE_URL
 test --action_env=SRQL_TEST_ADMIN_URL
+test --test_env=PATH
+test --test_env=CNPG_HOST
+test --test_env=CNPG_PORT
+test --test_env=CNPG_DATABASE
+test --test_env=CNPG_USERNAME
+test --test_env=CNPG_PASSWORD
+test --test_env=CNPG_SSL_MODE
+test --test_env=CNPG_CERT_DIR
+test --test_env=TEST_CNPG_HOST
+test --test_env=TEST_CNPG_PORT
+test --test_env=TEST_CNPG_DATABASE
+test --test_env=TEST_CNPG_USERNAME
+test --test_env=TEST_CNPG_PASSWORD
 test --action_env=NATS_URL
 test --action_env=NATS_SERVER_NAME
 test --action_env=NATS_CA_FILE

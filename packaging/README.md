@@ -29,7 +29,7 @@ Each entry in `components.json` is a JSON object representing a component. The a
 | binary | Object | No | Configuration for building the component's binary (see below). Required if the component has a binary. |
 | build_method | String | No | Build method for non-binary components (e.g., `npm` for `web`, `external` for `nats`). Options: `go`, `rust`, `npm`, `docker`, `external`. |
 | build_dir | String | No | Directory for building non-binary components (e.g., `web` for Next.js). Used with `npm` build method. |
-| output_dir | String | No | Destination directory for non-binary build outputs (e.g., `/usr/local/share/serviceradar-web`). Used with `npm` build method. |
+| output_dir | String | No | Destination directory for non-binary build outputs (e.g., `/usr/local/share/serviceradar-web-ng`). Used with `npm` build method. |
 | custom_steps | Array | No | Custom commands to run before building (e.g., protobuf compilation for `rperf-client`). |
 | config_files | Array | No | List of configuration files to include in the package (see below). |
 | systemd_service | Object | No | Systemd service file configuration (see below). |

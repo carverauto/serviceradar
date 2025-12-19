@@ -10,8 +10,8 @@ the Docker Compose stack up on a freshly rebooted dev host.
   under heavy IO load.
 - While CNPG is still initializing, `serviceradar-core` continuously restarts
   because the migrations cannot connect to Postgres on `:5432`.
-- The web UI and Kong are up, but every `/auth/login` (and the JWKS fetch) hits
-  core while it is still restarting, resulting in HTTP 500 responses.
+- The web UI and edge proxy are up, but every `/auth/login` (and the JWKS fetch)
+  hits core while it is still restarting, resulting in HTTP 500 responses.
 
 ## How to Recognize It
 - `docker compose ps` shows `serviceradar-cnpg` as `unhealthy` and
@@ -43,21 +43,21 @@ the Docker Compose stack up on a freshly rebooted dev host.
    but you can confirm with:
    ```
    docker compose logs core --tail 20
-   docker compose logs web  --tail 20
+   docker compose logs web-ng  --tail 20
    ```
 4. If the data directory was removed, run `make cnpg-migrate` (with
    `CNPG_HOST=localhost CNPG_PORT=55432` if you port-forwarded) so the Timescale
    schema is reseeded immediately.
 
 ### UI Port Reminder
-By default the compose nginx binds to host port `80`. If the port is already
-occupied on your host, either stop the conflicting service or set
-`SERVICERADAR_HTTP_PORT=<alternate>` before running `docker compose up`. The
-common culprit is the distro’s own nginx service; disable it once and the stack
-will reuse port 80 every boot:
+By default the compose Caddy proxy binds to host ports `80` and `443`. If the
+ports are already occupied on your host, either stop the conflicting service
+or set `SERVICERADAR_HTTP_PORT=<alternate>` before running `docker compose up`.
+The common culprit is the distro’s own nginx service; disable it once and the
+stack will reuse port 80 every boot:
 ```
 sudo systemctl disable --now nginx
-docker compose up -d nginx
+docker compose up -d caddy
 ```
 
 ## Longer-Term Fix Ideas

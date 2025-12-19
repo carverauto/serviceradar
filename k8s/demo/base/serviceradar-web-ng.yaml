@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-web-ng
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-web-ng
+      app.kubernetes.io/part-of: serviceradar
+  template:
+    metadata:
+      labels:
+        app: serviceradar-web-ng
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      imagePullSecrets:
+        - name: ghcr-io-cred
+      containers:
+        - name: web-ng
+          image: ghcr.io/carverauto/serviceradar-web-ng:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4000
+              name: http
+          env:
+            - name: PORT
+              value: "4000"
+            - name: PHX_SERVER
+              value: "true"
+            - name: PHX_HOST
+              value: "serviceradar-web-ng"
+            - name: PHX_CHECK_ORIGIN
+              value: "false"
+            - name: SERVICERADAR_DEV_ROUTES
+              value: "true"
+            - name: SERVICERADAR_LOCAL_MAILER
+              value: "true"
+            - name: SECRET_KEY_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: serviceradar-secrets
+                  key: web-ng-secret-key-base
+            - name: CNPG_HOST
+              value: "cnpg-rw.$(SERVICERADAR_NAMESPACE).svc"
+            - name: CNPG_PORT
+              value: "5432"
+            - name: CNPG_DATABASE
+              value: "telemetry"
+            - name: CNPG_USERNAME
+              value: "postgres"
+            - name: CNPG_SSL_MODE
+              value: "verify-full"
+            - name: CNPG_CERT_DIR
+              value: "/etc/serviceradar/cnpg"
+            - name: CNPG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cnpg-superuser
+                  key: password
+          volumeMounts:
+            - name: cnpg-ca
+              mountPath: /etc/serviceradar/cnpg
+              readOnly: true
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 4000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: cnpg-ca
+          secret:
+            secretName: cnpg-ca
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-web-ng
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  selector:
+    app: serviceradar-web-ng
+    app.kubernetes.io/part-of: serviceradar
+  ports:
+    - name: http
+      port: 4000
+      targetPort: http

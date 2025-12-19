@@ -20,6 +20,7 @@ exports_files([
     "VERSION",
     "Cargo.toml",
     "Cargo.lock",
+    ".tool-versions",
 ])
 
 # Custom RBE platform using Oracle Linux 9 based executor image

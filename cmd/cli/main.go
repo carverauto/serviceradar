@@ -59,8 +59,6 @@ func dispatchCommand(cfg *cli.CmdConfig) error {
 		return cli.RunUpdatePoller(cfg)
 	case "generate-tls":
 		return cli.RunGenerateTLS(cfg)
-	case "render-kong":
-		return cli.RunRenderKongCmd(cfg)
 	case "generate-jwt-keys":
 		return cli.RunGenerateJWTKeysCmd(cfg)
 	case "spire-join-token":

@@ -131,11 +131,10 @@ ServiceRadar provides a complete Docker Compose stack with mTLS security, automa
 
 - **Database** - PostgreSQL with TimescaleDB (metrics) and Apache AGE (graph topology)
 - **Core API** - Main ServiceRadar API and business logic
-- **Web UI** - Modern React-based dashboard with Nginx reverse proxy
+- **Web UI** - Phoenix LiveView dashboard served through the Caddy edge proxy
 - **Agent & Poller** - Distributed monitoring services
 - **Observability** - OTEL collector, syslog (flowgger), SNMP traps
 - **Network Discovery** - SNMP/LLDP network mapping
-- **Kong Gateway** - API gateway with JWT authentication
 
 ### Common Commands
 

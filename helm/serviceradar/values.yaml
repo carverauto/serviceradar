@@ -16,7 +16,7 @@ image:
     # For production, set global.imageTag to a specific version (e.g., "v1.0.71").
     appTag: &appTag "latest"
     core: *appTag
-    web: *appTag
+    webNg: *appTag
     nats: "2.12.2-alpine"
     datasvc: *appTag
     agent: *appTag
@@ -33,10 +33,6 @@ image:
     faker: *appTag
     rperfChecker: *appTag
     tools: *appTag
-    kong: "3.7"
-    kongConfig: *appTag
-kong:
-  enabled: true
 kv:
   enabled: true
   configSource: kv
@@ -118,6 +114,11 @@ cnpg:
   sslmode: verify-full
   certDir: /etc/serviceradar/certs
   caFile: /etc/serviceradar/cnpg/ca.crt
+webNg:
+  host: ""
+  checkOrigin: "false"
+  devRoutes: "false"
+  localMailer: "false"
 agent:
   resources:
     limits:

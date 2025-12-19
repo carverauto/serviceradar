@@ -255,7 +255,7 @@ Restart the checker using the persisted config:
 
 - Each package can only be downloaded once (status changes to "delivered").
 - Create a new package for each test run.
-- The Core API is on port 8090 (direct), Kong gateway on port 8000 (requires auth headers).
+- The Core API is on port 8090 (direct); browser access goes through the edge proxy on 80/443.
 - Edge packages expire based on `download_token_ttl_seconds` (default: 10 minutes).
 
 ## Release Playbook
@@ -274,7 +274,7 @@ Restart the checker using the persisted config:
    - Capture the new image identifiers you care about (for example `git rev-parse HEAD` for the commit tag or the full digest printed during the push). You'll use these when refreshing Kubernetes.
 4. Roll the demo namespace:
    - Restart workloads with `kubectl get deploy -n demo -o name | xargs -r -L1 kubectl rollout restart -n demo`.
-   - Update any digest-pinned workloads (currently the `serviceradar-web` Deployment) so they point at the freshly pushed build, e.g. `kubectl set image deployment/serviceradar-web web=ghcr.io/carverauto/serviceradar-web:sha-$(git rev-parse HEAD) -n demo`.
+   - Update any digest-pinned workloads (currently the `serviceradar-web-ng` Deployment) so they point at the freshly pushed build, e.g. `kubectl set image deployment/serviceradar-web-ng web-ng=ghcr.io/carverauto/serviceradar-web-ng:sha-$(git rev-parse HEAD) -n demo`.
    - Watch for readiness: `kubectl get pods -n demo` until all pods are `1/1` and `Running`.
 5. Close out: verify the demo web UI reports the new version, file follow-up docs, and proceed with GitHub release packaging if required.
 

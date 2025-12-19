@@ -17,6 +17,7 @@ jobs:
       SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      TEST_CNPG_DATABASE: serviceradar_web_ng_test
 
     steps:
       - name: Checkout
@@ -66,8 +67,74 @@ jobs:
           ensure_pkg_config
           protoc --version || (echo "protoc installation failed" && exit 1)
 
+      - name: Setup Beam
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28.3"
+          elixir-version: "1.19.4"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
       - name: Setup Bazel
         uses: bazelbuild/setup-bazelisk@v3
+
+      - name: Configure SRQL fixture database for tests
+        env:
+          SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SRQL_TEST_DATABASE_URL:-}" ] || [ -z "${SRQL_TEST_ADMIN_URL:-}" ]; then
+            echo "SRQL fixture DSNs must be configured via SRQL_TEST_DATABASE_URL and SRQL_TEST_ADMIN_URL secrets." >&2
+            exit 1
+          fi
+
+          parser="$(command -v python3 || command -v python || true)"
+          if [ -z "${parser}" ]; then
+            echo "python is required to parse SRQL fixture DSNs." >&2
+            exit 1
+          fi
+
+          "${parser}" - <<'PY' >> "$GITHUB_ENV"
+          import os
+          from urllib.parse import urlparse, parse_qs
+
+          def parse(url):
+              u = urlparse(url)
+              qs = parse_qs(u.query)
+              return {
+                  "user": u.username or "",
+                  "password": u.password or "",
+                  "host": u.hostname or "",
+                  "port": str(u.port or 5432),
+                  "sslmode": (qs.get("sslmode") or [""])[0],
+              }
+
+          db = parse(os.environ["SRQL_TEST_DATABASE_URL"])
+          admin = parse(os.environ["SRQL_TEST_ADMIN_URL"])
+          host = admin["host"] or db["host"]
+          port = admin["port"] or db["port"]
+          user = admin["user"]
+          password = admin["password"]
+
+          if not host or not user:
+              raise SystemExit("SRQL_TEST_ADMIN_URL must include host and username")
+
+          print(f"TEST_CNPG_HOST={host}")
+          print(f"TEST_CNPG_PORT={port}")
+          print(f"TEST_CNPG_USERNAME={user}")
+          print(f"TEST_CNPG_PASSWORD={password}")
+          print(f"CNPG_HOST={host}")
+          print(f"CNPG_PORT={port}")
+
+          sslmode = db["sslmode"] or "require"
+          print(f"CNPG_SSL_MODE={sslmode}")
+          print(f"CNPG_TLS_SERVER_NAME={host}")
+          PY
 
       - name: Configure remote cache
         if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}

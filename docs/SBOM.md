@@ -108,7 +108,7 @@ The following container images have dedicated SBOMs:
 - `serviceradar-flowgger`
 - `serviceradar-trapd`
 - `serviceradar-otel`
-- `serviceradar-web`
+- `serviceradar-web-ng`
 - `serviceradar-srql`
 - `serviceradar-db-event-writer`
 

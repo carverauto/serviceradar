@@ -973,7 +973,7 @@ main() {
     prompt_nats_mode
 
     # Install main components
-    core_packages=("serviceradar-core" "serviceradar-web" "serviceradar-nats" "serviceradar-datasvc" "serviceradar-sync")
+    core_packages=("serviceradar-core" "serviceradar-web-ng" "serviceradar-nats" "serviceradar-datasvc" "serviceradar-sync")
     poller_packages=("serviceradar-poller")
     agent_packages=("serviceradar-agent")
     packages_to_install=()

@@ -142,10 +142,7 @@ async fn comprehensive_queries_match_fixtures() {
             expected_count: 2,
             validator: Some(Box::new(|body| {
                 let results = body["results"].as_array().unwrap();
-                let ids: Vec<&str> = results
-                    .iter()
-                    .map(|r| r["uid"].as_str().unwrap())
-                    .collect();
+                let ids: Vec<&str> = results.iter().map(|r| r["uid"].as_str().unwrap()).collect();
                 assert!(ids.contains(&"device-alpha"));
                 assert!(ids.contains(&"device-beta"));
             })),
@@ -156,10 +153,7 @@ async fn comprehensive_queries_match_fixtures() {
             expected_count: 2,
             validator: Some(Box::new(|body| {
                 let results = body["results"].as_array().unwrap();
-                let ids: Vec<&str> = results
-                    .iter()
-                    .map(|r| r["uid"].as_str().unwrap())
-                    .collect();
+                let ids: Vec<&str> = results.iter().map(|r| r["uid"].as_str().unwrap()).collect();
                 assert!(ids.contains(&"device-alpha"));
                 assert!(ids.contains(&"device-delta"));
             })),

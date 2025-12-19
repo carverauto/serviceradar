@@ -48,7 +48,7 @@ fi
 # Check deployments
 echo ""
 echo "🚀 Checking deployment status:"
-DEPLOYMENTS=("serviceradar-core" "serviceradar-web" "serviceradar-nats" "serviceradar-datasvc" "serviceradar-agent" "serviceradar-poller" "serviceradar-snmp-checker")
+DEPLOYMENTS=("serviceradar-core" "serviceradar-web-ng" "serviceradar-nats" "serviceradar-datasvc" "serviceradar-agent" "serviceradar-poller" "serviceradar-snmp-checker")
 ALL_READY=true
 
 for deployment in "${DEPLOYMENTS[@]}"; do
@@ -92,7 +92,7 @@ fi
 # Check services
 echo ""
 echo "🌐 Checking services:"
-SERVICES=("serviceradar-core" "serviceradar-web" "serviceradar-nats" "serviceradar-datasvc")
+SERVICES=("serviceradar-core" "serviceradar-web-ng" "serviceradar-nats" "serviceradar-datasvc")
 for service in "${SERVICES[@]}"; do
     echo -n "   $service... "
     if kubectl get service $service -n $NAMESPACE >/dev/null 2>&1; then
@@ -121,14 +121,14 @@ echo "🔌 Testing API connectivity:"
 
 # Try port-forward test
 echo -n "   Port-forward test... "
-kubectl port-forward -n $NAMESPACE svc/serviceradar-web 3001:3000 >/dev/null 2>&1 &
+kubectl port-forward -n $NAMESPACE svc/serviceradar-web-ng 4001:4000 >/dev/null 2>&1 &
 PORT_FORWARD_PID=$!
 sleep 3
 
-if curl -s http://localhost:3001/api/auth/status >/dev/null 2>&1; then
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4001/users/log-in || true)
+if [ "$HTTP_CODE" = "200" ]; then
     echo -e "${GREEN}✓${NC}"
-    API_RESPONSE=$(curl -s http://localhost:3001/api/auth/status)
-    echo "   Response: $API_RESPONSE"
+    echo "   Response: HTTP $HTTP_CODE from /users/log-in"
 else
     echo -e "${RED}✗${NC}"
     echo "   Failed to connect to API via port-forward"
@@ -184,14 +184,14 @@ if [ -n "$INGRESS_HOST" ]; then
     echo "   Web UI: https://$INGRESS_HOST"
     echo "   API: https://$INGRESS_HOST/api"
 fi
-echo "   Port-forward: kubectl port-forward -n $NAMESPACE svc/serviceradar-web 3000:3000"
-echo "   Local access: http://localhost:3000"
+echo "   Port-forward: kubectl port-forward -n $NAMESPACE svc/serviceradar-web-ng 4000:4000"
+echo "   Local access: http://localhost:4000"
 
 echo ""
 echo "🔧 Troubleshooting commands:"
 echo "   kubectl get all -n $NAMESPACE"
 echo "   kubectl logs -n $NAMESPACE deployment/serviceradar-core"
-echo "   kubectl logs -n $NAMESPACE deployment/serviceradar-web"
+echo "   kubectl logs -n $NAMESPACE deployment/serviceradar-web-ng"
 echo "   kubectl describe ingress -n $NAMESPACE"
 
 echo ""

@@ -843,7 +843,6 @@ func ParseFlags() (*CmdConfig, error) {
 		"update-config":         UpdateConfigHandler{},
 		"update-poller":         UpdatePollerHandler{},
 		"generate-tls":          GenerateTLSHandler{},
-		"render-kong":           RenderKongHandler{},
 		"generate-jwt-keys":     GenerateJWTKeysHandler{},
 		"spire-join-token":      SpireJoinTokenHandler{},
 		"edge-package-download": EdgePackageDownloadHandler{},
@@ -1005,11 +1004,6 @@ func RunUpdateConfig(configFile, adminHash, dbPasswordFile string) error {
 // RunGenerateTLS handles the generate-tls subcommand.
 func RunGenerateTLS(cfg *CmdConfig) error {
 	return GenerateTLSCerts(cfg)
-}
-
-// RunRenderKong handles the render-kong subcommand.
-func RunRenderKongCmd(cfg *CmdConfig) error { // distinct name to avoid collision
-	return RunRenderKong(cfg)
 }
 
 // RunGenerateJWTKeys handles the generate-jwt-keys subcommand.

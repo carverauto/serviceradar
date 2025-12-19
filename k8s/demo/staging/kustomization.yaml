@@ -45,7 +45,7 @@ replacements:
 images:
 - name: ghcr.io/carverauto/serviceradar-core
   newTag: sha-88d3a8af915b167407b36d991f757864c09dfeb5a4180de539f99498f650ebcf
-- name: ghcr.io/carverauto/serviceradar-web
+- name: ghcr.io/carverauto/serviceradar-web-ng
   newTag: sha-ea0415aa1069be6420d2d4a80a21b2a8c835f4ca8daed27000cea23e710a70a6
 - name: ghcr.io/carverauto/serviceradar-agent
   newTag: sha-9c92617fce5fa5570786c3f3f43b298726b7ee0ceb02c857f3940623bdc60954

@@ -142,3 +142,7 @@
   - tests/e2e/inventory/inventory_test.go uses CountOCSFDevices
   - Added validateOCSFDeviceStructure() for OCSF field validation
   - Verifies UID, temporal fields, type_id, vendor_name are populated
+
+## 9. Cleanup
+
+- [x] 9.1 Remove device_id UI remnants in SRQL output and device detail views
