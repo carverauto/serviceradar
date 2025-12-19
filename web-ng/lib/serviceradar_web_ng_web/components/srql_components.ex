@@ -212,7 +212,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     max_v =
       items
       |> Enum.map(fn {_k, v} -> v end)
-      |> Enum.max(fn -> 1 end)
+      |> Enum.max(fn -> 1.0 end)
+      |> ensure_positive_max()
 
     assigns =
       assigns
@@ -235,7 +236,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
               <div class="h-2 rounded-full bg-base-200 overflow-hidden">
                 <div
                   class="h-2 bg-primary/70"
-                  style={"width: #{round((v / @max_v) * 100)}%"}
+                  style={"width: #{max(round((v / @max_v) * 100), 0)}%"}
                 />
               </div>
             </div>
@@ -248,6 +249,9 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   end
 
   defp categories_viz(assigns), do: assigns |> assign(:viz, :none) |> categories_viz()
+
+  defp ensure_positive_max(value) when is_number(value) and value > 0, do: value
+  defp ensure_positive_max(_value), do: 1.0
 
   defp sparkline(points) when is_list(points) do
     values = Enum.map(points, fn {_dt, v} -> v end)
