@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
     time = Keyword.get(opts, :time, @default_time_window)
     service_name = Keyword.get(opts, :service_name)
 
-    base = "in:otel_trace_summaries time:#{time} rollup_stats:summary"
+    base = "in:otel_traces time:#{time} rollup_stats:summary"
 
     if is_binary(service_name) and service_name != "" do
       "#{base} service_name:\"#{escape_value(service_name)}\""
