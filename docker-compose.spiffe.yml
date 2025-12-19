@@ -212,6 +212,8 @@ services:
     environment:
       - PORT=4000
       - PHX_SERVER=true
+      - PHX_HOST=${PHX_HOST:-localhost}
+      - PHX_CHECK_ORIGIN=${PHX_CHECK_ORIGIN:-false}
       - SECRET_KEY_BASE=${WEB_NG_SECRET_KEY_BASE:-H8DPohD5rFUqGboVqCKLYXrlyofYUJk6k+XBzKEb5G8LN9brhYpNloE3UgxBQmPW}
       - CNPG_HOST=${CNPG_HOST:-cnpg-rw}
       - CNPG_PORT=${CNPG_PORT:-5432}

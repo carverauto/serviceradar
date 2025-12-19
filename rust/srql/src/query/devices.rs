@@ -207,8 +207,7 @@ fn build_stats_query(
 
 fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<DeviceQuery<'a>> {
     match filter.field.as_str() {
-        // Support both OCSF "uid" and legacy "device_id" for backward compatibility
-        "uid" | "device_id" => {
+        "uid" => {
             query = apply_text_filter!(query, filter, col_uid)?;
         }
         "hostname" => {
@@ -403,7 +402,7 @@ fn collect_text_params(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "uid" | "device_id" => collect_text_params(params, filter, true),
+        "uid" => collect_text_params(params, filter, true),
         "hostname" | "ip" | "mac" => collect_text_params(params, filter, false),
         "poller_id" | "agent_id" | "type" | "device_type" | "vendor_name" | "model"
         | "risk_level" => {
@@ -463,8 +462,7 @@ fn apply_ordering<'a>(mut query: DeviceQuery<'a>, order: &[OrderClause]) -> Devi
         query = if !applied {
             applied = true;
             match clause.field.as_str() {
-                // Support both OCSF "uid" and legacy "device_id"
-                "uid" | "device_id" => match clause.direction {
+                "uid" => match clause.direction {
                     OrderDirection::Asc => query.order(col_uid.asc()),
                     OrderDirection::Desc => query.order(col_uid.desc()),
                 },
@@ -485,7 +483,7 @@ fn apply_ordering<'a>(mut query: DeviceQuery<'a>, order: &[OrderClause]) -> Devi
             }
         } else {
             match clause.field.as_str() {
-                "uid" | "device_id" => match clause.direction {
+                "uid" => match clause.direction {
                     OrderDirection::Asc => query.then_order_by(col_uid.asc()),
                     OrderDirection::Desc => query.then_order_by(col_uid.desc()),
                 },

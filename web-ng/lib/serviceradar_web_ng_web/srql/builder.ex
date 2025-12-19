@@ -230,7 +230,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
         if id == "pollers" do
           ["last_seen", "poller_id", "status", "agent_count", "checker_count"]
         else
-          ["last_seen", "hostname", "ip", "device_id"]
+          ["last_seen", "hostname", "ip", "uid"]
         end
 
       _ ->
@@ -298,25 +298,29 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp maybe_add_filters(tokens, filters) when is_list(filters) do
     Enum.reduce(filters, tokens, fn %{"field" => field, "op" => op, "value" => value}, acc ->
-      field = field |> safe_to_string() |> String.trim()
-      value = value |> safe_to_string() |> String.trim()
-
-      if value == "" or field == "" do
-        acc
-      else
-        escaped = String.replace(value, " ", "\\ ")
-
-        token =
-          case op do
-            "equals" -> "#{field}:#{escaped}"
-            "not_equals" -> "!#{field}:#{escaped}"
-            "not_contains" -> "!#{field}:%#{escaped}%"
-            _ -> "#{field}:%#{escaped}%"
-          end
-
-        acc ++ [token]
+      case build_filter_token(field, op, value) do
+        nil -> acc
+        token -> acc ++ [token]
       end
     end)
+  end
+
+  defp build_filter_token(field, op, value) do
+    field = field |> safe_to_string() |> String.trim()
+    value = value |> safe_to_string() |> String.trim()
+
+    if value == "" or field == "" do
+      nil
+    else
+      escaped = String.replace(value, " ", "\\ ")
+
+      case op do
+        "equals" -> "#{field}:#{escaped}"
+        "not_equals" -> "!#{field}:#{escaped}"
+        "not_contains" -> "!#{field}:%#{escaped}%"
+        _ -> "#{field}:%#{escaped}%"
+      end
+    end
   end
 
   defp stringify_map(%{} = map) do
@@ -340,60 +344,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     }
 
     Enum.reduce_while(tokens, {:ok, parts}, fn token, {:ok, acc} ->
-      cond do
-        String.starts_with?(token, "in:") ->
-          entity = String.replace_prefix(token, "in:", "")
-          {:cont, {:ok, %{acc | entity: entity}}}
-
-        String.starts_with?(token, "time:") ->
-          time = String.replace_prefix(token, "time:", "")
-          {:cont, {:ok, %{acc | time: time}}}
-
-        String.starts_with?(token, "bucket:") ->
-          bucket = String.replace_prefix(token, "bucket:", "")
-          {:cont, {:ok, %{acc | bucket: bucket}}}
-
-        String.starts_with?(token, "agg:") ->
-          agg = String.replace_prefix(token, "agg:", "")
-          {:cont, {:ok, %{acc | agg: agg}}}
-
-        String.starts_with?(token, "series:") ->
-          series = String.replace_prefix(token, "series:", "")
-          {:cont, {:ok, %{acc | series: series}}}
-
-        String.starts_with?(token, "sort:") ->
-          sort = String.replace_prefix(token, "sort:", "")
-
-          case String.split(sort, ":", parts: 2) do
-            [field, dir] ->
-              {:cont, {:ok, %{acc | sort_field: field, sort_dir: dir}}}
-
-            _ ->
-              {:halt, {:error, :invalid_sort}}
-          end
-
-        String.starts_with?(token, "limit:") ->
-          limit = String.replace_prefix(token, "limit:", "")
-          {:cont, {:ok, %{acc | limit: normalize_limit(limit)}}}
-
-        true ->
-          case String.split(token, ":", parts: 2) do
-            [field, value] ->
-              {field, negated} = parse_filter_field(field)
-              value = String.trim(value)
-              {op, final_value} = parse_filter_value(negated, value)
-
-              filter = %{
-                "field" => String.downcase(field),
-                "op" => op,
-                "value" => final_value
-              }
-
-              {:cont, {:ok, %{acc | filters: acc.filters ++ [filter]}}}
-
-            _ ->
-              {:halt, {:error, :invalid_token}}
-          end
+      case parse_token(token, acc) do
+        {:ok, updated} -> {:cont, {:ok, updated}}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
@@ -405,6 +358,76 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
       other ->
         other
+    end
+  end
+
+  defp parse_token(token, acc) do
+    case parse_known_token(token, acc) do
+      {:ok, updated} -> {:ok, updated}
+      :unknown -> parse_filter_token(token, acc)
+    end
+  end
+
+  defp parse_known_token(token, acc) do
+    cond do
+      String.starts_with?(token, "in:") ->
+        entity = String.replace_prefix(token, "in:", "")
+        {:ok, %{acc | entity: entity}}
+
+      String.starts_with?(token, "time:") ->
+        time = String.replace_prefix(token, "time:", "")
+        {:ok, %{acc | time: time}}
+
+      String.starts_with?(token, "bucket:") ->
+        bucket = String.replace_prefix(token, "bucket:", "")
+        {:ok, %{acc | bucket: bucket}}
+
+      String.starts_with?(token, "agg:") ->
+        agg = String.replace_prefix(token, "agg:", "")
+        {:ok, %{acc | agg: agg}}
+
+      String.starts_with?(token, "series:") ->
+        series = String.replace_prefix(token, "series:", "")
+        {:ok, %{acc | series: series}}
+
+      String.starts_with?(token, "sort:") ->
+        parse_sort_token(token, acc)
+
+      String.starts_with?(token, "limit:") ->
+        limit = String.replace_prefix(token, "limit:", "")
+        {:ok, %{acc | limit: normalize_limit(limit)}}
+
+      true ->
+        :unknown
+    end
+  end
+
+  defp parse_sort_token(token, acc) do
+    sort = String.replace_prefix(token, "sort:", "")
+
+    case String.split(sort, ":", parts: 2) do
+      [field, dir] -> {:ok, %{acc | sort_field: field, sort_dir: dir}}
+      _ -> {:error, :invalid_sort}
+    end
+  end
+
+  defp parse_filter_token(token, acc) do
+    case String.split(token, ":", parts: 2) do
+      [field, value] ->
+        {field, negated} = parse_filter_field(field)
+        value = String.trim(value)
+        {op, final_value} = parse_filter_value(negated, value)
+
+        filter = %{
+          "field" => String.downcase(field),
+          "op" => op,
+          "value" => final_value
+        }
+
+        {:ok, %{acc | filters: acc.filters ++ [filter]}}
+
+      _ ->
+        {:error, :invalid_token}
     end
   end
 
@@ -456,46 +479,58 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     config = Catalog.entity(entity)
 
     if Map.get(config, :downsample, false) do
-      bucket = safe_to_string(bucket) |> String.trim()
-      agg = safe_to_string(agg) |> String.trim() |> String.downcase()
-      series = safe_to_string(series) |> String.trim()
-
-      cond do
-        bucket == "" ->
-          :ok
-
-        not Regex.match?(~r/^\d+(?:s|m|h|d)$/, bucket) ->
-          {:error, {:invalid_bucket, bucket}}
-
-        agg != "" and agg not in @allowed_downsample_aggs ->
-          {:error, {:invalid_agg, agg}}
-
-        true ->
-          allowed = Map.get(config, :series_fields) || Map.get(config, "series_fields")
-
-          if series != "" and is_list(allowed) and series not in allowed do
-            {:error, {:unsupported_series_field, series}}
-          else
-            :ok
-          end
-      end
+      validate_downsample_fields(config, bucket, agg, series)
     else
-      if safe_to_string(bucket) |> String.trim() != "" do
-        {:error, :downsample_not_supported}
-      else
-        :ok
-      end
+      validate_downsample_unsupported(bucket)
     end
+  end
+
+  defp validate_downsample_fields(config, bucket, agg, series) do
+    bucket = safe_to_string(bucket) |> String.trim()
+    agg = safe_to_string(agg) |> String.trim() |> String.downcase()
+    series = safe_to_string(series) |> String.trim()
+
+    cond do
+      bucket == "" ->
+        :ok
+
+      not valid_bucket?(bucket) ->
+        {:error, {:invalid_bucket, bucket}}
+
+      agg != "" and agg not in @allowed_downsample_aggs ->
+        {:error, {:invalid_agg, agg}}
+
+      true ->
+        validate_downsample_series(config, series)
+    end
+  end
+
+  defp validate_downsample_series(config, series) do
+    allowed = Map.get(config, :series_fields) || Map.get(config, "series_fields")
+
+    if series != "" and is_list(allowed) and series not in allowed do
+      {:error, {:unsupported_series_field, series}}
+    else
+      :ok
+    end
+  end
+
+  defp validate_downsample_unsupported(bucket) do
+    if safe_to_string(bucket) |> String.trim() != "" do
+      {:error, :downsample_not_supported}
+    else
+      :ok
+    end
+  end
+
+  defp valid_bucket?(bucket) do
+    Regex.match?(~r/^\d+(?:s|m|h|d)$/, bucket)
   end
 
   defp validate_filter_fields(entity, filters) when entity in ["devices", "pollers"] do
     allowed = allowed_search_fields(entity)
 
-    invalid =
-      filters
-      |> Enum.map(&Map.get(&1, "field"))
-      |> Enum.reject(&is_nil/1)
-      |> Enum.reject(&(&1 in allowed))
+    invalid = invalid_filter_fields(filters, allowed)
 
     if invalid == [], do: :ok, else: {:error, {:unsupported_filter_fields, invalid}}
   end
@@ -511,14 +546,16 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
         end
 
       allowed ->
-        invalid =
-          filters
-          |> Enum.map(&Map.get(&1, "field"))
-          |> Enum.reject(&is_nil/1)
-          |> Enum.reject(&(&1 in allowed))
+        invalid = invalid_filter_fields(filters, allowed)
 
         if invalid == [], do: :ok, else: {:error, {:unsupported_filter_fields, invalid}}
     end
+  end
+
+  defp invalid_filter_fields(filters, allowed) do
+    filters
+    |> Enum.map(&Map.get(&1, "field"))
+    |> Enum.reject(fn field -> is_nil(field) or field in allowed end)
   end
 
   defp normalize_filters(entity, filters) when is_list(filters) do

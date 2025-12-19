@@ -51,7 +51,7 @@ async fn check_devices_inventory_query_matches_fixture(harness: &SrqlTestHarness
         .as_object()
         .expect("row should be JSON object");
     assert_eq!(
-        first.get("device_id"),
+        first.get("uid"),
         Some(&serde_json::Value::String("device-alpha".into()))
     );
     assert_eq!(
@@ -65,7 +65,7 @@ async fn check_devices_inventory_query_matches_fixture(harness: &SrqlTestHarness
 
     let second = rows[1].as_object().expect("row should be JSON object");
     assert_eq!(
-        second.get("device_id"),
+        second.get("uid"),
         Some(&serde_json::Value::String("device-beta".into()))
     );
 }

@@ -78,9 +78,4 @@ defmodule ServiceRadarWebNG.Inventory.Device do
   def type_name(%__MODULE__{type_id: 15}), do: "Load Balancer"
   def type_name(%__MODULE__{type_id: 99}), do: "Other"
   def type_name(_), do: "Unknown"
-
-  @doc """
-  Returns the device_id (alias for uid for backward compatibility).
-  """
-  def device_id(%__MODULE__{uid: uid}), do: uid
 end

@@ -123,7 +123,16 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
-  host = System.get_env("PHX_HOST") || "example.com"
+  host = System.get_env("PHX_HOST") || "localhost"
+
+  check_origin =
+    case System.get_env("PHX_CHECK_ORIGIN") do
+      nil -> :conn
+      "" -> :conn
+      "false" -> false
+      "true" -> :conn
+      value -> value |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+    end
 
   config :serviceradar_web_ng, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
@@ -136,6 +145,7 @@ if config_env() == :prod do
       # for details about using IPv6 vs IPv4 and loopback vs public addresses.
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ],
+    check_origin: check_origin,
     secret_key_base: secret_key_base
 
   # ## SSL Support

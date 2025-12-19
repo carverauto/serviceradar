@@ -105,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             <table class="table table-sm table-zebra w-full">
               <thead>
                 <tr>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Device</th>
+                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">UID</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Hostname</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">IP</th>
                   <th
@@ -146,23 +146,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                 </tr>
 
                 <%= for row <- Enum.filter(@devices, &is_map/1) do %>
-                  <% device_id = Map.get(row, "device_id") || Map.get(row, "id") %>
+                  <% device_uid = Map.get(row, "uid") || Map.get(row, "id") %>
                   <% icmp =
-                    if is_binary(device_id), do: Map.get(@icmp_sparklines, device_id), else: nil %>
+                    if is_binary(device_uid), do: Map.get(@icmp_sparklines, device_uid), else: nil %>
                   <% has_snmp =
-                    is_binary(device_id) and Map.get(@snmp_presence, device_id, false) == true %>
+                    is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
                   <% has_sysmon =
-                    is_binary(device_id) and Map.get(@sysmon_presence, device_id, false) == true %>
+                    is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
                   <tr class="hover:bg-base-200/40">
                     <td class="font-mono text-xs">
                       <.link
-                        :if={is_binary(device_id)}
-                        navigate={~p"/devices/#{device_id}"}
+                        :if={is_binary(device_uid)}
+                        navigate={~p"/devices/#{device_uid}"}
                         class="link link-hover"
                       >
-                        {device_id}
+                        {device_uid}
                       </.link>
-                      <span :if={not is_binary(device_id)} class="text-base-content/70">—</span>
+                      <span :if={not is_binary(device_uid)} class="text-base-content/70">—</span>
                     </td>
                     <td class="text-sm max-w-[18rem] truncate">{Map.get(row, "hostname") || "—"}</td>
                     <td class="font-mono text-xs">{Map.get(row, "ip") || "—"}</td>
@@ -184,7 +184,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     </td>
                     <td class="text-xs">
                       <.metrics_presence
-                        device_id={device_id}
+                        device_uid={device_uid}
                         has_snmp={has_snmp}
                         has_sysmon={has_sysmon}
                       />
@@ -360,14 +360,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     """
   end
 
-  attr :device_id, :string, default: nil
+  attr :device_uid, :string, default: nil
   attr :has_snmp, :boolean, default: false
   attr :has_sysmon, :boolean, default: false
 
   def metrics_presence(assigns) do
     device_path =
-      if is_binary(assigns.device_id) and String.trim(assigns.device_id) != "" do
-        ~p"/devices/#{assigns.device_id}"
+      if is_binary(assigns.device_uid) and String.trim(assigns.device_uid) != "" do
+        ~p"/devices/#{assigns.device_uid}"
       else
         nil
       end
@@ -513,29 +513,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     n = length(coords)
 
     Enum.map(0..(n - 1), fn i ->
-      cond do
-        i == 0 ->
-          # First point - use first slope
-          Enum.at(slopes, 0) || 0.0
-
-        i == n - 1 ->
-          # Last point - use last slope
-          List.last(slopes) || 0.0
-
-        true ->
-          # Interior points - average of adjacent slopes, clamped for monotonicity
-          s0 = Enum.at(slopes, i - 1) || 0.0
-          s1 = Enum.at(slopes, i) || 0.0
-
-          if s0 * s1 <= 0 do
-            # Different signs - use 0 to avoid overshooting
-            0.0
-          else
-            # Same sign - use harmonic mean for smoothness
-            2.0 * s0 * s1 / (s0 + s1)
-          end
-      end
+      tangent_for_index(i, n, slopes)
     end)
+  end
+
+  defp tangent_for_index(0, _n, slopes), do: Enum.at(slopes, 0) || 0.0
+  defp tangent_for_index(i, n, slopes) when i == n - 1, do: List.last(slopes) || 0.0
+
+  defp tangent_for_index(i, _n, slopes) do
+    s0 = Enum.at(slopes, i - 1) || 0.0
+    s1 = Enum.at(slopes, i) || 0.0
+
+    if s0 * s1 <= 0 do
+      0.0
+    else
+      2.0 * s0 * s1 / (s0 + s1)
+    end
   end
 
   defp fmt(num) when is_float(num), do: :erlang.float_to_binary(num, decimals: 1)
@@ -549,29 +542,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp load_icmp_sparklines(srql_module, devices) do
-    device_ids =
+    device_uids =
       devices
       |> Enum.filter(&is_map/1)
-      |> Enum.map(fn row -> Map.get(row, "device_id") || Map.get(row, "id") end)
+      |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
       |> Enum.filter(&is_binary/1)
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 == ""))
       |> Enum.uniq()
       |> Enum.take(@sparkline_device_cap)
 
-    if device_ids == [] do
+    if device_uids == [] do
       {%{}, nil}
     else
       query =
         [
           "in:timeseries_metrics",
           "metric_type:icmp",
-          "device_id:(#{Enum.map_join(device_ids, ",", &escape_list_value/1)})",
+          "device_id:(#{Enum.map_join(device_uids, ",", &escape_list_value/1)})",
           "time:#{@sparkline_window}",
           "bucket:#{@sparkline_bucket}",
           "agg:avg",
           "series:device_id",
-          "limit:#{min(length(device_ids) * @sparkline_points_per_device, 4000)}"
+          "limit:#{min(length(device_uids) * @sparkline_points_per_device, 4000)}"
         ]
         |> Enum.join(" ")
 
@@ -596,21 +589,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp load_metric_presence(srql_module, devices) do
-    device_ids =
+    device_uids =
       devices
       |> Enum.filter(&is_map/1)
-      |> Enum.map(fn row -> Map.get(row, "device_id") || Map.get(row, "id") end)
+      |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
       |> Enum.filter(&is_binary/1)
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 == ""))
       |> Enum.uniq()
       |> Enum.take(@presence_device_cap)
 
-    if device_ids == [] do
+    if device_uids == [] do
       {%{}, %{}}
     else
-      list = Enum.map_join(device_ids, ",", &escape_list_value/1)
-      limit = min(length(device_ids) * 3, 2000)
+      list = Enum.map_join(device_uids, ",", &escape_list_value/1)
+      limit = min(length(device_uids) * 3, 2000)
 
       snmp_query =
         [
@@ -678,49 +671,59 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp build_icmp_sparklines(rows) when is_list(rows) do
     rows
     |> Enum.filter(&is_map/1)
-    |> Enum.reduce(%{}, fn row, acc ->
-      device_id = Map.get(row, "series") || Map.get(row, "device_id")
-      timestamp = Map.get(row, "timestamp")
-      value_ms = latency_ms(Map.get(row, "value"))
-
-      if is_binary(device_id) and value_ms > 0 do
-        Map.update(
-          acc,
-          device_id,
-          [%{ts: timestamp, v: value_ms}],
-          fn existing -> existing ++ [%{ts: timestamp, v: value_ms}] end
-        )
-      else
-        acc
-      end
-    end)
+    |> Enum.reduce(%{}, &accumulate_icmp_point/2)
     |> Map.new(fn {device_id, points} ->
-      points =
-        points
-        |> Enum.sort_by(fn p -> p.ts end)
-        |> Enum.take(-@sparkline_points_per_device)
-
-      values = Enum.map(points, & &1.v)
-      latest_ms = List.last(values) || 0.0
-
-      tone =
-        cond do
-          latest_ms >= @sparkline_threshold_ms -> "warning"
-          latest_ms > 0 -> "success"
-          true -> "ghost"
-        end
-
-      title =
-        case List.last(points) do
-          %{ts: ts} when is_binary(ts) -> "ICMP #{format_ms(latest_ms)} · #{ts}"
-          _ -> "ICMP #{format_ms(latest_ms)}"
-        end
-
-      {device_id, %{points: values, latest_ms: latest_ms, tone: tone, title: title}}
+      {device_id, icmp_sparkline_data(points)}
     end)
   end
 
   defp build_icmp_sparklines(_), do: %{}
+
+  defp accumulate_icmp_point(row, acc) do
+    device_id = Map.get(row, "series") || Map.get(row, "device_id")
+    timestamp = Map.get(row, "timestamp")
+    value_ms = latency_ms(Map.get(row, "value"))
+
+    if is_binary(device_id) and value_ms > 0 do
+      Map.update(
+        acc,
+        device_id,
+        [%{ts: timestamp, v: value_ms}],
+        fn existing -> existing ++ [%{ts: timestamp, v: value_ms}] end
+      )
+    else
+      acc
+    end
+  end
+
+  defp icmp_sparkline_data(points) do
+    points =
+      points
+      |> Enum.sort_by(fn p -> p.ts end)
+      |> Enum.take(-@sparkline_points_per_device)
+
+    values = Enum.map(points, & &1.v)
+    latest_ms = List.last(values) || 0.0
+    tone = icmp_tone(latest_ms)
+    title = icmp_title(points, latest_ms)
+
+    %{points: values, latest_ms: latest_ms, tone: tone, title: title}
+  end
+
+  defp icmp_tone(latest_ms) do
+    cond do
+      latest_ms >= @sparkline_threshold_ms -> "warning"
+      latest_ms > 0 -> "success"
+      true -> "ghost"
+    end
+  end
+
+  defp icmp_title(points, latest_ms) do
+    case List.last(points) do
+      %{ts: ts} when is_binary(ts) -> "ICMP #{format_ms(latest_ms)} · #{ts}"
+      _ -> "ICMP #{format_ms(latest_ms)}"
+    end
+  end
 
   defp latency_ms(value) when is_float(value) or is_integer(value) do
     raw = if is_integer(value), do: value * 1.0, else: value

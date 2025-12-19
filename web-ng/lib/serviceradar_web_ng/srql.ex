@@ -61,64 +61,70 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   defp build_response(translation, %Postgrex.Result{columns: columns, rows: rows}) do
-    results =
-      case columns do
-        [single] when is_binary(single) ->
-          Enum.map(rows, fn
-            [value] -> normalize_value(value)
-            other -> normalize_value(other)
-          end)
-
-        _ ->
-          Enum.map(rows, fn row ->
-            columns
-            |> Enum.zip(row)
-            |> Map.new(fn {col, val} -> {col, normalize_value(val)} end)
-            |> normalize_row_aliases()
-          end)
-      end
-
-    viz =
-      case Map.get(translation, "viz") do
-        value when is_map(value) -> value
-        _ -> nil
-      end
-
-    limit =
-      translation
-      |> get_in(["pagination", "limit"])
-      |> case do
-        value when is_integer(value) -> value
-        _ -> nil
-      end
-
-    prev_cursor = get_in(translation, ["pagination", "prev_cursor"])
-    next_cursor_candidate = get_in(translation, ["pagination", "next_cursor"])
-
-    next_cursor =
-      cond do
-        is_integer(limit) and is_binary(next_cursor_candidate) and length(results) >= limit ->
-          next_cursor_candidate
-
-        true ->
-          nil
-      end
+    results = build_results(columns, rows)
+    viz = extract_viz(translation)
+    pagination = build_pagination(translation, results)
 
     %{
       "results" => results,
-      "pagination" => %{
-        "next_cursor" => next_cursor,
-        "prev_cursor" => prev_cursor,
-        "limit" => limit
-      },
+      "pagination" => pagination,
       "viz" => viz,
       "error" => nil
     }
   end
 
+  defp build_results([single], rows) when is_binary(single) do
+    Enum.map(rows, fn
+      [value] -> normalize_value(value)
+      other -> normalize_value(other)
+    end)
+  end
+
+  defp build_results(columns, rows) do
+    Enum.map(rows, fn row ->
+      columns
+      |> Enum.zip(row)
+      |> Map.new(fn {col, val} -> {col, normalize_value(val)} end)
+      |> normalize_row_aliases()
+    end)
+  end
+
+  defp extract_viz(translation) do
+    case Map.get(translation, "viz") do
+      value when is_map(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp build_pagination(translation, results) do
+    limit = pagination_limit(translation)
+
+    %{
+      "next_cursor" => next_cursor(translation, limit, results),
+      "prev_cursor" => get_in(translation, ["pagination", "prev_cursor"]),
+      "limit" => limit
+    }
+  end
+
+  defp pagination_limit(translation) do
+    case get_in(translation, ["pagination", "limit"]) do
+      value when is_integer(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp next_cursor(translation, limit, results) do
+    candidate = get_in(translation, ["pagination", "next_cursor"])
+
+    if is_integer(limit) and is_binary(candidate) and length(results) >= limit do
+      candidate
+    else
+      nil
+    end
+  end
+
   defp normalize_row_aliases(row) when is_map(row) do
     row
-    |> maybe_alias("uid", "device_id")
     |> maybe_alias("type", "device_type")
     |> maybe_alias("first_seen_time", "first_seen")
     |> maybe_alias("last_seen_time", "last_seen")

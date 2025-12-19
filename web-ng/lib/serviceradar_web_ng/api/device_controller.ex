@@ -11,14 +11,15 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   @max_offset 100_000
 
   def index(conn, params) do
-    with {:ok, opts} <- parse_index_params(params) do
-      devices = list_devices(opts)
+    case parse_index_params(params) do
+      {:ok, opts} ->
+        devices = list_devices(opts)
 
-      json(conn, %{
-        "data" => Enum.map(devices, &device_to_map/1),
-        "pagination" => build_pagination(devices, opts)
-      })
-    else
+        json(conn, %{
+          "data" => Enum.map(devices, &device_to_map/1),
+          "pagination" => build_pagination(devices, opts)
+        })
+
       {:error, reason} ->
         conn
         |> put_status(:bad_request)
@@ -26,18 +27,19 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
     end
   end
 
-  def show(conn, %{"device_id" => device_id}) do
-    with {:ok, device_id} <- parse_device_id(device_id) do
-      case Repo.get(Device, device_id) do
-        %Device{} = device ->
-          json(conn, %{"data" => device_to_map(device)})
+  def show(conn, %{"uid" => uid}) do
+    case parse_uid(uid) do
+      {:ok, parsed_uid} ->
+        case Repo.get(Device, parsed_uid) do
+          %Device{} = device ->
+            json(conn, %{"data" => device_to_map(device)})
 
-        nil ->
-          conn
-          |> put_status(:not_found)
-          |> json(%{"error" => "device not found"})
-      end
-    else
+          nil ->
+            conn
+            |> put_status(:not_found)
+            |> json(%{"error" => "device not found"})
+        end
+
       {:error, reason} ->
         conn
         |> put_status(:bad_request)
@@ -48,7 +50,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   def show(conn, _params) do
     conn
     |> put_status(:bad_request)
-    |> json(%{"error" => "missing required path param: device_id"})
+    |> json(%{"error" => "missing required path param: uid"})
   end
 
   @doc """
@@ -63,18 +65,19 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   - offset: Pagination offset (default 0)
   """
   def ocsf_export(conn, params) do
-    with {:ok, opts} <- parse_export_params(params) do
-      devices = list_devices_for_export(opts)
+    case parse_export_params(params) do
+      {:ok, opts} ->
+        devices = list_devices_for_export(opts)
 
-      json(conn, %{
-        "ocsf_version" => "1.7.0",
-        "class_uid" => 5001,
-        "class_name" => "Device Inventory Info",
-        "devices" => Enum.map(devices, &device_to_ocsf_export/1),
-        "count" => length(devices),
-        "pagination" => build_export_pagination(devices, opts)
-      })
-    else
+        json(conn, %{
+          "ocsf_version" => "1.7.0",
+          "class_uid" => 5001,
+          "class_name" => "Device Inventory Info",
+          "devices" => Enum.map(devices, &device_to_ocsf_export/1),
+          "count" => length(devices),
+          "pagination" => build_export_pagination(devices, opts)
+        })
+
       {:error, reason} ->
         conn
         |> put_status(:bad_request)
@@ -365,25 +368,25 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
 
   defp parse_status(_), do: {:error, "invalid status"}
 
-  defp parse_device_id(value) when is_binary(value) do
+  defp parse_uid(value) when is_binary(value) do
     value = String.trim(value)
 
     cond do
       value == "" ->
-        {:error, "invalid device_id"}
+        {:error, "invalid uid"}
 
       String.length(value) > 200 ->
-        {:error, "invalid device_id"}
+        {:error, "invalid uid"}
 
       Regex.match?(~r/^[A-Za-z0-9][A-Za-z0-9:._-]*$/, value) ->
         {:ok, value}
 
       true ->
-        {:error, "invalid device_id"}
+        {:error, "invalid uid"}
     end
   end
 
-  defp parse_device_id(_), do: {:error, "invalid device_id"}
+  defp parse_uid(_), do: {:error, "invalid uid"}
 
   defp maybe_apply_search(query, nil), do: query
 
@@ -437,8 +440,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
 
   defp device_to_map(%Device{} = device) do
     %{
-      # Primary identifier (OCSF uid, aliased as device_id for backward compatibility)
-      "device_id" => device.uid,
+      # Primary identifier (OCSF uid)
       "uid" => device.uid,
       # OCSF Core Identity
       "type_id" => device.type_id,

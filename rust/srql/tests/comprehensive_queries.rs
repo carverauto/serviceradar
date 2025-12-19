@@ -60,7 +60,7 @@ async fn comprehensive_queries_match_fixtures() {
             query: "in:devices time:last_1h",
             expected_count: 1,
             validator: Some(Box::new(|body| {
-                assert_eq!(body["results"][0]["device_id"], "device-alpha")
+                assert_eq!(body["results"][0]["uid"], "device-alpha")
             })),
         },
         TestCase {
@@ -69,10 +69,10 @@ async fn comprehensive_queries_match_fixtures() {
             expected_count: 4,
             validator: Some(Box::new(|body| {
                 let results = body["results"].as_array().unwrap();
-                assert_eq!(results[0]["device_id"], "device-alpha");
-                assert_eq!(results[1]["device_id"], "device-gamma");
-                assert_eq!(results[2]["device_id"], "device-beta");
-                assert_eq!(results[3]["device_id"], "device-delta");
+                assert_eq!(results[0]["uid"], "device-alpha");
+                assert_eq!(results[1]["uid"], "device-gamma");
+                assert_eq!(results[2]["uid"], "device-beta");
+                assert_eq!(results[3]["uid"], "device-delta");
             })),
         },
         TestCase {
@@ -81,10 +81,10 @@ async fn comprehensive_queries_match_fixtures() {
             expected_count: 4,
             validator: Some(Box::new(|body| {
                 let results = body["results"].as_array().unwrap();
-                assert_eq!(results[0]["device_id"], "device-delta");
-                assert_eq!(results[1]["device_id"], "device-beta");
-                assert_eq!(results[2]["device_id"], "device-gamma");
-                assert_eq!(results[3]["device_id"], "device-alpha");
+                assert_eq!(results[0]["uid"], "device-delta");
+                assert_eq!(results[1]["uid"], "device-beta");
+                assert_eq!(results[2]["uid"], "device-gamma");
+                assert_eq!(results[3]["uid"], "device-alpha");
             })),
         },
         TestCase {
@@ -93,8 +93,8 @@ async fn comprehensive_queries_match_fixtures() {
             expected_count: 2,
             validator: Some(Box::new(|body| {
                 let results = body["results"].as_array().unwrap();
-                assert_eq!(results[0]["device_id"], "device-alpha");
-                assert_eq!(results[1]["device_id"], "device-gamma");
+                assert_eq!(results[0]["uid"], "device-alpha");
+                assert_eq!(results[1]["uid"], "device-gamma");
             })),
         },
         TestCase {
@@ -108,7 +108,7 @@ async fn comprehensive_queries_match_fixtures() {
             query: "in:devices is_available:false",
             expected_count: 1,
             validator: Some(Box::new(|body| {
-                assert_eq!(body["results"][0]["device_id"], "device-beta")
+                assert_eq!(body["results"][0]["uid"], "device-beta")
             })),
         },
         // JSONB path queries for os field
@@ -117,7 +117,7 @@ async fn comprehensive_queries_match_fixtures() {
             query: "in:devices os.name:IOS-XE",
             expected_count: 1,
             validator: Some(Box::new(|body| {
-                assert_eq!(body["results"][0]["device_id"], "device-alpha")
+                assert_eq!(body["results"][0]["uid"], "device-alpha")
             })),
         },
         TestCase {
@@ -132,7 +132,7 @@ async fn comprehensive_queries_match_fixtures() {
             query: "in:devices os.version:17.9.3",
             expected_count: 1,
             validator: Some(Box::new(|body| {
-                assert_eq!(body["results"][0]["device_id"], "device-alpha")
+                assert_eq!(body["results"][0]["uid"], "device-alpha")
             })),
         },
         // JSONB path queries for metadata field
@@ -144,7 +144,7 @@ async fn comprehensive_queries_match_fixtures() {
                 let results = body["results"].as_array().unwrap();
                 let ids: Vec<&str> = results
                     .iter()
-                    .map(|r| r["device_id"].as_str().unwrap())
+                    .map(|r| r["uid"].as_str().unwrap())
                     .collect();
                 assert!(ids.contains(&"device-alpha"));
                 assert!(ids.contains(&"device-beta"));
@@ -158,7 +158,7 @@ async fn comprehensive_queries_match_fixtures() {
                 let results = body["results"].as_array().unwrap();
                 let ids: Vec<&str> = results
                     .iter()
-                    .map(|r| r["device_id"].as_str().unwrap())
+                    .map(|r| r["uid"].as_str().unwrap())
                     .collect();
                 assert!(ids.contains(&"device-alpha"));
                 assert!(ids.contains(&"device-delta"));

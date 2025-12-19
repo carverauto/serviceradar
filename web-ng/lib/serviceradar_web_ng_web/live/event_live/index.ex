@@ -263,22 +263,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   attr :value, :any, default: nil
 
   defp severity_badge(assigns) do
-    variant =
-      case normalize_severity(assigns.value) do
-        s when s in ["critical", "fatal", "error"] -> "error"
-        s when s in ["high", "warn", "warning"] -> "warning"
-        s when s in ["medium", "info"] -> "info"
-        s when s in ["low", "debug", "ok"] -> "success"
-        _ -> "ghost"
-      end
-
-    label =
-      case assigns.value do
-        nil -> "—"
-        "" -> "—"
-        v when is_binary(v) -> v
-        v -> to_string(v)
-      end
+    variant = severity_variant(assigns.value)
+    label = severity_label(assigns.value)
 
     assigns = assign(assigns, :variant, variant) |> assign(:label, label)
 
@@ -286,6 +272,21 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
     """
   end
+
+  defp severity_variant(value) do
+    case normalize_severity(value) do
+      s when s in ["critical", "fatal", "error"] -> "error"
+      s when s in ["high", "warn", "warning"] -> "warning"
+      s when s in ["medium", "info"] -> "info"
+      s when s in ["low", "debug", "ok"] -> "success"
+      _ -> "ghost"
+    end
+  end
+
+  defp severity_label(nil), do: "—"
+  defp severity_label(""), do: "—"
+  defp severity_label(value) when is_binary(value), do: value
+  defp severity_label(value), do: to_string(value)
 
   defp normalize_severity(nil), do: ""
   defp normalize_severity(v) when is_binary(v), do: v |> String.trim() |> String.downcase()

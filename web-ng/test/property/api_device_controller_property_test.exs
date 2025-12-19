@@ -30,13 +30,13 @@ defmodule ServiceRadarWebNG.ApiDeviceControllerPropertyTest do
     end
   end
 
-  property "DeviceController.show/2 never crashes for untrusted device_id" do
+  property "DeviceController.show/2 never crashes for untrusted uid" do
     check all(
-            device_id <- SRQLGenerators.untrusted_param_value(),
+            uid <- SRQLGenerators.untrusted_param_value(),
             max_runs: PropertyOpts.max_runs()
           ) do
       conn = Plug.Test.conn("GET", "/api/devices/any")
-      conn = DeviceController.show(conn, %{"device_id" => device_id})
+      conn = DeviceController.show(conn, %{"uid" => uid})
       assert conn.status in [200, 400, 404]
     end
   end

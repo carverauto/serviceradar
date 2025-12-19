@@ -65,7 +65,6 @@ impl DeviceRow {
         serde_json::json!({
             // OCSF Core Identity
             "uid": self.uid,
-            "device_id": self.uid,  // Alias for backward compatibility
             "type_id": self.type_id,
             "type": self.device_type,
             "device_type": self.device_type,  // Alias for backward compatibility

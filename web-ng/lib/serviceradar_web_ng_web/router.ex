@@ -38,7 +38,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     post "/query", QueryController, :execute
     get "/devices", DeviceController, :index
     get "/devices/ocsf/export", DeviceController, :ocsf_export
-    get "/devices/:device_id", DeviceController, :show
+    get "/devices/:uid", DeviceController, :show
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
@@ -70,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
       live "/analytics", AnalyticsLive.Index, :index
       live "/devices", DeviceLive.Index, :index
-      live "/devices/:device_id", DeviceLive.Show, :show
+      live "/devices/:uid", DeviceLive.Show, :show
       live "/pollers", PollerLive.Index, :index
       live "/pollers/:poller_id", PollerLive.Show, :show
       live "/events", EventLive.Index, :index

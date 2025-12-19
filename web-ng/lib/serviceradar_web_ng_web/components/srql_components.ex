@@ -262,20 +262,18 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
       {_values, min_v, max_v} when min_v == max_v ->
         Enum.with_index(values)
-        |> Enum.map(fn {_v, idx} ->
+        |> Enum.map_join(" ", fn {_v, idx} ->
           x = idx_to_x(idx, length(values))
           "#{x},60"
         end)
-        |> Enum.join(" ")
 
       {_values, min_v, max_v} ->
         Enum.with_index(values)
-        |> Enum.map(fn {v, idx} ->
+        |> Enum.map_join(" ", fn {v, idx} ->
           x = idx_to_x(idx, length(values))
           y = 110 - round((v - min_v) / (max_v - min_v) * 100)
           "#{x},#{y}"
         end)
-        |> Enum.join(" ")
     end
   end
 
@@ -323,41 +321,41 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   defp format_cell(col, value) do
     col = col |> to_string() |> String.trim()
 
+    format_cell_value(col, value)
+  end
+
+  defp format_cell_value(_col, nil), do: {:text, %{value: "", title: nil}}
+
+  defp format_cell_value(_col, value) when is_boolean(value) do
+    {:boolean,
+     %{
+       label: if(value, do: "true", else: "false"),
+       variant: if(value, do: "success", else: "error")
+     }}
+  end
+
+  defp format_cell_value(col, value) when is_binary(value) do
     cond do
-      is_nil(value) ->
-        {:text, %{value: "", title: nil}}
-
-      is_boolean(value) ->
-        {:boolean,
-         %{
-           label: if(value, do: "true", else: "false"),
-           variant: if(value, do: "success", else: "error")
-         }}
-
-      severity_column?(col) and is_binary(value) ->
-        {:severity, severity_badge(value)}
-
-      time_column?(col) and is_binary(value) ->
-        format_time_string(value)
-
-      is_binary(value) ->
-        format_text_string(value)
-
-      is_number(value) ->
-        {:text, %{value: to_string(value), title: nil}}
-
-      is_list(value) or is_map(value) ->
-        rendered =
-          value
-          |> inspect(limit: 5, printable_limit: 1_000)
-          |> String.slice(0, 200)
-
-        {:json, %{value: rendered, title: rendered}}
-
-      true ->
-        {:text, %{value: to_string(value), title: nil}}
+      severity_column?(col) -> {:severity, severity_badge(value)}
+      time_column?(col) -> format_time_string(value)
+      true -> format_text_string(value)
     end
   end
+
+  defp format_cell_value(_col, value) when is_number(value) do
+    {:text, %{value: to_string(value), title: nil}}
+  end
+
+  defp format_cell_value(_col, value) when is_list(value) or is_map(value) do
+    rendered =
+      value
+      |> inspect(limit: 5, printable_limit: 1_000)
+      |> String.slice(0, 200)
+
+    {:json, %{value: rendered, title: rendered}}
+  end
+
+  defp format_cell_value(_col, value), do: {:text, %{value: to_string(value), title: nil}}
 
   defp severity_column?(col) do
     col_key = col |> String.downcase()
@@ -420,56 +418,61 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   defp format_composite_string(value) when is_binary(value) do
     case String.split(value, ",", parts: 2) do
       [left, right] ->
-        left = String.trim(left)
-        right = String.trim(right)
-
-        with {:ok, dt, _iso} <- parse_iso8601(left) do
-          label = url_label(right)
-
-          if url?(right) do
-            {:text,
-             %{
-               value: "#{Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")} · #{label}",
-               title: value
-             }}
-          else
-            {:text,
-             %{
-               value: "#{Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")} · #{right}",
-               title: value
-             }}
-          end
-        else
-          _ -> {:text, %{value: value, title: value}}
-        end
+        format_composite_parts(String.trim(left), String.trim(right), value)
 
       _ ->
         {:text, %{value: value, title: value}}
     end
   end
 
+  defp format_composite_parts(left, right, original) do
+    case parse_iso8601(left) do
+      {:ok, dt, _iso} ->
+        format_composite_timestamp(dt, right, original)
+
+      _ ->
+        {:text, %{value: original, title: original}}
+    end
+  end
+
+  defp format_composite_timestamp(dt, right, original) do
+    label = if url?(right), do: url_label(right), else: right
+
+    {:text,
+     %{
+       value: "#{Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")} · #{label}",
+       title: original
+     }}
+  end
+
   defp parse_iso8601(value) when is_binary(value) do
     value = String.trim(value)
 
-    cond do
-      value == "" ->
+    if value == "" do
+      :error
+    else
+      parse_iso8601_value(value)
+    end
+  end
+
+  defp parse_iso8601_value(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _offset} ->
+        {:ok, dt, DateTime.to_iso8601(dt)}
+
+      {:error, _} ->
+        parse_iso8601_naive(value)
+    end
+  end
+
+  defp parse_iso8601_naive(value) do
+    case NaiveDateTime.from_iso8601(value) do
+      {:ok, ndt} ->
+        dt = DateTime.from_naive!(ndt, "Etc/UTC")
+        {:ok, dt, DateTime.to_iso8601(dt)}
+
+      {:error, _} ->
         :error
-
-      true ->
-        case DateTime.from_iso8601(value) do
-          {:ok, dt, _offset} ->
-            {:ok, dt, DateTime.to_iso8601(dt)}
-
-          {:error, _} ->
-            case NaiveDateTime.from_iso8601(value) do
-              {:ok, ndt} ->
-                dt = DateTime.from_naive!(ndt, "Etc/UTC")
-                {:ok, dt, DateTime.to_iso8601(dt)}
-
-              {:error, _} ->
-                :error
-            end
-        end
     end
   end
 
@@ -480,37 +483,40 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   defp url_label(value) when is_binary(value) do
     uri = URI.parse(value)
 
-    host =
-      case uri.host do
-        nil ->
-          value
-
-        other ->
-          port =
-            case {uri.scheme, uri.port} do
-              {"http", nil} -> nil
-              {"https", nil} -> nil
-              {"http", 80} -> nil
-              {"https", 443} -> nil
-              {_scheme, port} -> port
-            end
-
-          if is_integer(port) do
-            "#{other}:#{port}"
-          else
-            other
-          end
-      end
-
-    path =
-      case uri.path do
-        nil -> ""
-        "/" -> ""
-        other -> other
-      end
-
+    host = url_host_label(uri, value)
+    path = url_path_label(uri)
     label = host <> path
 
+    append_query_hint(label, uri)
+  end
+
+  defp url_host_label(uri, fallback) do
+    case uri.host do
+      nil -> fallback
+      host -> maybe_append_port(host, uri)
+    end
+  end
+
+  defp maybe_append_port(host, uri) do
+    case {uri.scheme, uri.port} do
+      {"http", nil} -> host
+      {"https", nil} -> host
+      {"http", 80} -> host
+      {"https", 443} -> host
+      {_scheme, port} when is_integer(port) -> "#{host}:#{port}"
+      _ -> host
+    end
+  end
+
+  defp url_path_label(uri) do
+    case uri.path do
+      nil -> ""
+      "/" -> ""
+      other -> other
+    end
+  end
+
+  defp append_query_hint(label, uri) do
     if is_binary(uri.query) and uri.query != "" do
       label <> "?…"
     else
