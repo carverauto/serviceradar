@@ -17,6 +17,43 @@ filegroup(
     ),
 )
 
+genrule(
+    name = "precommit_runner",
+    srcs = ["scripts/bazel_precommit.sh"],
+    outs = ["precommit_runner.sh"],
+    cmd = "/bin/cp $(location scripts/bazel_precommit.sh) $@ && /bin/chmod +x $@",
+    local = True,
+)
+
+genrule(
+    name = "precommit_test_runner",
+    srcs = ["scripts/bazel_precommit_test.sh"],
+    outs = ["precommit_test_runner.sh"],
+    cmd = "/bin/cp $(location scripts/bazel_precommit_test.sh) $@ && /bin/chmod +x $@",
+    local = True,
+)
+
+sh_test(
+    name = "precommit",
+    srcs = [":precommit_test_runner"],
+    data = [
+        ":precommit_runner",
+        ":srcs",
+        "//:Cargo.toml",
+        "//:Cargo.lock",
+        "//:.tool-versions",
+        "//proto:kv_proto_src",
+        "//rust/kvutil:srcs",
+        "//rust/srql:srcs",
+    ],
+    local = True,
+    tags = [
+        "no-remote",
+        "no-sandbox",
+    ],
+    timeout = "long",
+)
+
 mix_release(
     name = "release_tar",
     srcs = [":srcs"],

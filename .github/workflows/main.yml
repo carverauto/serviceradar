@@ -17,6 +17,26 @@ jobs:
       SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      TEST_CNPG_HOST: 127.0.0.1
+      TEST_CNPG_PORT: "5432"
+      TEST_CNPG_DATABASE: serviceradar
+      TEST_CNPG_USERNAME: postgres
+      TEST_CNPG_PASSWORD: postgres
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: serviceradar
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout
@@ -65,6 +85,17 @@ jobs:
 
           ensure_pkg_config
           protoc --version || (echo "protoc installation failed" && exit 1)
+
+      - name: Setup Beam
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28.3"
+          elixir-version: "1.19.4"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
 
       - name: Setup Bazel
         uses: bazelbuild/setup-bazelisk@v3

@@ -184,11 +184,11 @@ buildbuddy_toolchain_ext.platform(
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
 # --- RBE Toolchain and platforms  ----------------------------------
-register_toolchains("//build/toolchains:rbe_cc_toolchain")
-
 register_execution_platforms(
-    "@platforms//host:host",
-    "//build/rbe:rbe_platform",
+    "//build/platforms:linux_amd64",
+    "//build/platforms:linux_arm64",
+    "//build/platforms:darwin_amd64",
+    "//build/platforms:darwin_arm64",
 )
 
 # --- OCI Toolchain  ----------------------------------
