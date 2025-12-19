@@ -136,22 +136,6 @@ services:
     networks:
       - serviceradar-net
 
-  # Generate RS256 JWT keys and update core.json (first-run init)
-  core-jwks-init:
-    image: ghcr.io/carverauto/serviceradar-kong-config:latest
-    container_name: serviceradar-core-jwks-init
-    user: "0:0"
-    entrypoint: ["/usr/local/bin/serviceradar-cli", "generate-jwt-keys"]
-    command: ["-file", "/etc/serviceradar/config/core.json", "-bits", "2048"]
-    volumes:
-      - generated-config:/etc/serviceradar/config
-    depends_on:
-      config-updater:
-        condition: service_completed_successfully
-    restart: "no"
-    networks:
-      - serviceradar-net
-
   # Fix certificate permissions for Docker deployment
   cert-permissions-fixer:
     image: alpine:3.20
@@ -205,8 +189,6 @@ services:
         condition: service_completed_successfully
       config-updater:
         condition: service_completed_successfully
-      core-jwks-init:
-        condition: service_completed_successfully
       cert-permissions-fixer:
         condition: service_completed_successfully
       spire-agent:
@@ -223,29 +205,29 @@ services:
           - core.serviceradar
     restart: unless-stopped
 
-  # ServiceRadar Web Application
-  web:
-    image: ghcr.io/carverauto/serviceradar-web:latest
-    container_name: serviceradar-web
+  # ServiceRadar Web (Phoenix)
+  web-ng:
+    image: ghcr.io/carverauto/serviceradar-web-ng:latest
+    container_name: serviceradar-web-ng
     environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://localhost/api
-      - NEXT_INTERNAL_API_URL=http://core:8090
-      - NEXT_INTERNAL_SRQL_URL=http://kong:8000
-      - AUTH_ENABLED=true
-      # API_KEY and JWT_SECRET will be loaded from generated config volume at runtime
+      - PORT=4000
+      - PHX_SERVER=true
+      - SECRET_KEY_BASE=${WEB_NG_SECRET_KEY_BASE:-H8DPohD5rFUqGboVqCKLYXrlyofYUJk6k+XBzKEb5G8LN9brhYpNloE3UgxBQmPW}
+      - CNPG_HOST=${CNPG_HOST:-cnpg-rw}
+      - CNPG_PORT=${CNPG_PORT:-5432}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
+      - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
+      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
+      - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg-rw}
+      - CNPG_CERT_DIR=/etc/serviceradar/certs
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
-      - ./docker/compose/web.docker.json:/etc/serviceradar/web.json:ro
-      - generated-config:/etc/serviceradar/config:ro
-      - credentials:/etc/serviceradar/credentials:ro
     depends_on:
-      config-updater:
+      cert-permissions-fixer:
         condition: service_completed_successfully
-      core:
-        condition: service_started
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://0.0.0.0:3000/"]
+      test: ["CMD-SHELL", "pgrep -f serviceradar_web_ng >/dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -254,59 +236,21 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  # SRQL Service (OCaml) - handles /api/query requests routed via Kong
-  srql:
-    image: ghcr.io/carverauto/serviceradar-srql:latest
-    container_name: serviceradar-srql
-    environment:
-      - AUTH_ENABLED=true
-      - SRQL_API_KEY=${SRQL_API_KEY:-changeme}
-      - SRQL_LISTEN_HOST=0.0.0.0
-      - SRQL_LISTEN_PORT=8080
-      - CNPG_HOST=${CNPG_HOST:-cnpg-rw}
-      - CNPG_PORT=${CNPG_PORT:-5432}
-      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
-      - CNPG_USERNAME=${CNPG_USERNAME:-postgres}
-      - CNPG_SSLMODE=${CNPG_SSLMODE:-disable}
-      - CNPG_PASSWORD=${CNPG_PASSWORD:-}
-      - CNPG_PASSWORD_FILE=/etc/serviceradar/credentials/cnpg-password
-      - SRQL_DATABASE_URL=${SRQL_DATABASE_URL:-}
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-      - generated-config:/etc/serviceradar/config:ro
-      - credentials:/etc/serviceradar/credentials:ro
-    depends_on:
-      config-updater:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  # Nginx Reverse Proxy
   nginx:
-    image: ghcr.io/carverauto/serviceradar-nginx:latest
+    image: nginx:1.27-alpine
     container_name: serviceradar-nginx
     ports:
-      - "${SERVICERADAR_HTTP_PORT:-80}:80"      # HTTP
-      # - "443:443"  # HTTPS (add SSL termination later)
+      - "80:80"
+      - "443:443"
     environment:
-      API_UPSTREAM: ${API_UPSTREAM:-http://kong:8000}
+      - DNS_RESOLVER=127.0.0.11
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
-      - ./docker/compose/entrypoint-nginx.sh:/docker-entrypoint.d/50-serviceradar.sh:ro
     depends_on:
-      web:
-        condition: service_started
-      core:
-        condition: service_started
-      kong:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      web-ng:
         condition: service_started
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/"]
@@ -318,76 +262,6 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  # JWKS renderer - generates DB-less config for Kong from Core's JWKS
-  kong-config:
-    image: ghcr.io/carverauto/serviceradar-kong-config:latest
-    container_name: serviceradar-kong-config
-    user: "0:0"
-    entrypoint: ["/bin/sh","-c"]
-    command:
-      - |
-        until /usr/local/bin/serviceradar-cli render-kong \
-          --jwks "${JWKS_URL:-http://core:8090/auth/jwks.json}" \
-          --service "${KONG_SERVICE_URL:-http://core:8090}" \
-          --path "${KONG_ROUTE_PATH:-/api}" \
-          --srql-service "${SRQL_SERVICE_URL:-http://srql:8080}" \
-          --srql-path "${SRQL_ROUTE_PATH:-/api/query}" \
-          --out /out/kong.yml
-        do
-          status=$$?
-          echo "[kong-config] render failed (exit $$status), retrying in $${KONG_CONFIG_RETRY_SECONDS:-5}s"
-          sleep $${KONG_CONFIG_RETRY_SECONDS:-5}
-        done
-    environment:
-      - KONG_CONFIG_RETRY_SECONDS=${KONG_CONFIG_RETRY_SECONDS:-5}
-    volumes:
-      - kong_config:/out
-    depends_on:
-      core:
-        condition: service_started
-    networks:
-      - serviceradar-net
-    # runs as part of default stack (no profile)
-    restart: "no"
-
-  # Kong (Community) — DB-less mode, optional 'kong' profile
-  kong:
-    image: ${KONG_IMAGE:-kong:latest}
-    container_name: serviceradar-kong
-    restart: on-failure
-    # Start alongside kong-config; Kong's entrypoint will wait/copy default
-    # so we don't block on kong-config completion.
-    depends_on:
-      kong-config:
-        condition: service_completed_successfully
-      srql:
-        condition: service_started
-    environment:
-      KONG_DATABASE: off
-      KONG_DECLARATIVE_CONFIG: /opt/kong/kong.yml
-      KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 ssl
-      KONG_ADMIN_LISTEN: 0.0.0.0:8001
-      # run Kong in foreground (no daemon) when using 'kong start'
-      KONG_NGINX_DAEMON: off
-      KONG_LOG_LEVEL: debug
-    command: ["sh","-lc","if [ ! -f /opt/kong/kong.yml ]; then cp /default-kong.yml /opt/kong/kong.yml 2>/dev/null || true; fi; until [ -f /opt/kong/kong.yml ]; do echo '[kong] waiting for /opt/kong/kong.yml'; sleep 2; done; rm -f /usr/local/kong/pids/nginx.pid /opt/kong/pids/nginx.pid 2>/dev/null || true; exec kong start --vv"]
-    volumes:
-      - kong_config:/opt/kong
-      - ./docker/kong/kong.yaml:/default-kong.yml:ro
-    ports:
-      - "8000:8000"
-      - "8001:8001"
-    networks:
-      - serviceradar-net
-    # runs as part of default stack (no profile)
-    healthcheck:
-      test: ["CMD", "kong", "health"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 20s
-
-  
 
   # ServiceRadar Poller Service
   poller:
@@ -1116,10 +990,6 @@ volumes:
   snmp-checker-data:
     driver: local
   rperf-client-data:
-    driver: local
-  kong_config:
-    driver: local
-  kong_db_data:
     driver: local
   spire-server-data:
     driver: local

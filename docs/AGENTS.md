@@ -136,7 +136,7 @@ bazel build //web:web
 bazel run //docker/images:core_image_amd64_push
 
 # Web UI
-bazel run //docker/images:web_image_amd64_push
+bazel run //docker/images:web_ng_image_amd64_push
 
 # Agent (if separate image exists)
 bazel run //docker/images:agent_image_amd64_push
@@ -165,7 +165,7 @@ bazel run --config=remote //docker/images:core_image_amd64_push
 ```bash
 # Use xargs for parallel builds
 echo "//docker/images:core_image_amd64_push
-//docker/images:web_image_amd64_push" | xargs -P 2 -I {} bazel run {}
+//docker/images:web_ng_image_amd64_push" | xargs -P 2 -I {} bazel run {}
 ```
 
 ### Checking Image Digests
@@ -467,7 +467,7 @@ curl -X POST http://23.138.124.18:8090/api/admin/login -H "Content-Type: applica
 
 # === Building ===
 bazel run //docker/images:core_image_amd64_push
-bazel run //docker/images:web_image_amd64_push
+bazel run //docker/images:web_ng_image_amd64_push
 
 # === Deploying ===
 kubectl rollout restart deployment/serviceradar-core -n demo

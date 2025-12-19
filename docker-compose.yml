@@ -41,7 +41,7 @@ services:
       - POSTGRES_DB=${CNPG_DATABASE:-serviceradar}
       - TS_TUNE=false
     ports:
-      - "${CNPG_PUBLIC_BIND:-127.0.0.1}:${CNPG_PUBLIC_PORT:-5455}:5432"
+      - "${CNPG_PUBLIC_BIND:-0.0.0.0}:${CNPG_PUBLIC_PORT:-5455}:5432"
     volumes:
       - cnpg-data:/var/lib/postgresql/data
       - ./docker/compose/cnpg-init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
@@ -88,21 +88,6 @@ services:
         condition: service_completed_successfully
       cnpg:
         condition: service_healthy
-    restart: "no"
-    networks:
-      - serviceradar-net
-
-  core-jwks-init:
-    image: ghcr.io/carverauto/serviceradar-kong-config:${APP_TAG:-v1.0.67}
-    container_name: serviceradar-core-jwks-init-mtls
-    user: "0:0"
-    entrypoint: ["/usr/local/bin/serviceradar-cli", "generate-jwt-keys"]
-    command: ["-file", "/etc/serviceradar/config/core.json", "-bits", "2048"]
-    volumes:
-      - generated-config:/etc/serviceradar/config
-    depends_on:
-      config-updater:
-        condition: service_completed_successfully
     restart: "no"
     networks:
       - serviceradar-net
@@ -156,8 +141,6 @@ services:
       - KV_SERVER_NAME=datasvc.serviceradar
     depends_on:
       config-updater:
-        condition: service_completed_successfully
-      core-jwks-init:
         condition: service_completed_successfully
       cert-permissions-fixer:
         condition: service_completed_successfully
@@ -677,9 +660,7 @@ services:
     restart: unless-stopped
 
   web-ng:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.web-ng
+    image: ghcr.io/carverauto/serviceradar-web-ng:${APP_TAG:-v1.0.67}
     container_name: serviceradar-web-ng-mtls
     environment:
       - PORT=4000
@@ -701,7 +682,7 @@ services:
       cnpg:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://0.0.0.0:4000/"]
+      test: ["CMD-SHELL", "pgrep -f serviceradar_web_ng >/dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -711,18 +692,19 @@ services:
     restart: unless-stopped
 
   nginx:
-    image: ghcr.io/carverauto/serviceradar-nginx:latest
+    image: nginx:1.27-alpine
     container_name: serviceradar-nginx-mtls
     ports:
-      - "${SERVICERADAR_HTTP_PORT:-80}:80"
-      - "${SERVICERADAR_HTTPS_PORT:-443}:443"
+      - "80:80"
+      - "443:443"
     environment:
-      DNS_RESOLVER: "127.0.0.11"  # Docker's internal DNS
+      - DNS_RESOLVER=127.0.0.11
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
-      - ./docker/compose/entrypoint-nginx.sh:/docker-entrypoint.d/50-serviceradar.sh:ro
     depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
       web-ng:
         condition: service_started
     healthcheck:
