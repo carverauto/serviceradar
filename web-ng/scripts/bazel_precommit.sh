@@ -57,13 +57,31 @@ trap 'rm -rf "$WORKDIR"' EXIT
 
 mkdir -p "$WORKDIR/web-ng" "$WORKDIR/rust/srql" "$WORKDIR/rust/kvutil" "$WORKDIR/proto"
 
-rsync -a "$ROOT/web-ng/" "$WORKDIR/web-ng/"
+copy_dir() {
+  src="$1"
+  dest="$2"
+
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a "${src}/" "${dest}/"
+    return
+  fi
+
+  mkdir -p "$dest"
+  if command -v tar >/dev/null 2>&1; then
+    (cd "$src" && tar -cf - .) | (cd "$dest" && tar -xf -)
+    return
+  fi
+
+  cp -a "$src"/. "$dest"/ 2>/dev/null || cp -R "$src"/. "$dest"/
+}
+
+copy_dir "$ROOT/web-ng" "$WORKDIR/web-ng"
 if [ -f "$ROOT/.tool-versions" ]; then
   cp "$ROOT/.tool-versions" "$WORKDIR/web-ng/.tool-versions"
 fi
-rsync -a "$ROOT/rust/srql/" "$WORKDIR/rust/srql/"
-rsync -a "$ROOT/rust/kvutil/" "$WORKDIR/rust/kvutil/"
-rsync -a "$ROOT/proto/" "$WORKDIR/proto/"
+copy_dir "$ROOT/rust/srql" "$WORKDIR/rust/srql"
+copy_dir "$ROOT/rust/kvutil" "$WORKDIR/rust/kvutil"
+copy_dir "$ROOT/proto" "$WORKDIR/proto"
 cp "$ROOT/Cargo.toml" "$WORKDIR/Cargo.toml"
 if [ -f "$ROOT/Cargo.lock" ]; then
   cp "$ROOT/Cargo.lock" "$WORKDIR/Cargo.lock"
