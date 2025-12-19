@@ -300,7 +300,11 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   defp srql_columns(_, _max), do: []
 
-  defp normalize_columns(nil, rows, max_columns), do: srql_columns(rows, max_columns)
+  defp normalize_columns(nil, rows, max_columns) do
+    rows
+    |> srql_columns(max_columns)
+    |> filter_device_id_column()
+  end
 
   defp normalize_columns(columns, rows, max_columns) when is_list(columns) do
     columns =
@@ -309,14 +313,31 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 == ""))
 
-    if columns == [] do
-      srql_columns(rows, max_columns)
+    columns =
+      if columns == [] do
+        srql_columns(rows, max_columns)
+      else
+        columns
+      end
+
+    filter_device_id_column(columns)
+  end
+
+  defp normalize_columns(_columns, rows, max_columns) do
+    rows
+    |> srql_columns(max_columns)
+    |> filter_device_id_column()
+  end
+
+  defp filter_device_id_column(columns) when is_list(columns) do
+    if "uid" in columns do
+      Enum.reject(columns, &(&1 == "device_id"))
     else
       columns
     end
   end
 
-  defp normalize_columns(_columns, rows, max_columns), do: srql_columns(rows, max_columns)
+  defp filter_device_id_column(columns), do: columns
 
   defp format_cell(col, value) do
     col = col |> to_string() |> String.trim()

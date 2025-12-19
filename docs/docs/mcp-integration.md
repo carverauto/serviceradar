@@ -264,7 +264,7 @@ in:activity severity_id:critical
 ```text
 in:devices available:false sort:last_seen:desc
 in:activity connection.src_endpoint_ip:10.% connection.dst_endpoint_port:(22,2222)
-in:logs !service_name:"serviceradar-web"
+in:logs !service_name:"serviceradar-web-ng"
 ```
 
 ### Sorting and Limiting

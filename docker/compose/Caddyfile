@@ -5,10 +5,24 @@
 }
 
 :80 {
-  reverse_proxy web-ng:4000
+  @api path /api/*
+
+  handle @api {
+    reverse_proxy web-ng:4000
+  }
+  handle {
+    reverse_proxy web-ng:4000
+  }
 }
 
 :443 {
   tls /etc/serviceradar/certs/web.pem /etc/serviceradar/certs/web-key.pem
-  reverse_proxy web-ng:4000
+  @api path /api/*
+
+  handle @api {
+    reverse_proxy web-ng:4000
+  }
+  handle {
+    reverse_proxy web-ng:4000
+  }
 }

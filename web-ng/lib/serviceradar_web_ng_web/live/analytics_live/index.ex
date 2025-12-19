@@ -371,9 +371,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       |> Enum.filter(&is_map/1)
       |> Enum.reduce(%{}, fn row, acc ->
         service_name = Map.get(row, "service_name")
-        device_id = Map.get(row, "device_id")
-        # Use composite key of device_id + service_name to identify unique service instances
-        key = "#{device_id}:#{service_name}"
+        uid = Map.get(row, "uid") || Map.get(row, "device_id")
+        # Use composite key of uid + service_name to identify unique service instances
+        key = "#{uid}:#{service_name}"
 
         if is_binary(service_name) and service_name != "" do
           # Keep most recent entry per service (rows are sorted by timestamp desc)
@@ -626,7 +626,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   end
 
   defp host_key(row) do
-    Map.get(row, "host") || Map.get(row, "device_id") || ""
+    Map.get(row, "host") || Map.get(row, "uid") || Map.get(row, "device_id") || ""
   end
 
   defp disk_key(row) do
@@ -1559,7 +1559,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       )
 
     mem = extract_numeric(Map.get(svc, "memory_usage") || Map.get(svc, "mem_percent") || 0)
-    host = Map.get(svc, "host") || Map.get(svc, "device_id") || "Unknown"
+    host = Map.get(svc, "host") || Map.get(svc, "uid") || Map.get(svc, "device_id") || "Unknown"
 
     assigns =
       assigns
@@ -1590,7 +1590,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         Map.get(svc, "percent") || Map.get(svc, "value") || Map.get(svc, "used_percent") || 0
       )
 
-    host = Map.get(svc, "host") || Map.get(svc, "device_id") || "Unknown"
+    host = Map.get(svc, "host") || Map.get(svc, "uid") || Map.get(svc, "device_id") || "Unknown"
 
     assigns =
       assigns
@@ -1614,7 +1614,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp disk_utilization_row(assigns) do
     svc = assigns.service
     percent = extract_numeric(Map.get(svc, "percent") || Map.get(svc, "value") || 0)
-    host = Map.get(svc, "host") || Map.get(svc, "device_id") || "Unknown"
+    host = Map.get(svc, "host") || Map.get(svc, "uid") || Map.get(svc, "device_id") || "Unknown"
     mount = Map.get(svc, "mount_point") || Map.get(svc, "mount") || "/"
 
     assigns =

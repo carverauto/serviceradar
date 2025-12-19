@@ -37,21 +37,6 @@ mkdir -p etc/serviceradar
 mkdir -p lib/systemd/system
 mkdir -p var/lib/serviceradar
 
-echo "Building web interface..."
-
-# Build web assets via Bazel to keep the bundle in sync with the Go release
-cd "${BASE_DIR}"
-BAZEL="${BASE_DIR}/tools/bazel/bazel"
-NEXT_PUBLIC_VERSION="$VERSION" "${BAZEL}" build //pkg/core/api/web:files
-
-BAZEL_BIN="$("${BAZEL}" info bazel-bin)"
-WEB_BUNDLE="${BAZEL_BIN}/pkg/core/api/web/.next"
-
-# Sync the Bazel output into the location consumed by the Go binary
-rm -rf "${BASE_DIR}/pkg/core/api/web/.next"
-mkdir -p "${BASE_DIR}/pkg/core/api/web/.next"
-cp -R "${WEB_BUNDLE}/." "${BASE_DIR}/pkg/core/api/web/.next/"
-
 echo "Building Go binary..."
 
 # Build Go binary with embedded web content

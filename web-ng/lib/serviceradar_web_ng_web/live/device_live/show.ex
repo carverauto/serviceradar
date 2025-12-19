@@ -251,7 +251,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> Enum.uniq()
 
     # Exclude metadata and fields already shown in the header card
-    excluded = ["metadata", "hostname", "ip", "poller_id", "last_seen", "os_info", "version_info"]
+    excluded = [
+      "metadata",
+      "hostname",
+      "ip",
+      "poller_id",
+      "last_seen",
+      "os_info",
+      "version_info",
+      "device_id"
+    ]
+
     keys = Enum.reject(keys, &(&1 in excluded))
 
     # Order remaining keys nicely
@@ -772,7 +782,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     tokens =
       [
         "in:#{entity}",
-        "device_id:\"#{device_uid_escaped}\"",
+        "uid:\"#{device_uid_escaped}\"",
         "time:last_24h",
         "bucket:5m",
         "agg:avg",
@@ -1077,7 +1087,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     escaped_id = escape_value(device_uid)
 
     query =
-      "in:timeseries_metrics metric_type:icmp device_id:\"#{escaped_id}\" " <>
+      "in:timeseries_metrics metric_type:icmp uid:\"#{escaped_id}\" " <>
         "time:#{@availability_window} bucket:#{@availability_bucket} agg:count sort:timestamp:asc limit:100"
 
     case srql_module.query(query) do
@@ -1087,7 +1097,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       _ ->
         # Fallback: try healthcheck_results
         fallback_query =
-          "in:healthcheck_results device_id:\"#{escaped_id}\" time:#{@availability_window} limit:200"
+          "in:healthcheck_results uid:\"#{escaped_id}\" time:#{@availability_window} limit:200"
 
         case srql_module.query(fallback_query) do
           {:ok, %{"results" => rows}} when is_list(rows) ->
@@ -1199,7 +1209,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp load_cpu_summary(srql_module, escaped_id) do
-    query = "in:cpu_metrics device_id:\"#{escaped_id}\" sort:timestamp:desc limit:64"
+    query = "in:cpu_metrics uid:\"#{escaped_id}\" sort:timestamp:desc limit:64"
 
     case srql_module.query(query) do
       {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
@@ -1229,7 +1239,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp load_memory_summary(srql_module, escaped_id) do
-    query = "in:memory_metrics device_id:\"#{escaped_id}\" sort:timestamp:desc limit:4"
+    query = "in:memory_metrics uid:\"#{escaped_id}\" sort:timestamp:desc limit:4"
 
     case srql_module.query(query) do
       {:ok, %{"results" => [row | _]}} when is_map(row) ->
@@ -1250,7 +1260,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp load_disk_summary(srql_module, escaped_id) do
-    query = "in:disk_metrics device_id:\"#{escaped_id}\" sort:timestamp:desc limit:24"
+    query = "in:disk_metrics uid:\"#{escaped_id}\" sort:timestamp:desc limit:24"
 
     case srql_module.query(query) do
       {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
@@ -1270,7 +1280,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp load_icmp_rtt(srql_module, escaped_id) do
     query =
-      "in:timeseries_metrics metric_type:icmp device_id:\"#{escaped_id}\" sort:timestamp:desc limit:1"
+      "in:timeseries_metrics metric_type:icmp uid:\"#{escaped_id}\" sort:timestamp:desc limit:1"
 
     case srql_module.query(query) do
       {:ok, %{"results" => [row | _]}} when is_map(row) ->

@@ -10,7 +10,6 @@ go_library(
         "errors.go",
         "help.go",
         "jwt_keys.go",
-        "kong.go",
         "spire.go",
         "tls.go",
         "types.go",

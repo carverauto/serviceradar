@@ -35,9 +35,9 @@ if [ -z "$NEXT_INTERNAL_API_URL" ]; then
     echo "Setting NEXT_INTERNAL_API_URL=$NEXT_INTERNAL_API_URL"
 fi
 
-# Set internal SRQL URL (proxied via Kong)
+# Set internal SRQL URL (served by web-ng)
 if [ -z "$NEXT_INTERNAL_SRQL_URL" ]; then
-    export NEXT_INTERNAL_SRQL_URL="http://kong:8000"
+    export NEXT_INTERNAL_SRQL_URL="http://web-ng:4000"
     echo "Setting NEXT_INTERNAL_SRQL_URL=$NEXT_INTERNAL_SRQL_URL"
 fi
 

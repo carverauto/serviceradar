@@ -223,7 +223,7 @@ TTL timestamp + INTERVAL 2 DAY;
 ```
 
 #### 3.2.10 Web UI
-- Description: Existing Next.js UI (serviceradar-web).
+- Description: Legacy Next.js UI (serviceradar-web), deprecated in favor of web-ng.
 - Function:
   - Displays real-time and historical NetFlow dashboards.
   - Sends requests to Core Service API.

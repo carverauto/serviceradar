@@ -126,7 +126,7 @@ bazel build //cmd/core:core
 bazel build //cmd/agent:agent
 
 # Build web UI
-bazel build //web:web
+bazel build //web-ng:release_tar
 ```
 
 ### Building and Pushing Docker Images

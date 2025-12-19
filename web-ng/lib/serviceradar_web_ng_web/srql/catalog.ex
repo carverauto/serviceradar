@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_filter_field: "event_type",
       filter_fields: [
         "event_type",
-        "device_id",
+        "uid",
         "poller_id",
         "agent_id",
         "severity",
@@ -51,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
       default_filter_field: "message",
-      filter_fields: ["device_id", "poller_id", "agent_id", "severity", "source", "message"],
+      filter_fields: ["uid", "poller_id", "agent_id", "severity", "source", "message"],
       downsample: false
     },
     %{
@@ -63,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_sort_dir: "desc",
       default_filter_field: "service_type",
       filter_fields: [
-        "device_id",
+        "uid",
         "poller_id",
         "service_type",
         "service_status",
@@ -80,9 +80,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_time: "last_7d",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
-      default_filter_field: "device_id",
+      default_filter_field: "uid",
       filter_fields: [
-        "device_id",
+        "uid",
         "if_name",
         "if_index",
         "mac",
@@ -105,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "agent_id",
         "metric_name",
         "metric_type",
-        "device_id",
+        "uid",
         "target_device_ip",
         "partition",
         "if_index"
@@ -117,7 +117,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       series_fields: [
         "metric_name",
         "metric_type",
-        "device_id",
+        "uid",
         "poller_id",
         "agent_id",
         "partition",
@@ -137,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "poller_id",
         "agent_id",
         "metric_name",
-        "device_id",
+        "uid",
         "target_device_ip",
         "partition",
         "if_index"
@@ -148,7 +148,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_series_field: "metric_name",
       series_fields: [
         "metric_name",
-        "device_id",
+        "uid",
         "poller_id",
         "agent_id",
         "partition",
@@ -168,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "poller_id",
         "agent_id",
         "metric_name",
-        "device_id",
+        "uid",
         "target_device_ip",
         "partition",
         "if_index"
@@ -179,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_series_field: "metric_name",
       series_fields: [
         "metric_name",
-        "device_id",
+        "uid",
         "poller_id",
         "agent_id",
         "partition",
@@ -194,12 +194,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
-      default_filter_field: "device_id",
+      default_filter_field: "uid",
       filter_fields: [
         "poller_id",
         "agent_id",
         "host_id",
-        "device_id",
+        "uid",
         "partition",
         "cluster",
         "label",
@@ -208,9 +208,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: true,
       default_bucket: "5m",
       default_agg: "avg",
-      default_series_field: "device_id",
+      default_series_field: "uid",
       series_fields: [
-        "device_id",
+        "uid",
         "host_id",
         "poller_id",
         "agent_id",
@@ -227,13 +227,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
-      default_filter_field: "device_id",
-      filter_fields: ["poller_id", "agent_id", "host_id", "device_id", "partition"],
+      default_filter_field: "uid",
+      filter_fields: ["poller_id", "agent_id", "host_id", "uid", "partition"],
       downsample: true,
       default_bucket: "5m",
       default_agg: "avg",
-      default_series_field: "device_id",
-      series_fields: ["device_id", "host_id", "poller_id", "agent_id", "partition"]
+      default_series_field: "uid",
+      series_fields: ["uid", "host_id", "poller_id", "agent_id", "partition"]
     },
     %{
       id: "disk_metrics",
@@ -242,12 +242,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
-      default_filter_field: "device_id",
+      default_filter_field: "uid",
       filter_fields: [
         "poller_id",
         "agent_id",
         "host_id",
-        "device_id",
+        "uid",
         "partition",
         "mount_point",
         "device_name"
@@ -257,7 +257,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_agg: "avg",
       default_series_field: "mount_point",
       series_fields: [
-        "device_id",
+        "uid",
         "host_id",
         "poller_id",
         "agent_id",
@@ -278,7 +278,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "poller_id",
         "agent_id",
         "host_id",
-        "device_id",
+        "uid",
         "partition",
         "name",
         "pid",
@@ -289,7 +289,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_agg: "avg",
       default_series_field: "name",
       series_fields: [
-        "device_id",
+        "uid",
         "host_id",
         "poller_id",
         "agent_id",

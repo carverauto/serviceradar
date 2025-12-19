@@ -7,9 +7,8 @@ use crate::{
         agent_id as col_agent_id, device_type as col_device_type,
         first_seen_time as col_first_seen_time, hostname as col_hostname, ip as col_ip,
         is_available as col_is_available, last_seen_time as col_last_seen_time, mac as col_mac,
-        model as col_model, ocsf_devices, poller_id as col_poller_id,
-        risk_level as col_risk_level, type_id as col_type_id, uid as col_uid,
-        vendor_name as col_vendor_name,
+        model as col_model, ocsf_devices, poller_id as col_poller_id, risk_level as col_risk_level,
+        type_id as col_type_id, uid as col_uid, vendor_name as col_vendor_name,
     },
     time::TimeRange,
 };
@@ -128,7 +127,11 @@ fn build_query(plan: &QueryPlan) -> Result<DeviceQuery<'static>> {
     let mut query = ocsf_devices.into_boxed::<Pg>();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        query = query.filter(col_last_seen_time.ge(*start).and(col_last_seen_time.le(*end)));
+        query = query.filter(
+            col_last_seen_time
+                .ge(*start)
+                .and(col_last_seen_time.le(*end)),
+        );
     }
 
     for filter in &plan.filters {
@@ -194,7 +197,11 @@ fn build_stats_query(
     let mut query = ocsf_devices.into_boxed::<Pg>();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        query = query.filter(col_last_seen_time.ge(*start).and(col_last_seen_time.le(*end)));
+        query = query.filter(
+            col_last_seen_time
+                .ge(*start)
+                .and(col_last_seen_time.le(*end)),
+        );
     }
 
     for filter in &plan.filters {
@@ -273,11 +280,10 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
         }
         // OCSF device type_id (numeric enum)
         "type_id" => {
-            let type_id: i32 = filter
-                .value
-                .as_scalar()?
-                .parse()
-                .map_err(|_| ServiceError::InvalidRequest("type_id must be an integer".into()))?;
+            let type_id: i32 =
+                filter.value.as_scalar()?.parse().map_err(|_| {
+                    ServiceError::InvalidRequest("type_id must be an integer".into())
+                })?;
             query = apply_eq_filter!(
                 query,
                 filter,
@@ -410,11 +416,10 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
             Ok(())
         }
         "type_id" => {
-            let type_id: i64 = filter
-                .value
-                .as_scalar()?
-                .parse()
-                .map_err(|_| ServiceError::InvalidRequest("type_id must be an integer".into()))?;
+            let type_id: i64 =
+                filter.value.as_scalar()?.parse().map_err(|_| {
+                    ServiceError::InvalidRequest("type_id must be an integer".into())
+                })?;
             params.push(BindParam::Int(type_id));
             Ok(())
         }
@@ -434,7 +439,11 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
             Ok(())
         }
         // JSONB path fields - all use text bind params
-        "os.name" | "os.version" | "os.type" | "hw_info.serial_number" | "hw_info.cpu_type"
+        "os.name"
+        | "os.version"
+        | "os.type"
+        | "hw_info.serial_number"
+        | "hw_info.cpu_type"
         | "hw_info.cpu_architecture" => {
             params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
             Ok(())

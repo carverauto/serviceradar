@@ -166,7 +166,7 @@ impl DiscoveredInterfaceRow {
             "agent_id": self.agent_id,
             "poller_id": self.poller_id,
             "device_ip": self.device_ip,
-            "device_id": self.device_id,
+            "uid": self.device_id,
             "if_index": self.if_index,
             "if_name": self.if_name,
             "if_descr": self.if_descr,
@@ -227,7 +227,7 @@ impl DeviceUpdateRow {
             "agent_id": self.agent_id,
             "poller_id": self.poller_id,
             "partition": self.partition,
-            "device_id": self.device_id,
+            "uid": self.device_id,
             "discovery_source": self.discovery_source,
             "ip": self.ip,
             "mac": self.mac,
@@ -486,7 +486,7 @@ impl TimeseriesMetricRow {
             "agent_id": self.agent_id,
             "metric_name": self.metric_name,
             "metric_type": self.metric_type,
-            "device_id": self.device_id,
+            "uid": self.device_id,
             "value": self.value,
             "unit": self.unit,
             "tags": self.tags,
@@ -530,7 +530,7 @@ impl CpuMetricRow {
             "frequency_hz": self.frequency_hz,
             "label": self.label,
             "cluster": self.cluster,
-            "device_id": self.device_id,
+            "uid": self.device_id,
             "partition": self.partition,
         })
     }
@@ -563,7 +563,7 @@ impl MemoryMetricRow {
             "used_bytes": self.used_bytes,
             "available_bytes": self.available_bytes,
             "usage_percent": self.usage_percent,
-            "device_id": self.device_id,
+            "uid": self.device_id,
             "partition": self.partition,
         })
     }
@@ -600,7 +600,7 @@ impl DiskMetricRow {
             "used_bytes": self.used_bytes,
             "available_bytes": self.available_bytes,
             "usage_percent": self.usage_percent,
-            "device_id": self.device_id,
+            "uid": self.device_id,
             "partition": self.partition,
         })
     }
@@ -637,7 +637,7 @@ impl ProcessMetricRow {
             "memory_usage": self.memory_usage,
             "status": self.status,
             "start_time": self.start_time,
-            "device_id": self.device_id,
+            "uid": self.device_id,
             "partition": self.partition,
         })
     }

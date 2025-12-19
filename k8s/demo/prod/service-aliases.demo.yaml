@@ -11,15 +11,6 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: kong
-  namespace: demo
-spec:
-  type: ExternalName
-  externalName: serviceradar-kong.demo.svc.cluster.local
----
-apiVersion: v1
-kind: Service
-metadata:
   name: agent
   namespace: demo
 spec:

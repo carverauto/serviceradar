@@ -18,7 +18,6 @@
           "goflow2",
           "nats",
           "zen",
-          "web",
           "sysmon",
           "snmp",
           "rperf-checker",
@@ -27,52 +26,6 @@
         "root_dir": "/etc/serviceradar/certs"
       }
     }
-  },
-  {
-    "architecture": "amd64",
-    "conffiles": [],
-    "config_files": [
-      {
-        "dest": "/etc/kong/kong.conf",
-        "optional": true,
-        "source": "packaging/kong/config/kong.conf"
-      },
-      {
-        "dest": "/usr/share/serviceradar-kong/vendor",
-        "optional": true,
-        "source": "packaging/kong/vendor"
-      }
-    ],
-    "deb": {
-      "depends": [
-        "systemd",
-        "ca-certificates",
-        "serviceradar-cli"
-      ],
-      "dockerfile": null
-    },
-    "description": "Wrapper package bundling Kong Gateway OSS 3.10.0 for air-gapped installs (falls back to enterprise if provided)",
-    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-    "name": "kong",
-    "package_name": "serviceradar-kong",
-    "postinst": {
-      "source": "packaging/kong/scripts/postinstall.sh"
-    },
-    "prerm": {
-      "source": "packaging/kong/scripts/preremove.sh"
-    },
-    "priority": "optional",
-    "rpm": {
-      "depends": [
-        "systemd",
-        "ca-certificates",
-        "serviceradar-cli"
-      ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
-      "release": "1"
-    },
-    "section": "net",
-    "version": "1.0.58"
   },
   {
     "architecture": "amd64",
@@ -216,60 +169,6 @@
     "systemd_service": {
       "dest": "/lib/systemd/system/serviceradar-goflow2.service",
       "source": "packaging/goflow2/systemd/serviceradar-goflow2.service"
-    },
-    "version": "1.0.58"
-  },
-  {
-    "architecture": "amd64",
-    "build_dir": "web",
-    "build_method": "npm",
-    "conffiles": [
-      "/etc/serviceradar/web.json",
-      "/etc/nginx/conf.d/serviceradar-web.conf"
-    ],
-    "config_files": [
-      {
-        "dest": "/etc/serviceradar/web.json",
-        "source": "packaging/web/config/web.json"
-      },
-      {
-        "dest": "/etc/nginx/conf.d/serviceradar-web.conf",
-        "source": "packaging/web/config/nginx.conf"
-      }
-    ],
-    "deb": {
-      "depends": [
-        "systemd",
-        "nodejs (>= 16.0.0)",
-        "nginx"
-      ],
-      "dockerfile": null
-    },
-    "description": "ServiceRadar web interface",
-    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-    "name": "web",
-    "output_dir": "/usr/local/share/serviceradar-web",
-    "package_name": "serviceradar-web",
-    "postinst": {
-      "source": "packaging/web/scripts/postinstall.sh"
-    },
-    "prerm": {
-      "source": "packaging/web/scripts/preremove.sh"
-    },
-    "priority": "optional",
-    "rpm": {
-      "depends": [
-        "systemd",
-        "nodejs",
-        "nginx"
-      ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.web",
-      "release": "1"
-    },
-    "section": "utils",
-    "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-web.service",
-      "source": "packaging/web/systemd/serviceradar-web.service"
     },
     "version": "1.0.58"
   },

@@ -118,7 +118,7 @@ demo-staging-canary: ## Configure demo-staging ArgoCD app for canary tags (web=l
 	@./scripts/demo-staging-canary.py --app serviceradar-demo-staging --base-tag v1.0.75 --web-tag latest
 
 .PHONY: demo-staging-web
-demo-staging-web: ## Push web image (latest) and restart serviceradar-web in demo-staging
+demo-staging-web: ## Push web-ng image (latest) and restart serviceradar-web-ng in demo-staging
 	@./scripts/demo-staging-web.sh demo-staging
 
 .PHONY: demo-staging-core
@@ -493,12 +493,8 @@ docs-setup: ## Initial setup for Docusaurus development
 # Web UI build
 .PHONY: build-web
 build-web: ## Build the Next.js web interface
-	@echo "$(COLOR_BOLD)Building Next.js web interface$(COLOR_RESET)"
-	@NEXT_PUBLIC_VERSION=$(VERSION) ./tools/bazel/bazel build //pkg/core/api/web:files
-	@BAZEL_BIN=$$(./tools/bazel/bazel info bazel-bin) && \
-		rm -rf pkg/core/api/web/.next && \
-		mkdir -p pkg/core/api/web/.next && \
-		cp -R $$BAZEL_BIN/pkg/core/api/web/.next/. pkg/core/api/web/.next/
+	@echo "$(COLOR_BOLD)Legacy Next.js web build is disabled; use web-ng$(COLOR_RESET)"
+	@exit 1
 
 # RPerf plugin specific targets
 .PHONY: build-rperf-checker

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TAR_PATH="/usr/local/share/serviceradar-web/serviceradar-web.tar.gz"
-INSTALL_DIR="/usr/local/share/serviceradar-web"
+TAR_PATH="/usr/local/share/serviceradar-web-ng/serviceradar-web-ng.tar.gz"
+INSTALL_DIR="/usr/local/share/serviceradar-web-ng"
 
 mkdir -p "$INSTALL_DIR"
 

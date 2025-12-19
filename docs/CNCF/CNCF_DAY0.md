@@ -241,15 +241,15 @@ ServiceRadar provides its own:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                         Ingress Layer                        │
-│                  Nginx → Kong API Gateway                    │
+│                         Edge Proxy Layer                     │
+│                 Caddy/Nginx (TLS termination)                │
 └─────────────────────┬───────────────────────────────────────┘
                       │
          ┌────────────┴────────────┬──────────────┐
          ▼                         ▼              ▼
     ┌─────────┐             ┌──────────┐    ┌─────────┐
     │ Web UI  │             │ Core API │    │  SRQL   │
-    │(Next.js)│             │  (gRPC)  │    │  Query  │
+    │(Phoenix)│             │  (gRPC)  │    │  Query  │
     └─────────┘             └────┬─────┘    └─────────┘
                                  │
                     ┌────────────┼────────────┐
@@ -278,7 +278,7 @@ ServiceRadar provides its own:
 |---------|---------|----------------------|-------------|
 | **NATS JetStream** | Message broker, KV store | Data ingestion halted | 3-node cluster, R3 replication |
 | **CNPG/Timescale** | Stream processing DB | Queries fail, data buffered | OSS→Enterprise clustering upgrade |
-| **Kong Gateway** | API gateway, auth | API access denied | Multiple replicas, shared cache |
+| **Edge Proxy** | TLS termination, routing | UI/API access denied | Multiple replicas behind ingress |
 | **SPIFFE/SPIRE** | Cert management | New pods fail auth | Server HA, agent per node |
 
 **Data collection:**
@@ -378,7 +378,7 @@ Device → Checker (plugin) → Agent (proxy) → Poller (aggregator) → NATS �
 **API services:**
 - Core API: Horizontal scaling (Q1 2026), shared state in NATS KV
 - Stateless services (SRQL, Web): Load-balanced across replicas
-- Kong Gateway: Multiple replicas with shared Redis cache
+- Edge proxy: Multiple replicas behind a load balancer or ingress controller
 
 **Data collection:**
 - Multiple poller instances per tenant
@@ -399,7 +399,7 @@ Device → Checker (plugin) → Agent (proxy) → Poller (aggregator) → NATS �
 | **CNPG/Timescale** | 4 cores | 8 GB | 60 GB | Vertical (CPU/RAM) |
 | **NATS JetStream** | 2 cores | 8 GB | 60 GB | Vertical (RAM/disk) |
 | **Core API** | 2 cores | 4 GB | 30 GB | Horizontal (replicas) |
-| **Kong Gateway** | 1 core | 2 GB | 10 GB | Horizontal (replicas) |
+| **Edge Proxy** | 1 core | 2 GB | 10 GB | Horizontal (replicas) |
 | **Web UI** | 1 core | 1 GB | 5 GB | Horizontal (replicas) |
 | **Poller** (per instance) | 1 core | 1 GB | 10 GB | Horizontal (instances) |
 | **Agent** (per instance) | 0.5 core | 512 MB | 2 GB | Horizontal (instances) |
@@ -413,7 +413,7 @@ Device → Checker (plugin) → Agent (proxy) → Poller (aggregator) → NATS �
 |------|---------------------|
 | **+10,000 devices** | +1 core, +2 GB RAM (Core API), +100 GB storage/month |
 | **+1,000 events/sec** | +1 poller replica, +2 NATS cores |
-| **+100 concurrent users** | +1 Web UI replica, +1 Kong replica |
+| **+100 concurrent users** | +1 Web UI replica, +1 edge proxy replica |
 
 **Reference configurations:**
 - **Demo environment**: https://github.com/carverauto/serviceradar/tree/main/deployments/demo
@@ -446,7 +446,7 @@ Device → Checker (plugin) → Agent (proxy) → Poller (aggregator) → NATS �
 **Topology:**
 
 ```
-Client → Nginx Ingress (TLS) → Kong Gateway (JWT) → Microservices
+Client → Edge Proxy (TLS) → Core/Web UI/SRQL → Microservices
                                                     ├─ Core API (gRPC)
                                                     ├─ SRQL Query API
                                                     ├─ NATS KV API
@@ -468,7 +468,7 @@ Client → Nginx Ingress (TLS) → Kong Gateway (JWT) → Microservices
 - JSON request/response bodies
 - RFC 7807 Problem Details for errors
 - Pagination via `limit` and `cursor` parameters
-- Rate limiting: 1000 req/min per user (configurable in Kong)
+- Rate limiting: 1000 req/min per user (configurable at the edge proxy)
 
 **SRQL Query Language:**
 
@@ -698,7 +698,7 @@ High-risk features requiring ongoing maintenance:
 - **RBAC policy engine**: Tenant isolation logic
 - **SRQL query parser**: SQL injection prevention
 - **mTLS certificate handling**: SPIFFE/SPIRE integration
-- **API gateway configuration**: Kong security rules
+- **Edge proxy configuration**: Routing and TLS rules
 
 **Risk mitigation:**
 - Threat modeling for new features (STRIDE methodology)
@@ -723,13 +723,13 @@ High-risk features requiring ongoing maintenance:
 | Certificate Type | Rotation Frequency | Automation | Monitoring |
 |------------------|-------------------|------------|------------|
 | **SPIFFE X.509 SVIDs** | 1 hour (configurable) | SPIRE automatic | Prometheus alert on expiration |
-| **Kong JWT keys** | 30 days | Manual (automating Q1 2026) | Kong admin API checks |
+| **Core JWT keys** | 30 days | Manual (automating Q1 2026) | Core JWKS health checks |
 | **TLS ingress certs** | 90 days (Let's Encrypt) | cert-manager | cert-manager metrics |
 
 **Zero-downtime rotation:**
 - SPIRE agent pre-fetches next certificate before expiration
 - gRPC clients retry with new cert on TLS handshake failure
-- Kong gracefully reloads configuration without dropping connections
+- Edge proxy reloads configuration without dropping connections
 
 **Secure Software Supply Chain:**
 
@@ -942,7 +942,7 @@ features:
 | **Agents** | Manual/HPA | Device count | 1000 instances |
 | **Core API** | HPA (CPU:80%) | Kubernetes HPA | 10 replicas (Q1 2026) |
 | **Web UI** | HPA (requests) | Kubernetes HPA | 20 replicas |
-| **Kong Gateway** | HPA (connections) | Kubernetes HPA | 10 replicas |
+| **Edge Proxy** | HPA (connections) | Kubernetes HPA | 10 replicas |
 
 **Service Level Objectives (SLOs):**
 
@@ -960,7 +960,7 @@ features:
 |----------------|-----------|---------------|----------------|
 | +10k devices | +20% Core API | +2GB Core API | +100GB/month |
 | +1k events/sec | +1 poller replica | +512MB per poller | +50GB/month |
-| +100 concurrent users | +10% Web UI | +1GB Kong | Minimal |
+| +100 concurrent users | +10% Web UI | +1GB edge proxy | Minimal |
 
 **Resource exhaustion scenarios:**
 
@@ -991,7 +991,7 @@ features:
 | **Devices per cluster** | 100,000 | Load testing validated |
 | **Pollers per cluster** | 100 | Network connection limits |
 | **Events per second** | 10,000 | NATS throughput testing |
-| **Concurrent API users** | 1,000 | Kong connection pooling |
+| **Concurrent API users** | 1,000 | Edge proxy connection pooling |
 | **Data retention (default)** | 90 days | Storage cost optimization |
 
 **Resilience patterns:**
@@ -1002,7 +1002,7 @@ features:
 | **Bulkhead** | Separate goroutine pools per tenant | Core API request handling |
 | **Retry with Backoff** | Exponential backoff, max 5 attempts, 30s max delay | Database queries |
 | **Timeout** | 30s for external calls, 10s for internal gRPC | All API calls |
-| **Rate Limiting** | 1000 req/min per user (Kong) | API gateway |
+| **Rate Limiting** | 1000 req/min per user (edge proxy) | API gateway |
 
 ### Observability Requirements
 
@@ -1154,7 +1154,7 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 | **NATS JetStream** | v2.10+ | Message broker, KV store | Critical (data loss if down) |
 | **CNPG/Timescale** | v1.5+ | Stream processing database | Critical (queries fail) |
 | **SPIFFE/SPIRE** | v1.8+ | Workload identity, mTLS | Critical (auth fails) |
-| **Kong Gateway** | v3.4+ | API gateway | High (API access denied) |
+| **Edge Proxy** | Caddy/Nginx | TLS termination, routing | High (API access denied) |
 | **Kubernetes** | 1.25+ | Orchestration | Critical (entire system) |
 
 **Impact of unavailability:**
@@ -1164,7 +1164,7 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 | **NATS** | Data ingestion halted | Pollers buffer locally (5min) | Automatic retry, drain buffer |
 | **CNPG** | Queries fail, writes buffered | NATS retains messages | Replay from NATS on recovery |
 | **SPIRE** | New pods fail auth | Existing services continue | Restart SPIRE, pods self-heal |
-| **Kong** | API access denied | Direct Core API access possible | Restart Kong, routes restored |
+| **Edge Proxy** | API access denied | Direct Core API access possible | Restart proxy, routes restored |
 
 **Dependency lifecycle policy:**
 
@@ -1349,7 +1349,7 @@ docker save ghcr.io/carverauto/serviceradar-core:v1.0.53 | \
 
 | Layer | Mechanism | Enforcement Point |
 |-------|-----------|------------------|
-| **API Gateway** | Kong JWT validation, rate limiting | External traffic entry |
+| **Edge Proxy** | TLS termination, routing | External traffic entry |
 | **Service Mesh** | mTLS certificate validation | Every gRPC call |
 | **RBAC Engine** | Tenant-scoped permission checks | Core API middleware |
 | **Database** | Query scoping (`WHERE tenant_id = $1`) | CNPG/Timescale |
