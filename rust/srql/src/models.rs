@@ -6,48 +6,114 @@ use diesel::prelude::*;
 use diesel::sql_types::{Array, Float8, Int4, Int8, Nullable, Text, Timestamptz};
 use serde::Serialize;
 
+/// OCSF-aligned device row (OCSF v1.7.0 Device object)
 #[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::unified_devices)]
+#[diesel(table_name = crate::schema::ocsf_devices)]
 pub struct DeviceRow {
-    pub device_id: String,
+    // OCSF Core Identity
+    pub uid: String,
+    pub type_id: i32,
+    pub device_type: Option<String>,
+    pub name: Option<String>,
+    pub hostname: Option<String>,
     pub ip: Option<String>,
+    pub mac: Option<String>,
+
+    // OCSF Extended Identity
+    pub uid_alt: Option<String>,
+    pub vendor_name: Option<String>,
+    pub model: Option<String>,
+    pub domain: Option<String>,
+    pub zone: Option<String>,
+    pub subnet_uid: Option<String>,
+    pub vlan_uid: Option<String>,
+    pub region: Option<String>,
+
+    // OCSF Temporal
+    pub first_seen_time: Option<DateTime<Utc>>,
+    pub last_seen_time: Option<DateTime<Utc>>,
+    pub created_time: DateTime<Utc>,
+    pub modified_time: DateTime<Utc>,
+
+    // OCSF Risk and Compliance
+    pub risk_level_id: Option<i32>,
+    pub risk_level: Option<String>,
+    pub risk_score: Option<i32>,
+    pub is_managed: Option<bool>,
+    pub is_compliant: Option<bool>,
+    pub is_trusted: Option<bool>,
+
+    // OCSF Nested Objects (JSONB)
+    pub os: Option<serde_json::Value>,
+    pub hw_info: Option<serde_json::Value>,
+    pub network_interfaces: Option<serde_json::Value>,
+    pub owner: Option<serde_json::Value>,
+    pub org: Option<serde_json::Value>,
+    pub groups: Option<serde_json::Value>,
+    pub agent_list: Option<serde_json::Value>,
+
+    // ServiceRadar-specific fields
     pub poller_id: Option<String>,
     pub agent_id: Option<String>,
-    pub hostname: Option<String>,
-    pub mac: Option<String>,
     pub discovery_sources: Option<Vec<String>>,
-    pub is_available: bool,
-    pub first_seen: DateTime<Utc>,
-    pub last_seen: DateTime<Utc>,
+    pub is_available: Option<bool>,
     pub metadata: Option<serde_json::Value>,
-    pub device_type: Option<String>,
-    pub service_type: Option<String>,
-    pub service_status: Option<String>,
-    pub last_heartbeat: Option<DateTime<Utc>>,
-    pub os_info: Option<String>,
-    pub version_info: Option<String>,
 }
 
 impl DeviceRow {
     pub fn into_json(self) -> serde_json::Value {
         serde_json::json!({
-            "device_id": self.device_id,
+            // OCSF Core Identity
+            "uid": self.uid,
+            "type_id": self.type_id,
+            "type": self.device_type,
+            "device_type": self.device_type,  // Alias for backward compatibility
+            "name": self.name,
+            "hostname": self.hostname,
             "ip": self.ip,
+            "mac": self.mac,
+
+            // OCSF Extended Identity
+            "uid_alt": self.uid_alt,
+            "vendor_name": self.vendor_name,
+            "model": self.model,
+            "domain": self.domain,
+            "zone": self.zone,
+            "subnet_uid": self.subnet_uid,
+            "vlan_uid": self.vlan_uid,
+            "region": self.region,
+
+            // OCSF Temporal
+            "first_seen_time": self.first_seen_time,
+            "last_seen_time": self.last_seen_time,
+            "first_seen": self.first_seen_time,  // Alias for backward compatibility
+            "last_seen": self.last_seen_time,    // Alias for backward compatibility
+            "created_time": self.created_time,
+            "modified_time": self.modified_time,
+
+            // OCSF Risk and Compliance
+            "risk_level_id": self.risk_level_id,
+            "risk_level": self.risk_level,
+            "risk_score": self.risk_score,
+            "is_managed": self.is_managed,
+            "is_compliant": self.is_compliant,
+            "is_trusted": self.is_trusted,
+
+            // OCSF Nested Objects
+            "os": self.os,
+            "hw_info": self.hw_info,
+            "network_interfaces": self.network_interfaces,
+            "owner": self.owner,
+            "org": self.org,
+            "groups": self.groups,
+            "agent_list": self.agent_list,
+
+            // ServiceRadar-specific
             "poller_id": self.poller_id,
             "agent_id": self.agent_id,
-            "hostname": self.hostname,
-            "mac": self.mac,
             "discovery_sources": self.discovery_sources.unwrap_or_default(),
-            "is_available": self.is_available,
-            "first_seen": self.first_seen,
-            "last_seen": self.last_seen,
+            "is_available": self.is_available.unwrap_or(false),
             "metadata": self.metadata.unwrap_or(serde_json::json!({})),
-            "device_type": self.device_type,
-            "service_type": self.service_type,
-            "service_status": self.service_status,
-            "last_heartbeat": self.last_heartbeat,
-            "os_info": self.os_info,
-            "version_info": self.version_info,
         })
     }
 }

@@ -70,7 +70,7 @@ type Request struct {
 // Result captures the resolved execution plan, records, and diagnostics.
 type Result struct {
 	Engine      Engine `json:"engine"`
-	Devices     []*models.UnifiedDevice
+	Devices     []*models.OCSFDevice
 	Rows        []map[string]interface{}
 	Pagination  Pagination     `json:"pagination"`
 	Diagnostics map[string]any `json:"diagnostics,omitempty"`
@@ -79,9 +79,9 @@ type Result struct {
 
 // Registry abstracts the registry operations required by the planner.
 type Registry interface {
-	ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
-	SearchDevices(query string, limit int) []*models.UnifiedDevice
-	GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
+	ListDevices(ctx context.Context, limit, offset int) ([]*models.OCSFDevice, error)
+	SearchDevices(query string, limit int) []*models.OCSFDevice
+	GetDevice(ctx context.Context, deviceID string) (*models.OCSFDevice, error)
 	GetCollectorCapabilities(ctx context.Context, deviceID string) (*models.CollectorCapability, bool)
 	HasDeviceCapability(ctx context.Context, deviceID, capability string) bool
 }
@@ -238,7 +238,7 @@ func (p *Planner) decideEngine(req *Request, mode Mode) (Engine, map[string]any)
 	}
 }
 
-func (p *Planner) executeRegistry(ctx context.Context, req *Request) ([]*models.UnifiedDevice, Pagination, error) {
+func (p *Planner) executeRegistry(ctx context.Context, req *Request) ([]*models.OCSFDevice, Pagination, error) {
 	if p.registry == nil {
 		return nil, Pagination{}, errRegistryBackendMissing
 	}
@@ -259,26 +259,26 @@ func (p *Planner) executeRegistry(ctx context.Context, req *Request) ([]*models.
 		switch {
 		case err == nil && device != nil:
 			if offset > 0 {
-				return []*models.UnifiedDevice{}, Pagination{Limit: limit, Offset: offset}, nil
+				return []*models.OCSFDevice{}, Pagination{Limit: limit, Offset: offset}, nil
 			}
-			return []*models.UnifiedDevice{device}, Pagination{Limit: limit, Offset: offset}, nil
+			return []*models.OCSFDevice{device}, Pagination{Limit: limit, Offset: offset}, nil
 		case errors.Is(err, registry.ErrDeviceNotFound):
-			return []*models.UnifiedDevice{}, Pagination{Limit: limit, Offset: offset}, nil
+			return []*models.OCSFDevice{}, Pagination{Limit: limit, Offset: offset}, nil
 		case err != nil:
 			return nil, Pagination{}, err
 		default:
-			return []*models.UnifiedDevice{}, Pagination{Limit: limit, Offset: offset}, nil
+			return []*models.OCSFDevice{}, Pagination{Limit: limit, Offset: offset}, nil
 		}
 	}
 
 	searchTerm := strings.TrimSpace(filters["search"])
 
-	var devices []*models.UnifiedDevice
+	var devices []*models.OCSFDevice
 	if searchTerm != "" {
 		// fetch extra results so offset can be applied local-side
 		raw := p.registry.SearchDevices(searchTerm, limit+offset)
 		if offset >= len(raw) {
-			devices = make([]*models.UnifiedDevice, 0)
+			devices = make([]*models.OCSFDevice, 0)
 		} else {
 			raw = raw[offset:]
 			if len(raw) > limit {
@@ -361,19 +361,20 @@ func (p *Planner) supportsRegistry(query string, filters map[string]string) bool
 	return true
 }
 
-func filterByStatus(devices []*models.UnifiedDevice, status string) []*models.UnifiedDevice {
-	filtered := make([]*models.UnifiedDevice, 0, len(devices))
+func filterByStatus(devices []*models.OCSFDevice, status string) []*models.OCSFDevice {
+	filtered := make([]*models.OCSFDevice, 0, len(devices))
 	for _, device := range devices {
 		if device == nil {
 			continue
 		}
+		isAvailable := device.IsAvailable != nil && *device.IsAvailable
 		switch status {
 		case "online":
-			if device.IsAvailable {
+			if isAvailable {
 				filtered = append(filtered, device)
 			}
 		case "offline":
-			if !device.IsAvailable {
+			if !isAvailable {
 				filtered = append(filtered, device)
 			}
 		default:
@@ -383,23 +384,23 @@ func filterByStatus(devices []*models.UnifiedDevice, status string) []*models.Un
 	return filtered
 }
 
-func filterByCapability(ctx context.Context, devices []*models.UnifiedDevice, capability string, reg Registry) []*models.UnifiedDevice {
+func filterByCapability(ctx context.Context, devices []*models.OCSFDevice, capability string, reg Registry) []*models.OCSFDevice {
 	if reg == nil || capability == "" {
 		return devices
 	}
 
-	filtered := make([]*models.UnifiedDevice, 0, len(devices))
+	filtered := make([]*models.OCSFDevice, 0, len(devices))
 	capability = strings.ToLower(capability)
 
 	for _, device := range devices {
 		if device == nil {
 			continue
 		}
-		if reg.HasDeviceCapability(ctx, device.DeviceID, capability) {
+		if reg.HasDeviceCapability(ctx, device.UID, capability) {
 			filtered = append(filtered, device)
 			continue
 		}
-		if caps, ok := reg.GetCollectorCapabilities(ctx, device.DeviceID); ok && caps != nil {
+		if caps, ok := reg.GetCollectorCapabilities(ctx, device.UID); ok && caps != nil {
 			for _, c := range caps.Capabilities {
 				if strings.EqualFold(c, capability) {
 					filtered = append(filtered, device)

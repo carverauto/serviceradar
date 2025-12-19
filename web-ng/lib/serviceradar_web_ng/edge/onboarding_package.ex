@@ -1,4 +1,6 @@
 defmodule ServiceRadarWebNG.Edge.OnboardingPackage do
+  @moduledoc false
+
   use Ecto.Schema
 
   @primary_key {:id, :binary_id, autogenerate: false, source: :package_id}

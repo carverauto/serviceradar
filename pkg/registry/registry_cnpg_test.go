@@ -140,14 +140,14 @@ func TestResolveIPsToCanonicalCNPG(t *testing.T) {
 	// Because resolveIPsToCanonical now calls resolveCanonicalIPMappings, we must expect a lookup.
 	// We return them as valid canonical devices.
 	mockService.MockService.EXPECT().
-		GetUnifiedDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, ips []string, ids []string) ([]*models.UnifiedDevice, error) {
-			var res []*models.UnifiedDevice
-			for _, id := range ids {
-				if id == "device-a" || id == "device-b" {
-					res = append(res, &models.UnifiedDevice{
-						DeviceID: id,
-						Metadata: &models.DiscoveredField[map[string]string]{Value: map[string]string{}},
+		GetOCSFDevicesByIPsOrIDs(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, ips []string, uids []string) ([]*models.OCSFDevice, error) {
+			var res []*models.OCSFDevice
+			for _, uid := range uids {
+				if uid == "device-a" || uid == "device-b" {
+					res = append(res, &models.OCSFDevice{
+						UID:      uid,
+						Metadata: map[string]string{},
 					})
 				}
 			}

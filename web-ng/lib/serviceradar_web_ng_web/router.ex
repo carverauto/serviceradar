@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Router do
   use ServiceRadarWebNGWeb, :router
 
+  import Phoenix.LiveDashboard.Router
   import ServiceRadarWebNGWeb.UserAuth
 
   pipeline :browser do
@@ -25,6 +26,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :require_authenticated_user
   end
 
+  pipeline :dev_routes do
+    plug :ensure_dev_routes_enabled
+  end
+
   scope "/", ServiceRadarWebNGWeb do
     pipe_through :browser
 
@@ -37,24 +42,15 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     post "/query", QueryController, :execute
     get "/devices", DeviceController, :index
-    get "/devices/:device_id", DeviceController, :show
+    get "/devices/ocsf/export", DeviceController, :ocsf_export
+    get "/devices/:uid", DeviceController, :show
   end
 
-  # Enable LiveDashboard and Swoosh mailbox preview in development
-  if Application.compile_env(:serviceradar_web_ng, :dev_routes) do
-    # If you want to use the LiveDashboard in production, you should put
-    # it behind authentication and allow only admins to access it.
-    # If your application does not have an admins-only section yet,
-    # you can use Plug.BasicAuth to set up some basic authentication
-    # as long as you are also using SSL (which you should anyway).
-    import Phoenix.LiveDashboard.Router
+  scope "/dev" do
+    pipe_through [:browser, :dev_routes]
 
-    scope "/dev" do
-      pipe_through :browser
-
-      live_dashboard "/dashboard", metrics: ServiceRadarWebNGWeb.Telemetry
-      forward "/mailbox", Plug.Swoosh.MailboxPreview
-    end
+    live_dashboard "/dashboard", metrics: ServiceRadarWebNGWeb.Telemetry
+    forward "/mailbox", Plug.Swoosh.MailboxPreview
   end
 
   ## Authentication routes
@@ -69,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
       live "/analytics", AnalyticsLive.Index, :index
       live "/devices", DeviceLive.Index, :index
-      live "/devices/:device_id", DeviceLive.Show, :show
+      live "/devices/:uid", DeviceLive.Show, :show
       live "/pollers", PollerLive.Index, :index
       live "/pollers/:poller_id", PollerLive.Show, :show
       live "/events", EventLive.Index, :index
@@ -99,5 +95,15 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     post "/users/log-in", UserSessionController, :create
     delete "/users/log-out", UserSessionController, :delete
+  end
+
+  defp ensure_dev_routes_enabled(conn, _opts) do
+    if Application.get_env(:serviceradar_web_ng, :dev_routes, false) do
+      conn
+    else
+      conn
+      |> Plug.Conn.send_resp(:not_found, "Not Found")
+      |> Plug.Conn.halt()
+    end
   end
 end

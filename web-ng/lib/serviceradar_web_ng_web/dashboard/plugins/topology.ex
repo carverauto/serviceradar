@@ -36,8 +36,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
       |> Enum.map(&unwrap_payload/1)
       |> Enum.filter(&is_map/1)
 
-    with {:ok, graph} <- merge_graph_payloads(payloads) do
-      {:ok, graph}
+    case merge_graph_payloads(payloads) do
+      {:ok, graph} -> {:ok, graph}
+      other -> other
     end
   end
 

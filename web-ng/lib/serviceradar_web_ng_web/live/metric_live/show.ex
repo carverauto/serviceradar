@@ -182,12 +182,11 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
     points =
       values
       |> Enum.with_index()
-      |> Enum.map(fn {v, idx} ->
+      |> Enum.map_join(" ", fn {v, idx} ->
         x = if length(values) > 1, do: idx / (length(values) - 1) * 200.0, else: 0.0
         y = normalize_y(v, min_v, max_v)
         "#{fmt(x)},#{fmt(y)}"
       end)
-      |> Enum.join(" ")
 
     assigns =
       assigns
@@ -282,91 +281,116 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   end
 
   defp load_recent(socket, srql, %{} = metric) do
-    service = Map.get(metric, "service_name")
-    operation = Map.get(metric, "span_name")
-    metric_type = Map.get(metric, "metric_type")
-
-    query =
-      [
-        "in:otel_metrics",
-        "time:#{@recent_window}",
-        (is_binary(service) and service != "") && "service_name:\"#{escape_srql(service)}\"",
-        (is_binary(operation) and operation != "") && "span_name:\"#{escape_srql(operation)}\"",
-        (is_binary(metric_type) and metric_type != "") &&
-          "metric_type:\"#{escape_srql(metric_type)}\"",
-        "sort:timestamp:desc",
-        "limit:#{@recent_limit}"
-      ]
-      |> Enum.filter(&is_binary/1)
-      |> Enum.join(" ")
+    query = build_recent_query(metric)
 
     case srql.query(query) do
       {:ok, %{"results" => rows}} when is_list(rows) ->
-        histogram =
-          case normalize_metric_type(metric_type) do
-            "histogram" -> build_histogram(rows)
-            _ -> nil
-          end
-
         socket
         |> assign(:recent, rows)
-        |> assign(:histogram, histogram)
+        |> assign(:histogram, histogram_for_metric(metric, rows))
 
       _ ->
         assign(socket, :recent, []) |> assign(:histogram, nil)
     end
   end
 
+  defp build_recent_query(metric) do
+    service = Map.get(metric, "service_name")
+    operation = Map.get(metric, "span_name")
+    metric_type = Map.get(metric, "metric_type")
+
+    [
+      "in:otel_metrics",
+      "time:#{@recent_window}",
+      query_filter("service_name", service),
+      query_filter("span_name", operation),
+      query_filter("metric_type", metric_type),
+      "sort:timestamp:desc",
+      "limit:#{@recent_limit}"
+    ]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.join(" ")
+  end
+
+  defp query_filter(field, value) do
+    if is_binary(value) and value != "" do
+      "#{field}:\"#{escape_srql(value)}\""
+    else
+      nil
+    end
+  end
+
+  defp histogram_for_metric(metric, rows) do
+    case normalize_metric_type(Map.get(metric, "metric_type")) do
+      "histogram" -> build_histogram(rows)
+      _ -> nil
+    end
+  end
+
   defp build_histogram(rows) when is_list(rows) do
     values = rows |> Enum.map(&metric_value_ms/1) |> Enum.filter(&is_number/1)
 
-    if values == [] do
-      nil
-    else
-      min_v = Enum.min(values)
-      max_v = Enum.max(values)
-      bins = 10
-      range = if max_v == min_v, do: 1.0, else: max_v - min_v
-      width = range / bins
-
-      counts =
-        Enum.reduce(values, List.duplicate(0, bins), fn v, acc ->
-          idx =
-            if width <= 0 do
-              0
-            else
-              trunc((v - min_v) / width)
-            end
-
-          idx = idx |> max(0) |> min(bins - 1)
-          List.update_at(acc, idx, &(&1 + 1))
-        end)
-
-      sorted = Enum.sort(values)
-      p50 = Enum.at(sorted, trunc(length(sorted) * 0.50)) || min_v
-      p95 = Enum.at(sorted, trunc(length(sorted) * 0.95)) || max_v
-
-      %{
-        min: Float.round(min_v * 1.0, 1),
-        p50: Float.round(p50 * 1.0, 1),
-        p95: Float.round(p95 * 1.0, 1),
-        max: Float.round(max_v * 1.0, 1),
-        bins:
-          counts
-          |> Enum.with_index()
-          |> Enum.map(fn {count, idx} ->
-            %{
-              idx: idx,
-              count: count,
-              from: Float.round(min_v + idx * width, 1),
-              to: Float.round(min_v + (idx + 1) * width, 1)
-            }
-          end)
-      }
+    case values do
+      [] -> nil
+      _ -> build_histogram_from_values(values)
     end
   end
 
   defp build_histogram(_), do: nil
+
+  defp build_histogram_from_values(values) do
+    min_v = Enum.min(values)
+    max_v = Enum.max(values)
+    bins = 10
+    {width, counts} = histogram_counts(values, min_v, max_v, bins)
+    {p50, p95} = histogram_percentiles(values, min_v, max_v)
+
+    %{
+      min: Float.round(min_v * 1.0, 1),
+      p50: Float.round(p50 * 1.0, 1),
+      p95: Float.round(p95 * 1.0, 1),
+      max: Float.round(max_v * 1.0, 1),
+      bins: histogram_bins(counts, min_v, width)
+    }
+  end
+
+  defp histogram_counts(values, min_v, max_v, bins) do
+    range = if max_v == min_v, do: 1.0, else: max_v - min_v
+    width = range / bins
+
+    counts =
+      Enum.reduce(values, List.duplicate(0, bins), fn v, acc ->
+        idx = histogram_index(v, min_v, width, bins)
+        List.update_at(acc, idx, &(&1 + 1))
+      end)
+
+    {width, counts}
+  end
+
+  defp histogram_index(value, min_v, width, bins) do
+    idx = if width <= 0, do: 0, else: trunc((value - min_v) / width)
+    idx |> max(0) |> min(bins - 1)
+  end
+
+  defp histogram_percentiles(values, min_v, max_v) do
+    sorted = Enum.sort(values)
+    p50 = Enum.at(sorted, trunc(length(sorted) * 0.50)) || min_v
+    p95 = Enum.at(sorted, trunc(length(sorted) * 0.95)) || max_v
+    {p50, p95}
+  end
+
+  defp histogram_bins(counts, min_v, width) do
+    counts
+    |> Enum.with_index()
+    |> Enum.map(fn {count, idx} ->
+      %{
+        idx: idx,
+        count: count,
+        from: Float.round(min_v + idx * width, 1),
+        to: Float.round(min_v + (idx + 1) * width, 1)
+      }
+    end)
+  end
 
   defp format_metric_value(metric) do
     value = metric_value_ms(metric)
@@ -374,28 +398,34 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   end
 
   defp metric_value_ms(%{} = metric) do
-    cond do
-      is_number(metric["duration_ms"]) ->
-        metric["duration_ms"] * 1.0
-
-      is_binary(metric["duration_ms"]) ->
-        parse_float(metric["duration_ms"])
-
-      is_number(metric["duration_seconds"]) ->
-        metric["duration_seconds"] * 1000.0
-
-      is_binary(metric["duration_seconds"]) ->
-        case parse_float(metric["duration_seconds"]) do
-          n when is_number(n) -> n * 1000.0
-          _ -> nil
-        end
-
-      true ->
-        nil
+    case duration_ms_from_metric(metric) do
+      value when is_number(value) -> value * 1.0
+      _ -> nil
     end
   end
 
   defp metric_value_ms(_), do: nil
+
+  defp duration_ms_from_metric(metric) do
+    case metric_numeric_value(metric, "duration_ms") do
+      value when is_number(value) ->
+        value
+
+      _ ->
+        case metric_numeric_value(metric, "duration_seconds") do
+          value when is_number(value) -> value * 1000.0
+          _ -> nil
+        end
+    end
+  end
+
+  defp metric_numeric_value(metric, key) do
+    case Map.get(metric, key) do
+      value when is_number(value) -> value
+      value when is_binary(value) -> parse_float(value)
+      _ -> nil
+    end
+  end
 
   defp parse_float(value) when is_binary(value) do
     case Float.parse(String.trim(value)) do
@@ -407,24 +437,13 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   defp parse_float(_), do: nil
 
   defp metric_operation(metric) do
-    http_route = Map.get(metric, "http_route")
-    http_method = Map.get(metric, "http_method")
-    grpc_service = Map.get(metric, "grpc_service")
-    grpc_method = Map.get(metric, "grpc_method")
+    grpc = grpc_operation(metric)
+    http = http_operation(metric)
 
     cond do
-      is_binary(grpc_service) and grpc_service != "" and is_binary(grpc_method) and
-          grpc_method != "" ->
-        "#{grpc_service}/#{grpc_method}"
-
-      is_binary(http_method) and http_method != "" and is_binary(http_route) and http_route != "" ->
-        "#{http_method} #{http_route}"
-
-      is_binary(http_route) and http_route != "" ->
-        http_route
-
-      true ->
-        Map.get(metric, "span_name") || "—"
+      is_binary(grpc) -> grpc
+      is_binary(http) -> http
+      true -> Map.get(metric, "span_name") || "—"
     end
   end
 
@@ -433,15 +452,9 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
     route = Map.get(metric, "http_route")
     status = Map.get(metric, "http_status_code")
 
-    cond do
-      is_binary(method) and method != "" and is_binary(route) and route != "" ->
-        "#{method} #{route} (#{status || "—"})"
-
-      is_binary(route) and route != "" ->
-        "#{route} (#{status || "—"})"
-
-      true ->
-        "—"
+    case http_operation_string(method, route) do
+      nil -> "—"
+      operation -> "#{operation} (#{status || "—"})"
     end
   end
 
@@ -450,17 +463,42 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
     method = Map.get(metric, "grpc_method")
     status = Map.get(metric, "grpc_status_code")
 
-    cond do
-      is_binary(service) and service != "" and is_binary(method) and method != "" ->
-        "#{service}/#{method} (#{status || "—"})"
-
-      is_binary(service) and service != "" ->
-        "#{service} (#{status || "—"})"
-
-      true ->
-        "—"
+    case grpc_operation_string(service, method) do
+      nil -> "—"
+      operation -> "#{operation} (#{status || "—"})"
     end
   end
+
+  defp grpc_operation(metric) do
+    service = Map.get(metric, "grpc_service")
+    method = Map.get(metric, "grpc_method")
+    grpc_operation_string(service, method)
+  end
+
+  defp grpc_operation_string(service, method) do
+    if non_empty_string?(service) and non_empty_string?(method) do
+      "#{service}/#{method}"
+    else
+      if non_empty_string?(service), do: service, else: nil
+    end
+  end
+
+  defp http_operation(metric) do
+    method = Map.get(metric, "http_method")
+    route = Map.get(metric, "http_route")
+    http_operation_string(method, route)
+  end
+
+  defp http_operation_string(method, route) do
+    cond do
+      non_empty_string?(method) and non_empty_string?(route) -> "#{method} #{route}"
+      non_empty_string?(route) -> route
+      true -> nil
+    end
+  end
+
+  defp non_empty_string?(value) when is_binary(value), do: String.trim(value) != ""
+  defp non_empty_string?(_), do: false
 
   defp correlated_logs_href(metric) do
     trace_id = Map.get(metric, "trace_id")

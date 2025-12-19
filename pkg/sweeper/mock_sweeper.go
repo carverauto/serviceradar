@@ -485,10 +485,10 @@ func (m *MockDeviceRegistryService) EXPECT() *MockDeviceRegistryServiceMockRecor
 }
 
 // GetDevice mocks base method.
-func (m *MockDeviceRegistryService) GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
+func (m *MockDeviceRegistryService) GetDevice(ctx context.Context, deviceID string) (*models.OCSFDevice, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDevice", ctx, deviceID)
-	ret0, _ := ret[0].(*models.UnifiedDevice)
+	ret0, _ := ret[0].(*models.OCSFDevice)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -500,10 +500,10 @@ func (mr *MockDeviceRegistryServiceMockRecorder) GetDevice(ctx, deviceID any) *g
 }
 
 // GetDeviceByIDStrict mocks base method.
-func (m *MockDeviceRegistryService) GetDeviceByIDStrict(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
+func (m *MockDeviceRegistryService) GetDeviceByIDStrict(ctx context.Context, deviceID string) (*models.OCSFDevice, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDeviceByIDStrict", ctx, deviceID)
-	ret0, _ := ret[0].(*models.UnifiedDevice)
+	ret0, _ := ret[0].(*models.OCSFDevice)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -515,10 +515,10 @@ func (mr *MockDeviceRegistryServiceMockRecorder) GetDeviceByIDStrict(ctx, device
 }
 
 // GetDevicesByIP mocks base method.
-func (m *MockDeviceRegistryService) GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error) {
+func (m *MockDeviceRegistryService) GetDevicesByIP(ctx context.Context, ip string) ([]*models.OCSFDevice, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDevicesByIP", ctx, ip)
-	ret0, _ := ret[0].([]*models.UnifiedDevice)
+	ret0, _ := ret[0].([]*models.OCSFDevice)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -530,10 +530,10 @@ func (mr *MockDeviceRegistryServiceMockRecorder) GetDevicesByIP(ctx, ip any) *go
 }
 
 // ListDevices mocks base method.
-func (m *MockDeviceRegistryService) ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error) {
+func (m *MockDeviceRegistryService) ListDevices(ctx context.Context, limit, offset int) ([]*models.OCSFDevice, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListDevices", ctx, limit, offset)
-	ret0, _ := ret[0].([]*models.UnifiedDevice)
+	ret0, _ := ret[0].([]*models.OCSFDevice)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

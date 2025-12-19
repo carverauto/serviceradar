@@ -270,7 +270,7 @@ Restart the checker using the persisted config:
    - Authenticate to GHCR if needed: `./scripts/docker-login.sh`.
    - Run `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')` to ensure every container bakes successfully before publishing.
    - Run `bazel run --config=remote //docker/images:push_all`. This reuses the build artifacts, publishes `latest`, `sha-<commit>`, and short-digest tags, and refreshes the embedded `build-info.json`.
-   - If a single image needs republishing, run `bazel run //docker/images:<target>_push` (for example `//docker/images:web_image_amd64_push`).
+   - If a single image needs republishing, run `bazel run //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`).
    - Capture the new image identifiers you care about (for example `git rev-parse HEAD` for the commit tag or the full digest printed during the push). You'll use these when refreshing Kubernetes.
 4. Roll the demo namespace:
    - Restart workloads with `kubectl get deploy -n demo -o name | xargs -r -L1 kubectl rollout restart -n demo`.

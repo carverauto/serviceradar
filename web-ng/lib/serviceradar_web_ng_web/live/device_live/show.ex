@@ -33,7 +33,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:ok,
      socket
      |> assign(:page_title, "Device")
-     |> assign(:device_id, nil)
+     |> assign(:device_uid, nil)
      |> assign(:results, [])
      |> assign(:panels, [])
      |> assign(:metric_sections, [])
@@ -45,11 +45,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   @impl true
-  def handle_params(%{"device_id" => device_id} = params, uri, socket) do
+  def handle_params(%{"uid" => uid} = params, uri, socket) do
     limit = parse_limit(Map.get(params, "limit"), @default_limit, @max_limit)
 
     default_query =
-      "in:devices device_id:\"#{escape_value(device_id)}\" limit:#{limit}"
+      "in:devices uid:\"#{escape_value(uid)}\" limit:#{limit}"
 
     query =
       params
@@ -97,14 +97,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     srql_response = %{"results" => results, "viz" => viz}
 
-    metric_sections = load_metric_sections(srql_module, device_id)
-    sysmon_summary = load_sysmon_summary(srql_module, device_id)
-    availability = load_availability(srql_module, device_id)
-    healthcheck_summary = load_healthcheck_summary(srql_module, device_id)
+    metric_sections = load_metric_sections(srql_module, uid)
+    sysmon_summary = load_sysmon_summary(srql_module, uid)
+    availability = load_availability(srql_module, uid)
+    healthcheck_summary = load_healthcheck_summary(srql_module, uid)
 
     {:noreply,
      socket
-     |> assign(:device_id, device_id)
+     |> assign(:device_uid, uid)
      |> assign(:limit, limit)
      |> assign(:results, results)
      |> assign(:panels, Engine.build_panels(srql_response))
@@ -121,7 +121,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event("srql_submit", %{"q" => q}, socket) do
-    page_path = socket.assigns.srql[:page_path] || "/devices/#{socket.assigns.device_id}"
+    page_path = socket.assigns.srql[:page_path] || "/devices/#{socket.assigns.device_uid}"
 
     query =
       q
@@ -160,7 +160,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         <.header>
           Device
           <:subtitle>
-            <span class="font-mono text-xs">{@device_id}</span>
+            <span class="font-mono text-xs">{@device_uid}</span>
           </:subtitle>
           <:actions>
             <.ui_button href={~p"/devices"} variant="ghost" size="sm">Back to devices</.ui_button>
@@ -179,12 +179,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
               <.kv_inline label="Hostname" value={Map.get(@device_row, "hostname")} />
               <.kv_inline label="IP" value={Map.get(@device_row, "ip")} mono />
+              <.kv_inline label="Type" value={Map.get(@device_row, "type")} />
+              <.kv_inline label="Vendor" value={Map.get(@device_row, "vendor_name")} />
+              <.kv_inline label="Model" value={Map.get(@device_row, "model")} />
               <.kv_inline label="Poller" value={Map.get(@device_row, "poller_id")} mono />
               <.kv_inline label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
-              <.kv_inline label="OS" value={Map.get(@device_row, "os_info")} />
-              <.kv_inline label="Version" value={Map.get(@device_row, "version_info")} />
             </div>
           </div>
+
+          <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
 
           <.availability_section :if={is_map(@availability)} availability={@availability} />
 
@@ -209,7 +212,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 <%= for panel <- section.panels do %>
                   <.live_component
                     module={panel.plugin}
-                    id={"device-#{@device_id}-#{section.key}-#{panel.id}"}
+                    id={"device-#{@device_uid}-#{section.key}-#{panel.id}"}
                     title={section.title}
                     panel_assigns={Map.put(panel.assigns, :compact, true)}
                   />
@@ -253,7 +256,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     # Order remaining keys nicely
     preferred = [
-      "device_id",
+      "uid",
       "agent_id",
       "device_type",
       "service_type",
@@ -307,8 +310,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     key
     |> String.replace("_", " ")
     |> String.split(" ")
-    |> Enum.map(&String.capitalize/1)
-    |> Enum.join(" ")
+    |> Enum.map_join(" ", &String.capitalize/1)
   end
 
   defp format_label(key), do: to_string(key)
@@ -350,6 +352,304 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_value(v) when is_binary(v), do: v
   defp format_value(v), do: to_string(v)
 
+  # ---------------------------------------------------------------------------
+  # OCSF Information Section (OS, Hardware, Network, Compliance)
+  # ---------------------------------------------------------------------------
+
+  attr :device_row, :map, required: true
+
+  def ocsf_info_section(assigns) do
+    assigns = assign_ocsf_info(assigns)
+
+    ~H"""
+    <div :if={@has_any} class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <.os_info_card :if={@has_os} os={@os} />
+      <.hw_info_card :if={@has_hw} hw_info={@hw_info} />
+      <.compliance_card
+        :if={@has_compliance}
+        risk_level={@risk_level}
+        risk_score={@risk_score}
+        is_managed={@is_managed}
+        is_compliant={@is_compliant}
+        is_trusted={@is_trusted}
+      />
+      <.network_interfaces_card :if={@has_ifaces} interfaces={@network_interfaces} />
+    </div>
+    """
+  end
+
+  defp assign_ocsf_info(assigns) do
+    os = Map.get(assigns.device_row, "os")
+    hw_info = Map.get(assigns.device_row, "hw_info")
+    network_interfaces = Map.get(assigns.device_row, "network_interfaces") || []
+    risk_level = Map.get(assigns.device_row, "risk_level")
+    risk_score = Map.get(assigns.device_row, "risk_score")
+    is_managed = Map.get(assigns.device_row, "is_managed")
+    is_compliant = Map.get(assigns.device_row, "is_compliant")
+    is_trusted = Map.get(assigns.device_row, "is_trusted")
+
+    has_os = map_present?(os)
+    has_hw = map_present?(hw_info)
+    has_ifaces = list_present?(network_interfaces)
+    has_compliance = compliance_present?(risk_level, is_managed, is_compliant)
+    has_any = has_os or has_hw or has_ifaces or has_compliance
+
+    assigns
+    |> assign(:os, os)
+    |> assign(:hw_info, hw_info)
+    |> assign(:network_interfaces, network_interfaces)
+    |> assign(:risk_level, risk_level)
+    |> assign(:risk_score, risk_score)
+    |> assign(:is_managed, is_managed)
+    |> assign(:is_compliant, is_compliant)
+    |> assign(:is_trusted, is_trusted)
+    |> assign(:has_os, has_os)
+    |> assign(:has_hw, has_hw)
+    |> assign(:has_ifaces, has_ifaces)
+    |> assign(:has_compliance, has_compliance)
+    |> assign(:has_any, has_any)
+  end
+
+  defp map_present?(value), do: is_map(value) and map_size(value) > 0
+  defp list_present?(value), do: is_list(value) and value != []
+
+  defp compliance_present?(risk_level, is_managed, is_compliant) do
+    not is_nil(risk_level) or not is_nil(is_managed) or not is_nil(is_compliant)
+  end
+
+  attr :os, :map, required: true
+
+  defp os_info_card(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-cpu-chip" class="size-4 text-info" />
+          <span class="text-sm font-semibold">Operating System</span>
+        </div>
+      </div>
+      <div class="p-4">
+        <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <.kv_block :if={Map.get(@os, "name")} label="Name" value={Map.get(@os, "name")} />
+          <.kv_block :if={Map.get(@os, "type")} label="Type" value={Map.get(@os, "type")} />
+          <.kv_block :if={Map.get(@os, "version")} label="Version" value={Map.get(@os, "version")} />
+          <.kv_block :if={Map.get(@os, "build")} label="Build" value={Map.get(@os, "build")} />
+          <.kv_block :if={Map.get(@os, "edition")} label="Edition" value={Map.get(@os, "edition")} />
+          <.kv_block
+            :if={Map.get(@os, "kernel_release")}
+            label="Kernel"
+            value={Map.get(@os, "kernel_release")}
+          />
+          <.kv_block
+            :if={Map.get(@os, "cpu_bits")}
+            label="Arch"
+            value={"#{Map.get(@os, "cpu_bits")}-bit"}
+          />
+          <.kv_block :if={Map.get(@os, "lang")} label="Language" value={Map.get(@os, "lang")} />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :hw_info, :map, required: true
+
+  defp hw_info_card(assigns) do
+    ram_size = Map.get(assigns.hw_info, "ram_size")
+    ram_display = if is_number(ram_size), do: format_bytes(ram_size), else: nil
+
+    assigns = assign(assigns, :ram_display, ram_display)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-server" class="size-4 text-success" />
+          <span class="text-sm font-semibold">Hardware Info</span>
+        </div>
+      </div>
+      <div class="p-4">
+        <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <.kv_block
+            :if={Map.get(@hw_info, "cpu_type")}
+            label="CPU Type"
+            value={Map.get(@hw_info, "cpu_type")}
+          />
+          <.kv_block
+            :if={Map.get(@hw_info, "cpu_architecture")}
+            label="Architecture"
+            value={Map.get(@hw_info, "cpu_architecture")}
+          />
+          <.kv_block
+            :if={Map.get(@hw_info, "cpu_cores")}
+            label="CPU Cores"
+            value={Map.get(@hw_info, "cpu_cores")}
+          />
+          <.kv_block
+            :if={Map.get(@hw_info, "cpu_count")}
+            label="CPU Count"
+            value={Map.get(@hw_info, "cpu_count")}
+          />
+          <.kv_block
+            :if={Map.get(@hw_info, "cpu_speed_mhz")}
+            label="CPU Speed"
+            value={"#{Map.get(@hw_info, "cpu_speed_mhz")} MHz"}
+          />
+          <.kv_block :if={@ram_display} label="RAM" value={@ram_display} />
+          <.kv_block
+            :if={Map.get(@hw_info, "serial_number")}
+            label="Serial"
+            value={Map.get(@hw_info, "serial_number")}
+          />
+          <.kv_block
+            :if={Map.get(@hw_info, "chassis")}
+            label="Chassis"
+            value={Map.get(@hw_info, "chassis")}
+          />
+          <.kv_block
+            :if={Map.get(@hw_info, "bios_manufacturer")}
+            label="BIOS Vendor"
+            value={Map.get(@hw_info, "bios_manufacturer")}
+          />
+          <.kv_block
+            :if={Map.get(@hw_info, "bios_ver")}
+            label="BIOS Version"
+            value={Map.get(@hw_info, "bios_ver")}
+          />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :risk_level, :string, default: nil
+  attr :risk_score, :integer, default: nil
+  attr :is_managed, :boolean, default: nil
+  attr :is_compliant, :boolean, default: nil
+  attr :is_trusted, :boolean, default: nil
+
+  defp compliance_card(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-shield-check" class="size-4 text-warning" />
+          <span class="text-sm font-semibold">Risk & Compliance</span>
+        </div>
+      </div>
+      <div class="p-4">
+        <div class="flex flex-wrap gap-4">
+          <div :if={@risk_level} class="flex items-center gap-2">
+            <span class="text-xs text-base-content/60">Risk Level:</span>
+            <.risk_badge level={@risk_level} />
+          </div>
+          <div :if={@risk_score} class="flex items-center gap-2">
+            <span class="text-xs text-base-content/60">Risk Score:</span>
+            <span class="font-semibold tabular-nums">{@risk_score}</span>
+          </div>
+          <div :if={not is_nil(@is_managed)} class="flex items-center gap-2">
+            <span class="text-xs text-base-content/60">Managed:</span>
+            <.bool_badge value={@is_managed} />
+          </div>
+          <div :if={not is_nil(@is_compliant)} class="flex items-center gap-2">
+            <span class="text-xs text-base-content/60">Compliant:</span>
+            <.bool_badge value={@is_compliant} />
+          </div>
+          <div :if={not is_nil(@is_trusted)} class="flex items-center gap-2">
+            <span class="text-xs text-base-content/60">Trusted:</span>
+            <.bool_badge value={@is_trusted} />
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :level, :string, required: true
+
+  defp risk_badge(assigns) do
+    {color, _} =
+      case assigns.level do
+        "Critical" -> {"error", "Critical"}
+        "High" -> {"warning", "High"}
+        "Medium" -> {"info", "Medium"}
+        "Low" -> {"success", "Low"}
+        _ -> {"ghost", assigns.level}
+      end
+
+    assigns = assign(assigns, :color, color)
+
+    ~H"""
+    <span class={["badge badge-sm", "badge-#{@color}"]}>{@level}</span>
+    """
+  end
+
+  attr :value, :boolean, required: true
+
+  defp bool_badge(assigns) do
+    {label, color} = if assigns.value, do: {"Yes", "success"}, else: {"No", "error"}
+    assigns = assigns |> assign(:label, label) |> assign(:color, color)
+
+    ~H"""
+    <span class={["badge badge-sm", "badge-#{@color}"]}>{@label}</span>
+    """
+  end
+
+  attr :interfaces, :list, required: true
+
+  defp network_interfaces_card(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm lg:col-span-2">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-signal" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Network Interfaces</span>
+          <span class="text-xs text-base-content/50">({length(@interfaces)} interfaces)</span>
+        </div>
+      </div>
+      <div class="p-4">
+        <div class="overflow-x-auto">
+          <table class="table table-xs w-full">
+            <thead>
+              <tr>
+                <th class="text-xs">Name</th>
+                <th class="text-xs">IP</th>
+                <th class="text-xs">MAC</th>
+                <th class="text-xs">Type</th>
+              </tr>
+            </thead>
+            <tbody>
+              <%= for iface <- Enum.take(@interfaces, 10) do %>
+                <tr>
+                  <td class="font-mono text-xs">{Map.get(iface, "name") || "—"}</td>
+                  <td class="font-mono text-xs">{Map.get(iface, "ip") || "—"}</td>
+                  <td class="font-mono text-xs">{Map.get(iface, "mac") || "—"}</td>
+                  <td class="text-xs">{Map.get(iface, "type") || "—"}</td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+        <div :if={length(@interfaces) > 10} class="text-xs text-base-content/50 mt-2">
+          Showing 10 of {length(@interfaces)} interfaces
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+
+  defp kv_block(assigns) do
+    ~H"""
+    <div>
+      <div class="text-xs text-base-content/50">{@label}</div>
+      <div class="font-medium">{format_value(@value)}</div>
+    </div>
+    """
+  end
+
   defp parse_limit(nil, default, _max), do: default
 
   defp parse_limit(limit, default, max) when is_binary(limit) do
@@ -373,9 +673,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp escape_value(other), do: escape_value(to_string(other))
 
-  defp load_metric_sections(srql_module, device_id) do
-    device_id = escape_value(device_id)
+  defp load_metric_sections(srql_module, device_uid) do
+    device_uid = escape_value(device_uid)
 
+    metric_section_specs()
+    |> Enum.map(&build_metric_section(srql_module, &1, device_uid))
+  end
+
+  defp metric_section_specs do
     [
       %{
         key: "cpu",
@@ -399,45 +704,49 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         subtitle: "last 24h · 5m buckets · avg"
       }
     ]
-    |> Enum.map(fn spec ->
-      query = metric_query(spec.entity, device_id, spec.series)
+  end
 
-      base = %{
-        key: spec.key,
-        title: spec.title,
-        subtitle: spec.subtitle,
-        query: query,
-        panels: [],
-        error: nil
-      }
+  defp build_metric_section(srql_module, spec, device_uid) do
+    query = metric_query(spec.entity, device_uid, spec.series)
 
-      case srql_module.query(query) do
-        {:ok, %{"results" => results} = resp} when is_list(results) and results != [] ->
-          viz =
-            case Map.get(resp, "viz") do
-              value when is_map(value) -> value
-              _ -> nil
-            end
+    base = %{
+      key: spec.key,
+      title: spec.title,
+      subtitle: spec.subtitle,
+      query: query,
+      panels: [],
+      error: nil
+    }
 
-          srql_response = %{"results" => results, "viz" => viz}
+    case srql_module.query(query) do
+      {:ok, %{"results" => results} = resp} when is_list(results) and results != [] ->
+        panels = build_metric_panels(resp, results)
+        %{base | panels: panels}
 
-          panels =
-            srql_response
-            |> Engine.build_panels()
-            |> prefer_visual_panels(results)
+      {:ok, %{"results" => results}} when is_list(results) ->
+        base
 
-          %{base | panels: panels}
+      {:ok, other} ->
+        %{base | error: "unexpected SRQL response: #{inspect(other)}"}
 
-        {:ok, %{"results" => results}} when is_list(results) ->
-          base
+      {:error, reason} ->
+        %{base | error: "SRQL error: #{format_error(reason)}"}
+    end
+  end
 
-        {:ok, other} ->
-          %{base | error: "unexpected SRQL response: #{inspect(other)}"}
+  defp build_metric_panels(resp, results) do
+    srql_response = %{"results" => results, "viz" => extract_viz(resp)}
 
-        {:error, reason} ->
-          %{base | error: "SRQL error: #{format_error(reason)}"}
-      end
-    end)
+    srql_response
+    |> Engine.build_panels()
+    |> prefer_visual_panels(results)
+  end
+
+  defp extract_viz(resp) do
+    case Map.get(resp, "viz") do
+      value when is_map(value) -> value
+      _ -> nil
+    end
   end
 
   defp prefer_visual_panels(panels, results) when is_list(panels) do
@@ -452,7 +761,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp prefer_visual_panels(panels, _results), do: panels
 
-  defp metric_query(entity, device_id_escaped, series_field) do
+  defp metric_query(entity, device_uid_escaped, series_field) do
     series_field =
       case series_field do
         nil -> nil
@@ -463,7 +772,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     tokens =
       [
         "in:#{entity}",
-        "device_id:\"#{device_id_escaped}\"",
+        "device_id:\"#{device_uid_escaped}\"",
         "time:last_24h",
         "bucket:5m",
         "agg:avg",
@@ -764,8 +1073,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   # Data Loading Functions
   # ---------------------------------------------------------------------------
 
-  defp load_availability(srql_module, device_id) do
-    escaped_id = escape_value(device_id)
+  defp load_availability(srql_module, device_uid) do
+    escaped_id = escape_value(device_uid)
 
     query =
       "in:timeseries_metrics metric_type:icmp device_id:\"#{escaped_id}\" " <>
@@ -866,8 +1175,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     }
   end
 
-  defp load_sysmon_summary(srql_module, device_id) do
-    escaped_id = escape_value(device_id)
+  defp load_sysmon_summary(srql_module, device_uid) do
+    escaped_id = escape_value(device_uid)
 
     # Load CPU, Memory, Disk metrics in parallel (conceptually - in sequence here)
     cpu_data = load_cpu_summary(srql_module, escaped_id)
@@ -926,14 +1235,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:ok, %{"results" => [row | _]}} when is_map(row) ->
         used = extract_numeric(Map.get(row, "used_bytes") || Map.get(row, "value"))
         total = extract_numeric(Map.get(row, "total_bytes"))
-
-        # Calculate percent if we have both
-        pct =
-          cond do
-            is_number(Map.get(row, "percent")) -> Map.get(row, "percent")
-            is_number(used) and is_number(total) and total > 0 -> used / total * 100.0
-            true -> 0.0
-          end
+        pct = percent_from_row(row, used, total)
 
         %{
           used_bytes: used || 0,
@@ -955,27 +1257,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         # Group by mount point and take the latest for each
         rows
         |> Enum.filter(&is_map/1)
-        |> Enum.group_by(fn r ->
-          Map.get(r, "mount_point") || Map.get(r, "mount") || "unknown"
-        end)
+        |> Enum.group_by(&disk_mount/1)
         |> Enum.map(fn {mount, disk_rows} ->
-          latest = List.first(disk_rows)
-          used = extract_numeric(Map.get(latest, "used_bytes") || Map.get(latest, "value"))
-          total = extract_numeric(Map.get(latest, "total_bytes"))
-
-          pct =
-            cond do
-              is_number(Map.get(latest, "percent")) -> Map.get(latest, "percent")
-              is_number(used) and is_number(total) and total > 0 -> used / total * 100.0
-              true -> 0.0
-            end
-
-          %{
-            mount_point: mount,
-            used_bytes: used || 0,
-            total_bytes: total || 0,
-            percent: Float.round(pct * 1.0, 1)
-          }
+          build_disk_entry(mount, List.first(disk_rows))
         end)
         |> Enum.sort_by(& &1.percent, :desc)
 
@@ -990,21 +1274,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     case srql_module.query(query) do
       {:ok, %{"results" => [row | _]}} when is_map(row) ->
-        value = extract_numeric(Map.get(row, "value"))
-
-        # Convert from nanoseconds if value is very large
-        if is_number(value) do
-          if value > 1_000_000.0,
-            do: Float.round(value / 1_000_000.0, 2),
-            else: Float.round(value * 1.0, 2)
-        else
-          nil
-        end
+        row
+        |> Map.get("value")
+        |> extract_numeric()
+        |> normalize_icmp_rtt()
 
       _ ->
         nil
     end
   end
+
+  defp percent_from_row(row, used, total) do
+    case Map.get(row, "percent") do
+      value when is_number(value) ->
+        value
+
+      _ ->
+        if is_number(used) and is_number(total) and total > 0 do
+          used / total * 100.0
+        else
+          0.0
+        end
+    end
+  end
+
+  defp disk_mount(row) do
+    Map.get(row, "mount_point") || Map.get(row, "mount") || "unknown"
+  end
+
+  defp build_disk_entry(mount, latest) do
+    used = extract_numeric(Map.get(latest, "used_bytes") || Map.get(latest, "value"))
+    total = extract_numeric(Map.get(latest, "total_bytes"))
+    pct = percent_from_row(latest, used, total)
+
+    %{
+      mount_point: mount,
+      used_bytes: used || 0,
+      total_bytes: total || 0,
+      percent: Float.round(pct * 1.0, 1)
+    }
+  end
+
+  defp normalize_icmp_rtt(value) when is_number(value) do
+    if value > 1_000_000.0 do
+      Float.round(value / 1_000_000.0, 2)
+    else
+      Float.round(value * 1.0, 2)
+    end
+  end
+
+  defp normalize_icmp_rtt(_), do: nil
 
   defp extract_numeric(value) when is_number(value), do: value
 
@@ -1123,79 +1442,62 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp format_healthcheck_time(_), do: ""
 
-  defp load_healthcheck_summary(srql_module, device_id) do
-    case parse_service_device_id(device_id) do
+  defp load_healthcheck_summary(srql_module, device_uid) do
+    case service_query_for_device(device_uid) do
+      {:ok, query} -> query_service_summary(srql_module, query)
+      :error -> nil
+    end
+  end
+
+  defp service_query_for_device(device_uid) do
+    case parse_service_device_uid(device_uid) do
       {:service, "checker", checker_id} ->
-        case parse_checker_identity(checker_id) do
-          {:ok, service_name, agent_id} ->
-            query =
-              "in:services " <>
-                "service_name:\"#{escape_value(service_name)}\" " <>
-                "agent_id:\"#{escape_value(agent_id)}\" " <>
-                "time:last_24h sort:timestamp:desc limit:200"
-
-            case srql_module.query(query) do
-              {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
-                build_healthcheck_summary(rows)
-
-              _ ->
-                nil
-            end
-
-          :error ->
-            nil
-        end
+        service_query_for_checker(checker_id)
 
       {:service, "agent", agent_id} ->
-        query =
-          "in:services " <>
-            "agent_id:\"#{escape_value(agent_id)}\" " <>
-            "time:last_24h sort:timestamp:desc limit:200"
-
-        case srql_module.query(query) do
-          {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
-            build_healthcheck_summary(rows)
-
-          _ ->
-            nil
-        end
+        {:ok, service_query(%{"agent_id" => agent_id})}
 
       {:service, "poller", poller_id} ->
-        query =
-          "in:services " <>
-            "poller_id:\"#{escape_value(poller_id)}\" " <>
-            "time:last_24h sort:timestamp:desc limit:200"
-
-        case srql_module.query(query) do
-          {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
-            build_healthcheck_summary(rows)
-
-          _ ->
-            nil
-        end
+        {:ok, service_query(%{"poller_id" => poller_id})}
 
       {:service, _service_type, service_id} ->
-        # Best-effort fallback: show any recent service_status rows matching this service_id as service_name.
-        query =
-          "in:services " <>
-            "service_name:\"#{escape_value(service_id)}\" " <>
-            "time:last_24h sort:timestamp:desc limit:200"
+        {:ok, service_query(%{"service_name" => service_id})}
 
-        case srql_module.query(query) do
-          {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
-            build_healthcheck_summary(rows)
+      _ ->
+        :error
+    end
+  end
 
-          _ ->
-            nil
-        end
+  defp service_query_for_checker(checker_id) do
+    case parse_checker_identity(checker_id) do
+      {:ok, service_name, agent_id} ->
+        {:ok, service_query(%{"service_name" => service_name, "agent_id" => agent_id})}
+
+      :error ->
+        :error
+    end
+  end
+
+  defp service_query(filters) do
+    filter_expr =
+      filters
+      |> Enum.map_join(" ", fn {field, value} -> "#{field}:\"#{escape_value(value)}\"" end)
+
+    "in:services " <> filter_expr <> " time:last_24h sort:timestamp:desc limit:200"
+  end
+
+  defp query_service_summary(srql_module, query) do
+    case srql_module.query(query) do
+      {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
+        build_healthcheck_summary(rows)
 
       _ ->
         nil
     end
   end
 
-  defp parse_service_device_id(device_id) when is_binary(device_id) do
-    case String.split(device_id, ":", parts: 3) do
+  defp parse_service_device_uid(device_uid) when is_binary(device_uid) do
+    case String.split(device_uid, ":", parts: 3) do
       ["serviceradar", service_type, service_id] when service_type != "" and service_id != "" ->
         {:service, service_type, service_id}
 
@@ -1204,7 +1506,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp parse_service_device_id(_), do: :non_service
+  defp parse_service_device_uid(_), do: :non_service
 
   defp parse_checker_identity(checker_id) when is_binary(checker_id) do
     case String.split(checker_id, "@", parts: 2) do

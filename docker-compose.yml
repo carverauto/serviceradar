@@ -41,7 +41,7 @@ services:
       - POSTGRES_DB=${CNPG_DATABASE:-serviceradar}
       - TS_TUNE=false
     ports:
-      - "${CNPG_PUBLIC_BIND:-127.0.0.1}:${CNPG_PUBLIC_PORT:-5455}:5432"
+      - "${CNPG_PUBLIC_BIND:-0.0.0.0}:${CNPG_PUBLIC_PORT:-5455}:5432"
     volumes:
       - cnpg-data:/var/lib/postgresql/data
       - ./docker/compose/cnpg-init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
@@ -64,7 +64,7 @@ services:
     restart: unless-stopped
 
   config-updater:
-    image: ghcr.io/carverauto/serviceradar-config-updater:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-config-updater:${APP_TAG:-latest}
     container_name: serviceradar-config-updater-mtls
     volumes:
       - cert-data:/etc/serviceradar/certs
@@ -92,21 +92,6 @@ services:
     networks:
       - serviceradar-net
 
-  core-jwks-init:
-    image: ghcr.io/carverauto/serviceradar-kong-config:${APP_TAG:-v1.0.67}
-    container_name: serviceradar-core-jwks-init-mtls
-    user: "0:0"
-    entrypoint: ["/usr/local/bin/serviceradar-cli", "generate-jwt-keys"]
-    command: ["-file", "/etc/serviceradar/config/core.json", "-bits", "2048"]
-    volumes:
-      - generated-config:/etc/serviceradar/config
-    depends_on:
-      config-updater:
-        condition: service_completed_successfully
-    restart: "no"
-    networks:
-      - serviceradar-net
-
   cert-permissions-fixer:
     image: alpine:3.20
     container_name: serviceradar-cert-permissions-fixer-mtls
@@ -122,7 +107,7 @@ services:
       - serviceradar-net
 
   core:
-    image: ghcr.io/carverauto/serviceradar-core:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-core:${APP_TAG:-latest}
     container_name: serviceradar-core-mtls
     mem_limit: 8g
     mem_reservation: 4g
@@ -156,8 +141,6 @@ services:
       - KV_SERVER_NAME=datasvc.serviceradar
     depends_on:
       config-updater:
-        condition: service_completed_successfully
-      core-jwks-init:
         condition: service_completed_successfully
       cert-permissions-fixer:
         condition: service_completed_successfully
@@ -202,7 +185,7 @@ services:
     restart: unless-stopped
 
   datasvc:
-    image: ghcr.io/carverauto/serviceradar-datasvc:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-datasvc:${APP_TAG:-latest}
     container_name: serviceradar-datasvc-mtls
     cpus: "2.0"
     ports:
@@ -234,7 +217,7 @@ services:
     restart: unless-stopped
 
   poller-kv-seed:
-    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
     container_name: serviceradar-poller-kv-seed-mtls
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
@@ -258,7 +241,7 @@ services:
       - serviceradar-net
 
   checker-templates-seed:
-    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
     container_name: serviceradar-checker-templates-seed-mtls
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
@@ -282,7 +265,7 @@ services:
       - serviceradar-net
 
   agent:
-    image: ghcr.io/carverauto/serviceradar-agent:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-agent:${APP_TAG:-latest}
     container_name: serviceradar-agent-mtls
     volumes:
       - ./docker/compose/agent.mtls.json:/etc/serviceradar/agent.json:ro
@@ -324,7 +307,7 @@ services:
     restart: unless-stopped
 
   poller:
-    image: ghcr.io/carverauto/serviceradar-poller:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-poller:${APP_TAG:-latest}
     container_name: serviceradar-poller-mtls
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
@@ -371,7 +354,7 @@ services:
     restart: unless-stopped
 
   sync:
-    image: ghcr.io/carverauto/serviceradar-sync:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-sync:${APP_TAG:-latest}
     container_name: serviceradar-sync-mtls
     ports:
       - "50058:50058"
@@ -408,7 +391,7 @@ services:
     restart: unless-stopped
 
   otel:
-    image: ghcr.io/carverauto/serviceradar-otel:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-otel:${APP_TAG:-latest}
     container_name: serviceradar-otel-mtls
     ports:
       - "4317:4317"
@@ -438,7 +421,7 @@ services:
     restart: unless-stopped
 
   flowgger:
-    image: ghcr.io/carverauto/serviceradar-flowgger:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-flowgger:${APP_TAG:-latest}
     container_name: serviceradar-flowgger-mtls
     ports:
       - "514:514/udp"
@@ -471,7 +454,7 @@ services:
     restart: unless-stopped
 
   trapd:
-    image: ghcr.io/carverauto/serviceradar-trapd:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-trapd:${APP_TAG:-latest}
     container_name: serviceradar-trapd-mtls
     ports:
       - "162:162/udp"
@@ -504,7 +487,7 @@ services:
     restart: unless-stopped
 
   zen:
-    image: ghcr.io/carverauto/serviceradar-zen:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-zen:${APP_TAG:-latest}
     container_name: serviceradar-zen-mtls
     ports:
       - "50040:50040"
@@ -536,7 +519,7 @@ services:
     restart: unless-stopped
 
   db-event-writer:
-    image: ghcr.io/carverauto/serviceradar-db-event-writer:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-db-event-writer:${APP_TAG:-latest}
     container_name: serviceradar-db-event-writer-mtls
     ports:
       - "50041:50041"
@@ -579,7 +562,7 @@ services:
     restart: unless-stopped
 
   mapper:
-    image: ghcr.io/carverauto/serviceradar-mapper:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-mapper:${APP_TAG:-latest}
     container_name: serviceradar-mapper-mtls
     ports:
       - "50056:50056"
@@ -615,7 +598,7 @@ services:
     restart: unless-stopped
 
   snmp-checker:
-    image: ghcr.io/carverauto/serviceradar-snmp-checker:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-snmp-checker:${APP_TAG:-latest}
     container_name: serviceradar-snmp-checker-mtls
     ports:
       - "50054:50054"
@@ -646,7 +629,7 @@ services:
     restart: unless-stopped
 
   rperf-client:
-    image: ghcr.io/carverauto/serviceradar-rperf-client:${APP_TAG:-v1.0.67}
+    image: ghcr.io/carverauto/serviceradar-rperf-client:${APP_TAG:-latest}
     container_name: serviceradar-rperf-client-mtls
     ports:
       - "50059:50059"
@@ -677,13 +660,15 @@ services:
     restart: unless-stopped
 
   web-ng:
-    build:
-      context: .
-      dockerfile: docker/compose/Dockerfile.web-ng
+    image: ghcr.io/carverauto/serviceradar-web-ng:${APP_TAG:-latest}
     container_name: serviceradar-web-ng-mtls
     environment:
       - PORT=4000
       - PHX_SERVER=true
+      - PHX_HOST=${SERVICERADAR_HOST:-localhost}
+      - PHX_CHECK_ORIGIN=${PHX_CHECK_ORIGIN:-false}
+      - SERVICERADAR_DEV_ROUTES=${SERVICERADAR_DEV_ROUTES:-true}
+      - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-true}
       - SECRET_KEY_BASE=${WEB_NG_SECRET_KEY_BASE:-H8DPohD5rFUqGboVqCKLYXrlyofYUJk6k+XBzKEb5G8LN9brhYpNloE3UgxBQmPW}
       - CNPG_HOST=${CNPG_HOST:-cnpg}
       - CNPG_PORT=${CNPG_PORT:-5432}
@@ -701,7 +686,7 @@ services:
       cnpg:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://0.0.0.0:4000/"]
+      test: ["CMD-SHELL", "pgrep -f serviceradar_web_ng >/dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -710,19 +695,19 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  nginx:
-    image: ghcr.io/carverauto/serviceradar-nginx:latest
-    container_name: serviceradar-nginx-mtls
+  caddy:
+    image: caddy:2.8.4-alpine
+    container_name: serviceradar-caddy-mtls
+    user: "0:0"
     ports:
-      - "${SERVICERADAR_HTTP_PORT:-80}:80"
-      - "${SERVICERADAR_HTTPS_PORT:-443}:443"
-    environment:
-      DNS_RESOLVER: "127.0.0.11"  # Docker's internal DNS
+      - "80:80"
+      - "443:443"
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
-      - ./docker/compose/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
-      - ./docker/compose/entrypoint-nginx.sh:/docker-entrypoint.d/50-serviceradar.sh:ro
+      - ./docker/compose/Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
       web-ng:
         condition: service_started
     healthcheck:

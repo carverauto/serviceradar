@@ -32,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.SRQLBuilderDownsampleTest do
   end
 
   test "rejects downsample tokens for non-metric entities" do
-    query = "in:devices time:last_24h bucket:5m agg:avg series:device_id limit:10"
+    query = "in:devices time:last_24h bucket:5m agg:avg series:uid limit:10"
     assert {:error, :downsample_not_supported} = Builder.parse(query)
   end
 end

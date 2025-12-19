@@ -84,7 +84,7 @@ func initRegistrySyncMetrics() {
 
 	registrySyncMetricsGauges.cnpgDeviceCount, err = meter.Int64ObservableGauge(
 		metricRegistryCNPGCountName,
-		metric.WithDescription("Number of devices in CNPG unified_devices table"),
+		metric.WithDescription("Number of devices in CNPG ocsf_devices table"),
 	)
 	if err != nil {
 		otel.Handle(err)

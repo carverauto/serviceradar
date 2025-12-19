@@ -97,7 +97,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
     Some(match plan.entity {
         Entity::Devices => VizMeta {
             columns: vec![
-                col("device_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("uid", ColumnType::Text, Some(ColumnSemantic::Id)),
                 col("hostname", ColumnType::Text, Some(ColumnSemantic::Label)),
                 col("ip", ColumnType::Text, None),
                 col("mac", ColumnType::Text, None),

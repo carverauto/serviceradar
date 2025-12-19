@@ -46,21 +46,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @impl true
   def handle_params(params, uri, socket) do
     path = uri |> to_string() |> URI.parse() |> Map.get(:path)
-
-    tab =
-      case Map.get(params, "tab") do
-        "logs" -> "logs"
-        "traces" -> "traces"
-        "metrics" -> "metrics"
-        _ -> default_tab_for_path(path)
-      end
-
-    {entity, list_key} =
-      case tab do
-        "traces" -> {"otel_trace_summaries", :traces}
-        "metrics" -> {"otel_metrics", :metrics}
-        _ -> {"logs", :logs}
-      end
+    tab = normalize_tab(Map.get(params, "tab"), path)
+    {entity, list_key} = tab_entity(tab)
 
     socket =
       socket
@@ -74,84 +61,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         max_limit: @max_limit
       )
 
-    srql_module = srql_module()
-
-    socket =
-      case tab do
-        "traces" ->
-          trace_latency = compute_trace_latency(socket.assigns.traces)
-
-          socket
-          |> assign(:trace_stats, load_trace_stats(srql_module))
-          |> assign(:trace_latency, trace_latency)
-          |> assign(:metrics_stats, %{
-            total: 0,
-            slow_spans: 0,
-            error_spans: 0,
-            error_rate: 0.0,
-            avg_duration_ms: 0.0,
-            p95_duration_ms: 0.0,
-            sample_size: 0
-          })
-
-        "metrics" ->
-          metrics_counts = load_metrics_counts(srql_module)
-          # Query duration stats from continuous aggregation for full 24h data
-          duration_stats = load_duration_stats_from_cagg()
-
-          metrics_stats =
-            metrics_counts
-            |> Map.merge(duration_stats)
-            |> Map.put(
-              :error_rate,
-              compute_error_rate(metrics_counts.total, metrics_counts.error_spans)
-            )
-
-          # Load sparkline data for gauge/counter metrics
-          sparklines = load_sparklines(socket.assigns.metrics)
-
-          socket
-          |> assign(:metrics_stats, metrics_stats)
-          |> assign(:sparklines, sparklines)
-          |> assign(:trace_stats, %{total: 0, error_traces: 0, slow_traces: 0})
-          |> assign(:trace_latency, %{
-            avg_duration_ms: 0.0,
-            p95_duration_ms: 0.0,
-            service_count: 0,
-            sample_size: 0
-          })
-
-        _ ->
-          summary = load_summary(srql_module, Map.get(socket.assigns.srql, :query))
-
-          summary =
-            case summary do
-              %{total: 0} when is_list(socket.assigns.logs) and socket.assigns.logs != [] ->
-                compute_summary(socket.assigns.logs)
-
-              other ->
-                other
-            end
-
-          socket
-          |> assign(:summary, summary)
-          |> assign(:trace_stats, %{total: 0, error_traces: 0, slow_traces: 0})
-          |> assign(:trace_latency, %{
-            avg_duration_ms: 0.0,
-            p95_duration_ms: 0.0,
-            service_count: 0,
-            sample_size: 0
-          })
-          |> assign(:metrics_stats, %{
-            total: 0,
-            slow_spans: 0,
-            error_spans: 0,
-            error_rate: 0.0,
-            avg_duration_ms: 0.0,
-            p95_duration_ms: 0.0,
-            sample_size: 0
-          })
-      end
+    socket = apply_tab_assigns(socket, tab, srql_module())
 
     {:noreply, socket}
   end
@@ -248,7 +158,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
             <.logs_table :if={@active_tab == "logs"} id="logs" logs={@logs} />
             <.traces_table :if={@active_tab == "traces"} id="traces" traces={@traces} />
-            <.metrics_table :if={@active_tab == "metrics"} id="metrics" metrics={@metrics} sparklines={@sparklines} />
+            <.metrics_table
+              :if={@active_tab == "metrics"}
+              id="metrics"
+              metrics={@metrics}
+              sparklines={@sparklines}
+            />
 
             <div class="mt-4 pt-4 border-t border-base-200">
               <.ui_pagination
@@ -293,7 +208,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <div class="flex items-center gap-3">
           <div class="text-xs text-base-content/50 uppercase tracking-wider">Log Level Breakdown</div>
           <div class="text-sm font-semibold text-base-content">
-            {format_compact_int(@total)} <span class="text-xs font-normal text-base-content/60">total (24h)</span>
+            {format_compact_int(@total)}
+            <span class="text-xs font-normal text-base-content/60">total (24h)</span>
           </div>
         </div>
         <div class="flex items-center gap-1">
@@ -867,12 +783,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     points =
       data
       |> Enum.with_index()
-      |> Enum.map(fn {val, idx} ->
+      |> Enum.map_join(" ", fn {val, idx} ->
         x = idx / max(length(data) - 1, 1) * 100
         y = if range > 0, do: 100 - (val - min_val) / range * 80 - 10, else: 50
         "#{Float.round(x, 1)},#{Float.round(y, 1)}"
       end)
-      |> Enum.join(" ")
 
     # Determine trend color based on first vs last value
     first_val = List.first(data) || 0
@@ -936,7 +851,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:duration_ms, duration_ms)
 
       ~H"""
-      <div class="flex items-center gap-2 min-w-[5rem]" title={"#{Float.round(@duration_ms * 1.0, 1)}ms"}>
+      <div
+        class="flex items-center gap-2 min-w-[5rem]"
+        title={"#{Float.round(@duration_ms * 1.0, 1)}ms"}
+      >
         <div class="relative h-2 w-16 bg-base-200/60 rounded-sm overflow-visible">
           <div class={"h-full rounded-sm #{@bar_color}"} style={"width: #{@pct}%"} />
           <div
@@ -960,35 +878,53 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     # Use reasonable bounds for duration visualization (0-1000ms as typical range)
     # Anything over 1s will show as full bar
-    pct =
-      cond do
-        not is_number(duration_ms) or duration_ms <= 0 -> 0
-        duration_ms >= 1000 -> 100
-        true -> duration_ms / 10  # 0-1000ms maps to 0-100%
-      end
-
-    # Color based on duration
-    bar_color =
-      cond do
-        not is_number(duration_ms) or duration_ms <= 0 -> "bg-base-content/20"
-        duration_ms >= 500 -> "bg-error"
-        duration_ms >= 100 -> "bg-warning"
-        true -> "bg-success"
-      end
+    pct = histogram_pct(duration_ms)
+    bar_color = histogram_bar_color(duration_ms)
+    title = histogram_title(duration_ms)
 
     assigns =
       assigns
       |> assign(:pct, pct)
       |> assign(:bar_color, bar_color)
       |> assign(:duration_ms, duration_ms)
+      |> assign(:title, title)
 
     ~H"""
-    <div class="flex items-center gap-2 w-20" title={if is_number(@duration_ms) and @duration_ms > 0, do: "#{Float.round(@duration_ms * 1.0, 1)}ms", else: "no duration"}>
+    <div
+      class="flex items-center gap-2 w-20"
+      title={@title}
+    >
       <div class="flex-1 h-1.5 bg-base-200 rounded-full overflow-hidden">
-        <div class={[@bar_color, "h-full rounded-full transition-all"]} style={"width: #{@pct}%"}></div>
+        <div class={[@bar_color, "h-full rounded-full transition-all"]} style={"width: #{@pct}%"}>
+        </div>
       </div>
     </div>
     """
+  end
+
+  defp histogram_pct(duration_ms) do
+    cond do
+      not is_number(duration_ms) or duration_ms <= 0 -> 0
+      duration_ms >= 1000 -> 100
+      true -> duration_ms / 10
+    end
+  end
+
+  defp histogram_bar_color(duration_ms) do
+    cond do
+      not is_number(duration_ms) or duration_ms <= 0 -> "bg-base-content/20"
+      duration_ms >= 500 -> "bg-error"
+      duration_ms >= 100 -> "bg-warning"
+      true -> "bg-success"
+    end
+  end
+
+  defp histogram_title(duration_ms) do
+    if is_number(duration_ms) and duration_ms > 0 do
+      "#{Float.round(duration_ms * 1.0, 1)}ms"
+    else
+      "no duration"
+    end
   end
 
   defp extract_histogram_count(metric) do
@@ -1000,19 +936,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp extract_duration_ms(metric) do
-    cond do
-      is_number(metric["duration_ms"]) -> metric["duration_ms"]
-      is_binary(metric["duration_ms"]) -> extract_number(metric["duration_ms"])
-      is_number(metric["duration_seconds"]) -> metric["duration_seconds"] * 1000
-      is_binary(metric["duration_seconds"]) ->
-        case extract_number(metric["duration_seconds"]) do
-          n when is_number(n) -> n * 1000
-          _ -> nil
-        end
-      true -> nil
-    end
-  end
+  defp extract_duration_ms(metric), do: duration_ms_from_metric(metric)
 
   defp metric_type_badge_class(metric) do
     case metric |> Map.get("metric_type") |> normalize_severity() do
@@ -1035,89 +959,110 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     if metric_type == "histogram" do
       format_histogram_value(metric)
     else
-      # PRIORITY 0.5: If we have an explicit unit field, use it directly
-      # This is the most reliable way to format metrics correctly
-      cond do
-        unit != nil ->
-          format_with_explicit_unit(metric, unit)
+      format_non_histogram_metric(metric, metric_name, metric_type, unit)
+    end
+  end
 
-        is_bytes_metric?(metric_name) ->
-          format_bytes_value(metric)
+  defp format_non_histogram_metric(metric, metric_name, metric_type, unit) do
+    with {:error} <- explicit_unit_format(metric, unit),
+         {:error} <- named_metric_format(metric, metric_name),
+         {:error} <- duration_metric_format(metric, metric_name, metric_type) do
+      raw_metric_format(metric, metric_type)
+    else
+      {:ok, formatted} -> formatted
+    end
+  end
 
-        is_count_metric?(metric_name) or is_stats_metric?(metric_name) ->
-          format_count_value(metric)
+  defp explicit_unit_format(_metric, nil), do: {:error}
+  defp explicit_unit_format(metric, unit), do: {:ok, format_with_explicit_unit(metric, unit)}
 
-        # PRIORITY 2: Only format as duration if:
-        # - Metric name explicitly suggests duration/latency/time, OR
-        # - It's a span type (all spans should show duration if available)
-        is_duration_metric?(metric_name) and has_duration_field?(metric) ->
-          format_duration_value(metric)
+  defp named_metric_format(metric, metric_name) do
+    cond do
+      bytes_metric?(metric_name) ->
+        {:ok, format_bytes_value(metric)}
 
-        # Spans should always show duration_ms - that's their primary metric
-        metric_type == "span" and has_duration_field?(metric) ->
-          format_duration_value(metric)
+      count_metric?(metric_name) or stats_metric?(metric_name) ->
+        {:ok, format_count_value(metric)}
 
-        is_actual_timing_span?(metric) and has_duration_field?(metric) ->
-          format_duration_value(metric)
+      true ->
+        {:error}
+    end
+  end
 
-        # PRIORITY 3: Raw value fallback - just show the number, no units
-        has_any_value?(metric) ->
-          format_raw_value(metric, metric_type)
+  defp duration_metric_format(metric, metric_name, metric_type) do
+    cond do
+      duration_metric?(metric_name) and has_duration_field?(metric) ->
+        {:ok, format_duration_value(metric)}
 
-        true ->
-          "—"
-      end
+      metric_type == "span" and has_duration_field?(metric) ->
+        {:ok, format_duration_value(metric)}
+
+      actual_timing_span?(metric) and has_duration_field?(metric) ->
+        {:ok, format_duration_value(metric)}
+
+      true ->
+        {:error}
+    end
+  end
+
+  defp raw_metric_format(metric, metric_type) do
+    if has_any_value?(metric) do
+      format_raw_value(metric, metric_type)
+    else
+      "—"
     end
   end
 
   # Format metric value using explicit unit field from backend
   defp format_with_explicit_unit(metric, unit) do
-    value = extract_primary_value(metric)
-
-    if is_nil(value) do
-      "—"
-    else
-      case unit do
-        # Duration units
-        "ms" -> format_ms_value(value)
-        "s" -> format_seconds_value(value)
-        "ns" -> format_ns_value(value)
-        "us" -> format_us_value(value)
-        # Byte units
-        "bytes" -> format_bytes_from_value(value)
-        "By" -> format_bytes_from_value(value)
-        "kb" -> format_bytes_from_value(value * 1024)
-        "KiB" -> format_bytes_from_value(value * 1024)
-        "mb" -> format_bytes_from_value(value * 1024 * 1024)
-        "MiB" -> format_bytes_from_value(value * 1024 * 1024)
-        "gb" -> format_bytes_from_value(value * 1024 * 1024 * 1024)
-        "GiB" -> format_bytes_from_value(value * 1024 * 1024 * 1024)
-        # Count/dimensionless
-        "1" -> format_count_from_value(value)
-        "{request}" -> format_count_from_value(value)
-        "{connection}" -> format_count_from_value(value)
-        "{thread}" -> format_count_from_value(value)
-        "{goroutine}" -> format_count_from_value(value)
-        # Percentage
-        "%" -> "#{Float.round(value * 1.0, 1)}%"
-        # Default: show value with unit suffix
-        _ -> "#{format_compact_value(value)} #{unit}"
-      end
+    case extract_primary_value(metric) do
+      value when is_number(value) -> format_explicit_unit_value(value, unit)
+      _ -> "—"
     end
   end
 
-  defp extract_primary_value(metric) do
+  defp format_explicit_unit_value(value, unit) do
     cond do
-      is_number(metric["value"]) -> metric["value"]
-      is_binary(metric["value"]) -> extract_number(metric["value"])
-      is_number(metric["duration_ms"]) -> metric["duration_ms"]
-      is_binary(metric["duration_ms"]) -> extract_number(metric["duration_ms"])
-      is_number(metric["sum"]) -> metric["sum"]
-      is_binary(metric["sum"]) -> extract_number(metric["sum"])
-      is_number(metric["count"]) -> metric["count"]
-      is_binary(metric["count"]) -> extract_number(metric["count"])
-      true -> nil
+      unit in ["ms", "s", "ns", "us"] ->
+        format_duration_unit(value, unit)
+
+      unit in ["bytes", "By", "kb", "KiB", "mb", "MiB", "gb", "GiB"] ->
+        format_bytes_unit(value, unit)
+
+      unit in ["1", "{request}", "{connection}", "{thread}", "{goroutine}"] ->
+        format_count_from_value(value)
+
+      unit == "%" ->
+        "#{Float.round(value * 1.0, 1)}%"
+
+      true ->
+        "#{format_compact_value(value)} #{unit}"
     end
+  end
+
+  defp format_duration_unit(value, "ms"), do: format_ms_value(value)
+  defp format_duration_unit(value, "s"), do: format_seconds_value(value)
+  defp format_duration_unit(value, "ns"), do: format_ns_value(value)
+  defp format_duration_unit(value, "us"), do: format_us_value(value)
+
+  defp format_bytes_unit(value, unit) do
+    multiplier =
+      case unit do
+        "bytes" -> 1
+        "By" -> 1
+        "kb" -> 1024
+        "KiB" -> 1024
+        "mb" -> 1024 * 1024
+        "MiB" -> 1024 * 1024
+        "gb" -> 1024 * 1024 * 1024
+        "GiB" -> 1024 * 1024 * 1024
+      end
+
+    format_bytes_from_value(value * multiplier)
+  end
+
+  defp extract_primary_value(metric) do
+    metric_numeric_value(metric, ["value", "duration_ms", "sum", "count"])
   end
 
   defp format_ms_value(ms) when is_number(ms) do
@@ -1185,6 +1130,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       # If we have an explicit unit with a value, use that
       unit != nil ->
         value = extract_primary_value(metric)
+
         if is_number(value) and value > 0 do
           format_with_explicit_unit(metric, unit)
         else
@@ -1207,19 +1153,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp extract_duration_value(metric) do
-    cond do
-      is_number(metric["duration_ms"]) -> metric["duration_ms"]
-      is_binary(metric["duration_ms"]) -> extract_number(metric["duration_ms"])
-      is_number(metric["duration_seconds"]) -> metric["duration_seconds"] * 1000
-      is_binary(metric["duration_seconds"]) ->
-        case extract_number(metric["duration_seconds"]) do
-          nil -> nil
-          val -> val * 1000
-        end
-      true -> nil
-    end
-  end
+  defp extract_duration_value(metric), do: duration_ms_from_metric(metric)
 
   defp format_duration_ms(ms) when is_number(ms) do
     cond do
@@ -1249,10 +1183,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp normalize_string(s) when is_binary(s), do: String.trim(s)
   defp normalize_string(_), do: nil
 
-  defp is_bytes_metric?(nil), do: false
-  defp is_bytes_metric?(""), do: false
+  defp bytes_metric?(nil), do: false
+  defp bytes_metric?(""), do: false
 
-  defp is_bytes_metric?(name) when is_binary(name) do
+  defp bytes_metric?(name) when is_binary(name) do
     downcased = String.downcase(name)
 
     String.contains?(downcased, "bytes") or
@@ -1261,10 +1195,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       String.contains?(downcased, "alloc")
   end
 
-  defp is_count_metric?(nil), do: false
-  defp is_count_metric?(""), do: false
+  defp count_metric?(nil), do: false
+  defp count_metric?(""), do: false
 
-  defp is_count_metric?(name) when is_binary(name) do
+  defp count_metric?(name) when is_binary(name) do
     downcased = String.downcase(name)
 
     String.ends_with?(downcased, "_count") or
@@ -1274,10 +1208,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   # Stats/counter-like metrics (processed, skipped, etc.)
-  defp is_stats_metric?(nil), do: false
-  defp is_stats_metric?(""), do: false
+  defp stats_metric?(nil), do: false
+  defp stats_metric?(""), do: false
 
-  defp is_stats_metric?(name) when is_binary(name) do
+  defp stats_metric?(name) when is_binary(name) do
     downcased = String.downcase(name)
 
     String.contains?(downcased, "_stats_") or
@@ -1292,10 +1226,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   # Check if metric name explicitly suggests it's a duration/timing metric
-  defp is_duration_metric?(nil), do: false
-  defp is_duration_metric?(""), do: false
+  defp duration_metric?(nil), do: false
+  defp duration_metric?(""), do: false
 
-  defp is_duration_metric?(name) when is_binary(name) do
+  defp duration_metric?(name) when is_binary(name) do
     downcased = String.downcase(name)
 
     String.contains?(downcased, "duration") or
@@ -1308,14 +1242,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   # Check if this is an actual timing span with real HTTP/gRPC context (not empty strings)
-  defp is_actual_timing_span?(metric) do
+  defp actual_timing_span?(metric) do
     has_http =
-      is_non_empty_string?(metric["http_route"]) or
-        is_non_empty_string?(metric["http_method"])
+      non_empty_string?(metric["http_route"]) or
+        non_empty_string?(metric["http_method"])
 
     has_grpc =
-      is_non_empty_string?(metric["grpc_service"]) or
-        is_non_empty_string?(metric["grpc_method"])
+      non_empty_string?(metric["grpc_service"]) or
+        non_empty_string?(metric["grpc_method"])
 
     # Also check for span type
     is_span = normalize_string(Map.get(metric, "metric_type")) == "span"
@@ -1323,10 +1257,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     (has_http or has_grpc) and is_span
   end
 
-  defp is_non_empty_string?(nil), do: false
-  defp is_non_empty_string?(""), do: false
-  defp is_non_empty_string?(s) when is_binary(s), do: String.trim(s) != ""
-  defp is_non_empty_string?(_), do: false
+  defp non_empty_string?(nil), do: false
+  defp non_empty_string?(""), do: false
+  defp non_empty_string?(s) when is_binary(s), do: String.trim(s) != ""
+  defp non_empty_string?(_), do: false
 
   defp has_duration_field?(metric) do
     is_number(metric["duration_ms"]) or is_binary(metric["duration_ms"]) or
@@ -1341,136 +1275,43 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp format_duration_value(metric) do
-    ms =
-      cond do
-        is_number(metric["duration_ms"]) ->
-          metric["duration_ms"] * 1.0
+    ms = duration_ms_from_metric(metric) || 0.0
 
-        is_binary(metric["duration_ms"]) ->
-          extract_number(metric["duration_ms"]) || 0.0
-
-        is_number(metric["duration_seconds"]) ->
-          metric["duration_seconds"] * 1000.0
-
-        is_binary(metric["duration_seconds"]) ->
-          case extract_number(metric["duration_seconds"]) do
-            n when is_number(n) -> n * 1000.0
-            _ -> 0.0
-          end
-
-        true ->
-          0.0
-      end
-
-    cond do
-      ms >= 1000 -> "#{Float.round(ms / 1000.0, 2)}s"
-      true -> "#{Float.round(ms * 1.0, 1)}ms"
+    if ms >= 1000 do
+      "#{Float.round(ms / 1000.0, 2)}s"
+    else
+      "#{Float.round(ms * 1.0, 1)}ms"
     end
   end
 
   defp format_bytes_value(metric) do
-    # Extract value from any available field (OTEL often puts values in unexpected places)
-    bytes =
-      cond do
-        is_number(metric["value"]) -> metric["value"]
-        is_binary(metric["value"]) -> extract_number(metric["value"]) || 0
-        is_number(metric["sum"]) -> metric["sum"]
-        is_binary(metric["sum"]) -> extract_number(metric["sum"]) || 0
-        is_number(metric["duration_ms"]) -> metric["duration_ms"]
-        is_binary(metric["duration_ms"]) -> extract_number(metric["duration_ms"]) || 0
-        true -> 0
-      end
-
-    cond do
-      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776 * 1.0, 1)} TB"
-      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824 * 1.0, 1)} GB"
-      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576 * 1.0, 1)} MB"
-      bytes >= 1024 -> "#{Float.round(bytes / 1024 * 1.0, 1)} KB"
-      true -> "#{trunc(bytes)} B"
-    end
+    bytes = metric_numeric_value(metric, ["value", "sum", "duration_ms"]) || 0
+    format_bytes_from_value(bytes)
   end
 
   defp format_count_value(metric) do
-    count =
-      cond do
-        is_number(metric["value"]) -> metric["value"]
-        is_binary(metric["value"]) -> extract_number(metric["value"]) || 0
-        is_number(metric["sum"]) -> metric["sum"]
-        is_binary(metric["sum"]) -> extract_number(metric["sum"]) || 0
-        is_number(metric["count"]) -> metric["count"]
-        is_binary(metric["count"]) -> extract_number(metric["count"]) || 0
-        is_number(metric["duration_ms"]) -> metric["duration_ms"]
-        is_binary(metric["duration_ms"]) -> extract_number(metric["duration_ms"]) || 0
-        true -> 0
-      end
-
-    cond do
-      count >= 1_000_000 -> "#{Float.round(count / 1_000_000 * 1.0, 1)}M"
-      count >= 1_000 -> "#{Float.round(count / 1_000 * 1.0, 1)}k"
-      is_float(count) -> "#{Float.round(count, 0) |> trunc()}"
-      true -> "#{trunc(count)}"
-    end
+    count = metric_numeric_value(metric, ["value", "sum", "count", "duration_ms"]) || 0
+    format_count_from_value(count)
   end
 
   defp format_raw_value(metric, _metric_type) do
-    value =
-      cond do
-        is_number(metric["value"]) -> metric["value"]
-        is_binary(metric["value"]) -> extract_number(metric["value"])
-        is_number(metric["sum"]) -> metric["sum"]
-        is_binary(metric["sum"]) -> extract_number(metric["sum"])
-        is_number(metric["count"]) -> metric["count"]
-        is_binary(metric["count"]) -> extract_number(metric["count"])
-        is_number(metric["duration_ms"]) -> metric["duration_ms"]
-        is_binary(metric["duration_ms"]) -> extract_number(metric["duration_ms"])
-        true -> nil
-      end
-
-    if is_number(value) do
-      cond do
-        value >= 1_000_000 -> "#{Float.round(value / 1_000_000 * 1.0, 1)}M"
-        value >= 1_000 -> "#{Float.round(value / 1_000 * 1.0, 1)}k"
-        is_float(value) -> "#{Float.round(value, 2)}"
-        true -> "#{trunc(value)}"
-      end
-    else
-      "—"
+    case metric_numeric_value(metric, ["value", "sum", "count", "duration_ms"]) do
+      value when is_number(value) -> format_compact_value(value)
+      _ -> "—"
     end
   end
 
   # Used for the visualization bar - extracts numeric value for comparison
   defp metric_value_ms(metric) when is_map(metric) do
-    cond do
-      is_number(metric["duration_ms"]) ->
-        metric["duration_ms"] * 1.0
+    case duration_ms_from_metric(metric) do
+      value when is_number(value) ->
+        value * 1.0
 
-      is_binary(metric["duration_ms"]) ->
-        extract_number(metric["duration_ms"])
-
-      is_number(metric["duration_seconds"]) ->
-        metric["duration_seconds"] * 1000.0
-
-      is_binary(metric["duration_seconds"]) ->
-        case extract_number(metric["duration_seconds"]) do
-          n when is_number(n) -> n * 1000.0
+      _ ->
+        case metric_numeric_value(metric, ["value", "sum"]) do
+          value when is_number(value) -> value * 1.0
           _ -> nil
         end
-
-      # Fall back to raw value for the bar visualization
-      is_number(metric["value"]) ->
-        metric["value"] * 1.0
-
-      is_binary(metric["value"]) ->
-        extract_number(metric["value"])
-
-      is_number(metric["sum"]) ->
-        metric["sum"] * 1.0
-
-      is_binary(metric["sum"]) ->
-        extract_number(metric["sum"])
-
-      true ->
-        nil
     end
   end
 
@@ -1479,28 +1320,38 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr :value, :any, default: nil
 
   defp severity_badge(assigns) do
-    variant =
-      case normalize_severity(assigns.value) do
-        s when s in ["critical", "fatal", "error"] -> "error"
-        s when s in ["high", "warn", "warning"] -> "warning"
-        s when s in ["medium", "info"] -> "info"
-        s when s in ["low", "debug", "trace", "ok"] -> "success"
-        _ -> "ghost"
-      end
-
-    label =
-      case assigns.value do
-        nil -> "—"
-        "" -> "—"
-        v when is_binary(v) -> String.upcase(String.slice(v, 0, 5))
-        v -> v |> to_string() |> String.upcase() |> String.slice(0, 5)
-      end
+    variant = severity_variant(assigns.value)
+    label = severity_label(assigns.value)
 
     assigns = assign(assigns, :variant, variant) |> assign(:label, label)
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
     """
+  end
+
+  defp severity_variant(value) do
+    case normalize_severity(value) do
+      s when s in ["critical", "fatal", "error"] -> "error"
+      s when s in ["high", "warn", "warning"] -> "warning"
+      s when s in ["medium", "info"] -> "info"
+      s when s in ["low", "debug", "trace", "ok"] -> "success"
+      _ -> "ghost"
+    end
+  end
+
+  defp severity_label(nil), do: "—"
+  defp severity_label(""), do: "—"
+
+  defp severity_label(value) when is_binary(value) do
+    String.upcase(String.slice(value, 0, 5))
+  end
+
+  defp severity_label(value) do
+    value
+    |> to_string()
+    |> String.upcase()
+    |> String.slice(0, 5)
   end
 
   defp normalize_severity(nil), do: ""
@@ -1604,6 +1455,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp to_int(_), do: 0
 
+  defp numeric_to_float(%Decimal{} = value), do: Decimal.to_float(value)
+  defp numeric_to_float(value) when is_number(value), do: value * 1.0
+  defp numeric_to_float(_), do: 0.0
+
   defp extract_stats_count({:ok, %{"results" => [%{} = raw | _]}}, key) when is_binary(key) do
     row =
       case Map.get(raw, "payload") do
@@ -1658,6 +1513,86 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp default_tab_for_path("/observability"), do: "traces"
   defp default_tab_for_path(_), do: "logs"
+
+  defp normalize_tab("logs", _path), do: "logs"
+  defp normalize_tab("traces", _path), do: "traces"
+  defp normalize_tab("metrics", _path), do: "metrics"
+  defp normalize_tab(_tab, path), do: default_tab_for_path(path)
+
+  defp tab_entity("traces"), do: {"otel_trace_summaries", :traces}
+  defp tab_entity("metrics"), do: {"otel_metrics", :metrics}
+  defp tab_entity(_), do: {"logs", :logs}
+
+  defp apply_tab_assigns(socket, "traces", srql_module) do
+    trace_latency = compute_trace_latency(socket.assigns.traces)
+
+    socket
+    |> assign(:trace_stats, load_trace_stats(srql_module))
+    |> assign(:trace_latency, trace_latency)
+    |> assign(:metrics_stats, empty_metrics_stats())
+  end
+
+  defp apply_tab_assigns(socket, "metrics", srql_module) do
+    metrics_stats = build_metrics_stats(srql_module)
+    sparklines = load_sparklines(socket.assigns.metrics)
+
+    socket
+    |> assign(:metrics_stats, metrics_stats)
+    |> assign(:sparklines, sparklines)
+    |> assign(:trace_stats, empty_trace_stats())
+    |> assign(:trace_latency, empty_trace_latency())
+  end
+
+  defp apply_tab_assigns(socket, _tab, srql_module) do
+    summary = maybe_load_log_summary(socket, srql_module)
+
+    socket
+    |> assign(:summary, summary)
+    |> assign(:trace_stats, empty_trace_stats())
+    |> assign(:trace_latency, empty_trace_latency())
+    |> assign(:metrics_stats, empty_metrics_stats())
+  end
+
+  defp build_metrics_stats(srql_module) do
+    metrics_counts = load_metrics_counts(srql_module)
+    duration_stats = load_duration_stats_from_cagg()
+
+    metrics_counts
+    |> Map.merge(duration_stats)
+    |> Map.put(:error_rate, compute_error_rate(metrics_counts.total, metrics_counts.error_spans))
+  end
+
+  defp maybe_load_log_summary(socket, srql_module) do
+    summary = load_summary(srql_module, Map.get(socket.assigns.srql, :query))
+
+    case summary do
+      %{total: 0} when is_list(socket.assigns.logs) and socket.assigns.logs != [] ->
+        compute_summary(socket.assigns.logs)
+
+      other ->
+        other
+    end
+  end
+
+  defp empty_trace_stats do
+    %{total: 0, error_traces: 0, slow_traces: 0}
+  end
+
+  defp empty_trace_latency do
+    %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, service_count: 0, sample_size: 0}
+  end
+
+  defp empty_metrics_stats do
+    %{
+      total: 0,
+      slow_spans: 0,
+      error_spans: 0,
+      error_rate: 0.0,
+      avg_duration_ms: 0.0,
+      p95_duration_ms: 0.0,
+      sample_size: 0
+    }
+  end
 
   defp ensure_srql_entity(socket, entity) when is_binary(entity) do
     current = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:entity)
@@ -1754,21 +1689,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     case Repo.one(query) do
       %{total_count: total} = stats when not is_nil(total) and total > 0 ->
-        avg = case stats.avg_duration_ms do
-          %Decimal{} = d -> Decimal.to_float(d)
-          n when is_number(n) -> n * 1.0
-          _ -> 0.0
-        end
-
-        p95 = case stats.p95_duration_ms do
-          %Decimal{} = d -> Decimal.to_float(d)
-          n when is_number(n) -> n * 1.0
-          _ -> 0.0
-        end
-
         %{
-          avg_duration_ms: avg,
-          p95_duration_ms: p95,
+          avg_duration_ms: numeric_to_float(stats.avg_duration_ms),
+          p95_duration_ms: numeric_to_float(stats.p95_duration_ms),
           sample_size: to_int(total)
         }
 
@@ -1785,45 +1708,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   # Load sparkline data for gauge/counter metrics
   # Returns a map of metric_name -> list of {bucket, avg_value} tuples
   defp load_sparklines(metrics) when is_list(metrics) do
-    # Extract unique metric names for gauges and counters
-    metric_names =
-      metrics
-      |> Enum.filter(fn m ->
-        type = normalize_string(Map.get(m, "metric_type"))
-        type in ["gauge", "counter"]
-      end)
-      |> Enum.map(fn m -> Map.get(m, "metric_name") end)
-      |> Enum.filter(&is_binary/1)
-      |> Enum.uniq()
+    metric_names = sparkline_metric_names(metrics)
 
     if metric_names == [] do
       %{}
     else
-      # Query last 2 hours of data, bucketed into 5-minute intervals (24 points)
-      cutoff = DateTime.add(DateTime.utc_now(), -2, :hour)
-
-      query =
-        from(m in "otel_metrics",
-          where: m.metric_name in ^metric_names and m.timestamp >= ^cutoff,
-          group_by: [m.metric_name, fragment("time_bucket('5 minutes', ?)", m.timestamp)],
-          order_by: [m.metric_name, fragment("time_bucket('5 minutes', ?)", m.timestamp)],
-          select: %{
-            metric_name: m.metric_name,
-            bucket: fragment("time_bucket('5 minutes', ?)", m.timestamp),
-            avg_value: avg(m.value)
-          }
-        )
-
-      query
-      |> Repo.all()
-      |> Enum.group_by(& &1.metric_name, fn row ->
-        # Extract just the numeric value for sparklines
-        case row.avg_value do
-          %Decimal{} = d -> Decimal.to_float(d)
-          n when is_number(n) -> n * 1.0
-          _ -> 0.0
-        end
-      end)
+      fetch_sparklines(metric_names)
     end
   rescue
     e ->
@@ -1834,6 +1724,37 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp load_sparklines(_), do: %{}
+
+  defp sparkline_metric_names(metrics) do
+    metrics
+    |> Enum.filter(fn metric ->
+      type = normalize_string(Map.get(metric, "metric_type"))
+      type in ["gauge", "counter"]
+    end)
+    |> Enum.map(&Map.get(&1, "metric_name"))
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+  end
+
+  defp fetch_sparklines(metric_names) do
+    cutoff = DateTime.add(DateTime.utc_now(), -2, :hour)
+
+    query =
+      from(m in "otel_metrics",
+        where: m.metric_name in ^metric_names and m.timestamp >= ^cutoff,
+        group_by: [m.metric_name, fragment("time_bucket('5 minutes', ?)", m.timestamp)],
+        order_by: [m.metric_name, fragment("time_bucket('5 minutes', ?)", m.timestamp)],
+        select: %{
+          metric_name: m.metric_name,
+          bucket: fragment("time_bucket('5 minutes', ?)", m.timestamp),
+          avg_value: avg(m.value)
+        }
+      )
+
+    query
+    |> Repo.all()
+    |> Enum.group_by(& &1.metric_name, fn row -> numeric_to_float(row.avg_value) end)
+  end
 
   defp compute_error_rate(total, errors) when is_integer(total) and total > 0 do
     Float.round(errors / total * 100.0, 1)
@@ -1854,8 +1775,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       rows
       |> Enum.filter(&is_map/1)
       |> Enum.map(fn row -> extract_number(Map.get(row, "duration_ms")) end)
-      |> Enum.filter(&is_number/1)
-      |> Enum.filter(fn ms -> ms >= 0 and ms < 3_600_000 end)
+      |> Enum.filter(fn ms -> is_number(ms) and ms >= 0 and ms < 3_600_000 end)
 
     sample_size = length(durations)
 
@@ -1878,7 +1798,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     %{avg_duration_ms: avg, p95_duration_ms: p95, sample_size: sample_size}
   end
 
-  defp compute_trace_duration_stats(_), do: %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
+  defp compute_trace_duration_stats(_),
+    do: %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
 
   defp unique_services_from_traces(rows) when is_list(rows) do
     rows
@@ -1921,24 +1842,40 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp error_count_class(_), do: "text-base-content/60"
 
   defp metric_operation(metric) do
-    http_route = Map.get(metric, "http_route")
-    http_method = Map.get(metric, "http_method")
+    grpc = grpc_operation(metric)
+    http = http_operation(metric)
+
+    cond do
+      is_binary(grpc) -> grpc
+      is_binary(http) -> http
+      true -> Map.get(metric, "span_name") || "—"
+    end
+  end
+
+  defp grpc_operation(metric) do
     grpc_service = Map.get(metric, "grpc_service")
     grpc_method = Map.get(metric, "grpc_method")
 
-    cond do
-      is_binary(grpc_service) and grpc_service != "" and is_binary(grpc_method) and
-          grpc_method != "" ->
-        "#{grpc_service}/#{grpc_method}"
+    if non_empty_string?(grpc_service) and non_empty_string?(grpc_method) do
+      "#{grpc_service}/#{grpc_method}"
+    else
+      nil
+    end
+  end
 
-      is_binary(http_method) and http_method != "" and is_binary(http_route) and http_route != "" ->
+  defp http_operation(metric) do
+    http_route = Map.get(metric, "http_route")
+    http_method = Map.get(metric, "http_method")
+
+    cond do
+      non_empty_string?(http_method) and non_empty_string?(http_route) ->
         "#{http_method} #{http_route}"
 
-      is_binary(http_route) and http_route != "" ->
+      non_empty_string?(http_route) ->
         http_route
 
       true ->
-        Map.get(metric, "span_name") || "—"
+        nil
     end
   end
 
@@ -1968,6 +1905,31 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp escape_srql_value(value), do: value |> to_string() |> escape_srql_value()
+
+  defp metric_numeric_value(metric, keys) when is_map(metric) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.get(metric, key) do
+        value when is_number(value) -> value
+        value when is_binary(value) -> extract_number(value)
+        _ -> nil
+      end
+    end)
+  end
+
+  defp duration_ms_from_metric(metric) when is_map(metric) do
+    case metric_numeric_value(metric, ["duration_ms"]) do
+      value when is_number(value) ->
+        value * 1.0
+
+      _ ->
+        case metric_numeric_value(metric, ["duration_seconds"]) do
+          value when is_number(value) -> value * 1000.0
+          _ -> nil
+        end
+    end
+  end
+
+  defp duration_ms_from_metric(_), do: nil
 
   defp extract_number(value) when is_number(value), do: value
 

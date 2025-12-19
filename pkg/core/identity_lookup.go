@@ -85,7 +85,7 @@ func (s *Server) lookupIdentityFromDB(ctx context.Context, keys []identitymap.Ke
 			continue
 		}
 
-		record := buildRecordFromUnifiedDevice(device)
+		record := buildRecordFromOCSFDevice(device)
 		if record == nil {
 			continue
 		}
@@ -97,19 +97,19 @@ func (s *Server) lookupIdentityFromDB(ctx context.Context, keys []identitymap.Ke
 	return nil, identitymap.Key{}, nil
 }
 
-func (s *Server) fetchCanonicalDevice(ctx context.Context, key identitymap.Key) (*models.UnifiedDevice, error) {
+func (s *Server) fetchCanonicalDevice(ctx context.Context, key identitymap.Key) (*models.OCSFDevice, error) {
 	switch key.Kind {
 	case identitymap.KindDeviceID:
-		return s.DB.GetUnifiedDevice(ctx, key.Value)
+		return s.DB.GetOCSFDevice(ctx, key.Value)
 	case identitymap.KindPartitionIP:
 		partition, ip := splitPartitionIP(key.Value)
-		devices, err := s.DB.GetUnifiedDevicesByIPsOrIDs(ctx, []string{ip}, nil)
+		devices, err := s.DB.GetOCSFDevicesByIPsOrIDs(ctx, []string{ip}, nil)
 		if err != nil {
 			return nil, err
 		}
 		return selectPartitionMatch(devices, partition), nil
 	case identitymap.KindIP:
-		devices, err := s.DB.GetUnifiedDevicesByIPsOrIDs(ctx, []string{key.Value}, nil)
+		devices, err := s.DB.GetOCSFDevicesByIPsOrIDs(ctx, []string{key.Value}, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -119,19 +119,19 @@ func (s *Server) fetchCanonicalDevice(ctx context.Context, key identitymap.Key) 
 		if err != nil || deviceID == "" {
 			return nil, err
 		}
-		return s.DB.GetUnifiedDevice(ctx, deviceID)
+		return s.DB.GetOCSFDevice(ctx, deviceID)
 	case identitymap.KindArmisID:
 		deviceID, err := s.lookupDeviceIDByQuery(ctx, armisLookupQuery(key.Value))
 		if err != nil || deviceID == "" {
 			return nil, err
 		}
-		return s.DB.GetUnifiedDevice(ctx, deviceID)
+		return s.DB.GetOCSFDevice(ctx, deviceID)
 	case identitymap.KindNetboxID:
 		deviceID, err := s.lookupDeviceIDByQuery(ctx, netboxLookupQuery(key.Value))
 		if err != nil || deviceID == "" {
 			return nil, err
 		}
-		return s.DB.GetUnifiedDevice(ctx, deviceID)
+		return s.DB.GetOCSFDevice(ctx, deviceID)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedIdentityKind, key.Kind.String())
 	}
@@ -148,11 +148,11 @@ func (s *Server) lookupDeviceIDByQuery(ctx context.Context, query string) (strin
 	if len(rows) == 0 {
 		return "", nil
 	}
-	id, _ := rows[0]["device_id"].(string)
+	id, _ := rows[0]["uid"].(string)
 	return id, nil
 }
 
-func buildRecordFromUnifiedDevice(device *models.UnifiedDevice) *identitymap.Record {
+func buildRecordFromOCSFDevice(device *models.OCSFDevice) *identitymap.Record {
 	if device == nil {
 		return nil
 	}
@@ -161,18 +161,15 @@ func buildRecordFromUnifiedDevice(device *models.UnifiedDevice) *identitymap.Rec
 	if device.IP != "" {
 		attrs["ip"] = device.IP
 	}
-	partition := partitionFromDeviceID(device.DeviceID)
+	partition := partitionFromDeviceID(device.UID)
 	if partition != "" {
 		attrs["partition"] = partition
 	}
-	if device.Hostname != nil {
-		if name := strings.TrimSpace(device.Hostname.Value); name != "" {
-			attrs["hostname"] = name
-		}
+	if name := strings.TrimSpace(device.Hostname); name != "" {
+		attrs["hostname"] = name
 	}
-	if len(device.DiscoverySources) > 0 {
-		src := strings.TrimSpace(string(device.DiscoverySources[0].Source))
-		if src != "" {
+	if device.Metadata != nil {
+		if src := strings.TrimSpace(device.Metadata["discovery_source"]); src != "" {
 			attrs["source"] = src
 		}
 	}
@@ -181,38 +178,38 @@ func buildRecordFromUnifiedDevice(device *models.UnifiedDevice) *identitymap.Rec
 	}
 
 	metadata := map[string]string{}
-	if device.Metadata != nil && len(device.Metadata.Value) > 0 {
-		metadata = device.Metadata.Value
+	if len(device.Metadata) > 0 {
+		metadata = device.Metadata
 	}
 
 	update := &models.DeviceUpdate{
-		DeviceID:  device.DeviceID,
+		DeviceID:  device.UID,
 		Partition: partition,
 		IP:        device.IP,
 		Metadata:  metadata,
 	}
 
-	if len(device.DiscoverySources) > 0 {
-		update.Source = device.DiscoverySources[0].Source
+	if device.Metadata != nil {
+		if src := strings.TrimSpace(device.Metadata["discovery_source"]); src != "" {
+			update.Source = models.DiscoverySource(src)
+		}
 	}
-	if device.Hostname != nil {
-		host := device.Hostname.Value
-		update.Hostname = &host
+	if hostname := strings.TrimSpace(device.Hostname); hostname != "" {
+		update.Hostname = &hostname
 	}
-	if device.MAC != nil {
-		mac := device.MAC.Value
+	if mac := strings.TrimSpace(device.MAC); mac != "" {
 		update.MAC = &mac
 	}
 
 	return &identitymap.Record{
-		CanonicalDeviceID: device.DeviceID,
+		CanonicalDeviceID: device.UID,
 		Partition:         partition,
 		MetadataHash:      identitymap.HashIdentityMetadata(update),
 		Attributes:        attrs,
 	}
 }
 
-func selectCanonicalDevice(devices []*models.UnifiedDevice) *models.UnifiedDevice {
+func selectCanonicalDevice(devices []*models.OCSFDevice) *models.OCSFDevice {
 	if len(devices) == 0 {
 		return nil
 	}
@@ -221,10 +218,10 @@ func selectCanonicalDevice(devices []*models.UnifiedDevice) *models.UnifiedDevic
 			continue
 		}
 		if device.Metadata != nil {
-			if _, tombstoned := device.Metadata.Value["_merged_into"]; tombstoned {
+			if _, tombstoned := device.Metadata["_merged_into"]; tombstoned {
 				continue
 			}
-			if deleted, ok := device.Metadata.Value["_deleted"]; ok && strings.EqualFold(deleted, "true") {
+			if deleted, ok := device.Metadata["_deleted"]; ok && strings.EqualFold(deleted, "true") {
 				continue
 			}
 		}
@@ -233,7 +230,7 @@ func selectCanonicalDevice(devices []*models.UnifiedDevice) *models.UnifiedDevic
 	return devices[0]
 }
 
-func selectPartitionMatch(devices []*models.UnifiedDevice, partition string) *models.UnifiedDevice {
+func selectPartitionMatch(devices []*models.OCSFDevice, partition string) *models.OCSFDevice {
 	if len(devices) == 0 {
 		return nil
 	}
@@ -241,7 +238,7 @@ func selectPartitionMatch(devices []*models.UnifiedDevice, partition string) *mo
 		if device == nil {
 			continue
 		}
-		if partition != "" && partitionFromDeviceID(device.DeviceID) == partition {
+		if partition != "" && partitionFromDeviceID(device.UID) == partition {
 			return device
 		}
 	}
@@ -290,9 +287,9 @@ func macLookupQuery(mac string) string {
 	if mac == "" {
 		return ""
 	}
-	return fmt.Sprintf(`SELECT device_id FROM table(unified_devices)
+	return fmt.Sprintf(`SELECT uid FROM ocsf_devices
             WHERE mac = '%s'
-            ORDER BY _tp_time DESC
+            ORDER BY modified_time DESC
             LIMIT 1`, escapeLiteral(mac))
 }
 
@@ -301,11 +298,11 @@ func armisLookupQuery(armis string) string {
 	if armis == "" {
 		return ""
 	}
-	return fmt.Sprintf(`SELECT device_id
-            FROM table(unified_devices)
-            WHERE has(map_keys(metadata), 'armis_device_id')
-              AND metadata['armis_device_id'] = '%s'
-            ORDER BY _tp_time DESC
+	return fmt.Sprintf(`SELECT uid
+            FROM ocsf_devices
+            WHERE metadata ? 'armis_device_id'
+              AND metadata->>'armis_device_id' = '%s'
+            ORDER BY modified_time DESC
             LIMIT 1`, escapeLiteral(armis))
 }
 
@@ -315,13 +312,13 @@ func netboxLookupQuery(id string) string {
 		return ""
 	}
 	esc := escapeLiteral(id)
-	return fmt.Sprintf(`SELECT device_id
-            FROM table(unified_devices)
-            WHERE has(map_keys(metadata), 'integration_type')
-              AND metadata['integration_type'] = 'netbox'
-              AND ((has(map_keys(metadata), 'integration_id') AND metadata['integration_id'] = '%s')
-                OR (has(map_keys(metadata), 'netbox_device_id') = 1 AND metadata['netbox_device_id'] = '%s'))
-            ORDER BY _tp_time DESC
+	return fmt.Sprintf(`SELECT uid
+            FROM ocsf_devices
+            WHERE metadata ? 'integration_type'
+              AND metadata->>'integration_type' = 'netbox'
+              AND ((metadata ? 'integration_id' AND metadata->>'integration_id' = '%s')
+                OR (metadata ? 'netbox_device_id' AND metadata->>'netbox_device_id' = '%s'))
+            ORDER BY modified_time DESC
             LIMIT 1`, esc, esc)
 }
 

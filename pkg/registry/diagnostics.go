@@ -28,7 +28,7 @@ func (r *DeviceRegistry) SampleMissingDeviceIDs(ctx context.Context, knownIDs ma
 	batchCount := 0
 
 	for len(missing) < sampleLimit && batchCount < maxSampleScanBatches {
-		devices, err := r.db.ListUnifiedDevices(ctx, hydrateBatchSize, offset)
+		devices, err := r.db.ListOCSFDevices(ctx, hydrateBatchSize, offset)
 		if err != nil {
 			return missing, err
 		}
@@ -40,7 +40,7 @@ func (r *DeviceRegistry) SampleMissingDeviceIDs(ctx context.Context, knownIDs ma
 			if device == nil {
 				continue
 			}
-			id := strings.TrimSpace(device.DeviceID)
+			id := strings.TrimSpace(device.UID)
 			if id == "" {
 				continue
 			}

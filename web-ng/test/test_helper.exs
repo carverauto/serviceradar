@@ -4,12 +4,13 @@ ExUnit.start()
 
 repo = ServiceRadarWebNG.Repo
 
+# Create OCSF-aligned device inventory table (OCSF v1.7.0 Device object)
 _ =
   Ecto.Adapters.SQL.query!(
     repo,
     """
-    CREATE TABLE IF NOT EXISTS unified_devices (
-      device_id text PRIMARY KEY
+    CREATE TABLE IF NOT EXISTS ocsf_devices (
+      uid text PRIMARY KEY
     )
     """,
     []
@@ -18,28 +19,53 @@ _ =
 _ =
   Enum.each(
     [
+      # OCSF Core Identity
+      {"type_id", "integer DEFAULT 0"},
+      {"type", "text"},
+      {"name", "text"},
+      {"hostname", "text"},
       {"ip", "text"},
+      {"mac", "text"},
+      # OCSF Extended Identity
+      {"uid_alt", "text"},
+      {"vendor_name", "text"},
+      {"model", "text"},
+      {"domain", "text"},
+      {"zone", "text"},
+      {"subnet_uid", "text"},
+      {"vlan_uid", "text"},
+      {"region", "text"},
+      # OCSF Temporal
+      {"first_seen_time", "timestamptz"},
+      {"last_seen_time", "timestamptz"},
+      {"created_time", "timestamptz DEFAULT NOW()"},
+      {"modified_time", "timestamptz DEFAULT NOW()"},
+      # OCSF Risk and Compliance
+      {"risk_level_id", "integer"},
+      {"risk_level", "text"},
+      {"risk_score", "integer"},
+      {"is_managed", "boolean"},
+      {"is_compliant", "boolean"},
+      {"is_trusted", "boolean"},
+      # OCSF Nested Objects (JSONB)
+      {"os", "jsonb"},
+      {"hw_info", "jsonb"},
+      {"network_interfaces", "jsonb"},
+      {"owner", "jsonb"},
+      {"org", "jsonb"},
+      {"groups", "jsonb"},
+      {"agent_list", "jsonb"},
+      # ServiceRadar-specific fields
       {"poller_id", "text"},
       {"agent_id", "text"},
-      {"hostname", "text"},
-      {"mac", "text"},
       {"discovery_sources", "text[]"},
       {"is_available", "boolean"},
-      {"first_seen", "timestamptz"},
-      {"last_seen", "timestamptz"},
-      {"metadata", "jsonb"},
-      {"device_type", "text"},
-      {"service_type", "text"},
-      {"service_status", "text"},
-      {"last_heartbeat", "timestamptz"},
-      {"os_info", "text"},
-      {"version_info", "text"},
-      {"updated_at", "timestamptz"}
+      {"metadata", "jsonb"}
     ],
     fn {col, type} ->
       Ecto.Adapters.SQL.query!(
         repo,
-        "ALTER TABLE unified_devices ADD COLUMN IF NOT EXISTS #{col} #{type}",
+        "ALTER TABLE ocsf_devices ADD COLUMN IF NOT EXISTS #{col} #{type}",
         []
       )
     end

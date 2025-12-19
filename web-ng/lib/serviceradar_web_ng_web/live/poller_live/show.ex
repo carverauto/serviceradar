@@ -115,10 +115,9 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Show do
     detail_fields =
       assigns.poller
       |> Map.keys()
-      |> Enum.reject(&(&1 in summary_fields))
       |> Enum.reject(fn key ->
         value = Map.get(assigns.poller, key)
-        is_map(value) and map_size(value) == 0
+        key in summary_fields or (is_map(value) and map_size(value) == 0)
       end)
       |> Enum.sort()
 
@@ -265,8 +264,7 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Show do
     field
     |> String.replace("_", " ")
     |> String.split()
-    |> Enum.map(&String.capitalize/1)
-    |> Enum.join(" ")
+    |> Enum.map_join(" ", &String.capitalize/1)
   end
 
   defp humanize_field(field), do: to_string(field)

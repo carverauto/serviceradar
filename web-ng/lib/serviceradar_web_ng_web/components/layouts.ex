@@ -79,7 +79,9 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                 <.theme_toggle :if={not @signed_in?} />
 
                 <%= if not @signed_in? do %>
-                  <.ui_button href={~p"/users/register"} variant="ghost" size="sm">Register</.ui_button>
+                  <.ui_button href={~p"/users/register"} variant="ghost" size="sm">
+                    Register
+                  </.ui_button>
                   <.ui_button href={~p"/users/log-in"} variant="primary" size="sm">Log in</.ui_button>
                 <% end %>
               </div>
