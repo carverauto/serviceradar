@@ -155,10 +155,24 @@ EOF
 
 cd "$WORKDIR"
 chmod -R u+w .
+
+# Preserve existing static assets (favicon, images, robots.txt) before clearing priv/static
+PRESERVED_STATIC=$(mktemp -d)
+if [ -d priv/static ]; then
+  [ -f priv/static/favicon.ico ] && cp priv/static/favicon.ico "$PRESERVED_STATIC/"
+  [ -f priv/static/robots.txt ] && cp priv/static/robots.txt "$PRESERVED_STATIC/"
+  [ -d priv/static/images ] && cp -r priv/static/images "$PRESERVED_STATIC/"
+fi
+
 rm -rf priv/static
 mkdir -p "$HOME/priv_static/assets/css"
 ln -s "$HOME/priv_static" priv/static
 : > priv/static/assets/css/app.css
+
+# Restore preserved static assets to the symlinked directory
+[ -f "$PRESERVED_STATIC/favicon.ico" ] && cp "$PRESERVED_STATIC/favicon.ico" priv/static/
+[ -f "$PRESERVED_STATIC/robots.txt" ] && cp "$PRESERVED_STATIC/robots.txt" priv/static/
+[ -d "$PRESERVED_STATIC/images" ] && cp -r "$PRESERVED_STATIC/images" priv/static/
 
 # Fetch and compile deps, build assets, create release into Bazel output dir
 mix local.hex --force
