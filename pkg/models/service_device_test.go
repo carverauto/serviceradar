@@ -220,50 +220,6 @@ func TestCreatePollerDeviceUpdate_NilMetadata(t *testing.T) {
 	assert.Equal(t, pollerID, result.Metadata["poller_id"])
 }
 
-func TestCreateAgentDeviceUpdate(t *testing.T) {
-	agentID := testAgentID
-	pollerID := testPollerID
-	hostIP := testAgentHostIP
-	metadata := map[string]string{
-		"version": "1.0.0",
-	}
-
-	result := CreateAgentDeviceUpdate(agentID, pollerID, hostIP, "", metadata)
-
-	require.NotNil(t, result)
-	assert.Equal(t, "serviceradar:agent:"+testAgentID, result.DeviceID)
-	assert.NotNil(t, result.ServiceType)
-	assert.Equal(t, ServiceTypeAgent, *result.ServiceType)
-	assert.Equal(t, agentID, result.ServiceID)
-	assert.Equal(t, hostIP, result.IP)
-	assert.Equal(t, DiscoverySourceServiceRadar, result.Source)
-	assert.Equal(t, agentID, result.AgentID)
-	assert.Equal(t, pollerID, result.PollerID)
-	assert.Equal(t, defaultServicePartition, result.Partition)
-	assert.True(t, result.IsAvailable)
-	assert.Equal(t, ConfidenceHighSelfReported, result.Confidence)
-
-	// Check metadata includes both provided and added fields
-	assert.Equal(t, "1.0.0", result.Metadata["version"])
-	assert.Equal(t, "agent", result.Metadata["component_type"])
-	assert.Equal(t, agentID, result.Metadata["agent_id"])
-	assert.Equal(t, pollerID, result.Metadata["poller_id"])
-}
-
-func TestCreateAgentDeviceUpdate_NilMetadata(t *testing.T) {
-	agentID := testAgentID
-	pollerID := testPollerID
-	hostIP := testAgentHostIP
-
-	result := CreateAgentDeviceUpdate(agentID, pollerID, hostIP, "", nil)
-
-	require.NotNil(t, result)
-	require.NotNil(t, result.Metadata)
-	assert.Equal(t, "agent", result.Metadata["component_type"])
-	assert.Equal(t, agentID, result.Metadata["agent_id"])
-	assert.Equal(t, pollerID, result.Metadata["poller_id"])
-}
-
 func TestCreateCheckerDeviceUpdate(t *testing.T) {
 	checkerID := "sysmon@test-agent"
 	checkerKind := "sysmon"
@@ -384,25 +340,21 @@ func TestHighCardinalityCheckerIDs(t *testing.T) {
 
 func TestMultipleServicesOnSameIP(t *testing.T) {
 	// Test that multiple services on the same IP get unique device IDs
+	// Note: Agents are no longer registered as devices (OCSF alignment - they go to ocsf_agents table)
 	hostIP := testPollerHostIP
 
 	pollerUpdate := CreatePollerDeviceUpdate("poller-1", hostIP, "", nil)
-	agentUpdate := CreateAgentDeviceUpdate("agent-1", "poller-1", hostIP, "", nil)
 	checkerUpdate := CreateCheckerDeviceUpdate("sysmon@agent-1", "sysmon", "agent-1", "poller-1", hostIP, "", nil)
 
-	// All have the same IP
+	// Both have the same IP
 	assert.Equal(t, hostIP, pollerUpdate.IP)
-	assert.Equal(t, hostIP, agentUpdate.IP)
 	assert.Equal(t, hostIP, checkerUpdate.IP)
 
-	// But all have different device IDs
-	assert.NotEqual(t, pollerUpdate.DeviceID, agentUpdate.DeviceID)
+	// But have different device IDs
 	assert.NotEqual(t, pollerUpdate.DeviceID, checkerUpdate.DeviceID)
-	assert.NotEqual(t, agentUpdate.DeviceID, checkerUpdate.DeviceID)
 
 	// Verify expected device ID format
 	assert.Equal(t, "serviceradar:poller:poller-1", pollerUpdate.DeviceID)
-	assert.Equal(t, "serviceradar:agent:agent-1", agentUpdate.DeviceID)
 	assert.Equal(t, "serviceradar:checker:sysmon@agent-1", checkerUpdate.DeviceID)
 }
 

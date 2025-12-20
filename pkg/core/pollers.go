@@ -1417,7 +1417,6 @@ func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID, hostIP, p
 }
 
 // registerAgentInOCSF registers an agent in the ocsf_agents table.
-// This replaces registerAgentAsDevice - agents are NOT devices.
 func (s *Server) registerAgentInOCSF(ctx context.Context, agentID, pollerID, hostIP string, capabilities []string) error {
 	if s.DB == nil {
 		return nil // Database not available
@@ -1436,64 +1435,6 @@ func (s *Server) registerAgentInOCSF(ctx context.Context, agentID, pollerID, hos
 	return nil
 }
 
-// registerAgentAsDevice registers an agent as a device in the inventory
-// Deprecated: Use registerAgentInOCSF instead. Agents should not be registered as devices.
-func (s *Server) registerAgentAsDevice(ctx context.Context, agentID, pollerID, hostIP, partition string) error {
-	if s.DeviceRegistry == nil {
-		return nil // Registry not available
-	}
-
-	resolvedIP := s.resolveServiceHostIP(ctx, pollerID, agentID, hostIP)
-	normalizedPartition := strings.TrimSpace(partition)
-	if normalizedPartition == "" {
-		normalizedPartition = defaultPartition
-	}
-
-	metadata := map[string]string{
-		"last_heartbeat": time.Now().Format(time.RFC3339),
-	}
-	if resolvedIP != "" {
-		metadata["host_ip"] = resolvedIP
-	}
-
-	deviceUpdate := models.CreateAgentDeviceUpdate(agentID, pollerID, resolvedIP, normalizedPartition, metadata)
-
-	if hostname := s.getServiceHostname(agentID, resolvedIP); hostname != "" {
-		deviceUpdate.Hostname = &hostname
-		deviceUpdate.Metadata["hostname"] = hostname
-	}
-
-	if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate}); err != nil {
-		return err
-	}
-
-	s.upsertCollectorCapabilities(ctx, deviceUpdate.DeviceID, []string{"agent"}, agentID, pollerID, agentID, deviceUpdate.Timestamp)
-
-	eventMetadata := map[string]any{
-		"agent_id":  agentID,
-		"poller_id": pollerID,
-	}
-	if normalizedPartition != "" {
-		eventMetadata["partition"] = normalizedPartition
-	}
-	if resolvedIP != "" {
-		eventMetadata["host_ip"] = resolvedIP
-	}
-
-	s.recordCapabilityEvent(ctx, &capabilityEventInput{
-		DeviceID:    deviceUpdate.DeviceID,
-		Capability:  "agent",
-		ServiceID:   agentID,
-		ServiceType: "agent",
-		RecordedBy:  pollerID,
-		Enabled:     true,
-		Success:     true,
-		CheckedAt:   deviceUpdate.Timestamp,
-		Metadata:    eventMetadata,
-	})
-
-	return nil
-}
 
 // registerCheckerAsDevice registers a checker as a device in the inventory
 func (s *Server) registerCheckerAsDevice(ctx context.Context, checkerID, checkerKind, agentID, pollerID, hostIP, partition string) error {

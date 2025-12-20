@@ -67,7 +67,7 @@ func (db *DB) GetOCSFAgent(ctx context.Context, uid string) (*models.OCSFAgentRe
 
 	query := ocsfAgentsSelection + " AND uid = $1"
 
-	row := db.cnpgPool.QueryRow(ctx, query, uid)
+	row := db.pgPool.QueryRow(ctx, query, uid)
 
 	agent, err := scanOCSFAgentRow(row)
 	if err != nil {
@@ -88,7 +88,7 @@ func (db *DB) ListOCSFAgents(ctx context.Context, limit, offset int) ([]*models.
 
 	query := ocsfAgentsSelection + " ORDER BY last_seen_time DESC LIMIT $1 OFFSET $2"
 
-	rows, err := db.cnpgPool.Query(ctx, query, limit, offset)
+	rows, err := db.pgPool.Query(ctx, query, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToQueryOCSFAgent, err)
 	}
@@ -105,7 +105,7 @@ func (db *DB) ListOCSFAgentsByPoller(ctx context.Context, pollerID string) ([]*m
 
 	query := ocsfAgentsSelection + " AND poller_id = $1 ORDER BY last_seen_time DESC"
 
-	rows, err := db.cnpgPool.Query(ctx, query, pollerID)
+	rows, err := db.pgPool.Query(ctx, query, pollerID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToQueryOCSFAgent, err)
 	}
@@ -123,7 +123,7 @@ func (db *DB) CountOCSFAgents(ctx context.Context) (int64, error) {
 	const query = `SELECT COUNT(*) FROM ocsf_agents`
 
 	var count int64
-	err := db.cnpgPool.QueryRow(ctx, query).Scan(&count)
+	err := db.pgPool.QueryRow(ctx, query).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count ocsf agents: %w", err)
 	}
@@ -186,7 +186,7 @@ func (db *DB) UpsertOCSFAgent(ctx context.Context, agent *models.OCSFAgentRecord
 		modified_time = EXCLUDED.modified_time,
 		metadata = COALESCE(ocsf_agents.metadata, '{}'::jsonb) || COALESCE(EXCLUDED.metadata, '{}'::jsonb)`
 
-	_, err = db.cnpgPool.Exec(ctx, query,
+	_, err = db.pgPool.Exec(ctx, query,
 		agent.UID,
 		agent.Name,
 		agent.TypeID,

@@ -73,49 +73,8 @@ func TestServiceDeviceRegistration_PollerDeviceUpdate(t *testing.T) {
 	assert.Equal(t, "k8s-poller", result.Metadata["poller_id"])
 }
 
-func TestServiceDeviceRegistration_AgentDeviceUpdate(t *testing.T) {
-	ctx := context.Background()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockOCSFDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	allowCanonicalizationQueries(mockDB)
-	testLogger := logger.NewTestLogger()
-	registry := NewDeviceRegistry(mockDB, testLogger)
-
-	var publishedUpdates []*models.DeviceUpdate
-	mockDB.EXPECT().
-		PublishBatchDeviceUpdates(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, updates []*models.DeviceUpdate) error {
-			publishedUpdates = append(publishedUpdates, updates...)
-			return nil
-		}).
-		AnyTimes()
-
-	agentUpdate := models.CreateAgentDeviceUpdate("agent-123", "k8s-poller", "", "default", nil)
-
-	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{agentUpdate})
-	require.NoError(t, err)
-
-	require.Len(t, publishedUpdates, 1)
-	result := publishedUpdates[0]
-
-	assert.Equal(t, "serviceradar:agent:agent-123", result.DeviceID)
-	assert.Equal(t, models.ServiceTypeAgent, *result.ServiceType)
-	assert.Equal(t, "agent-123", result.ServiceID)
-	assert.Equal(t, "agent-123", result.AgentID)
-	assert.Equal(t, "k8s-poller", result.PollerID)
-	assert.Equal(t, "default", result.Partition)
-	assert.Equal(t, models.DiscoverySourceServiceRadar, result.Source)
-	assert.True(t, result.IsAvailable)
-	assert.Equal(t, "agent", result.Metadata["component_type"])
-	assert.Equal(t, "agent-123", result.Metadata["agent_id"])
-	assert.Equal(t, "k8s-poller", result.Metadata["poller_id"])
-}
+// Note: TestServiceDeviceRegistration_AgentDeviceUpdate was removed because
+// agents are no longer registered as devices (OCSF alignment - they go to ocsf_agents table)
 
 func TestServiceDeviceRegistration_CheckerDeviceUpdate(t *testing.T) {
 	ctx := context.Background()
@@ -187,10 +146,10 @@ func TestServiceDeviceRegistration_MultipleServicesOnSameIP(t *testing.T) {
 		AnyTimes()
 
 	// Create multiple services all running on the same IP
+	// Note: Agents are no longer registered as devices (OCSF alignment - they go to ocsf_agents table)
 	hostIP := "192.168.1.100"
 	updates := []*models.DeviceUpdate{
 		models.CreatePollerDeviceUpdate("poller-1", hostIP, "default", nil),
-		models.CreateAgentDeviceUpdate("agent-1", "poller-1", hostIP, "default", nil),
 		models.CreateCheckerDeviceUpdate("sysmon@agent-1", "sysmon", "agent-1", "poller-1", hostIP, "default", nil),
 		models.CreateCheckerDeviceUpdate("rperf@agent-1", "rperf", "agent-1", "poller-1", hostIP, "default", nil),
 	}
@@ -198,7 +157,7 @@ func TestServiceDeviceRegistration_MultipleServicesOnSameIP(t *testing.T) {
 	err := registry.ProcessBatchDeviceUpdates(ctx, updates)
 	require.NoError(t, err)
 
-	require.Len(t, publishedUpdates, 4, "All 4 services should be published as distinct devices")
+	require.Len(t, publishedUpdates, 3, "All 3 services should be published as distinct devices")
 
 	// Verify all have the same IP but different device IDs
 	deviceIDs := make(map[string]bool)
@@ -212,7 +171,6 @@ func TestServiceDeviceRegistration_MultipleServicesOnSameIP(t *testing.T) {
 	// Verify expected device IDs
 	expectedDeviceIDs := map[string]bool{
 		"serviceradar:poller:poller-1":        false,
-		"serviceradar:agent:agent-1":          false,
 		"serviceradar:checker:sysmon@agent-1": false,
 		"serviceradar:checker:rperf@agent-1":  false,
 	}
@@ -453,10 +411,10 @@ func TestServiceDeviceRegistration_MixedBatch(t *testing.T) {
 		AnyTimes()
 
 	// Create a batch with both service devices and network devices
+	// Note: Agents are no longer registered as devices (OCSF alignment - they go to ocsf_agents table)
 	updates := []*models.DeviceUpdate{
 		// Service devices
 		models.CreatePollerDeviceUpdate("poller-1", "", "default", nil),
-		models.CreateAgentDeviceUpdate("agent-1", "poller-1", "192.168.1.100", "default", nil),
 		// Network devices
 		{
 			IP:          "192.168.1.10",
@@ -481,7 +439,7 @@ func TestServiceDeviceRegistration_MixedBatch(t *testing.T) {
 	err := registry.ProcessBatchDeviceUpdates(ctx, updates)
 	require.NoError(t, err)
 
-	require.Len(t, publishedUpdates, 4, "All updates should be published")
+	require.Len(t, publishedUpdates, 3, "All updates should be published")
 
 	serviceDeviceCount := 0
 	networkDeviceCount := 0
@@ -497,7 +455,7 @@ func TestServiceDeviceRegistration_MixedBatch(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, 2, serviceDeviceCount, "Should have 2 service devices")
+	assert.Equal(t, 1, serviceDeviceCount, "Should have 1 service device")
 	assert.Equal(t, 2, networkDeviceCount, "Should have 2 network devices")
 }
 
