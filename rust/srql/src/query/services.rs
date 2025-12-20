@@ -35,7 +35,8 @@ struct ServicesRollupStatsSql {
     payload: Value,
 }
 
-/// Payload structure for services availability rollup stats
+/// Payload structure for services availability rollup stats (reference/documentation)
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 struct ServicesRollupStatsPayload {
     total: i64,

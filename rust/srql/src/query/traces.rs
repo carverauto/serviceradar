@@ -135,6 +135,7 @@ struct TracesStatsPayload {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 enum SqlBindValue {
     Text(String),
     Int(i32),
