@@ -13,10 +13,10 @@
 
 ## 3. Registry Repository
 
-- [x] 3.1 Add `UpsertOCSFAgent()` method to registry repository
-- [x] 3.2 Add `GetOCSFAgent()` method for single agent lookup
-- [x] 3.3 Add `ListOCSFAgents()` method with pagination and filters
-- [x] 3.4 Add `ListOCSFAgentsByPoller()` method for poller-scoped queries
+- [x] 3.1 Add `UpsertOCSFAgent()` method to registry repository (write path)
+- [x] ~~3.2 Add `GetOCSFAgent()` method~~ (removed - SRQL handles reads)
+- [x] ~~3.3 Add `ListOCSFAgents()` method~~ (removed - SRQL handles reads)
+- [x] ~~3.4 Add `ListOCSFAgentsByPoller()` method~~ (removed - SRQL handles reads)
 - [ ] 3.5 Write unit tests for repository methods
 
 ## 4. Registration Flow
@@ -65,6 +65,10 @@
 - [x] 8.2 Update tests in `pkg/models/service_device_test.go` to remove agent-as-device assertions
 - [x] 8.3 Update tests in `pkg/registry/service_device_test.go` to remove agent-as-device tests
 - [x] 8.4 Regenerate mock interfaces (`go generate ./pkg/db/...`) for new OCSF agent methods
+- [x] 8.5 Remove unused read methods from `cnpg_ocsf_agents.go` (SRQL handles reads)
+- [x] 8.6 Remove unused lib/pq dependency (pgx handles arrays natively)
+- [x] 8.7 Update `pkg/db/interfaces.go` to remove unused agent read methods
+- [x] 8.8 Add `UpsertOCSFAgent` mock expectations to core tests
 
 ## 9. Integration Testing
 
