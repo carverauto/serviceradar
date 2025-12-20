@@ -64,7 +64,7 @@
 - [x] 8.1 Remove `CreateAgentDeviceUpdate()` helper from `pkg/models/service_registration.go`
 - [x] 8.2 Update tests in `pkg/models/service_device_test.go` to remove agent-as-device assertions
 - [x] 8.3 Update tests in `pkg/registry/service_device_test.go` to remove agent-as-device tests
-- [ ] 8.4 Regenerate mock interfaces (`go generate ./pkg/db/...`) for new OCSF agent methods
+- [x] 8.4 Regenerate mock interfaces (`go generate ./pkg/db/...`) for new OCSF agent methods
 
 ## 9. Integration Testing
 

@@ -100,6 +100,21 @@ func (mr *MockServiceMockRecorder) CountActiveSightings(arg0, arg1 any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountActiveSightings", reflect.TypeOf((*MockService)(nil).CountActiveSightings), arg0, arg1)
 }
 
+// CountOCSFAgents mocks base method.
+func (m *MockService) CountOCSFAgents(arg0 context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountOCSFAgents", arg0)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountOCSFAgents indicates an expected call of CountOCSFAgents.
+func (mr *MockServiceMockRecorder) CountOCSFAgents(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountOCSFAgents", reflect.TypeOf((*MockService)(nil).CountOCSFAgents), arg0)
+}
+
 // CountOCSFDevices mocks base method.
 func (m *MockService) CountOCSFDevices(arg0 context.Context) (int64, error) {
 	m.ctrl.T.Helper()
@@ -537,6 +552,21 @@ func (mr *MockServiceMockRecorder) GetNetworkSighting(arg0, arg1 any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNetworkSighting", reflect.TypeOf((*MockService)(nil).GetNetworkSighting), arg0, arg1)
 }
 
+// GetOCSFAgent mocks base method.
+func (m *MockService) GetOCSFAgent(arg0 context.Context, arg1 string) (*models.OCSFAgentRecord, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOCSFAgent", arg0, arg1)
+	ret0, _ := ret[0].(*models.OCSFAgentRecord)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOCSFAgent indicates an expected call of GetOCSFAgent.
+func (mr *MockServiceMockRecorder) GetOCSFAgent(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOCSFAgent", reflect.TypeOf((*MockService)(nil).GetOCSFAgent), arg0, arg1)
+}
+
 // GetOCSFDevice mocks base method.
 func (m *MockService) GetOCSFDevice(arg0 context.Context, arg1 string) (*models.OCSFDevice, error) {
 	m.ctrl.T.Helper()
@@ -868,6 +898,36 @@ func (m *MockService) ListNeverReportedPollers(arg0 context.Context, arg1 []stri
 func (mr *MockServiceMockRecorder) ListNeverReportedPollers(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListNeverReportedPollers", reflect.TypeOf((*MockService)(nil).ListNeverReportedPollers), arg0, arg1)
+}
+
+// ListOCSFAgents mocks base method.
+func (m *MockService) ListOCSFAgents(arg0 context.Context, arg1, arg2 int) ([]*models.OCSFAgentRecord, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOCSFAgents", arg0, arg1, arg2)
+	ret0, _ := ret[0].([]*models.OCSFAgentRecord)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOCSFAgents indicates an expected call of ListOCSFAgents.
+func (mr *MockServiceMockRecorder) ListOCSFAgents(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOCSFAgents", reflect.TypeOf((*MockService)(nil).ListOCSFAgents), arg0, arg1, arg2)
+}
+
+// ListOCSFAgentsByPoller mocks base method.
+func (m *MockService) ListOCSFAgentsByPoller(arg0 context.Context, arg1 string) ([]*models.OCSFAgentRecord, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOCSFAgentsByPoller", arg0, arg1)
+	ret0, _ := ret[0].([]*models.OCSFAgentRecord)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOCSFAgentsByPoller indicates an expected call of ListOCSFAgentsByPoller.
+func (mr *MockServiceMockRecorder) ListOCSFAgentsByPoller(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOCSFAgentsByPoller", reflect.TypeOf((*MockService)(nil).ListOCSFAgentsByPoller), arg0, arg1)
 }
 
 // ListOCSFDevices mocks base method.
@@ -1297,6 +1357,20 @@ func (m *MockService) UpsertEdgeOnboardingPackage(arg0 context.Context, arg1 *mo
 func (mr *MockServiceMockRecorder) UpsertEdgeOnboardingPackage(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertEdgeOnboardingPackage", reflect.TypeOf((*MockService)(nil).UpsertEdgeOnboardingPackage), arg0, arg1)
+}
+
+// UpsertOCSFAgent mocks base method.
+func (m *MockService) UpsertOCSFAgent(arg0 context.Context, arg1 *models.OCSFAgentRecord) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertOCSFAgent", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertOCSFAgent indicates an expected call of UpsertOCSFAgent.
+func (mr *MockServiceMockRecorder) UpsertOCSFAgent(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertOCSFAgent", reflect.TypeOf((*MockService)(nil).UpsertOCSFAgent), arg0, arg1)
 }
 
 // UpsertOCSFDevice mocks base method.

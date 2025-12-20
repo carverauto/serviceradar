@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/lib/pq"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -196,7 +195,7 @@ func (db *DB) UpsertOCSFAgent(ctx context.Context, agent *models.OCSFAgentRecord
 		agent.UIDAlt,
 		policiesJSON,
 		agent.PollerID,
-		pq.Array(agent.Capabilities),
+		agent.Capabilities,
 		agent.IP,
 		agent.FirstSeenTime,
 		agent.LastSeenTime,

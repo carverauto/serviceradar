@@ -221,8 +221,8 @@ func TestCreatePollerDeviceUpdate_NilMetadata(t *testing.T) {
 }
 
 func TestCreateCheckerDeviceUpdate(t *testing.T) {
-	checkerID := "sysmon@test-agent"
-	checkerKind := "sysmon"
+	checkerID := string(DiscoverySourceSysmon) + "@test-agent"
+	checkerKind := string(DiscoverySourceSysmon)
 	agentID := testAgentID
 	pollerID := testPollerID
 	hostIP := "192.168.1.102"
@@ -255,8 +255,8 @@ func TestCreateCheckerDeviceUpdate(t *testing.T) {
 }
 
 func TestCreateCheckerDeviceUpdate_NilMetadata(t *testing.T) {
-	checkerID := "sysmon@test-agent"
-	checkerKind := "sysmon"
+	checkerID := string(DiscoverySourceSysmon) + "@test-agent"
+	checkerKind := string(DiscoverySourceSysmon)
 	agentID := testAgentID
 	pollerID := testPollerID
 	hostIP := "192.168.1.102"
