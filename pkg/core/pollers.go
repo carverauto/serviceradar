@@ -1416,7 +1416,28 @@ func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID, hostIP, p
 	return nil
 }
 
+// registerAgentInOCSF registers an agent in the ocsf_agents table.
+// This replaces registerAgentAsDevice - agents are NOT devices.
+func (s *Server) registerAgentInOCSF(ctx context.Context, agentID, pollerID, hostIP string, capabilities []string) error {
+	if s.DB == nil {
+		return nil // Database not available
+	}
+
+	resolvedIP := s.resolveServiceHostIP(ctx, pollerID, agentID, hostIP)
+
+	// Create OCSF agent record
+	agent := models.CreateOCSFAgentFromRegistration(agentID, pollerID, resolvedIP, "", capabilities, nil)
+
+	// Upsert the agent record
+	if err := s.DB.UpsertOCSFAgent(ctx, agent); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // registerAgentAsDevice registers an agent as a device in the inventory
+// Deprecated: Use registerAgentInOCSF instead. Agents should not be registered as devices.
 func (s *Server) registerAgentAsDevice(ctx context.Context, agentID, pollerID, hostIP, partition string) error {
 	if s.DeviceRegistry == nil {
 		return nil // Registry not available

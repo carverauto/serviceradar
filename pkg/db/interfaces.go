@@ -139,6 +139,13 @@ type Service interface {
 	DeleteOCSFDevices(ctx context.Context, uids []string) error
 	LockOCSFDevices(ctx context.Context, ips []string) error
 
+	// OCSF Agent operations (ocsf_agents table)
+	GetOCSFAgent(ctx context.Context, uid string) (*models.OCSFAgentRecord, error)
+	ListOCSFAgents(ctx context.Context, limit, offset int) ([]*models.OCSFAgentRecord, error)
+	ListOCSFAgentsByPoller(ctx context.Context, pollerID string) ([]*models.OCSFAgentRecord, error)
+	CountOCSFAgents(ctx context.Context) (int64, error)
+	UpsertOCSFAgent(ctx context.Context, agent *models.OCSFAgentRecord) error
+
 	// Transaction support
 	WithTx(ctx context.Context, fn func(tx Service) error) error
 

@@ -91,6 +91,7 @@ macro_rules! apply_eq_filter {
     }};
 }
 
+mod agents;
 mod cpu_metrics;
 mod device_graph;
 mod device_updates;
@@ -170,6 +171,7 @@ impl QueryEngine {
             downsample::execute(&mut conn, &plan).await?
         } else {
             match plan.entity {
+                Entity::Agents => agents::execute(&mut conn, &plan).await?,
                 Entity::Devices => devices::execute(&mut conn, &plan).await?,
                 Entity::DeviceUpdates => device_updates::execute(&mut conn, &plan).await?,
                 Entity::DeviceGraph => device_graph::execute(&mut conn, &plan).await?,
@@ -521,6 +523,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
         downsample::to_sql_and_params(&plan)?
     } else {
         match plan.entity {
+            Entity::Agents => agents::to_sql_and_params(&plan)?,
             Entity::Devices => devices::to_sql_and_params(&plan)?,
             Entity::DeviceUpdates => device_updates::to_sql_and_params(&plan)?,
             Entity::DeviceGraph => device_graph::to_sql_and_params(&plan)?,
