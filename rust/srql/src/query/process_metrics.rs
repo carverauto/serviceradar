@@ -326,6 +326,7 @@ mod tests {
             }),
             stats: None,
             downsample: None,
+            rollup_stats: None,
         };
 
         let err = build_query(&plan).err().expect("expected error");

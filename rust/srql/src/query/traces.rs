@@ -13,11 +13,16 @@ use crate::{
     },
     time::TimeRange,
 };
+use chrono::{DateTime, Utc};
+use diesel::deserialize::QueryableByName;
 use diesel::pg::Pg;
 use diesel::prelude::*;
-use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
+use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
+use diesel::sql_query;
+use diesel::sql_types::{Nullable, Jsonb, Timestamptz, Text, Int4};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use serde_json::Value;
 
 type TracesTable = crate::schema::otel_traces::table;
 type TracesFromClause = FromClause<TracesTable>;
@@ -29,6 +34,17 @@ pub(super) async fn execute(
     plan: &QueryPlan,
 ) -> Result<Vec<serde_json::Value>> {
     ensure_entity(plan)?;
+
+    // Handle rollup_stats queries against pre-computed CAGGs
+    if let Some(rollup_sql) = build_rollup_stats_query(plan)? {
+        let query = rollup_sql.to_boxed_query();
+        let rows: Vec<TracesStatsPayload> = query
+            .load(conn)
+            .await
+            .map_err(|err| ServiceError::Internal(err.into()))?;
+        return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
+    }
+
     let query = build_query(plan)?;
     let rows: Vec<TraceSpanRow> = query
         .limit(plan.limit)
@@ -42,6 +58,18 @@ pub(super) async fn execute(
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+
+    // Handle rollup_stats queries against pre-computed CAGGs
+    if let Some(rollup_sql) = build_rollup_stats_query(plan)? {
+        let sql = rewrite_placeholders(&rollup_sql.sql);
+        let params = rollup_sql
+            .binds
+            .into_iter()
+            .map(bind_param_from_stats)
+            .collect();
+        return Ok((sql, params));
+    }
+
     let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
     let sql = super::diesel_sql(&query)?;
 
@@ -78,6 +106,191 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
             "entity not supported by traces query".into(),
         )),
     }
+}
+
+// ============================================================================
+// Rollup stats support for traces_stats_5m CAGG
+// ============================================================================
+
+#[derive(Debug, Clone)]
+struct TracesStatsSql {
+    sql: String,
+    binds: Vec<SqlBindValue>,
+}
+
+impl TracesStatsSql {
+    fn to_boxed_query(&self) -> BoxedSqlQuery<'_, Pg, SqlQuery> {
+        let mut query = sql_query(rewrite_placeholders(&self.sql)).into_boxed::<Pg>();
+        for bind in &self.binds {
+            query = bind.apply(query);
+        }
+        query
+    }
+}
+
+#[derive(Debug, QueryableByName)]
+struct TracesStatsPayload {
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    payload: Option<Value>,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+enum SqlBindValue {
+    Text(String),
+    Int(i32),
+    Timestamp(DateTime<Utc>),
+}
+
+impl SqlBindValue {
+    fn apply<'a>(&self, query: BoxedSqlQuery<'a, Pg, SqlQuery>) -> BoxedSqlQuery<'a, Pg, SqlQuery> {
+        match self {
+            SqlBindValue::Text(value) => query.bind::<Text, _>(value.clone()),
+            SqlBindValue::Int(value) => query.bind::<Int4, _>(*value),
+            SqlBindValue::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
+        }
+    }
+}
+
+fn bind_param_from_stats(value: SqlBindValue) -> BindParam {
+    match value {
+        SqlBindValue::Text(value) => BindParam::Text(value),
+        SqlBindValue::Int(value) => BindParam::Int(i64::from(value)),
+        SqlBindValue::Timestamp(value) => BindParam::timestamptz(value),
+    }
+}
+
+fn rewrite_placeholders(sql: &str) -> String {
+    let mut rewritten = String::with_capacity(sql.len());
+    let mut index = 1;
+    for ch in sql.chars() {
+        if ch == '?' {
+            rewritten.push('$');
+            rewritten.push_str(&index.to_string());
+            index += 1;
+        } else {
+            rewritten.push(ch);
+        }
+    }
+    rewritten
+}
+
+/// Build a rollup_stats query against the traces_stats_5m CAGG.
+/// Returns None if rollup_stats is not set in the plan.
+fn build_rollup_stats_query(plan: &QueryPlan) -> Result<Option<TracesStatsSql>> {
+    let stat_type = match plan.rollup_stats.as_ref() {
+        Some(st) if !st.trim().is_empty() => st.trim(),
+        _ => return Ok(None),
+    };
+
+    match stat_type {
+        "summary" => build_summary_rollup_stats(plan),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported rollup_stats type for traces: '{other}' (supported: summary)"
+        ))),
+    }
+}
+
+/// Query the traces_stats_5m CAGG for trace summary stats.
+fn build_summary_rollup_stats(plan: &QueryPlan) -> Result<Option<TracesStatsSql>> {
+    let mut binds = Vec::new();
+    let mut clauses = Vec::new();
+
+    // Apply time range filter on bucket column
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        clauses.push("bucket >= ?".to_string());
+        binds.push(SqlBindValue::Timestamp(*start));
+        clauses.push("bucket < ?".to_string());
+        binds.push(SqlBindValue::Timestamp(*end));
+    }
+
+    // Apply service_name filter if present
+    for filter in &plan.filters {
+        match filter.field.as_str() {
+            "service_name" | "service.name" => {
+                if let Some((clause, mut values)) =
+                    build_rollup_text_clause("service_name", filter)?
+                {
+                    clauses.push(clause);
+                    binds.append(&mut values);
+                }
+            }
+            other => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "rollup_stats:summary only supports service_name filter, got: '{other}'"
+                )));
+            }
+        }
+    }
+
+    // Build SQL to sum counts from the CAGG and return as JSON payload
+    let mut sql = String::from(
+        r#"SELECT jsonb_build_object(
+    'total', COALESCE(SUM(total_count), 0)::bigint,
+    'errors', COALESCE(SUM(error_count), 0)::bigint,
+    'avg_duration_ms', COALESCE(AVG(avg_duration_ms), 0)::float,
+    'p95_duration_ms', COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY p95_duration_ms), 0)::float
+) AS payload
+FROM traces_stats_5m"#,
+    );
+
+    if !clauses.is_empty() {
+        sql.push_str("\nWHERE ");
+        sql.push_str(&clauses.join(" AND "));
+    }
+
+    Ok(Some(TracesStatsSql { sql, binds }))
+}
+
+/// Build text filter clause for rollup_stats queries.
+fn build_rollup_text_clause(
+    column: &str,
+    filter: &Filter,
+) -> Result<Option<(String, Vec<SqlBindValue>)>> {
+    let mut binds = Vec::new();
+    let clause = match filter.op {
+        FilterOp::Eq => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            format!("{column} = ?")
+        }
+        FilterOp::NotEq => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            format!("{column} <> ?")
+        }
+        FilterOp::Like => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            format!("{column} ILIKE ?")
+        }
+        FilterOp::NotLike => {
+            binds.push(SqlBindValue::Text(filter.value.as_scalar()?.to_string()));
+            format!("{column} NOT ILIKE ?")
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(None);
+            }
+            let mut placeholders = Vec::new();
+            for value in values {
+                placeholders.push("?".to_string());
+                binds.push(SqlBindValue::Text(value));
+            }
+            let operator = if matches!(filter.op, FilterOp::In) {
+                "IN"
+            } else {
+                "NOT IN"
+            };
+            format!("{column} {operator} ({})", placeholders.join(", "))
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "rollup_stats filter {column} does not support operator {:?}",
+                filter.op
+            )))
+        }
+    };
+
+    Ok(Some((clause, binds)))
 }
 
 fn build_query(plan: &QueryPlan) -> Result<TracesQuery<'static>> {
@@ -384,6 +597,7 @@ mod tests {
             time_range: Some(TimeRange { start, end }),
             stats: None,
             downsample: None,
+            rollup_stats: None,
         };
 
         let result = build_query(&plan);

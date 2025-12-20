@@ -491,6 +491,7 @@ mod tests {
             time_range: Some(TimeRange { start, end }),
             stats: Some(stats.to_string()),
             downsample: None,
+            rollup_stats: None,
         }
     }
 }

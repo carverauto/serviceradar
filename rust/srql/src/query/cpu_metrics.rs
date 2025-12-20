@@ -740,6 +740,7 @@ mod tests {
             time_range: Some(TimeRange { start, end }),
             stats: Some(stats.to_string()),
             downsample: None,
+            rollup_stats: None,
         }
     }
 
@@ -760,6 +761,7 @@ mod tests {
             time_range: Some(TimeRange { start, end }),
             stats: None,
             downsample: None,
+            rollup_stats: None,
         };
 
         let result = build_query(&plan);
