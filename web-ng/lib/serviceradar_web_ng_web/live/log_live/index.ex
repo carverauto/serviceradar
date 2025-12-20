@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias Phoenix.LiveView.JS
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias ServiceRadarWebNGWeb.Stats
 
   @default_limit 20
   @max_limit 100
@@ -1371,77 +1372,54 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  # Use pre-computed CAGG via rollup_stats pattern for accurate counts
   defp load_summary(srql_module, current_query) do
-    base_query = base_query_for_summary(current_query)
+    opts = build_summary_opts(current_query, srql_module)
+    Stats.logs_severity(opts)
+  end
 
-    stats_expr =
-      ~s|count() as total, | <>
-        ~s|sum(if(severity_text = 'fatal' OR severity_text = 'FATAL', 1, 0)) as fatal, | <>
-        ~s|sum(if(severity_text = 'error' OR severity_text = 'ERROR', 1, 0)) as error, | <>
-        ~s|sum(if(severity_text = 'warning' OR severity_text = 'warn' OR severity_text = 'WARNING' OR severity_text = 'WARN', 1, 0)) as warning, | <>
-        ~s|sum(if(severity_text = 'info' OR severity_text = 'INFO', 1, 0)) as info, | <>
-        ~s|sum(if(severity_text = 'debug' OR severity_text = 'trace' OR severity_text = 'DEBUG' OR severity_text = 'TRACE', 1, 0)) as debug|
+  defp build_summary_opts(current_query, srql_module) do
+    base_opts = [srql_module: srql_module]
 
-    query = ~s|#{base_query} stats:"#{stats_expr}"|
+    # Extract time range from query if present, otherwise use default
+    time = extract_time_from_query(current_query) || @default_stats_window
 
-    case srql_module.query(query) do
-      {:ok, %{"results" => [%{} = raw | _]}} ->
-        row =
-          case Map.get(raw, "payload") do
-            %{} = payload -> payload
-            _ -> raw
-          end
+    # Extract service_name filter if present
+    service_name = extract_filter_from_query(current_query, "service_name")
 
-        %{
-          total: row |> Map.get("total") |> to_int(),
-          fatal: row |> Map.get("fatal") |> to_int(),
-          error: row |> Map.get("error") |> to_int(),
-          warning: row |> Map.get("warning") |> to_int(),
-          info: row |> Map.get("info") |> to_int(),
-          debug: row |> Map.get("debug") |> to_int()
-        }
+    base_opts
+    |> Keyword.put(:time, time)
+    |> maybe_put(:service_name, service_name)
+  end
 
-      _ ->
-        %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
+  defp extract_time_from_query(nil), do: nil
+  defp extract_time_from_query(""), do: nil
+
+  defp extract_time_from_query(query) when is_binary(query) do
+    case Regex.run(~r/(?:^|\s)time:(\S+)/, query) do
+      [_, time] -> time
+      _ -> nil
     end
   end
 
-  defp base_query_for_summary(nil), do: "in:logs time:#{@default_stats_window}"
+  defp extract_filter_from_query(nil, _field), do: nil
+  defp extract_filter_from_query("", _field), do: nil
 
-  defp base_query_for_summary(query) when is_binary(query) do
-    trimmed = String.trim(query)
+  defp extract_filter_from_query(query, field) when is_binary(query) and is_binary(field) do
+    # Match both service_name:value and service_name:"quoted value"
+    pattern = ~r/(?:^|\s)#{Regex.escape(field)}:(?:"([^"]+)"|(\S+))/
 
-    cond do
-      trimmed == "" ->
-        "in:logs time:#{@default_stats_window}"
-
-      String.contains?(trimmed, "in:logs") ->
-        trimmed
-        |> strip_tokens_for_stats()
-        |> ensure_time_filter()
-
-      true ->
-        "in:logs time:#{@default_stats_window}"
+    case Regex.run(pattern, query) do
+      [_, quoted, ""] -> quoted
+      [_, "", unquoted] -> unquoted
+      [_, value] -> value
+      _ -> nil
     end
   end
 
-  defp base_query_for_summary(_), do: "in:logs time:#{@default_stats_window}"
-
-  defp strip_tokens_for_stats(query) do
-    query = Regex.replace(~r/(?:^|\s)limit:\S+/, query, "")
-    query = Regex.replace(~r/(?:^|\s)sort:\S+/, query, "")
-    query = Regex.replace(~r/(?:^|\s)cursor:\S+/, query, "")
-    query = Regex.replace(~r/(?:^|\s)stats:(?:"[^"]*"|\S+)/, query, "")
-    query |> String.trim() |> String.replace(~r/\s+/, " ")
-  end
-
-  defp ensure_time_filter(query) do
-    if Regex.match?(~r/(?:^|\s)time:\S+/, query) do
-      query
-    else
-      "#{query} time:#{@default_stats_window}"
-    end
-  end
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, _key, ""), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp to_int(value) when is_integer(value), do: value
   defp to_int(value) when is_float(value), do: trunc(value)
@@ -1608,28 +1586,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     socket.assigns |> Map.get(:srql, %{}) |> Map.get(:entity) || "logs"
   end
 
+  # Use pre-computed CAGG via rollup_stats pattern for traces stats
   defp load_trace_stats(srql_module) do
-    query =
-      "in:otel_trace_summaries time:last_24h " <>
-        ~s|stats:"count() as total, sum(if(status_code != 1, 1, 0)) as error_traces, sum(if(duration_ms > 100, 1, 0)) as slow_traces"|
+    summary = Stats.traces_summary(srql_module: srql_module)
 
-    case srql_module.query(query) do
-      {:ok, %{"results" => [%{} = raw | _]}} ->
-        row =
-          case Map.get(raw, "payload") do
-            %{} = payload -> payload
-            _ -> raw
-          end
-
-        %{
-          total: row |> Map.get("total") |> to_int(),
-          error_traces: row |> Map.get("error_traces") |> to_int(),
-          slow_traces: row |> Map.get("slow_traces") |> to_int()
-        }
-
-      _ ->
-        %{total: 0, error_traces: 0, slow_traces: 0}
-    end
+    # Map the rollup_stats fields to the expected structure
+    # Note: slow_traces is not available from CAGG, so we use 0 for now
+    # A future enhancement could add slow_count to the CAGG
+    %{
+      total: Map.get(summary, :total, 0),
+      error_traces: Map.get(summary, :errors, 0),
+      slow_traces: 0
+    }
   end
 
   defp load_metrics_counts(srql_module) do
