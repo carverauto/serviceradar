@@ -15,7 +15,6 @@ use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 use tracing::error;
 
-const ROOT_PREDICATE: &str = "coalesce(parent_span_id, '') = ''";
 const MAX_TRACE_STATS_EXPRESSIONS: usize = 25;
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
@@ -146,36 +145,11 @@ struct TraceStatsPayload {
 }
 
 fn build_summary_query(plan: &QueryPlan) -> Result<TraceSummarySql> {
-    let mut sql = String::from("WITH trace_summaries AS (\n");
-    sql.push_str(
-        "    SELECT\n        trace_id,\n        max(timestamp) AS timestamp,\n        max(span_id) FILTER (WHERE ",
-    );
-    sql.push_str(ROOT_PREDICATE);
-    sql.push_str(") AS root_span_id,\n        max(name) FILTER (WHERE ");
-    sql.push_str(ROOT_PREDICATE);
-    sql.push_str(") AS root_span_name,\n        max(service_name) FILTER (WHERE ");
-    sql.push_str(ROOT_PREDICATE);
-    sql.push_str(") AS root_service_name,\n        max(kind) FILTER (WHERE ");
-    sql.push_str(ROOT_PREDICATE);
-    sql.push_str(
-        ") AS root_span_kind,\n        min(start_time_unix_nano) AS start_time_unix_nano,\n        max(end_time_unix_nano) AS end_time_unix_nano,\n        greatest(0, coalesce((max(end_time_unix_nano) - min(start_time_unix_nano))::double precision / 1000000.0, 0)) AS duration_ms,\n        max(status_code) FILTER (WHERE ",
-    );
-    sql.push_str(ROOT_PREDICATE);
-    sql.push_str(") AS status_code,\n        max(status_message) FILTER (WHERE ");
-    sql.push_str(ROOT_PREDICATE);
-    sql.push_str(
-        ") AS status_message,\n        array_agg(DISTINCT service_name) FILTER (WHERE service_name IS NOT NULL) AS service_set,\n        count(*) AS span_count,\n        sum(CASE WHEN coalesce(status_code, 0) != 1 THEN 1 ELSE 0 END) AS error_count\n    FROM otel_traces\n    WHERE trace_id IS NOT NULL",
-    );
-
+    // Query directly from the otel_trace_summaries materialized view
+    // The MV pre-computes trace aggregations and is refreshed periodically
     let mut binds = Vec::new();
-    if let Some(TimeRange { start, end }) = &plan.time_range {
-        sql.push_str("\n      AND timestamp >= ?\n      AND timestamp <= ?");
-        binds.push(SqlBindValue::Timestamp(*start));
-        binds.push(SqlBindValue::Timestamp(*end));
-    }
 
-    sql.push_str("\n    GROUP BY trace_id\n)\n");
-
+    // Handle stats mode (aggregation queries)
     if let Some(raw_stats) = plan.stats.as_ref().and_then(|s| {
         let trimmed = s.trim();
         if trimmed.is_empty() {
@@ -186,13 +160,31 @@ fn build_summary_query(plan: &QueryPlan) -> Result<TraceSummarySql> {
     }) {
         let stats = parse_stats(raw_stats)?;
         let (select_sql, mut stats_binds) = build_stats_select(&stats)?;
-        sql.push_str("SELECT ");
+
+        let mut sql = String::from("SELECT ");
         sql.push_str(&select_sql);
-        sql.push_str(" AS payload\nFROM trace_summaries");
+        sql.push_str(" AS payload\nFROM otel_trace_summaries");
+
+        // Build WHERE clause for time range and filters
+        let mut where_clauses = Vec::new();
+
+        if let Some(TimeRange { start, end }) = &plan.time_range {
+            where_clauses.push("timestamp >= ?".to_string());
+            binds.push(SqlBindValue::Timestamp(*start));
+            where_clauses.push("timestamp <= ?".to_string());
+            binds.push(SqlBindValue::Timestamp(*end));
+        }
+
         binds.append(&mut stats_binds);
-        let (where_sql, mut where_binds) = build_filters_clause(plan)?;
-        sql.push_str(&where_sql);
-        binds.append(&mut where_binds);
+        let (filter_sql, mut filter_binds) = build_filters_clause_raw(plan)?;
+        where_clauses.extend(filter_sql);
+        binds.append(&mut filter_binds);
+
+        if !where_clauses.is_empty() {
+            sql.push_str("\nWHERE ");
+            sql.push_str(&where_clauses.join(" AND "));
+        }
+
         return Ok(TraceSummarySql {
             sql,
             binds,
@@ -200,12 +192,30 @@ fn build_summary_query(plan: &QueryPlan) -> Result<TraceSummarySql> {
         });
     }
 
-    sql.push_str(
-        "SELECT\n        timestamp,\n        trace_id,\n        root_span_id,\n        root_span_name,\n        root_service_name,\n        root_span_kind,\n        start_time_unix_nano,\n        end_time_unix_nano,\n        duration_ms,\n        status_code,\n        status_message,\n        service_set,\n        span_count,\n        error_count\n    FROM trace_summaries",
+    // Data mode: return trace summary rows
+    let mut sql = String::from(
+        "SELECT\n    timestamp,\n    trace_id,\n    root_span_id,\n    root_span_name,\n    root_service_name,\n    root_span_kind,\n    start_time_unix_nano,\n    end_time_unix_nano,\n    duration_ms,\n    status_code,\n    status_message,\n    service_set,\n    span_count,\n    error_count\nFROM otel_trace_summaries",
     );
-    let (where_sql, mut where_binds) = build_filters_clause(plan)?;
-    sql.push_str(&where_sql);
-    binds.append(&mut where_binds);
+
+    // Build WHERE clause for time range and filters
+    let mut where_clauses = Vec::new();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        where_clauses.push("timestamp >= ?".to_string());
+        binds.push(SqlBindValue::Timestamp(*start));
+        where_clauses.push("timestamp <= ?".to_string());
+        binds.push(SqlBindValue::Timestamp(*end));
+    }
+
+    let (filter_clauses, mut filter_binds) = build_filters_clause_raw(plan)?;
+    where_clauses.extend(filter_clauses);
+    binds.append(&mut filter_binds);
+
+    if !where_clauses.is_empty() {
+        sql.push_str("\nWHERE ");
+        sql.push_str(&where_clauses.join(" AND "));
+    }
+
     let order_sql = build_order_clause(&plan.order);
     sql.push_str(&order_sql);
     sql.push_str("\nLIMIT ? OFFSET ?");
@@ -219,22 +229,8 @@ fn build_summary_query(plan: &QueryPlan) -> Result<TraceSummarySql> {
     })
 }
 
-fn rewrite_placeholders(sql: &str) -> String {
-    let mut result = String::with_capacity(sql.len());
-    let mut index = 1;
-    for ch in sql.chars() {
-        if ch == '?' {
-            result.push('$');
-            result.push_str(&index.to_string());
-            index += 1;
-        } else {
-            result.push(ch);
-        }
-    }
-    result
-}
-
-fn build_filters_clause(plan: &QueryPlan) -> Result<(String, Vec<SqlBindValue>)> {
+/// Build filter clauses as a list (without WHERE prefix)
+fn build_filters_clause_raw(plan: &QueryPlan) -> Result<(Vec<String>, Vec<SqlBindValue>)> {
     let mut clauses = Vec::new();
     let mut binds = Vec::new();
 
@@ -263,11 +259,22 @@ fn build_filters_clause(plan: &QueryPlan) -> Result<(String, Vec<SqlBindValue>)>
         }
     }
 
-    if clauses.is_empty() {
-        Ok((String::new(), binds))
-    } else {
-        Ok((format!("\nWHERE {}", clauses.join(" AND ")), binds))
+    Ok((clauses, binds))
+}
+
+fn rewrite_placeholders(sql: &str) -> String {
+    let mut result = String::with_capacity(sql.len());
+    let mut index = 1;
+    for ch in sql.chars() {
+        if ch == '?' {
+            result.push('$');
+            result.push_str(&index.to_string());
+            index += 1;
+        } else {
+            result.push(ch);
+        }
     }
+    result
 }
 
 fn add_text_condition(
