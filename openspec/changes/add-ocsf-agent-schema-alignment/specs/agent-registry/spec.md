@@ -81,36 +81,6 @@ The system SHALL NOT create device entries for agents during self-registration. 
 
 ---
 
-### Requirement: Agent Registry API
-
-The system SHALL provide REST API endpoints for querying the agent registry:
-
-- `GET /api/agents` - List all agents with pagination
-- `GET /api/agents/:id` - Get single agent by UID
-- `GET /api/agents/by-poller/:pollerId` - List agents for a specific poller
-
-#### Scenario: List all agents
-
-- **WHEN** a client sends `GET /api/agents`
-- **THEN** the response SHALL contain an array of OCSF Agent objects
-- **AND** the response SHALL support pagination via `limit` and `offset` query parameters
-
-#### Scenario: Get agent by ID
-
-- **GIVEN** an agent with uid "agent-001" exists in `ocsf_agents`
-- **WHEN** a client sends `GET /api/agents/agent-001`
-- **THEN** the response SHALL contain the full OCSF Agent object for that agent
-- **AND** the response SHALL include `capabilities` and `poller_id`
-
-#### Scenario: List agents by poller
-
-- **GIVEN** agents "agent-001" and "agent-002" are registered under poller "poller-001"
-- **WHEN** a client sends `GET /api/agents/by-poller/poller-001`
-- **THEN** the response SHALL contain both agents
-- **AND** agents from other pollers SHALL NOT be included
-
----
-
 ### Requirement: Agent Capability Tracking
 
 The system SHALL track agent capabilities based on the checker services they support.
@@ -145,3 +115,115 @@ The system SHALL update `last_seen_time` on each agent heartbeat.
 - **WHEN** the agent is registered in `ocsf_agents`
 - **THEN** `first_seen_time` SHALL be set to the current time
 - **AND** `last_seen_time` SHALL be set to the current time
+
+---
+
+### Requirement: SRQL Agent Query Support
+
+The SRQL service SHALL support querying the `ocsf_agents` table via the `agents` entity type, enabling analytics queries for agent inventory.
+
+#### Scenario: Query all agents via SRQL
+
+- **WHEN** a client sends `POST /api/query` with body `{"query": "agents"}`
+- **THEN** the response SHALL contain an array of agent records from `ocsf_agents`
+- **AND** each record SHALL include uid, name, type_id, type, version, poller_id, capabilities, last_seen_time
+
+#### Scenario: Filter agents by poller
+
+- **GIVEN** agents registered under poller "poller-001" and "poller-002"
+- **WHEN** a client sends query `agents | filter poller_id = "poller-001"`
+- **THEN** the response SHALL contain only agents with poller_id = "poller-001"
+
+#### Scenario: Filter agents by type
+
+- **WHEN** a client sends query `agents | filter type_id = 4`
+- **THEN** the response SHALL contain only Performance Monitoring agents
+
+#### Scenario: Filter agents by capability
+
+- **WHEN** a client sends query `agents | filter capabilities contains "snmp"`
+- **THEN** the response SHALL contain only agents with SNMP capability
+
+#### Scenario: Order agents by last seen
+
+- **WHEN** a client sends query `agents | order last_seen_time desc`
+- **THEN** the response SHALL be ordered by last_seen_time descending (most recent first)
+
+#### Scenario: Agent count statistics
+
+- **WHEN** a client sends query `agents | stats count`
+- **THEN** the response SHALL contain the total count of registered agents
+
+---
+
+### Requirement: Agent List UI View
+
+The web-ng application SHALL provide an Agent List view accessible from the main navigation, displaying all registered agents with key metadata. All agent data MUST be fetched via SRQL queries through the `/api/query` endpoint.
+
+#### Scenario: Navigate to agent list
+
+- **GIVEN** a user is logged into the web-ng application
+- **WHEN** the user clicks "Agents" in the sidebar navigation
+- **THEN** the browser SHALL navigate to `/agents`
+- **AND** the agent list view SHALL be displayed
+- **AND** agent data SHALL be fetched via SRQL query `agents | order last_seen_time desc`
+
+#### Scenario: Agent list table columns
+
+- **WHEN** the agent list view is rendered
+- **THEN** the table SHALL display columns: Name, Type, Version, Poller, Capabilities, Last Seen, Status
+- **AND** the Status column SHALL show health based on last_seen_time (healthy if < 5 minutes, warning if < 15 minutes, offline otherwise)
+
+#### Scenario: Agent list pagination
+
+- **GIVEN** more than 25 agents are registered
+- **WHEN** the agent list view is rendered
+- **THEN** the list SHALL display 25 agents per page
+- **AND** pagination controls SHALL allow navigation between pages
+- **AND** pagination SHALL use SRQL `limit` and `offset` parameters
+
+---
+
+### Requirement: Agent Detail UI View
+
+The web-ng application SHALL provide an Agent Detail view showing complete OCSF agent metadata and capabilities. Agent data MUST be fetched via SRQL queries through the `/api/query` endpoint.
+
+#### Scenario: Navigate to agent detail
+
+- **GIVEN** a user is viewing the agent list
+- **WHEN** the user clicks on an agent row
+- **THEN** the browser SHALL navigate to `/agents/:uid`
+- **AND** the agent detail view SHALL be displayed
+- **AND** agent data SHALL be fetched via SRQL query `agents | filter uid = ":uid"`
+
+#### Scenario: Agent detail content
+
+- **WHEN** the agent detail view is rendered
+- **THEN** the view SHALL display all OCSF fields: uid, name, type, type_id, version, vendor_name, uid_alt
+- **AND** the view SHALL display ServiceRadar fields: poller_id, capabilities, ip, first_seen_time, last_seen_time
+- **AND** capabilities SHALL be displayed as badge tags
+
+#### Scenario: Agent health indicator
+
+- **GIVEN** an agent with last_seen_time within the past 5 minutes
+- **WHEN** the agent detail view is rendered
+- **THEN** a green "Healthy" status badge SHALL be displayed
+
+---
+
+### Requirement: Dashboard Agent Summary
+
+The web-ng dashboard SHALL display an agent count summary card providing quick visibility into the monitoring infrastructure. Agent counts MUST be fetched via SRQL queries through the `/api/query` endpoint.
+
+#### Scenario: Dashboard agent card
+
+- **WHEN** the dashboard/overview page is rendered
+- **THEN** an "Agents" summary card SHALL be displayed
+- **AND** the card SHALL show total agent count via SRQL query `agents | stats count`
+- **AND** the card SHALL show count of healthy vs offline agents
+
+#### Scenario: Click through to agent list
+
+- **GIVEN** the dashboard is displayed with the agent summary card
+- **WHEN** the user clicks on the agent summary card
+- **THEN** the browser SHALL navigate to `/agents`
