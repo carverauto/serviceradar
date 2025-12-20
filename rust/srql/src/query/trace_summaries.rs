@@ -165,6 +165,9 @@ fn build_summary_query(plan: &QueryPlan) -> Result<TraceSummarySql> {
         sql.push_str(&select_sql);
         sql.push_str(" AS payload\nFROM otel_trace_summaries");
 
+        // IMPORTANT: Stats binds come first because select_sql placeholders appear before WHERE
+        binds.append(&mut stats_binds);
+
         // Build WHERE clause for time range and filters
         let mut where_clauses = Vec::new();
 
@@ -175,7 +178,6 @@ fn build_summary_query(plan: &QueryPlan) -> Result<TraceSummarySql> {
             binds.push(SqlBindValue::Timestamp(*end));
         }
 
-        binds.append(&mut stats_binds);
         let (filter_sql, mut filter_binds) = build_filters_clause_raw(plan)?;
         where_clauses.extend(filter_sql);
         binds.append(&mut filter_binds);
