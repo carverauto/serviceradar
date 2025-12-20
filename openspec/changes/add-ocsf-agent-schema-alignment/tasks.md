@@ -24,7 +24,7 @@
 - [x] 4.1 Create `registerAgentInOCSF()` function in `pkg/core/pollers.go`
 - [x] 4.2 Extract agent version from service metadata if available
 - [x] 4.3 Update `processIndividualServices()` to call `registerAgentInOCSF()` instead of `registerAgentAsDevice()`
-- [x] 4.4 Deprecate `registerAgentAsDevice()` function
+- [x] 4.4 Remove `registerAgentAsDevice()` function (fully deleted, not deprecated)
 - [x] 4.5 Update `registerCheckerAsDevice()` to not create agent device entries
 - [ ] 4.6 Test with local poller/agent to verify registration
 
@@ -59,16 +59,23 @@
 - [x] 7.1 Add agents section to device show page with links to `/agents/:uid`
 - [x] 7.2 Display agent_list from device with type badges and navigation
 
-## 8. Integration Testing
+## 8. Code Cleanup
 
-- [ ] 8.1 Add integration test for agent registration flow
-- [ ] 8.2 Verify agents no longer appear in device inventory
-- [ ] 8.3 Verify agents queryable via SRQL `agents` entity
-- [ ] 8.4 Test poller heartbeat flow end-to-end
-- [ ] 8.5 Test web-ng agent views render correctly with SRQL data
+- [x] 8.1 Remove `CreateAgentDeviceUpdate()` helper from `pkg/models/service_registration.go`
+- [x] 8.2 Update tests in `pkg/models/service_device_test.go` to remove agent-as-device assertions
+- [x] 8.3 Update tests in `pkg/registry/service_device_test.go` to remove agent-as-device tests
+- [ ] 8.4 Regenerate mock interfaces (`go generate ./pkg/db/...`) for new OCSF agent methods
 
-## 9. Documentation
+## 9. Integration Testing
 
-- [ ] 9.1 Update docs/docs/agents.md with OCSF alignment notes
-- [ ] 9.2 Document SRQL `agents` entity and supported filters
-- [ ] 9.3 Add UI screenshots to documentation
+- [ ] 9.1 Add integration test for agent registration flow
+- [ ] 9.2 Verify agents no longer appear in device inventory
+- [ ] 9.3 Verify agents queryable via SRQL `agents` entity
+- [ ] 9.4 Test poller heartbeat flow end-to-end
+- [ ] 9.5 Test web-ng agent views render correctly with SRQL data
+
+## 10. Documentation
+
+- [ ] 10.1 Update docs/docs/agents.md with OCSF alignment notes
+- [ ] 10.2 Document SRQL `agents` entity and supported filters
+- [ ] 10.3 Add UI screenshots to documentation
