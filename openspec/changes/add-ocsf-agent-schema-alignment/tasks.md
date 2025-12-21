@@ -3,7 +3,7 @@
 - [x] 1.1 Create migration file `00000000000008_ocsf_agents.up.sql` with `ocsf_agents` table
 - [x] 1.2 Create down migration `00000000000008_ocsf_agents.down.sql`
 - [x] 1.3 Add indexes for uid, poller_id, type_id, last_seen_time
-- [ ] 1.4 Test migration locally with `docker compose up cnpg`
+- [x] 1.4 Test migration locally with `docker compose up cnpg`
 
 ## 2. Agent Model (Go)
 
