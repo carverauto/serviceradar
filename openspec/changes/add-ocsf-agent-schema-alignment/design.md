@@ -17,7 +17,9 @@ The OCSF schema explicitly separates Agent (monitoring software) from Device (mo
 **Non-Goals**:
 - Migrating existing agent entries from `ocsf_devices` to `ocsf_agents` (can be done separately)
 - Removing the existing `agents` service registry table (kept for operational tracking)
-- Building the agent UI views (follow-up work)
+
+**Completed (originally non-goals)**:
+- Agent UI views in web-ng (list and detail views at `/agents`)
 
 ## Decisions
 
@@ -44,6 +46,21 @@ The OCSF schema explicitly separates Agent (monitoring software) from Device (mo
 - Add: `registerAgentInOCSF(ctx, svc.AgentId, pollerID, sourceIP, agentVersion, capabilities)`
 
 **Why**: Agents should only be registered in the OCSF agents table, not as devices.
+
+### Decision 4: Write Path (Go) / Read Path (SRQL) Split
+
+**What**: Go code only implements `UpsertOCSFAgent()` for writes. All read operations go through SRQL `agents` entity.
+
+**Why**:
+- Avoids duplicate query logic in Go and Rust
+- Leverages SRQL's existing query capabilities (filtering, ordering, pagination)
+- Web-NG already uses SRQL for all data fetching via `/api/query`
+- Keeps Go db layer focused on write operations
+
+**Implementation**:
+- `pkg/db/cnpg_ocsf_agents.go` - Single method: `UpsertOCSFAgent()`
+- `rust/srql/src/query/agents.rs` - Full query support with filters
+- No Go methods for GetOCSFAgent, ListOCSFAgents, etc. (removed as unused)
 
 ## OCSF Agent Schema Fields
 
@@ -91,5 +108,5 @@ Based on [OCSF Agent v1.7.0](https://schema.ocsf.io/1.7.0/objects/agent):
 
 ## Open Questions
 
-1. Should we backfill existing agents from `ocsf_devices` to `ocsf_agents`? (Deferred to follow-up)
-2. What agent types map to OCSF type_id values? (Performance=4 for metrics, Log=6 for syslog collectors)
+1. ~~Should we backfill existing agents from `ocsf_devices` to `ocsf_agents`?~~ Deferred - new agents go to `ocsf_agents`, legacy entries remain
+2. ~~What agent types map to OCSF type_id values?~~ Resolved - Using `Unknown (0)` as default, with `ServiceRadar` as vendor_name. Type classification can be refined based on agent capabilities in future iterations.
