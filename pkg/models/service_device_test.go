@@ -19,17 +19,15 @@ package models
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const (
-	testPollerID     = "test-poller"
 	testAgentID      = "test-agent"
+	testPollerID     = "test-poller"
 	testPollerHostIP = "192.168.1.100"
-	testAgentHostIP  = "192.168.1.101"
 )
 
 func TestGenerateServiceDeviceID(t *testing.T) {
@@ -176,50 +174,6 @@ func TestIsServiceDevice(t *testing.T) {
 	}
 }
 
-func TestCreatePollerDeviceUpdate(t *testing.T) {
-	pollerID := testPollerID
-	hostIP := testPollerHostIP
-	metadata := map[string]string{
-		"region": "us-west",
-		"env":    "production",
-	}
-
-	result := CreatePollerDeviceUpdate(pollerID, hostIP, "", metadata)
-
-	require.NotNil(t, result)
-	assert.Equal(t, "serviceradar:poller:"+testPollerID, result.DeviceID)
-	assert.NotNil(t, result.ServiceType)
-	assert.Equal(t, ServiceTypePoller, *result.ServiceType)
-	assert.Equal(t, pollerID, result.ServiceID)
-	assert.Equal(t, hostIP, result.IP)
-	assert.Equal(t, DiscoverySourceServiceRadar, result.Source)
-	assert.Equal(t, pollerID, result.PollerID)
-	assert.Equal(t, defaultServicePartition, result.Partition)
-	assert.True(t, result.IsAvailable)
-	assert.Equal(t, ConfidenceHighSelfReported, result.Confidence)
-
-	// Check metadata includes both provided and added fields
-	assert.Equal(t, "us-west", result.Metadata["region"])
-	assert.Equal(t, "production", result.Metadata["env"])
-	assert.Equal(t, "poller", result.Metadata["component_type"])
-	assert.Equal(t, pollerID, result.Metadata["poller_id"])
-
-	// Timestamp should be recent
-	assert.WithinDuration(t, time.Now(), result.Timestamp, 5*time.Second)
-}
-
-func TestCreatePollerDeviceUpdate_NilMetadata(t *testing.T) {
-	pollerID := testPollerID
-	hostIP := testPollerHostIP
-
-	result := CreatePollerDeviceUpdate(pollerID, hostIP, "", nil)
-
-	require.NotNil(t, result)
-	require.NotNil(t, result.Metadata)
-	assert.Equal(t, "poller", result.Metadata["component_type"])
-	assert.Equal(t, pollerID, result.Metadata["poller_id"])
-}
-
 func TestCreateCheckerDeviceUpdate(t *testing.T) {
 	checkerID := string(DiscoverySourceSysmon) + "@test-agent"
 	checkerKind := string(DiscoverySourceSysmon)
@@ -336,26 +290,6 @@ func TestHighCardinalityCheckerIDs(t *testing.T) {
 
 	// Should have created 100 unique device IDs
 	assert.Len(t, deviceIDs, 100)
-}
-
-func TestMultipleServicesOnSameIP(t *testing.T) {
-	// Test that multiple services on the same IP get unique device IDs
-	// Note: Agents are no longer registered as devices (OCSF alignment - they go to ocsf_agents table)
-	hostIP := testPollerHostIP
-
-	pollerUpdate := CreatePollerDeviceUpdate("poller-1", hostIP, "", nil)
-	checkerUpdate := CreateCheckerDeviceUpdate("sysmon@agent-1", "sysmon", "agent-1", "poller-1", hostIP, "", nil)
-
-	// Both have the same IP
-	assert.Equal(t, hostIP, pollerUpdate.IP)
-	assert.Equal(t, hostIP, checkerUpdate.IP)
-
-	// But have different device IDs
-	assert.NotEqual(t, pollerUpdate.DeviceID, checkerUpdate.DeviceID)
-
-	// Verify expected device ID format
-	assert.Equal(t, "serviceradar:poller:poller-1", pollerUpdate.DeviceID)
-	assert.Equal(t, "serviceradar:checker:sysmon@agent-1", checkerUpdate.DeviceID)
 }
 
 func TestCreateCoreServiceDeviceUpdate(t *testing.T) {

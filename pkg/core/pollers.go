@@ -435,14 +435,6 @@ func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealt
 		return fmt.Errorf("failed to store poller status: %w", err)
 	}
 
-	// Register poller as a device for inventory tracking (best-effort)
-	if err := s.registerPollerAsDevice(ctx, pollerID, normIP, normalizedPartition); err != nil {
-		s.logger.Warn().
-			Err(err).
-			Str("poller_id", pollerID).
-			Msg("Failed to register poller as device")
-	}
-
 	return nil
 }
 
@@ -466,15 +458,6 @@ func (s *Server) updatePollerStatus(ctx context.Context, pollerID string, isHeal
 
 	if err := s.DB.UpdatePollerStatus(ctx, pollerStatus); err != nil {
 		return fmt.Errorf("failed to update poller status: %w", err)
-	}
-
-	// Register poller as a device for inventory tracking
-	if err := s.registerPollerAsDevice(ctx, pollerID, "", defaultPartition); err != nil {
-		// Log but don't fail - device registration is best-effort
-		s.logger.Warn().
-			Err(err).
-			Str("poller_id", pollerID).
-			Msg("Failed to register poller as device")
 	}
 
 	return nil
@@ -618,15 +601,6 @@ func (s *Server) processStatusReport(
 				Msg("Failed to store poller status")
 
 			return nil, fmt.Errorf("failed to store poller status: %w", err)
-		}
-
-		// Register poller as a device for inventory tracking
-		if err := s.registerPollerAsDevice(ctx, req.PollerId, normSourceIP, req.Partition); err != nil {
-			// Log but don't fail - device registration is best-effort
-			s.logger.Warn().
-				Err(err).
-				Str("poller_id", req.PollerId).
-				Msg("Failed to register poller as device")
 		}
 
 		apiStatus := s.createPollerStatus(req, now)
@@ -1344,76 +1318,6 @@ func (s *Server) resolveServiceHostIP(ctx context.Context, pollerID, agentID, ho
 	}
 
 	return resolvedIP
-}
-
-// registerPollerAsDevice registers a poller as a device in the inventory
-func (s *Server) registerPollerAsDevice(ctx context.Context, pollerID, hostIP, partition string) error {
-	if s.DeviceRegistry == nil {
-		s.logger.Debug().
-			Str("poller_id", pollerID).
-			Msg("DeviceRegistry is nil, skipping poller device registration")
-		return nil // Registry not available
-	}
-
-	resolvedIP := s.resolveServiceHostIP(ctx, pollerID, "", hostIP)
-	normalizedPartition := strings.TrimSpace(partition)
-	if normalizedPartition == "" {
-		normalizedPartition = defaultPartition
-	}
-
-	metadata := map[string]string{
-		"last_heartbeat": time.Now().Format(time.RFC3339),
-	}
-	if resolvedIP != "" {
-		metadata["host_ip"] = resolvedIP
-	}
-
-	deviceUpdate := models.CreatePollerDeviceUpdate(pollerID, resolvedIP, normalizedPartition, metadata)
-
-	if hostname := s.getServiceHostname(pollerID, resolvedIP); hostname != "" {
-		deviceUpdate.Hostname = &hostname
-		deviceUpdate.Metadata["hostname"] = hostname
-	}
-
-	logger := s.logger.Info().
-		Str("poller_id", pollerID).
-		Str("device_id", deviceUpdate.DeviceID)
-	if resolvedIP != "" {
-		logger = logger.Str("host_ip", resolvedIP)
-	}
-	logger.Msg("Registering poller as device")
-
-	if err := s.DeviceRegistry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{deviceUpdate}); err != nil {
-		return err
-	}
-
-	s.logger.Info().
-		Str("poller_id", pollerID).
-		Str("device_id", deviceUpdate.DeviceID).
-		Msg("Successfully registered poller as device")
-
-	s.upsertCollectorCapabilities(ctx, deviceUpdate.DeviceID, []string{"poller"}, "", pollerID, pollerID, deviceUpdate.Timestamp)
-
-	eventMetadata := map[string]any{
-		"poller_id": pollerID,
-	}
-	if resolvedIP != "" {
-		eventMetadata["host_ip"] = resolvedIP
-	}
-
-	s.recordCapabilityEvent(ctx, &capabilityEventInput{
-		DeviceID:    deviceUpdate.DeviceID,
-		Capability:  "poller",
-		ServiceID:   pollerID,
-		ServiceType: "poller",
-		RecordedBy:  pollerID,
-		Enabled:     true,
-		Success:     true,
-		CheckedAt:   deviceUpdate.Timestamp,
-		Metadata:    eventMetadata,
-	})
-
-	return nil
 }
 
 // registerAgentInOCSF registers an agent in the ocsf_agents table.
