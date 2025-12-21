@@ -311,6 +311,10 @@ fn normalize_device_aliases(
 }
 
 fn normalize_device_field(entity: &Entity, field: &str) -> Option<String> {
+    // Agents have their own uid field, don't remap
+    if matches!(entity, Entity::Agents) {
+        return None;
+    }
     if field.eq_ignore_ascii_case("uid") && !matches!(entity, Entity::Devices) {
         Some("device_id".to_string())
     } else if field.eq_ignore_ascii_case("device_id") && matches!(entity, Entity::Devices) {
