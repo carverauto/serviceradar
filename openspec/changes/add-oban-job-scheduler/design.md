@@ -6,6 +6,8 @@ The traces list relies on `otel_trace_summaries`, a materialized view that is re
 
 - Goals:
   - Schedule `otel_trace_summaries` refreshes via Oban in web-ng.
+  - Support horizontal scaling with a single cron scheduler across nodes.
+  - Provide admin UI controls for job scheduling and visibility.
   - Centralize background job scheduling in a single system (Oban).
   - Preserve the existing 2-minute refresh cadence.
 - Non-Goals:
@@ -16,21 +18,27 @@ The traces list relies on `otel_trace_summaries`, a materialized view that is re
 
 - Decision: Use Oban (web-ng) with the existing CNPG database for scheduling.
 - Decision: Implement a dedicated Oban worker that runs `REFRESH MATERIALIZED VIEW CONCURRENTLY otel_trace_summaries`.
-- Decision: Schedule the worker via Oban's cron plugin at `*/2 * * * *`.
+- Decision: Schedule the worker via a custom Oban scheduler plugin at `*/2 * * * *`.
+- Decision: Use Oban peer leader election to avoid multi-node duplicate scheduling.
+- Decision: Configure job uniqueness to guard against duplicate refreshes.
+- Decision: Mount Oban Web and wrap it with a custom admin UI for job visibility and scheduling.
+- Decision: Protect job management with basic auth until RBAC is available.
 
 ## Risks / Trade-offs
 
 - Extra load from periodic MV refreshes now originates from web-ng instead of the database.
 - Oban requires additional DB tables and migrations; failures could delay refreshes.
+- Leader election misconfiguration could result in duplicate cron jobs or no scheduling.
+- Admin UI exposure needs access control and audit logging.
 
 ## Migration Plan
 
 1. Add Oban dependency and configure it to use the existing CNPG repo.
 2. Add Oban migration and run `mix ecto.migrate` in docker compose.
-3. Deploy worker and cron schedule; verify `otel_trace_summaries` starts updating.
-4. Remove reliance on pg_cron in CNPG spec.
+3. Enable Oban global cron mode + peer leader config for multi-node scheduling.
+4. Deploy worker and cron schedule; verify `otel_trace_summaries` starts updating.
+5. Mount Oban Web and implement admin UI controls in web-ng.
+6. Remove reliance on pg_cron in CNPG spec.
 
 ## Open Questions
-
-- Should we expose Oban Web (dashboard) for job visibility, and if so should it be dev-only or admin-only?
-- Do we want per-environment overrides for refresh cadence beyond a single env var?
+- None.

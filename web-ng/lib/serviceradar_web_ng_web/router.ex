@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Router do
   use ServiceRadarWebNGWeb, :router
 
+  import Oban.Web.Router
   import Phoenix.LiveDashboard.Router
   import ServiceRadarWebNGWeb.UserAuth
 
@@ -30,6 +31,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :ensure_dev_routes_enabled
   end
 
+  pipeline :admin_basic_auth do
+    plug ServiceRadarWebNGWeb.Plugs.BasicAuth
+  end
+
   scope "/", ServiceRadarWebNGWeb do
     pipe_through :browser
 
@@ -51,6 +56,21 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     live_dashboard "/dashboard", metrics: ServiceRadarWebNGWeb.Telemetry
     forward "/mailbox", Plug.Swoosh.MailboxPreview
+  end
+
+  scope "/admin", ServiceRadarWebNGWeb do
+    pipe_through [:browser, :require_authenticated_user, :admin_basic_auth]
+
+    live_session :admin_jobs,
+      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
+      live "/jobs", Admin.JobLive.Index, :index
+    end
+
+    oban_dashboard("/jobs/oban",
+      oban_name: Oban,
+      as: :admin_oban_dashboard,
+      resolver: ServiceRadarWebNGWeb.ObanResolver
+    )
   end
 
   ## Authentication routes

@@ -91,7 +91,8 @@ defmodule ServiceRadarWebNGWeb.Stats.Compute do
   Returns the percentage difference (can be negative).
   """
   @spec percentage_change(number(), number()) :: float()
-  def percentage_change(current, previous) when is_number(current) and is_number(previous) and previous > 0 do
+  def percentage_change(current, previous)
+      when is_number(current) and is_number(previous) and previous > 0 do
     Float.round((current - previous) / previous * 100.0, 1)
   end
 
