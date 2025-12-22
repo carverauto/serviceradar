@@ -70,8 +70,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "agents")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "agents")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do

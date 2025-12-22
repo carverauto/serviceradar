@@ -29,6 +29,14 @@ config :serviceradar_web_ng, ServiceRadarWebNG.Repo, migration_source: "ng_schem
 
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 
+config :serviceradar_web_ng, Oban,
+  repo: ServiceRadarWebNG.Repo,
+  queues: [default: 10, maintenance: 2],
+  plugins: [
+    {ServiceRadarWebNG.Jobs.Scheduler, poll_interval_ms: 30_000}
+  ],
+  peer: Oban.Peers.Database
+
 # Configure the endpoint
 config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
   url: [host: "localhost"],

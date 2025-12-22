@@ -23,6 +23,45 @@ end
 config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+if config_env() != :test do
+  admin_username = System.get_env("ADMIN_BASIC_AUTH_USERNAME")
+  admin_password = System.get_env("ADMIN_BASIC_AUTH_PASSWORD")
+
+  if admin_username && admin_password do
+    config :serviceradar_web_ng, :admin_basic_auth,
+      username: admin_username,
+      password: admin_password
+  end
+
+  oban_poll_interval_ms =
+    System.get_env("OBAN_SCHEDULER_POLL_INTERVAL_MS", "30000") |> String.to_integer()
+
+  oban_default_queue_limit =
+    System.get_env("OBAN_DEFAULT_QUEUE_LIMIT", "10") |> String.to_integer()
+
+  oban_maintenance_queue_limit =
+    System.get_env("OBAN_MAINTENANCE_QUEUE_LIMIT", "2") |> String.to_integer()
+
+  oban_node = System.get_env("OBAN_NODE")
+
+  oban_config = [
+    plugins: [{ServiceRadarWebNG.Jobs.Scheduler, poll_interval_ms: oban_poll_interval_ms}],
+    queues: [
+      default: oban_default_queue_limit,
+      maintenance: oban_maintenance_queue_limit
+    ]
+  ]
+
+  oban_config =
+    if oban_node do
+      Keyword.put(oban_config, :node, oban_node)
+    else
+      oban_config
+    end
+
+  config :serviceradar_web_ng, Oban, oban_config
+end
+
 if config_env() == :prod do
   database_url = System.get_env("DATABASE_URL")
 

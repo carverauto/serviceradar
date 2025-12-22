@@ -189,6 +189,14 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                   active={@current_path in ["/observability", "/logs"]}
                 />
               </li>
+              <li>
+                <.sidebar_link
+                  href={~p"/admin/jobs"}
+                  label="Settings"
+                  icon="hero-adjustments-horizontal"
+                  active={@current_path && String.starts_with?(@current_path, "/admin")}
+                />
+              </li>
             </ul>
           </div>
 
@@ -350,6 +358,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_label("observability"), do: "Observability"
   defp section_label("services"), do: "Services"
   defp section_label("interfaces"), do: "Interfaces"
+  defp section_label("admin"), do: "Settings"
   defp section_label(other), do: String.capitalize(other)
 
   defp section_icon("analytics"), do: "hero-chart-bar-micro"
@@ -358,6 +367,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_icon("agents"), do: "hero-cpu-chip-micro"
   defp section_icon("events"), do: "hero-bell-alert-micro"
   defp section_icon("logs"), do: "hero-presentation-chart-line-micro"
+  defp section_icon("admin"), do: "hero-adjustments-horizontal-micro"
   defp section_icon("observability"), do: "hero-presentation-chart-line-micro"
   defp section_icon("services"), do: "hero-cog-6-tooth-micro"
   defp section_icon("interfaces"), do: "hero-globe-alt-micro"

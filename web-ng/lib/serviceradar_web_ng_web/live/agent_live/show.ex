@@ -120,7 +120,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
         <div :if={has_value?(@agent, "poller_id")} class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Poller</span>
-          <.link navigate={~p"/pollers/#{Map.get(@agent, "poller_id")}"} class="text-sm font-mono link link-primary">
+          <.link
+            navigate={~p"/pollers/#{Map.get(@agent, "poller_id")}"}
+            class="text-sm font-mono link link-primary"
+          >
             {Map.get(@agent, "poller_id")}
           </.link>
         </div>
