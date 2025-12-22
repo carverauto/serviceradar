@@ -27,6 +27,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :require_authenticated_user
   end
 
+  # API authentication for CLI/external tools (API key or bearer token)
+  pipeline :api_key_auth do
+    plug :accepts, ["json"]
+    plug ServiceRadarWebNGWeb.Plugs.ApiAuth
+  end
+
   pipeline :dev_routes do
     plug :ensure_dev_routes_enabled
   end
@@ -56,9 +62,9 @@ defmodule ServiceRadarWebNGWeb.Router do
     get "/devices/:uid", DeviceController, :show
   end
 
-  # Edge onboarding admin API (authenticated)
+  # Edge onboarding admin API (API key or bearer token auth)
   scope "/api/admin", ServiceRadarWebNG.Api do
-    pipe_through :api_auth
+    pipe_through :api_key_auth
 
     # Package defaults and templates
     get "/edge-packages/defaults", EdgeController, :defaults

@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNG.Edge.ComponentTemplates do
 
   require Logger
 
-  alias ServiceRadarWebNG.Datasvc.KV
+  alias Datasvc.KV
 
   @type template :: %{
           component_type: String.t(),

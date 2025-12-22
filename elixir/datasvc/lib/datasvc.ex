@@ -1,26 +1,28 @@
-defmodule ServiceRadarWebNG.Datasvc do
+defmodule Datasvc do
   @moduledoc """
-  Core datasvc client for connecting to the datasvc gRPC service.
+  Elixir client for the ServiceRadar datasvc gRPC service.
 
-  Datasvc is a service that provides access to NATS JetStream for:
-  - KV store operations
-  - Object store operations
+  Datasvc provides access to NATS JetStream for:
+  - KV store operations (`Datasvc.KV`)
+  - Object store operations (future)
   - Event streaming (future)
 
   ## Configuration
 
-  Configure the datasvc address in your config:
+  Configure the datasvc address in your application config:
 
-      config :serviceradar_web_ng, :datasvc,
+      config :datasvc,
         address: "localhost:50053",
         timeout: 5000
 
   ## Usage
 
-  This module provides the base connection logic. Use the specific
-  service modules for operations:
+      # Check if datasvc is configured
+      Datasvc.configured?()
 
-  - `ServiceRadarWebNG.Datasvc.KV` - Key-value store operations
+      # Use KV operations
+      {:ok, keys} = Datasvc.KV.list_keys("templates/checkers/mtls/")
+      {:ok, value, revision} = Datasvc.KV.get("some/key")
 
   """
 
@@ -106,9 +108,8 @@ defmodule ServiceRadarWebNG.Datasvc do
     end
   end
 
-  # Private functions
-
-  defp config do
-    Application.get_env(:serviceradar_web_ng, :datasvc, [])
+  @doc false
+  def config do
+    Application.get_env(:datasvc, :datasvc, [])
   end
 end

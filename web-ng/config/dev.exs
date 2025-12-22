@@ -152,3 +152,8 @@ config :phoenix_live_view,
 
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
+
+# API authentication for CLI tools
+# In production, use proper secrets management
+config :serviceradar_web_ng, :api_auth,
+  api_keys: [System.get_env("SERVICERADAR_API_KEY", "dev-api-key-for-testing")]

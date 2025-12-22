@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Datasvc.KV do
+defmodule Datasvc.KV do
   @moduledoc """
   KV store operations via datasvc gRPC.
 
@@ -8,20 +8,19 @@ defmodule ServiceRadarWebNG.Datasvc.KV do
   ## Usage
 
       # List keys with a prefix
-      {:ok, keys} = KV.list_keys("templates/checkers/mtls/")
+      {:ok, keys} = Datasvc.KV.list_keys("templates/checkers/mtls/")
 
       # Get a value
-      {:ok, value, revision} = KV.get("templates/checkers/mtls/sysmon.json")
+      {:ok, value, revision} = Datasvc.KV.get("templates/checkers/mtls/sysmon.json")
 
       # Get store info
-      {:ok, info} = KV.info()
+      {:ok, info} = Datasvc.KV.info()
 
   """
 
   require Logger
 
-  alias ServiceRadarWebNG.Datasvc
-  alias ServiceRadarWebNG.Datasvc.KV.Proto
+  alias Datasvc.KV.Proto
 
   @doc """
   Lists all keys matching the given prefix.

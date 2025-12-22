@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNG.Datasvc.KV.Proto do
+defmodule Datasvc.KV.Proto do
   @moduledoc """
   Protobuf message definitions for the KV service.
 
@@ -52,24 +52,24 @@ defmodule ServiceRadarWebNG.Datasvc.KV.Proto do
   end
 end
 
-defmodule ServiceRadarWebNG.Datasvc.KV.Proto.Service do
+defmodule Datasvc.KV.Proto.Service do
   @moduledoc """
   gRPC service definition for the KV service.
   """
 
   use GRPC.Service, name: "proto.KVService", protoc_gen_elixir_version: "0.12.0"
 
-  alias ServiceRadarWebNG.Datasvc.KV.Proto
+  alias Datasvc.KV.Proto
 
   rpc(:ListKeys, Proto.ListKeysRequest, Proto.ListKeysResponse)
   rpc(:Get, Proto.GetRequest, Proto.GetResponse)
   rpc(:Info, Proto.InfoRequest, Proto.InfoResponse)
 end
 
-defmodule ServiceRadarWebNG.Datasvc.KV.Proto.Stub do
+defmodule Datasvc.KV.Proto.Stub do
   @moduledoc """
   gRPC client stub for the KV service.
   """
 
-  use GRPC.Stub, service: ServiceRadarWebNG.Datasvc.KV.Proto.Service
+  use GRPC.Stub, service: Datasvc.KV.Proto.Service
 end
