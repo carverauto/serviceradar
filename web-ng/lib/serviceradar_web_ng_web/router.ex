@@ -35,6 +35,11 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug ServiceRadarWebNGWeb.Plugs.BasicAuth
   end
 
+  # API pipeline for token-gated endpoints (no session auth required)
+  pipeline :api_token_auth do
+    plug :accepts, ["json"]
+  end
+
   scope "/", ServiceRadarWebNGWeb do
     pipe_through :browser
 
@@ -49,6 +54,35 @@ defmodule ServiceRadarWebNGWeb.Router do
     get "/devices", DeviceController, :index
     get "/devices/ocsf/export", DeviceController, :ocsf_export
     get "/devices/:uid", DeviceController, :show
+  end
+
+  # Edge onboarding admin API (authenticated)
+  scope "/api/admin", ServiceRadarWebNG.Api do
+    pipe_through :api_auth
+
+    # Package defaults and templates
+    get "/edge-packages/defaults", EdgeController, :defaults
+    get "/component-templates", EdgeController, :templates
+
+    # Package CRUD
+    get "/edge-packages", EdgeController, :index
+    post "/edge-packages", EdgeController, :create
+    get "/edge-packages/:id", EdgeController, :show
+    delete "/edge-packages/:id", EdgeController, :delete
+
+    # Package events
+    get "/edge-packages/:id/events", EdgeController, :events
+
+    # Package actions
+    post "/edge-packages/:id/revoke", EdgeController, :revoke
+  end
+
+  # Edge package download - token-gated (no session auth required)
+  # This allows CLI tools to download packages using only the download token
+  scope "/api/admin", ServiceRadarWebNG.Api do
+    pipe_through :api_token_auth
+
+    post "/edge-packages/:id/download", EdgeController, :download
   end
 
   scope "/dev" do
