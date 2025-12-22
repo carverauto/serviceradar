@@ -530,16 +530,23 @@ func (s *Server) processIndividualServices(
 		bufferedServiceStatuses = append(bufferedServiceStatuses, serviceStatus)
 		bufferedServiceList = append(bufferedServiceList, serviceRecord)
 
-		// Register agent as a device if AgentId is present
+		// Register agent in OCSF agents table if AgentId is present
 		if svc.AgentId != "" {
-			if err := s.registerAgentAsDevice(serviceCtx, svc.AgentId, pollerID, sourceIP, partition); err != nil {
+			// Collect capabilities from checker services
+			var capabilities []string
+			if s.isCheckerService(svc.ServiceType) {
+				capabilities = append(capabilities, svc.ServiceType)
+			}
+
+			// Register/update agent in ocsf_agents table (not as a device)
+			if err := s.registerAgentInOCSF(serviceCtx, svc.AgentId, pollerID, sourceIP, capabilities); err != nil {
 				s.logger.Warn().
 					Err(err).
 					Str("agent_id", svc.AgentId).
 					Str("poller_id", pollerID).
-					Msg("Failed to register agent as device")
+					Msg("Failed to register agent in OCSF agents table")
 			}
-			// Auto-register agent in service registry
+			// Auto-register agent in service registry (for operational tracking)
 			if err := s.ensureAgentRegistered(serviceCtx, svc.AgentId, pollerID, sourceIP); err != nil {
 				s.logger.Warn().Err(err).
 					Str("agent_id", svc.AgentId).

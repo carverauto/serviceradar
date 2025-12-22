@@ -7,6 +7,7 @@ on remote executors. The script walks the layout manifest, applies each layer
 with whiteout handling, and archives the merged filesystem so downstream jobs
 can reuse it identically to the `crane export` output.
 """
+from __future__ import annotations
 
 import argparse
 import json

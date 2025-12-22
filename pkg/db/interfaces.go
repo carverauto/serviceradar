@@ -139,6 +139,10 @@ type Service interface {
 	DeleteOCSFDevices(ctx context.Context, uids []string) error
 	LockOCSFDevices(ctx context.Context, ips []string) error
 
+	// OCSF Agent operations (ocsf_agents table)
+	// Note: Only write operation here - reads are handled by SRQL query engine
+	UpsertOCSFAgent(ctx context.Context, agent *models.OCSFAgentRecord) error
+
 	// Transaction support
 	WithTx(ctx context.Context, fn func(tx Service) error) error
 

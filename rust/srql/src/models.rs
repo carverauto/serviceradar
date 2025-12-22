@@ -6,6 +6,53 @@ use diesel::prelude::*;
 use diesel::sql_types::{Array, Float8, Int4, Int8, Nullable, Text, Timestamptz};
 use serde::Serialize;
 
+/// OCSF-aligned agent row (OCSF v1.7.0 Agent object)
+#[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::ocsf_agents)]
+pub struct AgentRow {
+    pub uid: String,
+    pub name: Option<String>,
+    pub type_id: i32,
+    pub agent_type: Option<String>,
+    pub version: Option<String>,
+    pub vendor_name: Option<String>,
+    pub uid_alt: Option<String>,
+    pub policies: Option<serde_json::Value>,
+    pub poller_id: Option<String>,
+    pub capabilities: Option<Vec<String>>,
+    pub ip: Option<String>,
+    pub first_seen_time: Option<DateTime<Utc>>,
+    pub last_seen_time: Option<DateTime<Utc>>,
+    pub created_time: DateTime<Utc>,
+    pub modified_time: DateTime<Utc>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+impl AgentRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "uid": self.uid,
+            "name": self.name,
+            "type_id": self.type_id,
+            "type": self.agent_type,
+            "version": self.version,
+            "vendor_name": self.vendor_name,
+            "uid_alt": self.uid_alt,
+            "policies": self.policies,
+            "poller_id": self.poller_id,
+            "capabilities": self.capabilities.unwrap_or_default(),
+            "ip": self.ip,
+            "first_seen_time": self.first_seen_time,
+            "last_seen_time": self.last_seen_time,
+            "first_seen": self.first_seen_time,  // Alias for consistency
+            "last_seen": self.last_seen_time,    // Alias for consistency
+            "created_time": self.created_time,
+            "modified_time": self.modified_time,
+            "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+        })
+    }
+}
+
 /// OCSF-aligned device row (OCSF v1.7.0 Device object)
 #[derive(Debug, Clone, Queryable, Serialize)]
 #[diesel(table_name = crate::schema::ocsf_devices)]

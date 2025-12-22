@@ -68,6 +68,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/devices/:uid", DeviceLive.Show, :show
       live "/pollers", PollerLive.Index, :index
       live "/pollers/:poller_id", PollerLive.Show, :show
+      live "/agents", AgentLive.Index, :index
+      live "/agents/:uid", AgentLive.Show, :show
       live "/events", EventLive.Index, :index
       live "/events/:event_id", EventLive.Show, :show
       live "/observability", LogLive.Index, :index

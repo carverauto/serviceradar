@@ -19,6 +19,7 @@ go_library(
         "cnpg_identity_reconciliation_queries.go",
         "cnpg_identity_reconciliation_upserts.go",
         "cnpg_edge_onboarding.go",
+        "cnpg_ocsf_agents.go",
         "cnpg_ocsf_devices.go",
         "cnpg_pool.go",
         "cnpg_sweep.go",

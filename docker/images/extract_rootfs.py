@@ -9,6 +9,7 @@ later entries try to replace the removed paths. This helper removes the targets
 referenced by `.wh.*` files and trims opaque directories before extracting the
 real payload so the resulting rootfs mirrors the container runtime view.
 """
+from __future__ import annotations
 
 import argparse
 import os

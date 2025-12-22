@@ -91,6 +91,7 @@ macro_rules! apply_eq_filter {
     }};
 }
 
+mod agents;
 mod cpu_metrics;
 mod device_graph;
 mod device_updates;
@@ -170,6 +171,7 @@ impl QueryEngine {
             downsample::execute(&mut conn, &plan).await?
         } else {
             match plan.entity {
+                Entity::Agents => agents::execute(&mut conn, &plan).await?,
                 Entity::Devices => devices::execute(&mut conn, &plan).await?,
                 Entity::DeviceUpdates => device_updates::execute(&mut conn, &plan).await?,
                 Entity::DeviceGraph => device_graph::execute(&mut conn, &plan).await?,
@@ -309,6 +311,10 @@ fn normalize_device_aliases(
 }
 
 fn normalize_device_field(entity: &Entity, field: &str) -> Option<String> {
+    // Agents have their own uid field, don't remap
+    if matches!(entity, Entity::Agents) {
+        return None;
+    }
     if field.eq_ignore_ascii_case("uid") && !matches!(entity, Entity::Devices) {
         Some("device_id".to_string())
     } else if field.eq_ignore_ascii_case("device_id") && matches!(entity, Entity::Devices) {
@@ -521,6 +527,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
         downsample::to_sql_and_params(&plan)?
     } else {
         match plan.entity {
+            Entity::Agents => agents::to_sql_and_params(&plan)?,
             Entity::Devices => devices::to_sql_and_params(&plan)?,
             Entity::DeviceUpdates => device_updates::to_sql_and_params(&plan)?,
             Entity::DeviceGraph => device_graph::to_sql_and_params(&plan)?,

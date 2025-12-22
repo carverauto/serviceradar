@@ -224,6 +224,9 @@ func TestReportStatus_WithKVStoreId(t *testing.T) {
 	mockDB.EXPECT().ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).Return([]map[string]interface{}{}, nil).AnyTimes()
 	mockDB.EXPECT().GetDeviceByID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
+	// Mock UpsertOCSFAgent for agent registration
+	mockDB.EXPECT().UpsertOCSFAgent(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
 	// Expect service status updates
 	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*models.ServiceStatus) error {
 		require.Len(t, statuses, 1)

@@ -1299,6 +1299,20 @@ func (mr *MockServiceMockRecorder) UpsertEdgeOnboardingPackage(arg0, arg1 any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertEdgeOnboardingPackage", reflect.TypeOf((*MockService)(nil).UpsertEdgeOnboardingPackage), arg0, arg1)
 }
 
+// UpsertOCSFAgent mocks base method.
+func (m *MockService) UpsertOCSFAgent(arg0 context.Context, arg1 *models.OCSFAgentRecord) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertOCSFAgent", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertOCSFAgent indicates an expected call of UpsertOCSFAgent.
+func (mr *MockServiceMockRecorder) UpsertOCSFAgent(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertOCSFAgent", reflect.TypeOf((*MockService)(nil).UpsertOCSFAgent), arg0, arg1)
+}
+
 // UpsertOCSFDevice mocks base method.
 func (m *MockService) UpsertOCSFDevice(arg0 context.Context, arg1 *models.OCSFDevice) error {
 	m.ctrl.T.Helper()

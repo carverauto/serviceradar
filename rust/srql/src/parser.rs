@@ -7,6 +7,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Entity {
+    Agents,
     Devices,
     DeviceUpdates,
     Interfaces,
@@ -261,6 +262,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
 fn parse_entity(raw: &str) -> Result<Entity> {
     let normalized = raw.trim_matches('"').trim_matches('\'').to_lowercase();
     match normalized.as_str() {
+        "agents" | "agent" | "ocsf_agents" => Ok(Entity::Agents),
         "devices" | "device" | "device_inventory" => Ok(Entity::Devices),
         "device_graph" | "devicegraph" | "graph" => Ok(Entity::DeviceGraph),
         "graph_cypher" | "graphcypher" | "cypher" => Ok(Entity::GraphCypher),
