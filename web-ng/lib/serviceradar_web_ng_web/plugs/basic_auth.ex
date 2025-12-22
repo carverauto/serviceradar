@@ -10,7 +10,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.BasicAuth do
   def call(conn, _opts) do
     case Application.get_env(:serviceradar_web_ng, :admin_basic_auth) do
       %{username: username, password: password}
-      when is_binary(username) and is_binary(password) ->
+      when is_binary(username) and is_binary(password) and
+             byte_size(username) > 0 and byte_size(password) > 0 ->
         Plug.BasicAuth.basic_auth(conn,
           username: username,
           password: password,

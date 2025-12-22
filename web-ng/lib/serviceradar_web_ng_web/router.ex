@@ -59,14 +59,14 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   scope "/admin", ServiceRadarWebNGWeb do
-    pipe_through [:browser, :require_authenticated_user, :admin_basic_auth]
+    pipe_through [:browser]
 
     live_session :admin_jobs,
-      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
+      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
       live "/jobs", Admin.JobLive.Index, :index
     end
 
-    oban_dashboard("/jobs/oban",
+    oban_dashboard("/oban",
       oban_name: Oban,
       as: :admin_oban_dashboard,
       resolver: ServiceRadarWebNGWeb.ObanResolver

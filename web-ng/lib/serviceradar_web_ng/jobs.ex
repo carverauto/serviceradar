@@ -28,6 +28,10 @@ defmodule ServiceRadarWebNG.Jobs do
 
   def list_schedules do
     Repo.all(Schedule)
+  rescue
+    error in Postgrex.Error ->
+      Logger.warning("Failed to load job schedules: #{Exception.message(error)}")
+      []
   end
 
   def list_enabled_schedules do
@@ -82,6 +86,10 @@ defmodule ServiceRadarWebNG.Jobs do
     else
       :ok
     end
+  rescue
+    error in Postgrex.Error ->
+      Logger.warning("Failed to apply schedule overrides: #{Exception.message(error)}")
+      :error
   end
 
   def refresh_scheduler(oban_name \\ Oban) do

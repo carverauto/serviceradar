@@ -29,8 +29,8 @@
 
 ## 6. Tests
 - [x] 6.1 Add unit test for worker query construction and error handling
-- [ ] 6.2 Add integration test that enqueues the worker and verifies refresh invocation
-- [ ] 6.3 Add tests for schedule config loading and cron refresh
+- [x] 6.2 Add integration test that enqueues the worker and verifies refresh invocation
+- [x] 6.3 Add tests for schedule config loading and cron refresh
 
 ## 7. Documentation
 - [x] 7.1 Update CNPG spec delta to reflect Oban-managed refresh + multi-node coordination

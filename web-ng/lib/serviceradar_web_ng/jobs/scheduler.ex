@@ -58,7 +58,7 @@ defmodule ServiceRadarWebNG.Jobs.Scheduler do
     state = schedule_poll(state) |> maybe_log_leader()
 
     state =
-      if Oban.Peer.leader?(state.conf) and not state.env_applied do
+      if Oban.Peer.leader?(state.conf) and !state.env_applied do
         Jobs.apply_env_overrides()
         %{state | env_applied: true}
       else

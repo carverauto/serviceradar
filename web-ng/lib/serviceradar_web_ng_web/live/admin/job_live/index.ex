@@ -52,7 +52,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
               Manage recurring background jobs and scheduling cadence.
             </p>
           </div>
-          <.ui_button variant="outline" size="sm" href={~p"/admin/jobs/oban"}>
+          <.ui_button variant="outline" size="sm" href={~p"/admin/oban"}>
             Open Oban Web
           </.ui_button>
         </div>
