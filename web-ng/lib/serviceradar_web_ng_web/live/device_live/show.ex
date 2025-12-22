@@ -699,7 +699,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   </td>
                   <td class="text-xs">{Map.get(agent, "name") || "—"}</td>
                   <td class="text-xs">
-                    <.agent_type_badge type_id={Map.get(agent, "type_id")} type={Map.get(agent, "type")} />
+                    <.agent_type_badge
+                      type_id={Map.get(agent, "type_id")}
+                      type={Map.get(agent, "type")}
+                    />
                   </td>
                   <td class="font-mono text-xs">{Map.get(agent, "version") || "—"}</td>
                   <td class="text-xs">{Map.get(agent, "vendor_name") || "—"}</td>
@@ -722,6 +725,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp truncate_uid(uid) when is_binary(uid) and byte_size(uid) > 24 do
     String.slice(uid, 0, 24) <> "..."
   end
+
   defp truncate_uid(uid), do: uid
 
   attr :type_id, :any, default: nil
