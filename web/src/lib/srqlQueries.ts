@@ -34,7 +34,7 @@ export const APPLICATION_SERVICES_QUERY =
     'in:services time:last_7d sort:last_seen:desc limit:50';
 
 export const NETFLOW_DEFAULT_QUERY =
-    'in:flows time:last_24h stats:"sum(bytes_total) as total_bytes by connection.src_endpoint_ip" sort:total_bytes:desc limit:25';
+    'in:flows time:last_24h stats:"sum(bytes_total) as total_bytes by src_endpoint_ip" sort:total_bytes:desc limit:25';
 
 /**
  * Build a sweep query string suitable for showing in the header.

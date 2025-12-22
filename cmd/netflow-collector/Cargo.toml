@@ -1,0 +1,43 @@
+[package]
+name = "serviceradar-netflow-collector"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# NetFlow parsing
+netflow_parser = "0.6.9"
+
+# Protobuf
+prost = "0.13"
+
+# NATS JetStream
+async-nats = "0.42"
+
+# Async runtime
+tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+
+# Security (SPIFFE)
+spiffe = { version = "0.6", default-features = false, features = ["spiffe-types", "workload-api"] }
+pem = "3"
+tonic = { version = "0.12", features = ["transport", "tls"] }
+
+# Configuration
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+config-bootstrap = { path = "../../rust/config-bootstrap" }
+
+# Logging & metrics
+log = "0.4"
+env_logger = "0.11"
+anyhow = "1"
+thiserror = "1"
+
+# Utilities
+clap = { version = "4", features = ["derive"] }
+
+[build-dependencies]
+tonic-build = "0.12"
+
+[[bin]]
+name = "serviceradar-netflow-collector"
+path = "src/main.rs"

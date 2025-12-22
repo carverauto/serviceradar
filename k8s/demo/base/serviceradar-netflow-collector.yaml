@@ -1,0 +1,183 @@
+# ServiceRadar NetFlow Collector Service
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-netflow-collector-config
+data:
+  netflow-collector.json: |
+    {
+      "listen_addr": "0.0.0.0:2055",
+      "ipfix_listen_addr": "0.0.0.0:4739",
+      "buffer_size": 10000,
+      "drop_policy": "drop_newest",
+      "nats": {
+        "url": "tls://serviceradar-nats:4222",
+        "stream": "flows",
+        "subject": "flows.raw.netflow",
+        "timeout_ms": 30000,
+        "batch_size": 100,
+        "batch_timeout_ms": 1000,
+        "max_ack_pending": 1000
+      },
+      "security": {
+        "mode": "spiffe",
+        "trust_domain": "carverauto.dev",
+        "workload_socket": "unix:/run/spire/sockets/agent.sock"
+      },
+      "logging": {
+        "level": "info",
+        "format": "json"
+      }
+    }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-netflow-collector-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-netflow-collector
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-netflow-collector
+      app.kubernetes.io/part-of: serviceradar
+  template:
+    metadata:
+      labels:
+        app: serviceradar-netflow-collector
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      serviceAccountName: serviceradar-netflow-collector
+      imagePullSecrets:
+      - name: ghcr-io-cred
+      containers:
+      - name: netflow-collector
+        image: ghcr.io/carverauto/serviceradar-netflow-collector:latest
+        imagePullPolicy: Always
+        ports:
+        - name: netflow
+          containerPort: 2055
+          protocol: UDP
+        - name: ipfix
+          containerPort: 4739
+          protocol: UDP
+        - name: grpc
+          containerPort: 50046
+          protocol: TCP
+        env:
+        - name: CONFIG_SOURCE
+          value: "file"
+        - name: CONFIG_PATH
+          value: "/etc/serviceradar/netflow-collector.json"
+        - name: SECURITY_MODE
+          value: "spiffe"
+        - name: TRUST_DOMAIN
+          value: "carverauto.dev"
+        - name: WORKLOAD_SOCKET
+          value: "unix:/run/spire/sockets/agent.sock"
+        - name: RUST_LOG
+          value: "info"
+        # Process-based health checks
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -f netflow-collector > /dev/null"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -f netflow-collector > /dev/null"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        securityContext:
+          capabilities:
+            add:
+            - NET_BIND_SERVICE
+        volumeMounts:
+        - name: netflow-collector-config
+          mountPath: /etc/serviceradar
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: netflow-collector-data
+          mountPath: /var/lib/serviceradar
+        - name: logs
+          mountPath: /var/log/serviceradar
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+      volumes:
+      - name: netflow-collector-config
+        configMap:
+          name: serviceradar-netflow-collector-config
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+      - name: netflow-collector-data
+        persistentVolumeClaim:
+          claimName: serviceradar-netflow-collector-data
+      - name: logs
+        emptyDir: {}
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-netflow-collector
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  selector:
+    app: serviceradar-netflow-collector
+  ports:
+  - name: netflow
+    port: 2055
+    targetPort: 2055
+    protocol: UDP
+  - name: ipfix
+    port: 4739
+    targetPort: 4739
+    protocol: UDP
+  - name: grpc
+    port: 50046
+    targetPort: 50046
+    protocol: TCP
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceradar-netflow-collector
+  labels:
+    app.kubernetes.io/part-of: serviceradar

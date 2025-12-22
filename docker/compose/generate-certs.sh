@@ -175,6 +175,7 @@ generate_cert "snmp-checker" "snmp-checker.serviceradar" "DNS:snmp-checker,DNS:s
 generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:rperf-client.serviceradar,DNS:serviceradar-rperf-client,DNS:agent.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "otel" "otel.serviceradar" "DNS:otel,DNS:otel.serviceradar,DNS:serviceradar-otel,DNS:localhost,IP:127.0.0.1"
 generate_cert "flowgger" "flowgger.serviceradar" "DNS:flowgger,DNS:flowgger.serviceradar,DNS:serviceradar-flowgger,DNS:localhost,IP:127.0.0.1"
+generate_cert "netflow-collector" "netflow-collector.serviceradar" "DNS:netflow-collector,DNS:netflow-collector.serviceradar,DNS:serviceradar-netflow-collector,DNS:localhost,IP:127.0.0.1"
 
 # Edge / checker
 generate_cert "sysmon-osx" "sysmon-osx.serviceradar" "DNS:sysmon-osx,DNS:sysmon-osx.serviceradar,DNS:serviceradar-sysmon-osx,DNS:sysmon-osx-checker,DNS:localhost,IP:127.0.0.1"

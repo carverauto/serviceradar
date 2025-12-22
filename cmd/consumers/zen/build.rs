@@ -48,5 +48,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rerun-if-changed={otel_base}/opentelemetry/proto/collector/metrics/v1/metrics_service.proto");
     }
 
+    // Compile flow.proto
+    let flow_proto = "../../proto/flow/flow.proto";
+    if Path::new(flow_proto).exists() {
+        tonic_build::configure()
+            .protoc_arg("--experimental_allow_proto3_optional")
+            .build_server(false)
+            .build_client(false)
+            .compile(&[flow_proto], &["../../proto/flow"])?;
+        println!("cargo:rerun-if-changed={}", flow_proto);
+    }
+
     Ok(())
 }

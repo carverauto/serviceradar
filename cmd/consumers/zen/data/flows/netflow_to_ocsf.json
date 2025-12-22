@@ -1,0 +1,130 @@
+{
+  "nodes": [
+    {
+      "id": "inputNode",
+      "type": "inputNode",
+      "name": "Flow Input",
+      "position": { "x": 80, "y": 150 }
+    },
+    {
+      "id": "transformToOCSF",
+      "type": "expressionNode",
+      "name": "Transform to OCSF Network Activity",
+      "position": { "x": 300, "y": 150 },
+      "content": {
+        "expressions": [
+          {
+            "id": "class_uid",
+            "key": "class_uid",
+            "value": "4001"
+          },
+          {
+            "id": "category_uid",
+            "key": "category_uid",
+            "value": "4"
+          },
+          {
+            "id": "activity_id",
+            "key": "activity_id",
+            "value": "6"
+          },
+          {
+            "id": "type_uid",
+            "key": "type_uid",
+            "value": "400106"
+          },
+          {
+            "id": "severity_id",
+            "key": "severity_id",
+            "value": "1"
+          },
+          {
+            "id": "time",
+            "key": "time",
+            "value": "time_flow_end_ns != null && time_flow_end_ns > 0 ? time_flow_end_ns / 1000000 : time_received_ns / 1000000"
+          },
+          {
+            "id": "start_time",
+            "key": "start_time",
+            "value": "time_flow_start_ns != null && time_flow_start_ns > 0 ? time_flow_start_ns / 1000000 : null"
+          },
+          {
+            "id": "end_time",
+            "key": "end_time",
+            "value": "time_flow_end_ns != null && time_flow_end_ns > 0 ? time_flow_end_ns / 1000000 : null"
+          },
+          {
+            "id": "src_endpoint",
+            "key": "src_endpoint",
+            "value": "{ ip: src_addr, port: src_port, autonomous_system: src_as > 0 ? { number: src_as } : null, interface_uid: in_if > 0 ? string(in_if) : null }"
+          },
+          {
+            "id": "dst_endpoint",
+            "key": "dst_endpoint",
+            "value": "{ ip: dst_addr, port: dst_port, autonomous_system: dst_as > 0 ? { number: dst_as } : null, interface_uid: out_if > 0 ? string(out_if) : null }"
+          },
+          {
+            "id": "connection_info",
+            "key": "connection_info",
+            "value": "{ protocol_num: proto, protocol_name: proto == 1 ? 'ICMP' : proto == 6 ? 'TCP' : proto == 17 ? 'UDP' : proto == 47 ? 'GRE' : proto == 50 ? 'ESP' : proto == 58 ? 'ICMPv6' : 'Unknown', tcp_flags: tcp_flags, direction_id: 0, boundary_id: 0 }"
+          },
+          {
+            "id": "traffic",
+            "key": "traffic",
+            "value": "{ bytes: bytes, packets: packets, bytes_in: bytes, bytes_out: 0 }"
+          },
+          {
+            "id": "network_endpoint",
+            "key": "network_endpoint",
+            "value": "next_hop != null && next_hop != '' ? { ip: next_hop } : null"
+          },
+          {
+            "id": "observables",
+            "key": "observables",
+            "value": "[{ name: 'sampler_address', type_id: 2, value: sampler_address }]"
+          },
+          {
+            "id": "cloud",
+            "key": "cloud",
+            "value": "{ provider: 'on_prem' }"
+          },
+          {
+            "id": "metadata",
+            "key": "metadata",
+            "value": "{ product: { name: 'ServiceRadar', vendor_name: 'Carver Automation', version: '1.0.0' }, version: '1.7.0', original_time: string(time_received_ns) }"
+          },
+          {
+            "id": "unmapped",
+            "key": "unmapped",
+            "value": "{ flow_type: flow_type, sampling_rate: sampling_rate, ip_tos: ip_tos, vlan_id: vlan_id, observation_domain_id: observation_domain_id, sequence_num: sequence_num, src_vlan: src_vlan, dst_vlan: dst_vlan, src_mac: src_mac, dst_mac: dst_mac, forwarding_status: forwarding_status, icmp_type: icmp_type, icmp_code: icmp_code, ipv6_flow_label: ipv6_flow_label, fragment_id: fragment_id, fragment_offset: fragment_offset, src_net: src_net, dst_net: dst_net, bgp_next_hop: bgp_next_hop, bgp_communities: bgp_communities, as_path: as_path, mpls_label: mpls_label, mpls_ttl: mpls_ttl, etype: etype, ip_ttl: ip_ttl, ip_flags: ip_flags, next_hop_as: next_hop_as }"
+          },
+          {
+            "id": "osint",
+            "key": "osint",
+            "value": "[]"
+          }
+        ]
+      }
+    },
+    {
+      "id": "outputNode",
+      "type": "outputNode",
+      "name": "OCSF Output",
+      "position": { "x": 560, "y": 150 }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "sourceId": "inputNode",
+      "targetId": "transformToOCSF",
+      "type": "edge"
+    },
+    {
+      "id": "e2",
+      "sourceId": "transformToOCSF",
+      "targetId": "outputNode",
+      "type": "edge"
+    }
+  ]
+}

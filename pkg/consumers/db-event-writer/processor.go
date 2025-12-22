@@ -612,6 +612,9 @@ func (p *Processor) processTableMessages(ctx context.Context, table string, tabl
 	case strings.Contains(table, "metrics"):
 		p.logger.Debug().Str("table", table).Msg("Processing as metrics table")
 		return p.processMetricsTable(ctx, table, tableMsgs)
+	case table == "ocsf_network_activity" || strings.Contains(table, "ocsf_network_activity"):
+		p.logger.Debug().Str("table", table).Msg("Processing as OCSF network activity table")
+		return p.processOCSFNetworkActivityTable(ctx, tableMsgs)
 	default:
 		p.logger.Debug().Str("table", table).Msg("Processing as events table")
 		return p.processEventsTable(ctx, tableMsgs)
@@ -1356,4 +1359,214 @@ func (p *Processor) parseOTELTraces(msg jetstream.Msg) ([]models.OTELTraceRow, b
 		Msg("Successfully parsed trace rows from OTEL message")
 
 	return traceRows, true
+}
+// processOCSFNetworkActivityTable processes OCSF network_activity events
+func (p *Processor) processOCSFNetworkActivityTable(ctx context.Context, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+
+	if p.db == nil {
+		return nil, fmt.Errorf("CNPG not configured for OCSF network activity")
+	}
+
+	var rows []models.OCSFNetworkActivity
+	var processed []jetstream.Msg
+
+	for _, msg := range msgs {
+		// Parse CloudEvents wrapper
+		data := msg.Data()
+		
+		// Try to extract data from CloudEvents envelope
+		var eventData []byte
+		var cloudEvent map[string]interface{}
+		if err := json.Unmarshal(data, &cloudEvent); err == nil {
+			if dataField, ok := cloudEvent["data"]; ok {
+				if dataBytes, err := json.Marshal(dataField); err == nil {
+					eventData = dataBytes
+				}
+			}
+		}
+		
+		if eventData == nil {
+			eventData = data
+		}
+
+		// Parse OCSF JSON
+		var ocsfEvent map[string]interface{}
+		if err := json.Unmarshal(eventData, &ocsfEvent); err != nil {
+			p.logger.Error().Err(err).Msg("Failed to parse OCSF JSON")
+			continue
+		}
+
+		// Extract timestamp (milliseconds since epoch)
+		timeMs, ok := ocsfEvent["time"].(float64)
+		if !ok {
+			p.logger.Error().Msg("Missing or invalid 'time' field in OCSF event")
+			continue
+		}
+		timestamp := time.Unix(0, int64(timeMs)*1000000)
+
+		// Build row
+		row := models.OCSFNetworkActivity{
+			Time:         timestamp,
+			ClassUID:     int(getFloat64(ocsfEvent, "class_uid", 4001)),
+			CategoryUID:  int(getFloat64(ocsfEvent, "category_uid", 4)),
+			ActivityID:   int(getFloat64(ocsfEvent, "activity_id", 6)),
+			TypeUID:      int(getFloat64(ocsfEvent, "type_uid", 400106)),
+			SeverityID:   int(getFloat64(ocsfEvent, "severity_id", 1)),
+			OCSFPayload:  eventData,
+			Partition:    "default",
+			CreatedAt:    time.Now(),
+		}
+
+		// Extract timestamps
+		if startTime := getFloat64(ocsfEvent, "start_time", 0); startTime > 0 {
+			t := time.Unix(0, int64(startTime)*1000000)
+			row.StartTime = &t
+		}
+		if endTime := getFloat64(ocsfEvent, "end_time", 0); endTime > 0 {
+			t := time.Unix(0, int64(endTime)*1000000)
+			row.EndTime = &t
+		}
+
+		// Extract src_endpoint
+		if srcEndpoint, ok := ocsfEvent["src_endpoint"].(map[string]interface{}); ok {
+			if ip, ok := srcEndpoint["ip"].(string); ok {
+				row.SrcEndpointIP = ip
+			}
+			if port, ok := srcEndpoint["port"].(float64); ok {
+				p := int(port)
+				row.SrcEndpointPort = &p
+			}
+			if as, ok := extractNestedFloat64(srcEndpoint, "autonomous_system", "number"); ok {
+				asNum := int(as)
+				row.SrcASNumber = &asNum
+			}
+		}
+
+		// Extract dst_endpoint
+		if dstEndpoint, ok := ocsfEvent["dst_endpoint"].(map[string]interface{}); ok {
+			if ip, ok := dstEndpoint["ip"].(string); ok {
+				row.DstEndpointIP = ip
+			}
+			if port, ok := dstEndpoint["port"].(float64); ok {
+				p := int(port)
+				row.DstEndpointPort = &p
+			}
+			if as, ok := extractNestedFloat64(dstEndpoint, "autonomous_system", "number"); ok {
+				asNum := int(as)
+				row.DstASNumber = &asNum
+			}
+		}
+
+		// Extract connection_info
+		if connInfo, ok := ocsfEvent["connection_info"].(map[string]interface{}); ok {
+			if protoNum, ok := connInfo["protocol_num"].(float64); ok {
+				p := int(protoNum)
+				row.ProtocolNum = &p
+			}
+			if protoName, ok := connInfo["protocol_name"].(string); ok {
+				row.ProtocolName = protoName
+			}
+			if tcpFlags, ok := connInfo["tcp_flags"].(float64); ok {
+				f := int(tcpFlags)
+				row.TCPFlags = &f
+			}
+		}
+
+		// Extract traffic
+		if traffic, ok := ocsfEvent["traffic"].(map[string]interface{}); ok {
+			row.BytesTotal = int64(getFloat64(traffic, "bytes", 0))
+			row.PacketsTotal = int64(getFloat64(traffic, "packets", 0))
+			row.BytesIn = int64(getFloat64(traffic, "bytes_in", 0))
+			row.BytesOut = int64(getFloat64(traffic, "bytes_out", 0))
+		}
+
+		// Extract sampler address from observables
+		if observables, ok := ocsfEvent["observables"].([]interface{}); ok && len(observables) > 0 {
+			if obs, ok := observables[0].(map[string]interface{}); ok {
+				if value, ok := obs["value"].(string); ok {
+					row.SamplerAddress = value
+				}
+			}
+		}
+
+		rows = append(rows, row)
+		processed = append(processed, msg)
+	}
+
+	if len(rows) == 0 {
+		return nil, nil
+	}
+
+	// Batch insert
+	if err := p.insertOCSFNetworkActivityBatch(ctx, rows); err != nil {
+		return nil, fmt.Errorf("failed to insert OCSF network activity batch: %w", err)
+	}
+
+	p.logger.Info().Int("count", len(rows)).Msg("Inserted OCSF network activity events")
+	return processed, nil
+}
+
+// insertOCSFNetworkActivityBatch performs batch insert of OCSF network activity rows
+func (p *Processor) insertOCSFNetworkActivityBatch(ctx context.Context, rows []models.OCSFNetworkActivity) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	batch := &pgx.Batch{}
+	query := `
+		INSERT INTO ocsf_network_activity (
+			time, class_uid, category_uid, activity_id, type_uid, severity_id,
+			start_time, end_time,
+			src_endpoint_ip, src_endpoint_port, src_as_number,
+			dst_endpoint_ip, dst_endpoint_port, dst_as_number,
+			protocol_num, protocol_name, tcp_flags,
+			bytes_total, packets_total, bytes_in, bytes_out,
+			sampler_address, ocsf_payload, partition, created_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
+		)
+	`
+
+	for _, row := range rows {
+		batch.Queue(query,
+			row.Time, row.ClassUID, row.CategoryUID, row.ActivityID, row.TypeUID, row.SeverityID,
+			row.StartTime, row.EndTime,
+			row.SrcEndpointIP, row.SrcEndpointPort, row.SrcASNumber,
+			row.DstEndpointIP, row.DstEndpointPort, row.DstASNumber,
+			row.ProtocolNum, row.ProtocolName, row.TCPFlags,
+			row.BytesTotal, row.PacketsTotal, row.BytesIn, row.BytesOut,
+			row.SamplerAddress, row.OCSFPayload, row.Partition, row.CreatedAt,
+		)
+	}
+
+	br := p.db.SendBatch(ctx, batch)
+	defer br.Close()
+
+	for i := 0; i < batch.Len(); i++ {
+		if _, err := br.Exec(); err != nil {
+			return fmt.Errorf("failed to execute batch item %d: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
+// Helper functions for OCSF event parsing
+func getFloat64(m map[string]interface{}, key string, defaultVal float64) float64 {
+	if v, ok := m[key].(float64); ok {
+		return v
+	}
+	return defaultVal
+}
+
+func extractNestedFloat64(m map[string]interface{}, key1, key2 string) (float64, bool) {
+	if nested, ok := m[key1].(map[string]interface{}); ok {
+		if val, ok := nested[key2].(float64); ok {
+			return val, true
+		}
+	}
+	return 0, false
 }

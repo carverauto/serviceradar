@@ -486,6 +486,38 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  netflow-collector:
+    image: ghcr.io/carverauto/serviceradar-netflow-collector:${APP_TAG:-latest}
+    container_name: serviceradar-netflow-collector-mtls
+    ports:
+      - "2055:2055/udp"
+      - "4739:4739/udp"
+      - "50046:50046"
+    volumes:
+      - ./cmd/netflow-collector/netflow-collector.json:/etc/serviceradar/netflow-collector.json:ro
+      - cert-data:/etc/serviceradar/certs:ro
+      - netflow-data:/var/lib/serviceradar
+      - ./logs:/var/log/serviceradar
+    environment:
+      - CONFIG_SOURCE=file
+      - CONFIG_PATH=/etc/serviceradar/netflow-collector.json
+      - SECURITY_MODE=mtls
+      - CERT_DIR=/etc/serviceradar/certs
+      - CERT_FILE=/etc/serviceradar/certs/netflow-collector.pem
+      - KEY_FILE=/etc/serviceradar/certs/netflow-collector-key.pem
+      - CA_FILE=/etc/serviceradar/certs/root.pem
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    cap_add:
+      - NET_BIND_SERVICE
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
   zen:
     image: ghcr.io/carverauto/serviceradar-zen:${APP_TAG:-latest}
     container_name: serviceradar-zen-mtls
@@ -739,6 +771,7 @@ volumes:
   otel-data:
   flowgger-data:
   trapd-data:
+  netflow-data:
   zen-data:
   db-event-writer-data:
   db-event-writer-config:

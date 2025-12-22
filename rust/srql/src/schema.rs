@@ -362,3 +362,35 @@ diesel::table! {
         created_at -> Timestamptz,
     }
 }
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    ocsf_network_activity (time) {
+        time -> Timestamptz,
+        class_uid -> Int4,
+        category_uid -> Int4,
+        activity_id -> Int4,
+        type_uid -> Int4,
+        severity_id -> Int4,
+        start_time -> Nullable<Timestamptz>,
+        end_time -> Nullable<Timestamptz>,
+        src_endpoint_ip -> Nullable<Text>,
+        src_endpoint_port -> Nullable<Int4>,
+        src_as_number -> Nullable<Int4>,
+        dst_endpoint_ip -> Nullable<Text>,
+        dst_endpoint_port -> Nullable<Int4>,
+        dst_as_number -> Nullable<Int4>,
+        protocol_num -> Nullable<Int4>,
+        protocol_name -> Nullable<Text>,
+        tcp_flags -> Nullable<Int4>,
+        bytes_total -> Int8,
+        packets_total -> Int8,
+        bytes_in -> Int8,
+        bytes_out -> Int8,
+        sampler_address -> Nullable<Text>,
+        ocsf_payload -> Jsonb,
+        partition -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}

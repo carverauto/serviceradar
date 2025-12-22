@@ -39,6 +39,7 @@ import { cachedQuery } from '@/lib/cached-query';
 import { escapeSrqlValue } from '@/lib/srql';
 import DeviceBasedDiscoveryDashboard from './DeviceBasedDiscoveryDashboard';
 import DeviceTable from '@/components/Devices/DeviceTable';
+import NetFlowView from './NetFlowView';
 import { normalizeTimestampString } from '@/utils/traceTimestamp';
 import { useSrqlQuery } from '@/contexts/SrqlQueryContext';
 import {
@@ -1466,13 +1467,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                 );
 
             case 'netflow':
-                return (
-                    <div className="text-center p-12 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg">
-                        <p className="text-gray-600 dark:text-gray-400">
-                            Netflow data will be available here in a future update.
-                        </p>
-                    </div>
-                );
+                return <NetFlowView />;
 
             default:
                 return null;
