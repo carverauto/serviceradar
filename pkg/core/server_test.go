@@ -200,6 +200,9 @@ func TestReportStatus(t *testing.T) {
 	// Mock GetDeviceByID for device lookup
 	mockDB.EXPECT().GetDeviceByID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
+	// Mock UpsertOCSFAgent for agent registration
+	mockDB.EXPECT().UpsertOCSFAgent(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
 	// Expect StoreMetrics for icmp-service
 	mockDB.EXPECT().StoreMetrics(gomock.Any(), "test-poller",
 		gomock.Any()).DoAndReturn(func(_ context.Context, pollerID string, metrics []*models.TimeseriesMetric) error {
@@ -826,6 +829,7 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	}, nil).Times(1)
 	mockDB.EXPECT().ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).Return([]map[string]interface{}{}, nil).AnyTimes()
 	mockDB.EXPECT().GetDeviceByID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDB.EXPECT().UpsertOCSFAgent(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil).Times(2)
 	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(),
 		gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*models.ServiceStatus) error {

@@ -95,6 +95,36 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
     }
 
     Some(match plan.entity {
+        Entity::Agents => VizMeta {
+            columns: vec![
+                col("uid", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("name", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("type_id", ColumnType::Int, None),
+                col("type", ColumnType::Text, None),
+                col("version", ColumnType::Text, None),
+                col("vendor_name", ColumnType::Text, None),
+                col("poller_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("capabilities", ColumnType::TextArray, None),
+                col("ip", ColumnType::Text, None),
+                col(
+                    "first_seen_time",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+                col(
+                    "last_seen_time",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+                col("metadata", ColumnType::Jsonb, None),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
         Entity::Devices => VizMeta {
             columns: vec![
                 col("uid", ColumnType::Text, Some(ColumnSemantic::Id)),

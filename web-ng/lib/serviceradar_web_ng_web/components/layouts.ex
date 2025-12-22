@@ -159,6 +159,14 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </li>
               <li>
                 <.sidebar_link
+                  href={~p"/agents"}
+                  label="Agents"
+                  icon="hero-cpu-chip"
+                  active={@current_path == "/agents"}
+                />
+              </li>
+              <li>
+                <.sidebar_link
                   href={~p"/interfaces"}
                   label="Interfaces"
                   icon="hero-globe-alt"
@@ -336,6 +344,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_label("analytics"), do: "Analytics"
   defp section_label("devices"), do: "Devices"
   defp section_label("pollers"), do: "Pollers"
+  defp section_label("agents"), do: "Agents"
   defp section_label("events"), do: "Events"
   defp section_label("logs"), do: "Logs"
   defp section_label("observability"), do: "Observability"
@@ -346,6 +355,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_icon("analytics"), do: "hero-chart-bar-micro"
   defp section_icon("devices"), do: "hero-server-micro"
   defp section_icon("pollers"), do: "hero-cog-6-tooth-micro"
+  defp section_icon("agents"), do: "hero-cpu-chip-micro"
   defp section_icon("events"), do: "hero-bell-alert-micro"
   defp section_icon("logs"), do: "hero-presentation-chart-line-micro"
   defp section_icon("observability"), do: "hero-presentation-chart-line-micro"

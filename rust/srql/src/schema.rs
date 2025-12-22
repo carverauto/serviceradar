@@ -4,6 +4,32 @@ diesel::table! {
     use diesel::pg::sql_types::Array;
     use diesel::sql_types::*;
 
+    /// OCSF Agent Registry (aligned with OCSF v1.7.0 Agent object)
+    ocsf_agents (uid) {
+        uid -> Text,
+        name -> Nullable<Text>,
+        type_id -> Int4,
+        #[sql_name = "type"]
+        agent_type -> Nullable<Text>,
+        version -> Nullable<Text>,
+        vendor_name -> Nullable<Text>,
+        uid_alt -> Nullable<Text>,
+        policies -> Nullable<Jsonb>,
+        poller_id -> Nullable<Text>,
+        capabilities -> Nullable<Array<Text>>,
+        ip -> Nullable<Text>,
+        first_seen_time -> Nullable<Timestamptz>,
+        last_seen_time -> Nullable<Timestamptz>,
+        created_time -> Timestamptz,
+        modified_time -> Timestamptz,
+        metadata -> Nullable<Jsonb>,
+    }
+}
+
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
     /// OCSF Device Inventory (aligned with OCSF v1.7.0 Device object)
     ocsf_devices (uid) {
         // OCSF Core Identity
