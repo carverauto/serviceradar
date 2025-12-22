@@ -23,11 +23,11 @@
 
 ## 3. Component Templates
 
-- [ ] 3.1 Add KV client module for NATS JetStream access (or gRPC to datasvc)
-- [ ] 3.2 Implement `Edge.ComponentTemplates.list/2` (component_type, security_mode)
-- [ ] 3.3 Write tests for template listing
+- [x] 3.1 Add datasvc gRPC client module (`ServiceRadarWebNG.Datasvc`, `Datasvc.KV`)
+- [x] 3.2 Implement `Edge.ComponentTemplates.list/2` (component_type, security_mode)
+- [x] 3.3 Write tests for template listing
 
-> **Note:** Templates endpoint currently returns empty list as a stub. Full implementation requires datasvc gRPC integration.
+> **Note:** Templates endpoint uses datasvc gRPC to query NATS JetStream KV. Returns empty list when datasvc is not configured.
 
 ## 4. Token/Crypto Integration
 
@@ -47,7 +47,7 @@
 - [x] 5.7 Implement `GET /api/admin/edge-packages/:id/events`
 - [x] 5.8 Implement `POST /api/admin/edge-packages/:id/download`
 - [x] 5.9 Implement `POST /api/admin/edge-packages/:id/revoke`
-- [x] 5.10 Implement `GET /api/admin/component-templates` (returns empty list as stub)
+- [x] 5.10 Implement `GET /api/admin/component-templates` (uses datasvc gRPC)
 - [x] 5.11 Add special auth handling for download endpoint (token-gated unauthenticated)
 
 ## 6. Router Configuration
@@ -72,9 +72,8 @@
 
 ## Summary
 
-**Completed:** 29/38 tasks (76%)
+**Completed:** 32/35 tasks (91%)
 
 **Core API functionality is complete and tested.** The following are deferred:
-- Component templates (requires datasvc gRPC integration)
 - OpenAPI documentation
 - Docs site updates

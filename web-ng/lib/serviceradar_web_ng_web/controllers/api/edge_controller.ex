@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
 
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.OnboardingEvents
+  alias ServiceRadarWebNG.Edge.ComponentTemplates
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -239,14 +240,62 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   GET /api/admin/component-templates
 
   Lists available component templates from KV store.
+
+  Query params:
+    - component_type: filter by component type (e.g., "checker", "poller")
+    - security_mode: filter by security mode (e.g., "mtls", "insecure")
+
+  If both filters are provided, returns templates matching both criteria.
+  If no filters provided, returns templates for all known combinations.
   """
   def templates(conn, params) do
-    # TODO: Implement KV store access via datasvc gRPC
-    # For now, return empty list as a placeholder
-    _component_type = params["component_type"]
-    _security_mode = params["security_mode"]
+    component_type = params["component_type"]
+    security_mode = params["security_mode"]
 
-    json(conn, [])
+    templates = list_templates(component_type, security_mode)
+    json(conn, templates)
+  end
+
+  defp list_templates(nil, nil) do
+    # List all templates for all known combinations
+    for comp_type <- ComponentTemplates.available_component_types(),
+        sec_mode <- ComponentTemplates.available_security_modes(),
+        reduce: [] do
+      acc ->
+        case ComponentTemplates.list(comp_type, sec_mode) do
+          {:ok, templates} -> acc ++ templates
+          {:error, _} -> acc
+        end
+    end
+  end
+
+  defp list_templates(component_type, nil) do
+    # List templates for a specific component type across all security modes
+    for sec_mode <- ComponentTemplates.available_security_modes(), reduce: [] do
+      acc ->
+        case ComponentTemplates.list(component_type, sec_mode) do
+          {:ok, templates} -> acc ++ templates
+          {:error, _} -> acc
+        end
+    end
+  end
+
+  defp list_templates(nil, security_mode) do
+    # List templates for a specific security mode across all component types
+    for comp_type <- ComponentTemplates.available_component_types(), reduce: [] do
+      acc ->
+        case ComponentTemplates.list(comp_type, security_mode) do
+          {:ok, templates} -> acc ++ templates
+          {:error, _} -> acc
+        end
+    end
+  end
+
+  defp list_templates(component_type, security_mode) do
+    case ComponentTemplates.list(component_type, security_mode) do
+      {:ok, templates} -> templates
+      {:error, _} -> []
+    end
   end
 
   # Private helpers
