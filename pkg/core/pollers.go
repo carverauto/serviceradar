@@ -417,12 +417,8 @@ func normalizeHostIP(raw string) string {
 	return ip
 }
 
-func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealthy bool, hostIP, partition string, now time.Time) error {
+func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealthy bool, hostIP string, now time.Time) error {
 	normIP := normalizeHostIP(hostIP)
-	normalizedPartition := strings.TrimSpace(partition)
-	if normalizedPartition == "" {
-		normalizedPartition = defaultPartition
-	}
 
 	pollerStatus := &models.PollerStatus{
 		PollerID:  pollerID,
@@ -472,7 +468,7 @@ func (s *Server) updatePollerState(
 	req *proto.PollerStatusRequest) error {
 	sourceIP := s.resolveServiceHostIP(ctx, pollerID, req.AgentId, req.SourceIp)
 
-	if err := s.storePollerStatus(ctx, pollerID, apiStatus.IsHealthy, sourceIP, req.Partition, now); err != nil {
+	if err := s.storePollerStatus(ctx, pollerID, apiStatus.IsHealthy, sourceIP, now); err != nil {
 		return err
 	}
 
