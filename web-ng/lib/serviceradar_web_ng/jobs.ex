@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Jobs do
   import Ecto.Query, warn: false
 
   alias Oban.Cron.Expression
+  alias Oban.Job
   alias ServiceRadarWebNG.Jobs.{RefreshTraceSummariesWorker, Schedule}
   alias ServiceRadarWebNG.Repo
 
@@ -63,13 +64,16 @@ defmodule ServiceRadarWebNG.Jobs do
     end
   end
 
-  def list_schedule_entries do
+  def list_schedule_entries(opts \\ []) do
+    run_limit = Keyword.get(opts, :run_limit, 5)
+
     list_schedules()
     |> Enum.map(fn schedule ->
       %{
         schedule: schedule,
         job: Map.get(@job_catalog, schedule.job_key),
-        next_run_at: next_run_at(schedule)
+        next_run_at: next_run_at(schedule),
+        recent_runs: list_recent_runs(schedule.job_key, limit: run_limit)
       }
     end)
   end
@@ -77,6 +81,25 @@ defmodule ServiceRadarWebNG.Jobs do
   def job_catalog, do: @job_catalog
 
   def job_definition(job_key), do: Map.get(@job_catalog, job_key)
+
+  def list_recent_runs(job_key, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 5)
+
+    with %{worker: worker} <- job_definition(job_key) do
+      from(j in Job,
+        where: j.worker == ^inspect(worker),
+        order_by: [desc: j.inserted_at],
+        limit: ^limit
+      )
+      |> Repo.all()
+    else
+      _ -> []
+    end
+  rescue
+    error in Postgrex.Error ->
+      Logger.warning("Failed to load recent job runs: #{Exception.message(error)}")
+      []
+  end
 
   def apply_env_overrides do
     cron_override = System.get_env("TRACE_SUMMARIES_REFRESH_CRON")
@@ -208,17 +231,7 @@ defmodule ServiceRadarWebNG.Jobs do
 
     case Oban.insert(oban_name, changeset) do
       {:ok, job} ->
-        schedule
-        |> Ecto.Changeset.change(last_enqueued_at: scheduled_at)
-        |> Repo.update()
-        |> case do
-          {:ok, _updated} ->
-            :ok
-
-          {:error, changeset} ->
-            Logger.warning("Failed to update schedule #{schedule.job_key}: #{inspect(changeset)}")
-        end
-
+        update_last_enqueued_at(schedule, scheduled_at)
         {:ok, job}
 
       {:error, reason} ->
@@ -255,4 +268,22 @@ defmodule ServiceRadarWebNG.Jobs do
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp update_last_enqueued_at(%Schedule{} = schedule, scheduled_at) do
+    updated_at = DateTime.utc_now()
+
+    from(s in Schedule, where: s.id == ^schedule.id)
+    |> Repo.update_all(set: [last_enqueued_at: scheduled_at, updated_at: updated_at])
+    |> case do
+      {0, _} ->
+        Logger.warning("Failed to update schedule #{schedule.job_key}: no rows updated")
+
+      {_count, _} ->
+        :ok
+    end
+  rescue
+    error in Postgrex.Error ->
+      Logger.warning("Failed to update schedule #{schedule.job_key}: #{Exception.message(error)}")
+      :error
+  end
 end

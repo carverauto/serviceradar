@@ -44,18 +44,18 @@ The system MUST provide an admin UI to view supported jobs and edit their schedu
 - **WHEN** the change is saved
 - **THEN** the new schedule is stored and used by the cron scheduler.
 
-### Requirement: Oban Web is available through the admin UI
-The system MUST expose Oban Web for job visibility and debugging through the web-ng admin interface.
+### Requirement: Job run history is visible in admin UI
+The system MUST display recent Oban job runs for supported jobs, including state and timestamps, in the job management UI.
 
-#### Scenario: Admin opens Oban Web
-- **GIVEN** an admin user navigates to the job management area
-- **WHEN** they select the Oban Web view
-- **THEN** the Oban dashboard loads and displays queues and job state.
+#### Scenario: Admin views job run history
+- **GIVEN** recent Oban jobs exist for the refresh worker
+- **WHEN** the job management UI is loaded
+- **THEN** the latest run state and timestamps are displayed.
 
-### Requirement: Job management UI is admin-only
-The system MUST restrict access to job scheduling and Oban Web to admin users.
+### Requirement: Admin can manually enqueue supported jobs
+The system MUST allow a user to enqueue supported jobs on demand from the job management UI.
 
-#### Scenario: Non-admin access is denied
-- **GIVEN** a non-admin user attempts to access the job management UI
-- **WHEN** the request is evaluated
-- **THEN** access is denied and the UI is not displayed.
+#### Scenario: User triggers refresh job
+- **GIVEN** the refresh job is enabled
+- **WHEN** the user selects "Run now" for the refresh job
+- **THEN** a new job is enqueued in `oban_jobs` for the refresh worker.

@@ -13,10 +13,11 @@ The Observability traces list depends on the `otel_trace_summaries` materialized
 3. Add an Oban worker that refreshes `otel_trace_summaries` concurrently.
 4. Schedule the refresh job every 2 minutes via a custom Oban scheduler plugin using peer leader election (single scheduler across nodes).
 5. Add guardrails to prevent duplicate refreshes (job uniqueness + scheduler coordination).
-6. Expose Oban management via web-ng with a custom admin UI and Oban Web integration.
+6. Expose job management via web-ng with a custom admin UI (schedule editing + run visibility) without relying on Oban Web.
 7. Define a job catalog and scheduling controls suitable for future jobs (reports, syncs, external fetches).
-8. Update CNPG spec requirements to remove the pg_cron dependency.
-9. Add a new job-scheduling capability spec that defines Oban usage, scheduling controls, and refresh cadence.
+8. Defer RBAC gating for job management until the RBAC workstream lands.
+9. Update CNPG spec requirements to remove the pg_cron dependency.
+10. Add a new job-scheduling capability spec that defines Oban usage, scheduling controls, and refresh cadence.
 
 ## Impact
 
@@ -26,6 +27,6 @@ The Observability traces list depends on the `otel_trace_summaries` materialized
   - `web-ng/config/*` - Oban configuration and queues
   - `web-ng/priv/repo/migrations/` - Oban schema migration
   - `web-ng/lib/serviceradar_web_ng/` - Oban supervisor + refresh worker
-  - `web-ng/lib/serviceradar_web_ng_web/` - Admin UI, Oban Web mount, job management
+  - `web-ng/lib/serviceradar_web_ng_web/` - Admin UI and job management
 - **Breaking changes**: None (adds tables and background jobs only)
 - **Migration**: run Oban migrations as part of `mix ecto.migrate`

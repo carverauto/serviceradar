@@ -19,8 +19,10 @@
 - [x] 4.1 Add job schedule storage (table + schema + context)
 - [x] 4.2 Seed default schedule for trace summaries (2-minute cadence)
 - [x] 4.3 Add admin UI pages for job list and schedule editing
-- [x] 4.4 Mount Oban Web under the admin UI
-- [x] 4.5 Enforce admin-only access via a temporary guard (pre-RBAC)
+- [x] 4.4 Add job run history + status in the admin UI (from `oban_jobs`)
+- [ ] 4.5 Add manual "Run now" action for supported jobs
+- [ ] 4.6 Remove Oban Web dependency + route once custom UI covers needs
+- [x] 4.7 Defer RBAC: leave job UI unauthenticated for now (document)
 
 ## 5. Configuration and Ops
 - [x] 5.1 Make refresh cadence configurable via environment variable (default seed)
@@ -31,6 +33,8 @@
 - [x] 6.1 Add unit test for worker query construction and error handling
 - [x] 6.2 Add integration test that enqueues the worker and verifies refresh invocation
 - [x] 6.3 Add tests for schedule config loading and cron refresh
+- [x] 6.4 Add tests for job history queries
+- [ ] 6.5 Add tests for manual trigger actions
 
 ## 7. Documentation
 - [x] 7.1 Update CNPG spec delta to reflect Oban-managed refresh + multi-node coordination

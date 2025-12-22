@@ -186,6 +186,52 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                       </.form>
                     </div>
                   </div>
+
+                  <div class="mt-4 border-t border-base-200/60 pt-4">
+                    <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+                      Recent runs
+                    </div>
+                    <%= if entry.recent_runs == [] do %>
+                      <p class="mt-2 text-xs text-base-content/60">No runs yet.</p>
+                    <% else %>
+                      <div class="mt-2 overflow-x-auto rounded-lg border border-base-200/60">
+                        <table class="table table-xs">
+                          <thead>
+                            <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
+                              <th>State</th>
+                              <th>Enqueued</th>
+                              <th>Attempted</th>
+                              <th>Completed</th>
+                              <th>Queue</th>
+                              <th>Attempts</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <%= for run <- entry.recent_runs do %>
+                              <tr>
+                                <td>
+                                  <.ui_badge variant={run_state_variant(run.state)} size="xs">
+                                    {run_state_label(run.state)}
+                                  </.ui_badge>
+                                </td>
+                                <td class="font-mono text-xs text-base-content">
+                                  {format_datetime(run.inserted_at)}
+                                </td>
+                                <td class="font-mono text-xs text-base-content">
+                                  {format_datetime(run.attempted_at)}
+                                </td>
+                                <td class="font-mono text-xs text-base-content">
+                                  {format_datetime(run.completed_at)}
+                                </td>
+                                <td class="text-xs text-base-content/70">{run.queue}</td>
+                                <td class="text-xs text-base-content/70">{run.attempt}</td>
+                              </tr>
+                            <% end %>
+                          </tbody>
+                        </table>
+                      </div>
+                    <% end %>
+                  </div>
                 </div>
               <% end %>
             <% end %>
@@ -197,7 +243,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   end
 
   defp assign_entries(socket) do
-    entries = Jobs.list_schedule_entries()
+    entries = Jobs.list_schedule_entries(run_limit: 5)
     forms = forms_for_entries(entries)
     leader = Oban.Peer.get_leader()
 
@@ -251,7 +297,35 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
   defp format_datetime(nil), do: "—"
 
+  defp format_datetime(%NaiveDateTime{} = dt) do
+    dt
+    |> DateTime.from_naive!("Etc/UTC")
+    |> format_datetime()
+  end
+
   defp format_datetime(%DateTime{} = dt) do
     Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  end
+
+  defp run_state_label(state) when is_atom(state) do
+    state
+    |> Atom.to_string()
+    |> String.replace("_", " ")
+    |> String.capitalize()
+  end
+
+  defp run_state_label(state), do: state
+
+  defp run_state_variant(state) do
+    case state do
+      :completed -> "success"
+      :executing -> "info"
+      :available -> "info"
+      :scheduled -> "info"
+      :retryable -> "warning"
+      :discarded -> "error"
+      :cancelled -> "warning"
+      _ -> "ghost"
+    end
   end
 end
