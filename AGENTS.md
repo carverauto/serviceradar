@@ -282,3 +282,23 @@ Restart the checker using the persisted config:
 
 - Add new build/test commands when tooling changes.
 - Keep instructions synchronized with the latest bead notes and related documentation updates.
+
+## Ash First
+
+Always use Ash concepts, almost never Ecto concepts directly. Think hard about the "Ash way" to do things. If you don't know, look for information in the rules & docs of Ash & associated packages.
+
+## Code Generation
+
+Start with generators wherever possible. They provide a starting point for your code and can be modified if needed.
+
+## Logs & Tests
+
+When you're done executing code, try to compile the code, and check the logs or run any applicable tests to see what effect your changes have had.
+
+## Tools
+
+Use Tidewave MCP tools, as they let you interrogate the running application in various useful ways.
+
+- Never attempt to start or stop a Phoenix application. Tidewave tools work by being connected to the running application, and starting or stopping it can cause issues.
+- Use the `project_eval` tool to execute code in the running instance of the application. Eval `h Module.fun` to get documentation for a module or function.
+- Always use `search_package_docs` to find relevant documentation before beginning work.
