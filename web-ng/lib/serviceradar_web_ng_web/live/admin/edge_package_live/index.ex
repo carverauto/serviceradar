@@ -578,12 +578,34 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
               </div>
             <% end %>
 
-            <.input
-              field={@form[:poller_id]}
-              type="text"
-              label="Poller ID (Optional)"
-              placeholder="Assign to specific poller"
-            />
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text">Poller ID (Optional)</span>
+              </label>
+              <%= if @existing_pollers == [] do %>
+                <input
+                  type="text"
+                  name="onboarding_package[poller_id]"
+                  class="input input-bordered w-full"
+                  placeholder="Enter poller ID manually"
+                />
+              <% else %>
+                <select
+                  name="onboarding_package[poller_id]"
+                  class="select select-bordered w-full"
+                >
+                  <option value="">Select poller (optional)...</option>
+                  <%= for poller <- @existing_pollers do %>
+                    <option value={poller.id}>{poller.label} ({String.slice(poller.id, 0, 8)}...)</option>
+                  <% end %>
+                </select>
+              <% end %>
+              <label class="label">
+                <span class="label-text-alt text-base-content/60">
+                  Assign this package to a specific poller
+                </span>
+              </label>
+            </div>
 
             <.input
               field={@form[:notes]}
@@ -818,11 +840,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     |> assign(:poller_templates, poller_templates)
   end
 
-  # List existing pollers that can be parents for agents
+  # List existing pollers that can be parents for agents or assigned to packages
   defp list_existing_pollers do
     OnboardingPackages.list(%{
       component_type: ["poller"],
-      status: ["delivered", "activated"],
+      status: ["issued", "delivered", "activated"],
       limit: 100
     })
   end
@@ -831,7 +853,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp list_existing_agents do
     OnboardingPackages.list(%{
       component_type: ["agent"],
-      status: ["delivered", "activated"],
+      status: ["issued", "delivered", "activated"],
       limit: 100
     })
   end
