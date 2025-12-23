@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io/fs"
 	"sort"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -80,6 +81,10 @@ func RunCNPGMigrations(ctx context.Context, pool *pgxpool.Pool, log logger.Logge
 	filenames := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
+			continue
+		}
+		// Only process .up.sql files; .down.sql files are for rollbacks only
+		if !strings.HasSuffix(entry.Name(), ".up.sql") {
 			continue
 		}
 		filenames = append(filenames, entry.Name())
