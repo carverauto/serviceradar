@@ -27,12 +27,23 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :require_authenticated_user
   end
 
+  # API authentication for CLI/external tools (API key or bearer token)
+  pipeline :api_key_auth do
+    plug :accepts, ["json"]
+    plug ServiceRadarWebNGWeb.Plugs.ApiAuth
+  end
+
   pipeline :dev_routes do
     plug :ensure_dev_routes_enabled
   end
 
   pipeline :admin_basic_auth do
     plug ServiceRadarWebNGWeb.Plugs.BasicAuth
+  end
+
+  # API pipeline for token-gated endpoints (no session auth required)
+  pipeline :api_token_auth do
+    plug :accepts, ["json"]
   end
 
   scope "/", ServiceRadarWebNGWeb do
@@ -51,6 +62,35 @@ defmodule ServiceRadarWebNGWeb.Router do
     get "/devices/:uid", DeviceController, :show
   end
 
+  # Edge onboarding admin API (API key or bearer token auth)
+  scope "/api/admin", ServiceRadarWebNG.Api do
+    pipe_through :api_key_auth
+
+    # Package defaults and templates
+    get "/edge-packages/defaults", EdgeController, :defaults
+    get "/component-templates", EdgeController, :templates
+
+    # Package CRUD
+    get "/edge-packages", EdgeController, :index
+    post "/edge-packages", EdgeController, :create
+    get "/edge-packages/:id", EdgeController, :show
+    delete "/edge-packages/:id", EdgeController, :delete
+
+    # Package events
+    get "/edge-packages/:id/events", EdgeController, :events
+
+    # Package actions
+    post "/edge-packages/:id/revoke", EdgeController, :revoke
+  end
+
+  # Edge package download - token-gated (no session auth required)
+  # This allows CLI tools to download packages using only the download token
+  scope "/api/admin", ServiceRadarWebNG.Api do
+    pipe_through :api_token_auth
+
+    post "/edge-packages/:id/download", EdgeController, :download
+  end
+
   scope "/dev" do
     pipe_through [:browser, :dev_routes]
 
@@ -61,9 +101,12 @@ defmodule ServiceRadarWebNGWeb.Router do
   scope "/admin", ServiceRadarWebNGWeb do
     pipe_through [:browser]
 
-    live_session :admin_jobs,
+    live_session :admin,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
       live "/jobs", Admin.JobLive.Index, :index
+      live "/edge-packages", Admin.EdgePackageLive.Index, :index
+      live "/edge-packages/new", Admin.EdgePackageLive.Index, :new
+      live "/edge-packages/:id", Admin.EdgePackageLive.Index, :show
     end
 
     oban_dashboard("/oban",

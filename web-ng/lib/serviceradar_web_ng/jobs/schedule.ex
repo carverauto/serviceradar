@@ -1,4 +1,8 @@
 defmodule ServiceRadarWebNG.Jobs.Schedule do
+  @moduledoc """
+  Ecto schema for job schedule configuration stored in ng_job_schedules table.
+  """
+
   use Ecto.Schema
 
   import Ecto.Changeset

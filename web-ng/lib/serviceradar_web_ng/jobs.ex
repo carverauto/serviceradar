@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.Jobs do
 
   alias Oban.Cron.Expression
   alias Oban.Job
+  alias ServiceRadarWebNG.Edge.Workers.ExpirePackagesWorker
   alias ServiceRadarWebNG.Jobs.{RefreshTraceSummariesWorker, Schedule}
   alias ServiceRadarWebNG.Repo
 
@@ -24,6 +25,17 @@ defmodule ServiceRadarWebNG.Jobs do
       args: %{},
       default_cron: "*/2 * * * *",
       unique_period_seconds: 180
+    },
+    "expire_packages" => %{
+      key: "expire_packages",
+      label: "Expire onboarding packages",
+      description:
+        "Marks edge onboarding packages as expired when their tokens have passed expiration.",
+      worker: ExpirePackagesWorker,
+      queue: :maintenance,
+      args: %{},
+      default_cron: "0 * * * *",
+      unique_period_seconds: 3600
     }
   }
 
@@ -85,15 +97,17 @@ defmodule ServiceRadarWebNG.Jobs do
   def list_recent_runs(job_key, opts \\ []) do
     limit = Keyword.get(opts, :limit, 5)
 
-    with %{worker: worker} <- job_definition(job_key) do
-      from(j in Job,
-        where: j.worker == ^inspect(worker),
-        order_by: [desc: j.inserted_at],
-        limit: ^limit
-      )
-      |> Repo.all()
-    else
-      _ -> []
+    case job_definition(job_key) do
+      %{worker: worker} ->
+        from(j in Job,
+          where: j.worker == ^inspect(worker),
+          order_by: [desc: j.inserted_at],
+          limit: ^limit
+        )
+        |> Repo.all()
+
+      _ ->
+        []
     end
   rescue
     error in Postgrex.Error ->

@@ -1,4 +1,12 @@
 defmodule ServiceRadarWebNG.Jobs.Scheduler do
+  @moduledoc """
+  Oban plugin for database-driven job scheduling.
+
+  This scheduler polls the ng_job_schedules table and enqueues jobs
+  based on their cron expressions. Only the Oban peer leader node
+  will enqueue jobs to prevent duplicates.
+  """
+
   @behaviour Oban.Plugin
 
   use GenServer
@@ -70,9 +78,7 @@ defmodule ServiceRadarWebNG.Jobs.Scheduler do
 
       if result.enqueued > 0 or result.errors != [] do
         Logger.info(
-          "Job scheduler tick completed",
-          enqueued: result.enqueued,
-          errors: length(result.errors)
+          "Job scheduler tick completed: enqueued=#{result.enqueued} errors=#{length(result.errors)}"
         )
       end
     end
@@ -88,9 +94,7 @@ defmodule ServiceRadarWebNG.Jobs.Scheduler do
       result = Jobs.enqueue_due_schedules(state.conf.name)
 
       Logger.info(
-        "Job scheduler refresh completed",
-        enqueued: result.enqueued,
-        errors: length(result.errors)
+        "Job scheduler refresh completed: enqueued=#{result.enqueued} errors=#{length(result.errors)}"
       )
     end
 
@@ -107,7 +111,7 @@ defmodule ServiceRadarWebNG.Jobs.Scheduler do
     leader = Oban.Peer.get_leader(state.conf)
 
     if leader != state.leader and leader do
-      Logger.info("Oban scheduler leader elected", leader: leader)
+      Logger.info("Oban scheduler leader elected: #{inspect(leader)}")
     end
 
     %{state | leader: leader}

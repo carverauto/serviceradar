@@ -1,4 +1,8 @@
 defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker do
+  @moduledoc """
+  Oban worker that refreshes the otel_trace_summaries materialized view.
+  """
+
   use Oban.Worker, queue: :maintenance, max_attempts: 3
 
   alias ServiceRadarWebNG.Repo

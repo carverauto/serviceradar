@@ -1,4 +1,8 @@
 defmodule ServiceRadarWebNGWeb.ObanResolver do
+  @moduledoc """
+  Resolver for Oban Web dashboard authentication and authorization.
+  """
+
   @behaviour Oban.Web.Resolver
 
   @impl true

@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.AdminComponents
+
   alias ServiceRadarWebNG.Jobs
 
   @impl true
@@ -45,6 +47,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div class="mx-auto max-w-6xl p-6 space-y-6">
+        <.admin_nav current_path="/admin/jobs" />
+
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 class="text-2xl font-semibold text-base-content">Job Scheduler</h1>
