@@ -30,9 +30,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:security_mode, security_mode)
       |> assign(:selected_component_type, "poller")
       |> assign(:checker_templates, [])
-      |> assign(:poller_templates, [])
-      |> assign(:existing_pollers, list_existing_pollers())
-      |> assign(:existing_agents, list_existing_agents())
       |> load_templates(security_mode)
 
     {:ok, socket}
@@ -149,8 +146,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
          socket
          |> assign(:created_tokens, result)
          |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
-         |> assign(:existing_pollers, list_existing_pollers())
-         |> assign(:existing_agents, list_existing_agents())
          |> put_flash(:info, "Package created successfully")}
 
       {:error, changeset} ->
@@ -351,8 +346,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         security_mode={@security_mode}
         selected_component_type={@selected_component_type}
         checker_templates={@checker_templates}
-        existing_pollers={@existing_pollers}
-        existing_agents={@existing_agents}
       />
 
       <.details_modal
@@ -475,61 +468,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
               </div>
             </div>
 
-            <%= if @selected_component_type == "agent" do %>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text">Parent Poller</span>
-                </label>
-                <%= if @existing_pollers == [] do %>
-                  <div class="text-sm text-warning">
-                    No active pollers found. Create and activate a poller first.
-                  </div>
-                <% else %>
-                  <select
-                    name="onboarding_package[parent_id]"
-                    class="select select-bordered w-full"
-                  >
-                    <option value="">Select parent poller...</option>
-                    <%= for poller <- @existing_pollers do %>
-                      <option value={poller.id}>{poller.label} ({String.slice(poller.id, 0, 8)}...)</option>
-                    <% end %>
-                  </select>
-                <% end %>
-                <label class="label">
-                  <span class="label-text-alt text-base-content/60">
-                    The poller that will manage this agent
-                  </span>
-                </label>
-              </div>
-            <% end %>
-
             <%= if @selected_component_type == "checker" do %>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text">Parent Agent</span>
-                </label>
-                <%= if @existing_agents == [] do %>
-                  <div class="text-sm text-warning">
-                    No active agents found. Create and activate an agent first.
-                  </div>
-                <% else %>
-                  <select
-                    name="onboarding_package[parent_id]"
-                    class="select select-bordered w-full"
-                  >
-                    <option value="">Select parent agent...</option>
-                    <%= for agent <- @existing_agents do %>
-                      <option value={agent.id}>{agent.label} ({String.slice(agent.id, 0, 8)}...)</option>
-                    <% end %>
-                  </select>
-                <% end %>
-                <label class="label">
-                  <span class="label-text-alt text-base-content/60">
-                    The agent that will manage this checker
-                  </span>
-                </label>
-              </div>
-
               <div class="form-control">
                 <label class="label">
                   <span class="label-text">Checker Kind</span>
@@ -578,34 +517,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
               </div>
             <% end %>
 
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Poller ID (Optional)</span>
-              </label>
-              <%= if @existing_pollers == [] do %>
-                <input
-                  type="text"
-                  name="onboarding_package[poller_id]"
-                  class="input input-bordered w-full"
-                  placeholder="Enter poller ID manually"
-                />
-              <% else %>
-                <select
-                  name="onboarding_package[poller_id]"
-                  class="select select-bordered w-full"
-                >
-                  <option value="">Select poller (optional)...</option>
-                  <%= for poller <- @existing_pollers do %>
-                    <option value={poller.id}>{poller.label} ({String.slice(poller.id, 0, 8)}...)</option>
-                  <% end %>
-                </select>
-              <% end %>
-              <label class="label">
-                <span class="label-text-alt text-base-content/60">
-                  Assign this package to a specific poller
-                </span>
-              </label>
-            </div>
+            <.input
+              field={@form[:poller_id]}
+              type="text"
+              label="Poller ID (Optional)"
+              placeholder="Enter the poller ID to assign this package to"
+            />
 
             <.input
               field={@form[:notes]}
@@ -821,7 +738,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     |> OnboardingPackage.create_changeset(%{})
   end
 
-  # Load templates for checkers and pollers
+  # Load templates for checkers
   defp load_templates(socket, security_mode) do
     checker_templates =
       case ComponentTemplates.list("checker", security_mode) do
@@ -829,32 +746,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         {:error, _} -> []
       end
 
-    poller_templates =
-      case ComponentTemplates.list("poller", security_mode) do
-        {:ok, templates} -> templates
-        {:error, _} -> []
-      end
-
-    socket
-    |> assign(:checker_templates, checker_templates)
-    |> assign(:poller_templates, poller_templates)
-  end
-
-  # List existing pollers that can be parents for agents or assigned to packages
-  defp list_existing_pollers do
-    OnboardingPackages.list(%{
-      component_type: ["poller"],
-      status: ["issued", "delivered", "activated"],
-      limit: 100
-    })
-  end
-
-  # List existing agents that can be parents for checkers
-  defp list_existing_agents do
-    OnboardingPackages.list(%{
-      component_type: ["agent"],
-      status: ["issued", "delivered", "activated"],
-      limit: 100
-    })
+    assign(socket, :checker_templates, checker_templates)
   end
 end
