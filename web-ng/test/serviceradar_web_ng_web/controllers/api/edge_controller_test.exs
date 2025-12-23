@@ -170,9 +170,10 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
     test "revokes a package", %{conn: conn} do
       {:ok, created} = OnboardingPackages.create(%{label: "test-revoke"})
 
-      conn = post(conn, ~p"/api/admin/edge-packages/#{created.package.id}/revoke", %{
-        "reason" => "no longer needed"
-      })
+      conn =
+        post(conn, ~p"/api/admin/edge-packages/#{created.package.id}/revoke", %{
+          "reason" => "no longer needed"
+        })
 
       result = json_response(conn, 200)
       assert result["status"] == "revoked"
@@ -194,9 +195,11 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
 
       # Use unauthenticated connection
       conn = build_conn()
-      conn = post(conn, ~p"/api/admin/edge-packages/#{created.package.id}/download", %{
-        "download_token" => created.download_token
-      })
+
+      conn =
+        post(conn, ~p"/api/admin/edge-packages/#{created.package.id}/download", %{
+          "download_token" => created.download_token
+        })
 
       result = json_response(conn, 200)
       assert result["package"]["status"] == "delivered"
@@ -207,9 +210,11 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
       {:ok, created} = OnboardingPackages.create(%{label: "test-invalid-token"})
 
       conn = build_conn()
-      conn = post(conn, ~p"/api/admin/edge-packages/#{created.package.id}/download", %{
-        "download_token" => "wrong-token"
-      })
+
+      conn =
+        post(conn, ~p"/api/admin/edge-packages/#{created.package.id}/download", %{
+          "download_token" => "wrong-token"
+        })
 
       assert json_response(conn, 401)["error"] == "download token invalid"
     end
@@ -228,15 +233,18 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
 
       # First delivery
       conn = build_conn()
+
       post(conn, ~p"/api/admin/edge-packages/#{created.package.id}/download", %{
         "download_token" => created.download_token
       })
 
       # Second attempt
       conn = build_conn()
-      conn = post(conn, ~p"/api/admin/edge-packages/#{created.package.id}/download", %{
-        "download_token" => created.download_token
-      })
+
+      conn =
+        post(conn, ~p"/api/admin/edge-packages/#{created.package.id}/download", %{
+          "download_token" => created.download_token
+        })
 
       assert json_response(conn, 409)["error"] == "package already delivered"
     end

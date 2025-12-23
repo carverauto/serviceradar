@@ -31,7 +31,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       {:error, :unauthorized} ->
         conn
         |> put_resp_content_type("application/json")
-        |> send_resp(401, Jason.encode!(%{error: "unauthorized", message: "Invalid or missing authentication"}))
+        |> send_resp(
+          401,
+          Jason.encode!(%{error: "unauthorized", message: "Invalid or missing authentication"})
+        )
         |> halt()
     end
   end

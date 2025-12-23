@@ -22,7 +22,10 @@ defmodule ServiceRadarWebNG.Edge do
   alias ServiceRadarWebNG.Edge.ComponentTemplates
 
   # Delegate token operations
-  defdelegate encode_onboarding_token(package_id, download_token, core_api_url \\ nil), to: OnboardingToken, as: :encode
+  defdelegate encode_onboarding_token(package_id, download_token, core_api_url \\ nil),
+    to: OnboardingToken,
+    as: :encode
+
   defdelegate decode_onboarding_token(token), to: OnboardingToken, as: :decode
 
   # Delegate package operations
@@ -36,12 +39,21 @@ defmodule ServiceRadarWebNG.Edge do
   defdelegate package_defaults(), to: OnboardingPackages, as: :defaults
 
   # Delegate event operations
-  defdelegate list_package_events(package_id, opts \\ []), to: OnboardingEvents, as: :list_for_package
-  defdelegate record_package_event(package_id, event_type, opts \\ []), to: OnboardingEvents, as: :record
+  defdelegate list_package_events(package_id, opts \\ []),
+    to: OnboardingEvents,
+    as: :list_for_package
+
+  defdelegate record_package_event(package_id, event_type, opts \\ []),
+    to: OnboardingEvents,
+    as: :record
+
   defdelegate recent_events(opts \\ []), to: OnboardingEvents, as: :recent
 
   # Delegate component template operations
-  defdelegate list_component_templates(component_type, security_mode, opts \\ []), to: ComponentTemplates, as: :list
+  defdelegate list_component_templates(component_type, security_mode, opts \\ []),
+    to: ComponentTemplates,
+    as: :list
+
   defdelegate get_component_template(template_key, opts \\ []), to: ComponentTemplates, as: :get
   defdelegate component_templates_available?(), to: ComponentTemplates, as: :available?
 end

@@ -225,7 +225,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 <option value="">All Types</option>
                 <option value="poller" selected={@filter_component_type == "poller"}>Poller</option>
                 <option value="agent" selected={@filter_component_type == "agent"}>Agent</option>
-                <option value="checker" selected={@filter_component_type == "checker"}>Checker</option>
+                <option value="checker" selected={@filter_component_type == "checker"}>
+                  Checker
+                </option>
               </select>
             </div>
           </:header>
@@ -381,7 +383,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
             <div class="alert alert-warning text-sm">
               <.icon name="hero-exclamation-triangle" class="size-5" />
-              <span>Use these tokens with the CLI: <code>serviceradar edge package download --id &lt;id&gt; --download-token &lt;token&gt;</code></span>
+              <span>
+                Use these tokens with the CLI:
+                <code>
+                  serviceradar edge package download --id &lt;id&gt; --download-token &lt;token&gt;
+                </code>
+              </span>
             </div>
           </div>
 
@@ -560,28 +567,38 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <%= if @package.poller_id do %>
             <div>
               <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Poller ID</div>
-              <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@package.poller_id}</code>
+              <code class="text-sm font-mono bg-base-200 p-2 rounded block">
+                {@package.poller_id}
+              </code>
             </div>
           <% end %>
 
           <%= if @package.parent_id do %>
             <div>
               <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Parent ID</div>
-              <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@package.parent_id}</code>
+              <code class="text-sm font-mono bg-base-200 p-2 rounded block">
+                {@package.parent_id}
+              </code>
             </div>
           <% end %>
 
           <%= if @package.checker_kind do %>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Checker Kind</div>
+              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">
+                Checker Kind
+              </div>
               <div class="text-sm">{@package.checker_kind}</div>
             </div>
           <% end %>
 
           <%= if @package.checker_config_json && @package.checker_config_json != %{} do %>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Checker Config</div>
-              <code class="text-xs font-mono bg-base-200 p-2 rounded block whitespace-pre-wrap">{Jason.encode!(@package.checker_config_json, pretty: true)}</code>
+              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">
+                Checker Config
+              </div>
+              <code class="text-xs font-mono bg-base-200 p-2 rounded block whitespace-pre-wrap">
+                {Jason.encode!(@package.checker_config_json, pretty: true)}
+              </code>
             </div>
           <% end %>
 

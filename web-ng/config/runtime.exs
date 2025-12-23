@@ -185,7 +185,8 @@ if config_env() == :prod do
     case System.get_env("SERVICERADAR_SECURITY_MODE") do
       "mtls" -> "mtls"
       "spire" -> "spire"
-      _ -> "mtls"  # Default to mTLS for docker deployments
+      # Default to mTLS for docker deployments
+      _ -> "mtls"
     end
 
   check_origin =

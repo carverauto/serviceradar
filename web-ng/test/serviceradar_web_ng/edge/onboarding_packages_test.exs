@@ -76,7 +76,13 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       # Create some test packages
       {:ok, r1} = OnboardingPackages.create(%{label: "poller-1", component_type: "poller"})
       {:ok, r2} = OnboardingPackages.create(%{label: "checker-1", component_type: "checker"})
-      {:ok, r3} = OnboardingPackages.create(%{label: "agent-1", component_type: "agent", poller_id: "poller-123"})
+
+      {:ok, r3} =
+        OnboardingPackages.create(%{
+          label: "agent-1",
+          component_type: "agent",
+          poller_id: "poller-123"
+        })
 
       %{packages: [r1.package, r2.package, r3.package]}
     end
@@ -118,10 +124,11 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     test "delivers package with valid token" do
       {:ok, created} = OnboardingPackages.create(%{label: "test-deliver"})
 
-      assert {:ok, result} = OnboardingPackages.deliver(
-        created.package.id,
-        created.download_token
-      )
+      assert {:ok, result} =
+               OnboardingPackages.deliver(
+                 created.package.id,
+                 created.download_token
+               )
 
       assert result.package.status == "delivered"
       assert result.package.delivered_at != nil
@@ -131,42 +138,48 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     test "fails with invalid token" do
       {:ok, created} = OnboardingPackages.create(%{label: "test"})
 
-      assert {:error, :invalid_token} = OnboardingPackages.deliver(
-        created.package.id,
-        "wrong-token"
-      )
+      assert {:error, :invalid_token} =
+               OnboardingPackages.deliver(
+                 created.package.id,
+                 "wrong-token"
+               )
     end
 
     test "fails for already delivered package" do
       {:ok, created} = OnboardingPackages.create(%{label: "test"})
       {:ok, _} = OnboardingPackages.deliver(created.package.id, created.download_token)
 
-      assert {:error, :already_delivered} = OnboardingPackages.deliver(
-        created.package.id,
-        created.download_token
-      )
+      assert {:error, :already_delivered} =
+               OnboardingPackages.deliver(
+                 created.package.id,
+                 created.download_token
+               )
     end
 
     test "fails for revoked package" do
       {:ok, created} = OnboardingPackages.create(%{label: "test"})
       {:ok, _} = OnboardingPackages.revoke(created.package.id)
 
-      assert {:error, :revoked} = OnboardingPackages.deliver(
-        created.package.id,
-        created.download_token
-      )
+      assert {:error, :revoked} =
+               OnboardingPackages.deliver(
+                 created.package.id,
+                 created.download_token
+               )
     end
 
     test "fails with expired token" do
-      {:ok, created} = OnboardingPackages.create(
-        %{label: "test"},
-        download_token_ttl_seconds: -1  # Already expired
-      )
+      {:ok, created} =
+        OnboardingPackages.create(
+          %{label: "test"},
+          # Already expired
+          download_token_ttl_seconds: -1
+        )
 
-      assert {:error, :expired} = OnboardingPackages.deliver(
-        created.package.id,
-        created.download_token
-      )
+      assert {:error, :expired} =
+               OnboardingPackages.deliver(
+                 created.package.id,
+                 created.download_token
+               )
     end
   end
 
@@ -196,11 +209,12 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     test "soft-deletes a package" do
       {:ok, created} = OnboardingPackages.create(%{label: "test-delete"})
 
-      assert {:ok, package} = OnboardingPackages.delete(
-        created.package.id,
-        actor: "admin@test.com",
-        reason: "cleanup"
-      )
+      assert {:ok, package} =
+               OnboardingPackages.delete(
+                 created.package.id,
+                 actor: "admin@test.com",
+                 reason: "cleanup"
+               )
 
       assert package.status == "deleted"
       assert package.deleted_at != nil

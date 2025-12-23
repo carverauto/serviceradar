@@ -12,7 +12,11 @@ defmodule ServiceRadarWebNGWeb.AdminComponents do
 
   def admin_nav(assigns) do
     tabs = [
-      %{label: "Job Scheduler", href: "/admin/jobs", active: assigns.current_path == "/admin/jobs"},
+      %{
+        label: "Job Scheduler",
+        href: "/admin/jobs",
+        active: assigns.current_path == "/admin/jobs"
+      },
       %{
         label: "Edge Onboarding",
         href: "/admin/edge-packages",

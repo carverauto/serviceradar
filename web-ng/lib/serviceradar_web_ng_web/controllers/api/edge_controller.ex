@@ -202,7 +202,8 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     conn |> put_status(:gone) |> json(%{error: "download token expired"})
   end
 
-  defp handle_download_error(conn, reason) when reason in [:already_delivered, :revoked, :deleted] do
+  defp handle_download_error(conn, reason)
+       when reason in [:already_delivered, :revoked, :deleted] do
     conn |> put_status(:conflict) |> json(%{error: "package #{reason}"})
   end
 

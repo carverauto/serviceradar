@@ -91,11 +91,15 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   """
   @spec create(map(), keyword()) ::
-          {:ok, %{package: OnboardingPackage.t(), join_token: String.t(), download_token: String.t()}}
+          {:ok,
+           %{package: OnboardingPackage.t(), join_token: String.t(), download_token: String.t()}}
           | {:error, Ecto.Changeset.t()}
   def create(attrs, opts \\ []) do
     join_ttl = Keyword.get(opts, :join_token_ttl_seconds, @default_join_token_ttl_seconds)
-    download_ttl = Keyword.get(opts, :download_token_ttl_seconds, @default_download_token_ttl_seconds)
+
+    download_ttl =
+      Keyword.get(opts, :download_token_ttl_seconds, @default_download_token_ttl_seconds)
+
     actor = Keyword.get(opts, :actor)
     source_ip = Keyword.get(opts, :source_ip)
 
@@ -155,7 +159,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   """
   @spec deliver(String.t(), String.t(), keyword()) ::
-          {:ok, %{package: OnboardingPackage.t(), join_token: String.t(), bundle_pem: String.t() | nil}}
+          {:ok,
+           %{package: OnboardingPackage.t(), join_token: String.t(), bundle_pem: String.t() | nil}}
           | {:error, atom()}
   def deliver(package_id, download_token, opts \\ []) do
     actor = Keyword.get(opts, :actor)

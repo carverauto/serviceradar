@@ -60,7 +60,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
       {:ok, %Oban.Job{}}
 
   """
-  @spec record(String.t(), String.t(), keyword()) :: {:ok, Oban.Job.t()} | {:error, Ecto.Changeset.t()}
+  @spec record(String.t(), String.t(), keyword()) ::
+          {:ok, Oban.Job.t()} | {:error, Ecto.Changeset.t()}
   def record(package_id, event_type, opts \\ []) do
     RecordEventWorker.enqueue(package_id, event_type, opts)
   end
@@ -79,7 +80,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
     * `:event_time` - Override the event timestamp (default: now)
 
   """
-  @spec record_sync(String.t(), String.t(), keyword()) :: {:ok, OnboardingEvent.t()} | {:error, Ecto.Changeset.t()}
+  @spec record_sync(String.t(), String.t(), keyword()) ::
+          {:ok, OnboardingEvent.t()} | {:error, Ecto.Changeset.t()}
   def record_sync(package_id, event_type, opts \\ []) do
     event = OnboardingEvent.build(package_id, event_type, opts)
 
