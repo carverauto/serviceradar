@@ -10,6 +10,8 @@ defmodule ServiceRadarWebNG.Application do
     children = [
       ServiceRadarWebNGWeb.Telemetry,
       ServiceRadarWebNG.Repo,
+      # GRPC client supervisor for datasvc connections
+      {GRPC.Client.Supervisor, []},
       {Oban, Application.fetch_env!(:serviceradar_web_ng, Oban)},
       {DNSCluster,
        query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore},
