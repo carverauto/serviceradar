@@ -206,9 +206,35 @@ if config_env() == :prod do
   datasvc_address = System.get_env("DATASVC_ADDRESS")
 
   if datasvc_address do
-    config :datasvc, :datasvc,
+    datasvc_cert_dir = System.get_env("DATASVC_CERT_DIR", "/etc/serviceradar/certs")
+    datasvc_server_name = System.get_env("DATASVC_SERVER_NAME", "datasvc.serviceradar")
+
+    # Build TLS config if cert dir exists
+    tls_config =
+      if File.exists?(datasvc_cert_dir) do
+        [
+          cacertfile: Path.join(datasvc_cert_dir, "root.pem"),
+          certfile: Path.join(datasvc_cert_dir, "web.pem"),
+          keyfile: Path.join(datasvc_cert_dir, "web-key.pem"),
+          server_name_indication: String.to_charlist(datasvc_server_name)
+        ]
+      else
+        nil
+      end
+
+    datasvc_config = [
       address: datasvc_address,
       timeout: String.to_integer(System.get_env("DATASVC_TIMEOUT", "5000"))
+    ]
+
+    datasvc_config =
+      if tls_config do
+        Keyword.put(datasvc_config, :tls, tls_config)
+      else
+        datasvc_config
+      end
+
+    config :datasvc, :datasvc, datasvc_config
   end
 
   if local_mailer do

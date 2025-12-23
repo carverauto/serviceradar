@@ -15,6 +15,18 @@ defmodule Datasvc do
         address: "localhost:50053",
         timeout: 5000
 
+  For mTLS connections:
+
+      config :datasvc,
+        address: "localhost:50053",
+        timeout: 5000,
+        tls: [
+          cacertfile: "/etc/serviceradar/certs/root.pem",
+          certfile: "/etc/serviceradar/certs/web.pem",
+          keyfile: "/etc/serviceradar/certs/web-key.pem",
+          server_name_indication: ~c"datasvc.serviceradar"
+        ]
+
   ## Usage
 
       # Check if datasvc is configured
@@ -69,12 +81,30 @@ defmodule Datasvc do
 
       addr ->
         interceptors = Keyword.get(opts, :interceptors, [])
+        connect_opts = build_connect_opts(interceptors)
 
-        case GRPC.Stub.connect(addr, interceptors: interceptors) do
+        case GRPC.Stub.connect(addr, connect_opts) do
           {:ok, channel} -> {:ok, channel}
           {:error, reason} -> {:error, {:connection_failed, reason}}
         end
     end
+  end
+
+  defp build_connect_opts(interceptors) do
+    base_opts = [interceptors: interceptors]
+
+    case tls_config() do
+      nil ->
+        base_opts
+
+      tls_opts ->
+        cred = GRPC.Credential.new(ssl: tls_opts)
+        Keyword.put(base_opts, :cred, cred)
+    end
+  end
+
+  defp tls_config do
+    config() |> Keyword.get(:tls)
   end
 
   @doc """
