@@ -101,9 +101,12 @@ defmodule ServiceRadarWebNGWeb.Router do
   scope "/admin", ServiceRadarWebNGWeb do
     pipe_through [:browser]
 
-    live_session :admin_jobs,
+    live_session :admin,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
       live "/jobs", Admin.JobLive.Index, :index
+      live "/edge-packages", Admin.EdgePackageLive.Index, :index
+      live "/edge-packages/new", Admin.EdgePackageLive.Index, :new
+      live "/edge-packages/:id", Admin.EdgePackageLive.Index, :show
     end
 
     oban_dashboard("/oban",

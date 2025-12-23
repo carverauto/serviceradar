@@ -63,17 +63,27 @@
 - [x] 7.3 Test error cases (not found, expired token, already revoked)
 - [x] 7.4 Test filter combinations for list endpoints
 
-## 8. Documentation
+## 8. Admin UI
 
-- [ ] 8.1 Add API documentation to docs site
-- [ ] 8.2 Update deployment docs for new routing
+- [x] 8.1 Create `EdgePackageLive.Index` LiveView for admin UI
+- [x] 8.2 Implement package list with status badges and filters
+- [x] 8.3 Implement create package modal with token display
+- [x] 8.4 Implement package details view with events
+- [x] 8.5 Add admin navigation tabs (Jobs / Edge Onboarding)
+- [x] 8.6 Add router routes for `/admin/edge-packages`
+
+## 9. Documentation
+
+- [ ] 9.1 Add API documentation to docs site
+- [ ] 9.2 Update deployment docs for new routing
+- [ ] 9.3 Add OpenAPI documentation (if using open_api_spex)
 
 ---
 
 ## Summary
 
-**Completed:** 32/35 tasks (91%)
+**Completed:** 38/41 tasks (93%)
 
-**Core API functionality is complete and tested.** The following are deferred:
+**Core API functionality is complete and tested.** Admin UI implemented. The following are deferred:
 - OpenAPI documentation
 - Docs site updates

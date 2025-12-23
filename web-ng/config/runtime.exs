@@ -180,6 +180,14 @@ if config_env() == :prod do
       _ -> false
     end
 
+  # Security mode for edge onboarding: "mtls" for docker deployments, "spire" for k8s
+  security_mode =
+    case System.get_env("SERVICERADAR_SECURITY_MODE") do
+      "mtls" -> "mtls"
+      "spire" -> "spire"
+      _ -> "mtls"  # Default to mTLS for docker deployments
+    end
+
   check_origin =
     case System.get_env("PHX_CHECK_ORIGIN") do
       nil -> :conn
@@ -191,6 +199,7 @@ if config_env() == :prod do
 
   config :serviceradar_web_ng, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
   config :serviceradar_web_ng, dev_routes: dev_routes
+  config :serviceradar_web_ng, security_mode: security_mode
 
   if local_mailer do
     config :swoosh, local: true

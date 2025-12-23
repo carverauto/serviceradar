@@ -247,12 +247,22 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   @doc """
   Returns default selectors and metadata for package creation.
   """
-  @spec defaults() :: %{selectors: [String.t()], metadata: map()}
+  @spec defaults() :: %{selectors: [String.t()], metadata: map(), security_mode: String.t()}
   def defaults do
     %{
       selectors: default_selectors(),
-      metadata: default_metadata()
+      metadata: default_metadata(),
+      security_mode: configured_security_mode()
     }
+  end
+
+  @doc """
+  Returns the configured security mode from the environment.
+  Defaults to "mtls" for docker deployments.
+  """
+  @spec configured_security_mode() :: String.t()
+  def configured_security_mode do
+    Application.get_env(:serviceradar_web_ng, :security_mode, "mtls")
   end
 
   # Private functions

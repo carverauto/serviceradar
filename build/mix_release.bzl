@@ -130,6 +130,9 @@ mkdir -p /tmp/rust
 rm -rf /tmp/rust/srql /tmp/rust/kvutil
 ln -s "$WORKDIR/rust/srql" /tmp/rust/srql
 ln -s "$WORKDIR/rust/kvutil" /tmp/rust/kvutil
+mkdir -p /tmp/elixir
+rm -rf /tmp/elixir/datasvc
+ln -s "$WORKDIR/elixir/datasvc" /tmp/elixir/datasvc
 cat > /tmp/rust/Cargo.toml <<'EOF'
 [workspace]
 resolver = "2"
