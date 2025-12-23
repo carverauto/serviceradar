@@ -201,6 +201,16 @@ if config_env() == :prod do
   config :serviceradar_web_ng, dev_routes: dev_routes
   config :serviceradar_web_ng, security_mode: security_mode
 
+  # Datasvc gRPC client configuration for KV store access
+  # Used for fetching component templates and other KV data
+  datasvc_address = System.get_env("DATASVC_ADDRESS")
+
+  if datasvc_address do
+    config :datasvc, :datasvc,
+      address: datasvc_address,
+      timeout: String.to_integer(System.get_env("DATASVC_TIMEOUT", "5000"))
+  end
+
   if local_mailer do
     config :swoosh, local: true
   end

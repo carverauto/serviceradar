@@ -681,12 +681,15 @@ services:
       - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
       - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg}
       - CNPG_CERT_DIR=/etc/serviceradar/certs
+      - DATASVC_ADDRESS=datasvc:50057
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
     depends_on:
       cert-permissions-fixer:
         condition: service_completed_successfully
       cnpg:
+        condition: service_healthy
+      datasvc:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f serviceradar_web_ng >/dev/null"]
