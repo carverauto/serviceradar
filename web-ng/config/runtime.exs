@@ -180,6 +180,15 @@ if config_env() == :prod do
       _ -> false
     end
 
+  # Security mode for edge onboarding: "mtls" for docker deployments, "spire" for k8s
+  security_mode =
+    case System.get_env("SERVICERADAR_SECURITY_MODE") do
+      "mtls" -> "mtls"
+      "spire" -> "spire"
+      # Default to mTLS for docker deployments
+      _ -> "mtls"
+    end
+
   check_origin =
     case System.get_env("PHX_CHECK_ORIGIN") do
       nil -> :conn
@@ -191,6 +200,43 @@ if config_env() == :prod do
 
   config :serviceradar_web_ng, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
   config :serviceradar_web_ng, dev_routes: dev_routes
+  config :serviceradar_web_ng, security_mode: security_mode
+
+  # Datasvc gRPC client configuration for KV store access
+  # Used for fetching component templates and other KV data
+  datasvc_address = System.get_env("DATASVC_ADDRESS")
+
+  if datasvc_address do
+    datasvc_cert_dir = System.get_env("DATASVC_CERT_DIR", "/etc/serviceradar/certs")
+    datasvc_server_name = System.get_env("DATASVC_SERVER_NAME", "datasvc.serviceradar")
+
+    # Build TLS config if cert dir exists
+    tls_config =
+      if File.exists?(datasvc_cert_dir) do
+        [
+          cacertfile: Path.join(datasvc_cert_dir, "root.pem"),
+          certfile: Path.join(datasvc_cert_dir, "web.pem"),
+          keyfile: Path.join(datasvc_cert_dir, "web-key.pem"),
+          server_name_indication: String.to_charlist(datasvc_server_name)
+        ]
+      else
+        nil
+      end
+
+    datasvc_config = [
+      address: datasvc_address,
+      timeout: String.to_integer(System.get_env("DATASVC_TIMEOUT", "5000"))
+    ]
+
+    datasvc_config =
+      if tls_config do
+        Keyword.put(datasvc_config, :tls, tls_config)
+      else
+        datasvc_config
+      end
+
+    config :datasvc, :datasvc, datasvc_config
+  end
 
   if local_mailer do
     config :swoosh, local: true

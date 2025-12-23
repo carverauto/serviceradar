@@ -57,7 +57,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:heroicons,
-       github: "tailwindlabs/heroicons",
+       git: "https://github.com/tailwindlabs/heroicons.git",
        tag: "v2.2.0",
        sparse: "optimized",
        app: false,
@@ -71,7 +71,8 @@ defmodule ServiceRadarWebNG.MixProject do
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"}
+      {:bandit, "~> 1.5"},
+      {:datasvc, path: "../elixir/datasvc"}
     ]
   end
 
@@ -94,7 +95,8 @@ defmodule ServiceRadarWebNG.MixProject do
         "esbuild serviceradar_web_ng --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],
+      precommit_lint: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "credo"]
     ]
   end
 end

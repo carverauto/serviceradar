@@ -45,6 +45,7 @@ sh_test(
         "//proto:kv_proto_src",
         "//rust/kvutil:srcs",
         "//rust/srql:srcs",
+        "//elixir/datasvc:srcs",
     ],
     local = True,
     tags = [
@@ -67,10 +68,12 @@ mix_release(
         "proto",
         "rust/srql",
         "rust/kvutil",
+        "elixir/datasvc",
     ],
     extra_dir_srcs = [
         "//proto:kv_proto_src",
         "//rust/srql:srcs",
         "//rust/kvutil:srcs",
+        "//elixir/datasvc:srcs",
     ],
 )
