@@ -101,44 +101,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   def handle_event("create_package", %{"onboarding_package" => params}, socket) do
-    user = socket.assigns.current_scope.user
-    actor = if user, do: user.email, else: "system"
-
-    component_type = params["component_type"] || "poller"
-
-    # Parse checker_config_json if provided
-    checker_config =
-      case params["checker_config_json"] do
-        nil -> %{}
-        "" -> %{}
-        json when is_binary(json) ->
-          case Jason.decode(json) do
-            {:ok, config} -> config
-            {:error, _} -> %{}
-          end
-        config when is_map(config) -> config
-      end
-
-    # Use the configured security mode from the environment, not user input
-    attrs = %{
-      label: params["label"],
-      component_type: component_type,
-      poller_id: params["poller_id"],
-      security_mode: socket.assigns.security_mode,
-      notes: params["notes"],
-      # New fields for checkers/agents
-      parent_id: params["parent_id"],
-      checker_kind: params["checker_kind"],
-      checker_config_json: checker_config
-    }
-
-    # Set parent_type based on component type
-    attrs =
-      case component_type do
-        "agent" -> Map.put(attrs, :parent_type, "poller")
-        "checker" -> Map.put(attrs, :parent_type, "agent")
-        _ -> attrs
-      end
+    actor = get_actor(socket)
+    attrs = build_package_attrs(params, socket.assigns.security_mode)
 
     case OnboardingPackages.create(attrs, actor: actor) do
       {:ok, result} ->
@@ -748,4 +712,42 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
     assign(socket, :checker_templates, checker_templates)
   end
+
+  defp get_actor(socket) do
+    case socket.assigns.current_scope.user do
+      nil -> "system"
+      user -> user.email
+    end
+  end
+
+  defp build_package_attrs(params, security_mode) do
+    component_type = params["component_type"] || "poller"
+
+    %{
+      label: params["label"],
+      component_type: component_type,
+      poller_id: params["poller_id"],
+      security_mode: security_mode,
+      notes: params["notes"],
+      parent_id: params["parent_id"],
+      checker_kind: params["checker_kind"],
+      checker_config_json: parse_checker_config(params["checker_config_json"])
+    }
+    |> add_parent_type(component_type)
+  end
+
+  defp parse_checker_config(nil), do: %{}
+  defp parse_checker_config(""), do: %{}
+  defp parse_checker_config(config) when is_map(config), do: config
+
+  defp parse_checker_config(json) when is_binary(json) do
+    case Jason.decode(json) do
+      {:ok, config} -> config
+      {:error, _} -> %{}
+    end
+  end
+
+  defp add_parent_type(attrs, "agent"), do: Map.put(attrs, :parent_type, "poller")
+  defp add_parent_type(attrs, "checker"), do: Map.put(attrs, :parent_type, "agent")
+  defp add_parent_type(attrs, _), do: attrs
 end

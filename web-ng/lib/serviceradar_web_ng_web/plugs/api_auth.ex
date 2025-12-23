@@ -24,9 +24,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   def init(opts), do: opts
 
   def call(conn, _opts) do
-    with {:ok, conn} <- authenticate(conn) do
-      conn
-    else
+    case authenticate(conn) do
+      {:ok, conn} ->
+        conn
+
       {:error, :unauthorized} ->
         conn
         |> put_resp_content_type("application/json")

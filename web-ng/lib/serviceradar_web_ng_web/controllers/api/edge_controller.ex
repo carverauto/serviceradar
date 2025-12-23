@@ -170,46 +170,40 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
       |> put_status(:bad_request)
       |> json(%{error: "download_token is required"})
     else
-      actor = get_actor(conn)
-      source_ip = get_client_ip(conn)
-
-      case OnboardingPackages.deliver(id, download_token, actor: actor, source_ip: source_ip) do
-        {:ok, result} ->
-          json(conn, %{
-            package: package_to_json(result.package),
-            join_token: result.join_token,
-            bundle_pem: result.bundle_pem || ""
-          })
-
-        {:error, :not_found} ->
-          {:error, :not_found}
-
-        {:error, :invalid_token} ->
-          conn
-          |> put_status(:unauthorized)
-          |> json(%{error: "download token invalid"})
-
-        {:error, :expired} ->
-          conn
-          |> put_status(:gone)
-          |> json(%{error: "download token expired"})
-
-        {:error, :already_delivered} ->
-          conn
-          |> put_status(:conflict)
-          |> json(%{error: "package already delivered"})
-
-        {:error, :revoked} ->
-          conn
-          |> put_status(:conflict)
-          |> json(%{error: "package revoked"})
-
-        {:error, :deleted} ->
-          conn
-          |> put_status(:conflict)
-          |> json(%{error: "package deleted"})
-      end
+      do_download(conn, id, download_token)
     end
+  end
+
+  defp do_download(conn, id, download_token) do
+    actor = get_actor(conn)
+    source_ip = get_client_ip(conn)
+
+    case OnboardingPackages.deliver(id, download_token, actor: actor, source_ip: source_ip) do
+      {:ok, result} ->
+        json(conn, %{
+          package: package_to_json(result.package),
+          join_token: result.join_token,
+          bundle_pem: result.bundle_pem || ""
+        })
+
+      {:error, :not_found} ->
+        {:error, :not_found}
+
+      {:error, reason} ->
+        handle_download_error(conn, reason)
+    end
+  end
+
+  defp handle_download_error(conn, :invalid_token) do
+    conn |> put_status(:unauthorized) |> json(%{error: "download token invalid"})
+  end
+
+  defp handle_download_error(conn, :expired) do
+    conn |> put_status(:gone) |> json(%{error: "download token expired"})
+  end
+
+  defp handle_download_error(conn, reason) when reason in [:already_delivered, :revoked, :deleted] do
+    conn |> put_status(:conflict) |> json(%{error: "package #{reason}"})
   end
 
   @doc """
@@ -358,22 +352,39 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   end
 
   defp package_to_json(package) do
+    Map.merge(
+      package_core_fields(package),
+      package_lifecycle_fields(package)
+    )
+  end
+
+  defp package_core_fields(package) do
     %{
       package_id: package.id,
       label: package.label,
-      component_id: package.component_id || "",
+      component_id: to_str(package.component_id),
       component_type: package.component_type || "poller",
-      parent_type: package.parent_type || "",
-      parent_id: package.parent_id || "",
-      poller_id: package.poller_id || "",
-      site: package.site || "",
+      parent_type: to_str(package.parent_type),
+      parent_id: to_str(package.parent_id),
+      poller_id: to_str(package.poller_id),
+      site: to_str(package.site),
       status: package.status,
       security_mode: package.security_mode || "spire",
-      downstream_spiffe_id: package.downstream_spiffe_id || "",
+      downstream_spiffe_id: to_str(package.downstream_spiffe_id),
       selectors: package.selectors || [],
+      checker_kind: to_str(package.checker_kind),
+      checker_config_json: Jason.encode!(package.checker_config_json || %{}),
+      metadata_json: Jason.encode!(package.metadata_json || %{}),
+      kv_revision: package.kv_revision || 0,
+      notes: to_str(package.notes)
+    }
+  end
+
+  defp package_lifecycle_fields(package) do
+    %{
       join_token_expires_at: format_datetime(package.join_token_expires_at),
       download_token_expires_at: format_datetime(package.download_token_expires_at),
-      created_by: package.created_by || "",
+      created_by: to_str(package.created_by),
       created_at: format_datetime(package.created_at),
       updated_at: format_datetime(package.updated_at),
       delivered_at: format_datetime(package.delivered_at),
@@ -382,15 +393,13 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
       last_seen_spiffe_id: package.last_seen_spiffe_id,
       revoked_at: format_datetime(package.revoked_at),
       deleted_at: format_datetime(package.deleted_at),
-      deleted_by: package.deleted_by || "",
-      deleted_reason: package.deleted_reason || "",
-      metadata_json: Jason.encode!(package.metadata_json || %{}),
-      checker_kind: package.checker_kind || "",
-      checker_config_json: Jason.encode!(package.checker_config_json || %{}),
-      kv_revision: package.kv_revision || 0,
-      notes: package.notes || ""
+      deleted_by: to_str(package.deleted_by),
+      deleted_reason: to_str(package.deleted_reason)
     }
   end
+
+  defp to_str(nil), do: ""
+  defp to_str(val), do: val
 
   defp event_to_json(event) do
     %{

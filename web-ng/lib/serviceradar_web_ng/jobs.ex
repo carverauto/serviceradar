@@ -96,15 +96,17 @@ defmodule ServiceRadarWebNG.Jobs do
   def list_recent_runs(job_key, opts \\ []) do
     limit = Keyword.get(opts, :limit, 5)
 
-    with %{worker: worker} <- job_definition(job_key) do
-      from(j in Job,
-        where: j.worker == ^inspect(worker),
-        order_by: [desc: j.inserted_at],
-        limit: ^limit
-      )
-      |> Repo.all()
-    else
-      _ -> []
+    case job_definition(job_key) do
+      %{worker: worker} ->
+        from(j in Job,
+          where: j.worker == ^inspect(worker),
+          order_by: [desc: j.inserted_at],
+          limit: ^limit
+        )
+        |> Repo.all()
+
+      _ ->
+        []
     end
   rescue
     error in Postgrex.Error ->
