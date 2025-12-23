@@ -26,8 +26,11 @@
 - [x] 3.1 Add datasvc gRPC client module (`ServiceRadarWebNG.Datasvc`, `Datasvc.KV`)
 - [x] 3.2 Implement `Edge.ComponentTemplates.list/2` (component_type, security_mode)
 - [x] 3.3 Write tests for template listing
+- [x] 3.4 Add mTLS support to datasvc gRPC client
+- [x] 3.5 Add GRPC.Client.Supervisor to application supervision tree
+- [x] 3.6 Configure datasvc connectivity in docker-compose (DATASVC_ADDRESS)
 
-> **Note:** Templates endpoint uses datasvc gRPC to query NATS JetStream KV. Returns empty list when datasvc is not configured.
+> **Note:** Templates endpoint uses datasvc gRPC to query NATS JetStream KV with mTLS authentication.
 
 ## 4. Token/Crypto Integration
 
@@ -71,6 +74,9 @@
 - [x] 8.4 Implement package details view with events
 - [x] 8.5 Add admin navigation tabs (Jobs / Edge Onboarding)
 - [x] 8.6 Add router routes for `/admin/edge-packages`
+- [x] 8.7 Add checker template dropdown (fetched from datasvc KV)
+- [x] 8.8 Add checker_kind and checker_config_json fields for checker packages
+- [x] 8.9 Add environment-based security mode configuration
 
 ## 9. Documentation
 
@@ -82,8 +88,14 @@
 
 ## Summary
 
-**Completed:** 38/41 tasks (93%)
+**Completed:** 47/50 tasks (94%)
 
-**Core API functionality is complete and tested.** Admin UI implemented. The following are deferred:
-- OpenAPI documentation
-- Docs site updates
+**Core API functionality is complete and tested.** Admin UI implemented with:
+- Full CRUD operations for edge onboarding packages
+- Checker template selection from NATS KV via datasvc gRPC
+- mTLS authentication to datasvc
+- Environment-based security mode configuration
+
+**Deferred:**
+- OpenAPI documentation (6.3, 9.3)
+- Docs site updates (9.1, 9.2)
