@@ -447,6 +447,274 @@ end
 - gRPC-elixir handles interop
 - Agents are lightweight, no need for BEAM
 
+### Decision 12: libcluster with Multiple Cluster Strategies
+
+**What**: Use libcluster for ERTS cluster formation with support for multiple strategies:
+- **Kubernetes strategy** (production): Auto-discover pods via K8s API
+- **EPMD strategy** (development/bare metal): Static node list or DNS-based discovery
+- **mTLS security**: Mutual TLS for all inter-node communication
+- **Dynamic cluster membership**: Module-based supervisor for runtime node changes
+- **Gossip protocol** (future enhancement): For large-scale deployments
+
+**Why**:
+- Horde requires ERTS cluster for CRDT-based registry synchronization
+- Different environments need different discovery mechanisms
+- Security is critical for distributed systems (mTLS)
+- Dynamic membership allows adding/removing pollers without redeployment
+- Gossip will enable more resilient discovery in large deployments
+
+**libcluster Configuration**:
+```elixir
+# config/runtime.exs
+config :libcluster,
+  topologies: [
+    serviceradar: [
+      strategy: cluster_strategy(),
+      config: cluster_config()
+    ]
+  ]
+
+defp cluster_strategy do
+  case System.get_env("CLUSTER_STRATEGY", "epmd") do
+    "kubernetes" -> Cluster.Strategy.Kubernetes
+    "epmd" -> Cluster.Strategy.Epmd
+    "gossip" -> Cluster.Strategy.Gossip  # Future enhancement
+    _ -> Cluster.Strategy.Epmd
+  end
+end
+```
+
+**Kubernetes Strategy Configuration**:
+```elixir
+# For production Kubernetes deployments
+config :libcluster,
+  topologies: [
+    serviceradar: [
+      strategy: Cluster.Strategy.Kubernetes,
+      config: [
+        mode: :dns,
+        kubernetes_node_basename: "serviceradar",
+        kubernetes_selector: "app=serviceradar",
+        kubernetes_namespace: System.get_env("NAMESPACE", "serviceradar"),
+        polling_interval: 5_000
+      ]
+    ]
+  ]
+```
+
+**EPMD Strategy Configuration**:
+```elixir
+# For development and bare metal deployments
+config :libcluster,
+  topologies: [
+    serviceradar: [
+      strategy: Cluster.Strategy.Epmd,
+      config: [
+        hosts: [
+          :"core@192.168.1.10",
+          :"poller1@192.168.1.20",
+          :"poller2@192.168.1.21"
+        ]
+      ]
+    ]
+  ]
+
+# Or DNS-based for bare metal with service discovery
+config :libcluster,
+  topologies: [
+    serviceradar: [
+      strategy: Cluster.Strategy.DNSPoll,
+      config: [
+        polling_interval: 5_000,
+        query: "serviceradar.local",
+        node_basename: "serviceradar"
+      ]
+    ]
+  ]
+```
+
+**Dynamic Cluster Membership**:
+For environments where nodes are added/removed frequently, implement a module-based supervisor pattern that allows runtime cluster reconfiguration:
+
+```elixir
+defmodule ServiceRadar.ClusterSupervisor do
+  use Supervisor
+
+  def start_link(opts) do
+    Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  def init(_opts) do
+    topologies = Application.get_env(:libcluster, :topologies, [])
+
+    children = [
+      {Cluster.Supervisor, [topologies, [name: ServiceRadar.ClusterSupervisor.Cluster]]}
+    ]
+
+    Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  @doc """
+  Dynamically update cluster topology at runtime.
+  Useful for adding new pollers without restarting the cluster.
+  """
+  def update_topology(topology_name, new_config) do
+    # Stop existing topology supervisor
+    Supervisor.terminate_child(__MODULE__, ServiceRadar.ClusterSupervisor.Cluster)
+    Supervisor.delete_child(__MODULE__, ServiceRadar.ClusterSupervisor.Cluster)
+
+    # Start with new config
+    topologies = [{topology_name, new_config}]
+    Supervisor.start_child(__MODULE__,
+      {Cluster.Supervisor, [topologies, [name: ServiceRadar.ClusterSupervisor.Cluster]]}
+    )
+  end
+end
+```
+
+**mTLS Security for ERTS Distribution**:
+```elixir
+# vm.args or releases.exs
+# Enable TLS distribution
+-proto_dist inet_tls
+-ssl_dist_optfile /etc/serviceradar/ssl_dist.conf
+
+# ssl_dist.conf
+[{server, [
+  {certfile, "/etc/serviceradar/certs/node.crt"},
+  {keyfile, "/etc/serviceradar/certs/node.key"},
+  {cacertfile, "/etc/serviceradar/certs/ca.crt"},
+  {verify, verify_peer},
+  {fail_if_no_peer_cert, true},
+  {secure_renegotiate, true}
+]},
+{client, [
+  {certfile, "/etc/serviceradar/certs/node.crt"},
+  {keyfile, "/etc/serviceradar/certs/node.key"},
+  {cacertfile, "/etc/serviceradar/certs/ca.crt"},
+  {verify, verify_peer},
+  {secure_renegotiate, true}
+]}].
+```
+
+**Release Configuration for TLS Distribution**:
+```elixir
+# rel/env.sh.eex (or env.bat.eex for Windows)
+export RELEASE_DISTRIBUTION=name
+export RELEASE_NODE=<%= @release.name %>@${HOSTNAME}
+
+# Enable TLS distribution
+export ERL_FLAGS="-proto_dist inet_tls -ssl_dist_optfile /etc/serviceradar/ssl_dist.conf"
+```
+
+**Cluster Formation Architecture**:
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Cluster Formation (libcluster)                            │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │                     Strategy Selection                                   ││
+│  │                                                                          ││
+│  │  Production (K8s)          Dev/Staging            Future                 ││
+│  │  ┌──────────────────┐     ┌──────────────────┐   ┌──────────────────┐  ││
+│  │  │ Kubernetes DNS   │     │ EPMD or DNSPoll  │   │ Gossip Protocol  │  ││
+│  │  │ - Headless svc   │     │ - Static hosts   │   │ - Multicast      │  ││
+│  │  │ - Pod discovery  │     │ - DNS discovery  │   │ - UDP broadcast  │  ││
+│  │  │ - Label selector │     │ - Local dev      │   │ - Large scale    │  ││
+│  │  └──────────────────┘     └──────────────────┘   └──────────────────┘  ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                    │                                         │
+│                                    ▼                                         │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │                     mTLS Transport Layer                                 ││
+│  │                                                                          ││
+│  │  - inet_tls proto distribution                                          ││
+│  │  - Mutual certificate verification                                       ││
+│  │  - CA-signed node certificates                                           ││
+│  │  - Encrypted inter-node communication                                    ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+│                                    │                                         │
+│                                    ▼                                         │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │                     ERTS Cluster                                         ││
+│  │                                                                          ││
+│  │  ┌───────────┐    ┌───────────┐    ┌───────────┐    ┌───────────┐      ││
+│  │  │ Core Node │◄──►│ Poller 1  │◄──►│ Poller 2  │◄──►│ Poller N  │      ││
+│  │  │ (Phoenix) │    │ (Edge)    │    │ (Edge)    │    │ (Cloud)   │      ││
+│  │  └───────────┘    └───────────┘    └───────────┘    └───────────┘      ││
+│  │                                                                          ││
+│  │  Horde.Registry + Horde.DynamicSupervisor synced via CRDT               ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Kubernetes Deployment Example**:
+```yaml
+# headless-service.yaml (required for DNS-based discovery)
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-headless
+  namespace: serviceradar
+spec:
+  clusterIP: None  # Headless service
+  selector:
+    app: serviceradar
+  ports:
+    - name: epmd
+      port: 4369
+      targetPort: 4369
+    - name: distribution
+      port: 9100
+      targetPort: 9100
+
+---
+# Pod spec additions
+spec:
+  containers:
+    - name: serviceradar
+      env:
+        - name: CLUSTER_STRATEGY
+          value: "kubernetes"
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: RELEASE_NODE
+          value: "serviceradar@$(POD_IP)"
+      volumeMounts:
+        - name: node-certs
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+  volumes:
+    - name: node-certs
+      secret:
+        secretName: serviceradar-node-tls
+```
+
+**Gossip Protocol (Future Enhancement)**:
+The gossip strategy will be considered for deployments with:
+- 50+ poller nodes
+- High node churn (nodes joining/leaving frequently)
+- Network partitions expected (edge deployments with unreliable connectivity)
+
+```elixir
+# Future: Gossip-based discovery
+config :libcluster,
+  topologies: [
+    serviceradar: [
+      strategy: Cluster.Strategy.Gossip,
+      config: [
+        port: 45892,
+        if_addr: "0.0.0.0",
+        multicast_addr: "230.1.1.1",
+        multicast_ttl: 1,
+        secret: System.get_env("CLUSTER_SECRET")
+      ]
+    ]
+  ]
+```
+
 ## Risks / Trade-offs
 
 | Risk | Impact | Mitigation |

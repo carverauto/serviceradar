@@ -24,6 +24,47 @@
 - [ ] 1.2.6 Configure Ash multitenancy strategy (attribute-based)
 - [ ] 1.2.7 Test tenant isolation with multi-tenant test fixtures
 
+### 1.3 Cluster Infrastructure (libcluster + Horde)
+- [ ] 1.3.1 Add libcluster dependency to mix.exs
+- [ ] 1.3.2 Add horde dependency to mix.exs
+- [ ] 1.3.3 Create ServiceRadar.ClusterSupervisor module
+- [ ] 1.3.4 Configure libcluster topologies in config/runtime.exs
+- [ ] 1.3.5 Implement cluster strategy selection (kubernetes/epmd/dns)
+- [ ] 1.3.6 Configure EPMD strategy for development environment
+- [ ] 1.3.7 Configure DNSPoll strategy for bare metal deployments
+- [ ] 1.3.8 Configure Kubernetes strategy for production (DNS mode)
+- [ ] 1.3.9 Create Kubernetes headless service manifest
+- [ ] 1.3.10 Implement dynamic cluster membership (update_topology/2)
+- [ ] 1.3.11 Add cluster strategy environment variable (CLUSTER_STRATEGY)
+- [ ] 1.3.12 Create cluster health monitoring GenServer
+- [ ] 1.3.13 Add cluster connectivity metrics to telemetry
+
+### 1.4 mTLS for ERTS Distribution
+- [ ] 1.4.1 Create ssl_dist.conf template for TLS distribution
+- [ ] 1.4.2 Update rel/env.sh.eex with TLS distribution flags
+- [ ] 1.4.3 Document certificate generation process (CA + node certs)
+- [ ] 1.4.4 Create Kubernetes Secret manifest for node certificates
+- [ ] 1.4.5 Configure inet_tls proto_dist in vm.args
+- [ ] 1.4.6 Test mTLS cluster formation in staging environment
+- [ ] 1.4.7 Add certificate rotation documentation
+- [ ] 1.4.8 Implement certificate expiry monitoring
+
+### 1.5 Horde Registry and Supervisor Setup
+- [ ] 1.5.1 Create ServiceRadar.PollerRegistry (Horde.Registry)
+- [ ] 1.5.2 Create ServiceRadar.AgentRegistry (Horde.Registry)
+- [ ] 1.5.3 Create ServiceRadar.PollerSupervisor (Horde.DynamicSupervisor)
+- [ ] 1.5.4 Configure Horde members: :auto for cluster auto-join
+- [ ] 1.5.5 Create ServiceRadar.Poller.RegistrationWorker GenServer
+- [ ] 1.5.6 Implement poller auto-registration on startup
+- [ ] 1.5.7 Implement heartbeat mechanism for poller health
+- [ ] 1.5.8 Create ServiceRadar.Poller.AgentRegistry module
+- [ ] 1.5.9 Implement agent registration when connecting via gRPC
+- [ ] 1.5.10 Implement agent unregistration on disconnect
+- [ ] 1.5.11 Add PubSub broadcasting for registration events
+- [ ] 1.5.12 Create find_poller_for_partition/1 lookup function
+- [ ] 1.5.13 Create find_available_pollers/0 for load balancing
+- [ ] 1.5.14 Test Horde registry synchronization across nodes
+
 ## Phase 2: Authentication Migration
 
 ### 2.1 AshAuthentication Setup
