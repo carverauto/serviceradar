@@ -78,24 +78,30 @@
 - [x] 8.8 Add checker_kind and checker_config_json fields for checker packages
 - [x] 8.9 Add environment-based security mode configuration
 
-## 9. Documentation
+## 9. Scheduled Jobs
 
-- [ ] 9.1 Add API documentation to docs site
-- [ ] 9.2 Update deployment docs for new routing
-- [ ] 9.3 Add OpenAPI documentation (if using open_api_spex)
+- [x] 9.1 Register ExpirePackagesWorker in job catalog
+- [x] 9.2 Add migration to seed expire_packages schedule (hourly)
+
+## 10. Documentation
+
+- [ ] 10.1 Add API documentation to docs site
+- [ ] 10.2 Update deployment docs for new routing
+- [ ] 10.3 Add OpenAPI documentation (if using open_api_spex)
 
 ---
 
 ## Summary
 
-**Completed:** 47/50 tasks (94%)
+**Completed:** 49/52 tasks (94%)
 
 **Core API functionality is complete and tested.** Admin UI implemented with:
 - Full CRUD operations for edge onboarding packages
 - Checker template selection from NATS KV via datasvc gRPC
 - mTLS authentication to datasvc
 - Environment-based security mode configuration
+- Scheduled job to expire packages when tokens expire (hourly)
 
 **Deferred:**
-- OpenAPI documentation (6.3, 9.3)
-- Docs site updates (9.1, 9.2)
+- OpenAPI documentation (6.3, 10.3)
+- Docs site updates (10.1, 10.2)
