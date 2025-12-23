@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.Jobs do
 
   alias Oban.Cron.Expression
   alias Oban.Job
+  alias ServiceRadarWebNG.Edge.Workers.ExpirePackagesWorker
   alias ServiceRadarWebNG.Jobs.{RefreshTraceSummariesWorker, Schedule}
   alias ServiceRadarWebNG.Repo
 
@@ -24,6 +25,16 @@ defmodule ServiceRadarWebNG.Jobs do
       args: %{},
       default_cron: "*/2 * * * *",
       unique_period_seconds: 180
+    },
+    "expire_packages" => %{
+      key: "expire_packages",
+      label: "Expire onboarding packages",
+      description: "Marks edge onboarding packages as expired when their tokens have passed expiration.",
+      worker: ExpirePackagesWorker,
+      queue: :maintenance,
+      args: %{},
+      default_cron: "0 * * * *",
+      unique_period_seconds: 3600
     }
   }
 
