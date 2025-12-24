@@ -308,22 +308,30 @@ defmodule ServiceRadar.Monitoring.Event do
   end
 
   policies do
-    # Super admins bypass all policies
+    # Import common policy checks
+
+    # Super admins bypass all policies (platform-wide access)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # All authenticated users can read events
+    # TENANT ISOLATION: Events are audit/log data for a tenant
+    # Must be strictly isolated
+
+    # Read access: Must be authenticated AND in same tenant
     policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:viewer, :operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Operators and admins can record events
+    # Record events: Operators/admins in same tenant
     policy action([:record, :record_at_time]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
   end
 end

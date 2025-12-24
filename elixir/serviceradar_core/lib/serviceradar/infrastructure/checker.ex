@@ -232,28 +232,38 @@ defmodule ServiceRadar.Infrastructure.Checker do
   end
 
   policies do
-    # Super admins bypass all policies
+    # Import common policy checks
+
+    # Super admins bypass all policies (platform-wide access)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # All authenticated users can read checkers
+    # TENANT ISOLATION: All operations require tenant match
+    # Checkers belong to a tenant and must not be accessible cross-tenant
+
+    # Read access: Must be authenticated AND in same tenant
     policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:viewer, :operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Operators and admins can create checkers
+    # Create checkers: Operators/admins, enforces tenant from context
     policy action(:create) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Operators and admins can update/enable/disable checkers
+    # Update/enable/disable: Operators/admins in same tenant
     policy action([:update, :enable, :disable]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
   end
 end

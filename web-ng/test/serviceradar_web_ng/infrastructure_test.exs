@@ -5,14 +5,18 @@ defmodule ServiceRadarWebNG.InfrastructureTest do
   alias ServiceRadarWebNG.Repo
 
   test "list_pollers returns pollers ordered by last_seen desc" do
+    {:ok, tenant_uuid} = Ecto.UUID.dump(test_tenant_id())
+
     Repo.insert_all("pollers", [
       %{
         poller_id: "test-poller-1",
-        last_seen: ~U[2025-01-01 00:00:00Z]
+        last_seen: ~U[2025-01-01 00:00:00Z],
+        tenant_id: tenant_uuid
       },
       %{
         poller_id: "test-poller-2",
-        last_seen: ~U[2025-02-01 00:00:00Z]
+        last_seen: ~U[2025-02-01 00:00:00Z],
+        tenant_id: tenant_uuid
       }
     ])
 

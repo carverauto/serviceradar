@@ -248,26 +248,38 @@ defmodule ServiceRadar.Infrastructure.Partition do
   end
 
   policies do
-    # Super admins bypass all policies
+    # Import common policy checks
+
+    # Super admins bypass all policies (platform-wide access)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # All authenticated users can read partitions
+    # TENANT ISOLATION: Partitions define network boundaries for a tenant
+    # Must never be accessible cross-tenant
+
+    # Read access: Must be authenticated AND in same tenant
     policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:viewer, :operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Only admins can create partitions
+    # Create partitions: Admins only, enforces tenant from context
     policy action(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) == :admin and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Only admins can update/enable/disable partitions
+    # Update/enable/disable: Admins only, same tenant
     policy action([:update, :enable, :disable]) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) == :admin and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
   end
 end

@@ -391,34 +391,46 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
   end
 
   policies do
-    # Super admins bypass all policies
+    # Import common policy checks
+
+    # Super admins bypass all policies (platform-wide access)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # All authenticated users can read checks
+    # TENANT ISOLATION: Service checks define what to monitor for a tenant
+    # Must be strictly isolated
+
+    # Read access: Must be authenticated AND in same tenant
     policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:viewer, :operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Operators and admins can create and update checks
+    # Create/update checks: Operators/admins in same tenant
     policy action([:create, :update, :enable, :disable]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Only operators and admins can record results
+    # Record results: Operators/admins in same tenant
     policy action([:record_result, :reset_failures]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Execute action - can be run by operators, admins, or system (AshOban)
+    # Execute action: Operators/admins in same tenant, or AshOban (no actor)
     policy action(:execute) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
       # Allow AshOban scheduler (no actor) to execute checks
       authorize_if always()
     end

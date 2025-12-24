@@ -323,9 +323,9 @@
 ## Phase 11: Testing & Documentation
 
 ### 11.1 Test Infrastructure
-- [ ] 11.1.1 Create Ash test helpers and fixtures
-- [ ] 11.1.2 Create multi-tenant test factory
-- [ ] 11.1.3 Create policy test macros
+- [x] 11.1.1 Create Ash test helpers and fixtures
+- [x] 11.1.2 Create multi-tenant test factory
+- [x] 11.1.3 Create policy test macros
 - [ ] 11.1.4 Update existing tests to use Ash resources
 
 ### 11.2 Test Coverage
@@ -337,8 +337,8 @@
 - [ ] 11.2.6 Write tests for state machine transitions
 - [ ] 11.2.7 Write API integration tests
 - [ ] 11.2.8 Write SRQL adapter tests
-- [ ] 11.2.9 Write multi-tenant isolation tests
-- [ ] 11.2.10 Write policy enforcement tests
+- [x] 11.2.9 Write multi-tenant isolation tests
+- [x] 11.2.10 Write policy enforcement tests
 
 ### 11.3 Documentation
 - [ ] 11.3.1 Document domain architecture

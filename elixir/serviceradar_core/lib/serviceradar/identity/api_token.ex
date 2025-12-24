@@ -305,8 +305,10 @@ defmodule ServiceRadar.Identity.ApiToken do
     end
 
     # Users can create tokens for themselves
+    # Note: create actions cannot use expr() filters that reference record attributes
+    # because the record doesn't exist yet. We use a custom check instead.
     policy action(:create) do
-      authorize_if expr(user_id == ^actor(:id))
+      authorize_if ServiceRadar.Identity.ApiToken.Checks.CreatingOwnToken
       authorize_if actor_attribute_equals(:role, :admin)
     end
 

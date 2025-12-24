@@ -72,7 +72,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     user = tenant_user_fixture(tenant, attrs)
 
     user
-    |> Ash.Changeset.for_update(:assign_role, %{role: :admin}, actor: system_actor(), authorize?: false, tenant: tenant.id)
+    |> Ash.Changeset.for_update(:update_role, %{role: :admin}, actor: system_actor(), authorize?: false, tenant: tenant.id)
     |> Ash.update!()
   end
 
@@ -117,14 +117,15 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     unique = System.unique_integer([:positive])
 
     defaults = %{
-      name: "Poller #{unique}",
-      node_id: "poller-node-#{unique}"
+      id: "poller-#{unique}",
+      component_id: "test-component-#{unique}",
+      registration_source: "manual"
     }
 
     attrs = Map.merge(defaults, attrs)
 
     Poller
-    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor(), authorize?: false, tenant: tenant.id)
+    |> Ash.Changeset.for_create(:register, attrs, actor: system_actor(), authorize?: false, tenant: tenant.id)
     |> Ash.create!()
   end
 

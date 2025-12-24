@@ -50,8 +50,6 @@ defmodule ServiceRadarWebNG.DataCase do
   Creates it if it doesn't exist.
   """
   def ensure_test_tenant do
-    import Ecto.Query
-
     tenant_id = test_tenant_id()
     {:ok, tenant_uuid} = Ecto.UUID.dump(tenant_id)
 

@@ -481,38 +481,51 @@ defmodule ServiceRadar.Infrastructure.Agent do
   end
 
   policies do
-    # Super admins bypass all policies
+    # Import common policy checks
+
+    # Super admins bypass all policies (cross-tenant access for platform ops)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # All authenticated users can read agents
+    # TENANT ISOLATION: All non-super-admin access requires tenant match
+    # This ensures Customer X's agents are never visible to Customer Y
+
+    # Read access: Must be authenticated AND in same tenant
     policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:viewer, :operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Operators and admins can register new agents
+    # Register new agents: Operators/admins, enforces tenant from context
     policy action([:register, :register_connected]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Operators and admins can update agents and perform connection transitions
+    # Connection lifecycle: Operators/admins in same tenant
     policy action([
       :update, :heartbeat, :connect, :disconnect,
       :establish_connection, :connection_failed, :lose_connection, :reconnect
     ]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Only admins can manage health/availability states
+    # Health/availability management: Admins only, same tenant
     policy action([
       :mark_unhealthy, :degrade, :restore_health, :mark_unavailable, :recover
     ]) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) == :admin and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
   end
 end

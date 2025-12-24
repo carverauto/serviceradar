@@ -409,28 +409,38 @@ defmodule ServiceRadar.Inventory.Device do
   end
 
   policies do
-    # Super admins bypass all policies
+    # Import common policy checks
+
+    # Super admins bypass all policies (platform-wide access)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # All authenticated users can read devices
+    # TENANT ISOLATION: Devices are customer assets
+    # Must NEVER be visible to other tenants - this is critical for SaaS security
+
+    # Read access: Must be authenticated AND in same tenant
     policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:viewer, :operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Operators and admins can create devices
+    # Create devices: Operators/admins, enforces tenant from context
     policy action(:create) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Operators and admins can update devices
+    # Update devices: Operators/admins in same tenant
     policy action([:update, :touch, :set_availability]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
   end
 end

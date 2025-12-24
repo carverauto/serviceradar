@@ -260,32 +260,47 @@ defmodule ServiceRadar.Infrastructure.Poller do
   end
 
   policies do
-    # Super admins bypass all policies
+    # Import common policy checks
+
+    # Super admins bypass all policies (cross-tenant access)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # All authenticated users can read pollers
+    # TENANT ISOLATION: All non-super-admin access requires tenant match
+    # This is the primary security boundary for multi-tenant SaaS
+
+    # Read access: Must be authenticated AND in same tenant
     policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      # First check: user has a valid role
+      authorize_if expr(
+        ^actor(:role) in [:viewer, :operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Only admins can register new pollers
+    # Register new pollers: Admin only, enforces tenant from context
     policy action(:register) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) == :admin and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Operators and admins can update pollers
+    # Update operations: Operators/admins in same tenant
     policy action([:update, :heartbeat, :set_status]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Only admins can mark unhealthy or deactivate
+    # Administrative actions: Admins only, same tenant
     policy action([:mark_unhealthy, :deactivate]) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) == :admin and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
   end
 end

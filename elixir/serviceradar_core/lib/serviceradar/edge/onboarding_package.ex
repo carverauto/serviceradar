@@ -332,38 +332,56 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   end
 
   policies do
-    # Super admins bypass all policies
+    # Import common policy checks
+
+    # Super admins bypass all policies (platform-wide access)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # Admins and operators can read all packages
+    # TENANT ISOLATION: Onboarding packages contain credentials for edge deployments
+    # CRITICAL: Must NEVER be accessible to other tenants
+
+    # Read access: Admins/operators in same tenant
     policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if expr(
+        ^actor(:role) in [:admin, :operator] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Admins and operators can create packages
+    # Create packages: Admins/operators in same tenant
     policy action(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if expr(
+        ^actor(:role) in [:admin, :operator] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Admins can perform most state transitions
+    # State transitions: Admins in same tenant
     policy action([:deliver, :activate, :revoke, :soft_delete, :update_tokens]) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) == :admin and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Expire action - can be run by admins or system (AshOban scheduler)
+    # Expire action: Admins in same tenant, or AshOban (no actor)
     policy action(:expire) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) == :admin and
+        tenant_id == ^actor(:tenant_id)
+      )
       # Allow AshOban scheduler (no actor) to expire packages
       authorize_if always()
     end
 
-    # Operators can deliver and update tokens
+    # Operators can also deliver and update tokens (in same tenant)
     policy action([:deliver, :update_tokens]) do
-      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if expr(
+        ^actor(:role) == :operator and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
   end
 end

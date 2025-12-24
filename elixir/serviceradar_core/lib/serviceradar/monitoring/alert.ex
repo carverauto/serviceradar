@@ -499,39 +499,54 @@ defmodule ServiceRadar.Monitoring.Alert do
   end
 
   policies do
-    # Super admins bypass all policies
+    # Import common policy checks
+
+    # Super admins bypass all policies (platform-wide access)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # All authenticated users can read alerts
+    # TENANT ISOLATION: Alerts contain sensitive operational data
+    # Must NEVER leak to other tenants
+
+    # Read access: Must be authenticated AND in same tenant
     policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :viewer)
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:viewer, :operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Operators and admins can trigger alerts
+    # Trigger alerts: Operators/admins in same tenant
     policy action(:trigger) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Operators and admins can acknowledge and resolve
+    # Acknowledge/resolve: Operators/admins in same tenant
     policy action([:acknowledge, :resolve, :record_notification, :update_metadata]) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Only admins can escalate, suppress, or reopen
+    # Escalate/suppress/reopen: Admins only, same tenant
     policy action([:escalate, :suppress, :reopen]) do
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) == :admin and
+        tenant_id == ^actor(:tenant_id)
+      )
     end
 
-    # Send notification action - can be run by operators, admins, or system (AshOban)
+    # Send notification: Operators/admins in same tenant, or AshOban (no actor)
     policy action(:send_notification) do
-      authorize_if actor_attribute_equals(:role, :operator)
-      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if expr(
+        ^actor(:role) in [:operator, :admin] and
+        tenant_id == ^actor(:tenant_id)
+      )
       # Allow AshOban scheduler (no actor) to send notifications
       authorize_if always()
     end

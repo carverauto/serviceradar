@@ -55,6 +55,9 @@ defmodule ServiceRadarWebNGWeb.UserLive.Registration do
 
   @impl true
   def handle_event("save", %{"user" => user_params}, socket) do
+    # Auto-create a tenant for new user registration (SaaS onboarding flow)
+    user_params = ensure_tenant(user_params)
+
     case Accounts.register_user(user_params) do
       {:ok, user} ->
         {:ok, _} =
@@ -84,5 +87,45 @@ defmodule ServiceRadarWebNGWeb.UserLive.Registration do
   defp assign_form(socket, %Ecto.Changeset{} = changeset) do
     form = to_form(changeset, as: "user")
     assign(socket, form: form)
+  end
+
+  # Create or get a tenant for the user during registration.
+  # For SaaS, each new user gets their own tenant by default.
+  defp ensure_tenant(user_params) do
+    if Map.has_key?(user_params, "tenant_id") or Map.has_key?(user_params, :tenant_id) do
+      user_params
+    else
+      email = user_params["email"] || user_params[:email] || ""
+      slug = email |> String.split("@") |> List.first() |> String.downcase()
+      unique_slug = "#{slug}-#{System.unique_integer([:positive])}"
+
+      # Create a new tenant for this user
+      case create_tenant_for_user(unique_slug, email) do
+        {:ok, tenant} ->
+          Map.put(user_params, "tenant_id", tenant.id)
+
+        {:error, _} ->
+          user_params
+      end
+    end
+  end
+
+  defp create_tenant_for_user(slug, email) do
+    alias ServiceRadar.Identity.Tenant
+
+    # Use a system actor and bypass authorization for tenant creation during registration
+    system_actor = %{
+      id: "00000000-0000-0000-0000-000000000000",
+      email: "system@serviceradar.local",
+      role: :super_admin
+    }
+
+    Tenant
+    |> Ash.Changeset.for_create(:create, %{
+      name: "#{slug}'s Organization",
+      slug: slug,
+      contact_email: email
+    }, actor: system_actor, authorize?: false)
+    |> Ash.create(actor: system_actor, authorize?: false)
   end
 end

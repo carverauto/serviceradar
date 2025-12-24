@@ -3,11 +3,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   alias ServiceRadarWebNG.Repo
   import Phoenix.LiveViewTest
+  import ServiceRadarWebNG.DataCase, only: [test_tenant_id: 0]
 
   setup :register_and_log_in_user
 
   test "renders devices from ocsf_devices", %{conn: conn} do
     uid = "test-device-live-#{System.unique_integer([:positive])}"
+    {:ok, tenant_uuid} = Ecto.UUID.dump(test_tenant_id())
 
     Repo.insert_all("ocsf_devices", [
       %{
@@ -16,7 +18,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         hostname: "test-host",
         is_available: true,
         first_seen_time: ~U[2100-01-01 00:00:00Z],
-        last_seen_time: ~U[2100-01-01 00:00:00Z]
+        last_seen_time: ~U[2100-01-01 00:00:00Z],
+        tenant_id: tenant_uuid
       }
     ])
 

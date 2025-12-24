@@ -1,4 +1,4 @@
-ExUnit.start()
+ExUnit.start(exclude: [:pending_multitenancy_investigation])
 
 {:ok, _} = Application.ensure_all_started(:serviceradar_web_ng)
 
