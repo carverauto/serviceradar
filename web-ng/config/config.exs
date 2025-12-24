@@ -27,15 +27,70 @@ config :serviceradar_web_ng,
 
 config :serviceradar_web_ng, ServiceRadarWebNG.Repo, migration_source: "ng_schema_migrations"
 
+# Ash Framework Configuration
+config :serviceradar_web_ng,
+  ash_domains: [
+    ServiceRadar.Identity,
+    ServiceRadar.Inventory,
+    ServiceRadar.Infrastructure,
+    ServiceRadar.Monitoring,
+    ServiceRadar.Edge
+  ]
+
+# Ash configuration
+config :ash,
+  include_embedded_source_by_default?: false,
+  default_page_type: :keyset,
+  policies: [
+    no_filter_static_forbidden_reads?: false,
+    show_policy_breakdowns?: true
+  ]
+
+# AshPostgres configuration
+config :ash_postgres,
+  manage_migrations?: true
+
+# Feature flags for gradual Ash migration rollout
+config :serviceradar_web_ng, :feature_flags,
+  ash_identity_domain: false,
+  ash_inventory_domain: false,
+  ash_infrastructure_domain: false,
+  ash_monitoring_domain: false,
+  ash_edge_domain: false,
+  ash_authentication: false,
+  ash_api_v2: false
+
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 
+# Oban job processing configuration
 config :serviceradar_web_ng, Oban,
   repo: ServiceRadarWebNG.Repo,
-  queues: [default: 10, maintenance: 2],
+  queues: [
+    default: 10,
+    maintenance: 2,
+    # AshOban queues
+    alerts: 5,
+    service_checks: 10,
+    notifications: 5,
+    onboarding: 3,
+    events: 10
+  ],
   plugins: [
-    {ServiceRadarWebNG.Jobs.Scheduler, poll_interval_ms: 30_000}
+    # Built-in Cron plugin for system maintenance jobs (non-Ash resources)
+    {Oban.Plugins.Cron,
+     crontab: [
+       # Refresh trace summaries materialized view every 2 minutes
+       {"*/2 * * * *", ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
+     ]},
+    # Legacy scheduler - will be removed after verifying Cron plugin + AshOban cover all jobs
+    # {ServiceRadarWebNG.Jobs.Scheduler, poll_interval_ms: 30_000},
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}  # Keep jobs for 7 days
   ],
   peer: Oban.Peers.Database
+
+# AshOban configuration
+config :ash_oban,
+  oban_name: Oban
 
 # Configure the endpoint
 config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,

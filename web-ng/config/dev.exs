@@ -91,6 +91,10 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
     tailwind: {Tailwind, :install_and_run, [:serviceradar_web_ng, ~w(--watch)]}
   ]
 
+# AshAuthentication token signing secret for development
+config :serviceradar_web_ng, :token_signing_secret, "dev_token_signing_secret_at_least_32_chars_long!"
+config :serviceradar_web_ng, :base_url, "http://localhost:4000"
+
 # ## SSL Support
 #
 # In order to use HTTPS in development, a self-signed

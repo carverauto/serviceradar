@@ -1,14 +1,20 @@
 defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   @moduledoc """
-  API authentication plug supporting API keys and bearer tokens.
+  API authentication plug supporting API keys, bearer tokens, and Ash API tokens.
 
   Checks for authentication in the following order:
-  1. `Authorization: Bearer <token>` header
-  2. `X-API-Key: <key>` header
+  1. `Authorization: Bearer <token>` header (JWT or session token)
+  2. `X-API-Key: <key>` header (Ash API token or legacy static key)
 
-  ## Configuration
+  ## Ash API Tokens
 
-  Configure API keys in your config:
+  API tokens created via the ServiceRadar.Identity.ApiToken resource are
+  validated by hashing the provided token and comparing against stored hashes.
+  Tokens have scopes (read, write, admin) that determine permissions.
+
+  ## Legacy Configuration
+
+  Configure static API keys in your config (for backward compatibility):
 
       config :serviceradar_web_ng, :api_auth,
         api_keys: ["key1", "key2"]
@@ -45,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       bearer_token = get_bearer_token(conn) ->
         validate_bearer_token(conn, bearer_token)
 
-      # Check API key
+      # Check API key (Ash API tokens or legacy static keys)
       api_key = get_api_key(conn) ->
         validate_api_key(conn, api_key)
 
@@ -84,13 +90,93 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   end
 
   defp validate_api_key(conn, key) do
+    # First try Ash API token validation
+    case validate_ash_api_token(conn, key) do
+      {:ok, conn} ->
+        {:ok, conn}
+
+      {:error, :not_found} ->
+        # Fall back to legacy static API keys
+        validate_legacy_api_key(conn, key)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp validate_ash_api_token(conn, token) do
+    # Hash the token to compare against stored hash
+    token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
+    token_prefix = String.slice(token, 0, 8)
+
+    # Query for matching token using Ash (bypass authorization for token lookup)
+    require Ash.Query
+
+    query =
+      ServiceRadar.Identity.ApiToken
+      |> Ash.Query.filter(
+        token_prefix == ^token_prefix and
+          token_hash == ^token_hash and
+          enabled == true and
+          is_nil(revoked_at) and
+          (is_nil(expires_at) or expires_at > ^DateTime.utc_now())
+      )
+      |> Ash.Query.load(:user)
+
+    case Ash.read(query, authorize?: false) do
+      {:ok, [api_token]} ->
+        # Record the usage
+        record_token_usage(api_token, conn)
+
+        # Create scope with the token's user
+        user = api_token.user
+
+        scope = %ServiceRadarWebNG.Accounts.Scope{user: user}
+
+        conn =
+          conn
+          |> assign(:current_scope, scope)
+          |> assign(:api_token, api_token)
+          |> assign(:api_token_scope, api_token.scope)
+
+        {:ok, conn}
+
+      {:ok, []} ->
+        {:error, :not_found}
+
+      {:error, _} ->
+        {:error, :not_found}
+    end
+  end
+
+  defp record_token_usage(api_token, conn) do
+    # Get client IP
+    client_ip =
+      case get_req_header(conn, "x-forwarded-for") do
+        [ip | _] -> ip
+        _ -> conn.remote_ip |> :inet.ntoa() |> to_string()
+      end
+
+    # Record usage asynchronously to not block the request
+    Task.start(fn ->
+      api_token
+      |> Ash.Changeset.for_update(:record_use, %{last_used_ip: client_ip})
+      |> Ash.update(authorize?: false)
+    end)
+  end
+
+  defp validate_legacy_api_key(conn, key) do
     valid_keys = get_api_keys()
 
     if key in valid_keys do
       # API key auth - create a system scope
       scope = %ServiceRadarWebNG.Accounts.Scope{user: nil}
-      conn = assign(conn, :current_scope, scope)
-      conn = assign(conn, :api_key_auth, true)
+
+      conn =
+        conn
+        |> assign(:current_scope, scope)
+        |> assign(:api_key_auth, true)
+
       {:ok, conn}
     else
       {:error, :unauthorized}

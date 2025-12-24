@@ -1,0 +1,42 @@
+defmodule ServiceRadar.Infrastructure do
+  @moduledoc """
+  The Infrastructure domain manages pollers, agents, and network partitions.
+
+  This domain is responsible for:
+  - Poller management and health tracking
+  - Agent registration and lifecycle
+  - Checker configuration
+  - Network partition management for overlapping IP spaces
+
+  ## Resources
+
+  - `ServiceRadar.Infrastructure.Poller` - Polling nodes
+  - `ServiceRadar.Infrastructure.Agent` - Go agents on monitored hosts
+  - `ServiceRadar.Infrastructure.Checker` - Service check types
+  - `ServiceRadar.Infrastructure.Partition` - Network partitions
+
+  ## Distributed Architecture
+
+  Pollers register with Horde.Registry on startup and receive job assignments
+  via ERTS distribution. Agents connect to pollers via gRPC and are tracked
+  in the AgentRegistry.
+  """
+
+  use Ash.Domain,
+    extensions: [
+      # AshJsonApi.Domain,
+      # AshAdmin.Domain
+    ]
+
+  authorization do
+    require_actor? true
+    authorize :by_default
+  end
+
+  resources do
+    resource ServiceRadar.Infrastructure.Poller
+    resource ServiceRadar.Infrastructure.Agent
+    resource ServiceRadar.Infrastructure.Checker
+    resource ServiceRadar.Infrastructure.Partition
+  end
+end

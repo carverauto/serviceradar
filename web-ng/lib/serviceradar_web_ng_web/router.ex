@@ -1,5 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Router do
   use ServiceRadarWebNGWeb, :router
+  use AshAuthentication.Phoenix.Router
 
   import Oban.Web.Router
   import Phoenix.LiveDashboard.Router
@@ -114,6 +115,19 @@ defmodule ServiceRadarWebNGWeb.Router do
       as: :admin_oban_dashboard,
       resolver: ServiceRadarWebNGWeb.ObanResolver
     )
+  end
+
+  ## AshAuthentication routes
+  # These routes handle password, magic link, and OAuth callbacks
+
+  scope "/auth", ServiceRadarWebNGWeb do
+    pipe_through :browser
+
+    sign_out_route AuthController
+    auth_routes ServiceRadar.Identity.User, to: AuthController
+
+    # Interactive magic link sign-in (require_interaction? is set in the strategy)
+    reset_route []
   end
 
   ## Authentication routes

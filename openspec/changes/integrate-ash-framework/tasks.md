@@ -3,79 +3,79 @@
 ## Phase 1: Foundation Setup
 
 ### 1.1 Dependencies and Configuration
-- [ ] 1.1.1 Add Ash core dependencies to mix.exs (ash, ash_postgres)
-- [ ] 1.1.2 Add AshAuthentication dependencies (ash_authentication, ash_authentication_phoenix)
-- [ ] 1.1.3 Add AshOban dependencies (ash_oban)
-- [ ] 1.1.4 Add AshStateMachine dependencies (ash_state_machine)
-- [ ] 1.1.5 Add AshJsonApi dependencies (ash_json_api)
-- [ ] 1.1.6 Add AshPhoenix dependencies (ash_phoenix)
-- [ ] 1.1.7 Add AshAdmin dependencies (ash_admin, dev only)
-- [ ] 1.1.8 Add optional observability deps (open_telemetry_ash, ash_appsignal)
-- [ ] 1.1.9 Configure Ash in config.exs with domains
-- [ ] 1.1.10 Set up AshPostgres repo configuration
-- [ ] 1.1.11 Create feature flag system for gradual rollout
+- [x] 1.1.1 Add Ash core dependencies to mix.exs (ash, ash_postgres)
+- [x] 1.1.2 Add AshAuthentication dependencies (ash_authentication, ash_authentication_phoenix)
+- [x] 1.1.3 Add AshOban dependencies (ash_oban)
+- [x] 1.1.4 Add AshStateMachine dependencies (ash_state_machine)
+- [x] 1.1.5 Add AshJsonApi dependencies (ash_json_api)
+- [x] 1.1.6 Add AshPhoenix dependencies (ash_phoenix)
+- [x] 1.1.7 Add AshAdmin dependencies (ash_admin, dev only)
+- [ ] 1.1.8 Add optional observability deps (open_telemetry_ash, ash_appsignal) - deferred, package not yet available
+- [x] 1.1.9 Configure Ash in config.exs with domains
+- [x] 1.1.10 Set up AshPostgres repo configuration
+- [x] 1.1.11 Create feature flag system for gradual rollout
 
 ### 1.2 Multi-Tenancy Foundation
-- [ ] 1.2.1 Create database migration for tenants table
-- [ ] 1.2.2 Create ServiceRadar.Identity.Tenant Ash resource
-- [ ] 1.2.3 Add tenant_id column migration for ng_users table
-- [ ] 1.2.4 Create data migration script for existing users (assign default tenant)
-- [ ] 1.2.5 Implement tenant context plug for web requests
-- [ ] 1.2.6 Configure Ash multitenancy strategy (attribute-based)
+- [x] 1.2.1 Create database migration for tenants table
+- [x] 1.2.2 Create ServiceRadar.Identity.Tenant Ash resource
+- [x] 1.2.3 Add tenant_id column migration for ng_users table
+- [x] 1.2.4 Create data migration script for existing users (assign default tenant)
+- [x] 1.2.5 Implement tenant context plug for web requests
+- [x] 1.2.6 Configure Ash multitenancy strategy (attribute-based)
 - [ ] 1.2.7 Test tenant isolation with multi-tenant test fixtures
 
 ### 1.3 Cluster Infrastructure (libcluster + Horde)
-- [ ] 1.3.1 Add libcluster dependency to mix.exs
-- [ ] 1.3.2 Add horde dependency to mix.exs
-- [ ] 1.3.3 Create ServiceRadar.ClusterSupervisor module
-- [ ] 1.3.4 Configure libcluster topologies in config/runtime.exs
-- [ ] 1.3.5 Implement cluster strategy selection (kubernetes/epmd/dns)
-- [ ] 1.3.6 Configure EPMD strategy for development environment
-- [ ] 1.3.7 Configure DNSPoll strategy for bare metal deployments
-- [ ] 1.3.8 Configure Kubernetes strategy for production (DNS mode)
-- [ ] 1.3.9 Create Kubernetes headless service manifest
-- [ ] 1.3.10 Implement dynamic cluster membership (update_topology/2)
-- [ ] 1.3.11 Add cluster strategy environment variable (CLUSTER_STRATEGY)
-- [ ] 1.3.12 Create cluster health monitoring GenServer
-- [ ] 1.3.13 Add cluster connectivity metrics to telemetry
+- [x] 1.3.1 Add libcluster dependency to mix.exs
+- [x] 1.3.2 Add horde dependency to mix.exs
+- [x] 1.3.3 Create ServiceRadar.ClusterSupervisor module
+- [x] 1.3.4 Configure libcluster topologies in config/runtime.exs
+- [x] 1.3.5 Implement cluster strategy selection (kubernetes/epmd/dns)
+- [x] 1.3.6 Configure EPMD strategy for development environment
+- [x] 1.3.7 Configure DNSPoll strategy for bare metal deployments
+- [x] 1.3.8 Configure Kubernetes strategy for production (DNS mode)
+- [x] 1.3.9 Create Kubernetes headless service manifest
+- [x] 1.3.10 Implement dynamic cluster membership (update_topology/2)
+- [x] 1.3.11 Add cluster strategy environment variable (CLUSTER_STRATEGY)
+- [x] 1.3.12 Create cluster health monitoring GenServer
+- [x] 1.3.13 Add cluster connectivity metrics to telemetry
 
 ### 1.4 mTLS for ERTS Distribution
-- [ ] 1.4.1 Create ssl_dist.conf template for TLS distribution
-- [ ] 1.4.2 Update rel/env.sh.eex with TLS distribution flags
-- [ ] 1.4.3 Document certificate generation process (CA + node certs)
-- [ ] 1.4.4 Create Kubernetes Secret manifest for node certificates
-- [ ] 1.4.5 Configure inet_tls proto_dist in vm.args
+- [x] 1.4.1 Create ssl_dist.conf template for TLS distribution
+- [x] 1.4.2 Update rel/env.sh.eex with TLS distribution flags
+- [x] 1.4.3 Document certificate generation process (CA + node certs)
+- [x] 1.4.4 Create Kubernetes Secret manifest for node certificates
+- [x] 1.4.5 Configure inet_tls proto_dist in vm.args
 - [ ] 1.4.6 Test mTLS cluster formation in staging environment
 - [ ] 1.4.7 Add certificate rotation documentation
 - [ ] 1.4.8 Implement certificate expiry monitoring
 
 ### 1.5 Horde Registry and Supervisor Setup
-- [ ] 1.5.1 Create ServiceRadar.PollerRegistry (Horde.Registry)
-- [ ] 1.5.2 Create ServiceRadar.AgentRegistry (Horde.Registry)
-- [ ] 1.5.3 Create ServiceRadar.PollerSupervisor (Horde.DynamicSupervisor)
-- [ ] 1.5.4 Configure Horde members: :auto for cluster auto-join
-- [ ] 1.5.5 Create ServiceRadar.Poller.RegistrationWorker GenServer
-- [ ] 1.5.6 Implement poller auto-registration on startup
-- [ ] 1.5.7 Implement heartbeat mechanism for poller health
-- [ ] 1.5.8 Create ServiceRadar.Poller.AgentRegistry module
-- [ ] 1.5.9 Implement agent registration when connecting via gRPC
-- [ ] 1.5.10 Implement agent unregistration on disconnect
-- [ ] 1.5.11 Add PubSub broadcasting for registration events
-- [ ] 1.5.12 Create find_poller_for_partition/1 lookup function
-- [ ] 1.5.13 Create find_available_pollers/0 for load balancing
+- [x] 1.5.1 Create ServiceRadar.PollerRegistry (Horde.Registry)
+- [x] 1.5.2 Create ServiceRadar.AgentRegistry (Horde.Registry)
+- [x] 1.5.3 Create ServiceRadar.PollerSupervisor (Horde.DynamicSupervisor)
+- [x] 1.5.4 Configure Horde members: :auto for cluster auto-join
+- [x] 1.5.5 Create ServiceRadar.Poller.RegistrationWorker GenServer
+- [x] 1.5.6 Implement poller auto-registration on startup
+- [x] 1.5.7 Implement heartbeat mechanism for poller health
+- [x] 1.5.8 Create ServiceRadar.Poller.AgentRegistry module (integrated in AgentRegistry)
+- [x] 1.5.9 Implement agent registration when connecting via gRPC
+- [x] 1.5.10 Implement agent unregistration on disconnect
+- [x] 1.5.11 Add PubSub broadcasting for registration events
+- [x] 1.5.12 Create find_poller_for_partition/1 lookup function
+- [x] 1.5.13 Create find_available_pollers/0 for load balancing
 - [ ] 1.5.14 Test Horde registry synchronization across nodes
 
 ## Phase 2: Authentication Migration
 
 ### 2.1 AshAuthentication Setup
-- [ ] 2.1.1 Create ServiceRadar.Identity domain module
-- [ ] 2.1.2 Create ServiceRadar.Identity.User Ash resource (parallel to existing)
-- [ ] 2.1.3 Map User attributes to ng_users table with source: option
-- [ ] 2.1.4 Implement password authentication strategy
-- [ ] 2.1.5 Implement magic link authentication strategy
-- [ ] 2.1.6 Add email confirmation workflow
-- [ ] 2.1.7 Create database migration for tokens table (if different from existing)
-- [ ] 2.1.8 Implement session management with AshAuthentication
+- [x] 2.1.1 Create ServiceRadar.Identity domain module
+- [x] 2.1.2 Create ServiceRadar.Identity.User Ash resource (parallel to existing)
+- [x] 2.1.3 Map User attributes to ng_users table with source: option
+- [x] 2.1.4 Implement password authentication strategy
+- [x] 2.1.5 Implement magic link authentication strategy
+- [x] 2.1.6 Add email confirmation workflow
+- [x] 2.1.7 Create database migration for tokens table (if different from existing)
+- [x] 2.1.8 Implement session management with AshAuthentication
 
 ### 2.2 OAuth2 Integration
 - [ ] 2.2.1 Configure OAuth2 strategy for Google
@@ -86,15 +86,15 @@
 - [ ] 2.2.6 Test OAuth flows in development environment
 
 ### 2.3 API Token Authentication
-- [ ] 2.3.1 Create ServiceRadar.Identity.ApiToken Ash resource
-- [ ] 2.3.2 Create database migration for api_tokens table
-- [ ] 2.3.3 Implement API token generation action
-- [ ] 2.3.4 Implement API token validation action
-- [ ] 2.3.5 Add API token scopes (read-only, full-access)
-- [ ] 2.3.6 Integrate API token auth with existing api_key_auth pipeline
+- [x] 2.3.1 Create ServiceRadar.Identity.ApiToken Ash resource
+- [x] 2.3.2 Create database migration for api_tokens table
+- [x] 2.3.3 Implement API token generation action
+- [x] 2.3.4 Implement API token validation action
+- [x] 2.3.5 Add API token scopes (read-only, full-access, admin)
+- [x] 2.3.6 Integrate API token auth with existing api_key_auth pipeline
 
 ### 2.4 Phoenix Integration
-- [ ] 2.4.1 Update router.ex with AshAuthentication.Phoenix routes
+- [x] 2.4.1 Update router.ex with AshAuthentication.Phoenix routes
 - [ ] 2.4.2 Replace UserLive.Login with AshAuthentication.Phoenix components
 - [ ] 2.4.3 Replace UserLive.Registration with AshAuthentication.Phoenix components
 - [ ] 2.4.4 Update UserSessionController to use AshAuthentication
@@ -105,41 +105,41 @@
 ## Phase 3: Authorization (RBAC)
 
 ### 3.1 Role System
-- [ ] 3.1.1 Create database migration for roles (admin, operator, viewer)
-- [ ] 3.1.2 Add role field to User resource
-- [ ] 3.1.3 Create data migration for existing users (assign default role)
-- [ ] 3.1.4 Create role assignment actions
+- [x] 3.1.1 Create database migration for roles (admin, operator, viewer)
+- [x] 3.1.2 Add role field to User resource
+- [x] 3.1.3 Create data migration for existing users (assign default role)
+- [x] 3.1.4 Create role assignment actions
 - [ ] 3.1.5 Document role permissions matrix
 
 ### 3.2 Policy Implementation
-- [ ] 3.2.1 Create base policy macros for common patterns
-- [ ] 3.2.2 Implement tenant isolation policy (applies to all tenant-scoped resources)
-- [ ] 3.2.3 Implement admin bypass policy
-- [ ] 3.2.4 Implement operator policies (create, update, no destroy)
-- [ ] 3.2.5 Implement viewer policies (read-only)
+- [x] 3.2.1 Create base policy macros for common patterns
+- [x] 3.2.2 Implement tenant isolation policy (applies to all tenant-scoped resources)
+- [x] 3.2.3 Implement admin bypass policy
+- [x] 3.2.4 Implement operator policies (create, update, no destroy)
+- [x] 3.2.5 Implement viewer policies (read-only)
 - [ ] 3.2.6 Add partition-aware policies for overlapping IP spaces
 - [ ] 3.2.7 Implement field-level policies for sensitive data
 - [ ] 3.2.8 Create policy test suite with multi-tenant scenarios
 
 ### 3.3 Authorization Configuration
-- [ ] 3.3.1 Set domain authorization to :by_default
-- [ ] 3.3.2 Configure require_actor? for all domains
+- [x] 3.3.1 Set domain authorization to :by_default
+- [x] 3.3.2 Configure require_actor? for all domains
 - [ ] 3.3.3 Add authorization error handling middleware
 - [ ] 3.3.4 Implement audit logging for authorization failures
 
 ## Phase 4: Inventory Domain
 
 ### 4.1 Device Resource
-- [ ] 4.1.1 Create ServiceRadar.Inventory domain module
-- [ ] 4.1.2 Create ServiceRadar.Inventory.Device Ash resource
-- [ ] 4.1.3 Map all OCSF attributes with source: option to ocsf_devices table
-- [ ] 4.1.4 Add tenant_id to Device with multitenancy config
-- [ ] 4.1.5 Implement Device read action with pagination
-- [ ] 4.1.6 Implement Device show action
-- [ ] 4.1.7 Implement Device update action (admin/operator only)
-- [ ] 4.1.8 Add Device calculations (type_name, status_color, display_name)
-- [ ] 4.1.9 Implement Device policies
-- [ ] 4.1.10 Add database migration for tenant_id on ocsf_devices
+- [x] 4.1.1 Create ServiceRadar.Inventory domain module
+- [x] 4.1.2 Create ServiceRadar.Inventory.Device Ash resource
+- [x] 4.1.3 Map all OCSF attributes with source: option to ocsf_devices table
+- [x] 4.1.4 Add tenant_id to Device with multitenancy config
+- [x] 4.1.5 Implement Device read action with pagination
+- [x] 4.1.6 Implement Device show action
+- [x] 4.1.7 Implement Device update action (admin/operator only)
+- [x] 4.1.8 Add Device calculations (type_name, status_color, display_name)
+- [x] 4.1.9 Implement Device policies
+- [x] 4.1.10 Add database migration for tenant_id on ocsf_devices
 
 ### 4.2 Device Relationships
 - [ ] 4.2.1 Create ServiceRadar.Inventory.Interface resource
@@ -159,96 +159,104 @@
 ## Phase 5: Infrastructure Domain
 
 ### 5.1 Poller Resource
-- [ ] 5.1.1 Create ServiceRadar.Infrastructure domain module
-- [ ] 5.1.2 Create ServiceRadar.Infrastructure.Poller Ash resource
-- [ ] 5.1.3 Map attributes to pollers table
-- [ ] 5.1.4 Add tenant_id and partition_id to Poller
-- [ ] 5.1.5 Implement Poller CRUD actions
-- [ ] 5.1.6 Add Poller health calculation
-- [ ] 5.1.7 Implement Poller policies (partition-aware)
-- [ ] 5.1.8 Add database migration for tenant_id on pollers
+- [x] 5.1.1 Create ServiceRadar.Infrastructure domain module
+- [x] 5.1.2 Create ServiceRadar.Infrastructure.Poller Ash resource
+- [x] 5.1.3 Map attributes to pollers table
+- [x] 5.1.4 Add tenant_id and partition_id to Poller
+- [x] 5.1.5 Implement Poller CRUD actions
+- [x] 5.1.6 Add Poller health calculation
+- [x] 5.1.7 Implement Poller policies (partition-aware)
+- [x] 5.1.8 Add database migration for tenant_id on pollers
 
 ### 5.2 Agent Resource
-- [ ] 5.2.1 Create ServiceRadar.Infrastructure.Agent Ash resource
-- [ ] 5.2.2 Map attributes to agents table (OCSF-aligned)
-- [ ] 5.2.3 Define Agent belongs_to :poller relationship
-- [ ] 5.2.4 Implement Agent lifecycle state machine
-- [ ] 5.2.5 Add Agent health status calculation
-- [ ] 5.2.6 Implement Agent policies
+- [x] 5.2.1 Create ServiceRadar.Infrastructure.Agent Ash resource
+- [x] 5.2.2 Map attributes to agents table (OCSF-aligned)
+- [x] 5.2.3 Define Agent belongs_to :poller relationship
+- [x] 5.2.4 Implement Agent lifecycle state machine
+- [x] 5.2.5 Add Agent health status calculation
+- [x] 5.2.6 Implement Agent policies
+- [x] 5.2.7 Add tenant_id to Agent with multitenancy config
+- [x] 5.2.8 Add database migration for ocsf_agents table
+- [x] 5.2.9 Define Agent belongs_to :device relationship
+- [x] 5.2.10 Define Agent has_many :checkers relationship
 
 ### 5.3 Checker Resource
-- [ ] 5.3.1 Create ServiceRadar.Infrastructure.Checker Ash resource
-- [ ] 5.3.2 Define Checker belongs_to :agent relationship
-- [ ] 5.3.3 Implement checker type enum (snmp, grpc, sweep, etc.)
-- [ ] 5.3.4 Implement Checker policies
+- [x] 5.3.1 Create ServiceRadar.Infrastructure.Checker Ash resource
+- [x] 5.3.2 Define Checker belongs_to :agent relationship
+- [x] 5.3.3 Implement checker type enum (snmp, grpc, sweep, etc.)
+- [x] 5.3.4 Implement Checker policies
+- [x] 5.3.5 Add tenant_id to Checker with multitenancy config
+- [x] 5.3.6 Add database migration for checkers table
 
 ### 5.4 Partition Resource
-- [ ] 5.4.1 Create ServiceRadar.Infrastructure.Partition Ash resource
-- [ ] 5.4.2 Define Partition has_many :pollers relationship
-- [ ] 5.4.3 Implement partition validation (CIDR ranges)
+- [x] 5.4.1 Create ServiceRadar.Infrastructure.Partition Ash resource
+- [x] 5.4.2 Define Partition has_many :pollers relationship
+- [x] 5.4.3 Implement partition validation (CIDR ranges)
 - [ ] 5.4.4 Add partition context to actor for policy evaluation
+- [x] 5.4.5 Add Poller belongs_to :partition relationship
+- [x] 5.4.6 Add database migration for partitions table
 
 ## Phase 6: Monitoring Domain
 
 ### 6.1 Service Check Resource
-- [ ] 6.1.1 Create ServiceRadar.Monitoring domain module
-- [ ] 6.1.2 Create ServiceRadar.Monitoring.ServiceCheck Ash resource
-- [ ] 6.1.3 Implement service check scheduling action
-- [ ] 6.1.4 Integrate with AshOban for check execution
-- [ ] 6.1.5 Implement check result recording
+- [x] 6.1.1 Create ServiceRadar.Monitoring domain module
+- [x] 6.1.2 Create ServiceRadar.Monitoring.ServiceCheck Ash resource
+- [x] 6.1.3 Implement service check scheduling action
+- [x] 6.1.4 Integrate with AshOban for check execution
+- [x] 6.1.5 Implement check result recording
 
 ### 6.2 Alert Resource with State Machine
-- [ ] 6.2.1 Create ServiceRadar.Monitoring.Alert Ash resource
-- [ ] 6.2.2 Add AshStateMachine extension to Alert
-- [ ] 6.2.3 Define alert states (pending, acknowledged, resolved, escalated)
-- [ ] 6.2.4 Define alert transitions (acknowledge, resolve, escalate)
-- [ ] 6.2.5 Implement alert acknowledgement action
-- [ ] 6.2.6 Implement alert resolution action
-- [ ] 6.2.7 Implement alert escalation action with AshOban
-- [ ] 6.2.8 Add alert notification trigger
-- [ ] 6.2.9 Implement alert policies
+- [x] 6.2.1 Create ServiceRadar.Monitoring.Alert Ash resource
+- [x] 6.2.2 Add AshStateMachine extension to Alert
+- [x] 6.2.3 Define alert states (pending, acknowledged, resolved, escalated)
+- [x] 6.2.4 Define alert transitions (acknowledge, resolve, escalate)
+- [x] 6.2.5 Implement alert acknowledgement action
+- [x] 6.2.6 Implement alert resolution action
+- [x] 6.2.7 Implement alert escalation action with AshOban
+- [x] 6.2.8 Add alert notification trigger
+- [x] 6.2.9 Implement alert policies
 
 ### 6.3 Event Resource
-- [ ] 6.3.1 Create ServiceRadar.Monitoring.Event Ash resource
-- [ ] 6.3.2 Implement event recording action
-- [ ] 6.3.3 Add event severity enum
-- [ ] 6.3.4 Add event source tracking (device, poller, system)
-- [ ] 6.3.5 Implement event read action with time filtering
+- [x] 6.3.1 Create ServiceRadar.Monitoring.Event Ash resource
+- [x] 6.3.2 Implement event recording action
+- [x] 6.3.3 Add event severity enum
+- [x] 6.3.4 Add event source tracking (device, poller, system)
+- [x] 6.3.5 Implement event read action with time filtering
 
 ## Phase 7: Edge Onboarding Domain
 
 ### 7.1 Edge Package State Machine
-- [ ] 7.1.1 Create ServiceRadar.Edge domain module
-- [ ] 7.1.2 Create ServiceRadar.Edge.OnboardingPackage Ash resource
-- [ ] 7.1.3 Add AshStateMachine extension to OnboardingPackage
-- [ ] 7.1.4 Define package states (created, downloaded, installed, expired, revoked)
-- [ ] 7.1.5 Define package transitions
-- [ ] 7.1.6 Implement package creation action
-- [ ] 7.1.7 Implement package download action with state transition
-- [ ] 7.1.8 Implement package revocation action
-- [ ] 7.1.9 Port existing Edge context functions
+- [x] 7.1.1 Create ServiceRadar.Edge domain module
+- [x] 7.1.2 Create ServiceRadar.Edge.OnboardingPackage Ash resource
+- [x] 7.1.3 Add AshStateMachine extension to OnboardingPackage
+- [x] 7.1.4 Define package states (issued, delivered, activated, expired, revoked, deleted)
+- [x] 7.1.5 Define package transitions
+- [x] 7.1.6 Implement package creation action
+- [x] 7.1.7 Implement package deliver action with state transition
+- [x] 7.1.8 Implement package revocation action
+- [x] 7.1.9 Port existing Edge context functions (integrate with OnboardingPackages module)
 
 ### 7.2 Edge Events
-- [ ] 7.2.1 Create ServiceRadar.Edge.OnboardingEvent Ash resource
-- [ ] 7.2.2 Implement event recording with AshOban worker
-- [ ] 7.2.3 Link events to packages
-- [ ] 7.2.4 Port existing OnboardingEvents functions
+- [x] 7.2.1 Create ServiceRadar.Edge.OnboardingEvent Ash resource
+- [x] 7.2.2 Implement event recording with AshOban worker
+- [x] 7.2.3 Link events to packages (relationship defined)
+- [x] 7.2.4 Port existing OnboardingEvents functions
 
 ## Phase 8: Job Scheduling (AshOban)
 
 ### 8.1 AshOban Configuration
-- [ ] 8.1.1 Configure AshOban in Oban config
-- [ ] 8.1.2 Define queues for different job types
-- [ ] 8.1.3 Set up Oban.Peer for distributed coordination
+- [x] 8.1.1 Configure AshOban in Oban config
+- [x] 8.1.2 Define queues for different job types
+- [x] 8.1.3 Set up Oban.Peer for distributed coordination
 
 ### 8.2 Migrate Existing Jobs
-- [ ] 8.2.1 Convert refresh_trace_summaries to AshOban trigger
-- [ ] 8.2.2 Convert expire_packages to AshOban trigger
-- [ ] 8.2.3 Remove custom Jobs.Scheduler after migration
+- [x] 8.2.1 Move refresh_trace_summaries to Oban.Plugins.Cron (not AshOban - no Ash resource)
+- [x] 8.2.2 Convert expire_packages to AshOban trigger on OnboardingPackage
+- [x] 8.2.3 Comment out custom Jobs.Scheduler (legacy, pending removal)
 - [ ] 8.2.4 Update ng_job_schedules table or migrate to Ash
 
 ### 8.3 Polling Job System
-- [ ] 8.3.1 Create ServiceCheck :execute action with AshOban
+- [x] 8.3.1 Create ServiceCheck :execute action with AshOban
 - [ ] 8.3.2 Implement polling schedule resource
 - [ ] 8.3.3 Create poll orchestration action
 - [ ] 8.3.4 Implement result processing action
@@ -362,3 +370,71 @@
 - [ ] 12.3.2 Document migration path for API consumers
 - [ ] 12.3.3 Set v1 API sunset date
 - [ ] 12.3.4 Remove v1 API after sunset period
+
+## Phase 13: Edge-to-Cloud Infrastructure
+
+### 13.1 NATS JetStream Integration
+- [ ] 13.1.1 Add gnat dependency to mix.exs (NATS client)
+- [ ] 13.1.2 Create ServiceRadar.NATS.Connection module for connection management
+- [ ] 13.1.3 Configure NATS connection in runtime.exs (NATS_URL, credentials)
+- [ ] 13.1.4 Design subject hierarchy: `ocsf.<class>.<partition_id>.<tenant_id>`
+- [ ] 13.1.5 Create ServiceRadar.NATS.Publisher module for OCSF event publishing
+- [ ] 13.1.6 Create ServiceRadar.NATS.Consumer module for cloud-side consumption
+- [ ] 13.1.7 Implement JetStream stream configuration for durability
+- [ ] 13.1.8 Add acknowledgement handling for reliable delivery
+- [ ] 13.1.9 Create NATS health check for cluster health monitoring
+- [ ] 13.1.10 Add NATS metrics to telemetry (publish rate, lag, errors)
+- [ ] 13.1.11 Document NATS deployment topology (edge vs cloud)
+
+### 13.2 Device Actor System
+- [ ] 13.2.1 Create ServiceRadar.Actors.Device GenServer module
+- [ ] 13.2.2 Implement device actor registration with `{partition_id, device_id}` key
+- [ ] 13.2.3 Create ServiceRadar.Actors.DeviceSupervisor (Horde.DynamicSupervisor)
+- [ ] 13.2.4 Implement device actor state: identity, last_seen, health, config
+- [ ] 13.2.5 Create get_or_start_device/2 function for lazy actor initialization
+- [ ] 13.2.6 Implement device actor commands (update_identity, record_event, refresh_config)
+- [ ] 13.2.7 Add device actor timeout/hibernation for inactive devices
+- [ ] 13.2.8 Implement device actor handoff on node failure (Horde automatic)
+- [ ] 13.2.9 Create device actor LiveView debugging panel
+- [ ] 13.2.10 Add device actor metrics (count, message rate, memory)
+
+### 13.3 Oban Queue Partitioning
+- [ ] 13.3.1 Design queue naming convention: `{job_type}_{partition_id}`
+- [ ] 13.3.2 Create queue configuration generator for dynamic partitions
+- [ ] 13.3.3 Implement partition-aware job insertion (insert_job_for_partition/3)
+- [ ] 13.3.4 Configure Oban peer coordination per edge site
+- [ ] 13.3.5 Update AshOban triggers to use partition-aware queues
+- [ ] 13.3.6 Create queue monitoring dashboard component
+- [ ] 13.3.7 Implement queue rebalancing on partition changes
+- [ ] 13.3.8 Add queue depth alerts per partition
+- [ ] 13.3.9 Document Oban partitioning strategy
+
+### 13.4 Mesh VPN Configuration
+- [ ] 13.4.1 Document Tailscale deployment for edge nodes
+- [ ] 13.4.2 Document Nebula deployment alternative
+- [ ] 13.4.3 Create ERTS cookie management guide for mesh VPN
+- [ ] 13.4.4 Configure libcluster for Tailscale DNS discovery
+- [ ] 13.4.5 Create Tailscale ACL recommendations for ERTS traffic
+- [ ] 13.4.6 Document port requirements (EPMD 4369, ERTS dynamic range)
+- [ ] 13.4.7 Create network troubleshooting guide
+- [ ] 13.4.8 Add mesh VPN connectivity health check
+
+### 13.5 Partition Namespacing
+- [ ] 13.5.1 Update all Horde registrations to use `{partition_id, resource_id}` keys
+- [ ] 13.5.2 Update AgentRegistry to support partition-scoped lookups
+- [ ] 13.5.3 Update PollerRegistry to support partition-scoped lookups
+- [ ] 13.5.4 Create partition context plug for web requests
+- [ ] 13.5.5 Implement partition validation in Ash policies
+- [ ] 13.5.6 Update SRQL adapter for partition-aware queries
+- [ ] 13.5.7 Create partition hierarchy validation (tenant owns partition)
+- [ ] 13.5.8 Add partition-scoped PubSub topics
+- [ ] 13.5.9 Document overlapping IP space handling strategy
+
+### 13.6 Datasvc Transition (Rust -> Elixir)
+- [ ] 13.6.1 Audit datasvc functions for migration priority
+- [ ] 13.6.2 Identify performance-critical paths requiring Rustler NIFs
+- [ ] 13.6.3 Create migration plan for datasvc to Ash resources
+- [ ] 13.6.4 Implement first batch of datasvc functions in Ash
+- [ ] 13.6.5 Add feature flags for datasvc function routing
+- [ ] 13.6.6 Benchmark Ash vs Rustler for hot paths
+- [ ] 13.6.7 Document datasvc deprecation timeline

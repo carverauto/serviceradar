@@ -1,0 +1,36 @@
+## VM arguments for ServiceRadar release
+##
+## These are passed to the Erlang VM when starting the release.
+## See: https://www.erlang.org/doc/man/erl.html
+
+## Name of the node - configured via environment
+## Use -name for fully qualified names (required for distributed cluster)
+## Use -sname for short names (local development only)
+
+## Increase async thread pool for better I/O performance
++A 64
+
+## Increase process limit for large clusters
++P 1000000
+
+## Increase port limit
++Q 65536
+
+## Increase atom limit
++t 5000000
+
+## Enable kernel polling for better network performance
++K true
+
+## Set scheduler bind type for better performance on multi-core
++sbt db
+
+## Increase distribution buffer size for large messages
++zdbbl 32768
+
+## Enable time warp mode for better time handling
++C multi_time_warp
+
+## Garbage collection settings
++hms 8192
++hmbs 512

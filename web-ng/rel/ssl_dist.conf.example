@@ -1,0 +1,43 @@
+%% ssl_dist.conf - TLS configuration for ERTS distribution
+%%
+%% This file configures mutual TLS for inter-node communication in the
+%% ServiceRadar ERTS cluster. Both server and client sides require certificates.
+%%
+%% Certificate Requirements:
+%% - All certificates must be signed by the same CA
+%% - Each node needs its own certificate with a unique CN
+%% - Recommended: Use SPIFFE-compatible certificates
+%%
+%% File Locations (configure via environment or use defaults):
+%% - CA certificate: /etc/serviceradar/certs/ca.crt
+%% - Node certificate: /etc/serviceradar/certs/node.crt
+%% - Node private key: /etc/serviceradar/certs/node.key
+%%
+%% Generate certificates using:
+%% 1. Create CA: openssl req -x509 -newkey rsa:4096 -days 365 -nodes \
+%%               -keyout ca.key -out ca.crt -subj "/CN=ServiceRadar CA"
+%%
+%% 2. Create node CSR: openssl req -newkey rsa:4096 -nodes \
+%%                     -keyout node.key -out node.csr \
+%%                     -subj "/CN=node1.serviceradar"
+%%
+%% 3. Sign node cert: openssl x509 -req -in node.csr -CA ca.crt -CAkey ca.key \
+%%                    -CAcreateserial -out node.crt -days 365
+
+[{server, [
+  {certfile, "/etc/serviceradar/certs/node.crt"},
+  {keyfile, "/etc/serviceradar/certs/node.key"},
+  {cacertfile, "/etc/serviceradar/certs/ca.crt"},
+  {verify, verify_peer},
+  {fail_if_no_peer_cert, true},
+  {secure_renegotiate, true},
+  {depth, 2}
+]},
+{client, [
+  {certfile, "/etc/serviceradar/certs/node.crt"},
+  {keyfile, "/etc/serviceradar/certs/node.key"},
+  {cacertfile, "/etc/serviceradar/certs/ca.crt"},
+  {verify, verify_peer},
+  {secure_renegotiate, true},
+  {depth, 2}
+]}].

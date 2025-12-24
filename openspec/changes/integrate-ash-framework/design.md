@@ -715,6 +715,461 @@ config :libcluster,
   ]
 ```
 
+### Decision 13: Edge-to-Cloud Communication Strategy
+
+**What**: Use a hybrid approach for Edge->Cloud communication:
+1. **NATS JetStream as Backplane** (primary) - For OCSF event streaming
+2. **Mesh VPN (Tailscale/Nebula)** - For distributed Erlang when network allows
+3. **gRPC** - For Go Agent "last mile" communication
+
+**Why**:
+- Edge sites have firewalls, NAT, and unreliable connectivity
+- NATS JetStream provides buffering during network outages
+- Mesh VPN enables "one big brain" debugging experience
+- gRPC maintains compatibility with existing Go agents
+
+**Architecture - The "Big Brain" Model**:
+```
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│                         GLOBAL SERVICERADAR CLUSTER                                 │
+│                                                                                     │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐   │
+│  │                           MESH VPN LAYER (Tailscale/Nebula)                  │   │
+│  │                     100.64.x.x "Flat" Network Overlay                        │   │
+│  └─────────────────────────────────────────────────────────────────────────────┘   │
+│                                        │                                            │
+│     ┌──────────────────────────────────┼──────────────────────────────────┐        │
+│     │                                  │                                   │        │
+│     ▼                                  ▼                                   ▼        │
+│  ┌─────────────────┐    ┌─────────────────────────┐    ┌─────────────────────┐     │
+│  │ CLOUD CORE      │    │ EDGE SITE A (Partition 1)│   │ EDGE SITE B (Part 2) │    │
+│  │ (Phoenix)       │    │                         │    │                      │    │
+│  │                 │    │ ┌─────────────────────┐ │    │ ┌──────────────────┐ │    │
+│  │ ┌─────────────┐ │    │ │ Elixir Poller Node  │ │    │ │ Elixir Poller    │ │    │
+│  │ │ Ash Domain  │ │◄──►│ │ (ERTS Cluster)      │ │◄──►│ │ (ERTS Cluster)   │ │    │
+│  │ │ Engine      │ │    │ │                     │ │    │ │                  │ │    │
+│  │ └─────────────┘ │    │ │ ┌─────────────────┐ │ │    │ │ ┌──────────────┐ │ │    │
+│  │                 │    │ │ │ Horde.Registry  │ │ │    │ │ │ Horde.Reg    │ │ │    │
+│  │ ┌─────────────┐ │    │ │ │ DeviceActors    │ │ │    │ │ │ DeviceActors │ │ │    │
+│  │ │ Oban        │ │    │ │ └─────────────────┘ │ │    │ │ └──────────────┘ │ │    │
+│  │ │ Scheduler   │ │    │ └──────────┬──────────┘ │    │ └────────┬─────────┘ │    │
+│  │ └─────────────┘ │    │            │            │    │          │           │    │
+│  │                 │    │            │ gRPC       │    │          │ gRPC      │    │
+│  │ ┌─────────────┐ │    │            ▼            │    │          ▼           │    │
+│  │ │ TimescaleDB │ │    │ ┌─────────────────────┐ │    │ ┌──────────────────┐ │    │
+│  │ │ (CNPG)      │ │    │ │ Go Agent(s)        │ │    │ │ Go Agent(s)      │ │    │
+│  │ └─────────────┘ │    │ │ - ICMP Sweeper     │ │    │ │ - SNMP Poller    │ │    │
+│  │                 │    │ │ - TCP Checker      │ │    │ │ - TCP Checker    │ │    │
+│  └─────────────────┘    │ └─────────────────────┘ │    │ └──────────────────┘ │    │
+│           ▲             └─────────────────────────┘    └──────────────────────┘    │
+│           │                         │                            │                  │
+│           │         NATS JetStream (Async Backhaul)              │                  │
+│           └─────────────────────────┴────────────────────────────┘                  │
+└────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Communication Modes**:
+
+| Mode | Use Case | Protocol | Reliability |
+|------|----------|----------|-------------|
+| Distributed Erlang | Live debugging, Observer, process management | ERTS over Mesh VPN | Real-time |
+| NATS JetStream | OCSF event streaming, metrics backhaul | NATS Pub/Sub | Buffered, at-least-once |
+| Horde Registry | Process location, cluster state | CRDT over ERTS | Eventually consistent |
+| gRPC | Agent commands, raw packet work | gRPC over TLS | Request/Response |
+
+### Decision 14: NATS as OCSF Event Backplane
+
+**What**: Use NATS JetStream for reliable Edge->Cloud event streaming with OCSF-aligned subjects.
+
+**Why**:
+- Existing `serviceradar-datasvc` already provides NATS infrastructure
+- JetStream provides buffering during network outages
+- Subject hierarchy enables partition-aware routing
+- Consumer groups enable horizontal scaling
+
+**Subject Hierarchy**:
+```
+events.{partition_id}.{ocsf_class}
+  └── events.partition_1.network_activity
+  └── events.partition_1.device_inventory
+  └── events.partition_2.network_activity
+
+telemetry.{partition_id}.{metric_type}
+  └── telemetry.partition_1.snmp
+  └── telemetry.partition_1.icmp
+
+commands.{partition_id}.{command_type}
+  └── commands.partition_1.sweep_request
+  └── commands.partition_1.config_update
+```
+
+**Edge Publisher Implementation**:
+```elixir
+defmodule ServiceRadar.Edge.NATSPublisher do
+  @moduledoc "Publishes OCSF events to NATS JetStream"
+
+  def publish_network_activity(partition_id, activity) do
+    subject = "events.#{partition_id}.network_activity"
+
+    payload =
+      activity
+      |> ServiceRadar.OCSF.NetworkActivity.to_ocsf_json()
+
+    Gnat.pub(:nats, subject, payload, headers: [
+      {"partition-id", partition_id},
+      {"ocsf-class", "network_activity"},
+      {"timestamp", DateTime.utc_now() |> DateTime.to_iso8601()}
+    ])
+  end
+end
+```
+
+**Cloud Consumer Implementation**:
+```elixir
+defmodule ServiceRadar.Cloud.NATSConsumer do
+  use GenServer
+
+  def handle_info({:msg, %{body: body, headers: headers}}, state) do
+    partition_id = get_header(headers, "partition-id")
+    ocsf_class = get_header(headers, "ocsf-class")
+
+    # Route to appropriate Ash resource for persistence
+    case ocsf_class do
+      "network_activity" ->
+        ServiceRadar.Monitoring.create_network_activity(
+          Jason.decode!(body),
+          tenant: partition_id
+        )
+
+      "device_inventory" ->
+        ServiceRadar.Inventory.upsert_device(
+          Jason.decode!(body),
+          tenant: partition_id
+        )
+    end
+
+    {:noreply, state}
+  end
+end
+```
+
+### Decision 15: Horde Partition Namespacing for Overlapping IPs
+
+**What**: Use tuple-based namespacing in Horde.Registry to support overlapping IP spaces across partitions.
+
+**Why**:
+- Multiple edge sites may have identical private IP ranges (10.0.0.0/8)
+- Global registry needs unique keys per device
+- Partition-scoped naming enables "Device Actors" pattern
+
+**The Problem**:
+```
+Site A (Partition 1): 10.0.0.1 (Core Router)
+Site B (Partition 2): 10.0.0.1 (Core Router)  <- Same IP, different device!
+```
+
+**The Solution - Tuple-Based Keys**:
+```elixir
+# Instead of registering by IP alone:
+{:via, Horde.Registry, {ServiceRadar.DeviceRegistry, "10.0.0.1"}}  # ❌ Collision!
+
+# Register with partition scope:
+{:via, Horde.Registry, {ServiceRadar.DeviceRegistry, {partition_id, ip_address}}}  # ✓ Unique
+```
+
+**Device Actor Implementation**:
+```elixir
+defmodule ServiceRadar.DeviceActor do
+  @moduledoc """
+  GenServer representing a single device in the global cluster.
+
+  One actor per device across the entire ServiceRadar deployment.
+  Actors are distributed via Horde and located by partition + IP.
+  """
+
+  use GenServer
+
+  def start_link(opts) do
+    partition_id = Keyword.fetch!(opts, :partition_id)
+    ip = Keyword.fetch!(opts, :ip)
+
+    # Globally unique name via partition scoping
+    name = {:via, Horde.Registry, {ServiceRadar.DeviceRegistry, {partition_id, ip}}}
+
+    GenServer.start_link(__MODULE__, opts, name: name)
+  end
+
+  def init(opts) do
+    state = %{
+      partition_id: opts[:partition_id],
+      ip: opts[:ip],
+      last_poll: nil,
+      health_status: :unknown,
+      metrics: %{}
+    }
+
+    # Schedule initial health check
+    schedule_health_check()
+
+    {:ok, state}
+  end
+
+  # Call from anywhere in the cluster
+  def get_status(partition_id, ip) do
+    name = {:via, Horde.Registry, {ServiceRadar.DeviceRegistry, {partition_id, ip}}}
+    GenServer.call(name, :get_status)
+  end
+
+  def handle_call(:get_status, _from, state) do
+    {:reply, %{
+      ip: state.ip,
+      partition: state.partition_id,
+      health: state.health_status,
+      last_poll: state.last_poll
+    }, state}
+  end
+
+  def handle_info(:health_check, state) do
+    # This runs on the edge node closest to the device
+    new_state = perform_health_check(state)
+    schedule_health_check()
+    {:noreply, new_state}
+  end
+
+  defp perform_health_check(state) do
+    # Delegate to local Go agent for actual probe
+    case ServiceRadar.Agent.ping(state.ip) do
+      {:ok, latency} ->
+        %{state | health_status: :healthy, last_poll: DateTime.utc_now()}
+
+      {:error, _} ->
+        %{state | health_status: :unreachable, last_poll: DateTime.utc_now()}
+    end
+  end
+end
+```
+
+**Ash Integration - Starting Actors from Resources**:
+```elixir
+defmodule ServiceRadar.Inventory.Device do
+  use Ash.Resource,
+    data_layer: AshPostgres.DataLayer
+
+  multitenancy do
+    strategy :attribute
+    attribute :partition_id
+  end
+
+  actions do
+    action :start_monitoring, :struct do
+      constraints instance_of: __MODULE__
+      argument :device, :struct, constraints: [instance_of: __MODULE__]
+
+      run fn input, _ ->
+        device = input.arguments.device
+
+        # Start the actor in the distributed cluster
+        case Horde.DynamicSupervisor.start_child(
+          ServiceRadar.PollerSupervisor,
+          {ServiceRadar.DeviceActor, [
+            partition_id: device.partition_id,
+            ip: device.ip_address
+          ]}
+        ) do
+          {:ok, _pid} -> {:ok, device}
+          {:error, {:already_started, _pid}} -> {:ok, device}
+          error -> error
+        end
+      end
+    end
+  end
+end
+```
+
+### Decision 16: Oban Queue Partitioning for Edge Nodes
+
+**What**: Partition Oban queues by edge site, so each poller node only processes jobs for its partition.
+
+**Why**:
+- Prevents cross-partition job execution
+- Enables horizontal scaling per site
+- Jobs stay local to the network they target
+
+**Queue Naming Strategy**:
+```
+queues:
+  - default (cloud-only administrative tasks)
+  - partition_1 (Edge Site A jobs)
+  - partition_2 (Edge Site B jobs)
+  - partition_N (dynamically created)
+```
+
+**Edge Node Configuration**:
+```elixir
+# config/runtime.exs on Edge Poller Node
+partition_id = System.get_env("POLLER_PARTITION_ID", "default")
+
+config :serviceradar_web_ng, Oban,
+  repo: ServiceRadar.Repo,
+  queues: [
+    # Only listen to this partition's queue
+    {String.to_atom("partition_#{partition_id}"), 10}
+  ],
+  plugins: [
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
+  ]
+```
+
+**Cloud Scheduling to Partitions**:
+```elixir
+defmodule ServiceRadar.Monitoring.Jobs.ScheduleSweep do
+  use Oban.Worker,
+    queue: :default  # Cloud schedules, edge executes
+
+  @impl true
+  def perform(%Oban.Job{args: %{"partition_id" => partition_id, "target" => target}}) do
+    # Insert job into partition-specific queue
+    %{partition_id: partition_id, target: target, scheduled_at: DateTime.utc_now()}
+    |> ServiceRadar.Monitoring.Jobs.ExecuteSweep.new(queue: :"partition_#{partition_id}")
+    |> Oban.insert!()
+
+    :ok
+  end
+end
+
+defmodule ServiceRadar.Monitoring.Jobs.ExecuteSweep do
+  use Oban.Worker
+  # Queue is dynamically set based on partition
+
+  @impl true
+  def perform(%Oban.Job{args: %{"partition_id" => partition_id, "target" => target}}) do
+    # This runs on the edge node listening to this partition's queue
+    result = ServiceRadar.Agent.sweep(target)
+
+    # Publish result via NATS for cloud persistence
+    ServiceRadar.Edge.NATSPublisher.publish_sweep_result(partition_id, result)
+
+    :ok
+  end
+end
+```
+
+### Decision 17: Mesh VPN for Distributed Erlang
+
+**What**: Use Tailscale or Nebula mesh VPN to enable full distributed Erlang capabilities across edge sites.
+
+**Why**:
+- Enables `Node.connect/1` and `:observer.start()` across the internet
+- Provides flat network for Horde CRDT synchronization
+- Enables remote shell (`IEx.remsh`) for debugging
+- Process visibility across entire deployment
+
+**Network Topology with Mesh VPN**:
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    TAILSCALE MESH (100.x.x.x)                   │
+│                                                                  │
+│   ┌─────────────────┐     ┌─────────────────┐                   │
+│   │ Cloud Core      │     │ Your Laptop     │                   │
+│   │ 100.64.0.1      │     │ 100.64.0.100    │                   │
+│   │                 │     │                 │                   │
+│   │ :observer.start │◄───►│ IEx.remsh       │                   │
+│   │ See all nodes!  │     │ Debug anywhere! │                   │
+│   └─────────────────┘     └─────────────────┘                   │
+│          ▲                                                       │
+│          │ Node.connect(:"poller@100.64.0.10")                  │
+│          │                                                       │
+│   ┌──────┴────────┐       ┌─────────────────┐                   │
+│   │ Edge Poller 1 │       │ Edge Poller 2   │                   │
+│   │ 100.64.0.10   │◄─────►│ 100.64.0.20     │                   │
+│   │ (London)      │       │ (Tokyo)         │                   │
+│   └───────────────┘       └─────────────────┘                   │
+│                                                                  │
+│   All nodes visible in :observer process tree                    │
+│   Kill a process in Tokyo from your laptop in NYC               │
+│   Horde automatically restarts it on another node               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Tailscale ACL for ServiceRadar**:
+```json
+{
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["tag:serviceradar-core"],
+      "dst": ["tag:serviceradar-poller:4369,9100-9155"]
+    },
+    {
+      "action": "accept",
+      "src": ["tag:serviceradar-poller"],
+      "dst": ["tag:serviceradar-poller:4369,9100-9155"]
+    },
+    {
+      "action": "accept",
+      "src": ["group:serviceradar-admins"],
+      "dst": ["tag:serviceradar-*:*"]
+    }
+  ],
+  "tagOwners": {
+    "tag:serviceradar-core": ["autogroup:admin"],
+    "tag:serviceradar-poller": ["autogroup:admin"]
+  }
+}
+```
+
+**libcluster Configuration for Tailscale**:
+```elixir
+# When using Tailscale, nodes have stable 100.x.x.x IPs
+config :libcluster,
+  topologies: [
+    serviceradar: [
+      strategy: Cluster.Strategy.Epmd,
+      config: [
+        hosts: [
+          :"core@100.64.0.1",
+          :"poller_london@100.64.0.10",
+          :"poller_tokyo@100.64.0.20"
+        ]
+      ]
+    ]
+  ]
+
+# Or use Tailscale's DNS for dynamic discovery
+config :libcluster,
+  topologies: [
+    serviceradar: [
+      strategy: Cluster.Strategy.DNSPoll,
+      config: [
+        polling_interval: 5_000,
+        query: "serviceradar.tailnet-name.ts.net",
+        node_basename: "serviceradar"
+      ]
+    ]
+  ]
+```
+
+**The Debugging Experience**:
+```elixir
+# From your laptop, connect to cloud core
+$ iex --sname debug --cookie $COOKIE --remsh core@100.64.0.1
+
+# List all nodes in the cluster
+iex> Node.list()
+[:"poller_london@100.64.0.10", :"poller_tokyo@100.64.0.20"]
+
+# Start observer - see processes on ALL nodes
+iex> :observer.start()
+# Switch to "Nodes" tab, select poller_tokyo
+# See exact memory usage of DeviceActor for 10.0.0.1 in Tokyo!
+
+# Inspect a device actor running in London
+iex> ServiceRadar.DeviceActor.get_status("partition_1", "10.0.0.1")
+%{ip: "10.0.0.1", partition: "partition_1", health: :healthy, last_poll: ~U[...]}
+
+# The call transparently routes to London via ERTS distribution!
+```
+
 ## Risks / Trade-offs
 
 | Risk | Impact | Mitigation |
@@ -724,6 +1179,9 @@ config :libcluster,
 | Migration complexity | High | Phased approach, feature flags, extensive testing |
 | Dependency on Ash ecosystem | Medium | Ash is well-maintained, can fall back to raw Ecto |
 | Multi-tenancy data leakage | Critical | Policy tests, security audit, penetration testing |
+| Mesh VPN dependency | Medium | NATS backhaul works without VPN, degraded debugging only |
+| NATS JetStream complexity | Medium | Existing datasvc team expertise, proven technology |
+| Overlapping IP confusion | High | Strict partition_id enforcement at all levels |
 
 ## Migration Plan
 

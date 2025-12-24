@@ -48,7 +48,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.1.0"},
-      {:stream_data, "~> 1.1", only: :test},
+      {:stream_data, "~> 1.1"},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:phoenix_live_dashboard, "~> 0.8.3"},
       {:oban, "~> 2.19"},
@@ -72,7 +72,34 @@ defmodule ServiceRadarWebNG.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:datasvc, path: "../elixir/datasvc"}
+      {:datasvc, path: "../elixir/datasvc"},
+
+      # Ash Framework - Core
+      {:ash, "~> 3.0"},
+      {:ash_postgres, "~> 2.0"},
+
+      # Ash Framework - Authentication
+      {:ash_authentication, "~> 4.0"},
+      {:ash_authentication_phoenix, "~> 2.0"},
+
+      # Ash Framework - Extensions
+      {:ash_oban, "~> 0.4"},
+      {:ash_state_machine, "~> 0.2"},
+      {:ash_json_api, "~> 1.0"},
+      {:ash_phoenix, "~> 2.0"},
+
+      # Ash Framework - Admin (dev/staging only)
+      {:ash_admin, "~> 0.12", only: [:dev, :staging]},
+
+      # Cluster Infrastructure
+      {:libcluster, "~> 3.4"},
+      {:horde, "~> 0.9"},
+
+      # Policy SAT solver for Ash policies
+      {:simple_sat, "~> 0.1"},
+
+      # Igniter - code generation and refactoring
+      {:igniter, "~> 0.5", only: [:dev, :test]}
     ]
   end
 
