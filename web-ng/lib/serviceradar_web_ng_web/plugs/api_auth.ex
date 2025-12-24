@@ -77,15 +77,28 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   end
 
   defp validate_bearer_token(conn, token) do
-    # For bearer tokens, we validate against the user session system
-    case Accounts.get_user_by_session_token(token) do
+    # Bearer tokens are Base64 URL-encoded session tokens
+    # Decode before validating against the user session system
+    with {:ok, decoded_token} <- Base.url_decode64(token, padding: false),
+         {user, _token_inserted_at} <- Accounts.get_user_by_session_token(decoded_token) do
+      scope = %ServiceRadarWebNG.Accounts.Scope{user: user}
+      conn = assign(conn, :current_scope, scope)
+      {:ok, conn}
+    else
+      # Handle raw binary token (for backward compatibility)
+      :error ->
+        case Accounts.get_user_by_session_token(token) do
+          {user, _token_inserted_at} ->
+            scope = %ServiceRadarWebNG.Accounts.Scope{user: user}
+            conn = assign(conn, :current_scope, scope)
+            {:ok, conn}
+
+          nil ->
+            {:error, :unauthorized}
+        end
+
       nil ->
         {:error, :unauthorized}
-
-      user ->
-        scope = %ServiceRadarWebNG.Accounts.Scope{user: user}
-        conn = assign(conn, :current_scope, scope)
-        {:ok, conn}
     end
   end
 

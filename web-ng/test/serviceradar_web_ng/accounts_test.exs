@@ -38,8 +38,11 @@ defmodule ServiceRadarWebNG.AccountsTest do
 
   describe "get_user!/1" do
     test "raises if id is invalid" do
+      # Use a valid UUID format that doesn't exist in the database
+      non_existent_id = Ecto.UUID.generate()
+
       assert_raise Ecto.NoResultsError, fn ->
-        Accounts.get_user!(-1)
+        Accounts.get_user!(non_existent_id)
       end
     end
 
@@ -110,7 +113,8 @@ defmodule ServiceRadarWebNG.AccountsTest do
   describe "change_user_email/3" do
     test "returns a user changeset" do
       assert %Ecto.Changeset{} = changeset = Accounts.change_user_email(%User{})
-      assert changeset.required == [:email]
+      assert :email in changeset.required
+      assert :tenant_id in changeset.required
     end
   end
 

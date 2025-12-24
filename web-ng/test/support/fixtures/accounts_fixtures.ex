@@ -11,10 +11,12 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
 
   def unique_user_email, do: "user#{System.unique_integer()}@example.com"
   def valid_user_password, do: "hello world!"
+  def test_tenant_id, do: ServiceRadarWebNG.DataCase.test_tenant_id()
 
   def valid_user_attributes(attrs \\ %{}) do
     Enum.into(attrs, %{
-      email: unique_user_email()
+      email: unique_user_email(),
+      tenant_id: test_tenant_id()
     })
   end
 

@@ -8,6 +8,12 @@ defmodule ServiceRadarWebNG.Jobs.SchedulerTest do
   alias ServiceRadarWebNG.Repo
 
   test "enqueues due schedules and updates last_enqueued_at" do
+    # Clear any existing jobs for this worker
+    from(j in Oban.Job,
+      where: j.worker == "ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker"
+    )
+    |> Repo.delete_all()
+
     schedule =
       Schedule
       |> Repo.get_by!(job_key: "refresh_trace_summaries")
@@ -17,11 +23,15 @@ defmodule ServiceRadarWebNG.Jobs.SchedulerTest do
     result = Jobs.enqueue_due_schedules()
     assert result.enqueued >= 1
 
-    job =
-      from(j in Oban.Job, where: j.worker == "ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker")
+    # Verify at least one job was created
+    job_count =
+      from(j in Oban.Job,
+        where: j.worker == "ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker",
+        select: count()
+      )
       |> Repo.one()
 
-    assert job
+    assert job_count >= 1
 
     schedule = Repo.get!(Schedule, schedule.id)
     assert schedule.last_enqueued_at

@@ -65,7 +65,8 @@ cnpg_ssl_opts =
     end
   end)
 
-config :serviceradar_web_ng, ServiceRadarWebNG.Repo,
+# Configure ServiceRadar.Repo from serviceradar_core
+config :serviceradar_core, ServiceRadar.Repo,
   username: System.get_env("TEST_CNPG_USERNAME", System.get_env("CNPG_USERNAME", "postgres")),
   password: System.get_env("TEST_CNPG_PASSWORD", System.get_env("CNPG_PASSWORD", "postgres")),
   hostname: System.get_env("TEST_CNPG_HOST", System.get_env("CNPG_HOST", "localhost")),
@@ -108,7 +109,8 @@ config :phoenix_live_view,
 config :phoenix,
   sort_verified_routes_query_params: true
 
-config :serviceradar_web_ng, Oban,
+# Oban test configuration for serviceradar_core
+config :serviceradar_core, Oban,
   testing: :manual,
   queues: false,
   plugins: false

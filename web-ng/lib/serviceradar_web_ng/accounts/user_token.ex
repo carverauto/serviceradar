@@ -14,6 +14,8 @@ defmodule ServiceRadarWebNG.Accounts.UserToken do
   @change_email_validity_in_days 7
   @session_validity_in_days 14
 
+  @foreign_key_type :binary_id
+
   schema "ng_users_tokens" do
     field :token, :binary
     field :context, :string

@@ -350,3 +350,85 @@ sweep:
       rateLimit: 1000
       timeout: 5s
       maxBatch: 64
+
+# =============================================================================
+# Elixir Poller Configuration
+# =============================================================================
+# Standalone Elixir release that joins the ERTS cluster for distributed monitoring
+
+pollerElx:
+  enabled: false
+  replicas: 1
+  
+  # Poller identification
+  partitionId: "default"
+  domain: "default"
+  capabilities: "icmp,tcp,http"
+  
+  # Cluster configuration
+  clusterStrategy: "kubernetes"
+  kubernetesSelector: "app=serviceradar"
+  nodeBasename: "serviceradar"
+  coreService: "serviceradar-core-elx-headless"
+  
+  # Secrets
+  serviceAccount: "serviceradar-poller-elx"
+  cookieSecret: "serviceradar-secrets"
+  cookieSecretKey: "erlang-cookie"
+  certSecret: "serviceradar-certs"
+  
+  # Resources
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+
+# =============================================================================
+# Elixir Agent Configuration
+# =============================================================================
+# Standalone Elixir release for local monitoring (typically bare metal)
+
+agentElx:
+  enabled: false
+  replicas: 1
+  
+  # Agent identification
+  partitionId: "default"
+  capabilities: "disk,process,ping"
+  
+  # External checkers (gRPC)
+  checkerSnmpAddr: "localhost:50052"
+  checkerWmiAddr: "localhost:50053"
+  checkerSweepAddr: "localhost:50054"
+  
+  # Cluster configuration
+  clusterStrategy: "kubernetes"
+  kubernetesSelector: "app=serviceradar"
+  nodeBasename: "serviceradar"
+  coreService: "serviceradar-core-elx-headless"
+  
+  # Secrets
+  serviceAccount: "serviceradar-agent-elx"
+  cookieSecret: "serviceradar-secrets"
+  cookieSecretKey: "erlang-cookie"
+  certSecret: "serviceradar-certs"
+  
+  # Resources (lighter than poller)
+  resources:
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+
+# =============================================================================
+# SPIFFE Configuration (shared by all Elixir components)
+# =============================================================================
+
+spiffe:
+  mode: "filesystem"
+  trustDomain: "serviceradar.local"

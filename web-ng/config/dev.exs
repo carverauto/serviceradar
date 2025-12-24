@@ -58,7 +58,8 @@ cnpg_ssl_opts =
     end
   end)
 
-config :serviceradar_web_ng, ServiceRadarWebNG.Repo,
+# Configure ServiceRadar.Repo from serviceradar_core
+config :serviceradar_core, ServiceRadar.Repo,
   username: System.get_env("CNPG_USERNAME", "postgres"),
   password: System.get_env("CNPG_PASSWORD", "postgres"),
   hostname: cnpg_hostname,

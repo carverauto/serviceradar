@@ -154,7 +154,7 @@ if config_env() != :test do
       oban_config
     end
 
-  config :serviceradar_web_ng, Oban, oban_config
+  config :serviceradar_core, Oban, oban_config
 end
 
 if config_env() == :prod do
@@ -239,7 +239,8 @@ if config_env() == :prod do
         """
     end
 
-  config :serviceradar_web_ng, ServiceRadarWebNG.Repo,
+  # Configure ServiceRadar.Repo from serviceradar_core
+  config :serviceradar_core, ServiceRadar.Repo,
     url: repo_url,
     ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),

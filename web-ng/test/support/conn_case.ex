@@ -33,6 +33,7 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
 
   setup tags do
     ServiceRadarWebNG.DataCase.setup_sandbox(tags)
+    ServiceRadarWebNG.DataCase.ensure_test_tenant()
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 
@@ -75,5 +76,47 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
 
   defp maybe_set_token_authenticated_at(token, authenticated_at) do
     ServiceRadarWebNG.AccountsFixtures.override_token_authenticated_at(token, authenticated_at)
+  end
+
+  @doc """
+  Setup helper that registers and logs in users with API bearer token authentication.
+
+  Use this for testing API endpoints that require `:api_key_auth` pipeline.
+
+      setup :register_and_log_in_api_user
+
+  It stores an updated connection (with Authorization header) and a registered user
+  in the test context.
+  """
+  def register_and_log_in_api_user(%{conn: conn} = context) do
+    user = ServiceRadarWebNG.AccountsFixtures.user_fixture()
+    scope = ServiceRadarWebNG.Accounts.Scope.for_user(user)
+
+    opts =
+      context
+      |> Map.take([:token_authenticated_at])
+      |> Enum.into([])
+
+    %{conn: log_in_api_user(conn, user, opts), user: user, scope: scope}
+  end
+
+  @doc """
+  Logs the given `user` into the `conn` using API bearer token authentication.
+
+  This sets the `Authorization: Bearer <token>` header for API routes
+  that use the `:api_key_auth` pipeline.
+
+  It returns an updated `conn`.
+  """
+  def log_in_api_user(conn, user, opts \\ []) do
+    token = ServiceRadarWebNG.Accounts.generate_user_session_token(user)
+
+    maybe_set_token_authenticated_at(token, opts[:token_authenticated_at])
+
+    # Encode the token for use in Authorization header
+    encoded_token = Base.url_encode64(token, padding: false)
+
+    conn
+    |> Plug.Conn.put_req_header("authorization", "Bearer #{encoded_token}")
   end
 end

@@ -16,7 +16,6 @@ defmodule ServiceRadarWebNG.Repo.Migrations.AddTenantIdToUsers do
     end
 
     create index(:ng_users, [:tenant_id])
-    create index(:ng_users, [:tenant_id, :email])
     create index(:ng_users, [:role])
 
     # Assign existing users to default tenant

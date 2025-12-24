@@ -49,13 +49,24 @@ Define Ash domains and resources for ServiceRadar's core entities:
   - Edge package delivery (created -> downloaded -> installed -> expired)
 - **Polling coordination**: Define schedulable actions for service checks coordinated across distributed pollers
 
-### Phase 4: API Layer
+### Phase 4: Data Ingestion Pipelines (Broadway + NATS JetStream)
+- **Broadway integration**: Use Broadway for high-volume data ingestion with back-pressure and batching
+- **NATS JetStream producer**: Implement `OffBroadway.Jetstream.Producer` for reliable message consumption from agents/pollers
+- **Pipeline topologies**:
+  - **Metrics pipeline**: Agent telemetry → NATS JetStream → Broadway → TimescaleDB
+  - **Events pipeline**: Poller events → NATS JetStream → Broadway → PostgreSQL (Ash resources)
+  - **Logs pipeline**: Syslog/flow data → NATS JetStream → Broadway → ClickHouse/QuestDB
+- **Batching strategies**: Configure batch sizes and timeouts per data type for optimal throughput
+- **Acknowledgement**: Use JetStream's exactly-once delivery semantics with Broadway acknowledgements
+- **Partition awareness**: Route messages to correct partition-scoped Broadway pipelines
+
+### Phase 5: API Layer
 - **AshJsonApi**: Auto-generate JSON:API endpoints from resources
 - **AshPhoenix**: Integrate Ash forms with LiveView for real-time UI
 - **gRPC bridge**: Maintain gRPC for agent/checker communication (existing Go agents stay)
 - **ERTS clustering**: Implement distributed Elixir for poller-to-core communication
 
-### Phase 5: Observability & Admin
+### Phase 6: Observability & Admin
 - **AshAdmin**: Admin UI for resource management during development
 - **Ash OpenTelemetry**: Distributed tracing integration
 - **AshAppSignal** (optional): Production monitoring integration
@@ -92,6 +103,7 @@ Define Ash domains and resources for ServiceRadar's core entities:
 
 ### New Dependencies
 ```elixir
+# Ash Framework
 {:ash, "~> 3.0"}
 {:ash_postgres, "~> 2.0"}
 {:ash_authentication, "~> 4.0"}
@@ -101,6 +113,10 @@ Define Ash domains and resources for ServiceRadar's core entities:
 {:ash_json_api, "~> 1.0"}
 {:ash_phoenix, "~> 2.0"}
 {:ash_admin, "~> 0.11"}  # dev/admin only
+
+# Data Ingestion Pipelines
+{:broadway, "~> 1.1"}
+{:jetstream, "~> 0.1"}  # NATS JetStream client + OffBroadway.Jetstream.Producer
 ```
 
 ### Optional Dependencies
@@ -145,8 +161,256 @@ policy action_type(:read) do
 end
 ```
 
+## Distributed Cluster Security (mTLS via SPIRE)
+
+ServiceRadar's "one big brain" architecture requires secure communication between all BEAM nodes (web-ng Core, standalone Pollers, standalone Agents) across untrusted networks. This uses **Distributed Erlang over TLS (`ssl_dist`)** with SPIRE-issued certificates.
+
+### Transport Protocol: `inet_tls`
+
+Configure BEAM to use TLS-wrapped distribution by passing flags at startup:
+
+```bash
+-proto_dist inet_tls \
+-ssl_dist_optfile "/etc/serviceradar/ssl_dist.conf"
+```
+
+### mTLS Configuration (`ssl_dist.conf`)
+
+The configuration file specifies certificates (issued by SPIRE or other PKI):
+
+```erlang
+[{server, [
+    {certfile, "/etc/serviceradar/certs/node.pem"},
+    {keyfile, "/etc/serviceradar/certs/node-key.pem"},
+    {cacertfile, "/etc/serviceradar/certs/root.pem"},
+    {verify, verify_peer},
+    {fail_if_no_peer_cert, true}
+  ]},
+  {client, [
+    {certfile, "/etc/serviceradar/certs/node.pem"},
+    {keyfile, "/etc/serviceradar/certs/node-key.pem"},
+    {cacertfile, "/etc/serviceradar/certs/root.pem"},
+    {verify, verify_peer}
+  ]}].
+```
+
+- **`verify_peer`**: Enforces mTLS; nodes cannot join without valid certificates
+- **SPIFFE Integration**: SPIRE agent writes certs to shared volume; use long TTL or rolling restarts for renewal
+
+### EPMDless Distribution (Fixed Ports)
+
+Use fixed ports instead of EPMD for easier firewall rules:
+
+```bash
+export ERL_DIST_PORT=40001
+```
+
+Only port 40001 needs to be allowed between Cloud and Edge instances.
+
+### Node Discovery via libcluster
+
+Strategies based on deployment:
+- **Tailscale/Mesh VPN**: `Cluster.Strategy.DNSPoll` with mesh DNS names
+- **Kubernetes**: K8s API-based discovery for cloud nodes
+- **Edge LAN**: Gossip strategy within same network segment
+
+### Secure Remote Debugging
+
+Debug edge pollers from anywhere with mTLS credentials:
+
+```bash
+iex --name debug@client.host \
+    --cookie $ERLANG_COOKIE \
+    --erl "-proto_dist inet_tls -ssl_dist_optfile /path/to/ssl_dist.conf" \
+    --remsh poller_1@100.64.0.5
+```
+
+Run `:observer.start()` to visualize processes across the entire distributed cluster.
+
+### Connection Hierarchy
+
+1. **Core <-> Poller (Distributed Erlang/mTLS)**: "Big Brain" backplane for Horde state, Ash commands, orchestration
+2. **Poller <-> Agent (gRPC/mTLS)**: Elixir Poller calls Go Agent for ICMP sweeps, TCP scans
+3. **Agent <-> Checkers (gRPC/mTLS)**: Go Agent proxies to specialized checkers (SNMP, Dusk, etc.)
+
+### Overlapping IP Space Resolution
+
+Horde uses **node names**, not IP addresses:
+- `poller_a@100.64.0.5` handles Partition 1
+- `poller_b@100.64.0.6` handles Partition 2
+- Both can have devices at `10.0.0.1`; Horde routes via `{partition_id, device_id}` tuple
+
+### SPIFFE-Aware Ash Policies
+
+Ash policies can authorize based on SPIFFE identity:
+
+```elixir
+policy action(:run_sweep) do
+  authorize_if expr(context.spiffe_id == "spiffe://carverauto.dev/ns/demo/sa/serviceradar-core")
+end
+```
+
+This ensures nodes can only execute actions their SPIFFE identity permits.
+
+## Broadway Data Ingestion Architecture
+
+### Overview
+
+Broadway provides a multi-stage data processing pipeline with built-in back-pressure, batching, and fault tolerance. Combined with NATS JetStream, this enables reliable data ingestion from distributed agents/pollers to the central core.
+
+### Pipeline Topology
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           NATS JetStream Cluster                            │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+│  │metrics.>    │  │events.>     │  │logs.>       │  │discovery.>  │        │
+│  │stream       │  │stream       │  │stream       │  │stream       │        │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘        │
+└─────────┼────────────────┼────────────────┼────────────────┼───────────────┘
+          │                │                │                │
+          ▼                ▼                ▼                ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         ServiceRadar Core (Elixir)                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+│  │Metrics      │  │Events       │  │Logs         │  │Discovery    │        │
+│  │Broadway     │  │Broadway     │  │Broadway     │  │Broadway     │        │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘        │
+│         │                │                │                │                │
+│         ▼                ▼                ▼                ▼                │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+│  │TimescaleDB  │  │Ash Resources│  │ClickHouse/  │  │Device       │        │
+│  │Metrics      │  │PostgreSQL   │  │QuestDB      │  │Inventory    │        │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘        │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Producer Configuration
+
+```elixir
+defmodule ServiceRadar.Pipeline.EventsBroadway do
+  use Broadway
+
+  alias Broadway.Message
+  alias OffBroadway.Jetstream.Producer
+
+  def start_link(_opts) do
+    Broadway.start_link(__MODULE__,
+      name: __MODULE__,
+      producer: [
+        module: {
+          Producer,
+          connection_name: :nats,
+          stream_name: "EVENTS",
+          consumer_name: "core_events_consumer"
+        },
+        concurrency: 2
+      ],
+      processors: [
+        default: [concurrency: 10]
+      ],
+      batchers: [
+        default: [concurrency: 5, batch_size: 100, batch_timeout: 1_000]
+      ]
+    )
+  end
+
+  @impl true
+  def handle_message(_, %Message{data: data} = message, _) do
+    case Jason.decode(data) do
+      {:ok, event} ->
+        message
+        |> Message.update_data(fn _ -> event end)
+        |> Message.put_batcher(:default)
+
+      {:error, _} ->
+        Message.failed(message, "invalid JSON")
+    end
+  end
+
+  @impl true
+  def handle_batch(:default, messages, _batch_info, _context) do
+    # Batch insert into Ash resources
+    events = Enum.map(messages, & &1.data)
+    ServiceRadar.Events.bulk_create(events)
+    messages
+  end
+end
+```
+
+### Partition-Aware Routing
+
+For multi-partition deployments, messages include partition context:
+
+```elixir
+def handle_message(_, %Message{data: data} = message, _) do
+  event = Jason.decode!(data)
+  partition_id = event["partition_id"]
+
+  message
+  |> Message.update_data(fn _ -> event end)
+  |> Message.put_batch_key(partition_id)  # Route to partition-specific batch
+end
+```
+
+### Agent/Poller Publishing
+
+Agents and pollers publish to JetStream streams:
+
+```elixir
+# In poller
+defmodule ServiceRadar.Poller.Publisher do
+  def publish_event(event, partition_id) do
+    subject = "events.#{partition_id}.#{event.type}"
+    payload = Jason.encode!(event)
+
+    Jetstream.publish(:nats, subject, payload,
+      headers: %{"partition-id" => partition_id}
+    )
+  end
+end
+```
+
+### Benefits
+
+1. **Back-pressure**: Broadway automatically throttles producers when consumers can't keep up
+2. **Batching**: Efficient bulk inserts reduce database round-trips
+3. **Fault tolerance**: Failed messages are automatically retried or dead-lettered
+4. **Exactly-once**: JetStream's acknowledgement semantics prevent duplicate processing
+5. **Observability**: Broadway exports Telemetry events for monitoring pipeline health
+
+## Shared Library Architecture
+
+A shared Elixir library in `elixir/serviceradar_core/` provides common code:
+
+```
+elixir/
+├── serviceradar_core/           # Shared library (hex package)
+│   ├── lib/
+│   │   ├── serviceradar/
+│   │   │   ├── cluster/         # Horde, libcluster, ssl_dist helpers
+│   │   │   ├── spiffe/          # SPIFFE/SPIRE integration
+│   │   │   ├── registry/        # Partition-namespaced registry helpers
+│   │   │   └── telemetry/       # Shared telemetry definitions
+│   │   └── serviceradar.ex
+│   └── mix.exs
+├── serviceradar_poller/         # Standalone Poller release
+│   └── mix.exs                  # depends on :serviceradar_core
+├── serviceradar_agent/          # Standalone Agent release
+│   └── mix.exs                  # depends on :serviceradar_core
+└── serviceradar_web/            # Renamed from web-ng
+    └── mix.exs                  # depends on :serviceradar_core
+```
+
+The shared library includes:
+- **Cluster helpers**: ssl_dist configuration, libcluster strategies
+- **SPIFFE helpers**: Certificate loading, identity verification
+- **Registry helpers**: `{partition_id, device_id}` tuple registration
+- **Telemetry**: Common metric definitions
+
 ## References
 
+### Ash Framework
 - [Ash Framework Documentation](https://ash-hq.org/)
 - [Ash Actors & Authorization](https://hexdocs.pm/ash/actors-and-authorization.html)
 - [Ash Policies](https://hexdocs.pm/ash/policies.html)
@@ -154,4 +418,13 @@ end
 - [AshOban](https://hexdocs.pm/ash_oban/AshOban.html)
 - [AshStateMachine](https://hexdocs.pm/ash_state_machine/getting-started-with-ash-state-machine.html)
 - [ElixirConf Lisbon 2024: AshOban & AshStateMachine](https://elixirconf.com/archives/lisbon_2024/talks/bring-your-app-to-life-with-ashoban-and-ashatatemachine/)
+
+### Broadway & Data Pipelines
+- [Broadway Overview](https://hexdocs.pm/broadway/Broadway.html)
+- [Broadway Custom Producers](https://hexdocs.pm/broadway/custom-producers.html)
+- [JetStream Elixir Client](https://hexdocs.pm/jetstream/overview.html)
+- [OffBroadway.Jetstream.Producer](https://hexdocs.pm/jetstream/OffBroadway.Jetstream.Producer.html)
+- [NATS JetStream Documentation](https://docs.nats.io/nats-concepts/jetstream)
+
+### Project
 - GitHub Issue #2205

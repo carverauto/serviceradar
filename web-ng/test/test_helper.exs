@@ -2,7 +2,8 @@ ExUnit.start()
 
 {:ok, _} = Application.ensure_all_started(:serviceradar_web_ng)
 
-repo = ServiceRadarWebNG.Repo
+# Use ServiceRadar.Repo from serviceradar_core directly for SQL adapter operations
+repo = ServiceRadar.Repo
 
 # Create OCSF-aligned device inventory table (OCSF v1.7.0 Device object)
 _ =
@@ -108,4 +109,4 @@ _ =
     end
   )
 
-Ecto.Adapters.SQL.Sandbox.mode(ServiceRadarWebNG.Repo, :manual)
+Ecto.Adapters.SQL.Sandbox.mode(ServiceRadar.Repo, :manual)

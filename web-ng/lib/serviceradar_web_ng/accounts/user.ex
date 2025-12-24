@@ -4,12 +4,18 @@ defmodule ServiceRadarWebNG.Accounts.User do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+
   schema "ng_users" do
     field :email, :string
     field :password, :string, virtual: true, redact: true
     field :hashed_password, :string, redact: true
     field :confirmed_at, :utc_datetime
     field :authenticated_at, :utc_datetime, virtual: true
+    field :tenant_id, Ecto.UUID
+    field :role, :string, default: "viewer"
+    field :display_name, :string
 
     timestamps(type: :utc_datetime)
   end
@@ -27,7 +33,8 @@ defmodule ServiceRadarWebNG.Accounts.User do
   """
   def email_changeset(user, attrs, opts \\ []) do
     user
-    |> cast(attrs, [:email])
+    |> cast(attrs, [:email, :tenant_id, :role, :display_name])
+    |> validate_required([:tenant_id])
     |> validate_email(opts)
   end
 

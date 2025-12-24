@@ -7,6 +7,9 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateTenants do
   use Ecto.Migration
 
   def change do
+    # Ensure citext extension exists (needed for case-insensitive slug)
+    execute "CREATE EXTENSION IF NOT EXISTS citext", "DROP EXTENSION IF EXISTS citext"
+
     create table(:tenants, primary_key: false) do
       add :id, :uuid, primary_key: true, null: false
       add :name, :string, null: false

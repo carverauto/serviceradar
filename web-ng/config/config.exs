@@ -22,10 +22,14 @@ config :serviceradar_web_ng, :scopes,
 
 config :serviceradar_web_ng,
   namespace: ServiceRadarWebNG,
-  ecto_repos: [ServiceRadarWebNG.Repo],
+  # Use ServiceRadar.Repo from serviceradar_core
+  ecto_repos: [ServiceRadar.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-config :serviceradar_web_ng, ServiceRadarWebNG.Repo, migration_source: "ng_schema_migrations"
+# Configure the shared repo from serviceradar_core
+# Ash manages all migrations in serviceradar_core/priv/repo/migrations/
+config :serviceradar_core, ServiceRadar.Repo,
+  migration_source: "ash_schema_migrations"
 
 # Ash Framework Configuration
 config :serviceradar_web_ng,
@@ -58,13 +62,15 @@ config :serviceradar_web_ng, :feature_flags,
   ash_monitoring_domain: false,
   ash_edge_domain: false,
   ash_authentication: false,
-  ash_api_v2: false
+  ash_api_v2: false,
+  ash_srql_adapter: false
 
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 
 # Oban job processing configuration
-config :serviceradar_web_ng, Oban,
-  repo: ServiceRadarWebNG.Repo,
+# Configured in serviceradar_core, but we add web-specific cron jobs here
+config :serviceradar_core, Oban,
+  repo: ServiceRadar.Repo,
   queues: [
     default: 10,
     maintenance: 2,
@@ -73,7 +79,9 @@ config :serviceradar_web_ng, Oban,
     service_checks: 10,
     notifications: 5,
     onboarding: 3,
-    events: 10
+    events: 10,
+    sweeps: 20,
+    edge: 10
   ],
   plugins: [
     # Built-in Cron plugin for system maintenance jobs (non-Ash resources)
@@ -82,8 +90,6 @@ config :serviceradar_web_ng, Oban,
        # Refresh trace summaries materialized view every 2 minutes
        {"*/2 * * * *", ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
      ]},
-    # Legacy scheduler - will be removed after verifying Cron plugin + AshOban cover all jobs
-    # {ServiceRadarWebNG.Jobs.Scheduler, poll_interval_ms: 30_000},
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}  # Keep jobs for 7 days
   ],
   peer: Oban.Peers.Database

@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Router do
   use ServiceRadarWebNGWeb, :router
   use AshAuthentication.Phoenix.Router
+  import AshAdmin.Router
 
   import Oban.Web.Router
   import Phoenix.LiveDashboard.Router
@@ -45,6 +46,14 @@ defmodule ServiceRadarWebNGWeb.Router do
   # API pipeline for token-gated endpoints (no session auth required)
   pipeline :api_token_auth do
     plug :accepts, ["json"]
+  end
+
+  # JSON:API pipeline for Ash resources (v2 API)
+  pipeline :ash_json_api do
+    plug :accepts, ["json"]
+    plug :fetch_session
+    plug :fetch_current_scope_for_user
+    plug :set_ash_actor
   end
 
   scope "/", ServiceRadarWebNGWeb do
@@ -92,11 +101,35 @@ defmodule ServiceRadarWebNGWeb.Router do
     post "/edge-packages/:id/download", EdgeController, :download
   end
 
+  # Ash JSON:API v2 endpoints
+  scope "/api/v2" do
+    pipe_through :ash_json_api
+
+    forward "/", ServiceRadarWebNGWeb.AshJsonApiRouter
+  end
+
   scope "/dev" do
     pipe_through [:browser, :dev_routes]
 
     live_dashboard "/dashboard", metrics: ServiceRadarWebNGWeb.Telemetry
     forward "/mailbox", Plug.Swoosh.MailboxPreview
+
+    # AshAdmin for Ash resource management (dev/staging only)
+    ash_admin "/ash",
+      domains: [
+        ServiceRadar.Identity,
+        ServiceRadar.Inventory,
+        ServiceRadar.Infrastructure,
+        ServiceRadar.Monitoring,
+        ServiceRadar.Edge
+      ],
+      actor: fn conn ->
+        # Get actor from session for AshAdmin
+        case conn.assigns[:current_scope] do
+          %{user: user} when not is_nil(user) -> user
+          _ -> nil
+        end
+      end
   end
 
   scope "/admin", ServiceRadarWebNGWeb do
@@ -108,6 +141,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/edge-packages", Admin.EdgePackageLive.Index, :index
       live "/edge-packages/new", Admin.EdgePackageLive.Index, :new
       live "/edge-packages/:id", Admin.EdgePackageLive.Index, :show
+      live "/cluster", Admin.ClusterLive.Index, :index
     end
 
     oban_dashboard("/oban",
@@ -183,6 +217,17 @@ defmodule ServiceRadarWebNGWeb.Router do
       conn
       |> Plug.Conn.send_resp(:not_found, "Not Found")
       |> Plug.Conn.halt()
+    end
+  end
+
+  # Set the Ash actor from the current user for JSON:API policy enforcement
+  defp set_ash_actor(conn, _opts) do
+    case conn.assigns[:current_scope] do
+      %{user: user} when not is_nil(user) ->
+        Ash.PlugHelpers.set_actor(conn, user)
+
+      _ ->
+        conn
     end
   end
 end
