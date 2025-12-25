@@ -288,6 +288,14 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
         :checker_config_json, :metadata_json, :notes, :created_by,
         :downstream_spiffe_id
       ]
+
+      # Set tenant_id from multitenancy context
+      change fn changeset, _context ->
+        case changeset.tenant do
+          nil -> changeset
+          tenant_id -> Ash.Changeset.force_change_attribute(changeset, :tenant_id, tenant_id)
+        end
+      end
     end
 
     update :update_tokens do
@@ -301,6 +309,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
     update :deliver do
       description "Mark package as delivered (downloaded)"
+      require_atomic? false
       change transition_state(:delivered)
       change set_attribute(:delivered_at, &DateTime.utc_now/0)
     end
@@ -351,49 +360,38 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # TENANT ISOLATION: Onboarding packages contain credentials for edge deployments
-    # CRITICAL: Must NEVER be accessible to other tenants
+    # TENANT ISOLATION is enforced by multitenancy strategy :attribute
+    # The tenant context passed to actions automatically filters records
+    # Policies here only check role-based access
 
-    # Read access: Admins/operators in same tenant
+    # Read access: Admins/operators can read
     policy action_type(:read) do
-      authorize_if expr(
-        ^actor(:role) in [:admin, :operator] and
-        tenant_id == ^actor(:tenant_id)
-      )
+      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if actor_attribute_equals(:role, :operator)
     end
 
-    # Create packages: Admins/operators in same tenant
+    # Create packages: Admins/operators can create
     policy action(:create) do
-      authorize_if expr(
-        ^actor(:role) in [:admin, :operator] and
-        tenant_id == ^actor(:tenant_id)
-      )
+      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if actor_attribute_equals(:role, :operator)
     end
 
-    # State transitions: Admins in same tenant
-    policy action([:deliver, :activate, :revoke, :soft_delete, :update_tokens]) do
-      authorize_if expr(
-        ^actor(:role) == :admin and
-        tenant_id == ^actor(:tenant_id)
-      )
+    # State transitions: Admins only (except deliver and update_tokens)
+    policy action([:activate, :revoke, :soft_delete]) do
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Expire action: Admins in same tenant, or AshOban (no actor)
+    # Expire action: Admins or AshOban scheduler (no actor)
     policy action(:expire) do
-      authorize_if expr(
-        ^actor(:role) == :admin and
-        tenant_id == ^actor(:tenant_id)
-      )
+      authorize_if actor_attribute_equals(:role, :admin)
       # Allow AshOban scheduler (no actor) to expire packages
       authorize_if always()
     end
 
-    # Operators can also deliver and update tokens (in same tenant)
+    # Operators can also deliver and update tokens
     policy action([:deliver, :update_tokens]) do
-      authorize_if expr(
-        ^actor(:role) == :operator and
-        tenant_id == ^actor(:tenant_id)
-      )
+      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if actor_attribute_equals(:role, :operator)
     end
   end
 end
