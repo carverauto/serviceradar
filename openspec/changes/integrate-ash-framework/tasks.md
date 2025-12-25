@@ -121,7 +121,7 @@
 - [x] 3.2.5 Implement viewer policies (read-only)
 - [x] 3.2.6 Add partition-aware policies for overlapping IP spaces
 - [x] 3.2.7 Implement field-level policies for sensitive data (N/A - sensitive fields use public? false)
-- [ ] 3.2.8 Create policy test suite with multi-tenant scenarios
+- [x] 3.2.8 Create policy test suite with multi-tenant scenarios
 
 ### 3.3 Authorization Configuration
 - [x] 3.3.1 Set domain authorization to :by_default

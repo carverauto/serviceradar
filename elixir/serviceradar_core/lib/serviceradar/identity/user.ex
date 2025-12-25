@@ -113,7 +113,7 @@ defmodule ServiceRadar.Identity.User do
     attribute :tenant_id, :uuid do
       allow_nil? false
       public? true
-      description "Owning tenant ID"
+      description "Owning tenant ID - immutable after creation (see validations)"
     end
 
     create_timestamp :inserted_at
@@ -137,6 +137,31 @@ defmodule ServiceRadar.Identity.User do
     strategy :attribute
     attribute :tenant_id
     global? true
+  end
+
+  changes do
+    # SECURITY: tenant_id is IMMUTABLE after creation
+    # This is a critical multi-tenancy security control - defense in depth
+    # Uses before_action to run AFTER all changes have been applied to the changeset
+    change before_action(fn changeset, _context ->
+      if changeset.action_type == :update do
+        # Check if tenant_id is in the changes map
+        case Map.get(changeset.attributes, :tenant_id) do
+          nil ->
+            # Not being changed, that's fine
+            changeset
+
+          _new_value ->
+            # Someone is trying to change tenant_id - block it
+            Ash.Changeset.add_error(changeset,
+              field: :tenant_id,
+              message: "cannot be changed - tenant assignment is permanent"
+            )
+        end
+      else
+        changeset
+      end
+    end)
   end
 
   actions do
@@ -195,6 +220,7 @@ defmodule ServiceRadar.Identity.User do
 
     update :update do
       accept [:display_name]
+      require_atomic? false
     end
 
     update :update_email do
@@ -207,6 +233,7 @@ defmodule ServiceRadar.Identity.User do
 
     update :update_role do
       accept [:role]
+      require_atomic? false
     end
 
     update :change_password do
@@ -311,14 +338,10 @@ defmodule ServiceRadar.Identity.User do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # Users can read themselves
+    # Users can read themselves OR other users in the same tenant
+    # Combined into one policy to ensure proper OR behavior
     policy action_type(:read) do
-      authorize_if expr(id == ^actor(:id))
-    end
-
-    # Users in same tenant can read each other (for assignment UIs, etc.)
-    policy action_type(:read) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if expr(id == ^actor(:id) or tenant_id == ^actor(:tenant_id))
     end
 
     # Registration is allowed without an actor (public action)

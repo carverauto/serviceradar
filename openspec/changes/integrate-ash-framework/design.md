@@ -853,29 +853,57 @@ defmodule ServiceRadar.Cloud.NATSConsumer do
 end
 ```
 
-### Decision 15: Horde Partition Namespacing for Overlapping IPs
+### Decision 15: Horde Tenant+Partition Namespacing for Overlapping IPs
 
-**What**: Use tuple-based namespacing in Horde.Registry to support overlapping IP spaces across partitions.
+**What**: Use tuple-based namespacing in Horde.Registry with **tenant_id + partition_id** to support overlapping IP spaces across tenants and partitions while enforcing strict tenant isolation.
 
 **Why**:
 - Multiple edge sites may have identical private IP ranges (10.0.0.0/8)
-- Global registry needs unique keys per device
+- **Different tenants must NEVER see each other's devices** (critical security requirement)
+- Global registry needs unique keys per device across the entire multi-tenant deployment
 - Partition-scoped naming enables "Device Actors" pattern
+- Tenant-scoped naming prevents cross-tenant data leakage
 
 **The Problem**:
 ```
-Site A (Partition 1): 10.0.0.1 (Core Router)
-Site B (Partition 2): 10.0.0.1 (Core Router)  <- Same IP, different device!
+Tenant A, Partition 1: 10.0.0.1 (Core Router)
+Tenant A, Partition 2: 10.0.0.1 (Core Router)  <- Same IP, different device!
+Tenant B, Partition 1: 10.0.0.1 (Core Router)  <- Same IP, DIFFERENT TENANT! Must be isolated.
 ```
 
-**The Solution - Tuple-Based Keys**:
+**The Solution - Tenant+Partition Tuple Keys**:
 ```elixir
 # Instead of registering by IP alone:
 {:via, Horde.Registry, {ServiceRadar.DeviceRegistry, "10.0.0.1"}}  # ❌ Collision!
 
-# Register with partition scope:
-{:via, Horde.Registry, {ServiceRadar.DeviceRegistry, {partition_id, ip_address}}}  # ✓ Unique
+# Instead of just partition scope (STILL WRONG - leaks across tenants!):
+{:via, Horde.Registry, {ServiceRadar.DeviceRegistry, {partition_id, ip_address}}}  # ❌ Tenant leak!
+
+# Register with tenant + partition scope:
+{:via, Horde.Registry, {ServiceRadar.DeviceRegistry, {tenant_id, partition_id, ip_address}}}  # ✓ Unique + Isolated
 ```
+
+**Key Hierarchy**:
+```
+{tenant_id, partition_id, device_identifier}
+    │           │              │
+    │           │              └── IP address, MAC, or device UUID
+    │           └── Network partition (edge site)
+    └── Tenant isolation (NEVER cross this boundary)
+```
+
+**Defense in Depth - Why tenant_id in the key?**
+
+Tenant isolation is already enforced at multiple layers:
+1. **Ash multitenancy** - All resources have `multitenancy: :attribute, attribute: :tenant_id`
+2. **Ash policies** - Query/action authorization verifies `actor.tenant_id == resource.tenant_id`
+3. **API layer** - Actor context set from authenticated JWT with tenant claim
+
+However, Horde.Registry keys exist **outside** the Ash authorization layer. Including `tenant_id` in the key provides:
+- **Defense in depth** - Even if authorization bypassed, wrong key = no actor found
+- **Impossible cross-tenant references** - Can't accidentally construct a valid key for another tenant
+- **Clear debugging** - Registry entries show tenant ownership explicitly
+- **Audit trail** - Easier to verify tenant isolation in cluster state
 
 **Device Actor Implementation**:
 ```elixir
@@ -884,23 +912,29 @@ defmodule ServiceRadar.DeviceActor do
   GenServer representing a single device in the global cluster.
 
   One actor per device across the entire ServiceRadar deployment.
-  Actors are distributed via Horde and located by partition + IP.
+  Actors are distributed via Horde and located by tenant + partition + IP.
+
+  CRITICAL: The tenant_id MUST be included in all lookups to prevent
+  cross-tenant data leakage. Never expose a lookup function that
+  doesn't require tenant_id.
   """
 
   use GenServer
 
   def start_link(opts) do
+    tenant_id = Keyword.fetch!(opts, :tenant_id)
     partition_id = Keyword.fetch!(opts, :partition_id)
     ip = Keyword.fetch!(opts, :ip)
 
-    # Globally unique name via partition scoping
-    name = {:via, Horde.Registry, {ServiceRadar.DeviceRegistry, {partition_id, ip}}}
+    # Globally unique name via tenant + partition scoping
+    name = {:via, Horde.Registry, {ServiceRadar.DeviceRegistry, {tenant_id, partition_id, ip}}}
 
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
   def init(opts) do
     state = %{
+      tenant_id: opts[:tenant_id],
       partition_id: opts[:partition_id],
       ip: opts[:ip],
       last_poll: nil,
@@ -914,14 +948,15 @@ defmodule ServiceRadar.DeviceActor do
     {:ok, state}
   end
 
-  # Call from anywhere in the cluster
-  def get_status(partition_id, ip) do
-    name = {:via, Horde.Registry, {ServiceRadar.DeviceRegistry, {partition_id, ip}}}
+  # Call from anywhere in the cluster - REQUIRES tenant_id for isolation
+  def get_status(tenant_id, partition_id, ip) do
+    name = {:via, Horde.Registry, {ServiceRadar.DeviceRegistry, {tenant_id, partition_id, ip}}}
     GenServer.call(name, :get_status)
   end
 
   def handle_call(:get_status, _from, state) do
     {:reply, %{
+      tenant_id: state.tenant_id,
       ip: state.ip,
       partition: state.partition_id,
       health: state.health_status,
@@ -957,7 +992,7 @@ defmodule ServiceRadar.Inventory.Device do
 
   multitenancy do
     strategy :attribute
-    attribute :partition_id
+    attribute :tenant_id
   end
 
   actions do
@@ -965,13 +1000,16 @@ defmodule ServiceRadar.Inventory.Device do
       constraints instance_of: __MODULE__
       argument :device, :struct, constraints: [instance_of: __MODULE__]
 
-      run fn input, _ ->
+      run fn input, context ->
         device = input.arguments.device
+        # tenant_id comes from Ash context (set by actor)
+        tenant_id = context.tenant || device.tenant_id
 
         # Start the actor in the distributed cluster
         case Horde.DynamicSupervisor.start_child(
           ServiceRadar.PollerSupervisor,
           {ServiceRadar.DeviceActor, [
+            tenant_id: tenant_id,
             partition_id: device.partition_id,
             ip: device.ip_address
           ]}
@@ -1163,12 +1201,63 @@ iex> :observer.start()
 # Switch to "Nodes" tab, select poller_tokyo
 # See exact memory usage of DeviceActor for 10.0.0.1 in Tokyo!
 
-# Inspect a device actor running in London
-iex> ServiceRadar.DeviceActor.get_status("partition_1", "10.0.0.1")
-%{ip: "10.0.0.1", partition: "partition_1", health: :healthy, last_poll: ~U[...]}
+# Inspect a device actor running in London (must include tenant_id for isolation)
+iex> ServiceRadar.DeviceActor.get_status("tenant_abc", "partition_1", "10.0.0.1")
+%{tenant_id: "tenant_abc", ip: "10.0.0.1", partition: "partition_1", health: :healthy, last_poll: ~U[...]}
 
 # The call transparently routes to London via ERTS distribution!
 ```
+
+### Decision 18: tenant_id Immutability as Security Control
+
+**What**: Make `tenant_id` immutable after user creation - it cannot be changed by any user, including super_admins.
+
+**Why**:
+- **Prevents tenant hopping attacks** - Malicious users cannot move themselves to other tenants
+- **Data integrity** - User audit trails remain consistent with their original tenant
+- **Defense in depth** - Even if authorization is bypassed, tenant assignment cannot change
+- **Simplifies security reasoning** - No need to audit tenant change flows
+
+**Implementation (3 layers of protection)**:
+
+1. **Action Accept Lists** - Update actions only accept specific fields (never tenant_id):
+   ```elixir
+   update :update do
+     accept [:display_name]  # tenant_id not included
+   end
+   ```
+
+2. **Resource-Level Change Hook** - Blocks all tenant_id modifications including `force_change_attribute`:
+   ```elixir
+   changes do
+     change before_action(fn changeset, _context ->
+       if changeset.action_type == :update do
+         case Map.get(changeset.attributes, :tenant_id) do
+           nil -> changeset
+           _new_value ->
+             Ash.Changeset.add_error(changeset,
+               field: :tenant_id,
+               message: "cannot be changed - tenant assignment is permanent"
+             )
+         end
+       else
+         changeset
+       end
+     end)
+   end
+   ```
+
+3. **Policy Tests** - Comprehensive test suite verifying immutability:
+   - Test: Regular users cannot change their tenant_id
+   - Test: Admins cannot change user tenant_id
+   - Test: Super_admins cannot change tenant_id (defense in depth)
+   - Test: `force_change_attribute` is blocked
+
+**Why super_admins cannot change tenant_id**:
+- Tenant transfers should be a separate, audited process (not a simple update)
+- Prevents accidental data leakage via admin UI
+- Moving a user between tenants has complex implications (permissions, data access)
+- If needed, create a separate audited action with explicit business justification
 
 ## Risks / Trade-offs
 
