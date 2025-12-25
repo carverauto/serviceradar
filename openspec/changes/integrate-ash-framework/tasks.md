@@ -347,7 +347,7 @@
 - [x] 11.2.4 Write tests for all Monitoring domain resources (monitoring/alert_test.exs, service_check_test.exs, event_test.exs)
 - [x] 11.2.5 Write tests for AshOban jobs (OnboardingPackage expire trigger, PollingSchedule execute, ServiceCheck execute, Alert auto_escalate/send_notifications)
 - [x] 11.2.6 Write tests for state machine transitions (covered in alert_test.exs, agent_test.exs, onboarding_package_test.exs)
-- [ ] 11.2.7 Write API integration tests (partial - property tests exist, need integration coverage)
+- [x] 11.2.7 Write API integration tests (29 tests: JSON:API format, tenant isolation, CRUD operations, OpenAPI spec)
 - [x] 11.2.8 Write SRQL adapter tests (47 tests for entity routing, filter ops, sort, tenant isolation)
 - [x] 11.2.9 Write multi-tenant isolation tests
 - [x] 11.2.10 Write policy enforcement tests
@@ -374,8 +374,8 @@
 - [x] 12.2.3 Migrate Infrastructure context to use Ash resources (ServiceRadarWebNG.Infrastructure delegates to ServiceRadar.Infrastructure.{Poller,Agent})
 - [x] 12.2.4 Remove Ecto-based Edge context (replaced by Ash)
 - [x] 12.2.5 Remove custom Jobs.Scheduler (replaced by AshOban + Oban.Plugins.Cron)
-- [ ] 12.2.6 Remove feature flags once stable
-- [ ] 12.2.7 Update all imports and aliases
+- [x] 12.2.6 Remove feature flags once stable (enabled ash_srql_adapter by default, removed unused flags and FeatureFlags module)
+- [x] 12.2.7 Update all imports and aliases (verified clean - no stale imports after FeatureFlags removal)
 
 ### 12.3 API Deprecation
 - [ ] 12.3.1 Add deprecation warnings to v1 API endpoints

@@ -54,16 +54,11 @@ config :ash,
 config :ash_postgres,
   manage_migrations?: true
 
-# Feature flags for gradual Ash migration rollout
+# Feature flags for Ash integration
+# Note: All Ash domains are now active by default. The ash_srql_adapter flag
+# controls whether SRQL queries for devices/pollers/agents route through Ash.
 config :serviceradar_web_ng, :feature_flags,
-  ash_identity_domain: false,
-  ash_inventory_domain: false,
-  ash_infrastructure_domain: false,
-  ash_monitoring_domain: false,
-  ash_edge_domain: false,
-  ash_authentication: false,
-  ash_api_v2: false,
-  ash_srql_adapter: false
+  ash_srql_adapter: true
 
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 
