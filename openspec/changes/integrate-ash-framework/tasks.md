@@ -341,14 +341,14 @@
 - [ ] 11.1.4 Update existing tests to use Ash resources
 
 ### 11.2 Test Coverage
-- [ ] 11.2.1 Write tests for all Identity domain resources
-- [ ] 11.2.2 Write tests for all Inventory domain resources
-- [ ] 11.2.3 Write tests for all Infrastructure domain resources
-- [ ] 11.2.4 Write tests for all Monitoring domain resources
-- [ ] 11.2.5 Write tests for AshOban jobs
-- [ ] 11.2.6 Write tests for state machine transitions
-- [ ] 11.2.7 Write API integration tests
-- [ ] 11.2.8 Write SRQL adapter tests
+- [x] 11.2.1 Write tests for all Identity domain resources (identity_policies_test.exs, identity/policy_test.exs)
+- [x] 11.2.2 Write tests for all Inventory domain resources (inventory/device_test.exs)
+- [x] 11.2.3 Write tests for all Infrastructure domain resources (infrastructure/poller_test.exs, agent_test.exs, partition_test.exs)
+- [x] 11.2.4 Write tests for all Monitoring domain resources (monitoring/alert_test.exs, service_check_test.exs, event_test.exs)
+- [ ] 11.2.5 Write tests for AshOban jobs (OnboardingPackage expire trigger, PollingSchedule execute)
+- [x] 11.2.6 Write tests for state machine transitions (covered in alert_test.exs, agent_test.exs, onboarding_package_test.exs)
+- [ ] 11.2.7 Write API integration tests (partial - property tests exist, need integration coverage)
+- [ ] 11.2.8 Write SRQL adapter tests (need Ash-specific adapter tests)
 - [x] 11.2.9 Write multi-tenant isolation tests
 - [x] 11.2.10 Write policy enforcement tests
 
