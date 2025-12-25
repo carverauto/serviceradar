@@ -23,7 +23,13 @@ defmodule ServiceRadar.Identity.Tenant do
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: []
+    extensions: [AshCloak]
+
+  cloak do
+    vault ServiceRadar.Vault
+    attributes [:contact_email, :contact_name]
+    decrypt_by_default [:contact_email, :contact_name]
+  end
 
   postgres do
     table "tenants"

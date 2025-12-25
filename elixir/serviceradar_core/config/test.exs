@@ -18,6 +18,7 @@ config :serviceradar_core, ServiceRadar.Repo,
 
 # Disable cluster in tests by default
 config :serviceradar_core,
+  env: :test,
   cluster_enabled: false
 
 # Oban in test mode

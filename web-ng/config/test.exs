@@ -117,3 +117,6 @@ config :serviceradar_core, Oban,
   testing: :manual,
   queues: false,
   plugins: false
+
+# Set env for serviceradar_core (enables Vault fallback key in tests)
+config :serviceradar_core, env: :test

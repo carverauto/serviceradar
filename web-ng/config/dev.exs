@@ -162,3 +162,6 @@ config :swoosh, :api_client, false
 # In production, use proper secrets management
 config :serviceradar_web_ng, :api_auth,
   api_keys: [System.get_env("SERVICERADAR_API_KEY", "dev-api-key-for-testing")]
+
+# Set env for serviceradar_core (enables Vault fallback key in dev)
+config :serviceradar_core, env: :dev

@@ -13,6 +13,7 @@ config :serviceradar_core, ServiceRadar.Repo,
 
 # Enable cluster in dev for testing
 config :serviceradar_core,
+  env: :dev,
   cluster_enabled: true
 
 # Oban in dev mode

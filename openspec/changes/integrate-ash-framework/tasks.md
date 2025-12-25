@@ -99,8 +99,10 @@
 - [ ] 2.4.3 Replace UserLive.Registration with AshAuthentication.Phoenix components
 - [ ] 2.4.4 Update UserSessionController to use AshAuthentication
 - [ ] 2.4.5 Migrate user_auth.ex to AshAuthentication patterns
-- [ ] 2.4.6 Update LiveView mount hooks for Ash actor
-- [ ] 2.4.7 Test authentication flows end-to-end
+- [x] 2.4.6 Update LiveView mount hooks for Ash actor (actor/tenant in socket assigns)
+- [x] 2.4.7 Add Ash actor/tenant to browser pipeline (set_ash_actor plug)
+- [ ] 2.4.8 Test authentication flows end-to-end
+- [ ] 2.4.9 Migrate Ecto UserToken to Ash Token (optional - current hybrid approach works)
 
 ## Phase 3: Authorization (RBAC)
 
@@ -126,6 +128,16 @@
 - [x] 3.3.2 Configure require_actor? for all domains
 - [x] 3.3.3 Add authorization error handling middleware
 - [x] 3.3.4 Implement audit logging for authorization failures
+
+### 3.4 PII Encryption (AshCloak)
+- [x] 3.4.1 Add ash_cloak and cloak dependencies to mix.exs
+- [x] 3.4.2 Configure encryption keys in runtime.exs (CLOAK_KEY env var)
+- [x] 3.4.3 Create ServiceRadar.Vault module with AES-256-GCM encryption
+- [x] 3.4.4 Add AshCloak extension to Tenant resource (contact_email, contact_name encryption)
+- [x] 3.4.5 Create database migration for encrypted_contact_email/name columns
+- [ ] 3.4.6 Implement key rotation strategy - DEFERRED (documented in Vault module)
+- [ ] 3.4.7 Add AshCloak to User resource (email) - DEFERRED (requires blind indexing for auth lookups)
+- [ ] 3.4.8 Implement data migration script to encrypt existing tenant contacts
 
 ## Phase 4: Inventory Domain
 

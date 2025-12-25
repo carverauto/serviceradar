@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :protect_from_forgery
     plug :put_secure_browser_headers
     plug :fetch_current_scope_for_user
+    plug :set_ash_actor
   end
 
   pipeline :api do
@@ -220,7 +221,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     end
   end
 
-  # Set the Ash actor from the current user for JSON:API policy enforcement
+  # Set the Ash actor and tenant from the current user for policy enforcement
   # Includes partition context from request header or session
   defp set_ash_actor(conn, _opts) do
     case conn.assigns[:current_scope] do
@@ -240,6 +241,7 @@ defmodule ServiceRadarWebNGWeb.Router do
         |> assign(:ash_actor, actor)
         |> assign(:current_partition_id, partition_id)
         |> Ash.PlugHelpers.set_actor(actor)
+        |> Ash.PlugHelpers.set_tenant(user.tenant_id)
 
       _ ->
         conn

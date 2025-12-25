@@ -24,6 +24,9 @@ defmodule ServiceRadar.Application do
   def start(_type, _args) do
     children =
       [
+        # Encryption vault for AshCloak (must start before repo for encrypted field access)
+        vault_child(),
+
         # Database (can be disabled for standalone tests)
         repo_child(),
 
@@ -44,6 +47,14 @@ defmodule ServiceRadar.Application do
 
     opts = [strategy: :one_for_one, name: ServiceRadar.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  defp vault_child do
+    if Application.get_env(:serviceradar_core, :vault_enabled, true) do
+      ServiceRadar.Vault
+    else
+      nil
+    end
   end
 
   defp repo_child do

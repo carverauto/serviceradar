@@ -252,7 +252,8 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   defp mount_current_scope(socket, session) do
-    Phoenix.Component.assign_new(socket, :current_scope, fn ->
+    socket
+    |> Phoenix.Component.assign_new(:current_scope, fn ->
       {user, _} =
         if user_token = session["user_token"] do
           Accounts.get_user_by_session_token(user_token)
@@ -260,6 +261,27 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
 
       Scope.for_user(user)
     end)
+    |> maybe_set_ash_context()
+  end
+
+  # Set Ash actor and tenant in socket assigns for LiveView Ash operations
+  defp maybe_set_ash_context(socket) do
+    case socket.assigns[:current_scope] do
+      %{user: user} when not is_nil(user) ->
+        actor = %{
+          id: user.id,
+          tenant_id: user.tenant_id,
+          role: user.role,
+          email: user.email
+        }
+
+        socket
+        |> Phoenix.Component.assign(:actor, actor)
+        |> Phoenix.Component.assign(:tenant, user.tenant_id)
+
+      _ ->
+        socket
+    end
   end
 
   @doc "Returns the path to redirect to after log in."

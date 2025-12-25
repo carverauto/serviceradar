@@ -46,6 +46,8 @@ defmodule ServiceRadarCore.MixProject do
       {:ash_state_machine, "~> 0.2"},
       {:ash_json_api, "~> 1.4"},
       {:ash_admin, "~> 0.12"},
+      {:ash_cloak, "~> 0.1"},
+      {:cloak, "~> 1.1"},
 
       # Database
       {:ecto_sql, "~> 3.10"},

@@ -4,6 +4,21 @@ import Config
 # This file is executed at runtime, not compile time.
 
 if config_env() == :prod do
+  # AshCloak encryption key (required for PII encryption)
+  cloak_key =
+    System.get_env("CLOAK_KEY") ||
+      raise """
+      environment variable CLOAK_KEY is missing.
+      This key is required for encrypting sensitive fields like email addresses.
+
+      Generate a 32-byte key with:
+        :crypto.strong_rand_bytes(32) |> Base.encode64()
+      """
+
+  config :serviceradar_core,
+    env: :prod,
+    cloak_key: cloak_key
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """
