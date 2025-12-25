@@ -55,6 +55,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :fetch_session
     plug :fetch_current_scope_for_user
     plug :set_ash_actor
+    plug ServiceRadarWebNGWeb.Plugs.ApiErrorHandler
   end
 
   scope "/", ServiceRadarWebNGWeb do

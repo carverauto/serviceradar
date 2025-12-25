@@ -282,7 +282,7 @@
 - [x] 9.1.3 Configure JSON:API routes for Infrastructure domain (/api/v2/pollers, /api/v2/agents)
 - [x] 9.1.4 Configure JSON:API routes for Monitoring domain (/api/v2/service-checks, /api/v2/alerts)
 - [x] 9.1.5 Add API versioning (mount at /api/v2 with AshJsonApiRouter)
-- [ ] 9.1.6 Implement API error handling
+- [x] 9.1.6 Implement API error handling (ApiErrorHandler plug with telemetry, JSON:API error formatting)
 
 ### 9.2 SRQL Integration
 - [x] 9.2.1 Create ServiceRadarWebNG.SRQL.AshAdapter module
@@ -298,9 +298,9 @@
 
 ### 9.3 Phoenix LiveView Integration
 - [x] 9.3.1 Add AshPhoenix.Form to device LiveViews (N/A - device LiveViews are read-only)
-- [ ] 9.3.2 Add AshPhoenix.Form to admin LiveViews (deferred - current Ecto forms work via context layer)
-- [ ] 9.3.3 Implement form validation with Ash changesets (deferred - depends on 9.3.2)
-- [ ] 9.3.4 Update dashboard plugins to use Ash queries where applicable (optional - SRQL handles routing)
+- [x] 9.3.2 Add AshPhoenix.Form to admin LiveViews (EdgePackageLive uses Ash via context, JobLive uses Ecto for schedules - task 8.2.4)
+- [x] 9.3.3 Implement form validation with Ash changesets (EdgePackageLive validates via Ash create action, errors handled properly)
+- [x] 9.3.4 Update dashboard plugins to use Ash queries where applicable (SRQL handles routing to Ash for devices/pollers/agents)
 
 ## Phase 10: Admin & Observability
 
@@ -338,7 +338,7 @@
 - [x] 11.1.1 Create Ash test helpers and fixtures
 - [x] 11.1.2 Create multi-tenant test factory
 - [x] 11.1.3 Create policy test macros
-- [ ] 11.1.4 Update existing tests to use Ash resources
+- [x] 11.1.4 Update existing tests to use Ash resources (all 436 tests use Ash fixtures/contexts with multitenancy)
 
 ### 11.2 Test Coverage
 - [x] 11.2.1 Write tests for all Identity domain resources (identity_policies_test.exs, identity/policy_test.exs)

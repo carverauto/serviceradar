@@ -106,6 +106,12 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
         description: "Count of SRQL queries"
       ),
 
+      # API Error Metrics
+      counter("serviceradar.api.error.count",
+        tags: [:status, :path, :method],
+        description: "Count of API errors by status code"
+      ),
+
       # Cluster Metrics
       last_value("serviceradar.cluster.nodes.count",
         description: "Number of connected ERTS nodes"

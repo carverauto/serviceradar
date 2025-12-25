@@ -1,9 +1,15 @@
 defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
+  @moduledoc """
+  LiveView for managing job schedules.
+
+  Uses AshPhoenix.Form for form handling with the JobSchedule Ash resource.
+  """
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.AdminComponents
 
   alias ServiceRadarWebNG.Jobs
+  alias ServiceRadar.Jobs.JobSchedule
 
   @impl true
   def mount(_params, _session, socket) do
@@ -12,31 +18,48 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
   @impl true
   def handle_event("validate", %{"id" => id, "schedule" => params}, socket) do
-    {_entry, schedule} = lookup_entry(socket, id)
-    changeset = Jobs.change_schedule(schedule, params) |> Map.put(:action, :validate)
-    form = to_form(changeset, as: :schedule)
+    schedule_id = parse_id(id)
 
-    {:noreply, assign(socket, :forms, Map.put(socket.assigns.forms, schedule.id, form))}
+    ash_form = Map.get(socket.assigns.ash_forms, schedule_id)
+
+    if ash_form do
+      updated_form = AshPhoenix.Form.validate(ash_form, params)
+
+      {:noreply,
+       socket
+       |> assign(:ash_forms, Map.put(socket.assigns.ash_forms, schedule_id, updated_form))
+       |> assign(:forms, Map.put(socket.assigns.forms, schedule_id, to_form(updated_form)))}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
   def handle_event("save", %{"id" => id, "schedule" => params}, socket) do
-    {_entry, schedule} = lookup_entry(socket, id)
+    schedule_id = parse_id(id)
 
-    case Jobs.update_schedule(schedule, params) do
-      {:ok, _schedule} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Schedule updated.")
-         |> assign_entries()}
+    ash_form = Map.get(socket.assigns.ash_forms, schedule_id)
 
-      {:error, changeset} ->
-        form = to_form(%{changeset | action: :validate}, as: :schedule)
+    if ash_form do
+      case AshPhoenix.Form.submit(ash_form, params: params) do
+        {:ok, _updated_schedule} ->
+          # Refresh the scheduler after successful update
+          Jobs.refresh_scheduler()
 
-        {:noreply,
-         socket
-         |> put_flash(:error, "Failed to update schedule.")
-         |> assign(:forms, Map.put(socket.assigns.forms, schedule.id, form))}
+          {:noreply,
+           socket
+           |> put_flash(:info, "Schedule updated.")
+           |> assign_entries()}
+
+        {:error, updated_form} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Failed to update schedule.")
+           |> assign(:ash_forms, Map.put(socket.assigns.ash_forms, schedule_id, updated_form))
+           |> assign(:forms, Map.put(socket.assigns.forms, schedule_id, to_form(updated_form)))}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "Schedule not found")}
     end
   end
 
@@ -248,32 +271,68 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
   defp assign_entries(socket) do
     entries = Jobs.list_schedule_entries(run_limit: 5)
-    forms = forms_for_entries(entries)
+    {ash_forms, forms} = build_ash_forms_for_entries(entries)
     leader = Oban.Peer.get_leader()
 
     socket
     |> assign(:page_title, "Job Scheduler")
     |> assign(:entries, entries)
+    |> assign(:ash_forms, ash_forms)
     |> assign(:forms, forms)
     |> assign(:leader_node, leader)
     |> assign(:entry_index, index_entries(entries))
   end
 
-  defp forms_for_entries(entries) do
-    Map.new(entries, fn entry ->
-      changeset = Jobs.change_schedule(entry.schedule)
-      {entry.schedule.id, to_form(changeset, as: :schedule)}
-    end)
+  # Build AshPhoenix.Form for each schedule entry
+  defp build_ash_forms_for_entries(entries) do
+    # Load all Ash JobSchedule resources
+    ash_schedules = load_ash_schedules()
+
+    # Create a map from id to Ash schedule
+    ash_by_id = Map.new(ash_schedules, fn s -> {s.id, s} end)
+
+    # Build forms for each entry
+    {ash_forms, forms} =
+      Enum.reduce(entries, {%{}, %{}}, fn entry, {ash_acc, form_acc} ->
+        schedule_id = entry.schedule.id
+
+        case Map.get(ash_by_id, schedule_id) do
+          nil ->
+            # No Ash resource found - skip (shouldn't happen normally)
+            {ash_acc, form_acc}
+
+          ash_schedule ->
+            ash_form = build_update_form(ash_schedule)
+            phoenix_form = to_form(ash_form)
+
+            {
+              Map.put(ash_acc, schedule_id, ash_form),
+              Map.put(form_acc, schedule_id, phoenix_form)
+            }
+        end
+      end)
+
+    {ash_forms, forms}
+  end
+
+  # Load all JobSchedule Ash resources
+  defp load_ash_schedules do
+    case Ash.read(JobSchedule, authorize?: false) do
+      {:ok, schedules} -> schedules
+      {:error, _} -> []
+    end
+  end
+
+  # Build AshPhoenix.Form for updating a JobSchedule
+  defp build_update_form(ash_schedule) do
+    AshPhoenix.Form.for_update(ash_schedule, :update,
+      domain: ServiceRadar.Jobs,
+      as: "schedule"
+    )
   end
 
   defp index_entries(entries) do
     Map.new(entries, fn entry -> {entry.schedule.id, entry} end)
-  end
-
-  defp lookup_entry(socket, id) do
-    schedule_id = parse_id(id)
-    entry = Map.get(socket.assigns.entry_index, schedule_id)
-    {entry, entry.schedule}
   end
 
   defp parse_id(id) when is_integer(id), do: id
