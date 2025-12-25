@@ -95,14 +95,14 @@
 
 ### 2.4 Phoenix Integration
 - [x] 2.4.1 Update router.ex with AshAuthentication.Phoenix routes
-- [ ] 2.4.2 Replace UserLive.Login with AshAuthentication.Phoenix components
-- [ ] 2.4.3 Replace UserLive.Registration with AshAuthentication.Phoenix components
-- [ ] 2.4.4 Update UserSessionController to use AshAuthentication
-- [ ] 2.4.5 Migrate user_auth.ex to AshAuthentication patterns
+- [x] 2.4.2 Replace UserLive.Login with AshAuthentication.Phoenix components
+- [x] 2.4.3 Replace UserLive.Registration with AshAuthentication.Phoenix components
+- [x] 2.4.4 Update UserSessionController to use AshAuthentication
+- [x] 2.4.5 Migrate user_auth.ex to AshAuthentication patterns
 - [x] 2.4.6 Update LiveView mount hooks for Ash actor (actor/tenant in socket assigns)
 - [x] 2.4.7 Add Ash actor/tenant to browser pipeline (set_ash_actor plug)
-- [ ] 2.4.8 Test authentication flows end-to-end
-- [ ] 2.4.9 Migrate Ecto UserToken to Ash Token (optional - current hybrid approach works)
+- [x] 2.4.8 Test authentication flows end-to-end
+- [x] 2.4.9 Migrate Ecto UserToken to Ash Token (JWT-based)
 
 ## Phase 3: Authorization (RBAC)
 

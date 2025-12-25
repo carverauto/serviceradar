@@ -200,14 +200,14 @@ defmodule ServiceRadarWebNGWeb.Router do
   scope "/", ServiceRadarWebNGWeb do
     pipe_through [:browser]
 
-    live_session :current_user,
+    # AshAuthentication.Phoenix sign-in/register LiveViews
+    ash_authentication_live_session :authentication,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
-      live "/users/register", UserLive.Registration, :new
-      live "/users/log-in", UserLive.Login, :new
-      live "/users/log-in/:token", UserLive.Confirmation, :new
+      live "/users/log-in", AuthLive.SignIn, :sign_in
+      live "/users/register", AuthLive.SignIn, :register
     end
 
-    post "/users/log-in", UserSessionController, :create
+    # Legacy session routes (kept for logout and magic link token handling)
     delete "/users/log-out", UserSessionController, :delete
   end
 

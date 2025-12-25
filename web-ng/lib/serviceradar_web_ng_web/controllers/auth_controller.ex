@@ -4,6 +4,12 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
   Handles authentication callbacks from password, magic link, and OAuth strategies.
   Uses the AshAuthentication.Phoenix.Controller behavior for standard auth flows.
+
+  ## Token Storage
+
+  AshAuthentication stores JWT tokens in the session automatically via `store_in_session/2`.
+  The token is stored under the subject name key (e.g., `:user`) and can be retrieved
+  for verification using `AshAuthentication.Jwt.verify/2`.
   """
 
   use ServiceRadarWebNGWeb, :controller
@@ -12,7 +18,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   @doc """
   Called on successful authentication.
 
-  Signs the user into the session and redirects to the return path
+  Signs the user into the session using Ash JWT tokens and redirects to the return path
   or the default analytics page.
   """
   def success(conn, _activity, user, _token) do
@@ -21,6 +27,8 @@ defmodule ServiceRadarWebNGWeb.AuthController do
     conn
     |> delete_session(:user_return_to)
     |> store_in_session(user)
+    |> put_session(:live_socket_id, "users_sessions:#{user.id}")
+    |> configure_session(renew: true)
     |> assign(:current_user, user)
     |> put_flash(:info, "Signed in successfully.")
     |> redirect(to: return_to)
@@ -40,14 +48,12 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   @doc """
   Called when sign-out is requested.
 
-  Clears the session and redirects to the home page.
+  Clears the session (including revoking tokens) and redirects to the home page.
   """
   def sign_out(conn, _params) do
-    return_to = get_session(conn, :user_return_to) || ~p"/"
-
     conn
     |> clear_session(:serviceradar_web_ng)
     |> put_flash(:info, "Signed out successfully.")
-    |> redirect(to: return_to)
+    |> redirect(to: ~p"/")
   end
 end

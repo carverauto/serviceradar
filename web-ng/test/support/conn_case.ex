@@ -60,22 +60,19 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   @doc """
   Logs the given `user` into the `conn`.
 
+  Generates an Ash JWT token and stores it in the session under the :user key,
+  matching what AshAuthentication.Phoenix.Controller.store_in_session/2 does.
+
   It returns an updated `conn`.
   """
-  def log_in_user(conn, user, opts \\ []) do
-    token = ServiceRadarWebNG.Accounts.generate_user_session_token(user)
-
-    maybe_set_token_authenticated_at(token, opts[:token_authenticated_at])
+  def log_in_user(conn, user, _opts \\ []) do
+    # Generate an Ash JWT token for the user
+    {:ok, token, _claims} = AshAuthentication.Jwt.token_for_user(user)
 
     conn
     |> Phoenix.ConnTest.init_test_session(%{})
-    |> Plug.Conn.put_session(:user_token, token)
-  end
-
-  defp maybe_set_token_authenticated_at(_token, nil), do: nil
-
-  defp maybe_set_token_authenticated_at(token, authenticated_at) do
-    ServiceRadarWebNG.AccountsFixtures.override_token_authenticated_at(token, authenticated_at)
+    |> Plug.Conn.put_session(:user, token)
+    |> Plug.Conn.put_session(:live_socket_id, "users_sessions:#{user.id}")
   end
 
   @doc """
@@ -108,15 +105,11 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
 
   It returns an updated `conn`.
   """
-  def log_in_api_user(conn, user, opts \\ []) do
-    token = ServiceRadarWebNG.Accounts.generate_user_session_token(user)
-
-    maybe_set_token_authenticated_at(token, opts[:token_authenticated_at])
-
-    # Encode the token for use in Authorization header
-    encoded_token = Base.url_encode64(token, padding: false)
+  def log_in_api_user(conn, user, _opts \\ []) do
+    # Generate an Ash JWT token for the user
+    {:ok, token, _claims} = AshAuthentication.Jwt.token_for_user(user)
 
     conn
-    |> Plug.Conn.put_req_header("authorization", "Bearer #{encoded_token}")
+    |> Plug.Conn.put_req_header("authorization", "Bearer #{token}")
   end
 end

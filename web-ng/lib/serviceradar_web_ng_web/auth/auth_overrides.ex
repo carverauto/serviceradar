@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNGWeb.AuthOverrides do
   Overrides for AshAuthentication.Phoenix components.
 
   Customizes the appearance and behavior of authentication forms
-  to match the ServiceRadar design system.
+  to match the ServiceRadar daisyUI design system.
   """
 
   use AshAuthentication.Phoenix.Overrides

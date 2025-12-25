@@ -25,8 +25,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   import Plug.Conn
   require Logger
 
-  alias ServiceRadarWebNG.Accounts
-
   def init(opts), do: opts
 
   def call(conn, _opts) do
@@ -77,27 +75,24 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   end
 
   defp validate_bearer_token(conn, token) do
-    # Bearer tokens are Base64 URL-encoded session tokens
-    # Decode before validating against the user session system
-    with {:ok, decoded_token} <- Base.url_decode64(token, padding: false),
-         {user, _token_inserted_at} <- Accounts.get_user_by_session_token(decoded_token) do
-      scope = %ServiceRadarWebNG.Accounts.Scope{user: user}
-      conn = assign(conn, :current_scope, scope)
-      {:ok, conn}
-    else
-      # Handle raw binary token (for backward compatibility)
-      :error ->
-        case Accounts.get_user_by_session_token(token) do
-          {user, _token_inserted_at} ->
-            scope = %ServiceRadarWebNG.Accounts.Scope{user: user}
-            conn = assign(conn, :current_scope, scope)
-            {:ok, conn}
-
-          nil ->
-            {:error, :unauthorized}
+    # Bearer tokens are Ash JWT tokens
+    # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
+    # Jwt.verify returns {:ok, claims, resource} - we need to load the user from the subject claim
+    case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng) do
+      {:ok, claims, resource} ->
+        with subject when is_binary(subject) <- claims["sub"],
+             {:ok, user} <- AshAuthentication.subject_to_user(subject, resource, authorize?: false) do
+          scope = %ServiceRadarWebNG.Accounts.Scope{user: user}
+          conn = assign(conn, :current_scope, scope)
+          {:ok, conn}
+        else
+          _ -> {:error, :unauthorized}
         end
 
-      nil ->
+      {:error, _reason} ->
+        {:error, :unauthorized}
+
+      :error ->
         {:error, :unauthorized}
     end
   end
