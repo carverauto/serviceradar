@@ -117,15 +117,15 @@
 - [x] 3.2.3 Implement admin bypass policy
 - [x] 3.2.4 Implement operator policies (create, update, no destroy)
 - [x] 3.2.5 Implement viewer policies (read-only)
-- [ ] 3.2.6 Add partition-aware policies for overlapping IP spaces
-- [ ] 3.2.7 Implement field-level policies for sensitive data
+- [x] 3.2.6 Add partition-aware policies for overlapping IP spaces
+- [x] 3.2.7 Implement field-level policies for sensitive data (N/A - sensitive fields use public? false)
 - [ ] 3.2.8 Create policy test suite with multi-tenant scenarios
 
 ### 3.3 Authorization Configuration
 - [x] 3.3.1 Set domain authorization to :by_default
 - [x] 3.3.2 Configure require_actor? for all domains
-- [ ] 3.3.3 Add authorization error handling middleware
-- [ ] 3.3.4 Implement audit logging for authorization failures
+- [x] 3.3.3 Add authorization error handling middleware
+- [x] 3.3.4 Implement audit logging for authorization failures
 
 ## Phase 4: Inventory Domain
 
@@ -142,19 +142,19 @@
 - [x] 4.1.10 Add database migration for tenant_id on ocsf_devices
 
 ### 4.2 Device Relationships
-- [ ] 4.2.1 Create ServiceRadar.Inventory.Interface resource
-- [ ] 4.2.2 Define Device has_many :interfaces relationship
-- [ ] 4.2.3 Create ServiceRadar.Inventory.DeviceGroup resource
-- [ ] 4.2.4 Define Device belongs_to :group relationship
-- [ ] 4.2.5 Implement relationship loading with policies
+- [x] 4.2.1 Create ServiceRadar.Inventory.Interface resource
+- [x] 4.2.2 Define Device has_many :interfaces relationship
+- [x] 4.2.3 Create ServiceRadar.Inventory.DeviceGroup resource
+- [x] 4.2.4 Define Device belongs_to :group relationship
+- [x] 4.2.5 Implement relationship loading with policies
 
 ### 4.3 Device Identity Reconciliation
-- [ ] 4.3.1 Create device identity custom action
-- [ ] 4.3.2 Implement MAC-based identity resolution
-- [ ] 4.3.3 Implement IP-based identity resolution
-- [ ] 4.3.4 Implement external ID resolution (Armis, NetBox)
-- [ ] 4.3.5 Create identity merge audit resource
-- [ ] 4.3.6 Port Go identity reconciliation logic
+- [x] 4.3.1 Create device identity custom action
+- [x] 4.3.2 Implement MAC-based identity resolution
+- [x] 4.3.3 Implement IP-based identity resolution
+- [x] 4.3.4 Implement external ID resolution (Armis, NetBox)
+- [x] 4.3.5 Create identity merge audit resource
+- [x] 4.3.6 Port Go identity reconciliation logic
 
 ## Phase 5: Infrastructure Domain
 
@@ -192,7 +192,7 @@
 - [x] 5.4.1 Create ServiceRadar.Infrastructure.Partition Ash resource
 - [x] 5.4.2 Define Partition has_many :pollers relationship
 - [x] 5.4.3 Implement partition validation (CIDR ranges)
-- [ ] 5.4.4 Add partition context to actor for policy evaluation
+- [x] 5.4.4 Add partition context to actor for policy evaluation
 - [x] 5.4.5 Add Poller belongs_to :partition relationship
 - [x] 5.4.6 Add database migration for partitions table
 
@@ -358,9 +358,9 @@
 
 ### 12.2 Feature Flag Cleanup
 - [ ] 12.2.1 Remove Ecto-based Accounts context (replaced by Ash)
-- [ ] 12.2.2 Remove Ecto-based Inventory context (replaced by Ash)
-- [ ] 12.2.3 Remove Ecto-based Infrastructure context (replaced by Ash)
-- [ ] 12.2.4 Remove Ecto-based Edge context (replaced by Ash)
+- [x] 12.2.2 Migrate Inventory context to use Ash resources (ServiceRadarWebNG.Inventory delegates to ServiceRadar.Inventory.Device)
+- [x] 12.2.3 Migrate Infrastructure context to use Ash resources (ServiceRadarWebNG.Infrastructure delegates to ServiceRadar.Infrastructure.{Poller,Agent})
+- [x] 12.2.4 Remove Ecto-based Edge context (replaced by Ash)
 - [ ] 12.2.5 Remove custom Jobs.Scheduler (replaced by AshOban)
 - [ ] 12.2.6 Remove feature flags once stable
 - [ ] 12.2.7 Update all imports and aliases

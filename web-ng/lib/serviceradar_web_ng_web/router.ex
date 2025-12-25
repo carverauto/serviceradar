@@ -221,13 +221,49 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   # Set the Ash actor from the current user for JSON:API policy enforcement
+  # Includes partition context from request header or session
   defp set_ash_actor(conn, _opts) do
     case conn.assigns[:current_scope] do
       %{user: user} when not is_nil(user) ->
-        Ash.PlugHelpers.set_actor(conn, user)
+        partition_id = get_partition_id_from_request(conn)
+
+        actor = %{
+          id: user.id,
+          tenant_id: user.tenant_id,
+          role: user.role,
+          email: user.email
+        }
+
+        actor = if partition_id, do: Map.put(actor, :partition_id, partition_id), else: actor
+
+        conn
+        |> assign(:ash_actor, actor)
+        |> assign(:current_partition_id, partition_id)
+        |> Ash.PlugHelpers.set_actor(actor)
 
       _ ->
         conn
+    end
+  end
+
+  # Extract partition ID from X-Partition-Id header or session
+  defp get_partition_id_from_request(conn) do
+    case Plug.Conn.get_req_header(conn, "x-partition-id") do
+      [partition_id | _] when byte_size(partition_id) > 0 ->
+        case Ecto.UUID.cast(partition_id) do
+          {:ok, uuid} -> uuid
+          :error -> nil
+        end
+
+      _ ->
+        case Plug.Conn.get_session(conn, :current_partition_id) do
+          nil -> nil
+          partition_id ->
+            case Ecto.UUID.cast(partition_id) do
+              {:ok, uuid} -> uuid
+              :error -> nil
+            end
+        end
     end
   end
 end

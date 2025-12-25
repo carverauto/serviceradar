@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNG.InventoryTest do
     uid2 = "test-device-2-#{suffix}"
     {:ok, tenant_uuid} = Ecto.UUID.dump(test_tenant_id())
 
+    # Insert devices using raw SQL (needed until DeviceGroup migration is complete)
     Repo.insert_all("ocsf_devices", [
       %{
         uid: uid1,
@@ -27,6 +28,7 @@ defmodule ServiceRadarWebNG.InventoryTest do
       }
     ])
 
+    # Query using Ash through the Inventory context
     devices = Inventory.list_devices(limit: 1_000)
     uids = Enum.map(devices, & &1.uid)
 

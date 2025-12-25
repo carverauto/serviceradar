@@ -133,7 +133,7 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
 
       # Verify it's deleted
       {:ok, package} = OnboardingPackages.get(created.package.id)
-      assert package.status == "deleted"
+      assert package.status == :deleted
     end
 
     test "returns 404 for non-existent package", %{conn: conn} do

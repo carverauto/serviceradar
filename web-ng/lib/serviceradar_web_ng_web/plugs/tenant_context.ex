@@ -44,11 +44,34 @@ defmodule ServiceRadarWebNGWeb.Plugs.TenantContext do
         conn
 
       user ->
+        partition_id = get_partition_id(conn)
+
         conn
         |> assign(:current_tenant_id, user.tenant_id)
-        |> assign(:ash_actor, build_actor(user))
+        |> assign(:current_partition_id, partition_id)
+        |> assign(:ash_actor, build_actor(user, partition_id))
     end
   end
+
+  # Extract partition ID from header or session
+  defp get_partition_id(conn) do
+    case get_req_header(conn, "x-partition-id") do
+      [partition_id | _] when byte_size(partition_id) > 0 ->
+        validate_uuid(partition_id)
+
+      _ ->
+        conn.assigns[:current_partition_id] || get_session(conn, :current_partition_id)
+    end
+  end
+
+  defp validate_uuid(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp validate_uuid(_), do: nil
 
   @doc """
   Build an Ash-compatible actor map from a user.
@@ -57,16 +80,24 @@ defmodule ServiceRadarWebNGWeb.Plugs.TenantContext do
   - User ID
   - Tenant ID for multi-tenant isolation
   - Role for RBAC policies
+  - Partition ID for partition-scoped access (optional)
   """
-  def build_actor(nil), do: nil
+  def build_actor(user, partition_id \\ nil)
+  def build_actor(nil, _partition_id), do: nil
 
-  def build_actor(user) do
-    %{
+  def build_actor(user, partition_id) do
+    actor = %{
       id: user.id,
       tenant_id: user.tenant_id,
       role: user.role,
       email: user.email
     }
+
+    if partition_id do
+      Map.put(actor, :partition_id, partition_id)
+    else
+      actor
+    end
   end
 
   @doc """

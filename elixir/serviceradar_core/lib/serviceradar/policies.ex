@@ -89,4 +89,94 @@ defmodule ServiceRadar.Policies do
       expr(id == ^actor(:id))
     end
   end
+
+  # ===========================================================================
+  # Partition-Aware Policies
+  # ===========================================================================
+
+  @doc """
+  Check if the resource's partition_id matches the actor's partition context.
+
+  If the actor has no partition_id set, access is allowed to all partitions
+  within their tenant (backward compatible behavior).
+
+  If the actor has a partition_id set, access is restricted to resources
+  in that specific partition.
+
+  ## Usage
+
+      policy action_type(:read) do
+        authorize_if partition_matches()
+      end
+  """
+  defmacro partition_matches do
+    quote do
+      expr(
+        is_nil(^actor(:partition_id)) or
+        partition_id == ^actor(:partition_id)
+      )
+    end
+  end
+
+  @doc """
+  Combined check for tenant AND partition isolation.
+
+  Ensures the resource belongs to the actor's tenant AND is either:
+  - In the actor's specified partition, or
+  - Accessible because the actor has no partition restriction
+
+  ## Usage
+
+      policy action_type(:read) do
+        authorize_if tenant_and_partition_match()
+      end
+  """
+  defmacro tenant_and_partition_match do
+    quote do
+      expr(
+        tenant_id == ^actor(:tenant_id) and
+        (is_nil(^actor(:partition_id)) or partition_id == ^actor(:partition_id))
+      )
+    end
+  end
+
+  @doc """
+  Check for resources that have an optional partition_id.
+
+  Some resources may have partition_id as an optional field. This macro
+  handles the case where the resource's partition_id might be nil.
+
+  ## Usage
+
+      policy action_type(:read) do
+        authorize_if optional_partition_matches()
+      end
+  """
+  defmacro optional_partition_matches do
+    quote do
+      expr(
+        is_nil(^actor(:partition_id)) or
+        is_nil(partition_id) or
+        partition_id == ^actor(:partition_id)
+      )
+    end
+  end
+
+  @doc """
+  Require that the actor has specified a partition context.
+
+  Useful for actions that must operate within a specific partition,
+  such as IP-based queries in overlapping address spaces.
+
+  ## Usage
+
+      policy action(:by_ip_address) do
+        authorize_if has_partition_context()
+      end
+  """
+  defmacro has_partition_context do
+    quote do
+      expr(not is_nil(^actor(:partition_id)))
+    end
+  end
 end

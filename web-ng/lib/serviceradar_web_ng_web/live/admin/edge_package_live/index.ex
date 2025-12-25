@@ -7,7 +7,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   import ServiceRadarWebNGWeb.AdminComponents
 
   alias ServiceRadarWebNG.Edge.OnboardingPackages
-  alias ServiceRadarWebNG.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.ComponentTemplates
 
@@ -24,7 +23,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:selected_package, nil)
       |> assign(:package_events, [])
       |> assign(:created_tokens, nil)
-      |> assign(:create_form, to_form(empty_changeset()))
+      |> assign(:create_form, to_form(empty_changeset(), as: "onboarding_package"))
       |> assign(:filter_status, nil)
       |> assign(:filter_component_type, nil)
       |> assign(:security_mode, security_mode)
@@ -65,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     {:noreply,
      socket
      |> assign(:show_create_modal, true)
-     |> assign(:create_form, to_form(empty_changeset()))
+     |> assign(:create_form, to_form(empty_changeset(), as: "onboarding_package"))
      |> assign(:created_tokens, nil)
      |> assign(:selected_component_type, "poller")}
   end
@@ -74,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     {:noreply,
      socket
      |> assign(:show_create_modal, false)
-     |> assign(:create_form, to_form(empty_changeset()))
+     |> assign(:create_form, to_form(empty_changeset(), as: "onboarding_package"))
      |> assign(:created_tokens, nil)}
   end
 
@@ -89,14 +88,18 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   def handle_event("validate_create", %{"onboarding_package" => params}, socket) do
     component_type = params["component_type"] || "poller"
 
-    changeset =
-      %OnboardingPackage{}
-      |> OnboardingPackage.create_changeset(params)
-      |> Map.put(:action, :validate)
+    # Use a simple form data map for validation
+    # The actual creation uses build_package_attrs and the Ash OnboardingPackages.create
+    form_data = %{
+      "label" => params["label"],
+      "component_type" => component_type,
+      "poller_id" => params["poller_id"],
+      "notes" => params["notes"]
+    }
 
     {:noreply,
      socket
-     |> assign(:create_form, to_form(changeset))
+     |> assign(:create_form, to_form(form_data, as: "onboarding_package"))
      |> assign(:selected_component_type, component_type)}
   end
 
@@ -285,7 +288,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                             View
                           </.ui_button>
                           <.ui_button
-                            :if={package.status == "issued"}
+                            :if={package.status == :issued}
                             variant="ghost"
                             size="xs"
                             phx-click="revoke_package"
@@ -642,7 +645,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         </div>
 
         <div class="modal-action">
-          <%= if @package.status == "issued" do %>
+          <%= if @package.status == :issued do %>
             <button
               type="button"
               class="btn btn-warning"
@@ -673,8 +676,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp status_badge(assigns) do
+    # Handle both atom and string status for backwards compatibility
+    status = if is_atom(assigns.status), do: Atom.to_string(assigns.status), else: assigns.status
+
     variant =
-      case assigns.status do
+      case status do
         "issued" -> "info"
         "delivered" -> "success"
         "activated" -> "success"
@@ -684,15 +690,18 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         _ -> "ghost"
       end
 
-    assigns = assign(assigns, :variant, variant)
+    assigns = assigns |> assign(:variant, variant) |> assign(:status_str, status)
 
     ~H"""
-    <.ui_badge variant={@variant} size="xs">{@status}</.ui_badge>
+    <.ui_badge variant={@variant} size="xs">{@status_str}</.ui_badge>
     """
   end
 
   defp event_variant(event_type) do
-    case event_type do
+    # Handle both atom and string event types
+    type_str = if is_atom(event_type), do: Atom.to_string(event_type), else: event_type
+
+    case type_str do
       "created" -> "info"
       "delivered" -> "success"
       "activated" -> "success"
@@ -715,8 +724,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp empty_changeset do
-    %OnboardingPackage{}
-    |> OnboardingPackage.create_changeset(%{})
+    # Return an empty form data map for the form
+    %{
+      "label" => "",
+      "component_type" => "poller",
+      "poller_id" => "",
+      "notes" => ""
+    }
   end
 
   # Load templates for checkers

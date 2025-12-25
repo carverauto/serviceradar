@@ -82,8 +82,9 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   @spec get(String.t(), keyword()) :: {:ok, OnboardingPackage.t()} | {:error, :not_found}
   def get(id, opts \\ []) when is_binary(id) do
     actor = Keyword.get(opts, :actor)
+    authorize? = Keyword.get(opts, :authorize?, true)
 
-    case Ash.get(OnboardingPackage, id, actor: actor) do
+    case Ash.get(OnboardingPackage, id, actor: actor, authorize?: authorize?) do
       {:ok, package} -> {:ok, package}
       {:error, %Ash.Error.Query.NotFound{}} -> {:error, :not_found}
       {:error, _} -> {:error, :not_found}
@@ -125,6 +126,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     download_ttl = Keyword.get(opts, :download_token_ttl_seconds, @default_download_token_ttl_seconds)
     actor = Keyword.get(opts, :actor)
     source_ip = Keyword.get(opts, :source_ip)
+    authorize? = Keyword.get(opts, :authorize?, true)
 
     # Generate tokens
     join_token = Crypto.generate_token()
@@ -144,7 +146,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
       |> Map.put(:created_by, get_actor_name(actor))
 
     case OnboardingPackage
-         |> Ash.Changeset.for_create(:create, create_attrs, actor: actor)
+         |> Ash.Changeset.for_create(:create, create_attrs, actor: actor, authorize?: authorize?)
          |> Ash.create() do
       {:ok, package} ->
         # Update with token fields
@@ -155,10 +157,9 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
           download_token_expires_at: download_expires
         }
 
-        case OnboardingPackage
-             |> Ash.Changeset.for_update(:update_tokens, token_attrs, actor: actor)
-             |> Ash.Changeset.set_argument(:id, package.id)
-             |> Ash.update(package) do
+        case package
+             |> Ash.Changeset.for_update(:update_tokens, token_attrs, actor: actor, authorize?: authorize?)
+             |> Ash.update() do
           {:ok, updated_package} ->
             # Record creation event
             OnboardingEvents.record(package.id, :created,
@@ -203,8 +204,9 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   def deliver(package_id, download_token, opts \\ []) do
     actor = Keyword.get(opts, :actor)
     source_ip = Keyword.get(opts, :source_ip)
+    authorize? = Keyword.get(opts, :authorize?, true)
 
-    with {:ok, package} <- get(package_id, actor: actor),
+    with {:ok, package} <- get(package_id, actor: actor, authorize?: authorize?),
          :ok <- verify_deliverable(package),
          :ok <- verify_download_token(package, download_token) do
       # Decrypt join token
@@ -217,9 +219,9 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
         end
 
       # Update package status to delivered using Ash state machine
-      case OnboardingPackage
-           |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
-           |> Ash.update(package) do
+      case package
+           |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, authorize?: authorize?)
+           |> Ash.update() do
         {:ok, updated_package} ->
           # Record delivery event
           OnboardingEvents.record(package_id, :delivered,
@@ -248,12 +250,13 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     actor = Keyword.get(opts, :actor)
     source_ip = Keyword.get(opts, :source_ip)
     reason = Keyword.get(opts, :reason)
+    authorize? = Keyword.get(opts, :authorize?, true)
 
-    with {:ok, package} <- get(package_id, actor: actor),
+    with {:ok, package} <- get(package_id, actor: actor, authorize?: authorize?),
          :ok <- verify_not_revoked(package) do
-      case OnboardingPackage
-           |> Ash.Changeset.for_update(:revoke, %{reason: reason}, actor: actor)
-           |> Ash.update(package) do
+      case package
+           |> Ash.Changeset.for_update(:revoke, %{reason: reason}, actor: actor, authorize?: authorize?)
+           |> Ash.update() do
         {:ok, updated_package} ->
           # Record revocation event
           OnboardingEvents.record(package_id, :revoked,
@@ -278,14 +281,12 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     actor = Keyword.get(opts, :actor)
     source_ip = Keyword.get(opts, :source_ip)
     reason = Keyword.get(opts, :reason)
+    authorize? = Keyword.get(opts, :authorize?, true)
 
-    with {:ok, package} <- get(package_id, actor: actor) do
-      case OnboardingPackage
-           |> Ash.Changeset.for_update(:soft_delete, %{
-             deleted_by: get_actor_name(actor),
-             deleted_reason: reason
-           }, actor: actor)
-           |> Ash.update(package) do
+    with {:ok, package} <- get(package_id, actor: actor, authorize?: authorize?) do
+      case package
+           |> Ash.Changeset.for_update(:soft_delete, %{deleted_by: get_actor_name(actor), deleted_reason: reason}, actor: actor, authorize?: authorize?)
+           |> Ash.update() do
         {:ok, updated_package} ->
           # Record deletion event
           OnboardingEvents.record(package_id, :deleted,

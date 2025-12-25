@@ -267,12 +267,43 @@ defmodule ServiceRadar.Inventory.Device do
       public? false
       description "Tenant this device belongs to"
     end
+
+    # Group assignment
+    attribute :group_id, :uuid do
+      public? true
+      description "Device group this device belongs to"
+    end
   end
 
   identities do
     identity :unique_uid, [:uid]
     # MAC uniqueness is optional - skipping unique index
     # identity :unique_mac, [:mac], where: expr(not is_nil(mac))
+  end
+
+  relationships do
+    has_many :interfaces, ServiceRadar.Inventory.Interface do
+      source_attribute :uid
+      destination_attribute :device_id
+      public? true
+      description "Network interfaces discovered on this device"
+    end
+
+    has_many :identifiers, ServiceRadar.Inventory.DeviceIdentifier do
+      source_attribute :uid
+      destination_attribute :device_id
+      public? true
+      description "Device identifiers for identity reconciliation"
+    end
+
+    belongs_to :group, ServiceRadar.Inventory.DeviceGroup do
+      source_attribute :group_id
+      destination_attribute :id
+      define_attribute? false
+      allow_nil? true
+      public? true
+      description "Device group this device belongs to"
+    end
   end
 
   actions do
@@ -338,9 +369,15 @@ defmodule ServiceRadar.Inventory.Device do
         :risk_level_id, :risk_level, :risk_score,
         :is_managed, :is_compliant, :is_trusted,
         :os, :hw_info, :network_interfaces, :owner, :org, :groups, :agent_list,
-        :is_available, :metadata
+        :is_available, :metadata, :group_id
       ]
 
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :assign_to_group do
+      description "Assign device to a group"
+      accept [:group_id]
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
@@ -352,6 +389,31 @@ defmodule ServiceRadar.Inventory.Device do
     update :set_availability do
       accept [:is_available]
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    # Identity reconciliation actions
+
+    action :resolve_identity do
+      description "Resolve device identity from identifiers (MAC, Armis ID, etc.)"
+      argument :device_update, :map, allow_nil?: false
+
+      run fn input, _context ->
+        update = input.arguments.device_update
+        ServiceRadar.Inventory.IdentityReconciler.resolve_device_id(update)
+      end
+    end
+
+    action :register_identifiers do
+      description "Register strong identifiers for a device"
+      argument :device_id, :string, allow_nil?: false
+      argument :identifiers, :map, allow_nil?: false
+
+      run fn input, context ->
+        device_id = input.arguments.device_id
+        ids = input.arguments.identifiers
+        actor = context[:actor]
+        ServiceRadar.Inventory.IdentityReconciler.register_identifiers(device_id, ids, actor: actor)
+      end
     end
   end
 

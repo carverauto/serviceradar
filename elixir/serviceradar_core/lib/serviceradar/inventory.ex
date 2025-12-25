@@ -38,7 +38,9 @@ defmodule ServiceRadar.Inventory do
 
   resources do
     resource ServiceRadar.Inventory.Device
-    # resource ServiceRadar.Inventory.Interface
-    # resource ServiceRadar.Inventory.DeviceGroup
+    resource ServiceRadar.Inventory.Interface
+    resource ServiceRadar.Inventory.DeviceGroup
+    resource ServiceRadar.Inventory.DeviceIdentifier
+    resource ServiceRadar.Inventory.MergeAudit
   end
 end

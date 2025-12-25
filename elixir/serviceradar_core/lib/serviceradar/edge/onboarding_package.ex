@@ -50,6 +50,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   state_machine do
     initial_states [:issued]
     default_initial_state :issued
+    state_attribute :status
 
     transitions do
       transition :deliver, from: :issued, to: :delivered
@@ -332,8 +333,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   end
 
   policies do
-    # Import common policy checks
-
     # Super admins bypass all policies (platform-wide access)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :super_admin)
