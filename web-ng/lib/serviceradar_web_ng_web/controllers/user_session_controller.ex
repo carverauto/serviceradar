@@ -39,9 +39,11 @@ defmodule ServiceRadarWebNGWeb.UserSessionController do
       |> UserAuth.log_in_user(user, user_params)
     else
       # In order to prevent user enumeration attacks, don't disclose whether the email is registered.
+      email_str = if is_binary(email), do: email, else: to_string(email)
+
       conn
       |> put_flash(:error, "Invalid email or password")
-      |> put_flash(:email, String.slice(email, 0, 160))
+      |> put_flash(:email, String.slice(email_str, 0, 160))
       |> redirect(to: ~p"/users/log-in")
     end
   end

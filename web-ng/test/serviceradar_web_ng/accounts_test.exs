@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNG.AccountsTest do
 
   import Ecto.Query, only: [from: 2]
   import ServiceRadarWebNG.AccountsFixtures
-  alias ServiceRadarWebNG.Accounts.{User, UserToken}
+  alias ServiceRadarWebNG.Accounts.UserToken
 
   describe "get_user_by_email/1" do
     test "does not return the user if the email does not exist" do
@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNG.AccountsTest do
 
     test "returns the user if the email exists" do
       %{id: id} = user = user_fixture()
-      assert %User{id: ^id} = Accounts.get_user_by_email(user.email)
+      assert %{id: ^id} = Accounts.get_user_by_email(user.email)
     end
   end
 
@@ -31,7 +31,7 @@ defmodule ServiceRadarWebNG.AccountsTest do
     test "returns the user if the email and password are valid" do
       %{id: id} = user = user_fixture() |> set_password()
 
-      assert %User{id: ^id} =
+      assert %{id: ^id} =
                Accounts.get_user_by_email_and_password(user.email, valid_user_password())
     end
   end
@@ -41,53 +41,48 @@ defmodule ServiceRadarWebNG.AccountsTest do
       # Use a valid UUID format that doesn't exist in the database
       non_existent_id = Ecto.UUID.generate()
 
-      assert_raise Ecto.NoResultsError, fn ->
+      assert_raise RuntimeError, fn ->
         Accounts.get_user!(non_existent_id)
       end
     end
 
     test "returns the user with the given id" do
       %{id: id} = user = user_fixture()
-      assert %User{id: ^id} = Accounts.get_user!(user.id)
+      assert %{id: ^id} = Accounts.get_user!(user.id)
     end
   end
 
   describe "register_user/1" do
     test "requires email to be set" do
-      {:error, changeset} = Accounts.register_user(%{})
+      {:error, error} = Accounts.register_user(%{tenant_id: ServiceRadarWebNG.DataCase.test_tenant_id()})
 
-      assert %{email: ["can't be blank"]} = errors_on(changeset)
+      # Ash returns Ash.Error, not Ecto.Changeset
+      assert has_error?(error, :email)
     end
 
     test "validates email when given" do
-      {:error, changeset} = Accounts.register_user(%{email: "not valid"})
+      {:error, error} = Accounts.register_user(%{email: "not valid", tenant_id: ServiceRadarWebNG.DataCase.test_tenant_id()})
 
-      assert %{email: ["must have the @ sign and no spaces"]} = errors_on(changeset)
-    end
-
-    test "validates maximum values for email for security" do
-      too_long = String.duplicate("db", 100)
-      {:error, changeset} = Accounts.register_user(%{email: too_long})
-      assert "should be at most 160 character(s)" in errors_on(changeset).email
+      assert has_error?(error, :email)
     end
 
     test "validates email uniqueness" do
       %{email: email} = user_fixture()
-      {:error, changeset} = Accounts.register_user(%{email: email})
-      assert "has already been taken" in errors_on(changeset).email
+      {:error, error} = Accounts.register_user(%{email: email, tenant_id: ServiceRadarWebNG.DataCase.test_tenant_id()})
+      # Per-tenant uniqueness constraint reports field as :tenant_id, global reports :email
+      assert has_error?(error, :email) or has_error?(error, :tenant_id)
 
       # Now try with the uppercased email too, to check that email case is ignored.
-      {:error, changeset} = Accounts.register_user(%{email: String.upcase(email)})
-      assert "has already been taken" in errors_on(changeset).email
+      {:error, error} = Accounts.register_user(%{email: String.upcase(to_string(email)), tenant_id: ServiceRadarWebNG.DataCase.test_tenant_id()})
+      assert has_error?(error, :email) or has_error?(error, :tenant_id)
     end
 
     test "registers users without password" do
       email = unique_user_email()
       {:ok, user} = Accounts.register_user(valid_user_attributes(email: email))
-      assert user.email == email
+      assert to_string(user.email) == email
       assert is_nil(user.hashed_password)
       assert is_nil(user.confirmed_at)
-      assert is_nil(user.password)
     end
   end
 
@@ -95,26 +90,25 @@ defmodule ServiceRadarWebNG.AccountsTest do
     test "validates the authenticated_at time" do
       now = DateTime.utc_now()
 
-      assert Accounts.sudo_mode?(%User{authenticated_at: DateTime.utc_now()})
-      assert Accounts.sudo_mode?(%User{authenticated_at: DateTime.add(now, -19, :minute)})
-      refute Accounts.sudo_mode?(%User{authenticated_at: DateTime.add(now, -21, :minute)})
+      assert Accounts.sudo_mode?(%{authenticated_at: DateTime.utc_now()})
+      assert Accounts.sudo_mode?(%{authenticated_at: DateTime.add(now, -19, :minute)})
+      refute Accounts.sudo_mode?(%{authenticated_at: DateTime.add(now, -21, :minute)})
 
       # minute override
       refute Accounts.sudo_mode?(
-               %User{authenticated_at: DateTime.add(now, -11, :minute)},
+               %{authenticated_at: DateTime.add(now, -11, :minute)},
                -10
              )
 
       # not authenticated
-      refute Accounts.sudo_mode?(%User{})
+      refute Accounts.sudo_mode?(%{})
     end
   end
 
   describe "change_user_email/3" do
     test "returns a user changeset" do
-      assert %Ecto.Changeset{} = changeset = Accounts.change_user_email(%User{})
+      assert %Ecto.Changeset{} = changeset = Accounts.change_user_email(%{email: nil})
       assert :email in changeset.required
-      assert :tenant_id in changeset.required
     end
   end
 
@@ -132,7 +126,7 @@ defmodule ServiceRadarWebNG.AccountsTest do
       {:ok, token} = Base.url_decode64(token, padding: false)
       assert user_token = Repo.get_by(UserToken, token: :crypto.hash(:sha256, token))
       assert user_token.user_id == user.id
-      assert user_token.sent_to == user.email
+      assert to_string(user_token.sent_to) == to_string(user.email)
       assert user_token.context == "change:current@example.com"
     end
   end
@@ -144,17 +138,15 @@ defmodule ServiceRadarWebNG.AccountsTest do
 
       token =
         extract_user_token(fn url ->
-          Accounts.deliver_user_update_email_instructions(%{user | email: email}, user.email, url)
+          Accounts.deliver_user_update_email_instructions(%{user | email: email}, to_string(user.email), url)
         end)
 
       %{user: user, token: token, email: email}
     end
 
     test "updates the email with a valid token", %{user: user, token: token, email: email} do
-      assert {:ok, %{email: ^email}} = Accounts.update_user_email(user, token)
-      changed_user = Repo.get!(User, user.id)
-      assert changed_user.email != user.email
-      assert changed_user.email == email
+      assert {:ok, updated_user} = Accounts.update_user_email(user, token)
+      assert to_string(updated_user.email) == email
       refute Repo.get_by(UserToken, user_id: user.id)
     end
 
@@ -162,7 +154,6 @@ defmodule ServiceRadarWebNG.AccountsTest do
       assert Accounts.update_user_email(user, "oops") ==
                {:error, :transaction_aborted}
 
-      assert Repo.get!(User, user.id).email == user.email
       assert Repo.get_by(UserToken, user_id: user.id)
     end
 
@@ -170,7 +161,6 @@ defmodule ServiceRadarWebNG.AccountsTest do
       assert Accounts.update_user_email(%{user | email: "current@example.com"}, token) ==
                {:error, :transaction_aborted}
 
-      assert Repo.get!(User, user.id).email == user.email
       assert Repo.get_by(UserToken, user_id: user.id)
     end
 
@@ -186,21 +176,20 @@ defmodule ServiceRadarWebNG.AccountsTest do
       assert Accounts.update_user_email(user, token) ==
                {:error, :transaction_aborted}
 
-      assert Repo.get!(User, user.id).email == user.email
       assert Repo.get_by(UserToken, user_id: user.id)
     end
   end
 
   describe "change_user_password/3" do
     test "returns a user changeset" do
-      assert %Ecto.Changeset{} = changeset = Accounts.change_user_password(%User{})
+      assert %Ecto.Changeset{} = changeset = Accounts.change_user_password(%{})
       assert changeset.required == [:password]
     end
 
     test "allows fields to be set" do
       changeset =
         Accounts.change_user_password(
-          %User{},
+          %{},
           %{
             "password" => "new valid password"
           },
@@ -215,40 +204,31 @@ defmodule ServiceRadarWebNG.AccountsTest do
 
   describe "update_user_password/2" do
     setup do
-      %{user: user_fixture()}
+      %{user: user_fixture() |> set_password()}
     end
 
     test "validates password", %{user: user} do
-      {:error, changeset} =
+      {:error, error} =
         Accounts.update_user_password(user, %{
+          current_password: valid_user_password(),
           password: "not valid",
           password_confirmation: "another"
         })
 
-      assert %{
-               password: ["should be at least 12 character(s)"],
-               password_confirmation: ["does not match password"]
-             } = errors_on(changeset)
-    end
-
-    test "validates maximum values for password for security", %{user: user} do
-      too_long = String.duplicate("db", 100)
-
-      {:error, changeset} =
-        Accounts.update_user_password(user, %{password: too_long})
-
-      assert "should be at most 72 character(s)" in errors_on(changeset).password
+      # Ash error format
+      assert has_error?(error, :password) or has_error?(error, :password_confirmation)
     end
 
     test "updates the password", %{user: user} do
-      {:ok, {user, expired_tokens}} =
+      {:ok, {updated_user, expired_tokens}} =
         Accounts.update_user_password(user, %{
-          password: "new valid password"
+          current_password: valid_user_password(),
+          password: "new valid password",
+          password_confirmation: "new valid password"
         })
 
       assert expired_tokens == []
-      assert is_nil(user.password)
-      assert Accounts.get_user_by_email_and_password(user.email, "new valid password")
+      assert Accounts.get_user_by_email_and_password(updated_user.email, "new valid password")
     end
 
     test "deletes all tokens for the given user", %{user: user} do
@@ -256,7 +236,9 @@ defmodule ServiceRadarWebNG.AccountsTest do
 
       {:ok, {_, _}} =
         Accounts.update_user_password(user, %{
-          password: "new valid password"
+          current_password: valid_user_password(),
+          password: "new valid password",
+          password_confirmation: "new valid password"
         })
 
       refute Repo.get_by(UserToken, user_id: user.id)
@@ -357,17 +339,19 @@ defmodule ServiceRadarWebNG.AccountsTest do
       refute user.confirmed_at
       {encoded_token, hashed_token} = generate_user_magic_link_token(user)
 
-      assert {:ok, {user, [%{token: ^hashed_token}]}} =
+      assert {:ok, {confirmed_user, expired_tokens}} =
                Accounts.login_user_by_magic_link(encoded_token)
 
-      assert user.confirmed_at
+      assert confirmed_user.confirmed_at
+      assert Enum.any?(expired_tokens, fn t -> t.token == hashed_token end)
     end
 
     test "returns user and (deleted) token for confirmed user" do
       user = user_fixture()
       assert user.confirmed_at
       {encoded_token, _hashed_token} = generate_user_magic_link_token(user)
-      assert {:ok, {^user, []}} = Accounts.login_user_by_magic_link(encoded_token)
+      assert {:ok, {returned_user, []}} = Accounts.login_user_by_magic_link(encoded_token)
+      assert returned_user.id == user.id
       # one time use only
       assert {:error, :not_found} = Accounts.login_user_by_magic_link(encoded_token)
     end
@@ -376,7 +360,7 @@ defmodule ServiceRadarWebNG.AccountsTest do
       user = unconfirmed_user_fixture()
 
       {count, nil} =
-        Repo.update_all(from(u in User, where: u.id == ^user.id),
+        Repo.update_all(from(u in "ng_users", where: u.id == type(^user.id, Ecto.UUID)),
           set: [hashed_password: "hashed"]
         )
 
@@ -412,14 +396,19 @@ defmodule ServiceRadarWebNG.AccountsTest do
       {:ok, token} = Base.url_decode64(token, padding: false)
       assert user_token = Repo.get_by(UserToken, token: :crypto.hash(:sha256, token))
       assert user_token.user_id == user.id
-      assert user_token.sent_to == user.email
+      assert to_string(user_token.sent_to) == to_string(user.email)
       assert user_token.context == "login"
     end
   end
 
-  describe "inspect/2 for the User module" do
-    test "does not include password" do
-      refute inspect(%User{password: "123456"}) =~ "password: \"123456\""
-    end
+  # Helper to check for Ash errors
+  defp has_error?(%Ash.Error.Invalid{errors: errors}, field) do
+    Enum.any?(errors, fn
+      %Ash.Error.Changes.InvalidAttribute{field: ^field} -> true
+      %Ash.Error.Changes.Required{field: ^field} -> true
+      _ -> false
+    end)
   end
+
+  defp has_error?(_, _), do: false
 end

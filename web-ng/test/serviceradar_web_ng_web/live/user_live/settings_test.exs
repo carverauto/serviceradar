@@ -91,11 +91,13 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
 
   describe "update password form" do
     setup %{conn: conn} do
+      # User registered via magic link - no password initially
+      # The settings form allows setting an initial password
       user = user_fixture()
       %{conn: log_in_user(conn, user), user: user}
     end
 
-    test "updates the user password", %{conn: conn, user: user} do
+    test "sets initial password for magic link user", %{conn: conn, user: user} do
       new_password = valid_user_password()
 
       {:ok, lv, _html} = live(conn, ~p"/users/settings")

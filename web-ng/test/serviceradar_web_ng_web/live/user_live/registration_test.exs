@@ -59,7 +59,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.RegistrationTest do
       result =
         lv
         |> form("#registration_form",
-          user: %{"email" => user.email}
+          user: %{"email" => to_string(user.email)}
         )
         |> render_submit()
 

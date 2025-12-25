@@ -32,7 +32,9 @@ defmodule ServiceRadar.Identity do
   end
 
   authorization do
-    require_actor? true
+    # Don't globally require actor since AshAuthentication hooks may make
+    # internal calls without actor. Authorization is still enforced via policies.
+    require_actor? false
     authorize :by_default
   end
 

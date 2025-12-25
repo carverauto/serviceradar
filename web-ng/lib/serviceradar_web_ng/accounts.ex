@@ -1,12 +1,16 @@
 defmodule ServiceRadarWebNG.Accounts do
   @moduledoc """
   The Accounts context.
+
+  Delegates user operations to ServiceRadar.Identity.Users (Ash-based) while
+  maintaining token management via Ecto for session handling.
   """
 
   import Ecto.Query, warn: false
   alias ServiceRadarWebNG.Repo
 
-  alias ServiceRadarWebNG.Accounts.{User, UserToken, UserNotifier}
+  alias ServiceRadar.Identity.Users, as: AshUsers
+  alias ServiceRadarWebNG.Accounts.{UserToken, UserNotifier}
 
   ## Database getters
 
@@ -23,7 +27,11 @@ defmodule ServiceRadarWebNG.Accounts do
 
   """
   def get_user_by_email(email) when is_binary(email) do
-    Repo.get_by(User, email: email)
+    AshUsers.get_by_email(email)
+  end
+
+  def get_user_by_email(%Ash.CiString{} = email) do
+    get_user_by_email(to_string(email))
   end
 
   @doc """
@@ -40,14 +48,17 @@ defmodule ServiceRadarWebNG.Accounts do
   """
   def get_user_by_email_and_password(email, password)
       when is_binary(email) and is_binary(password) do
-    user = Repo.get_by(User, email: email)
-    if User.valid_password?(user, password), do: user
+    AshUsers.get_by_email_and_password(email, password)
+  end
+
+  def get_user_by_email_and_password(%Ash.CiString{} = email, password) when is_binary(password) do
+    get_user_by_email_and_password(to_string(email), password)
   end
 
   @doc """
   Gets a single user.
 
-  Raises `Ecto.NoResultsError` if the User does not exist.
+  Raises if the User does not exist.
 
   ## Examples
 
@@ -55,10 +66,10 @@ defmodule ServiceRadarWebNG.Accounts do
       %User{}
 
       iex> get_user!(456)
-      ** (Ecto.NoResultsError)
+      ** (RuntimeError)
 
   """
-  def get_user!(id), do: Repo.get!(User, id)
+  def get_user!(id), do: AshUsers.get!(id)
 
   ## User registration
 
@@ -71,13 +82,11 @@ defmodule ServiceRadarWebNG.Accounts do
       {:ok, %User{}}
 
       iex> register_user(%{field: bad_value})
-      {:error, %Ecto.Changeset{}}
+      {:error, %Ash.Error{}}
 
   """
   def register_user(attrs) do
-    %User{}
-    |> User.email_changeset(attrs)
-    |> Repo.insert()
+    AshUsers.register(attrs)
   end
 
   ## Settings
@@ -90,7 +99,7 @@ defmodule ServiceRadarWebNG.Accounts do
   """
   def sudo_mode?(user, minutes \\ -20)
 
-  def sudo_mode?(%User{authenticated_at: ts}, minutes) when is_struct(ts, DateTime) do
+  def sudo_mode?(%{authenticated_at: ts}, minutes) when is_struct(ts, DateTime) do
     DateTime.after?(ts, DateTime.utc_now() |> DateTime.add(minutes, :minute))
   end
 
@@ -99,16 +108,38 @@ defmodule ServiceRadarWebNG.Accounts do
   @doc """
   Returns an `%Ecto.Changeset{}` for changing the user email.
 
-  See `ServiceRadarWebNG.Accounts.User.email_changeset/3` for a list of supported options.
-
-  ## Examples
-
-      iex> change_user_email(user)
-      %Ecto.Changeset{data: %User{}}
-
+  Note: This returns a basic Ecto changeset for form rendering.
+  Actual updates go through Ash.
   """
-  def change_user_email(user, attrs \\ %{}, opts \\ []) do
-    User.email_changeset(user, attrs, opts)
+  def change_user_email(user, attrs \\ %{}, _opts \\ []) do
+    # Get current email as string for comparison
+    current_email = case user do
+      %{email: %Ash.CiString{} = email} -> String.downcase(to_string(email))
+      %{email: email} when is_binary(email) -> String.downcase(email)
+      _ -> nil
+    end
+
+    types = %{email: :string}
+    {user, types}
+    |> Ecto.Changeset.cast(attrs, [:email])
+    |> Ecto.Changeset.validate_required([:email])
+    |> Ecto.Changeset.validate_format(:email, ~r/^[^\s]+@[^\s]+$/, message: "must have the @ sign and no spaces")
+    |> Ecto.Changeset.validate_length(:email, max: 160)
+    |> validate_email_changed(current_email)
+  end
+
+  defp validate_email_changed(changeset, nil), do: changeset
+  defp validate_email_changed(changeset, current_email) do
+    case Ecto.Changeset.get_change(changeset, :email) do
+      nil -> changeset
+      new_email when is_binary(new_email) ->
+        if String.downcase(new_email) == current_email do
+          Ecto.Changeset.add_error(changeset, :email, "did not change")
+        else
+          changeset
+        end
+      _ -> changeset
+    end
   end
 
   @doc """
@@ -117,15 +148,17 @@ defmodule ServiceRadarWebNG.Accounts do
   If the token matches, the user email is updated and the token is deleted.
   """
   def update_user_email(user, token) do
-    context = "change:#{user.email}"
+    # Convert ci_string to string for context matching
+    email_str = to_string(user.email)
+    context = "change:#{email_str}"
 
     Repo.transact(fn ->
       with {:ok, query} <- UserToken.verify_change_email_token_query(token, context),
            %UserToken{sent_to: email} <- Repo.one(query),
-           {:ok, user} <- Repo.update(User.email_changeset(user, %{email: email})),
+           {:ok, updated_user} <- AshUsers.update_email(user, %{email: email}),
            {_count, _result} <-
              Repo.delete_all(from(UserToken, where: [user_id: ^user.id, context: ^context])) do
-        {:ok, user}
+        {:ok, updated_user}
       else
         _ -> {:error, :transaction_aborted}
       end
@@ -135,16 +168,16 @@ defmodule ServiceRadarWebNG.Accounts do
   @doc """
   Returns an `%Ecto.Changeset{}` for changing the user password.
 
-  See `ServiceRadarWebNG.Accounts.User.password_changeset/3` for a list of supported options.
-
-  ## Examples
-
-      iex> change_user_password(user)
-      %Ecto.Changeset{data: %User{}}
-
+  Note: This returns a basic Ecto changeset for form rendering.
+  Actual updates go through Ash.
   """
-  def change_user_password(user, attrs \\ %{}, opts \\ []) do
-    User.password_changeset(user, attrs, opts)
+  def change_user_password(user, attrs \\ %{}, _opts \\ []) do
+    types = %{password: :string, password_confirmation: :string, current_password: :string}
+    {user, types}
+    |> Ecto.Changeset.cast(attrs, [:password, :password_confirmation, :current_password])
+    |> Ecto.Changeset.validate_required([:password])
+    |> Ecto.Changeset.validate_length(:password, min: 12, max: 72)
+    |> Ecto.Changeset.validate_confirmation(:password, message: "does not match password")
   end
 
   @doc """
@@ -154,17 +187,23 @@ defmodule ServiceRadarWebNG.Accounts do
 
   ## Examples
 
-      iex> update_user_password(user, %{password: ...})
+      iex> update_user_password(user, %{password: ..., current_password: ...})
       {:ok, {%User{}, [...]}}
 
       iex> update_user_password(user, %{password: "too short"})
-      {:error, %Ecto.Changeset{}}
+      {:error, %Ash.Error{}}
 
   """
   def update_user_password(user, attrs) do
-    user
-    |> User.password_changeset(attrs)
-    |> update_user_and_delete_all_tokens()
+    Repo.transact(fn ->
+      with {:ok, updated_user} <- AshUsers.update_password(user, attrs) do
+        tokens_to_expire = Repo.all_by(UserToken, user_id: user.id)
+
+        Repo.delete_all(from(t in UserToken, where: t.id in ^Enum.map(tokens_to_expire, & &1.id)))
+
+        {:ok, {updated_user, tokens_to_expire}}
+      end
+    end)
   end
 
   ## Session
@@ -185,7 +224,23 @@ defmodule ServiceRadarWebNG.Accounts do
   """
   def get_user_by_session_token(token) do
     {:ok, query} = UserToken.verify_session_token_query(token)
-    Repo.one(query)
+
+    case Repo.one(query) do
+      {user_data, inserted_at} ->
+        # Re-fetch user from Ash to get proper struct
+        case AshUsers.get(user_data.id) do
+          {:ok, user} ->
+            # Preserve authenticated_at from the token data
+            user = %{user | authenticated_at: user_data.authenticated_at}
+            {user, inserted_at}
+
+          {:error, _} ->
+            nil
+        end
+
+      nil ->
+        nil
+    end
   end
 
   @doc """
@@ -193,8 +248,12 @@ defmodule ServiceRadarWebNG.Accounts do
   """
   def get_user_by_magic_link_token(token) do
     with {:ok, query} <- UserToken.verify_magic_link_token_query(token),
-         {user, _token} <- Repo.one(query) do
-      user
+         {user_data, _token} <- Repo.one(query) do
+      # Re-fetch user from Ash to get proper struct
+      case AshUsers.get(user_data.id) do
+        {:ok, user} -> user
+        {:error, _} -> nil
+      end
     else
       _ -> nil
     end
@@ -215,15 +274,14 @@ defmodule ServiceRadarWebNG.Accounts do
 
   3. The user has not confirmed their email but a password is set.
      This cannot happen in the default implementation but may be the
-     source of security pitfalls. See the "Mixing magic link and password registration" section of
-     `mix help phx.gen.auth`.
+     source of security pitfalls.
   """
   def login_user_by_magic_link(token) do
     {:ok, query} = UserToken.verify_magic_link_token_query(token)
 
     case Repo.one(query) do
       # Prevent session fixation attacks by disallowing magic links for unconfirmed users with password
-      {%User{confirmed_at: nil, hashed_password: hash}, _token} when not is_nil(hash) ->
+      {%{confirmed_at: nil, hashed_password: hash}, _token} when not is_nil(hash) ->
         raise """
         magic link log in is not allowed for unconfirmed users with a password set!
 
@@ -232,14 +290,31 @@ defmodule ServiceRadarWebNG.Accounts do
         "Mixing magic link and password registration" section of `mix help phx.gen.auth`.
         """
 
-      {%User{confirmed_at: nil} = user, _token} ->
-        user
-        |> User.confirm_changeset()
-        |> update_user_and_delete_all_tokens()
+      {%{confirmed_at: nil} = user_data, _token} ->
+        # Fetch and confirm user via Ash
+        case AshUsers.get(user_data.id) do
+          {:ok, user} ->
+            case AshUsers.confirm(user) do
+              {:ok, confirmed_user} ->
+                tokens_to_expire = Repo.all_by(UserToken, user_id: user.id)
+                Repo.delete_all(from(t in UserToken, where: t.id in ^Enum.map(tokens_to_expire, & &1.id)))
+                {:ok, {confirmed_user, tokens_to_expire}}
 
-      {user, token} ->
-        Repo.delete!(token)
-        {:ok, {user, []}}
+              {:error, error} ->
+                {:error, error}
+            end
+
+          {:error, _} ->
+            {:error, :not_found}
+        end
+
+      {user_data, token_record} ->
+        Repo.delete!(token_record)
+        # Fetch user from Ash
+        case AshUsers.get(user_data.id) do
+          {:ok, user} -> {:ok, {user, []}}
+          {:error, _} -> {:error, :not_found}
+        end
 
       nil ->
         {:error, :not_found}
@@ -255,7 +330,7 @@ defmodule ServiceRadarWebNG.Accounts do
       {:ok, %{to: ..., body: ...}}
 
   """
-  def deliver_user_update_email_instructions(%User{} = user, current_email, update_email_url_fun)
+  def deliver_user_update_email_instructions(user, current_email, update_email_url_fun)
       when is_function(update_email_url_fun, 1) do
     {encoded_token, user_token} = UserToken.build_email_token(user, "change:#{current_email}")
 
@@ -266,7 +341,7 @@ defmodule ServiceRadarWebNG.Accounts do
   @doc """
   Delivers the magic link login instructions to the given user.
   """
-  def deliver_login_instructions(%User{} = user, magic_link_url_fun)
+  def deliver_login_instructions(user, magic_link_url_fun)
       when is_function(magic_link_url_fun, 1) do
     {encoded_token, user_token} = UserToken.build_email_token(user, "login")
     Repo.insert!(user_token)
@@ -279,19 +354,5 @@ defmodule ServiceRadarWebNG.Accounts do
   def delete_user_session_token(token) do
     Repo.delete_all(from(UserToken, where: [token: ^token, context: "session"]))
     :ok
-  end
-
-  ## Token helper
-
-  defp update_user_and_delete_all_tokens(changeset) do
-    Repo.transact(fn ->
-      with {:ok, user} <- Repo.update(changeset) do
-        tokens_to_expire = Repo.all_by(UserToken, user_id: user.id)
-
-        Repo.delete_all(from(t in UserToken, where: t.id in ^Enum.map(tokens_to_expire, & &1.id)))
-
-        {:ok, {user, tokens_to_expire}}
-      end
-    end)
   end
 end

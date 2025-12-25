@@ -53,10 +53,19 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
   end
 
   def set_password(user) do
-    {:ok, {user, _expired_tokens}} =
-      Accounts.update_user_password(user, %{password: valid_user_password()})
+    # For users without a password, we set it directly via database update
+    # since the Ash change_password action requires current_password
+    hashed = Bcrypt.hash_pwd_salt(valid_user_password())
 
-    user
+    {1, nil} =
+      ServiceRadarWebNG.Repo.update_all(
+        from(u in "ng_users", where: u.id == type(^user.id, Ecto.UUID)),
+        set: [hashed_password: hashed]
+      )
+
+    # Re-fetch the user from Ash
+    {:ok, updated_user} = ServiceRadar.Identity.Users.get(user.id)
+    updated_user
   end
 
   def extract_user_token(fun) do

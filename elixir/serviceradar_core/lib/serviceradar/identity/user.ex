@@ -64,6 +64,9 @@ defmodule ServiceRadar.Identity.User do
         monitor_fields [:email]
         require_interaction? true
         sender ServiceRadar.Identity.Senders.SendConfirmationEmail
+        # Allow update_email action to change email without re-confirmation
+        # since it uses token-based verification in the Accounts context
+        auto_confirm_actions [:update_email]
       end
     end
   end
@@ -75,6 +78,7 @@ defmodule ServiceRadar.Identity.User do
       allow_nil? false
       public? true
       description "User email address (unique per tenant)"
+      constraints match: ~r/^[^\s]+@[^\s]+$/
     end
 
     attribute :hashed_password, :string do
@@ -99,6 +103,11 @@ defmodule ServiceRadar.Identity.User do
     attribute :confirmed_at, :utc_datetime do
       public? true
       description "When the user confirmed their email"
+    end
+
+    attribute :authenticated_at, :utc_datetime do
+      public? true
+      description "When the user last authenticated (for sudo mode)"
     end
 
     attribute :tenant_id, :uuid do
@@ -132,6 +141,12 @@ defmodule ServiceRadar.Identity.User do
 
   actions do
     defaults [:read]
+
+    create :create do
+      description "Register a new user with email only (magic link flow)"
+      accept [:email, :display_name, :tenant_id, :role]
+      primary? true
+    end
 
     read :by_email do
       argument :email, :ci_string, allow_nil?: false
@@ -184,6 +199,10 @@ defmodule ServiceRadar.Identity.User do
 
     update :update_email do
       accept [:email]
+      require_atomic? false
+      # Mark email as confirmed since this action is called after token-based
+      # verification in the Accounts context
+      change set_attribute(:confirmed_at, &DateTime.utc_now/0)
     end
 
     update :update_role do
@@ -195,7 +214,8 @@ defmodule ServiceRadar.Identity.User do
       require_atomic? false
 
       argument :current_password, :string do
-        allow_nil? false
+        # Allow nil here - the change block handles validation based on whether user has a password
+        allow_nil? true
         sensitive? true
       end
 
@@ -210,20 +230,56 @@ defmodule ServiceRadar.Identity.User do
         sensitive? true
       end
 
-      validate AshAuthentication.Strategy.Password.PasswordConfirmationValidation
+      # Validate password confirmation matches
+      validate fn changeset, _context ->
+        password = Ash.Changeset.get_argument(changeset, :password)
+        confirmation = Ash.Changeset.get_argument(changeset, :password_confirmation)
 
+        if password == confirmation do
+          :ok
+        else
+          {:error, field: :password_confirmation, message: "does not match password"}
+        end
+      end
+
+      # Validate current password is correct
       change fn changeset, _context ->
         current_password = Ash.Changeset.get_argument(changeset, :current_password)
         user = changeset.data
 
-        if Bcrypt.verify_pass(current_password, user.hashed_password) do
-          changeset
-        else
-          Ash.Changeset.add_error(changeset, field: :current_password, message: "is incorrect")
+        cond do
+          # User has no password set - allow password creation without current_password
+          is_nil(user.hashed_password) or user.hashed_password == "" ->
+            if current_password && current_password != "" do
+              Ash.Changeset.add_error(changeset, field: :current_password, message: "you don't have a password set")
+            else
+              changeset
+            end
+
+          # User has password but current_password not provided - require it
+          is_nil(current_password) or current_password == "" ->
+            Ash.Changeset.add_error(changeset, field: :current_password, message: "is required to change password")
+
+          # Verify current password
+          Bcrypt.verify_pass(current_password, user.hashed_password) ->
+            changeset
+
+          true ->
+            Ash.Changeset.add_error(changeset, field: :current_password, message: "is incorrect")
         end
       end
 
-      change AshAuthentication.Strategy.Password.HashPasswordChange
+      # Hash the new password
+      change fn changeset, _context ->
+        password = Ash.Changeset.get_argument(changeset, :password)
+
+        if password do
+          hashed = Bcrypt.hash_pwd_salt(password)
+          Ash.Changeset.force_change_attribute(changeset, :hashed_password, hashed)
+        else
+          changeset
+        end
+      end
     end
   end
 

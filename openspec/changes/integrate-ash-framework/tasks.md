@@ -357,7 +357,7 @@
 - [ ] 12.1.4 Create rollback scripts
 
 ### 12.2 Feature Flag Cleanup
-- [ ] 12.2.1 Remove Ecto-based Accounts context (replaced by Ash)
+- [x] 12.2.1 Remove Ecto-based Accounts context (replaced by Ash)
 - [x] 12.2.2 Migrate Inventory context to use Ash resources (ServiceRadarWebNG.Inventory delegates to ServiceRadar.Inventory.Device)
 - [x] 12.2.3 Migrate Infrastructure context to use Ash resources (ServiceRadarWebNG.Infrastructure delegates to ServiceRadar.Infrastructure.{Poller,Agent})
 - [x] 12.2.4 Remove Ecto-based Edge context (replaced by Ash)
@@ -500,6 +500,6 @@
 - [x] 14.4.1 Add dependency on :serviceradar_core to mix.exs
 - [x] 14.4.2 Remove duplicated code now in shared library
 - [x] 14.4.3 Update imports/aliases for shared modules
-- [x] 14.4.4 Verify all tests pass with shared library (175/200 tests pass, remaining failures are auth test setup issues)
+- [x] 14.4.4 Verify all tests pass with shared library (209 tests pass with Ash Identity integration)
 - [x] 14.4.5 Update Docker build to include shared library
 - [x] 14.4.6 Document web-ng to serviceradar_web transition

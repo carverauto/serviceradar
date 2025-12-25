@@ -2,7 +2,6 @@ defmodule ServiceRadarWebNGWeb.UserLive.Registration do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadarWebNG.Accounts
-  alias ServiceRadarWebNG.Accounts.User
 
   @impl true
   def render(assigns) do
@@ -48,7 +47,8 @@ defmodule ServiceRadarWebNGWeb.UserLive.Registration do
   end
 
   def mount(_params, _session, socket) do
-    changeset = Accounts.change_user_email(%User{}, %{}, validate_unique: false)
+    # Use a simple map for the changeset since we're just collecting email
+    changeset = Accounts.change_user_email(%{email: nil}, %{}, validate_unique: false)
 
     {:ok, assign_form(socket, changeset), temporary_assigns: [form: nil]}
   end
@@ -76,17 +76,51 @@ defmodule ServiceRadarWebNGWeb.UserLive.Registration do
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign_form(socket, changeset)}
+
+      {:error, %Ash.Error.Invalid{} = error} ->
+        # Convert Ash error to form errors
+        changeset =
+          Accounts.change_user_email(%{email: user_params["email"]}, %{})
+          |> add_ash_errors(error)
+          |> Map.put(:action, :insert)
+
+        {:noreply, assign_form(socket, changeset)}
+
+      {:error, _error} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Unable to create account. Please try again.")}
     end
   end
 
   def handle_event("validate", %{"user" => user_params}, socket) do
-    changeset = Accounts.change_user_email(%User{}, user_params, validate_unique: false)
+    changeset = Accounts.change_user_email(%{email: nil}, user_params, validate_unique: false)
     {:noreply, assign_form(socket, Map.put(changeset, :action, :validate))}
   end
 
   defp assign_form(socket, %Ecto.Changeset{} = changeset) do
     form = to_form(changeset, as: "user")
     assign(socket, form: form)
+  end
+
+  defp add_ash_errors(changeset, %Ash.Error.Invalid{errors: errors}) do
+    Enum.reduce(errors, changeset, fn error, cs ->
+      case error do
+        # Handle unique email constraint violations (per-tenant uniqueness reports field as tenant_id)
+        %Ash.Error.Changes.InvalidAttribute{field: field, message: "has already been taken"}
+        when field in [:tenant_id, :email] ->
+          Ecto.Changeset.add_error(cs, :email, "has already been taken")
+
+        %Ash.Error.Changes.InvalidAttribute{field: field, message: message} ->
+          Ecto.Changeset.add_error(cs, field, message)
+
+        %Ash.Error.Changes.Required{field: field} ->
+          Ecto.Changeset.add_error(cs, field, "is required")
+
+        _ ->
+          cs
+      end
+    end)
   end
 
   # Create or get a tenant for the user during registration.

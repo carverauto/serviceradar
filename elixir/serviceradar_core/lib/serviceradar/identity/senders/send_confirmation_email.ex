@@ -11,10 +11,12 @@ defmodule ServiceRadar.Identity.Senders.SendConfirmationEmail do
   @impl true
   def send(user, token, _opts) do
     url = build_confirmation_url(token)
+    email_string = to_string(user.email)
+    display_name = user.display_name || email_string
 
     email =
       new()
-      |> to({user.display_name || user.email, to_string(user.email)})
+      |> to({display_name, email_string})
       |> from({"ServiceRadar", "noreply@serviceradar.cloud"})
       |> subject("Confirm your ServiceRadar email")
       |> html_body("""

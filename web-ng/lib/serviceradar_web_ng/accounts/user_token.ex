@@ -1,5 +1,11 @@
 defmodule ServiceRadarWebNG.Accounts.UserToken do
-  @moduledoc false
+  @moduledoc """
+  Token schema for session and email verification tokens.
+
+  Uses Ecto schema directly for token management, separate from
+  the Ash User resource. This allows for custom token handling
+  while the User operations are handled by Ash.
+  """
 
   use Ecto.Schema
   import Ecto.Query
@@ -14,6 +20,7 @@ defmodule ServiceRadarWebNG.Accounts.UserToken do
   @change_email_validity_in_days 7
   @session_validity_in_days 14
 
+  # Primary key is bigint in database, use default Ecto id
   @foreign_key_type :binary_id
 
   schema "ng_users_tokens" do
@@ -21,7 +28,7 @@ defmodule ServiceRadarWebNG.Accounts.UserToken do
     field :context, :string
     field :sent_to, :string
     field :authenticated_at, :utc_datetime
-    belongs_to :user, ServiceRadarWebNG.Accounts.User
+    field :user_id, Ecto.UUID
 
     timestamps(type: :utc_datetime, updated_at: false)
   end
@@ -47,7 +54,7 @@ defmodule ServiceRadarWebNG.Accounts.UserToken do
   """
   def build_session_token(user) do
     token = :crypto.strong_rand_bytes(@rand_size)
-    dt = user.authenticated_at || DateTime.utc_now(:second)
+    dt = Map.get(user, :authenticated_at) || DateTime.utc_now(:second)
     {token, %UserToken{token: token, context: "session", user_id: user.id, authenticated_at: dt}}
   end
 
@@ -58,13 +65,29 @@ defmodule ServiceRadarWebNG.Accounts.UserToken do
 
   The token is valid if it matches the value in the database and it has
   not expired (after @session_validity_in_days).
+
+  Note: This query joins with ng_users table directly since we need to
+  return user data with the authenticated_at from the token.
   """
   def verify_session_token_query(token) do
     query =
-      from token in by_token_and_context_query(token, "session"),
-        join: user in assoc(token, :user),
-        where: token.inserted_at > ago(@session_validity_in_days, "day"),
-        select: {%{user | authenticated_at: token.authenticated_at}, token.inserted_at}
+      from t in by_token_and_context_query(token, "session"),
+        join: u in "ng_users",
+        on: u.id == t.user_id,
+        where: t.inserted_at > ago(@session_validity_in_days, "day"),
+        select: {
+          %{
+            id: u.id,
+            email: u.email,
+            hashed_password: u.hashed_password,
+            confirmed_at: u.confirmed_at,
+            tenant_id: u.tenant_id,
+            role: u.role,
+            display_name: u.display_name,
+            authenticated_at: t.authenticated_at
+          },
+          t.inserted_at
+        }
 
     {:ok, query}
   end
@@ -90,11 +113,14 @@ defmodule ServiceRadarWebNG.Accounts.UserToken do
     token = :crypto.strong_rand_bytes(@rand_size)
     hashed_token = :crypto.hash(@hash_algorithm, token)
 
+    # Handle both string and atom email types
+    sent_to_string = if is_binary(sent_to), do: sent_to, else: to_string(sent_to)
+
     {Base.url_encode64(token, padding: false),
      %UserToken{
        token: hashed_token,
        context: context,
-       sent_to: sent_to,
+       sent_to: sent_to_string,
        user_id: user.id
      }}
   end
@@ -102,7 +128,7 @@ defmodule ServiceRadarWebNG.Accounts.UserToken do
   @doc """
   Checks if the token is valid and returns its underlying lookup query.
 
-  If found, the query returns a tuple of the form `{user, token}`.
+  If found, the query returns a tuple of the form `{user_data, token}`.
 
   The given token is valid if it matches its hashed counterpart in the
   database. This function also checks if the token is being used within
@@ -114,11 +140,24 @@ defmodule ServiceRadarWebNG.Accounts.UserToken do
         hashed_token = :crypto.hash(@hash_algorithm, decoded_token)
 
         query =
-          from token in by_token_and_context_query(hashed_token, "login"),
-            join: user in assoc(token, :user),
-            where: token.inserted_at > ago(^@magic_link_validity_in_minutes, "minute"),
-            where: token.sent_to == user.email,
-            select: {user, token}
+          from t in by_token_and_context_query(hashed_token, "login"),
+            join: u in "ng_users",
+            on: u.id == t.user_id,
+            where: t.inserted_at > ago(^@magic_link_validity_in_minutes, "minute"),
+            where: t.sent_to == u.email,
+            select: {
+              %{
+                id: u.id,
+                email: u.email,
+                hashed_password: u.hashed_password,
+                confirmed_at: u.confirmed_at,
+                tenant_id: u.tenant_id,
+                role: u.role,
+                display_name: u.display_name,
+                authenticated_at: fragment("NULL::timestamp")
+              },
+              t
+            }
 
         {:ok, query}
 
