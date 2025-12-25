@@ -39,6 +39,9 @@ defmodule ServiceRadar.Application do
         # Horde registries (always started for registration support)
         registry_children(),
 
+        # SPIFFE certificate expiry monitoring
+        cert_monitor_child(),
+
         # Cluster infrastructure (only if clustering is enabled)
         cluster_children()
       ]
@@ -93,6 +96,20 @@ defmodule ServiceRadar.Application do
       ]
     else
       []
+    end
+  end
+
+  defp cert_monitor_child do
+    enabled =
+      case System.get_env("SPIFFE_CERT_MONITOR_ENABLED") do
+        nil -> Application.get_env(:serviceradar_core, :spiffe_cert_monitor_enabled, true)
+        value -> value in ~w(true 1 yes)
+      end
+
+    if enabled and ServiceRadar.SPIFFE.certs_available?() do
+      ServiceRadar.SPIFFE.CertMonitor
+    else
+      nil
     end
   end
 end

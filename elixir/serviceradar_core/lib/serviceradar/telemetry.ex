@@ -244,6 +244,18 @@ defmodule ServiceRadar.Telemetry do
       ),
       counter("serviceradar.spiffe.certificate.rotation.count",
         description: "Number of certificate rotations"
+      ),
+      last_value("serviceradar.spiffe.cert.expires_in.seconds",
+        event_name: [:serviceradar, :spiffe, :cert_expiry],
+        measurement: :seconds_remaining,
+        tags: [:status],
+        description: "Seconds remaining before SPIFFE certificate expiration"
+      ),
+      last_value("serviceradar.spiffe.cert.expires_in.days",
+        event_name: [:serviceradar, :spiffe, :cert_expiry],
+        measurement: :days_remaining,
+        tags: [:status],
+        description: "Days remaining before SPIFFE certificate expiration"
       )
     ]
   end

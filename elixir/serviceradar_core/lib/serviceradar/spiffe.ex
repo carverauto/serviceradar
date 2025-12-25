@@ -225,6 +225,37 @@ defmodule ServiceRadar.SPIFFE do
   end
 
   @doc """
+  Returns SPIFFE certificate expiry information.
+
+  Reads the SVID certificate and returns expiration details.
+  """
+  @spec cert_expiry(keyword()) :: {:ok, map()} | {:error, term()}
+  def cert_expiry(opts \\ []) do
+    cert_dir = Keyword.get(opts, :cert_dir, cert_dir())
+    cert_file = Keyword.get(opts, :cert_file, Path.join(cert_dir, "svid.pem"))
+
+    with {:ok, pem} <- File.read(cert_file),
+         {:ok, der} <- extract_der_cert(pem),
+         {:ok, validity} <- decode_validity(der),
+         {:ok, not_before} <- parse_asn1_time(elem(validity, 1)),
+         {:ok, not_after} <- parse_asn1_time(elem(validity, 2)) do
+      seconds_remaining = DateTime.diff(not_after, DateTime.utc_now(), :second)
+      days_remaining = div(seconds_remaining, 86_400)
+
+      {:ok,
+       %{
+         not_before: not_before,
+         expires_at: not_after,
+         seconds_remaining: seconds_remaining,
+         days_remaining: days_remaining
+       }}
+    else
+      {:error, _} = error -> error
+      error -> {:error, error}
+    end
+  end
+
+  @doc """
   Monitors certificate files for rotation and returns when they change.
 
   This is useful for reloading TLS contexts when SPIRE rotates certificates.
@@ -305,6 +336,84 @@ defmodule ServiceRadar.SPIFFE do
       ssl_dist_opts_filesystem([])
     else
       {:error, {:workload_api_unavailable, socket_path}}
+    end
+  end
+
+  defp extract_der_cert(pem) do
+    pem
+    |> :public_key.pem_decode()
+    |> Enum.find(&match?({:Certificate, _, _}, &1))
+    |> case do
+      {:Certificate, der, _} -> {:ok, der}
+      nil -> {:error, :no_certificate}
+    end
+  end
+
+  defp decode_validity(der) do
+    case :public_key.pkix_decode_cert(der, :otp) do
+      {:OTPCertificate, tbs_certificate, _sig_alg, _sig} when is_tuple(tbs_certificate) ->
+        if tuple_size(tbs_certificate) >= 6 do
+          {:ok, elem(tbs_certificate, 5)}
+        else
+          {:error, {:invalid_certificate, tbs_certificate}}
+        end
+
+      other ->
+        {:error, {:invalid_certificate, other}}
+    end
+  end
+
+  defp parse_asn1_time({:utcTime, time}) do
+    parse_time_string(List.to_string(time), :utc)
+  end
+
+  defp parse_asn1_time({:generalTime, time}) do
+    parse_time_string(List.to_string(time), :general)
+  end
+
+  defp parse_asn1_time(other) do
+    {:error, {:unsupported_time, other}}
+  end
+
+  defp parse_time_string(time_str, :utc) do
+    case time_str do
+      <<yy::binary-size(2), mm::binary-size(2), dd::binary-size(2), hh::binary-size(2),
+        mi::binary-size(2), ss::binary-size(2), "Z">> ->
+        year = normalize_year(String.to_integer(yy))
+        build_datetime(year, mm, dd, hh, mi, ss)
+
+      _ ->
+        {:error, {:invalid_time_format, time_str}}
+    end
+  end
+
+  defp parse_time_string(time_str, :general) do
+    case time_str do
+      <<yyyy::binary-size(4), mm::binary-size(2), dd::binary-size(2), hh::binary-size(2),
+        mi::binary-size(2), ss::binary-size(2), "Z">> ->
+        year = String.to_integer(yyyy)
+        build_datetime(year, mm, dd, hh, mi, ss)
+
+      _ ->
+        {:error, {:invalid_time_format, time_str}}
+    end
+  end
+
+  defp normalize_year(year) when year < 50, do: 2000 + year
+  defp normalize_year(year), do: 1900 + year
+
+  defp build_datetime(year, mm, dd, hh, mi, ss) do
+    with {month, ""} <- Integer.parse(mm),
+         {day, ""} <- Integer.parse(dd),
+         {hour, ""} <- Integer.parse(hh),
+         {minute, ""} <- Integer.parse(mi),
+         {second, ""} <- Integer.parse(ss),
+         {:ok, date} <- Date.new(year, month, day),
+         {:ok, time} <- Time.new(hour, minute, second),
+         {:ok, datetime} <- DateTime.new(date, time, "Etc/UTC") do
+      {:ok, datetime}
+    else
+      _ -> {:error, :invalid_datetime}
     end
   end
 

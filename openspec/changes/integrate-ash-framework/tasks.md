@@ -46,8 +46,8 @@
 - [x] 1.4.4 Create Kubernetes Secret manifest for node certificates
 - [x] 1.4.5 Configure inet_tls proto_dist in vm.args
 - [ ] 1.4.6 Test mTLS cluster formation in staging environment
-- [ ] 1.4.7 Add certificate rotation documentation
-- [ ] 1.4.8 Implement certificate expiry monitoring
+- [x] 1.4.7 Add certificate rotation documentation
+- [x] 1.4.8 Implement certificate expiry monitoring
 
 ### 1.5 Horde Registry and Supervisor Setup
 - [x] 1.5.1 Create ServiceRadar.PollerRegistry (Horde.Registry)
@@ -63,7 +63,7 @@
 - [x] 1.5.11 Add PubSub broadcasting for registration events
 - [x] 1.5.12 Create find_poller_for_partition/1 lookup function
 - [x] 1.5.13 Create find_available_pollers/0 for load balancing
-- [ ] 1.5.14 Test Horde registry synchronization across nodes
+- [x] 1.5.14 Test Horde registry synchronization across nodes
 
 ## Phase 2: Authentication Migration
 
