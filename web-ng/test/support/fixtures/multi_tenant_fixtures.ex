@@ -130,6 +130,69 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   end
 
   @doc """
+  Creates an agent belonging to the given tenant.
+  """
+  def tenant_agent_fixture(tenant, attrs \\ %{}) do
+    unique = System.unique_integer([:positive])
+
+    defaults = %{
+      uid: "agent-#{unique}",
+      name: "Test Agent #{unique}",
+      type_id: 1,
+      type: "sysmon"
+    }
+
+    attrs = Map.merge(defaults, attrs)
+
+    ServiceRadar.Infrastructure.Agent
+    |> Ash.Changeset.for_create(:register_connected, attrs, actor: system_actor(), authorize?: false, tenant: tenant.id)
+    |> Ash.create!()
+  end
+
+  @doc """
+  Creates a service check belonging to the given tenant.
+  """
+  def tenant_service_check_fixture(tenant, attrs \\ %{}) do
+    unique = System.unique_integer([:positive])
+
+    # Note: `enabled` is not in the accept list for :create, defaults to true
+    defaults = %{
+      name: "Test Check #{unique}",
+      check_type: :http,
+      target: "https://example.com",
+      interval_seconds: 60,
+      timeout_seconds: 30
+    }
+
+    attrs = Map.merge(defaults, attrs) |> Map.drop([:enabled])
+
+    ServiceRadar.Monitoring.ServiceCheck
+    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor(), authorize?: false, tenant: tenant.id)
+    |> Ash.create!()
+  end
+
+  @doc """
+  Creates an alert belonging to the given tenant.
+  """
+  def tenant_alert_fixture(tenant, attrs \\ %{}) do
+    unique = System.unique_integer([:positive])
+
+    defaults = %{
+      title: "Test Alert #{unique}",
+      severity: :warning,
+      description: "This is a test alert",
+      source_type: :service_check,
+      source_id: "check-#{unique}"
+    }
+
+    attrs = Map.merge(defaults, attrs)
+
+    ServiceRadar.Monitoring.Alert
+    |> Ash.Changeset.for_create(:trigger, attrs, actor: system_actor(), authorize?: false, tenant: tenant.id)
+    |> Ash.create!()
+  end
+
+  @doc """
   Creates a complete multi-tenant test scenario with two tenants,
   each having a user, admin, and some resources.
 

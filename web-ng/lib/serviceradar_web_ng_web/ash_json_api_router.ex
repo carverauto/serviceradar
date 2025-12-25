@@ -45,5 +45,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
       ServiceRadar.Infrastructure,
       ServiceRadar.Monitoring
     ],
-    open_api: "/open_api"
+    open_api: "/open_api",
+    open_api_title: "ServiceRadar API",
+    open_api_version: "2.0.0"
 end

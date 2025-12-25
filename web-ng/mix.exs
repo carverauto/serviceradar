@@ -83,6 +83,9 @@ defmodule ServiceRadarWebNG.MixProject do
 
       # Note: ash_admin comes from serviceradar_core dependency
 
+      # OpenAPI spec generation for AshJsonApi
+      {:open_api_spex, "~> 3.16"},
+
       # Igniter - code generation and refactoring
       {:igniter, "~> 0.5", only: [:dev, :test]}
     ]
