@@ -8,10 +8,12 @@ defmodule ServiceRadar.AgentRegistry do
 
   ## Registration Format
 
-  Agents register with their agent_id as key and connection metadata:
+  Agents register with a tenant-scoped composite key and connection metadata:
 
-      key = "agent-uuid-1234"
+      key = {tenant_id, partition_id, agent_id}
       metadata = %{
+        tenant_id: "tenant-uuid",
+        partition_id: "partition-1",
         agent_id: "agent-uuid-1234",
         poller_node: :"poller1@192.168.1.20",
         capabilities: [:icmp_sweep, :tcp_sweep, :grpc_checker],
@@ -20,6 +22,19 @@ defmodule ServiceRadar.AgentRegistry do
         connected_at: ~U[2024-01-01 00:00:00Z],
         last_heartbeat: ~U[2024-01-01 00:01:00Z]
       }
+
+  ## Multi-Tenancy
+
+  All lookups are tenant-scoped to ensure isolation:
+
+      # Find all agents for a tenant
+      ServiceRadar.AgentRegistry.find_agents_for_tenant("tenant-uuid")
+
+      # Find agents in a tenant's partition
+      ServiceRadar.AgentRegistry.find_agents_for_partition("tenant-uuid", "partition-1")
+
+  Legacy single-key lookups (by agent_id string) are supported for backwards
+  compatibility but will be deprecated.
   """
 
   use Horde.Registry
@@ -141,6 +156,48 @@ defmodule ServiceRadar.AgentRegistry do
   end
 
   @doc """
+  Find all agents for a specific tenant.
+
+  Uses tenant-scoped lookup to ensure multi-tenant isolation.
+  """
+  @spec find_agents_for_tenant(String.t()) :: [map()]
+  def find_agents_for_tenant(tenant_id) do
+    match_spec = [
+      {{:"$1", :"$2", %{tenant_id: tenant_id}}, [], [{{:"$1", :"$2"}}]}
+    ]
+
+    Horde.Registry.select(__MODULE__, match_spec)
+    |> Enum.map(fn {key, pid} ->
+      case Horde.Registry.lookup(__MODULE__, key) do
+        [{^pid, metadata}] -> Map.put(metadata, :pid, pid)
+        _ -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  @doc """
+  Find all agents for a specific tenant and partition.
+
+  Uses tenant-scoped lookup to ensure multi-tenant isolation.
+  """
+  @spec find_agents_for_partition(String.t(), String.t()) :: [map()]
+  def find_agents_for_partition(tenant_id, partition_id) do
+    match_spec = [
+      {{:"$1", :"$2", %{tenant_id: tenant_id, partition_id: partition_id}}, [], [{{:"$1", :"$2"}}]}
+    ]
+
+    Horde.Registry.select(__MODULE__, match_spec)
+    |> Enum.map(fn {key, pid} ->
+      case Horde.Registry.lookup(__MODULE__, key) do
+        [{^pid, metadata}] -> Map.put(metadata, :pid, pid)
+        _ -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  @doc """
   Find all agents connected to a specific poller node.
   """
   @spec find_agents_for_poller(node()) :: [map()]
@@ -150,7 +207,19 @@ defmodule ServiceRadar.AgentRegistry do
   end
 
   @doc """
-  Find all connected agents across the cluster.
+  Find all agents connected to a specific poller node within a tenant.
+  """
+  @spec find_agents_for_poller(String.t(), node()) :: [map()]
+  def find_agents_for_poller(tenant_id, poller_node) do
+    find_agents_for_tenant(tenant_id)
+    |> Enum.filter(&(&1.poller_node == poller_node))
+  end
+
+  @doc """
+  Find all connected agents across the cluster (all tenants).
+
+  Note: Use tenant-scoped functions for production. This is primarily
+  for admin/debugging purposes.
   """
   @spec all_agents() :: [map()]
   def all_agents do
@@ -161,10 +230,23 @@ defmodule ServiceRadar.AgentRegistry do
   end
 
   @doc """
-  Find agents with specific capabilities.
+  Find agents with specific capabilities within a tenant.
   """
-  @spec find_agents_with_capability(atom()) :: [map()]
-  def find_agents_with_capability(capability) do
+  @spec find_agents_with_capability(String.t(), atom()) :: [map()]
+  def find_agents_with_capability(tenant_id, capability) do
+    find_agents_for_tenant(tenant_id)
+    |> Enum.filter(fn agent ->
+      capability in Map.get(agent, :capabilities, [])
+    end)
+  end
+
+  @doc """
+  Find agents with specific capabilities across all tenants.
+
+  Note: Use tenant-scoped version for production.
+  """
+  @spec find_all_agents_with_capability(atom()) :: [map()]
+  def find_all_agents_with_capability(capability) do
     all_agents()
     |> Enum.filter(fn agent ->
       capability in Map.get(agent, :capabilities, [])

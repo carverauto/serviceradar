@@ -302,7 +302,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
 
       change fn changeset, _context ->
         result = Ash.Changeset.get_argument(changeset, :result)
-        current_failures = Ash.Changeset.get_data(changeset, :consecutive_failures) || 0
+        current_failures = changeset.data.consecutive_failures || 0
 
         new_failures =
           if result in [:success, :warning] do
@@ -332,7 +332,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
         # The actual check execution will be handled by the agent
         # This action just updates the last_check_at timestamp
         # and can trigger notifications to the assigned agent
-        check = Ash.Changeset.get_data(changeset)
+        check = changeset.data
 
         # Log the check execution request
         require Logger

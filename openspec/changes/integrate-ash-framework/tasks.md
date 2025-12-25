@@ -345,20 +345,20 @@
 - [x] 11.2.2 Write tests for all Inventory domain resources (inventory/device_test.exs)
 - [x] 11.2.3 Write tests for all Infrastructure domain resources (infrastructure/poller_test.exs, agent_test.exs, partition_test.exs)
 - [x] 11.2.4 Write tests for all Monitoring domain resources (monitoring/alert_test.exs, service_check_test.exs, event_test.exs)
-- [ ] 11.2.5 Write tests for AshOban jobs (OnboardingPackage expire trigger, PollingSchedule execute)
+- [x] 11.2.5 Write tests for AshOban jobs (OnboardingPackage expire trigger, PollingSchedule execute, ServiceCheck execute, Alert auto_escalate/send_notifications)
 - [x] 11.2.6 Write tests for state machine transitions (covered in alert_test.exs, agent_test.exs, onboarding_package_test.exs)
 - [ ] 11.2.7 Write API integration tests (partial - property tests exist, need integration coverage)
-- [ ] 11.2.8 Write SRQL adapter tests (need Ash-specific adapter tests)
+- [x] 11.2.8 Write SRQL adapter tests (47 tests for entity routing, filter ops, sort, tenant isolation)
 - [x] 11.2.9 Write multi-tenant isolation tests
 - [x] 11.2.10 Write policy enforcement tests
 
 ### 11.3 Documentation
-- [ ] 11.3.1 Document domain architecture
-- [ ] 11.3.2 Document authentication flows
-- [ ] 11.3.3 Document authorization policies
-- [ ] 11.3.4 Document API endpoints
-- [ ] 11.3.5 Update AGENTS.md with Ash patterns
-- [ ] 11.3.6 Create migration guide for existing deployments
+- [x] 11.3.1 Document domain architecture (docs/docs/ash-domains.md)
+- [x] 11.3.2 Document authentication flows (docs/docs/ash-authentication.md)
+- [x] 11.3.3 Document authorization policies (docs/docs/ash-authorization.md)
+- [x] 11.3.4 Document API endpoints (docs/docs/ash-api.md)
+- [x] 11.3.5 Update AGENTS.md with Ash patterns (web-ng/AGENTS.md)
+- [x] 11.3.6 Create migration guide for existing deployments (docs/docs/ash-migration-guide.md)
 
 ## Phase 12: Migration & Cleanup
 
@@ -373,7 +373,7 @@
 - [x] 12.2.2 Migrate Inventory context to use Ash resources (ServiceRadarWebNG.Inventory delegates to ServiceRadar.Inventory.Device)
 - [x] 12.2.3 Migrate Infrastructure context to use Ash resources (ServiceRadarWebNG.Infrastructure delegates to ServiceRadar.Infrastructure.{Poller,Agent})
 - [x] 12.2.4 Remove Ecto-based Edge context (replaced by Ash)
-- [ ] 12.2.5 Remove custom Jobs.Scheduler (replaced by AshOban)
+- [x] 12.2.5 Remove custom Jobs.Scheduler (replaced by AshOban + Oban.Plugins.Cron)
 - [ ] 12.2.6 Remove feature flags once stable
 - [ ] 12.2.7 Update all imports and aliases
 
@@ -432,9 +432,9 @@
 - [ ] 13.4.8 Add mesh VPN connectivity health check
 
 ### 13.5 Partition Namespacing
-- [ ] 13.5.1 Update all Horde registrations to use `{partition_id, resource_id}` keys
-- [ ] 13.5.2 Update AgentRegistry to support partition-scoped lookups
-- [ ] 13.5.3 Update PollerRegistry to support partition-scoped lookups
+- [x] 13.5.1 Update all Horde registrations to use `{tenant_id, partition_id, resource_id}` keys (tenant-scoped)
+- [x] 13.5.2 Update AgentRegistry to support tenant-scoped lookups (find_agents_for_tenant, find_agents_for_partition)
+- [x] 13.5.3 Update PollerRegistry to support tenant-scoped lookups (find_pollers_for_tenant, find_available_pollers)
 - [ ] 13.5.4 Create partition context plug for web requests
 - [ ] 13.5.5 Implement partition validation in Ash policies
 - [ ] 13.5.6 Update SRQL adapter for partition-aware queries

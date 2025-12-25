@@ -389,7 +389,7 @@ defmodule ServiceRadar.Monitoring.Alert do
       change set_attribute(:escalated_at, &DateTime.utc_now/0)
       change set_attribute(:escalation_reason, arg(:reason))
       change fn changeset, _context ->
-        current_level = Ash.Changeset.get_data(changeset, :escalation_level) || 0
+        current_level = changeset.data.escalation_level || 0
         Ash.Changeset.change_attribute(changeset, :escalation_level, current_level + 1)
       end
     end
@@ -417,7 +417,7 @@ defmodule ServiceRadar.Monitoring.Alert do
       require_atomic? false
 
       change fn changeset, _context ->
-        current_count = Ash.Changeset.get_data(changeset, :notification_count) || 0
+        current_count = changeset.data.notification_count || 0
 
         changeset
         |> Ash.Changeset.change_attribute(:notification_count, current_count + 1)
@@ -430,7 +430,7 @@ defmodule ServiceRadar.Monitoring.Alert do
       require_atomic? false
 
       change fn changeset, _context ->
-        alert = Ash.Changeset.get_data(changeset)
+        alert = changeset.data
         current_count = alert.notification_count || 0
 
         # Log the notification being sent

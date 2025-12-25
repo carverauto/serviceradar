@@ -212,7 +212,7 @@ defmodule ServiceRadar.Identity.ApiToken do
         |> Ash.Changeset.change_attribute(:last_used_at, DateTime.utc_now())
         |> Ash.Changeset.change_attribute(
           :use_count,
-          (Ash.Changeset.get_data(changeset, :use_count) || 0) + 1
+          (changeset.data.use_count || 0) + 1
         )
       end
     end

@@ -3,15 +3,16 @@ defmodule ServiceRadar.PollerRegistry do
   Distributed registry for tracking available pollers across the ERTS cluster.
 
   Uses Horde.Registry with CRDT-based synchronization for eventually consistent
-  poller discovery. Pollers register with metadata including partition, domain,
-  capabilities, and availability status.
+  poller discovery. Pollers register with metadata including tenant, partition,
+  domain, capabilities, and availability status.
 
   ## Registration Format
 
-  Pollers register with a composite key and metadata:
+  Pollers register with a tenant-scoped composite key and metadata:
 
-      key = {partition_id, node()}
+      key = {tenant_id, partition_id, node()}
       metadata = %{
+        tenant_id: "tenant-uuid",
         partition_id: "partition-1",
         domain: "site-a",
         capabilities: [:snmp, :grpc, :sweep],
@@ -21,13 +22,23 @@ defmodule ServiceRadar.PollerRegistry do
         last_heartbeat: ~U[2024-01-01 00:01:00Z]
       }
 
+  ## Multi-Tenancy
+
+  All lookups are tenant-scoped to ensure isolation:
+
+      # Find all pollers for a tenant's partition
+      ServiceRadar.PollerRegistry.find_pollers_for_partition(tenant_id, partition_id)
+
+      # Find available pollers for a tenant
+      ServiceRadar.PollerRegistry.find_available_pollers(tenant_id)
+
   ## Querying Pollers
 
-      # Find all pollers for a partition
-      ServiceRadar.PollerRegistry.find_pollers_for_partition("partition-1")
+      # Find all pollers for a partition (requires tenant_id)
+      ServiceRadar.PollerRegistry.find_pollers_for_partition("tenant-uuid", "partition-1")
 
-      # Find available pollers
-      ServiceRadar.PollerRegistry.find_available_pollers()
+      # Find available pollers for a tenant
+      ServiceRadar.PollerRegistry.find_available_pollers("tenant-uuid")
   """
 
   use Horde.Registry
@@ -81,12 +92,14 @@ defmodule ServiceRadar.PollerRegistry do
   end
 
   @doc """
-  Find all pollers for a specific partition.
+  Find all pollers for a specific tenant and partition.
+
+  Uses tenant-scoped lookup to ensure multi-tenant isolation.
   """
-  @spec find_pollers_for_partition(String.t()) :: [map()]
-  def find_pollers_for_partition(partition_id) do
+  @spec find_pollers_for_partition(String.t(), String.t()) :: [map()]
+  def find_pollers_for_partition(tenant_id, partition_id) do
     match_spec = [
-      {{:"$1", :"$2", %{partition_id: partition_id}}, [], [{{:"$1", :"$2"}}]}
+      {{:"$1", :"$2", %{tenant_id: tenant_id, partition_id: partition_id}}, [], [{{:"$1", :"$2"}}]}
     ]
 
     Horde.Registry.select(__MODULE__, match_spec)
@@ -100,13 +113,32 @@ defmodule ServiceRadar.PollerRegistry do
   end
 
   @doc """
-  Find an available poller for a partition.
+  Find all pollers for a specific tenant.
+  """
+  @spec find_pollers_for_tenant(String.t()) :: [map()]
+  def find_pollers_for_tenant(tenant_id) do
+    match_spec = [
+      {{:"$1", :"$2", %{tenant_id: tenant_id}}, [], [{{:"$1", :"$2"}}]}
+    ]
+
+    Horde.Registry.select(__MODULE__, match_spec)
+    |> Enum.map(fn {key, pid} ->
+      case Horde.Registry.lookup(__MODULE__, key) do
+        [{^pid, metadata}] -> Map.put(metadata, :pid, pid)
+        _ -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  @doc """
+  Find an available poller for a tenant's partition.
 
   Returns `{:ok, metadata}` if found, `{:error, :no_available_poller}` otherwise.
   """
-  @spec find_available_poller_for_partition(String.t()) :: {:ok, map()} | {:error, :no_available_poller}
-  def find_available_poller_for_partition(partition_id) do
-    pollers = find_pollers_for_partition(partition_id)
+  @spec find_available_poller_for_partition(String.t(), String.t()) :: {:ok, map()} | {:error, :no_available_poller}
+  def find_available_poller_for_partition(tenant_id, partition_id) do
+    pollers = find_pollers_for_partition(tenant_id, partition_id)
 
     case Enum.find(pollers, &(&1.status == :available)) do
       nil -> {:error, :no_available_poller}
@@ -115,10 +147,22 @@ defmodule ServiceRadar.PollerRegistry do
   end
 
   @doc """
-  Find all available pollers across the cluster.
+  Find all available pollers for a tenant.
   """
-  @spec find_available_pollers() :: [map()]
-  def find_available_pollers do
+  @spec find_available_pollers(String.t()) :: [map()]
+  def find_available_pollers(tenant_id) do
+    find_pollers_for_tenant(tenant_id)
+    |> Enum.filter(&(&1.status == :available))
+  end
+
+  @doc """
+  Find all available pollers across the cluster (all tenants).
+
+  Note: Use tenant-scoped functions for production. This is primarily
+  for admin/debugging purposes.
+  """
+  @spec find_all_available_pollers() :: [map()]
+  def find_all_available_pollers do
     # Get all registered pollers
     Horde.Registry.select(__MODULE__, [{{:"$1", :"$2", :"$3"}, [], [{{:"$1", :"$2", :"$3"}}]}])
     |> Enum.map(fn {key, pid, metadata} ->

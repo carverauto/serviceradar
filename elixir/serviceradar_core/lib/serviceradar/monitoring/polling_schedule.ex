@@ -306,7 +306,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
       require_atomic? false
 
       change fn changeset, _context ->
-        schedule = Ash.Changeset.get_data(changeset)
+        schedule = changeset.data
         execution_count = schedule.execution_count || 0
 
         require Logger
@@ -339,7 +339,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
       change fn changeset, _context ->
         result = Ash.Changeset.get_argument(changeset, :result)
-        current_failures = Ash.Changeset.get_data(changeset, :consecutive_failures) || 0
+        current_failures = changeset.data.consecutive_failures || 0
 
         new_failures =
           if result in [:success, :partial] do
@@ -387,7 +387,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
       require_atomic? false
 
       change fn changeset, _context ->
-        schedule = Ash.Changeset.get_data(changeset)
+        schedule = changeset.data
 
         require Logger
         Logger.info("Manually triggering polling schedule: #{schedule.name} (#{schedule.id})")

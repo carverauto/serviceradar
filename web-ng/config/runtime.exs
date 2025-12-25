@@ -128,9 +128,7 @@ if config_env() != :test do
       password: admin_password
   end
 
-  oban_poll_interval_ms =
-    System.get_env("OBAN_SCHEDULER_POLL_INTERVAL_MS", "30000") |> String.to_integer()
-
+  # Oban queue limits (plugins are configured in config.exs via Oban.Plugins.Cron)
   oban_default_queue_limit =
     System.get_env("OBAN_DEFAULT_QUEUE_LIMIT", "10") |> String.to_integer()
 
@@ -140,7 +138,6 @@ if config_env() != :test do
   oban_node = System.get_env("OBAN_NODE")
 
   oban_config = [
-    plugins: [{ServiceRadarWebNG.Jobs.Scheduler, poll_interval_ms: oban_poll_interval_ms}],
     queues: [
       default: oban_default_queue_limit,
       maintenance: oban_maintenance_queue_limit

@@ -55,7 +55,7 @@ Define Ash domains and resources for ServiceRadar's core entities:
 - **Pipeline topologies**:
   - **Metrics pipeline**: Agent telemetry → NATS JetStream → Broadway → TimescaleDB
   - **Events pipeline**: Poller events → NATS JetStream → Broadway → PostgreSQL (Ash resources)
-  - **Logs pipeline**: Syslog/flow data → NATS JetStream → Broadway → ClickHouse/QuestDB
+  - **Logs pipeline**: Syslog/flow data → NATS JetStream → Broadway → TimescaleDB (with pg_bm25 for full-text search)
 - **Batching strategies**: Configure batch sizes and timeouts per data type for optimal throughput
 - **Acknowledgement**: Use JetStream's exactly-once delivery semantics with Broadway acknowledgements
 - **Partition awareness**: Route messages to correct partition-scoped Broadway pipelines
@@ -236,9 +236,10 @@ Run `:observer.start()` to visualize processes across the entire distributed clu
 ### Overlapping IP Space Resolution
 
 Horde uses **node names**, not IP addresses:
-- `poller_a@100.64.0.5` handles Partition 1
-- `poller_b@100.64.0.6` handles Partition 2
-- Both can have devices at `10.0.0.1`; Horde routes via `{partition_id, device_id}` tuple
+- `poller_a@100.64.0.5` handles Partition 1 for Tenant A
+- `poller_b@100.64.0.6` handles Partition 2 for Tenant B
+- Both can have devices at `10.0.0.1`; Horde routes via `{tenant_id, partition_id, device_id}` tuple
+- All registry lookups are tenant-scoped to ensure multi-tenant isolation
 
 ### SPIFFE-Aware Ash Policies
 
@@ -279,8 +280,8 @@ Broadway provides a multi-stage data processing pipeline with built-in back-pres
 │         │                │                │                │                │
 │         ▼                ▼                ▼                ▼                │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │TimescaleDB  │  │Ash Resources│  │ClickHouse/  │  │Device       │        │
-│  │Metrics      │  │PostgreSQL   │  │QuestDB      │  │Inventory    │        │
+│  │TimescaleDB  │  │Ash Resources│  │TimescaleDB  │  │Device       │        │
+│  │Metrics      │  │PostgreSQL   │  │Logs+pg_bm25 │  │Inventory    │        │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘        │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -405,7 +406,7 @@ elixir/
 The shared library includes:
 - **Cluster helpers**: ssl_dist configuration, libcluster strategies
 - **SPIFFE helpers**: Certificate loading, identity verification
-- **Registry helpers**: `{partition_id, device_id}` tuple registration
+- **Registry helpers**: `{tenant_id, partition_id, resource_id}` tuple registration for tenant isolation
 - **Telemetry**: Common metric definitions
 
 ## References

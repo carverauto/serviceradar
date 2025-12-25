@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   alias ServiceRadar.Identity.{Tenant, User, ApiToken}
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Infrastructure.{Poller, Agent, Checker, Partition}
-  alias ServiceRadar.Monitoring.{Alert, Event, ServiceCheck}
+  alias ServiceRadar.Monitoring.{Alert, Event, ServiceCheck, PollingSchedule}
   alias ServiceRadar.Edge.OnboardingPackage
 
   @doc """
@@ -473,6 +473,35 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     Event
     |> Ash.Changeset.for_create(:record, attrs,
+      actor: system_actor(),
+      authorize?: false,
+      tenant: tenant_id
+    )
+    |> Ash.create!()
+  end
+
+  @doc """
+  Creates a polling schedule belonging to the given tenant.
+  """
+  def polling_schedule_fixture(tenant, attrs \\ %{})
+
+  def polling_schedule_fixture(%Tenant{} = tenant, attrs) do
+    polling_schedule_fixture(tenant.id, attrs)
+  end
+
+  def polling_schedule_fixture(tenant_id, attrs) when is_binary(tenant_id) do
+    unique = System.unique_integer([:positive])
+
+    defaults = %{
+      name: "Polling Schedule #{unique}",
+      schedule_type: :interval,
+      interval_seconds: 60
+    }
+
+    attrs = Map.merge(defaults, Map.new(attrs))
+
+    PollingSchedule
+    |> Ash.Changeset.for_create(:create, attrs,
       actor: system_actor(),
       authorize?: false,
       tenant: tenant_id

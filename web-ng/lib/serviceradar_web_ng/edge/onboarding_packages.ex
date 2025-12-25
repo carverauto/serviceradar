@@ -36,11 +36,12 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
       [%OnboardingPackage{}, ...]
 
   """
-  @spec list(filter()) :: [OnboardingPackage.t()]
-  def list(filters \\ %{}) do
+  @spec list(filter(), keyword()) :: [OnboardingPackage.t()]
+  def list(filters \\ %{}, opts \\ []) do
     # Convert string statuses to atoms if present
     filters = normalize_filters(filters)
-    opts = [actor: system_actor(), authorize?: false]
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+    opts = [actor: system_actor(), authorize?: false, tenant: tenant]
 
     AshPackages.list!(filters, opts)
   end
@@ -50,20 +51,24 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   Returns `{:ok, package}` or `{:error, :not_found}`.
   """
-  @spec get(String.t()) :: {:ok, OnboardingPackage.t()} | {:error, :not_found}
-  def get(id) when is_binary(id) do
-    opts = [actor: system_actor(), authorize?: false]
+  @spec get(String.t(), keyword()) :: {:ok, OnboardingPackage.t()} | {:error, :not_found}
+  def get(id, opts \\ [])
+
+  def get(id, opts) when is_binary(id) do
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+    opts = [actor: system_actor(), authorize?: false, tenant: tenant]
     AshPackages.get(id, opts)
   end
 
-  def get(_), do: {:error, :not_found}
+  def get(_, _opts), do: {:error, :not_found}
 
   @doc """
   Gets a single package by ID, raising if not found.
   """
-  @spec get!(String.t()) :: OnboardingPackage.t()
-  def get!(id) do
-    opts = [actor: system_actor(), authorize?: false]
+  @spec get!(String.t(), keyword()) :: OnboardingPackage.t()
+  def get!(id, opts \\ []) do
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+    opts = [actor: system_actor(), authorize?: false, tenant: tenant]
     AshPackages.get!(id, opts)
   end
 
@@ -88,7 +93,11 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
           | {:error, Ash.Error.t()}
   def create(attrs, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    opts_with_actor = opts |> Keyword.put(:actor, actor || system_actor()) |> Keyword.put(:authorize?, false)
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+    opts_with_actor = opts
+      |> Keyword.put(:actor, actor || system_actor())
+      |> Keyword.put(:authorize?, false)
+      |> Keyword.put(:tenant, tenant)
     AshPackages.create(attrs, opts_with_actor)
   end
 
@@ -112,7 +121,11 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
           | {:error, atom()}
   def deliver(package_id, download_token, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    opts_with_actor = opts |> Keyword.put(:actor, actor || system_actor()) |> Keyword.put(:authorize?, false)
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+    opts_with_actor = opts
+      |> Keyword.put(:actor, actor || system_actor())
+      |> Keyword.put(:authorize?, false)
+      |> Keyword.put(:tenant, tenant)
     AshPackages.deliver(package_id, download_token, opts_with_actor)
   end
 
@@ -122,7 +135,11 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   @spec revoke(String.t(), keyword()) :: {:ok, OnboardingPackage.t()} | {:error, atom()}
   def revoke(package_id, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    opts_with_actor = opts |> Keyword.put(:actor, actor || system_actor()) |> Keyword.put(:authorize?, false)
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+    opts_with_actor = opts
+      |> Keyword.put(:actor, actor || system_actor())
+      |> Keyword.put(:authorize?, false)
+      |> Keyword.put(:tenant, tenant)
     AshPackages.revoke(package_id, opts_with_actor)
   end
 
@@ -132,7 +149,11 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   @spec delete(String.t(), keyword()) :: {:ok, OnboardingPackage.t()} | {:error, atom()}
   def delete(package_id, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    opts_with_actor = opts |> Keyword.put(:actor, actor || system_actor()) |> Keyword.put(:authorize?, false)
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+    opts_with_actor = opts
+      |> Keyword.put(:actor, actor || system_actor())
+      |> Keyword.put(:authorize?, false)
+      |> Keyword.put(:tenant, tenant)
     AshPackages.delete(package_id, opts_with_actor)
   end
 
@@ -184,5 +205,14 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
       email: "system@serviceradar.local",
       role: :super_admin
     }
+  end
+
+  defp default_tenant do
+    # Default tenant ID for backwards compatibility
+    # Uses the test tenant ID in test, system tenant in production
+    case Application.get_env(:serviceradar_web_ng, :env) do
+      :test -> "00000000-0000-0000-0000-000000000099"
+      _ -> "00000000-0000-0000-0000-000000000000"
+    end
   end
 end
