@@ -286,6 +286,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     defaults = %{
       name: "Partition #{unique}",
+      slug: "partition-#{unique}",
       description: "Test partition #{unique}",
       cidr_ranges: ["10.#{rem(unique, 256)}.0.0/16"]
     }
@@ -366,7 +367,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     defaults = %{
       name: "Checker #{unique}",
-      checker_type: :grpc,
+      type: "grpc",
       config: %{},
       agent_uid: agent.uid
     }
@@ -432,13 +433,13 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
       title: "Test Alert #{unique}",
       severity: :warning,
       source_type: :device,
-      message: "This is a test alert #{unique}"
+      description: "This is a test alert #{unique}"
     }
 
     attrs = Map.merge(defaults, Map.new(attrs))
 
     Alert
-    |> Ash.Changeset.for_create(:create, attrs,
+    |> Ash.Changeset.for_create(:trigger, attrs,
       actor: system_actor(),
       authorize?: false,
       tenant: tenant_id
@@ -459,10 +460,13 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     unique = System.unique_integer([:positive])
 
     defaults = %{
-      event_type: :info,
-      severity: :info,
-      source: "test",
-      message: "Test event #{unique}"
+      category: :system,
+      event_type: "system.test.#{unique}",
+      severity: 1,  # 1 = Info
+      message: "Test event #{unique}",
+      source_type: :system,
+      source_id: "test",
+      source_name: "Test System"
     }
 
     attrs = Map.merge(defaults, Map.new(attrs))
@@ -493,8 +497,12 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     unique = System.unique_integer([:positive])
 
     defaults = %{
-      target_poller_id: "poller-#{unique}",
-      package_type: :full
+      label: "Onboarding Package #{unique}",
+      component_id: "component-#{unique}",
+      component_type: :poller,
+      poller_id: "poller-#{unique}",
+      site: "site-#{unique}",
+      security_mode: :spire
     }
 
     attrs = Map.merge(defaults, Map.new(attrs))
@@ -583,8 +591,8 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     checkers =
       Enum.flat_map(agents, fn agent ->
         [
-          checker_fixture(agent, %{checker_type: :grpc}),
-          checker_fixture(agent, %{checker_type: :snmp})
+          checker_fixture(agent, %{type: "grpc"}),
+          checker_fixture(agent, %{type: "snmp"})
         ]
       end)
 

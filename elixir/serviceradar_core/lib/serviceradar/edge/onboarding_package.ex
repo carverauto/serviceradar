@@ -32,6 +32,12 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     repo ServiceRadar.Repo
   end
 
+  multitenancy do
+    strategy :attribute
+    attribute :tenant_id
+    global? true
+  end
+
   oban do
     triggers do
       # Scheduled trigger for expiring packages with expired tokens
@@ -227,6 +233,13 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     attribute :notes, :string do
       public? true
       description "Admin notes"
+    end
+
+    # Multi-tenancy
+    attribute :tenant_id, :uuid do
+      allow_nil? false
+      public? false
+      description "Tenant this package belongs to"
     end
 
     create_timestamp :created_at
