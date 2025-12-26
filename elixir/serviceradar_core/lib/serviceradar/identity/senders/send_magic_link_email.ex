@@ -13,9 +13,12 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
     # Build the magic link URL
     url = build_magic_link_url(token)
 
+    email_string = to_string(user.email)
+    display_name = user.display_name || email_string
+
     email =
       new()
-      |> to({user.display_name || user.email, to_string(user.email)})
+      |> to({display_name, email_string})
       |> from({"ServiceRadar", "noreply@serviceradar.cloud"})
       |> subject("Sign in to ServiceRadar")
       |> html_body("""

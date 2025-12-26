@@ -21,7 +21,7 @@ defmodule ServiceRadarWebNG.MixProject do
   def application do
     [
       mod: {ServiceRadarWebNG.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :runtime_tools, :swoosh, :telemetry]
     ]
   end
 
