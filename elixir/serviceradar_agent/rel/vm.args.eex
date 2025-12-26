@@ -32,7 +32,6 @@
 
 ## Carrier pool settings for reduced fragmentation
 +MBacul 0
-+MBscl false
 
 ## =============================================================================
 ## Crash Dump Location

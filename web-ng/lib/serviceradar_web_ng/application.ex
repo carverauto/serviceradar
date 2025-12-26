@@ -5,8 +5,13 @@ defmodule ServiceRadarWebNG.Application do
 
   use Application
 
+  # Ensure the atom exists before AshAuthentication LiveSessions attempt to use it.
+  @current_user_atom :current_user
+
   @impl true
   def start(_type, _args) do
+    _ = @current_user_atom
+
     children = [
       # Web telemetry
       ServiceRadarWebNGWeb.Telemetry,

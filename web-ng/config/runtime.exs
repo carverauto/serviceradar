@@ -28,6 +28,8 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
 cluster_strategy = System.get_env("CLUSTER_STRATEGY", "epmd")
 cluster_enabled = System.get_env("CLUSTER_ENABLED", "false") in ~w(true 1 yes)
 
+config :serviceradar_core, cluster_enabled: cluster_enabled
+
 if cluster_enabled do
   topologies =
     case cluster_strategy do

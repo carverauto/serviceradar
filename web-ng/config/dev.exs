@@ -158,6 +158,9 @@ config :phoenix_live_view,
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
 
+# Configure ServiceRadar.Mailer (used by AshAuthentication in serviceradar_core)
+config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
+
 # API authentication for CLI tools
 # In production, use proper secrets management
 config :serviceradar_web_ng, :api_auth,

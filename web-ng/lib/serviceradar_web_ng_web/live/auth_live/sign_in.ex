@@ -42,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
         live_action={@live_action}
         path={~p"/users/log-in"}
         register_path={~p"/users/register"}
+        auth_routes_prefix="/auth"
         overrides={[ServiceRadarWebNGWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default]}
       />
     </div>

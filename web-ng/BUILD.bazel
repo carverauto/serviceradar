@@ -65,12 +65,14 @@ mix_release(
     out = "serviceradar-web-ng-release.tar.gz",
     src_dir = "web-ng",
     extra_dirs = [
+        "elixir/serviceradar_core",
         "proto",
         "rust/srql",
         "rust/kvutil",
         "elixir/datasvc",
     ],
     extra_dir_srcs = [
+        "//elixir/serviceradar_core:srcs",
         "//proto:kv_proto_src",
         "//rust/srql:srcs",
         "//rust/kvutil:srcs",

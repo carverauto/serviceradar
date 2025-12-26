@@ -92,7 +92,8 @@ defmodule ServiceRadar.Application do
     if Application.get_env(:serviceradar_core, :cluster_enabled, false) do
       [
         # Cluster supervisor manages libcluster + Horde
-        ServiceRadar.ClusterSupervisor
+        ServiceRadar.ClusterSupervisor,
+        ServiceRadar.ClusterHealth
       ]
     else
       []

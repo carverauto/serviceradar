@@ -45,7 +45,7 @@
 - [x] 1.4.3 Document certificate generation process (CA + node certs)
 - [x] 1.4.4 Create Kubernetes Secret manifest for node certificates
 - [x] 1.4.5 Configure inet_tls proto_dist in vm.args
-- [ ] 1.4.6 Test mTLS cluster formation in staging environment
+- [x] 1.4.6 Test mTLS cluster formation in staging environment
 - [x] 1.4.7 Add certificate rotation documentation
 - [x] 1.4.8 Implement certificate expiry monitoring
 
