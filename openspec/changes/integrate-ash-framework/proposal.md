@@ -99,6 +99,17 @@ Define Ash domains and resources for ServiceRadar's core entities:
 4. **API versioning**: `/api/v2/` for Ash-powered endpoints while `/api/` continues working
 5. **Gradual rollout**: Domain-by-domain migration with comprehensive test coverage
 
+## Progress Update (2025-12-26)
+- Docker compose stack runs elixir `web-ng`, `poller-elx`, and `agent-elx` services with mTLS; legacy Go services remain gated behind the `legacy` profile.
+- Bazel remote builds for Elixir releases are working with an offline Hex registry cache (`build/hex_cache.tar.gz`) and updated mix_release handling.
+- AshAuthentication routes are active in `web-ng` and the magic link request flow now delivers to `/dev/mailbox`.
+- Mailer fixes: convert `Ash.CiString` emails to strings in magic link and password reset senders; ensure `:swoosh` and `:telemetry` are started as extra applications.
+- Compose runtime includes `ELIXIR_ERL_OPTIONS=+fnu` for elixir services to avoid latin1 locale warnings.
+
+## Open Questions / Next Steps
+- Do we want a standalone `core-elx` service, and if so, what responsibilities replace the legacy Go `core`?
+- Should legacy services be removed entirely from `docker-compose.yml`, or kept as an opt-in profile for back-compat testing?
+
 ## Dependencies
 
 ### New Dependencies
