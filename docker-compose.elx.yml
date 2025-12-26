@@ -6,7 +6,7 @@ services:
     environment:
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_poller@poller-elx,serviceradar_agent@agent-elx
+      - CLUSTER_HOSTS=serviceradar_poller@poller-elx,serviceradar_agent@agent-elx,serviceradar_core@core-elx
       - CLUSTER_TLS_ENABLED=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - RELEASE_NODE=serviceradar_web_ng@web-ng
@@ -23,7 +23,7 @@ services:
     environment:
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_agent@agent-elx
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_agent@agent-elx,serviceradar_core@core-elx
       - ENABLE_TLS_DIST=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - SPIFFE_CERT_DIR=/etc/serviceradar/certs
@@ -45,7 +45,7 @@ services:
     environment:
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_poller@poller-elx
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_poller@poller-elx,serviceradar_core@core-elx
       - ENABLE_TLS_DIST=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - SPIFFE_CERT_DIR=/etc/serviceradar/certs

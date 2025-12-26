@@ -227,6 +227,7 @@ Use the release `remote` command from inside the containers so node names resolv
 
 ```bash
 docker exec -it serviceradar-web-ng-mtls /app/bin/serviceradar_web_ng remote
+docker exec -it serviceradar-core-elx-mtls /app/bin/serviceradar_core_elx remote
 docker exec -it serviceradar-poller-elx-mtls /app/bin/serviceradar_poller remote
 docker exec -it serviceradar-agent-elx-mtls /app/bin/serviceradar_agent remote
 ```

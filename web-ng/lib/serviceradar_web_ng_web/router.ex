@@ -162,6 +162,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     sign_out_route AuthController, "/auth/sign-out"
 
     # Interactive magic link sign-in (require_interaction? is set in the strategy)
+    magic_sign_in_route ServiceRadar.Identity.User, :magic_link,
+      auth_routes_prefix: "/auth",
+      overrides: [ServiceRadarWebNGWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default],
+      path: "/auth/user/magic_link",
+      token_as_route_param?: false
+
     reset_route path: "/auth/password-reset", auth_routes_prefix: "/auth"
 
     auth_routes AuthController, ServiceRadar.Identity.User, path: "/auth"

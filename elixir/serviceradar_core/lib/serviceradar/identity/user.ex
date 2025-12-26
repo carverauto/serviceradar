@@ -54,7 +54,9 @@ defmodule ServiceRadar.Identity.User do
 
       magic_link :magic_link do
         identity_field :email
+        registration_enabled? true
         require_interaction? true
+        lookup_action_name :by_email
         sender ServiceRadar.Identity.Senders.SendMagicLinkEmail
       end
     end
@@ -172,6 +174,42 @@ defmodule ServiceRadar.Identity.User do
       accept [:email, :display_name, :tenant_id, :role]
       change ServiceRadar.Identity.Changes.AssignDefaultTenant
       primary? true
+    end
+
+    create :sign_in_with_magic_link do
+      description "Sign in or register a user with magic link."
+
+      argument :token, :string do
+        description "The token from the magic link that was sent to the user"
+        allow_nil? false
+      end
+
+      argument :remember_me, :boolean do
+        description "Whether to generate a remember me token"
+        allow_nil? true
+      end
+
+      upsert? true
+      upsert_identity :unique_email
+      upsert_fields [:email]
+
+      change ServiceRadar.Identity.Changes.AssignDefaultTenant
+      change AshAuthentication.Strategy.MagicLink.SignInChange
+
+      change {AshAuthentication.Strategy.RememberMe.MaybeGenerateTokenChange,
+              strategy_name: :remember_me}
+
+      metadata :token, :string do
+        allow_nil? false
+      end
+    end
+
+    action :request_magic_link do
+      argument :email, :ci_string do
+        allow_nil? false
+      end
+
+      run AshAuthentication.Strategy.MagicLink.Request
     end
 
     read :by_email do
@@ -349,6 +387,19 @@ defmodule ServiceRadar.Identity.User do
 
     # Registration is allowed without an actor (public action)
     policy action(:register_with_password) do
+      authorize_if always()
+    end
+
+    # Magic link registration uses the primary create action
+    policy action(:create) do
+      authorize_if always()
+    end
+
+    policy action(:request_magic_link) do
+      authorize_if always()
+    end
+
+    policy action(:sign_in_with_magic_link) do
       authorize_if always()
     end
 

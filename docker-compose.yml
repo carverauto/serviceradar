@@ -63,37 +63,6 @@ services:
           - cnpg-rw
     restart: unless-stopped
 
-  config-updater:
-    image: ghcr.io/carverauto/serviceradar-config-updater:${APP_TAG:-latest}
-    container_name: serviceradar-config-updater-mtls
-    profiles:
-      - legacy
-    volumes:
-      - cert-data:/etc/serviceradar/certs
-      - generated-config:/etc/serviceradar/config
-      - ./packaging/core/config:/config:ro
-      - ./docker/compose:/templates:ro
-      - ./docker/compose/update-config.sh:/usr/local/bin/update-config.sh:ro
-    environment:
-      - EDGE_DEFAULT_CHECKER_ENDPOINT=${EDGE_DEFAULT_CHECKER_ENDPOINT:-}
-      - EDGE_DEFAULT_CHECKER_SECURITY_MODE=${EDGE_DEFAULT_CHECKER_SECURITY_MODE:-}
-      - POLLERS_SECURITY_MODE=mtls
-      - CORE_SECURITY_MODE=mtls
-      - CNPG_HOST=${CNPG_HOST:-cnpg}
-      - CNPG_PORT=${CNPG_PORT:-5432}
-      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
-      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
-      - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
-      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      cnpg:
-        condition: service_healthy
-    restart: "no"
-    networks:
-      - serviceradar-net
-
   cert-permissions-fixer:
     image: alpine:3.20
     container_name: serviceradar-cert-permissions-fixer-mtls
@@ -108,68 +77,56 @@ services:
     networks:
       - serviceradar-net
 
-  core:
-    image: ghcr.io/carverauto/serviceradar-core:${APP_TAG:-latest}
-    container_name: serviceradar-core-mtls
-    profiles:
-      - legacy
-    mem_limit: 8g
-    mem_reservation: 4g
-    ports:
-      - "8090:8090"
-      - "50052:50052"
-      - "9090:9090"
-    volumes:
-      - generated-config:/etc/serviceradar/config:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - credentials:/etc/serviceradar/credentials:ro
-      - core-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
+  core-elx:
+    image: ghcr.io/carverauto/serviceradar-core-elx:${APP_TAG:-latest}
+    container_name: serviceradar-core-elx-mtls
+    hostname: core-elx
     environment:
-      - INIT_DB=${INIT_DB:-true}
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/config/core.json
-      - CONFIG_WATCH_ENABLED=${CONFIG_WATCH_ENABLED:-true}
+      - CLUSTER_ENABLED=true
+      - CLUSTER_STRATEGY=epmd
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_poller@poller-elx,serviceradar_agent@agent-elx
+      - ENABLE_TLS_DIST=true
+      - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
+      - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
+      - SPIFFE_CERT_DIR=/etc/serviceradar/certs
+      - RELEASE_NODE=serviceradar_core@core-elx
+      - RELEASE_DISTRIBUTION=sname
+      - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
+      - SERVICERADAR_CORE_OBAN_ENABLED=${SERVICERADAR_CORE_OBAN_ENABLED:-true}
+      - SERVICERADAR_CORE_REPO_ENABLED=${SERVICERADAR_CORE_REPO_ENABLED:-true}
+      - SERVICERADAR_DEFAULT_TENANT_ID=${SERVICERADAR_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}
+      - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-false}
+      - CLOAK_KEY=${CLOAK_KEY:-MBkLP+XL4htJEQ2Tyi+g+E6Jru4eLd4r9hT4dxcOIeg=}
       - CNPG_HOST=${CNPG_HOST:-cnpg}
       - CNPG_PORT=${CNPG_PORT:-5432}
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
       - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
       - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
-      - KV_ADDRESS=datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      - KV_CERT_FILE=/etc/serviceradar/certs/core.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/core-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
+      - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg}
+      - CNPG_CERT_DIR=/etc/serviceradar/certs
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - ./docker/compose/ssl_dist.core.conf:/etc/serviceradar/ssl_dist.conf:ro
     depends_on:
-      config-updater:
-        condition: service_completed_successfully
       cert-permissions-fixer:
         condition: service_completed_successfully
-      datasvc:
-        condition: service_healthy
       cnpg:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f serviceradar-core >/dev/null"]
+      test: ["CMD", "/app/bin/serviceradar_core_elx", "pid"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 30s
     networks:
-      serviceradar-net:
-        aliases:
-          - core.serviceradar
+      - serviceradar-net
     restart: unless-stopped
 
   nats:
     image: nats:latest
     platform: linux/amd64
     container_name: serviceradar-nats-mtls
-    profiles:
-      - legacy
     ports:
       - "4222:4222"
       - "8222:8222"
@@ -193,8 +150,6 @@ services:
   datasvc:
     image: ghcr.io/carverauto/serviceradar-datasvc:${APP_TAG:-latest}
     container_name: serviceradar-datasvc-mtls
-    profiles:
-      - legacy
     cpus: "2.0"
     ports:
       - "50057:50057"
@@ -224,102 +179,6 @@ services:
           - datasvc.serviceradar
     restart: unless-stopped
 
-  poller-kv-seed:
-    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
-    container_name: serviceradar-poller-kv-seed-mtls
-    profiles:
-      - legacy
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-      - generated-config:/etc/serviceradar/config:ro
-      - ./docker/compose/seed-poller-kv.sh:/usr/local/bin/seed-poller-kv.sh:ro
-    environment:
-      - POLLERS_CONFIG_PATH=/etc/serviceradar/config/poller.json
-      - POLLERS_POLLER_ID=${POLLERS_POLLER_ID:-}
-      - KV_BUCKET=${KV_BUCKET:-serviceradar-datasvc}
-      - NATS_SERVER=${NATS_SERVER:-tls://nats:4222}
-    depends_on:
-      config-updater:
-        condition: service_completed_successfully
-      datasvc:
-        condition: service_healthy
-      nats:
-        condition: service_started
-    entrypoint: ["/bin/bash", "/usr/local/bin/seed-poller-kv.sh"]
-    restart: "no"
-    networks:
-      - serviceradar-net
-
-  checker-templates-seed:
-    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
-    container_name: serviceradar-checker-templates-seed-mtls
-    profiles:
-      - legacy
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-      - ./docker/compose/checker-templates:/etc/serviceradar/checker-templates:ro
-      - ./docker/compose/seed-checker-templates.sh:/usr/local/bin/seed-checker-templates.sh:ro
-    environment:
-      - KV_BUCKET=${KV_BUCKET:-serviceradar-datasvc}
-      - NATS_SERVER=${NATS_SERVER:-tls://nats:4222}
-      - TEMPLATES_DIR=/etc/serviceradar/checker-templates
-      - SECURITY_MODE=mtls
-    depends_on:
-      config-updater:
-        condition: service_completed_successfully
-      datasvc:
-        condition: service_healthy
-      nats:
-        condition: service_started
-    entrypoint: ["/bin/bash", "/usr/local/bin/seed-checker-templates.sh"]
-    restart: "no"
-    networks:
-      - serviceradar-net
-
-  agent:
-    image: ghcr.io/carverauto/serviceradar-agent:${APP_TAG:-latest}
-    container_name: serviceradar-agent-mtls
-    profiles:
-      - legacy
-    volumes:
-      - ./docker/compose/agent.mtls.json:/etc/serviceradar/agent.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - generated-config:/etc/serviceradar/config:ro
-      - agent-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-    environment:
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/agent.json
-      - KV_ADDRESS=datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      - KV_CERT_FILE=/etc/serviceradar/certs/agent.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/agent-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    cap_add:
-      - NET_RAW
-      - NET_ADMIN
-    privileged: true
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      config-updater:
-        condition: service_completed_successfully
-    command: ["/usr/local/bin/serviceradar-agent","-config","/etc/serviceradar/agent.json"]
-    healthcheck:
-      test: ["CMD-SHELL", "pgrep -f serviceradar-agent >/dev/null"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-    networks:
-      serviceradar-net:
-        aliases:
-          - agent.serviceradar
-    restart: unless-stopped
-
   agent-elx:
     image: ghcr.io/carverauto/serviceradar-agent-elx:${APP_TAG:-latest}
     container_name: serviceradar-agent-elx-mtls
@@ -331,7 +190,7 @@ services:
       - AGENT_CAPABILITIES=${AGENT_CAPABILITIES:-disk,process,ping}
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_poller@poller-elx
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_poller@poller-elx,serviceradar_core@core-elx
       - ENABLE_TLS_DIST=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
@@ -355,55 +214,6 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  poller:
-    image: ghcr.io/carverauto/serviceradar-poller:${APP_TAG:-latest}
-    container_name: serviceradar-poller-mtls
-    profiles:
-      - legacy
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-      - generated-config:/etc/serviceradar/config:ro
-      - poller-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-    environment:
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/config/poller.json
-      - CORE_ADDRESS=core:50052
-      - CORE_SEC_MODE=mtls
-      - CORE_CERT_DIR=/etc/serviceradar/certs
-      - KV_ADDRESS=datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      - KV_CERT_FILE=/etc/serviceradar/certs/poller.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/poller-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - POLLERS_SECURITY_MODE=mtls
-      - MANAGE_NESTED_SPIRE=disabled
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      config-updater:
-        condition: service_completed_successfully
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      core:
-        condition: service_healthy
-      poller-kv-seed:
-        condition: service_completed_successfully
-      datasvc:
-        condition: service_healthy
-    command: ["/usr/local/bin/serviceradar-poller","-config","/etc/serviceradar/config/poller.json"]
-    healthcheck:
-      test: ["CMD-SHELL", "pgrep -f serviceradar-poller >/dev/null"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-    networks:
-      serviceradar-net:
-        aliases:
-          - poller.serviceradar
-    restart: unless-stopped
-
   poller-elx:
     image: ghcr.io/carverauto/serviceradar-poller-elx:${APP_TAG:-latest}
     container_name: serviceradar-poller-elx-mtls
@@ -415,7 +225,7 @@ services:
       - POLLER_CAPABILITIES=${POLLER_CAPABILITIES:-icmp,tcp,http}
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_agent@agent-elx
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_agent@agent-elx,serviceradar_core@core-elx
       - ENABLE_TLS_DIST=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
@@ -435,45 +245,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  sync:
-    image: ghcr.io/carverauto/serviceradar-sync:${APP_TAG:-latest}
-    container_name: serviceradar-sync-mtls
-    profiles:
-      - legacy
-    ports:
-      - "50058:50058"
-    volumes:
-      - ./docker/compose/sync.mtls.json:/etc/serviceradar/sync.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - sync-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-    environment:
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/sync.json
-      - CORE_ADDRESS=core:50052
-      - CORE_SEC_MODE=mtls
-      - CORE_CERT_DIR=/etc/serviceradar/certs
-      - KV_ADDRESS=datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      - KV_CERT_FILE=/etc/serviceradar/certs/sync.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/sync-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
-      - WAIT_FOR_DATASVC=true
-      - WAIT_FOR_NATS=true
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      datasvc:
-        condition: service_healthy
-      nats:
-        condition: service_started
     networks:
       - serviceradar-net
     restart: unless-stopped
@@ -697,72 +468,6 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  snmp-checker:
-    image: ghcr.io/carverauto/serviceradar-snmp-checker:${APP_TAG:-latest}
-    container_name: serviceradar-snmp-checker-mtls
-    profiles:
-      - legacy
-    ports:
-      - "50054:50054"
-    volumes:
-      - ./docker/compose/snmp-checker.docker.json:/etc/serviceradar/checkers/snmp.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - snmp-checker-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-    environment:
-      - WAIT_FOR_AGENT=true
-      - WAIT_FOR_OTEL=true
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      agent:
-        condition: service_started
-      otel:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "grpcurl", "-cacert", "/etc/serviceradar/certs/root.pem", "-cert", "/etc/serviceradar/certs/snmp-checker.pem", "-key", "/etc/serviceradar/certs/snmp-checker-key.pem", "-servername", "snmp-checker.serviceradar", "localhost:50054", "grpc.health.v1.Health/Check"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  rperf-client:
-    image: ghcr.io/carverauto/serviceradar-rperf-client:${APP_TAG:-latest}
-    container_name: serviceradar-rperf-client-mtls
-    profiles:
-      - legacy
-    ports:
-      - "50059:50059"
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-      - rperf-client-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-    environment:
-      - WAIT_FOR_AGENT=true
-      - WAIT_FOR_OTEL=true
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-      - RUST_LOG=${RUST_LOG:-info}
-    depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      agent:
-        condition: service_started
-      otel:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "true"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
   web-ng:
     image: ghcr.io/carverauto/serviceradar-web-ng:${APP_TAG:-latest}
     container_name: serviceradar-web-ng-mtls
@@ -775,7 +480,7 @@ services:
       - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-true}
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_poller@poller-elx,serviceradar_agent@agent-elx
+      - CLUSTER_HOSTS=serviceradar_poller@poller-elx,serviceradar_agent@agent-elx,serviceradar_core@core-elx
       - CLUSTER_TLS_ENABLED=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
@@ -841,19 +546,11 @@ services:
 volumes:
   cert-data:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cert-data"
-  generated-config:
-    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_generated-config"
-  credentials:
-    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_credentials"
-  core-data:
   cnpg-data:
-  poller-data:
   datasvc-data:
   nats-data:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_nats-data"
   logs:
-  agent-data:
-  sync-data:
   otel-data:
   flowgger-data:
   trapd-data:
@@ -861,8 +558,6 @@ volumes:
   db-event-writer-data:
   db-event-writer-config:
   mapper-data:
-  snmp-checker-data:
-  rperf-client-data:
 
 networks:
   serviceradar-net:

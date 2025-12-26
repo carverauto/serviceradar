@@ -75,7 +75,9 @@ generate_cert() {
                 fi
             done
         fi
-        if [ "$component" = "poller" ]; then
+        if [ "$component" = "core" ]; then
+            required_dns="core-elx"
+        elif [ "$component" = "poller" ]; then
             required_dns="poller-elx"
         elif [ "$component" = "agent" ]; then
             required_dns="agent-elx"
@@ -154,7 +156,7 @@ EOF
 # Include comprehensive cross-service SAN entries for all inter-service communication
 
 # Core services that many others connect to - include common client service names
-generate_cert "core" "core.serviceradar" "DNS:core,DNS:core.serviceradar,DNS:serviceradar-core,DNS:poller.serviceradar,DNS:agent.serviceradar,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "core" "core.serviceradar" "DNS:core,DNS:core-elx,DNS:core.serviceradar,DNS:serviceradar-core,DNS:poller.serviceradar,DNS:agent.serviceradar,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # NATS - messaging backbone, many services connect to it
 generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats,DNS:datasvc.serviceradar,DNS:sync.serviceradar,DNS:zen.serviceradar,DNS:trapd.serviceradar,DNS:flowgger.serviceradar,DNS:otel.serviceradar,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"

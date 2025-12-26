@@ -1,5 +1,40 @@
 # Tasks: Integrate Ash Framework
 
+## Phase 0: Core-ELX Service
+
+### 0.1 Core-ELX Release and Packaging
+- [x] 0.1.1 Define `core-elx` release entrypoint (separate from web-ng)
+- [x] 0.1.2 Add core-elx Docker image + Bazel push target
+- [x] 0.1.3 Add `core-elx` service to docker compose
+- [x] 0.1.4 Remove legacy Go services from docker compose
+
+### 0.2 Core Scheduling and Dispatch
+- [ ] 0.2.1 Move AshOban scheduler ownership to core-elx
+- [ ] 0.2.2 Define ERTS dispatch protocol (Horde Registry + RPC)
+- [ ] 0.2.3 Implement poller selection by tenant/domain
+- [ ] 0.2.4 Implement agent selection by tenant/domain in poller
+- [ ] 0.2.5 Enforce DB access boundaries (core-elx/web-ng only)
+
+### 0.3 Large Payload Handling
+- [ ] 0.3.1 Define gRPC streaming contracts for sync/sweep results
+- [ ] 0.3.2 Implement chunked ingest pipeline to core-elx
+- [ ] 0.3.3 Add backpressure and retry semantics for stream ingestion
+
+### 0.4 Sweep Renames
+- [ ] 0.4.1 Rename Go `serviceradar-agent` to `serviceradar-sweep`
+- [ ] 0.4.2 Update gRPC client targets in agent-elx
+- [ ] 0.4.3 Update docker images and docs for new sweep naming
+
+### 0.5 Scheduling UI
+- [ ] 0.5.1 Add scheduling resources/actions (sync cadence, ping/tcp cadence)
+- [ ] 0.5.2 Build LiveView forms for schedule configuration
+- [ ] 0.5.3 Wire schedules to AshOban triggers
+
+### 0.6 Sync Rewrite + JetStream
+- [ ] 0.6.1 Port Go sync service to Elixir (Armis/NetBox)
+- [ ] 0.6.2 Schedule sync cadence via AshOban
+- [ ] 0.6.3 Implement OffBroadway.Jetstream.Producer pipelines for collector events
+
 ## Phase 1: Foundation Setup
 
 ### 1.1 Dependencies and Configuration
@@ -515,3 +550,109 @@
 - [x] 14.4.4 Verify all tests pass with shared library (209 tests pass with Ash Identity integration)
 - [x] 14.4.5 Update Docker build to include shared library
 - [x] 14.4.6 Document web-ng to serviceradar_web transition
+
+## Phase 15: Standalone Core-Elx Service (Go Core Replacement)
+
+The Go `serviceradar-core` service handles coordination, identity reconciliation, poller management, and gRPC endpoints. This phase creates the Elixir replacement (`core-elx`) that acts as the central "brain" of the distributed cluster.
+
+### 15.1 Core-Elx Service Foundation
+- [ ] 15.1.1 Create elixir/serviceradar_core_service directory structure
+- [ ] 15.1.2 Initialize mix.exs with dependency on :serviceradar_core library
+- [ ] 15.1.3 Create ServiceRadarCoreService.Application supervision tree
+- [ ] 15.1.4 Configure as the primary Horde supervisor node
+- [ ] 15.1.5 Configure libcluster for cluster coordination
+- [ ] 15.1.6 Configure ssl_dist for mTLS distribution
+- [ ] 15.1.7 Create release configuration (rel/env.sh.eex)
+- [ ] 15.1.8 Create Dockerfile for core-elx release
+- [ ] 15.1.9 Add core-elx service to docker-compose.yml
+- [ ] 15.1.10 Generate ssl_dist.core.conf for mTLS distribution
+
+### 15.2 Horde Coordination (Moved from web-ng)
+- [ ] 15.2.1 Move PollerSupervisor to core-elx (primary coordinator)
+- [ ] 15.2.2 Move ClusterSupervisor to core-elx (cluster leader)
+- [ ] 15.2.3 Move ClusterHealth to core-elx
+- [ ] 15.2.4 Configure Horde registries with core-elx as primary member
+- [ ] 15.2.5 Update web-ng to query Horde from core-elx (not run Horde itself)
+- [ ] 15.2.6 Add coordination handoff on core-elx restart
+- [ ] 15.2.7 Implement leader election for multi-core deployments
+
+### 15.3 Device Identity Reconciliation (Port from Go)
+- [ ] 15.3.1 Create ServiceRadar.Identity.DeviceLookup module
+- [ ] 15.3.2 Implement GetCanonicalDevice equivalent (identity_lookup.go)
+- [ ] 15.3.3 Port MAC-based identity resolution
+- [ ] 15.3.4 Port IP-based identity resolution with partition awareness
+- [ ] 15.3.5 Port external ID resolution (Armis, NetBox, etc.)
+- [ ] 15.3.6 Implement identity merge with audit logging
+- [ ] 15.3.7 Create identity cache with TTL (replaces canonical_cache.go)
+- [ ] 15.3.8 Port alias event tracking (alias_events.go)
+- [ ] 15.3.9 Add identity metrics (lookup latency, hit rate, merge count)
+
+### 15.4 Result Processing (Port from Go)
+- [ ] 15.4.1 Create ServiceRadar.Core.ResultProcessor module
+- [ ] 15.4.2 Implement poller status updates (pollers.go)
+- [ ] 15.4.3 Implement service check result processing (result_processor.go)
+- [ ] 15.4.4 Port sweep metrics processing (metrics_sweep_test.go functionality)
+- [ ] 15.4.5 Implement result batching for database writes
+- [ ] 15.4.6 Add result processing metrics (throughput, latency)
+- [ ] 15.4.7 Connect to Broadway pipelines for high-volume data
+
+### 15.5 Alert Generation (Port from Go)
+- [ ] 15.5.1 Create ServiceRadar.Core.AlertGenerator module
+- [ ] 15.5.2 Port alert threshold evaluation (stats_alerts.go)
+- [ ] 15.5.3 Implement alert deduplication logic
+- [ ] 15.5.4 Connect to AshStateMachine Alert resource
+- [ ] 15.5.5 Port webhook notification (alerts/webhook.go)
+- [ ] 15.5.6 Port Discord notification (alerts/discord.go)
+- [ ] 15.5.7 Add notification metrics (send rate, failure rate)
+
+### 15.6 Stats Aggregation (Port from Go)
+- [ ] 15.6.1 Create ServiceRadar.Core.StatsAggregator module
+- [ ] 15.6.2 Port stats aggregation logic (stats_aggregator.go)
+- [ ] 15.6.3 Implement per-poller stats tracking
+- [ ] 15.6.4 Implement per-service stats tracking
+- [ ] 15.6.5 Add stats export to TimescaleDB
+- [ ] 15.6.6 Create stats dashboard endpoint
+
+### 15.7 Poller Recovery (Port from Go)
+- [ ] 15.7.1 Create ServiceRadar.Core.PollerRecovery module
+- [ ] 15.7.2 Port poller health monitoring (poller_recovery.go)
+- [ ] 15.7.3 Implement automatic poller reassignment on failure
+- [ ] 15.7.4 Add poller recovery metrics
+- [ ] 15.7.5 Integrate with Horde for distributed poller tracking
+
+### 15.8 Template Registry (Port from Go)
+- [ ] 15.8.1 Create ServiceRadar.Core.TemplateRegistry module
+- [ ] 15.8.2 Port checker template management (templateregistry/registry.go)
+- [ ] 15.8.3 Implement template CRUD operations
+- [ ] 15.8.4 Add template validation
+- [ ] 15.8.5 Expose templates via JSON:API
+
+### 15.9 gRPC Server for Legacy Poller Support
+- [ ] 15.9.1 Add grpc dependency to core-elx mix.exs
+- [ ] 15.9.2 Implement PollerService gRPC server (for Go pollers)
+- [ ] 15.9.3 Implement RegisterPoller RPC
+- [ ] 15.9.4 Implement ReportHealth RPC
+- [ ] 15.9.5 Implement ReportStatus RPC (service check results)
+- [ ] 15.9.6 Configure mTLS for gRPC server
+- [ ] 15.9.7 Add gRPC metrics (request count, latency)
+- [ ] 15.9.8 Document deprecation timeline for gRPC (ERTS preferred)
+
+### 15.10 Docker Compose Integration
+- [ ] 15.10.1 Add core-elx service to docker-compose.yml
+- [ ] 15.10.2 Configure core-elx as CLUSTER_HOSTS entry for other services
+- [ ] 15.10.3 Update web-ng to depend on core-elx
+- [ ] 15.10.4 Update poller-elx to list core-elx in CLUSTER_HOSTS
+- [ ] 15.10.5 Update agent-elx to list core-elx in CLUSTER_HOSTS
+- [ ] 15.10.6 Generate core.pem certificate in generate-certs.sh (already exists)
+- [ ] 15.10.7 Create ssl_dist.core.conf for TLS distribution
+- [ ] 15.10.8 Move Go core to legacy profile (already done)
+- [ ] 15.10.9 Test full stack with core-elx replacing Go core
+
+### 15.11 web-ng Decoupling
+- [ ] 15.11.1 Remove ClusterSupervisor start from web-ng Application
+- [ ] 15.11.2 Remove ClusterHealth start from web-ng Application
+- [ ] 15.11.3 Keep PollerRegistry/AgentRegistry for local queries (read from Horde)
+- [ ] 15.11.4 Update ClusterLive to query core-elx for cluster status
+- [ ] 15.11.5 Update admin LiveViews to work without local Horde supervisor
+- [ ] 15.11.6 Add core-elx health check to web-ng startup
+- [ ] 15.11.7 Document web-ng -> core-elx architecture

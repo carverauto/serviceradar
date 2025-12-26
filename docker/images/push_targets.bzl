@@ -8,6 +8,7 @@ load("@rules_multirun//:defs.bzl", "command", "multirun")
 GHCR_PUSH_TARGETS = [
     {"image": "arc_runner_image_amd64", "repository": "ghcr.io/carverauto/arc-runner"},
     {"image": "core_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-core"},
+    {"image": "core_elx_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-core-elx"},
     {"image": "agent_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent"},
     {"image": "agent_elx_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent-elx"},
     {"image": "db_event_writer_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-db-event-writer"},

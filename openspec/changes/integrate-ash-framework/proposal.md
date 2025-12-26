@@ -19,8 +19,25 @@ The Ash Framework provides a declarative, resource-centric approach that enforce
 3. **OCSF alignment**: Device inventory already follows OCSF schema; Ash resources can map directly to OCSF columns
 4. **Distributed polling**: Replace Go poller with Elixir nodes coordinated via AshOban + Horde for "one big brain" architecture
 5. **Replace serviceradar-core**: Port all API functionality from Go core to Ash-powered Elixir
+6. **Primary workflow**: Sync from external systems (Armis/IPAM) to discover devices, then schedule ping/tcp checks via Oban and poller/agent execution
 
 ## What Changes
+
+### Phase 0: Core Service (serviceradar-core-elx)
+- **Standalone coordinator**: Add `core-elx` as a separate Elixir release that owns orchestration.
+- **Headless runtime**: Core-elx is headless (no HTTP); it speaks ERTS and minimal gRPC.
+- **AshOban scheduling**: Core runs polling, sweep, sync, and monitoring jobs on Oban schedules.
+- **ERTS job dispatch**: Core communicates with pollers over BEAM distribution (PubSub/RPC/Horde).
+- **Result processing**: Core ingests poller/agent results and runs the DIRE engine before persisting.
+- **Large payload handling**: Preserve gRPC streaming + chunking for massive result sets (sync/sweep).
+ - **DB access boundary**: Only core-elx and web-ng connect to CNPG; pollers/agents do not.
+
+### Primary Use Case (Target Workflow)
+1. **Sync ingest**: Sync service talks to Armis/IPAM and streams devices to core-elx (gRPC chunking).
+2. **Inventory write**: Core-elx persists new devices into Ash resources (tenant/domain scoped).
+3. **Schedule checks**: Core-elx enqueues ping/tcp checks via AshOban (user-configured schedules).
+4. **Execute checks**: Poller selects agent; agent calls sweep/checker services over gRPC.
+5. **Persist results**: Core-elx ingests check results and updates device/health resources.
 
 ### Phase 1: Foundation (Core Infrastructure)
 - **AshPostgres migration**: Convert existing Ecto schemas to Ash resources with backward-compatible table mappings
@@ -48,14 +65,15 @@ Define Ash domains and resources for ServiceRadar's core entities:
   - Device onboarding (discovered -> identified -> managed)
   - Edge package delivery (created -> downloaded -> installed -> expired)
 - **Polling coordination**: Define schedulable actions for service checks coordinated across distributed pollers
+- **UI scheduling**: Expose schedule configuration in web-ng (sync cadence, ping/tcp check cadence)
 
 ### Phase 4: Data Ingestion Pipelines (Broadway + NATS JetStream)
 - **Broadway integration**: Use Broadway for high-volume data ingestion with back-pressure and batching
-- **NATS JetStream producer**: Implement `OffBroadway.Jetstream.Producer` for reliable message consumption from agents/pollers
+- **NATS JetStream producer**: Implement `OffBroadway.Jetstream.Producer` for reliable message consumption from collectors
 - **Pipeline topologies**:
-  - **Metrics pipeline**: Agent telemetry → NATS JetStream → Broadway → TimescaleDB
-  - **Events pipeline**: Poller events → NATS JetStream → Broadway → PostgreSQL (Ash resources)
-  - **Logs pipeline**: Syslog/flow data → NATS JetStream → Broadway → TimescaleDB (with pg_bm25 for full-text search)
+  - **Metrics pipeline**: Collector telemetry → NATS JetStream → Broadway → TimescaleDB
+  - **Events pipeline**: Collector events → NATS JetStream → Broadway → PostgreSQL (Ash resources)
+  - **Logs pipeline**: Netflow/syslog/trapd → NATS JetStream → Broadway → TimescaleDB (with pg_bm25 for full-text search)
 - **Batching strategies**: Configure batch sizes and timeouts per data type for optimal throughput
 - **Acknowledgement**: Use JetStream's exactly-once delivery semantics with Broadway acknowledgements
 - **Partition awareness**: Route messages to correct partition-scoped Broadway pipelines
@@ -64,9 +82,15 @@ Define Ash domains and resources for ServiceRadar's core entities:
 - **AshJsonApi**: Auto-generate JSON:API endpoints from resources
 - **AshPhoenix**: Integrate Ash forms with LiveView for real-time UI
 - **gRPC bridge**: Maintain gRPC for agent/checker communication (existing Go agents stay)
-- **ERTS clustering**: Implement distributed Elixir for poller-to-core communication
+- **ERTS clustering**: Implement distributed Elixir for core-to-poller coordination and job dispatch
 
-### Phase 6: Observability & Admin
+### Phase 6: Legacy Removal and Service Renames
+- **Remove legacy stack**: Drop Go `core`, `poller`, `agent`, and `sync` from docker compose.
+- **Rename Go agent**: Rename `serviceradar-agent` to `serviceradar-sweep` as the gRPC target.
+- **Connectivity model**: Core and pollers talk over ERTS; pollers and sweep/checkers talk over gRPC.
+ - **Sync rewrite**: Replace Go sync with an Elixir sync service scheduled by AshOban.
+
+### Phase 7: Observability & Admin
 - **AshAdmin**: Admin UI for resource management during development
 - **Ash OpenTelemetry**: Distributed tracing integration
 - **AshAppSignal** (optional): Production monitoring integration
@@ -78,6 +102,7 @@ Define Ash domains and resources for ServiceRadar's core entities:
 - `kv-configuration` - Minimal impact; KV patterns remain for agent config
 
 ### Affected Code
+- `elixir/serviceradar_core/` - Core-elx release packaging and orchestration logic
 - `web-ng/lib/serviceradar_web_ng/accounts/` - Complete rewrite to AshAuthentication
 - `web-ng/lib/serviceradar_web_ng/inventory/` - Convert to Ash domain
 - `web-ng/lib/serviceradar_web_ng/infrastructure/` - Convert to Ash domain
@@ -86,11 +111,16 @@ Define Ash domains and resources for ServiceRadar's core entities:
 - `web-ng/lib/serviceradar_web_ng_web/router.ex` - Add Ash routes, auth routes
 - `web-ng/lib/serviceradar_web_ng_web/live/` - Integrate AshPhoenix.Form
 - `web-ng/config/config.exs` - Ash configuration
+- `docker-compose.yml` - Add core-elx, remove legacy Go services
+- `docker/images/BUILD.bazel` - New core-elx image target
+ - `web-ng/lib/serviceradar_web_ng_web/live/` - Scheduling UI for sync and check cadence
 
 ### Breaking Changes
 - **BREAKING**: API authentication flow changes (magic link, OAuth additions)
 - **BREAKING**: API response format changes (JSON:API compliance)
 - **BREAKING**: Database migrations for tenant_id columns on all tenant-scoped tables
+- **BREAKING**: Legacy Go services removed from docker compose; `core-elx` becomes mandatory
+- **BREAKING**: Go `serviceradar-agent` renamed to `serviceradar-sweep`
 
 ### Migration Strategy
 1. **Parallel resources**: Create Ash resources alongside existing Ecto schemas initially
@@ -98,17 +128,131 @@ Define Ash domains and resources for ServiceRadar's core entities:
 3. **Data migration scripts**: Add tenant_id to existing records
 4. **API versioning**: `/api/v2/` for Ash-powered endpoints while `/api/` continues working
 5. **Gradual rollout**: Domain-by-domain migration with comprehensive test coverage
+6. **Core cutover**: Replace Go `core` with `core-elx`, remove legacy services from docker compose
+7. **Agent cutover**: Route sweep/check work through `serviceradar-sweep` via the new Elixir agent layer
+8. **DB access boundaries**: Only core-elx and web-ng connect to CNPG; pollers/agents remain DB-free
 
 ## Progress Update (2025-12-26)
-- Docker compose stack runs elixir `web-ng`, `poller-elx`, and `agent-elx` services with mTLS; legacy Go services remain gated behind the `legacy` profile.
+- Docker compose stack runs elixir `web-ng`, `poller-elx`, and `agent-elx` services with mTLS; legacy Go services are slated for removal.
 - Bazel remote builds for Elixir releases are working with an offline Hex registry cache (`build/hex_cache.tar.gz`) and updated mix_release handling.
 - AshAuthentication routes are active in `web-ng` and the magic link request flow now delivers to `/dev/mailbox`.
 - Mailer fixes: convert `Ash.CiString` emails to strings in magic link and password reset senders; ensure `:swoosh` and `:telemetry` are started as extra applications.
 - Compose runtime includes `ELIXIR_ERL_OPTIONS=+fnu` for elixir services to avoid latin1 locale warnings.
+- Task 1.4 (mTLS for ERTS Distribution) verified complete: ssl_dist.*.conf files configured for web, poller, and agent with proper TLS settings.
+
+## Resolved: Standalone core-elx Service
+
+**Decision**: Yes, we need a standalone `core-elx` service to replace the Go `serviceradar-core`.
+**Decision**: Remove legacy Go services from docker compose and rename `serviceradar-agent` to `serviceradar-sweep`.
+**Decision**: Only core-elx and web-ng access the database; pollers/agents do not.
+**Decision**: Collectors (netflow/syslog/trapd) publish to NATS JetStream for Broadway processing.
+**Decision**: Use Horde Registry + RPC for ERTS job dispatch (initial implementation).
+
+### Why a Separate Core Service?
+
+The current architecture has `web-ng` running the full `serviceradar_core` library including Horde supervisors, cluster infrastructure, and coordination logic. This conflates the web frontend with the coordination layer:
+
+1. **Separation of concerns**: The web frontend should serve HTTP/WebSocket traffic and render UI, not coordinate distributed polling
+2. **Scalability**: Multiple web-ng instances for horizontal scaling shouldn't each try to run Horde supervisors
+3. **Failure isolation**: Core coordination should survive web-ng restarts and vice versa
+4. **Resource allocation**: Core coordination needs different resources (CPU for ERTS messaging) than web (memory for LiveView)
+
+### Core-elx Responsibilities
+
+The `core-elx` service acts as the central "brain" of the distributed cluster:
+
+| Go Core Component | Elixir Replacement |
+|-------------------|-------------------|
+| `identity_lookup.go` | `ServiceRadar.Identity.DeviceLookup` |
+| `result_processor.go` | `ServiceRadar.Core.ResultProcessor` |
+| `stats_aggregator.go` | `ServiceRadar.Core.StatsAggregator` |
+| `stats_alerts.go` | `ServiceRadar.Core.AlertGenerator` |
+| `poller_recovery.go` | `ServiceRadar.Core.PollerRecovery` |
+| `canonical_cache.go` | ETS-backed identity cache |
+| `alias_events.go` | Ash change tracking |
+| `pollers.go` | Horde PollerRegistry + PollerSupervisor |
+| gRPC PollerService | ERTS messaging (preferred) + gRPC fallback |
+| `scheduler.go` | AshOban jobs + AshStateMachine triggers |
+| `sync_streams.go` | gRPC streaming ingestion + chunking |
+| `dire_engine.go` | `ServiceRadar.Core.DIRE` (identity reconciliation) |
+
+### Core Job Flow (Target)
+1. **Schedule**: AshOban enqueues polling/sweep/sync jobs at configured intervals.
+2. **Dispatch**: Core sends work over ERTS to the correct poller (tenant/domain aware).
+3. **Select agent**: Poller chooses an available agent registered in the same tenant/domain.
+4. **Execute**: Agent invokes `serviceradar-sweep` (gRPC) or checker services as needed.
+5. **Stream results**: Large payloads stream back (chunked) to core via gRPC or ERTS.
+6. **Reconcile**: Core runs DIRE to normalize identities and stores results via Ash resources.
+
+### Feature Map: Go Core -> Core-ELX (Functional)
+- **Scheduling**: Go cron/queue logic -> AshOban jobs and triggers.
+- **Polling orchestration**: gRPC PollerService -> ERTS dispatch + Horde registries.
+- **Agent selection**: Go core selection -> poller selects agent by tenant/domain.
+- **Sweep/scan**: Go agent -> `serviceradar-sweep` via new Agent-ELX gRPC bridge.
+- **Sync ingestion**: gRPC streaming GetResults -> core streaming pipeline with chunking.
+- **DIRE engine**: Go DIRE processing -> Core-ELX reconciliation before persistence.
+- **Auth/tenancy**: Hand-rolled RBAC -> AshAuthentication + Ash policies.
+- **API layer**: Legacy REST -> AshJsonApi endpoints.
+- **Alerts/metrics**: Custom workers -> AshOban + AshStateMachine.
+
+### Cluster Topology with core-elx
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                         Cloud / Data Center                       │
+│  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────┐  │
+│  │    core-elx     │  │     web-ng       │  │     cnpg        │  │
+│  │  (coordinator)  │◄─│  (web frontend)  │  │   (postgres)    │  │
+│  │                 │  │                  │  │                 │  │
+│  │ • Horde primary │  │ • LiveView UI    │  │ • TimescaleDB   │  │
+│  │ • Identity rec. │  │ • JSON:API       │  │ • Ash data      │  │
+│  │ • Result proc.  │  │ • Queries data   │  │                 │  │
+│  │ • Alert gen.    │  │ • No Horde super.│  │                 │  │
+│  └────────┬────────┘  └──────────────────┘  └─────────────────┘  │
+│           │ mTLS ERTS                                             │
+└───────────┼──────────────────────────────────────────────────────┘
+            │
+   ─────────┼───────────────────────────────────────────────────────
+            │ mTLS ERTS (Tailscale/Mesh VPN)
+            │
+┌───────────┼──────────────────────────────────────────────────────┐
+│           │                    Edge Site                          │
+│  ┌────────▼────────┐           ┌─────────────────┐               │
+│  │   poller-elx    │◄─────────►│   agent-elx     │               │
+│  │                 │  ERTS     │                 │               │
+│  │ • Joins cluster │           │ • Joins cluster │               │
+│  │ • Executes polls│           │ • Disk/process  │               │
+│  │ • Reports to    │           │ • ICMP checks   │               │
+│  │   core-elx      │           │                 │               │
+│  └─────────────────┘           └─────────┬───────┘               │
+│                                          │ gRPC                  │
+│                                ┌─────────▼─────────┐             │
+│                                │ serviceradar-     │             │
+│                                │ sweep (Go)        │             │
+│                                └───────────────────┘             │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### web-ng Changes
+
+After core-elx is implemented, web-ng will be simplified:
+
+**Remove from web-ng:**
+- `ClusterSupervisor` startup (core-elx runs it)
+- `ClusterHealth` startup (core-elx runs it)
+- Horde supervisor responsibility
+
+**Keep in web-ng:**
+- `PollerRegistry` / `AgentRegistry` (read-only queries to Horde)
+- Database queries via Ash resources
+- LiveView UI and JSON:API endpoints
+- Authentication and authorization
 
 ## Open Questions / Next Steps
-- Do we want a standalone `core-elx` service, and if so, what responsibilities replace the legacy Go `core`?
-- Should legacy services be removed entirely from `docker-compose.yml`, or kept as an opt-in profile for back-compat testing?
+- Confirm the ERTS transport for job dispatch (Phoenix.PubSub vs Horde vs explicit RPC).
+- Define the large-payload streaming contract for sync/sweep results (chunk size, backpressure, retry).
+- Clarify the Elixir agent -> `serviceradar-sweep` gRPC API surface (renames, endpoints, auth).
+- Decide where DIRE runs for each ingestion path (core only vs poller pre-processing).
 
 ## Dependencies
 
@@ -240,9 +384,12 @@ Run `:observer.start()` to visualize processes across the entire distributed clu
 
 ### Connection Hierarchy
 
-1. **Core <-> Poller (Distributed Erlang/mTLS)**: "Big Brain" backplane for Horde state, Ash commands, orchestration
-2. **Poller <-> Agent (gRPC/mTLS)**: Elixir Poller calls Go Agent for ICMP sweeps, TCP scans
-3. **Agent <-> Checkers (gRPC/mTLS)**: Go Agent proxies to specialized checkers (SNMP, Dusk, etc.)
+1. **Core-ELX <-> Poller-ELX (Distributed Erlang/mTLS)**: Horde state + Ash commands + job orchestration
+2. **Poller-ELX <-> Agent-ELX (Distributed Erlang/mTLS)**: agent selection and task assignment by tenant/domain
+3. **Agent-ELX <-> serviceradar-sweep (gRPC/mTLS)**: ICMP sweeps, TCP scans, large payload streaming
+4. **Agent-ELX <-> Checkers (gRPC/mTLS)**: checker calls (SNMP, Dusk, etc.)
+5. **Sync service <-> Core-ELX (gRPC streaming)**: large device lists (Armis/IPAM) with chunking
+6. **Collectors -> NATS JetStream**: netflow/syslog/trapd publish to JetStream for Broadway pipelines
 
 ### Overlapping IP Space Resolution
 

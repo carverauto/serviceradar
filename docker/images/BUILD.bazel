@@ -542,6 +542,46 @@ oci_load(
     repo_tags = ["ghcr.io/carverauto/serviceradar-web-ng:local"],
 )
 
+# elixir core-elx ------------------------------------------------------------
+
+genrule(
+    name = "core_elx_release_rootfs_amd64",
+    srcs = ["//elixir/serviceradar_core_elx:release_tar"],
+    outs = ["core_elx_release_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+TAR=$(location //elixir/serviceradar_core_elx:release_tar)
+ROOT=$(@D)/rootfs
+rm -rf "$${ROOT}"
+mkdir -p "$${ROOT}/app"
+tar -xzf "$${TAR}" -C "$${ROOT}/app"
+tar -czf "$@" -C "$${ROOT}" .
+""",
+)
+
+oci_image(
+    name = "core_elx_image_amd64",
+    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    tars = [":core_elx_release_rootfs_amd64"],
+    entrypoint = ["/app/bin/serviceradar_core_elx"],
+    cmd = ["start"],
+    env = {
+        "HOME": "/app",
+        "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
+        "MIX_ENV": "prod",
+    },
+    workdir = "/app",
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-core-elx",
+    },
+)
+
+oci_load(
+    name = "core_elx_image_amd64_tar",
+    image = ":core_elx_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-core-elx:local"],
+)
+
 # elixir poller/agent --------------------------------------------------------
 
 genrule(
