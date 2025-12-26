@@ -305,6 +305,12 @@ if config_env() == :prod do
   config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
   config :serviceradar_web_ng, :base_url, "https://#{host}"
 
+  default_tenant_id =
+    System.get_env("SERVICERADAR_DEFAULT_TENANT_ID") ||
+      "00000000-0000-0000-0000-000000000000"
+
+  config :serviceradar_core, :default_tenant_id, default_tenant_id
+
   # Datasvc gRPC client configuration for KV store access
   # Used for fetching component templates and other KV data
   datasvc_address = System.get_env("DATASVC_ADDRESS")
@@ -343,6 +349,7 @@ if config_env() == :prod do
 
   if local_mailer do
     config :swoosh, local: true
+    config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
   end
 
   config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,

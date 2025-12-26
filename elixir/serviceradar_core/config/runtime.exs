@@ -19,6 +19,12 @@ if config_env() == :prod do
     env: :prod,
     cloak_key: cloak_key
 
+  default_tenant_id =
+    System.get_env("SERVICERADAR_DEFAULT_TENANT_ID") ||
+      "00000000-0000-0000-0000-000000000000"
+
+  config :serviceradar_core, :default_tenant_id, default_tenant_id
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

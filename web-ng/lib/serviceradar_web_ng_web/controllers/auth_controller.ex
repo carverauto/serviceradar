@@ -15,13 +15,21 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   use ServiceRadarWebNGWeb, :controller
   use AshAuthentication.Phoenix.Controller
 
+  plug :fetch_session
+
   @doc """
   Called on successful authentication.
 
   Signs the user into the session using Ash JWT tokens and redirects to the return path
   or the default analytics page.
   """
-  def success(conn, _activity, user, _token) do
+  def success(conn, _activity, nil, _token) do
+    conn
+    |> put_flash(:info, "Check your email for the next step.")
+    |> redirect(to: ~p"/users/log-in")
+  end
+
+  def success(conn, _activity, %_{} = user, _token) do
     return_to = get_session(conn, :user_return_to) || ~p"/analytics"
 
     conn

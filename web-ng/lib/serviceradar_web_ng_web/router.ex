@@ -156,14 +156,15 @@ defmodule ServiceRadarWebNGWeb.Router do
   ## AshAuthentication routes
   # These routes handle password, magic link, and OAuth callbacks
 
-  scope "/auth", ServiceRadarWebNGWeb do
+  scope "/", ServiceRadarWebNGWeb do
     pipe_through :browser
 
-    sign_out_route AuthController
-    auth_routes ServiceRadar.Identity.User, to: AuthController
+    sign_out_route AuthController, "/auth/sign-out"
 
     # Interactive magic link sign-in (require_interaction? is set in the strategy)
-    reset_route []
+    reset_route path: "/auth/password-reset", auth_routes_prefix: "/auth"
+
+    auth_routes AuthController, ServiceRadar.Identity.User, path: "/auth"
   end
 
   ## Authentication routes

@@ -172,6 +172,8 @@ config :serviceradar_core, Oban, false
 
 # Disable Swoosh API client (poller does not send email).
 config :swoosh, :api_client, false
+config :swoosh, local: false
+config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
 
 # =============================================================================
 # PubSub Configuration
@@ -189,7 +191,6 @@ config :serviceradar_core, ServiceRadar.PubSub,
 
 if config_env() == :prod do
   config :logger,
-    backends: [:console],
     level: :info
 
   config :logger, :console,

@@ -170,6 +170,7 @@ defmodule ServiceRadar.Identity.User do
     create :create do
       description "Register a new user with email only (magic link flow)"
       accept [:email, :display_name, :tenant_id, :role]
+      change ServiceRadar.Identity.Changes.AssignDefaultTenant
       primary? true
     end
 
@@ -200,6 +201,8 @@ defmodule ServiceRadar.Identity.User do
     create :register_with_password do
       description "Register a new user with email and password"
       accept [:email, :display_name, :tenant_id]
+
+      change ServiceRadar.Identity.Changes.AssignDefaultTenant
 
       argument :password, :string do
         allow_nil? false

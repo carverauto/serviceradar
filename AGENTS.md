@@ -231,6 +231,16 @@ docker exec -it serviceradar-poller-elx-mtls /app/bin/serviceradar_poller remote
 docker exec -it serviceradar-agent-elx-mtls /app/bin/serviceradar_agent remote
 ```
 
+If you need a host-side IEx shell, run a one-off container on the same Docker network with the cert volume mounted so the TLS cert paths resolve:
+
+```bash
+CERT_VOLUME=$(docker volume ls --format '{{.Name}}' | rg 'cert-data' | head -n1)
+docker run --rm -it --network serviceradar-net \
+  -v "${CERT_VOLUME}:/etc/serviceradar/certs" \
+  ghcr.io/carverauto/serviceradar-web-ng:sha-<sha> \
+  /app/bin/serviceradar_web_ng remote
+```
+
 If distribution fails with `bad_cert` or `hostname_check_failed` for `poller-elx` or `agent-elx`, rerun `docker compose run --rm cert-generator` to refresh certs after updating `docker/compose/generate-certs.sh`.
 
 ## Edge Onboarding Testing with Docker mTLS Stack

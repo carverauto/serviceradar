@@ -168,6 +168,8 @@ services:
     image: nats:latest
     platform: linux/amd64
     container_name: serviceradar-nats-mtls
+    profiles:
+      - legacy
     ports:
       - "4222:4222"
       - "8222:8222"
@@ -191,6 +193,8 @@ services:
   datasvc:
     image: ghcr.io/carverauto/serviceradar-datasvc:${APP_TAG:-latest}
     container_name: serviceradar-datasvc-mtls
+    profiles:
+      - legacy
     cpus: "2.0"
     ports:
       - "50057:50057"
@@ -330,6 +334,7 @@ services:
       - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_poller@poller-elx
       - ENABLE_TLS_DIST=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
+      - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
       - SPIFFE_CERT_DIR=/etc/serviceradar/certs
       - RELEASE_NODE=serviceradar_agent@agent-elx
       - RELEASE_DISTRIBUTION=sname
@@ -413,6 +418,7 @@ services:
       - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_agent@agent-elx
       - ENABLE_TLS_DIST=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
+      - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
       - SPIFFE_CERT_DIR=/etc/serviceradar/certs
       - RELEASE_NODE=serviceradar_poller@poller-elx
       - RELEASE_DISTRIBUTION=sname
@@ -772,6 +778,7 @@ services:
       - CLUSTER_HOSTS=serviceradar_poller@poller-elx,serviceradar_agent@agent-elx
       - CLUSTER_TLS_ENABLED=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
+      - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
       - RELEASE_NODE=serviceradar_web_ng@web-ng
       - RELEASE_DISTRIBUTION=sname
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
@@ -788,7 +795,6 @@ services:
       - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
       - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg}
       - CNPG_CERT_DIR=/etc/serviceradar/certs
-      - DATASVC_ADDRESS=datasvc:50057
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.web.conf:/etc/serviceradar/ssl_dist.conf:ro
@@ -796,8 +802,6 @@ services:
       cert-permissions-fixer:
         condition: service_completed_successfully
       cnpg:
-        condition: service_healthy
-      datasvc:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f serviceradar_web_ng >/dev/null"]

@@ -39,8 +39,13 @@ def _mix_release_impl(ctx):
         # the core/std crates when compiling NIFs on remote Linux builders.
         transitive_inputs.append(rust_toolchain.rust_std)
 
+    hex_cache = ctx.file.hex_cache
+    direct_inputs = toolchain_inputs + ctx.files.srcs + ctx.files.data + ctx.files.extra_dir_srcs
+    if hex_cache:
+        direct_inputs.append(hex_cache)
+
     inputs = depset(
-        direct = toolchain_inputs + ctx.files.srcs + ctx.files.data + ctx.files.extra_dir_srcs,
+        direct = direct_inputs,
         transitive = transitive_inputs,
     )
 
@@ -48,7 +53,7 @@ def _mix_release_impl(ctx):
     for d in ctx.attr.extra_dirs:
         parent = d.rpartition("/")[0] or "."
         extra_copy_cmds.append(
-            'mkdir -p "$WORKDIR/{parent}"\nrsync -a "$EXECROOT/{dir}/" "$WORKDIR/{dir}/"\n'.format(
+            'mkdir -p "$WORKDIR/{parent}"\ncopy_dir "$EXECROOT/{dir}/" "$WORKDIR/{dir}/"\n'.format(
                 dir = d,
                 parent = parent,
             ),
@@ -61,7 +66,7 @@ def _mix_release_impl(ctx):
         inputs = inputs,
         outputs = [tar_out],
         progress_message = "mix release ({})".format(ctx.label.name),
-    command = """
+command = """
 set -euo pipefail
 
 EXECROOT=$PWD
@@ -91,6 +96,7 @@ export REBAR_BASE_DIR="$HOME/.cache/rebar3"
 export MIX_ENV=prod
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
+export ELIXIR_ERL_OPTIONS="+fnu"
 export CARGO="$EXECROOT/{cargo_path}"
 export RUSTC="$EXECROOT/{rustc_path}"
 export PATH="$(dirname "$CARGO"):$(dirname "$RUSTC"):/opt/homebrew/bin:$ELIXIR_HOME/bin:$ERLANG_HOME/bin:$PATH"
@@ -99,6 +105,17 @@ export LD_LIBRARY_PATH="$RUST_LIB_ROOT/lib:$RUST_LIB_ROOT/lib/rustlib/x86_64-unk
 echo "PATH=$PATH"
 ls -la "$ELIXIR_HOME/bin" || true
 which mix || true
+
+copy_dir() {{
+  local src="$1"
+  local dest="$2"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a "$src" "$dest"
+  else
+    mkdir -p "$dest"
+    cp -a "${{src%/}}/." "$dest"
+  fi
+}}
 
 if [ ! -x "$ERLANG_HOME/bin/erl" ]; then
   echo "Erlang not found under $ERLANG_HOME"
@@ -117,7 +134,14 @@ mkdir -p "$TMPROOT"
 export TMPDIR="$TMPROOT"
 export RUSTLER_TMPDIR="$TMPROOT"
 export RUSTLER_TEMP_DIR="$TMPROOT"
-rsync -a "{src_dir}/" "$WORKDIR/"
+if [ -n "{hex_cache_tar}" ] && [ -f "$EXECROOT/{hex_cache_tar}" ]; then
+  case "$EXECROOT/{hex_cache_tar}" in
+    *.tar.gz|*.tgz) tar -xzf "$EXECROOT/{hex_cache_tar}" -C "$HOME" ;;
+    *) tar -xf "$EXECROOT/{hex_cache_tar}" -C "$HOME" ;;
+  esac
+  export HEX_OFFLINE=1
+fi
+copy_dir "{src_dir}/" "$WORKDIR/"
 {extra_copy}
 if [ -f "$EXECROOT/Cargo.toml" ]; then
   cp "$EXECROOT/Cargo.toml" "$WORKDIR/Cargo.toml"
@@ -125,17 +149,17 @@ if [ -f "$EXECROOT/Cargo.toml" ]; then
 
   if [ -d "$EXECROOT/rust/srql" ]; then
     mkdir -p "$WORKDIR/rust/srql"
-    rsync -a "$EXECROOT/rust/srql/" "$WORKDIR/rust/srql/"
+    copy_dir "$EXECROOT/rust/srql/" "$WORKDIR/rust/srql/"
   fi
   if [ -d "$EXECROOT/rust/kvutil" ]; then
     mkdir -p "$WORKDIR/rust/kvutil"
-    rsync -a "$EXECROOT/rust/kvutil/" "$WORKDIR/rust/kvutil/"
+    copy_dir "$EXECROOT/rust/kvutil/" "$WORKDIR/rust/kvutil/"
   fi
   if [ -d "$EXECROOT/proto" ]; then
     mkdir -p "$TMPROOT/rust/kvutil/proto"
-    rsync -a "$EXECROOT/proto/" "$TMPROOT/rust/kvutil/proto/"
+    copy_dir "$EXECROOT/proto/" "$TMPROOT/rust/kvutil/proto/"
     mkdir -p "$SYS_TMP/rust/kvutil/proto"
-    rsync -a "$EXECROOT/proto/" "$SYS_TMP/rust/kvutil/proto/"
+    copy_dir "$EXECROOT/proto/" "$SYS_TMP/rust/kvutil/proto/"
   fi
 
   if [ -d "$WORKDIR/rust" ]; then
@@ -180,8 +204,17 @@ cd "$WORKDIR"
 chmod -R u+w .
 
 # Fetch and compile deps, build assets, create release into Bazel output dir
-mix local.hex --force
-mix local.rebar --force
+if ! ls "$MIX_HOME/archives/hex-"* >/dev/null 2>&1; then
+  mix local.hex --force
+fi
+if [ -x "$MIX_HOME/rebar3" ]; then
+  export MIX_REBAR3="$MIX_HOME/rebar3"
+elif ls "$MIX_HOME/elixir"/*/rebar3 >/dev/null 2>&1; then
+  export MIX_REBAR3=$(ls "$MIX_HOME/elixir"/*/rebar3 | head -n 1)
+fi
+if [ -z "${{MIX_REBAR3:-}}" ]; then
+  mix local.rebar --force
+fi
 mix deps.get --only prod
 mix deps.compile
 if [ "{run_assets}" = "true" ]; then
@@ -231,6 +264,7 @@ tar -czf "$EXECROOT/{tar_out}" -C "$RELEASE_DIR" .
             otp_tar = otp_tar.path if otp_tar else "",
             extra_copy = "".join(extra_copy_cmds),
             run_assets = run_assets,
+            hex_cache_tar = hex_cache.path if hex_cache else "",
         ),
         use_default_shell_env = False,
     )
@@ -251,6 +285,7 @@ mix_release = rule(
         "run_assets": attr.bool(default = True, doc = "Whether to run assets.deploy steps"),
         "extra_dirs": attr.string_list(doc = "Workspace-relative directories to copy into the build workspace"),
         "extra_dir_srcs": attr.label_list(allow_files = True, doc = "File inputs that back extra_dirs"),
+        "hex_cache": attr.label(allow_single_file = True, doc = "Tarball containing offline Hex/Mix cache"),
     },
     toolchains = [
         "@rules_elixir//:toolchain_type",
