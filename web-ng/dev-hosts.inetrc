@@ -1,0 +1,8 @@
+% Erlang inet configuration for development cluster
+% This file is loaded via -kernel inetrc flag
+% It allows Erlang to resolve docker container hostnames
+
+{lookup, [file, native, dns]}.
+{host, {172,18,0,2}, ["core-elx"]}.
+{host, {172,18,0,3}, ["poller-elx"]}.
+{host, {172,18,0,4}, ["agent-elx"]}.

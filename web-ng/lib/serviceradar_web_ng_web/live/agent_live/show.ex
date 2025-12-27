@@ -45,30 +45,69 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:check_types, @check_types)}
   end
 
+  require Logger
+
   @impl true
   def handle_params(%{"uid" => uid}, _uri, socket) do
-    query = "in:agents uid:\"#{escape_value(uid)}\" limit:1"
+    # First check Horde registry for live agent
+    # Use all_agents + filter instead of lookup because lookup uses local ETS cache
+    # which may not be synced yet in a distributed cluster
+    all_agents = ServiceRadar.AgentRegistry.all_agents()
+    Logger.debug("[AgentShow] All agents in Horde: #{inspect(Enum.map(all_agents, & &1[:agent_id] || &1[:key]))}")
 
-    {agent, error} =
-      case srql_module().query(query) do
+    live_agent = Enum.find(all_agents, fn agent ->
+      (agent[:agent_id] || agent[:key]) == uid
+    end)
+    Logger.debug("[AgentShow] Looking up agent uid=#{inspect(uid)}, live_agent=#{inspect(live_agent != nil)}")
+
+    # Convert Horde data to agent map format (string keys for consistency)
+    horde_agent =
+      if live_agent do
+        %{
+          "uid" => uid,
+          "agent_id" => Map.get(live_agent, :agent_id, uid),
+          "status" => to_string(Map.get(live_agent, :status, :connected)),
+          "capabilities" => Map.get(live_agent, :capabilities, []),
+          "poller_node" => format_poller_node(Map.get(live_agent, :poller_node)),
+          "connected_at" => Map.get(live_agent, :connected_at),
+          "last_seen_time" => Map.get(live_agent, :last_heartbeat),
+          "spiffe_identity" => Map.get(live_agent, :spiffe_identity),
+          "_source" => "horde"
+        }
+      else
+        nil
+      end
+
+    # Fall back to SRQL database query
+    db_agent =
+      case srql_module().query("in:agents uid:\"#{escape_value(uid)}\" limit:1") do
         {:ok, %{"results" => [agent | _]}} when is_map(agent) ->
-          {agent, nil}
+          Map.put(agent, "_source", "database")
 
-        {:ok, %{"results" => []}} ->
+        _ ->
+          nil
+      end
+
+    # Prefer Horde data (live) over database (may be stale)
+    # Merge if both exist to get the most complete picture
+    {agent, error} =
+      case {horde_agent, db_agent} do
+        {nil, nil} ->
           {nil, "Agent not found"}
 
-        {:ok, _other} ->
-          {nil, "Unexpected response format"}
+        {horde, nil} ->
+          {horde, nil}
 
-        {:error, reason} ->
-          {nil, "Failed to load agent: #{format_error(reason)}"}
+        {nil, db} ->
+          {db, nil}
+
+        {horde, db} ->
+          # Merge: DB provides more details, Horde provides live status
+          {Map.merge(db, horde), nil}
       end
 
     # Load service checks for this agent
     checks = load_checks_for_agent(uid, socket.assigns.current_scope)
-
-    # Check if this agent is live in Horde registry
-    live_agent = ServiceRadar.AgentRegistry.lookup(uid)
 
     {:noreply,
      socket
@@ -79,8 +118,16 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:live_agent, live_agent)}
   end
 
+  defp format_poller_node(nil), do: nil
+  defp format_poller_node(node) when is_atom(node), do: Atom.to_string(node)
+  defp format_poller_node(node), do: to_string(node)
+
   defp load_checks_for_agent(agent_uid, current_scope) do
-    tenant_id = get_in(current_scope, [:user, :tenant_id]) || current_scope[:tenant_id]
+    tenant_id =
+      case current_scope do
+        %{user: %{tenant_id: tid}} when not is_nil(tid) -> tid
+        _ -> nil
+      end
 
     case ServiceCheck
          |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid})
@@ -112,7 +159,19 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         </div>
 
         <div :if={is_map(@agent)} class="space-y-4">
-          <.agent_summary agent={@agent} />
+          <!-- Live Status Banner -->
+          <div :if={@live_agent} class="rounded-lg bg-success/10 border border-success/30 p-3 flex items-center gap-3">
+            <span class="size-2.5 rounded-full bg-success animate-pulse"></span>
+            <span class="text-sm text-success font-medium">Live Agent</span>
+            <span class="text-xs text-base-content/60">Connected to cluster via Horde registry</span>
+          </div>
+          <div :if={!@live_agent && Map.get(@agent, "_source") == "database"} class="rounded-lg bg-warning/10 border border-warning/30 p-3 flex items-center gap-3">
+            <span class="size-2.5 rounded-full bg-warning"></span>
+            <span class="text-sm text-warning font-medium">Database Record</span>
+            <span class="text-xs text-base-content/60">Agent not currently connected to cluster</span>
+          </div>
+
+          <.agent_summary agent={@agent} live_agent={@live_agent} />
           <.agent_capabilities agent={@agent} />
           <.agent_details agent={@agent} />
         </div>
@@ -122,6 +181,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   end
 
   attr :agent, :map, required: true
+  attr :live_agent, :map, default: nil
 
   defp agent_summary(assigns) do
     type_id = Map.get(assigns.agent, "type_id") || 0

@@ -159,10 +159,10 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </li>
               <li>
                 <.sidebar_link
-                  href={~p"/agents"}
-                  label="Agents"
+                  href={~p"/infrastructure"}
+                  label="Infrastructure"
                   icon="hero-cpu-chip"
-                  active={@current_path == "/agents"}
+                  active={@current_path && String.starts_with?(@current_path, "/infrastructure")}
                 />
               </li>
               <li>
@@ -351,6 +351,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   defp section_label("analytics"), do: "Analytics"
   defp section_label("devices"), do: "Devices"
+  defp section_label("infrastructure"), do: "Infrastructure"
   defp section_label("pollers"), do: "Pollers"
   defp section_label("agents"), do: "Agents"
   defp section_label("events"), do: "Events"
@@ -359,15 +360,18 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_label("services"), do: "Services"
   defp section_label("interfaces"), do: "Interfaces"
   defp section_label("admin"), do: "Settings"
+  defp section_label("settings"), do: "Settings"
   defp section_label(other), do: String.capitalize(other)
 
   defp section_icon("analytics"), do: "hero-chart-bar-micro"
   defp section_icon("devices"), do: "hero-server-micro"
+  defp section_icon("infrastructure"), do: "hero-cpu-chip-micro"
   defp section_icon("pollers"), do: "hero-cog-6-tooth-micro"
   defp section_icon("agents"), do: "hero-cpu-chip-micro"
   defp section_icon("events"), do: "hero-bell-alert-micro"
   defp section_icon("logs"), do: "hero-presentation-chart-line-micro"
   defp section_icon("admin"), do: "hero-adjustments-horizontal-micro"
+  defp section_icon("settings"), do: "hero-adjustments-horizontal-micro"
   defp section_icon("observability"), do: "hero-presentation-chart-line-micro"
   defp section_icon("services"), do: "hero-cog-6-tooth-micro"
   defp section_icon("interfaces"), do: "hero-globe-alt-micro"

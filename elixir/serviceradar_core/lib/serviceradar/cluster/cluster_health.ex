@@ -45,6 +45,9 @@ defmodule ServiceRadar.ClusterHealth do
     # Monitor node connections
     :net_kernel.monitor_nodes(true)
 
+    # Sync Horde members with any already-connected nodes
+    sync_horde_members()
+
     state = perform_health_check()
     schedule_health_check()
 
@@ -64,6 +67,9 @@ defmodule ServiceRadar.ClusterHealth do
   @impl true
   def handle_info({:nodeup, node}, _state) do
     Logger.info("Node joined cluster: #{node}")
+
+    # Sync Horde registry members when a new node joins
+    sync_horde_members()
 
     emit_telemetry(:node_up, %{node: node})
 
@@ -214,5 +220,54 @@ defmodule ServiceRadar.ClusterHealth do
       %{count: 1},
       metadata
     )
+  end
+
+  # Sync Horde registry members with current cluster nodes
+  # Uses RPC to ensure ALL nodes have the same member list
+  defp sync_horde_members do
+    all_nodes = [Node.self() | Node.list()]
+
+    poller_members =
+      Enum.map(all_nodes, fn node ->
+        {ServiceRadar.PollerRegistry, node}
+      end)
+
+    agent_members =
+      Enum.map(all_nodes, fn node ->
+        {ServiceRadar.AgentRegistry, node}
+      end)
+
+    # Set members on local node
+    sync_local_horde_members(poller_members, agent_members)
+
+    # Use RPC to set members on remote nodes too (for nodes running old code)
+    Enum.each(Node.list(), fn node ->
+      Task.start(fn ->
+        try do
+          :rpc.call(node, Horde.Cluster, :set_members, [ServiceRadar.PollerRegistry, poller_members], 5000)
+          :rpc.call(node, Horde.Cluster, :set_members, [ServiceRadar.AgentRegistry, agent_members], 5000)
+          Logger.debug("RPC synced Horde members on #{node}")
+        rescue
+          e -> Logger.debug("RPC sync to #{node} failed: #{inspect(e)}")
+        catch
+          :exit, reason -> Logger.debug("RPC sync to #{node} exit: #{inspect(reason)}")
+        end
+      end)
+    end)
+
+    Logger.info("Synced Horde members across #{length(all_nodes)} nodes: #{inspect(Enum.map(all_nodes, &to_string/1))}")
+  rescue
+    e ->
+      Logger.warning("Failed to sync Horde members: #{inspect(e)}")
+  end
+
+  defp sync_local_horde_members(poller_members, agent_members) do
+    if Process.whereis(ServiceRadar.PollerRegistry) do
+      :ok = Horde.Cluster.set_members(ServiceRadar.PollerRegistry, poller_members)
+    end
+
+    if Process.whereis(ServiceRadar.AgentRegistry) do
+      :ok = Horde.Cluster.set_members(ServiceRadar.AgentRegistry, agent_members)
+    end
   end
 end
