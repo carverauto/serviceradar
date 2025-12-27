@@ -129,14 +129,15 @@ defmodule ServiceRadarWebNG.Jobs do
       :error
   end
 
-  def refresh_scheduler(oban_name \\ Oban) do
-    case Oban.Registry.whereis(oban_name, {:plugin, ServiceRadarWebNG.Jobs.Scheduler}) do
-      nil ->
-        :noop
+  @doc """
+  Refreshes the scheduler.
 
-      pid ->
-        GenServer.cast(pid, :refresh)
-    end
+  NOTE: This is now a no-op as the custom Jobs.Scheduler has been replaced by
+  Oban.Plugins.Cron (for system maintenance jobs) and AshOban triggers
+  (for Ash resource-based jobs).
+  """
+  def refresh_scheduler(_oban_name \\ Oban) do
+    :noop
   end
 
   def enqueue_due_schedules(oban_name \\ Oban) do

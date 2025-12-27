@@ -1,10 +1,15 @@
 defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   @moduledoc """
   LiveView for showing individual OCSF agent details.
+
+  Includes ServiceCheck configuration for scheduling ping, TCP, and other
+  monitoring checks executed by this agent.
   """
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
+
+  alias ServiceRadar.Monitoring.ServiceCheck
 
   # OCSF Agent type IDs
   @type_names %{
@@ -15,6 +20,15 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     99 => "Other"
   }
 
+  # Check types available for configuration
+  @check_types [
+    {"Ping (ICMP)", :ping},
+    {"TCP Port", :tcp},
+    {"HTTP/HTTPS", :http},
+    {"DNS", :dns},
+    {"gRPC", :grpc}
+  ]
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
@@ -23,7 +37,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:agent_uid, nil)
      |> assign(:agent, nil)
      |> assign(:error, nil)
-     |> assign(:srql, %{enabled: false})}
+     |> assign(:srql, %{enabled: false})
+     |> assign(:checks, [])
+     |> assign(:live_agent, nil)
+     |> assign(:show_check_modal, false)
+     |> assign(:check_form, nil)
+     |> assign(:check_types, @check_types)}
   end
 
   @impl true
@@ -45,11 +64,30 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           {nil, "Failed to load agent: #{format_error(reason)}"}
       end
 
+    # Load service checks for this agent
+    checks = load_checks_for_agent(uid, socket.assigns.current_scope)
+
+    # Check if this agent is live in Horde registry
+    live_agent = ServiceRadar.AgentRegistry.lookup(uid)
+
     {:noreply,
      socket
      |> assign(:agent_uid, uid)
      |> assign(:agent, agent)
-     |> assign(:error, error)}
+     |> assign(:error, error)
+     |> assign(:checks, checks)
+     |> assign(:live_agent, live_agent)}
+  end
+
+  defp load_checks_for_agent(agent_uid, current_scope) do
+    tenant_id = get_in(current_scope, [:user, :tenant_id]) || current_scope[:tenant_id]
+
+    case ServiceCheck
+         |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid})
+         |> Ash.read(tenant: tenant_id, authorize?: false) do
+      {:ok, checks} -> checks
+      {:error, _} -> []
+    end
   end
 
   @impl true

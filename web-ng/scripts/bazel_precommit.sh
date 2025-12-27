@@ -93,7 +93,7 @@ EOF
   export GIT="$GIT_WRAP_DIR/git"
 fi
 
-mkdir -p "$WORKDIR/web-ng" "$WORKDIR/rust/srql" "$WORKDIR/rust/kvutil" "$WORKDIR/proto" "$WORKDIR/elixir/datasvc"
+mkdir -p "$WORKDIR/web-ng" "$WORKDIR/rust/srql" "$WORKDIR/rust/kvutil" "$WORKDIR/proto" "$WORKDIR/elixir/serviceradar_core" "$WORKDIR/elixir/datasvc"
 
 copy_dir() {
   src="$1"
@@ -120,6 +120,7 @@ fi
 copy_dir "$ROOT/rust/srql" "$WORKDIR/rust/srql"
 copy_dir "$ROOT/rust/kvutil" "$WORKDIR/rust/kvutil"
 copy_dir "$ROOT/proto" "$WORKDIR/proto"
+copy_dir "$ROOT/elixir/serviceradar_core" "$WORKDIR/elixir/serviceradar_core"
 copy_dir "$ROOT/elixir/datasvc" "$WORKDIR/elixir/datasvc"
 cp "$ROOT/Cargo.toml" "$WORKDIR/Cargo.toml"
 if [ -f "$ROOT/Cargo.lock" ]; then

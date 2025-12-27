@@ -1,0 +1,108 @@
+# ServiceRadar Core-ELX
+# Primary coordination node for the ERTS cluster
+#
+# This service owns the Horde supervisors and registries.
+# Other nodes (web-ng, poller-elx, agent-elx) connect to core-elx
+# for distributed process coordination.
+#
+# Build:
+#   docker build -f docker/compose/Dockerfile.core-elx -t serviceradar-core-elx .
+#
+# Run:
+#   docker run -e DATABASE_URL=ecto://user:pass@host/db \
+#              -e CLOAK_KEY=your-key \
+#              serviceradar-core-elx
+
+FROM hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    git \
+    pkg-config \
+    protobuf-compiler \
+    libssl-dev \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy shared library first (dependency)
+COPY elixir/serviceradar_core ./elixir/serviceradar_core
+
+# Copy core-elx source
+COPY elixir/serviceradar_core_elx ./elixir/serviceradar_core_elx
+
+# Copy proto files for gRPC compilation
+COPY proto ./proto
+
+WORKDIR /app/elixir/serviceradar_core_elx
+
+ENV MIX_ENV=prod
+
+# Install Hex and Rebar
+RUN mix local.hex --force && mix local.rebar --force
+
+# Get and compile dependencies
+RUN mix deps.get --only prod
+RUN mix deps.compile
+
+# Compile the application
+RUN mix compile
+
+# Build the release
+RUN mix release serviceradar_core_elx
+
+# =============================================================================
+# Runtime Stage
+# =============================================================================
+
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    libncurses6 \
+    locales \
+    dnsutils \
+    curl \
+    postgresql-client \
+  && rm -rf /var/lib/apt/lists/* \
+  && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen \
+  && locale-gen
+
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+
+# Create non-root user
+RUN useradd -m -s /bin/bash serviceradar
+
+WORKDIR /app
+
+# Copy release from build stage
+COPY --from=build /app/elixir/serviceradar_core_elx/_build/prod/rel/serviceradar_core_elx ./
+
+# Create directories for certs and logs
+RUN mkdir -p /etc/serviceradar/certs /var/log/serviceradar \
+  && chown -R serviceradar:serviceradar /app /etc/serviceradar /var/log/serviceradar
+
+USER serviceradar
+
+# Environment variables with defaults
+ENV CLUSTER_ENABLED=true
+ENV CLUSTER_STRATEGY=epmd
+ENV SERVICERADAR_CORE_REPO_ENABLED=true
+ENV SERVICERADAR_CORE_VAULT_ENABLED=true
+ENV SERVICERADAR_CORE_REGISTRIES_ENABLED=true
+ENV SERVICERADAR_CORE_OBAN_ENABLED=true
+
+# Expose EPMD port and Erlang distribution port range
+EXPOSE 4369
+EXPOSE 9100-9155
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD curl -sf http://localhost:4369/epmd || exit 1
+
+# Start the release
+CMD ["bin/serviceradar_core_elx", "start"]

@@ -1,8 +1,13 @@
 defmodule ServiceRadarWebNG.SRQL do
   @moduledoc false
 
-  alias ServiceRadarWebNG.Repo
+  # Use ServiceRadar.Repo directly for Ecto.Adapters.SQL operations
+  # (The wrapper module ServiceRadarWebNG.Repo doesn't work with SQL adapter functions)
+  alias ServiceRadar.Repo
+  alias ServiceRadarWebNG.SRQL.AshAdapter
   alias ServiceRadarWebNG.SRQL.Native
+
+  require Logger
 
   @behaviour ServiceRadarWebNG.SRQLBehaviour
 
@@ -12,18 +17,283 @@ defmodule ServiceRadarWebNG.SRQL do
       "limit" => Map.get(opts, :limit),
       "cursor" => Map.get(opts, :cursor),
       "direction" => Map.get(opts, :direction),
-      "mode" => Map.get(opts, :mode)
+      "mode" => Map.get(opts, :mode),
+      "actor" => Map.get(opts, :actor)
     })
   end
 
   def query_request(%{} = request) do
-    with {:ok, query, limit, cursor, direction, mode} <- normalize_request(request),
-         {:ok, translation} <- translate(query, limit, cursor, direction, mode),
-         {:ok, response} <- execute_translation(translation) do
-      {:ok, response}
+    with {:ok, query, limit, cursor, direction, mode, actor} <- normalize_request(request) do
+      # Check if we should route through Ash adapter
+      entity = extract_entity(query)
+
+      if ash_srql_enabled?() and AshAdapter.ash_entity?(entity) do
+        execute_ash_query(entity, query, limit, actor)
+      else
+        execute_sql_query(query, limit, cursor, direction, mode)
+      end
     else
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  # Execute query through Ash adapter for supported entities
+  # No SQL fallback - all entities MUST go through Ash
+  defp execute_ash_query(entity, query, limit, actor) do
+    params = parse_srql_params(query, limit)
+    start_time = System.monotonic_time()
+
+    case AshAdapter.query(entity, params, actor) do
+      {:ok, response} ->
+        emit_telemetry(:ash, entity, start_time, :ok)
+        {:ok, response}
+
+      {:error, reason} ->
+        emit_telemetry(:ash, entity, start_time, :error)
+        Logger.error("SRQL AshAdapter failed for #{entity}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  # Execute query through traditional SQL path
+  defp execute_sql_query(query, limit, cursor, direction, mode) do
+    entity = extract_entity(query)
+    start_time = System.monotonic_time()
+
+    result =
+      with {:ok, translation} <- translate(query, limit, cursor, direction, mode),
+           {:ok, response} <- execute_translation(translation) do
+        {:ok, response}
+      end
+
+    status = if match?({:ok, _}, result), do: :ok, else: :error
+    emit_telemetry(:sql, entity, start_time, status)
+
+    result
+  end
+
+  # Emit telemetry for SRQL query execution
+  defp emit_telemetry(path, entity, start_time, status) do
+    duration = System.monotonic_time() - start_time
+
+    :telemetry.execute(
+      [:serviceradar, :srql, :query],
+      %{duration: duration},
+      %{path: path, entity: entity, status: status}
+    )
+  end
+
+  # Check if Ash SRQL adapter is enabled via feature flag
+  defp ash_srql_enabled? do
+    flags = Application.get_env(:serviceradar_web_ng, :feature_flags, [])
+    Keyword.get(flags, :ash_srql_adapter, false)
+  end
+
+  # Extract entity name from SRQL query
+  # Handles formats like "in:events ..." or "events | ..."
+  defp extract_entity(query) when is_binary(query) do
+    query = String.trim(query)
+
+    # Check for "in:entity" format first (most common)
+    case Regex.run(~r/^in:(\S+)/, query) do
+      [_, entity] ->
+        String.downcase(entity)
+
+      nil ->
+        # Fall back to legacy format (first word before pipe or space)
+        query
+        |> String.split(~r/[\s|]/, parts: 2)
+        |> List.first()
+        |> String.downcase()
+    end
+  end
+
+  defp extract_entity(_), do: nil
+
+  # Parse SRQL query into params for Ash adapter
+  # SRQL format: in:entity time:last_24h sort:field:desc field:value limit:100
+  defp parse_srql_params(query, limit) do
+    entity = extract_entity(query)
+    filters = parse_srql_filters(query)
+    time_filter = parse_srql_time(query, entity)
+    sort = parse_srql_sort(query)
+
+    all_filters = if time_filter, do: [time_filter | filters], else: filters
+
+    %{
+      filters: all_filters,
+      sort: sort,
+      limit: limit || 100
+    }
+  end
+
+  # Get the timestamp field for an entity
+  defp timestamp_field_for("events"), do: "occurred_at"
+  defp timestamp_field_for("alerts"), do: "triggered_at"
+  defp timestamp_field_for("services"), do: "last_check_at"
+  defp timestamp_field_for("service_checks"), do: "last_check_at"
+  defp timestamp_field_for("devices"), do: "last_seen"
+  defp timestamp_field_for("pollers"), do: "last_seen"
+  defp timestamp_field_for("agents"), do: "last_seen"
+  defp timestamp_field_for(_), do: "created_at"
+
+  # Parse SRQL time range: time:last_24h, time:last_7d, etc.
+  defp parse_srql_time(query, entity) do
+    time_field = timestamp_field_for(entity)
+
+    case Regex.run(~r/\btime:(\S+)/i, query) do
+      [_, "last_1h"] ->
+        %{field: time_field, op: "gte", value: ago(1, :hour)}
+
+      [_, "last_24h"] ->
+        %{field: time_field, op: "gte", value: ago(24, :hour)}
+
+      [_, "last_7d"] ->
+        %{field: time_field, op: "gte", value: ago(7, :day)}
+
+      [_, "last_30d"] ->
+        %{field: time_field, op: "gte", value: ago(30, :day)}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp ago(amount, :hour), do: DateTime.add(DateTime.utc_now(), -amount * 3600, :second)
+  defp ago(amount, :day), do: DateTime.add(DateTime.utc_now(), -amount * 86400, :second)
+
+  # Parse SRQL field filters: field:value or field:(val1,val2) or field:"quoted"
+  defp parse_srql_filters(query) do
+    # Match field:value patterns (excluding reserved keywords)
+    reserved = ~w(in time sort limit cursor direction)
+
+    ~r/\b(\w+):((?:"[^"]*"|'[^']*'|\([^)]*\)|\S+))/
+    |> Regex.scan(query)
+    |> Enum.map(fn [_, field, value] ->
+      if field in reserved do
+        nil
+      else
+        parse_srql_field_value(field, value)
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp parse_srql_field_value(field, value) do
+    cond do
+      # Quoted value: field:"value" or field:'value'
+      String.starts_with?(value, "\"") and String.ends_with?(value, "\"") ->
+        %{field: field, op: "eq", value: String.slice(value, 1..-2//1)}
+
+      String.starts_with?(value, "'") and String.ends_with?(value, "'") ->
+        %{field: field, op: "eq", value: String.slice(value, 1..-2//1)}
+
+      # Multiple values: field:(val1,val2)
+      String.starts_with?(value, "(") and String.ends_with?(value, ")") ->
+        values =
+          value
+          |> String.slice(1..-2//1)
+          |> String.split(",")
+          |> Enum.map(&String.trim/1)
+
+        %{field: field, op: "in", value: values}
+
+      # Simple value
+      true ->
+        %{field: field, op: "eq", value: value}
+    end
+  end
+
+  # Parse SRQL sort: sort:field:dir or sort:field
+  defp parse_srql_sort(query) do
+    case Regex.run(~r/\bsort:(\w+)(?::(\w+))?/i, query) do
+      [_, field, dir] when dir in ["asc", "desc"] ->
+        %{field: field, dir: dir}
+
+      [_, field, _] ->
+        %{field: field, dir: "desc"}
+
+      [_, field] ->
+        %{field: field, dir: "desc"}
+
+      _ ->
+        nil
+    end
+  end
+
+  # Legacy filter parsing (for backwards compatibility)
+  # Handles patterns like: filter field == "value" | filter field > 10
+  defp parse_filters(query) do
+    # Extract filter clauses from query
+    ~r/filter\s+(\w+)\s*(==|!=|>|>=|<|<=|contains|in)\s*("([^"]*)"|\[([^\]]*)\]|(\d+(?:\.\d+)?))/i
+    |> Regex.scan(query)
+    |> Enum.map(fn
+      [_, field, "==", _, quoted, _, _] when is_binary(quoted) and quoted != "" ->
+        %{field: field, op: "eq", value: quoted}
+
+      [_, field, "==", _, _, _, number] when is_binary(number) and number != "" ->
+        %{field: field, op: "eq", value: parse_number(number)}
+
+      [_, field, "!=", _, quoted, _, _] when is_binary(quoted) and quoted != "" ->
+        %{field: field, op: "neq", value: quoted}
+
+      [_, field, "!=", _, _, _, number] when is_binary(number) and number != "" ->
+        %{field: field, op: "neq", value: parse_number(number)}
+
+      [_, field, ">", _, _, _, number] ->
+        %{field: field, op: "gt", value: parse_number(number)}
+
+      [_, field, ">=", _, _, _, number] ->
+        %{field: field, op: "gte", value: parse_number(number)}
+
+      [_, field, "<", _, _, _, number] ->
+        %{field: field, op: "lt", value: parse_number(number)}
+
+      [_, field, "<=", _, _, _, number] ->
+        %{field: field, op: "lte", value: parse_number(number)}
+
+      [_, field, "contains", _, quoted, _, _] when is_binary(quoted) ->
+        %{field: field, op: "contains", value: quoted}
+
+      [_, field, "in", _, _, array_content, _] when is_binary(array_content) ->
+        values = parse_array(array_content)
+        %{field: field, op: "in", value: values}
+
+      _ ->
+        nil
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  # Legacy sort parsing (for backwards compatibility)
+  # Handles patterns like: sort field asc | sort field desc
+  defp parse_sort(query) do
+    case Regex.run(~r/sort\s+(\w+)\s*(asc|desc)?/i, query) do
+      [_, field] -> %{field: field, dir: "desc"}
+      [_, field, dir] -> %{field: field, dir: String.downcase(dir)}
+      _ -> nil
+    end
+  end
+
+  defp parse_number(str) do
+    if String.contains?(str, ".") do
+      String.to_float(str)
+    else
+      String.to_integer(str)
+    end
+  rescue
+    _ -> str
+  end
+
+  defp parse_array(content) do
+    content
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.map(fn
+      "\"" <> rest -> String.trim_trailing(rest, "\"")
+      "'" <> rest -> String.trim_trailing(rest, "'")
+      other -> other
+    end)
   end
 
   defp translate(query, limit, cursor, direction, mode) do
@@ -201,7 +471,8 @@ defmodule ServiceRadarWebNG.SRQL do
     cursor = normalize_optional_string(Map.get(request, "cursor"))
     direction = normalize_direction(Map.get(request, "direction"))
     mode = normalize_optional_string(Map.get(request, "mode"))
-    {:ok, query, limit, cursor, direction, mode}
+    actor = Map.get(request, "actor")
+    {:ok, query, limit, cursor, direction, mode, actor}
   end
 
   defp normalize_request(%{query: query} = request) when is_binary(query) do
@@ -209,7 +480,8 @@ defmodule ServiceRadarWebNG.SRQL do
     cursor = normalize_optional_string(Map.get(request, :cursor))
     direction = normalize_direction(Map.get(request, :direction))
     mode = normalize_optional_string(Map.get(request, :mode))
-    {:ok, query, limit, cursor, direction, mode}
+    actor = Map.get(request, :actor)
+    {:ok, query, limit, cursor, direction, mode, actor}
   end
 
   defp normalize_request(_request) do

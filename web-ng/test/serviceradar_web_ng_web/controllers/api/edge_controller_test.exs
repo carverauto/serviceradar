@@ -3,8 +3,9 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
 
   alias ServiceRadarWebNG.Edge.OnboardingPackages
 
-  # Use the standard authentication helper from ConnCase
-  setup :register_and_log_in_user
+  # Use API bearer token authentication for /api/admin routes
+  # (These routes use the :api_key_auth pipeline, not session auth)
+  setup :register_and_log_in_api_user
 
   describe "GET /api/admin/edge-packages/defaults" do
     test "returns defaults", %{conn: conn} do
@@ -132,7 +133,7 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
 
       # Verify it's deleted
       {:ok, package} = OnboardingPackages.get(created.package.id)
-      assert package.status == "deleted"
+      assert package.status == :deleted
     end
 
     test "returns 404 for non-existent package", %{conn: conn} do
@@ -246,7 +247,7 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
           "download_token" => created.download_token
         })
 
-      assert json_response(conn, 409)["error"] == "package already delivered"
+      assert json_response(conn, 409)["error"] == "package already_delivered"
     end
   end
 

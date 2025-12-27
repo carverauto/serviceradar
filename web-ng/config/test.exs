@@ -1,5 +1,8 @@
 import Config
 
+# Mark this as test environment for multitenancy default tenant selection
+config :serviceradar_web_ng, :env, :test
+
 # Only in tests, remove the complexity from the password hashing algorithm
 config :bcrypt_elixir, :log_rounds, 1
 
@@ -65,7 +68,8 @@ cnpg_ssl_opts =
     end
   end)
 
-config :serviceradar_web_ng, ServiceRadarWebNG.Repo,
+# Configure ServiceRadar.Repo from serviceradar_core
+config :serviceradar_core, ServiceRadar.Repo,
   username: System.get_env("TEST_CNPG_USERNAME", System.get_env("CNPG_USERNAME", "postgres")),
   password: System.get_env("TEST_CNPG_PASSWORD", System.get_env("CNPG_PASSWORD", "postgres")),
   hostname: System.get_env("TEST_CNPG_HOST", System.get_env("CNPG_HOST", "localhost")),
@@ -87,6 +91,13 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
 # In test we don't send emails
 config :serviceradar_web_ng, ServiceRadarWebNG.Mailer, adapter: Swoosh.Adapters.Test
 
+# Configure ServiceRadar.Mailer (used by AshAuthentication in serviceradar_core)
+config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
+
+# AshAuthentication token signing secret for tests
+config :serviceradar_web_ng, :token_signing_secret, "test_token_signing_secret_at_least_32_chars_long!"
+config :serviceradar_web_ng, :base_url, "http://localhost:4002"
+
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 
@@ -104,7 +115,11 @@ config :phoenix_live_view,
 config :phoenix,
   sort_verified_routes_query_params: true
 
-config :serviceradar_web_ng, Oban,
+# Oban test configuration for serviceradar_core
+config :serviceradar_core, Oban,
   testing: :manual,
   queues: false,
   plugins: false
+
+# Set env for serviceradar_core (enables Vault fallback key in tests)
+config :serviceradar_core, env: :test

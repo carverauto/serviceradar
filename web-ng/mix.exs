@@ -21,7 +21,7 @@ defmodule ServiceRadarWebNG.MixProject do
   def application do
     [
       mod: {ServiceRadarWebNG.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :runtime_tools, :swoosh, :telemetry]
     ]
   end
 
@@ -40,6 +40,10 @@ defmodule ServiceRadarWebNG.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      # ServiceRadar Core - Ash domains, cluster, registry
+      {:serviceradar_core, path: "../elixir/serviceradar_core"},
+
+      # Phoenix Web Framework
       {:bcrypt_elixir, "~> 3.0"},
       {:phoenix, "~> 1.8.3"},
       {:phoenix_ecto, "~> 4.5"},
@@ -48,10 +52,9 @@ defmodule ServiceRadarWebNG.MixProject do
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.1.0"},
-      {:stream_data, "~> 1.1", only: :test},
+      {:stream_data, "~> 1.1"},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:phoenix_live_dashboard, "~> 0.8.3"},
-      {:oban, "~> 2.19"},
       {:oban_web, "~> 2.10"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
@@ -72,7 +75,19 @@ defmodule ServiceRadarWebNG.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:datasvc, path: "../elixir/datasvc"}
+      {:datasvc, path: "../elixir/datasvc"},
+
+      # Ash Framework - Phoenix integration (UI components)
+      {:ash_authentication_phoenix, "~> 2.0"},
+      {:ash_phoenix, "~> 2.0"},
+
+      # Note: ash_admin comes from serviceradar_core dependency
+
+      # OpenAPI spec generation for AshJsonApi
+      {:open_api_spex, "~> 3.16"},
+
+      # Igniter - code generation and refactoring
+      {:igniter, "~> 0.5", only: [:dev, :test]}
     ]
   end
 

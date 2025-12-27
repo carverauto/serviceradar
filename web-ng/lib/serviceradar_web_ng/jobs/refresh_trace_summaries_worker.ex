@@ -5,8 +5,6 @@ defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker do
 
   use Oban.Worker, queue: :maintenance, max_attempts: 3
 
-  alias ServiceRadarWebNG.Repo
-
   require Logger
 
   @refresh_sql "REFRESH MATERIALIZED VIEW CONCURRENTLY otel_trace_summaries"
@@ -15,7 +13,8 @@ defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker do
 
   @impl Oban.Worker
   def perform(_job) do
-    case Ecto.Adapters.SQL.query(Repo, @refresh_sql, []) do
+    # Use ServiceRadar.Repo directly for SQL adapter operations
+    case Ecto.Adapters.SQL.query(ServiceRadar.Repo, @refresh_sql, []) do
       {:ok, _result} ->
         Logger.info("Refreshed otel_trace_summaries materialized view")
         :ok

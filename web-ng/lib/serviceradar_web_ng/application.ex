@@ -7,20 +7,27 @@ defmodule ServiceRadarWebNG.Application do
 
   @impl true
   def start(_type, _args) do
+    # Force load ServiceRadarWebNGWeb early to ensure atoms like :current_user exist
+    # in the atom table before AshAuthentication.Phoenix.LiveSession uses them.
+    # See: AshAuthentication.Phoenix.LiveSession.generate_session/3 line 236
+    _ = ServiceRadarWebNGWeb.__ash_auth_atoms__()
+
     children = [
+      # Web telemetry
       ServiceRadarWebNGWeb.Telemetry,
-      ServiceRadarWebNG.Repo,
       # GRPC client supervisor for datasvc connections
       {GRPC.Client.Supervisor, []},
-      {Oban, Application.fetch_env!(:serviceradar_web_ng, Oban)},
+      # DNS cluster for Kubernetes deployments
       {DNSCluster,
        query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore},
+      # Phoenix PubSub for web-specific real-time features
       {Phoenix.PubSub, name: ServiceRadarWebNG.PubSub},
-      # Start a worker by calling: ServiceRadarWebNG.Worker.start_link(arg)
-      # {ServiceRadarWebNG.Worker, arg},
       # Start to serve requests, typically the last entry
       ServiceRadarWebNGWeb.Endpoint
     ]
+
+    # Note: ServiceRadar.Repo, Oban, and cluster infrastructure
+    # are started by the serviceradar_core application
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options

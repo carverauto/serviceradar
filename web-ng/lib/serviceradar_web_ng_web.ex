@@ -1,4 +1,13 @@
 defmodule ServiceRadarWebNGWeb do
+  # Ensure :current_user atom exists for AshAuthentication.Phoenix.LiveSession.
+  # AshAuthentication calls String.to_existing_atom("current_#{subject_name}") which
+  # requires the atom to already exist. Module attributes are stored in the beam
+  # file and created when the module is loaded.
+  @ash_auth_atoms [:current_user]
+
+  # Force the atoms to be referenced so they're included in the atom table
+  def __ash_auth_atoms__, do: @ash_auth_atoms
+
   @moduledoc """
   The entrypoint for defining your web interface, such
   as controllers, components, channels, and so on.

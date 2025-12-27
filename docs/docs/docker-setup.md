@@ -148,7 +148,9 @@ docker-compose up -d mapper
 
 ### Verify KV Seeding (first boot)
 
-Docker Compose now starts KV-backed config watchers. After the first `docker compose up -d`, confirm the datasvc bucket has defaults and watcher snapshots:
+Legacy KV-backed config watchers only run when the legacy profile is enabled. After a
+`docker compose --profile legacy up -d`, confirm the datasvc bucket has defaults and
+watcher snapshots:
 
 ```bash
 docker run --rm --network serviceradar_serviceradar-net \
@@ -161,7 +163,11 @@ docker run --rm --network serviceradar_serviceradar-net \
        kv ls serviceradar-datasvc
 ```
 
-You should see config entries for `config/core.json`, `config/pollers/docker-poller.json`, `config/agents/docker-agent.json`, the poller template, and watcher snapshots under `watchers/<service>/...json` (poller, agent, core). If the bucket is empty, rerun `docker compose up -d config-updater poller-kv-seed` to seed defaults, then refresh the Settings → Watcher Telemetry panel in the UI.
+You should see config entries for `config/core.json`, `config/pollers/docker-poller.json`,
+`config/agents/docker-agent.json`, the poller template, and watcher snapshots under
+`watchers/<service>/...json` (poller, agent, core). If the bucket is empty, rerun
+`docker compose --profile legacy up -d config-updater poller-kv-seed` to seed defaults,
+then refresh the Settings → Watcher Telemetry panel in the UI.
 
 ### SPIFFE In Docker Compose
 
@@ -193,6 +199,30 @@ Need the full edge onboarding workflow (where a poller runs outside Docker and
 bootstraps against the demo namespace)? See the dedicated
 [Secure Edge Onboarding](./edge-onboarding.md) runbook, which still relies on
 the helper scripts under `docker/compose/edge-*`.
+
+### Elixir mTLS Cluster Validation (Docker)
+
+The default Docker Compose stack now runs the Elixir web/poller/agent with
+`ssl_dist.conf` and EPMD discovery wired in:
+
+```bash
+docker compose up -d
+```
+
+Legacy Go services (core/poller/agent and the KV seeders) are now behind the
+`legacy` profile. Use `docker compose --profile legacy up -d` if you need them.
+
+Verify the cluster from the web node:
+
+```bash
+docker exec serviceradar-web-ng-mtls bin/serviceradar_web_ng rpc "Node.list()"
+docker exec serviceradar-web-ng-mtls bin/serviceradar_web_ng rpc "ServiceRadar.PollerRegistry.count()"
+docker exec serviceradar-web-ng-mtls bin/serviceradar_web_ng rpc "ServiceRadar.AgentRegistry.count()"
+```
+
+If nodes do not appear, confirm the `RELEASE_COOKIE` and `SSL_DIST_OPTFILE`
+settings for each container and ensure the service hostnames (`web-ng`,
+`poller-elx`, `agent-elx`) resolve inside the compose network.
 
 ### Edge Poller Against the Kubernetes Core
 

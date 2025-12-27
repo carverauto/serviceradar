@@ -1,10 +1,12 @@
 defmodule ServiceRadarWebNG.Api.DeviceController do
+  @moduledoc """
+  Device API controller using Ash resources.
+  """
   use ServiceRadarWebNGWeb, :controller
 
-  import Ecto.Query, only: [from: 2, dynamic: 2]
+  alias ServiceRadar.Inventory.Device
 
-  alias ServiceRadarWebNG.Inventory.Device
-  alias ServiceRadarWebNG.Repo
+  require Ash.Query
 
   @default_limit 100
   @max_limit 500
@@ -30,11 +32,16 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   def show(conn, %{"uid" => uid}) do
     case parse_uid(uid) do
       {:ok, parsed_uid} ->
-        case Repo.get(Device, parsed_uid) do
-          %Device{} = device ->
+        case Device.get_by_uid(parsed_uid, authorize?: false) do
+          {:ok, device} ->
             json(conn, %{"data" => device_to_map(device)})
 
-          nil ->
+          {:error, %Ash.Error.Query.NotFound{}} ->
+            conn
+            |> put_status(:not_found)
+            |> json(%{"error" => "device not found"})
+
+          {:error, _} ->
             conn
             |> put_status(:not_found)
             |> json(%{"error" => "device not found"})
@@ -147,44 +154,24 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   defp parse_optional_datetime(_), do: {:error, "invalid datetime value"}
 
   defp list_devices_for_export(opts) do
-    query = from(d in Device, select: d)
-    query = maybe_apply_type_id(query, Map.get(opts, :type_id))
-    query = maybe_apply_first_seen_after(query, Map.get(opts, :first_seen_after))
-    query = maybe_apply_last_seen_after(query, Map.get(opts, :last_seen_after))
-
-    query =
-      from(d in query,
-        order_by: [desc: d.last_seen_time],
-        limit: ^opts.limit,
-        offset: ^opts.offset
-      )
-
-    Repo.all(query)
+    Device
+    |> Ash.Query.sort(last_seen_time: :desc)
+    |> Ash.Query.limit(opts.limit)
+    |> Ash.Query.offset(opts.offset)
+    |> maybe_filter_type_id(opts.type_id)
+    |> maybe_filter_first_seen_after(opts.first_seen_after)
+    |> maybe_filter_last_seen_after(opts.last_seen_after)
+    |> Ash.read!(authorize?: false)
   end
 
-  defp maybe_apply_type_id(query, nil), do: query
+  defp maybe_filter_type_id(query, nil), do: query
+  defp maybe_filter_type_id(query, type_id), do: Ash.Query.filter(query, type_id == ^type_id)
 
-  defp maybe_apply_type_id(query, type_id) when is_integer(type_id) do
-    from(d in query, where: d.type_id == ^type_id)
-  end
+  defp maybe_filter_first_seen_after(query, nil), do: query
+  defp maybe_filter_first_seen_after(query, dt), do: Ash.Query.filter(query, first_seen_time >= ^dt)
 
-  defp maybe_apply_type_id(query, _), do: query
-
-  defp maybe_apply_first_seen_after(query, nil), do: query
-
-  defp maybe_apply_first_seen_after(query, %DateTime{} = dt) do
-    from(d in query, where: d.first_seen_time >= ^dt)
-  end
-
-  defp maybe_apply_first_seen_after(query, _), do: query
-
-  defp maybe_apply_last_seen_after(query, nil), do: query
-
-  defp maybe_apply_last_seen_after(query, %DateTime{} = dt) do
-    from(d in query, where: d.last_seen_time >= ^dt)
-  end
-
-  defp maybe_apply_last_seen_after(query, _), do: query
+  defp maybe_filter_last_seen_after(query, nil), do: query
+  defp maybe_filter_last_seen_after(query, dt), do: Ash.Query.filter(query, last_seen_time >= ^dt)
 
   defp build_export_pagination(devices, %{limit: limit, offset: offset}) do
     next_offset = if length(devices) >= limit, do: offset + limit, else: nil
@@ -196,7 +183,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
     }
   end
 
-  defp device_to_ocsf_export(%Device{} = device) do
+  defp device_to_ocsf_export(device) do
     %{
       # OCSF Core Identity
       "uid" => device.uid,
@@ -239,20 +226,15 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   end
 
   defp list_devices(opts) do
-    query = from(d in Device, select: d)
-    query = maybe_apply_search(query, Map.get(opts, :search))
-    query = maybe_apply_status(query, Map.get(opts, :status))
-    query = maybe_apply_poller_id(query, Map.get(opts, :poller_id))
-    query = maybe_apply_device_type(query, Map.get(opts, :device_type))
-
-    query =
-      from(d in query,
-        order_by: [desc: d.last_seen_time],
-        limit: ^opts.limit,
-        offset: ^opts.offset
-      )
-
-    Repo.all(query)
+    Device
+    |> Ash.Query.sort(last_seen_time: :desc)
+    |> Ash.Query.limit(opts.limit)
+    |> Ash.Query.offset(opts.offset)
+    |> maybe_filter_search(opts.search)
+    |> maybe_filter_status(opts.status)
+    |> maybe_filter_poller_id(opts.poller_id)
+    |> maybe_filter_device_type(opts.device_type)
+    |> Ash.read!(authorize?: false)
   end
 
   defp parse_index_params(params) when is_map(params) do
@@ -388,38 +370,27 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
 
   defp parse_uid(_), do: {:error, "invalid uid"}
 
-  defp maybe_apply_search(query, nil), do: query
+  defp maybe_filter_search(query, nil), do: query
 
-  defp maybe_apply_search(query, search) when is_binary(search) do
+  defp maybe_filter_search(query, search) when is_binary(search) do
     like = "%#{escape_like(search)}%"
-
-    where = dynamic([d], ilike(d.hostname, ^like) or ilike(d.ip, ^like) or ilike(d.uid, ^like))
-
-    from(d in query, where: ^where)
+    # Use Ash fragment for ILIKE since it's PostgreSQL-specific
+    Ash.Query.filter(query, fragment("? ILIKE ? OR ? ILIKE ? OR ? ILIKE ?",
+      hostname, ^like, ip, ^like, uid, ^like))
   end
 
-  defp maybe_apply_search(query, _), do: query
+  defp maybe_filter_search(query, _), do: query
 
-  defp maybe_apply_status(query, nil), do: query
-  defp maybe_apply_status(query, :online), do: from(d in query, where: d.is_available == true)
-  defp maybe_apply_status(query, :offline), do: from(d in query, where: d.is_available == false)
-  defp maybe_apply_status(query, _), do: query
+  defp maybe_filter_status(query, nil), do: query
+  defp maybe_filter_status(query, :online), do: Ash.Query.filter(query, is_available == true)
+  defp maybe_filter_status(query, :offline), do: Ash.Query.filter(query, is_available == false)
+  defp maybe_filter_status(query, _), do: query
 
-  defp maybe_apply_poller_id(query, nil), do: query
+  defp maybe_filter_poller_id(query, nil), do: query
+  defp maybe_filter_poller_id(query, poller_id), do: Ash.Query.filter(query, poller_id == ^poller_id)
 
-  defp maybe_apply_poller_id(query, poller_id) when is_binary(poller_id) do
-    from(d in query, where: d.poller_id == ^poller_id)
-  end
-
-  defp maybe_apply_poller_id(query, _), do: query
-
-  defp maybe_apply_device_type(query, nil), do: query
-
-  defp maybe_apply_device_type(query, device_type) when is_binary(device_type) do
-    from(d in query, where: d.type == ^device_type)
-  end
-
-  defp maybe_apply_device_type(query, _), do: query
+  defp maybe_filter_device_type(query, nil), do: query
+  defp maybe_filter_device_type(query, device_type), do: Ash.Query.filter(query, type == ^device_type)
 
   defp escape_like(value) do
     value
@@ -438,7 +409,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
     }
   end
 
-  defp device_to_map(%Device{} = device) do
+  defp device_to_map(device) do
     %{
       # Primary identifier (OCSF uid)
       "uid" => device.uid,

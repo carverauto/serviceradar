@@ -1,0 +1,97 @@
+version: "3.9"
+
+services:
+  core-elx:
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.core-elx
+    container_name: serviceradar-core-elx
+    hostname: core-elx
+    environment:
+      - CLUSTER_ENABLED=true
+      - CLUSTER_STRATEGY=epmd
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_poller@poller-elx,serviceradar_agent@agent-elx
+      - ENABLE_TLS_DIST=true
+      - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
+      - SPIFFE_CERT_DIR=/etc/serviceradar/certs
+      - RELEASE_NODE=serviceradar_core@core-elx
+      - RELEASE_COOKIE=serviceradar_dev_cookie
+      # Database configuration
+      - CNPG_HOST=cnpg
+      - CNPG_PORT=5432
+      - CNPG_DATABASE=serviceradar
+      - CNPG_USERNAME=serviceradar
+      - CNPG_PASSWORD=serviceradar
+      - CNPG_SSL_MODE=disable
+      # Feature flags
+      - SERVICERADAR_CORE_REPO_ENABLED=true
+      - SERVICERADAR_CORE_VAULT_ENABLED=true
+      - SERVICERADAR_CORE_REGISTRIES_ENABLED=true
+      - SERVICERADAR_CORE_OBAN_ENABLED=true
+      # Encryption key for Cloak
+      - CLOAK_KEY=${CLOAK_KEY:-ZHVtbXlrZXlmb3JkZXZlbG9wbWVudHRlc3Rpbmdvbmx5}
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - ./docker/compose/ssl_dist.core.conf:/etc/serviceradar/ssl_dist.conf:ro
+    networks:
+      - serviceradar-net
+    depends_on:
+      - cnpg
+    restart: unless-stopped
+
+  web-ng:
+    hostname: web-ng
+    environment:
+      - CLUSTER_ENABLED=true
+      - CLUSTER_STRATEGY=epmd
+      - CLUSTER_HOSTS=serviceradar_poller@poller-elx,serviceradar_agent@agent-elx,serviceradar_core@core-elx
+      - CLUSTER_TLS_ENABLED=true
+      - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
+      - RELEASE_NODE=serviceradar_web_ng@web-ng
+      - RELEASE_COOKIE=serviceradar_dev_cookie
+    volumes:
+      - ./docker/compose/ssl_dist.web.conf:/etc/serviceradar/ssl_dist.conf:ro
+
+  poller-elx:
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.poller-elx
+    container_name: serviceradar-poller-elx
+    hostname: poller-elx
+    environment:
+      - CLUSTER_ENABLED=true
+      - CLUSTER_STRATEGY=epmd
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_agent@agent-elx,serviceradar_core@core-elx
+      - ENABLE_TLS_DIST=true
+      - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
+      - SPIFFE_CERT_DIR=/etc/serviceradar/certs
+      - RELEASE_NODE=serviceradar_poller@poller-elx
+      - RELEASE_COOKIE=serviceradar_dev_cookie
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - ./docker/compose/ssl_dist.poller.conf:/etc/serviceradar/ssl_dist.conf:ro
+    networks:
+      - serviceradar-net
+    restart: unless-stopped
+
+  agent-elx:
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.agent-elx
+    container_name: serviceradar-agent-elx
+    hostname: agent-elx
+    environment:
+      - CLUSTER_ENABLED=true
+      - CLUSTER_STRATEGY=epmd
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_poller@poller-elx,serviceradar_core@core-elx
+      - ENABLE_TLS_DIST=true
+      - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
+      - SPIFFE_CERT_DIR=/etc/serviceradar/certs
+      - RELEASE_NODE=serviceradar_agent@agent-elx
+      - RELEASE_COOKIE=serviceradar_dev_cookie
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+      - ./docker/compose/ssl_dist.agent.conf:/etc/serviceradar/ssl_dist.conf:ro
+    networks:
+      - serviceradar-net
+    restart: unless-stopped

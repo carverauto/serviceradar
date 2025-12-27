@@ -163,6 +163,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp load_analytics(socket) do
     srql_module = srql_module()
+    actor = Map.get(socket.assigns, :actor)
 
     # Try to get metrics stats from continuous aggregation first (more efficient)
     hourly_stats = get_hourly_metrics_stats()
@@ -220,7 +221,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     results =
       queries
       |> Task.async_stream(
-        fn {key, query} -> {key, srql_module.query(query)} end,
+        fn {key, query} -> {key, srql_module.query(query, %{actor: actor})} end,
         ordered: false,
         timeout: 30_000
       )

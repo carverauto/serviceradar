@@ -32,7 +32,8 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
     socket "/phoenix/live_reload/socket", Phoenix.LiveReloader.Socket
     plug Phoenix.LiveReloader
     plug Phoenix.CodeReloader
-    plug Phoenix.Ecto.CheckRepoStatus, otp_app: :serviceradar_web_ng
+    # Check repo status using serviceradar_core (where Ash migrations live)
+    plug Phoenix.Ecto.CheckRepoStatus, otp_app: :serviceradar_core
   end
 
   plug Phoenix.LiveDashboard.RequestLogger,

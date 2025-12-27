@@ -1,19 +1,22 @@
 defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   @moduledoc """
   LiveView for managing edge onboarding packages.
+
+  Uses AshPhoenix.Form for form handling with the OnboardingPackage Ash resource.
   """
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.AdminComponents
 
   alias ServiceRadarWebNG.Edge.OnboardingPackages
-  alias ServiceRadarWebNG.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.ComponentTemplates
+  alias ServiceRadar.Edge.OnboardingPackage
 
   @impl true
   def mount(_params, _session, socket) do
     security_mode = OnboardingPackages.configured_security_mode()
+    tenant_id = get_tenant_id(socket)
 
     socket =
       socket
@@ -24,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:selected_package, nil)
       |> assign(:package_events, [])
       |> assign(:created_tokens, nil)
-      |> assign(:create_form, to_form(empty_changeset()))
+      |> assign(:create_form, build_create_form(tenant_id, security_mode))
       |> assign(:filter_status, nil)
       |> assign(:filter_component_type, nil)
       |> assign(:security_mode, security_mode)
@@ -62,19 +65,25 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   @impl true
   def handle_event("open_create_modal", _params, socket) do
+    tenant_id = get_tenant_id(socket)
+    security_mode = socket.assigns.security_mode
+
     {:noreply,
      socket
      |> assign(:show_create_modal, true)
-     |> assign(:create_form, to_form(empty_changeset()))
+     |> assign(:create_form, build_create_form(tenant_id, security_mode))
      |> assign(:created_tokens, nil)
      |> assign(:selected_component_type, "poller")}
   end
 
   def handle_event("close_create_modal", _params, socket) do
+    tenant_id = get_tenant_id(socket)
+    security_mode = socket.assigns.security_mode
+
     {:noreply,
      socket
      |> assign(:show_create_modal, false)
-     |> assign(:create_form, to_form(empty_changeset()))
+     |> assign(:create_form, build_create_form(tenant_id, security_mode))
      |> assign(:created_tokens, nil)}
   end
 
@@ -86,37 +95,54 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
      |> assign(:package_events, [])}
   end
 
-  def handle_event("validate_create", %{"onboarding_package" => params}, socket) do
+  def handle_event("validate_create", %{"form" => params}, socket) do
     component_type = params["component_type"] || "poller"
 
-    changeset =
-      %OnboardingPackage{}
-      |> OnboardingPackage.create_changeset(params)
-      |> Map.put(:action, :validate)
+    form =
+      socket.assigns.create_form
+      |> AshPhoenix.Form.validate(params)
 
     {:noreply,
      socket
-     |> assign(:create_form, to_form(changeset))
+     |> assign(:create_form, form)
      |> assign(:selected_component_type, component_type)}
   end
 
-  def handle_event("create_package", %{"onboarding_package" => params}, socket) do
-    actor = get_actor(socket)
-    attrs = build_package_attrs(params, socket.assigns.security_mode)
+  def handle_event("create_package", %{"form" => params}, socket) do
+    form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
 
-    case OnboardingPackages.create(attrs, actor: actor) do
-      {:ok, result} ->
-        {:noreply,
-         socket
-         |> assign(:created_tokens, result)
-         |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
-         |> put_flash(:info, "Package created successfully")}
+    if form.source.valid? do
+      # Extract validated form data and use OnboardingPackages.create
+      # which handles token generation beyond the basic Ash action
+      actor = get_actor(socket)
+      attrs = build_package_attrs_from_form(params, socket.assigns.security_mode)
 
-      {:error, changeset} ->
-        {:noreply,
-         socket
-         |> assign(:create_form, to_form(changeset))
-         |> put_flash(:error, "Failed to create package")}
+      case OnboardingPackages.create(attrs, actor: actor) do
+        {:ok, result} ->
+          tenant_id = get_tenant_id(socket)
+          security_mode = socket.assigns.security_mode
+
+          {:noreply,
+           socket
+           |> assign(:created_tokens, result)
+           |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
+           |> assign(:create_form, build_create_form(tenant_id, security_mode))
+           |> put_flash(:info, "Package created successfully")}
+
+        {:error, error} ->
+          # Handle Ash errors by updating the form
+          form = AshPhoenix.Form.add_error(form, error)
+
+          {:noreply,
+           socket
+           |> assign(:create_form, form)
+           |> put_flash(:error, "Failed to create package")}
+      end
+    else
+      {:noreply,
+       socket
+       |> assign(:create_form, form)
+       |> put_flash(:error, "Please fix the errors below")}
     end
   end
 
@@ -285,7 +311,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                             View
                           </.ui_button>
                           <.ui_button
-                            :if={package.status == "issued"}
+                            :if={package.status == :issued}
                             variant="ghost"
                             size="xs"
                             phx-click="revoke_package"
@@ -422,7 +448,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
               field={@form[:component_type]}
               type="select"
               label="Component Type"
-              options={[{"Poller", "poller"}, {"Agent", "agent"}, {"Checker", "checker"}]}
+              options={[{"Poller", :poller}, {"Agent", :agent}, {"Checker", :checker}]}
             />
 
             <div class="form-control">
@@ -431,7 +457,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
               </label>
               <div class="flex items-center gap-2">
                 <.ui_badge variant="info" size="sm">
-                  {String.upcase(@security_mode)}
+                  {String.upcase(to_string(@security_mode))}
                 </.ui_badge>
                 <span class="text-xs text-base-content/60">
                   (Configured by deployment environment)
@@ -440,46 +466,24 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             </div>
 
             <%= if @selected_component_type == "checker" do %>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text">Checker Kind</span>
-                </label>
-                <%= if @checker_templates != [] do %>
-                  <select
-                    name="onboarding_package[checker_kind]"
-                    class="select select-bordered w-full"
-                  >
-                    <option value="">Select checker template...</option>
-                    <%= for template <- @checker_templates do %>
-                      <option value={template.kind}>{template.kind}</option>
-                    <% end %>
-                    <option value="_custom">Custom (enter below)</option>
-                  </select>
-                <% else %>
-                  <input
-                    type="text"
-                    name="onboarding_package[checker_kind]"
-                    class="input input-bordered w-full"
-                    placeholder="e.g., sysmon, snmp, rperf-checker"
-                  />
-                <% end %>
-                <label class="label">
-                  <span class="label-text-alt text-base-content/60">
-                    The type of checker to configure
-                  </span>
-                </label>
-              </div>
+              <.input
+                field={@form[:checker_kind]}
+                type={if @checker_templates != [], do: "select", else: "text"}
+                label="Checker Kind"
+                options={if @checker_templates != [], do: [{"Select checker template...", ""}] ++ Enum.map(@checker_templates, &{&1.kind, &1.kind}) ++ [{"Custom (enter below)", "_custom"}], else: nil}
+                placeholder="e.g., sysmon, snmp, rperf-checker"
+              />
 
               <div class="form-control">
                 <label class="label">
                   <span class="label-text">Checker Config (JSON, optional)</span>
                 </label>
                 <textarea
-                  name="onboarding_package[checker_config_json]"
+                  name={@form[:checker_config_json].name}
                   class="textarea textarea-bordered w-full font-mono text-sm"
                   rows="4"
                   placeholder='{"interval": 30, "timeout": 10}'
-                ></textarea>
+                ><%= Phoenix.HTML.Form.input_value(@form, :checker_config_json) |> format_json_value() %></textarea>
                 <label class="label">
                   <span class="label-text-alt text-base-content/60">
                     Custom configuration JSON for the checker
@@ -642,7 +646,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         </div>
 
         <div class="modal-action">
-          <%= if @package.status == "issued" do %>
+          <%= if @package.status == :issued do %>
             <button
               type="button"
               class="btn btn-warning"
@@ -673,8 +677,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp status_badge(assigns) do
+    # Handle both atom and string status for backwards compatibility
+    status = if is_atom(assigns.status), do: Atom.to_string(assigns.status), else: assigns.status
+
     variant =
-      case assigns.status do
+      case status do
         "issued" -> "info"
         "delivered" -> "success"
         "activated" -> "success"
@@ -684,15 +691,18 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         _ -> "ghost"
       end
 
-    assigns = assign(assigns, :variant, variant)
+    assigns = assigns |> assign(:variant, variant) |> assign(:status_str, status)
 
     ~H"""
-    <.ui_badge variant={@variant} size="xs">{@status}</.ui_badge>
+    <.ui_badge variant={@variant} size="xs">{@status_str}</.ui_badge>
     """
   end
 
   defp event_variant(event_type) do
-    case event_type do
+    # Handle both atom and string event types
+    type_str = if is_atom(event_type), do: Atom.to_string(event_type), else: event_type
+
+    case type_str do
       "created" -> "info"
       "delivered" -> "success"
       "activated" -> "success"
@@ -714,10 +724,56 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     |> format_datetime()
   end
 
-  defp empty_changeset do
-    %OnboardingPackage{}
-    |> OnboardingPackage.create_changeset(%{})
+  # Build AshPhoenix.Form for creating OnboardingPackage
+  defp build_create_form(tenant_id, security_mode) do
+    AshPhoenix.Form.for_create(OnboardingPackage, :create,
+      domain: ServiceRadar.Edge,
+      tenant: tenant_id,
+      transform_params: fn _form, params, _action ->
+        # Convert component_type string to atom if needed
+        params = case params["component_type"] do
+          type when is_binary(type) and type != "" ->
+            Map.put(params, "component_type", String.to_existing_atom(type))
+          _ ->
+            params
+        end
+
+        # Set security mode from environment config
+        params = Map.put(params, "security_mode", security_mode)
+
+        # Parse checker_config_json if present
+        case params["checker_config_json"] do
+          json when is_binary(json) and json != "" ->
+            case Jason.decode(json) do
+              {:ok, config} -> Map.put(params, "checker_config_json", config)
+              {:error, _} -> params
+            end
+          _ ->
+            params
+        end
+      end
+    )
   end
+
+  defp get_tenant_id(socket) do
+    case socket.assigns[:current_scope] do
+      %{user: %{tenant_id: tenant_id}} when not is_nil(tenant_id) -> tenant_id
+      _ -> default_tenant_id()
+    end
+  end
+
+  defp default_tenant_id do
+    # Default tenant ID for backwards compatibility
+    case Application.get_env(:serviceradar_web_ng, :env) do
+      :test -> "00000000-0000-0000-0000-000000000099"
+      _ -> "00000000-0000-0000-0000-000000000000"
+    end
+  end
+
+  defp format_json_value(nil), do: ""
+  defp format_json_value(""), do: ""
+  defp format_json_value(value) when is_map(value), do: Jason.encode!(value, pretty: true)
+  defp format_json_value(value) when is_binary(value), do: value
 
   # Load templates for checkers
   defp load_templates(socket, security_mode) do
@@ -737,7 +793,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     end
   end
 
-  defp build_package_attrs(params, security_mode) do
+  defp build_package_attrs_from_form(params, security_mode) do
     component_type = params["component_type"] || "poller"
 
     %{

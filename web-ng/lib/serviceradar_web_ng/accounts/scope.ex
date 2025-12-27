@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   growing application requirements.
   """
 
-  alias ServiceRadarWebNG.Accounts.User
+  alias ServiceRadar.Identity.User
 
   defstruct user: nil
 
@@ -29,5 +29,10 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
     %__MODULE__{user: user}
   end
 
-  def for_user(nil), do: nil
+  # Also accept map-like users (for backwards compatibility during transition)
+  def for_user(%{id: _, email: _} = user) do
+    %__MODULE__{user: user}
+  end
+
+  def for_user(nil), do: %__MODULE__{user: nil}
 end

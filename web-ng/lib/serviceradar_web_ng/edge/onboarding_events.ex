@@ -2,8 +2,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   @moduledoc """
   Context module for edge onboarding audit events.
 
-  Provides functions to record and query audit events for edge onboarding packages.
-  Events are stored in a TimescaleDB hypertable for efficient time-series queries.
+  Delegates to ServiceRadar.Edge.OnboardingEvents Ash-based implementation
+  while maintaining backwards compatibility with existing callers.
 
   ## Async Recording
 
@@ -11,12 +11,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   the main request. Use `record_sync/3` for synchronous recording when needed.
   """
 
-  import Ecto.Query
-  alias ServiceRadarWebNG.Repo
-  alias ServiceRadarWebNG.Edge.OnboardingEvent
-  alias ServiceRadarWebNG.Edge.Workers.RecordEventWorker
-
-  @default_limit 50
+  alias ServiceRadar.Edge.OnboardingEvents, as: AshEvents
+  alias ServiceRadar.Edge.OnboardingEvent
 
   @doc """
   Lists events for a specific package, ordered by time descending.
@@ -33,13 +29,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   """
   @spec list_for_package(String.t(), keyword()) :: [OnboardingEvent.t()]
   def list_for_package(package_id, opts \\ []) do
-    limit = Keyword.get(opts, :limit, @default_limit)
-
-    OnboardingEvent
-    |> where([e], e.package_id == ^package_id)
-    |> order_by([e], desc: e.event_time)
-    |> limit(^limit)
-    |> Repo.all()
+    opts_with_actor = Keyword.put(opts, :actor, system_actor())
+    AshEvents.list_for_package!(package_id, opts_with_actor)
   end
 
   @doc """
@@ -60,10 +51,10 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
       {:ok, %Oban.Job{}}
 
   """
-  @spec record(String.t(), String.t(), keyword()) ::
+  @spec record(String.t(), String.t() | atom(), keyword()) ::
           {:ok, Oban.Job.t()} | {:error, Ecto.Changeset.t()}
   def record(package_id, event_type, opts \\ []) do
-    RecordEventWorker.enqueue(package_id, event_type, opts)
+    AshEvents.record(package_id, event_type, opts)
   end
 
   @doc """
@@ -80,24 +71,20 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
     * `:event_time` - Override the event timestamp (default: now)
 
   """
-  @spec record_sync(String.t(), String.t(), keyword()) ::
-          {:ok, OnboardingEvent.t()} | {:error, Ecto.Changeset.t()}
+  @spec record_sync(String.t(), String.t() | atom(), keyword()) ::
+          {:ok, OnboardingEvent.t()} | {:error, Ash.Error.t()}
   def record_sync(package_id, event_type, opts \\ []) do
-    event = OnboardingEvent.build(package_id, event_type, opts)
-
-    changeset = OnboardingEvent.changeset(event, %{})
-
-    Repo.insert(changeset)
+    opts_with_actor = Keyword.put_new(opts, :actor_user, system_actor())
+    AshEvents.record_sync(package_id, event_type, opts_with_actor)
   end
 
   @doc """
   Records an event without returning an error on failure.
   Used for fire-and-forget audit logging where we don't want to fail the main operation.
   """
-  @spec record!(String.t(), String.t(), keyword()) :: :ok
+  @spec record!(String.t(), String.t() | atom(), keyword()) :: :ok
   def record!(package_id, event_type, opts \\ []) do
-    record(package_id, event_type, opts)
-    :ok
+    AshEvents.record!(package_id, event_type, opts)
   end
 
   @doc """
@@ -107,19 +94,17 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   """
   @spec recent(keyword()) :: [OnboardingEvent.t()]
   def recent(opts \\ []) do
-    limit = Keyword.get(opts, :limit, @default_limit)
-    since = Keyword.get(opts, :since)
-
-    OnboardingEvent
-    |> maybe_filter_since(since)
-    |> order_by([e], desc: e.event_time)
-    |> limit(^limit)
-    |> Repo.all()
+    opts_with_actor = Keyword.put(opts, :actor, system_actor())
+    AshEvents.recent!(opts_with_actor)
   end
 
-  defp maybe_filter_since(query, nil), do: query
+  # Private helpers
 
-  defp maybe_filter_since(query, since) when is_struct(since, DateTime) do
-    where(query, [e], e.event_time >= ^since)
+  defp system_actor do
+    %{
+      id: "00000000-0000-0000-0000-000000000000",
+      email: "system@serviceradar.local",
+      role: :super_admin
+    }
   end
 end

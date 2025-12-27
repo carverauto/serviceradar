@@ -1,9 +1,73 @@
-This is a web application written using the Phoenix web framework.
+This is a web application written using the Phoenix web framework with Ash Framework for domain modeling.
 
 ## Project guidelines
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
+
+## Ash Framework guidelines
+
+ServiceRadar uses the [Ash Framework](https://ash-hq.org/) for domain-driven design. Ash resources are defined in `serviceradar_core` library.
+
+### Resource patterns
+
+- **Always** use `Ash.Changeset.for_create/for_update` with an actor:
+  ```elixir
+  ServiceRadar.Inventory.Device
+  |> Ash.Changeset.for_create(:create, attrs, actor: actor, tenant: tenant_id)
+  |> Ash.create()
+  ```
+
+- **Always** use `Ash.Query.for_read` for queries:
+  ```elixir
+  ServiceRadar.Inventory.Device
+  |> Ash.Query.for_read(:list, %{}, actor: actor)
+  |> Ash.read()
+  ```
+
+- **Never** access `changeset.data` fields that don't exist - use `changeset.data.field_name` pattern
+- **Never** use `Ash.Changeset.get_data/1` or `Ash.Changeset.get_data/2` - these don't exist in Ash 3.x. Use `changeset.data` directly
+
+### Multi-tenancy
+
+- All tenant-scoped resources use attribute-based multitenancy with `tenant_id`
+- **Always** pass `tenant: tenant_id` option to Ash operations for tenant-scoped resources
+- The actor's `tenant_id` is used for policy enforcement
+
+### Domains
+
+| Domain | Location | Resources |
+|--------|----------|-----------|
+| `ServiceRadar.Identity` | `serviceradar_core` | Tenant, User, ApiToken |
+| `ServiceRadar.Inventory` | `serviceradar_core` | Device, DeviceGroup, Interface |
+| `ServiceRadar.Infrastructure` | `serviceradar_core` | Partition, Poller, Agent, Checker |
+| `ServiceRadar.Monitoring` | `serviceradar_core` | PollingSchedule, ServiceCheck, Alert, Event |
+| `ServiceRadar.Edge` | `serviceradar_core` | OnboardingPackage, OnboardingEvent |
+
+### Pagination handling
+
+Paginated read actions return `Ash.Page.Keyset` structs:
+```elixir
+{:ok, page} = Ash.read(query)
+results = if is_struct(page, Ash.Page.Keyset), do: page.results, else: page
+```
+
+### Testing with Ash
+
+Use test helpers from `ServiceRadarWebNG.AshTestHelpers`:
+```elixir
+use ServiceRadarWebNG.AshTestHelpers
+
+test "creates device" do
+  tenant = tenant_fixture()
+  device = device_fixture(tenant)
+  assert device.id
+end
+```
+
+Available fixtures: `tenant_fixture/1`, `user_fixture/2`, `device_fixture/2`, `poller_fixture/2`, `agent_fixture/2`, `alert_fixture/2`, etc.
+
+Available actors: `system_actor/0`, `admin_actor/1`, `operator_actor/1`, `viewer_actor/1`
 
 ### Phoenix v1.8 guidelines
 
