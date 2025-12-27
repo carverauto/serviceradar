@@ -58,7 +58,8 @@ cnpg_ssl_opts =
     end
   end)
 
-config :serviceradar_web_ng, ServiceRadarWebNG.Repo,
+# Configure ServiceRadar.Repo from serviceradar_core
+config :serviceradar_core, ServiceRadar.Repo,
   username: System.get_env("CNPG_USERNAME", "postgres"),
   password: System.get_env("CNPG_PASSWORD", "postgres"),
   hostname: cnpg_hostname,
@@ -78,18 +79,24 @@ config :serviceradar_web_ng, ServiceRadarWebNG.Repo,
 config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
-  http: [ip: {127, 0, 0, 1}],
+  http: [ip: {0, 0, 0, 0}],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
+  # Fixed secret for development - prevents session issues when server restarts
+  # In production, this MUST be set via SECRET_KEY_BASE environment variable
   secret_key_base:
     System.get_env("DEV_SECRET_KEY_BASE") ||
       System.get_env("SECRET_KEY_BASE") ||
-      Base.encode64(:crypto.strong_rand_bytes(48)),
+      "dev_secret_key_base_must_be_at_least_64_chars_long_for_development_only!",
   watchers: [
     esbuild: {Esbuild, :install_and_run, [:serviceradar_web_ng, ~w(--sourcemap=inline --watch)]},
     tailwind: {Tailwind, :install_and_run, [:serviceradar_web_ng, ~w(--watch)]}
   ]
+
+# AshAuthentication token signing secret for development
+config :serviceradar_web_ng, :token_signing_secret, "dev_token_signing_secret_at_least_32_chars_long!"
+config :serviceradar_web_ng, :base_url, System.get_env("BASE_URL", "http://192.168.2.134:4000")
 
 # ## SSL Support
 #
@@ -153,7 +160,13 @@ config :phoenix_live_view,
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
 
+# Configure ServiceRadar.Mailer (used by AshAuthentication in serviceradar_core)
+config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
+
 # API authentication for CLI tools
 # In production, use proper secrets management
 config :serviceradar_web_ng, :api_auth,
   api_keys: [System.get_env("SERVICERADAR_API_KEY", "dev-api-key-for-testing")]
+
+# Set env for serviceradar_core (enables Vault fallback key in dev)
+config :serviceradar_core, env: :dev

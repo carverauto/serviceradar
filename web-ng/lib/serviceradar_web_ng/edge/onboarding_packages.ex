@@ -2,19 +2,12 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   @moduledoc """
   Context module for edge onboarding package operations.
 
-  Provides CRUD operations for managing edge onboarding packages, including
-  token generation, delivery, revocation, and soft-delete.
+  Delegates to ServiceRadar.Edge.OnboardingPackages Ash-based implementation
+  while maintaining backwards compatibility with existing callers.
   """
 
-  import Ecto.Query
-  alias ServiceRadarWebNG.Repo
-  alias ServiceRadarWebNG.Edge.OnboardingPackage
-  alias ServiceRadarWebNG.Edge.OnboardingEvents
-  alias ServiceRadarWebNG.Edge.Crypto
-
-  @default_limit 100
-  @default_join_token_ttl_seconds 86_400
-  @default_download_token_ttl_seconds 86_400
+  alias ServiceRadar.Edge.OnboardingPackages, as: AshPackages
+  alias ServiceRadar.Edge.OnboardingPackage
 
   @type filter :: %{
           optional(:status) => [String.t()],
@@ -43,15 +36,14 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
       [%OnboardingPackage{}, ...]
 
   """
-  @spec list(filter()) :: [OnboardingPackage.t()]
-  def list(filters \\ %{}) do
-    limit = Map.get(filters, :limit, @default_limit)
+  @spec list(filter(), keyword()) :: [OnboardingPackage.t()]
+  def list(filters \\ %{}, opts \\ []) do
+    # Convert string statuses to atoms if present
+    filters = normalize_filters(filters)
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+    opts = [actor: system_actor(), authorize?: false, tenant: tenant]
 
-    OnboardingPackage
-    |> apply_filters(filters)
-    |> order_by([p], desc: p.created_at)
-    |> limit(^limit)
-    |> Repo.all()
+    AshPackages.list!(filters, opts)
   end
 
   @doc """
@@ -59,21 +51,26 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   Returns `{:ok, package}` or `{:error, :not_found}`.
   """
-  @spec get(String.t()) :: {:ok, OnboardingPackage.t()} | {:error, :not_found}
-  def get(id) when is_binary(id) do
-    case Repo.get(OnboardingPackage, id) do
-      nil -> {:error, :not_found}
-      package -> {:ok, package}
-    end
+  @spec get(String.t(), keyword()) :: {:ok, OnboardingPackage.t()} | {:error, :not_found}
+  def get(id, opts \\ [])
+
+  def get(id, opts) when is_binary(id) do
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+    opts = [actor: system_actor(), authorize?: false, tenant: tenant]
+    AshPackages.get(id, opts)
   end
 
-  def get(_), do: {:error, :not_found}
+  def get(_, _opts), do: {:error, :not_found}
 
   @doc """
   Gets a single package by ID, raising if not found.
   """
-  @spec get!(String.t()) :: OnboardingPackage.t()
-  def get!(id), do: Repo.get!(OnboardingPackage, id)
+  @spec get!(String.t(), keyword()) :: OnboardingPackage.t()
+  def get!(id, opts \\ []) do
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+    opts = [actor: system_actor(), authorize?: false, tenant: tenant]
+    AshPackages.get!(id, opts)
+  end
 
   @doc """
   Creates a new edge onboarding package with tokens.
@@ -93,55 +90,15 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   @spec create(map(), keyword()) ::
           {:ok,
            %{package: OnboardingPackage.t(), join_token: String.t(), download_token: String.t()}}
-          | {:error, Ecto.Changeset.t()}
+          | {:error, Ash.Error.t()}
   def create(attrs, opts \\ []) do
-    join_ttl = Keyword.get(opts, :join_token_ttl_seconds, @default_join_token_ttl_seconds)
-
-    download_ttl =
-      Keyword.get(opts, :download_token_ttl_seconds, @default_download_token_ttl_seconds)
-
     actor = Keyword.get(opts, :actor)
-    source_ip = Keyword.get(opts, :source_ip)
-
-    # Generate tokens
-    join_token = Crypto.generate_token()
-    download_token = Crypto.generate_token()
-
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-    join_expires = DateTime.add(now, join_ttl, :second)
-    download_expires = DateTime.add(now, download_ttl, :second)
-
-    # Encrypt join token and hash download token
-    join_token_ciphertext = Crypto.encrypt(join_token)
-    download_token_hash = Crypto.hash_token(download_token)
-
-    token_attrs = %{
-      join_token_ciphertext: join_token_ciphertext,
-      join_token_expires_at: join_expires,
-      download_token_hash: download_token_hash,
-      download_token_expires_at: download_expires
-    }
-
-    changeset =
-      %OnboardingPackage{}
-      |> OnboardingPackage.create_changeset(attrs)
-      |> OnboardingPackage.token_changeset(token_attrs)
-
-    case Repo.insert(changeset) do
-      {:ok, package} ->
-        # Record creation event
-        OnboardingEvents.record(package.id, "created", actor: actor, source_ip: source_ip)
-
-        {:ok,
-         %{
-           package: package,
-           join_token: join_token,
-           download_token: download_token
-         }}
-
-      {:error, changeset} ->
-        {:error, changeset}
-    end
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+    opts_with_actor = opts
+      |> Keyword.put(:actor, actor || system_actor())
+      |> Keyword.put(:authorize?, false)
+      |> Keyword.put(:tenant, tenant)
+    AshPackages.create(attrs, opts_with_actor)
   end
 
   @doc """
@@ -164,36 +121,12 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
           | {:error, atom()}
   def deliver(package_id, download_token, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    source_ip = Keyword.get(opts, :source_ip)
-
-    with {:ok, package} <- get(package_id),
-         :ok <- verify_deliverable(package),
-         :ok <- verify_download_token(package, download_token) do
-      # Decrypt join token
-      join_token = Crypto.decrypt(package.join_token_ciphertext)
-
-      # Decrypt bundle if present
-      bundle_pem =
-        if package.bundle_ciphertext do
-          Crypto.decrypt(package.bundle_ciphertext)
-        end
-
-      # Update package status to delivered
-      {:ok, updated_package} =
-        package
-        |> OnboardingPackage.deliver_changeset()
-        |> Repo.update()
-
-      # Record delivery event
-      OnboardingEvents.record(package_id, "delivered", actor: actor, source_ip: source_ip)
-
-      {:ok,
-       %{
-         package: updated_package,
-         join_token: join_token,
-         bundle_pem: bundle_pem
-       }}
-    end
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+    opts_with_actor = opts
+      |> Keyword.put(:actor, actor || system_actor())
+      |> Keyword.put(:authorize?, false)
+      |> Keyword.put(:tenant, tenant)
+    AshPackages.deliver(package_id, download_token, opts_with_actor)
   end
 
   @doc """
@@ -202,25 +135,12 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   @spec revoke(String.t(), keyword()) :: {:ok, OnboardingPackage.t()} | {:error, atom()}
   def revoke(package_id, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    source_ip = Keyword.get(opts, :source_ip)
-    reason = Keyword.get(opts, :reason)
-
-    with {:ok, package} <- get(package_id),
-         :ok <- verify_not_revoked(package) do
-      {:ok, updated_package} =
-        package
-        |> OnboardingPackage.revoke_changeset(%{deleted_reason: reason})
-        |> Repo.update()
-
-      # Record revocation event
-      OnboardingEvents.record(package_id, "revoked",
-        actor: actor,
-        source_ip: source_ip,
-        details: %{reason: reason}
-      )
-
-      {:ok, updated_package}
-    end
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+    opts_with_actor = opts
+      |> Keyword.put(:actor, actor || system_actor())
+      |> Keyword.put(:authorize?, false)
+      |> Keyword.put(:tenant, tenant)
+    AshPackages.revoke(package_id, opts_with_actor)
   end
 
   @doc """
@@ -229,24 +149,12 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   @spec delete(String.t(), keyword()) :: {:ok, OnboardingPackage.t()} | {:error, atom()}
   def delete(package_id, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    source_ip = Keyword.get(opts, :source_ip)
-    reason = Keyword.get(opts, :reason)
-
-    with {:ok, package} <- get(package_id) do
-      {:ok, updated_package} =
-        package
-        |> OnboardingPackage.delete_changeset(%{deleted_by: actor, deleted_reason: reason})
-        |> Repo.update()
-
-      # Record deletion event
-      OnboardingEvents.record(package_id, "deleted",
-        actor: actor,
-        source_ip: source_ip,
-        details: %{reason: reason}
-      )
-
-      {:ok, updated_package}
-    end
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+    opts_with_actor = opts
+      |> Keyword.put(:actor, actor || system_actor())
+      |> Keyword.put(:authorize?, false)
+      |> Keyword.put(:tenant, tenant)
+    AshPackages.delete(package_id, opts_with_actor)
   end
 
   @doc """
@@ -254,11 +162,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   """
   @spec defaults() :: %{selectors: [String.t()], metadata: map(), security_mode: String.t()}
   def defaults do
-    %{
-      selectors: default_selectors(),
-      metadata: default_metadata(),
-      security_mode: configured_security_mode()
-    }
+    AshPackages.defaults()
   end
 
   @doc """
@@ -267,99 +171,48 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   """
   @spec configured_security_mode() :: String.t()
   def configured_security_mode do
-    Application.get_env(:serviceradar_web_ng, :security_mode, "mtls")
+    AshPackages.configured_security_mode()
   end
 
-  # Private functions
+  # Private helpers
 
-  defp apply_filters(query, filters) do
-    query
-    |> filter_by_status(Map.get(filters, :status))
-    |> filter_by_component_type(Map.get(filters, :component_type))
-    |> filter_by_poller_id(Map.get(filters, :poller_id))
-    |> filter_by_component_id(Map.get(filters, :component_id))
-    |> filter_by_parent_id(Map.get(filters, :parent_id))
-    |> exclude_deleted()
+  defp normalize_filters(filters) do
+    filters
+    |> maybe_convert_statuses()
+    |> maybe_convert_component_types()
   end
 
-  defp filter_by_status(query, nil), do: query
-  defp filter_by_status(query, []), do: query
-
-  defp filter_by_status(query, statuses) when is_list(statuses) do
-    where(query, [p], p.status in ^statuses)
+  defp maybe_convert_statuses(%{status: statuses} = filters) when is_list(statuses) do
+    converted = Enum.map(statuses, &to_atom_if_string/1)
+    Map.put(filters, :status, converted)
   end
 
-  defp filter_by_component_type(query, nil), do: query
-  defp filter_by_component_type(query, []), do: query
+  defp maybe_convert_statuses(filters), do: filters
 
-  defp filter_by_component_type(query, types) when is_list(types) do
-    where(query, [p], p.component_type in ^types)
+  defp maybe_convert_component_types(%{component_type: types} = filters) when is_list(types) do
+    converted = Enum.map(types, &to_atom_if_string/1)
+    Map.put(filters, :component_type, converted)
   end
 
-  defp filter_by_poller_id(query, nil), do: query
-  defp filter_by_poller_id(query, ""), do: query
+  defp maybe_convert_component_types(filters), do: filters
 
-  defp filter_by_poller_id(query, poller_id) do
-    where(query, [p], p.poller_id == ^poller_id)
+  defp to_atom_if_string(value) when is_binary(value), do: String.to_existing_atom(value)
+  defp to_atom_if_string(value), do: value
+
+  defp system_actor do
+    %{
+      id: "00000000-0000-0000-0000-000000000000",
+      email: "system@serviceradar.local",
+      role: :super_admin
+    }
   end
 
-  defp filter_by_component_id(query, nil), do: query
-  defp filter_by_component_id(query, ""), do: query
-
-  defp filter_by_component_id(query, component_id) do
-    where(query, [p], p.component_id == ^component_id)
-  end
-
-  defp filter_by_parent_id(query, nil), do: query
-  defp filter_by_parent_id(query, ""), do: query
-
-  defp filter_by_parent_id(query, parent_id) do
-    where(query, [p], p.parent_id == ^parent_id)
-  end
-
-  defp exclude_deleted(query) do
-    where(query, [p], is_nil(p.deleted_at))
-  end
-
-  defp verify_deliverable(package) do
-    cond do
-      OnboardingPackage.revoked?(package) -> {:error, :revoked}
-      OnboardingPackage.deleted?(package) -> {:error, :deleted}
-      OnboardingPackage.delivered?(package) -> {:error, :already_delivered}
-      true -> :ok
+  defp default_tenant do
+    # Default tenant ID for backwards compatibility
+    # Uses the test tenant ID in test, system tenant in production
+    case Application.get_env(:serviceradar_web_ng, :env) do
+      :test -> "00000000-0000-0000-0000-000000000099"
+      _ -> "00000000-0000-0000-0000-000000000000"
     end
-  end
-
-  defp verify_download_token(package, token) do
-    now = DateTime.utc_now()
-
-    cond do
-      DateTime.compare(now, package.download_token_expires_at) == :gt ->
-        {:error, :expired}
-
-      not Crypto.verify_token(token, package.download_token_hash) ->
-        {:error, :invalid_token}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp verify_not_revoked(package) do
-    if OnboardingPackage.revoked?(package) do
-      {:error, :already_revoked}
-    else
-      :ok
-    end
-  end
-
-  defp default_selectors do
-    Application.get_env(:serviceradar_web_ng, :edge_onboarding, [])
-    |> Keyword.get(:default_selectors, [])
-  end
-
-  defp default_metadata do
-    Application.get_env(:serviceradar_web_ng, :edge_onboarding, [])
-    |> Keyword.get(:default_metadata, %{})
   end
 end

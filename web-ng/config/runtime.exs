@@ -23,6 +23,103 @@ end
 config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# libcluster configuration for ERTS cluster formation
+# Strategy selection: kubernetes, epmd, dns, or gossip (future)
+cluster_strategy = System.get_env("CLUSTER_STRATEGY", "epmd")
+cluster_enabled = System.get_env("CLUSTER_ENABLED", "false") in ~w(true 1 yes)
+
+config :serviceradar_core, cluster_enabled: cluster_enabled
+
+if cluster_enabled do
+  topologies =
+    case cluster_strategy do
+      "kubernetes" ->
+        # Kubernetes DNS-based discovery (production)
+        namespace = System.get_env("NAMESPACE", "serviceradar")
+        kubernetes_selector = System.get_env("KUBERNETES_SELECTOR", "app=serviceradar")
+        kubernetes_node_basename = System.get_env("KUBERNETES_NODE_BASENAME", "serviceradar")
+
+        [
+          serviceradar: [
+            strategy: Cluster.Strategy.Kubernetes,
+            config: [
+              mode: :dns,
+              kubernetes_node_basename: kubernetes_node_basename,
+              kubernetes_selector: kubernetes_selector,
+              kubernetes_namespace: namespace,
+              polling_interval: 5_000
+            ]
+          ]
+        ]
+
+      "dns" ->
+        # DNSPoll strategy for bare metal with service discovery
+        dns_query = System.get_env("CLUSTER_DNS_QUERY", "serviceradar.local")
+        node_basename = System.get_env("CLUSTER_NODE_BASENAME", "serviceradar")
+
+        [
+          serviceradar: [
+            strategy: Cluster.Strategy.DNSPoll,
+            config: [
+              polling_interval: 5_000,
+              query: dns_query,
+              node_basename: node_basename
+            ]
+          ]
+        ]
+
+      "epmd" ->
+        # EPMD strategy for development and static bare metal
+        hosts_str = System.get_env("CLUSTER_HOSTS", "")
+
+        hosts =
+          hosts_str
+          |> String.split(",", trim: true)
+          |> Enum.map(&String.trim/1)
+          |> Enum.map(&String.to_atom/1)
+
+        if hosts != [] do
+          [
+            serviceradar: [
+              strategy: Cluster.Strategy.Epmd,
+              config: [hosts: hosts]
+            ]
+          ]
+        else
+          []
+        end
+
+      "gossip" ->
+        # Gossip strategy for large-scale deployments (future)
+        gossip_port = String.to_integer(System.get_env("CLUSTER_GOSSIP_PORT", "45892"))
+        gossip_secret = System.get_env("CLUSTER_GOSSIP_SECRET")
+
+        if gossip_secret do
+          [
+            serviceradar: [
+              strategy: Cluster.Strategy.Gossip,
+              config: [
+                port: gossip_port,
+                if_addr: "0.0.0.0",
+                multicast_addr: "230.1.1.1",
+                multicast_ttl: 1,
+                secret: gossip_secret
+              ]
+            ]
+          ]
+        else
+          []
+        end
+
+      _ ->
+        []
+    end
+
+  if topologies != [] do
+    config :libcluster, topologies: topologies
+  end
+end
+
 if config_env() != :test do
   admin_username = System.get_env("ADMIN_BASIC_AUTH_USERNAME")
   admin_password = System.get_env("ADMIN_BASIC_AUTH_PASSWORD")
@@ -33,9 +130,7 @@ if config_env() != :test do
       password: admin_password
   end
 
-  oban_poll_interval_ms =
-    System.get_env("OBAN_SCHEDULER_POLL_INTERVAL_MS", "30000") |> String.to_integer()
-
+  # Oban queue limits (plugins are configured in config.exs via Oban.Plugins.Cron)
   oban_default_queue_limit =
     System.get_env("OBAN_DEFAULT_QUEUE_LIMIT", "10") |> String.to_integer()
 
@@ -45,7 +140,6 @@ if config_env() != :test do
   oban_node = System.get_env("OBAN_NODE")
 
   oban_config = [
-    plugins: [{ServiceRadarWebNG.Jobs.Scheduler, poll_interval_ms: oban_poll_interval_ms}],
     queues: [
       default: oban_default_queue_limit,
       maintenance: oban_maintenance_queue_limit
@@ -59,7 +153,7 @@ if config_env() != :test do
       oban_config
     end
 
-  config :serviceradar_web_ng, Oban, oban_config
+  config :serviceradar_core, Oban, oban_config
 end
 
 if config_env() == :prod do
@@ -144,7 +238,8 @@ if config_env() == :prod do
         """
     end
 
-  config :serviceradar_web_ng, ServiceRadarWebNG.Repo,
+  # Configure ServiceRadar.Repo from serviceradar_core
+  config :serviceradar_core, ServiceRadar.Repo,
     url: repo_url,
     ssl: if(cnpg_ssl_enabled, do: cnpg_ssl_opts, else: false),
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
@@ -202,6 +297,20 @@ if config_env() == :prod do
   config :serviceradar_web_ng, dev_routes: dev_routes
   config :serviceradar_web_ng, security_mode: security_mode
 
+  # Token signing secret for AshAuthentication JWT tokens
+  # Falls back to SECRET_KEY_BASE if not explicitly set
+  token_signing_secret =
+    System.get_env("TOKEN_SIGNING_SECRET") || secret_key_base
+
+  config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
+  config :serviceradar_web_ng, :base_url, "https://#{host}"
+
+  default_tenant_id =
+    System.get_env("SERVICERADAR_DEFAULT_TENANT_ID") ||
+      "00000000-0000-0000-0000-000000000000"
+
+  config :serviceradar_core, :default_tenant_id, default_tenant_id
+
   # Datasvc gRPC client configuration for KV store access
   # Used for fetching component templates and other KV data
   datasvc_address = System.get_env("DATASVC_ADDRESS")
@@ -240,6 +349,7 @@ if config_env() == :prod do
 
   if local_mailer do
     config :swoosh, local: true
+    config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
   end
 
   config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,

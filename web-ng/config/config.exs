@@ -22,20 +22,78 @@ config :serviceradar_web_ng, :scopes,
 
 config :serviceradar_web_ng,
   namespace: ServiceRadarWebNG,
-  ecto_repos: [ServiceRadarWebNG.Repo],
+  # Use ServiceRadar.Repo from serviceradar_core
+  ecto_repos: [ServiceRadar.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-config :serviceradar_web_ng, ServiceRadarWebNG.Repo, migration_source: "ng_schema_migrations"
+# Configure the shared repo from serviceradar_core
+# Ash manages all migrations in serviceradar_core/priv/repo/migrations/
+config :serviceradar_core, ServiceRadar.Repo,
+  migration_source: "ash_schema_migrations"
+
+# Ash Framework Configuration
+config :serviceradar_web_ng,
+  ash_domains: [
+    ServiceRadar.Identity,
+    ServiceRadar.Inventory,
+    ServiceRadar.Infrastructure,
+    ServiceRadar.Monitoring,
+    ServiceRadar.Observability,
+    ServiceRadar.Edge
+  ]
+
+# Ash configuration
+config :ash,
+  include_embedded_source_by_default?: false,
+  default_page_type: :keyset,
+  policies: [
+    no_filter_static_forbidden_reads?: false,
+    show_policy_breakdowns?: true
+  ]
+
+# AshPostgres configuration
+config :ash_postgres,
+  manage_migrations?: true
+
+# Feature flags for Ash integration
+# Note: All Ash domains are now active by default. The ash_srql_adapter flag
+# controls whether SRQL queries for devices/pollers/agents route through Ash.
+config :serviceradar_web_ng, :feature_flags,
+  ash_srql_adapter: true
 
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 
-config :serviceradar_web_ng, Oban,
-  repo: ServiceRadarWebNG.Repo,
-  queues: [default: 10, maintenance: 2],
+# Oban job processing configuration
+# Configured in serviceradar_core, but we add web-specific cron jobs here
+config :serviceradar_core, Oban,
+  repo: ServiceRadar.Repo,
+  queues: [
+    default: 10,
+    maintenance: 2,
+    # AshOban queues
+    alerts: 5,
+    service_checks: 10,
+    notifications: 5,
+    onboarding: 3,
+    events: 10,
+    sweeps: 20,
+    edge: 10,
+    integrations: 5
+  ],
   plugins: [
-    {ServiceRadarWebNG.Jobs.Scheduler, poll_interval_ms: 30_000}
+    # Built-in Cron plugin for system maintenance jobs (non-Ash resources)
+    {Oban.Plugins.Cron,
+     crontab: [
+       # Refresh trace summaries materialized view every 2 minutes
+       {"*/2 * * * *", ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
+     ]},
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}  # Keep jobs for 7 days
   ],
   peer: Oban.Peers.Database
+
+# AshOban configuration
+config :ash_oban,
+  oban_name: Oban
 
 # Configure the endpoint
 config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,

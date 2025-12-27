@@ -2,7 +2,9 @@ defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorkerTest do
   use ServiceRadarWebNG.DataCase, async: false
 
   alias ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker
-  alias ServiceRadarWebNG.Repo
+
+  # Use ServiceRadar.Repo directly for SQL adapter operations
+  @repo ServiceRadar.Repo
 
   test "exposes refresh SQL" do
     assert RefreshTraceSummariesWorker.refresh_sql() ==
@@ -14,24 +16,24 @@ defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorkerTest do
   end
 
   test "refreshes the materialized view when present" do
-    Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-      Ecto.Adapters.SQL.query!(Repo, "DROP MATERIALIZED VIEW IF EXISTS otel_trace_summaries", [])
+    Ecto.Adapters.SQL.Sandbox.unboxed_run(@repo, fn ->
+      Ecto.Adapters.SQL.query!(@repo, "DROP MATERIALIZED VIEW IF EXISTS otel_trace_summaries", [])
 
       Ecto.Adapters.SQL.query!(
-        Repo,
+        @repo,
         "CREATE MATERIALIZED VIEW otel_trace_summaries AS SELECT 1 AS id",
         []
       )
 
       Ecto.Adapters.SQL.query!(
-        Repo,
+        @repo,
         "CREATE UNIQUE INDEX otel_trace_summaries_id_idx ON otel_trace_summaries (id)",
         []
       )
 
       assert :ok = RefreshTraceSummariesWorker.perform(%Oban.Job{args: %{}})
 
-      Ecto.Adapters.SQL.query!(Repo, "DROP MATERIALIZED VIEW IF EXISTS otel_trace_summaries", [])
+      Ecto.Adapters.SQL.query!(@repo, "DROP MATERIALIZED VIEW IF EXISTS otel_trace_summaries", [])
     end)
   end
 end

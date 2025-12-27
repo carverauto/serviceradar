@@ -87,6 +87,58 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 - Restart the stack: `APP_TAG=sha-<sha> docker compose up -d --force-recreate`.
 - Verify: `docker compose ps` (one-shot jobs like cert-generator/config-updater exit once finished; nginx may sit in "health: starting" briefly).
 
+## Local Development with Docker CNPG
+
+Use this quick playbook when running `mix phx.server` locally and connecting to the CNPG instance in Docker on the same machine. This is the fastest iteration loop for testing changes.
+
+### 1. Ensure Docker Compose is Running
+
+Make sure CNPG is accessible on port 5455:
+
+```bash
+cd docker/compose
+APP_TAG=sha-<commit> docker compose up -d cnpg
+```
+
+### 2. Copy Client Certs to a Local Directory (one-time setup)
+
+```bash
+mkdir -p .local-dev-certs
+sudo cp /var/lib/docker/volumes/serviceradar_cert-data/_data/{root.pem,workstation.pem,workstation-key.pem} .local-dev-certs/
+sudo chown -R $USER:$USER .local-dev-certs
+```
+
+Note: `.local-dev-certs/` is already in `.gitignore`.
+
+### 3. Run Phoenix Locally
+
+```bash
+cd web-ng
+CNPG_HOST=localhost CNPG_PORT=5455 CNPG_SSL_MODE=verify-full \
+  CNPG_CERT_DIR=/home/<user>/serviceradar/.local-dev-certs \
+  CNPG_TLS_SERVER_NAME=cnpg \
+  mix phx.server
+```
+
+Or for local testing without network:
+
+```bash
+CNPG_HOST=localhost CNPG_PORT=5455 CNPG_SSL_MODE=verify-full \
+  CNPG_CERT_DIR=$PWD/../.local-dev-certs CNPG_TLS_SERVER_NAME=cnpg \
+  mix phx.server
+```
+
+### 4. Access the App
+
+- Web UI: http://localhost:4000
+- Dev Mailbox: http://localhost:4000/dev/mailbox (for testing magic links)
+- Live Dashboard: http://localhost:4000/dev/dashboard
+
+### Troubleshooting
+
+- **Port 4000 already in use**: Kill any stale beam processes with `pkill -f beam.smp`
+- **binary_to_existing_atom error**: Ensure you've run `mix compile --force` after updates
+
 ## Web-NG Remote Dev (CNPG)
 
 Use this playbook to run `web-ng/` on a workstation while connecting to the existing CNPG instance running on the docker host (example: `192.168.2.134`).
@@ -125,6 +177,125 @@ export CNPG_SSL_MODE=verify-full
 export CNPG_CERT_DIR=/path/to/private/serviceradar-certs
 mix phx.server
 ```
+
+## Local mTLS ERTS Cluster (web-ng + poller + agent)
+
+Use this when validating TLS distribution locally without Docker. This keeps `web-ng`, `serviceradar_poller`, and `serviceradar_agent` joined over mTLS ERTS.
+
+### 1. Generate local mTLS certs for distribution
+
+```bash
+mkdir -p tmp/serviceradar-certs tmp/ssl_dist tmp/logs
+sudo CERT_DIR="$PWD/tmp/serviceradar-certs" bash docker/compose/generate-certs.sh
+sudo chown -R "$USER:$USER" tmp/serviceradar-certs
+```
+
+### 2. Create ssl_dist config files that point at local cert paths
+
+```bash
+cp docker/compose/ssl_dist.web.conf tmp/ssl_dist/web.conf
+cp docker/compose/ssl_dist.poller.conf tmp/ssl_dist/poller.conf
+cp docker/compose/ssl_dist.agent.conf tmp/ssl_dist/agent.conf
+sed -i "s#/etc/serviceradar/certs#$PWD/tmp/serviceradar-certs#g" tmp/ssl_dist/*.conf
+```
+
+### 3. Copy Docker CNPG TLS certs for web-ng (if using local docker CNPG)
+
+```bash
+mkdir -p tmp/serviceradar-docker-certs
+sudo cp /var/lib/docker/volumes/serviceradar_cert-data/_data/{root.pem,workstation.pem,workstation-key.pem} tmp/serviceradar-docker-certs/
+sudo chown -R "$USER:$USER" tmp/serviceradar-docker-certs
+```
+
+### 4. Start poller + agent with TLS distribution (use 127.0.0.1 names)
+
+```bash
+ERL_FLAGS="-name serviceradar_poller@127.0.0.1 -setcookie serviceradar_dev_cookie -proto_dist inet_tls -ssl_dist_optfile $PWD/tmp/ssl_dist/poller.conf" \
+CLUSTER_ENABLED=true CLUSTER_STRATEGY=epmd \
+CLUSTER_HOSTS=serviceradar_web_ng@127.0.0.1,serviceradar_agent@127.0.0.1 \
+ENABLE_TLS_DIST=true SSL_DIST_OPTFILE=$PWD/tmp/ssl_dist/poller.conf \
+SPIFFE_CERT_DIR=$PWD/tmp/serviceradar-certs \
+POLLER_PARTITION_ID=local POLLER_ID=poller-local-1 POLLER_DOMAIN=local POLLER_CAPABILITIES=icmp,tcp \
+nohup mix run --no-halt > $PWD/tmp/logs/poller-local.log 2>&1 &
+
+ERL_FLAGS="-name serviceradar_agent@127.0.0.1 -setcookie serviceradar_dev_cookie -proto_dist inet_tls -ssl_dist_optfile $PWD/tmp/ssl_dist/agent.conf" \
+CLUSTER_ENABLED=true CLUSTER_STRATEGY=epmd \
+CLUSTER_HOSTS=serviceradar_web_ng@127.0.0.1,serviceradar_poller@127.0.0.1 \
+ENABLE_TLS_DIST=true SSL_DIST_OPTFILE=$PWD/tmp/ssl_dist/agent.conf \
+SPIFFE_CERT_DIR=$PWD/tmp/serviceradar-certs \
+AGENT_PARTITION_ID=local AGENT_ID=agent-local-1 AGENT_POLLER_ID=poller-local-1 AGENT_CAPABILITIES=snmp,disk \
+nohup mix run --no-halt > $PWD/tmp/logs/agent-local.log 2>&1 &
+```
+
+### 5. Start web-ng with TLS distribution + CNPG
+
+```bash
+ERL_FLAGS="-name serviceradar_web_ng@127.0.0.1 -setcookie serviceradar_dev_cookie -proto_dist inet_tls -ssl_dist_optfile $PWD/tmp/ssl_dist/web.conf" \
+CLUSTER_ENABLED=true CLUSTER_STRATEGY=epmd \
+CLUSTER_HOSTS=serviceradar_poller@127.0.0.1,serviceradar_agent@127.0.0.1 \
+CLUSTER_TLS_ENABLED=true SSL_DIST_OPTFILE=$PWD/tmp/ssl_dist/web.conf \
+CNPG_HOST=localhost CNPG_PORT=5455 CNPG_USERNAME=serviceradar CNPG_PASSWORD=serviceradar \
+CNPG_DATABASE=serviceradar_web_ng_dev CNPG_SSL_MODE=verify-ca \
+CNPG_CA_FILE=$PWD/tmp/serviceradar-docker-certs/root.pem \
+CNPG_CERT_FILE=$PWD/tmp/serviceradar-docker-certs/workstation.pem \
+CNPG_KEY_FILE=$PWD/tmp/serviceradar-docker-certs/workstation-key.pem \
+PHX_HOST=localhost SERVICERADAR_DEV_ROUTES=true SERVICERADAR_LOCAL_MAILER=true \
+nohup mix phx.server > $PWD/tmp/logs/web-ng.log 2>&1 &
+```
+
+### 6. Verify cluster membership via observer node
+
+```bash
+cat > tmp/ssl_dist/observer.conf <<EOF
+[{server, [
+  {certfile, "$PWD/tmp/serviceradar-certs/workstation.pem"},
+  {keyfile, "$PWD/tmp/serviceradar-certs/workstation-key.pem"},
+  {cacertfile, "$PWD/tmp/serviceradar-certs/root.pem"},
+  {verify, verify_peer},
+  {fail_if_no_peer_cert, true},
+  {secure_renegotiate, true},
+  {depth, 2}
+]},
+{client, [
+  {certfile, "$PWD/tmp/serviceradar-certs/workstation.pem"},
+  {keyfile, "$PWD/tmp/serviceradar-certs/workstation-key.pem"},
+  {cacertfile, "$PWD/tmp/serviceradar-certs/root.pem"},
+  {verify, verify_peer},
+  {secure_renegotiate, true},
+  {depth, 2}
+]}].
+EOF
+
+ERL_FLAGS="-name observer@127.0.0.1 -setcookie serviceradar_dev_cookie -proto_dist inet_tls -ssl_dist_optfile $PWD/tmp/ssl_dist/observer.conf" \
+elixir -e 'IO.inspect(:rpc.call(:\"serviceradar_poller@127.0.0.1\", Node, :list, []))'
+```
+
+Note: using `@127.0.0.1` avoids the ERTS error `System running to use fully qualified hostnames` that you get with `@localhost`.
+
+## Docker Compose mTLS ERTS (IEx/remote)
+
+When using the Docker Compose stack, TLS distribution is enabled via `/etc/serviceradar/ssl_dist.conf` and certs live under `/etc/serviceradar/certs`.
+Use the release `remote` command from inside the containers so node names resolve on the Docker network:
+
+```bash
+docker exec -it serviceradar-web-ng-mtls /app/bin/serviceradar_web_ng remote
+docker exec -it serviceradar-core-elx-mtls /app/bin/serviceradar_core_elx remote
+docker exec -it serviceradar-poller-elx-mtls /app/bin/serviceradar_poller remote
+docker exec -it serviceradar-agent-elx-mtls /app/bin/serviceradar_agent remote
+```
+
+If you need a host-side IEx shell, run a one-off container on the same Docker network with the cert volume mounted so the TLS cert paths resolve:
+
+```bash
+CERT_VOLUME=$(docker volume ls --format '{{.Name}}' | rg 'cert-data' | head -n1)
+docker run --rm -it --network serviceradar-net \
+  -v "${CERT_VOLUME}:/etc/serviceradar/certs" \
+  ghcr.io/carverauto/serviceradar-web-ng:sha-<sha> \
+  /app/bin/serviceradar_web_ng remote
+```
+
+If distribution fails with `bad_cert` or `hostname_check_failed` for `poller-elx` or `agent-elx`, rerun `docker compose run --rm cert-generator` to refresh certs after updating `docker/compose/generate-certs.sh`.
+If you see `hostname_check_failed` for `core-elx`, ensure the core certificate SAN list includes `DNS:core-elx` (and `core`, `serviceradar-core`) in `docker/compose/generate-certs.sh`, then rerun the cert generator.
 
 ## Edge Onboarding Testing with Docker mTLS Stack
 
@@ -298,7 +469,5 @@ When you're done executing code, try to compile the code, and check the logs or 
 ## Tools
 
 Use Tidewave MCP tools, as they let you interrogate the running application in various useful ways.
-
-- Never attempt to start or stop a Phoenix application. Tidewave tools work by being connected to the running application, and starting or stopping it can cause issues.
 - Use the `project_eval` tool to execute code in the running instance of the application. Eval `h Module.fun` to get documentation for a module or function.
 - Always use `search_package_docs` to find relevant documentation before beginning work.

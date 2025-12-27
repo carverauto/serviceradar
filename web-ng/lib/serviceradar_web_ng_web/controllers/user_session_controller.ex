@@ -1,64 +1,44 @@
 defmodule ServiceRadarWebNGWeb.UserSessionController do
+  @moduledoc """
+  Controller for user session management.
+
+  Login and registration are handled by AshAuthentication.Phoenix via AuthController.
+  This controller handles logout and password updates.
+  """
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadarWebNG.Accounts
   alias ServiceRadarWebNGWeb.UserAuth
 
-  def create(conn, %{"_action" => "confirmed"} = params) do
-    create(conn, params, "User confirmed successfully.")
-  end
+  @doc """
+  Updates the user's password.
 
-  def create(conn, params) do
-    create(conn, params, "Welcome back!")
-  end
-
-  # magic link login
-  defp create(conn, %{"user" => %{"token" => token} = user_params}, info) do
-    case Accounts.login_user_by_magic_link(token) do
-      {:ok, {user, tokens_to_disconnect}} ->
-        UserAuth.disconnect_sessions(tokens_to_disconnect)
-
-        conn
-        |> put_flash(:info, info)
-        |> UserAuth.log_in_user(user, user_params)
-
-      _ ->
-        conn
-        |> put_flash(:error, "The link is invalid or it has expired.")
-        |> redirect(to: ~p"/users/log-in")
-    end
-  end
-
-  # email + password login
-  defp create(conn, %{"user" => user_params}, info) do
-    %{"email" => email, "password" => password} = user_params
-
-    if user = Accounts.get_user_by_email_and_password(email, password) do
-      conn
-      |> put_flash(:info, info)
-      |> UserAuth.log_in_user(user, user_params)
-    else
-      # In order to prevent user enumeration attacks, don't disclose whether the email is registered.
-      conn
-      |> put_flash(:error, "Invalid email or password")
-      |> put_flash(:email, String.slice(email, 0, 160))
-      |> redirect(to: ~p"/users/log-in")
-    end
-  end
-
-  def update_password(conn, %{"user" => user_params} = params) do
+  Requires the user to be in sudo mode (recently authenticated).
+  """
+  def update_password(conn, %{"user" => user_params}) do
     user = conn.assigns.current_scope.user
     true = Accounts.sudo_mode?(user)
-    {:ok, {_user, expired_tokens}} = Accounts.update_user_password(user, user_params)
 
-    # disconnect all existing LiveViews with old sessions
-    UserAuth.disconnect_sessions(expired_tokens)
+    case Accounts.update_user_password(user, user_params) do
+      {:ok, _user} ->
+        # After password change, user should re-authenticate
+        # Broadcast disconnect to any other LiveView sessions
+        UserAuth.disconnect_sessions([user.id])
 
-    conn
-    |> put_session(:user_return_to, ~p"/users/settings")
-    |> create(params, "Password updated successfully!")
+        conn
+        |> put_flash(:info, "Password updated successfully! Please sign in again.")
+        |> UserAuth.log_out_user()
+
+      {:error, _changeset} ->
+        conn
+        |> put_flash(:error, "Failed to update password.")
+        |> redirect(to: ~p"/users/settings")
+    end
   end
 
+  @doc """
+  Logs the user out.
+  """
   def delete(conn, _params) do
     conn
     |> put_flash(:info, "Logged out successfully.")

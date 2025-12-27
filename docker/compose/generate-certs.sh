@@ -63,6 +63,7 @@ generate_cert() {
     local component=$1
     local cn=$2
     local san=$3
+    local required_dns=""
     
     if [ -f "$CERT_DIR/$component.pem" ]; then
         if [ "$component" = "cnpg" ] && [ -n "${CNPG_CERT_EXTRA_IPS:-}" ]; then
@@ -73,6 +74,20 @@ generate_cert() {
                     break
                 fi
             done
+        fi
+        if [ "$component" = "core" ]; then
+            required_dns="core-elx"
+        elif [ "$component" = "poller" ]; then
+            required_dns="poller-elx-t2"
+        elif [ "$component" = "agent" ]; then
+            required_dns="agent-elx-t2"
+        fi
+
+        if [ -n "$required_dns" ]; then
+            if ! openssl x509 -in "$CERT_DIR/$component.pem" -noout -text | grep -q "DNS:${required_dns}"; then
+                echo "Certificate for $component missing SAN DNS:${required_dns}; regenerating..."
+                rm -f "$CERT_DIR/$component.pem" "$CERT_DIR/$component-key.pem"
+            fi
         fi
 
         if [ -f "$CERT_DIR/$component.pem" ]; then
@@ -141,7 +156,7 @@ EOF
 # Include comprehensive cross-service SAN entries for all inter-service communication
 
 # Core services that many others connect to - include common client service names
-generate_cert "core" "core.serviceradar" "DNS:core,DNS:core.serviceradar,DNS:serviceradar-core,DNS:poller.serviceradar,DNS:agent.serviceradar,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "core" "core.serviceradar" "DNS:core,DNS:core-elx,DNS:core.serviceradar,DNS:serviceradar-core,DNS:poller.serviceradar,DNS:agent.serviceradar,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # NATS - messaging backbone, many services connect to it
 generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats,DNS:datasvc.serviceradar,DNS:sync.serviceradar,DNS:zen.serviceradar,DNS:trapd.serviceradar,DNS:flowgger.serviceradar,DNS:otel.serviceradar,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
@@ -154,8 +169,8 @@ generate_cert "trapd" "trapd.serviceradar" "DNS:trapd,DNS:trapd.serviceradar,DNS
 generate_cert "mapper" "mapper.serviceradar" "DNS:mapper,DNS:mapper.serviceradar,DNS:serviceradar-mapper,DNS:agent.serviceradar,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Services that are clients to others
-generate_cert "poller" "poller.serviceradar" "DNS:poller,DNS:poller.serviceradar,DNS:serviceradar-poller,DNS:localhost,IP:127.0.0.1"
-generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "poller" "poller.serviceradar" "DNS:poller,DNS:poller-elx,DNS:poller-elx-t2,DNS:poller.serviceradar,DNS:serviceradar-poller,DNS:localhost,IP:127.0.0.1"
+generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "web" "web.serviceradar" "DNS:web,DNS:web.serviceradar,DNS:serviceradar-web-ng,DNS:web-ng,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
 generate_cert "db-event-writer" "db-event-writer.serviceradar" "DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:serviceradar-db-event-writer,DNS:localhost,IP:127.0.0.1"
 
@@ -178,7 +193,7 @@ generate_cert "flowgger" "flowgger.serviceradar" "DNS:flowgger,DNS:flowgger.serv
 
 # Edge / checker
 generate_cert "sysmon-osx" "sysmon-osx.serviceradar" "DNS:sysmon-osx,DNS:sysmon-osx.serviceradar,DNS:serviceradar-sysmon-osx,DNS:sysmon-osx-checker,DNS:localhost,IP:127.0.0.1"
-generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"
+generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"
 
 # Generate JWT secret for authentication
 JWT_SECRET_FILE="$CERT_DIR/jwt-secret"

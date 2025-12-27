@@ -17,9 +17,10 @@ set -e
 
 CERT_DIR="/certs"
 DAYS_VALID=3650
+FORCE_CERT_REGEN="${FORCE_CERT_REGEN:-false}"
 
 # Check if ALL certificates exist - including checker and other services
-if [ -f "$CERT_DIR/root.pem" ] && [ -f "$CERT_DIR/core.pem" ] && \
+if [ "$FORCE_CERT_REGEN" != "true" ] && [ -f "$CERT_DIR/root.pem" ] && [ -f "$CERT_DIR/core.pem" ] && \
    [ -f "$CERT_DIR/nats.pem" ] && [ -f "$CERT_DIR/datasvc.pem" ] && [ -f "$CERT_DIR/sync.pem" ] && \
    [ -f "$CERT_DIR/otel.pem" ] && [ -f "$CERT_DIR/flowgger.pem" ] && [ -f "$CERT_DIR/trapd.pem" ] && \
    [ -f "$CERT_DIR/zen.pem" ] && [ -f "$CERT_DIR/db-event-writer.pem" ] && \
@@ -62,8 +63,12 @@ generate_cert() {
     
     # Skip if certificate already exists
     if [ -f "$component.pem" ]; then
-        echo "Certificate for $component already exists, skipping"
-        return
+        if [ "$FORCE_CERT_REGEN" = "true" ]; then
+            rm -f "$component.pem" "$component-key.pem"
+        else
+            echo "Certificate for $component already exists, skipping"
+            return
+        fi
     fi
     
     echo "Generating certificate for $component..."
@@ -109,7 +114,7 @@ EOF
 }
 
 # Generate certificates for components (using NATS-compatible Common Names)
-generate_cert "core" "core.serviceradar" "DNS:core,DNS:serviceradar-core,DNS:localhost,IP:127.0.0.1,IP:172.28.0.3"
+generate_cert "core" "core.serviceradar" "DNS:core,DNS:core-elx,DNS:serviceradar-core,DNS:localhost,IP:127.0.0.1,IP:172.28.0.3"
 generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:serviceradar-nats,DNS:localhost,IP:127.0.0.1,IP:172.28.0.4"
 generate_cert "datasvc" "datasvc.serviceradar" "DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc,DNS:localhost,IP:127.0.0.1,IP:172.28.0.5"
 generate_cert "sync" "sync.serviceradar" "DNS:sync,DNS:serviceradar-sync,DNS:localhost,IP:127.0.0.1,IP:172.28.0.6"
@@ -125,8 +130,8 @@ generate_cert "mapper" "mapper.serviceradar" "DNS:mapper,DNS:serviceradar-mapper
 generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:serviceradar-rperf-client,DNS:localhost,IP:127.0.0.1"
 
 # Generate certificates for other services that might need them
-generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"
-generate_cert "poller" "poller.serviceradar" "DNS:poller,DNS:serviceradar-poller,DNS:localhost,IP:127.0.0.1"
+generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent-elx,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"
+generate_cert "poller" "poller.serviceradar" "DNS:poller,DNS:poller-elx,DNS:serviceradar-poller,DNS:localhost,IP:127.0.0.1"
 generate_cert "web" "web.serviceradar" "DNS:web,DNS:serviceradar-web-ng,DNS:web-ng,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
 
 echo "Certificates generated successfully!"

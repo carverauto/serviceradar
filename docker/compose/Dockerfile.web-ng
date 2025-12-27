@@ -15,6 +15,10 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 
+# Copy shared Elixir library first (dependency for web-ng)
+COPY elixir/serviceradar_core ./elixir/serviceradar_core
+
+# Copy web-ng application
 COPY web-ng/mix.exs web-ng/mix.lock ./web-ng/
 COPY web-ng/config ./web-ng/config
 COPY web-ng/lib ./web-ng/lib
@@ -64,6 +68,8 @@ WORKDIR /app/web-ng
 
 ENV MIX_ENV=prod
 
+# Copy shared library and web-ng (web-ng depends on serviceradar_core)
+COPY --from=build /app/elixir/serviceradar_core /app/elixir/serviceradar_core
 COPY --from=build /app/web-ng /app/web-ng
 
 EXPOSE 4000

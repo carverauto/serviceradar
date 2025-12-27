@@ -1,49 +1,29 @@
 defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
+  @moduledoc """
+  LiveView for managing job schedules.
+
+  Displays jobs from multiple sources:
+  - Oban.Plugins.Cron (config-based system maintenance jobs)
+  - AshOban triggers (resource-based scheduled actions)
+  """
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.AdminComponents
 
-  alias ServiceRadarWebNG.Jobs
+  alias ServiceRadarWebNG.Jobs.JobCatalog
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign_entries(socket)}
+    {:ok, assign_jobs(socket)}
   end
 
   @impl true
-  def handle_event("validate", %{"id" => id, "schedule" => params}, socket) do
-    {_entry, schedule} = lookup_entry(socket, id)
-    changeset = Jobs.change_schedule(schedule, params) |> Map.put(:action, :validate)
-    form = to_form(changeset, as: :schedule)
-
-    {:noreply, assign(socket, :forms, Map.put(socket.assigns.forms, schedule.id, form))}
-  end
-
-  @impl true
-  def handle_event("save", %{"id" => id, "schedule" => params}, socket) do
-    {_entry, schedule} = lookup_entry(socket, id)
-
-    case Jobs.update_schedule(schedule, params) do
-      {:ok, _schedule} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Schedule updated.")
-         |> assign_entries()}
-
-      {:error, changeset} ->
-        form = to_form(%{changeset | action: :validate}, as: :schedule)
-
-        {:noreply,
-         socket
-         |> put_flash(:error, "Failed to update schedule.")
-         |> assign(:forms, Map.put(socket.assigns.forms, schedule.id, form))}
-    end
+  def handle_event("refresh", _params, socket) do
+    {:noreply, assign_jobs(socket)}
   end
 
   @impl true
   def render(assigns) do
-    assigns = assign(assigns, :entries, assigns.entries || [])
-
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div class="mx-auto max-w-6xl p-6 space-y-6">
@@ -53,12 +33,17 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
           <div>
             <h1 class="text-2xl font-semibold text-base-content">Job Scheduler</h1>
             <p class="text-sm text-base-content/60">
-              Manage recurring background jobs and scheduling cadence.
+              View configured background jobs and their execution status.
             </p>
           </div>
-          <.ui_button variant="outline" size="sm" href={~p"/admin/oban"}>
-            Open Oban Web
-          </.ui_button>
+          <div class="flex gap-2">
+            <.ui_button variant="ghost" size="sm" phx-click="refresh">
+              Refresh
+            </.ui_button>
+            <.ui_button variant="outline" size="sm" href={~p"/admin/oban"}>
+              Open Oban Web
+            </.ui_button>
+          </div>
         </div>
 
         <div class="grid gap-4 md:grid-cols-3">
@@ -66,10 +51,10 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
             <:header>
               <div>
                 <div class="text-sm font-semibold">Scheduler Status</div>
-                <p class="text-xs text-base-content/60">Leader and last observed state.</p>
+                <p class="text-xs text-base-content/60">Leader and configuration overview.</p>
               </div>
             </:header>
-            <div class="grid gap-3 sm:grid-cols-2">
+            <div class="grid gap-3 sm:grid-cols-3">
               <div class="rounded-lg border border-base-200/60 bg-base-200/30 p-3">
                 <div class="text-[11px] uppercase tracking-wide text-base-content/60">
                   Leader Node
@@ -80,21 +65,37 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
               </div>
               <div class="rounded-lg border border-base-200/60 bg-base-200/30 p-3">
                 <div class="text-[11px] uppercase tracking-wide text-base-content/60">
-                  Scheduler Mode
+                  Cron Jobs
                 </div>
-                <div class="mt-1 text-sm font-semibold text-base-content">Oban Peer Leader</div>
+                <div class="mt-1 text-sm font-semibold text-base-content">
+                  {@cron_job_count}
+                </div>
+              </div>
+              <div class="rounded-lg border border-base-200/60 bg-base-200/30 p-3">
+                <div class="text-[11px] uppercase tracking-wide text-base-content/60">
+                  AshOban Triggers
+                </div>
+                <div class="mt-1 text-sm font-semibold text-base-content">
+                  {@ash_oban_count}
+                </div>
               </div>
             </div>
           </.ui_panel>
 
           <.ui_panel>
             <:header>
-              <div class="text-sm font-semibold">Quick Notes</div>
+              <div class="text-sm font-semibold">Configuration</div>
             </:header>
             <div class="space-y-2 text-xs text-base-content/70">
-              <p>Changes apply immediately without restarting the app.</p>
-              <p>Use cron expressions with UTC timezone by default.</p>
-              <p>Leader election prevents duplicate schedule inserts.</p>
+              <p>
+                <strong>Cron jobs</strong>
+                are defined in config and run on a fixed schedule.
+              </p>
+              <p>
+                <strong>AshOban triggers</strong>
+                execute actions on Ash resources based on queries.
+              </p>
+              <p>Use Oban Web for detailed job monitoring and management.</p>
             </div>
           </.ui_panel>
         </div>
@@ -104,138 +105,101 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
             <div>
               <div class="text-sm font-semibold">Scheduled Jobs</div>
               <p class="text-xs text-base-content/60">
-                Update the cron cadence or toggle jobs on/off.
+                All configured background jobs and their schedules.
               </p>
             </div>
           </:header>
 
           <div class="space-y-4">
-            <%= if @entries == [] do %>
+            <%= if @jobs == [] do %>
               <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
-                <div class="text-sm font-semibold text-base-content">No schedules found</div>
+                <div class="text-sm font-semibold text-base-content">No jobs configured</div>
                 <p class="mt-1 text-xs text-base-content/60">
-                  Run migrations to seed the default trace refresh schedule.
+                  Configure jobs in your application config or add AshOban triggers to resources.
                 </p>
               </div>
             <% else %>
-              <%= for entry <- @entries do %>
+              <%= for job <- @jobs do %>
                 <div class="rounded-xl border border-base-200/70 bg-base-100 p-4">
                   <div class="flex flex-wrap items-center justify-between gap-3">
                     <div class="min-w-0">
-                      <div class="text-sm font-semibold text-base-content">
-                        {entry_title(entry)}
+                      <div class="flex items-center gap-2">
+                        <div class="text-sm font-semibold text-base-content">
+                          {job.name}
+                        </div>
+                        <.ui_badge variant={source_variant(job.source)} size="xs">
+                          {source_label(job.source)}
+                        </.ui_badge>
                       </div>
                       <p class="text-xs text-base-content/60">
-                        {entry_description(entry)}
+                        {job.description}
                       </p>
                     </div>
                     <div class="flex items-center gap-2">
-                      <.ui_badge variant={entry_status_variant(entry)} size="xs">
-                        {entry_status_label(entry)}
+                      <.ui_badge variant={if job.enabled, do: "success", else: "warning"} size="xs">
+                        {if job.enabled, do: "Enabled", else: "Paused"}
                       </.ui_badge>
                     </div>
                   </div>
 
-                  <div class="mt-4 grid gap-4 lg:grid-cols-3">
+                  <div class="mt-4 grid gap-4 lg:grid-cols-2">
                     <div class="space-y-2 text-xs text-base-content/60">
                       <div class="flex items-center justify-between">
-                        <span>Last Enqueued</span>
+                        <span>Cron</span>
+                        <span class="font-mono text-base-content">{job.cron || "—"}</span>
+                      </div>
+                      <div class="flex items-center justify-between">
+                        <span>Queue</span>
+                        <span class="font-mono text-base-content">{job.queue}</span>
+                      </div>
+                      <div class="flex items-center justify-between">
+                        <span>Last Run</span>
                         <span class="font-mono text-base-content">
-                          {format_datetime(entry.schedule.last_enqueued_at)}
+                          {format_datetime(job.last_run_at)}
                         </span>
                       </div>
                       <div class="flex items-center justify-between">
                         <span>Next Run</span>
                         <span class="font-mono text-base-content">
-                          {format_datetime(entry.next_run_at)}
-                        </span>
-                      </div>
-                      <div class="flex items-center justify-between">
-                        <span>Timezone</span>
-                        <span class="font-mono text-base-content">
-                          {entry.schedule.timezone || "Etc/UTC"}
+                          {format_datetime(job.next_run_at)}
                         </span>
                       </div>
                     </div>
 
-                    <div class="lg:col-span-2">
-                      <.form
-                        for={@forms[entry.schedule.id]}
-                        id={"schedule-form-#{entry.schedule.id}"}
-                        phx-change="validate"
-                        phx-submit="save"
-                        phx-value-id={entry.schedule.id}
-                        class="grid gap-2 sm:grid-cols-3 sm:items-end"
-                      >
-                        <div class="sm:col-span-2">
-                          <.input
-                            field={@forms[entry.schedule.id][:cron]}
-                            type="text"
-                            label="Cron schedule"
-                            placeholder="*/2 * * * *"
-                          />
+                    <div class="space-y-2 text-xs text-base-content/60">
+                      <%= if job.worker do %>
+                        <div class="flex items-center justify-between">
+                          <span>Worker</span>
+                          <span class="font-mono text-base-content text-[11px]">
+                            {inspect(job.worker) |> String.slice(0..50)}
+                          </span>
                         </div>
-                        <div>
-                          <.input
-                            field={@forms[entry.schedule.id][:enabled]}
-                            type="checkbox"
-                            label="Enabled"
-                          />
+                      <% end %>
+                      <%= if job.resource do %>
+                        <div class="flex items-center justify-between">
+                          <span>Resource</span>
+                          <span class="font-mono text-base-content text-[11px]">
+                            {inspect(job.resource) |> String.replace("Elixir.", "")}
+                          </span>
                         </div>
-                        <div class="sm:col-span-3 flex justify-end">
-                          <.ui_button variant="primary" size="sm" type="submit">
-                            Save changes
-                          </.ui_button>
+                      <% end %>
+                      <%= if job.action do %>
+                        <div class="flex items-center justify-between">
+                          <span>Action</span>
+                          <span class="font-mono text-base-content">{job.action}</span>
                         </div>
-                      </.form>
+                      <% end %>
                     </div>
                   </div>
 
-                  <div class="mt-4 border-t border-base-200/60 pt-4">
-                    <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
-                      Recent runs
-                    </div>
-                    <%= if entry.recent_runs == [] do %>
-                      <p class="mt-2 text-xs text-base-content/60">No runs yet.</p>
-                    <% else %>
-                      <div class="mt-2 overflow-x-auto rounded-lg border border-base-200/60">
-                        <table class="table table-xs">
-                          <thead>
-                            <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
-                              <th>State</th>
-                              <th>Enqueued</th>
-                              <th>Attempted</th>
-                              <th>Completed</th>
-                              <th>Queue</th>
-                              <th>Attempts</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <%= for run <- entry.recent_runs do %>
-                              <tr>
-                                <td>
-                                  <.ui_badge variant={run_state_variant(run.state)} size="xs">
-                                    {run_state_label(run.state)}
-                                  </.ui_badge>
-                                </td>
-                                <td class="font-mono text-xs text-base-content">
-                                  {format_datetime(run.inserted_at)}
-                                </td>
-                                <td class="font-mono text-xs text-base-content">
-                                  {format_datetime(run.attempted_at)}
-                                </td>
-                                <td class="font-mono text-xs text-base-content">
-                                  {format_datetime(run.completed_at)}
-                                </td>
-                                <td class="text-xs text-base-content/70">{run.queue}</td>
-                                <td class="text-xs text-base-content/70">{run.attempt}</td>
-                              </tr>
-                            <% end %>
-                          </tbody>
-                        </table>
+                  <%= if job.worker do %>
+                    <div class="mt-4 border-t border-base-200/60 pt-4">
+                      <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+                        Recent runs
                       </div>
-                    <% end %>
-                  </div>
+                      <.render_recent_runs job={job} recent_runs={@recent_runs[job.id] || []} />
+                    </div>
+                  <% end %>
                 </div>
               <% end %>
             <% end %>
@@ -246,58 +210,87 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
     """
   end
 
-  defp assign_entries(socket) do
-    entries = Jobs.list_schedule_entries(run_limit: 5)
-    forms = forms_for_entries(entries)
-    leader = Oban.Peer.get_leader()
+  defp render_recent_runs(assigns) do
+    ~H"""
+    <%= if @recent_runs == [] do %>
+      <p class="mt-2 text-xs text-base-content/60">No runs yet.</p>
+    <% else %>
+      <div class="mt-2 overflow-x-auto rounded-lg border border-base-200/60">
+        <table class="table table-xs">
+          <thead>
+            <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
+              <th>State</th>
+              <th>Enqueued</th>
+              <th>Completed</th>
+              <th>Queue</th>
+              <th>Attempts</th>
+            </tr>
+          </thead>
+          <tbody>
+            <%= for run <- @recent_runs do %>
+              <tr>
+                <td>
+                  <.ui_badge variant={run_state_variant(run.state)} size="xs">
+                    {run_state_label(run.state)}
+                  </.ui_badge>
+                </td>
+                <td class="font-mono text-xs text-base-content">
+                  {format_datetime(run.inserted_at)}
+                </td>
+                <td class="font-mono text-xs text-base-content">
+                  {format_datetime(run.completed_at)}
+                </td>
+                <td class="text-xs text-base-content/70">{run.queue}</td>
+                <td class="text-xs text-base-content/70">{run.attempt}</td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    <% end %>
+    """
+  end
+
+  defp assign_jobs(socket) do
+    jobs = JobCatalog.list_all_jobs()
+
+    # Get recent runs for each job with a worker
+    recent_runs =
+      jobs
+      |> Enum.filter(& &1.worker)
+      |> Map.new(fn job ->
+        {job.id, JobCatalog.get_recent_runs(job.worker, limit: 5)}
+      end)
+
+    cron_count = Enum.count(jobs, & &1.source == :cron_plugin)
+    ash_oban_count = Enum.count(jobs, & &1.source == :ash_oban)
+
+    leader = get_leader_node()
 
     socket
     |> assign(:page_title, "Job Scheduler")
-    |> assign(:entries, entries)
-    |> assign(:forms, forms)
+    |> assign(:jobs, jobs)
+    |> assign(:recent_runs, recent_runs)
+    |> assign(:cron_job_count, cron_count)
+    |> assign(:ash_oban_count, ash_oban_count)
     |> assign(:leader_node, leader)
-    |> assign(:entry_index, index_entries(entries))
   end
 
-  defp forms_for_entries(entries) do
-    Map.new(entries, fn entry ->
-      changeset = Jobs.change_schedule(entry.schedule)
-      {entry.schedule.id, to_form(changeset, as: :schedule)}
-    end)
-  end
-
-  defp index_entries(entries) do
-    Map.new(entries, fn entry -> {entry.schedule.id, entry} end)
-  end
-
-  defp lookup_entry(socket, id) do
-    schedule_id = parse_id(id)
-    entry = Map.get(socket.assigns.entry_index, schedule_id)
-    {entry, entry.schedule}
-  end
-
-  defp parse_id(id) when is_integer(id), do: id
-
-  defp parse_id(id) when is_binary(id) do
-    case Integer.parse(id) do
-      {parsed, _} -> parsed
-      _ -> 0
+  defp get_leader_node do
+    try do
+      Oban.Peer.get_leader()
+    rescue
+      _ -> nil
     end
   end
 
-  defp entry_title(%{job: %{label: label}}), do: label
-  defp entry_title(%{schedule: schedule}), do: schedule.job_key
+  defp source_label(:cron_plugin), do: "Cron"
+  defp source_label(:ash_oban), do: "AshOban"
+  defp source_label(_), do: "Unknown"
 
-  defp entry_description(%{job: %{description: description}}), do: description
-  defp entry_description(_), do: "No description available."
-
-  defp entry_status_label(%{schedule: schedule}) do
-    if schedule.enabled, do: "Enabled", else: "Paused"
-  end
-
-  defp entry_status_variant(%{schedule: schedule}) do
-    if schedule.enabled, do: "success", else: "warning"
-  end
+  defp source_variant(:cron_plugin), do: "info"
+  defp source_variant(:ash_oban), do: "accent"
+  defp source_variant(_), do: "ghost"
 
   defp format_datetime(nil), do: "—"
 
@@ -318,10 +311,23 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
     |> String.capitalize()
   end
 
-  defp run_state_label(state), do: state
+  defp run_state_label(state) when is_binary(state) do
+    state
+    |> String.replace("_", " ")
+    |> String.capitalize()
+  end
+
+  defp run_state_label(state), do: to_string(state)
 
   defp run_state_variant(state) do
-    case state do
+    state_atom =
+      case state do
+        s when is_atom(s) -> s
+        s when is_binary(s) -> String.to_existing_atom(s)
+        _ -> :unknown
+      end
+
+    case state_atom do
       :completed -> "success"
       :executing -> "info"
       :available -> "info"
@@ -331,5 +337,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
       :cancelled -> "warning"
       _ -> "ghost"
     end
+  rescue
+    _ -> "ghost"
   end
 end

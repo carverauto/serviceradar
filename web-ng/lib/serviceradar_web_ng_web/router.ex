@@ -1,5 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Router do
   use ServiceRadarWebNGWeb, :router
+  use AshAuthentication.Phoenix.Router
+  import AshAdmin.Router
 
   import Oban.Web.Router
   import Phoenix.LiveDashboard.Router
@@ -13,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :protect_from_forgery
     plug :put_secure_browser_headers
     plug :fetch_current_scope_for_user
+    plug :set_ash_actor
   end
 
   pipeline :api do
@@ -44,6 +47,15 @@ defmodule ServiceRadarWebNGWeb.Router do
   # API pipeline for token-gated endpoints (no session auth required)
   pipeline :api_token_auth do
     plug :accepts, ["json"]
+  end
+
+  # JSON:API pipeline for Ash resources (v2 API)
+  pipeline :ash_json_api do
+    plug :accepts, ["json"]
+    plug :fetch_session
+    plug :fetch_current_scope_for_user
+    plug :set_ash_actor
+    plug ServiceRadarWebNGWeb.Plugs.ApiErrorHandler
   end
 
   scope "/", ServiceRadarWebNGWeb do
@@ -91,11 +103,35 @@ defmodule ServiceRadarWebNGWeb.Router do
     post "/edge-packages/:id/download", EdgeController, :download
   end
 
+  # Ash JSON:API v2 endpoints
+  scope "/api/v2" do
+    pipe_through :ash_json_api
+
+    forward "/", ServiceRadarWebNGWeb.AshJsonApiRouter
+  end
+
   scope "/dev" do
     pipe_through [:browser, :dev_routes]
 
     live_dashboard "/dashboard", metrics: ServiceRadarWebNGWeb.Telemetry
     forward "/mailbox", Plug.Swoosh.MailboxPreview
+
+    # AshAdmin for Ash resource management (dev/staging only)
+    ash_admin "/ash",
+      domains: [
+        ServiceRadar.Identity,
+        ServiceRadar.Inventory,
+        ServiceRadar.Infrastructure,
+        ServiceRadar.Monitoring,
+        ServiceRadar.Edge
+      ],
+      actor: fn conn ->
+        # Get actor from session for AshAdmin
+        case conn.assigns[:current_scope] do
+          %{user: user} when not is_nil(user) -> user
+          _ -> nil
+        end
+      end
   end
 
   scope "/admin", ServiceRadarWebNGWeb do
@@ -107,6 +143,11 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/edge-packages", Admin.EdgePackageLive.Index, :index
       live "/edge-packages/new", Admin.EdgePackageLive.Index, :new
       live "/edge-packages/:id", Admin.EdgePackageLive.Index, :show
+      live "/integrations", Admin.IntegrationLive.Index, :index
+      live "/integrations/new", Admin.IntegrationLive.Index, :new
+      live "/integrations/:id", Admin.IntegrationLive.Index, :show
+      live "/integrations/:id/edit", Admin.IntegrationLive.Index, :edit
+      live "/cluster", Admin.ClusterLive.Index, :index
     end
 
     oban_dashboard("/oban",
@@ -114,6 +155,28 @@ defmodule ServiceRadarWebNGWeb.Router do
       as: :admin_oban_dashboard,
       resolver: ServiceRadarWebNGWeb.ObanResolver
     )
+  end
+
+  ## AshAuthentication routes
+  # These routes handle password, magic link, and OAuth callbacks
+
+  scope "/", ServiceRadarWebNGWeb do
+    pipe_through :browser
+
+    sign_out_route AuthController, "/auth/sign-out"
+
+    # Interactive magic link sign-in (require_interaction? is set in the strategy)
+    magic_sign_in_route ServiceRadar.Identity.User, :magic_link,
+      auth_routes_prefix: "/auth",
+      overrides: [ServiceRadarWebNGWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default],
+      live_view: ServiceRadarWebNGWeb.AuthLive.MagicLinkSignIn,
+      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}],
+      path: "/auth/user/magic_link",
+      token_as_route_param?: false
+
+    reset_route path: "/auth/password-reset", auth_routes_prefix: "/auth"
+
+    auth_routes AuthController, ServiceRadar.Identity.User, path: "/auth"
   end
 
   ## Authentication routes
@@ -129,6 +192,13 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/analytics", AnalyticsLive.Index, :index
       live "/devices", DeviceLive.Index, :index
       live "/devices/:uid", DeviceLive.Show, :show
+
+      # Consolidated infrastructure view (pollers + agents + nodes)
+      live "/infrastructure", InfrastructureLive.Index, :index
+      live "/infrastructure/nodes/:node_name", NodeLive.Show, :show
+      live "/infrastructure/agents/:uid", AgentLive.Show, :show
+
+      # Legacy routes (redirect to consolidated view)
       live "/pollers", PollerLive.Index, :index
       live "/pollers/:poller_id", PollerLive.Show, :show
       live "/agents", AgentLive.Index, :index
@@ -143,22 +213,31 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/interfaces", InterfaceLive.Index, :index
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
+
+      # Cluster visibility for all authenticated users
+      live "/settings/cluster", Settings.ClusterLive.Index, :index
     end
 
     post "/users/update-password", UserSessionController, :update_password
+    post "/tenants/switch/:tenant_id", TenantController, :switch
   end
 
   scope "/", ServiceRadarWebNGWeb do
     pipe_through [:browser]
 
-    live_session :current_user,
+    # AshAuthentication.Phoenix sign-in LiveView
+    ash_authentication_live_session :authentication,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
-      live "/users/register", UserLive.Registration, :new
-      live "/users/log-in", UserLive.Login, :new
-      live "/users/log-in/:token", UserLive.Confirmation, :new
+      live "/users/log-in", AuthLive.SignIn, :sign_in
     end
 
-    post "/users/log-in", UserSessionController, :create
+    # Custom registration with organization creation
+    live_session :registration,
+      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
+      live "/users/register", AuthLive.Register
+    end
+
+    # Legacy session routes (kept for logout and magic link token handling)
     delete "/users/log-out", UserSessionController, :delete
   end
 
@@ -169,6 +248,54 @@ defmodule ServiceRadarWebNGWeb.Router do
       conn
       |> Plug.Conn.send_resp(:not_found, "Not Found")
       |> Plug.Conn.halt()
+    end
+  end
+
+  # Set the Ash actor and tenant from the current user for policy enforcement
+  # Includes partition context from request header or session
+  defp set_ash_actor(conn, _opts) do
+    case conn.assigns[:current_scope] do
+      %{user: user} when not is_nil(user) ->
+        partition_id = get_partition_id_from_request(conn)
+
+        actor = %{
+          id: user.id,
+          tenant_id: user.tenant_id,
+          role: user.role,
+          email: user.email
+        }
+
+        actor = if partition_id, do: Map.put(actor, :partition_id, partition_id), else: actor
+
+        conn
+        |> assign(:ash_actor, actor)
+        |> assign(:current_partition_id, partition_id)
+        |> Ash.PlugHelpers.set_actor(actor)
+        |> Ash.PlugHelpers.set_tenant(user.tenant_id)
+
+      _ ->
+        conn
+    end
+  end
+
+  # Extract partition ID from X-Partition-Id header or session
+  defp get_partition_id_from_request(conn) do
+    case Plug.Conn.get_req_header(conn, "x-partition-id") do
+      [partition_id | _] when byte_size(partition_id) > 0 ->
+        case Ecto.UUID.cast(partition_id) do
+          {:ok, uuid} -> uuid
+          :error -> nil
+        end
+
+      _ ->
+        case Plug.Conn.get_session(conn, :current_partition_id) do
+          nil -> nil
+          partition_id ->
+            case Ecto.UUID.cast(partition_id) do
+              {:ok, uuid} -> uuid
+              :error -> nil
+            end
+        end
     end
   end
 end

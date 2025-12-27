@@ -1,0 +1,48 @@
+## ServiceRadar Agent VM Arguments
+##
+## This file configures the Erlang VM for agent deployments.
+## Agents run on monitored hosts and need minimal resource usage.
+
+## =============================================================================
+## Cluster Connectivity
+## =============================================================================
+
+## Increase net_kernel tick time for WAN/VPN connections
+-kernel net_ticktime 120
+
+## Allow connections from hidden nodes (for debugging shells)
+-kernel dist_auto_connect once
+
+## =============================================================================
+## Remote Debugging & Observability
+## =============================================================================
+
+## Enable kernel logging for distribution events
+-kernel logger_level notice
+
+## Enable system monitoring
+-kernel shell_history enabled
+
+## =============================================================================
+## Memory & Performance Tuning
+## =============================================================================
+
+## Use modern memory allocator strategies
++MBas aobf
+
+## Carrier pool settings for reduced fragmentation
++MBacul 0
+
+## =============================================================================
+## Crash Dump Location
+## =============================================================================
+
+-env ERL_CRASH_DUMP /var/log/serviceradar/agent_crash.dump
+
+## =============================================================================
+## Heart (Watchdog)
+## =============================================================================
+
+## Enable heart for automatic restart on crash
+## Uncomment in production
+## -heart

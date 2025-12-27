@@ -16,6 +16,9 @@ defmodule ServiceRadarWebNG.DataCase do
 
   use ExUnit.CaseTemplate
 
+  # Default test tenant ID - must match the UUID format
+  @test_tenant_id "00000000-0000-0000-0000-000000000099"
+
   using do
     quote do
       alias ServiceRadarWebNG.Repo
@@ -29,6 +32,7 @@ defmodule ServiceRadarWebNG.DataCase do
 
   setup tags do
     ServiceRadarWebNG.DataCase.setup_sandbox(tags)
+    ServiceRadarWebNG.DataCase.ensure_test_tenant()
     :ok
   end
 
@@ -36,9 +40,53 @@ defmodule ServiceRadarWebNG.DataCase do
   Sets up the sandbox based on the test tags.
   """
   def setup_sandbox(tags) do
-    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(ServiceRadarWebNG.Repo, shared: not tags[:async])
+    # Use ServiceRadar.Repo directly for sandbox operations (from serviceradar_core)
+    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(ServiceRadar.Repo, shared: not tags[:async])
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
   end
+
+  @doc """
+  Ensures the test tenant exists in the database.
+  Creates it if it doesn't exist.
+  """
+  def ensure_test_tenant do
+    tenant_id = test_tenant_id()
+    {:ok, tenant_uuid} = Ecto.UUID.dump(tenant_id)
+
+    # Check if tenant already exists
+    case ServiceRadar.Repo.get_by(ServiceRadar.Identity.Tenant, id: tenant_id) do
+      nil ->
+        # Create test tenant directly via SQL to avoid Ash authorization
+        now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+        ServiceRadar.Repo.insert_all(
+          "tenants",
+          [
+            %{
+              id: tenant_uuid,
+              name: "Test Tenant",
+              slug: "test-tenant",
+              status: "active",
+              plan: "enterprise",
+              max_devices: 1000,
+              max_users: 100,
+              settings: %{},
+              inserted_at: now,
+              updated_at: now
+            }
+          ],
+          on_conflict: :nothing
+        )
+
+      _tenant ->
+        :ok
+    end
+  end
+
+  @doc """
+  Returns the test tenant ID.
+  """
+  def test_tenant_id, do: @test_tenant_id
 
   @doc """
   A helper that transforms changeset errors into a map of messages.

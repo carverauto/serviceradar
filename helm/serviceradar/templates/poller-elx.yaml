@@ -1,0 +1,164 @@
+{{- if .Values.pollerElx.enabled }}
+{{- $ns := default .Release.Namespace .Values.pollerElx.namespace }}
+{{- $trustDomain := default "serviceradar.local" .Values.spiffe.trustDomain }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-poller-elx
+  labels:
+    app: serviceradar-poller-elx
+    app.kubernetes.io/component: poller-elx
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  replicas: {{ default 1 .Values.pollerElx.replicas }}
+  selector:
+    matchLabels:
+      app: serviceradar-poller-elx
+  template:
+    metadata:
+      labels:
+        app: serviceradar-poller-elx
+        app.kubernetes.io/component: poller-elx
+    spec:
+      serviceAccountName: {{ default "serviceradar-poller-elx" .Values.pollerElx.serviceAccount }}
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: poller-elx
+        image: ghcr.io/carverauto/serviceradar-poller-elx:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "poller-elx") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        ports:
+        - name: epmd
+          containerPort: 4369
+          protocol: TCP
+        - name: erts-range
+          containerPort: 9100
+          protocol: TCP
+        env:
+        # Poller identification
+        - name: POLLER_PARTITION_ID
+          value: {{ default "default" .Values.pollerElx.partitionId | quote }}
+        - name: POLLER_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POLLER_DOMAIN
+          value: {{ default "default" .Values.pollerElx.domain | quote }}
+        - name: POLLER_CAPABILITIES
+          value: {{ default "icmp,tcp,http" .Values.pollerElx.capabilities | quote }}
+
+        # Cluster configuration
+        - name: CLUSTER_ENABLED
+          value: "true"
+        - name: CLUSTER_STRATEGY
+          value: {{ default "kubernetes" .Values.pollerElx.clusterStrategy | quote }}
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: KUBERNETES_SELECTOR
+          value: {{ default "app=serviceradar" .Values.pollerElx.kubernetesSelector | quote }}
+        - name: KUBERNETES_NODE_BASENAME
+          value: {{ default "serviceradar" .Values.pollerElx.nodeBasename | quote }}
+        - name: CLUSTER_CORE_SERVICE
+          value: {{ default "serviceradar-core-elx-headless" .Values.pollerElx.coreService | quote }}
+
+        # SPIFFE/mTLS configuration
+        - name: SPIFFE_MODE
+          value: {{ default "filesystem" .Values.spiffe.mode | quote }}
+        - name: SPIFFE_TRUST_DOMAIN
+          value: {{ $trustDomain | quote }}
+        - name: SPIFFE_CERT_DIR
+          value: "/etc/serviceradar/certs"
+
+        # Erlang cookie (shared across cluster)
+        - name: ERLANG_COOKIE
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-secrets" .Values.pollerElx.cookieSecret }}
+              key: {{ default "erlang-cookie" .Values.pollerElx.cookieSecretKey }}
+
+        # Release configuration
+        - name: RELEASE_DISTRIBUTION
+          value: "name"
+        - name: RELEASE_NODE
+          value: "poller@$(POD_IP)"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+
+        resources:
+          limits:
+            cpu: {{ default "500m" .Values.pollerElx.resources.limits.cpu }}
+            memory: {{ default "512Mi" .Values.pollerElx.resources.limits.memory }}
+          requests:
+            cpu: {{ default "100m" .Values.pollerElx.resources.requests.cpu }}
+            memory: {{ default "256Mi" .Values.pollerElx.resources.requests.memory }}
+
+        livenessProbe:
+          exec:
+            command:
+            - bin/serviceradar_poller
+            - pid
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          exec:
+            command:
+            - bin/serviceradar_poller
+            - pid
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+      volumes:
+      - name: cert-data
+        secret:
+          secretName: {{ default "serviceradar-certs" .Values.pollerElx.certSecret }}
+      - name: spire-agent-socket
+        hostPath:
+          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
+          type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-poller-elx-headless
+  labels:
+    app: serviceradar-poller-elx
+    app.kubernetes.io/component: poller-elx
+spec:
+  clusterIP: None
+  selector:
+    app: serviceradar-poller-elx
+  ports:
+  - name: epmd
+    port: 4369
+    targetPort: 4369
+  - name: erts
+    port: 9100
+    targetPort: 9100
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ default "serviceradar-poller-elx" .Values.pollerElx.serviceAccount }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: poller-elx
+{{- end }}
