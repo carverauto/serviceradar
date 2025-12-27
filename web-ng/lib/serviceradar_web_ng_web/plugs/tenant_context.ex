@@ -108,18 +108,11 @@ defmodule ServiceRadarWebNGWeb.Plugs.TenantContext do
   def get_tenant(conn) do
     case conn.assigns[:current_tenant] do
       nil ->
-        tenant_id = conn.assigns[:current_tenant_id]
-
-        if tenant_id do
-          case load_tenant(tenant_id) do
-            {:ok, tenant} ->
-              {assign(conn, :current_tenant, tenant), tenant}
-
-            {:error, _} ->
-              {conn, nil}
-          end
+        with tenant_id when not is_nil(tenant_id) <- conn.assigns[:current_tenant_id],
+             {:ok, tenant} <- load_tenant(tenant_id) do
+          {assign(conn, :current_tenant, tenant), tenant}
         else
-          {conn, nil}
+          _ -> {conn, nil}
         end
 
       tenant ->

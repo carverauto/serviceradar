@@ -248,7 +248,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
         |> Ash.Query.for_read(:by_site, %{site: "datacenter-1"}, actor: actor, tenant: tenant.id)
         |> Ash.read()
 
-      assert length(partitions) >= 1
+      refute Enum.empty?(partitions)
       assert Enum.any?(partitions, fn p -> p.id == partition.id end)
     end
 

@@ -31,21 +31,21 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       actor = actor_for_user(admin)
 
       {:ok, users} = Ash.read(User, actor: actor, tenant: tenant.id)
-      assert length(users) >= 1
+      refute Enum.empty?(users)
     end
 
     test "operator can read users in their tenant", %{tenant: tenant, operator: operator} do
       actor = actor_for_user(operator)
 
       {:ok, users} = Ash.read(User, actor: actor, tenant: tenant.id)
-      assert length(users) >= 1
+      refute Enum.empty?(users)
     end
 
     test "viewer can read users in their tenant", %{tenant: tenant, viewer: viewer} do
       actor = actor_for_user(viewer)
 
       {:ok, users} = Ash.read(User, actor: actor, tenant: tenant.id)
-      assert length(users) >= 1
+      refute Enum.empty?(users)
     end
   end
 
@@ -234,7 +234,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
 
       # Read tokens
       {:ok, tokens} = Ash.read(ApiToken, actor: actor, tenant: tenant.id)
-      assert length(tokens) >= 1
+      refute Enum.empty?(tokens)
     end
   end
 end

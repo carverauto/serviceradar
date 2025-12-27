@@ -191,15 +191,11 @@ defmodule ServiceRadarWebNGWeb.AuthLive.Register do
   end
 
   defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do
-    errors
-    |> Enum.map(&format_single_error/1)
-    |> Enum.join(", ")
+    Enum.map_join(errors, ", ", &format_single_error/1)
   end
 
   defp format_ash_error(%Ash.Error.Unknown{errors: errors}) when is_list(errors) do
-    errors
-    |> Enum.map(&format_single_error/1)
-    |> Enum.join(", ")
+    Enum.map_join(errors, ", ", &format_single_error/1)
   end
 
   defp format_ash_error(error), do: inspect(error)

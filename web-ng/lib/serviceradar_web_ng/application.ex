@@ -164,16 +164,18 @@ defmodule ServiceRadarWebNG.Application do
     if hosts != "" do
       hosts
       |> String.split(",")
-      |> Enum.each(fn host ->
-        node = String.to_atom(String.trim(host))
-        Logger.debug("Attempting to connect to #{node}")
+      |> Enum.each(&try_connect_to_node/1)
+    end
+  end
 
-        case Node.connect(node) do
-          true -> Logger.info("Connected to #{node}")
-          false -> Logger.debug("Could not connect to #{node} (may not be up yet)")
-          :ignored -> Logger.debug("Connection to #{node} ignored")
-        end
-      end)
+  defp try_connect_to_node(host) do
+    node = String.to_atom(String.trim(host))
+    Logger.debug("Attempting to connect to #{node}")
+
+    case Node.connect(node) do
+      true -> Logger.info("Connected to #{node}")
+      false -> Logger.debug("Could not connect to #{node} (may not be up yet)")
+      :ignored -> Logger.debug("Connection to #{node} ignored")
     end
   end
 

@@ -282,20 +282,21 @@ defmodule ServiceRadarWebNGWeb.Router do
   defp get_partition_id_from_request(conn) do
     case Plug.Conn.get_req_header(conn, "x-partition-id") do
       [partition_id | _] when byte_size(partition_id) > 0 ->
-        case Ecto.UUID.cast(partition_id) do
-          {:ok, uuid} -> uuid
-          :error -> nil
-        end
+        cast_uuid(partition_id)
 
       _ ->
-        case Plug.Conn.get_session(conn, :current_partition_id) do
-          nil -> nil
-          partition_id ->
-            case Ecto.UUID.cast(partition_id) do
-              {:ok, uuid} -> uuid
-              :error -> nil
-            end
-        end
+        conn
+        |> Plug.Conn.get_session(:current_partition_id)
+        |> cast_uuid()
+    end
+  end
+
+  defp cast_uuid(nil), do: nil
+
+  defp cast_uuid(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
     end
   end
 end

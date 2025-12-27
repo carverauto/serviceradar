@@ -23,17 +23,19 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   def query_request(%{} = request) do
-    with {:ok, query, limit, cursor, direction, mode, actor} <- normalize_request(request) do
-      # Check if we should route through Ash adapter
-      entity = extract_entity(query)
+    case normalize_request(request) do
+      {:ok, query, limit, cursor, direction, mode, actor} ->
+        # Check if we should route through Ash adapter
+        entity = extract_entity(query)
 
-      if ash_srql_enabled?() and AshAdapter.ash_entity?(entity) do
-        execute_ash_query(entity, query, limit, actor)
-      else
-        execute_sql_query(query, limit, cursor, direction, mode)
-      end
-    else
-      {:error, reason} -> {:error, reason}
+        if ash_srql_enabled?() and AshAdapter.ash_entity?(entity) do
+          execute_ash_query(entity, query, limit, actor)
+        else
+          execute_sql_query(query, limit, cursor, direction, mode)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -61,9 +63,8 @@ defmodule ServiceRadarWebNG.SRQL do
     start_time = System.monotonic_time()
 
     result =
-      with {:ok, translation} <- translate(query, limit, cursor, direction, mode),
-           {:ok, response} <- execute_translation(translation) do
-        {:ok, response}
+      with {:ok, translation} <- translate(query, limit, cursor, direction, mode) do
+        execute_translation(translation)
       end
 
     status = if match?({:ok, _}, result), do: :ok, else: :error
@@ -160,7 +161,7 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   defp ago(amount, :hour), do: DateTime.add(DateTime.utc_now(), -amount * 3600, :second)
-  defp ago(amount, :day), do: DateTime.add(DateTime.utc_now(), -amount * 86400, :second)
+  defp ago(amount, :day), do: DateTime.add(DateTime.utc_now(), -amount * 86_400, :second)
 
   # Parse SRQL field filters: field:value or field:(val1,val2) or field:"quoted"
   defp parse_srql_filters(query) do

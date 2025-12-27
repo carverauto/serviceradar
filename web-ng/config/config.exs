@@ -139,7 +139,7 @@ config :tailwind,
 # Configure Elixir's Logger
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
+  metadata: [:request_id, :event_type, :severity]
 
 # Pin Rustler temp dir to an explicitly writable path when provided by the build system
 config :rustler, :tmp_dir, System.get_env("RUSTLER_TMPDIR") || System.tmp_dir!()

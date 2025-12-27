@@ -52,7 +52,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
         {[], []}
       end
 
-    error = if !is_connected, do: "Node is not connected to the cluster", else: nil
+    error = if is_connected, do: nil, else: "Node is not connected to the cluster"
 
     {:noreply,
      socket
