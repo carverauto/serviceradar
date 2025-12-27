@@ -218,6 +218,16 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                 tabindex="0"
                 class="dropdown-content menu bg-base-200 rounded-box z-10 w-56 p-2 shadow-lg mb-2"
               >
+                <li :if={@current_scope && @current_scope.user && @current_scope.user.tenant}>
+                  <div class="flex flex-col gap-1">
+                    <span class="text-[10px] uppercase tracking-wider text-base-content/60">
+                      Organization
+                    </span>
+                    <span class="text-sm font-medium">
+                      {@current_scope.user.tenant.name}
+                    </span>
+                  </div>
+                </li>
                 <li>
                   <div class="flex flex-col gap-2">
                     <span class="text-[10px] uppercase tracking-wider text-base-content/60">
@@ -326,6 +336,9 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       |> String.split("/")
       |> Enum.reject(&(&1 == ""))
 
+    # Treat agents and pollers as children of infrastructure
+    segments = normalize_infrastructure_path(segments)
+
     case segments do
       [] ->
         []
@@ -339,6 +352,13 @@ defmodule ServiceRadarWebNGWeb.Layouts do
           %{label: format_id(id), icon: nil, href: nil}
         ]
 
+      [section, subsection, id] ->
+        [
+          %{label: section_label(section), icon: section_icon(section), href: "/#{section}"},
+          %{label: section_label(subsection), icon: section_icon(subsection), href: "/#{section}?tab=#{subsection}"},
+          %{label: format_id(id), icon: nil, href: nil}
+        ]
+
       [section, id | _rest] ->
         [
           %{label: section_label(section), icon: section_icon(section), href: "/#{section}"},
@@ -347,6 +367,17 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     end
   end
 
+  # Normalize paths so agents and pollers appear under infrastructure
+  defp normalize_infrastructure_path(["agents" | rest]) do
+    ["infrastructure", "agents" | rest]
+  end
+
+  defp normalize_infrastructure_path(["pollers" | rest]) do
+    ["infrastructure", "pollers" | rest]
+  end
+
+  defp normalize_infrastructure_path(segments), do: segments
+
   defp build_breadcrumbs(_), do: []
 
   defp section_label("analytics"), do: "Analytics"
@@ -354,6 +385,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_label("infrastructure"), do: "Infrastructure"
   defp section_label("pollers"), do: "Pollers"
   defp section_label("agents"), do: "Agents"
+  defp section_label("nodes"), do: "Nodes"
   defp section_label("events"), do: "Events"
   defp section_label("logs"), do: "Logs"
   defp section_label("observability"), do: "Observability"
@@ -367,7 +399,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_icon("devices"), do: "hero-server-micro"
   defp section_icon("infrastructure"), do: "hero-cpu-chip-micro"
   defp section_icon("pollers"), do: "hero-cog-6-tooth-micro"
-  defp section_icon("agents"), do: "hero-cpu-chip-micro"
+  defp section_icon("agents"), do: "hero-cube-micro"
+  defp section_icon("nodes"), do: "hero-server-stack-micro"
   defp section_icon("events"), do: "hero-bell-alert-micro"
   defp section_icon("logs"), do: "hero-presentation-chart-line-micro"
   defp section_icon("admin"), do: "hero-adjustments-horizontal-micro"

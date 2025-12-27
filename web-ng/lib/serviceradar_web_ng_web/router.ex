@@ -193,8 +193,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/devices", DeviceLive.Index, :index
       live "/devices/:uid", DeviceLive.Show, :show
 
-      # Consolidated infrastructure view (pollers + agents)
+      # Consolidated infrastructure view (pollers + agents + nodes)
       live "/infrastructure", InfrastructureLive.Index, :index
+      live "/infrastructure/nodes/:node_name", NodeLive.Show, :show
       live "/infrastructure/agents/:uid", AgentLive.Show, :show
 
       # Legacy routes (redirect to consolidated view)
@@ -223,11 +224,16 @@ defmodule ServiceRadarWebNGWeb.Router do
   scope "/", ServiceRadarWebNGWeb do
     pipe_through [:browser]
 
-    # AshAuthentication.Phoenix sign-in/register LiveViews
+    # AshAuthentication.Phoenix sign-in LiveView
     ash_authentication_live_session :authentication,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
       live "/users/log-in", AuthLive.SignIn, :sign_in
-      live "/users/register", AuthLive.SignIn, :register
+    end
+
+    # Custom registration with organization creation
+    live_session :registration,
+      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
+      live "/users/register", AuthLive.Register
     end
 
     # Legacy session routes (kept for logout and magic link token handling)

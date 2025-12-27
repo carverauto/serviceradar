@@ -2,9 +2,19 @@ defmodule ServiceRadar.Infrastructure.Poller do
   @moduledoc """
   Poller resource for managing polling nodes.
 
-  Pollers are distributed nodes that execute service checks and
-  collect data from agents. They register with Horde.Registry
-  on startup and receive job assignments via ERTS distribution.
+  Pollers are job orchestrators - they do NOT perform checks directly.
+  They receive scheduled jobs (via AshOban), find available agents via
+  Horde registry, and dispatch work to agents via RPC.
+
+  ## Role
+
+  Pollers have a single, well-defined role in the monitoring architecture:
+  1. **Receive** - Accept scheduled monitoring jobs from AshOban scheduler
+  2. **Select** - Find available agents via Horde.Registry lookup
+  3. **Dispatch** - Execute RPC calls to agents to perform actual checks
+
+  Agents have capabilities (ICMP, TCP, process checks, gRPC to external checkers).
+  Pollers do not have capabilities - they only orchestrate work.
 
   ## Status Values
 
@@ -13,6 +23,20 @@ defmodule ServiceRadar.Infrastructure.Poller do
   - `inactive` - Poller is offline or unresponsive
   - `draining` - Poller is shutting down gracefully
   """
+
+  @role_description "Pollers orchestrate monitoring jobs but do not perform checks directly. They receive scheduled jobs and dispatch work to available agents."
+
+  @role_steps [
+    %{key: "receive", label: "JOB", description: "Receive scheduled jobs"},
+    %{key: "select", label: "SELECT", description: "Find available agents"},
+    %{key: "dispatch", label: "DISPATCH", description: "RPC work to agents"}
+  ]
+
+  @doc "Returns the role description for pollers"
+  def role_description, do: @role_description
+
+  @doc "Returns the role steps that pollers perform"
+  def role_steps, do: @role_steps
 
   use Ash.Resource,
     domain: ServiceRadar.Infrastructure,
@@ -156,19 +180,23 @@ defmodule ServiceRadar.Infrastructure.Poller do
   end
 
   policies do
-    # Allow all reads - tenant isolation will be enforced at query level
-    # when we have proper tenant context from the Go pollers
-    policy action_type(:read) do
-      authorize_if always()
+    # Super admins can see all pollers across tenants
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # Allow create/update for authenticated users
+    # Tenant isolation: users can only see pollers in their tenant
+    policy action_type(:read) do
+      authorize_if expr(tenant_id == ^actor(:tenant_id))
+    end
+
+    # Allow create/update for pollers in user's tenant
     policy action_type(:create) do
-      authorize_if always()
+      authorize_if expr(tenant_id == ^actor(:tenant_id))
     end
 
     policy action_type(:update) do
-      authorize_if always()
+      authorize_if expr(tenant_id == ^actor(:tenant_id))
     end
   end
 

@@ -2,8 +2,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   @moduledoc """
   LiveView for showing individual OCSF agent details.
 
-  Includes ServiceCheck configuration for scheduling ping, TCP, and other
-  monitoring checks executed by this agent.
+  Displays both live Horde registry data and rich node system information
+  including memory usage, process counts, uptime, and capabilities.
   """
   use ServiceRadarWebNGWeb, :live_view
 
@@ -11,14 +11,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   alias ServiceRadar.Monitoring.ServiceCheck
 
-  # OCSF Agent type IDs
-  @type_names %{
-    0 => "Unknown",
-    1 => "EDR",
-    4 => "Performance",
-    6 => "Log Management",
-    99 => "Other"
-  }
+  require Logger
 
   # Check types available for configuration
   @check_types [
@@ -37,21 +30,19 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:agent_uid, nil)
      |> assign(:agent, nil)
      |> assign(:error, nil)
-     |> assign(:srql, %{enabled: false})
+     |> assign(:srql, %{enabled: false, page_path: "/infrastructure/agents"})
      |> assign(:checks, [])
      |> assign(:live_agent, nil)
+     |> assign(:node_info, nil)
+     |> assign(:poller_node_info, nil)
      |> assign(:show_check_modal, false)
      |> assign(:check_form, nil)
      |> assign(:check_types, @check_types)}
   end
 
-  require Logger
-
   @impl true
   def handle_params(%{"uid" => uid}, _uri, socket) do
     # First check Horde registry for live agent
-    # Use all_agents + filter instead of lookup because lookup uses local ETS cache
-    # which may not be synced yet in a distributed cluster
     all_agents = ServiceRadar.AgentRegistry.all_agents()
     Logger.debug("[AgentShow] All agents in Horde: #{inspect(Enum.map(all_agents, & &1[:agent_id] || &1[:key]))}")
 
@@ -59,6 +50,14 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       (agent[:agent_id] || agent[:key]) == uid
     end)
     Logger.debug("[AgentShow] Looking up agent uid=#{inspect(uid)}, live_agent=#{inspect(live_agent != nil)}")
+
+    # Get poller node system info if live agent exists
+    poller_node_info =
+      if live_agent && live_agent[:node] do
+        fetch_node_info(live_agent[:node])
+      else
+        nil
+      end
 
     # Convert Horde data to agent map format (string keys for consistency)
     horde_agent =
@@ -68,10 +67,14 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           "agent_id" => Map.get(live_agent, :agent_id, uid),
           "status" => to_string(Map.get(live_agent, :status, :connected)),
           "capabilities" => Map.get(live_agent, :capabilities, []),
-          "poller_node" => format_poller_node(Map.get(live_agent, :poller_node)),
+          "poller_id" => Map.get(live_agent, :poller_id),
+          "poller_node" => format_node(Map.get(live_agent, :node)),
+          "partition_id" => Map.get(live_agent, :partition_id),
+          "registered_at" => Map.get(live_agent, :registered_at),
+          "last_heartbeat" => Map.get(live_agent, :last_heartbeat),
           "connected_at" => Map.get(live_agent, :connected_at),
-          "last_seen_time" => Map.get(live_agent, :last_heartbeat),
           "spiffe_identity" => Map.get(live_agent, :spiffe_identity),
+          "pid" => inspect(Map.get(live_agent, :pid)),
           "_source" => "horde"
         }
       else
@@ -115,12 +118,43 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:agent, agent)
      |> assign(:error, error)
      |> assign(:checks, checks)
-     |> assign(:live_agent, live_agent)}
+     |> assign(:live_agent, live_agent)
+     |> assign(:poller_node_info, poller_node_info)
+     |> assign(:srql, %{enabled: false, page_path: "/infrastructure/agents/#{uid}"})}
   end
 
-  defp format_poller_node(nil), do: nil
-  defp format_poller_node(node) when is_atom(node), do: Atom.to_string(node)
-  defp format_poller_node(node), do: to_string(node)
+  defp format_node(nil), do: nil
+  defp format_node(node) when is_atom(node), do: Atom.to_string(node)
+  defp format_node(node), do: to_string(node)
+
+  defp fetch_node_info(nil), do: nil
+
+  defp fetch_node_info(node) when is_atom(node) do
+    try do
+      memory = :rpc.call(node, :erlang, :memory, [], 5000)
+      {uptime_ms, _} = :rpc.call(node, :erlang, :statistics, [:wall_clock], 5000)
+
+      %{
+        process_count: :rpc.call(node, :erlang, :system_info, [:process_count], 5000),
+        port_count: :rpc.call(node, :erlang, :system_info, [:port_count], 5000),
+        otp_release: to_string(:rpc.call(node, :erlang, :system_info, [:otp_release], 5000)),
+        schedulers: :rpc.call(node, :erlang, :system_info, [:schedulers], 5000),
+        schedulers_online: :rpc.call(node, :erlang, :system_info, [:schedulers_online], 5000),
+        uptime_ms: uptime_ms,
+        memory_total: memory[:total],
+        memory_processes: memory[:processes],
+        memory_system: memory[:system],
+        memory_atom: memory[:atom],
+        memory_binary: memory[:binary],
+        memory_code: memory[:code],
+        memory_ets: memory[:ets]
+      }
+    rescue
+      _ -> nil
+    catch
+      :exit, _ -> nil
+    end
+  end
 
   defp load_checks_for_agent(agent_uid, current_scope) do
     tenant_id =
@@ -172,8 +206,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           </div>
 
           <.agent_summary agent={@agent} live_agent={@live_agent} />
-          <.agent_capabilities agent={@agent} />
-          <.agent_details agent={@agent} />
+          <.capabilities_card capabilities={Map.get(@agent, "capabilities", [])} />
+          <.poller_node_info :if={@poller_node_info} node_info={@poller_node_info} node={Map.get(@agent, "poller_node")} />
+          <.registration_info agent={@agent} />
+          <.service_checks_card checks={@checks} agent_uid={@agent_uid} />
         </div>
       </div>
     </Layouts.app>
@@ -185,12 +221,17 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp agent_summary(assigns) do
     type_id = Map.get(assigns.agent, "type_id") || 0
-    type_name = Map.get(@type_names, type_id, "Unknown")
+    type_name = ServiceRadar.Infrastructure.Agent.type_name(type_id)
     assigns = assign(assigns, :type_name, type_name)
 
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6">
       <div class="flex flex-wrap gap-x-8 gap-y-4">
+        <div class="flex flex-col gap-1">
+          <span class="text-xs text-base-content/50 uppercase tracking-wider">Status</span>
+          <.status_badge status={Map.get(@agent, "status")} />
+        </div>
+
         <div class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Type</span>
           <.type_badge type_id={Map.get(@agent, "type_id")} />
@@ -198,7 +239,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
         <div class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Agent UID</span>
-          <span class="text-sm font-mono">{Map.get(@agent, "uid") || "—"}</span>
+          <span class="text-sm font-mono">{Map.get(@agent, "uid") || Map.get(@agent, "agent_id") || "—"}</span>
         </div>
 
         <div :if={has_value?(@agent, "name")} class="flex flex-col gap-1">
@@ -211,11 +252,6 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <span class="text-sm font-mono">{Map.get(@agent, "version")}</span>
         </div>
 
-        <div :if={has_value?(@agent, "vendor_name")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Vendor</span>
-          <span class="text-sm">{Map.get(@agent, "vendor_name")}</span>
-        </div>
-
         <div :if={has_value?(@agent, "poller_id")} class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Poller</span>
           <.link
@@ -226,40 +262,59 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           </.link>
         </div>
 
+        <div :if={has_value?(@agent, "poller_node")} class="flex flex-col gap-1">
+          <span class="text-xs text-base-content/50 uppercase tracking-wider">Poller Node</span>
+          <span class="text-sm font-mono text-xs">{Map.get(@agent, "poller_node")}</span>
+        </div>
+
+        <div :if={has_value?(@agent, "partition_id")} class="flex flex-col gap-1">
+          <span class="text-xs text-base-content/50 uppercase tracking-wider">Partition</span>
+          <span class="text-sm font-mono">{Map.get(@agent, "partition_id")}</span>
+        </div>
+
         <div :if={has_value?(@agent, "ip")} class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">IP Address</span>
           <span class="text-sm font-mono">{Map.get(@agent, "ip")}</span>
         </div>
 
-        <div :if={has_value?(@agent, "first_seen_time")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">First Seen</span>
-          <span class="text-sm font-mono">{format_timestamp(@agent, "first_seen_time")}</span>
-        </div>
-
-        <div :if={has_value?(@agent, "last_seen_time")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Last Seen</span>
-          <span class="text-sm font-mono">{format_timestamp(@agent, "last_seen_time")}</span>
+        <div :if={has_value?(@agent, "pid")} class="flex flex-col gap-1">
+          <span class="text-xs text-base-content/50 uppercase tracking-wider">Process ID</span>
+          <span class="text-sm font-mono text-xs">{Map.get(@agent, "pid")}</span>
         </div>
       </div>
     </div>
     """
   end
 
-  attr :agent, :map, required: true
+  attr :capabilities, :list, required: true
 
-  defp agent_capabilities(assigns) do
-    capabilities = Map.get(assigns.agent, "capabilities", []) || []
-    assigns = assign(assigns, :capabilities, capabilities)
+  defp capabilities_card(assigns) do
+    # Convert string capabilities to atoms for lookup, deriving info from Ash resource
+    caps_with_info =
+      (assigns.capabilities || [])
+      |> Enum.map(fn cap ->
+        cap_atom = if is_atom(cap), do: cap, else: String.to_atom(cap)
+        info = ServiceRadar.Infrastructure.Agent.capability_info(cap_atom)
+        {cap_atom, info}
+      end)
+
+    assigns = assign(assigns, :caps_with_info, caps_with_info)
 
     ~H"""
     <div :if={@capabilities != []} class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
       <div class="px-4 py-3 border-b border-base-200">
         <span class="text-sm font-semibold">Capabilities</span>
+        <span class="ml-2 badge badge-ghost badge-sm">{length(@capabilities)}</span>
       </div>
       <div class="p-4">
-        <div class="flex flex-wrap gap-2">
-          <%= for cap <- @capabilities do %>
-            <span class="badge badge-outline badge-lg">{cap}</span>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <%= for {cap, info} <- @caps_with_info do %>
+            <div class="flex items-center gap-2 p-2 rounded-lg bg-base-200/50">
+              <span class={"badge badge-#{info.color} badge-sm gap-1"}>
+                <span class="uppercase font-bold">{cap}</span>
+              </span>
+              <span class="text-xs text-base-content/60">{info.description}</span>
+            </div>
           <% end %>
         </div>
       </div>
@@ -267,11 +322,218 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     """
   end
 
+  attr :node_info, :map, required: true
+  attr :node, :string, required: true
+
+  defp poller_node_info(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+        <span class="text-sm font-semibold">Poller Node System Information</span>
+        <span class="badge badge-ghost badge-sm font-mono">{@node}</span>
+      </div>
+      <div class="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+        <!-- Uptime -->
+        <div class="stat bg-base-200/30 rounded-lg p-3">
+          <div class="stat-title text-xs">Uptime</div>
+          <div class="stat-value text-lg">{format_uptime(@node_info.uptime_ms)}</div>
+        </div>
+
+        <!-- Processes -->
+        <div class="stat bg-base-200/30 rounded-lg p-3">
+          <div class="stat-title text-xs">Processes</div>
+          <div class="stat-value text-lg">{@node_info.process_count}</div>
+        </div>
+
+        <!-- Schedulers -->
+        <div class="stat bg-base-200/30 rounded-lg p-3">
+          <div class="stat-title text-xs">Schedulers</div>
+          <div class="stat-value text-lg">{@node_info.schedulers_online}/{@node_info.schedulers}</div>
+        </div>
+
+        <!-- OTP Release -->
+        <div class="stat bg-base-200/30 rounded-lg p-3">
+          <div class="stat-title text-xs">OTP Release</div>
+          <div class="stat-value text-lg">OTP {@node_info.otp_release}</div>
+        </div>
+      </div>
+
+      <!-- Memory breakdown -->
+      <div class="px-4 pb-4">
+        <div class="text-xs text-base-content/60 mb-2">Memory Usage</div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <.memory_stat label="Total" bytes={@node_info.memory_total} />
+          <.memory_stat label="Processes" bytes={@node_info.memory_processes} />
+          <.memory_stat label="System" bytes={@node_info.memory_system} />
+          <.memory_stat label="Code" bytes={@node_info.memory_code} />
+          <.memory_stat label="ETS" bytes={@node_info.memory_ets} />
+          <.memory_stat label="Binary" bytes={@node_info.memory_binary} />
+          <.memory_stat label="Atom" bytes={@node_info.memory_atom} />
+          <.memory_stat label="Ports" bytes={nil} count={@node_info.port_count} />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :bytes, :integer, default: nil
+  attr :count, :integer, default: nil
+
+  defp memory_stat(assigns) do
+    ~H"""
+    <div class="bg-base-200/30 rounded px-2 py-1">
+      <div class="text-xs text-base-content/50">{@label}</div>
+      <div class="font-mono text-sm">
+        <%= if @bytes do %>
+          {format_bytes(@bytes)}
+        <% else %>
+          {@count}
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  attr :agent, :map, required: true
+
+  defp registration_info(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200">
+        <span class="text-sm font-semibold">Registration Timeline</span>
+      </div>
+      <div class="p-4">
+        <div class="flex flex-col gap-3">
+          <div :if={has_value?(@agent, "registered_at")} class="flex items-center gap-3">
+            <span class="size-2 rounded-full bg-success"></span>
+            <span class="text-xs text-base-content/60 w-24">Registered</span>
+            <span class="font-mono text-sm">{format_timestamp(Map.get(@agent, "registered_at"))}</span>
+          </div>
+          <div :if={has_value?(@agent, "connected_at")} class="flex items-center gap-3">
+            <span class="size-2 rounded-full bg-info"></span>
+            <span class="text-xs text-base-content/60 w-24">Connected</span>
+            <span class="font-mono text-sm">{format_timestamp(Map.get(@agent, "connected_at"))}</span>
+            <span class="text-xs text-base-content/40">({time_ago(Map.get(@agent, "connected_at"))})</span>
+          </div>
+          <div :if={has_value?(@agent, "last_heartbeat")} class="flex items-center gap-3">
+            <span class="size-2 rounded-full bg-info animate-pulse"></span>
+            <span class="text-xs text-base-content/60 w-24">Last Heartbeat</span>
+            <span class="font-mono text-sm">{format_timestamp(Map.get(@agent, "last_heartbeat"))}</span>
+            <span class="text-xs text-base-content/40">({time_ago(Map.get(@agent, "last_heartbeat"))})</span>
+          </div>
+          <div :if={has_value?(@agent, "first_seen_time")} class="flex items-center gap-3">
+            <span class="size-2 rounded-full bg-base-content/30"></span>
+            <span class="text-xs text-base-content/60 w-24">First Seen</span>
+            <span class="font-mono text-sm">{format_timestamp(Map.get(@agent, "first_seen_time"))}</span>
+          </div>
+          <div :if={has_value?(@agent, "last_seen_time")} class="flex items-center gap-3">
+            <span class="size-2 rounded-full bg-base-content/30"></span>
+            <span class="text-xs text-base-content/60 w-24">Last Seen</span>
+            <span class="font-mono text-sm">{format_timestamp(Map.get(@agent, "last_seen_time"))}</span>
+            <span class="text-xs text-base-content/40">({time_ago(Map.get(@agent, "last_seen_time"))})</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :checks, :list, required: true
+  attr :agent_uid, :string, required: true
+
+  defp service_checks_card(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+        <div>
+          <span class="text-sm font-semibold">Service Checks</span>
+          <span :if={@checks != []} class="ml-2 badge badge-ghost badge-sm">{length(@checks)}</span>
+        </div>
+      </div>
+      <div :if={@checks == []} class="p-4">
+        <p class="text-sm text-base-content/60">No service checks configured for this agent.</p>
+      </div>
+      <div :if={@checks != []} class="divide-y divide-base-200">
+        <%= for check <- @checks do %>
+          <div class="px-4 py-3 flex items-center gap-4">
+            <.check_type_badge type={check.check_type} />
+            <div class="flex-1 min-w-0">
+              <div class="font-medium text-sm truncate">{check.name}</div>
+              <div class="text-xs text-base-content/60 truncate">{check.target}</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-base-content/50">{check.interval_seconds}s</span>
+              <.status_indicator enabled={check.enabled} />
+            </div>
+          </div>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  attr :type, :atom, required: true
+
+  defp check_type_badge(assigns) do
+    {label, color} =
+      case assigns.type do
+        :ping -> {"PING", "info"}
+        :tcp -> {"TCP", "success"}
+        :http -> {"HTTP", "warning"}
+        :dns -> {"DNS", "info"}
+        :grpc -> {"gRPC", "secondary"}
+        _ -> {to_string(assigns.type), "ghost"}
+      end
+
+    assigns = assign(assigns, :label, label) |> assign(:color, color)
+
+    ~H"""
+    <span class={"badge badge-#{@color} badge-sm uppercase font-bold w-14 justify-center"}>
+      {@label}
+    </span>
+    """
+  end
+
+  attr :enabled, :boolean, required: true
+
+  defp status_indicator(assigns) do
+    ~H"""
+    <span :if={@enabled} class="size-2 rounded-full bg-success" title="Enabled"></span>
+    <span :if={!@enabled} class="size-2 rounded-full bg-base-content/30" title="Disabled"></span>
+    """
+  end
+
+  attr :status, :any, default: nil
+
+  defp status_badge(assigns) do
+    {label, variant} =
+      case assigns.status do
+        "connected" -> {"Connected", "success"}
+        :connected -> {"Connected", "success"}
+        "disconnected" -> {"Disconnected", "error"}
+        :disconnected -> {"Disconnected", "error"}
+        "available" -> {"Available", "success"}
+        :available -> {"Available", "success"}
+        "busy" -> {"Busy", "warning"}
+        :busy -> {"Busy", "warning"}
+        true -> {"Active", "success"}
+        false -> {"Inactive", "error"}
+        _ -> {"Unknown", "ghost"}
+      end
+
+    assigns = assign(assigns, :label, label) |> assign(:variant, variant)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="sm">{@label}</.ui_badge>
+    """
+  end
+
   attr :type_id, :integer, default: 0
 
   defp type_badge(assigns) do
     type_id = assigns.type_id || 0
-    type_name = Map.get(@type_names, type_id, "Unknown")
+    type_name = ServiceRadar.Infrastructure.Agent.type_name(type_id)
 
     variant =
       case type_id do
@@ -289,154 +551,83 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     """
   end
 
-  attr :agent, :map, required: true
+  defp format_uptime(nil), do: "—"
 
-  defp agent_details(assigns) do
-    # Fields shown in summary (exclude from details)
-    summary_fields = ~w(uid name type_id type version vendor_name poller_id ip
-                        capabilities first_seen_time last_seen_time first_seen last_seen
-                        created_time modified_time)
+  defp format_uptime(ms) when is_integer(ms) do
+    seconds = div(ms, 1000)
+    minutes = div(seconds, 60)
+    hours = div(minutes, 60)
+    days = div(hours, 24)
 
-    # Get remaining fields, excluding empty maps
-    detail_fields =
-      assigns.agent
-      |> Map.keys()
-      |> Enum.reject(fn key ->
-        value = Map.get(assigns.agent, key)
-        key in summary_fields or (is_map(value) and map_size(value) == 0)
-      end)
-      |> Enum.sort()
-
-    assigns = assign(assigns, :detail_fields, detail_fields)
-
-    ~H"""
-    <div :if={@detail_fields != []} class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
-      <div class="px-4 py-3 border-b border-base-200">
-        <span class="text-sm font-semibold">Additional Details</span>
-      </div>
-
-      <div class="divide-y divide-base-200">
-        <%= for field <- @detail_fields do %>
-          <div class="px-4 py-3 flex items-start gap-4">
-            <span class="text-xs text-base-content/50 w-36 shrink-0 pt-0.5">
-              {humanize_field(field)}
-            </span>
-            <span class="text-sm flex-1 break-all">
-              <.format_value value={Map.get(@agent, field)} />
-            </span>
-          </div>
-        <% end %>
-      </div>
-    </div>
-    """
-  end
-
-  attr :value, :any, default: nil
-
-  defp format_value(%{value: nil} = assigns) do
-    ~H|<span class="text-base-content/40">—</span>|
-  end
-
-  defp format_value(%{value: ""} = assigns) do
-    ~H|<span class="text-base-content/40">—</span>|
-  end
-
-  defp format_value(%{value: value} = assigns) when is_boolean(value) do
-    ~H"""
-    <.ui_badge variant={if @value, do: "success", else: "error"} size="xs">
-      {to_string(@value)}
-    </.ui_badge>
-    """
-  end
-
-  defp format_value(%{value: value} = assigns) when is_map(value) and map_size(value) == 0 do
-    ~H|<span class="text-base-content/40">—</span>|
-  end
-
-  defp format_value(%{value: value} = assigns) when is_map(value) or is_list(value) do
-    formatted = Jason.encode!(value, pretty: true)
-    assigns = assign(assigns, :formatted, formatted)
-
-    ~H"""
-    <pre class="text-xs font-mono bg-base-200/30 p-2 rounded overflow-x-auto max-h-48">{@formatted}</pre>
-    """
-  end
-
-  defp format_value(%{value: value} = assigns) when is_binary(value) do
-    # Check if it looks like JSON
-    if String.starts_with?(value, "{") or String.starts_with?(value, "[") do
-      case Jason.decode(value) do
-        {:ok, decoded} ->
-          formatted = Jason.encode!(decoded, pretty: true)
-          assigns = assign(assigns, :formatted, formatted)
-
-          ~H"""
-          <pre class="text-xs font-mono bg-base-200/30 p-2 rounded overflow-x-auto max-h-48">{@formatted}</pre>
-          """
-
-        {:error, _} ->
-          ~H"""
-          <span class="font-mono text-xs">{@value}</span>
-          """
-      end
-    else
-      ~H"""
-      <span>{@value}</span>
-      """
+    cond do
+      days > 0 -> "#{days}d #{rem(hours, 24)}h"
+      hours > 0 -> "#{hours}h #{rem(minutes, 60)}m"
+      minutes > 0 -> "#{minutes}m #{rem(seconds, 60)}s"
+      true -> "#{seconds}s"
     end
   end
 
-  defp format_value(assigns) do
-    ~H"""
-    <span>{to_string(@value)}</span>
-    """
-  end
+  defp format_bytes(nil), do: "—"
 
-  defp format_timestamp(agent, field) do
-    ts = Map.get(agent, field)
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-      _ -> ts || "—"
+  defp format_bytes(bytes) when is_integer(bytes) do
+    cond do
+      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824, 1)} GB"
+      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576, 1)} MB"
+      bytes >= 1024 -> "#{Float.round(bytes / 1024, 1)} KB"
+      true -> "#{bytes} B"
     end
   end
 
-  defp parse_timestamp(nil), do: :error
-  defp parse_timestamp(""), do: :error
+  defp format_timestamp(nil), do: "—"
+  defp format_timestamp(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
 
-  defp parse_timestamp(value) when is_binary(value) do
+  defp format_timestamp(value) when is_binary(value) do
     value = String.trim(value)
 
     case DateTime.from_iso8601(value) do
       {:ok, dt, _offset} ->
-        {:ok, dt}
+        format_timestamp(dt)
 
       {:error, _} ->
         case NaiveDateTime.from_iso8601(value) do
-          {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-          {:error, _} -> :error
+          {:ok, ndt} -> format_timestamp(DateTime.from_naive!(ndt, "Etc/UTC"))
+          {:error, _} -> value
         end
     end
   end
 
-  defp parse_timestamp(_), do: :error
+  defp format_timestamp(value), do: inspect(value)
+
+  defp time_ago(nil), do: ""
+
+  defp time_ago(%DateTime{} = dt) do
+    diff = DateTime.diff(DateTime.utc_now(), dt, :second)
+
+    cond do
+      diff < 60 -> "#{diff}s ago"
+      diff < 3600 -> "#{div(diff, 60)}m ago"
+      diff < 86400 -> "#{div(diff, 3600)}h ago"
+      true -> "#{div(diff, 86400)}d ago"
+    end
+  end
+
+  defp time_ago(value) when is_binary(value) do
+    case DateTime.from_iso8601(String.trim(value)) do
+      {:ok, dt, _} -> time_ago(dt)
+      _ -> ""
+    end
+  end
+
+  defp time_ago(_), do: ""
 
   defp has_value?(map, key) do
     case Map.get(map, key) do
       nil -> false
       "" -> false
+      [] -> false
       _ -> true
     end
   end
-
-  defp humanize_field(field) when is_binary(field) do
-    field
-    |> String.replace("_", " ")
-    |> String.split()
-    |> Enum.map_join(" ", &String.capitalize/1)
-  end
-
-  defp humanize_field(field), do: to_string(field)
 
   defp escape_value(value) when is_binary(value) do
     value
@@ -445,11 +636,6 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   end
 
   defp escape_value(other), do: escape_value(to_string(other))
-
-  defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
-  defp format_error(%ArgumentError{} = err), do: Exception.message(err)
-  defp format_error(reason) when is_binary(reason), do: reason
-  defp format_error(reason), do: inspect(reason)
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)

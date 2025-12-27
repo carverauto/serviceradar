@@ -4,7 +4,11 @@ defmodule ServiceRadar.PollerRegistry do
 
   Uses Horde.Registry with CRDT-based synchronization for eventually consistent
   poller discovery. Pollers register with metadata including tenant, partition,
-  domain, capabilities, and availability status.
+  domain, and availability status.
+
+  Note: Pollers do not have capabilities. They orchestrate monitoring jobs by
+  receiving scheduled tasks (via AshOban) and dispatching work to available agents.
+  Agents have capabilities (ICMP, TCP, process checks, gRPC to external checkers).
 
   ## Registration Format
 
@@ -15,7 +19,6 @@ defmodule ServiceRadar.PollerRegistry do
         tenant_id: "tenant-uuid",
         partition_id: "partition-1",
         domain: "site-a",
-        capabilities: [:snmp, :grpc, :sweep],
         node: :"poller1@192.168.1.20",
         status: :available,
         registered_at: ~U[2024-01-01 00:00:00Z],

@@ -524,9 +524,45 @@ APP_TAG=v1.0.78 docker compose pull && APP_TAG=v1.0.78 docker compose up -d
 
 1. **Everything through Ash** - ALL database entities MUST be Ash resources. No raw SQL queries, no Ecto-only schemas. Every table gets an Ash resource.
 
-2. **All migrations through Ash** - Use `mix ash_postgres.generate_migrations` and `mix ash_postgres.migrate`. Never use raw Ecto migrations for application tables.
+2. **All migrations through Ash** - Use the Ash codegen workflow (see below). NEVER use `mix ecto.migrate` or `mix ecto.gen.migration`.
 
 3. **SRQL through Ash Adapter** - ALL SRQL queries route through the AshAdapter. No bypassing to raw SQL.
+
+### Ash Codegen Workflow
+
+The correct workflow for schema changes:
+
+```bash
+# 1. Make changes to Ash resources (.ex files)
+
+# 2. Development iteration (temporary migrations)
+mix ash.codegen --dev
+
+# 3. Apply dev migrations
+mix ash.migrate
+
+# 4. When ready to commit, generate final migration with name
+mix ash.codegen add_user_preferences
+
+# 5. Apply and verify
+mix ash.migrate
+
+# 6. If needed, rollback with
+mix ash.rollback
+```
+
+**Key Commands:**
+| Command | Purpose |
+|---------|---------|
+| `mix ash.codegen --dev` | Generate temporary dev migrations |
+| `mix ash.codegen <name>` | Generate final named migration |
+| `mix ash.migrate` | Run all pending migrations |
+| `mix ash.rollback` | Rollback last migration |
+
+**NEVER use:**
+- ❌ `mix ecto.migrate` - Wrong migration tracking table
+- ❌ `mix ecto.gen.migration` - Creates Ecto-only migration
+- ❌ `mix ecto.rollback` - Wrong migration tracking table
 
 ### Special Cases (TimescaleDB, Composite Keys)
 

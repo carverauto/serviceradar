@@ -70,12 +70,23 @@
 
 ### 0.9 Agent Check Configuration UI
 - [x] 0.9.1 Update AgentLive.Index to show live Horde-registered agents section
-- [ ] 0.9.2 Add ServiceCheck table to AgentLive.Show page
+- [x] 0.9.2 Add ServiceCheck table to AgentLive.Show page
 - [ ] 0.9.3 Create ServiceCheck create modal (check type, target, interval, port)
 - [ ] 0.9.4 Implement ServiceCheck enable/disable toggles
 - [ ] 0.9.5 Add ServiceCheck edit/delete actions
 - [ ] 0.9.6 Display check results and status in agent details
 - [ ] 0.9.7 Add check execution history timeline
+
+### 0.10 Infrastructure Detail Pages
+- [x] 0.10.1 Create PollerLive.Show page with Horde registry integration
+- [x] 0.10.2 Add node system info via RPC (uptime, processes, schedulers, memory)
+- [x] 0.10.3 Add registration timeline with time ago display
+- [x] 0.10.4 Enhance AgentLive.Show with Horde data and node info
+- [x] 0.10.5 Add capabilities card with descriptions to agent details
+- [x] 0.10.6 Make infrastructure page rows clickable to detail pages
+- [x] 0.10.7 Add breadcrumb navigation from detail pages back to infrastructure
+- [x] 0.10.8 Fix ClusterHealth Horde member sync (set_members on init/nodeup)
+- [ ] 0.10.9 Remove capabilities display from poller details (pollers don't have capabilities)
 
 ## Phase 1: Foundation Setup
 

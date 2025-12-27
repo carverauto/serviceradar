@@ -30,6 +30,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
      |> assign(:page_title, "Infrastructure")
      |> assign(:active_tab, :overview)
      |> assign(:show_debug, false)
+     |> assign(:srql, %{enabled: false, page_path: "/infrastructure"})
      |> assign(:cluster_info, load_cluster_info())
      |> assign(:live_pollers, load_live_pollers())
      |> assign(:live_agents, load_live_agents())
@@ -46,7 +47,18 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       _ -> :overview
     end
 
-    {:noreply, assign(socket, :active_tab, tab)}
+    # Update page_path based on tab for breadcrumb navigation
+    page_path = case tab do
+      :overview -> "/infrastructure"
+      :nodes -> "/infrastructure/nodes"
+      :pollers -> "/infrastructure/pollers"
+      :agents -> "/infrastructure/agents"
+    end
+
+    {:noreply,
+     socket
+     |> assign(:active_tab, tab)
+     |> assign(:srql, %{enabled: false, page_path: page_path})}
   end
 
   @impl true
@@ -129,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6 space-y-6">
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -198,30 +210,35 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             value={length(@cluster_info.connected_nodes) + 1}
             icon="hero-server-stack"
             variant="primary"
+            href={~p"/infrastructure?tab=nodes"}
           />
           <.summary_card
             title="Live Pollers"
             value={length(@live_pollers)}
             icon="hero-cpu-chip"
             variant="info"
+            href={~p"/infrastructure?tab=pollers"}
           />
           <.summary_card
             title="Live Agents"
             value={length(@live_agents)}
             icon="hero-cube"
             variant="success"
+            href={~p"/infrastructure?tab=agents"}
           />
           <.summary_card
             title="DB Pollers"
             value={length(@db_pollers)}
             icon="hero-circle-stack"
             variant="ghost"
+            href={~p"/infrastructure?tab=pollers"}
           />
           <.summary_card
             title="DB Agents"
             value={length(@db_agents)}
             icon="hero-archive-box"
             variant="ghost"
+            href={~p"/infrastructure?tab=agents"}
           />
         </div>
 
@@ -346,6 +363,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   attr :value, :any, required: true
   attr :icon, :string, required: true
   attr :variant, :string, default: "info"
+  attr :href, :string, default: nil
 
   defp summary_card(assigns) do
     bg_class = case assigns.variant do
@@ -353,6 +371,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       "warning" -> "bg-warning/10 border-warning/20"
       "error" -> "bg-error/10 border-error/20"
       "info" -> "bg-info/10 border-info/20"
+      "primary" -> "bg-primary/10 border-primary/20"
       _ -> "bg-base-200/50 border-base-300"
     end
 
@@ -361,13 +380,25 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       "warning" -> "text-warning"
       "error" -> "text-error"
       "info" -> "text-info"
+      "primary" -> "text-primary"
       _ -> "text-base-content/50"
     end
 
     assigns = assign(assigns, bg_class: bg_class, icon_class: icon_class)
 
     ~H"""
-    <div class={"rounded-xl border p-4 #{@bg_class}"}>
+    <.link :if={@href} navigate={@href} class={"rounded-xl border p-4 #{@bg_class} cursor-pointer hover:brightness-95 transition-all"}>
+      <div class="flex items-center gap-3">
+        <div class={"rounded-lg bg-base-100 p-2 #{@icon_class}"}>
+          <.icon name={@icon} class="size-5" />
+        </div>
+        <div>
+          <div class="text-xs text-base-content/60">{@title}</div>
+          <div class="text-xl font-bold text-base-content">{@value}</div>
+        </div>
+      </div>
+    </.link>
+    <div :if={!@href} class={"rounded-xl border p-4 #{@bg_class}"}>
       <div class="flex items-center gap-3">
         <div class={"rounded-lg bg-base-100 p-2 #{@icon_class}"}>
           <.icon name={@icon} class="size-5" />
@@ -405,10 +436,13 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             </td>
           </tr>
           <%= for poller <- @pollers do %>
-            <tr class="hover:bg-base-200/40">
+            <tr
+              class="hover:bg-base-200/40 cursor-pointer"
+              phx-click={JS.navigate(~p"/pollers/#{extract_poller_id(poller)}")}
+            >
               <td><.status_badge status={Map.get(poller, :status)} /></td>
               <td class="font-mono text-xs">{Map.get(poller, :partition_id) || "default"}</td>
-              <td class="font-mono text-xs">{format_node(Map.get(poller, :node))}</td>
+              <td class="font-mono text-xs link link-primary">{format_node(Map.get(poller, :node))}</td>
               <td :if={@expanded} class="text-center">
                 <span class="badge badge-sm badge-success">{@total_agents}</span>
               </td>
@@ -596,7 +630,10 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             </td>
           </tr>
           <%= for node <- @nodes do %>
-            <tr class={["hover:bg-base-200/40", node.is_current && "bg-primary/5"]}>
+            <tr
+              class={["hover:bg-base-200/40 cursor-pointer", node.is_current && "bg-primary/5"]}
+              phx-click={JS.navigate(~p"/infrastructure/nodes/#{format_node_name(node.node)}")}
+            >
               <td>
                 <div class="flex items-center gap-1.5">
                   <span class={"size-2 rounded-full #{if node.status == :connected, do: "bg-success", else: "bg-error"}"}></span>
@@ -605,7 +642,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
               </td>
               <td class="font-mono text-xs">
                 <div class="flex items-center gap-2">
-                  <span>{format_node_name(node.node)}</span>
+                  <span class="link link-primary">{format_node_name(node.node)}</span>
                   <span :if={node.is_current} class="badge badge-xs badge-primary">current</span>
                 </div>
               </td>
@@ -804,6 +841,15 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   end
 
   # Formatters
+
+  defp extract_poller_id(poller) do
+    case Map.get(poller, :poller_id) || Map.get(poller, :key) do
+      {_partition, node} when is_atom(node) -> Atom.to_string(node)
+      id when is_atom(id) -> Atom.to_string(id)
+      id when is_binary(id) -> id
+      _ -> "unknown"
+    end
+  end
 
   defp format_node(nil), do: "—"
   defp format_node(node) when is_atom(node), do: node |> Atom.to_string() |> String.split("@") |> List.first()

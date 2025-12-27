@@ -23,10 +23,13 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   @doc """
   Creates a scope for the given user.
 
+  Preloads the tenant relationship for display in the UI.
   Returns nil if no user is given.
   """
   def for_user(%User{} = user) do
-    %__MODULE__{user: user}
+    # Preload tenant for navbar display
+    user_with_tenant = Ash.load!(user, :tenant, authorize?: false)
+    %__MODULE__{user: user_with_tenant}
   end
 
   # Also accept map-like users (for backwards compatibility during transition)

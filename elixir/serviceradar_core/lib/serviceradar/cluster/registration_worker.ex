@@ -13,9 +13,12 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
 
       {ServiceRadar.Poller.RegistrationWorker, [
         partition_id: "partition-1",
-        domain: "site-a",
-        capabilities: [:snmp, :grpc, :sweep]
+        domain: "site-a"
       ]}
+
+  Note: Pollers do not have capabilities. They orchestrate monitoring jobs
+  by receiving scheduled tasks and dispatching work to available agents.
+  Agents have capabilities (ICMP, TCP, process checks, gRPC to external checkers).
 
   ## Status Values
 
@@ -32,7 +35,7 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
   @heartbeat_interval :timer.seconds(30)
   @stale_threshold :timer.minutes(2)
 
-  defstruct [:partition_id, :domain, :capabilities, :key, :status, :registered_at]
+  defstruct [:tenant_id, :partition_id, :domain, :key, :status, :registered_at]
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -40,14 +43,14 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
 
   @impl true
   def init(opts) do
+    tenant_id = Keyword.get(opts, :tenant_id, default_tenant_id())
     partition_id = Keyword.fetch!(opts, :partition_id)
     domain = Keyword.get(opts, :domain, "default")
-    capabilities = Keyword.get(opts, :capabilities, [])
 
     state = %__MODULE__{
+      tenant_id: tenant_id,
       partition_id: partition_id,
       domain: domain,
-      capabilities: capabilities,
       key: {partition_id, Node.self()},
       status: :available,
       registered_at: DateTime.utc_now()
@@ -57,7 +60,7 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
     case register_poller(state) do
       {:ok, _pid} ->
         Logger.info(
-          "Poller registered: partition=#{partition_id} domain=#{domain} node=#{Node.self()}"
+          "Poller registered: tenant=#{tenant_id} partition=#{partition_id} domain=#{domain} node=#{Node.self()}"
         )
 
         schedule_heartbeat()
@@ -100,9 +103,9 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
   @impl true
   def handle_call(:get_info, _from, state) do
     info = %{
+      tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       domain: state.domain,
-      capabilities: state.capabilities,
       node: Node.self(),
       status: state.status,
       registered_at: state.registered_at
@@ -176,9 +179,9 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
 
   defp register_poller(state) do
     metadata = %{
+      tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       domain: state.domain,
-      capabilities: state.capabilities,
       node: Node.self(),
       status: state.status,
       registered_at: state.registered_at,
@@ -236,5 +239,11 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
         diff = DateTime.diff(DateTime.utc_now(), last_heartbeat, :millisecond)
         diff > @stale_threshold
     end
+  end
+
+  # Get default tenant ID from environment or config
+  defp default_tenant_id do
+    System.get_env("POLLER_TENANT_ID") ||
+      Application.get_env(:serviceradar_core, :default_tenant_id, "00000000-0000-0000-0000-000000000000")
   end
 end

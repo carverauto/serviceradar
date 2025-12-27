@@ -33,7 +33,7 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
   @heartbeat_interval :timer.seconds(30)
   @stale_threshold :timer.minutes(2)
 
-  defstruct [:partition_id, :agent_id, :poller_id, :capabilities, :key, :status, :registered_at]
+  defstruct [:tenant_id, :partition_id, :agent_id, :poller_id, :capabilities, :key, :status, :registered_at]
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -41,12 +41,14 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
 
   @impl true
   def init(opts) do
+    tenant_id = Keyword.get(opts, :tenant_id, default_tenant_id())
     partition_id = Keyword.fetch!(opts, :partition_id)
     agent_id = Keyword.fetch!(opts, :agent_id)
     poller_id = Keyword.get(opts, :poller_id)
     capabilities = Keyword.get(opts, :capabilities, [])
 
     state = %__MODULE__{
+      tenant_id: tenant_id,
       partition_id: partition_id,
       agent_id: agent_id,
       poller_id: poller_id,
@@ -60,7 +62,7 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
     case register_agent(state) do
       {:ok, _pid} ->
         Logger.info(
-          "Agent registered: partition=#{partition_id} agent_id=#{agent_id} poller=#{poller_id || "none"} node=#{Node.self()}"
+          "Agent registered: tenant=#{tenant_id} partition=#{partition_id} agent_id=#{agent_id} poller=#{poller_id || "none"} node=#{Node.self()}"
         )
 
         schedule_heartbeat()
@@ -103,6 +105,7 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
   @impl true
   def handle_call(:get_info, _from, state) do
     info = %{
+      tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       agent_id: state.agent_id,
       poller_id: state.poller_id,
@@ -180,6 +183,7 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
 
   defp register_agent(state) do
     metadata = %{
+      tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       agent_id: state.agent_id,
       poller_id: state.poller_id,
@@ -241,5 +245,11 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
         diff = DateTime.diff(DateTime.utc_now(), last_heartbeat, :millisecond)
         diff > @stale_threshold
     end
+  end
+
+  # Get default tenant ID from environment or config
+  defp default_tenant_id do
+    System.get_env("AGENT_TENANT_ID") ||
+      Application.get_env(:serviceradar_core, :default_tenant_id, "00000000-0000-0000-0000-000000000000")
   end
 end

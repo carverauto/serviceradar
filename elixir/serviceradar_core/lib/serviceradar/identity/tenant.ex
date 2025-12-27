@@ -73,9 +73,71 @@ defmodule ServiceRadar.Identity.Tenant do
     update :soft_delete do
       change set_attribute(:status, :deleted)
     end
+
+    create :register do
+      description """
+      Register a new tenant with an owner user.
+
+      Creates the tenant, the owner user, and an owner membership in one transaction.
+      This is the primary way to create new tenants during signup.
+      """
+
+      accept [:name, :slug]
+
+      argument :owner, :map do
+        description "Owner user information (email, password, password_confirmation, display_name)"
+        allow_nil? false
+      end
+
+      change ServiceRadar.Identity.Changes.GenerateSlug
+
+      change fn changeset, _ ->
+        changeset
+        |> Ash.Changeset.after_action(fn _changeset, tenant ->
+          owner_params = Ash.Changeset.get_argument(changeset, :owner)
+
+          user_params = %{
+            email: owner_params["email"] || owner_params[:email],
+            password: owner_params["password"] || owner_params[:password],
+            password_confirmation:
+              owner_params["password_confirmation"] || owner_params[:password_confirmation],
+            display_name: owner_params["display_name"] || owner_params[:display_name],
+            tenant_id: tenant.id,
+            role: :admin
+          }
+
+          with {:ok, user} <-
+                 Ash.create(ServiceRadar.Identity.User, user_params,
+                   action: :register_with_password,
+                   authorize?: false
+                 ),
+               {:ok, _membership} <-
+                 Ash.create(
+                   ServiceRadar.Identity.TenantMembership,
+                   %{
+                     user_id: user.id,
+                     tenant_id: tenant.id,
+                     role: :owner
+                   },
+                   tenant: tenant.id,
+                   authorize?: false
+                 ),
+               {:ok, final_tenant} <- Ash.update(tenant, %{owner_id: user.id}, authorize?: false) do
+            {:ok, final_tenant}
+          else
+            {:error, error} -> {:error, error}
+          end
+        end)
+      end
+    end
   end
 
   policies do
+    # Allow public tenant registration (no actor required)
+    bypass action(:register) do
+      authorize_if always()
+    end
+
     # Super admins can do anything
     bypass action_type(:read) do
       authorize_if actor_attribute_equals(:role, :super_admin)
@@ -158,12 +220,41 @@ defmodule ServiceRadar.Identity.Tenant do
       description "Primary contact name"
     end
 
+    attribute :owner_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Owner user ID (set during registration)"
+    end
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
 
   relationships do
+    # Direct user relationship via tenant_id (for backwards compatibility)
     has_many :users, ServiceRadar.Identity.User
+
+    # Owner of the tenant (set during registration)
+    belongs_to :owner, ServiceRadar.Identity.User do
+      source_attribute :owner_id
+      public? true
+      allow_nil? true
+    end
+
+    # Memberships for role-based access
+    has_many :memberships, ServiceRadar.Identity.TenantMembership do
+      source_attribute :id
+      destination_attribute :tenant_id
+      public? true
+    end
+
+    # All members via memberships
+    many_to_many :members, ServiceRadar.Identity.User do
+      through ServiceRadar.Identity.TenantMembership
+      source_attribute_on_join_resource :tenant_id
+      destination_attribute_on_join_resource :user_id
+      public? true
+    end
   end
 
   calculations do

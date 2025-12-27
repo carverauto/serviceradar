@@ -6,6 +6,18 @@ defmodule ServiceRadar.Infrastructure.Agent do
   to local checkers. They connect to pollers via gRPC and are tracked in the
   AgentRegistry (Horde.Registry).
 
+  ## Role
+
+  Agents perform the actual monitoring checks. They have capabilities that define
+  what types of checks they can perform:
+  - **ICMP** - Ping checks for host reachability
+  - **TCP** - TCP port checks for service availability
+  - **HTTP** - HTTP/HTTPS endpoint checks
+  - **gRPC** - gRPC health checks via external checkers
+  - **DNS** - DNS resolution checks
+  - **Process** - Local process monitoring
+  - **SNMP** - SNMP monitoring (via external checker)
+
   ## OCSF Type IDs
 
   - 0: Unknown
@@ -20,6 +32,54 @@ defmodule ServiceRadar.Infrastructure.Agent do
   - 9: Remote Access
   - 99: Other
   """
+
+  @capability_definitions %{
+    icmp: %{icon: "hero-signal", color: "info", description: "ICMP ping checks for host reachability"},
+    tcp: %{icon: "hero-server-stack", color: "success", description: "TCP port checks for service availability"},
+    http: %{icon: "hero-globe-alt", color: "warning", description: "HTTP/HTTPS endpoint checks"},
+    grpc: %{icon: "hero-cpu-chip", color: "secondary", description: "gRPC health checks via external checkers"},
+    dns: %{icon: "hero-at-symbol", color: "info", description: "DNS resolution checks"},
+    process: %{icon: "hero-cog-6-tooth", color: "accent", description: "Local process monitoring"},
+    snmp: %{icon: "hero-chart-bar", color: "accent", description: "SNMP monitoring via external checker"},
+    sweep: %{icon: "hero-magnifying-glass", color: "primary", description: "Network sweep/discovery"},
+    agent: %{icon: "hero-cube", color: "ghost", description: "Agent management capabilities"}
+  }
+
+  @type_names %{
+    0 => "Unknown",
+    1 => "EDR",
+    2 => "DLP",
+    3 => "Backup/Recovery",
+    4 => "Performance",
+    5 => "Vulnerability",
+    6 => "Log Management",
+    7 => "MDM",
+    8 => "Config Management",
+    9 => "Remote Access",
+    99 => "Other"
+  }
+
+  @doc "Returns capability definitions for all supported agent capabilities"
+  def capability_definitions, do: @capability_definitions
+
+  @doc "Returns capability info for a specific capability"
+  def capability_info(capability) when is_atom(capability) do
+    Map.get(@capability_definitions, capability, %{icon: "hero-cube", color: "ghost", description: to_string(capability)})
+  end
+
+  def capability_info(capability) when is_binary(capability) do
+    try do
+      capability_info(String.to_existing_atom(capability))
+    rescue
+      ArgumentError -> %{icon: "hero-cube", color: "ghost", description: capability}
+    end
+  end
+
+  @doc "Returns OCSF type names map"
+  def type_names, do: @type_names
+
+  @doc "Returns type name for a given type_id"
+  def type_name(type_id), do: Map.get(@type_names, type_id, "Unknown")
 
   use Ash.Resource,
     domain: ServiceRadar.Infrastructure,
@@ -293,19 +353,23 @@ defmodule ServiceRadar.Infrastructure.Agent do
   end
 
   policies do
-    # Allow all reads - tenant isolation will be enforced at query level
-    # when we have proper tenant context from the Go pollers
-    policy action_type(:read) do
-      authorize_if always()
+    # Super admins can see all agents across tenants
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # Allow create/update for authenticated users
+    # Tenant isolation: users can only see agents in their tenant
+    policy action_type(:read) do
+      authorize_if expr(tenant_id == ^actor(:tenant_id))
+    end
+
+    # Allow create/update for agents in user's tenant
     policy action_type(:create) do
-      authorize_if always()
+      authorize_if expr(tenant_id == ^actor(:tenant_id))
     end
 
     policy action_type(:update) do
-      authorize_if always()
+      authorize_if expr(tenant_id == ^actor(:tenant_id))
     end
   end
 

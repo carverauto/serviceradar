@@ -413,10 +413,26 @@ defmodule ServiceRadar.Identity.User do
   end
 
   relationships do
+    # Primary tenant (for backwards compatibility and default context)
     belongs_to :tenant, ServiceRadar.Identity.Tenant do
       allow_nil? false
       attribute_type :uuid
       source_attribute :tenant_id
+    end
+
+    # Memberships allow users to belong to multiple tenants with different roles
+    has_many :memberships, ServiceRadar.Identity.TenantMembership do
+      source_attribute :id
+      destination_attribute :user_id
+      public? true
+    end
+
+    # All tenants the user belongs to via memberships
+    many_to_many :tenants, ServiceRadar.Identity.Tenant do
+      through ServiceRadar.Identity.TenantMembership
+      source_attribute_on_join_resource :user_id
+      destination_attribute_on_join_resource :tenant_id
+      public? true
     end
   end
 

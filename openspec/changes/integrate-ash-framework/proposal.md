@@ -132,6 +132,96 @@ Define Ash domains and resources for ServiceRadar's core entities:
 7. **Agent cutover**: Route sweep/check work through `serviceradar-sweep` via the new Elixir agent layer
 8. **DB access boundaries**: Only core-elx and web-ng connect to CNPG; pollers/agents remain DB-free
 
+## Progress Update (2025-12-27, Late)
+
+### Infrastructure Pages and Horde Integration
+- **Enhanced Poller Details Page** (`web-ng/lib/serviceradar_web_ng_web/live/poller_live/show.ex`):
+  - Live status banner (Horde vs database source)
+  - Node system info via RPC: uptime, processes, schedulers, OTP release, memory breakdown
+  - Registration timeline with time ago display
+  - **Note**: Removed misleading "capabilities" display - pollers don't have capabilities (see Architecture Clarification below)
+
+- **Enhanced Agent Details Page** (`web-ng/lib/serviceradar_web_ng_web/live/agent_live/show.ex`):
+  - Live status banner (Horde vs database source)
+  - Poller node system info via RPC (uptime, processes, memory)
+  - Capabilities card with descriptions (ICMP, TCP, HTTP, gRPC, DNS, etc.)
+  - Registration timeline (registered_at, connected_at, last_heartbeat)
+  - Service checks card showing configured checks
+
+- **Infrastructure Page Navigation** (`web-ng/lib/serviceradar_web_ng_web/live/infrastructure_live/index.ex`):
+  - Made poller rows clickable → navigate to poller details
+  - Made node names clickable (poller nodes link to poller details)
+  - Added `extract_poller_id/1` helper for Horde key extraction
+
+- **Cluster Health Sync Fix** (`elixir/serviceradar_core/lib/serviceradar/cluster/cluster_health.ex`):
+  - Fixed Horde `members: :auto` not syncing across nodes
+  - Added explicit `Horde.Cluster.set_members` calls on init and nodeup
+  - Added RPC-based member sync to remote nodes (for containers running old code)
+  - Verified 4-node cluster working: web-ng, core-elx, poller-elx, agent-elx
+
+### Architecture Clarification: Poller vs Agent Roles
+
+**IMPORTANT**: Pollers do NOT have capabilities. The previous UI was misleading.
+
+#### Correct Data Flow (Service Checks)
+```
+Scheduler (AshOban in core-elx)
+    ↓
+Oban Job Triggered
+    ↓
+Poller (receives job via ERTS RPC/PubSub)
+    ↓
+Poller finds available Agent (Horde AgentRegistry lookup by partition/tenant)
+    ↓
+RPC to Agent
+    ↓
+Agent performs check:
+  - ICMP ping (native capability)
+  - TCP port check (native capability)
+  - Process check (native capability)
+  - OR: gRPC to external checker (SNMP, Dusk, etc.)
+    ↓
+Results to ERTS PubSub/ETS (or gRPC stream for large payloads)
+    ↓
+core-elx processes results (DIRE, identity reconciliation, alerts)
+    ↓
+Database write (only core-elx/web-ng access DB)
+```
+
+#### Collector Data Flow (Netflow, Syslog, SNMP Traps)
+```
+Collector (serviceradar-netflow, serviceradar-syslog, serviceradar-trapd)
+    ↓
+Publish to NATS JetStream
+    ↓
+serviceradar-zen (Rust ETL service)
+  - Watches JetStream queues
+  - Transforms to OCSF format
+    ↓
+db-event-writer (Rust)
+  - Writes OCSF events to database
+```
+
+#### Component Responsibilities
+
+| Component | Has Capabilities? | Role |
+|-----------|------------------|------|
+| **Poller-elx** | NO | Job orchestration, agent selection, work dispatch |
+| **Agent-elx** | YES | ICMP, TCP, process checks; gRPC to external checkers |
+| **Core-elx** | NO | Scheduling, identity reconciliation, result processing |
+| **Web-ng** | NO | UI, API, database queries (no Horde supervisor) |
+| **Sweep (Go)** | YES | Large-scale ICMP/TCP sweeps via gRPC |
+| **Checkers** | YES | SNMP, Dusk, custom protocols via gRPC |
+
+#### Agent Capabilities (defined in agent-elx)
+- `icmp` - ICMP ping checks
+- `tcp` - TCP port checks
+- `http` - HTTP/HTTPS endpoint checks
+- `dns` - DNS resolution checks
+- `grpc` - gRPC health checks (to external checkers)
+- `process` - Local process monitoring
+- `agent` - Agent management (self-reporting)
+
 ## Progress Update (2025-12-27)
 - **Integration Source Management**: Added IntegrationSource Ash resource for managing sync integrations (Armis, NetBox, etc.) via web UI.
 - **DataService.Client**: Created gRPC client GenServer for pushing configuration to datasvc KV store with full mTLS support.
@@ -597,3 +687,213 @@ The shared library includes:
 
 ### Project
 - GitHub Issue #2205
+
+## Multi-Tenant Security: Per-Tenant Certificate Binding (HIGH PRIORITY)
+
+### Problem: Tenant ID Spoofing
+
+Without cryptographic binding, a malicious actor could:
+1. Deploy an agent with someone else's `tenant_id` env var
+2. Join the cluster and receive monitoring traffic for another customer
+3. Exfiltrate sensitive infrastructure data
+
+**This is a critical security gap that must be addressed before production SaaS deployment.**
+
+### Solution: Per-Tenant Certificate Binding
+
+#### Certificate Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         ServiceRadar Root CA                                 │
+│  (Managed by ServiceRadar Cloud / SPIRE Trust Domain)                       │
+└───────────────────────────────┬─────────────────────────────────────────────┘
+                                │
+            ┌───────────────────┼───────────────────┐
+            ▼                   ▼                   ▼
+  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+  │ Tenant A        │  │ Tenant B        │  │ Tenant C        │
+  │ Intermediate CA │  │ Intermediate CA │  │ Intermediate CA │
+  │                 │  │                 │  │                 │
+  │ tenant_id: AAA  │  │ tenant_id: BBB  │  │ tenant_id: CCC  │
+  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘
+           │                    │                    │
+     ┌─────┴─────┐        ┌─────┴─────┐        ┌─────┴─────┐
+     ▼           ▼        ▼           ▼        ▼           ▼
+  poller-A   agent-A   poller-B   agent-B   poller-C   agent-C
+```
+
+Each tenant gets:
+- An intermediate CA (or certificate set) issued by ServiceRadar
+- Certificates encode `tenant_id` in the SPIFFE ID or SAN
+- Agents/pollers CANNOT claim a tenant_id that doesn't match their certificate
+
+#### SPIFFE ID Format
+
+```
+spiffe://serviceradar.io/tenant/<tenant_id>/poller/<poller_id>
+spiffe://serviceradar.io/tenant/<tenant_id>/agent/<agent_id>
+spiffe://serviceradar.io/tenant/<tenant_id>/collector/<collector_type>
+```
+
+The core validates that the SPIFFE ID tenant matches the claimed tenant_id on every connection.
+
+#### Edge Onboarding Flow
+
+##### Docker Compose (Development/Self-Hosted)
+For development and single-tenant self-hosted deployments:
+1. `generate-certs.sh` creates a single CA with all service certs
+2. All services share the same tenant_id (default: `00000000-0000-0000-0000-000000000000`)
+3. Zero-touch: certs are pre-provisioned via Docker volumes
+4. No cloud connectivity required
+
+##### SaaS Customer Onboarding
+For multi-tenant SaaS deployments:
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                       User: Settings → Edge Onboarding                    │
+└─────────────────────────────────────┬────────────────────────────────────┘
+                                      │
+                    ┌─────────────────▼─────────────────┐
+                    │        Edge Onboarding Portal     │
+                    │  (web-ng/lib/.../edge_live/*.ex)  │
+                    │                                   │
+                    │  1. Select component type:        │
+                    │     • Poller                      │
+                    │     • Agent                       │
+                    │     • Collector (netflow/syslog)  │
+                    │                                   │
+                    │  2. Generate onboarding token     │
+                    │     (JWT w/ tenant_id, exp, scope)│
+                    │                                   │
+                    │  3. Download installer bundle:    │
+                    │     • Bootstrap script            │
+                    │     • Onboarding token            │
+                    │     • Cloud CA cert               │
+                    └─────────────────┬─────────────────┘
+                                      │
+                    ┌─────────────────▼─────────────────┐
+                    │       Edge Component Startup      │
+                    │                                   │
+                    │  1. Run bootstrap script          │
+                    │  2. Present onboarding token      │
+                    │  3. Request tenant-scoped cert    │
+                    │     from SPIRE/onboarding-api     │
+                    │  4. Receive:                      │
+                    │     • Tenant intermediate CA      │
+                    │     • Component certificate       │
+                    │     • SPIFFE ID with tenant_id    │
+                    │  5. Store certs, start service    │
+                    └─────────────────┬─────────────────┘
+                                      │
+                    ┌─────────────────▼─────────────────┐
+                    │         Component Joins Cluster   │
+                    │                                   │
+                    │  • mTLS handshake validates cert  │
+                    │  • Core extracts SPIFFE tenant_id │
+                    │  • Core verifies tenant_id match  │
+                    │  • Component registered to Horde  │
+                    │    with verified tenant context   │
+                    └───────────────────────────────────┘
+```
+
+#### Validation at Connection Time
+
+```elixir
+defmodule ServiceRadar.Cluster.TenantValidator do
+  @moduledoc """
+  Validates that connecting nodes have valid tenant-scoped certificates.
+  """
+
+  @doc """
+  Called on ERTS connection to validate peer certificate.
+  Extracts tenant_id from SPIFFE ID and verifies against claimed tenant.
+  """
+  def validate_peer(peer_cert, claimed_tenant_id) do
+    case extract_spiffe_id(peer_cert) do
+      {:ok, spiffe_id} ->
+        case parse_tenant_from_spiffe(spiffe_id) do
+          {:ok, cert_tenant_id} when cert_tenant_id == claimed_tenant_id ->
+            :ok
+
+          {:ok, cert_tenant_id} ->
+            {:error, {:tenant_mismatch, expected: cert_tenant_id, got: claimed_tenant_id}}
+
+          :error ->
+            {:error, :invalid_spiffe_format}
+        end
+
+      :error ->
+        {:error, :no_spiffe_id}
+    end
+  end
+
+  defp extract_spiffe_id(cert) do
+    # Extract from SAN URI extension
+    case :public_key.pkix_subject_id(cert) do
+      {:ok, san} -> {:ok, find_spiffe_uri(san)}
+      _ -> :error
+    end
+  end
+
+  defp parse_tenant_from_spiffe("spiffe://serviceradar.io/tenant/" <> rest) do
+    case String.split(rest, "/", parts: 2) do
+      [tenant_id, _] -> {:ok, tenant_id}
+      _ -> :error
+    end
+  end
+
+  defp parse_tenant_from_spiffe(_), do: :error
+end
+```
+
+#### NATS Multi-Tenant Users (for Edge Collectors)
+
+Collectors that publish to NATS JetStream need tenant-scoped credentials:
+
+```yaml
+# NATS server config (per-tenant users)
+authorization:
+  users:
+    - user: "tenant-AAA-collector"
+      password: "$2a$11$..."
+      permissions:
+        publish:
+          allow:
+            - "metrics.AAA.>"
+            - "events.AAA.>"
+            - "logs.AAA.>"
+        subscribe:
+          deny: [">"]
+
+    - user: "tenant-BBB-collector"
+      password: "$2a$11$..."
+      permissions:
+        publish:
+          allow:
+            - "metrics.BBB.>"
+            - "events.BBB.>"
+            - "logs.BBB.>"
+```
+
+Edge onboarding generates NATS credentials alongside mTLS certificates.
+
+#### Services Requiring Multi-Tenant Updates
+
+| Service | Current State | Required Changes |
+|---------|--------------|------------------|
+| **datasvc** | No tenant awareness | Add tenant context to KV operations; validate tenant from mTLS cert |
+| **serviceradar-zen** | No tenant awareness | Extract tenant from NATS subject; transform with tenant context |
+| **db-event-writer** | No tenant awareness | Include tenant_id in all database writes |
+| **onboarding-api** | Exists (Rust) | Add per-tenant cert issuance; NATS user provisioning |
+| **core-elx** | Partial | Validate tenant on Horde registration; reject mismatched certs |
+| **web-ng** | Partial | Edge Onboarding Portal UI for cert/token generation |
+
+#### Implementation Priority
+
+1. **Phase 1**: Certificate validation in Horde registration (block mismatched tenant_id)
+2. **Phase 2**: Edge Onboarding Portal UI for token generation
+3. **Phase 3**: Per-tenant cert issuance in onboarding-api
+4. **Phase 4**: NATS user provisioning for collectors
+5. **Phase 5**: datasvc/zen/db-event-writer multi-tenant updates

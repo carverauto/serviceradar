@@ -34,6 +34,7 @@ defmodule ServiceRadar.Identity do
   resources do
     resource ServiceRadar.Identity.User
     resource ServiceRadar.Identity.Tenant
+    resource ServiceRadar.Identity.TenantMembership
     resource ServiceRadar.Identity.Token
     resource ServiceRadar.Identity.ApiToken
     resource ServiceRadar.Identity.DeviceAliasState
