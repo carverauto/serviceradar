@@ -87,6 +87,58 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 - Restart the stack: `APP_TAG=sha-<sha> docker compose up -d --force-recreate`.
 - Verify: `docker compose ps` (one-shot jobs like cert-generator/config-updater exit once finished; nginx may sit in "health: starting" briefly).
 
+## Local Development with Docker CNPG
+
+Use this quick playbook when running `mix phx.server` locally and connecting to the CNPG instance in Docker on the same machine. This is the fastest iteration loop for testing changes.
+
+### 1. Ensure Docker Compose is Running
+
+Make sure CNPG is accessible on port 5455:
+
+```bash
+cd docker/compose
+APP_TAG=sha-<commit> docker compose up -d cnpg
+```
+
+### 2. Copy Client Certs to a Local Directory (one-time setup)
+
+```bash
+mkdir -p .local-dev-certs
+sudo cp /var/lib/docker/volumes/serviceradar_cert-data/_data/{root.pem,workstation.pem,workstation-key.pem} .local-dev-certs/
+sudo chown -R $USER:$USER .local-dev-certs
+```
+
+Note: `.local-dev-certs/` is already in `.gitignore`.
+
+### 3. Run Phoenix Locally
+
+```bash
+cd web-ng
+CNPG_HOST=localhost CNPG_PORT=5455 CNPG_SSL_MODE=verify-full \
+  CNPG_CERT_DIR=/home/<user>/serviceradar/.local-dev-certs \
+  CNPG_TLS_SERVER_NAME=cnpg \
+  mix phx.server
+```
+
+Or for local testing without network:
+
+```bash
+CNPG_HOST=localhost CNPG_PORT=5455 CNPG_SSL_MODE=verify-full \
+  CNPG_CERT_DIR=$PWD/../.local-dev-certs CNPG_TLS_SERVER_NAME=cnpg \
+  mix phx.server
+```
+
+### 4. Access the App
+
+- Web UI: http://localhost:4000
+- Dev Mailbox: http://localhost:4000/dev/mailbox (for testing magic links)
+- Live Dashboard: http://localhost:4000/dev/dashboard
+
+### Troubleshooting
+
+- **Port 4000 already in use**: Kill any stale beam processes with `pkill -f beam.smp`
+- **binary_to_existing_atom error**: Ensure you've run `mix compile --force` after updates
+
 ## Web-NG Remote Dev (CNPG)
 
 Use this playbook to run `web-ng/` on a workstation while connecting to the existing CNPG instance running on the docker host (example: `192.168.2.134`).
@@ -243,6 +295,7 @@ docker run --rm -it --network serviceradar-net \
 ```
 
 If distribution fails with `bad_cert` or `hostname_check_failed` for `poller-elx` or `agent-elx`, rerun `docker compose run --rm cert-generator` to refresh certs after updating `docker/compose/generate-certs.sh`.
+If you see `hostname_check_failed` for `core-elx`, ensure the core certificate SAN list includes `DNS:core-elx` (and `core`, `serviceradar-core`) in `docker/compose/generate-certs.sh`, then rerun the cert generator.
 
 ## Edge Onboarding Testing with Docker mTLS Stack
 

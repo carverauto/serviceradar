@@ -165,6 +165,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     magic_sign_in_route ServiceRadar.Identity.User, :magic_link,
       auth_routes_prefix: "/auth",
       overrides: [ServiceRadarWebNGWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default],
+      live_view: ServiceRadarWebNGWeb.AuthLive.MagicLinkSignIn,
+      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}],
       path: "/auth/user/magic_link",
       token_as_route_param?: false
 

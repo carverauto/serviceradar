@@ -47,7 +47,10 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
   Displays an error message and redirects to the login page.
   """
-  def failure(conn, _activity, _reason) do
+  def failure(conn, activity, reason) do
+    require Logger
+    Logger.error("Authentication failure: activity=#{inspect(activity)}, reason=#{inspect(reason)}")
+
     conn
     |> put_flash(:error, "Authentication failed. Please try again.")
     |> redirect(to: ~p"/users/log-in")

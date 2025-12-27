@@ -156,8 +156,8 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
     poller_count =
       try do
         ServiceRadar.ClusterHealth.get_health() |> Map.get(:poller_count, 0)
-      rescue
-        _ -> 0
+      catch
+        :exit, _ -> 0
       end
 
     :telemetry.execute(
@@ -170,8 +170,8 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
     agent_count =
       try do
         ServiceRadar.ClusterHealth.get_health() |> Map.get(:agent_count, 0)
-      rescue
-        _ -> 0
+      catch
+        :exit, _ -> 0
       end
 
     :telemetry.execute(

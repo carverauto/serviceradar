@@ -58,6 +58,9 @@ defmodule ServiceRadar.Identity.User do
         require_interaction? true
         lookup_action_name :by_email
         sender ServiceRadar.Identity.Senders.SendMagicLinkEmail
+        # Disable prevent_hijacking since we have auto_confirm_actions for magic link
+        # and the magic link itself proves email ownership
+        prevent_hijacking? false
       end
     end
 
@@ -66,9 +69,14 @@ defmodule ServiceRadar.Identity.User do
         monitor_fields [:email]
         require_interaction? true
         sender ServiceRadar.Identity.Senders.SendConfirmationEmail
-        # Allow update_email action to change email without re-confirmation
-        # since it uses token-based verification in the Accounts context
-        auto_confirm_actions [:update_email]
+        # Auto-confirm for these actions:
+        # - sign_in_with_magic_link: Magic link verifies email ownership
+        # - update_email: Uses token-based verification in the Accounts context
+        auto_confirm_actions [:sign_in_with_magic_link, :update_email]
+        # Disable prevent_hijacking for upserts since magic link auto-confirms
+        # and proves email ownership. This allows magic link sign-in/registration
+        # to work for new and unconfirmed users.
+        prevent_hijacking? false
       end
     end
   end

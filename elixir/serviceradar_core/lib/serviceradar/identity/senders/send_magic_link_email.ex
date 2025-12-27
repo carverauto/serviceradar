@@ -9,12 +9,12 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
   import Swoosh.Email
 
   @impl true
-  def send(user, token, _opts) do
+  def send(user_or_email, token, _opts) do
     # Build the magic link URL
     url = build_magic_link_url(token)
 
-    email_string = to_string(user.email)
-    display_name = user.display_name || email_string
+    # Handle both user struct and email string (for registration flow)
+    {email_string, display_name} = extract_email_info(user_or_email)
 
     email =
       new()
@@ -24,7 +24,7 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
       |> html_body("""
       <h2>Sign in to ServiceRadar</h2>
       <p>Click the link below to sign in to your account:</p>
-      <p><a href="#{url}">Sign in to ServiceRadar</a></p>
+      <p><a href="#{url}" target="_blank">Sign in to ServiceRadar</a></p>
       <p>This link will expire in 15 minutes.</p>
       <p>If you didn't request this email, you can safely ignore it.</p>
       """)
@@ -41,6 +41,24 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
       """)
 
     ServiceRadar.Mailer.deliver(email)
+  end
+
+  # Handle user struct (existing user)
+  defp extract_email_info(%{email: email} = user) do
+    email_string = to_string(email)
+    display_name = Map.get(user, :display_name) || email_string
+    {email_string, display_name}
+  end
+
+  # Handle email string (new user during registration)
+  defp extract_email_info(email) when is_binary(email) do
+    {email, email}
+  end
+
+  # Handle Ash.CiString
+  defp extract_email_info(email) do
+    email_string = to_string(email)
+    {email_string, email_string}
   end
 
   defp build_magic_link_url(token) do

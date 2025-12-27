@@ -139,6 +139,9 @@ Define Ash domains and resources for ServiceRadar's core entities:
 - Mailer fixes: convert `Ash.CiString` emails to strings in magic link and password reset senders; ensure `:swoosh` and `:telemetry` are started as extra applications.
 - Compose runtime includes `ELIXIR_ERL_OPTIONS=+fnu` for elixir services to avoid latin1 locale warnings.
 - Task 1.4 (mTLS for ERTS Distribution) verified complete: ssl_dist.*.conf files configured for web, poller, and agent with proper TLS settings.
+- Magic link sign-in still returned 403; AshAuthentication magic link LiveComponent does not include a CSRF token and crashes when `remember_me_field` resolves for a create action.
+- Added a custom `AuthLive.MagicLinkSignIn` LiveView with explicit CSRF token handling and no remember-me field; router overrides wire this LiveView into `magic_sign_in_route`.
+- TLS distribution certs now require `core-elx` in the core cert SAN list to prevent `hostname_check_failed`; regenerate certs after updates to `docker/compose/generate-certs.sh`.
 
 ## Resolved: Standalone core-elx Service
 

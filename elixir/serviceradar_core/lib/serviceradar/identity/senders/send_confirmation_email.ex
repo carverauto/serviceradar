@@ -22,7 +22,7 @@ defmodule ServiceRadar.Identity.Senders.SendConfirmationEmail do
       |> html_body("""
       <h2>Confirm your email</h2>
       <p>Click the link below to confirm your email address:</p>
-      <p><a href="#{url}">Confirm Email</a></p>
+      <p><a href="#{url}" target="_blank">Confirm Email</a></p>
       <p>This link will expire in 7 days.</p>
       <p>If you didn't create a ServiceRadar account, you can safely ignore this email.</p>
       """)

@@ -45,6 +45,7 @@ sh_test(
         "//proto:kv_proto_src",
         "//rust/kvutil:srcs",
         "//rust/srql:srcs",
+        "//elixir/serviceradar_core:srcs",
         "//elixir/datasvc:srcs",
     ],
     local = True,

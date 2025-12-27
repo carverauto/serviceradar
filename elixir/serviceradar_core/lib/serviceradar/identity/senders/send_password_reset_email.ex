@@ -23,7 +23,7 @@ defmodule ServiceRadar.Identity.Senders.SendPasswordResetEmail do
       |> html_body("""
       <h2>Reset your password</h2>
       <p>Click the link below to reset your ServiceRadar password:</p>
-      <p><a href="#{url}">Reset Password</a></p>
+      <p><a href="#{url}" target="_blank">Reset Password</a></p>
       <p>This link will expire in 1 hour.</p>
       <p>If you didn't request a password reset, you can safely ignore this email.</p>
       """)

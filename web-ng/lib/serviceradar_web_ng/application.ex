@@ -5,12 +5,12 @@ defmodule ServiceRadarWebNG.Application do
 
   use Application
 
-  # Ensure the atom exists before AshAuthentication LiveSessions attempt to use it.
-  @current_user_atom :current_user
-
   @impl true
   def start(_type, _args) do
-    _ = @current_user_atom
+    # Force load ServiceRadarWebNGWeb early to ensure atoms like :current_user exist
+    # in the atom table before AshAuthentication.Phoenix.LiveSession uses them.
+    # See: AshAuthentication.Phoenix.LiveSession.generate_session/3 line 236
+    _ = ServiceRadarWebNGWeb.__ash_auth_atoms__()
 
     children = [
       # Web telemetry

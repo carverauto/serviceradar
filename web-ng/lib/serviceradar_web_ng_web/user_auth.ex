@@ -33,10 +33,13 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   @doc """
   Authenticates the user by verifying the Ash JWT token in the session.
 
-  The token is stored under the `:user` key by AshAuthentication.Phoenix.Controller.
+  When `require_token_presence_for_authentication?` is true in the User resource's
+  token config, the token is stored under "user_token" key by AshAuthentication.
+  Otherwise it would be stored under :user as a subject string.
   """
   def fetch_current_scope_for_user(conn, _opts) do
-    with token when is_binary(token) <- get_session(conn, :user),
+    # AshAuthentication stores under "user_token" when require_token_presence_for_authentication? is true
+    with token when is_binary(token) <- get_session(conn, "user_token"),
          {:ok, user, _claims} <- verify_token(token) do
       conn
       |> assign(:current_scope, Scope.for_user(user))
@@ -137,9 +140,9 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   defp mount_current_scope(socket, session) do
     socket
     |> Phoenix.Component.assign_new(:current_scope, fn ->
-      # Token is stored under "user" key by AshAuthentication.Phoenix.Controller
+      # Token is stored under "user_token" key when require_token_presence_for_authentication? is true
       user =
-        with token when is_binary(token) <- session["user"],
+        with token when is_binary(token) <- session["user_token"],
              {:ok, user, _claims} <- verify_token(token) do
           user
         else
