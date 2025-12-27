@@ -25,6 +25,8 @@ defmodule ServiceRadar.Identity.TenantMembership do
   multitenancy do
     strategy :attribute
     attribute :tenant_id
+    # Allow querying without tenant context (e.g., to list all memberships for a user)
+    global? true
   end
 
   actions do

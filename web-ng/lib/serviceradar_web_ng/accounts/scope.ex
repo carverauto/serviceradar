@@ -18,7 +18,7 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
 
   alias ServiceRadar.Identity.User
 
-  defstruct user: nil
+  defstruct user: nil, active_tenant: nil, tenant_memberships: []
 
   @doc """
   Creates a scope for the given user.
@@ -26,16 +26,52 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   Preloads the tenant relationship for display in the UI.
   Returns nil if no user is given.
   """
-  def for_user(%User{} = user) do
-    # Preload tenant for navbar display
-    user_with_tenant = Ash.load!(user, :tenant, authorize?: false)
-    %__MODULE__{user: user_with_tenant}
+  # Function header for default values
+  def for_user(user, opts \\ [])
+
+  def for_user(%User{} = user, opts) do
+    active_tenant_id = Keyword.get(opts, :active_tenant_id)
+
+    # Preload tenant and memberships for navbar display
+    user_with_data = Ash.load!(user, [:tenant, memberships: :tenant], authorize?: false)
+
+    # Determine active tenant: from opts, or user's default tenant
+    active_tenant =
+      if active_tenant_id do
+        find_tenant_by_id(user_with_data.memberships, active_tenant_id) ||
+          user_with_data.tenant
+      else
+        user_with_data.tenant
+      end
+
+    %__MODULE__{
+      user: user_with_data,
+      active_tenant: active_tenant,
+      tenant_memberships: user_with_data.memberships || []
+    }
   end
 
   # Also accept map-like users (for backwards compatibility during transition)
-  def for_user(%{id: _, email: _} = user) do
-    %__MODULE__{user: user}
+  def for_user(%{id: _, email: _} = user, _opts) do
+    %__MODULE__{user: user, active_tenant: nil, tenant_memberships: []}
   end
 
-  def for_user(nil), do: %__MODULE__{user: nil}
+  def for_user(nil, _opts), do: %__MODULE__{user: nil, active_tenant: nil, tenant_memberships: []}
+
+  @doc """
+  Returns the active tenant ID for use in Ash queries.
+  """
+  def tenant_id(%__MODULE__{active_tenant: %{id: id}}), do: id
+  def tenant_id(%__MODULE__{user: %{tenant_id: id}}), do: id
+  def tenant_id(_), do: nil
+
+  defp find_tenant_by_id(memberships, tenant_id) when is_list(memberships) do
+    Enum.find_value(memberships, fn membership ->
+      if to_string(membership.tenant_id) == to_string(tenant_id) do
+        membership.tenant
+      end
+    end)
+  end
+
+  defp find_tenant_by_id(_, _), do: nil
 end

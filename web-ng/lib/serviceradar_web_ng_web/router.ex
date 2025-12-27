@@ -219,6 +219,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     end
 
     post "/users/update-password", UserSessionController, :update_password
+    post "/tenants/switch/:tenant_id", TenantController, :switch
   end
 
   scope "/", ServiceRadarWebNGWeb do

@@ -41,8 +41,10 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     # AshAuthentication stores under "user_token" when require_token_presence_for_authentication? is true
     with token when is_binary(token) <- get_session(conn, "user_token"),
          {:ok, user, _claims} <- verify_token(token) do
+      active_tenant_id = get_session(conn, "active_tenant_id")
+
       conn
-      |> assign(:current_scope, Scope.for_user(user))
+      |> assign(:current_scope, Scope.for_user(user, active_tenant_id: active_tenant_id))
     else
       _ ->
         assign(conn, :current_scope, Scope.for_user(nil))
@@ -149,7 +151,8 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
           _ -> nil
         end
 
-      Scope.for_user(user)
+      active_tenant_id = session["active_tenant_id"]
+      Scope.for_user(user, active_tenant_id: active_tenant_id)
     end)
     |> maybe_set_ash_context()
   end
@@ -157,17 +160,20 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   # Set Ash actor and tenant in socket assigns for LiveView Ash operations
   defp maybe_set_ash_context(socket) do
     case socket.assigns[:current_scope] do
-      %{user: user} when not is_nil(user) ->
+      %{user: user, active_tenant: active_tenant} when not is_nil(user) ->
+        # Use active_tenant if available, otherwise fall back to user's default tenant
+        tenant_id = if active_tenant, do: active_tenant.id, else: user.tenant_id
+
         actor = %{
           id: user.id,
-          tenant_id: user.tenant_id,
+          tenant_id: tenant_id,
           role: user.role,
           email: user.email
         }
 
         socket
         |> Phoenix.Component.assign(:actor, actor)
-        |> Phoenix.Component.assign(:tenant, user.tenant_id)
+        |> Phoenix.Component.assign(:tenant, tenant_id)
 
       _ ->
         socket

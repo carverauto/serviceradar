@@ -218,14 +218,41 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                 tabindex="0"
                 class="dropdown-content menu bg-base-200 rounded-box z-10 w-56 p-2 shadow-lg mb-2"
               >
-                <li :if={@current_scope && @current_scope.user && @current_scope.user.tenant}>
+                <li :if={@current_scope && @current_scope.active_tenant}>
                   <div class="flex flex-col gap-1">
                     <span class="text-[10px] uppercase tracking-wider text-base-content/60">
                       Organization
                     </span>
                     <span class="text-sm font-medium">
-                      {@current_scope.user.tenant.name}
+                      {@current_scope.active_tenant.name}
                     </span>
+                    <%= if length(@current_scope.tenant_memberships) > 0 do %>
+                      <div class="mt-1 border-t border-base-300 pt-1">
+                        <span class="text-[9px] uppercase tracking-wider text-base-content/50">
+                          Switch to
+                        </span>
+                        <%= for membership <- @current_scope.tenant_memberships do %>
+                          <%= if membership.tenant && membership.tenant.id != @current_scope.active_tenant.id do %>
+                            <.link
+                              href={~p"/tenants/switch/#{membership.tenant.id}"}
+                              method="post"
+                              class="block text-xs text-base-content/70 hover:text-base-content py-0.5"
+                            >
+                              {membership.tenant.name}
+                            </.link>
+                          <% end %>
+                        <% end %>
+                        <%= if @current_scope.user.tenant && @current_scope.user.tenant.id != @current_scope.active_tenant.id do %>
+                          <.link
+                            href={~p"/tenants/switch/#{@current_scope.user.tenant.id}"}
+                            method="post"
+                            class="block text-xs text-base-content/70 hover:text-base-content py-0.5"
+                          >
+                            {@current_scope.user.tenant.name}
+                          </.link>
+                        <% end %>
+                      </div>
+                    <% end %>
                   </div>
                 </li>
                 <li>

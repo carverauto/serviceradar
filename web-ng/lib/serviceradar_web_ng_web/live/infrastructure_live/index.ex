@@ -25,6 +25,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       :timer.send_interval(:timer.seconds(30), self(), :refresh)
     end
 
+    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+
     {:ok,
      socket
      |> assign(:page_title, "Infrastructure")
@@ -32,8 +34,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
      |> assign(:show_debug, false)
      |> assign(:srql, %{enabled: false, page_path: "/infrastructure"})
      |> assign(:cluster_info, load_cluster_info())
-     |> assign(:live_pollers, load_live_pollers())
-     |> assign(:live_agents, load_live_agents())
+     |> assign(:live_pollers, load_live_pollers(tenant_id))
+     |> assign(:live_agents, load_live_agents(tenant_id))
      |> assign(:db_pollers, load_db_pollers(socket.assigns.current_scope))
      |> assign(:db_agents, load_db_agents(socket.assigns.current_scope))}
   end
@@ -63,58 +65,67 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   @impl true
   def handle_info(:refresh, socket) do
+    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
     {:noreply,
      socket
      |> assign(:cluster_info, load_cluster_info())
-     |> assign(:live_pollers, load_live_pollers())
-     |> assign(:live_agents, load_live_agents())}
+     |> assign(:live_pollers, load_live_pollers(tenant_id))
+     |> assign(:live_agents, load_live_agents(tenant_id))}
   end
 
   def handle_info({:agent_registered, _metadata}, socket) do
-    {:noreply, assign(socket, :live_agents, load_live_agents())}
+    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+    {:noreply, assign(socket, :live_agents, load_live_agents(tenant_id))}
   end
 
   def handle_info({:agent_disconnected, _agent_id}, socket) do
-    {:noreply, assign(socket, :live_agents, load_live_agents())}
+    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+    {:noreply, assign(socket, :live_agents, load_live_agents(tenant_id))}
   end
 
   def handle_info({:poller_registered, _metadata}, socket) do
-    {:noreply, assign(socket, :live_pollers, load_live_pollers())}
+    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+    {:noreply, assign(socket, :live_pollers, load_live_pollers(tenant_id))}
   end
 
   def handle_info({:poller_disconnected, _poller_id}, socket) do
-    {:noreply, assign(socket, :live_pollers, load_live_pollers())}
+    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+    {:noreply, assign(socket, :live_pollers, load_live_pollers(tenant_id))}
   end
 
   def handle_info({:poller_unregistered, _key}, socket) do
-    {:noreply, assign(socket, :live_pollers, load_live_pollers())}
+    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+    {:noreply, assign(socket, :live_pollers, load_live_pollers(tenant_id))}
   end
 
   def handle_info({:node_up, _node}, socket) do
+    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
     {:noreply,
      socket
      |> assign(:cluster_info, load_cluster_info())
-     |> assign(:live_pollers, load_live_pollers())
-     |> assign(:live_agents, load_live_agents())}
+     |> assign(:live_pollers, load_live_pollers(tenant_id))
+     |> assign(:live_agents, load_live_agents(tenant_id))}
   end
 
   def handle_info({:node_down, _node}, socket) do
+    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
     {:noreply,
      socket
      |> assign(:cluster_info, load_cluster_info())
-     |> assign(:live_pollers, load_live_pollers())
-     |> assign(:live_agents, load_live_agents())}
+     |> assign(:live_pollers, load_live_pollers(tenant_id))
+     |> assign(:live_agents, load_live_agents(tenant_id))}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("refresh", _params, socket) do
+    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
     {:noreply,
      socket
      |> assign(:cluster_info, load_cluster_info())
-     |> assign(:live_pollers, load_live_pollers())
-     |> assign(:live_agents, load_live_agents())
+     |> assign(:live_pollers, load_live_pollers(tenant_id))
+     |> assign(:live_agents, load_live_agents(tenant_id))
      |> assign(:db_pollers, load_db_pollers(socket.assigns.current_scope))
      |> assign(:db_agents, load_db_agents(socket.assigns.current_scope))}
   end
@@ -130,11 +141,12 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     # Wait a moment for sync then refresh
     Process.sleep(500)
 
+    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
     {:noreply,
      socket
      |> assign(:cluster_info, load_cluster_info())
-     |> assign(:live_pollers, load_live_pollers())
-     |> assign(:live_agents, load_live_agents())
+     |> assign(:live_pollers, load_live_pollers(tenant_id))
+     |> assign(:live_agents, load_live_agents(tenant_id))
      |> put_flash(:info, "Horde sync triggered - data should refresh")}
   end
 
@@ -759,15 +771,20 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   # Data Loading
 
-  defp load_live_pollers do
-    count = ServiceRadar.PollerRegistry.count()
-    pollers = ServiceRadar.PollerRegistry.all_pollers()
-    Logger.debug("[Infrastructure] Horde pollers: count=#{count}, results=#{length(pollers)}, raw=#{inspect(pollers)}")
+  defp load_live_pollers(tenant_id) do
+    pollers = if tenant_id do
+      ServiceRadar.PollerRegistry.find_pollers_for_tenant(tenant_id)
+    else
+      ServiceRadar.PollerRegistry.all_pollers()
+    end
+
+    Logger.debug("[Infrastructure] Horde pollers for tenant #{tenant_id}: #{length(pollers)}")
 
     pollers
     |> Enum.map(fn poller ->
       %{
         poller_id: Map.get(poller, :poller_id) || Map.get(poller, :key),
+        tenant_id: Map.get(poller, :tenant_id),
         partition_id: Map.get(poller, :partition_id),
         node: Map.get(poller, :node),
         status: Map.get(poller, :status, :available),
@@ -782,15 +799,20 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       []
   end
 
-  defp load_live_agents do
-    count = ServiceRadar.AgentRegistry.count()
-    agents = ServiceRadar.AgentRegistry.all_agents()
-    Logger.debug("[Infrastructure] Horde agents: count=#{count}, results=#{length(agents)}, raw=#{inspect(agents)}")
+  defp load_live_agents(tenant_id) do
+    agents = if tenant_id do
+      ServiceRadar.AgentRegistry.find_agents_for_tenant(tenant_id)
+    else
+      ServiceRadar.AgentRegistry.all_agents()
+    end
+
+    Logger.debug("[Infrastructure] Horde agents for tenant #{tenant_id}: #{length(agents)}")
 
     agents
     |> Enum.map(fn agent ->
       %{
         agent_id: Map.get(agent, :agent_id) || Map.get(agent, :key),
+        tenant_id: Map.get(agent, :tenant_id),
         partition_id: Map.get(agent, :partition_id),
         node: Map.get(agent, :node),
         poller_node: Map.get(agent, :poller_node),
@@ -829,6 +851,15 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   defp build_actor(current_scope) do
     case current_scope do
+      %{user: user, active_tenant: active_tenant} when not is_nil(user) ->
+        # Use active tenant if available, otherwise fall back to user's default
+        tenant_id = if active_tenant, do: active_tenant.id, else: user.tenant_id
+        %{
+          id: user.id,
+          tenant_id: tenant_id,
+          role: user.role,
+          email: user.email
+        }
       %{user: user} when not is_nil(user) ->
         %{
           id: user.id,
@@ -836,6 +867,15 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           role: user.role,
           email: user.email
         }
+      _ -> nil
+    end
+  end
+
+  # Get the active tenant ID from scope for Horde registry filtering
+  defp get_active_tenant_id(current_scope) do
+    case current_scope do
+      %{active_tenant: %{id: id}} -> to_string(id)
+      %{user: %{tenant_id: id}} -> to_string(id)
       _ -> nil
     end
   end
