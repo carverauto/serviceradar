@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       parse_builder_state(builder_available, query, builder)
 
     srql_module = srql_module()
-    actor = Map.get(socket.assigns, :actor)
+    actor = get_actor(socket)
 
     {results, error, viz_meta, pagination} = srql_results(srql_module, query, cursor, limit, actor)
 
@@ -365,6 +365,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   defp normalize_param_to_string(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_param_to_string(value) when is_map(value), do: inspect(value)
   defp normalize_param_to_string(value), do: inspect(value)
+
+  defp get_actor(socket) do
+    case socket.assigns do
+      %{current_scope: %{user: user}} when not is_nil(user) -> user
+      _ -> nil
+    end
+  end
 
   defp normalize_query_param(value, default_query) do
     case normalize_param_to_string(value) do

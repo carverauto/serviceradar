@@ -33,7 +33,7 @@ defmodule ServiceRadar.Infrastructure do
   end
 
   authorization do
-    require_actor? true
+    require_actor? false
     authorize :by_default
   end
 

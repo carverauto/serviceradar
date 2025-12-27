@@ -38,24 +38,21 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   # Execute query through Ash adapter for supported entities
+  # No SQL fallback - all entities MUST go through Ash
   defp execute_ash_query(entity, query, limit, actor) do
     params = parse_srql_params(query, limit)
     start_time = System.monotonic_time()
 
-    result =
-      case AshAdapter.query(entity, params, actor) do
-        {:ok, response} ->
-          emit_telemetry(:ash, entity, start_time, :ok)
-          {:ok, response}
+    case AshAdapter.query(entity, params, actor) do
+      {:ok, response} ->
+        emit_telemetry(:ash, entity, start_time, :ok)
+        {:ok, response}
 
-        {:error, reason} ->
-          emit_telemetry(:ash, entity, start_time, :error)
-          # Fall back to SQL path on Ash errors
-          Logger.warning("SRQL AshAdapter failed, falling back to SQL: #{inspect(reason)}")
-          execute_sql_query(query, limit, nil, nil, nil)
-      end
-
-    result
+      {:error, reason} ->
+        emit_telemetry(:ash, entity, start_time, :error)
+        Logger.error("SRQL AshAdapter failed for #{entity}: #{inspect(reason)}")
+        {:error, reason}
+    end
   end
 
   # Execute query through traditional SQL path

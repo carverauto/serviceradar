@@ -125,7 +125,23 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
       "last_seen" => "last_seen_time",
       "first_seen" => "first_seen_time",
       "created" => "created_time",
+      "modified" => "modified_time",
+      "timestamp" => "last_seen_time",
+      "created_at" => "created_time"
+    },
+    # Agents: Map time fields
+    "agents" => %{
+      "timestamp" => "last_seen_time",
+      "last_seen" => "last_seen_time",
+      "first_seen" => "first_seen_time",
+      "created" => "created_time",
+      "created_at" => "created_time",
       "modified" => "modified_time"
+    },
+    # Pollers: Map time fields
+    "pollers" => %{
+      "timestamp" => "last_seen",
+      "created_at" => "first_registered"
     },
     # Events: SRQL uses CloudEvents schema, Ash uses different names
     "events" => %{
@@ -136,7 +152,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
       "severity" => "severity",
       "short_message" => "message",
       "level" => "severity",
-      "id" => "id"
+      "id" => "id",
+      "created_at" => "occurred_at"
     },
     # ServiceChecks (services): Map SRQL service_status to service_checks
     "services" => %{
@@ -144,25 +161,52 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
       "service_name" => "name",
       "service_type" => "check_type",
       "available" => "enabled",
-      "message" => "last_error"
+      "message" => "last_error",
+      "created_at" => "created_at"
     },
     "service_checks" => %{
       "timestamp" => "last_check_at",
       "service_name" => "name",
       "service_type" => "check_type",
       "available" => "enabled",
-      "message" => "last_error"
+      "message" => "last_error",
+      "created_at" => "created_at"
     },
     # Alerts - mostly direct mapping
     "alerts" => %{
-      "timestamp" => "triggered_at"
+      "timestamp" => "triggered_at",
+      "created_at" => "triggered_at"
     },
     # Logs - SRQL uses syslog-style fields
     "logs" => %{
       "level" => "severity",
-      "severity_id" => "severity"
+      "severity_id" => "severity",
+      "timestamp" => "timestamp",
+      "created_at" => "timestamp"
+    },
+    # OTel trace summaries - map common query fields
+    "otel_trace_summaries" => %{
+      "created_at" => "timestamp",
+      "timestamp" => "timestamp"
+    },
+    # OTel traces - map common query fields
+    "otel_traces" => %{
+      "created_at" => "timestamp",
+      "timestamp" => "timestamp"
+    },
+    # OTel metrics
+    "otel_metrics" => %{
+      "created_at" => "timestamp",
+      "timestamp" => "timestamp"
     }
   }
+
+  # Fields that should be ignored (don't exist in Ash resources)
+  @ignored_fields MapSet.new([
+    "stats",           # otel_trace_summaries doesn't have stats
+    "raw_data",        # internal field
+    "__metadata__"     # Ash internal
+  ])
 
   @doc """
   Check if an entity should be routed through Ash.
@@ -256,38 +300,43 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   defp apply_filter(query, _entity, _), do: query
 
   defp apply_filter_op(query, entity, field, op, value) when is_binary(field) do
-    # Map SRQL field name to Ash attribute name
-    mapped_field = map_field(entity, field)
-    field_atom = String.to_existing_atom(mapped_field)
+    # Skip ignored fields
+    if MapSet.member?(@ignored_fields, field) do
+      query
+    else
+      # Map SRQL field name to Ash attribute name
+      mapped_field = map_field(entity, field)
+      field_atom = String.to_existing_atom(mapped_field)
 
-    # Use filter_input for dynamic filter building (recommended in Ash 3.x)
-    case op do
-      "eq" ->
-        Ash.Query.filter_input(query, %{field_atom => %{eq: value}})
+      # Use filter_input for dynamic filter building (recommended in Ash 3.x)
+      case op do
+        "eq" ->
+          Ash.Query.filter_input(query, %{field_atom => %{eq: value}})
 
-      "neq" ->
-        Ash.Query.filter_input(query, %{field_atom => %{not_eq: value}})
+        "neq" ->
+          Ash.Query.filter_input(query, %{field_atom => %{not_eq: value}})
 
-      "gt" ->
-        Ash.Query.filter_input(query, %{field_atom => %{greater_than: value}})
+        "gt" ->
+          Ash.Query.filter_input(query, %{field_atom => %{greater_than: value}})
 
-      "gte" ->
-        Ash.Query.filter_input(query, %{field_atom => %{greater_than_or_equal: value}})
+        "gte" ->
+          Ash.Query.filter_input(query, %{field_atom => %{greater_than_or_equal: value}})
 
-      "lt" ->
-        Ash.Query.filter_input(query, %{field_atom => %{less_than: value}})
+        "lt" ->
+          Ash.Query.filter_input(query, %{field_atom => %{less_than: value}})
 
-      "lte" ->
-        Ash.Query.filter_input(query, %{field_atom => %{less_than_or_equal: value}})
+        "lte" ->
+          Ash.Query.filter_input(query, %{field_atom => %{less_than_or_equal: value}})
 
-      "contains" ->
-        Ash.Query.filter_input(query, %{field_atom => %{contains: value}})
+        "contains" ->
+          Ash.Query.filter_input(query, %{field_atom => %{contains: value}})
 
-      "in" when is_list(value) ->
-        Ash.Query.filter_input(query, %{field_atom => %{in: value}})
+        "in" when is_list(value) ->
+          Ash.Query.filter_input(query, %{field_atom => %{in: value}})
 
-      _ ->
-        query
+        _ ->
+          query
+      end
     end
   rescue
     # Field doesn't exist as atom, skip filter
@@ -309,18 +358,23 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   defp apply_sort(query, _entity, _), do: query
 
   defp apply_sort_field(query, entity, field, dir) when is_binary(field) do
-    # Map SRQL field name to Ash attribute name
-    mapped_field = map_field(entity, field)
-    field_atom = String.to_existing_atom(mapped_field)
+    # Skip ignored fields
+    if MapSet.member?(@ignored_fields, field) do
+      query
+    else
+      # Map SRQL field name to Ash attribute name
+      mapped_field = map_field(entity, field)
+      field_atom = String.to_existing_atom(mapped_field)
 
-    direction =
-      case dir do
-        d when d in ["asc", :asc] -> :asc
-        d when d in ["desc", :desc] -> :desc
-        _ -> :desc
-      end
+      direction =
+        case dir do
+          d when d in ["asc", :asc] -> :asc
+          d when d in ["desc", :desc] -> :desc
+          _ -> :desc
+        end
 
-    Ash.Query.sort(query, [{field_atom, direction}])
+      Ash.Query.sort(query, [{field_atom, direction}])
+    end
   rescue
     # Field doesn't exist as atom, skip sort
     ArgumentError -> query
