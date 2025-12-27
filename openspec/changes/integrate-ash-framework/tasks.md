@@ -35,6 +35,48 @@
 - [ ] 0.6.2 Schedule sync cadence via AshOban
 - [ ] 0.6.3 Implement OffBroadway.Jetstream.Producer pipelines for collector events
 
+### 0.7 Integration Source Management (Sync Configuration UI)
+- [x] 0.7.1 Create IntegrationSource Ash resource in Configuration domain
+- [x] 0.7.2 Add database migration for integration_sources table
+- [x] 0.7.3 Create DataService.Client GenServer for gRPC KV operations
+- [x] 0.7.4 Add GRPC.Client.Supervisor to application supervision tree
+- [x] 0.7.5 Implement mTLS support in DataService.Client (DATASVC_* env vars)
+- [x] 0.7.6 Add handle_info handlers for gun connection events (gun_down, gun_up, gun_error)
+- [x] 0.7.7 Create IntegrationLive.Index LiveView for managing integration sources
+- [x] 0.7.8 Add routes for /admin/integrations
+- [x] 0.7.9 Fix Phoenix.Ecto.CheckRepoStatus to use :serviceradar_core for Ash migrations
+- [x] 0.7.10 Create IntegrationLive.Form modals for creating/editing sources (inline in Index)
+- [x] 0.7.11 Implement IntegrationSource :sync action to push config to datasvc KV (after_action hooks)
+- [x] 0.7.12 Add UI for sync source credentials (encrypted via AshCloak) - credentials_json textarea
+- [x] 0.7.13 Add IntegrationSource policies (admin-only write, operator read)
+- [x] 0.7.14 Create Oban SyncToDataSvcWorker for reliable datasvc sync with retries
+- [x] 0.7.15 Add partition dropdown to IntegrationSource create/edit forms
+- [x] 0.7.16 Add Poller.list_by_partition action for partition-aware poller lookup
+- [x] 0.7.17 Update SyncToDataSvcWorker to include available_pollers in sync config
+
+### 0.8 Horde Cluster Visibility UI (Settings Page)
+- [x] 0.8.1 Create Settings.ClusterLive.Index LiveView under /settings/cluster
+- [x] 0.8.2 Display cluster node list with status (connected, disconnected)
+- [x] 0.8.3 Show Horde registry counts (pollers, agents per partition)
+- [ ] 0.8.4 Display partition summary with poller/agent counts (grouped by partition)
+- [x] 0.8.5 Add real-time updates via PubSub for node join/leave events
+- [x] 0.8.6 Show poller health status (healthy, degraded, offline)
+- [x] 0.8.7 Display agent registration status per poller
+- [x] 0.8.8 Add cluster connectivity health indicator (5 health cards with metrics)
+- [x] 0.8.9 Show Oban job queue status (query oban_jobs table for queue stats)
+- [ ] 0.8.10 Add manual poller drain/resume controls
+- [x] 0.8.11 Create cluster event timeline (recent join/leave/failover)
+- [x] 0.8.12 Add routes for /settings/cluster
+
+### 0.9 Agent Check Configuration UI
+- [x] 0.9.1 Update AgentLive.Index to show live Horde-registered agents section
+- [ ] 0.9.2 Add ServiceCheck table to AgentLive.Show page
+- [ ] 0.9.3 Create ServiceCheck create modal (check type, target, interval, port)
+- [ ] 0.9.4 Implement ServiceCheck enable/disable toggles
+- [ ] 0.9.5 Add ServiceCheck edit/delete actions
+- [ ] 0.9.6 Display check results and status in agent details
+- [ ] 0.9.7 Add check execution history timeline
+
 ## Phase 1: Foundation Setup
 
 ### 1.1 Dependencies and Configuration

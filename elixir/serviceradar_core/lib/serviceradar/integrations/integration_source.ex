@@ -240,10 +240,10 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # Read: admins in same tenant
+    # Read: admins, operators, and viewers in same tenant
     policy action_type(:read) do
       authorize_if expr(
-                     ^actor(:role) == :admin and
+                     ^actor(:role) in [:admin, :operator, :viewer] and
                        tenant_id == ^actor(:tenant_id)
                    )
     end
@@ -470,76 +470,33 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     identity :unique_name_per_tenant, [:tenant_id, :name]
   end
 
-  # Private helper functions for datasvc sync
+  # Private helper functions for datasvc sync via Oban
+
+  alias ServiceRadar.Integrations.Workers.SyncToDataSvcWorker
 
   defp sync_to_datasvc(record) do
-    # Build the sync config format expected by Go services
-    config = build_sync_config(record)
-    key = "sync/sources/#{record.id}"
+    # Enqueue Oban job for reliable sync with retries
+    case SyncToDataSvcWorker.enqueue(record.id, :put) do
+      {:ok, _job} ->
+        require Logger
+        Logger.debug("Enqueued datasvc sync for integration source #{record.name}")
 
-    # Push to datasvc asynchronously
-    Task.start(fn ->
-      case ServiceRadar.DataService.Client.put(key, Jason.encode!(config)) do
-        :ok ->
-          require Logger
-          Logger.info("Synced integration source #{record.name} to datasvc")
-
-        {:error, reason} ->
-          require Logger
-          Logger.error("Failed to sync #{record.name} to datasvc: #{inspect(reason)}")
-      end
-    end)
-  end
-
-  defp remove_from_datasvc(record) do
-    key = "sync/sources/#{record.id}"
-
-    Task.start(fn ->
-      case ServiceRadar.DataService.Client.delete(key) do
-        :ok ->
-          require Logger
-          Logger.info("Removed integration source #{record.name} from datasvc")
-
-        {:error, reason} ->
-          require Logger
-          Logger.warning("Failed to remove #{record.name} from datasvc: #{inspect(reason)}")
-      end
-    end)
-  end
-
-  defp build_sync_config(record) do
-    credentials =
-      case record.credentials_encrypted do
-        nil -> %{}
-        "" -> %{}
-        json -> Jason.decode!(json)
-      end
-
-    %{
-      "type" => Atom.to_string(record.source_type),
-      "endpoint" => record.endpoint,
-      "prefix" => "#{record.source_type}/",
-      "poll_interval" => format_duration(record.poll_interval_seconds),
-      "sweep_interval" => format_duration(record.sweep_interval_seconds),
-      "discovery_interval" => format_duration(record.discovery_interval_seconds),
-      "agent_id" => record.agent_id,
-      "poller_id" => record.poller_id,
-      "partition" => record.partition,
-      "credentials" => credentials,
-      "page_size" => record.page_size,
-      "network_blacklist" => record.network_blacklist,
-      "queries" => record.queries,
-      "custom_fields" => record.custom_fields
-    }
-  end
-
-  defp format_duration(seconds) when is_integer(seconds) do
-    cond do
-      rem(seconds, 3600) == 0 -> "#{div(seconds, 3600)}h"
-      rem(seconds, 60) == 0 -> "#{div(seconds, 60)}m"
-      true -> "#{seconds}s"
+      {:error, reason} ->
+        require Logger
+        Logger.error("Failed to enqueue datasvc sync for #{record.name}: #{inspect(reason)}")
     end
   end
 
-  defp format_duration(_), do: "5m"
+  defp remove_from_datasvc(record) do
+    # Enqueue Oban job for reliable deletion with retries
+    case SyncToDataSvcWorker.enqueue(record.id, :delete) do
+      {:ok, _job} ->
+        require Logger
+        Logger.debug("Enqueued datasvc delete for integration source #{record.name}")
+
+      {:error, reason} ->
+        require Logger
+        Logger.error("Failed to enqueue datasvc delete for #{record.name}: #{inspect(reason)}")
+    end
+  end
 end

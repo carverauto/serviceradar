@@ -192,6 +192,12 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/analytics", AnalyticsLive.Index, :index
       live "/devices", DeviceLive.Index, :index
       live "/devices/:uid", DeviceLive.Show, :show
+
+      # Consolidated infrastructure view (pollers + agents)
+      live "/infrastructure", InfrastructureLive.Index, :index
+      live "/infrastructure/agents/:uid", AgentLive.Show, :show
+
+      # Legacy routes (redirect to consolidated view)
       live "/pollers", PollerLive.Index, :index
       live "/pollers/:poller_id", PollerLive.Show, :show
       live "/agents", AgentLive.Index, :index
@@ -206,6 +212,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/interfaces", InterfaceLive.Index, :index
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
+
+      # Cluster visibility for all authenticated users
+      live "/settings/cluster", Settings.ClusterLive.Index, :index
     end
 
     post "/users/update-password", UserSessionController, :update_password

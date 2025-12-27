@@ -132,6 +132,13 @@ Define Ash domains and resources for ServiceRadar's core entities:
 7. **Agent cutover**: Route sweep/check work through `serviceradar-sweep` via the new Elixir agent layer
 8. **DB access boundaries**: Only core-elx and web-ng connect to CNPG; pollers/agents remain DB-free
 
+## Progress Update (2025-12-27)
+- **Integration Source Management**: Added IntegrationSource Ash resource for managing sync integrations (Armis, NetBox, etc.) via web UI.
+- **DataService.Client**: Created gRPC client GenServer for pushing configuration to datasvc KV store with full mTLS support.
+- **GRPC supervision**: Added GRPC.Client.Supervisor to application tree; implemented gun connection event handlers for reconnection.
+- **Migration check fix**: Updated endpoint.ex CheckRepoStatus to use `:serviceradar_core` for Ash migrations (was incorrectly using `:serviceradar_web_ng`).
+- **Next steps**: Create IntegrationLive.Form for CRUD, implement sync action to push config to datasvc, add credential encryption.
+
 ## Progress Update (2025-12-26)
 - Docker compose stack runs elixir `web-ng`, `poller-elx`, and `agent-elx` services with mTLS; legacy Go services are slated for removal.
 - Bazel remote builds for Elixir releases are working with an offline Hex registry cache (`build/hex_cache.tar.gz`) and updated mix_release handling.

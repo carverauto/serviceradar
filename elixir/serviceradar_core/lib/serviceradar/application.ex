@@ -39,6 +39,9 @@ defmodule ServiceRadar.Application do
         # Oban job processor (can be disabled for standalone tests)
         oban_child(),
 
+        # AshOban schedulers for Ash resource triggers
+        ash_oban_scheduler_children(),
+
         # GRPC client supervisor (required for DataService.Client)
         grpc_client_supervisor_child(),
 
@@ -79,6 +82,22 @@ defmodule ServiceRadar.Application do
       false -> nil
       nil -> nil
       oban_config when is_list(oban_config) -> {Oban, oban_config}
+    end
+  end
+
+  defp ash_oban_scheduler_children do
+    # Only start AshOban schedulers if Oban is enabled
+    if Application.get_env(:serviceradar_core, Oban) do
+      # Start all AshOban schedulers for the configured domains
+      domains = Application.get_env(:serviceradar_core, :ash_domains, [])
+
+      if Enum.any?(domains) do
+        [{AshOban.Scheduler, domains: domains}]
+      else
+        []
+      end
+    else
+      []
     end
   end
 

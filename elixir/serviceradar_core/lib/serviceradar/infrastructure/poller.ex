@@ -46,6 +46,8 @@ defmodule ServiceRadar.Infrastructure.Poller do
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_active, action: :active
+    define :list_by_partition, action: :by_partition, args: [:partition_slug]
+    define :list_by_partition_id, action: :by_partition_id, args: [:partition_id]
   end
 
   actions do
@@ -70,6 +72,30 @@ defmodule ServiceRadar.Infrastructure.Poller do
     read :recently_seen do
       description "Pollers seen in the last 5 minutes"
       filter expr(last_seen > ago(5, :minute))
+    end
+
+    read :by_partition do
+      description "Find active pollers in a specific partition"
+      argument :partition_slug, :string, allow_nil?: false
+
+      filter expr(
+               status == "active" and
+                 is_healthy == true and
+                 partition.slug == ^arg(:partition_slug)
+             )
+
+      prepare build(load: [:partition])
+    end
+
+    read :by_partition_id do
+      description "Find active pollers by partition UUID"
+      argument :partition_id, :uuid, allow_nil?: false
+
+      filter expr(
+               status == "active" and
+                 is_healthy == true and
+                 partition_id == ^arg(:partition_id)
+             )
     end
 
     create :register do

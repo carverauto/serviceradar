@@ -77,7 +77,8 @@ config :serviceradar_core, Oban,
     onboarding: 3,
     events: 10,
     sweeps: 20,
-    edge: 10
+    edge: 10,
+    integrations: 5
   ],
   plugins: [
     # Built-in Cron plugin for system maintenance jobs (non-Ash resources)

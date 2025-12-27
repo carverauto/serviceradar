@@ -11,15 +11,19 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   alias ServiceRadar.Integrations
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Infrastructure.Partition
 
   @impl true
   def mount(_params, _session, socket) do
     tenant_id = get_tenant_id(socket)
+    partitions = list_partitions(tenant_id)
 
     socket =
       socket
       |> assign(:page_title, "Integration Sources")
       |> assign(:sources, list_sources(tenant_id))
+      |> assign(:partitions, partitions)
+      |> assign(:partition_options, build_partition_options(partitions))
       |> assign(:show_create_modal, false)
       |> assign(:show_edit_modal, false)
       |> assign(:show_details_modal, false)
@@ -108,12 +112,20 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   def handle_event("validate_create", %{"form" => params}, socket) do
-    form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
+    form =
+      socket.assigns.create_form.source
+      |> AshPhoenix.Form.validate(params)
+      |> to_form()
+
     {:noreply, assign(socket, :create_form, form)}
   end
 
   def handle_event("validate_edit", %{"form" => params}, socket) do
-    form = AshPhoenix.Form.validate(socket.assigns.edit_form, params)
+    form =
+      socket.assigns.edit_form.source
+      |> AshPhoenix.Form.validate(params)
+      |> to_form()
+
     {:noreply, assign(socket, :edit_form, form)}
   end
 
@@ -127,9 +139,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     # Handle credentials JSON if provided
     params = parse_credentials_json(params)
 
-    form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
+    form =
+      socket.assigns.create_form.source
+      |> AshPhoenix.Form.validate(params)
 
-    case AshPhoenix.Form.submit(form, actor: actor) do
+    case AshPhoenix.Form.submit(form, params: params, actor: actor) do
       {:ok, _source} ->
         {:noreply,
          socket
@@ -141,7 +155,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       {:error, form} ->
         {:noreply,
          socket
-         |> assign(:create_form, form)
+         |> assign(:create_form, to_form(form))
          |> put_flash(:error, "Failed to create integration source")}
     end
   end
@@ -153,9 +167,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     # Handle credentials JSON if provided
     params = parse_credentials_json(params)
 
-    form = AshPhoenix.Form.validate(socket.assigns.edit_form, params)
+    form =
+      socket.assigns.edit_form.source
+      |> AshPhoenix.Form.validate(params)
 
-    case AshPhoenix.Form.submit(form, actor: actor) do
+    case AshPhoenix.Form.submit(form, params: params, actor: actor) do
       {:ok, _source} ->
         {:noreply,
          socket
@@ -168,7 +184,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       {:error, form} ->
         {:noreply,
          socket
-         |> assign(:edit_form, form)
+         |> assign(:edit_form, to_form(form))
          |> put_flash(:error, "Failed to update integration source")}
     end
   end
@@ -304,6 +320,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th>Name</th>
                     <th>Type</th>
+                    <th>Partition</th>
                     <th>Endpoint</th>
                     <th>Status</th>
                     <th>Last Sync</th>
@@ -321,6 +338,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
                       </td>
                       <td>
                         <.source_type_badge type={source.source_type} />
+                      </td>
+                      <td class="text-xs text-base-content/70">
+                        {source.partition || "-"}
                       </td>
                       <td class="text-xs text-base-content/70 max-w-[200px] truncate">
                         {source.endpoint}
@@ -366,8 +386,8 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
         </.ui_panel>
       </div>
 
-      <.create_modal :if={@show_create_modal} form={@create_form} />
-      <.edit_modal :if={@show_edit_modal} form={@edit_form} source={@selected_source} />
+      <.create_modal :if={@show_create_modal} form={@create_form} partition_options={@partition_options} />
+      <.edit_modal :if={@show_edit_modal} form={@edit_form} source={@selected_source} partition_options={@partition_options} />
       <.details_modal :if={@show_details_modal} source={@selected_source} />
     </Layouts.app>
     """
@@ -419,6 +439,14 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             label="Endpoint URL"
             placeholder="https://api.armis.com"
             required
+          />
+
+          <.input
+            field={@form[:partition]}
+            type="select"
+            label="Partition"
+            options={@partition_options}
+            prompt="Select a partition..."
           />
 
           <.input field={@form[:agent_id]} type="text" label="Agent ID (Optional)" placeholder="Agent to assign this source to" />
@@ -494,6 +522,14 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             type="text"
             label="Endpoint URL"
             required
+          />
+
+          <.input
+            field={@form[:partition]}
+            type="select"
+            label="Partition"
+            options={@partition_options}
+            prompt="Select a partition..."
           />
 
           <.input field={@form[:agent_id]} type="text" label="Agent ID (Optional)" />
@@ -574,6 +610,13 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Source ID</div>
             <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@source.id}</code>
           </div>
+
+          <%= if @source.partition do %>
+            <div>
+              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Partition</div>
+              <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@source.partition}</code>
+            </div>
+          <% end %>
 
           <%= if @source.agent_id do %>
             <div>
@@ -698,6 +741,26 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   # Data access helpers
 
+  defp list_partitions(tenant_id) do
+    Partition
+    |> Ash.Query.for_read(:enabled)
+    |> Ash.read!(tenant: tenant_id, authorize?: false)
+  rescue
+    _ -> []
+  end
+
+  defp build_partition_options(partitions) do
+    # Always include a "default" option for agents that haven't been assigned
+    default_option = [{"Default", "default"}]
+
+    partition_options =
+      partitions
+      |> Enum.map(fn p -> {p.name || p.slug, p.slug} end)
+      |> Enum.sort_by(&elem(&1, 0))
+
+    default_option ++ partition_options
+  end
+
   defp list_sources(tenant_id, filters \\ %{}) do
     opts = [tenant: tenant_id]
 
@@ -732,7 +795,8 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp build_create_form(tenant_id) do
-    AshPhoenix.Form.for_create(IntegrationSource, :create,
+    IntegrationSource
+    |> AshPhoenix.Form.for_create(:create,
       domain: Integrations,
       tenant: tenant_id,
       transform_params: fn _form, params, _action ->
@@ -752,12 +816,13 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
         params
       end
     )
+    |> to_form()
   end
 
   defp build_edit_form(source) do
-    AshPhoenix.Form.for_update(source, :update,
-      domain: Integrations
-    )
+    source
+    |> AshPhoenix.Form.for_update(:update, domain: Integrations)
+    |> to_form()
   end
 
   defp parse_credentials_json(params) do
