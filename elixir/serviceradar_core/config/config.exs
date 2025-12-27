@@ -14,6 +14,7 @@ config :serviceradar_core,
     ServiceRadar.Inventory,
     ServiceRadar.Infrastructure,
     ServiceRadar.Monitoring,
+    ServiceRadar.Observability,
     ServiceRadar.Edge
   ]
 

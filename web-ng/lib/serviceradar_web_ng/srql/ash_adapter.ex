@@ -11,17 +11,28 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
   ## Supported Entities
 
-  The following entities are routed through Ash:
+  All SRQL entities are now routed through Ash:
+
+  ### Inventory Domain
   - `devices` -> ServiceRadar.Inventory.Device
+
+  ### Infrastructure Domain
   - `pollers` -> ServiceRadar.Infrastructure.Poller
   - `agents` -> ServiceRadar.Infrastructure.Agent
 
-  ## SQL Path Entities
+  ### Monitoring Domain
+  - `events` -> ServiceRadar.Monitoring.Event
+  - `alerts` -> ServiceRadar.Monitoring.Alert
+  - `services` / `service_checks` -> ServiceRadar.Monitoring.ServiceCheck
 
-  The following entities remain on the SQL path for performance:
-  - All metrics (timeseries_metrics, snmp_metrics, cpu_metrics, etc.)
-  - Flows, traces
-  - Events, logs (until Event resource is fully integrated)
+  ### Observability Domain
+  - `logs` -> ServiceRadar.Observability.Log
+  - `timeseries_metrics` -> ServiceRadar.Observability.TimeseriesMetric
+  - `snmp_metrics` -> ServiceRadar.Observability.TimeseriesMetric
+  - `cpu_metrics` -> ServiceRadar.Observability.CpuMetric
+  - `memory_metrics` -> ServiceRadar.Observability.MemoryMetric
+  - `disk_metrics` -> ServiceRadar.Observability.DiskMetric
+  - `otel_trace_summaries` -> ServiceRadar.Observability.OtelTraceSummary
 
   ## Usage
 
@@ -39,20 +50,114 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   require Logger
 
   # Entities that should be routed through Ash
-  @ash_entities ~w(devices pollers agents)
+  @ash_entities ~w(
+    devices pollers agents events alerts services service_checks
+    logs timeseries_metrics cpu_metrics memory_metrics disk_metrics
+    snmp_metrics rperf_metrics process_metrics otel_metrics otel_trace_summaries
+  )
 
   # Entity to Ash resource mapping
   @entity_resource_map %{
+    # Inventory domain
     "devices" => ServiceRadar.Inventory.Device,
+    # Infrastructure domain
     "pollers" => ServiceRadar.Infrastructure.Poller,
-    "agents" => ServiceRadar.Infrastructure.Agent
+    "agents" => ServiceRadar.Infrastructure.Agent,
+    # Monitoring domain
+    "events" => ServiceRadar.Monitoring.Event,
+    "alerts" => ServiceRadar.Monitoring.Alert,
+    "services" => ServiceRadar.Monitoring.ServiceCheck,
+    "service_checks" => ServiceRadar.Monitoring.ServiceCheck,
+    # Observability domain
+    "logs" => ServiceRadar.Observability.Log,
+    "timeseries_metrics" => ServiceRadar.Observability.TimeseriesMetric,
+    "snmp_metrics" => ServiceRadar.Observability.TimeseriesMetric,
+    "rperf_metrics" => ServiceRadar.Observability.TimeseriesMetric,
+    "otel_metrics" => ServiceRadar.Observability.OtelMetric,
+    "process_metrics" => ServiceRadar.Observability.TimeseriesMetric,
+    "cpu_metrics" => ServiceRadar.Observability.CpuMetric,
+    "memory_metrics" => ServiceRadar.Observability.MemoryMetric,
+    "disk_metrics" => ServiceRadar.Observability.DiskMetric,
+    "otel_trace_summaries" => ServiceRadar.Observability.OtelTraceSummary
   }
 
   # Entity to domain mapping
   @entity_domain_map %{
+    # Inventory domain
     "devices" => ServiceRadar.Inventory,
+    # Infrastructure domain
     "pollers" => ServiceRadar.Infrastructure,
-    "agents" => ServiceRadar.Infrastructure
+    "agents" => ServiceRadar.Infrastructure,
+    # Monitoring domain
+    "events" => ServiceRadar.Monitoring,
+    "alerts" => ServiceRadar.Monitoring,
+    "services" => ServiceRadar.Monitoring,
+    "service_checks" => ServiceRadar.Monitoring,
+    # Observability domain
+    "logs" => ServiceRadar.Observability,
+    "timeseries_metrics" => ServiceRadar.Observability,
+    "snmp_metrics" => ServiceRadar.Observability,
+    "rperf_metrics" => ServiceRadar.Observability,
+    "otel_metrics" => ServiceRadar.Observability,
+    "process_metrics" => ServiceRadar.Observability,
+    "cpu_metrics" => ServiceRadar.Observability,
+    "memory_metrics" => ServiceRadar.Observability,
+    "disk_metrics" => ServiceRadar.Observability,
+    "otel_trace_summaries" => ServiceRadar.Observability
+  }
+
+  # Field name mapping from SRQL to Ash attribute names
+  # SRQL uses Go/SQL conventions, Ash uses Elixir conventions
+  @field_mappings %{
+    # Devices: Map OCSF field names
+    "devices" => %{
+      "last_seen" => "last_seen_time",
+      "first_seen" => "first_seen_time",
+      "created" => "created_time",
+      "modified" => "modified_time"
+    },
+    # Events: SRQL uses CloudEvents schema, Ash uses different names
+    "events" => %{
+      "event_timestamp" => "occurred_at",
+      "timestamp" => "occurred_at",
+      "type" => "event_type",
+      "source" => "source_id",
+      "severity" => "severity",
+      "short_message" => "message",
+      "level" => "severity",
+      "id" => "id"
+    },
+    # ServiceChecks (services): Map SRQL service_status to service_checks
+    "services" => %{
+      "timestamp" => "last_check_at",
+      "service_name" => "name",
+      "service_type" => "check_type",
+      "available" => "enabled",
+      "message" => "last_error"
+    },
+    "service_checks" => %{
+      "timestamp" => "last_check_at",
+      "service_name" => "name",
+      "service_type" => "check_type",
+      "available" => "enabled",
+      "message" => "last_error"
+    },
+    # Alerts - mostly direct mapping
+    "alerts" => %{
+      "timestamp" => "triggered_at"
+    },
+    # Logs - SRQL uses syslog-style fields
+    "logs" => %{
+      "level" => "severity",
+      "severity_id" => "severity"
+    },
+    # OTel trace summaries - map bucket naming
+    "otel_trace_summaries" => %{
+      "timestamp" => "time_bucket",
+      "bucket_time" => "time_bucket",
+      "total" => "total_traces",
+      "errors" => "error_traces"
+    }
   }
 
   @doc """
@@ -82,9 +187,9 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   def query(entity, params, actor \\ nil) do
     with {:ok, resource} <- get_resource(entity),
          {:ok, domain} <- get_domain(entity),
-         {:ok, query} <- build_query(resource, params),
+         {:ok, query} <- build_query(resource, entity, params),
          {:ok, results} <- execute_query(domain, query, actor) do
-      {:ok, format_response(results, params)}
+      {:ok, format_response(results, entity, params)}
     else
       {:error, reason} ->
         Logger.warning("SRQL AshAdapter query failed: #{inspect(reason)}")
@@ -113,13 +218,13 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   end
 
   # Build an Ash query from SRQL parameters
-  defp build_query(resource, params) do
+  defp build_query(resource, entity, params) do
     query = Ash.Query.new(resource)
 
     query =
       query
-      |> apply_filters(Map.get(params, :filters, []))
-      |> apply_sort(Map.get(params, :sort))
+      |> apply_filters(entity, Map.get(params, :filters, []))
+      |> apply_sort(entity, Map.get(params, :sort))
       |> apply_limit(Map.get(params, :limit))
 
     {:ok, query}
@@ -128,26 +233,28 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
       {:error, {:query_build_error, Exception.message(e)}}
   end
 
-  defp apply_filters(query, filters) when is_list(filters) do
+  defp apply_filters(query, entity, filters) when is_list(filters) do
     Enum.reduce(filters, query, fn filter, q ->
-      apply_filter(q, filter)
+      apply_filter(q, entity, filter)
     end)
   end
 
-  defp apply_filters(query, _), do: query
+  defp apply_filters(query, _entity, _), do: query
 
-  defp apply_filter(query, %{field: field, op: op, value: value}) do
-    apply_filter_op(query, field, op, value)
+  defp apply_filter(query, entity, %{field: field, op: op, value: value}) do
+    apply_filter_op(query, entity, field, op, value)
   end
 
-  defp apply_filter(query, %{"field" => field, "op" => op, "value" => value}) do
-    apply_filter_op(query, field, op, value)
+  defp apply_filter(query, entity, %{"field" => field, "op" => op, "value" => value}) do
+    apply_filter_op(query, entity, field, op, value)
   end
 
-  defp apply_filter(query, _), do: query
+  defp apply_filter(query, _entity, _), do: query
 
-  defp apply_filter_op(query, field, op, value) when is_binary(field) do
-    field_atom = String.to_existing_atom(field)
+  defp apply_filter_op(query, entity, field, op, value) when is_binary(field) do
+    # Map SRQL field name to Ash attribute name
+    mapped_field = map_field(entity, field)
+    field_atom = String.to_existing_atom(mapped_field)
 
     # Use filter_input for dynamic filter building (recommended in Ash 3.x)
     case op do
@@ -179,25 +286,28 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
         query
     end
   rescue
-    ArgumentError -> query  # Field doesn't exist as atom, skip filter
+    # Field doesn't exist as atom, skip filter
+    ArgumentError -> query
   end
 
-  defp apply_filter_op(query, _, _, _), do: query
+  defp apply_filter_op(query, _, _, _, _), do: query
 
-  defp apply_sort(query, nil), do: query
+  defp apply_sort(query, _entity, nil), do: query
 
-  defp apply_sort(query, %{field: field, dir: dir}) do
-    apply_sort_field(query, field, dir)
+  defp apply_sort(query, entity, %{field: field, dir: dir}) do
+    apply_sort_field(query, entity, field, dir)
   end
 
-  defp apply_sort(query, %{"field" => field, "dir" => dir}) do
-    apply_sort_field(query, field, dir)
+  defp apply_sort(query, entity, %{"field" => field, "dir" => dir}) do
+    apply_sort_field(query, entity, field, dir)
   end
 
-  defp apply_sort(query, _), do: query
+  defp apply_sort(query, _entity, _), do: query
 
-  defp apply_sort_field(query, field, dir) when is_binary(field) do
-    field_atom = String.to_existing_atom(field)
+  defp apply_sort_field(query, entity, field, dir) when is_binary(field) do
+    # Map SRQL field name to Ash attribute name
+    mapped_field = map_field(entity, field)
+    field_atom = String.to_existing_atom(mapped_field)
 
     direction =
       case dir do
@@ -208,13 +318,38 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
     Ash.Query.sort(query, [{field_atom, direction}])
   rescue
-    ArgumentError -> query  # Field doesn't exist as atom, skip sort
+    # Field doesn't exist as atom, skip sort
+    ArgumentError -> query
   end
 
-  defp apply_sort_field(query, _, _), do: query
+  defp apply_sort_field(query, _, _, _), do: query
+
+  # Map SRQL field names to Ash attribute names
+  defp map_field(entity, field) do
+    case get_in(@field_mappings, [entity, field]) do
+      # No mapping, use original
+      nil -> field
+      mapped -> mapped
+    end
+  end
+
+  # Reverse map Ash attribute names to SRQL field names for response
+  defp reverse_map_field(entity, field) do
+    mappings = Map.get(@field_mappings, entity, %{})
+
+    # Find reverse mapping
+    case Enum.find(mappings, fn {_srql, ash} -> ash == field end) do
+      {srql, _ash} -> srql
+      # No mapping, use original
+      nil -> field
+    end
+  end
 
   defp apply_limit(query, nil), do: Ash.Query.limit(query, 100)
-  defp apply_limit(query, limit) when is_integer(limit) and limit > 0, do: Ash.Query.limit(query, limit)
+
+  defp apply_limit(query, limit) when is_integer(limit) and limit > 0,
+    do: Ash.Query.limit(query, limit)
+
   defp apply_limit(query, _), do: Ash.Query.limit(query, 100)
 
   # Execute the query against the Ash domain
@@ -231,13 +366,14 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   end
 
   # Format the response to match SRQL response format
-  defp format_response(results, params) when is_list(results) do
+  defp format_response(results, entity, params) when is_list(results) do
     limit = Map.get(params, :limit, 100)
 
     %{
-      "results" => Enum.map(results, &format_result/1),
+      "results" => Enum.map(results, &format_result(&1, entity)),
       "pagination" => %{
-        "next_cursor" => nil,  # TODO: Implement keyset pagination
+        # TODO: Implement keyset pagination
+        "next_cursor" => nil,
         "prev_cursor" => nil,
         "limit" => limit
       },
@@ -246,21 +382,49 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     }
   end
 
-  defp format_result(record) when is_struct(record) do
+  defp format_result(record, entity) when is_struct(record) do
     record
     |> Map.from_struct()
     |> Map.drop([:__meta__, :__metadata__])
-    |> Enum.map(fn {k, v} -> {Atom.to_string(k), format_value(v)} end)
+    |> Enum.map(fn {k, v} ->
+      field_name = Atom.to_string(k)
+      # Optionally reverse map to SRQL field names for UI compatibility
+      srql_name = reverse_map_field(entity, field_name)
+      {srql_name, format_value(v)}
+    end)
     |> Map.new()
+    |> add_compatibility_fields(entity)
   end
 
-  defp format_result(record), do: record
+  defp format_result(record, _entity), do: record
+
+  # Add compatibility fields that SRQL/UI expects but Ash doesn't have
+  defp add_compatibility_fields(row, "events") do
+    row
+    |> Map.put_new("event_timestamp", Map.get(row, "occurred_at"))
+    |> Map.put_new("timestamp", Map.get(row, "occurred_at"))
+  end
+
+  defp add_compatibility_fields(row, "services") do
+    row
+    |> Map.put_new("timestamp", Map.get(row, "last_check_at"))
+    |> Map.put_new("service_name", Map.get(row, "name"))
+    |> Map.put_new("service_type", Map.get(row, "check_type"))
+    |> Map.put_new("available", Map.get(row, "enabled"))
+  end
+
+  defp add_compatibility_fields(row, "service_checks") do
+    add_compatibility_fields(row, "services")
+  end
+
+  defp add_compatibility_fields(row, _entity), do: row
 
   defp format_value(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
   defp format_value(%NaiveDateTime{} = dt), do: NaiveDateTime.to_iso8601(dt)
   defp format_value(%Date{} = d), do: Date.to_iso8601(d)
   defp format_value(%Decimal{} = d), do: Decimal.to_string(d)
   defp format_value(%Ecto.Association.NotLoaded{}), do: nil
-  defp format_value(value) when is_struct(value), do: nil  # Skip unloaded associations
+  # Skip unloaded associations
+  defp format_value(value) when is_struct(value), do: nil
   defp format_value(value), do: value
 end

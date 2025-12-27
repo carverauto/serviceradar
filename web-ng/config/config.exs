@@ -38,6 +38,7 @@ config :serviceradar_web_ng,
     ServiceRadar.Inventory,
     ServiceRadar.Infrastructure,
     ServiceRadar.Monitoring,
+    ServiceRadar.Observability,
     ServiceRadar.Edge
   ]
 

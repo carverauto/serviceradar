@@ -92,30 +92,139 @@ defmodule ServiceRadarWebNG.SRQL do
     Keyword.get(flags, :ash_srql_adapter, false)
   end
 
-  # Extract entity name from SRQL query (first word before pipe or space)
+  # Extract entity name from SRQL query
+  # Handles formats like "in:events ..." or "events | ..."
   defp extract_entity(query) when is_binary(query) do
-    query
-    |> String.trim()
-    |> String.split(~r/[\s|]/, parts: 2)
-    |> List.first()
-    |> String.downcase()
+    query = String.trim(query)
+
+    # Check for "in:entity" format first (most common)
+    case Regex.run(~r/^in:(\S+)/, query) do
+      [_, entity] ->
+        String.downcase(entity)
+
+      nil ->
+        # Fall back to legacy format (first word before pipe or space)
+        query
+        |> String.split(~r/[\s|]/, parts: 2)
+        |> List.first()
+        |> String.downcase()
+    end
   end
 
   defp extract_entity(_), do: nil
 
   # Parse SRQL query into params for Ash adapter
+  # SRQL format: in:entity time:last_24h sort:field:desc field:value limit:100
   defp parse_srql_params(query, limit) do
-    filters = parse_filters(query)
-    sort = parse_sort(query)
+    entity = extract_entity(query)
+    filters = parse_srql_filters(query)
+    time_filter = parse_srql_time(query, entity)
+    sort = parse_srql_sort(query)
+
+    all_filters = if time_filter, do: [time_filter | filters], else: filters
 
     %{
-      filters: filters,
+      filters: all_filters,
       sort: sort,
       limit: limit || 100
     }
   end
 
-  # Parse filter expressions from SRQL query
+  # Get the timestamp field for an entity
+  defp timestamp_field_for("events"), do: "occurred_at"
+  defp timestamp_field_for("alerts"), do: "triggered_at"
+  defp timestamp_field_for("services"), do: "last_check_at"
+  defp timestamp_field_for("service_checks"), do: "last_check_at"
+  defp timestamp_field_for("devices"), do: "last_seen"
+  defp timestamp_field_for("pollers"), do: "last_seen"
+  defp timestamp_field_for("agents"), do: "last_seen"
+  defp timestamp_field_for(_), do: "created_at"
+
+  # Parse SRQL time range: time:last_24h, time:last_7d, etc.
+  defp parse_srql_time(query, entity) do
+    time_field = timestamp_field_for(entity)
+
+    case Regex.run(~r/\btime:(\S+)/i, query) do
+      [_, "last_1h"] ->
+        %{field: time_field, op: "gte", value: ago(1, :hour)}
+
+      [_, "last_24h"] ->
+        %{field: time_field, op: "gte", value: ago(24, :hour)}
+
+      [_, "last_7d"] ->
+        %{field: time_field, op: "gte", value: ago(7, :day)}
+
+      [_, "last_30d"] ->
+        %{field: time_field, op: "gte", value: ago(30, :day)}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp ago(amount, :hour), do: DateTime.add(DateTime.utc_now(), -amount * 3600, :second)
+  defp ago(amount, :day), do: DateTime.add(DateTime.utc_now(), -amount * 86400, :second)
+
+  # Parse SRQL field filters: field:value or field:(val1,val2) or field:"quoted"
+  defp parse_srql_filters(query) do
+    # Match field:value patterns (excluding reserved keywords)
+    reserved = ~w(in time sort limit cursor direction)
+
+    ~r/\b(\w+):((?:"[^"]*"|'[^']*'|\([^)]*\)|\S+))/
+    |> Regex.scan(query)
+    |> Enum.map(fn [_, field, value] ->
+      if field in reserved do
+        nil
+      else
+        parse_srql_field_value(field, value)
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp parse_srql_field_value(field, value) do
+    cond do
+      # Quoted value: field:"value" or field:'value'
+      String.starts_with?(value, "\"") and String.ends_with?(value, "\"") ->
+        %{field: field, op: "eq", value: String.slice(value, 1..-2//1)}
+
+      String.starts_with?(value, "'") and String.ends_with?(value, "'") ->
+        %{field: field, op: "eq", value: String.slice(value, 1..-2//1)}
+
+      # Multiple values: field:(val1,val2)
+      String.starts_with?(value, "(") and String.ends_with?(value, ")") ->
+        values =
+          value
+          |> String.slice(1..-2//1)
+          |> String.split(",")
+          |> Enum.map(&String.trim/1)
+
+        %{field: field, op: "in", value: values}
+
+      # Simple value
+      true ->
+        %{field: field, op: "eq", value: value}
+    end
+  end
+
+  # Parse SRQL sort: sort:field:dir or sort:field
+  defp parse_srql_sort(query) do
+    case Regex.run(~r/\bsort:(\w+)(?::(\w+))?/i, query) do
+      [_, field, dir] when dir in ["asc", "desc"] ->
+        %{field: field, dir: dir}
+
+      [_, field, _] ->
+        %{field: field, dir: "desc"}
+
+      [_, field] ->
+        %{field: field, dir: "desc"}
+
+      _ ->
+        nil
+    end
+  end
+
+  # Legacy filter parsing (for backwards compatibility)
   # Handles patterns like: filter field == "value" | filter field > 10
   defp parse_filters(query) do
     # Extract filter clauses from query
@@ -159,7 +268,7 @@ defmodule ServiceRadarWebNG.SRQL do
     |> Enum.reject(&is_nil/1)
   end
 
-  # Parse sort expression from SRQL query
+  # Legacy sort parsing (for backwards compatibility)
   # Handles patterns like: sort field asc | sort field desc
   defp parse_sort(query) do
     case Regex.run(~r/sort\s+(\w+)\s*(asc|desc)?/i, query) do

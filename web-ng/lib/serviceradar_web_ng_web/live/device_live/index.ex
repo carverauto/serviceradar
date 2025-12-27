@@ -39,8 +39,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         max_limit: @max_limit
       )
 
-    {icmp_sparklines, icmp_error} = load_icmp_sparklines(srql_module(), socket.assigns.devices)
-    {snmp_presence, sysmon_presence} = load_metric_presence(srql_module(), socket.assigns.devices)
+    actor = Map.get(socket.assigns, :actor)
+    {icmp_sparklines, icmp_error} = load_icmp_sparklines(srql_module(), socket.assigns.devices, actor)
+    {snmp_presence, sysmon_presence} = load_metric_presence(srql_module(), socket.assigns.devices, actor)
 
     {:noreply,
      assign(socket,
@@ -541,7 +542,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     round(idx / (len - 1) * 400)
   end
 
-  defp load_icmp_sparklines(srql_module, devices) do
+  defp load_icmp_sparklines(srql_module, devices, actor) do
     device_uids =
       devices
       |> Enum.filter(&is_map/1)
@@ -568,7 +569,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         ]
         |> Enum.join(" ")
 
-      case srql_module.query(query) do
+      case srql_module.query(query, %{actor: actor}) do
         {:ok, %{"results" => rows}} when is_list(rows) ->
           {build_icmp_sparklines(rows), nil}
 
@@ -588,7 +589,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     |> then(&"\"#{&1}\"")
   end
 
-  defp load_metric_presence(srql_module, devices) do
+  defp load_metric_presence(srql_module, devices, actor) do
     device_uids =
       devices
       |> Enum.filter(&is_map/1)
@@ -632,7 +633,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       {snmp_presence, sysmon_presence} =
         [snmp: snmp_query, sysmon: sysmon_query]
         |> Task.async_stream(
-          fn {key, query} -> {key, srql_module.query(query)} end,
+          fn {key, query} -> {key, srql_module.query(query, %{actor: actor})} end,
           ordered: false,
           timeout: 30_000
         )
