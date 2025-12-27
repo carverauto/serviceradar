@@ -39,6 +39,9 @@ defmodule ServiceRadar.Application do
         # Oban job processor (can be disabled for standalone tests)
         oban_child(),
 
+        # GRPC client supervisor (required for DataService.Client)
+        grpc_client_supervisor_child(),
+
         # Horde registries (always started for registration support)
         registry_children(),
 
@@ -95,11 +98,28 @@ defmodule ServiceRadar.Application do
     end
   end
 
+  defp grpc_client_supervisor_child do
+    if datasvc_enabled?() do
+      {GRPC.Client.Supervisor, []}
+    else
+      nil
+    end
+  end
+
   defp datasvc_client_child do
-    if Application.get_env(:serviceradar_core, :datasvc_enabled, true) do
+    if datasvc_enabled?() do
       ServiceRadar.DataService.Client
     else
       nil
+    end
+  end
+
+  defp datasvc_enabled? do
+    # Check env var first, then app config
+    case System.get_env("DATASVC_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :datasvc_enabled, true)
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
     end
   end
 

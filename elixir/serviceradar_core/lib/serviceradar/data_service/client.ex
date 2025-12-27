@@ -9,7 +9,17 @@ defmodule ServiceRadar.DataService.Client do
       config :serviceradar_core, ServiceRadar.DataService.Client,
         host: "datasvc",
         port: 50057,
-        ssl: false
+        ssl: true,
+        cert_dir: "/path/to/certs",
+        cert_name: "core"  # uses core.pem, core-key.pem
+
+  ## Environment Variables
+
+  - `DATASVC_HOST` - hostname (default: "datasvc")
+  - `DATASVC_PORT` - port (default: 50057)
+  - `DATASVC_SSL` - enable SSL/TLS (default: false)
+  - `DATASVC_CERT_DIR` - directory containing certs for mTLS
+  - `DATASVC_CERT_NAME` - cert name prefix (default: "core", uses core.pem/core-key.pem)
 
   ## Usage
 
@@ -108,6 +118,30 @@ defmodule ServiceRadar.DataService.Client do
     end
   end
 
+  # Handle gun connection down - reconnect
+  def handle_info({:gun_down, _pid, _protocol, _reason, _streams}, state) do
+    Logger.warning("Datasvc connection lost, reconnecting...")
+    Process.send_after(self(), :connect, @reconnect_interval)
+    {:noreply, %{state | channel: nil, reconnecting: true}}
+  end
+
+  # Handle gun connection up
+  def handle_info({:gun_up, _pid, _protocol}, state) do
+    {:noreply, state}
+  end
+
+  # Handle any other gun messages
+  def handle_info({:gun_error, _pid, _reason}, state) do
+    Logger.warning("Datasvc gun error, reconnecting...")
+    Process.send_after(self(), :connect, @reconnect_interval)
+    {:noreply, %{state | channel: nil, reconnecting: true}}
+  end
+
+  def handle_info(msg, state) do
+    Logger.debug("DataService.Client received unknown message: #{inspect(msg)}")
+    {:noreply, state}
+  end
+
   @impl true
   def handle_call({:put, key, value, opts}, _from, state) do
     case ensure_connected(state) do
@@ -170,15 +204,70 @@ defmodule ServiceRadar.DataService.Client do
     app_config = Application.get_env(:serviceradar_core, __MODULE__, [])
 
     %{
-      host: opts[:host] || app_config[:host] || @default_host,
-      port: opts[:port] || app_config[:port] || @default_port,
-      ssl: opts[:ssl] || app_config[:ssl] || false
+      host: opts[:host] || get_env("DATASVC_HOST") || app_config[:host] || @default_host,
+      port: opts[:port] || get_env_int("DATASVC_PORT") || app_config[:port] || @default_port,
+      ssl: opts[:ssl] || get_env_bool("DATASVC_SSL") || app_config[:ssl] || false,
+      cert_dir: opts[:cert_dir] || get_env("DATASVC_CERT_DIR") || app_config[:cert_dir],
+      cert_name: opts[:cert_name] || get_env("DATASVC_CERT_NAME") || app_config[:cert_name] || "core"
     }
+  end
+
+  defp get_env(key) do
+    case System.get_env(key) do
+      nil -> nil
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp get_env_int(key) do
+    case System.get_env(key) do
+      nil -> nil
+      "" -> nil
+      value -> String.to_integer(value)
+    end
+  end
+
+  defp get_env_bool(key) do
+    case System.get_env(key) do
+      nil -> nil
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
+    end
   end
 
   defp connect(config) do
     endpoint = "#{config.host}:#{config.port}"
-    cred_opts = if config.ssl, do: GRPC.Credential.new([]), else: []
+
+    cred_opts =
+      case {config.ssl, config.cert_dir} do
+        {true, cert_dir} when is_binary(cert_dir) ->
+          # mTLS with client certificates
+          cert_name = config.cert_name
+          cert_file = Path.join(cert_dir, "#{cert_name}.pem")
+          key_file = Path.join(cert_dir, "#{cert_name}-key.pem")
+          ca_file = Path.join(cert_dir, "root.pem")
+
+          Logger.info("Connecting to datasvc with mTLS: cert=#{cert_file}")
+
+          ssl_opts = [
+            cacertfile: String.to_charlist(ca_file),
+            certfile: String.to_charlist(cert_file),
+            keyfile: String.to_charlist(key_file),
+            verify: :verify_peer,
+            server_name_indication: String.to_charlist(config.host)
+          ]
+
+          [cred: GRPC.Credential.new(ssl: ssl_opts)]
+
+        {true, _} ->
+          # SSL without client certs
+          [cred: GRPC.Credential.new(ssl: [])]
+
+        _ ->
+          # No SSL
+          []
+      end
 
     GRPC.Stub.connect(endpoint, cred_opts)
   end
