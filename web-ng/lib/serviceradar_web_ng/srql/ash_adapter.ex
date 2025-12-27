@@ -32,7 +32,13 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   - `cpu_metrics` -> ServiceRadar.Observability.CpuMetric
   - `memory_metrics` -> ServiceRadar.Observability.MemoryMetric
   - `disk_metrics` -> ServiceRadar.Observability.DiskMetric
+  - `otel_metrics` -> ServiceRadar.Observability.OtelMetric
+  - `otel_traces` -> ServiceRadar.Observability.OtelTrace
   - `otel_trace_summaries` -> ServiceRadar.Observability.OtelTraceSummary
+
+  ALL entities are routed through Ash - no exceptions. OTel resources use
+  `migrate?: false` to prevent Ash from generating migrations for the
+  TimescaleDB hypertables/views which have special schemas.
 
   ## Usage
 
@@ -49,11 +55,12 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
   require Logger
 
-  # Entities that should be routed through Ash
+  # ALL entities are routed through Ash - no exceptions
   @ash_entities ~w(
     devices pollers agents events alerts services service_checks
     logs timeseries_metrics cpu_metrics memory_metrics disk_metrics
-    snmp_metrics rperf_metrics process_metrics otel_metrics otel_trace_summaries
+    snmp_metrics rperf_metrics process_metrics
+    otel_metrics otel_traces otel_trace_summaries
   )
 
   # Entity to Ash resource mapping
@@ -73,11 +80,13 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     "timeseries_metrics" => ServiceRadar.Observability.TimeseriesMetric,
     "snmp_metrics" => ServiceRadar.Observability.TimeseriesMetric,
     "rperf_metrics" => ServiceRadar.Observability.TimeseriesMetric,
-    "otel_metrics" => ServiceRadar.Observability.OtelMetric,
-    "process_metrics" => ServiceRadar.Observability.TimeseriesMetric,
+    "process_metrics" => ServiceRadar.Observability.ProcessMetric,
     "cpu_metrics" => ServiceRadar.Observability.CpuMetric,
     "memory_metrics" => ServiceRadar.Observability.MemoryMetric,
     "disk_metrics" => ServiceRadar.Observability.DiskMetric,
+    # OTel resources
+    "otel_metrics" => ServiceRadar.Observability.OtelMetric,
+    "otel_traces" => ServiceRadar.Observability.OtelTrace,
     "otel_trace_summaries" => ServiceRadar.Observability.OtelTraceSummary
   }
 
@@ -98,11 +107,13 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     "timeseries_metrics" => ServiceRadar.Observability,
     "snmp_metrics" => ServiceRadar.Observability,
     "rperf_metrics" => ServiceRadar.Observability,
-    "otel_metrics" => ServiceRadar.Observability,
     "process_metrics" => ServiceRadar.Observability,
     "cpu_metrics" => ServiceRadar.Observability,
     "memory_metrics" => ServiceRadar.Observability,
     "disk_metrics" => ServiceRadar.Observability,
+    # OTel resources
+    "otel_metrics" => ServiceRadar.Observability,
+    "otel_traces" => ServiceRadar.Observability,
     "otel_trace_summaries" => ServiceRadar.Observability
   }
 
@@ -150,13 +161,6 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     "logs" => %{
       "level" => "severity",
       "severity_id" => "severity"
-    },
-    # OTel trace summaries - map bucket naming
-    "otel_trace_summaries" => %{
-      "timestamp" => "time_bucket",
-      "bucket_time" => "time_bucket",
-      "total" => "total_traces",
-      "errors" => "error_traces"
     }
   }
 

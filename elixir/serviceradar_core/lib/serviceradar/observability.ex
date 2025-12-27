@@ -40,11 +40,17 @@ defmodule ServiceRadar.Observability do
 
   resources do
     resource ServiceRadar.Observability.Log
+    # Metrics resources - all map to TimescaleDB hypertables with migrate?: false
+    # matching Go schema exactly
     resource ServiceRadar.Observability.TimeseriesMetric
     resource ServiceRadar.Observability.CpuMetric
     resource ServiceRadar.Observability.MemoryMetric
     resource ServiceRadar.Observability.DiskMetric
-    resource ServiceRadar.Observability.OtelTraceSummary
+    resource ServiceRadar.Observability.ProcessMetric
+    # OTel resources - these map to existing TimescaleDB hypertables/views
+    # with migrate?: false so Ash doesn't try to manage the schema
     resource ServiceRadar.Observability.OtelMetric
+    resource ServiceRadar.Observability.OtelTrace
+    resource ServiceRadar.Observability.OtelTraceSummary
   end
 end

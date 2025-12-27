@@ -518,6 +518,74 @@ APP_TAG=sha-$(git rev-parse --short HEAD) docker compose up -d --build core
 APP_TAG=v1.0.78 docker compose pull && APP_TAG=v1.0.78 docker compose up -d
 ```
 
+## Elixir / Ash Framework Rules
+
+### Absolute Rules (No Exceptions)
+
+1. **Everything through Ash** - ALL database entities MUST be Ash resources. No raw SQL queries, no Ecto-only schemas. Every table gets an Ash resource.
+
+2. **All migrations through Ash** - Use `mix ash_postgres.generate_migrations` and `mix ash_postgres.migrate`. Never use raw Ecto migrations for application tables.
+
+3. **SRQL through Ash Adapter** - ALL SRQL queries route through the AshAdapter. No bypassing to raw SQL.
+
+### Special Cases (TimescaleDB, Composite Keys)
+
+For tables with special requirements (TimescaleDB hypertables, composite primary keys, materialized views):
+
+1. **Create Ash resource with `migrate?: false`** - The resource maps to the table but Ash won't try to generate migrations for it:
+   ```elixir
+   postgres do
+     table "otel_metrics"
+     repo ServiceRadar.Repo
+     migrate? false  # Table managed separately
+   end
+   ```
+
+2. **Create raw SQL migration** - Place in `priv/repo/migrations/` with explicit schema that matches Go/external requirements:
+   ```elixir
+   defmodule MyApp.Repo.Migrations.CreateOtelTables do
+     use Ecto.Migration
+
+     def up do
+       execute "CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE"
+       execute """
+       CREATE TABLE otel_metrics (
+         timestamp TIMESTAMPTZ NOT NULL,
+         ...
+         PRIMARY KEY (timestamp, span_name, service_name, span_id)
+       )
+       """
+       execute "SELECT create_hypertable('otel_metrics', 'timestamp')"
+     end
+   end
+   ```
+
+3. **Match schema exactly** - Ash resource attributes MUST match the table columns exactly (types, names, nullability).
+
+4. **Composite primary keys** - Use `primary_key?: true` on multiple attributes:
+   ```elixir
+   attributes do
+     attribute :timestamp, :utc_datetime_usec, primary_key?: true, allow_nil?: false
+     attribute :trace_id, :string, primary_key?: true, allow_nil?: false
+     attribute :span_id, :string, primary_key?: true, allow_nil?: false
+   end
+   ```
+
+### Common Patterns
+
+- **Domains organize resources** - Each domain (Inventory, Monitoring, Observability) groups related resources
+- **Policies for authorization** - Use `Ash.Policy.Authorizer` for all access control
+- **Multi-tenancy via attribute** - Use `tenant_id` attribute strategy where applicable
+- **Read-only resources** - For views/CAGGs, only define `:read` actions
+
+### What NOT to do
+
+- ❌ Use Ecto schemas without Ash resources
+- ❌ Write raw SQL in controllers or contexts
+- ❌ Bypass AshAdapter for SRQL queries
+- ❌ Use `mix ecto.migrate` for application tables
+- ❌ Create Ecto migrations with `mix ecto.gen.migration`
+
 ## Best Practices
 
 ### Simplicity First

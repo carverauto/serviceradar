@@ -2,9 +2,9 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
   @moduledoc """
   OpenTelemetry trace summary resource.
 
-  Maps to the `otel_trace_summaries` table for storing aggregated trace data.
-  This is typically populated from a materialized view or CAGG that aggregates
-  raw span data.
+  Maps to the `otel_trace_summaries` materialized view. This is a read-only
+  view that aggregates trace data from otel_traces. The schema matches the
+  Go migration exactly.
   """
 
   use Ash.Resource,
@@ -26,162 +26,123 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
   postgres do
     table "otel_trace_summaries"
     repo ServiceRadar.Repo
+    # Don't generate migrations - this is a materialized view managed by raw SQL
+    migrate? false
   end
 
-  multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
-  end
+  # Note: No multitenancy - Go schema doesn't have tenant_id
 
   attributes do
-    uuid_primary_key :id
-
-    # Timestamp - for query compatibility
-    attribute :timestamp, :utc_datetime do
+    # Primary key is trace_id (unique index on materialized view)
+    attribute :trace_id, :string do
+      primary_key? true
       allow_nil? false
       public? true
-      description "Timestamp of the trace summary"
+      description "Unique trace identifier"
     end
 
-    # Time bucket for aggregation
-    attribute :time_bucket, :utc_datetime do
+    attribute :timestamp, :utc_datetime_usec do
       public? true
-      description "Time bucket for aggregation"
+      description "Max timestamp from spans in this trace"
     end
 
-    # Service identification
-    attribute :service_name, :string do
+    attribute :root_span_id, :string do
       public? true
-      description "Service name from OTel resource"
+      description "Span ID of the root span"
     end
 
-    attribute :operation_name, :string do
+    attribute :root_span_name, :string do
       public? true
-      description "Operation/span name"
+      description "Name of the root span"
     end
 
-    # Aggregated metrics
-    attribute :total_traces, :integer do
-      default 0
+    attribute :root_service_name, :string do
       public? true
-      description "Total number of traces in bucket"
+      description "Service name of the root span"
     end
 
-    attribute :error_traces, :integer do
-      default 0
+    attribute :root_span_kind, :integer do
       public? true
-      description "Number of traces with errors"
+      description "Kind of the root span"
     end
 
-    attribute :avg_duration_ms, :float do
+    attribute :start_time_unix_nano, :integer do
       public? true
-      description "Average trace duration in milliseconds"
+      description "Start time in nanoseconds since Unix epoch"
     end
 
-    attribute :min_duration_ms, :float do
+    attribute :end_time_unix_nano, :integer do
       public? true
-      description "Minimum trace duration in milliseconds"
+      description "End time in nanoseconds since Unix epoch"
     end
 
-    attribute :max_duration_ms, :float do
+    attribute :duration_ms, :float do
       public? true
-      description "Maximum trace duration in milliseconds"
+      description "Total trace duration in milliseconds"
     end
 
-    attribute :p50_duration_ms, :float do
+    attribute :status_code, :integer do
       public? true
-      description "50th percentile duration"
+      description "Status code of the root span"
     end
 
-    attribute :p95_duration_ms, :float do
+    attribute :status_message, :string do
       public? true
-      description "95th percentile duration"
+      description "Status message of the root span"
     end
 
-    attribute :p99_duration_ms, :float do
+    # Array of service names involved in this trace
+    attribute :service_set, {:array, :string} do
       public? true
-      description "99th percentile duration"
+      description "List of services involved in this trace"
     end
 
-    # Throughput
-    attribute :requests_per_second, :float do
+    attribute :span_count, :integer do
       public? true
-      description "Request rate in requests/second"
+      description "Total number of spans in this trace"
     end
 
-    # Device references
-    attribute :uid, :string do
+    attribute :error_count, :integer do
       public? true
-    end
-
-    attribute :poller_id, :string do
-      public? true
-    end
-
-    attribute :agent_id, :string do
-      public? true
-    end
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
+      description "Number of spans with errors"
     end
   end
 
   actions do
+    # Read-only - this is a materialized view
     defaults [:read]
 
     read :by_service do
       argument :service_name, :string, allow_nil?: false
-      filter expr(service_name == ^arg(:service_name))
+      filter expr(root_service_name == ^arg(:service_name))
     end
 
     read :recent do
-      filter expr(time_bucket > ago(24, :hour))
+      description "Traces from the last 24 hours"
+      filter expr(timestamp > ago(24, :hour))
     end
 
-    create :create do
-      accept [
-        :time_bucket, :service_name, :operation_name,
-        :total_traces, :error_traces, :avg_duration_ms,
-        :min_duration_ms, :max_duration_ms,
-        :p50_duration_ms, :p95_duration_ms, :p99_duration_ms,
-        :requests_per_second, :uid, :poller_id, :agent_id
-      ]
+    read :with_errors do
+      description "Traces that have errors"
+      filter expr(error_count > 0)
     end
   end
 
   calculations do
     calculate :error_rate, :float, expr(
       cond do
-        total_traces == 0 -> 0.0
-        true -> (error_traces * 100.0) / total_traces
+        span_count == 0 -> 0.0
+        true -> (error_count * 100.0) / span_count
       end
     )
 
-    calculate :success_traces, :integer, expr(
-      total_traces - error_traces
-    )
+    calculate :has_errors, :boolean, expr(error_count > 0)
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
+    # Allow all reads - this data isn't tenant-scoped in Go
     policy action_type(:read) do
-      authorize_if expr(
-        ^actor(:role) in [:viewer, :operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
-    end
-
-    policy action(:create) do
-      authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
+      authorize_if always()
     end
   end
 end

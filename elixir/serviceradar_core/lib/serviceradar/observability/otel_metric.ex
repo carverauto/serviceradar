@@ -2,8 +2,9 @@ defmodule ServiceRadar.Observability.OtelMetric do
   @moduledoc """
   OpenTelemetry metric resource.
 
-  Maps to the `otel_metrics` table for storing OpenTelemetry metrics data.
-  Uses TimescaleDB hypertable for efficient time-series storage.
+  Maps to the `otel_metrics` TimescaleDB hypertable. This table has a composite
+  primary key (timestamp, span_name, service_name, span_id) and is managed by
+  raw SQL migrations that match the Go schema exactly.
   """
 
   use Ash.Resource,
@@ -14,6 +15,10 @@ defmodule ServiceRadar.Observability.OtelMetric do
 
   json_api do
     type "otel_metric"
+    # Composite primary key requires specifying which fields to use
+    primary_key do
+      keys [:timestamp, :span_name, :service_name, :span_id]
+    end
 
     routes do
       base "/otel_metrics"
@@ -25,92 +30,67 @@ defmodule ServiceRadar.Observability.OtelMetric do
   postgres do
     table "otel_metrics"
     repo ServiceRadar.Repo
+    # Don't generate migrations - table is managed by raw SQL migration
+    # that creates TimescaleDB hypertable with composite primary key
+    migrate? false
   end
 
-  multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
-  end
+  # Note: No multitenancy - Go schema doesn't have tenant_id
 
   attributes do
-    uuid_primary_key :id
-
-    # Timestamp - primary dimension for TimescaleDB
-    attribute :timestamp, :utc_datetime do
+    # Composite primary key matching Go schema
+    attribute :timestamp, :utc_datetime_usec do
+      primary_key? true
       allow_nil? false
       public? true
-      description "When the metric was collected"
+      description "When the metric was collected (part of composite PK)"
     end
 
-    # Metric identification
-    attribute :metric_name, :string do
+    attribute :span_name, :string do
+      primary_key? true
+      allow_nil? false
       public? true
-      description "Name of the metric"
+      description "Name of the span (part of composite PK)"
+    end
+
+    attribute :service_name, :string do
+      primary_key? true
+      allow_nil? false
+      public? true
+      description "Service name (part of composite PK)"
+    end
+
+    attribute :span_id, :string do
+      primary_key? true
+      allow_nil? false
+      public? true
+      description "Span ID (part of composite PK)"
+    end
+
+    # Other attributes matching Go schema exactly
+    attribute :trace_id, :string do
+      public? true
+      description "Trace ID for correlation"
+    end
+
+    attribute :span_kind, :string do
+      public? true
+      description "Kind of span (client, server, producer, consumer, internal)"
+    end
+
+    attribute :duration_ms, :float do
+      public? true
+      description "Duration in milliseconds"
+    end
+
+    attribute :duration_seconds, :float do
+      public? true
+      description "Duration in seconds"
     end
 
     attribute :metric_type, :string do
       public? true
-      description "Type of metric (gauge, counter, histogram, sum)"
-    end
-
-    # Metric value
-    attribute :value, :float do
-      public? true
-      description "Metric value"
-    end
-
-    # Service identification (from Resource)
-    attribute :service_name, :string do
-      public? true
-      description "Service name from OTel resource"
-    end
-
-    attribute :service_version, :string do
-      public? true
-      description "Service version"
-    end
-
-    attribute :service_instance, :string do
-      public? true
-      description "Service instance ID"
-    end
-
-    # Instrumentation scope
-    attribute :scope_name, :string do
-      public? true
-      description "Instrumentation scope name"
-    end
-
-    attribute :scope_version, :string do
-      public? true
-      description "Instrumentation scope version"
-    end
-
-    # Structured attributes
-    attribute :attributes, :map do
-      default %{}
-      public? true
-      description "Metric attributes/labels"
-    end
-
-    attribute :resource_attributes, :map do
-      default %{}
-      public? true
-      description "Resource attributes"
-    end
-
-    # Performance flags
-    attribute :is_slow, :boolean do
-      default false
-      public? true
-      description "Whether this metric represents a slow operation"
-    end
-
-    # HTTP-specific attributes (for HTTP metrics)
-    attribute :http_status_code, :string do
-      public? true
-      description "HTTP response status code"
+      description "Type of metric"
     end
 
     attribute :http_method, :string do
@@ -123,16 +103,51 @@ defmodule ServiceRadar.Observability.OtelMetric do
       description "HTTP route/path"
     end
 
-    attribute :duration_ms, :float do
+    attribute :http_status_code, :string do
       public? true
-      description "Duration in milliseconds"
+      description "HTTP response status code"
     end
 
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
+    attribute :grpc_service, :string do
+      public? true
+      description "gRPC service name"
+    end
+
+    attribute :grpc_method, :string do
+      public? true
+      description "gRPC method name"
+    end
+
+    # TEXT in Go schema, not INTEGER
+    attribute :grpc_status_code, :string do
+      public? true
+      description "gRPC status code (as string)"
+    end
+
+    attribute :is_slow, :boolean do
+      public? true
+      description "Whether this metric represents a slow operation"
+    end
+
+    attribute :component, :string do
+      public? true
+      description "Component name"
+    end
+
+    attribute :level, :string do
+      public? true
+      description "Log level or severity"
+    end
+
+    attribute :unit, :string do
+      public? true
+      description "Unit of measurement"
+    end
+
+    attribute :created_at, :utc_datetime_usec do
       allow_nil? false
-      public? false
-      description "Tenant this metric belongs to"
+      public? true
+      description "When the record was created"
     end
   end
 
@@ -144,43 +159,35 @@ defmodule ServiceRadar.Observability.OtelMetric do
       filter expr(service_name == ^arg(:service_name))
     end
 
-    read :by_metric_name do
-      argument :metric_name, :string, allow_nil?: false
-      filter expr(metric_name == ^arg(:metric_name))
-    end
-
     read :recent do
       description "Metrics from the last 24 hours"
       filter expr(timestamp > ago(24, :hour))
     end
 
+    read :slow_operations do
+      description "Slow operations only"
+      filter expr(is_slow == true)
+    end
+
     create :create do
       accept [
-        :timestamp, :metric_name, :metric_type, :value,
-        :service_name, :service_version, :service_instance,
-        :scope_name, :scope_version, :attributes, :resource_attributes,
-        :is_slow, :http_status_code, :http_method, :http_route, :duration_ms
+        :timestamp, :span_name, :service_name, :span_id,
+        :trace_id, :span_kind, :duration_ms, :duration_seconds,
+        :metric_type, :http_method, :http_route, :http_status_code,
+        :grpc_service, :grpc_method, :grpc_status_code,
+        :is_slow, :component, :level, :unit
       ]
     end
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
+    # For now, allow all reads - this data isn't tenant-scoped in Go
     policy action_type(:read) do
-      authorize_if expr(
-        ^actor(:role) in [:viewer, :operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
+      authorize_if always()
     end
 
     policy action(:create) do
-      authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
+      authorize_if always()
     end
   end
 end

@@ -2,8 +2,8 @@ defmodule ServiceRadar.Observability.CpuMetric do
   @moduledoc """
   CPU utilization metric resource.
 
-  Maps to the `cpu_metrics` table for storing CPU utilization data.
-  Uses TimescaleDB hypertable for efficient time-series storage.
+  Maps to the `cpu_metrics` TimescaleDB hypertable. This table is managed by raw SQL
+  migrations that match the Go schema exactly.
   """
 
   use Ash.Resource,
@@ -25,52 +25,56 @@ defmodule ServiceRadar.Observability.CpuMetric do
   postgres do
     table "cpu_metrics"
     repo ServiceRadar.Repo
+    # Don't generate migrations - table is managed by raw SQL migration
+    # that creates TimescaleDB hypertable matching Go schema
+    migrate? false
   end
 
-  multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+  resource do
+    # TimescaleDB hypertables don't have traditional primary keys
+    require_primary_key? false
   end
+
+  # Note: No multitenancy - Go schema doesn't have tenant_id
 
   attributes do
-    uuid_primary_key :id
-
-    attribute :timestamp, :utc_datetime do
+    # TimescaleDB hypertable - no traditional PK, timestamp is the time column
+    # We use a generated ID for Ash compatibility but it's not in the DB
+    attribute :timestamp, :utc_datetime_usec do
       allow_nil? false
       public? true
+      description "When the metric was recorded"
     end
 
-    # CPU metrics
-    attribute :user_pct, :float do
+    attribute :poller_id, :string do
+      allow_nil? false
       public? true
-      description "User CPU percentage"
+      description "Poller that collected this metric"
     end
 
-    attribute :system_pct, :float do
+    attribute :agent_id, :string do
       public? true
-      description "System CPU percentage"
+      description "Agent ID"
     end
 
-    attribute :idle_pct, :float do
+    attribute :host_id, :string do
       public? true
-      description "Idle CPU percentage"
+      description "Host identifier"
     end
 
-    attribute :iowait_pct, :float do
+    attribute :core_id, :integer do
       public? true
-      description "IO wait CPU percentage"
+      description "CPU core number"
     end
 
-    attribute :steal_pct, :float do
+    attribute :usage_percent, :float do
       public? true
-      description "Steal CPU percentage (virtualization)"
+      description "CPU usage percentage"
     end
 
-    # Core identification
-    attribute :core_id, :string do
+    attribute :frequency_hz, :float do
       public? true
-      description "CPU core identifier"
+      description "CPU frequency in Hz"
     end
 
     attribute :label, :string do
@@ -78,34 +82,25 @@ defmodule ServiceRadar.Observability.CpuMetric do
       description "CPU label"
     end
 
-    # Device references
-    attribute :uid, :string do
+    attribute :cluster, :string do
       public? true
+      description "Cluster name"
     end
 
-    attribute :host_id, :string do
+    attribute :device_id, :string do
       public? true
-    end
-
-    attribute :poller_id, :string do
-      public? true
-    end
-
-    attribute :agent_id, :string do
-      public? true
+      description "Device identifier"
     end
 
     attribute :partition, :string do
       public? true
+      description "Partition"
     end
 
-    attribute :cluster, :string do
-      public? true
-    end
-
-    attribute :tenant_id, :uuid do
+    attribute :created_at, :utc_datetime_usec do
       allow_nil? false
-      public? false
+      public? true
+      description "When the record was created"
     end
   end
 
@@ -113,45 +108,31 @@ defmodule ServiceRadar.Observability.CpuMetric do
     defaults [:read]
 
     read :by_device do
-      argument :uid, :string, allow_nil?: false
-      filter expr(uid == ^arg(:uid))
+      argument :device_id, :string, allow_nil?: false
+      filter expr(device_id == ^arg(:device_id))
     end
 
     read :recent do
+      description "Metrics from the last 24 hours"
       filter expr(timestamp > ago(24, :hour))
     end
 
     create :create do
       accept [
-        :timestamp, :user_pct, :system_pct, :idle_pct, :iowait_pct, :steal_pct,
-        :core_id, :label, :uid, :host_id, :poller_id, :agent_id, :partition, :cluster
+        :timestamp, :poller_id, :agent_id, :host_id, :core_id,
+        :usage_percent, :frequency_hz, :label, :cluster, :device_id, :partition
       ]
     end
   end
 
-  calculations do
-    calculate :total_used_pct, :float, expr(
-      100.0 - (idle_pct || 0.0)
-    )
-  end
-
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
+    # Allow all reads - this data isn't tenant-scoped in Go
     policy action_type(:read) do
-      authorize_if expr(
-        ^actor(:role) in [:viewer, :operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
+      authorize_if always()
     end
 
     policy action(:create) do
-      authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
+      authorize_if always()
     end
   end
 end

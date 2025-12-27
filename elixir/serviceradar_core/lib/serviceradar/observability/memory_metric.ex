@@ -2,8 +2,8 @@ defmodule ServiceRadar.Observability.MemoryMetric do
   @moduledoc """
   Memory utilization metric resource.
 
-  Maps to the `memory_metrics` table for storing memory usage data.
-  Uses TimescaleDB hypertable for efficient time-series storage.
+  Maps to the `memory_metrics` TimescaleDB hypertable. This table is managed by raw SQL
+  migrations that match the Go schema exactly.
   """
 
   use Ash.Resource,
@@ -25,23 +25,41 @@ defmodule ServiceRadar.Observability.MemoryMetric do
   postgres do
     table "memory_metrics"
     repo ServiceRadar.Repo
+    # Don't generate migrations - table is managed by raw SQL migration
+    # that creates TimescaleDB hypertable matching Go schema
+    migrate? false
   end
 
-  multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+  resource do
+    # TimescaleDB hypertables don't have traditional primary keys
+    require_primary_key? false
   end
+
+  # Note: No multitenancy - Go schema doesn't have tenant_id
 
   attributes do
-    uuid_primary_key :id
-
-    attribute :timestamp, :utc_datetime do
+    # TimescaleDB hypertable - no traditional PK
+    attribute :timestamp, :utc_datetime_usec do
       allow_nil? false
       public? true
+      description "When the metric was recorded"
     end
 
-    # Memory metrics (in bytes)
+    attribute :poller_id, :string do
+      public? true
+      description "Poller that collected this metric"
+    end
+
+    attribute :agent_id, :string do
+      public? true
+      description "Agent ID"
+    end
+
+    attribute :host_id, :string do
+      public? true
+      description "Host identifier"
+    end
+
     attribute :total_bytes, :integer do
       public? true
       description "Total memory in bytes"
@@ -52,66 +70,30 @@ defmodule ServiceRadar.Observability.MemoryMetric do
       description "Used memory in bytes"
     end
 
-    attribute :free_bytes, :integer do
-      public? true
-      description "Free memory in bytes"
-    end
-
     attribute :available_bytes, :integer do
       public? true
       description "Available memory in bytes"
     end
 
-    attribute :buffers_bytes, :integer do
-      public? true
-      description "Buffer memory in bytes"
-    end
-
-    attribute :cached_bytes, :integer do
-      public? true
-      description "Cached memory in bytes"
-    end
-
-    attribute :swap_total_bytes, :integer do
-      public? true
-      description "Total swap in bytes"
-    end
-
-    attribute :swap_used_bytes, :integer do
-      public? true
-      description "Used swap in bytes"
-    end
-
-    # Percentage convenience
-    attribute :used_pct, :float do
+    attribute :usage_percent, :float do
       public? true
       description "Memory usage percentage"
     end
 
-    # Device references
-    attribute :uid, :string do
+    attribute :device_id, :string do
       public? true
-    end
-
-    attribute :host_id, :string do
-      public? true
-    end
-
-    attribute :poller_id, :string do
-      public? true
-    end
-
-    attribute :agent_id, :string do
-      public? true
+      description "Device identifier"
     end
 
     attribute :partition, :string do
       public? true
+      description "Partition"
     end
 
-    attribute :tenant_id, :uuid do
+    attribute :created_at, :utc_datetime_usec do
       allow_nil? false
-      public? false
+      public? true
+      description "When the record was created"
     end
   end
 
@@ -119,40 +101,32 @@ defmodule ServiceRadar.Observability.MemoryMetric do
     defaults [:read]
 
     read :by_device do
-      argument :uid, :string, allow_nil?: false
-      filter expr(uid == ^arg(:uid))
+      argument :device_id, :string, allow_nil?: false
+      filter expr(device_id == ^arg(:device_id))
     end
 
     read :recent do
+      description "Metrics from the last 24 hours"
       filter expr(timestamp > ago(24, :hour))
     end
 
     create :create do
       accept [
-        :timestamp, :total_bytes, :used_bytes, :free_bytes, :available_bytes,
-        :buffers_bytes, :cached_bytes, :swap_total_bytes, :swap_used_bytes, :used_pct,
-        :uid, :host_id, :poller_id, :agent_id, :partition
+        :timestamp, :poller_id, :agent_id, :host_id,
+        :total_bytes, :used_bytes, :available_bytes, :usage_percent,
+        :device_id, :partition
       ]
     end
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
+    # Allow all reads - this data isn't tenant-scoped in Go
     policy action_type(:read) do
-      authorize_if expr(
-        ^actor(:role) in [:viewer, :operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
+      authorize_if always()
     end
 
     policy action(:create) do
-      authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
+      authorize_if always()
     end
   end
 end

@@ -1,8 +1,8 @@
-defmodule ServiceRadar.Observability.DiskMetric do
+defmodule ServiceRadar.Observability.ProcessMetric do
   @moduledoc """
-  Disk utilization metric resource.
+  Process metrics resource.
 
-  Maps to the `disk_metrics` TimescaleDB hypertable. This table is managed by raw SQL
+  Maps to the `process_metrics` TimescaleDB hypertable. This table is managed by raw SQL
   migrations that match the Go schema exactly.
   """
 
@@ -13,17 +13,17 @@ defmodule ServiceRadar.Observability.DiskMetric do
     extensions: [AshJsonApi.Resource]
 
   json_api do
-    type "disk_metric"
+    type "process_metric"
 
     routes do
-      base "/disk_metrics"
+      base "/process_metrics"
 
       index :read
     end
   end
 
   postgres do
-    table "disk_metrics"
+    table "process_metrics"
     repo ServiceRadar.Repo
     # Don't generate migrations - table is managed by raw SQL migration
     # that creates TimescaleDB hypertable matching Go schema
@@ -60,34 +60,34 @@ defmodule ServiceRadar.Observability.DiskMetric do
       description "Host identifier"
     end
 
-    attribute :mount_point, :string do
+    attribute :pid, :integer do
       public? true
-      description "Filesystem mount point"
+      description "Process ID"
     end
 
-    attribute :device_name, :string do
+    attribute :name, :string do
       public? true
-      description "Block device name"
+      description "Process name"
     end
 
-    attribute :total_bytes, :integer do
+    attribute :cpu_usage, :float do
       public? true
-      description "Total disk space in bytes"
+      description "CPU usage (REAL in Go schema)"
     end
 
-    attribute :used_bytes, :integer do
+    attribute :memory_usage, :integer do
       public? true
-      description "Used disk space in bytes"
+      description "Memory usage in bytes"
     end
 
-    attribute :available_bytes, :integer do
+    attribute :status, :string do
       public? true
-      description "Available disk space in bytes"
+      description "Process status"
     end
 
-    attribute :usage_percent, :float do
+    attribute :start_time, :string do
       public? true
-      description "Disk usage percentage"
+      description "Process start time"
     end
 
     attribute :device_id, :string do
@@ -115,9 +115,9 @@ defmodule ServiceRadar.Observability.DiskMetric do
       filter expr(device_id == ^arg(:device_id))
     end
 
-    read :by_mount_point do
-      argument :mount_point, :string, allow_nil?: false
-      filter expr(mount_point == ^arg(:mount_point))
+    read :by_host do
+      argument :host_id, :string, allow_nil?: false
+      filter expr(host_id == ^arg(:host_id))
     end
 
     read :recent do
@@ -127,9 +127,8 @@ defmodule ServiceRadar.Observability.DiskMetric do
 
     create :create do
       accept [
-        :timestamp, :poller_id, :agent_id, :host_id,
-        :mount_point, :device_name, :total_bytes, :used_bytes, :available_bytes,
-        :usage_percent, :device_id, :partition
+        :timestamp, :poller_id, :agent_id, :host_id, :pid, :name,
+        :cpu_usage, :memory_usage, :status, :start_time, :device_id, :partition
       ]
     end
   end

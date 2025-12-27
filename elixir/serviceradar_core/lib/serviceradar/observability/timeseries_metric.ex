@@ -2,8 +2,8 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
   @moduledoc """
   Generic time-series metric resource.
 
-  Maps to the `timeseries_metrics` table for storing various metrics types.
-  Uses TimescaleDB hypertable for efficient time-series storage and querying.
+  Maps to the `timeseries_metrics` TimescaleDB hypertable. This table is managed by raw SQL
+  migrations that match the Go schema exactly.
   """
 
   use Ash.Resource,
@@ -25,49 +25,28 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
   postgres do
     table "timeseries_metrics"
     repo ServiceRadar.Repo
+    # Don't generate migrations - table is managed by raw SQL migration
+    # that creates TimescaleDB hypertable matching Go schema
+    migrate? false
   end
 
-  multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+  resource do
+    # TimescaleDB hypertables don't have traditional primary keys
+    require_primary_key? false
   end
+
+  # Note: No multitenancy - Go schema doesn't have tenant_id
 
   attributes do
-    uuid_primary_key :id
-
-    # Timestamp - primary dimension for TimescaleDB
-    attribute :timestamp, :utc_datetime do
+    # TimescaleDB hypertable - no traditional PK
+    attribute :timestamp, :utc_datetime_usec do
       allow_nil? false
       public? true
       description "When the metric was collected"
     end
 
-    # Metric identification
-    attribute :metric_name, :string do
-      allow_nil? false
-      public? true
-      description "Name of the metric"
-    end
-
-    attribute :metric_type, :string do
-      public? true
-      description "Type of metric (gauge, counter, histogram)"
-    end
-
-    # Metric value
-    attribute :value, :float do
-      public? true
-      description "Metric value"
-    end
-
-    # Device/infrastructure references
-    attribute :uid, :string do
-      public? true
-      description "Device UID this metric belongs to"
-    end
-
     attribute :poller_id, :string do
+      allow_nil? false
       public? true
       description "Poller that collected this metric"
     end
@@ -77,15 +56,58 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
       description "Agent that collected this metric"
     end
 
-    attribute :target_device_ip, :string do
+    attribute :metric_name, :string do
+      allow_nil? false
       public? true
-      description "Target device IP for SNMP/network metrics"
+      description "Name of the metric"
     end
 
-    # Categorization
+    attribute :metric_type, :string do
+      allow_nil? false
+      public? true
+      description "Type of metric (gauge, counter, histogram)"
+    end
+
+    attribute :device_id, :string do
+      public? true
+      description "Device ID this metric belongs to"
+    end
+
+    attribute :value, :float do
+      allow_nil? false
+      public? true
+      description "Metric value"
+    end
+
+    attribute :unit, :string do
+      public? true
+      description "Unit of measurement"
+    end
+
+    attribute :tags, :map do
+      public? true
+      description "Tags for dimensional querying (JSONB)"
+    end
+
     attribute :partition, :string do
       public? true
       description "Partition/segment identifier"
+    end
+
+    attribute :scale, :float do
+      public? true
+      description "Scale factor"
+    end
+
+    attribute :is_delta, :boolean do
+      default false
+      public? true
+      description "Whether this is a delta value"
+    end
+
+    attribute :target_device_ip, :string do
+      public? true
+      description "Target device IP for SNMP/network metrics"
     end
 
     attribute :if_index, :integer do
@@ -93,18 +115,15 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
       description "Interface index for network metrics"
     end
 
-    # Structured labels
-    attribute :labels, :map do
-      default %{}
+    attribute :metadata, :map do
       public? true
-      description "Metric labels for dimensional querying"
+      description "Additional metadata (JSONB)"
     end
 
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
+    attribute :created_at, :utc_datetime_usec do
       allow_nil? false
-      public? false
-      description "Tenant this metric belongs to"
+      public? true
+      description "When the record was created"
     end
   end
 
@@ -112,8 +131,8 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
     defaults [:read]
 
     read :by_device do
-      argument :uid, :string, allow_nil?: false
-      filter expr(uid == ^arg(:uid))
+      argument :device_id, :string, allow_nil?: false
+      filter expr(device_id == ^arg(:device_id))
     end
 
     read :by_metric_name do
@@ -128,30 +147,21 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
 
     create :create do
       accept [
-        :timestamp, :metric_name, :metric_type, :value,
-        :uid, :poller_id, :agent_id, :target_device_ip,
-        :partition, :if_index, :labels
+        :timestamp, :poller_id, :agent_id, :metric_name, :metric_type,
+        :device_id, :value, :unit, :tags, :partition, :scale, :is_delta,
+        :target_device_ip, :if_index, :metadata
       ]
     end
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
+    # Allow all reads - this data isn't tenant-scoped in Go
     policy action_type(:read) do
-      authorize_if expr(
-        ^actor(:role) in [:viewer, :operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
+      authorize_if always()
     end
 
     policy action(:create) do
-      authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
+      authorize_if always()
     end
   end
 end
