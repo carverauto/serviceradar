@@ -36,21 +36,21 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   @identifier_priority [:armis_device_id, :integration_id, :netbox_device_id, :mac]
 
   @type strong_identifiers :: %{
-    armis_id: String.t() | nil,
-    integration_id: String.t() | nil,
-    netbox_id: String.t() | nil,
-    mac: String.t() | nil,
-    ip: String.t() | nil,
-    partition: String.t()
-  }
+          armis_id: String.t() | nil,
+          integration_id: String.t() | nil,
+          netbox_id: String.t() | nil,
+          mac: String.t() | nil,
+          ip: String.t() | nil,
+          partition: String.t()
+        }
 
   @type device_update :: %{
-    device_id: String.t() | nil,
-    ip: String.t() | nil,
-    mac: String.t() | nil,
-    partition: String.t() | nil,
-    metadata: map() | nil
-  }
+          device_id: String.t() | nil,
+          ip: String.t() | nil,
+          mac: String.t() | nil,
+          partition: String.t() | nil,
+          metadata: map() | nil
+        }
 
   @doc """
   Resolve a device update to a canonical ServiceRadar device ID.
@@ -125,13 +125,17 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
   defp get_trimmed(map, key) when is_map(map) do
     case map[key] do
-      nil -> nil
+      nil ->
+        nil
+
       value when is_binary(value) ->
         case String.trim(value) do
           "" -> nil
           trimmed -> trimmed
         end
-      _ -> nil
+
+      _ ->
+        nil
     end
   end
 
@@ -141,9 +145,9 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   @spec has_strong_identifier?(strong_identifiers()) :: boolean()
   def has_strong_identifier?(ids) do
     ids.armis_id != nil or
-    ids.integration_id != nil or
-    ids.netbox_id != nil or
-    ids.mac != nil
+      ids.integration_id != nil or
+      ids.netbox_id != nil or
+      ids.mac != nil
   end
 
   @doc """
@@ -163,7 +167,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   @doc """
   Lookup device by strong identifiers in priority order.
   """
-  @spec lookup_by_strong_identifiers(strong_identifiers(), term()) :: {:ok, String.t() | nil} | {:error, term()}
+  @spec lookup_by_strong_identifiers(strong_identifiers(), term()) ::
+          {:ok, String.t() | nil} | {:error, term()}
   def lookup_by_strong_identifiers(ids, actor) do
     if not has_strong_identifier?(ids) do
       {:ok, nil}
@@ -274,25 +279,27 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       |> maybe_add_seed("netbox", ids.netbox_id)
       |> maybe_add_seed("mac", ids.mac)
 
-    hash_input = cond do
-      length(seeds) > 0 ->
-        # Strong identifiers present - deterministic hash
-        "serviceradar-device-v3:partition:#{partition}:" <> Enum.join(seeds, "")
+    hash_input =
+      cond do
+        length(seeds) > 0 ->
+          # Strong identifiers present - deterministic hash
+          "serviceradar-device-v3:partition:#{partition}:" <> Enum.join(seeds, "")
 
-      ids.ip != "" ->
-        # IP-only fallback
-        "serviceradar-device-v3:partition:#{partition}:ip:#{ids.ip}"
+        ids.ip != "" ->
+          # IP-only fallback
+          "serviceradar-device-v3:partition:#{partition}:ip:#{ids.ip}"
 
-      true ->
-        # No identifiers - random UUID
-        return_random_uuid()
-    end
+        true ->
+          # No identifiers - random UUID
+          return_random_uuid()
+      end
 
     if is_binary(hash_input) do
       hash_bytes = :crypto.hash(:sha256, hash_input)
       uuid_from_hash(hash_bytes)
     else
-      hash_input  # Already a UUID string from return_random_uuid()
+      # Already a UUID string from return_random_uuid()
+      hash_input
     end
   end
 
@@ -310,10 +317,13 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     c_versioned = (c &&& 0x0FFF) ||| 0x4000
     d_variant = (d &&& 0x3FFF) ||| 0x8000
 
-    uuid = :io_lib.format(
-      "~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b",
-      [a, b, c_versioned, d_variant, e]
-    ) |> IO.iodata_to_binary() |> String.downcase()
+    uuid =
+      :io_lib.format(
+        "~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b",
+        [a, b, c_versioned, d_variant, e]
+      )
+      |> IO.iodata_to_binary()
+      |> String.downcase()
 
     "sr:" <> uuid
   end
@@ -321,7 +331,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   @doc """
   Register device identifiers in the device_identifiers table.
   """
-  @spec register_identifiers(String.t(), strong_identifiers(), keyword()) :: :ok | {:error, term()}
+  @spec register_identifiers(String.t(), strong_identifiers(), keyword()) ::
+          :ok | {:error, term()}
   def register_identifiers(device_id, ids, opts \\ []) do
     actor = Keyword.get(opts, :actor)
     partition = if ids.partition == "", do: "default", else: ids.partition
@@ -334,11 +345,12 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       |> maybe_add_identifier(device_id, :netbox_device_id, ids.netbox_id, partition)
       |> maybe_add_identifier(device_id, :mac, ids.mac, partition)
 
-    results = Enum.map(identifiers_to_register, fn params ->
-      DeviceIdentifier
-      |> Ash.Changeset.for_create(:upsert, params)
-      |> Ash.create(query_opts)
-    end)
+    results =
+      Enum.map(identifiers_to_register, fn params ->
+        DeviceIdentifier
+        |> Ash.Changeset.for_create(:upsert, params)
+        |> Ash.create(query_opts)
+      end)
 
     errors = Enum.filter(results, &match?({:error, _}, &1))
 
@@ -350,21 +362,26 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp maybe_add_identifier(acc, _device_id, _id_type, nil, _partition), do: acc
+
   defp maybe_add_identifier(acc, device_id, id_type, id_value, partition) do
-    [%{
-      device_id: device_id,
-      identifier_type: id_type,
-      identifier_value: id_value,
-      partition: partition,
-      confidence: :strong,
-      source: "identity_reconciler"
-    } | acc]
+    [
+      %{
+        device_id: device_id,
+        identifier_type: id_type,
+        identifier_value: id_value,
+        partition: partition,
+        confidence: :strong,
+        source: "identity_reconciler"
+      }
+      | acc
+    ]
   end
 
   @doc """
   Record a device merge in the audit trail.
   """
-  @spec record_merge(String.t(), String.t(), String.t(), keyword()) :: {:ok, term()} | {:error, term()}
+  @spec record_merge(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, term()} | {:error, term()}
   def record_merge(from_device_id, to_device_id, reason, opts \\ []) do
     actor = Keyword.get(opts, :actor)
     confidence_score = Keyword.get(opts, :confidence_score)
@@ -404,6 +421,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   """
   @spec normalize_mac(String.t() | nil) :: String.t() | nil
   def normalize_mac(nil), do: nil
+
   def normalize_mac(mac) do
     normalized =
       mac
@@ -421,6 +439,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   """
   @spec legacy_ip_based_id?(String.t() | nil) :: boolean()
   def legacy_ip_based_id?(nil), do: false
+
   def legacy_ip_based_id?(device_id) do
     if serviceradar_uuid?(device_id) or service_device_id?(device_id) do
       false
@@ -429,6 +448,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
         [_partition, ip] ->
           # Check if second part looks like an IP
           String.contains?(ip, ".") or String.contains?(ip, ":")
+
         _ ->
           false
       end

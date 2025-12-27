@@ -308,7 +308,8 @@ defmodule ServiceRadar.SPIFFE do
         {:error, {:ca_not_found, ca_file}}
 
       true ->
-        trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
+        trust_domain =
+          Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
 
         ssl_opts = [
           certfile: String.to_charlist(cert_file),

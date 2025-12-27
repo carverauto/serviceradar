@@ -151,7 +151,10 @@ defmodule ServiceRadar.Identity.Users do
     attrs = ensure_tenant_id(attrs)
 
     User
-    |> Ash.Changeset.for_create(:register_with_password, attrs, actor: actor, authorize?: authorize?)
+    |> Ash.Changeset.for_create(:register_with_password, attrs,
+      actor: actor,
+      authorize?: authorize?
+    )
     |> Ash.create()
   end
 
@@ -180,12 +183,22 @@ defmodule ServiceRadar.Identity.Users do
     authorize? = Keyword.get(opts, :authorize?, false)
 
     # Filter to only valid arguments for change_password action
-    valid_keys = [:password, :password_confirmation, :current_password,
-                  "password", "password_confirmation", "current_password"]
+    valid_keys = [
+      :password,
+      :password_confirmation,
+      :current_password,
+      "password",
+      "password_confirmation",
+      "current_password"
+    ]
+
     filtered_attrs = Map.take(attrs, valid_keys)
 
     user
-    |> Ash.Changeset.for_update(:change_password, filtered_attrs, actor: actor, authorize?: authorize?)
+    |> Ash.Changeset.for_update(:change_password, filtered_attrs,
+      actor: actor,
+      authorize?: authorize?
+    )
     |> Ash.update()
   end
 
@@ -256,7 +269,9 @@ defmodule ServiceRadar.Identity.Users do
   defp ensure_tenant_id(attrs) do
     # Try to get default tenant from config or create one
     default_tenant_id =
-      Application.get_env(:serviceradar_core, :default_tenant_id,
+      Application.get_env(
+        :serviceradar_core,
+        :default_tenant_id,
         "00000000-0000-0000-0000-000000000000"
       )
 
@@ -264,11 +279,13 @@ defmodule ServiceRadar.Identity.Users do
   end
 
   defp maybe_filter_tenant(query, nil), do: query
+
   defp maybe_filter_tenant(query, tenant_id) do
     Ash.Query.filter(query, expr(tenant_id == ^tenant_id))
   end
 
   defp maybe_filter_role(query, nil), do: query
+
   defp maybe_filter_role(query, role) do
     Ash.Query.filter(query, expr(role == ^role))
   end

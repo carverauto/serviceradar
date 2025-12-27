@@ -30,6 +30,11 @@ defmodule ServiceRadar.Monitoring.Alert do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshOban, AshJsonApi.Resource]
 
+  postgres do
+    table "alerts"
+    repo ServiceRadar.Repo
+  end
+
   json_api do
     type "alert"
 
@@ -46,15 +51,20 @@ defmodule ServiceRadar.Monitoring.Alert do
     end
   end
 
-  postgres do
-    table "alerts"
-    repo ServiceRadar.Repo
-  end
+  state_machine do
+    initial_states [:pending]
+    default_initial_state :pending
+    state_attribute :status
+    deprecated_states []
 
-  multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    transitions do
+      # Normal lifecycle
+      transition :acknowledge, from: :pending, to: :acknowledged
+      transition :resolve, from: [:pending, :acknowledged, :escalated], to: :resolved
+      transition :escalate, from: [:pending, :acknowledged], to: :escalated
+      transition :suppress, from: [:pending, :acknowledged, :escalated], to: :suppressed
+      transition :reopen, from: [:resolved, :suppressed], to: :pending
+    end
   end
 
   oban do
@@ -71,10 +81,10 @@ defmodule ServiceRadar.Monitoring.Alert do
 
         # Only escalate alerts that have been pending for 30+ minutes
         where expr(
-          status == :pending and
-          triggered_at < ago(30, :minute) and
-          severity in [:critical, :emergency]
-        )
+                status == :pending and
+                  triggered_at < ago(30, :minute) and
+                  severity in [:critical, :emergency]
+              )
       end
 
       # Scheduled trigger for sending notifications on new/escalated alerts
@@ -90,19 +100,244 @@ defmodule ServiceRadar.Monitoring.Alert do
     end
   end
 
-  state_machine do
-    initial_states [:pending]
-    default_initial_state :pending
-    state_attribute :status
-    deprecated_states []
+  multitenancy do
+    strategy :attribute
+    attribute :tenant_id
+    global? true
+  end
 
-    transitions do
-      # Normal lifecycle
-      transition :acknowledge, from: :pending, to: :acknowledged
-      transition :resolve, from: [:pending, :acknowledged, :escalated], to: :resolved
-      transition :escalate, from: [:pending, :acknowledged], to: :escalated
-      transition :suppress, from: [:pending, :acknowledged, :escalated], to: :suppressed
-      transition :reopen, from: [:resolved, :suppressed], to: :pending
+  code_interface do
+    define :get_by_id, action: :by_id, args: [:id]
+    define :list_active, action: :active
+    define :list_pending, action: :pending
+    define :list_by_device, action: :by_device, args: [:device_uid]
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_id do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+    end
+
+    read :by_status do
+      argument :status, :atom, allow_nil?: false
+      filter expr(status == ^arg(:status))
+    end
+
+    read :active do
+      description "All active (non-resolved) alerts"
+      filter expr(status in [:pending, :acknowledged, :escalated])
+    end
+
+    read :pending do
+      description "Alerts awaiting acknowledgement"
+      filter expr(status == :pending)
+      pagination keyset?: true, default_limit: 100
+    end
+
+    read :by_severity do
+      argument :severity, :atom, allow_nil?: false
+      filter expr(severity == ^arg(:severity))
+    end
+
+    read :by_device do
+      argument :device_uid, :string, allow_nil?: false
+      filter expr(device_uid == ^arg(:device_uid))
+    end
+
+    read :recent do
+      description "Alerts from last 24 hours"
+      filter expr(created_at > ago(24, :hour))
+    end
+
+    read :needs_notification do
+      description "Alerts that need notification"
+      # Find alerts that are active and either:
+      # - Never notified (notification_count == 0)
+      # - Not suppressed (suppressed_until is nil or in the past)
+      filter expr(
+               status in [:pending, :escalated] and
+                 notification_count == 0 and
+                 (is_nil(suppressed_until) or suppressed_until < now())
+             )
+
+      pagination keyset?: true, default_limit: 100
+    end
+
+    create :trigger do
+      description "Trigger a new alert"
+
+      accept [
+        :title,
+        :description,
+        :severity,
+        :source_type,
+        :source_id,
+        :service_check_id,
+        :device_uid,
+        :agent_uid,
+        :metric_name,
+        :metric_value,
+        :threshold_value,
+        :comparison,
+        :metadata,
+        :tags
+      ]
+
+      change set_attribute(:triggered_at, &DateTime.utc_now/0)
+    end
+
+    update :acknowledge do
+      description "Acknowledge an alert"
+      argument :acknowledged_by, :string, allow_nil?: false
+      argument :note, :string
+
+      change transition_state(:acknowledged)
+      change set_attribute(:acknowledged_at, &DateTime.utc_now/0)
+      change set_attribute(:acknowledged_by, arg(:acknowledged_by))
+    end
+
+    update :resolve do
+      description "Resolve an alert"
+      argument :resolved_by, :string
+      argument :resolution_note, :string
+
+      change transition_state(:resolved)
+      change set_attribute(:resolved_at, &DateTime.utc_now/0)
+      change set_attribute(:resolved_by, arg(:resolved_by))
+      change set_attribute(:resolution_note, arg(:resolution_note))
+    end
+
+    update :escalate do
+      description "Escalate an alert"
+      argument :reason, :string
+      require_atomic? false
+
+      change transition_state(:escalated)
+      change set_attribute(:escalated_at, &DateTime.utc_now/0)
+      change set_attribute(:escalation_reason, arg(:reason))
+
+      change fn changeset, _context ->
+        current_level = changeset.data.escalation_level || 0
+        Ash.Changeset.change_attribute(changeset, :escalation_level, current_level + 1)
+      end
+    end
+
+    update :suppress do
+      description "Suppress alert notifications"
+      argument :until, :utc_datetime
+
+      change transition_state(:suppressed)
+      change set_attribute(:suppressed_until, arg(:until))
+    end
+
+    update :reopen do
+      description "Reopen a resolved or suppressed alert"
+      argument :reason, :string
+
+      change transition_state(:pending)
+      change set_attribute(:resolved_at, nil)
+      change set_attribute(:resolved_by, nil)
+      change set_attribute(:suppressed_until, nil)
+    end
+
+    update :record_notification do
+      description "Record that a notification was sent"
+      require_atomic? false
+
+      change fn changeset, _context ->
+        current_count = changeset.data.notification_count || 0
+
+        changeset
+        |> Ash.Changeset.change_attribute(:notification_count, current_count + 1)
+        |> Ash.Changeset.change_attribute(:last_notification_at, DateTime.utc_now())
+      end
+    end
+
+    update :send_notification do
+      description "Send notification for an alert (called by AshOban scheduler)"
+      require_atomic? false
+
+      change fn changeset, _context ->
+        alert = changeset.data
+        current_count = alert.notification_count || 0
+
+        # Log the notification being sent
+        require Logger
+
+        Logger.info(
+          "Sending notification for alert: #{alert.title} (#{alert.id}) - severity: #{alert.severity}"
+        )
+
+        # TODO: Implement actual notification dispatch (email, webhook, PubSub, etc.)
+        # For now, just record that a notification was sent
+
+        changeset
+        |> Ash.Changeset.change_attribute(:notification_count, current_count + 1)
+        |> Ash.Changeset.change_attribute(:last_notification_at, DateTime.utc_now())
+      end
+    end
+
+    update :update_metadata do
+      accept [:metadata, :tags]
+    end
+  end
+
+  policies do
+    # Import common policy checks
+
+    # Super admins bypass all policies (platform-wide access)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    # TENANT ISOLATION: Alerts contain sensitive operational data
+    # Must NEVER leak to other tenants
+
+    # Read access: Must be authenticated AND in same tenant
+    policy action_type(:read) do
+      authorize_if expr(
+                     ^actor(:role) in [:viewer, :operator, :admin] and
+                       tenant_id == ^actor(:tenant_id)
+                   )
+    end
+
+    # Trigger alerts: Operators/admins in same tenant
+    policy action(:trigger) do
+      authorize_if expr(
+                     ^actor(:role) in [:operator, :admin] and
+                       tenant_id == ^actor(:tenant_id)
+                   )
+    end
+
+    # Acknowledge/resolve: Operators/admins in same tenant
+    policy action([:acknowledge, :resolve, :record_notification, :update_metadata]) do
+      authorize_if expr(
+                     ^actor(:role) in [:operator, :admin] and
+                       tenant_id == ^actor(:tenant_id)
+                   )
+    end
+
+    # Escalate/suppress/reopen: Admins only, same tenant
+    policy action([:escalate, :suppress, :reopen]) do
+      authorize_if expr(
+                     ^actor(:role) == :admin and
+                       tenant_id == ^actor(:tenant_id)
+                   )
+    end
+
+    # Send notification: Operators/admins in same tenant, or AshOban (no actor)
+    policy action(:send_notification) do
+      authorize_if expr(
+                     ^actor(:role) in [:operator, :admin] and
+                       tenant_id == ^actor(:tenant_id)
+                   )
+
+      # Allow AshOban scheduler (no actor) to send notifications
+      authorize_if always()
     end
   end
 
@@ -295,260 +530,49 @@ defmodule ServiceRadar.Monitoring.Alert do
     end
   end
 
-  actions do
-    defaults [:read]
-
-    read :by_id do
-      argument :id, :uuid, allow_nil?: false
-      get? true
-      filter expr(id == ^arg(:id))
-    end
-
-    read :by_status do
-      argument :status, :atom, allow_nil?: false
-      filter expr(status == ^arg(:status))
-    end
-
-    read :active do
-      description "All active (non-resolved) alerts"
-      filter expr(status in [:pending, :acknowledged, :escalated])
-    end
-
-    read :pending do
-      description "Alerts awaiting acknowledgement"
-      filter expr(status == :pending)
-      pagination keyset?: true, default_limit: 100
-    end
-
-    read :by_severity do
-      argument :severity, :atom, allow_nil?: false
-      filter expr(severity == ^arg(:severity))
-    end
-
-    read :by_device do
-      argument :device_uid, :string, allow_nil?: false
-      filter expr(device_uid == ^arg(:device_uid))
-    end
-
-    read :recent do
-      description "Alerts from last 24 hours"
-      filter expr(created_at > ago(24, :hour))
-    end
-
-    read :needs_notification do
-      description "Alerts that need notification"
-      # Find alerts that are active and either:
-      # - Never notified (notification_count == 0)
-      # - Not suppressed (suppressed_until is nil or in the past)
-      filter expr(
-        status in [:pending, :escalated] and
-        notification_count == 0 and
-        (is_nil(suppressed_until) or suppressed_until < now())
-      )
-      pagination keyset?: true, default_limit: 100
-    end
-
-    create :trigger do
-      description "Trigger a new alert"
-      accept [
-        :title, :description, :severity, :source_type, :source_id,
-        :service_check_id, :device_uid, :agent_uid, :metric_name,
-        :metric_value, :threshold_value, :comparison, :metadata, :tags
-      ]
-
-      change set_attribute(:triggered_at, &DateTime.utc_now/0)
-    end
-
-    update :acknowledge do
-      description "Acknowledge an alert"
-      argument :acknowledged_by, :string, allow_nil?: false
-      argument :note, :string
-
-      change transition_state(:acknowledged)
-      change set_attribute(:acknowledged_at, &DateTime.utc_now/0)
-      change set_attribute(:acknowledged_by, arg(:acknowledged_by))
-    end
-
-    update :resolve do
-      description "Resolve an alert"
-      argument :resolved_by, :string
-      argument :resolution_note, :string
-
-      change transition_state(:resolved)
-      change set_attribute(:resolved_at, &DateTime.utc_now/0)
-      change set_attribute(:resolved_by, arg(:resolved_by))
-      change set_attribute(:resolution_note, arg(:resolution_note))
-    end
-
-    update :escalate do
-      description "Escalate an alert"
-      argument :reason, :string
-      require_atomic? false
-
-      change transition_state(:escalated)
-      change set_attribute(:escalated_at, &DateTime.utc_now/0)
-      change set_attribute(:escalation_reason, arg(:reason))
-      change fn changeset, _context ->
-        current_level = changeset.data.escalation_level || 0
-        Ash.Changeset.change_attribute(changeset, :escalation_level, current_level + 1)
-      end
-    end
-
-    update :suppress do
-      description "Suppress alert notifications"
-      argument :until, :utc_datetime
-
-      change transition_state(:suppressed)
-      change set_attribute(:suppressed_until, arg(:until))
-    end
-
-    update :reopen do
-      description "Reopen a resolved or suppressed alert"
-      argument :reason, :string
-
-      change transition_state(:pending)
-      change set_attribute(:resolved_at, nil)
-      change set_attribute(:resolved_by, nil)
-      change set_attribute(:suppressed_until, nil)
-    end
-
-    update :record_notification do
-      description "Record that a notification was sent"
-      require_atomic? false
-
-      change fn changeset, _context ->
-        current_count = changeset.data.notification_count || 0
-
-        changeset
-        |> Ash.Changeset.change_attribute(:notification_count, current_count + 1)
-        |> Ash.Changeset.change_attribute(:last_notification_at, DateTime.utc_now())
-      end
-    end
-
-    update :send_notification do
-      description "Send notification for an alert (called by AshOban scheduler)"
-      require_atomic? false
-
-      change fn changeset, _context ->
-        alert = changeset.data
-        current_count = alert.notification_count || 0
-
-        # Log the notification being sent
-        require Logger
-        Logger.info("Sending notification for alert: #{alert.title} (#{alert.id}) - severity: #{alert.severity}")
-
-        # TODO: Implement actual notification dispatch (email, webhook, PubSub, etc.)
-        # For now, just record that a notification was sent
-
-        changeset
-        |> Ash.Changeset.change_attribute(:notification_count, current_count + 1)
-        |> Ash.Changeset.change_attribute(:last_notification_at, DateTime.utc_now())
-      end
-    end
-
-    update :update_metadata do
-      accept [:metadata, :tags]
-    end
-  end
-
   calculations do
-    calculate :severity_color, :string, expr(
-      cond do
-        severity == :emergency -> "red"
-        severity == :critical -> "red"
-        severity == :warning -> "yellow"
-        severity == :info -> "blue"
-        true -> "gray"
-      end
-    )
+    calculate :severity_color,
+              :string,
+              expr(
+                cond do
+                  severity == :emergency -> "red"
+                  severity == :critical -> "red"
+                  severity == :warning -> "yellow"
+                  severity == :info -> "blue"
+                  true -> "gray"
+                end
+              )
 
-    calculate :status_label, :string, expr(
-      cond do
-        status == :pending -> "Pending"
-        status == :acknowledged -> "Acknowledged"
-        status == :resolved -> "Resolved"
-        status == :escalated -> "Escalated"
-        status == :suppressed -> "Suppressed"
-        true -> "Unknown"
-      end
-    )
+    calculate :status_label,
+              :string,
+              expr(
+                cond do
+                  status == :pending -> "Pending"
+                  status == :acknowledged -> "Acknowledged"
+                  status == :resolved -> "Resolved"
+                  status == :escalated -> "Escalated"
+                  status == :suppressed -> "Suppressed"
+                  true -> "Unknown"
+                end
+              )
 
-    calculate :is_actionable, :boolean, expr(
-      status in [:pending, :acknowledged, :escalated]
-    )
+    calculate :is_actionable, :boolean, expr(status in [:pending, :acknowledged, :escalated])
 
-    calculate :duration_seconds, :integer, expr(
-      if not is_nil(resolved_at) do
-        fragment("EXTRACT(EPOCH FROM ? - ?)", resolved_at, triggered_at)
-      else
-        fragment("EXTRACT(EPOCH FROM now() - ?)", triggered_at)
-      end
-    )
+    calculate :duration_seconds,
+              :integer,
+              expr(
+                if not is_nil(resolved_at) do
+                  fragment("EXTRACT(EPOCH FROM ? - ?)", resolved_at, triggered_at)
+                else
+                  fragment("EXTRACT(EPOCH FROM now() - ?)", triggered_at)
+                end
+              )
 
-    calculate :needs_escalation, :boolean, expr(
-      status == :pending and
-      triggered_at < ago(30, :minute)
-    )
-  end
-
-  code_interface do
-    define :get_by_id, action: :by_id, args: [:id]
-    define :list_active, action: :active
-    define :list_pending, action: :pending
-    define :list_by_device, action: :by_device, args: [:device_uid]
-  end
-
-  policies do
-    # Import common policy checks
-
-    # Super admins bypass all policies (platform-wide access)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # TENANT ISOLATION: Alerts contain sensitive operational data
-    # Must NEVER leak to other tenants
-
-    # Read access: Must be authenticated AND in same tenant
-    policy action_type(:read) do
-      authorize_if expr(
-        ^actor(:role) in [:viewer, :operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
-    end
-
-    # Trigger alerts: Operators/admins in same tenant
-    policy action(:trigger) do
-      authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
-    end
-
-    # Acknowledge/resolve: Operators/admins in same tenant
-    policy action([:acknowledge, :resolve, :record_notification, :update_metadata]) do
-      authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
-    end
-
-    # Escalate/suppress/reopen: Admins only, same tenant
-    policy action([:escalate, :suppress, :reopen]) do
-      authorize_if expr(
-        ^actor(:role) == :admin and
-        tenant_id == ^actor(:tenant_id)
-      )
-    end
-
-    # Send notification: Operators/admins in same tenant, or AshOban (no actor)
-    policy action(:send_notification) do
-      authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
-      # Allow AshOban scheduler (no actor) to send notifications
-      authorize_if always()
-    end
+    calculate :needs_escalation,
+              :boolean,
+              expr(
+                status == :pending and
+                  triggered_at < ago(30, :minute)
+              )
   end
 end

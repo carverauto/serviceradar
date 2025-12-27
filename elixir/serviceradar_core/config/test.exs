@@ -4,8 +4,7 @@ import Config
 config :swoosh, :api_client, false
 
 # Use Test adapter for mailer
-config :serviceradar_core, ServiceRadar.Mailer,
-  adapter: Swoosh.Adapters.Test
+config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
 
 # Test database configuration
 read_url_file = fn
@@ -73,8 +72,7 @@ config :serviceradar_core,
   cluster_enabled: false
 
 # Oban in test mode (real DB, real queues)
-config :serviceradar_core, Oban,
-  repo: ServiceRadar.Repo
+config :serviceradar_core, Oban, repo: ServiceRadar.Repo
 
 # Reduce log noise in tests
 config :logger, level: :warning

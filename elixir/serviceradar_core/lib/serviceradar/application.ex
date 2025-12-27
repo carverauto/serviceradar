@@ -33,6 +33,9 @@ defmodule ServiceRadar.Application do
         # PubSub for cluster events (always needed)
         {Phoenix.PubSub, name: ServiceRadar.PubSub},
 
+        # Local registry for process lookups (pollers, agents)
+        {Registry, keys: :unique, name: ServiceRadar.LocalRegistry},
+
         # Oban job processor (can be disabled for standalone tests)
         oban_child(),
 
@@ -81,10 +84,22 @@ defmodule ServiceRadar.Application do
       [
         # Horde distributed registries for pollers and agents
         ServiceRadar.PollerRegistry,
-        ServiceRadar.AgentRegistry
+        ServiceRadar.AgentRegistry,
+        # Identity cache for device lookups (ETS-based with TTL)
+        ServiceRadar.Identity.IdentityCache,
+        # DataService client for KV operations (used to push config to Go/Rust services)
+        datasvc_client_child()
       ]
     else
       []
+    end
+  end
+
+  defp datasvc_client_child do
+    if Application.get_env(:serviceradar_core, :datasvc_enabled, true) do
+      ServiceRadar.DataService.Client
+    else
+      nil
     end
   end
 

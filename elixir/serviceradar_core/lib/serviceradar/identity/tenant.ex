@@ -25,15 +25,79 @@ defmodule ServiceRadar.Identity.Tenant do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshCloak]
 
-  cloak do
-    vault ServiceRadar.Vault
-    attributes [:contact_email, :contact_name]
-    decrypt_by_default [:contact_email, :contact_name]
-  end
-
   postgres do
     table "tenants"
     repo ServiceRadar.Repo
+  end
+
+  cloak do
+    vault(ServiceRadar.Vault)
+    attributes([:contact_email, :contact_name])
+    decrypt_by_default([:contact_email, :contact_name])
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_slug do
+      argument :slug, :ci_string, allow_nil?: false
+      get? true
+      filter expr(slug == ^arg(:slug))
+    end
+
+    read :active do
+      filter expr(status == :active)
+    end
+
+    create :create do
+      accept [:name, :slug, :contact_email, :contact_name, :plan, :max_devices, :max_users]
+      change ServiceRadar.Identity.Changes.GenerateSlug
+    end
+
+    update :update do
+      accept [:name, :contact_email, :contact_name, :settings]
+    end
+
+    update :upgrade_plan do
+      accept [:plan, :max_devices, :max_users]
+    end
+
+    update :suspend do
+      change set_attribute(:status, :suspended)
+    end
+
+    update :activate do
+      change set_attribute(:status, :active)
+    end
+
+    update :soft_delete do
+      change set_attribute(:status, :deleted)
+    end
+  end
+
+  policies do
+    # Super admins can do anything
+    bypass action_type(:read) do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    bypass action_type(:create) do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    bypass action_type(:update) do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    # Regular users can only read their own tenant
+    policy action_type(:read) do
+      authorize_if expr(id == ^actor(:tenant_id))
+    end
+
+    # Tenant admins can update their own tenant (limited fields)
+    policy action(:update) do
+      authorize_if expr(id == ^actor(:tenant_id) and ^actor(:role) == :admin)
+    end
   end
 
   attributes do
@@ -98,95 +162,33 @@ defmodule ServiceRadar.Identity.Tenant do
     update_timestamp :updated_at
   end
 
-  identities do
-    identity :unique_slug, [:slug]
-  end
-
   relationships do
     has_many :users, ServiceRadar.Identity.User
-  end
-
-  actions do
-    defaults [:read]
-
-    read :by_slug do
-      argument :slug, :ci_string, allow_nil?: false
-      get? true
-      filter expr(slug == ^arg(:slug))
-    end
-
-    read :active do
-      filter expr(status == :active)
-    end
-
-    create :create do
-      accept [:name, :slug, :contact_email, :contact_name, :plan, :max_devices, :max_users]
-      change ServiceRadar.Identity.Changes.GenerateSlug
-    end
-
-    update :update do
-      accept [:name, :contact_email, :contact_name, :settings]
-    end
-
-    update :upgrade_plan do
-      accept [:plan, :max_devices, :max_users]
-    end
-
-    update :suspend do
-      change set_attribute(:status, :suspended)
-    end
-
-    update :activate do
-      change set_attribute(:status, :active)
-    end
-
-    update :soft_delete do
-      change set_attribute(:status, :deleted)
-    end
   end
 
   calculations do
     calculate :user_count, :integer, expr(count(users))
 
-    calculate :display_status, :string, expr(
-      if status == :active do
-        "Active"
-      else
-        if status == :suspended do
-          "Suspended"
-        else
-          if status == :pending do
-            "Pending"
-          else
-            "Deleted"
-          end
-        end
-      end
-    )
+    calculate :display_status,
+              :string,
+              expr(
+                if status == :active do
+                  "Active"
+                else
+                  if status == :suspended do
+                    "Suspended"
+                  else
+                    if status == :pending do
+                      "Pending"
+                    else
+                      "Deleted"
+                    end
+                  end
+                end
+              )
   end
 
-  policies do
-    # Super admins can do anything
-    bypass action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    bypass action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    bypass action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # Regular users can only read their own tenant
-    policy action_type(:read) do
-      authorize_if expr(id == ^actor(:tenant_id))
-    end
-
-    # Tenant admins can update their own tenant (limited fields)
-    policy action(:update) do
-      authorize_if expr(id == ^actor(:tenant_id) and ^actor(:role) == :admin)
-    end
+  identities do
+    identity :unique_slug, [:slug]
   end
 end

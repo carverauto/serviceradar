@@ -25,15 +25,15 @@ defmodule ServiceRadar.Jobs do
     validate_config_inclusion?: false
 
   admin do
-    show? true
+    show?(true)
+  end
+
+  resources do
+    resource ServiceRadar.Jobs.JobSchedule
   end
 
   authorization do
     require_actor? false
     authorize :by_default
-  end
-
-  resources do
-    resource ServiceRadar.Jobs.JobSchedule
   end
 end

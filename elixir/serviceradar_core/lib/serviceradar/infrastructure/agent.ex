@@ -27,6 +27,11 @@ defmodule ServiceRadar.Infrastructure.Agent do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshJsonApi.Resource]
 
+  postgres do
+    table "ocsf_agents"
+    repo ServiceRadar.Repo
+  end
+
   json_api do
     type "agent"
 
@@ -37,17 +42,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
       index :read
       index :by_poller, route: "/by-poller/:poller_id"
     end
-  end
-
-  postgres do
-    table "ocsf_agents"
-    repo ServiceRadar.Repo
-  end
-
-  multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
   end
 
   state_machine do
@@ -64,8 +58,254 @@ defmodule ServiceRadar.Infrastructure.Agent do
       transition :restore_health, from: :degraded, to: :connected
       transition :lose_connection, from: [:connected, :degraded], to: :disconnected
       transition :reconnect, from: :disconnected, to: :connecting
-      transition :mark_unavailable, from: [:connecting, :connected, :degraded, :disconnected], to: :unavailable
+
+      transition :mark_unavailable,
+        from: [:connecting, :connected, :degraded, :disconnected],
+        to: :unavailable
+
       transition :recover, from: :unavailable, to: :connecting
+    end
+  end
+
+  multitenancy do
+    strategy :attribute
+    attribute :tenant_id
+    global? true
+  end
+
+  code_interface do
+    define :get_by_uid, action: :by_uid, args: [:uid]
+    define :list_by_poller, action: :by_poller, args: [:poller_id]
+    define :list_connected, action: :connected
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_uid do
+      argument :uid, :string, allow_nil?: false
+      get? true
+      filter expr(uid == ^arg(:uid))
+    end
+
+    read :by_poller do
+      argument :poller_id, :string, allow_nil?: false
+      filter expr(poller_id == ^arg(:poller_id))
+    end
+
+    read :by_device do
+      argument :device_uid, :string, allow_nil?: false
+      filter expr(device_uid == ^arg(:device_uid))
+    end
+
+    read :connected do
+      description "All connected agents"
+      filter expr(status == :connected and is_healthy == true)
+    end
+
+    read :by_status do
+      argument :status, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:connecting, :connected, :degraded, :disconnected, :unavailable]]
+
+      filter expr(status == ^arg(:status))
+    end
+
+    read :by_capability do
+      argument :capability, :string, allow_nil?: false
+      filter expr(^arg(:capability) in capabilities)
+    end
+
+    read :recently_seen do
+      description "Agents seen in the last 5 minutes"
+      filter expr(last_seen_time > ago(5, :minute))
+    end
+
+    create :register do
+      description "Register a new agent (starts in connecting state)"
+
+      accept [
+        :uid,
+        :name,
+        :type_id,
+        :type,
+        :uid_alt,
+        :vendor_name,
+        :version,
+        :policies,
+        :poller_id,
+        :device_uid,
+        :capabilities,
+        :host,
+        :port,
+        :spiffe_identity,
+        :metadata
+      ]
+
+      change fn changeset, _context ->
+        now = DateTime.utc_now()
+
+        changeset
+        |> Ash.Changeset.change_attribute(:first_seen_time, now)
+        |> Ash.Changeset.change_attribute(:last_seen_time, now)
+        |> Ash.Changeset.change_attribute(:created_time, now)
+        |> Ash.Changeset.change_attribute(:is_healthy, true)
+      end
+    end
+
+    create :register_connected do
+      description "Register a new agent as already connected (skips connecting state)"
+
+      accept [
+        :uid,
+        :name,
+        :type_id,
+        :type,
+        :uid_alt,
+        :vendor_name,
+        :version,
+        :policies,
+        :poller_id,
+        :device_uid,
+        :capabilities,
+        :host,
+        :port,
+        :spiffe_identity,
+        :metadata
+      ]
+
+      change fn changeset, _context ->
+        now = DateTime.utc_now()
+
+        changeset
+        |> Ash.Changeset.change_attribute(:first_seen_time, now)
+        |> Ash.Changeset.change_attribute(:last_seen_time, now)
+        |> Ash.Changeset.change_attribute(:created_time, now)
+        |> Ash.Changeset.change_attribute(:status, :connected)
+        |> Ash.Changeset.change_attribute(:is_healthy, true)
+      end
+    end
+
+    update :update do
+      accept [:name, :capabilities, :host, :port, :policies, :metadata]
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :heartbeat do
+      description "Update last_seen_time and health status (for connected agents)"
+      accept [:is_healthy, :capabilities]
+      require_atomic? false
+
+      change set_attribute(:last_seen_time, &DateTime.utc_now/0)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    # State machine transition actions
+    update :establish_connection do
+      description "Mark agent as connected (from connecting state)"
+      accept [:poller_id]
+
+      change transition_state(:connected)
+      change set_attribute(:is_healthy, true)
+      change set_attribute(:last_seen_time, &DateTime.utc_now/0)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :connection_failed do
+      description "Mark connection attempt as failed"
+
+      change transition_state(:disconnected)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :degrade do
+      description "Mark agent as degraded (connected but unhealthy)"
+
+      change transition_state(:degraded)
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :restore_health do
+      description "Restore agent health (from degraded to connected)"
+
+      change transition_state(:connected)
+      change set_attribute(:is_healthy, true)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :lose_connection do
+      description "Mark agent as disconnected (connection lost)"
+
+      change transition_state(:disconnected)
+      change set_attribute(:poller_id, nil)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :reconnect do
+      description "Start reconnection process (from disconnected to connecting)"
+
+      change transition_state(:connecting)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :mark_unavailable do
+      description "Mark agent as unavailable (admin action)"
+      argument :reason, :string
+
+      change transition_state(:unavailable)
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :recover do
+      description "Start recovery process (from unavailable to connecting)"
+
+      change transition_state(:connecting)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    # Legacy compatibility actions (mapped to state machine)
+    update :connect do
+      description "Mark agent as connected to a poller (legacy - use establish_connection)"
+      accept [:poller_id]
+
+      change transition_state(:connected)
+      change set_attribute(:is_healthy, true)
+      change set_attribute(:last_seen_time, &DateTime.utc_now/0)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :disconnect do
+      description "Mark agent as disconnected (legacy - use lose_connection)"
+
+      change transition_state(:disconnected)
+      change set_attribute(:poller_id, nil)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :mark_unhealthy do
+      description "Mark agent as unhealthy (legacy - use degrade)"
+      change transition_state(:degraded)
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+  end
+
+  policies do
+    # Allow all reads - tenant isolation will be enforced at query level
+    # when we have proper tenant context from the Go pollers
+    policy action_type(:read) do
+      authorize_if always()
+    end
+
+    # Allow create/update for authenticated users
+    policy action_type(:create) do
+      authorize_if always()
+    end
+
+    policy action_type(:update) do
+      authorize_if always()
     end
   end
 
@@ -199,10 +439,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
     end
   end
 
-  identities do
-    identity :unique_uid, [:uid]
-  end
-
   relationships do
     belongs_to :poller, ServiceRadar.Infrastructure.Poller do
       source_attribute :poller_id
@@ -225,275 +461,84 @@ defmodule ServiceRadar.Infrastructure.Agent do
     end
   end
 
-  actions do
-    defaults [:read]
-
-    read :by_uid do
-      argument :uid, :string, allow_nil?: false
-      get? true
-      filter expr(uid == ^arg(:uid))
-    end
-
-    read :by_poller do
-      argument :poller_id, :string, allow_nil?: false
-      filter expr(poller_id == ^arg(:poller_id))
-    end
-
-    read :by_device do
-      argument :device_uid, :string, allow_nil?: false
-      filter expr(device_uid == ^arg(:device_uid))
-    end
-
-    read :connected do
-      description "All connected agents"
-      filter expr(status == :connected and is_healthy == true)
-    end
-
-    read :by_status do
-      argument :status, :atom, allow_nil?: false, constraints: [one_of: [:connecting, :connected, :degraded, :disconnected, :unavailable]]
-      filter expr(status == ^arg(:status))
-    end
-
-    read :by_capability do
-      argument :capability, :string, allow_nil?: false
-      filter expr(^arg(:capability) in capabilities)
-    end
-
-    read :recently_seen do
-      description "Agents seen in the last 5 minutes"
-      filter expr(last_seen_time > ago(5, :minute))
-    end
-
-    create :register do
-      description "Register a new agent (starts in connecting state)"
-      accept [
-        :uid, :name, :type_id, :type, :uid_alt, :vendor_name, :version,
-        :policies, :poller_id, :device_uid, :capabilities, :host, :port,
-        :spiffe_identity, :metadata
-      ]
-
-      change fn changeset, _context ->
-        now = DateTime.utc_now()
-
-        changeset
-        |> Ash.Changeset.change_attribute(:first_seen_time, now)
-        |> Ash.Changeset.change_attribute(:last_seen_time, now)
-        |> Ash.Changeset.change_attribute(:created_time, now)
-        |> Ash.Changeset.change_attribute(:is_healthy, true)
-      end
-    end
-
-    create :register_connected do
-      description "Register a new agent as already connected (skips connecting state)"
-      accept [
-        :uid, :name, :type_id, :type, :uid_alt, :vendor_name, :version,
-        :policies, :poller_id, :device_uid, :capabilities, :host, :port,
-        :spiffe_identity, :metadata
-      ]
-
-      change fn changeset, _context ->
-        now = DateTime.utc_now()
-
-        changeset
-        |> Ash.Changeset.change_attribute(:first_seen_time, now)
-        |> Ash.Changeset.change_attribute(:last_seen_time, now)
-        |> Ash.Changeset.change_attribute(:created_time, now)
-        |> Ash.Changeset.change_attribute(:status, :connected)
-        |> Ash.Changeset.change_attribute(:is_healthy, true)
-      end
-    end
-
-    update :update do
-      accept [:name, :capabilities, :host, :port, :policies, :metadata]
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    update :heartbeat do
-      description "Update last_seen_time and health status (for connected agents)"
-      accept [:is_healthy, :capabilities]
-      require_atomic? false
-
-      change set_attribute(:last_seen_time, &DateTime.utc_now/0)
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    # State machine transition actions
-    update :establish_connection do
-      description "Mark agent as connected (from connecting state)"
-      accept [:poller_id]
-
-      change transition_state(:connected)
-      change set_attribute(:is_healthy, true)
-      change set_attribute(:last_seen_time, &DateTime.utc_now/0)
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    update :connection_failed do
-      description "Mark connection attempt as failed"
-
-      change transition_state(:disconnected)
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    update :degrade do
-      description "Mark agent as degraded (connected but unhealthy)"
-
-      change transition_state(:degraded)
-      change set_attribute(:is_healthy, false)
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    update :restore_health do
-      description "Restore agent health (from degraded to connected)"
-
-      change transition_state(:connected)
-      change set_attribute(:is_healthy, true)
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    update :lose_connection do
-      description "Mark agent as disconnected (connection lost)"
-
-      change transition_state(:disconnected)
-      change set_attribute(:poller_id, nil)
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    update :reconnect do
-      description "Start reconnection process (from disconnected to connecting)"
-
-      change transition_state(:connecting)
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    update :mark_unavailable do
-      description "Mark agent as unavailable (admin action)"
-      argument :reason, :string
-
-      change transition_state(:unavailable)
-      change set_attribute(:is_healthy, false)
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    update :recover do
-      description "Start recovery process (from unavailable to connecting)"
-
-      change transition_state(:connecting)
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    # Legacy compatibility actions (mapped to state machine)
-    update :connect do
-      description "Mark agent as connected to a poller (legacy - use establish_connection)"
-      accept [:poller_id]
-
-      change transition_state(:connected)
-      change set_attribute(:is_healthy, true)
-      change set_attribute(:last_seen_time, &DateTime.utc_now/0)
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    update :disconnect do
-      description "Mark agent as disconnected (legacy - use lose_connection)"
-
-      change transition_state(:disconnected)
-      change set_attribute(:poller_id, nil)
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    update :mark_unhealthy do
-      description "Mark agent as unhealthy (legacy - use degrade)"
-      change transition_state(:degraded)
-      change set_attribute(:is_healthy, false)
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-  end
-
   calculations do
-    calculate :type_name, :string, expr(
-      cond do
-        not is_nil(type) -> type
-        type_id == 0 -> "Unknown"
-        type_id == 1 -> "EDR"
-        type_id == 2 -> "DLP"
-        type_id == 3 -> "Backup/Recovery"
-        type_id == 4 -> "Performance"
-        type_id == 5 -> "Vulnerability"
-        type_id == 6 -> "Log Management"
-        type_id == 7 -> "MDM"
-        type_id == 8 -> "Config Management"
-        type_id == 9 -> "Remote Access"
-        type_id == 99 -> "Other"
-        true -> "Unknown"
-      end
-    )
+    calculate :type_name,
+              :string,
+              expr(
+                cond do
+                  not is_nil(type) -> type
+                  type_id == 0 -> "Unknown"
+                  type_id == 1 -> "EDR"
+                  type_id == 2 -> "DLP"
+                  type_id == 3 -> "Backup/Recovery"
+                  type_id == 4 -> "Performance"
+                  type_id == 5 -> "Vulnerability"
+                  type_id == 6 -> "Log Management"
+                  type_id == 7 -> "MDM"
+                  type_id == 8 -> "Config Management"
+                  type_id == 9 -> "Remote Access"
+                  type_id == 99 -> "Other"
+                  true -> "Unknown"
+                end
+              )
 
-    calculate :display_name, :string, expr(
-      cond do
-        not is_nil(name) -> name
-        not is_nil(host) -> host
-        true -> uid
-      end
-    )
+    calculate :display_name,
+              :string,
+              expr(
+                cond do
+                  not is_nil(name) -> name
+                  not is_nil(host) -> host
+                  true -> uid
+                end
+              )
 
-    calculate :is_online, :boolean, expr(
-      status == :connected and
-      is_healthy == true and
-      last_seen_time > ago(5, :minute)
-    )
+    calculate :is_online,
+              :boolean,
+              expr(
+                status == :connected and
+                  is_healthy == true and
+                  last_seen_time > ago(5, :minute)
+              )
 
-    calculate :status_color, :string, expr(
-      cond do
-        status == :connected and is_healthy == true -> "green"
-        status == :connected and is_healthy == false -> "yellow"
-        status == :degraded -> "yellow"
-        status == :connecting -> "blue"
-        status == :disconnected -> "red"
-        status == :unavailable -> "gray"
-        true -> "gray"
-      end
-    )
+    calculate :status_color,
+              :string,
+              expr(
+                cond do
+                  status == :connected and is_healthy == true -> "green"
+                  status == :connected and is_healthy == false -> "yellow"
+                  status == :degraded -> "yellow"
+                  status == :connecting -> "blue"
+                  status == :disconnected -> "red"
+                  status == :unavailable -> "gray"
+                  true -> "gray"
+                end
+              )
 
-    calculate :status_label, :string, expr(
-      cond do
-        status == :connected -> "Connected"
-        status == :connecting -> "Connecting"
-        status == :degraded -> "Degraded"
-        status == :disconnected -> "Disconnected"
-        status == :unavailable -> "Unavailable"
-        true -> "Unknown"
-      end
-    )
+    calculate :status_label,
+              :string,
+              expr(
+                cond do
+                  status == :connected -> "Connected"
+                  status == :connecting -> "Connecting"
+                  status == :degraded -> "Degraded"
+                  status == :disconnected -> "Disconnected"
+                  status == :unavailable -> "Unavailable"
+                  true -> "Unknown"
+                end
+              )
 
-    calculate :endpoint, :string, expr(
-      if not is_nil(host) and not is_nil(port) do
-        host <> ":" <> fragment("?::text", port)
-      else
-        nil
-      end
-    )
+    calculate :endpoint,
+              :string,
+              expr(
+                if not is_nil(host) and not is_nil(port) do
+                  host <> ":" <> fragment("?::text", port)
+                else
+                  nil
+                end
+              )
   end
 
-  code_interface do
-    define :get_by_uid, action: :by_uid, args: [:uid]
-    define :list_by_poller, action: :by_poller, args: [:poller_id]
-    define :list_connected, action: :connected
-  end
-
-  policies do
-    # Allow all reads - tenant isolation will be enforced at query level
-    # when we have proper tenant context from the Go pollers
-    policy action_type(:read) do
-      authorize_if always()
-    end
-
-    # Allow create/update for authenticated users
-    policy action_type(:create) do
-      authorize_if always()
-    end
-
-    policy action_type(:update) do
-      authorize_if always()
-    end
+  identities do
+    identity :unique_uid, [:uid]
   end
 end

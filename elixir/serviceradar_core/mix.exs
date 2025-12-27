@@ -60,6 +60,10 @@ defmodule ServiceRadarCore.MixProject do
       # Background jobs
       {:oban, "~> 2.18"},
 
+      # gRPC client for serviceradar-sync communication
+      {:grpc, "~> 0.9"},
+      {:protobuf, "~> 0.13"},
+
       # Telemetry
       {:telemetry, "~> 1.0"},
       {:telemetry_metrics, "~> 1.0"},

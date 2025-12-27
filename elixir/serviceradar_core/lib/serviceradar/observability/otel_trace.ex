@@ -13,6 +13,14 @@ defmodule ServiceRadar.Observability.OtelTrace do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  postgres do
+    table "otel_traces"
+    repo ServiceRadar.Repo
+    # Don't generate migrations - table is managed by raw SQL migration
+    # that creates TimescaleDB hypertable with composite primary key
+    migrate? false
+  end
+
   json_api do
     type "otel_trace"
     # Composite primary key requires specifying which fields to use
@@ -27,12 +35,68 @@ defmodule ServiceRadar.Observability.OtelTrace do
     end
   end
 
-  postgres do
-    table "otel_traces"
-    repo ServiceRadar.Repo
-    # Don't generate migrations - table is managed by raw SQL migration
-    # that creates TimescaleDB hypertable with composite primary key
-    migrate? false
+  actions do
+    defaults [:read]
+
+    read :by_trace do
+      argument :trace_id, :string, allow_nil?: false
+      filter expr(trace_id == ^arg(:trace_id))
+    end
+
+    read :by_service do
+      argument :service_name, :string, allow_nil?: false
+      filter expr(service_name == ^arg(:service_name))
+    end
+
+    read :recent do
+      description "Traces from the last 24 hours"
+      filter expr(timestamp > ago(24, :hour))
+    end
+
+    read :root_spans do
+      description "Only root spans (no parent)"
+      filter expr(is_nil(parent_span_id) or parent_span_id == "")
+    end
+
+    read :with_errors do
+      description "Spans with error status"
+      filter expr(status_code == 2)
+    end
+
+    create :create do
+      accept [
+        :timestamp,
+        :trace_id,
+        :span_id,
+        :parent_span_id,
+        :name,
+        :kind,
+        :start_time_unix_nano,
+        :end_time_unix_nano,
+        :service_name,
+        :service_version,
+        :service_instance,
+        :scope_name,
+        :scope_version,
+        :status_code,
+        :status_message,
+        :attributes,
+        :resource_attributes,
+        :events,
+        :links
+      ]
+    end
+  end
+
+  policies do
+    # Allow all reads - this data isn't tenant-scoped in Go
+    policy action_type(:read) do
+      authorize_if always()
+    end
+
+    policy action(:create) do
+      authorize_if always()
+    end
   end
 
   # Note: No multitenancy - Go schema doesn't have tenant_id
@@ -73,6 +137,7 @@ defmodule ServiceRadar.Observability.OtelTrace do
 
     attribute :kind, :integer do
       public? true
+
       description "Span kind (0=unspecified, 1=internal, 2=server, 3=client, 4=producer, 5=consumer)"
     end
 
@@ -153,67 +218,18 @@ defmodule ServiceRadar.Observability.OtelTrace do
     end
   end
 
-  actions do
-    defaults [:read]
-
-    read :by_trace do
-      argument :trace_id, :string, allow_nil?: false
-      filter expr(trace_id == ^arg(:trace_id))
-    end
-
-    read :by_service do
-      argument :service_name, :string, allow_nil?: false
-      filter expr(service_name == ^arg(:service_name))
-    end
-
-    read :recent do
-      description "Traces from the last 24 hours"
-      filter expr(timestamp > ago(24, :hour))
-    end
-
-    read :root_spans do
-      description "Only root spans (no parent)"
-      filter expr(is_nil(parent_span_id) or parent_span_id == "")
-    end
-
-    read :with_errors do
-      description "Spans with error status"
-      filter expr(status_code == 2)
-    end
-
-    create :create do
-      accept [
-        :timestamp, :trace_id, :span_id, :parent_span_id, :name, :kind,
-        :start_time_unix_nano, :end_time_unix_nano,
-        :service_name, :service_version, :service_instance,
-        :scope_name, :scope_version,
-        :status_code, :status_message,
-        :attributes, :resource_attributes, :events, :links
-      ]
-    end
-  end
-
   calculations do
-    calculate :duration_ms, :float, expr(
-      cond do
-        is_nil(start_time_unix_nano) or is_nil(end_time_unix_nano) -> nil
-        true -> (end_time_unix_nano - start_time_unix_nano) / 1_000_000.0
-      end
-    )
+    calculate :duration_ms,
+              :float,
+              expr(
+                cond do
+                  is_nil(start_time_unix_nano) or is_nil(end_time_unix_nano) -> nil
+                  true -> (end_time_unix_nano - start_time_unix_nano) / 1_000_000.0
+                end
+              )
 
     calculate :is_root, :boolean, expr(is_nil(parent_span_id) or parent_span_id == "")
 
     calculate :has_error, :boolean, expr(status_code == 2)
-  end
-
-  policies do
-    # Allow all reads - this data isn't tenant-scoped in Go
-    policy action_type(:read) do
-      authorize_if always()
-    end
-
-    policy action(:create) do
-      authorize_if always()
-    end
   end
 end

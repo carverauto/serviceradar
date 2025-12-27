@@ -12,6 +12,14 @@ defmodule ServiceRadar.Observability.ProcessMetric do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  postgres do
+    table "process_metrics"
+    repo ServiceRadar.Repo
+    # Don't generate migrations - table is managed by raw SQL migration
+    # that creates TimescaleDB hypertable matching Go schema
+    migrate? false
+  end
+
   json_api do
     type "process_metric"
 
@@ -22,17 +30,56 @@ defmodule ServiceRadar.Observability.ProcessMetric do
     end
   end
 
-  postgres do
-    table "process_metrics"
-    repo ServiceRadar.Repo
-    # Don't generate migrations - table is managed by raw SQL migration
-    # that creates TimescaleDB hypertable matching Go schema
-    migrate? false
-  end
-
   resource do
     # TimescaleDB hypertables don't have traditional primary keys
     require_primary_key? false
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_device do
+      argument :device_id, :string, allow_nil?: false
+      filter expr(device_id == ^arg(:device_id))
+    end
+
+    read :by_host do
+      argument :host_id, :string, allow_nil?: false
+      filter expr(host_id == ^arg(:host_id))
+    end
+
+    read :recent do
+      description "Metrics from the last 24 hours"
+      filter expr(timestamp > ago(24, :hour))
+    end
+
+    create :create do
+      accept [
+        :timestamp,
+        :poller_id,
+        :agent_id,
+        :host_id,
+        :pid,
+        :name,
+        :cpu_usage,
+        :memory_usage,
+        :status,
+        :start_time,
+        :device_id,
+        :partition
+      ]
+    end
+  end
+
+  policies do
+    # Allow all reads - this data isn't tenant-scoped in Go
+    policy action_type(:read) do
+      authorize_if always()
+    end
+
+    policy action(:create) do
+      authorize_if always()
+    end
   end
 
   # Note: No multitenancy - Go schema doesn't have tenant_id
@@ -104,43 +151,6 @@ defmodule ServiceRadar.Observability.ProcessMetric do
       allow_nil? false
       public? true
       description "When the record was created"
-    end
-  end
-
-  actions do
-    defaults [:read]
-
-    read :by_device do
-      argument :device_id, :string, allow_nil?: false
-      filter expr(device_id == ^arg(:device_id))
-    end
-
-    read :by_host do
-      argument :host_id, :string, allow_nil?: false
-      filter expr(host_id == ^arg(:host_id))
-    end
-
-    read :recent do
-      description "Metrics from the last 24 hours"
-      filter expr(timestamp > ago(24, :hour))
-    end
-
-    create :create do
-      accept [
-        :timestamp, :poller_id, :agent_id, :host_id, :pid, :name,
-        :cpu_usage, :memory_usage, :status, :start_time, :device_id, :partition
-      ]
-    end
-  end
-
-  policies do
-    # Allow all reads - this data isn't tenant-scoped in Go
-    policy action_type(:read) do
-      authorize_if always()
-    end
-
-    policy action(:create) do
-      authorize_if always()
     end
   end
 end

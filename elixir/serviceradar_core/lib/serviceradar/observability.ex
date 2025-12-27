@@ -30,12 +30,7 @@ defmodule ServiceRadar.Observability do
     ]
 
   admin do
-    show? true
-  end
-
-  authorization do
-    require_actor? false
-    authorize :by_default
+    show?(true)
   end
 
   resources do
@@ -52,5 +47,10 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.OtelMetric
     resource ServiceRadar.Observability.OtelTrace
     resource ServiceRadar.Observability.OtelTraceSummary
+  end
+
+  authorization do
+    require_actor? false
+    authorize :by_default
   end
 end

@@ -577,40 +577,41 @@ The Go `serviceradar-core` service handles coordination, identity reconciliation
 - [ ] 15.2.7 Implement leader election for multi-core deployments
 
 ### 15.3 Device Identity Reconciliation (Port from Go)
-- [ ] 15.3.1 Create ServiceRadar.Identity.DeviceLookup module
-- [ ] 15.3.2 Implement GetCanonicalDevice equivalent (identity_lookup.go)
-- [ ] 15.3.3 Port MAC-based identity resolution
-- [ ] 15.3.4 Port IP-based identity resolution with partition awareness
-- [ ] 15.3.5 Port external ID resolution (Armis, NetBox, etc.)
-- [ ] 15.3.6 Implement identity merge with audit logging
-- [ ] 15.3.7 Create identity cache with TTL (replaces canonical_cache.go)
-- [ ] 15.3.8 Port alias event tracking (alias_events.go)
-- [ ] 15.3.9 Add identity metrics (lookup latency, hit rate, merge count)
+- [x] 15.3.1 Create ServiceRadar.Identity.DeviceLookup module
+- [x] 15.3.2 Implement GetCanonicalDevice equivalent (identity_lookup.go)
+- [x] 15.3.3 Port MAC-based identity resolution
+- [x] 15.3.4 Port IP-based identity resolution with partition awareness
+- [x] 15.3.5 Port external ID resolution (Armis, NetBox, etc.)
+- [x] 15.3.6 Implement identity merge with audit logging
+- [x] 15.3.7 Create identity cache with TTL (replaces canonical_cache.go)
+- [x] 15.3.8 Port alias event tracking (alias_events.go) + DeviceAliasState with AshStateMachine
+- [x] 15.3.9 Add identity metrics (lookup latency, hit rate, merge count)
+- [x] 15.3.10 Generate database migration for device_alias_states table
 
 ### 15.4 Result Processing (Port from Go)
-- [ ] 15.4.1 Create ServiceRadar.Core.ResultProcessor module
-- [ ] 15.4.2 Implement poller status updates (pollers.go)
-- [ ] 15.4.3 Implement service check result processing (result_processor.go)
-- [ ] 15.4.4 Port sweep metrics processing (metrics_sweep_test.go functionality)
+- [x] 15.4.1 Create ServiceRadar.Core.ResultProcessor module
+- [x] 15.4.2 Implement host metadata building (response_time, ICMP, ports)
+- [x] 15.4.3 Implement canonical identity resolution for sweeps
+- [x] 15.4.4 Port sweep result processing (result_processor.go)
 - [ ] 15.4.5 Implement result batching for database writes
 - [ ] 15.4.6 Add result processing metrics (throughput, latency)
 - [ ] 15.4.7 Connect to Broadway pipelines for high-volume data
 
 ### 15.5 Alert Generation (Port from Go)
-- [ ] 15.5.1 Create ServiceRadar.Core.AlertGenerator module
-- [ ] 15.5.2 Port alert threshold evaluation (stats_alerts.go)
-- [ ] 15.5.3 Implement alert deduplication logic
-- [ ] 15.5.4 Connect to AshStateMachine Alert resource
-- [ ] 15.5.5 Port webhook notification (alerts/webhook.go)
-- [ ] 15.5.6 Port Discord notification (alerts/discord.go)
-- [ ] 15.5.7 Add notification metrics (send rate, failure rate)
+- [x] 15.5.1 Create ServiceRadar.Core.AlertGenerator module
+- [x] 15.5.2 Port alert threshold evaluation (stats_alerts.go)
+- [x] 15.5.3 Implement alert deduplication logic (cooldown mechanism)
+- [x] 15.5.4 Connect to AshStateMachine Alert resource
+- [x] 15.5.5 Port webhook notification (alerts/webhook.go) - WebhookNotifier module
+- [ ] 15.5.6 Port Discord notification (alerts/discord.go) - via webhook
+- [x] 15.5.7 Add startup/shutdown notifications (stats_anomaly alert)
 
 ### 15.6 Stats Aggregation (Port from Go)
-- [ ] 15.6.1 Create ServiceRadar.Core.StatsAggregator module
-- [ ] 15.6.2 Port stats aggregation logic (stats_aggregator.go)
-- [ ] 15.6.3 Implement per-poller stats tracking
-- [ ] 15.6.4 Implement per-service stats tracking
-- [ ] 15.6.5 Add stats export to TimescaleDB
+- [x] 15.6.1 Create ServiceRadar.Core.StatsAggregator module
+- [x] 15.6.2 Port stats aggregation logic (stats_aggregator.go)
+- [x] 15.6.3 Implement canonical record filtering and deduplication
+- [x] 15.6.4 Implement per-partition stats tracking
+- [x] 15.6.5 Add telemetry metrics for stats snapshots
 - [ ] 15.6.6 Create stats dashboard endpoint
 
 ### 15.7 Poller Recovery (Port from Go)
@@ -638,15 +639,17 @@ The Go `serviceradar-core` service handles coordination, identity reconciliation
 - [ ] 15.9.8 Document deprecation timeline for gRPC (ERTS preferred)
 
 ### 15.10 Docker Compose Integration
-- [ ] 15.10.1 Add core-elx service to docker-compose.yml
-- [ ] 15.10.2 Configure core-elx as CLUSTER_HOSTS entry for other services
-- [ ] 15.10.3 Update web-ng to depend on core-elx
-- [ ] 15.10.4 Update poller-elx to list core-elx in CLUSTER_HOSTS
-- [ ] 15.10.5 Update agent-elx to list core-elx in CLUSTER_HOSTS
-- [ ] 15.10.6 Generate core.pem certificate in generate-certs.sh (already exists)
-- [ ] 15.10.7 Create ssl_dist.core.conf for TLS distribution
-- [ ] 15.10.8 Move Go core to legacy profile (already done)
-- [ ] 15.10.9 Test full stack with core-elx replacing Go core
+- [x] 15.10.1 Add core-elx service to docker-compose.yml
+- [x] 15.10.2 Configure core-elx as CLUSTER_HOSTS entry for other services
+- [x] 15.10.3 Update web-ng to depend on core-elx
+- [x] 15.10.4 Update poller-elx to list core-elx in CLUSTER_HOSTS
+- [x] 15.10.5 Update agent-elx to list core-elx in CLUSTER_HOSTS
+- [x] 15.10.6 Generate core.pem certificate in generate-certs.sh (already exists)
+- [x] 15.10.7 Create ssl_dist.core.conf for TLS distribution
+- [x] 15.10.8 Move Go core to legacy profile (already done)
+- [x] 15.10.9 Add sync service to docker-compose.yml
+- [x] 15.10.10 Configure agent-elx to connect to sync via gRPC
+- [ ] 15.10.11 Test full stack with core-elx replacing Go core
 
 ### 15.11 web-ng Decoupling
 - [ ] 15.11.1 Remove ClusterSupervisor start from web-ng Application

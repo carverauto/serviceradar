@@ -30,16 +30,16 @@ defmodule ServiceRadar.Edge do
     ]
 
   admin do
-    show? true
-  end
-
-  authorization do
-    require_actor? false
-    authorize :by_default
+    show?(true)
   end
 
   resources do
     resource ServiceRadar.Edge.OnboardingPackage
     resource ServiceRadar.Edge.OnboardingEvent
+  end
+
+  authorization do
+    require_actor? false
+    authorize :by_default
   end
 end

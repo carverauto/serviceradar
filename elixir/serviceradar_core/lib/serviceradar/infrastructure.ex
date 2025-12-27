@@ -29,12 +29,7 @@ defmodule ServiceRadar.Infrastructure do
     ]
 
   admin do
-    show? true
-  end
-
-  authorization do
-    require_actor? false
-    authorize :by_default
+    show?(true)
   end
 
   resources do
@@ -42,5 +37,10 @@ defmodule ServiceRadar.Infrastructure do
     resource ServiceRadar.Infrastructure.Agent
     resource ServiceRadar.Infrastructure.Checker
     resource ServiceRadar.Infrastructure.Partition
+  end
+
+  authorization do
+    require_actor? false
+    authorize :by_default
   end
 end

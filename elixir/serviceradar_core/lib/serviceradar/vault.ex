@@ -30,23 +30,21 @@ defmodule ServiceRadar.Vault do
   @impl GenServer
   def init(config) do
     config =
-      Keyword.put(config, :ciphers, [
+      Keyword.put(config, :ciphers,
         default: {
           Cloak.Ciphers.AES.GCM,
-          tag: "AES.GCM.V1",
-          key: decode_key!(),
-          iv_length: 12
+          tag: "AES.GCM.V1", key: decode_key!(), iv_length: 12
         }
-      ])
+      )
 
     {:ok, config}
   end
 
   defp decode_key! do
+    # Development-only fallback key (NOT for production use)
     key_base64 =
       System.get_env("CLOAK_KEY") ||
         Application.get_env(:serviceradar_core, :cloak_key) ||
-        # Development-only fallback key (NOT for production use)
         dev_fallback_key()
 
     case Base.decode64(key_base64) do

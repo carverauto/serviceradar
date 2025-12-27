@@ -28,12 +28,7 @@ defmodule ServiceRadar.Inventory do
     ]
 
   admin do
-    show? true
-  end
-
-  authorization do
-    require_actor? false
-    authorize :by_default
+    show?(true)
   end
 
   resources do
@@ -42,5 +37,10 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.DeviceGroup
     resource ServiceRadar.Inventory.DeviceIdentifier
     resource ServiceRadar.Inventory.MergeAudit
+  end
+
+  authorization do
+    require_actor? false
+    authorize :by_default
   end
 end

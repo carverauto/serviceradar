@@ -94,7 +94,8 @@ defmodule ServiceRadar.Telemetry do
       ServiceRadar.Telemetry.emit_cluster_event(:node_connected, %{node: :"poller@10.0.0.1"}, %{})
   """
   @spec emit_cluster_event(atom(), map(), map()) :: :ok
-  def emit_cluster_event(event, metadata \\ %{}, measurements \\ %{}) when event in @cluster_events do
+  def emit_cluster_event(event, metadata \\ %{}, measurements \\ %{})
+      when event in @cluster_events do
     emit(@prefix ++ [:cluster, event], measurements, enrich_metadata(metadata))
   end
 
@@ -102,7 +103,8 @@ defmodule ServiceRadar.Telemetry do
   Emits a poller-related telemetry event.
   """
   @spec emit_poller_event(atom(), map(), map()) :: :ok
-  def emit_poller_event(event, metadata \\ %{}, measurements \\ %{}) when event in @poller_events do
+  def emit_poller_event(event, metadata \\ %{}, measurements \\ %{})
+      when event in @poller_events do
     emit(@prefix ++ [:poller, event], measurements, enrich_metadata(metadata))
   end
 
@@ -118,7 +120,8 @@ defmodule ServiceRadar.Telemetry do
   Emits a registry-related telemetry event.
   """
   @spec emit_registry_event(atom(), map(), map()) :: :ok
-  def emit_registry_event(event, metadata \\ %{}, measurements \\ %{}) when event in @registry_events do
+  def emit_registry_event(event, metadata \\ %{}, measurements \\ %{})
+      when event in @registry_events do
     emit(@prefix ++ [:registry, event], measurements, enrich_metadata(metadata))
   end
 

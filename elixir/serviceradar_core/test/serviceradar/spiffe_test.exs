@@ -56,7 +56,8 @@ defmodule ServiceRadar.SPIFFETest do
     end
 
     test "builds SPIFFE ID with custom trust domain" do
-      result = SPIFFE.build_spiffe_id(:agent, "partition-2", "agent-005", trust_domain: "custom.local")
+      result =
+        SPIFFE.build_spiffe_id(:agent, "partition-2", "agent-005", trust_domain: "custom.local")
 
       assert result == "spiffe://custom.local/agent/partition-2/agent-005"
     end

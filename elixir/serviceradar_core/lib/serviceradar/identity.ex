@@ -28,14 +28,7 @@ defmodule ServiceRadar.Identity do
     ]
 
   admin do
-    show? true
-  end
-
-  authorization do
-    # Don't globally require actor since AshAuthentication hooks may make
-    # internal calls without actor. Authorization is still enforced via policies.
-    require_actor? false
-    authorize :by_default
+    show?(true)
   end
 
   resources do
@@ -43,5 +36,13 @@ defmodule ServiceRadar.Identity do
     resource ServiceRadar.Identity.Tenant
     resource ServiceRadar.Identity.Token
     resource ServiceRadar.Identity.ApiToken
+    resource ServiceRadar.Identity.DeviceAliasState
+  end
+
+  authorization do
+    # Don't globally require actor since AshAuthentication hooks may make
+    # internal calls without actor. Authorization is still enforced via policies.
+    require_actor? false
+    authorize :by_default
   end
 end

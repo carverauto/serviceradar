@@ -36,6 +36,144 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     repo ServiceRadar.Repo
   end
 
+  code_interface do
+    define :lookup, action: :lookup, args: [:identifier_type, :identifier_value]
+    define :get_by_device, action: :by_device, args: [:device_id]
+    define :register, action: :register
+    define :upsert, action: :upsert
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_device do
+      description "Get all identifiers for a device"
+      argument :device_id, :string, allow_nil?: false
+      filter expr(device_id == ^arg(:device_id))
+    end
+
+    read :lookup do
+      description "Lookup device by identifier type and value"
+      argument :identifier_type, :atom, allow_nil?: false
+      argument :identifier_value, :string, allow_nil?: false
+      argument :partition, :string, default: "default"
+
+      filter expr(
+               identifier_type == ^arg(:identifier_type) and
+                 identifier_value == ^arg(:identifier_value) and
+                 partition == ^arg(:partition)
+             )
+    end
+
+    read :lookup_any do
+      description "Lookup device by any matching identifier"
+      argument :identifiers, {:array, :map}, allow_nil?: false
+
+      prepare fn query, _context ->
+        identifiers = Ash.Query.get_argument(query, :identifiers)
+
+        if Enum.empty?(identifiers) do
+          query
+        else
+          # Build OR conditions for each identifier
+          conditions =
+            Enum.map(identifiers, fn %{type: type, value: value, partition: partition} ->
+              partition = partition || "default"
+
+              {:and,
+               [
+                 {:==, [:identifier_type], type},
+                 {:==, [:identifier_value], value},
+                 {:==, [:partition], partition}
+               ]}
+            end)
+
+          Ash.Query.filter(query, {:or, conditions})
+        end
+      end
+    end
+
+    create :register do
+      description "Register a new identifier for a device"
+
+      accept [
+        :device_id,
+        :identifier_type,
+        :identifier_value,
+        :partition,
+        :confidence,
+        :source,
+        :verified,
+        :metadata
+      ]
+
+      change fn changeset, _context ->
+        now = DateTime.utc_now()
+
+        changeset
+        |> Ash.Changeset.change_new_attribute(:first_seen, now)
+        |> Ash.Changeset.change_new_attribute(:last_seen, now)
+      end
+    end
+
+    update :touch do
+      description "Update last_seen timestamp"
+      change set_attribute(:last_seen, &DateTime.utc_now/0)
+    end
+
+    update :verify do
+      description "Mark identifier as verified"
+      change set_attribute(:verified, true)
+      change set_attribute(:last_seen, &DateTime.utc_now/0)
+    end
+
+    create :upsert do
+      description "Create or update identifier"
+
+      accept [
+        :device_id,
+        :identifier_type,
+        :identifier_value,
+        :partition,
+        :confidence,
+        :source,
+        :verified,
+        :metadata
+      ]
+
+      upsert? true
+      upsert_identity :unique_identifier
+      upsert_fields [:device_id, :last_seen, :confidence, :source, :verified, :metadata]
+
+      change fn changeset, _context ->
+        now = DateTime.utc_now()
+
+        changeset
+        |> Ash.Changeset.change_new_attribute(:first_seen, now)
+        |> Ash.Changeset.change_attribute(:last_seen, now)
+      end
+    end
+  end
+
+  policies do
+    # Super admins bypass all policies
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    # Read access for authenticated users in same tenant
+    # Note: device_identifiers doesn't have tenant_id directly,
+    # authorization flows through the device relationship
+    policy action_type(:read) do
+      authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
+    end
+
+    # Create/update: operators and admins
+    policy action([:register, :upsert, :touch, :verify]) do
+      authorize_if expr(^actor(:role) in [:operator, :admin])
+    end
+  end
+
   attributes do
     integer_primary_key :id
 
@@ -99,10 +237,6 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     end
   end
 
-  identities do
-    identity :unique_identifier, [:identifier_type, :identifier_value, :partition]
-  end
-
   relationships do
     belongs_to :device, ServiceRadar.Inventory.Device do
       source_attribute :device_id
@@ -114,132 +248,24 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     end
   end
 
-  actions do
-    defaults [:read]
-
-    read :by_device do
-      description "Get all identifiers for a device"
-      argument :device_id, :string, allow_nil?: false
-      filter expr(device_id == ^arg(:device_id))
-    end
-
-    read :lookup do
-      description "Lookup device by identifier type and value"
-      argument :identifier_type, :atom, allow_nil?: false
-      argument :identifier_value, :string, allow_nil?: false
-      argument :partition, :string, default: "default"
-
-      filter expr(
-        identifier_type == ^arg(:identifier_type) and
-        identifier_value == ^arg(:identifier_value) and
-        partition == ^arg(:partition)
-      )
-    end
-
-    read :lookup_any do
-      description "Lookup device by any matching identifier"
-      argument :identifiers, {:array, :map}, allow_nil?: false
-
-      prepare fn query, _context ->
-        identifiers = Ash.Query.get_argument(query, :identifiers)
-
-        if Enum.empty?(identifiers) do
-          query
-        else
-          # Build OR conditions for each identifier
-          conditions = Enum.map(identifiers, fn %{type: type, value: value, partition: partition} ->
-            partition = partition || "default"
-            {:and, [
-              {:==, [:identifier_type], type},
-              {:==, [:identifier_value], value},
-              {:==, [:partition], partition}
-            ]}
-          end)
-
-          Ash.Query.filter(query, {:or, conditions})
-        end
-      end
-    end
-
-    create :register do
-      description "Register a new identifier for a device"
-      accept [:device_id, :identifier_type, :identifier_value, :partition, :confidence, :source, :verified, :metadata]
-
-      change fn changeset, _context ->
-        now = DateTime.utc_now()
-
-        changeset
-        |> Ash.Changeset.change_new_attribute(:first_seen, now)
-        |> Ash.Changeset.change_new_attribute(:last_seen, now)
-      end
-    end
-
-    update :touch do
-      description "Update last_seen timestamp"
-      change set_attribute(:last_seen, &DateTime.utc_now/0)
-    end
-
-    update :verify do
-      description "Mark identifier as verified"
-      change set_attribute(:verified, true)
-      change set_attribute(:last_seen, &DateTime.utc_now/0)
-    end
-
-    create :upsert do
-      description "Create or update identifier"
-      accept [:device_id, :identifier_type, :identifier_value, :partition, :confidence, :source, :verified, :metadata]
-      upsert? true
-      upsert_identity :unique_identifier
-      upsert_fields [:device_id, :last_seen, :confidence, :source, :verified, :metadata]
-
-      change fn changeset, _context ->
-        now = DateTime.utc_now()
-
-        changeset
-        |> Ash.Changeset.change_new_attribute(:first_seen, now)
-        |> Ash.Changeset.change_attribute(:last_seen, now)
-      end
-    end
-  end
-
   calculations do
     calculate :is_strong, :boolean, expr(confidence == :strong)
 
-    calculate :priority, :integer, expr(
-      cond do
-        identifier_type == :armis_device_id -> 1
-        identifier_type == :integration_id -> 2
-        identifier_type == :netbox_device_id -> 3
-        identifier_type == :mac -> 4
-        identifier_type == :ip -> 5
-        true -> 99
-      end
-    )
+    calculate :priority,
+              :integer,
+              expr(
+                cond do
+                  identifier_type == :armis_device_id -> 1
+                  identifier_type == :integration_id -> 2
+                  identifier_type == :netbox_device_id -> 3
+                  identifier_type == :mac -> 4
+                  identifier_type == :ip -> 5
+                  true -> 99
+                end
+              )
   end
 
-  code_interface do
-    define :lookup, action: :lookup, args: [:identifier_type, :identifier_value]
-    define :get_by_device, action: :by_device, args: [:device_id]
-    define :register, action: :register
-    define :upsert, action: :upsert
-  end
-
-  policies do
-    # Super admins bypass all policies
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # Read access for authenticated users in same tenant
-    # Note: device_identifiers doesn't have tenant_id directly,
-    # authorization flows through the device relationship
-    policy action_type(:read) do
-      authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
-    end
-
-    # Create/update: operators and admins
-    policy action([:register, :upsert, :touch, :verify]) do
-      authorize_if expr(^actor(:role) in [:operator, :admin])
-    end
+  identities do
+    identity :unique_identifier, [:identifier_type, :identifier_value, :partition]
   end
 end

@@ -32,6 +32,11 @@ defmodule ServiceRadar.Inventory.Device do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  postgres do
+    table "ocsf_devices"
+    repo ServiceRadar.Repo
+  end
+
   json_api do
     type "device"
 
@@ -43,15 +48,194 @@ defmodule ServiceRadar.Inventory.Device do
     end
   end
 
-  postgres do
-    table "ocsf_devices"
-    repo ServiceRadar.Repo
-  end
-
   multitenancy do
     strategy :attribute
     attribute :tenant_id
     global? true
+  end
+
+  code_interface do
+    define :get_by_uid, action: :by_uid, args: [:uid]
+    define :get_by_ip, action: :by_ip, args: [:ip]
+    define :get_by_mac, action: :by_mac, args: [:mac]
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_uid do
+      argument :uid, :string, allow_nil?: false
+      get? true
+      filter expr(uid == ^arg(:uid))
+    end
+
+    read :by_ip do
+      argument :ip, :string, allow_nil?: false
+      filter expr(ip == ^arg(:ip))
+    end
+
+    read :by_mac do
+      argument :mac, :string, allow_nil?: false
+      filter expr(mac == ^arg(:mac))
+    end
+
+    read :by_poller do
+      argument :poller_id, :string, allow_nil?: false
+      filter expr(poller_id == ^arg(:poller_id))
+    end
+
+    read :available do
+      description "Devices currently available"
+      filter expr(is_available == true)
+    end
+
+    read :recently_seen do
+      description "Devices seen in the last hour"
+      filter expr(last_seen_time > ago(1, :hour))
+    end
+
+    create :create do
+      accept [
+        :uid,
+        :type_id,
+        :type,
+        :name,
+        :hostname,
+        :ip,
+        :mac,
+        :uid_alt,
+        :vendor_name,
+        :model,
+        :domain,
+        :zone,
+        :subnet_uid,
+        :vlan_uid,
+        :region,
+        :first_seen_time,
+        :last_seen_time,
+        :created_time,
+        :modified_time,
+        :risk_level_id,
+        :risk_level,
+        :risk_score,
+        :is_managed,
+        :is_compliant,
+        :is_trusted,
+        :os,
+        :hw_info,
+        :network_interfaces,
+        :owner,
+        :org,
+        :groups,
+        :agent_list,
+        :poller_id,
+        :agent_id,
+        :discovery_sources,
+        :is_available,
+        :metadata
+      ]
+
+      change fn changeset, _context ->
+        now = DateTime.utc_now()
+
+        changeset
+        |> Ash.Changeset.change_new_attribute(:first_seen_time, now)
+        |> Ash.Changeset.change_new_attribute(:last_seen_time, now)
+        |> Ash.Changeset.change_new_attribute(:created_time, now)
+      end
+    end
+
+    update :update do
+      accept [
+        :name,
+        :hostname,
+        :ip,
+        :mac,
+        :vendor_name,
+        :model,
+        :domain,
+        :zone,
+        :risk_level_id,
+        :risk_level,
+        :risk_score,
+        :is_managed,
+        :is_compliant,
+        :is_trusted,
+        :os,
+        :hw_info,
+        :network_interfaces,
+        :owner,
+        :org,
+        :groups,
+        :agent_list,
+        :is_available,
+        :metadata,
+        :group_id
+      ]
+
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :assign_to_group do
+      description "Assign device to a group"
+      accept [:group_id]
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :touch do
+      description "Update last_seen_time without other changes"
+      change set_attribute(:last_seen_time, &DateTime.utc_now/0)
+    end
+
+    update :set_availability do
+      accept [:is_available]
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    # Identity reconciliation actions
+
+    action :resolve_identity do
+      description "Resolve device identity from identifiers (MAC, Armis ID, etc.)"
+      argument :device_update, :map, allow_nil?: false
+
+      run fn input, _context ->
+        update = input.arguments.device_update
+        ServiceRadar.Inventory.IdentityReconciler.resolve_device_id(update)
+      end
+    end
+
+    action :register_identifiers do
+      description "Register strong identifiers for a device"
+      argument :device_id, :string, allow_nil?: false
+      argument :identifiers, :map, allow_nil?: false
+
+      run fn input, context ->
+        device_id = input.arguments.device_id
+        ids = input.arguments.identifiers
+        actor = context[:actor]
+
+        ServiceRadar.Inventory.IdentityReconciler.register_identifiers(device_id, ids,
+          actor: actor
+        )
+      end
+    end
+  end
+
+  policies do
+    # Allow all reads - tenant isolation will be enforced at query level
+    # when we have proper tenant context from the Go pollers
+    policy action_type(:read) do
+      authorize_if always()
+    end
+
+    # Allow create/update for authenticated users
+    policy action_type(:create) do
+      authorize_if always()
+    end
+
+    policy action_type(:update) do
+      authorize_if always()
+    end
   end
 
   attributes do
@@ -275,12 +459,6 @@ defmodule ServiceRadar.Inventory.Device do
     end
   end
 
-  identities do
-    identity :unique_uid, [:uid]
-    # MAC uniqueness is optional - skipping unique index
-    # identity :unique_mac, [:mac], where: expr(not is_nil(mac))
-  end
-
   relationships do
     has_many :interfaces, ServiceRadar.Inventory.Interface do
       source_attribute :uid
@@ -306,184 +484,60 @@ defmodule ServiceRadar.Inventory.Device do
     end
   end
 
-  actions do
-    defaults [:read]
-
-    read :by_uid do
-      argument :uid, :string, allow_nil?: false
-      get? true
-      filter expr(uid == ^arg(:uid))
-    end
-
-    read :by_ip do
-      argument :ip, :string, allow_nil?: false
-      filter expr(ip == ^arg(:ip))
-    end
-
-    read :by_mac do
-      argument :mac, :string, allow_nil?: false
-      filter expr(mac == ^arg(:mac))
-    end
-
-    read :by_poller do
-      argument :poller_id, :string, allow_nil?: false
-      filter expr(poller_id == ^arg(:poller_id))
-    end
-
-    read :available do
-      description "Devices currently available"
-      filter expr(is_available == true)
-    end
-
-    read :recently_seen do
-      description "Devices seen in the last hour"
-      filter expr(last_seen_time > ago(1, :hour))
-    end
-
-    create :create do
-      accept [
-        :uid, :type_id, :type, :name, :hostname, :ip, :mac,
-        :uid_alt, :vendor_name, :model, :domain, :zone,
-        :subnet_uid, :vlan_uid, :region,
-        :first_seen_time, :last_seen_time, :created_time, :modified_time,
-        :risk_level_id, :risk_level, :risk_score,
-        :is_managed, :is_compliant, :is_trusted,
-        :os, :hw_info, :network_interfaces, :owner, :org, :groups, :agent_list,
-        :poller_id, :agent_id, :discovery_sources, :is_available, :metadata
-      ]
-
-      change fn changeset, _context ->
-        now = DateTime.utc_now()
-
-        changeset
-        |> Ash.Changeset.change_new_attribute(:first_seen_time, now)
-        |> Ash.Changeset.change_new_attribute(:last_seen_time, now)
-        |> Ash.Changeset.change_new_attribute(:created_time, now)
-      end
-    end
-
-    update :update do
-      accept [
-        :name, :hostname, :ip, :mac,
-        :vendor_name, :model, :domain, :zone,
-        :risk_level_id, :risk_level, :risk_score,
-        :is_managed, :is_compliant, :is_trusted,
-        :os, :hw_info, :network_interfaces, :owner, :org, :groups, :agent_list,
-        :is_available, :metadata, :group_id
-      ]
-
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    update :assign_to_group do
-      description "Assign device to a group"
-      accept [:group_id]
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    update :touch do
-      description "Update last_seen_time without other changes"
-      change set_attribute(:last_seen_time, &DateTime.utc_now/0)
-    end
-
-    update :set_availability do
-      accept [:is_available]
-      change set_attribute(:modified_time, &DateTime.utc_now/0)
-    end
-
-    # Identity reconciliation actions
-
-    action :resolve_identity do
-      description "Resolve device identity from identifiers (MAC, Armis ID, etc.)"
-      argument :device_update, :map, allow_nil?: false
-
-      run fn input, _context ->
-        update = input.arguments.device_update
-        ServiceRadar.Inventory.IdentityReconciler.resolve_device_id(update)
-      end
-    end
-
-    action :register_identifiers do
-      description "Register strong identifiers for a device"
-      argument :device_id, :string, allow_nil?: false
-      argument :identifiers, :map, allow_nil?: false
-
-      run fn input, context ->
-        device_id = input.arguments.device_id
-        ids = input.arguments.identifiers
-        actor = context[:actor]
-        ServiceRadar.Inventory.IdentityReconciler.register_identifiers(device_id, ids, actor: actor)
-      end
-    end
-  end
-
   calculations do
-    calculate :type_name, :string, expr(
-      cond do
-        not is_nil(type) -> type
-        type_id == 0 -> "Unknown"
-        type_id == 1 -> "Server"
-        type_id == 2 -> "Desktop"
-        type_id == 3 -> "Laptop"
-        type_id == 4 -> "Tablet"
-        type_id == 5 -> "Mobile"
-        type_id == 6 -> "Virtual"
-        type_id == 7 -> "IOT"
-        type_id == 8 -> "Browser"
-        type_id == 9 -> "Firewall"
-        type_id == 10 -> "Switch"
-        type_id == 11 -> "Hub"
-        type_id == 12 -> "Router"
-        type_id == 13 -> "IDS"
-        type_id == 14 -> "IPS"
-        type_id == 15 -> "Load Balancer"
-        type_id == 99 -> "Other"
-        true -> "Unknown"
-      end
-    )
+    calculate :type_name,
+              :string,
+              expr(
+                cond do
+                  not is_nil(type) -> type
+                  type_id == 0 -> "Unknown"
+                  type_id == 1 -> "Server"
+                  type_id == 2 -> "Desktop"
+                  type_id == 3 -> "Laptop"
+                  type_id == 4 -> "Tablet"
+                  type_id == 5 -> "Mobile"
+                  type_id == 6 -> "Virtual"
+                  type_id == 7 -> "IOT"
+                  type_id == 8 -> "Browser"
+                  type_id == 9 -> "Firewall"
+                  type_id == 10 -> "Switch"
+                  type_id == 11 -> "Hub"
+                  type_id == 12 -> "Router"
+                  type_id == 13 -> "IDS"
+                  type_id == 14 -> "IPS"
+                  type_id == 15 -> "Load Balancer"
+                  type_id == 99 -> "Other"
+                  true -> "Unknown"
+                end
+              )
 
-    calculate :display_name, :string, expr(
-      cond do
-        not is_nil(name) -> name
-        not is_nil(hostname) -> hostname
-        not is_nil(ip) -> ip
-        true -> uid
-      end
-    )
+    calculate :display_name,
+              :string,
+              expr(
+                cond do
+                  not is_nil(name) -> name
+                  not is_nil(hostname) -> hostname
+                  not is_nil(ip) -> ip
+                  true -> uid
+                end
+              )
 
-    calculate :is_stale, :boolean, expr(
-      is_nil(last_seen_time) or last_seen_time < ago(24, :hour)
-    )
+    calculate :is_stale, :boolean, expr(is_nil(last_seen_time) or last_seen_time < ago(24, :hour))
 
-    calculate :status_color, :string, expr(
-      cond do
-        is_available == true and last_seen_time > ago(5, :minute) -> "green"
-        is_available == true and last_seen_time > ago(1, :hour) -> "yellow"
-        true -> "red"
-      end
-    )
+    calculate :status_color,
+              :string,
+              expr(
+                cond do
+                  is_available == true and last_seen_time > ago(5, :minute) -> "green"
+                  is_available == true and last_seen_time > ago(1, :hour) -> "yellow"
+                  true -> "red"
+                end
+              )
   end
 
-  code_interface do
-    define :get_by_uid, action: :by_uid, args: [:uid]
-    define :get_by_ip, action: :by_ip, args: [:ip]
-    define :get_by_mac, action: :by_mac, args: [:mac]
-  end
-
-  policies do
-    # Allow all reads - tenant isolation will be enforced at query level
-    # when we have proper tenant context from the Go pollers
-    policy action_type(:read) do
-      authorize_if always()
-    end
-
-    # Allow create/update for authenticated users
-    policy action_type(:create) do
-      authorize_if always()
-    end
-
-    policy action_type(:update) do
-      authorize_if always()
-    end
+  identities do
+    identity :unique_uid, [:uid]
+    # MAC uniqueness is optional - skipping unique index
+    # identity :unique_mac, [:mac], where: expr(not is_nil(mac))
   end
 end

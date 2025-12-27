@@ -173,6 +173,7 @@ defmodule ServiceRadar.Edge.OnboardingEvents do
 
   # Helper to normalize event type to atom
   defp normalize_event_type(event_type) when is_atom(event_type), do: event_type
+
   defp normalize_event_type(event_type) when is_binary(event_type) do
     String.to_existing_atom(event_type)
   end

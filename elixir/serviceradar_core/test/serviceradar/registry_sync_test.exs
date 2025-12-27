@@ -43,7 +43,10 @@ defmodule ServiceRadar.RegistrySyncTest do
     assert {:ok, _pid} = ServiceRadar.PollerRegistry.register(key, metadata)
 
     assert eventually(fn ->
-             match?([{_pid, _meta} | _], lookup_remote(ServiceRadar.PollerRegistry, key, peer_node))
+             match?(
+               [{_pid, _meta} | _],
+               lookup_remote(ServiceRadar.PollerRegistry, key, peer_node)
+             )
            end)
   end
 
@@ -65,7 +68,10 @@ defmodule ServiceRadar.RegistrySyncTest do
     assert {:ok, _pid} = ServiceRadar.AgentRegistry.register(key, metadata)
 
     assert eventually(fn ->
-             match?([{_pid, _meta} | _], lookup_remote(ServiceRadar.AgentRegistry, key, peer_node))
+             match?(
+               [{_pid, _meta} | _],
+               lookup_remote(ServiceRadar.AgentRegistry, key, peer_node)
+             )
            end)
   end
 
@@ -147,8 +153,15 @@ defmodule ServiceRadar.RegistrySyncTest do
   end
 
   defp ensure_members(peer_node) do
-    poller_members = [{ServiceRadar.PollerRegistry, node()}, {ServiceRadar.PollerRegistry, peer_node}]
-    agent_members = [{ServiceRadar.AgentRegistry, node()}, {ServiceRadar.AgentRegistry, peer_node}]
+    poller_members = [
+      {ServiceRadar.PollerRegistry, node()},
+      {ServiceRadar.PollerRegistry, peer_node}
+    ]
+
+    agent_members = [
+      {ServiceRadar.AgentRegistry, node()},
+      {ServiceRadar.AgentRegistry, peer_node}
+    ]
 
     :ok = Horde.Cluster.set_members(ServiceRadar.PollerRegistry, poller_members)
     :ok = Horde.Cluster.set_members(ServiceRadar.AgentRegistry, agent_members)

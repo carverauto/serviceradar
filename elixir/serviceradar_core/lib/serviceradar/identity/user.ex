@@ -35,6 +35,7 @@ defmodule ServiceRadar.Identity.User do
       enabled? true
       token_resource ServiceRadar.Identity.Token
       require_token_presence_for_authentication? true
+
       signing_secret fn _, _ ->
         Application.fetch_env(:serviceradar_web_ng, :token_signing_secret)
       end
@@ -81,97 +82,15 @@ defmodule ServiceRadar.Identity.User do
     end
   end
 
-  attributes do
-    uuid_primary_key :id
-
-    attribute :email, :ci_string do
-      allow_nil? false
-      public? true
-      description "User email address (unique per tenant)"
-      constraints match: ~r/^[^\s]+@[^\s]+$/
-    end
-
-    attribute :hashed_password, :string do
-      allow_nil? true
-      sensitive? true
-      description "Bcrypt-hashed password"
-    end
-
-    attribute :display_name, :string do
-      public? true
-      description "User's display name"
-    end
-
-    attribute :role, :atom do
-      allow_nil? false
-      default :viewer
-      public? true
-      constraints one_of: [:viewer, :operator, :admin, :super_admin]
-      description "User's role for authorization"
-    end
-
-    attribute :confirmed_at, :utc_datetime do
-      public? true
-      description "When the user confirmed their email"
-    end
-
-    attribute :authenticated_at, :utc_datetime do
-      public? true
-      description "When the user last authenticated (for sudo mode)"
-    end
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? true
-      description "Owning tenant ID - immutable after creation (see validations)"
-    end
-
-    create_timestamp :inserted_at
-    update_timestamp :updated_at
-  end
-
-  identities do
-    identity :unique_email_per_tenant, [:tenant_id, :email]
-    identity :unique_email, [:email]
-  end
-
-  relationships do
-    belongs_to :tenant, ServiceRadar.Identity.Tenant do
-      allow_nil? false
-      attribute_type :uuid
-      source_attribute :tenant_id
-    end
-  end
-
   multitenancy do
     strategy :attribute
     attribute :tenant_id
     global? true
   end
 
-  changes do
-    # SECURITY: tenant_id is IMMUTABLE after creation
-    # This is a critical multi-tenancy security control - defense in depth
-    # Uses before_action to run AFTER all changes have been applied to the changeset
-    change before_action(fn changeset, _context ->
-      if changeset.action_type == :update do
-        # Check if tenant_id is in the changes map
-        case Map.get(changeset.attributes, :tenant_id) do
-          nil ->
-            # Not being changed, that's fine
-            changeset
-
-          _new_value ->
-            # Someone is trying to change tenant_id - block it
-            Ash.Changeset.add_error(changeset,
-              field: :tenant_id,
-              message: "cannot be changed - tenant assignment is permanent"
-            )
-        end
-      else
-        changeset
-      end
-    end)
+  code_interface do
+    define :get_by_email, action: :by_email, args: [:email]
+    define :get_by_email_and_tenant, action: :by_email_and_tenant, args: [:email, :tenant_id]
   end
 
   actions do
@@ -327,14 +246,20 @@ defmodule ServiceRadar.Identity.User do
           # User has no password set - allow password creation without current_password
           is_nil(user.hashed_password) or user.hashed_password == "" ->
             if current_password && current_password != "" do
-              Ash.Changeset.add_error(changeset, field: :current_password, message: "you don't have a password set")
+              Ash.Changeset.add_error(changeset,
+                field: :current_password,
+                message: "you don't have a password set"
+              )
             else
               changeset
             end
 
           # User has password but current_password not provided - require it
           is_nil(current_password) or current_password == "" ->
-            Ash.Changeset.add_error(changeset, field: :current_password, message: "is required to change password")
+            Ash.Changeset.add_error(changeset,
+              field: :current_password,
+              message: "is required to change password"
+            )
 
           # Verify current password
           Bcrypt.verify_pass(current_password, user.hashed_password) ->
@@ -357,23 +282,6 @@ defmodule ServiceRadar.Identity.User do
         end
       end
     end
-  end
-
-  calculations do
-    calculate :confirmed?, :boolean, expr(not is_nil(confirmed_at))
-
-    calculate :initials, :string, expr(
-      if is_nil(display_name) do
-        fragment("UPPER(LEFT(?, 2))", email)
-      else
-        fragment("UPPER(LEFT(?, 1)) || UPPER(LEFT(SPLIT_PART(?, ' ', 2), 1))", display_name, display_name)
-      end
-    )
-  end
-
-  code_interface do
-    define :get_by_email, action: :by_email, args: [:email]
-    define :get_by_email_and_tenant, action: :by_email_and_tenant, args: [:email, :tenant_id]
   end
 
   policies do
@@ -428,5 +336,110 @@ defmodule ServiceRadar.Identity.User do
     policy action(:update_role) do
       authorize_if expr(tenant_id == ^actor(:tenant_id) and ^actor(:role) == :admin)
     end
+  end
+
+  changes do
+    # SECURITY: tenant_id is IMMUTABLE after creation
+    # This is a critical multi-tenancy security control - defense in depth
+    # Uses before_action to run AFTER all changes have been applied to the changeset
+    change before_action(fn changeset, _context ->
+             if changeset.action_type == :update do
+               # Check if tenant_id is in the changes map
+               case Map.get(changeset.attributes, :tenant_id) do
+                 nil ->
+                   # Not being changed, that's fine
+                   changeset
+
+                 _new_value ->
+                   # Someone is trying to change tenant_id - block it
+                   Ash.Changeset.add_error(changeset,
+                     field: :tenant_id,
+                     message: "cannot be changed - tenant assignment is permanent"
+                   )
+               end
+             else
+               changeset
+             end
+           end)
+  end
+
+  attributes do
+    uuid_primary_key :id
+
+    attribute :email, :ci_string do
+      allow_nil? false
+      public? true
+      description "User email address (unique per tenant)"
+      constraints match: ~r/^[^\s]+@[^\s]+$/
+    end
+
+    attribute :hashed_password, :string do
+      allow_nil? true
+      sensitive? true
+      description "Bcrypt-hashed password"
+    end
+
+    attribute :display_name, :string do
+      public? true
+      description "User's display name"
+    end
+
+    attribute :role, :atom do
+      allow_nil? false
+      default :viewer
+      public? true
+      constraints one_of: [:viewer, :operator, :admin, :super_admin]
+      description "User's role for authorization"
+    end
+
+    attribute :confirmed_at, :utc_datetime do
+      public? true
+      description "When the user confirmed their email"
+    end
+
+    attribute :authenticated_at, :utc_datetime do
+      public? true
+      description "When the user last authenticated (for sudo mode)"
+    end
+
+    attribute :tenant_id, :uuid do
+      allow_nil? false
+      public? true
+      description "Owning tenant ID - immutable after creation (see validations)"
+    end
+
+    create_timestamp :inserted_at
+    update_timestamp :updated_at
+  end
+
+  relationships do
+    belongs_to :tenant, ServiceRadar.Identity.Tenant do
+      allow_nil? false
+      attribute_type :uuid
+      source_attribute :tenant_id
+    end
+  end
+
+  calculations do
+    calculate :confirmed?, :boolean, expr(not is_nil(confirmed_at))
+
+    calculate :initials,
+              :string,
+              expr(
+                if is_nil(display_name) do
+                  fragment("UPPER(LEFT(?, 2))", email)
+                else
+                  fragment(
+                    "UPPER(LEFT(?, 1)) || UPPER(LEFT(SPLIT_PART(?, ' ', 2), 1))",
+                    display_name,
+                    display_name
+                  )
+                end
+              )
+  end
+
+  identities do
+    identity :unique_email_per_tenant, [:tenant_id, :email]
+    identity :unique_email, [:email]
   end
 end

@@ -24,6 +24,60 @@ defmodule ServiceRadar.Edge.OnboardingEvent do
     repo ServiceRadar.Repo
   end
 
+  code_interface do
+    define :record, action: :record
+    define :by_package, action: :by_package, args: [:package_id]
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_package do
+      argument :package_id, :uuid, allow_nil?: false
+      filter expr(package_id == ^arg(:package_id))
+    end
+
+    read :recent do
+      argument :since, :utc_datetime, allow_nil?: false
+      filter expr(event_time >= ^arg(:since))
+    end
+
+    read :by_type do
+      argument :event_type, :atom, allow_nil?: false
+      filter expr(event_type == ^arg(:event_type))
+    end
+
+    create :record do
+      description "Record a new audit event"
+      accept [:event_time, :package_id, :event_type, :actor, :source_ip, :details_json]
+
+      change fn changeset, _context ->
+        case Ash.Changeset.get_attribute(changeset, :event_time) do
+          nil -> Ash.Changeset.change_attribute(changeset, :event_time, DateTime.utc_now())
+          _ -> changeset
+        end
+      end
+    end
+  end
+
+  policies do
+    # Super admins bypass all policies
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    # Admins and operators can read events
+    policy action_type(:read) do
+      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if actor_attribute_equals(:role, :operator)
+    end
+
+    # Only admins can create events directly (normally done via package actions)
+    policy action(:record) do
+      authorize_if actor_attribute_equals(:role, :admin)
+    end
+  end
+
   attributes do
     # Composite primary key for TimescaleDB hypertable
     attribute :event_time, :utc_datetime_usec do
@@ -69,60 +123,6 @@ defmodule ServiceRadar.Edge.OnboardingEvent do
       source_attribute :package_id
       destination_attribute :id
       allow_nil? false
-    end
-  end
-
-  actions do
-    defaults [:read]
-
-    read :by_package do
-      argument :package_id, :uuid, allow_nil?: false
-      filter expr(package_id == ^arg(:package_id))
-    end
-
-    read :recent do
-      argument :since, :utc_datetime, allow_nil?: false
-      filter expr(event_time >= ^arg(:since))
-    end
-
-    read :by_type do
-      argument :event_type, :atom, allow_nil?: false
-      filter expr(event_type == ^arg(:event_type))
-    end
-
-    create :record do
-      description "Record a new audit event"
-      accept [:event_time, :package_id, :event_type, :actor, :source_ip, :details_json]
-
-      change fn changeset, _context ->
-        case Ash.Changeset.get_attribute(changeset, :event_time) do
-          nil -> Ash.Changeset.change_attribute(changeset, :event_time, DateTime.utc_now())
-          _ -> changeset
-        end
-      end
-    end
-  end
-
-  code_interface do
-    define :record, action: :record
-    define :by_package, action: :by_package, args: [:package_id]
-  end
-
-  policies do
-    # Super admins bypass all policies
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # Admins and operators can read events
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
-
-    # Only admins can create events directly (normally done via package actions)
-    policy action(:record) do
-      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 end

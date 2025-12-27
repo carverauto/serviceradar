@@ -29,6 +29,11 @@ defmodule ServiceRadar.Inventory.Interface do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  postgres do
+    table "discovered_interfaces"
+    repo ServiceRadar.Repo
+  end
+
   json_api do
     type "interface"
 
@@ -45,9 +50,58 @@ defmodule ServiceRadar.Inventory.Interface do
     end
   end
 
-  postgres do
-    table "discovered_interfaces"
-    repo ServiceRadar.Repo
+  code_interface do
+    define :list_by_device, action: :by_device, args: [:device_id]
+    define :get_by_device_and_index, action: :by_device_and_index, args: [:device_id, :if_index]
+    define :list_by_poller, action: :by_poller, args: [:poller_id]
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_device do
+      description "Get interfaces for a specific device"
+      argument :device_id, :string, allow_nil?: false
+      filter expr(device_id == ^arg(:device_id))
+    end
+
+    read :by_device_and_index do
+      description "Get a specific interface by device and index"
+      argument :device_id, :string, allow_nil?: false
+      argument :if_index, :integer, allow_nil?: false
+      get? true
+      filter expr(device_id == ^arg(:device_id) and if_index == ^arg(:if_index))
+    end
+
+    read :by_poller do
+      description "Get interfaces discovered by a specific poller"
+      argument :poller_id, :string, allow_nil?: false
+      filter expr(poller_id == ^arg(:poller_id))
+    end
+
+    read :latest do
+      description "Get the most recent interface records"
+      prepare build(sort: [timestamp: :desc], limit: 100)
+    end
+
+    read :active do
+      description "Interfaces that are operationally up"
+      filter expr(if_oper_status == 1)
+    end
+  end
+
+  policies do
+    # Super admins bypass all policies
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    # Read access: Authenticated users can read interfaces
+    # Note: Full tenant isolation requires joining to device table
+    # For now, allow reads for any authenticated user with a role
+    policy action_type(:read) do
+      authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
+    end
   end
 
   # Note: discovered_interfaces doesn't have tenant_id yet
@@ -155,110 +209,75 @@ defmodule ServiceRadar.Inventory.Interface do
     end
   end
 
-  actions do
-    defaults [:read]
-
-    read :by_device do
-      description "Get interfaces for a specific device"
-      argument :device_id, :string, allow_nil?: false
-      filter expr(device_id == ^arg(:device_id))
-    end
-
-    read :by_device_and_index do
-      description "Get a specific interface by device and index"
-      argument :device_id, :string, allow_nil?: false
-      argument :if_index, :integer, allow_nil?: false
-      get? true
-      filter expr(device_id == ^arg(:device_id) and if_index == ^arg(:if_index))
-    end
-
-    read :by_poller do
-      description "Get interfaces discovered by a specific poller"
-      argument :poller_id, :string, allow_nil?: false
-      filter expr(poller_id == ^arg(:poller_id))
-    end
-
-    read :latest do
-      description "Get the most recent interface records"
-      prepare build(sort: [timestamp: :desc], limit: 100)
-    end
-
-    read :active do
-      description "Interfaces that are operationally up"
-      filter expr(if_oper_status == 1)
-    end
-  end
-
   calculations do
-    calculate :admin_status_name, :string, expr(
-      cond do
-        if_admin_status == 1 -> "up"
-        if_admin_status == 2 -> "down"
-        if_admin_status == 3 -> "testing"
-        true -> "unknown"
-      end
-    )
+    calculate :admin_status_name,
+              :string,
+              expr(
+                cond do
+                  if_admin_status == 1 -> "up"
+                  if_admin_status == 2 -> "down"
+                  if_admin_status == 3 -> "testing"
+                  true -> "unknown"
+                end
+              )
 
-    calculate :oper_status_name, :string, expr(
-      cond do
-        if_oper_status == 1 -> "up"
-        if_oper_status == 2 -> "down"
-        if_oper_status == 3 -> "testing"
-        true -> "unknown"
-      end
-    )
+    calculate :oper_status_name,
+              :string,
+              expr(
+                cond do
+                  if_oper_status == 1 -> "up"
+                  if_oper_status == 2 -> "down"
+                  if_oper_status == 3 -> "testing"
+                  true -> "unknown"
+                end
+              )
 
-    calculate :status_color, :string, expr(
-      cond do
-        if_oper_status == 1 and if_admin_status == 1 -> "green"
-        if_oper_status == 2 and if_admin_status == 1 -> "red"
-        if_admin_status == 2 -> "gray"
-        true -> "yellow"
-      end
-    )
+    calculate :status_color,
+              :string,
+              expr(
+                cond do
+                  if_oper_status == 1 and if_admin_status == 1 -> "green"
+                  if_oper_status == 2 and if_admin_status == 1 -> "red"
+                  if_admin_status == 2 -> "gray"
+                  true -> "yellow"
+                end
+              )
 
-    calculate :speed_formatted, :string, expr(
-      cond do
-        is_nil(if_speed) -> "Unknown"
-        if_speed >= 1_000_000_000_000 -> fragment("? || ' Tbps'", if_speed / 1_000_000_000_000)
-        if_speed >= 1_000_000_000 -> fragment("? || ' Gbps'", if_speed / 1_000_000_000)
-        if_speed >= 1_000_000 -> fragment("? || ' Mbps'", if_speed / 1_000_000)
-        if_speed >= 1_000 -> fragment("? || ' Kbps'", if_speed / 1_000)
-        true -> fragment("? || ' bps'", if_speed)
-      end
-    )
+    calculate :speed_formatted,
+              :string,
+              expr(
+                cond do
+                  is_nil(if_speed) ->
+                    "Unknown"
 
-    calculate :display_name, :string, expr(
-      cond do
-        not is_nil(if_alias) and if_alias != "" -> if_alias
-        not is_nil(if_name) -> if_name
-        not is_nil(if_descr) -> if_descr
-        true -> fragment("'if' || ?", if_index)
-      end
-    )
+                  if_speed >= 1_000_000_000_000 ->
+                    fragment("? || ' Tbps'", if_speed / 1_000_000_000_000)
 
-    calculate :primary_ip, :string, expr(
-      fragment("(?)[1]", ip_addresses)
-    )
-  end
+                  if_speed >= 1_000_000_000 ->
+                    fragment("? || ' Gbps'", if_speed / 1_000_000_000)
 
-  code_interface do
-    define :list_by_device, action: :by_device, args: [:device_id]
-    define :get_by_device_and_index, action: :by_device_and_index, args: [:device_id, :if_index]
-    define :list_by_poller, action: :by_poller, args: [:poller_id]
-  end
+                  if_speed >= 1_000_000 ->
+                    fragment("? || ' Mbps'", if_speed / 1_000_000)
 
-  policies do
-    # Super admins bypass all policies
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+                  if_speed >= 1_000 ->
+                    fragment("? || ' Kbps'", if_speed / 1_000)
 
-    # Read access: Authenticated users can read interfaces
-    # Note: Full tenant isolation requires joining to device table
-    # For now, allow reads for any authenticated user with a role
-    policy action_type(:read) do
-      authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
-    end
+                  true ->
+                    fragment("? || ' bps'", if_speed)
+                end
+              )
+
+    calculate :display_name,
+              :string,
+              expr(
+                cond do
+                  not is_nil(if_alias) and if_alias != "" -> if_alias
+                  not is_nil(if_name) -> if_name
+                  not is_nil(if_descr) -> if_descr
+                  true -> fragment("'if' || ?", if_index)
+                end
+              )
+
+    calculate :primary_ip, :string, expr(fragment("(?)[1]", ip_addresses))
   end
 end

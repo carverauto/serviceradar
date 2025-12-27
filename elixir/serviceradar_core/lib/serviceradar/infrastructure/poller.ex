@@ -20,6 +20,11 @@ defmodule ServiceRadar.Infrastructure.Poller do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  postgres do
+    table "pollers"
+    repo ServiceRadar.Repo
+  end
+
   json_api do
     type "poller"
 
@@ -32,15 +37,113 @@ defmodule ServiceRadar.Infrastructure.Poller do
     end
   end
 
-  postgres do
-    table "pollers"
-    repo ServiceRadar.Repo
-  end
-
   multitenancy do
     strategy :attribute
     attribute :tenant_id
     global? true
+  end
+
+  code_interface do
+    define :get_by_id, action: :by_id, args: [:id]
+    define :list_active, action: :active
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_id do
+      argument :id, :string, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+    end
+
+    read :active do
+      description "All active pollers"
+      filter expr(status == "active" and is_healthy == true)
+    end
+
+    read :by_status do
+      argument :status, :string, allow_nil?: false
+      filter expr(status == ^arg(:status))
+    end
+
+    read :recently_seen do
+      description "Pollers seen in the last 5 minutes"
+      filter expr(last_seen > ago(5, :minute))
+    end
+
+    create :register do
+      description "Register a new poller"
+
+      accept [
+        :id,
+        :component_id,
+        :registration_source,
+        :spiffe_identity,
+        :metadata,
+        :created_by
+      ]
+
+      change fn changeset, _context ->
+        now = DateTime.utc_now()
+
+        changeset
+        |> Ash.Changeset.change_attribute(:first_registered, now)
+        |> Ash.Changeset.change_attribute(:first_seen, now)
+        |> Ash.Changeset.change_attribute(:last_seen, now)
+        |> Ash.Changeset.change_attribute(:status, "active")
+        |> Ash.Changeset.change_attribute(:is_healthy, true)
+      end
+    end
+
+    update :update do
+      accept [:metadata, :agent_count, :checker_count]
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+    end
+
+    update :heartbeat do
+      description "Update last_seen and health status"
+      accept [:is_healthy, :agent_count, :checker_count]
+
+      change set_attribute(:last_seen, &DateTime.utc_now/0)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+    end
+
+    update :set_status do
+      accept [:status]
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+    end
+
+    update :mark_unhealthy do
+      description "Mark poller as unhealthy"
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:status, "degraded")
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+    end
+
+    update :deactivate do
+      description "Deactivate a poller"
+      change set_attribute(:status, "inactive")
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+    end
+  end
+
+  policies do
+    # Allow all reads - tenant isolation will be enforced at query level
+    # when we have proper tenant context from the Go pollers
+    policy action_type(:read) do
+      authorize_if always()
+    end
+
+    # Allow create/update for authenticated users
+    policy action_type(:create) do
+      authorize_if always()
+    end
+
+    policy action_type(:update) do
+      authorize_if always()
+    end
   end
 
   attributes do
@@ -136,10 +239,6 @@ defmodule ServiceRadar.Infrastructure.Poller do
     end
   end
 
-  identities do
-    identity :unique_poller_id, [:id]
-  end
-
   relationships do
     has_many :agents, ServiceRadar.Infrastructure.Agent do
       source_attribute :id
@@ -155,124 +254,32 @@ defmodule ServiceRadar.Infrastructure.Poller do
     end
   end
 
-  actions do
-    defaults [:read]
-
-    read :by_id do
-      argument :id, :string, allow_nil?: false
-      get? true
-      filter expr(id == ^arg(:id))
-    end
-
-    read :active do
-      description "All active pollers"
-      filter expr(status == "active" and is_healthy == true)
-    end
-
-    read :by_status do
-      argument :status, :string, allow_nil?: false
-      filter expr(status == ^arg(:status))
-    end
-
-    read :recently_seen do
-      description "Pollers seen in the last 5 minutes"
-      filter expr(last_seen > ago(5, :minute))
-    end
-
-    create :register do
-      description "Register a new poller"
-      accept [
-        :id, :component_id, :registration_source, :spiffe_identity,
-        :metadata, :created_by
-      ]
-
-      change fn changeset, _context ->
-        now = DateTime.utc_now()
-
-        changeset
-        |> Ash.Changeset.change_attribute(:first_registered, now)
-        |> Ash.Changeset.change_attribute(:first_seen, now)
-        |> Ash.Changeset.change_attribute(:last_seen, now)
-        |> Ash.Changeset.change_attribute(:status, "active")
-        |> Ash.Changeset.change_attribute(:is_healthy, true)
-      end
-    end
-
-    update :update do
-      accept [:metadata, :agent_count, :checker_count]
-      change set_attribute(:updated_at, &DateTime.utc_now/0)
-    end
-
-    update :heartbeat do
-      description "Update last_seen and health status"
-      accept [:is_healthy, :agent_count, :checker_count]
-
-      change set_attribute(:last_seen, &DateTime.utc_now/0)
-      change set_attribute(:updated_at, &DateTime.utc_now/0)
-    end
-
-    update :set_status do
-      accept [:status]
-      change set_attribute(:updated_at, &DateTime.utc_now/0)
-    end
-
-    update :mark_unhealthy do
-      description "Mark poller as unhealthy"
-      change set_attribute(:is_healthy, false)
-      change set_attribute(:status, "degraded")
-      change set_attribute(:updated_at, &DateTime.utc_now/0)
-    end
-
-    update :deactivate do
-      description "Deactivate a poller"
-      change set_attribute(:status, "inactive")
-      change set_attribute(:is_healthy, false)
-      change set_attribute(:updated_at, &DateTime.utc_now/0)
-    end
-  end
-
   calculations do
-    calculate :is_online, :boolean, expr(
-      last_seen > ago(5, :minute) and is_healthy == true
-    )
+    calculate :is_online, :boolean, expr(last_seen > ago(5, :minute) and is_healthy == true)
 
-    calculate :status_color, :string, expr(
-      cond do
-        status == "active" and is_healthy == true -> "green"
-        status == "degraded" -> "yellow"
-        status == "draining" -> "yellow"
-        true -> "red"
-      end
-    )
+    calculate :status_color,
+              :string,
+              expr(
+                cond do
+                  status == "active" and is_healthy == true -> "green"
+                  status == "degraded" -> "yellow"
+                  status == "draining" -> "yellow"
+                  true -> "red"
+                end
+              )
 
-    calculate :display_name, :string, expr(
-      if not is_nil(component_id) do
-        component_id
-      else
-        id
-      end
-    )
+    calculate :display_name,
+              :string,
+              expr(
+                if not is_nil(component_id) do
+                  component_id
+                else
+                  id
+                end
+              )
   end
 
-  code_interface do
-    define :get_by_id, action: :by_id, args: [:id]
-    define :list_active, action: :active
-  end
-
-  policies do
-    # Allow all reads - tenant isolation will be enforced at query level
-    # when we have proper tenant context from the Go pollers
-    policy action_type(:read) do
-      authorize_if always()
-    end
-
-    # Allow create/update for authenticated users
-    policy action_type(:create) do
-      authorize_if always()
-    end
-
-    policy action_type(:update) do
-      authorize_if always()
-    end
+  identities do
+    identity :unique_poller_id, [:id]
   end
 end

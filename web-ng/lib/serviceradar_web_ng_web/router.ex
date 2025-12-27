@@ -143,6 +143,10 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/edge-packages", Admin.EdgePackageLive.Index, :index
       live "/edge-packages/new", Admin.EdgePackageLive.Index, :new
       live "/edge-packages/:id", Admin.EdgePackageLive.Index, :show
+      live "/integrations", Admin.IntegrationLive.Index, :index
+      live "/integrations/new", Admin.IntegrationLive.Index, :new
+      live "/integrations/:id", Admin.IntegrationLive.Index, :show
+      live "/integrations/:id/edit", Admin.IntegrationLive.Index, :edit
       live "/cluster", Admin.ClusterLive.Index, :index
     end
 

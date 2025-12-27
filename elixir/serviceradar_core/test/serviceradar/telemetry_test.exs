@@ -28,7 +28,9 @@ defmodule ServiceRadar.TelemetryTest do
         nil
       )
 
-      Telemetry.emit_cluster_event(:node_connected, %{target_node: :test@localhost}, %{latency: 100})
+      Telemetry.emit_cluster_event(:node_connected, %{target_node: :test@localhost}, %{
+        latency: 100
+      })
 
       assert_receive {:event, [:serviceradar, :cluster, :node_connected], measurements, metadata}
       assert measurements == %{latency: 100}
@@ -51,7 +53,11 @@ defmodule ServiceRadar.TelemetryTest do
         nil
       )
 
-      Telemetry.emit_poller_event(:registered, %{partition_id: "p1", poller_id: "poller-001"}, %{})
+      Telemetry.emit_poller_event(
+        :registered,
+        %{partition_id: "p1", poller_id: "poller-001"},
+        %{}
+      )
 
       assert_receive {:event, [:serviceradar, :poller, :registered], _, metadata}
       assert metadata.partition_id == "p1"
@@ -116,10 +122,11 @@ defmodule ServiceRadar.TelemetryTest do
         nil
       )
 
-      result = Telemetry.span([:serviceradar, :test, :operation], %{test: true}, fn ->
-        Process.sleep(10)
-        :test_result
-      end)
+      result =
+        Telemetry.span([:serviceradar, :test, :operation], %{test: true}, fn ->
+          Process.sleep(10)
+          :test_result
+        end)
 
       assert result == :test_result
 
@@ -211,7 +218,8 @@ defmodule ServiceRadar.TelemetryTest do
       Telemetry.measure_cluster_size()
 
       assert_receive {:event, [:serviceradar, :cluster, :nodes], measurements, metadata}
-      assert measurements.count >= 1  # At least the current node
+      # At least the current node
+      assert measurements.count >= 1
       assert is_list(metadata.nodes)
     end
   end

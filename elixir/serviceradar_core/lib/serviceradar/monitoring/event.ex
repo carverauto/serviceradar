@@ -41,6 +41,137 @@ defmodule ServiceRadar.Monitoring.Event do
     global? true
   end
 
+  code_interface do
+    define :list_by_category, action: :by_category, args: [:category]
+    define :list_by_device, action: :by_device, args: [:device_uid]
+    define :list_recent, action: :recent
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_category do
+      argument :category, :atom, allow_nil?: false
+      filter expr(category == ^arg(:category))
+    end
+
+    read :by_severity do
+      argument :min_severity, :integer, allow_nil?: false
+      filter expr(severity >= ^arg(:min_severity))
+    end
+
+    read :by_device do
+      argument :device_uid, :string, allow_nil?: false
+      filter expr(device_uid == ^arg(:device_uid))
+    end
+
+    read :by_agent do
+      argument :agent_uid, :string, allow_nil?: false
+      filter expr(agent_uid == ^arg(:agent_uid))
+    end
+
+    read :by_alert do
+      argument :alert_id, :uuid, allow_nil?: false
+      filter expr(alert_id == ^arg(:alert_id))
+    end
+
+    read :recent do
+      description "Events from last hour"
+      filter expr(occurred_at > ago(1, :hour))
+    end
+
+    read :in_time_range do
+      argument :start_time, :utc_datetime, allow_nil?: false
+      argument :end_time, :utc_datetime, allow_nil?: false
+      filter expr(occurred_at >= ^arg(:start_time) and occurred_at <= ^arg(:end_time))
+    end
+
+    create :record do
+      description "Record a new event"
+
+      accept [
+        :category,
+        :event_type,
+        :severity,
+        :message,
+        :details,
+        :source_type,
+        :source_id,
+        :source_name,
+        :target_type,
+        :target_id,
+        :target_name,
+        :device_uid,
+        :agent_uid,
+        :alert_id,
+        :metadata,
+        :tags,
+        :actor_type,
+        :actor_id,
+        :actor_name,
+        :client_ip
+      ]
+
+      change set_attribute(:occurred_at, &DateTime.utc_now/0)
+    end
+
+    create :record_at_time do
+      description "Record an event with specific timestamp"
+
+      accept [
+        :category,
+        :event_type,
+        :severity,
+        :message,
+        :details,
+        :source_type,
+        :source_id,
+        :source_name,
+        :target_type,
+        :target_id,
+        :target_name,
+        :device_uid,
+        :agent_uid,
+        :alert_id,
+        :metadata,
+        :tags,
+        :occurred_at,
+        :actor_type,
+        :actor_id,
+        :actor_name,
+        :client_ip
+      ]
+    end
+  end
+
+  policies do
+    # Import common policy checks
+
+    # Super admins bypass all policies (platform-wide access)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    # TENANT ISOLATION: Events are audit/log data for a tenant
+    # Must be strictly isolated
+
+    # Read access: Must be authenticated AND in same tenant
+    policy action_type(:read) do
+      authorize_if expr(
+                     ^actor(:role) in [:viewer, :operator, :admin] and
+                       tenant_id == ^actor(:tenant_id)
+                   )
+    end
+
+    # Record events: Operators/admins in same tenant
+    policy action([:record, :record_at_time]) do
+      authorize_if expr(
+                     ^actor(:role) in [:operator, :admin] and
+                       tenant_id == ^actor(:tenant_id)
+                   )
+    end
+  end
+
   attributes do
     uuid_primary_key :id
 
@@ -199,139 +330,45 @@ defmodule ServiceRadar.Monitoring.Event do
     end
   end
 
-  actions do
-    defaults [:read]
-
-    read :by_category do
-      argument :category, :atom, allow_nil?: false
-      filter expr(category == ^arg(:category))
-    end
-
-    read :by_severity do
-      argument :min_severity, :integer, allow_nil?: false
-      filter expr(severity >= ^arg(:min_severity))
-    end
-
-    read :by_device do
-      argument :device_uid, :string, allow_nil?: false
-      filter expr(device_uid == ^arg(:device_uid))
-    end
-
-    read :by_agent do
-      argument :agent_uid, :string, allow_nil?: false
-      filter expr(agent_uid == ^arg(:agent_uid))
-    end
-
-    read :by_alert do
-      argument :alert_id, :uuid, allow_nil?: false
-      filter expr(alert_id == ^arg(:alert_id))
-    end
-
-    read :recent do
-      description "Events from last hour"
-      filter expr(occurred_at > ago(1, :hour))
-    end
-
-    read :in_time_range do
-      argument :start_time, :utc_datetime, allow_nil?: false
-      argument :end_time, :utc_datetime, allow_nil?: false
-      filter expr(occurred_at >= ^arg(:start_time) and occurred_at <= ^arg(:end_time))
-    end
-
-    create :record do
-      description "Record a new event"
-      accept [
-        :category, :event_type, :severity, :message, :details,
-        :source_type, :source_id, :source_name,
-        :target_type, :target_id, :target_name,
-        :device_uid, :agent_uid, :alert_id,
-        :metadata, :tags,
-        :actor_type, :actor_id, :actor_name, :client_ip
-      ]
-
-      change set_attribute(:occurred_at, &DateTime.utc_now/0)
-    end
-
-    create :record_at_time do
-      description "Record an event with specific timestamp"
-      accept [
-        :category, :event_type, :severity, :message, :details,
-        :source_type, :source_id, :source_name,
-        :target_type, :target_id, :target_name,
-        :device_uid, :agent_uid, :alert_id,
-        :metadata, :tags, :occurred_at,
-        :actor_type, :actor_id, :actor_name, :client_ip
-      ]
-    end
-  end
-
   calculations do
-    calculate :severity_label, :string, expr(
-      cond do
-        severity == 0 -> "Unknown"
-        severity == 1 -> "Info"
-        severity == 2 -> "Warning"
-        severity == 3 -> "Error"
-        severity == 4 -> "Critical"
-        true -> "Unknown"
-      end
-    )
+    calculate :severity_label,
+              :string,
+              expr(
+                cond do
+                  severity == 0 -> "Unknown"
+                  severity == 1 -> "Info"
+                  severity == 2 -> "Warning"
+                  severity == 3 -> "Error"
+                  severity == 4 -> "Critical"
+                  true -> "Unknown"
+                end
+              )
 
-    calculate :severity_color, :string, expr(
-      cond do
-        severity == 4 -> "red"
-        severity == 3 -> "red"
-        severity == 2 -> "yellow"
-        severity == 1 -> "blue"
-        true -> "gray"
-      end
-    )
+    calculate :severity_color,
+              :string,
+              expr(
+                cond do
+                  severity == 4 -> "red"
+                  severity == 3 -> "red"
+                  severity == 2 -> "yellow"
+                  severity == 1 -> "blue"
+                  true -> "gray"
+                end
+              )
 
-    calculate :category_label, :string, expr(
-      cond do
-        category == :check -> "Check"
-        category == :alert -> "Alert"
-        category == :agent -> "Agent"
-        category == :poller -> "Poller"
-        category == :device -> "Device"
-        category == :system -> "System"
-        category == :audit -> "Audit"
-        true -> "Unknown"
-      end
-    )
-  end
-
-  code_interface do
-    define :list_by_category, action: :by_category, args: [:category]
-    define :list_by_device, action: :by_device, args: [:device_uid]
-    define :list_recent, action: :recent
-  end
-
-  policies do
-    # Import common policy checks
-
-    # Super admins bypass all policies (platform-wide access)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # TENANT ISOLATION: Events are audit/log data for a tenant
-    # Must be strictly isolated
-
-    # Read access: Must be authenticated AND in same tenant
-    policy action_type(:read) do
-      authorize_if expr(
-        ^actor(:role) in [:viewer, :operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
-    end
-
-    # Record events: Operators/admins in same tenant
-    policy action([:record, :record_at_time]) do
-      authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
-    end
+    calculate :category_label,
+              :string,
+              expr(
+                cond do
+                  category == :check -> "Check"
+                  category == :alert -> "Alert"
+                  category == :agent -> "Agent"
+                  category == :poller -> "Poller"
+                  category == :device -> "Device"
+                  category == :system -> "System"
+                  category == :audit -> "Audit"
+                  true -> "Unknown"
+                end
+              )
   end
 end

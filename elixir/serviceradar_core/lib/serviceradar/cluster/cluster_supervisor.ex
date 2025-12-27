@@ -38,7 +38,9 @@ defmodule ServiceRadar.ClusterSupervisor do
 
     children =
       if topologies != [] do
-        Logger.info("Starting cluster supervisor with topologies: #{inspect(Keyword.keys(topologies))}")
+        Logger.info(
+          "Starting cluster supervisor with topologies: #{inspect(Keyword.keys(topologies))}"
+        )
 
         [
           {Cluster.Supervisor, [topologies, [name: ServiceRadar.ClusterSupervisor.Cluster]]}

@@ -24,6 +24,78 @@ defmodule ServiceRadar.Inventory.MergeAudit do
     repo ServiceRadar.Repo
   end
 
+  code_interface do
+    define :record, action: :record
+    define :get_by_device, action: :by_device, args: [:device_id]
+    define :get_merged_from, action: :merged_from, args: [:to_device_id]
+    define :get_merged_to, action: :merged_to, args: [:from_device_id]
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_device do
+      description "Get all merge events involving a device"
+      argument :device_id, :string, allow_nil?: false
+
+      filter expr(
+               from_device_id == ^arg(:device_id) or
+                 to_device_id == ^arg(:device_id)
+             )
+    end
+
+    read :merged_from do
+      description "Get all devices that were merged into a canonical device"
+      argument :to_device_id, :string, allow_nil?: false
+      filter expr(to_device_id == ^arg(:to_device_id))
+    end
+
+    read :merged_to do
+      description "Get the canonical device a device was merged into"
+      argument :from_device_id, :string, allow_nil?: false
+      filter expr(from_device_id == ^arg(:from_device_id))
+    end
+
+    read :recent do
+      description "Get recent merge events"
+      argument :limit, :integer, default: 100
+
+      prepare fn query, _context ->
+        limit = Ash.Query.get_argument(query, :limit)
+
+        query
+        |> Ash.Query.sort(created_at: :desc)
+        |> Ash.Query.limit(limit)
+      end
+    end
+
+    create :record do
+      description "Record a merge event"
+      accept [:from_device_id, :to_device_id, :reason, :confidence_score, :source, :details]
+
+      change fn changeset, _context ->
+        Ash.Changeset.change_new_attribute(changeset, :created_at, DateTime.utc_now())
+      end
+    end
+  end
+
+  policies do
+    # Super admins bypass all policies
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    # Read access for authenticated users
+    policy action_type(:read) do
+      authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
+    end
+
+    # Only operators/admins can create merge audit entries
+    policy action(:record) do
+      authorize_if expr(^actor(:role) in [:operator, :admin])
+    end
+  end
+
   attributes do
     uuid_primary_key :event_id
 
@@ -63,78 +135,6 @@ defmodule ServiceRadar.Inventory.MergeAudit do
     attribute :created_at, :utc_datetime do
       public? true
       description "When the merge occurred"
-    end
-  end
-
-  actions do
-    defaults [:read]
-
-    read :by_device do
-      description "Get all merge events involving a device"
-      argument :device_id, :string, allow_nil?: false
-
-      filter expr(
-        from_device_id == ^arg(:device_id) or
-        to_device_id == ^arg(:device_id)
-      )
-    end
-
-    read :merged_from do
-      description "Get all devices that were merged into a canonical device"
-      argument :to_device_id, :string, allow_nil?: false
-      filter expr(to_device_id == ^arg(:to_device_id))
-    end
-
-    read :merged_to do
-      description "Get the canonical device a device was merged into"
-      argument :from_device_id, :string, allow_nil?: false
-      filter expr(from_device_id == ^arg(:from_device_id))
-    end
-
-    read :recent do
-      description "Get recent merge events"
-      argument :limit, :integer, default: 100
-
-      prepare fn query, _context ->
-        limit = Ash.Query.get_argument(query, :limit)
-
-        query
-        |> Ash.Query.sort(created_at: :desc)
-        |> Ash.Query.limit(limit)
-      end
-    end
-
-    create :record do
-      description "Record a merge event"
-      accept [:from_device_id, :to_device_id, :reason, :confidence_score, :source, :details]
-
-      change fn changeset, _context ->
-        Ash.Changeset.change_new_attribute(changeset, :created_at, DateTime.utc_now())
-      end
-    end
-  end
-
-  code_interface do
-    define :record, action: :record
-    define :get_by_device, action: :by_device, args: [:device_id]
-    define :get_merged_from, action: :merged_from, args: [:to_device_id]
-    define :get_merged_to, action: :merged_to, args: [:from_device_id]
-  end
-
-  policies do
-    # Super admins bypass all policies
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # Read access for authenticated users
-    policy action_type(:read) do
-      authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
-    end
-
-    # Only operators/admins can create merge audit entries
-    policy action(:record) do
-      authorize_if expr(^actor(:role) in [:operator, :admin])
     end
   end
 end

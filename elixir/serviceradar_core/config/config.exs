@@ -15,12 +15,12 @@ config :serviceradar_core,
     ServiceRadar.Infrastructure,
     ServiceRadar.Monitoring,
     ServiceRadar.Observability,
-    ServiceRadar.Edge
+    ServiceRadar.Edge,
+    ServiceRadar.Integrations
   ]
 
 # Mailer configuration
-config :serviceradar_core, ServiceRadar.Mailer,
-  adapter: Swoosh.Adapters.Local
+config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
 
 # Ash configuration
 config :ash,

@@ -13,6 +13,13 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  postgres do
+    table "otel_trace_summaries"
+    repo ServiceRadar.Repo
+    # Don't generate migrations - this is a materialized view managed by raw SQL
+    migrate? false
+  end
+
   json_api do
     type "otel_trace_summary"
 
@@ -23,11 +30,31 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
     end
   end
 
-  postgres do
-    table "otel_trace_summaries"
-    repo ServiceRadar.Repo
-    # Don't generate migrations - this is a materialized view managed by raw SQL
-    migrate? false
+  actions do
+    # Read-only - this is a materialized view
+    defaults [:read]
+
+    read :by_service do
+      argument :service_name, :string, allow_nil?: false
+      filter expr(root_service_name == ^arg(:service_name))
+    end
+
+    read :recent do
+      description "Traces from the last 24 hours"
+      filter expr(timestamp > ago(24, :hour))
+    end
+
+    read :with_errors do
+      description "Traces that have errors"
+      filter expr(error_count > 0)
+    end
+  end
+
+  policies do
+    # Allow all reads - this data isn't tenant-scoped in Go
+    policy action_type(:read) do
+      authorize_if always()
+    end
   end
 
   # Note: No multitenancy - Go schema doesn't have tenant_id
@@ -108,41 +135,16 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
     end
   end
 
-  actions do
-    # Read-only - this is a materialized view
-    defaults [:read]
-
-    read :by_service do
-      argument :service_name, :string, allow_nil?: false
-      filter expr(root_service_name == ^arg(:service_name))
-    end
-
-    read :recent do
-      description "Traces from the last 24 hours"
-      filter expr(timestamp > ago(24, :hour))
-    end
-
-    read :with_errors do
-      description "Traces that have errors"
-      filter expr(error_count > 0)
-    end
-  end
-
   calculations do
-    calculate :error_rate, :float, expr(
-      cond do
-        span_count == 0 -> 0.0
-        true -> (error_count * 100.0) / span_count
-      end
-    )
+    calculate :error_rate,
+              :float,
+              expr(
+                cond do
+                  span_count == 0 -> 0.0
+                  true -> error_count * 100.0 / span_count
+                end
+              )
 
     calculate :has_errors, :boolean, expr(error_count > 0)
-  end
-
-  policies do
-    # Allow all reads - this data isn't tenant-scoped in Go
-    policy action_type(:read) do
-      authorize_if always()
-    end
   end
 end

@@ -34,9 +34,11 @@ defmodule ServiceRadar.SPIFFE.CertMonitor do
   def init(opts) do
     state = %__MODULE__{
       cert_dir: Keyword.get(opts, :cert_dir, SPIFFE.cert_dir()),
-      check_interval: read_interval("SPIFFE_CERT_MONITOR_INTERVAL_SECONDS", @default_check_interval_seconds),
+      check_interval:
+        read_interval("SPIFFE_CERT_MONITOR_INTERVAL_SECONDS", @default_check_interval_seconds),
       warn_threshold: read_interval("SPIFFE_CERT_WARN_SECONDS", @default_warn_threshold_seconds),
-      critical_threshold: read_interval("SPIFFE_CERT_CRITICAL_SECONDS", @default_critical_threshold_seconds),
+      critical_threshold:
+        read_interval("SPIFFE_CERT_CRITICAL_SECONDS", @default_critical_threshold_seconds),
       last_status: nil,
       last_expires_at: nil
     }
@@ -92,7 +94,10 @@ defmodule ServiceRadar.SPIFFE.CertMonitor do
     end
   end
 
-  defp maybe_log(status, info, %__MODULE__{last_status: last_status, last_expires_at: last_expires_at}) do
+  defp maybe_log(status, info, %__MODULE__{
+         last_status: last_status,
+         last_expires_at: last_expires_at
+       }) do
     expires_at =
       case info do
         %{expires_at: value} -> value
@@ -131,7 +136,11 @@ defmodule ServiceRadar.SPIFFE.CertMonitor do
   defp format_expires_at(%{expires_at: expires_at}), do: expires_at
   defp format_expires_at(_), do: "unknown"
 
-  defp emit_telemetry(status, %{seconds_remaining: seconds, expires_at: expires_at, days_remaining: days}) do
+  defp emit_telemetry(status, %{
+         seconds_remaining: seconds,
+         expires_at: expires_at,
+         days_remaining: days
+       }) do
     :telemetry.execute(
       [:serviceradar, :spiffe, :cert_expiry],
       %{seconds_remaining: seconds, days_remaining: days},
@@ -149,7 +158,9 @@ defmodule ServiceRadar.SPIFFE.CertMonitor do
 
   defp read_interval(env_var, default) do
     case System.get_env(env_var) do
-      nil -> default
+      nil ->
+        default
+
       value ->
         case Integer.parse(value) do
           {int, _} when int > 0 -> int

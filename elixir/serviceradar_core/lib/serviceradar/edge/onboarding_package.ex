@@ -32,10 +32,21 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+  state_machine do
+    initial_states [:issued]
+    default_initial_state :issued
+    state_attribute :status
+
+    transitions do
+      transition :deliver, from: :issued, to: :delivered
+      transition :activate, from: :delivered, to: :activated
+      transition :revoke, from: [:issued, :delivered], to: :revoked
+      transition :expire, from: [:issued, :delivered], to: :expired
+
+      transition :soft_delete,
+        from: [:issued, :delivered, :activated, :revoked, :expired],
+        to: :deleted
+    end
   end
 
   oban do
@@ -53,17 +64,159 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     end
   end
 
-  state_machine do
-    initial_states [:issued]
-    default_initial_state :issued
-    state_attribute :status
+  multitenancy do
+    strategy :attribute
+    attribute :tenant_id
+    global? true
+  end
 
-    transitions do
-      transition :deliver, from: :issued, to: :delivered
-      transition :activate, from: :delivered, to: :activated
-      transition :revoke, from: [:issued, :delivered], to: :revoked
-      transition :expire, from: [:issued, :delivered], to: :expired
-      transition :soft_delete, from: [:issued, :delivered, :activated, :revoked, :expired], to: :deleted
+  actions do
+    defaults [:read]
+
+    read :by_status do
+      argument :status, :atom, allow_nil?: false
+      filter expr(status == ^arg(:status))
+    end
+
+    read :active do
+      description "Packages that can still be used (issued or delivered)"
+      filter expr(status in [:issued, :delivered])
+    end
+
+    read :by_site do
+      argument :site, :string, allow_nil?: false
+      filter expr(site == ^arg(:site))
+    end
+
+    read :needs_expiration do
+      description "Packages with expired tokens that need to be marked as expired"
+      # Find packages that are still "issued" but both tokens have expired
+      filter expr(
+               status == :issued and
+                 download_token_expires_at < now() and
+                 join_token_expires_at < now()
+             )
+
+      pagination keyset?: true, default_limit: 100
+    end
+
+    create :create do
+      accept [
+        :label,
+        :component_id,
+        :component_type,
+        :parent_type,
+        :parent_id,
+        :poller_id,
+        :site,
+        :security_mode,
+        :selectors,
+        :checker_kind,
+        :checker_config_json,
+        :metadata_json,
+        :notes,
+        :created_by,
+        :downstream_spiffe_id
+      ]
+
+      # Set tenant_id from multitenancy context
+      change fn changeset, _context ->
+        case changeset.tenant do
+          nil -> changeset
+          tenant_id -> Ash.Changeset.force_change_attribute(changeset, :tenant_id, tenant_id)
+        end
+      end
+    end
+
+    update :update_tokens do
+      description "Update token fields after generation"
+
+      accept [
+        :join_token_ciphertext,
+        :join_token_expires_at,
+        :bundle_ciphertext,
+        :download_token_hash,
+        :download_token_expires_at,
+        :downstream_spiffe_id,
+        :downstream_entry_id
+      ]
+    end
+
+    update :deliver do
+      description "Mark package as delivered (downloaded)"
+      require_atomic? false
+      change transition_state(:delivered)
+      change set_attribute(:delivered_at, &DateTime.utc_now/0)
+    end
+
+    update :activate do
+      description "Mark package as activated (edge component running)"
+      accept [:activated_from_ip, :last_seen_spiffe_id]
+
+      change transition_state(:activated)
+      change set_attribute(:activated_at, &DateTime.utc_now/0)
+    end
+
+    update :revoke do
+      description "Revoke an issued or delivered package"
+      argument :reason, :string
+
+      change transition_state(:revoked)
+      change set_attribute(:revoked_at, &DateTime.utc_now/0)
+    end
+
+    update :expire do
+      description "Mark package as expired (automatic)"
+      change transition_state(:expired)
+    end
+
+    update :soft_delete do
+      description "Soft delete a package"
+      accept [:deleted_by, :deleted_reason]
+
+      change transition_state(:deleted)
+      change set_attribute(:deleted_at, &DateTime.utc_now/0)
+    end
+  end
+
+  policies do
+    # Super admins bypass all policies (platform-wide access)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    # TENANT ISOLATION is enforced by multitenancy strategy :attribute
+    # The tenant context passed to actions automatically filters records
+    # Policies here only check role-based access
+
+    # Read access: Admins/operators can read
+    policy action_type(:read) do
+      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if actor_attribute_equals(:role, :operator)
+    end
+
+    # Create packages: Admins/operators can create
+    policy action(:create) do
+      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if actor_attribute_equals(:role, :operator)
+    end
+
+    # State transitions: Admins only (except deliver and update_tokens)
+    policy action([:activate, :revoke, :soft_delete]) do
+      authorize_if actor_attribute_equals(:role, :admin)
+    end
+
+    # Expire action: Admins or AshOban scheduler (no actor)
+    policy action(:expire) do
+      authorize_if actor_attribute_equals(:role, :admin)
+      # Allow AshOban scheduler (no actor) to expire packages
+      authorize_if always()
+    end
+
+    # Operators can also deliver and update tokens
+    policy action([:deliver, :update_tokens]) do
+      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if actor_attribute_equals(:role, :operator)
     end
   end
 
@@ -252,146 +405,13 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     end
   end
 
-  actions do
-    defaults [:read]
-
-    read :by_status do
-      argument :status, :atom, allow_nil?: false
-      filter expr(status == ^arg(:status))
-    end
-
-    read :active do
-      description "Packages that can still be used (issued or delivered)"
-      filter expr(status in [:issued, :delivered])
-    end
-
-    read :by_site do
-      argument :site, :string, allow_nil?: false
-      filter expr(site == ^arg(:site))
-    end
-
-    read :needs_expiration do
-      description "Packages with expired tokens that need to be marked as expired"
-      # Find packages that are still "issued" but both tokens have expired
-      filter expr(
-        status == :issued and
-        download_token_expires_at < now() and
-        join_token_expires_at < now()
-      )
-      pagination keyset?: true, default_limit: 100
-    end
-
-    create :create do
-      accept [
-        :label, :component_id, :component_type, :parent_type, :parent_id,
-        :poller_id, :site, :security_mode, :selectors, :checker_kind,
-        :checker_config_json, :metadata_json, :notes, :created_by,
-        :downstream_spiffe_id
-      ]
-
-      # Set tenant_id from multitenancy context
-      change fn changeset, _context ->
-        case changeset.tenant do
-          nil -> changeset
-          tenant_id -> Ash.Changeset.force_change_attribute(changeset, :tenant_id, tenant_id)
-        end
-      end
-    end
-
-    update :update_tokens do
-      description "Update token fields after generation"
-      accept [
-        :join_token_ciphertext, :join_token_expires_at, :bundle_ciphertext,
-        :download_token_hash, :download_token_expires_at, :downstream_spiffe_id,
-        :downstream_entry_id
-      ]
-    end
-
-    update :deliver do
-      description "Mark package as delivered (downloaded)"
-      require_atomic? false
-      change transition_state(:delivered)
-      change set_attribute(:delivered_at, &DateTime.utc_now/0)
-    end
-
-    update :activate do
-      description "Mark package as activated (edge component running)"
-      accept [:activated_from_ip, :last_seen_spiffe_id]
-
-      change transition_state(:activated)
-      change set_attribute(:activated_at, &DateTime.utc_now/0)
-    end
-
-    update :revoke do
-      description "Revoke an issued or delivered package"
-      argument :reason, :string
-
-      change transition_state(:revoked)
-      change set_attribute(:revoked_at, &DateTime.utc_now/0)
-    end
-
-    update :expire do
-      description "Mark package as expired (automatic)"
-      change transition_state(:expired)
-    end
-
-    update :soft_delete do
-      description "Soft delete a package"
-      accept [:deleted_by, :deleted_reason]
-
-      change transition_state(:deleted)
-      change set_attribute(:deleted_at, &DateTime.utc_now/0)
-    end
-  end
-
   calculations do
     calculate :is_usable, :boolean, expr(status in [:issued, :delivered])
 
     calculate :is_terminal, :boolean, expr(status in [:activated, :revoked, :expired, :deleted])
 
-    calculate :download_expired, :boolean, expr(
-      not is_nil(download_token_expires_at) and download_token_expires_at < now()
-    )
-  end
-
-  policies do
-    # Super admins bypass all policies (platform-wide access)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # TENANT ISOLATION is enforced by multitenancy strategy :attribute
-    # The tenant context passed to actions automatically filters records
-    # Policies here only check role-based access
-
-    # Read access: Admins/operators can read
-    policy action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
-
-    # Create packages: Admins/operators can create
-    policy action(:create) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
-
-    # State transitions: Admins only (except deliver and update_tokens)
-    policy action([:activate, :revoke, :soft_delete]) do
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Expire action: Admins or AshOban scheduler (no actor)
-    policy action(:expire) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      # Allow AshOban scheduler (no actor) to expire packages
-      authorize_if always()
-    end
-
-    # Operators can also deliver and update tokens
-    policy action([:deliver, :update_tokens]) do
-      authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :operator)
-    end
+    calculate :download_expired,
+              :boolean,
+              expr(not is_nil(download_token_expires_at) and download_token_expires_at < now())
   end
 end

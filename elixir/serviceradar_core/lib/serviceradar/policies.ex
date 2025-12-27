@@ -113,7 +113,7 @@ defmodule ServiceRadar.Policies do
     quote do
       expr(
         is_nil(^actor(:partition_id)) or
-        partition_id == ^actor(:partition_id)
+          partition_id == ^actor(:partition_id)
       )
     end
   end
@@ -135,7 +135,7 @@ defmodule ServiceRadar.Policies do
     quote do
       expr(
         tenant_id == ^actor(:tenant_id) and
-        (is_nil(^actor(:partition_id)) or partition_id == ^actor(:partition_id))
+          (is_nil(^actor(:partition_id)) or partition_id == ^actor(:partition_id))
       )
     end
   end
@@ -156,8 +156,8 @@ defmodule ServiceRadar.Policies do
     quote do
       expr(
         is_nil(^actor(:partition_id)) or
-        is_nil(partition_id) or
-        partition_id == ^actor(:partition_id)
+          is_nil(partition_id) or
+          partition_id == ^actor(:partition_id)
       )
     end
   end

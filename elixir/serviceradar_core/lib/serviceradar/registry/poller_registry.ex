@@ -92,6 +92,70 @@ defmodule ServiceRadar.PollerRegistry do
   end
 
   @doc """
+  Register a poller with the given poller_id and metadata.
+
+  Called by the poller process when starting up.
+  This is a convenience function that constructs metadata from poller_info.
+  """
+  @spec register_poller(String.t(), map()) ::
+          {:ok, pid()} | {:error, {:already_registered, pid()}}
+  def register_poller(poller_id, poller_info) do
+    metadata = %{
+      poller_id: poller_id,
+      tenant_id: Map.get(poller_info, :tenant_id),
+      partition_id: Map.get(poller_info, :partition_id),
+      node: Node.self(),
+      status: Map.get(poller_info, :status, :available),
+      registered_at: DateTime.utc_now(),
+      last_heartbeat: DateTime.utc_now()
+    }
+
+    case register(poller_id, metadata) do
+      {:ok, _pid} = result ->
+        # Broadcast registration event
+        Phoenix.PubSub.broadcast(
+          ServiceRadar.PubSub,
+          "poller:registrations",
+          {:poller_registered, metadata}
+        )
+
+        result
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
+  Unregister a poller when it shuts down.
+  """
+  @spec unregister_poller(String.t()) :: :ok
+  def unregister_poller(poller_id) do
+    Horde.Registry.unregister(__MODULE__, poller_id)
+
+    Phoenix.PubSub.broadcast(
+      ServiceRadar.PubSub,
+      "poller:registrations",
+      {:poller_disconnected, poller_id}
+    )
+
+    :ok
+  end
+
+  @doc """
+  Update poller heartbeat timestamp.
+  """
+  @spec heartbeat(String.t()) :: :ok | :error
+  def heartbeat(poller_id) do
+    case Horde.Registry.update_value(__MODULE__, poller_id, fn meta ->
+           %{meta | last_heartbeat: DateTime.utc_now()}
+         end) do
+      {_new, _old} -> :ok
+      :error -> :error
+    end
+  end
+
+  @doc """
   Find all pollers for a specific tenant and partition.
 
   Uses tenant-scoped lookup to ensure multi-tenant isolation.
@@ -99,7 +163,8 @@ defmodule ServiceRadar.PollerRegistry do
   @spec find_pollers_for_partition(String.t(), String.t()) :: [map()]
   def find_pollers_for_partition(tenant_id, partition_id) do
     match_spec = [
-      {{:"$1", :"$2", %{tenant_id: tenant_id, partition_id: partition_id}}, [], [{{:"$1", :"$2"}}]}
+      {{:"$1", :"$2", %{tenant_id: tenant_id, partition_id: partition_id}}, [],
+       [{{:"$1", :"$2"}}]}
     ]
 
     Horde.Registry.select(__MODULE__, match_spec)
@@ -136,7 +201,8 @@ defmodule ServiceRadar.PollerRegistry do
 
   Returns `{:ok, metadata}` if found, `{:error, :no_available_poller}` otherwise.
   """
-  @spec find_available_poller_for_partition(String.t(), String.t()) :: {:ok, map()} | {:error, :no_available_poller}
+  @spec find_available_poller_for_partition(String.t(), String.t()) ::
+          {:ok, map()} | {:error, :no_available_poller}
   def find_available_poller_for_partition(tenant_id, partition_id) do
     pollers = find_pollers_for_partition(tenant_id, partition_id)
 

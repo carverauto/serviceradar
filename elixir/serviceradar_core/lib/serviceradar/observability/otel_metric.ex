@@ -13,6 +13,14 @@ defmodule ServiceRadar.Observability.OtelMetric do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  postgres do
+    table "otel_metrics"
+    repo ServiceRadar.Repo
+    # Don't generate migrations - table is managed by raw SQL migration
+    # that creates TimescaleDB hypertable with composite primary key
+    migrate? false
+  end
+
   json_api do
     type "otel_metric"
     # Composite primary key requires specifying which fields to use
@@ -27,12 +35,58 @@ defmodule ServiceRadar.Observability.OtelMetric do
     end
   end
 
-  postgres do
-    table "otel_metrics"
-    repo ServiceRadar.Repo
-    # Don't generate migrations - table is managed by raw SQL migration
-    # that creates TimescaleDB hypertable with composite primary key
-    migrate? false
+  actions do
+    defaults [:read]
+
+    read :by_service do
+      argument :service_name, :string, allow_nil?: false
+      filter expr(service_name == ^arg(:service_name))
+    end
+
+    read :recent do
+      description "Metrics from the last 24 hours"
+      filter expr(timestamp > ago(24, :hour))
+    end
+
+    read :slow_operations do
+      description "Slow operations only"
+      filter expr(is_slow == true)
+    end
+
+    create :create do
+      accept [
+        :timestamp,
+        :span_name,
+        :service_name,
+        :span_id,
+        :trace_id,
+        :span_kind,
+        :duration_ms,
+        :duration_seconds,
+        :metric_type,
+        :http_method,
+        :http_route,
+        :http_status_code,
+        :grpc_service,
+        :grpc_method,
+        :grpc_status_code,
+        :is_slow,
+        :component,
+        :level,
+        :unit
+      ]
+    end
+  end
+
+  policies do
+    # For now, allow all reads - this data isn't tenant-scoped in Go
+    policy action_type(:read) do
+      authorize_if always()
+    end
+
+    policy action(:create) do
+      authorize_if always()
+    end
   end
 
   # Note: No multitenancy - Go schema doesn't have tenant_id
@@ -148,46 +202,6 @@ defmodule ServiceRadar.Observability.OtelMetric do
       allow_nil? false
       public? true
       description "When the record was created"
-    end
-  end
-
-  actions do
-    defaults [:read]
-
-    read :by_service do
-      argument :service_name, :string, allow_nil?: false
-      filter expr(service_name == ^arg(:service_name))
-    end
-
-    read :recent do
-      description "Metrics from the last 24 hours"
-      filter expr(timestamp > ago(24, :hour))
-    end
-
-    read :slow_operations do
-      description "Slow operations only"
-      filter expr(is_slow == true)
-    end
-
-    create :create do
-      accept [
-        :timestamp, :span_name, :service_name, :span_id,
-        :trace_id, :span_kind, :duration_ms, :duration_seconds,
-        :metric_type, :http_method, :http_route, :http_status_code,
-        :grpc_service, :grpc_method, :grpc_status_code,
-        :is_slow, :component, :level, :unit
-      ]
-    end
-  end
-
-  policies do
-    # For now, allow all reads - this data isn't tenant-scoped in Go
-    policy action_type(:read) do
-      authorize_if always()
-    end
-
-    policy action(:create) do
-      authorize_if always()
     end
   end
 end

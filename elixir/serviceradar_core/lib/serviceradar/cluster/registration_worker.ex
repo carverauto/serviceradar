@@ -56,7 +56,10 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
     # Register with Horde on startup
     case register_poller(state) do
       {:ok, _pid} ->
-        Logger.info("Poller registered: partition=#{partition_id} domain=#{domain} node=#{Node.self()}")
+        Logger.info(
+          "Poller registered: partition=#{partition_id} domain=#{domain} node=#{Node.self()}"
+        )
+
         schedule_heartbeat()
         {:ok, state}
 

@@ -189,6 +189,22 @@ config :serviceradar_agent, :checkers,
   sweep: System.get_env("CHECKER_SWEEP_ADDR", "localhost:50054")
 
 # =============================================================================
+# Sync Service Configuration
+# =============================================================================
+# The sync service provides device data (from Armis, NetBox, etc.) via gRPC
+
+sync_host = System.get_env("SYNC_HOST", "localhost")
+sync_port = String.to_integer(System.get_env("SYNC_PORT", "50058"))
+sync_ssl_mode = System.get_env("SYNC_SSL_MODE", "insecure")
+sync_cert_dir = System.get_env("SYNC_CERT_DIR", "/etc/serviceradar/certs")
+
+config :serviceradar_core, ServiceRadar.Sync.Client,
+  host: sync_host,
+  port: sync_port,
+  ssl: sync_ssl_mode == "mtls",
+  cert_dir: sync_cert_dir
+
+# =============================================================================
 # Telemetry Configuration
 # =============================================================================
 

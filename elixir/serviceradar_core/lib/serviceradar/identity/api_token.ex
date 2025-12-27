@@ -36,6 +36,142 @@ defmodule ServiceRadar.Identity.ApiToken do
     global? false
   end
 
+  code_interface do
+    define :get_by_id, action: :by_id, args: [:id]
+    define :list_active, action: :active
+    define :list_by_user, action: :by_user, args: [:user_id]
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_id do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+    end
+
+    read :by_prefix do
+      argument :prefix, :string, allow_nil?: false
+      filter expr(token_prefix == ^arg(:prefix) and enabled == true and is_nil(revoked_at))
+    end
+
+    read :active do
+      description "All active (non-revoked, non-expired) tokens"
+
+      filter expr(
+               enabled == true and
+                 is_nil(revoked_at) and
+                 (is_nil(expires_at) or expires_at > now())
+             )
+    end
+
+    read :by_user do
+      argument :user_id, :uuid, allow_nil?: false
+      filter expr(user_id == ^arg(:user_id))
+    end
+
+    create :create do
+      description "Create a new API token"
+      accept [:name, :description, :scope, :expires_at, :metadata, :user_id]
+
+      argument :token, :string do
+        allow_nil? false
+        sensitive? true
+        description "The raw token to hash and store"
+      end
+
+      change fn changeset, _context ->
+        token = Ash.Changeset.get_argument(changeset, :token)
+        now = DateTime.utc_now()
+
+        # Hash the token
+        token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
+
+        # Extract prefix for identification
+        token_prefix = String.slice(token, 0, 8)
+
+        changeset
+        |> Ash.Changeset.change_attribute(:token_hash, token_hash)
+        |> Ash.Changeset.change_attribute(:token_prefix, token_prefix)
+        |> Ash.Changeset.change_attribute(:created_at, now)
+        |> Ash.Changeset.change_attribute(:enabled, true)
+        |> Ash.Changeset.change_attribute(:use_count, 0)
+      end
+    end
+
+    update :update do
+      accept [:name, :description, :expires_at, :metadata]
+    end
+
+    update :record_use do
+      description "Record token usage"
+      accept [:last_used_ip]
+      require_atomic? false
+
+      change fn changeset, _context ->
+        changeset
+        |> Ash.Changeset.change_attribute(:last_used_at, DateTime.utc_now())
+        |> Ash.Changeset.change_attribute(
+          :use_count,
+          (changeset.data.use_count || 0) + 1
+        )
+      end
+    end
+
+    update :revoke do
+      description "Revoke this token"
+      argument :revoked_by, :string, allow_nil?: true
+      require_atomic? false
+
+      change fn changeset, _context ->
+        revoked_by = Ash.Changeset.get_argument(changeset, :revoked_by) || "system"
+
+        changeset
+        |> Ash.Changeset.change_attribute(:revoked_at, DateTime.utc_now())
+        |> Ash.Changeset.change_attribute(:revoked_by, revoked_by)
+        |> Ash.Changeset.change_attribute(:enabled, false)
+      end
+    end
+
+    update :disable do
+      description "Disable this token"
+      change set_attribute(:enabled, false)
+    end
+
+    update :enable do
+      description "Enable this token"
+      change set_attribute(:enabled, true)
+    end
+  end
+
+  policies do
+    # Super admins bypass all policies
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    # Users can read their own tokens
+    policy action_type(:read) do
+      authorize_if expr(user_id == ^actor(:id))
+      authorize_if actor_attribute_equals(:role, :admin)
+    end
+
+    # Users can create tokens for themselves
+    # Note: create actions cannot use expr() filters that reference record attributes
+    # because the record doesn't exist yet. We use a custom check instead.
+    policy action(:create) do
+      authorize_if ServiceRadar.Identity.ApiToken.Checks.CreatingOwnToken
+      authorize_if actor_attribute_equals(:role, :admin)
+    end
+
+    # Users can update/revoke their own tokens
+    policy action([:update, :record_use, :revoke, :disable, :enable]) do
+      authorize_if expr(user_id == ^actor(:id))
+      authorize_if actor_attribute_equals(:role, :admin)
+    end
+  end
+
   attributes do
     uuid_primary_key :id
 
@@ -141,181 +277,50 @@ defmodule ServiceRadar.Identity.ApiToken do
     end
   end
 
-  actions do
-    defaults [:read]
-
-    read :by_id do
-      argument :id, :uuid, allow_nil?: false
-      get? true
-      filter expr(id == ^arg(:id))
-    end
-
-    read :by_prefix do
-      argument :prefix, :string, allow_nil?: false
-      filter expr(token_prefix == ^arg(:prefix) and enabled == true and is_nil(revoked_at))
-    end
-
-    read :active do
-      description "All active (non-revoked, non-expired) tokens"
-      filter expr(
-        enabled == true and
-        is_nil(revoked_at) and
-        (is_nil(expires_at) or expires_at > now())
-      )
-    end
-
-    read :by_user do
-      argument :user_id, :uuid, allow_nil?: false
-      filter expr(user_id == ^arg(:user_id))
-    end
-
-    create :create do
-      description "Create a new API token"
-      accept [:name, :description, :scope, :expires_at, :metadata, :user_id]
-
-      argument :token, :string do
-        allow_nil? false
-        sensitive? true
-        description "The raw token to hash and store"
-      end
-
-      change fn changeset, _context ->
-        token = Ash.Changeset.get_argument(changeset, :token)
-        now = DateTime.utc_now()
-
-        # Hash the token
-        token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
-
-        # Extract prefix for identification
-        token_prefix = String.slice(token, 0, 8)
-
-        changeset
-        |> Ash.Changeset.change_attribute(:token_hash, token_hash)
-        |> Ash.Changeset.change_attribute(:token_prefix, token_prefix)
-        |> Ash.Changeset.change_attribute(:created_at, now)
-        |> Ash.Changeset.change_attribute(:enabled, true)
-        |> Ash.Changeset.change_attribute(:use_count, 0)
-      end
-    end
-
-    update :update do
-      accept [:name, :description, :expires_at, :metadata]
-    end
-
-    update :record_use do
-      description "Record token usage"
-      accept [:last_used_ip]
-      require_atomic? false
-
-      change fn changeset, _context ->
-        changeset
-        |> Ash.Changeset.change_attribute(:last_used_at, DateTime.utc_now())
-        |> Ash.Changeset.change_attribute(
-          :use_count,
-          (changeset.data.use_count || 0) + 1
-        )
-      end
-    end
-
-    update :revoke do
-      description "Revoke this token"
-      argument :revoked_by, :string, allow_nil?: true
-      require_atomic? false
-
-      change fn changeset, _context ->
-        revoked_by = Ash.Changeset.get_argument(changeset, :revoked_by) || "system"
-
-        changeset
-        |> Ash.Changeset.change_attribute(:revoked_at, DateTime.utc_now())
-        |> Ash.Changeset.change_attribute(:revoked_by, revoked_by)
-        |> Ash.Changeset.change_attribute(:enabled, false)
-      end
-    end
-
-    update :disable do
-      description "Disable this token"
-      change set_attribute(:enabled, false)
-    end
-
-    update :enable do
-      description "Enable this token"
-      change set_attribute(:enabled, true)
-    end
-  end
-
   calculations do
-    calculate :is_valid, :boolean, expr(
-      enabled == true and
-      is_nil(revoked_at) and
-      (is_nil(expires_at) or expires_at > now())
-    )
+    calculate :is_valid,
+              :boolean,
+              expr(
+                enabled == true and
+                  is_nil(revoked_at) and
+                  (is_nil(expires_at) or expires_at > now())
+              )
 
-    calculate :is_expired, :boolean, expr(
-      not is_nil(expires_at) and expires_at <= now()
-    )
+    calculate :is_expired, :boolean, expr(not is_nil(expires_at) and expires_at <= now())
 
-    calculate :is_revoked, :boolean, expr(
-      not is_nil(revoked_at)
-    )
+    calculate :is_revoked, :boolean, expr(not is_nil(revoked_at))
 
-    calculate :scope_label, :string, expr(
-      cond do
-        scope == "read" -> "Read Only"
-        scope == "write" -> "Read/Write"
-        scope == "admin" -> "Admin"
-        true -> scope
-      end
-    )
+    calculate :scope_label,
+              :string,
+              expr(
+                cond do
+                  scope == "read" -> "Read Only"
+                  scope == "write" -> "Read/Write"
+                  scope == "admin" -> "Admin"
+                  true -> scope
+                end
+              )
 
-    calculate :status, :string, expr(
-      cond do
-        not is_nil(revoked_at) -> "revoked"
-        not is_nil(expires_at) and expires_at <= now() -> "expired"
-        enabled == false -> "disabled"
-        true -> "active"
-      end
-    )
+    calculate :status,
+              :string,
+              expr(
+                cond do
+                  not is_nil(revoked_at) -> "revoked"
+                  not is_nil(expires_at) and expires_at <= now() -> "expired"
+                  enabled == false -> "disabled"
+                  true -> "active"
+                end
+              )
 
-    calculate :status_color, :string, expr(
-      cond do
-        not is_nil(revoked_at) -> "red"
-        not is_nil(expires_at) and expires_at <= now() -> "orange"
-        enabled == false -> "gray"
-        true -> "green"
-      end
-    )
-  end
-
-  code_interface do
-    define :get_by_id, action: :by_id, args: [:id]
-    define :list_active, action: :active
-    define :list_by_user, action: :by_user, args: [:user_id]
-  end
-
-  policies do
-    # Super admins bypass all policies
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # Users can read their own tokens
-    policy action_type(:read) do
-      authorize_if expr(user_id == ^actor(:id))
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Users can create tokens for themselves
-    # Note: create actions cannot use expr() filters that reference record attributes
-    # because the record doesn't exist yet. We use a custom check instead.
-    policy action(:create) do
-      authorize_if ServiceRadar.Identity.ApiToken.Checks.CreatingOwnToken
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
-
-    # Users can update/revoke their own tokens
-    policy action([:update, :record_use, :revoke, :disable, :enable]) do
-      authorize_if expr(user_id == ^actor(:id))
-      authorize_if actor_attribute_equals(:role, :admin)
-    end
+    calculate :status_color,
+              :string,
+              expr(
+                cond do
+                  not is_nil(revoked_at) -> "red"
+                  not is_nil(expires_at) and expires_at <= now() -> "orange"
+                  enabled == false -> "gray"
+                  true -> "green"
+                end
+              )
   end
 end

@@ -21,6 +21,11 @@ defmodule ServiceRadar.Observability.Log do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  postgres do
+    table "logs"
+    repo ServiceRadar.Repo
+  end
+
   json_api do
     type "log"
 
@@ -31,15 +36,75 @@ defmodule ServiceRadar.Observability.Log do
     end
   end
 
-  postgres do
-    table "logs"
-    repo ServiceRadar.Repo
-  end
-
   multitenancy do
     strategy :attribute
     attribute :tenant_id
     global? true
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_trace do
+      argument :trace_id, :string, allow_nil?: false
+      filter expr(trace_id == ^arg(:trace_id))
+    end
+
+    read :by_service do
+      argument :service_name, :string, allow_nil?: false
+      filter expr(service_name == ^arg(:service_name))
+    end
+
+    read :by_severity do
+      argument :min_severity, :integer, allow_nil?: false
+      filter expr(severity_number >= ^arg(:min_severity))
+    end
+
+    read :recent do
+      description "Logs from the last 24 hours"
+      filter expr(timestamp > ago(24, :hour))
+    end
+
+    create :create do
+      accept [
+        :timestamp,
+        :trace_id,
+        :span_id,
+        :severity_text,
+        :severity_number,
+        :body,
+        :service_name,
+        :service_version,
+        :service_instance,
+        :scope_name,
+        :scope_version,
+        :attributes,
+        :resource_attributes
+      ]
+    end
+  end
+
+  policies do
+    # Super admins bypass all policies
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    # Read access: Must be authenticated AND in same tenant
+    policy action_type(:read) do
+      authorize_if expr(
+                     ^actor(:role) in [:viewer, :operator, :admin] and
+                       tenant_id == ^actor(:tenant_id)
+                   )
+    end
+
+    # Create logs: Operators/admins, enforces tenant from context
+    policy action(:create) do
+      authorize_if expr(
+                     ^actor(:role) in [:operator, :admin] and
+                       tenant_id == ^actor(:tenant_id)
+                   )
+    end
   end
 
   attributes do
@@ -132,83 +197,32 @@ defmodule ServiceRadar.Observability.Log do
     create_timestamp :created_at
   end
 
-  actions do
-    defaults [:read]
-
-    read :by_trace do
-      argument :trace_id, :string, allow_nil?: false
-      filter expr(trace_id == ^arg(:trace_id))
-    end
-
-    read :by_service do
-      argument :service_name, :string, allow_nil?: false
-      filter expr(service_name == ^arg(:service_name))
-    end
-
-    read :by_severity do
-      argument :min_severity, :integer, allow_nil?: false
-      filter expr(severity_number >= ^arg(:min_severity))
-    end
-
-    read :recent do
-      description "Logs from the last 24 hours"
-      filter expr(timestamp > ago(24, :hour))
-    end
-
-    create :create do
-      accept [
-        :timestamp, :trace_id, :span_id, :severity_text, :severity_number,
-        :body, :service_name, :service_version, :service_instance,
-        :scope_name, :scope_version, :attributes, :resource_attributes
-      ]
-    end
-  end
-
   calculations do
-    calculate :severity_label, :string, expr(
-      cond do
-        not is_nil(severity_text) -> severity_text
-        severity_number >= 21 -> "FATAL"
-        severity_number >= 17 -> "ERROR"
-        severity_number >= 13 -> "WARN"
-        severity_number >= 9 -> "INFO"
-        severity_number >= 5 -> "DEBUG"
-        severity_number >= 1 -> "TRACE"
-        true -> "UNSPECIFIED"
-      end
-    )
+    calculate :severity_label,
+              :string,
+              expr(
+                cond do
+                  not is_nil(severity_text) -> severity_text
+                  severity_number >= 21 -> "FATAL"
+                  severity_number >= 17 -> "ERROR"
+                  severity_number >= 13 -> "WARN"
+                  severity_number >= 9 -> "INFO"
+                  severity_number >= 5 -> "DEBUG"
+                  severity_number >= 1 -> "TRACE"
+                  true -> "UNSPECIFIED"
+                end
+              )
 
-    calculate :severity_color, :string, expr(
-      cond do
-        severity_number >= 21 -> "red"
-        severity_number >= 17 -> "orange"
-        severity_number >= 13 -> "yellow"
-        severity_number >= 9 -> "blue"
-        true -> "gray"
-      end
-    )
-  end
-
-  policies do
-    # Super admins bypass all policies
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # Read access: Must be authenticated AND in same tenant
-    policy action_type(:read) do
-      authorize_if expr(
-        ^actor(:role) in [:viewer, :operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
-    end
-
-    # Create logs: Operators/admins, enforces tenant from context
-    policy action(:create) do
-      authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
-    end
+    calculate :severity_color,
+              :string,
+              expr(
+                cond do
+                  severity_number >= 21 -> "red"
+                  severity_number >= 17 -> "orange"
+                  severity_number >= 13 -> "yellow"
+                  severity_number >= 9 -> "blue"
+                  true -> "gray"
+                end
+              )
   end
 end

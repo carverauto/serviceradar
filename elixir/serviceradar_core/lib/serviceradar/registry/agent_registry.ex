@@ -184,7 +184,8 @@ defmodule ServiceRadar.AgentRegistry do
   @spec find_agents_for_partition(String.t(), String.t()) :: [map()]
   def find_agents_for_partition(tenant_id, partition_id) do
     match_spec = [
-      {{:"$1", :"$2", %{tenant_id: tenant_id, partition_id: partition_id}}, [], [{{:"$1", :"$2"}}]}
+      {{:"$1", :"$2", %{tenant_id: tenant_id, partition_id: partition_id}}, [],
+       [{{:"$1", :"$2"}}]}
     ]
 
     Horde.Registry.select(__MODULE__, match_spec)

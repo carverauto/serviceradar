@@ -32,12 +32,7 @@ defmodule ServiceRadar.Monitoring do
     ]
 
   admin do
-    show? true
-  end
-
-  authorization do
-    require_actor? false
-    authorize :by_default
+    show?(true)
   end
 
   resources do
@@ -45,5 +40,10 @@ defmodule ServiceRadar.Monitoring do
     resource ServiceRadar.Monitoring.ServiceCheck
     resource ServiceRadar.Monitoring.Alert
     resource ServiceRadar.Monitoring.Event
+  end
+
+  authorization do
+    require_actor? false
+    authorize :by_default
   end
 end

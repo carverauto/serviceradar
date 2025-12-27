@@ -35,6 +35,126 @@ defmodule ServiceRadar.Infrastructure.Checker do
     global? true
   end
 
+  code_interface do
+    define :get_by_id, action: :by_id, args: [:id]
+    define :list_by_type, action: :by_type, args: [:type]
+    define :list_enabled, action: :enabled
+  end
+
+  actions do
+    defaults [:read]
+
+    read :by_id do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+    end
+
+    read :by_type do
+      argument :type, :string, allow_nil?: false
+      filter expr(type == ^arg(:type))
+    end
+
+    read :by_agent do
+      argument :agent_uid, :string, allow_nil?: false
+      filter expr(agent_uid == ^arg(:agent_uid))
+    end
+
+    read :enabled do
+      description "All enabled checkers"
+      filter expr(enabled == true)
+    end
+
+    create :create do
+      accept [
+        :name,
+        :type,
+        :description,
+        :enabled,
+        :config,
+        :interval_seconds,
+        :timeout_seconds,
+        :retries,
+        :target_type,
+        :target_filter,
+        :agent_uid
+      ]
+
+      change fn changeset, _context ->
+        now = DateTime.utc_now()
+
+        changeset
+        |> Ash.Changeset.change_attribute(:created_at, now)
+        |> Ash.Changeset.change_attribute(:updated_at, now)
+      end
+    end
+
+    update :update do
+      accept [
+        :name,
+        :description,
+        :enabled,
+        :config,
+        :interval_seconds,
+        :timeout_seconds,
+        :retries,
+        :target_type,
+        :target_filter,
+        :agent_uid
+      ]
+
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+    end
+
+    update :enable do
+      description "Enable the checker"
+      change set_attribute(:enabled, true)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+    end
+
+    update :disable do
+      description "Disable the checker"
+      change set_attribute(:enabled, false)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+    end
+  end
+
+  policies do
+    # Import common policy checks
+
+    # Super admins bypass all policies (platform-wide access)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    # TENANT ISOLATION: All operations require tenant match
+    # Checkers belong to a tenant and must not be accessible cross-tenant
+
+    # Read access: Must be authenticated AND in same tenant
+    policy action_type(:read) do
+      authorize_if expr(
+                     ^actor(:role) in [:viewer, :operator, :admin] and
+                       tenant_id == ^actor(:tenant_id)
+                   )
+    end
+
+    # Create checkers: Operators/admins, enforces tenant from context
+    policy action(:create) do
+      authorize_if expr(
+                     ^actor(:role) in [:operator, :admin] and
+                       tenant_id == ^actor(:tenant_id)
+                   )
+    end
+
+    # Update/enable/disable: Operators/admins in same tenant
+    policy action([:update, :enable, :disable]) do
+      authorize_if expr(
+                     ^actor(:role) in [:operator, :admin] and
+                       tenant_id == ^actor(:tenant_id)
+                   )
+    end
+  end
+
   attributes do
     uuid_primary_key :id
 
@@ -133,137 +253,34 @@ defmodule ServiceRadar.Infrastructure.Checker do
     end
   end
 
-  actions do
-    defaults [:read]
-
-    read :by_id do
-      argument :id, :uuid, allow_nil?: false
-      get? true
-      filter expr(id == ^arg(:id))
-    end
-
-    read :by_type do
-      argument :type, :string, allow_nil?: false
-      filter expr(type == ^arg(:type))
-    end
-
-    read :by_agent do
-      argument :agent_uid, :string, allow_nil?: false
-      filter expr(agent_uid == ^arg(:agent_uid))
-    end
-
-    read :enabled do
-      description "All enabled checkers"
-      filter expr(enabled == true)
-    end
-
-    create :create do
-      accept [
-        :name, :type, :description, :enabled,
-        :config, :interval_seconds, :timeout_seconds, :retries,
-        :target_type, :target_filter, :agent_uid
-      ]
-
-      change fn changeset, _context ->
-        now = DateTime.utc_now()
-
-        changeset
-        |> Ash.Changeset.change_attribute(:created_at, now)
-        |> Ash.Changeset.change_attribute(:updated_at, now)
-      end
-    end
-
-    update :update do
-      accept [
-        :name, :description, :enabled,
-        :config, :interval_seconds, :timeout_seconds, :retries,
-        :target_type, :target_filter, :agent_uid
-      ]
-
-      change set_attribute(:updated_at, &DateTime.utc_now/0)
-    end
-
-    update :enable do
-      description "Enable the checker"
-      change set_attribute(:enabled, true)
-      change set_attribute(:updated_at, &DateTime.utc_now/0)
-    end
-
-    update :disable do
-      description "Disable the checker"
-      change set_attribute(:enabled, false)
-      change set_attribute(:updated_at, &DateTime.utc_now/0)
-    end
-  end
-
   calculations do
-    calculate :display_name, :string, expr(
-      if not is_nil(name) do
-        name
-      else
-        type
-      end
-    )
+    calculate :display_name,
+              :string,
+              expr(
+                if not is_nil(name) do
+                  name
+                else
+                  type
+                end
+              )
 
-    calculate :is_scheduled, :boolean, expr(
-      enabled == true and interval_seconds > 0
-    )
+    calculate :is_scheduled, :boolean, expr(enabled == true and interval_seconds > 0)
 
-    calculate :type_label, :string, expr(
-      cond do
-        type == "snmp" -> "SNMP"
-        type == "grpc" -> "gRPC"
-        type == "http" -> "HTTP"
-        type == "ping" -> "Ping"
-        type == "tcp" -> "TCP"
-        type == "sweep" -> "Network Sweep"
-        type == "port_scan" -> "Port Scan"
-        type == "dns" -> "DNS"
-        type == "custom" -> "Custom"
-        true -> type
-      end
-    )
-  end
-
-  code_interface do
-    define :get_by_id, action: :by_id, args: [:id]
-    define :list_by_type, action: :by_type, args: [:type]
-    define :list_enabled, action: :enabled
-  end
-
-  policies do
-    # Import common policy checks
-
-    # Super admins bypass all policies (platform-wide access)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # TENANT ISOLATION: All operations require tenant match
-    # Checkers belong to a tenant and must not be accessible cross-tenant
-
-    # Read access: Must be authenticated AND in same tenant
-    policy action_type(:read) do
-      authorize_if expr(
-        ^actor(:role) in [:viewer, :operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
-    end
-
-    # Create checkers: Operators/admins, enforces tenant from context
-    policy action(:create) do
-      authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
-    end
-
-    # Update/enable/disable: Operators/admins in same tenant
-    policy action([:update, :enable, :disable]) do
-      authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
-      )
-    end
+    calculate :type_label,
+              :string,
+              expr(
+                cond do
+                  type == "snmp" -> "SNMP"
+                  type == "grpc" -> "gRPC"
+                  type == "http" -> "HTTP"
+                  type == "ping" -> "Ping"
+                  type == "tcp" -> "TCP"
+                  type == "sweep" -> "Network Sweep"
+                  type == "port_scan" -> "Port Scan"
+                  type == "dns" -> "DNS"
+                  type == "custom" -> "Custom"
+                  true -> type
+                end
+              )
   end
 end
