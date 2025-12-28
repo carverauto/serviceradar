@@ -206,16 +206,13 @@ func decodePEM(pemData []byte) []byte {
 
 	// Decode base64
 	decoded := make([]byte, len(b64))
-	n, err := decodeBase64(decoded, []byte(b64))
-	if err != nil {
-		return pemData
-	}
+	n := decodeBase64(decoded, []byte(b64))
 
 	return decoded[:n]
 }
 
 // decodeBase64 is a simple base64 decoder.
-func decodeBase64(dst, src []byte) (int, error) {
+func decodeBase64(dst, src []byte) int {
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
 	// Build decode table
@@ -249,5 +246,5 @@ func decodeBase64(dst, src []byte) (int, error) {
 		}
 	}
 
-	return n, nil
+	return n
 }

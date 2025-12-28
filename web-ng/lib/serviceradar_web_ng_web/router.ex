@@ -103,6 +103,14 @@ defmodule ServiceRadarWebNGWeb.Router do
     post "/edge-packages/:id/download", EdgeController, :download
   end
 
+  # Edge package bundle download - public endpoint with token in query param
+  # Allows one-liner curl commands for zero-touch provisioning
+  scope "/api", ServiceRadarWebNG.Api do
+    pipe_through :api
+
+    get "/edge-packages/:id/bundle", EdgeController, :bundle
+  end
+
   # Ash JSON:API v2 endpoints
   scope "/api/v2" do
     pipe_through :ash_json_api

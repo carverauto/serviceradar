@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.ComponentTemplates
+  alias ServiceRadarWebNG.Edge.BundleGenerator
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -205,6 +206,51 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   defp handle_download_error(conn, reason)
        when reason in [:already_delivered, :revoked, :deleted] do
     conn |> put_status(:conflict) |> json(%{error: "package #{reason}"})
+  end
+
+  @doc """
+  GET /api/edge-packages/:id/bundle
+
+  Downloads the package as a tarball containing certificates, config, and install script.
+  Requires a valid download token as a query parameter.
+
+  Query params:
+    - token: the download token (required)
+
+  Returns: application/gzip tarball
+  """
+  def bundle(conn, %{"id" => id, "token" => download_token}) when byte_size(download_token) > 0 do
+    source_ip = get_client_ip(conn)
+
+    case OnboardingPackages.deliver(id, download_token, source_ip: source_ip) do
+      {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} ->
+        case BundleGenerator.create_tarball(package, bundle_pem || "", join_token) do
+          {:ok, tarball} ->
+            filename = BundleGenerator.bundle_filename(package)
+
+            conn
+            |> put_resp_content_type("application/gzip")
+            |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
+            |> send_resp(200, tarball)
+
+          {:error, reason} ->
+            conn
+            |> put_status(:internal_server_error)
+            |> json(%{error: "Failed to generate bundle: #{inspect(reason)}"})
+        end
+
+      {:error, :not_found} ->
+        conn |> put_status(:not_found) |> json(%{error: "package not found"})
+
+      {:error, reason} ->
+        handle_download_error(conn, reason)
+    end
+  end
+
+  def bundle(conn, %{"id" => _id}) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "token query parameter is required"})
   end
 
   @doc """
