@@ -472,16 +472,18 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
         |> Ash.create()
 
       # Create package for tenant A
-      result_a = OnboardingPackages.create_with_tenant_cert(
-        %{label: "tenant-a-pkg", component_type: :poller},
-        tenant: tenant_a.id
-      )
+      result_a =
+        OnboardingPackages.create_with_tenant_cert(
+          %{label: "tenant-a-pkg", component_type: :poller},
+          tenant: tenant_a.id
+        )
 
       # Create package for tenant B
-      result_b = OnboardingPackages.create_with_tenant_cert(
-        %{label: "tenant-b-pkg", component_type: :poller},
-        tenant: tenant_b.id
-      )
+      result_b =
+        OnboardingPackages.create_with_tenant_cert(
+          %{label: "tenant-b-pkg", component_type: :poller},
+          tenant: tenant_b.id
+        )
 
       # Verify isolation based on results
       case {result_a, result_b} do

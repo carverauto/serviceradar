@@ -59,14 +59,18 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       assert Enum.any?(file_names, &String.contains?(&1, "README.md"))
     end
 
-    test "generates install.sh with correct component type", %{package: package, join_token: join_token} do
+    test "generates install.sh with correct component type", %{
+      package: package,
+      join_token: join_token
+    } do
       {:ok, tarball} = BundleGenerator.create_tarball(package, "", join_token)
 
       {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
 
-      {_, install_sh} = Enum.find(files, fn {name, _} ->
-        to_string(name) |> String.ends_with?("install.sh")
-      end)
+      {_, install_sh} =
+        Enum.find(files, fn {name, _} ->
+          to_string(name) |> String.ends_with?("install.sh")
+        end)
 
       assert install_sh =~ "COMPONENT_TYPE=\"poller\""
       assert install_sh =~ "Platform-detecting installer"
@@ -74,14 +78,18 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       assert install_sh =~ "systemd"
     end
 
-    test "generates config.yaml with correct structure", %{package: package, join_token: join_token} do
+    test "generates config.yaml with correct structure", %{
+      package: package,
+      join_token: join_token
+    } do
       {:ok, tarball} = BundleGenerator.create_tarball(package, "", join_token)
 
       {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
 
-      {_, config_yaml} = Enum.find(files, fn {name, _} ->
-        to_string(name) |> String.ends_with?("config.yaml")
-      end)
+      {_, config_yaml} =
+        Enum.find(files, fn {name, _} ->
+          to_string(name) |> String.ends_with?("config.yaml")
+        end)
 
       assert config_yaml =~ "component_type:"
       assert config_yaml =~ "join_token:"
@@ -107,7 +115,10 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
   end
 
   describe "docker_install_command/3" do
-    test "generates valid docker install command", %{package: package, download_token: download_token} do
+    test "generates valid docker install command", %{
+      package: package,
+      download_token: download_token
+    } do
       cmd = BundleGenerator.docker_install_command(package, download_token)
 
       assert cmd =~ "curl -fsSL"
@@ -118,24 +129,26 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
     end
 
     test "uses custom base_url option", %{package: package, download_token: download_token} do
-      cmd = BundleGenerator.docker_install_command(package, download_token,
-        base_url: "https://custom.example.com"
-      )
+      cmd =
+        BundleGenerator.docker_install_command(package, download_token,
+          base_url: "https://custom.example.com"
+        )
 
       assert cmd =~ "https://custom.example.com"
     end
 
     test "uses custom image_tag option", %{package: package, download_token: download_token} do
-      cmd = BundleGenerator.docker_install_command(package, download_token,
-        image_tag: "v1.2.3"
-      )
+      cmd = BundleGenerator.docker_install_command(package, download_token, image_tag: "v1.2.3")
 
       assert cmd =~ ":v1.2.3"
     end
   end
 
   describe "systemd_install_command/3" do
-    test "generates valid systemd install command", %{package: package, download_token: download_token} do
+    test "generates valid systemd install command", %{
+      package: package,
+      download_token: download_token
+    } do
       cmd = BundleGenerator.systemd_install_command(package, download_token)
 
       assert cmd =~ "curl -fsSL"
@@ -145,16 +158,20 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
     end
 
     test "uses custom base_url option", %{package: package, download_token: download_token} do
-      cmd = BundleGenerator.systemd_install_command(package, download_token,
-        base_url: "https://my-server.local"
-      )
+      cmd =
+        BundleGenerator.systemd_install_command(package, download_token,
+          base_url: "https://my-server.local"
+        )
 
       assert cmd =~ "https://my-server.local"
     end
   end
 
   describe "kubernetes_install_command/3" do
-    test "generates valid kubernetes install command", %{package: package, download_token: download_token} do
+    test "generates valid kubernetes install command", %{
+      package: package,
+      download_token: download_token
+    } do
       cmd = BundleGenerator.kubernetes_install_command(package, download_token)
 
       assert cmd =~ "curl -fsSL"
@@ -165,9 +182,10 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
     end
 
     test "uses custom namespace option", %{package: package, download_token: download_token} do
-      cmd = BundleGenerator.kubernetes_install_command(package, download_token,
-        namespace: "my-namespace"
-      )
+      cmd =
+        BundleGenerator.kubernetes_install_command(package, download_token,
+          namespace: "my-namespace"
+        )
 
       assert cmd =~ "-n my-namespace"
     end
@@ -188,14 +206,18 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       assert Enum.any?(file_names, &String.ends_with?(&1, "kubernetes/kustomization.yaml"))
     end
 
-    test "kubernetes secret contains base64-encoded certificates", %{package: package, join_token: join_token} do
+    test "kubernetes secret contains base64-encoded certificates", %{
+      package: package,
+      join_token: join_token
+    } do
       {:ok, tarball} = BundleGenerator.create_tarball(package, sample_bundle_pem(), join_token)
 
       {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
 
-      {_, secret_yaml} = Enum.find(files, fn {name, _} ->
-        to_string(name) |> String.ends_with?("kubernetes/secret.yaml")
-      end)
+      {_, secret_yaml} =
+        Enum.find(files, fn {name, _} ->
+          to_string(name) |> String.ends_with?("kubernetes/secret.yaml")
+        end)
 
       # Verify secret structure
       assert secret_yaml =~ "kind: Secret"
@@ -205,14 +227,18 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       assert secret_yaml =~ "ca.crt:"
     end
 
-    test "kubernetes deployment has correct security context", %{package: package, join_token: join_token} do
+    test "kubernetes deployment has correct security context", %{
+      package: package,
+      join_token: join_token
+    } do
       {:ok, tarball} = BundleGenerator.create_tarball(package, sample_bundle_pem(), join_token)
 
       {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
 
-      {_, deployment_yaml} = Enum.find(files, fn {name, _} ->
-        to_string(name) |> String.ends_with?("kubernetes/deployment.yaml")
-      end)
+      {_, deployment_yaml} =
+        Enum.find(files, fn {name, _} ->
+          to_string(name) |> String.ends_with?("kubernetes/deployment.yaml")
+        end)
 
       # Verify deployment has security best practices
       assert deployment_yaml =~ "kind: Deployment"
@@ -222,14 +248,18 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       assert deployment_yaml =~ "ServiceAccount"
     end
 
-    test "kustomization file references all manifests", %{package: package, join_token: join_token} do
+    test "kustomization file references all manifests", %{
+      package: package,
+      join_token: join_token
+    } do
       {:ok, tarball} = BundleGenerator.create_tarball(package, sample_bundle_pem(), join_token)
 
       {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
 
-      {_, kustomization} = Enum.find(files, fn {name, _} ->
-        to_string(name) |> String.ends_with?("kubernetes/kustomization.yaml")
-      end)
+      {_, kustomization} =
+        Enum.find(files, fn {name, _} ->
+          to_string(name) |> String.ends_with?("kubernetes/kustomization.yaml")
+        end)
 
       assert kustomization =~ "kind: Kustomization"
       assert kustomization =~ "namespace.yaml"

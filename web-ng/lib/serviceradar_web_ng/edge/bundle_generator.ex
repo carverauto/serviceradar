@@ -56,7 +56,15 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
       {"#{package_dir}/config/config.yaml", generate_config_yaml(package, join_token, opts)},
       {"#{package_dir}/install.sh", generate_install_script(package, opts)},
       {"#{package_dir}/README.md", generate_readme(package)}
-      | generate_kubernetes_files(package_dir, package, cert_pem, key_pem, ca_chain_pem, join_token, opts)
+      | generate_kubernetes_files(
+          package_dir,
+          package,
+          cert_pem,
+          key_pem,
+          ca_chain_pem,
+          join_token,
+          opts
+        )
     ]
 
     # Create the tarball
@@ -440,6 +448,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   defp format_datetime(nil), do: "N/A"
   defp format_datetime(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+
   defp format_datetime(%NaiveDateTime{} = dt) do
     dt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
   end
@@ -496,15 +505,26 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   # Kubernetes manifest generation
 
-  defp generate_kubernetes_files(package_dir, package, cert_pem, key_pem, ca_chain_pem, join_token, opts) do
+  defp generate_kubernetes_files(
+         package_dir,
+         package,
+         cert_pem,
+         key_pem,
+         ca_chain_pem,
+         join_token,
+         opts
+       ) do
     namespace = Keyword.get(opts, :namespace, "serviceradar")
     image_tag = Keyword.get(opts, :image_tag, "latest")
 
     [
       {"#{package_dir}/kubernetes/namespace.yaml", generate_k8s_namespace(namespace)},
-      {"#{package_dir}/kubernetes/secret.yaml", generate_k8s_secret(package, cert_pem, key_pem, ca_chain_pem, namespace)},
-      {"#{package_dir}/kubernetes/configmap.yaml", generate_k8s_configmap(package, join_token, namespace, opts)},
-      {"#{package_dir}/kubernetes/deployment.yaml", generate_k8s_deployment(package, namespace, image_tag)},
+      {"#{package_dir}/kubernetes/secret.yaml",
+       generate_k8s_secret(package, cert_pem, key_pem, ca_chain_pem, namespace)},
+      {"#{package_dir}/kubernetes/configmap.yaml",
+       generate_k8s_configmap(package, join_token, namespace, opts)},
+      {"#{package_dir}/kubernetes/deployment.yaml",
+       generate_k8s_deployment(package, namespace, image_tag)},
       {"#{package_dir}/kubernetes/kustomization.yaml", generate_k8s_kustomization()}
     ]
   end
@@ -608,7 +628,9 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
         """
 
       :checker ->
-        checker_config = if package.checker_config_json, do: inspect(package.checker_config_json), else: "{}"
+        checker_config =
+          if package.checker_config_json, do: inspect(package.checker_config_json), else: "{}"
+
         """
         checker:
           kind: "#{package.checker_kind || ""}"

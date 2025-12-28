@@ -124,10 +124,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
       # Use create_with_tenant_cert for automatic certificate generation
       # This will auto-generate the tenant CA if it doesn't exist
-      result = OnboardingPackages.create_with_tenant_cert(attrs,
-        actor: actor,
-        tenant: tenant_id
-      )
+      result =
+        OnboardingPackages.create_with_tenant_cert(attrs,
+          actor: actor,
+          tenant: tenant_id
+        )
 
       case result do
         {:ok, package_result} ->
@@ -145,7 +146,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           {:noreply,
            socket
            |> assign(:creating, false)
-           |> put_flash(:error, "Failed to generate tenant certificate authority. Please try again.")}
+           |> put_flash(
+             :error,
+             "Failed to generate tenant certificate authority. Please try again."
+           )}
 
         {:error, %Ash.Error.Invalid{} = error} ->
           form = AshPhoenix.Form.add_error(form, error)
@@ -405,131 +409,131 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <%= if @created_tokens do %>
             <.success_content created_tokens={@created_tokens} />
           <% else %>
-          <h3 class="text-lg font-bold">Create Edge Package</h3>
-          <p class="py-2 text-sm text-base-content/70">
-            Create an onboarding package to deploy an edge component.
-          </p>
-
-          <div class="alert alert-info text-sm mb-4">
-            <.icon name="hero-sparkles" class="size-5" />
-            <div>
-              <div class="font-medium">Zero-touch provisioning</div>
-              <p class="text-xs opacity-80">
-                Certificates are generated automatically. You'll get a one-liner
-                install command to run on your target server.
-              </p>
-            </div>
-          </div>
-
-          <.form
-            for={@form}
-            id="create_package_form"
-            phx-change="validate_create"
-            phx-submit="create_package"
-            class="space-y-4"
-          >
-            <.input
-              field={@form[:label]}
-              type="text"
-              label="Label"
-              placeholder="e.g., production-poller-01"
-              required
-            />
-            <p class="text-xs text-base-content/60 -mt-2 ml-1">
-              A descriptive name for this component. Used to generate the component ID.
+            <h3 class="text-lg font-bold">Create Edge Package</h3>
+            <p class="py-2 text-sm text-base-content/70">
+              Create an onboarding package to deploy an edge component.
             </p>
 
-            <.input
-              field={@form[:component_type]}
-              type="select"
-              label="Component Type"
-              options={[{"Poller", :poller}, {"Agent", :agent}, {"Checker", :checker}]}
-            />
+            <div class="alert alert-info text-sm mb-4">
+              <.icon name="hero-sparkles" class="size-5" />
+              <div>
+                <div class="font-medium">Zero-touch provisioning</div>
+                <p class="text-xs opacity-80">
+                  Certificates are generated automatically. You'll get a one-liner
+                  install command to run on your target server.
+                </p>
+              </div>
+            </div>
 
-            <%= if @selected_component_type in ["agent", "checker"] do %>
+            <.form
+              for={@form}
+              id="create_package_form"
+              phx-change="validate_create"
+              phx-submit="create_package"
+              class="space-y-4"
+            >
               <.input
-                field={@form[:poller_id]}
+                field={@form[:label]}
                 type="text"
-                label="Parent Poller ID"
-                placeholder="Enter the poller ID this component reports to"
+                label="Label"
+                placeholder="e.g., production-poller-01"
+                required
               />
               <p class="text-xs text-base-content/60 -mt-2 ml-1">
-                <%= if @selected_component_type == "agent" do %>
-                  The poller that will manage this agent.
-                <% else %>
-                  The poller that will run this checker.
-                <% end %>
+                A descriptive name for this component. Used to generate the component ID.
               </p>
-            <% end %>
 
-            <%= if @selected_component_type == "checker" do %>
               <.input
-                field={@form[:checker_kind]}
-                type={if @checker_templates != [], do: "select", else: "text"}
-                label="Checker Kind"
-                options={
-                  if @checker_templates != [],
-                    do:
-                      [{"Select checker template...", ""}] ++
-                        Enum.map(@checker_templates, &{&1.kind, &1.kind}) ++
-                        [{"Custom (enter below)", "_custom"}],
-                    else: nil
-                }
-                placeholder="e.g., sysmon, snmp, rperf-checker"
+                field={@form[:component_type]}
+                type="select"
+                label="Component Type"
+                options={[{"Poller", :poller}, {"Agent", :agent}, {"Checker", :checker}]}
               />
 
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text">Checker Config (JSON, optional)</span>
-                </label>
-                <textarea
-                  name={@form[:checker_config_json].name}
-                  class="textarea textarea-bordered w-full font-mono text-sm"
-                  rows="4"
-                  placeholder='{"interval": 30, "timeout": 10}'
-                ><%= Phoenix.HTML.Form.input_value(@form, :checker_config_json) |> format_json_value() %></textarea>
-                <label class="label">
-                  <span class="label-text-alt text-base-content/60">
-                    Custom configuration JSON for the checker
-                  </span>
-                </label>
-              </div>
-            <% end %>
-
-            <div class="collapse collapse-arrow bg-base-200 rounded-lg">
-              <input type="checkbox" />
-              <div class="collapse-title text-sm font-medium py-2">
-                Advanced options
-              </div>
-              <div class="collapse-content space-y-4">
+              <%= if @selected_component_type in ["agent", "checker"] do %>
                 <.input
-                  field={@form[:notes]}
-                  type="textarea"
-                  label="Notes (Optional)"
-                  placeholder="Additional notes about this package"
+                  field={@form[:poller_id]}
+                  type="text"
+                  label="Parent Poller ID"
+                  placeholder="Enter the poller ID this component reports to"
+                />
+                <p class="text-xs text-base-content/60 -mt-2 ml-1">
+                  <%= if @selected_component_type == "agent" do %>
+                    The poller that will manage this agent.
+                  <% else %>
+                    The poller that will run this checker.
+                  <% end %>
+                </p>
+              <% end %>
+
+              <%= if @selected_component_type == "checker" do %>
+                <.input
+                  field={@form[:checker_kind]}
+                  type={if @checker_templates != [], do: "select", else: "text"}
+                  label="Checker Kind"
+                  options={
+                    if @checker_templates != [],
+                      do:
+                        [{"Select checker template...", ""}] ++
+                          Enum.map(@checker_templates, &{&1.kind, &1.kind}) ++
+                          [{"Custom (enter below)", "_custom"}],
+                      else: nil
+                  }
+                  placeholder="e.g., sysmon, snmp, rperf-checker"
                 />
 
                 <div class="form-control">
                   <label class="label">
-                    <span class="label-text text-xs">Security Mode</span>
+                    <span class="label-text">Checker Config (JSON, optional)</span>
                   </label>
-                  <div class="flex items-center gap-2">
-                    <.ui_badge variant="ghost" size="xs">
-                      {String.upcase(to_string(@security_mode))}
-                    </.ui_badge>
-                    <span class="text-xs text-base-content/50">
-                      (Set by deployment)
+                  <textarea
+                    name={@form[:checker_config_json].name}
+                    class="textarea textarea-bordered w-full font-mono text-sm"
+                    rows="4"
+                    placeholder='{"interval": 30, "timeout": 10}'
+                  ><%= Phoenix.HTML.Form.input_value(@form, :checker_config_json) |> format_json_value() %></textarea>
+                  <label class="label">
+                    <span class="label-text-alt text-base-content/60">
+                      Custom configuration JSON for the checker
                     </span>
+                  </label>
+                </div>
+              <% end %>
+
+              <div class="collapse collapse-arrow bg-base-200 rounded-lg">
+                <input type="checkbox" />
+                <div class="collapse-title text-sm font-medium py-2">
+                  Advanced options
+                </div>
+                <div class="collapse-content space-y-4">
+                  <.input
+                    field={@form[:notes]}
+                    type="textarea"
+                    label="Notes (Optional)"
+                    placeholder="Additional notes about this package"
+                  />
+
+                  <div class="form-control">
+                    <label class="label">
+                      <span class="label-text text-xs">Security Mode</span>
+                    </label>
+                    <div class="flex items-center gap-2">
+                      <.ui_badge variant="ghost" size="xs">
+                        {String.upcase(to_string(@security_mode))}
+                      </.ui_badge>
+                      <span class="text-xs text-base-content/50">
+                        (Set by deployment)
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <div class="modal-action">
-              <button type="button" class="btn" phx-click="close_create_modal">Cancel</button>
-              <button type="submit" class="btn btn-primary">Create Package</button>
-            </div>
-          </.form>
+              <div class="modal-action">
+                <button type="button" class="btn" phx-click="close_create_modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create Package</button>
+              </div>
+            </.form>
           <% end %>
         <% end %>
       </div>
@@ -676,6 +680,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp format_expiry(nil), do: "N/A"
+
   defp format_expiry(%DateTime{} = dt) do
     now = DateTime.utc_now()
     diff = DateTime.diff(dt, now, :hour)
@@ -687,6 +692,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       true -> Calendar.strftime(dt, "%Y-%m-%d %H:%M")
     end
   end
+
   defp format_expiry(%NaiveDateTime{} = dt) do
     dt |> DateTime.from_naive!("Etc/UTC") |> format_expiry()
   end
@@ -697,9 +703,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     case String.split(spiffe_id, "/") do
       [_, _, _, _type, tenant, partition, component] ->
         "#{component}.#{partition}.#{tenant}.serviceradar"
-      _ -> spiffe_id
+
+      _ ->
+        spiffe_id
     end
   end
+
   defp cert_cn(_), do: "N/A"
 
   defp details_modal(assigns) do
@@ -1034,6 +1043,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp format_error(%Ash.Error.Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", &format_error/1)
   end
+
   defp format_error(%{message: message}), do: message
   defp format_error(error) when is_binary(error), do: error
   defp format_error(error) when is_atom(error), do: to_string(error)

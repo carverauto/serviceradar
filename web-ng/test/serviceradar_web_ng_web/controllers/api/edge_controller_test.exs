@@ -267,7 +267,11 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
       # Use unauthenticated connection (public endpoint)
       conn = build_conn()
 
-      conn = get(conn, ~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}")
+      conn =
+        get(
+          conn,
+          ~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}"
+        )
 
       assert response_content_type(conn, :gzip) =~ "application/gzip"
       assert response(conn, 200) != ""
@@ -309,24 +313,39 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
 
       # First download
       conn = build_conn()
-      get(conn, ~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}")
+
+      get(
+        conn,
+        ~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}"
+      )
 
       # Second attempt
       conn = build_conn()
-      conn = get(conn, ~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}")
+
+      conn =
+        get(
+          conn,
+          ~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}"
+        )
 
       assert json_response(conn, 409)["error"] == "package already_delivered"
     end
 
     test "bundle contains expected files" do
-      {:ok, created} = OnboardingPackages.create(%{
-        label: "test-bundle-contents",
-        component_type: :checker,
-        checker_kind: "sysmon"
-      })
+      {:ok, created} =
+        OnboardingPackages.create(%{
+          label: "test-bundle-contents",
+          component_type: :checker,
+          checker_kind: "sysmon"
+        })
 
       conn = build_conn()
-      conn = get(conn, ~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}")
+
+      conn =
+        get(
+          conn,
+          ~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}"
+        )
 
       body = response(conn, 200)
       {:ok, files} = :erl_tar.extract({:binary, body}, [:compressed, :memory])
@@ -363,12 +382,18 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
 
       # Step 2: Download bundle (unauthenticated, using token)
       bundle_conn = build_conn()
-      bundle_conn = get(bundle_conn, ~p"/api/edge-packages/#{package_id}/bundle?token=#{download_token}")
+
+      bundle_conn =
+        get(bundle_conn, ~p"/api/edge-packages/#{package_id}/bundle?token=#{download_token}")
 
       assert response(bundle_conn, 200) != ""
 
       # Step 3: Verify package is now delivered
-      verify_conn = conn |> recycle() |> put_req_header("authorization", get_req_header(conn, "authorization") |> List.first())
+      verify_conn =
+        conn
+        |> recycle()
+        |> put_req_header("authorization", get_req_header(conn, "authorization") |> List.first())
+
       verify_conn = get(verify_conn, ~p"/api/admin/edge-packages/#{package_id}")
       show_result = json_response(verify_conn, 200)
 
