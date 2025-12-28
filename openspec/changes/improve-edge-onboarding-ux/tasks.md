@@ -48,6 +48,6 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 Update edge onboarding docs with new UI flow
-- [ ] 7.2 Add screenshots of new package creation flow
-- [ ] 7.3 Document the zero-touch provisioning process
+- [x] 7.1 Update edge onboarding docs with new UI flow
+- [ ] 7.2 Add screenshots of new package creation flow (requires manual UI screenshots)
+- [x] 7.3 Document the zero-touch provisioning process
