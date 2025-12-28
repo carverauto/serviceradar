@@ -10,7 +10,6 @@ GHCR_PUSH_TARGETS = [
     {"image": "core_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-core"},
     {"image": "core_elx_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-core-elx"},
     {"image": "agent_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent"},
-    {"image": "agent_elx_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent-elx"},
     {"image": "db_event_writer_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-db-event-writer"},
     {"image": "mapper_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-mapper"},
     {"image": "datasvc_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-datasvc"},
