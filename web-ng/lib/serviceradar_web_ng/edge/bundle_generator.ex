@@ -434,11 +434,9 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   defp do_encode_yaml(map, indent) when is_map(map) do
     prefix = String.duplicate("  ", indent)
 
-    map
-    |> Enum.map(fn {key, value} ->
+    Enum.map_join(map, "\n", fn {key, value} ->
       "#{prefix}#{key}: #{encode_yaml_value(value, indent)}"
     end)
-    |> Enum.join("\n")
   end
 
   defp encode_yaml_value(value, _indent) when is_binary(value), do: "\"#{value}\""

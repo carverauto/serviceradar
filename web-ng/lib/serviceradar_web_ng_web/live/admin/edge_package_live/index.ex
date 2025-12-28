@@ -695,7 +695,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     # Extract component info from SPIFFE ID
     # spiffe://serviceradar.local/<type>/<tenant>/<partition>/<component>
     case String.split(spiffe_id, "/") do
-      [_, _, _, type, tenant, partition, component] ->
+      [_, _, _, _type, tenant, partition, component] ->
         "#{component}.#{partition}.#{tenant}.serviceradar"
       _ -> spiffe_id
     end
@@ -1032,9 +1032,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp add_parent_type(attrs, _), do: attrs
 
   defp format_error(%Ash.Error.Invalid{errors: errors}) do
-    errors
-    |> Enum.map(&format_error/1)
-    |> Enum.join(", ")
+    Enum.map_join(errors, ", ", &format_error/1)
   end
   defp format_error(%{message: message}), do: message
   defp format_error(error) when is_binary(error), do: error
