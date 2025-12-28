@@ -33,7 +33,7 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
   @heartbeat_interval :timer.seconds(30)
   @stale_threshold :timer.minutes(2)
 
-  defstruct [:tenant_id, :partition_id, :agent_id, :poller_id, :capabilities, :key, :status, :registered_at]
+  defstruct [:tenant_id, :partition_id, :agent_id, :poller_id, :capabilities, :status, :registered_at]
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -53,7 +53,6 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
       agent_id: agent_id,
       poller_id: poller_id,
       capabilities: capabilities,
-      key: {partition_id, agent_id},
       status: :available,
       registered_at: DateTime.utc_now()
     }
@@ -120,13 +119,13 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
 
   @impl true
   def terminate(_reason, state) do
-    Logger.info("Agent unregistering: #{inspect(state.key)}")
-    ServiceRadar.AgentRegistry.unregister(state.key)
+    Logger.info("Agent unregistering: #{state.agent_id} for tenant: #{state.tenant_id}")
+    ServiceRadar.AgentRegistry.unregister_agent(state.tenant_id, state.agent_id)
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
-      "agent:registrations",
-      {:agent_unregistered, state.key}
+      "agent:registrations:#{state.tenant_id}",
+      {:agent_unregistered, state.agent_id}
     )
 
     :ok
@@ -183,48 +182,35 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
 
   defp register_agent(state) do
     metadata = %{
-      tenant_id: state.tenant_id,
       partition_id: state.partition_id,
-      agent_id: state.agent_id,
       poller_id: state.poller_id,
       capabilities: state.capabilities,
       node: Node.self(),
-      status: state.status,
-      registered_at: state.registered_at,
-      last_heartbeat: DateTime.utc_now()
+      status: state.status
     }
 
-    case ServiceRadar.AgentRegistry.register(state.key, metadata) do
-      {:ok, pid} ->
-        # Broadcast registration
-        Phoenix.PubSub.broadcast(
-          ServiceRadar.PubSub,
-          "agent:registrations",
-          {:agent_registered, metadata}
-        )
-
-        {:ok, pid}
-
-      error ->
-        error
-    end
+    # Use the new tenant-scoped registration API
+    ServiceRadar.AgentRegistry.register_agent(state.tenant_id, state.agent_id, metadata)
   end
 
   defp update_heartbeat(state) do
-    ServiceRadar.AgentRegistry.update_value(state.key, fn meta ->
-      %{meta | last_heartbeat: DateTime.utc_now()}
-    end)
+    ServiceRadar.AgentRegistry.heartbeat(state.tenant_id, state.agent_id)
   end
 
   defp update_status(state) do
-    ServiceRadar.AgentRegistry.update_value(state.key, fn meta ->
-      %{meta | status: state.status, last_heartbeat: DateTime.utc_now()}
-    end)
+    # Update status via TenantRegistry
+    ServiceRadar.Cluster.TenantRegistry.update_value(
+      state.tenant_id,
+      {:agent, state.agent_id},
+      fn meta ->
+        %{meta | status: state.status, last_heartbeat: DateTime.utc_now()}
+      end
+    )
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
-      "agent:registrations",
-      {:agent_status_changed, state.key, state.status}
+      "agent:registrations:#{state.tenant_id}",
+      {:agent_status_changed, state.agent_id, state.status}
     )
   end
 

@@ -16,6 +16,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.OnboardingEvents
   alias ServiceRadar.Edge.Crypto
+  alias ServiceRadar.Edge.TenantCA
+  alias ServiceRadar.Edge.TenantCA.Generator, as: CertGenerator
 
   @default_limit 100
   @default_join_token_ttl_seconds 86_400
@@ -450,5 +452,153 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   defp default_metadata do
     Application.get_env(:serviceradar_web_ng, :edge_onboarding, [])
     |> Keyword.get(:default_metadata, %{})
+  end
+
+  @doc """
+  Generates a component certificate signed by the tenant's CA.
+
+  This creates a certificate with the CN format:
+  `<component_id>.<partition_id>.<tenant_slug>.serviceradar`
+
+  And includes a SPIFFE URI SAN:
+  `spiffe://serviceradar.local/<component_type>/<tenant_slug>/<partition_id>/<component_id>`
+
+  ## Parameters
+
+    * `tenant_id` - The tenant UUID
+    * `component_id` - Unique component identifier
+    * `component_type` - :poller, :agent, or :checker
+    * `partition_id` - Network partition identifier (default: "default")
+    * `opts` - Additional options:
+      * `:validity_days` - Certificate validity (default: 365)
+      * `:dns_names` - Additional DNS SANs
+
+  ## Returns
+
+    * `{:ok, %{certificate_pem: pem, private_key_pem: pem, ca_chain_pem: pem, spiffe_id: string}}`
+    * `{:error, reason}`
+
+  """
+  @spec generate_component_certificate(String.t(), String.t(), atom(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def generate_component_certificate(tenant_id, component_id, component_type, partition_id \\ "default", opts \\ []) do
+    with {:ok, tenant_ca} <- get_tenant_ca(tenant_id),
+         {:ok, decrypted_ca} <- decrypt_ca_private_key(tenant_ca) do
+      CertGenerator.generate_component_cert(
+        decrypted_ca,
+        component_id,
+        component_type,
+        partition_id,
+        opts
+      )
+    end
+  end
+
+  @doc """
+  Creates a package with a component certificate signed by the tenant's CA.
+
+  This is the preferred way to create packages for multi-tenant deployments.
+  It automatically:
+  1. Gets or generates the tenant's CA
+  2. Generates a component certificate signed by the tenant CA
+  3. Includes the certificate bundle in the package
+
+  ## Options
+
+  Same as `create/2`, plus:
+    * `:partition_id` - Network partition (default: "default")
+    * `:cert_validity_days` - Component cert validity (default: 365)
+
+  """
+  @spec create_with_tenant_cert(map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def create_with_tenant_cert(attrs, opts \\ []) do
+    tenant_id = Keyword.fetch!(opts, :tenant)
+    partition_id = Keyword.get(opts, :partition_id, attrs[:site] || "default")
+    cert_validity = Keyword.get(opts, :cert_validity_days, 365)
+
+    component_id = attrs[:component_id] || generate_component_id(attrs[:component_type])
+    component_type = attrs[:component_type] || :poller
+
+    # Generate component certificate
+    with {:ok, cert_data} <- generate_component_certificate(
+           tenant_id,
+           component_id,
+           component_type,
+           partition_id,
+           validity_days: cert_validity
+         ) do
+
+      # Build the bundle (cert + key + CA chain in a single PEM)
+      bundle_pem = build_certificate_bundle(cert_data)
+      bundle_ciphertext = Crypto.encrypt(bundle_pem)
+
+      # Add the SPIFFE ID to the package
+      attrs_with_cert = attrs
+        |> Map.put(:component_id, component_id)
+        |> Map.put(:downstream_spiffe_id, cert_data.spiffe_id)
+
+      # Create the package with the encrypted bundle
+      case create(attrs_with_cert, opts) do
+        {:ok, result} ->
+          # Update with the certificate bundle
+          updated = result.package
+            |> Ash.Changeset.for_update(:update_tokens, %{
+              bundle_ciphertext: bundle_ciphertext,
+              downstream_spiffe_id: cert_data.spiffe_id
+            }, authorize?: false)
+            |> Ash.update!()
+
+          {:ok, Map.put(result, :package, updated)
+                |> Map.put(:certificate_data, cert_data)}
+
+        error -> error
+      end
+    end
+  end
+
+  # Gets the active tenant CA, generating one if it doesn't exist
+  defp get_tenant_ca(tenant_id) do
+    case TenantCA
+         |> Ash.Query.filter(tenant_id == ^tenant_id and status == :active)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} ->
+        # No active CA, need to generate one
+        case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, authorize?: false) do
+          {:ok, tenant} ->
+            # Use the action on Tenant to generate a CA
+            Ash.run_action(tenant, :generate_ca, %{}, authorize?: false)
+
+          error -> error
+        end
+
+      {:ok, ca} -> {:ok, ca}
+      error -> error
+    end
+  end
+
+  # Decrypts the CA private key for signing (AshCloak handles decryption)
+  defp decrypt_ca_private_key(tenant_ca) do
+    # Load with decryption - AshCloak will decrypt the private key
+    case Ash.get(TenantCA, tenant_ca.id, authorize?: false, load: [:tenant]) do
+      {:ok, ca} -> {:ok, ca}
+      error -> error
+    end
+  end
+
+  defp build_certificate_bundle(cert_data) do
+    """
+    # Component Certificate
+    #{cert_data.certificate_pem}
+    # Component Private Key
+    #{cert_data.private_key_pem}
+    # CA Chain
+    #{cert_data.ca_chain_pem}
+    """
+  end
+
+  defp generate_component_id(component_type) do
+    short_id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+    "#{component_type}-#{short_id}"
   end
 end

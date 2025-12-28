@@ -17,7 +17,25 @@ defmodule ServiceRadarPoller.Application do
   - `POLLER_ID` - Unique identifier for this poller
   - `POLLER_DOMAIN` - The domain this poller monitors
   - `POLLER_CAPABILITIES` - Comma-separated list of capabilities (e.g., "icmp,tcp,http")
+  - `POLLER_TENANT_ID` - Tenant UUID for multi-tenant deployments
+  - `POLLER_TENANT_SLUG` - Tenant slug for multi-tenant deployments
   - `CLUSTER_HOSTS` - Comma-separated list of cluster nodes to join
+
+  ## Multi-Tenant Isolation
+
+  For multi-tenant deployments, each tenant's pollers are isolated via:
+
+  1. **Per-Tenant Horde Registries**: Each tenant has isolated registry state
+  2. **TenantGuard**: Defense-in-depth process-level validation
+  3. **Certificate-based Identity**: Certificate CN includes tenant slug
+  4. **NATS Channel Prefixing**: All channels prefixed with tenant slug
+
+  All pollers join the same ERTS cluster but register in tenant-specific
+  Horde registries, preventing cross-tenant process discovery.
+
+  The tenant info is resolved from:
+  1. Environment variables (POLLER_TENANT_ID/POLLER_TENANT_SLUG)
+  2. Certificate CN format: `<poller_id>.<partition_id>.<tenant_slug>.serviceradar`
 
   ## Architecture
 
@@ -55,10 +73,18 @@ defmodule ServiceRadarPoller.Application do
     partition_id = System.get_env("POLLER_PARTITION_ID", "default")
     poller_id = System.get_env("POLLER_ID", generate_poller_id())
     domain = System.get_env("POLLER_DOMAIN", "default")
+    tenant_id = System.get_env("POLLER_TENANT_ID")
+    tenant_slug = System.get_env("POLLER_TENANT_SLUG")
 
     capabilities = parse_capabilities(System.get_env("POLLER_CAPABILITIES", ""))
 
-    Logger.info("Starting ServiceRadar Poller: #{poller_id} in partition: #{partition_id}")
+    if tenant_slug do
+      Logger.info(
+        "Starting ServiceRadar Poller: #{poller_id} in partition: #{partition_id} for tenant: #{tenant_slug}"
+      )
+    else
+      Logger.info("Starting ServiceRadar Poller: #{poller_id} in partition: #{partition_id}")
+    end
 
     children = [
       # Poller-specific configuration store
@@ -66,7 +92,9 @@ defmodule ServiceRadarPoller.Application do
        partition_id: partition_id,
        poller_id: poller_id,
        domain: domain,
-       capabilities: capabilities},
+       capabilities: capabilities,
+       tenant_id: tenant_id,
+       tenant_slug: tenant_slug},
 
       # Registration worker - registers this poller in the distributed registry
       {ServiceRadar.Poller.RegistrationWorker,

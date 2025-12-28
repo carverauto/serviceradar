@@ -71,8 +71,21 @@ config :serviceradar_core,
   env: :test,
   cluster_enabled: false
 
-# Oban in test mode (real DB, real queues)
-config :serviceradar_core, Oban, repo: ServiceRadar.Repo
+# Disable Oban in tests to avoid AshOban.Scheduler issues
+config :serviceradar_core, Oban, false
+
+# Configure Ash domains (needed for validation)
+config :serviceradar_core,
+  ash_domains: [
+    ServiceRadar.Edge,
+    ServiceRadar.Identity,
+    ServiceRadar.Infrastructure,
+    ServiceRadar.Integrations,
+    ServiceRadar.Inventory,
+    ServiceRadar.Jobs,
+    ServiceRadar.Monitoring,
+    ServiceRadar.Observability
+  ]
 
 # Reduce log noise in tests
 config :logger, level: :warning

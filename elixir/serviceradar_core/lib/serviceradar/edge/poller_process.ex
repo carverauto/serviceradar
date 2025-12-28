@@ -188,7 +188,7 @@ defmodule ServiceRadar.Edge.PollerProcess do
   @impl true
   def handle_info(:health_check, state) do
     # Update registry heartbeat
-    PollerRegistry.heartbeat(state.poller_id)
+    PollerRegistry.heartbeat(state.tenant_id, state.poller_id)
     schedule_health_check()
     {:noreply, state}
   end
@@ -196,7 +196,7 @@ defmodule ServiceRadar.Edge.PollerProcess do
   @impl true
   def terminate(reason, state) do
     Logger.info("Poller #{state.poller_id} terminating: #{inspect(reason)}")
-    PollerRegistry.unregister_poller(state.poller_id)
+    PollerRegistry.unregister_poller(state.tenant_id, state.poller_id)
     :ok
   end
 

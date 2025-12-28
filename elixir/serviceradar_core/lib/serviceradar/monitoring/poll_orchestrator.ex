@@ -123,7 +123,7 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
         if is_nil(poller_id) do
           {:error, :no_poller_assigned}
         else
-          case PollerRegistry.lookup(poller_id) do
+          case PollerRegistry.lookup(tenant_id, poller_id) do
             [{_pid, metadata}] ->
               if metadata[:status] == :available do
                 {:ok, metadata}

@@ -36,6 +36,7 @@ defmodule ServiceRadar.Edge do
   resources do
     resource ServiceRadar.Edge.OnboardingPackage
     resource ServiceRadar.Edge.OnboardingEvent
+    resource ServiceRadar.Edge.TenantCA
   end
 
   authorization do
