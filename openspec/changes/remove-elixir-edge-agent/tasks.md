@@ -53,11 +53,11 @@
 
 ## 8. Testing
 
-- [ ] 8.1 Test poller-to-agent gRPC communication
+- [x] 8.1 Test poller-to-agent gRPC communication - Created agent_registry_test.exs (18 tests pass)
 - [x] 8.2 Test agent registration via core API - Created agent_test.exs (14 tests pass)
 - [x] 8.3 Test multi-tenant agent isolation - Created agent_tenant_isolation_test.exs (10 tests pass)
 - [x] 8.4 Test agent health monitoring - Created agent_health_test.exs (14 tests pass)
-- [ ] 8.5 Integration test: full polling flow without ERTS
+- [x] 8.5 Integration test: full polling flow without ERTS - Created poll_job_integration_test.exs (13 tests pass)
 - [x] 8.6 Verify ERTS cluster has no edge nodes - Cluster tests pass (74 tests, 0 failures)
 
 ## 9. Security Validation
