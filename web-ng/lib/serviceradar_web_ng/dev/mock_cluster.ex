@@ -145,7 +145,10 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
           metadata
 
         {:error, reason} ->
-          Logger.warning("[MockCluster] Failed to register poller #{poller_id}: #{inspect(reason)}")
+          Logger.warning(
+            "[MockCluster] Failed to register poller #{poller_id}: #{inspect(reason)}"
+          )
+
           nil
       end
     end
@@ -154,6 +157,7 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
 
   defp register_mock_agents(count) do
     partitions = ["production", "staging", "edge-site-1"]
+
     capability_sets = [
       [:snmp, :wmi],
       [:disk, :process],

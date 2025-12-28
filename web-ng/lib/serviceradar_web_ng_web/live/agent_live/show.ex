@@ -44,12 +44,19 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   def handle_params(%{"uid" => uid}, _uri, socket) do
     # First check Horde registry for live agent
     all_agents = ServiceRadar.AgentRegistry.all_agents()
-    Logger.debug("[AgentShow] All agents in Horde: #{inspect(Enum.map(all_agents, & &1[:agent_id] || &1[:key]))}")
 
-    live_agent = Enum.find(all_agents, fn agent ->
-      (agent[:agent_id] || agent[:key]) == uid
-    end)
-    Logger.debug("[AgentShow] Looking up agent uid=#{inspect(uid)}, live_agent=#{inspect(live_agent != nil)}")
+    Logger.debug(
+      "[AgentShow] All agents in Horde: #{inspect(Enum.map(all_agents, &(&1[:agent_id] || &1[:key])))}"
+    )
+
+    live_agent =
+      Enum.find(all_agents, fn agent ->
+        (agent[:agent_id] || agent[:key]) == uid
+      end)
+
+    Logger.debug(
+      "[AgentShow] Looking up agent uid=#{inspect(uid)}, live_agent=#{inspect(live_agent != nil)}"
+    )
 
     # Get poller node system info if live agent exists
     poller_node_info =
@@ -194,12 +201,18 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
         <div :if={is_map(@agent)} class="space-y-4">
           <!-- Live Status Banner -->
-          <div :if={@live_agent} class="rounded-lg bg-success/10 border border-success/30 p-3 flex items-center gap-3">
+          <div
+            :if={@live_agent}
+            class="rounded-lg bg-success/10 border border-success/30 p-3 flex items-center gap-3"
+          >
             <span class="size-2.5 rounded-full bg-success animate-pulse"></span>
             <span class="text-sm text-success font-medium">Live Agent</span>
             <span class="text-xs text-base-content/60">Connected to cluster via Horde registry</span>
           </div>
-          <div :if={!@live_agent && Map.get(@agent, "_source") == "database"} class="rounded-lg bg-warning/10 border border-warning/30 p-3 flex items-center gap-3">
+          <div
+            :if={!@live_agent && Map.get(@agent, "_source") == "database"}
+            class="rounded-lg bg-warning/10 border border-warning/30 p-3 flex items-center gap-3"
+          >
             <span class="size-2.5 rounded-full bg-warning"></span>
             <span class="text-sm text-warning font-medium">Database Record</span>
             <span class="text-xs text-base-content/60">Agent not currently connected to cluster</span>
@@ -207,7 +220,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
           <.agent_summary agent={@agent} live_agent={@live_agent} />
           <.capabilities_card capabilities={Map.get(@agent, "capabilities", [])} />
-          <.poller_node_info :if={@poller_node_info} node_info={@poller_node_info} node={Map.get(@agent, "poller_node")} />
+          <.poller_node_info
+            :if={@poller_node_info}
+            node_info={@poller_node_info}
+            node={Map.get(@agent, "poller_node")}
+          />
           <.registration_info agent={@agent} />
           <.service_checks_card checks={@checks} agent_uid={@agent_uid} />
         </div>
@@ -239,7 +256,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
         <div class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Agent UID</span>
-          <span class="text-sm font-mono">{Map.get(@agent, "uid") || Map.get(@agent, "agent_id") || "—"}</span>
+          <span class="text-sm font-mono">
+            {Map.get(@agent, "uid") || Map.get(@agent, "agent_id") || "—"}
+          </span>
         </div>
 
         <div :if={has_value?(@agent, "name")} class="flex flex-col gap-1">
@@ -338,27 +357,27 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <div class="stat-title text-xs">Uptime</div>
           <div class="stat-value text-lg">{format_uptime(@node_info.uptime_ms)}</div>
         </div>
-
-        <!-- Processes -->
+        
+    <!-- Processes -->
         <div class="stat bg-base-200/30 rounded-lg p-3">
           <div class="stat-title text-xs">Processes</div>
           <div class="stat-value text-lg">{@node_info.process_count}</div>
         </div>
-
-        <!-- Schedulers -->
+        
+    <!-- Schedulers -->
         <div class="stat bg-base-200/30 rounded-lg p-3">
           <div class="stat-title text-xs">Schedulers</div>
           <div class="stat-value text-lg">{@node_info.schedulers_online}/{@node_info.schedulers}</div>
         </div>
-
-        <!-- OTP Release -->
+        
+    <!-- OTP Release -->
         <div class="stat bg-base-200/30 rounded-lg p-3">
           <div class="stat-title text-xs">OTP Release</div>
           <div class="stat-value text-lg">OTP {@node_info.otp_release}</div>
         </div>
       </div>
-
-      <!-- Memory breakdown -->
+      
+    <!-- Memory breakdown -->
       <div class="px-4 pb-4">
         <div class="text-xs text-base-content/60 mb-2">Memory Usage</div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -369,7 +388,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <.memory_stat label="ETS" bytes={@node_info.memory_ets} />
           <.memory_stat label="Binary" bytes={@node_info.memory_binary} />
           <.memory_stat label="Atom" bytes={@node_info.memory_atom} />
-          <.memory_stat label="Ports" bytes={nil} count={@node_info.port_count} />
+          <.memory_stat label="Ports" count={@node_info.port_count} />
         </div>
       </div>
     </div>
@@ -408,30 +427,44 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <div :if={has_value?(@agent, "registered_at")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-success"></span>
             <span class="text-xs text-base-content/60 w-24">Registered</span>
-            <span class="font-mono text-sm">{format_timestamp(Map.get(@agent, "registered_at"))}</span>
+            <span class="font-mono text-sm">
+              {format_timestamp(Map.get(@agent, "registered_at"))}
+            </span>
           </div>
           <div :if={has_value?(@agent, "connected_at")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-info"></span>
             <span class="text-xs text-base-content/60 w-24">Connected</span>
             <span class="font-mono text-sm">{format_timestamp(Map.get(@agent, "connected_at"))}</span>
-            <span class="text-xs text-base-content/40">({time_ago(Map.get(@agent, "connected_at"))})</span>
+            <span class="text-xs text-base-content/40">
+              ({time_ago(Map.get(@agent, "connected_at"))})
+            </span>
           </div>
           <div :if={has_value?(@agent, "last_heartbeat")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-info animate-pulse"></span>
             <span class="text-xs text-base-content/60 w-24">Last Heartbeat</span>
-            <span class="font-mono text-sm">{format_timestamp(Map.get(@agent, "last_heartbeat"))}</span>
-            <span class="text-xs text-base-content/40">({time_ago(Map.get(@agent, "last_heartbeat"))})</span>
+            <span class="font-mono text-sm">
+              {format_timestamp(Map.get(@agent, "last_heartbeat"))}
+            </span>
+            <span class="text-xs text-base-content/40">
+              ({time_ago(Map.get(@agent, "last_heartbeat"))})
+            </span>
           </div>
           <div :if={has_value?(@agent, "first_seen_time")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-base-content/30"></span>
             <span class="text-xs text-base-content/60 w-24">First Seen</span>
-            <span class="font-mono text-sm">{format_timestamp(Map.get(@agent, "first_seen_time"))}</span>
+            <span class="font-mono text-sm">
+              {format_timestamp(Map.get(@agent, "first_seen_time"))}
+            </span>
           </div>
           <div :if={has_value?(@agent, "last_seen_time")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-base-content/30"></span>
             <span class="text-xs text-base-content/60 w-24">Last Seen</span>
-            <span class="font-mono text-sm">{format_timestamp(Map.get(@agent, "last_seen_time"))}</span>
-            <span class="text-xs text-base-content/40">({time_ago(Map.get(@agent, "last_seen_time"))})</span>
+            <span class="font-mono text-sm">
+              {format_timestamp(Map.get(@agent, "last_seen_time"))}
+            </span>
+            <span class="text-xs text-base-content/40">
+              ({time_ago(Map.get(@agent, "last_seen_time"))})
+            </span>
           </div>
         </div>
       </div>
@@ -606,8 +639,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     cond do
       diff < 60 -> "#{diff}s ago"
       diff < 3600 -> "#{div(diff, 60)}m ago"
-      diff < 86400 -> "#{div(diff, 3600)}h ago"
-      true -> "#{div(diff, 86400)}d ago"
+      diff < 86_400 -> "#{div(diff, 3600)}h ago"
+      true -> "#{div(diff, 86_400)}d ago"
     end
   end
 

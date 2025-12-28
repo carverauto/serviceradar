@@ -25,12 +25,18 @@ defmodule ServiceRadar.Inventory.DeviceTest do
     test "can create a device with required fields", %{tenant: tenant} do
       result =
         Device
-        |> Ash.Changeset.for_create(:create, %{
-          uid: "test-device-001",
-          hostname: "test-host.local",
-          type_id: 1,
-          is_available: true
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "test-device-001",
+            hostname: "test-host.local",
+            type_id: 1,
+            is_available: true
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       assert {:ok, device} = result
@@ -52,7 +58,10 @@ defmodule ServiceRadar.Inventory.DeviceTest do
     test "supports all OCSF type IDs", %{tenant: tenant} do
       for type_id <- [0, 1, 2, 3, 6, 7, 9, 10, 12, 99] do
         unique = System.unique_integer([:positive])
-        device = device_fixture(tenant, %{uid: "device-type-#{type_id}-#{unique}", type_id: type_id})
+
+        device =
+          device_fixture(tenant, %{uid: "device-type-#{type_id}-#{unique}", type_id: type_id})
+
         assert device.type_id == type_id
       end
     end
@@ -70,10 +79,15 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       result =
         device
-        |> Ash.Changeset.for_update(:update, %{
-          name: "Updated Name",
-          is_managed: true
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :update,
+          %{
+            name: "Updated Name",
+            is_managed: true
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:ok, updated} = result
@@ -88,7 +102,9 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       {:ok, updated} =
         device
         |> Ash.Changeset.for_update(:update, %{name: "Admin Update"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert updated.name == "Admin Update"
@@ -100,7 +116,9 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       result =
         device
         |> Ash.Changeset.for_update(:update, %{name: "Should Fail"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -129,17 +147,19 @@ defmodule ServiceRadar.Inventory.DeviceTest do
     setup do
       tenant = tenant_fixture()
 
-      device1 = device_fixture(tenant, %{
-        uid: "device-available",
-        ip: "192.168.1.1",
-        is_available: true
-      })
+      device1 =
+        device_fixture(tenant, %{
+          uid: "device-available",
+          ip: "192.168.1.1",
+          is_available: true
+        })
 
-      device2 = device_fixture(tenant, %{
-        uid: "device-unavailable",
-        ip: "192.168.1.2",
-        is_available: false
-      })
+      device2 =
+        device_fixture(tenant, %{
+          uid: "device-unavailable",
+          ip: "192.168.1.2",
+          is_available: false
+        })
 
       {:ok, tenant: tenant, device1: device1, device2: device2}
     end
@@ -174,11 +194,12 @@ defmodule ServiceRadar.Inventory.DeviceTest do
     } do
       actor = viewer_actor(tenant)
 
-      {:ok, available} = Ash.read(Device,
-        action: :available,
-        actor: actor,
-        tenant: tenant.id
-      )
+      {:ok, available} =
+        Ash.read(Device,
+          action: :available,
+          actor: actor,
+          tenant: tenant.id
+        )
 
       uids = Enum.map(available, & &1.uid)
       assert device1.uid in uids
@@ -208,7 +229,9 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       for {type_id, expected_name} <- type_map do
         unique = System.unique_integer([:positive])
-        device = device_fixture(tenant, %{uid: "type-test-#{type_id}-#{unique}", type_id: type_id})
+
+        device =
+          device_fixture(tenant, %{uid: "type-test-#{type_id}-#{unique}", type_id: type_id})
 
         {:ok, [loaded]} =
           Device
@@ -224,12 +247,13 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       actor = viewer_actor(tenant)
 
       # Device with all fields
-      device_full = device_fixture(tenant, %{
-        uid: "uid-full",
-        name: "Display Name",
-        hostname: "hostname.local",
-        ip: "1.2.3.4"
-      })
+      device_full =
+        device_fixture(tenant, %{
+          uid: "uid-full",
+          name: "Display Name",
+          hostname: "hostname.local",
+          ip: "1.2.3.4"
+        })
 
       {:ok, [loaded]} =
         Device
@@ -241,10 +265,11 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       assert loaded.display_name == "Display Name"
 
       # Device with only hostname
-      device_hostname = device_fixture(tenant, %{
-        uid: "uid-hostname",
-        hostname: "just-hostname.local"
-      })
+      device_hostname =
+        device_fixture(tenant, %{
+          uid: "uid-hostname",
+          hostname: "just-hostname.local"
+        })
 
       {:ok, [loaded]} =
         Device
@@ -264,11 +289,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       device_a = device_fixture(tenant_a, %{uid: "device-a", hostname: "host-a.local"})
       device_b = device_fixture(tenant_b, %{uid: "device-b", hostname: "host-b.local"})
 
-      {:ok,
-       tenant_a: tenant_a,
-       tenant_b: tenant_b,
-       device_a: device_a,
-       device_b: device_b}
+      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, device_a: device_a, device_b: device_b}
     end
 
     test "user cannot see devices from other tenant", %{
@@ -293,8 +314,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       result =
         device_b
-        |> Ash.Changeset.for_update(:update, %{name: "Hacked"},
-          actor: actor, tenant: tenant_a.id)
+        |> Ash.Changeset.for_update(:update, %{name: "Hacked"}, actor: actor, tenant: tenant_a.id)
         |> Ash.update()
 
       # Should fail - either Forbidden or StaleRecord

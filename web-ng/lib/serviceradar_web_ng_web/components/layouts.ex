@@ -382,7 +382,11 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       [section, subsection, id] ->
         [
           %{label: section_label(section), icon: section_icon(section), href: "/#{section}"},
-          %{label: section_label(subsection), icon: section_icon(subsection), href: "/#{section}?tab=#{subsection}"},
+          %{
+            label: section_label(subsection),
+            icon: section_icon(subsection),
+            href: "/#{section}?tab=#{subsection}"
+          },
           %{label: format_id(id), icon: nil, href: nil}
         ]
 
@@ -394,6 +398,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     end
   end
 
+  defp build_breadcrumbs(_), do: []
+
   # Normalize paths so agents and pollers appear under infrastructure
   defp normalize_infrastructure_path(["agents" | rest]) do
     ["infrastructure", "agents" | rest]
@@ -404,8 +410,6 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   end
 
   defp normalize_infrastructure_path(segments), do: segments
-
-  defp build_breadcrumbs(_), do: []
 
   defp section_label("analytics"), do: "Analytics"
   defp section_label("devices"), do: "Devices"

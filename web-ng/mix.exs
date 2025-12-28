@@ -111,7 +111,9 @@ defmodule ServiceRadarWebNG.MixProject do
         "phx.digest"
       ],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],
-      precommit_lint: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "credo"]
+      precommit_lint: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "credo"],
+      # Fast lint for bazel - skips full compilation (bazel build handles that separately)
+      precommit_fast: ["deps.unlock --unused", "format --check-formatted", "credo"]
     ]
   end
 end

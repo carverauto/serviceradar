@@ -26,18 +26,25 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
     test "can create a partition with required fields", %{tenant: tenant} do
       result =
         Partition
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Production Network",
-          slug: "production-network",
-          cidr_ranges: ["10.0.0.0/8", "192.168.0.0/16"]
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Production Network",
+            slug: "production-network",
+            cidr_ranges: ["10.0.0.0/8", "192.168.0.0/16"]
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       assert {:ok, partition} = result
       assert partition.name == "Production Network"
       assert partition.slug == "production-network"
       assert partition.cidr_ranges == ["10.0.0.0/8", "192.168.0.0/16"]
-      assert partition.enabled == true  # default
+      # default
+      assert partition.enabled == true
       assert partition.tenant_id == tenant.id
     end
 
@@ -52,10 +59,13 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
     test "supports all environment types", %{tenant: tenant} do
       for environment <- ["production", "staging", "development", "lab"] do
         unique = System.unique_integer([:positive])
-        partition = partition_fixture(tenant, %{
-          slug: "partition-env-#{environment}-#{unique}",
-          environment: environment
-        })
+
+        partition =
+          partition_fixture(tenant, %{
+            slug: "partition-env-#{environment}-#{unique}",
+            environment: environment
+          })
+
         assert partition.environment == environment
       end
     end
@@ -63,10 +73,13 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
     test "supports all connectivity types", %{tenant: tenant} do
       for connectivity <- ["direct", "vpn", "proxy"] do
         unique = System.unique_integer([:positive])
-        partition = partition_fixture(tenant, %{
-          slug: "partition-conn-#{connectivity}-#{unique}",
-          connectivity_type: connectivity
-        })
+
+        partition =
+          partition_fixture(tenant, %{
+            slug: "partition-conn-#{connectivity}-#{unique}",
+            connectivity_type: connectivity
+          })
+
         assert partition.connectivity_type == connectivity
       end
     end
@@ -84,11 +97,16 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       result =
         partition
-        |> Ash.Changeset.for_update(:update, %{
-          name: "Updated Network",
-          description: "Updated description",
-          cidr_ranges: ["172.16.0.0/12"]
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :update,
+          %{
+            name: "Updated Network",
+            description: "Updated description",
+            cidr_ranges: ["172.16.0.0/12"]
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:ok, updated} = result
@@ -104,7 +122,9 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
       result =
         partition
         |> Ash.Changeset.for_update(:update, %{name: "Should Fail"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -116,7 +136,9 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
       result =
         partition
         |> Ash.Changeset.for_update(:update, %{name: "Should Fail"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -135,8 +157,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       {:ok, disabled} =
         partition
-        |> Ash.Changeset.for_update(:disable, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:disable, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert disabled.enabled == false
@@ -149,15 +170,13 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
       # First disable
       {:ok, disabled} =
         partition
-        |> Ash.Changeset.for_update(:disable, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:disable, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       # Then enable
       {:ok, enabled} =
         disabled
-        |> Ash.Changeset.for_update(:enable, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:enable, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert enabled.enabled == true
@@ -168,8 +187,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       result =
         partition
-        |> Ash.Changeset.for_update(:disable, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:disable, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -180,20 +198,22 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
     setup do
       tenant = tenant_fixture()
 
-      partition_enabled = partition_fixture(tenant, %{
-        name: "Enabled Partition",
-        slug: "enabled-partition",
-        site: "datacenter-1",
-        environment: "production"
-      })
+      partition_enabled =
+        partition_fixture(tenant, %{
+          name: "Enabled Partition",
+          slug: "enabled-partition",
+          site: "datacenter-1",
+          environment: "production"
+        })
 
-      partition_disabled = partition_fixture(tenant, %{
-        name: "Disabled Partition",
-        slug: "disabled-partition",
-        enabled: false,
-        site: "datacenter-1",
-        environment: "staging"
-      })
+      partition_disabled =
+        partition_fixture(tenant, %{
+          name: "Disabled Partition",
+          slug: "disabled-partition",
+          enabled: false,
+          site: "datacenter-1",
+          environment: "staging"
+        })
 
       {:ok,
        tenant: tenant,
@@ -248,7 +268,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
         |> Ash.Query.for_read(:by_site, %{site: "datacenter-1"}, actor: actor, tenant: tenant.id)
         |> Ash.read()
 
-      assert length(partitions) >= 1
+      refute Enum.empty?(partitions)
       assert Enum.any?(partitions, fn p -> p.id == partition.id end)
     end
 
@@ -262,7 +282,9 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
       {:ok, prod_partitions} =
         Partition
         |> Ash.Query.for_read(:by_environment, %{environment: "production"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.read()
 
       prod_ids = Enum.map(prod_partitions, & &1.id)
@@ -281,10 +303,11 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
       actor = viewer_actor(tenant)
 
       # With name
-      partition_named = partition_fixture(tenant, %{
-        name: "Named Partition",
-        slug: "named-partition-slug"
-      })
+      partition_named =
+        partition_fixture(tenant, %{
+          name: "Named Partition",
+          slug: "named-partition-slug"
+        })
 
       {:ok, [loaded]} =
         Partition
@@ -307,10 +330,12 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       for {environment, expected_label} <- label_map do
         unique = System.unique_integer([:positive])
-        partition = partition_fixture(tenant, %{
-          slug: "partition-label-#{environment}-#{unique}",
-          environment: environment
-        })
+
+        partition =
+          partition_fixture(tenant, %{
+            slug: "partition-label-#{environment}-#{unique}",
+            environment: environment
+          })
 
         {:ok, [loaded]} =
           Partition
@@ -354,10 +379,11 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
     test "cidr_count returns number of CIDR ranges", %{tenant: tenant} do
       actor = viewer_actor(tenant)
 
-      partition = partition_fixture(tenant, %{
-        slug: "cidr-count-test",
-        cidr_ranges: ["10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"]
-      })
+      partition =
+        partition_fixture(tenant, %{
+          slug: "cidr-count-test",
+          cidr_ranges: ["10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"]
+        })
 
       {:ok, [loaded]} =
         Partition
@@ -378,10 +404,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
       partition_b = partition_fixture(tenant_b, %{slug: "partition-b"})
 
       {:ok,
-       tenant_a: tenant_a,
-       tenant_b: tenant_b,
-       partition_a: partition_a,
-       partition_b: partition_b}
+       tenant_a: tenant_a, tenant_b: tenant_b, partition_a: partition_a, partition_b: partition_b}
     end
 
     test "user cannot see partitions from other tenant", %{
@@ -406,8 +429,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       result =
         partition_b
-        |> Ash.Changeset.for_update(:update, %{name: "Hacked"},
-          actor: actor, tenant: tenant_a.id)
+        |> Ash.Changeset.for_update(:update, %{name: "Hacked"}, actor: actor, tenant: tenant_a.id)
         |> Ash.update()
 
       assert {:error, error} = result
@@ -436,7 +458,10 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       {:ok, result} =
         Partition
-        |> Ash.Query.for_read(:by_slug, %{slug: partition_b.slug}, actor: actor, tenant: tenant_a.id)
+        |> Ash.Query.for_read(:by_slug, %{slug: partition_b.slug},
+          actor: actor,
+          tenant: tenant_a.id
+        )
         |> Ash.read_one()
 
       assert result == nil

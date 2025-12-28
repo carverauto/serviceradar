@@ -168,7 +168,9 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   defp maybe_filter_type_id(query, type_id), do: Ash.Query.filter(query, type_id == ^type_id)
 
   defp maybe_filter_first_seen_after(query, nil), do: query
-  defp maybe_filter_first_seen_after(query, dt), do: Ash.Query.filter(query, first_seen_time >= ^dt)
+
+  defp maybe_filter_first_seen_after(query, dt),
+    do: Ash.Query.filter(query, first_seen_time >= ^dt)
 
   defp maybe_filter_last_seen_after(query, nil), do: query
   defp maybe_filter_last_seen_after(query, dt), do: Ash.Query.filter(query, last_seen_time >= ^dt)
@@ -375,8 +377,10 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   defp maybe_filter_search(query, search) when is_binary(search) do
     like = "%#{escape_like(search)}%"
     # Use Ash fragment for ILIKE since it's PostgreSQL-specific
-    Ash.Query.filter(query, fragment("? ILIKE ? OR ? ILIKE ? OR ? ILIKE ?",
-      hostname, ^like, ip, ^like, uid, ^like))
+    Ash.Query.filter(
+      query,
+      fragment("? ILIKE ? OR ? ILIKE ? OR ? ILIKE ?", hostname, ^like, ip, ^like, uid, ^like)
+    )
   end
 
   defp maybe_filter_search(query, _), do: query
@@ -387,10 +391,14 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   defp maybe_filter_status(query, _), do: query
 
   defp maybe_filter_poller_id(query, nil), do: query
-  defp maybe_filter_poller_id(query, poller_id), do: Ash.Query.filter(query, poller_id == ^poller_id)
+
+  defp maybe_filter_poller_id(query, poller_id),
+    do: Ash.Query.filter(query, poller_id == ^poller_id)
 
   defp maybe_filter_device_type(query, nil), do: query
-  defp maybe_filter_device_type(query, device_type), do: Ash.Query.filter(query, type == ^device_type)
+
+  defp maybe_filter_device_type(query, device_type),
+    do: Ash.Query.filter(query, type == ^device_type)
 
   defp escape_like(value) do
     value

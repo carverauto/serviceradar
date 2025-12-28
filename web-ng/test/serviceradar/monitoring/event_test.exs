@@ -25,11 +25,17 @@ defmodule ServiceRadar.Monitoring.EventTest do
     test "can record an event with required fields", %{tenant: tenant} do
       result =
         Event
-        |> Ash.Changeset.for_create(:record, %{
-          category: :check,
-          event_type: "check.success",
-          message: "Health check passed"
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :record,
+          %{
+            category: :check,
+            event_type: "check.success",
+            message: "Health check passed"
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       assert {:ok, event} = result
@@ -49,21 +55,25 @@ defmodule ServiceRadar.Monitoring.EventTest do
 
     test "supports all category types", %{tenant: tenant} do
       for category <- [:check, :alert, :agent, :poller, :device, :system, :audit] do
-        event = event_fixture(tenant, %{
-          category: category,
-          event_type: "#{category}.test",
-          message: "Test #{category} event"
-        })
+        event =
+          event_fixture(tenant, %{
+            category: category,
+            event_type: "#{category}.test",
+            message: "Test #{category} event"
+          })
+
         assert event.category == category
       end
     end
 
     test "supports all severity levels", %{tenant: tenant} do
       for severity <- [0, 1, 2, 3, 4] do
-        event = event_fixture(tenant, %{
-          severity: severity,
-          message: "Severity #{severity} event"
-        })
+        event =
+          event_fixture(tenant, %{
+            severity: severity,
+            message: "Severity #{severity} event"
+          })
+
         assert event.severity == severity
       end
     end
@@ -73,12 +83,18 @@ defmodule ServiceRadar.Monitoring.EventTest do
 
       {:ok, event} =
         Event
-        |> Ash.Changeset.for_create(:record_at_time, %{
-          category: :audit,
-          event_type: "audit.login",
-          message: "User logged in",
-          occurred_at: past_time
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :record_at_time,
+          %{
+            category: :audit,
+            event_type: "audit.login",
+            message: "User logged in",
+            occurred_at: past_time
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       # Compare within 1 second tolerance (due to microsecond precision differences)
@@ -91,18 +107,24 @@ defmodule ServiceRadar.Monitoring.EventTest do
 
       {:ok, event} =
         Event
-        |> Ash.Changeset.for_create(:record, %{
-          category: :agent,
-          event_type: "agent.connected",
-          message: "Agent connected to poller",
-          agent_uid: agent.uid,
-          source_type: :agent,
-          source_id: agent.uid,
-          source_name: agent.name || agent.uid,
-          target_type: :poller,
-          target_id: poller.id,
-          target_name: poller.id
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :record,
+          %{
+            category: :agent,
+            event_type: "agent.connected",
+            message: "Agent connected to poller",
+            agent_uid: agent.uid,
+            source_type: :agent,
+            source_id: agent.uid,
+            source_name: agent.name || agent.uid,
+            target_type: :poller,
+            target_id: poller.id,
+            target_name: poller.id
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       assert event.agent_uid == agent.uid
@@ -116,26 +138,29 @@ defmodule ServiceRadar.Monitoring.EventTest do
       tenant = tenant_fixture()
 
       # Create events in different categories
-      event_check = event_fixture(tenant, %{
-        category: :check,
-        event_type: "check.success",
-        message: "Check passed",
-        severity: 1
-      })
+      event_check =
+        event_fixture(tenant, %{
+          category: :check,
+          event_type: "check.success",
+          message: "Check passed",
+          severity: 1
+        })
 
-      event_alert = event_fixture(tenant, %{
-        category: :alert,
-        event_type: "alert.triggered",
-        message: "Alert triggered",
-        severity: 3
-      })
+      event_alert =
+        event_fixture(tenant, %{
+          category: :alert,
+          event_type: "alert.triggered",
+          message: "Alert triggered",
+          severity: 3
+        })
 
-      event_system = event_fixture(tenant, %{
-        category: :system,
-        event_type: "system.startup",
-        message: "System started",
-        severity: 1
-      })
+      event_system =
+        event_fixture(tenant, %{
+          category: :system,
+          event_type: "system.startup",
+          message: "System started",
+          severity: 1
+        })
 
       {:ok,
        tenant: tenant,
@@ -175,7 +200,8 @@ defmodule ServiceRadar.Monitoring.EventTest do
 
       ids = Enum.map(events, & &1.id)
       assert alert.id in ids
-      refute check.id in ids  # severity 1 is below 3
+      # severity 1 is below 3
+      refute check.id in ids
     end
 
     test "recent returns events from last hour", %{tenant: tenant} do
@@ -195,10 +221,15 @@ defmodule ServiceRadar.Monitoring.EventTest do
 
       {:ok, events} =
         Event
-        |> Ash.Query.for_read(:in_time_range, %{
-          start_time: start_time,
-          end_time: end_time
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(
+          :in_time_range,
+          %{
+            start_time: start_time,
+            end_time: end_time
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.read()
 
       # All events in setup should be in range
@@ -215,35 +246,51 @@ defmodule ServiceRadar.Monitoring.EventTest do
 
     test "by_device returns events for specific device", %{tenant: tenant, device: device} do
       # Create another device for comparison
-      other_device = device_fixture(tenant, %{uid: "other-device-#{System.unique_integer([:positive])}"})
+      other_device =
+        device_fixture(tenant, %{uid: "other-device-#{System.unique_integer([:positive])}"})
 
       # Create event for device
       {:ok, event_for_device} =
         Event
-        |> Ash.Changeset.for_create(:record, %{
-          category: :device,
-          event_type: "device.discovered",
-          message: "Device discovered",
-          device_uid: device.uid
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :record,
+          %{
+            category: :device,
+            event_type: "device.discovered",
+            message: "Device discovered",
+            device_uid: device.uid
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       # Create event for different device
       {:ok, _other_event} =
         Event
-        |> Ash.Changeset.for_create(:record, %{
-          category: :device,
-          event_type: "device.discovered",
-          message: "Other device discovered",
-          device_uid: other_device.uid
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :record,
+          %{
+            category: :device,
+            event_type: "device.discovered",
+            message: "Other device discovered",
+            device_uid: other_device.uid
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       actor = viewer_actor(tenant)
 
       {:ok, events} =
         Event
-        |> Ash.Query.for_read(:by_device, %{device_uid: device.uid}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_device, %{device_uid: device.uid},
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.read()
 
       assert length(events) == 1
@@ -263,12 +310,18 @@ defmodule ServiceRadar.Monitoring.EventTest do
       # Create event for agent
       {:ok, event_for_agent} =
         Event
-        |> Ash.Changeset.for_create(:record, %{
-          category: :agent,
-          event_type: "agent.heartbeat",
-          message: "Agent heartbeat",
-          agent_uid: agent.uid
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :record,
+          %{
+            category: :agent,
+            event_type: "agent.heartbeat",
+            message: "Agent heartbeat",
+            agent_uid: agent.uid
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       actor = viewer_actor(tenant)
@@ -301,10 +354,11 @@ defmodule ServiceRadar.Monitoring.EventTest do
       }
 
       for {severity, expected_label} <- label_map do
-        event = event_fixture(tenant, %{
-          severity: severity,
-          message: "Severity #{severity}"
-        })
+        event =
+          event_fixture(tenant, %{
+            severity: severity,
+            message: "Severity #{severity}"
+          })
 
         {:ok, [loaded]} =
           Event
@@ -320,17 +374,22 @@ defmodule ServiceRadar.Monitoring.EventTest do
       actor = viewer_actor(tenant)
 
       color_map = %{
-        1 => "blue",    # Info
-        2 => "yellow",  # Warning
-        3 => "red",     # Error
-        4 => "red"      # Critical
+        # Info
+        1 => "blue",
+        # Warning
+        2 => "yellow",
+        # Error
+        3 => "red",
+        # Critical
+        4 => "red"
       }
 
       for {severity, expected_color} <- color_map do
-        event = event_fixture(tenant, %{
-          severity: severity,
-          message: "Severity #{severity}"
-        })
+        event =
+          event_fixture(tenant, %{
+            severity: severity,
+            message: "Severity #{severity}"
+          })
 
         {:ok, [loaded]} =
           Event
@@ -356,11 +415,12 @@ defmodule ServiceRadar.Monitoring.EventTest do
       }
 
       for {category, expected_label} <- label_map do
-        event = event_fixture(tenant, %{
-          category: category,
-          event_type: "#{category}.test",
-          message: "Category #{category}"
-        })
+        event =
+          event_fixture(tenant, %{
+            category: category,
+            event_type: "#{category}.test",
+            message: "Category #{category}"
+          })
 
         {:ok, [loaded]} =
           Event
@@ -410,11 +470,7 @@ defmodule ServiceRadar.Monitoring.EventTest do
       event_a = event_fixture(tenant_a, %{message: "Event A"})
       event_b = event_fixture(tenant_b, %{message: "Event B"})
 
-      {:ok,
-       tenant_a: tenant_a,
-       tenant_b: tenant_b,
-       event_a: event_a,
-       event_b: event_b}
+      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, event_a: event_a, event_b: event_b}
     end
 
     test "user cannot see events from other tenant", %{
@@ -440,7 +496,9 @@ defmodule ServiceRadar.Monitoring.EventTest do
       {:ok, events} =
         Event
         |> Ash.Query.for_read(:by_category, %{category: event_b.category},
-          actor: actor, tenant: tenant_a.id)
+          actor: actor,
+          tenant: tenant_a.id
+        )
         |> Ash.read()
 
       ids = Enum.map(events, & &1.id)

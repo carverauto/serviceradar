@@ -54,7 +54,16 @@ fi
 ROOT="${TEST_SRCDIR:?}/${TEST_WORKSPACE:?}"
 WORK_BASE="${HOST_HOME:-$PWD}/.cache/serviceradar/bazel_precommit"
 mkdir -p "$WORK_BASE"
-WORKDIR=$(mktemp -d -p "$WORK_BASE")
+
+# Persistent cache directories for deps/builds (NOT deleted between runs)
+CACHE_DIR="$WORK_BASE/cache"
+mkdir -p "$CACHE_DIR"
+
+# Use consistent source directory name for path caching compatibility
+# The _build directory caches absolute paths, so we need stable paths across runs
+WORKDIR="$WORK_BASE/src"
+rm -rf "$WORKDIR"
+mkdir -p "$WORKDIR"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 # Use HTTPS instead of SSH for GitHub to avoid auth issues in CI.
@@ -127,9 +136,10 @@ if [ -f "$ROOT/Cargo.lock" ]; then
   cp "$ROOT/Cargo.lock" "$WORKDIR/Cargo.lock"
 fi
 
-export MIX_HOME="$WORKDIR/.mix"
-export HEX_HOME="$WORKDIR/.hex"
-export REBAR_BASE_DIR="$WORKDIR/.cache/rebar3"
+# Use persistent cache for deps/builds to avoid re-downloading/recompiling each run
+export MIX_HOME="$CACHE_DIR/.mix"
+export HEX_HOME="$CACHE_DIR/.hex"
+export REBAR_BASE_DIR="$CACHE_DIR/.cache/rebar3"
 export MIX_ENV=dev
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
@@ -139,12 +149,24 @@ mkdir -p "$TMPROOT"
 export TMPDIR="$TMPROOT"
 export RUSTLER_TMPDIR="$TMPROOT"
 export RUSTLER_TEMP_DIR="$TMPROOT"
-export CARGO_TARGET_DIR="$WORKDIR/_cargo_target"
+# Persistent cargo target dir to cache compiled Rust deps
+export CARGO_TARGET_DIR="$CACHE_DIR/_cargo_target"
 
 cd "$WORKDIR/web-ng"
 
-mix local.hex --force
-mix local.rebar --force
+# Restore cached deps if available (speeds up mix deps.get significantly)
+# This avoids re-cloning heroicons and re-downloading hex packages each run
+if [ -d "$CACHE_DIR/deps" ]; then
+  cp -a "$CACHE_DIR/deps" "$WORKDIR/web-ng/deps"
+fi
+
+# Only install hex/rebar if not already cached
+if ! ls "$MIX_HOME/archives/hex-"* >/dev/null 2>&1; then
+  mix local.hex --force
+fi
+if [ ! -f "$MIX_HOME/rebar3" ]; then
+  mix local.rebar --force
+fi
 if ! mix deps.get; then
   echo "mix deps.get failed; git diagnostics:" >&2
   if command -v git >/dev/null 2>&1; then
@@ -157,4 +179,18 @@ if ! mix deps.get; then
   fi
   exit 1
 fi
-mix precommit_lint
+
+# Cache deps for next run (speeds up heroicons clone and hex downloads)
+rm -rf "$CACHE_DIR/deps"
+cp -a "$WORKDIR/web-ng/deps" "$CACHE_DIR/deps"
+
+# Restore cached _build if available (speeds up compilation)
+if [ -d "$CACHE_DIR/_build" ]; then
+  cp -a "$CACHE_DIR/_build" "$WORKDIR/web-ng/_build"
+fi
+
+mix precommit_fast
+
+# Cache _build for next run
+rm -rf "$CACHE_DIR/_build"
+cp -a "$WORKDIR/web-ng/_build" "$CACHE_DIR/_build"

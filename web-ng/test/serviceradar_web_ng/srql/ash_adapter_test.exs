@@ -76,29 +76,35 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
     setup do
       tenant = tenant_fixture()
 
-      device1 = device_fixture(tenant, %{
-        uid: "device-001",
-        hostname: "server1.local",
-        ip: "192.168.1.1",
-        is_available: true,
-        type_id: 1  # Server
-      })
+      device1 =
+        device_fixture(tenant, %{
+          uid: "device-001",
+          hostname: "server1.local",
+          ip: "192.168.1.1",
+          is_available: true,
+          # Server
+          type_id: 1
+        })
 
-      device2 = device_fixture(tenant, %{
-        uid: "device-002",
-        hostname: "server2.local",
-        ip: "192.168.1.2",
-        is_available: true,
-        type_id: 2  # Desktop
-      })
+      device2 =
+        device_fixture(tenant, %{
+          uid: "device-002",
+          hostname: "server2.local",
+          ip: "192.168.1.2",
+          is_available: true,
+          # Desktop
+          type_id: 2
+        })
 
-      device3 = device_fixture(tenant, %{
-        uid: "device-003",
-        hostname: "server3.local",
-        ip: "192.168.1.3",
-        is_available: false,
-        type_id: 1  # Server
-      })
+      device3 =
+        device_fixture(tenant, %{
+          uid: "device-003",
+          hostname: "server3.local",
+          ip: "192.168.1.3",
+          is_available: false,
+          # Server
+          type_id: 1
+        })
 
       {:ok, tenant: tenant, device1: device1, device2: device2, device3: device3}
     end
@@ -163,8 +169,10 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       {:ok, response} = AshAdapter.query("devices", params, actor)
 
       uids = Enum.map(response["results"], & &1["uid"])
-      assert device1.uid in uids  # type_id: 1
-      assert device2.uid in uids  # type_id: 2
+      # type_id: 1
+      assert device1.uid in uids
+      # type_id: 2
+      assert device2.uid in uids
     end
 
     test "filters by lt operator", %{tenant: tenant, device1: device1, device2: device2} do
@@ -177,8 +185,10 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       {:ok, response} = AshAdapter.query("devices", params, actor)
 
       uids = Enum.map(response["results"], & &1["uid"])
-      assert device1.uid in uids  # type_id: 1
-      refute device2.uid in uids  # type_id: 2
+      # type_id: 1
+      assert device1.uid in uids
+      # type_id: 2
+      refute device2.uid in uids
     end
 
     test "filters by lte operator", %{tenant: tenant, device1: device1, device3: device3} do
@@ -191,8 +201,10 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       {:ok, response} = AshAdapter.query("devices", params, actor)
 
       uids = Enum.map(response["results"], & &1["uid"])
-      assert device1.uid in uids  # type_id: 1
-      assert device3.uid in uids  # type_id: 1
+      # type_id: 1
+      assert device1.uid in uids
+      # type_id: 1
+      assert device3.uid in uids
     end
 
     test "filters by contains operator on hostname", %{tenant: tenant, device1: device1} do
@@ -223,7 +235,12 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert length(uids) == 2
     end
 
-    test "filters by boolean field", %{tenant: tenant, device1: device1, device2: device2, device3: device3} do
+    test "filters by boolean field", %{
+      tenant: tenant,
+      device1: device1,
+      device2: device2,
+      device3: device3
+    } do
       actor = viewer_actor(tenant)
 
       params = %{
@@ -403,11 +420,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       device_a = device_fixture(tenant_a, %{uid: "device-tenant-a"})
       device_b = device_fixture(tenant_b, %{uid: "device-tenant-b"})
 
-      {:ok,
-       tenant_a: tenant_a,
-       tenant_b: tenant_b,
-       device_a: device_a,
-       device_b: device_b}
+      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, device_a: device_a, device_b: device_b}
     end
 
     test "user can only see devices from their tenant", %{
@@ -467,12 +480,14 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
   describe "query/3 - response format" do
     setup do
       tenant = tenant_fixture()
-      device = device_fixture(tenant, %{
-        uid: "format-test",
-        hostname: "format.local",
-        first_seen_time: DateTime.utc_now(),
-        last_seen_time: DateTime.utc_now()
-      })
+
+      device =
+        device_fixture(tenant, %{
+          uid: "format-test",
+          hostname: "format.local",
+          first_seen_time: DateTime.utc_now(),
+          last_seen_time: DateTime.utc_now()
+        })
 
       {:ok, tenant: tenant, device: device}
     end
@@ -580,7 +595,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
 
       # Missing required keys
       params = %{
-        filters: [%{field: "uid"}]  # Missing op and value
+        # Missing op and value
+        filters: [%{field: "uid"}]
       }
 
       result = AshAdapter.query("devices", params, actor)

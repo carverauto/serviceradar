@@ -191,7 +191,11 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
       tenant_b = tenant_fixture(%{name: "Isolation Test B", slug: "isolation-b"})
 
       # Create resource in tenant A
-      resource_a = ServiceRadarWebNG.PolicyTestHelpers.create_resource_for_tenant(unquote(resource), tenant_a)
+      resource_a =
+        ServiceRadarWebNG.PolicyTestHelpers.create_resource_for_tenant(
+          unquote(resource),
+          tenant_a
+        )
 
       # Actor from tenant B should not be able to access
       actor_b = admin_actor(tenant_b)
@@ -202,8 +206,9 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
       case result do
         {:ok, resources} ->
           resource_ids = Enum.map(resources, & &1.id)
+
           refute resource_a.id in resource_ids,
-            "Resource from tenant A should not be visible to tenant B"
+                 "Resource from tenant A should not be visible to tenant B"
 
         {:error, _} ->
           # Error is also acceptable - means access was denied
@@ -250,7 +255,9 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
       import ServiceRadarWebNG.AshTestHelpers
 
       tenant = tenant_fixture()
-      record = ServiceRadarWebNG.PolicyTestHelpers.create_resource_for_tenant(unquote(resource), tenant)
+
+      record =
+        ServiceRadarWebNG.PolicyTestHelpers.create_resource_for_tenant(unquote(resource), tenant)
 
       # Test each role
       for role <- [:admin, :operator, :viewer] do
@@ -263,14 +270,22 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
 
         for action <- unquote(actions) do
           expected = ServiceRadarWebNG.PolicyTestHelpers.expected_permission(role, action)
-          actual = ServiceRadarWebNG.PolicyTestHelpers.check_authorization(action, unquote(resource), actor, tenant, record)
+
+          actual =
+            ServiceRadarWebNG.PolicyTestHelpers.check_authorization(
+              action,
+              unquote(resource),
+              actor,
+              tenant,
+              record
+            )
 
           if expected do
             assert actual == :authorized,
-              "Expected #{role} to be authorized for #{action} on #{inspect(unquote(resource))}, got: #{inspect(actual)}"
+                   "Expected #{role} to be authorized for #{action} on #{inspect(unquote(resource))}, got: #{inspect(actual)}"
           else
             assert match?({:unauthorized, _}, actual),
-              "Expected #{role} to be DENIED for #{action} on #{inspect(unquote(resource))}, got: #{inspect(actual)}"
+                   "Expected #{role} to be DENIED for #{action} on #{inspect(unquote(resource))}, got: #{inspect(actual)}"
           end
         end
       end

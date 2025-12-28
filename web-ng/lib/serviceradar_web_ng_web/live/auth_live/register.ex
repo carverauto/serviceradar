@@ -148,7 +148,8 @@ defmodule ServiceRadarWebNGWeb.AuthLive.Register do
         {:noreply, assign(socket, submitting: false, error: "Organization name is too short")}
 
       String.length(password || "") < 8 ->
-        {:noreply, assign(socket, submitting: false, error: "Password must be at least 8 characters")}
+        {:noreply,
+         assign(socket, submitting: false, error: "Password must be at least 8 characters")}
 
       password != password_confirmation ->
         {:noreply, assign(socket, submitting: false, error: "Passwords do not match")}
@@ -191,15 +192,11 @@ defmodule ServiceRadarWebNGWeb.AuthLive.Register do
   end
 
   defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do
-    errors
-    |> Enum.map(&format_single_error/1)
-    |> Enum.join(", ")
+    Enum.map_join(errors, ", ", &format_single_error/1)
   end
 
   defp format_ash_error(%Ash.Error.Unknown{errors: errors}) when is_list(errors) do
-    errors
-    |> Enum.map(&format_single_error/1)
-    |> Enum.join(", ")
+    Enum.map_join(errors, ", ", &format_single_error/1)
   end
 
   defp format_ash_error(error), do: inspect(error)

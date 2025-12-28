@@ -34,18 +34,18 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateTenants do
 
     # Create a default tenant for existing data migration
     execute """
-    INSERT INTO tenants (id, name, slug, status, inserted_at, updated_at)
-    VALUES (
-      '00000000-0000-0000-0000-000000000001',
-      'Default Tenant',
-      'default',
-      'active',
-      NOW(),
-      NOW()
-    );
-    """,
-    """
-    DELETE FROM tenants WHERE id = '00000000-0000-0000-0000-000000000001';
-    """
+            INSERT INTO tenants (id, name, slug, status, inserted_at, updated_at)
+            VALUES (
+              '00000000-0000-0000-0000-000000000001',
+              'Default Tenant',
+              'default',
+              'active',
+              NOW(),
+              NOW()
+            );
+            """,
+            """
+            DELETE FROM tenants WHERE id = '00000000-0000-0000-0000-000000000001';
+            """
   end
 end

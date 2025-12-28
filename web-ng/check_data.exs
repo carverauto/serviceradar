@@ -2,6 +2,7 @@ alias ServiceRadar.Repo
 require Ash.Query
 
 IO.puts("=== Table row counts ===")
+
 tables = %{
   "ocsf_agents" => 0,
   "ocsf_devices" => 0,
@@ -19,15 +20,18 @@ for {table, _} <- tables do
     {:ok, result} ->
       [[count]] = result.rows
       IO.puts("#{table}: #{count} rows")
+
     {:error, _} ->
       IO.puts("#{table}: TABLE NOT FOUND")
   end
 end
 
 IO.puts("\n=== Testing Ash query for Agents ===")
+
 case Ash.read(ServiceRadar.Infrastructure.Agent) do
   {:ok, agents} ->
     IO.puts("Agent query succeeded: #{length(agents)} results")
+
   {:error, error} ->
     IO.puts("Agent query failed:")
     IO.inspect(error)

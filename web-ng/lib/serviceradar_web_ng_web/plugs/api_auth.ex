@@ -81,7 +81,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
     case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng) do
       {:ok, claims, resource} ->
         with subject when is_binary(subject) <- claims["sub"],
-             {:ok, user} <- AshAuthentication.subject_to_user(subject, resource, authorize?: false) do
+             {:ok, user} <-
+               AshAuthentication.subject_to_user(subject, resource, authorize?: false) do
           scope = %ServiceRadarWebNG.Accounts.Scope{user: user}
           conn = assign(conn, :current_scope, scope)
           {:ok, conn}

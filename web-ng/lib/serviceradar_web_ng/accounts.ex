@@ -48,7 +48,8 @@ defmodule ServiceRadarWebNG.Accounts do
     AshUsers.get_by_email_and_password(email, password)
   end
 
-  def get_user_by_email_and_password(%Ash.CiString{} = email, password) when is_binary(password) do
+  def get_user_by_email_and_password(%Ash.CiString{} = email, password)
+      when is_binary(password) do
     get_user_by_email_and_password(to_string(email), password)
   end
 

@@ -88,7 +88,8 @@ defmodule ServiceRadarWebNG.Application do
     # Start EPMD if not running
     case System.cmd("epmd", ["-daemon"], stderr_to_stdout: true) do
       {_, 0} -> :ok
-      {_, 1} -> :ok  # Already running
+      # Already running
+      {_, 1} -> :ok
       {output, code} -> Logger.warning("EPMD start returned #{code}: #{output}")
     end
 
@@ -129,7 +130,15 @@ defmodule ServiceRadarWebNG.Application do
     # Try to get the docker network gateway IP
     network = System.get_env("DOCKER_NETWORK", "serviceradar_serviceradar-net")
 
-    case System.cmd("docker", ["network", "inspect", network, "--format", "{{range .IPAM.Config}}{{.Gateway}}{{end}}"],
+    case System.cmd(
+           "docker",
+           [
+             "network",
+             "inspect",
+             network,
+             "--format",
+             "{{range .IPAM.Config}}{{.Gateway}}{{end}}"
+           ],
            stderr_to_stdout: true
          ) do
       {ip, 0} when ip != "" ->
@@ -164,16 +173,18 @@ defmodule ServiceRadarWebNG.Application do
     if hosts != "" do
       hosts
       |> String.split(",")
-      |> Enum.each(fn host ->
-        node = String.to_atom(String.trim(host))
-        Logger.debug("Attempting to connect to #{node}")
+      |> Enum.each(&try_connect_to_node/1)
+    end
+  end
 
-        case Node.connect(node) do
-          true -> Logger.info("Connected to #{node}")
-          false -> Logger.debug("Could not connect to #{node} (may not be up yet)")
-          :ignored -> Logger.debug("Connection to #{node} ignored")
-        end
-      end)
+  defp try_connect_to_node(host) do
+    node = String.to_atom(String.trim(host))
+    Logger.debug("Attempting to connect to #{node}")
+
+    case Node.connect(node) do
+      true -> Logger.info("Connected to #{node}")
+      false -> Logger.debug("Could not connect to #{node} (may not be up yet)")
+      :ignored -> Logger.debug("Connection to #{node} ignored")
     end
   end
 

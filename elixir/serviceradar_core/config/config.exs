@@ -16,7 +16,8 @@ config :serviceradar_core,
     ServiceRadar.Monitoring,
     ServiceRadar.Observability,
     ServiceRadar.Edge,
-    ServiceRadar.Integrations
+    ServiceRadar.Integrations,
+    ServiceRadar.Jobs
   ]
 
 # Mailer configuration
@@ -26,9 +27,7 @@ config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
 config :ash,
   include_embedded_source_by_default?: false,
   default_page_type: :keyset,
-  policies: [no_filter_static_forbidden_reads?: false],
-  # Disable domain inclusion warnings (domains are registered above)
-  validate_domain_config_inclusion?: false
+  policies: [no_filter_static_forbidden_reads?: false]
 
 # Spark configuration (Ash DSL)
 config :spark,

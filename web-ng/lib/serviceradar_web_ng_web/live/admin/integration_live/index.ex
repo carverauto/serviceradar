@@ -386,8 +386,17 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
         </.ui_panel>
       </div>
 
-      <.create_modal :if={@show_create_modal} form={@create_form} partition_options={@partition_options} />
-      <.edit_modal :if={@show_edit_modal} form={@edit_form} source={@selected_source} partition_options={@partition_options} />
+      <.create_modal
+        :if={@show_create_modal}
+        form={@create_form}
+        partition_options={@partition_options}
+      />
+      <.edit_modal
+        :if={@show_edit_modal}
+        form={@edit_form}
+        source={@selected_source}
+        partition_options={@partition_options}
+      />
       <.details_modal :if={@show_details_modal} source={@selected_source} />
     </Layouts.app>
     """
@@ -418,7 +427,13 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
           phx-submit="create_source"
           class="space-y-4 mt-4"
         >
-          <.input field={@form[:name]} type="text" label="Name" placeholder="e.g., Production Armis" required />
+          <.input
+            field={@form[:name]}
+            type="text"
+            label="Name"
+            placeholder="e.g., Production Armis"
+            required
+          />
 
           <.input
             field={@form[:source_type]}
@@ -449,9 +464,19 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             prompt="Select a partition..."
           />
 
-          <.input field={@form[:agent_id]} type="text" label="Agent ID (Optional)" placeholder="Agent to assign this source to" />
+          <.input
+            field={@form[:agent_id]}
+            type="text"
+            label="Agent ID (Optional)"
+            placeholder="Agent to assign this source to"
+          />
 
-          <.input field={@form[:poller_id]} type="text" label="Poller ID (Optional)" placeholder="Poller to assign this source to" />
+          <.input
+            field={@form[:poller_id]}
+            type="text"
+            label="Poller ID (Optional)"
+            placeholder="Poller to assign this source to"
+          />
 
           <.input
             field={@form[:poll_interval_seconds]}

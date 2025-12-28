@@ -121,5 +121,4 @@ defmodule ServiceRadarWebNG.Api.FallbackController do
       end
     end)
   end
-
 end

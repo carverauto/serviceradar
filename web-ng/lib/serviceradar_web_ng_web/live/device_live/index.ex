@@ -40,8 +40,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       )
 
     actor = Map.get(socket.assigns, :actor)
-    {icmp_sparklines, icmp_error} = load_icmp_sparklines(srql_module(), socket.assigns.devices, actor)
-    {snmp_presence, sysmon_presence} = load_metric_presence(srql_module(), socket.assigns.devices, actor)
+
+    {icmp_sparklines, icmp_error} =
+      load_icmp_sparklines(srql_module(), socket.assigns.devices, actor)
+
+    {snmp_presence, sysmon_presence} =
+      load_metric_presence(srql_module(), socket.assigns.devices, actor)
 
     {:noreply,
      assign(socket,

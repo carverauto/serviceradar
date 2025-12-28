@@ -1622,15 +1622,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     total = extract_stats_count(srql_module.query(total_query, %{actor: actor}), "total")
     slow_spans = extract_stats_count(srql_module.query(slow_query, %{actor: actor}), "total")
 
-    error_level = extract_stats_count(srql_module.query(error_level_query, %{actor: actor}), "total")
+    error_level =
+      extract_stats_count(srql_module.query(error_level_query, %{actor: actor}), "total")
 
     error_spans =
       if error_level > 0 do
         error_level
       else
-        error_http4 = extract_stats_count(srql_module.query(error_http4_query, %{actor: actor}), "total")
-        error_http5 = extract_stats_count(srql_module.query(error_http5_query, %{actor: actor}), "total")
-        error_grpc = extract_stats_count(srql_module.query(error_grpc_query, %{actor: actor}), "total")
+        error_http4 =
+          extract_stats_count(srql_module.query(error_http4_query, %{actor: actor}), "total")
+
+        error_http5 =
+          extract_stats_count(srql_module.query(error_http5_query, %{actor: actor}), "total")
+
+        error_grpc =
+          extract_stats_count(srql_module.query(error_grpc_query, %{actor: actor}), "total")
+
         error_http4 + error_http5 + error_grpc
       end
 

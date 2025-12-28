@@ -145,8 +145,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             <.icon name="hero-arrow-path" class="size-4" /> Refresh
           </.ui_button>
         </div>
-
-        <!-- Health Metrics Cards -->
+        
+    <!-- Health Metrics Cards -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <.health_card
             title="Cluster Status"
@@ -173,8 +173,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             icon="hero-cube"
           />
         </div>
-
-        <!-- Cluster Nodes -->
+        
+    <!-- Cluster Nodes -->
         <.ui_panel>
           <:header>
             <div>
@@ -197,14 +197,22 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
               <tbody>
                 <tr class="bg-base-200/30">
                   <td class="font-mono text-sm">{to_string(@cluster_status.self)}</td>
-                  <td><.ui_badge variant="info" size="xs">Self</.ui_badge></td>
-                  <td><.ui_badge variant="success" size="xs">Connected</.ui_badge></td>
+                  <td>
+                    <.ui_badge variant="info" size="xs">Self</.ui_badge>
+                  </td>
+                  <td>
+                    <.ui_badge variant="success" size="xs">Connected</.ui_badge>
+                  </td>
                 </tr>
                 <%= for node <- @cluster_status.connected_nodes do %>
                   <tr>
                     <td class="font-mono text-sm">{to_string(node)}</td>
-                    <td><.ui_badge variant="ghost" size="xs">Remote</.ui_badge></td>
-                    <td><.ui_badge variant="success" size="xs">Connected</.ui_badge></td>
+                    <td>
+                      <.ui_badge variant="ghost" size="xs">Remote</.ui_badge>
+                    </td>
+                    <td>
+                      <.ui_badge variant="success" size="xs">Connected</.ui_badge>
+                    </td>
                   </tr>
                 <% end %>
                 <tr :if={@cluster_status.connected_nodes == []}>
@@ -216,8 +224,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             </table>
           </div>
         </.ui_panel>
-
-        <!-- Poller Registry -->
+        
+    <!-- Poller Registry -->
         <.ui_panel>
           <:header>
             <div>
@@ -270,8 +278,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             <% end %>
           </div>
         </.ui_panel>
-
-        <!-- Agent Registry -->
+        
+    <!-- Agent Registry -->
         <.ui_panel>
           <:header>
             <div>
@@ -326,8 +334,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             <% end %>
           </div>
         </.ui_panel>
-
-        <!-- Recent Events -->
+        
+    <!-- Recent Events -->
         <.ui_panel :if={@events != []}>
           <:header>
             <div>

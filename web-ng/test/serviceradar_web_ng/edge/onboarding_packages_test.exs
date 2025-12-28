@@ -8,10 +8,14 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
   setup do
     {:ok, tenant} =
       Tenant
-      |> Ash.Changeset.for_create(:create, %{
-        name: "Test Org",
-        slug: "test-org-#{System.unique_integer([:positive])}"
-      }, authorize?: false)
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Test Org",
+          slug: "test-org-#{System.unique_integer([:positive])}"
+        },
+        authorize?: false
+      )
       |> Ash.create()
 
     %{tenant: tenant, tenant_id: tenant.id}
@@ -77,7 +81,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     end
 
     test "returns {:error, :not_found} for non-existent package", %{tenant_id: tenant_id} do
-      assert {:error, :not_found} = OnboardingPackages.get(Ecto.UUID.generate(), tenant: tenant_id)
+      assert {:error, :not_found} =
+               OnboardingPackages.get(Ecto.UUID.generate(), tenant: tenant_id)
     end
 
     test "returns {:error, :not_found} for nil" do
@@ -88,15 +93,25 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
   describe "list/1" do
     setup %{tenant_id: tenant_id} do
       # Create some test packages
-      {:ok, r1} = OnboardingPackages.create(%{label: "poller-1", component_type: :poller}, tenant: tenant_id)
-      {:ok, r2} = OnboardingPackages.create(%{label: "checker-1", component_type: :checker}, tenant: tenant_id)
+      {:ok, r1} =
+        OnboardingPackages.create(%{label: "poller-1", component_type: :poller},
+          tenant: tenant_id
+        )
+
+      {:ok, r2} =
+        OnboardingPackages.create(%{label: "checker-1", component_type: :checker},
+          tenant: tenant_id
+        )
 
       {:ok, r3} =
-        OnboardingPackages.create(%{
-          label: "agent-1",
-          component_type: :agent,
-          poller_id: "poller-123"
-        }, tenant: tenant_id)
+        OnboardingPackages.create(
+          %{
+            label: "agent-1",
+            component_type: :agent,
+            poller_id: "poller-123"
+          },
+          tenant: tenant_id
+        )
 
       %{packages: [r1.package, r2.package, r3.package]}
     end
@@ -163,7 +178,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
 
     test "fails for already delivered package", %{tenant_id: tenant_id} do
       {:ok, created} = OnboardingPackages.create(%{label: "test"}, tenant: tenant_id)
-      {:ok, _} = OnboardingPackages.deliver(created.package.id, created.download_token, tenant: tenant_id)
+
+      {:ok, _} =
+        OnboardingPackages.deliver(created.package.id, created.download_token, tenant: tenant_id)
 
       assert {:error, :already_delivered} =
                OnboardingPackages.deliver(
@@ -207,7 +224,11 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     test "revokes an issued package", %{tenant_id: tenant_id} do
       {:ok, created} = OnboardingPackages.create(%{label: "test-revoke"}, tenant: tenant_id)
 
-      assert {:ok, package} = OnboardingPackages.revoke(created.package.id, reason: "test reason", tenant: tenant_id)
+      assert {:ok, package} =
+               OnboardingPackages.revoke(created.package.id,
+                 reason: "test reason",
+                 tenant: tenant_id
+               )
 
       assert package.status == :revoked
       assert package.revoked_at != nil
@@ -217,11 +238,13 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       {:ok, created} = OnboardingPackages.create(%{label: "test"}, tenant: tenant_id)
       {:ok, _} = OnboardingPackages.revoke(created.package.id, tenant: tenant_id)
 
-      assert {:error, :already_revoked} = OnboardingPackages.revoke(created.package.id, tenant: tenant_id)
+      assert {:error, :already_revoked} =
+               OnboardingPackages.revoke(created.package.id, tenant: tenant_id)
     end
 
     test "fails for non-existent package", %{tenant_id: tenant_id} do
-      assert {:error, :not_found} = OnboardingPackages.revoke(Ecto.UUID.generate(), tenant: tenant_id)
+      assert {:error, :not_found} =
+               OnboardingPackages.revoke(Ecto.UUID.generate(), tenant: tenant_id)
     end
   end
 
@@ -244,7 +267,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     end
 
     test "soft-deleted packages are excluded from list", %{tenant_id: tenant_id} do
-      {:ok, created} = OnboardingPackages.create(%{label: "test-delete-exclude"}, tenant: tenant_id)
+      {:ok, created} =
+        OnboardingPackages.create(%{label: "test-delete-exclude"}, tenant: tenant_id)
+
       {:ok, _} = OnboardingPackages.delete(created.package.id, tenant: tenant_id)
 
       result = OnboardingPackages.list(%{}, tenant: tenant_id)

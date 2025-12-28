@@ -32,7 +32,8 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateApiTokens do
             name: "api_tokens_user_id_fkey",
             type: :uuid,
             prefix: "public"
-          ), null: false
+          ),
+          null: false
     end
   end
 
