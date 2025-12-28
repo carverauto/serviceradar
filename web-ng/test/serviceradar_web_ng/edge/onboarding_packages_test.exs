@@ -381,7 +381,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
             |> Ash.Query.filter(tenant_id == ^tenant.id)
             |> Ash.read!(authorize?: false)
 
-          assert length(cas_after) >= 1
+          assert not Enum.empty?(cas_after)
           ca = List.first(cas_after)
           assert ca.status == :active
           assert ca.tenant_id == tenant.id
@@ -498,7 +498,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
             |> Ash.read!(authorize?: false)
 
           # Each tenant should have their own CA
-          if length(cas_a) > 0 and length(cas_b) > 0 do
+          if not Enum.empty?(cas_a) and not Enum.empty?(cas_b) do
             ca_a = List.first(cas_a)
             ca_b = List.first(cas_b)
             assert ca_a.id != ca_b.id
