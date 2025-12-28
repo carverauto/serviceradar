@@ -132,20 +132,6 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   end
 
   @doc """
-  Counts device actors across all tenants.
-
-  WARNING: Admin/platform use only.
-  """
-  @spec count_all() :: non_neg_integer()
-  def count_all do
-    TenantRegistry.list_registries()
-    |> Enum.reduce(0, fn {_name, _pid}, acc ->
-      # Would need tenant_id to query - for now just return accumulated
-      acc
-    end)
-  end
-
-  @doc """
   Stops a device actor.
 
   The actor will flush pending events before stopping.

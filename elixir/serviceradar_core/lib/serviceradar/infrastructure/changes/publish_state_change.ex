@@ -1,9 +1,11 @@
 defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
   @moduledoc """
-  Ash change that publishes state transition events to NATS JetStream.
+  Ash change that publishes state transition events to NATS JetStream
+  and records health events for history tracking.
 
-  This change captures the old state before a transition and publishes
-  an event after the transition completes successfully.
+  This change captures the old state before a transition and:
+  1. Publishes an event to NATS JetStream for real-time notifications
+  2. Records a HealthEvent for historical tracking and UI display
 
   ## Usage
 
@@ -23,7 +25,7 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
 
   use Ash.Resource.Change
 
-  alias ServiceRadar.Infrastructure.EventPublisher
+  alias ServiceRadar.Infrastructure.HealthTracker
 
   require Logger
 
@@ -60,29 +62,19 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
       :ok
     else
       entity_id = get_entity_id(record, entity_type)
-      _tenant_id = Map.get(record, :tenant_id)
+      tenant_id = Map.get(record, :tenant_id)
       partition_id = Map.get(record, :partition_id)
 
       # Get reason from context or action name
       reason = get_reason(context)
 
-      # Publish asynchronously to not block the transaction
-      Task.start(fn ->
-        case EventPublisher.on_state_transition(record, old_state, new_state, %{
-               reason: reason,
-               partition_id: partition_id
-             }) do
-          :ok ->
-            Logger.debug(
-              "Published #{entity_type} state change: #{entity_id} #{old_state} -> #{new_state}"
-            )
-
-          {:error, reason} ->
-            Logger.warning(
-              "Failed to publish #{entity_type} state change for #{entity_id}: #{inspect(reason)}"
-            )
-        end
-      end)
+      # Use HealthTracker to record event and publish to NATS
+      HealthTracker.record_state_change(entity_type, entity_id, tenant_id,
+        old_state: old_state,
+        new_state: new_state,
+        reason: reason,
+        metadata: %{partition_id: partition_id}
+      )
 
       :ok
     end

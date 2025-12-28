@@ -65,6 +65,9 @@ defmodule ServiceRadar.Application do
         # Infrastructure state monitor (heartbeat timeouts, health checks)
         state_monitor_child(),
 
+        # Health check runner supervisor (high-frequency gRPC checks)
+        health_check_runner_supervisor_child(),
+
         # Horde registries (always started for registration support)
         registry_children(),
 
@@ -227,6 +230,24 @@ defmodule ServiceRadar.Application do
   defp event_batcher_enabled? do
     case System.get_env("EVENT_BATCHER_ENABLED") do
       nil -> Application.get_env(:serviceradar_core, :event_batcher_enabled, true)
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
+    end
+  end
+
+  defp health_check_runner_supervisor_child do
+    if health_check_runner_enabled?() do
+      {DynamicSupervisor,
+       name: ServiceRadar.Infrastructure.HealthCheckRunnerSupervisor,
+       strategy: :one_for_one}
+    else
+      nil
+    end
+  end
+
+  defp health_check_runner_enabled? do
+    case System.get_env("HEALTH_CHECK_RUNNER_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :health_check_runner_enabled, true)
       value when value in ["true", "1", "yes"] -> true
       _ -> false
     end

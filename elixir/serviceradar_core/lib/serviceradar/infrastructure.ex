@@ -7,6 +7,7 @@ defmodule ServiceRadar.Infrastructure do
   - Agent registration and lifecycle
   - Checker configuration
   - Network partition management for overlapping IP spaces
+  - Health event history for all entities
 
   ## Resources
 
@@ -14,6 +15,7 @@ defmodule ServiceRadar.Infrastructure do
   - `ServiceRadar.Infrastructure.Agent` - Go agents on monitored hosts
   - `ServiceRadar.Infrastructure.Checker` - Service check types
   - `ServiceRadar.Infrastructure.Partition` - Network partitions
+  - `ServiceRadar.Infrastructure.HealthEvent` - Health state change history
 
   ## Distributed Architecture
 
@@ -37,6 +39,7 @@ defmodule ServiceRadar.Infrastructure do
     resource ServiceRadar.Infrastructure.Agent
     resource ServiceRadar.Infrastructure.Checker
     resource ServiceRadar.Infrastructure.Partition
+    resource ServiceRadar.Infrastructure.HealthEvent
   end
 
   authorization do

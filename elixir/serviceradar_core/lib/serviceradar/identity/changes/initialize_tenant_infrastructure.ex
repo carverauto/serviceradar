@@ -7,7 +7,6 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
   1. Creates per-tenant Horde registry and DynamicSupervisor
   2. Registers slug -> UUID mapping for admin lookups
   3. Provisions per-tenant Oban queues for job isolation
-  4. Optionally creates PostgreSQL schema for enterprise tenants
 
   ## Usage
 
@@ -20,26 +19,16 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
   end
   ```
 
-  ## Configuration
+  ## Note on Multitenancy
 
-  The `:auto_create_schema` option controls PostgreSQL schema creation:
-
-  - `false` (default) - Don't create schema automatically
-  - `true` - Create schema for all tenants
-  - `:enterprise_only` - Only create schema for enterprise plan tenants
-
-  Configure in your app config:
-
-  ```elixir
-  config :serviceradar_core, :tenant_infrastructure,
-    auto_create_schema: :enterprise_only
-  ```
+  This project uses attribute-based multitenancy (`strategy :attribute`) where
+  all tenant data lives in the same tables, filtered by `tenant_id`. PostgreSQL
+  schema-per-tenant is not used.
   """
 
   use Ash.Resource.Change
 
   alias ServiceRadar.Cluster.TenantRegistry
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Oban.TenantQueues
 
   require Logger
@@ -60,7 +49,6 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
   def initialize_tenant(tenant) do
     tenant_id = tenant.id
     tenant_slug = to_string(tenant.slug)
-    plan = tenant.plan
 
     Logger.info("Initializing infrastructure for tenant: #{tenant_slug} (#{tenant_id})")
 
@@ -87,31 +75,6 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
         # Don't fail tenant creation, queues can be provisioned later
     end
 
-    # 3. Optionally create PostgreSQL schema
-    case should_create_schema?(plan) do
-      true ->
-        case TenantSchemas.create_schema(tenant_slug, run_migrations: true) do
-          {:ok, schema_name} ->
-            Logger.info("Created PostgreSQL schema: #{schema_name}")
-
-          {:error, reason} ->
-            Logger.error("Failed to create schema for #{tenant_slug}: #{inspect(reason)}")
-            # Don't fail tenant creation, schema can be created later
-        end
-
-      false ->
-        :ok
-    end
-
     {:ok, tenant}
-  end
-
-  defp should_create_schema?(plan) do
-    case Application.get_env(:serviceradar_core, :tenant_infrastructure, [])
-         |> Keyword.get(:auto_create_schema, false) do
-      true -> true
-      false -> false
-      :enterprise_only -> plan in [:enterprise, "enterprise"]
-    end
   end
 end
