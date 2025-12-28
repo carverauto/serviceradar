@@ -22,7 +22,8 @@ defmodule ServiceRadar.Infrastructure.Checker do
   use Ash.Resource,
     domain: ServiceRadar.Infrastructure,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshStateMachine]
 
   postgres do
     table "checkers"
@@ -33,6 +34,27 @@ defmodule ServiceRadar.Infrastructure.Checker do
     strategy :attribute
     attribute :tenant_id
     global? true
+  end
+
+  state_machine do
+    initial_states [:active, :paused, :disabled]
+    default_initial_state :active
+    state_attribute :status
+    deprecated_states []
+
+    transitions do
+      # Normal operation
+      transition :pause, from: :active, to: :paused
+      transition :resume, from: :paused, to: :active
+
+      # Failure tracking
+      transition :mark_failing, from: [:active, :paused], to: :failing
+      transition :clear_failure, from: :failing, to: :active
+
+      # Disabling
+      transition :disable, from: [:active, :paused, :failing], to: :disabled
+      transition :enable, from: :disabled, to: :active
+    end
   end
 
   code_interface do
@@ -61,8 +83,16 @@ defmodule ServiceRadar.Infrastructure.Checker do
     end
 
     read :enabled do
-      description "All enabled checkers"
-      filter expr(enabled == true)
+      description "All enabled/active checkers"
+      filter expr(status == :active or (enabled == true and status not in [:disabled, :paused]))
+    end
+
+    read :by_status do
+      argument :status, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:active, :paused, :failing, :disabled]]
+
+      filter expr(status == ^arg(:status))
     end
 
     create :create do
@@ -106,16 +136,94 @@ defmodule ServiceRadar.Infrastructure.Checker do
       change set_attribute(:updated_at, &DateTime.utc_now/0)
     end
 
-    update :enable do
-      description "Enable the checker"
+    # State machine transition actions
+    # Each action includes PublishStateChange to emit NATS events
+
+    update :pause do
+      description "Pause the checker (temporarily stop execution)"
+      require_atomic? false
+
+      change transition_state(:paused)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :checker, new_state: :paused}
+    end
+
+    update :resume do
+      description "Resume a paused checker"
+      require_atomic? false
+
+      change transition_state(:active)
       change set_attribute(:enabled, true)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :checker, new_state: :active}
+    end
+
+    update :mark_failing do
+      description "Mark checker as failing due to consecutive failures"
+      argument :reason, :string
+      require_atomic? false
+
+      change transition_state(:failing)
+      change set_attribute(:failure_reason, arg(:reason))
+      change set_attribute(:last_failure, &DateTime.utc_now/0)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :checker, new_state: :failing}
+    end
+
+    update :clear_failure do
+      description "Clear failure state after successful check"
+      require_atomic? false
+
+      change transition_state(:active)
+      change set_attribute(:consecutive_failures, 0)
+      change set_attribute(:failure_reason, nil)
+      change set_attribute(:last_success, &DateTime.utc_now/0)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :checker, new_state: :active}
+    end
+
+    update :record_success do
+      description "Record a successful check result"
+
+      change set_attribute(:consecutive_failures, 0)
+      change set_attribute(:last_success, &DateTime.utc_now/0)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+    end
+
+    update :record_failure do
+      description "Record a failed check result"
+      argument :reason, :string
+      require_atomic? false
+
+      change fn changeset, _context ->
+        current = Ash.Changeset.get_attribute(changeset, :consecutive_failures) || 0
+
+        changeset
+        |> Ash.Changeset.change_attribute(:consecutive_failures, current + 1)
+        |> Ash.Changeset.change_attribute(:failure_reason, Ash.Changeset.get_argument(changeset, :reason))
+        |> Ash.Changeset.change_attribute(:last_failure, DateTime.utc_now())
+        |> Ash.Changeset.change_attribute(:updated_at, DateTime.utc_now())
+      end
+    end
+
+    update :enable do
+      description "Enable a disabled checker"
+      require_atomic? false
+
+      change transition_state(:active)
+      change set_attribute(:enabled, true)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :checker, new_state: :active}
     end
 
     update :disable do
       description "Disable the checker"
+      require_atomic? false
+
+      change transition_state(:disabled)
       change set_attribute(:enabled, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :checker, new_state: :disabled}
     end
   end
 
@@ -178,7 +286,36 @@ defmodule ServiceRadar.Infrastructure.Checker do
     attribute :enabled, :boolean do
       default true
       public? true
-      description "Whether this checker is enabled"
+      description "Whether this checker is enabled (legacy - use status)"
+    end
+
+    attribute :status, :atom do
+      allow_nil? false
+      default :active
+      public? true
+      constraints one_of: [:active, :paused, :failing, :disabled]
+      description "Current operational status (state machine managed)"
+    end
+
+    attribute :consecutive_failures, :integer do
+      default 0
+      public? true
+      description "Number of consecutive check failures"
+    end
+
+    attribute :last_success, :utc_datetime do
+      public? true
+      description "When the last successful check occurred"
+    end
+
+    attribute :last_failure, :utc_datetime do
+      public? true
+      description "When the last failed check occurred"
+    end
+
+    attribute :failure_reason, :string do
+      public? true
+      description "Reason for current failure state"
     end
 
     # Check configuration
@@ -264,7 +401,35 @@ defmodule ServiceRadar.Infrastructure.Checker do
                 end
               )
 
-    calculate :is_scheduled, :boolean, expr(enabled == true and interval_seconds > 0)
+    calculate :is_scheduled, :boolean, expr(status == :active and interval_seconds > 0)
+
+    calculate :status_color,
+              :string,
+              expr(
+                cond do
+                  status == :active -> "green"
+                  status == :paused -> "yellow"
+                  status == :failing -> "red"
+                  status == :disabled -> "gray"
+                  true -> "gray"
+                end
+              )
+
+    calculate :status_label,
+              :string,
+              expr(
+                cond do
+                  status == :active -> "Active"
+                  status == :paused -> "Paused"
+                  status == :failing -> "Failing"
+                  status == :disabled -> "Disabled"
+                  true -> "Unknown"
+                end
+              )
+
+    calculate :is_healthy,
+              :boolean,
+              expr(status == :active and consecutive_failures < 3)
 
     calculate :type_label,
               :string,

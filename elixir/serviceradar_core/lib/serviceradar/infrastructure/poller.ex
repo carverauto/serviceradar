@@ -42,7 +42,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
     domain: ServiceRadar.Infrastructure,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshJsonApi.Resource]
+    extensions: [AshStateMachine, AshJsonApi.Resource]
 
   postgres do
     table "pollers"
@@ -55,9 +55,26 @@ defmodule ServiceRadar.Infrastructure.Poller do
     routes do
       base "/pollers"
 
+      # Read operations
       get :by_id
       index :read
       index :active, route: "/active"
+
+      # Registration
+      post :register
+
+      # State machine transitions
+      patch :activate, route: "/:id/activate"
+      patch :degrade, route: "/:id/degrade"
+      patch :go_offline, route: "/:id/offline"
+      patch :recover, route: "/:id/recover"
+      patch :restore_health, route: "/:id/restore"
+      patch :start_maintenance, route: "/:id/maintenance/start"
+      patch :end_maintenance, route: "/:id/maintenance/end"
+      patch :start_draining, route: "/:id/drain/start"
+      patch :finish_draining, route: "/:id/drain/finish"
+      patch :deactivate, route: "/:id/deactivate"
+      patch :heartbeat, route: "/:id/heartbeat"
     end
   end
 
@@ -65,6 +82,41 @@ defmodule ServiceRadar.Infrastructure.Poller do
     strategy :attribute
     attribute :tenant_id
     global? true
+  end
+
+  state_machine do
+    initial_states [:healthy, :inactive]
+    default_initial_state :inactive
+    state_attribute :status
+    deprecated_states []
+
+    transitions do
+      # Activation transitions
+      transition :activate, from: :inactive, to: :healthy
+
+      # Health degradation
+      transition :degrade, from: :healthy, to: :degraded
+      transition :heartbeat_timeout, from: [:healthy, :degraded], to: :degraded
+
+      # Going offline
+      transition :go_offline, from: [:healthy, :degraded, :draining], to: :offline
+      transition :lose_connection, from: [:healthy, :degraded], to: :offline
+
+      # Recovery
+      transition :recover, from: [:degraded, :offline, :recovering], to: :recovering
+      transition :restore_health, from: [:degraded, :recovering], to: :healthy
+
+      # Maintenance mode
+      transition :start_maintenance, from: [:healthy, :degraded], to: :maintenance
+      transition :end_maintenance, from: :maintenance, to: :healthy
+
+      # Graceful shutdown
+      transition :start_draining, from: [:healthy, :degraded], to: :draining
+      transition :finish_draining, from: :draining, to: :offline
+
+      # Deactivation
+      transition :deactivate, from: [:healthy, :degraded, :offline, :recovering, :maintenance, :draining], to: :inactive
+    end
   end
 
   code_interface do
@@ -85,11 +137,14 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     read :active do
       description "All active pollers"
-      filter expr(status == "active" and is_healthy == true)
+      filter expr(status == :healthy and is_healthy == true)
     end
 
     read :by_status do
-      argument :status, :string, allow_nil?: false
+      argument :status, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:inactive, :healthy, :degraded, :offline, :recovering, :maintenance, :draining]]
+
       filter expr(status == ^arg(:status))
     end
 
@@ -103,7 +158,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
       argument :partition_slug, :string, allow_nil?: false
 
       filter expr(
-               status == "active" and
+               status == :healthy and
                  is_healthy == true and
                  partition.slug == ^arg(:partition_slug)
              )
@@ -116,14 +171,14 @@ defmodule ServiceRadar.Infrastructure.Poller do
       argument :partition_id, :uuid, allow_nil?: false
 
       filter expr(
-               status == "active" and
+               status == :healthy and
                  is_healthy == true and
                  partition_id == ^arg(:partition_id)
              )
     end
 
     create :register do
-      description "Register a new poller"
+      description "Register a new poller (starts in healthy state)"
 
       accept [
         :id,
@@ -141,7 +196,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
         |> Ash.Changeset.change_attribute(:first_registered, now)
         |> Ash.Changeset.change_attribute(:first_seen, now)
         |> Ash.Changeset.change_attribute(:last_seen, now)
-        |> Ash.Changeset.change_attribute(:status, "active")
+        |> Ash.Changeset.change_attribute(:status, :healthy)
         |> Ash.Changeset.change_attribute(:is_healthy, true)
       end
     end
@@ -159,23 +214,139 @@ defmodule ServiceRadar.Infrastructure.Poller do
       change set_attribute(:updated_at, &DateTime.utc_now/0)
     end
 
-    update :set_status do
-      accept [:status]
+    # State machine transition actions
+    # Each action includes PublishStateChange to emit NATS events
+
+    update :activate do
+      description "Activate an inactive poller"
+      require_atomic? false
+
+      change transition_state(:healthy)
+      change set_attribute(:is_healthy, true)
+      change set_attribute(:last_seen, &DateTime.utc_now/0)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :healthy}
     end
 
-    update :mark_unhealthy do
-      description "Mark poller as unhealthy"
+    update :degrade do
+      description "Mark poller as degraded (having issues)"
+      argument :reason, :string
+      require_atomic? false
+
+      change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
-      change set_attribute(:status, "degraded")
       change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :degraded}
+    end
+
+    update :heartbeat_timeout do
+      description "Mark poller as degraded due to heartbeat timeout"
+      require_atomic? false
+
+      change transition_state(:degraded)
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :degraded}
+    end
+
+    update :go_offline do
+      description "Mark poller as offline"
+      argument :reason, :string
+      require_atomic? false
+
+      change transition_state(:offline)
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :offline}
+    end
+
+    update :lose_connection do
+      description "Mark poller as offline due to lost connection"
+      require_atomic? false
+
+      change transition_state(:offline)
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :offline}
+    end
+
+    update :recover do
+      description "Start recovery process for degraded/offline poller"
+      require_atomic? false
+
+      change transition_state(:recovering)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :recovering}
+    end
+
+    update :restore_health do
+      description "Restore poller to healthy state"
+      require_atomic? false
+
+      change transition_state(:healthy)
+      change set_attribute(:is_healthy, true)
+      change set_attribute(:last_seen, &DateTime.utc_now/0)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :healthy}
+    end
+
+    update :start_maintenance do
+      description "Put poller into maintenance mode"
+      require_atomic? false
+
+      change transition_state(:maintenance)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :maintenance}
+    end
+
+    update :end_maintenance do
+      description "End maintenance mode, return to healthy"
+      require_atomic? false
+
+      change transition_state(:healthy)
+      change set_attribute(:is_healthy, true)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :healthy}
+    end
+
+    update :start_draining do
+      description "Start graceful shutdown (draining)"
+      require_atomic? false
+
+      change transition_state(:draining)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :draining}
+    end
+
+    update :finish_draining do
+      description "Finish draining, go offline"
+      require_atomic? false
+
+      change transition_state(:offline)
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :offline}
     end
 
     update :deactivate do
-      description "Deactivate a poller"
-      change set_attribute(:status, "inactive")
+      description "Deactivate a poller (admin action)"
+      require_atomic? false
+
+      change transition_state(:inactive)
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :inactive}
+    end
+
+    # Legacy compatibility aliases
+    update :mark_unhealthy do
+      description "Mark poller as unhealthy (legacy - use degrade)"
+      require_atomic? false
+
+      change transition_state(:degraded)
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :degraded}
     end
   end
 
@@ -219,10 +390,12 @@ defmodule ServiceRadar.Infrastructure.Poller do
       description "How the poller was registered (auto, manual, kubernetes)"
     end
 
-    attribute :status, :string do
-      default "active"
+    attribute :status, :atom do
+      allow_nil? false
+      default :inactive
       public? true
-      description "Current operational status"
+      constraints one_of: [:inactive, :healthy, :degraded, :offline, :recovering, :maintenance, :draining]
+      description "Current operational status (state machine managed)"
     end
 
     attribute :spiffe_identity, :string do
@@ -315,10 +488,29 @@ defmodule ServiceRadar.Infrastructure.Poller do
               :string,
               expr(
                 cond do
-                  status == "active" and is_healthy == true -> "green"
-                  status == "degraded" -> "yellow"
-                  status == "draining" -> "yellow"
+                  status == :healthy and is_healthy == true -> "green"
+                  status == :degraded -> "yellow"
+                  status == :draining -> "yellow"
+                  status == :recovering -> "blue"
+                  status == :maintenance -> "purple"
+                  status == :inactive -> "gray"
+                  status == :offline -> "red"
                   true -> "red"
+                end
+              )
+
+    calculate :status_label,
+              :string,
+              expr(
+                cond do
+                  status == :healthy -> "Healthy"
+                  status == :degraded -> "Degraded"
+                  status == :offline -> "Offline"
+                  status == :recovering -> "Recovering"
+                  status == :maintenance -> "Maintenance"
+                  status == :draining -> "Draining"
+                  status == :inactive -> "Inactive"
+                  true -> "Unknown"
                 end
               )
 

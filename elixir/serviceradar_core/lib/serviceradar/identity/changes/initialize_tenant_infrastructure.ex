@@ -6,7 +6,8 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
 
   1. Creates per-tenant Horde registry and DynamicSupervisor
   2. Registers slug -> UUID mapping for admin lookups
-  3. Optionally creates PostgreSQL schema for enterprise tenants
+  3. Provisions per-tenant Oban queues for job isolation
+  4. Optionally creates PostgreSQL schema for enterprise tenants
 
   ## Usage
 
@@ -39,6 +40,7 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
 
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Oban.TenantQueues
 
   require Logger
 
@@ -75,7 +77,17 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
         # Registry will be lazily created on first poller/agent connection
     end
 
-    # 2. Optionally create PostgreSQL schema
+    # 2. Provision per-tenant Oban queues for job isolation
+    case TenantQueues.provision_tenant(tenant_id) do
+      :ok ->
+        Logger.debug("Provisioned Oban queues for tenant: #{tenant_slug}")
+
+      {:error, reason} ->
+        Logger.error("Failed to provision Oban queues for #{tenant_slug}: #{inspect(reason)}")
+        # Don't fail tenant creation, queues can be provisioned later
+    end
+
+    # 3. Optionally create PostgreSQL schema
     case should_create_schema?(plan) do
       true ->
         case TenantSchemas.create_schema(tenant_slug, run_migrations: true) do

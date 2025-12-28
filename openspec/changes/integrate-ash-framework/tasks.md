@@ -464,12 +464,12 @@
 ## Phase 13: Edge-to-Cloud Infrastructure
 
 ### 13.1 NATS JetStream Integration (Revised Scope)
-> **SCOPE**: The NATS architecture stays the same - collectors push to NATS, zen-engine does ETL, db-event-writer writes to DB. Focus is on: (1) publishing events TO NATS from Elixir, (2) onboarding tenant-specific NATS JetStream edge leaf servers. Use [OffBroadway.Jetstream.Producer](https://hexdocs.pm/jetstream/OffBroadway.Jetstream.Producer.html) for consumption.
+> **SCOPE**: The NATS architecture stays the same - collectors push to NATS, zen-engine does ETL, db-event-writer writes to DB. Focus is on: (1) publishing events TO NATS from Elixir using [Jetstream](https://hexdocs.pm/jetstream/Jetstream.html), (2) onboarding tenant-specific NATS JetStream edge leaf servers.
 
-- [ ] 13.1.1 Add jetstream dependency to mix.exs (includes OffBroadway.Jetstream.Producer)
-- [ ] 13.1.2 Create ServiceRadar.NATS.Connection module for connection management
+- [x] 13.1.1 Add jetstream dependency to mix.exs
+- [x] 13.1.2 Create ServiceRadar.NATS.Connection module for connection management
 - [ ] 13.1.3 Configure NATS connection in runtime.exs (NATS_URL, credentials)
-- [ ] 13.1.4 Create ServiceRadar.NATS.Publisher module for publishing events from Elixir
+- [x] 13.1.4 Create ServiceRadar.Infrastructure.EventPublisher module for publishing events from Elixir
 - [ ] 13.1.5 Design tenant-scoped subject hierarchy for edge leaf servers
 - [ ] 13.1.6 Create tenant edge leaf server onboarding workflow
 - [ ] 13.1.7 Add NATS credentials generation per tenant
@@ -492,16 +492,16 @@
 ### 13.3 Per-Tenant Oban Queue Isolation (HIGH PRIORITY)
 > **GOAL**: Each tenant should have their own AshOban registry/queues for complete compartmentalization. This ensures tenant workloads don't interfere with each other and enables per-tenant job prioritization.
 
-- [ ] 13.3.1 Design per-tenant queue naming: `{tenant_id}_{job_type}` or `{tenant_id}_{partition_id}_{job_type}`
-- [ ] 13.3.2 Create per-tenant Oban queue configuration (dynamic queue creation)
-- [ ] 13.3.3 Implement tenant-aware job insertion (jobs route to tenant's queue)
-- [ ] 13.3.4 Configure AshOban triggers to use tenant-scoped queues
-- [ ] 13.3.5 Implement tenant queue isolation (jobs from tenant A never run in tenant B's queue)
-- [ ] 13.3.6 Create per-tenant queue monitoring dashboard
-- [ ] 13.3.7 Add per-tenant queue depth limits and throttling
-- [ ] 13.3.8 Implement tenant queue provisioning on tenant creation
-- [ ] 13.3.9 Add per-tenant job metrics (throughput, latency, failures)
-- [ ] 13.3.10 Document tenant queue isolation architecture
+- [x] 13.3.1 Design per-tenant queue naming: `t_{tenant_hash}_{job_type}` (e.g., `t_a1b2c3d4_polling`)
+- [x] 13.3.2 Create ServiceRadar.Oban.TenantQueues module (GenServer for queue management)
+- [x] 13.3.3 Implement tenant-aware job insertion via TenantQueues.insert_job/4
+- [x] 13.3.4 Create ServiceRadar.Oban.AshObanQueueResolver for AshOban trigger integration
+- [x] 13.3.5 Implement tenant queue isolation (separate queues per tenant)
+- [x] 13.3.6 Create TenantQueues.get_tenant_stats/1 for queue monitoring
+- [x] 13.3.7 Add pause_tenant/resume_tenant/scale_tenant_queue for queue control
+- [x] 13.3.8 Integrate queue provisioning into InitializeTenantInfrastructure change
+- [x] 13.3.9 Create ServiceRadar.Oban.TenantWorker behaviour for tenant-aware workers
+- [ ] 13.3.10 Create LiveView dashboard for per-tenant queue monitoring
 
 ### 13.4 Mesh VPN Configuration - DEFERRED
 > **DEFERRED**: Mesh VPN configuration deferred until core platform is stable. Will revisit when edge deployment requirements are clearer.
@@ -640,19 +640,49 @@ The Go `serviceradar-core` service handles coordination, identity reconciliation
 - [x] 15.6.5 Add telemetry metrics for stats snapshots
 - [ ] 15.6.6 Create stats dashboard endpoint
 
-### 15.7 Poller Recovery with AshStateMachine (Port from Go)
-> **NOTE**: Use AshStateMachine for poller state transitions (healthy -> degraded -> offline -> recovering).
+### 15.7 Infrastructure State Machine & Events (Expanded Scope)
+> **SCOPE**: Track state of ALL infrastructure components (pollers, agents, checkers, collectors) using AshStateMachine. Publish online/offline and state transition events to NATS JetStream using [Jetstream](https://hexdocs.pm/jetstream/Jetstream.html). This replaces the narrow "poller recovery" scope.
 
-- [ ] 15.7.1 Add AshStateMachine to Infrastructure.Poller resource
-- [ ] 15.7.2 Define poller states: healthy, degraded, offline, recovering, maintenance
-- [ ] 15.7.3 Define state transitions with guards and conditions
-- [ ] 15.7.4 Create ServiceRadar.Core.PollerRecovery module
-- [ ] 15.7.5 Port poller health monitoring (poller_recovery.go)
-- [ ] 15.7.6 Implement automatic state transitions based on heartbeat timeout
-- [ ] 15.7.7 Implement automatic poller reassignment on failure (via state machine hooks)
-- [ ] 15.7.8 Add AshOban trigger for recovery attempts
-- [ ] 15.7.9 Add poller recovery metrics (state transition count, recovery time)
-- [ ] 15.7.10 Integrate with Horde for distributed poller tracking
+#### 15.7.A State Machine for Pollers
+- [x] 15.7.1 Add AshStateMachine to Infrastructure.Poller resource
+- [x] 15.7.2 Define poller states: healthy, degraded, offline, recovering, maintenance, draining, inactive
+- [x] 15.7.3 Define state transitions with guards and conditions
+- [x] 15.7.4 Implement automatic state transitions based on heartbeat timeout (via StateMonitor)
+- [ ] 15.7.5 Add after_transition hooks to publish events to NATS JetStream
+
+#### 15.7.B State Machine for Agents
+- [x] 15.7.6 AshStateMachine already exists for Infrastructure.Agent (connecting, connected, degraded, disconnected, unavailable)
+- [x] 15.7.7 Agent state transitions already defined (establish_connection, degrade, lose_connection, etc.)
+- [x] 15.7.8 Reachability tracking exists (last_seen_time) - StateMonitor handles timeout detection
+- [ ] 15.7.9 Add after_transition hooks for agent events to NATS
+
+#### 15.7.C State Machine for Checkers/Collectors
+- [x] 15.7.10 Add AshStateMachine to Infrastructure.Checker resource
+- [x] 15.7.11 Define checker states: active, paused, failing, disabled
+- [x] 15.7.12 Track checker health (consecutive_failures, last_success, last_failure, failure_reason)
+- [ ] 15.7.13 Add after_transition hooks for checker events to NATS
+
+#### 15.7.D Infrastructure State Monitor
+- [x] 15.7.14 Create ServiceRadar.Infrastructure.StateMonitor GenServer
+- [x] 15.7.15 Implement heartbeat timeout detection for pollers
+- [x] 15.7.16 Implement reachability checks for agents
+- [x] 15.7.17 Implement health checks for checkers (consecutive_failures threshold)
+- [ ] 15.7.18 Integrate with Horde for distributed tracking
+- [x] 15.7.19 Add telemetry metrics (state_monitor.check_completed)
+
+#### 15.7.E NATS JetStream Event Publishing
+- [x] 15.7.20 Create ServiceRadar.Infrastructure.EventPublisher module
+- [x] 15.7.21 Define event schema: type, entity_type, entity_id, tenant_id, old_state, new_state, timestamp
+- [x] 15.7.22 Publish to subjects: `sr.infra.{tenant}.{entity_type}.{event_type}` (e.g., `sr.infra.acme.poller.offline`)
+- [ ] 15.7.23 Add event batching for high-frequency updates
+- [x] 15.7.24 Integrate with 13.1 NATS connection module (ServiceRadar.NATS.Connection)
+
+#### 15.7.F Recovery & Reassignment
+- [ ] 15.7.25 Create ServiceRadar.Core.PollerRecovery module
+- [ ] 15.7.26 Port poller health monitoring (poller_recovery.go)
+- [ ] 15.7.27 Implement automatic poller reassignment on failure (via state machine hooks)
+- [ ] 15.7.28 Add AshOban trigger for recovery attempts
+- [ ] 15.7.29 Add recovery metrics (recovery time, success rate)
 
 ### 15.8 Template Registry (Port from Go)
 - [ ] 15.8.1 Create ServiceRadar.Core.TemplateRegistry module

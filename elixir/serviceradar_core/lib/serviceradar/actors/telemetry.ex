@@ -156,6 +156,7 @@ defmodule ServiceRadar.Actors.Telemetry do
       # For each tenant, collect device actor stats
       # Note: We'd need to track tenant_id per registry for this
       # For now, emit global metrics
+      :ok
     end)
 
     # Emit global count

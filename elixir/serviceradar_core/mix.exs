@@ -60,6 +60,9 @@ defmodule ServiceRadarCore.MixProject do
       # Background jobs
       {:oban, "~> 2.18"},
 
+      # NATS JetStream for event publishing
+      {:jetstream, "~> 0.0.9"},
+
       # gRPC client for serviceradar-sync communication
       {:grpc, "~> 0.9"},
       {:protobuf, "~> 0.13"},

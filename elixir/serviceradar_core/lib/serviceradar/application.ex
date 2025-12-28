@@ -50,8 +50,20 @@ defmodule ServiceRadar.Application do
         # AshOban schedulers for Ash resource triggers
         ash_oban_scheduler_children(),
 
+        # Per-tenant Oban queue management (after Oban, before registries)
+        tenant_queues_child(),
+
         # GRPC client supervisor (required for DataService.Client)
         grpc_client_supervisor_child(),
+
+        # NATS JetStream connection for event publishing
+        nats_connection_child(),
+
+        # Event batcher for high-frequency NATS events
+        event_batcher_child(),
+
+        # Infrastructure state monitor (heartbeat timeouts, health checks)
+        state_monitor_child(),
 
         # Horde registries (always started for registration support)
         registry_children(),
@@ -109,6 +121,15 @@ defmodule ServiceRadar.Application do
     end
   end
 
+  defp tenant_queues_child do
+    # Only start TenantQueues if Oban is enabled
+    if Application.get_env(:serviceradar_core, Oban) do
+      ServiceRadar.Oban.TenantQueues
+    else
+      nil
+    end
+  end
+
   defp registry_children do
     if Application.get_env(:serviceradar_core, :registries_enabled, true) do
       [
@@ -160,6 +181,54 @@ defmodule ServiceRadar.Application do
       ]
     else
       []
+    end
+  end
+
+  defp nats_connection_child do
+    if nats_enabled?() do
+      ServiceRadar.NATS.Connection
+    else
+      nil
+    end
+  end
+
+  defp nats_enabled? do
+    case System.get_env("NATS_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :nats_enabled, false)
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
+    end
+  end
+
+  defp state_monitor_child do
+    if state_monitor_enabled?() do
+      ServiceRadar.Infrastructure.StateMonitor
+    else
+      nil
+    end
+  end
+
+  defp state_monitor_enabled? do
+    case System.get_env("STATE_MONITOR_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :state_monitor_enabled, true)
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
+    end
+  end
+
+  defp event_batcher_child do
+    if event_batcher_enabled?() do
+      ServiceRadar.Infrastructure.EventBatcher
+    else
+      nil
+    end
+  end
+
+  defp event_batcher_enabled? do
+    case System.get_env("EVENT_BATCHER_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :event_batcher_enabled, true)
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
     end
   end
 
