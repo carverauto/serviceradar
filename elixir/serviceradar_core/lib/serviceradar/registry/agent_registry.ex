@@ -1,6 +1,15 @@
 defmodule ServiceRadar.AgentRegistry do
   @moduledoc """
-  Distributed registry for tracking connected agents across the ERTS cluster.
+  Distributed registry for tracking connected agents.
+
+  ## Architecture: Go Agents via gRPC
+
+  Agents are Go-based processes running in customer networks. They do NOT
+  join the ERTS cluster - instead, they expose a gRPC endpoint that pollers
+  call to execute monitoring checks.
+
+  The registry tracks agent metadata including gRPC addresses so pollers
+  can discover and communicate with their assigned agents.
 
   ## Multi-Tenant Isolation
 
@@ -13,12 +22,13 @@ defmodule ServiceRadar.AgentRegistry do
 
   ## Registration Format
 
-  Agents register with their tenant_id, which routes to the correct registry:
+  Agents register via the core API with their gRPC address:
 
       ServiceRadar.AgentRegistry.register_agent(tenant_id, agent_id, %{
         partition_id: "partition-1",
-        poller_node: node(),
-        capabilities: [:icmp_sweep, :tcp_sweep],
+        grpc_host: "192.168.1.100",
+        grpc_port: 50051,
+        capabilities: [:icmp_sweep, :tcp_sweep, :snmp],
         status: :connected
       })
 
@@ -67,6 +77,9 @@ defmodule ServiceRadar.AgentRegistry do
       tenant_id: tenant_id,
       partition_id: Map.get(agent_info, :partition_id),
       poller_node: Map.get(agent_info, :poller_node, Node.self()),
+      # gRPC connection details for poller-initiated communication
+      grpc_host: Map.get(agent_info, :grpc_host),
+      grpc_port: Map.get(agent_info, :grpc_port),
       capabilities: Map.get(agent_info, :capabilities, []),
       spiffe_identity: Map.get(agent_info, :spiffe_id),
       node: Node.self(),
@@ -197,6 +210,40 @@ defmodule ServiceRadar.AgentRegistry do
     find_agents_for_tenant(tenant_id)
     |> Enum.filter(fn agent ->
       capability in Map.get(agent, :capabilities, [])
+    end)
+  end
+
+  @doc """
+  Get gRPC connection details for an agent.
+
+  Returns `{:ok, {host, port}}` if agent is registered with gRPC details,
+  or `{:error, :not_found}` if agent is not registered or has no gRPC address.
+  """
+  @spec get_grpc_address(String.t(), String.t()) :: {:ok, {String.t(), pos_integer()}} | {:error, :not_found | :no_grpc_address}
+  def get_grpc_address(tenant_id, agent_id) when is_binary(tenant_id) do
+    case lookup(tenant_id, agent_id) do
+      [{_pid, metadata}] ->
+        case {metadata[:grpc_host], metadata[:grpc_port]} do
+          {host, port} when is_binary(host) and is_integer(port) and port > 0 ->
+            {:ok, {host, port}}
+          _ ->
+            {:error, :no_grpc_address}
+        end
+      [] ->
+        {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Find all agents with gRPC addresses available for a tenant.
+
+  Used by pollers to discover agents they can communicate with.
+  """
+  @spec find_agents_with_grpc(String.t()) :: [map()]
+  def find_agents_with_grpc(tenant_id) when is_binary(tenant_id) do
+    find_agents_for_tenant(tenant_id)
+    |> Enum.filter(fn agent ->
+      is_binary(agent[:grpc_host]) and is_integer(agent[:grpc_port]) and agent[:grpc_port] > 0
     end)
   end
 

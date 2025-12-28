@@ -69,10 +69,10 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
   end
 
   defp detect_node_type(node_name) when is_binary(node_name) do
+    # Note: Agents are now Go-based and connect via gRPC, not ERTS
     cond do
       String.starts_with?(node_name, "serviceradar_core") -> :core
       String.starts_with?(node_name, "serviceradar_poller") -> :poller
-      String.starts_with?(node_name, "serviceradar_agent") -> :agent
       String.starts_with?(node_name, "serviceradar_web") -> :web
       true -> :unknown
     end

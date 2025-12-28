@@ -976,10 +976,10 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   defp detect_node_type(node) when is_atom(node), do: detect_node_type(Atom.to_string(node))
 
   defp detect_node_type(node_str) when is_binary(node_str) do
+    # Note: Agents are now Go-based and connect via gRPC, not ERTS
     cond do
       String.starts_with?(node_str, "serviceradar_core") -> :core
       String.starts_with?(node_str, "serviceradar_poller") -> :poller
-      String.starts_with?(node_str, "serviceradar_agent") -> :agent
       String.starts_with?(node_str, "serviceradar_web") -> :web
       true -> :unknown
     end

@@ -17,7 +17,7 @@ defmodule ServiceRadar.Application do
   PollerRegistry and AgentRegistry delegate to TenantRegistry for all operations.
 
   This application can run standalone or as a dependency of
-  serviceradar_web, serviceradar_poller, or serviceradar_agent.
+  serviceradar_web or serviceradar_poller.
 
   ## Configuration
 

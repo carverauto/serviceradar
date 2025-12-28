@@ -105,6 +105,14 @@ defmodule ServiceRadarPoller.Config do
   end
 
   @doc """
+  Get a specific config value by key.
+  """
+  @spec get(atom()) :: any()
+  def get(key) when is_atom(key) do
+    GenServer.call(__MODULE__, {:get, key})
+  end
+
+  @doc """
   Returns a NATS channel name with the tenant prefix applied.
 
   ## Examples

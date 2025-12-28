@@ -11,6 +11,7 @@ defmodule ServiceRadar.Monitoring do
   ## Resources
 
   - `ServiceRadar.Monitoring.PollingSchedule` - Polling schedule coordination
+  - `ServiceRadar.Monitoring.PollJob` - Individual poll job executions (state machine)
   - `ServiceRadar.Monitoring.ServiceCheck` - Scheduled service checks
   - `ServiceRadar.Monitoring.Alert` - Alerts with state machine lifecycle
   - `ServiceRadar.Monitoring.Event` - System and device events
@@ -37,6 +38,7 @@ defmodule ServiceRadar.Monitoring do
 
   resources do
     resource ServiceRadar.Monitoring.PollingSchedule
+    resource ServiceRadar.Monitoring.PollJob
     resource ServiceRadar.Monitoring.ServiceCheck
     resource ServiceRadar.Monitoring.Alert
     resource ServiceRadar.Monitoring.Event

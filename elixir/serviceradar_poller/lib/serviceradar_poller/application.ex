@@ -2,14 +2,29 @@ defmodule ServiceRadarPoller.Application do
   @moduledoc """
   ServiceRadar Poller Application.
 
-  This is a standalone Elixir release that runs on edge infrastructure
-  (bare metal, Docker, or Kubernetes) and joins the ServiceRadar ERTS cluster.
+  This is a standalone Elixir release that runs in our infrastructure
+  (Kubernetes) and joins the ServiceRadar ERTS cluster. It initiates
+  gRPC connections to Go agents deployed in customer networks.
 
   The poller is responsible for:
   - Joining the distributed ERTS cluster via mTLS
   - Registering itself in the Horde distributed registry
+  - Executing local polling tasks (ICMP, TCP, HTTP, DNS)
+  - Initiating gRPC connections to Go agents for delegated checks
   - Forwarding monitoring data to the core cluster
-  - Executing polling tasks assigned by the core via ERTS messaging
+
+  ## Agent Communication
+
+  The poller initiates all connections to Go agents via gRPC:
+  - Agents expose a gRPC endpoint (default port 50051)
+  - Pollers discover agents via AgentRegistry
+  - Communication flows DOWN only (poller → agent)
+  - Agents never connect back to pollers
+
+  This architecture ensures:
+  - Minimal firewall exposure: only gRPC port open inbound to agent
+  - No ERTS distribution in customer networks
+  - Secure communication via mTLS
 
   ## Environment Variables
 
@@ -28,7 +43,6 @@ defmodule ServiceRadarPoller.Application do
   1. **Per-Tenant Horde Registries**: Each tenant has isolated registry state
   2. **TenantGuard**: Defense-in-depth process-level validation
   3. **Certificate-based Identity**: Certificate CN includes tenant slug
-  4. **NATS Channel Prefixing**: All channels prefixed with tenant slug
 
   All pollers join the same ERTS cluster but register in tenant-specific
   Horde registries, preventing cross-tenant process discovery.
@@ -41,7 +55,7 @@ defmodule ServiceRadarPoller.Application do
 
   ```
   ┌─────────────────────────────────────────────────────────┐
-  │                    ServiceRadar Core                     │
+  │                    ServiceRadar Core (K8s)               │
   │  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐   │
   │  │ Horde       │  │ libcluster   │  │ Task          │   │
   │  │ Registry    │  │              │  │ Orchestrator  │   │
@@ -54,14 +68,23 @@ defmodule ServiceRadarPoller.Application do
   │  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐   │
   │  │ Registration│  │ Cluster      │  │ Task          │   │
   │  │ Worker      │  │ Membership   │  │ Executor      │   │
-  │  └─────────────┘  └──────────────┘  └───────────────┘   │
-  │                    ServiceRadar Poller                   │
-  └──────────────────────────────────────────────────────────┘
+  │  └─────────────┘  └──────────────┘  └───────┬───────┘   │
+  │                    ServiceRadar Poller (K8s) │          │
+  └─────────────────────────────────────────────┼──────────┘
+                                                │ gRPC/mTLS
+                                                │
+  ┌─────────────────────────────────────────────┼──────────┐
+  │                                             ▼          │
+  │                                    ┌───────────────┐   │
+  │                                    │  Go Agent     │   │
+  │                                    │  (gRPC Server)│   │
+  │                                    └───────────────┘   │
+  │                    Customer Network (Edge)             │
+  └────────────────────────────────────────────────────────┘
   ```
 
-  Communication happens via Erlang distributed messaging (ERTS).
-  The poller joins the cluster via libcluster and uses Horde for
-  distributed registry and process management.
+  ERTS cluster stays within our infrastructure (K8s).
+  Customer network only needs gRPC port open for agent communication.
   """
 
   use Application
@@ -102,6 +125,9 @@ defmodule ServiceRadarPoller.Application do
        poller_id: poller_id,
        domain: domain,
        capabilities: capabilities},
+
+      # gRPC client for communicating with Go agents
+      ServiceRadarPoller.AgentClient,
 
       # Task executor - executes polling tasks from the core
       ServiceRadarPoller.TaskExecutor

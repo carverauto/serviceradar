@@ -13,11 +13,20 @@ defmodule ServiceRadarPoller.TaskExecutor do
 
   ## Supported Check Types
 
+  ### Local Checks (executed directly by poller)
   - `:icmp` - ICMP ping check
   - `:tcp` - TCP port check
   - `:http` - HTTP/HTTPS health check
   - `:dns` - DNS resolution check
-  - `:snmp` - SNMP polling (via agent)
+
+  ### Agent-Delegated Checks (via gRPC to Go agents)
+  - `:agent_status` - Agent health check
+  - `:agent_sweep` - Network sweep via agent
+  - `:snmp` - SNMP polling via agent
+  - `:wmi` - Windows WMI polling via agent
+
+  Agent-delegated checks require a `tenant_id` and `agent_id` in the task config.
+  The poller will connect to the agent via gRPC to execute these checks.
   """
 
   use GenServer
@@ -132,6 +141,7 @@ defmodule ServiceRadarPoller.TaskExecutor do
     Logger.debug("Executing #{check_type} check on #{target}")
 
     case check_type do
+      # Local checks (executed directly by poller)
       :icmp -> execute_icmp_check(target, config)
       "icmp" -> execute_icmp_check(target, config)
       :tcp -> execute_tcp_check(target, config)
@@ -140,12 +150,130 @@ defmodule ServiceRadarPoller.TaskExecutor do
       "http" -> execute_http_check(target, config)
       :dns -> execute_dns_check(target, config)
       "dns" -> execute_dns_check(target, config)
+      # Agent-delegated checks (via gRPC to Go agents)
+      :agent_status -> execute_agent_status_check(config)
+      "agent_status" -> execute_agent_status_check(config)
+      :agent_sweep -> execute_agent_sweep(config)
+      "agent_sweep" -> execute_agent_sweep(config)
+      :snmp -> execute_agent_delegated_check(config, "snmp")
+      "snmp" -> execute_agent_delegated_check(config, "snmp")
+      :wmi -> execute_agent_delegated_check(config, "wmi")
+      "wmi" -> execute_agent_delegated_check(config, "wmi")
       _ -> {:error, {:unsupported_check_type, check_type}}
     end
   rescue
     e ->
       Logger.error("Task execution failed: #{inspect(e)}")
       {:error, {:exception, Exception.message(e)}}
+  end
+
+  # Agent-delegated check implementations
+
+  defp execute_agent_status_check(config) do
+    tenant_id = config[:tenant_id] || config["tenant_id"]
+    agent_id = config[:agent_id] || config["agent_id"]
+
+    unless tenant_id && agent_id do
+      {:error, :missing_tenant_or_agent_id}
+    else
+      case ServiceRadarPoller.AgentClient.get_status(tenant_id, agent_id, %{}) do
+        {:ok, status} ->
+          {:ok, %{
+            status: if(status.available, do: :up, else: :down),
+            check_type: :agent_status,
+            agent_id: agent_id,
+            message: status.message,
+            response_time_ms: status.response_time,
+            timestamp: DateTime.utc_now()
+          }}
+
+        {:error, reason} ->
+          {:ok, %{
+            status: :down,
+            check_type: :agent_status,
+            agent_id: agent_id,
+            error: inspect(reason),
+            timestamp: DateTime.utc_now()
+          }}
+      end
+    end
+  end
+
+  defp execute_agent_sweep(config) do
+    tenant_id = config[:tenant_id] || config["tenant_id"]
+    agent_id = config[:agent_id] || config["agent_id"]
+    service_type = config[:service_type] || config["service_type"] || "icmp_sweep"
+    last_sequence = config[:last_sequence] || config["last_sequence"]
+
+    unless tenant_id && agent_id do
+      {:error, :missing_tenant_or_agent_id}
+    else
+      opts = %{
+        service_type: service_type,
+        last_sequence: last_sequence || ""
+      }
+
+      case ServiceRadarPoller.AgentClient.get_results(tenant_id, agent_id, opts) do
+        {:ok, results} ->
+          {:ok, %{
+            status: if(results.available, do: :up, else: :down),
+            check_type: :agent_sweep,
+            agent_id: agent_id,
+            service_type: results.service_type,
+            data: results.data,
+            has_new_data: results.has_new_data,
+            current_sequence: results.current_sequence,
+            response_time_ms: results.response_time,
+            timestamp: DateTime.utc_now()
+          }}
+
+        {:error, reason} ->
+          {:ok, %{
+            status: :down,
+            check_type: :agent_sweep,
+            agent_id: agent_id,
+            error: inspect(reason),
+            timestamp: DateTime.utc_now()
+          }}
+      end
+    end
+  end
+
+  defp execute_agent_delegated_check(config, service_type) do
+    tenant_id = config[:tenant_id] || config["tenant_id"]
+    agent_id = config[:agent_id] || config["agent_id"]
+    service_name = config[:service_name] || config["service_name"]
+
+    unless tenant_id && agent_id do
+      {:error, :missing_tenant_or_agent_id}
+    else
+      opts = %{
+        service_type: service_type,
+        service_name: service_name || ""
+      }
+
+      case ServiceRadarPoller.AgentClient.get_status(tenant_id, agent_id, opts) do
+        {:ok, status} ->
+          {:ok, %{
+            status: if(status.available, do: :up, else: :down),
+            check_type: String.to_atom(service_type),
+            agent_id: agent_id,
+            service_name: status.service_name,
+            message: status.message,
+            response_time_ms: status.response_time,
+            timestamp: DateTime.utc_now()
+          }}
+
+        {:error, reason} ->
+          {:ok, %{
+            status: :down,
+            check_type: String.to_atom(service_type),
+            agent_id: agent_id,
+            error: inspect(reason),
+            timestamp: DateTime.utc_now()
+          }}
+      end
+    end
   end
 
   defp execute_icmp_check(target, config) do
