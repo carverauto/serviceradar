@@ -15,51 +15,57 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
 
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Cluster.TenantGuard
-  alias ServiceRadar.Cluster.TenantViolation
 
-  @tenant_a "tenant-a-isolation-test"
-  @tenant_b "tenant-b-isolation-test"
-  @tenant_slug_a "acme-corp"
-  @tenant_slug_b "xyz-inc"
-
+  # Use unique tenant IDs per test run to avoid cross-test pollution
   setup do
+    # Generate unique tenant IDs for this test
+    unique_id = :erlang.unique_integer([:positive])
+    tenant_a = "tenant-a-isolation-#{unique_id}"
+    tenant_b = "tenant-b-isolation-#{unique_id}"
+    tenant_slug_a = "acme-corp-#{unique_id}"
+    tenant_slug_b = "xyz-inc-#{unique_id}"
+
     # Ensure TenantRegistry is running
     case Process.whereis(TenantRegistry) do
       nil ->
-        {:ok, _pid} = start_supervised(TenantRegistry)
+        start_supervised!(TenantRegistry)
 
       _pid ->
         :ok
     end
 
     # Create registries for both tenants
-    {:ok, _} = TenantRegistry.ensure_registry(@tenant_a, @tenant_slug_a)
-    {:ok, _} = TenantRegistry.ensure_registry(@tenant_b, @tenant_slug_b)
+    {:ok, _} = TenantRegistry.ensure_registry(tenant_a, tenant_slug_a)
+    {:ok, _} = TenantRegistry.ensure_registry(tenant_b, tenant_slug_b)
 
     on_exit(fn ->
-      # Clean up tenant registries
-      TenantRegistry.stop_tenant_infrastructure(@tenant_a)
-      TenantRegistry.stop_tenant_infrastructure(@tenant_b)
+      # Clean up tenant registries (ignore errors)
+      try do
+        TenantRegistry.stop_tenant_infrastructure(tenant_a)
+        TenantRegistry.stop_tenant_infrastructure(tenant_b)
+      catch
+        _, _ -> :ok
+      end
     end)
 
-    :ok
+    %{tenant_a: tenant_a, tenant_b: tenant_b, tenant_slug_a: tenant_slug_a, tenant_slug_b: tenant_slug_b}
   end
 
   describe "registry isolation" do
-    test "tenant A cannot see tenant B's pollers" do
+    test "tenant A cannot see tenant B's pollers", %{tenant_a: tenant_a, tenant_b: tenant_b} do
       # Ensure registries are fully initialized
-      assert Process.whereis(TenantRegistry.registry_name(@tenant_a)) != nil
-      assert Process.whereis(TenantRegistry.registry_name(@tenant_b)) != nil
+      assert Process.whereis(TenantRegistry.registry_name(tenant_a)) != nil
+      assert Process.whereis(TenantRegistry.registry_name(tenant_b)) != nil
 
       # Register pollers in both tenants
       {:ok, pid_a} =
-        TenantRegistry.register_poller(@tenant_a, "poller-a1", %{
+        TenantRegistry.register_poller(tenant_a, "poller-a1", %{
           partition_id: "partition-1",
           status: :available
         })
 
       {:ok, pid_b} =
-        TenantRegistry.register_poller(@tenant_b, "poller-b1", %{
+        TenantRegistry.register_poller(tenant_b, "poller-b1", %{
           partition_id: "partition-1",
           status: :available
         })
@@ -69,73 +75,73 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
       assert is_pid(pid_b)
 
       # Tenant A should only see its own poller
-      pollers_a = TenantRegistry.find_pollers(@tenant_a)
+      pollers_a = TenantRegistry.find_pollers(tenant_a)
       assert length(pollers_a) == 1
       assert hd(pollers_a)[:key] == {:poller, "poller-a1"}
 
       # Tenant B should only see its own poller
-      pollers_b = TenantRegistry.find_pollers(@tenant_b)
+      pollers_b = TenantRegistry.find_pollers(tenant_b)
       assert length(pollers_b) == 1,
              "Expected 1 poller for tenant B, got #{length(pollers_b)}: #{inspect(pollers_b)}"
 
       assert hd(pollers_b)[:key] == {:poller, "poller-b1"}
     end
 
-    test "tenant A cannot look up tenant B's poller by key" do
+    test "tenant A cannot look up tenant B's poller by key", %{tenant_a: tenant_a, tenant_b: tenant_b} do
       {:ok, _} =
-        TenantRegistry.register_poller(@tenant_b, "shared-name", %{status: :available})
+        TenantRegistry.register_poller(tenant_b, "shared-name", %{status: :available})
 
       # Tenant A tries to look up the same key - should not find it
-      assert [] = TenantRegistry.lookup(@tenant_a, {:poller, "shared-name"})
+      assert [] = TenantRegistry.lookup(tenant_a, {:poller, "shared-name"})
 
       # Tenant B can find its own
-      assert [{_, _}] = TenantRegistry.lookup(@tenant_b, {:poller, "shared-name"})
+      assert [{_, _}] = TenantRegistry.lookup(tenant_b, {:poller, "shared-name"})
     end
 
-    test "tenant A cannot see tenant B's agents" do
+    test "tenant A cannot see tenant B's agents", %{tenant_a: tenant_a, tenant_b: tenant_b} do
       {:ok, _} =
-        TenantRegistry.register_agent(@tenant_a, "agent-a1", %{
+        TenantRegistry.register_agent(tenant_a, "agent-a1", %{
           capabilities: [:icmp]
         })
 
       {:ok, _} =
-        TenantRegistry.register_agent(@tenant_b, "agent-b1", %{
+        TenantRegistry.register_agent(tenant_b, "agent-b1", %{
           capabilities: [:tcp]
         })
 
-      agents_a = TenantRegistry.find_agents(@tenant_a)
-      agents_b = TenantRegistry.find_agents(@tenant_b)
+      agents_a = TenantRegistry.find_agents(tenant_a)
+      agents_b = TenantRegistry.find_agents(tenant_b)
 
       assert length(agents_a) == 1
       assert length(agents_b) == 1
       assert hd(agents_a)[:key] != hd(agents_b)[:key]
     end
 
-    test "count is isolated per tenant" do
-      {:ok, _} = TenantRegistry.register_poller(@tenant_a, "p1", %{})
-      {:ok, _} = TenantRegistry.register_poller(@tenant_a, "p2", %{})
-      {:ok, _} = TenantRegistry.register_poller(@tenant_a, "p3", %{})
-      {:ok, _} = TenantRegistry.register_poller(@tenant_b, "p1", %{})
+    test "count is isolated per tenant", %{tenant_a: tenant_a, tenant_b: tenant_b} do
+      {:ok, _} = TenantRegistry.register_poller(tenant_a, "p1", %{})
+      {:ok, _} = TenantRegistry.register_poller(tenant_a, "p2", %{})
+      {:ok, _} = TenantRegistry.register_poller(tenant_a, "p3", %{})
+      {:ok, _} = TenantRegistry.register_poller(tenant_b, "p1", %{})
 
-      assert TenantRegistry.count(@tenant_a) == 3
-      assert TenantRegistry.count(@tenant_b) == 1
+      assert TenantRegistry.count(tenant_a) == 3
+      assert TenantRegistry.count(tenant_b) == 1
     end
 
-    test "heartbeat only affects correct tenant's poller" do
-      {:ok, _} = TenantRegistry.register_poller(@tenant_a, "poller-1", %{})
-      {:ok, _} = TenantRegistry.register_poller(@tenant_b, "poller-1", %{})
+    test "heartbeat only affects correct tenant's poller", %{tenant_a: tenant_a, tenant_b: tenant_b} do
+      {:ok, _} = TenantRegistry.register_poller(tenant_a, "poller-1", %{})
+      {:ok, _} = TenantRegistry.register_poller(tenant_b, "poller-1", %{})
 
       # Get initial heartbeats
-      [poller_a_before] = TenantRegistry.find_pollers(@tenant_a)
-      [poller_b_before] = TenantRegistry.find_pollers(@tenant_b)
+      [poller_a_before] = TenantRegistry.find_pollers(tenant_a)
+      [poller_b_before] = TenantRegistry.find_pollers(tenant_b)
 
       Process.sleep(10)
 
       # Update only tenant A's heartbeat
-      :ok = TenantRegistry.poller_heartbeat(@tenant_a, "poller-1")
+      :ok = TenantRegistry.poller_heartbeat(tenant_a, "poller-1")
 
-      [poller_a_after] = TenantRegistry.find_pollers(@tenant_a)
-      [poller_b_after] = TenantRegistry.find_pollers(@tenant_b)
+      [poller_a_after] = TenantRegistry.find_pollers(tenant_a)
+      [poller_b_after] = TenantRegistry.find_pollers(tenant_b)
 
       # Tenant A's heartbeat should be updated
       assert DateTime.compare(
@@ -177,25 +183,25 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
       end
     end
 
-    test "same-tenant process communication succeeds" do
-      {:ok, worker} = TenantAwareWorker.start_link(tenant_id: @tenant_a)
+    test "same-tenant process communication succeeds", %{tenant_a: tenant_a} do
+      {:ok, worker} = TenantAwareWorker.start_link(tenant_id: tenant_a)
 
       # Set caller to same tenant
-      TenantGuard.set_process_tenant(@tenant_a)
+      TenantGuard.set_process_tenant(tenant_a)
 
-      assert {:ok, "secret-" <> @tenant_a} = GenServer.call(worker, :get_data)
+      assert {:ok, "secret-" <> ^tenant_a} = GenServer.call(worker, :get_data)
 
       GenServer.stop(worker)
     end
 
-    test "cross-tenant process communication is blocked" do
+    test "cross-tenant process communication is blocked", %{tenant_a: tenant_a, tenant_b: tenant_b} do
       # Trap exits so the GenServer crash doesn't kill us
       Process.flag(:trap_exit, true)
 
-      {:ok, worker} = TenantAwareWorker.start_link(tenant_id: @tenant_a)
+      {:ok, worker} = TenantAwareWorker.start_link(tenant_id: tenant_a)
 
       # Set caller to different tenant
-      TenantGuard.set_process_tenant(@tenant_b)
+      TenantGuard.set_process_tenant(tenant_b)
 
       # The exception is raised in the GenServer and propagates as an exit
       # We expect the call to either crash or return an exit
@@ -209,9 +215,9 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
       assert match?({:caught_exit, _}, result)
     end
 
-    test "platform admin can access any tenant's processes" do
-      {:ok, worker_a} = TenantAwareWorker.start_link(tenant_id: @tenant_a)
-      {:ok, worker_b} = TenantAwareWorker.start_link(tenant_id: @tenant_b)
+    test "platform admin can access any tenant's processes", %{tenant_a: tenant_a, tenant_b: tenant_b} do
+      {:ok, worker_a} = TenantAwareWorker.start_link(tenant_id: tenant_a)
+      {:ok, worker_b} = TenantAwareWorker.start_link(tenant_id: tenant_b)
 
       # Platform admin
       TenantGuard.set_process_tenant(:platform)
@@ -223,8 +229,8 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
       GenServer.stop(worker_b)
     end
 
-    test "super_admin can access any tenant's processes" do
-      {:ok, worker} = TenantAwareWorker.start_link(tenant_id: @tenant_a)
+    test "super_admin can access any tenant's processes", %{tenant_a: tenant_a} do
+      {:ok, worker} = TenantAwareWorker.start_link(tenant_id: tenant_a)
 
       TenantGuard.set_process_tenant(:super_admin)
 
@@ -235,53 +241,53 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
   end
 
   describe "combined registry + guard isolation" do
-    test "attacker scenario: cannot discover and call cross-tenant processes" do
+    test "attacker scenario: cannot discover and call cross-tenant processes", %{tenant_a: tenant_a, tenant_b: tenant_b} do
       # Scenario: Attacker is on tenant B, tries to access tenant A's poller
 
       # Tenant A registers a poller
       {:ok, _} =
-        TenantRegistry.register_poller(@tenant_a, "secret-poller", %{
+        TenantRegistry.register_poller(tenant_a, "secret-poller", %{
           partition_id: "partition-1",
           status: :available
         })
 
       # Attacker (tenant B) tries to discover tenant A's pollers
       # This should return empty - first line of defense
-      attacker_discovered_pollers = TenantRegistry.find_pollers(@tenant_b)
+      attacker_discovered_pollers = TenantRegistry.find_pollers(tenant_b)
       assert attacker_discovered_pollers == []
 
       # Attacker tries to guess the key - also fails
-      assert [] = TenantRegistry.lookup(@tenant_b, {:poller, "secret-poller"})
+      assert [] = TenantRegistry.lookup(tenant_b, {:poller, "secret-poller"})
 
       # Even if attacker somehow got a PID (e.g., via observer before we added isolation),
       # TenantGuard would block the call - defense in depth
       # (We can't easily simulate this without exposing PIDs, but the mechanism is tested above)
     end
 
-    test "legitimate same-tenant operations work correctly" do
+    test "legitimate same-tenant operations work correctly", %{tenant_a: tenant_a} do
       # Tenant A's poller registration
       {:ok, _} =
-        TenantRegistry.register_poller(@tenant_a, "my-poller", %{
+        TenantRegistry.register_poller(tenant_a, "my-poller", %{
           partition_id: "partition-1",
           status: :available
         })
 
       # Tenant A can find its poller
-      pollers = TenantRegistry.find_pollers(@tenant_a)
+      pollers = TenantRegistry.find_pollers(tenant_a)
       assert length(pollers) == 1
 
       # Tenant A can look it up
-      assert [{pid, metadata}] = TenantRegistry.lookup(@tenant_a, {:poller, "my-poller"})
+      assert [{pid, metadata}] = TenantRegistry.lookup(tenant_a, {:poller, "my-poller"})
       assert is_pid(pid)
       assert metadata[:partition_id] == "partition-1"
 
       # Tenant A can update heartbeat
-      :ok = TenantRegistry.poller_heartbeat(@tenant_a, "my-poller")
+      :ok = TenantRegistry.poller_heartbeat(tenant_a, "my-poller")
     end
   end
 
   describe "DynamicSupervisor isolation" do
-    test "child processes started under tenant supervisor are isolated" do
+    test "child processes started under tenant supervisor are isolated", %{tenant_a: tenant_a, tenant_b: tenant_b} do
       # Start a process under tenant A's supervisor
       child_spec_a = %{
         id: :test_agent_a,
@@ -289,7 +295,7 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
         restart: :temporary
       }
 
-      {:ok, pid_a} = TenantRegistry.start_child(@tenant_a, child_spec_a)
+      {:ok, pid_a} = TenantRegistry.start_child(tenant_a, child_spec_a)
 
       # Start a process under tenant B's supervisor
       child_spec_b = %{
@@ -298,7 +304,7 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
         restart: :temporary
       }
 
-      {:ok, pid_b} = TenantRegistry.start_child(@tenant_b, child_spec_b)
+      {:ok, pid_b} = TenantRegistry.start_child(tenant_b, child_spec_b)
 
       # Both processes are alive
       assert Process.alive?(pid_a)
@@ -309,7 +315,7 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
       assert Agent.get(pid_b, & &1) == "tenant-b-data"
 
       # Terminate tenant A's supervisor
-      :ok = TenantRegistry.terminate_child(@tenant_a, pid_a)
+      :ok = TenantRegistry.terminate_child(tenant_a, pid_a)
 
       # Tenant A's process is dead, tenant B's is still alive
       Process.sleep(10)
@@ -319,17 +325,17 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
   end
 
   describe "slug alias lookup" do
-    test "can look up tenant UUID from slug" do
-      assert {:ok, @tenant_a} = TenantRegistry.tenant_id_for_slug(@tenant_slug_a)
-      assert {:ok, @tenant_b} = TenantRegistry.tenant_id_for_slug(@tenant_slug_b)
+    test "can look up tenant UUID from slug", %{tenant_a: tenant_a, tenant_b: tenant_b, tenant_slug_a: tenant_slug_a, tenant_slug_b: tenant_slug_b} do
+      assert {:ok, ^tenant_a} = TenantRegistry.tenant_id_for_slug(tenant_slug_a)
+      assert {:ok, ^tenant_b} = TenantRegistry.tenant_id_for_slug(tenant_slug_b)
     end
 
-    test "can look up slug from tenant UUID" do
-      assert {:ok, @tenant_slug_a} = TenantRegistry.slug_for_tenant_id(@tenant_a)
-      assert {:ok, @tenant_slug_b} = TenantRegistry.slug_for_tenant_id(@tenant_b)
+    test "can look up slug from tenant UUID", %{tenant_a: tenant_a, tenant_b: tenant_b, tenant_slug_a: tenant_slug_a, tenant_slug_b: tenant_slug_b} do
+      assert {:ok, ^tenant_slug_a} = TenantRegistry.slug_for_tenant_id(tenant_a)
+      assert {:ok, ^tenant_slug_b} = TenantRegistry.slug_for_tenant_id(tenant_b)
     end
 
-    test "unknown slug returns error" do
+    test "unknown slug returns error", _context do
       assert :error = TenantRegistry.tenant_id_for_slug("unknown-slug")
     end
   end

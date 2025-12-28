@@ -3,64 +3,45 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
 
   alias ServiceRadar.Cluster.TenantRegistry
 
-  @tenant_id_1 "550e8400-e29b-41d4-a716-446655440001"
-  @tenant_id_2 "550e8400-e29b-41d4-a716-446655440002"
-  @tenant_slug_1 "acme-corp"
-  @tenant_slug_2 "xyz-inc"
-
+  # Use unique tenant IDs per test to avoid cross-test pollution
   setup do
-    # TenantRegistry is started by the application supervisor
-    # We just need to ensure it's running and clean up tenant registries between tests
+    unique_id = :erlang.unique_integer([:positive])
+    tenant_id_1 = "tenant-1-registry-test-#{unique_id}"
+    tenant_id_2 = "tenant-2-registry-test-#{unique_id}"
+    tenant_slug_1 = "acme-corp-#{unique_id}"
+    tenant_slug_2 = "xyz-inc-#{unique_id}"
+
+    # Ensure TenantRegistry is running
     case Process.whereis(TenantRegistry) do
       nil ->
-        # Not running, start it for tests
         start_supervised!(TenantRegistry)
 
       _pid ->
-        # Already running from application, clean up any existing tenant registries
-        try do
-          TenantRegistry.list_registries()
-          |> Enum.each(fn {_name, pid} ->
-            try do
-              # Terminate each tenant's infrastructure
-              Process.exit(pid, :shutdown)
-            catch
-              _, _ -> :ok
-            end
-          end)
-
-          # Wait for cleanup
-          Process.sleep(50)
-        catch
-          _, _ -> :ok
-        end
+        :ok
     end
 
     on_exit(fn ->
-      # Clean up any tenant infrastructure we created during the test
-      if Process.whereis(TenantRegistry) do
-        try do
-          TenantRegistry.list_registries()
-          |> Enum.each(fn {_name, pid} ->
-            try do
-              Process.exit(pid, :shutdown)
-            catch
-              _, _ -> :ok
-            end
-          end)
-        catch
-          _, _ -> :ok
-        end
+      # Clean up tenant registries created during the test (ignore errors)
+      try do
+        TenantRegistry.stop_tenant_infrastructure(tenant_id_1)
+        TenantRegistry.stop_tenant_infrastructure(tenant_id_2)
+      catch
+        _, _ -> :ok
       end
     end)
 
-    :ok
+    %{
+      tenant_id_1: tenant_id_1,
+      tenant_id_2: tenant_id_2,
+      tenant_slug_1: tenant_slug_1,
+      tenant_slug_2: tenant_slug_2
+    }
   end
 
   describe "ensure_registry/1" do
-    test "creates registry and supervisor for new tenant" do
+    test "creates registry and supervisor for new tenant", %{tenant_id_1: tenant_id_1} do
       assert {:ok, %{registry: registry, supervisor: supervisor}} =
-               TenantRegistry.ensure_registry(@tenant_id_1)
+               TenantRegistry.ensure_registry(tenant_id_1)
 
       assert is_atom(registry)
       assert is_atom(supervisor)
@@ -68,50 +49,50 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
       assert Process.whereis(supervisor) != nil
     end
 
-    test "returns existing registry for same tenant" do
-      {:ok, %{registry: registry1}} = TenantRegistry.ensure_registry(@tenant_id_1)
-      {:ok, %{registry: registry2}} = TenantRegistry.ensure_registry(@tenant_id_1)
+    test "returns existing registry for same tenant", %{tenant_id_1: tenant_id_1} do
+      {:ok, %{registry: registry1}} = TenantRegistry.ensure_registry(tenant_id_1)
+      {:ok, %{registry: registry2}} = TenantRegistry.ensure_registry(tenant_id_1)
 
       assert registry1 == registry2
     end
 
-    test "creates separate registries for different tenants" do
-      {:ok, %{registry: registry1}} = TenantRegistry.ensure_registry(@tenant_id_1)
-      {:ok, %{registry: registry2}} = TenantRegistry.ensure_registry(@tenant_id_2)
+    test "creates separate registries for different tenants", %{tenant_id_1: tenant_id_1, tenant_id_2: tenant_id_2} do
+      {:ok, %{registry: registry1}} = TenantRegistry.ensure_registry(tenant_id_1)
+      {:ok, %{registry: registry2}} = TenantRegistry.ensure_registry(tenant_id_2)
 
       assert registry1 != registry2
     end
   end
 
   describe "ensure_registry/2 with slug" do
-    test "registers slug -> UUID mapping" do
-      {:ok, _} = TenantRegistry.ensure_registry(@tenant_id_1, @tenant_slug_1)
+    test "registers slug -> UUID mapping", %{tenant_id_1: tenant_id_1, tenant_slug_1: tenant_slug_1} do
+      {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1, tenant_slug_1)
 
-      assert {:ok, @tenant_id_1} = TenantRegistry.tenant_id_for_slug(@tenant_slug_1)
+      assert {:ok, ^tenant_id_1} = TenantRegistry.tenant_id_for_slug(tenant_slug_1)
     end
 
-    test "returns error for unknown slug" do
+    test "returns error for unknown slug", _context do
       assert :error = TenantRegistry.tenant_id_for_slug("unknown-slug")
     end
   end
 
   describe "registry_name/1" do
-    test "generates consistent names for same tenant" do
-      name1 = TenantRegistry.registry_name(@tenant_id_1)
-      name2 = TenantRegistry.registry_name(@tenant_id_1)
+    test "generates consistent names for same tenant", %{tenant_id_1: tenant_id_1} do
+      name1 = TenantRegistry.registry_name(tenant_id_1)
+      name2 = TenantRegistry.registry_name(tenant_id_1)
 
       assert name1 == name2
     end
 
-    test "generates different names for different tenants" do
-      name1 = TenantRegistry.registry_name(@tenant_id_1)
-      name2 = TenantRegistry.registry_name(@tenant_id_2)
+    test "generates different names for different tenants", %{tenant_id_1: tenant_id_1, tenant_id_2: tenant_id_2} do
+      name1 = TenantRegistry.registry_name(tenant_id_1)
+      name2 = TenantRegistry.registry_name(tenant_id_2)
 
       assert name1 != name2
     end
 
-    test "uses hash-based naming" do
-      name = TenantRegistry.registry_name(@tenant_id_1)
+    test "uses hash-based naming", %{tenant_id_1: tenant_id_1} do
+      name = TenantRegistry.registry_name(tenant_id_1)
       name_str = Atom.to_string(name)
 
       assert String.starts_with?(name_str, "ServiceRadar.TenantRegistry.T_")
@@ -120,45 +101,45 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
   end
 
   describe "register/3 and lookup/2" do
-    test "registers and looks up process in tenant registry" do
-      {:ok, _} = TenantRegistry.ensure_registry(@tenant_id_1)
+    test "registers and looks up process in tenant registry", %{tenant_id_1: tenant_id_1} do
+      {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
       key = {:poller, "poller-001"}
       metadata = %{status: :available, node: node()}
 
-      {:ok, _pid} = TenantRegistry.register(@tenant_id_1, key, metadata)
+      {:ok, _pid} = TenantRegistry.register(tenant_id_1, key, metadata)
 
-      assert [{pid, found_metadata}] = TenantRegistry.lookup(@tenant_id_1, key)
+      assert [{pid, found_metadata}] = TenantRegistry.lookup(tenant_id_1, key)
       assert is_pid(pid)
       assert found_metadata.status == :available
     end
 
-    test "returns empty list for non-existent key" do
-      {:ok, _} = TenantRegistry.ensure_registry(@tenant_id_1)
+    test "returns empty list for non-existent key", %{tenant_id_1: tenant_id_1} do
+      {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
-      assert [] = TenantRegistry.lookup(@tenant_id_1, {:poller, "non-existent"})
+      assert [] = TenantRegistry.lookup(tenant_id_1, {:poller, "non-existent"})
     end
 
-    test "tenant isolation - cannot see other tenant's registrations" do
-      {:ok, _} = TenantRegistry.ensure_registry(@tenant_id_1)
-      {:ok, _} = TenantRegistry.ensure_registry(@tenant_id_2)
+    test "tenant isolation - cannot see other tenant's registrations", %{tenant_id_1: tenant_id_1, tenant_id_2: tenant_id_2} do
+      {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
+      {:ok, _} = TenantRegistry.ensure_registry(tenant_id_2)
 
       key = {:poller, "poller-001"}
       metadata = %{status: :available}
 
-      {:ok, _pid} = TenantRegistry.register(@tenant_id_1, key, metadata)
+      {:ok, _pid} = TenantRegistry.register(tenant_id_1, key, metadata)
 
       # Same key in tenant 1 should be found
-      assert [{_pid, _}] = TenantRegistry.lookup(@tenant_id_1, key)
+      assert [{_pid, _}] = TenantRegistry.lookup(tenant_id_1, key)
 
       # Same key in tenant 2 should NOT be found
-      assert [] = TenantRegistry.lookup(@tenant_id_2, key)
+      assert [] = TenantRegistry.lookup(tenant_id_2, key)
     end
   end
 
   describe "register_poller/3 and find_pollers/1" do
-    test "registers poller with auto-generated metadata" do
-      {:ok, _} = TenantRegistry.ensure_registry(@tenant_id_1)
+    test "registers poller with auto-generated metadata", %{tenant_id_1: tenant_id_1} do
+      {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
       metadata = %{
         partition_id: "partition-1",
@@ -166,9 +147,9 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
         status: :available
       }
 
-      {:ok, _pid} = TenantRegistry.register_poller(@tenant_id_1, "poller-001", metadata)
+      {:ok, _pid} = TenantRegistry.register_poller(tenant_id_1, "poller-001", metadata)
 
-      pollers = TenantRegistry.find_pollers(@tenant_id_1)
+      pollers = TenantRegistry.find_pollers(tenant_id_1)
 
       assert length(pollers) == 1
       [poller] = pollers
@@ -179,15 +160,15 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
       assert %DateTime{} = poller[:last_heartbeat]
     end
 
-    test "find_available_pollers/1 filters by status" do
-      {:ok, _} = TenantRegistry.ensure_registry(@tenant_id_1)
+    test "find_available_pollers/1 filters by status", %{tenant_id_1: tenant_id_1} do
+      {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
       {:ok, _} =
-        TenantRegistry.register_poller(@tenant_id_1, "poller-001", %{status: :available})
+        TenantRegistry.register_poller(tenant_id_1, "poller-001", %{status: :available})
 
-      {:ok, _} = TenantRegistry.register_poller(@tenant_id_1, "poller-002", %{status: :busy})
+      {:ok, _} = TenantRegistry.register_poller(tenant_id_1, "poller-002", %{status: :busy})
 
-      available = TenantRegistry.find_available_pollers(@tenant_id_1)
+      available = TenantRegistry.find_available_pollers(tenant_id_1)
 
       assert length(available) == 1
       assert hd(available)[:status] == :available
@@ -195,8 +176,8 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
   end
 
   describe "register_agent/3 and find_agents/1" do
-    test "registers agent with auto-generated metadata" do
-      {:ok, _} = TenantRegistry.ensure_registry(@tenant_id_1)
+    test "registers agent with auto-generated metadata", %{tenant_id_1: tenant_id_1} do
+      {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
       metadata = %{
         partition_id: "partition-1",
@@ -204,9 +185,9 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
         status: :connected
       }
 
-      {:ok, _pid} = TenantRegistry.register_agent(@tenant_id_1, "agent-001", metadata)
+      {:ok, _pid} = TenantRegistry.register_agent(tenant_id_1, "agent-001", metadata)
 
-      agents = TenantRegistry.find_agents(@tenant_id_1)
+      agents = TenantRegistry.find_agents(tenant_id_1)
 
       assert length(agents) == 1
       [agent] = agents
@@ -217,57 +198,57 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
   end
 
   describe "unregister/2" do
-    test "unregisters process from tenant registry" do
-      {:ok, _} = TenantRegistry.ensure_registry(@tenant_id_1)
+    test "unregisters process from tenant registry", %{tenant_id_1: tenant_id_1} do
+      {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
       key = {:poller, "poller-001"}
-      {:ok, _pid} = TenantRegistry.register(@tenant_id_1, key, %{})
+      {:ok, _pid} = TenantRegistry.register(tenant_id_1, key, %{})
 
-      assert [{_, _}] = TenantRegistry.lookup(@tenant_id_1, key)
+      assert [{_, _}] = TenantRegistry.lookup(tenant_id_1, key)
 
-      :ok = TenantRegistry.unregister(@tenant_id_1, key)
+      :ok = TenantRegistry.unregister(tenant_id_1, key)
 
-      assert [] = TenantRegistry.lookup(@tenant_id_1, key)
+      assert [] = TenantRegistry.lookup(tenant_id_1, key)
     end
   end
 
   describe "count/1 and count_by_type/2" do
-    test "counts all processes in tenant registry" do
-      {:ok, _} = TenantRegistry.ensure_registry(@tenant_id_1)
+    test "counts all processes in tenant registry", %{tenant_id_1: tenant_id_1} do
+      {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
-      {:ok, _} = TenantRegistry.register_poller(@tenant_id_1, "poller-001", %{})
-      {:ok, _} = TenantRegistry.register_poller(@tenant_id_1, "poller-002", %{})
-      {:ok, _} = TenantRegistry.register_agent(@tenant_id_1, "agent-001", %{})
+      {:ok, _} = TenantRegistry.register_poller(tenant_id_1, "poller-001", %{})
+      {:ok, _} = TenantRegistry.register_poller(tenant_id_1, "poller-002", %{})
+      {:ok, _} = TenantRegistry.register_agent(tenant_id_1, "agent-001", %{})
 
-      assert TenantRegistry.count(@tenant_id_1) == 3
+      assert TenantRegistry.count(tenant_id_1) == 3
     end
 
-    test "counts processes by type" do
-      {:ok, _} = TenantRegistry.ensure_registry(@tenant_id_1)
+    test "counts processes by type", %{tenant_id_1: tenant_id_1} do
+      {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
-      {:ok, _} = TenantRegistry.register_poller(@tenant_id_1, "poller-001", %{})
-      {:ok, _} = TenantRegistry.register_poller(@tenant_id_1, "poller-002", %{})
-      {:ok, _} = TenantRegistry.register_agent(@tenant_id_1, "agent-001", %{})
+      {:ok, _} = TenantRegistry.register_poller(tenant_id_1, "poller-001", %{})
+      {:ok, _} = TenantRegistry.register_poller(tenant_id_1, "poller-002", %{})
+      {:ok, _} = TenantRegistry.register_agent(tenant_id_1, "agent-001", %{})
 
-      assert TenantRegistry.count_by_type(@tenant_id_1, :poller) == 2
-      assert TenantRegistry.count_by_type(@tenant_id_1, :agent) == 1
+      assert TenantRegistry.count_by_type(tenant_id_1, :poller) == 2
+      assert TenantRegistry.count_by_type(tenant_id_1, :agent) == 1
     end
   end
 
   describe "poller_heartbeat/2" do
-    test "updates last_heartbeat timestamp" do
-      {:ok, _} = TenantRegistry.ensure_registry(@tenant_id_1)
+    test "updates last_heartbeat timestamp", %{tenant_id_1: tenant_id_1} do
+      {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
-      {:ok, _} = TenantRegistry.register_poller(@tenant_id_1, "poller-001", %{})
+      {:ok, _} = TenantRegistry.register_poller(tenant_id_1, "poller-001", %{})
 
-      [poller_before] = TenantRegistry.find_pollers(@tenant_id_1)
+      [poller_before] = TenantRegistry.find_pollers(tenant_id_1)
       original_heartbeat = poller_before[:last_heartbeat]
 
       Process.sleep(10)
 
-      :ok = TenantRegistry.poller_heartbeat(@tenant_id_1, "poller-001")
+      :ok = TenantRegistry.poller_heartbeat(tenant_id_1, "poller-001")
 
-      [poller_after] = TenantRegistry.find_pollers(@tenant_id_1)
+      [poller_after] = TenantRegistry.find_pollers(tenant_id_1)
       new_heartbeat = poller_after[:last_heartbeat]
 
       assert DateTime.compare(new_heartbeat, original_heartbeat) == :gt
@@ -275,8 +256,8 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
   end
 
   describe "start_child/2" do
-    test "starts child under tenant's DynamicSupervisor" do
-      {:ok, _} = TenantRegistry.ensure_registry(@tenant_id_1)
+    test "starts child under tenant's DynamicSupervisor", %{tenant_id_1: tenant_id_1} do
+      {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
       child_spec = %{
         id: :test_worker,
@@ -284,7 +265,7 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
         restart: :temporary
       }
 
-      {:ok, pid} = TenantRegistry.start_child(@tenant_id_1, child_spec)
+      {:ok, pid} = TenantRegistry.start_child(tenant_id_1, child_spec)
 
       assert is_pid(pid)
       assert Agent.get(pid, & &1) == 42
@@ -292,23 +273,36 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
   end
 
   describe "stop_tenant_infrastructure/1" do
-    test "stops registry and supervisor for tenant" do
+    test "stops registry and supervisor for tenant", %{tenant_id_1: tenant_id_1} do
       {:ok, %{registry: registry, supervisor: supervisor}} =
-        TenantRegistry.ensure_registry(@tenant_id_1)
+        TenantRegistry.ensure_registry(tenant_id_1)
 
       assert Process.whereis(registry) != nil
       assert Process.whereis(supervisor) != nil
 
-      :ok = TenantRegistry.stop_tenant_infrastructure(@tenant_id_1)
+      :ok = TenantRegistry.stop_tenant_infrastructure(tenant_id_1)
 
-      # Give processes time to terminate
-      Process.sleep(50)
+      # Poll for processes to terminate (up to 500ms)
+      wait_for_process_down(registry, 50, 10)
+      wait_for_process_down(supervisor, 50, 10)
 
       assert Process.whereis(registry) == nil
       assert Process.whereis(supervisor) == nil
     end
 
-    test "returns error for non-existent tenant" do
+    # Helper to wait for a process to terminate
+    defp wait_for_process_down(_name, _interval, 0), do: :ok
+
+    defp wait_for_process_down(name, interval, retries) do
+      case Process.whereis(name) do
+        nil -> :ok
+        _pid ->
+          Process.sleep(interval)
+          wait_for_process_down(name, interval, retries - 1)
+      end
+    end
+
+    test "returns error for non-existent tenant", _context do
       assert {:error, :not_found} =
                TenantRegistry.stop_tenant_infrastructure("non-existent-tenant-id")
     end

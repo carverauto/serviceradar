@@ -255,23 +255,49 @@ defmodule ServiceRadar.Cluster.TenantRegistry do
       nil ->
         {:error, :not_found}
 
-      _pid ->
-        # Find and terminate the tenant supervisor
-        base = base_name(tenant_id)
-
-        # Child id matches the string we passed in start_tenant_infrastructure
-        Enum.find(DynamicSupervisor.which_children(__MODULE__), fn {id, _, _, _} ->
-          id == base
-        end)
-        |> case do
-          {_id, pid, _, _} ->
-            DynamicSupervisor.terminate_child(__MODULE__, pid)
-            Logger.info("Stopped tenant infrastructure: #{base}")
-            :ok
-
+      registry_pid ->
+        # Get the parent supervisor (TenantSupervisor) of the registry
+        # The registry is a child of TenantSupervisor, which is a child of us
+        case get_parent_supervisor(registry_pid) do
           nil ->
             {:error, :not_found}
+
+          tenant_supervisor_pid ->
+            DynamicSupervisor.terminate_child(__MODULE__, tenant_supervisor_pid)
+            Logger.info("Stopped tenant infrastructure for: #{tenant_id}")
+            :ok
         end
+    end
+  end
+
+  # Finds the TenantSupervisor by matching ancestors with DynamicSupervisor children
+  defp get_parent_supervisor(pid) do
+    # Get all PIDs that are children of our DynamicSupervisor
+    child_pids =
+      DynamicSupervisor.which_children(__MODULE__)
+      |> Enum.map(fn {_, child_pid, _, _} -> child_pid end)
+      |> MapSet.new()
+
+    # Get ancestors of the registry process and find which one is our child
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dict} ->
+        ancestors = Keyword.get(dict, :"$ancestors", [])
+
+        # Find the ancestor that is a direct child of our DynamicSupervisor
+        Enum.find_value(ancestors, fn
+          ancestor when is_pid(ancestor) ->
+            if MapSet.member?(child_pids, ancestor), do: ancestor, else: nil
+
+          ancestor when is_atom(ancestor) ->
+            ancestor_pid = Process.whereis(ancestor)
+            if ancestor_pid && MapSet.member?(child_pids, ancestor_pid), do: ancestor_pid, else: nil
+
+          _ ->
+            nil
+        end)
+
+      _ ->
+        nil
     end
   end
 
