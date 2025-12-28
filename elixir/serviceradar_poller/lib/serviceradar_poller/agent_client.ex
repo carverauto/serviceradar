@@ -299,14 +299,19 @@ defmodule ServiceRadarPoller.AgentClient do
   end
 
   defp create_connection(tenant_id, agent_id) do
+    # Look up tenant slug for certificate validation
+    tenant_slug = get_tenant_slug(tenant_id)
+
     case AgentRegistry.get_grpc_address(tenant_id, agent_id) do
       {:ok, {host, port}} ->
-        Logger.info("Connecting to agent #{agent_id} at #{host}:#{port}")
+        Logger.info("Connecting to agent #{agent_id} at #{host}:#{port} for tenant #{tenant_slug || tenant_id}")
 
-        # TODO: Add mTLS options from SPIFFE certs
-        case GRPC.Stub.connect("#{host}:#{port}", timeout: @connection_timeout) do
+        cred_opts = build_grpc_credentials(host, tenant_slug)
+        connect_opts = [timeout: @connection_timeout] ++ cred_opts
+
+        case GRPC.Stub.connect("#{host}:#{port}", connect_opts) do
           {:ok, channel} ->
-            Logger.info("Connected to agent #{agent_id}")
+            Logger.info("Connected to agent #{agent_id} for tenant #{tenant_slug || tenant_id}")
             {:ok, channel}
 
           {:error, reason} ->
@@ -319,6 +324,111 @@ defmodule ServiceRadarPoller.AgentClient do
 
       {:error, :no_grpc_address} ->
         {:error, :no_grpc_address}
+    end
+  end
+
+  # Resolve tenant_id (UUID) to tenant_slug for certificate validation
+  defp get_tenant_slug(tenant_id) do
+    case ServiceRadar.Cluster.TenantRegistry.slug_for_tenant_id(tenant_id) do
+      {:ok, slug} -> slug
+      :error -> nil
+    end
+  end
+
+  # Build gRPC credentials with mTLS if configured
+  defp build_grpc_credentials(host, expected_tenant_slug) do
+    case ServiceRadar.SPIFFE.client_ssl_opts() do
+      {:ok, ssl_opts} ->
+        # Add server name indication and tenant verification
+        ssl_opts_with_verification =
+          ssl_opts
+          |> Keyword.put(:server_name_indication, String.to_charlist(host))
+          |> maybe_add_tenant_verification(expected_tenant_slug)
+
+        Logger.debug("Using mTLS for agent connection (tenant: #{expected_tenant_slug || "any"})")
+        [cred: GRPC.Credential.new(ssl: ssl_opts_with_verification)]
+
+      {:error, reason} ->
+        Logger.warning("mTLS not available (#{inspect(reason)}), using insecure connection")
+        []
+    end
+  end
+
+  # Add tenant verification to SSL options if tenant slug is known
+  defp maybe_add_tenant_verification(ssl_opts, nil), do: ssl_opts
+
+  defp maybe_add_tenant_verification(ssl_opts, expected_tenant_slug) do
+    verify_fun = {&verify_agent_tenant/3, %{expected_tenant: expected_tenant_slug}}
+    Keyword.put(ssl_opts, :verify_fun, verify_fun)
+  end
+
+  # Custom TLS verification function that checks agent certificate tenant
+  defp verify_agent_tenant(cert, event, state) do
+    case event do
+      {:bad_cert, _reason} = error ->
+        {:fail, error}
+
+      {:extension, _} ->
+        {:unknown, state}
+
+      :valid ->
+        {:valid, state}
+
+      :valid_peer ->
+        # This is the leaf certificate (the agent's cert) - validate tenant
+        validate_peer_tenant(cert, state)
+    end
+  end
+
+  defp validate_peer_tenant(cert, %{expected_tenant: expected_tenant} = state) do
+    # Extract CN from certificate
+    case extract_cn_from_cert(cert) do
+      {:ok, cn} ->
+        case ServiceRadar.Edge.TenantResolver.extract_slug_from_cn(cn) do
+          {:ok, ^expected_tenant} ->
+            Logger.debug("Agent certificate tenant validated: #{expected_tenant}")
+            {:valid, state}
+
+          {:ok, actual_tenant} ->
+            Logger.error("Agent certificate tenant mismatch: expected #{expected_tenant}, got #{actual_tenant}")
+            {:fail, {:tenant_mismatch, expected_tenant, actual_tenant}}
+
+          :error ->
+            Logger.warning("Could not extract tenant from agent certificate CN: #{cn}")
+            # Allow connection but log warning - CN might be in different format
+            {:valid, state}
+        end
+
+      {:error, reason} ->
+        Logger.error("Failed to extract CN from agent certificate: #{inspect(reason)}")
+        {:fail, {:invalid_certificate, reason}}
+    end
+  end
+
+  # Extract Common Name from OTP certificate
+  defp extract_cn_from_cert(otp_cert) do
+    try do
+      {:OTPCertificate, tbs_cert, _, _} = otp_cert
+      subject = elem(tbs_cert, 5)
+
+      case subject do
+        {:rdnSequence, rdns} ->
+          cn =
+            rdns
+            |> List.flatten()
+            |> Enum.find_value(fn
+              {:AttributeTypeAndValue, {2, 5, 4, 3}, {:utf8String, cn}} -> cn
+              {:AttributeTypeAndValue, {2, 5, 4, 3}, {:printableString, cn}} -> List.to_string(cn)
+              _ -> nil
+            end)
+
+          if cn, do: {:ok, cn}, else: {:error, :no_cn}
+
+        _ ->
+          {:error, :invalid_subject}
+      end
+    rescue
+      _ -> {:error, :parse_error}
     end
   end
 

@@ -1,58 +1,80 @@
 # Change: Per-Tenant Process Isolation Architecture
 
+## Status Update (2025-12)
+
+**Scope Simplified**: With the removal of `serviceradar-agent-elx` (see `remove-elixir-edge-agent` proposal), ERTS-enabled nodes will no longer be deployed in customer environments. The ERTS cluster is now entirely internal (core-elx, pollers, web-ng). This eliminates the primary threat vector (ERTS distribution primitives bypassing tenant isolation) and simplifies this proposal significantly.
+
+**Obsolete concerns** (no longer needed):
+- Per-tenant Horde registries
+- TenantGuard process-level validation
+- EPMD cookie isolation
+- Complex ERTS cluster topology options
+
+**Still relevant**:
+- Per-tenant mTLS certificates (gRPC auth for Go agents)
+- NATS channel prefixing (message isolation)
+- Certificate CN tenant extraction (identifying tenant at API boundary)
+
 ## Why
 
-The current multi-tenancy implementation uses application-layer filtering where all tenants share the same service instances and database. While Ash policies can restrict data access, edge components (agents, pollers, collectors, checkers) still share:
-- The same mTLS certificate chain (network-level access)
-- The same Horde registries (agent/poller discovery)
-- The same NATS channels (message routing)
+Multi-tenancy requires isolation at multiple layers. With Go-only edge agents communicating over gRPC, the security boundary is now the gRPC API rather than ERTS distribution. Key remaining concerns:
 
-This means tenant A's agents could potentially connect to tenant B's pollers if misconfigured. True edge isolation requires per-tenant certificates and network-level RBAC.
+1. **mTLS Identity** - Edge components (Go agents) need tenant-scoped certificates so the control plane can identify which tenant they belong to
+2. **Message Isolation** - NATS channels should be tenant-prefixed to prevent cross-tenant message routing
+3. **API-Level Authorization** - gRPC handlers extract tenant from certificate CN and enforce Ash policies
 
 ## What Changes
 
-### Architecture: Hybrid Model
+### Architecture: Simplified Model
 
-**Shared Control Plane** (multi-tenant via application layer):
+```
+Customer Network                 Our Network (Kubernetes)
++------------------+            +----------------------------------+
+|  Go Agent        |<-----------|  Pollers <--> Core <--> Web      |
+|  (gRPC server)   |   gRPC     |  (Internal ERTS cluster)         |
+|  Tenant-scoped   |   mTLS     |  - Shared Horde registries       |
+|  certificate     |            |  - Ash policies for data access  |
++------------------+            +----------------------------------+
+```
+
+**Control Plane** (internal, trusted):
 - `web-ng` - Phoenix app with session-based tenant context
-- `core-elx` - Elixir core service with Ash policies
+- `core-elx` - Elixir core with Ash policies
+- `pollers` - Connect to Go agents via gRPC (tenant cert validation)
 - `CNPG` - Shared database with tenant_id filtering
 - `NATS` - Shared JetStream with tenant channel prefixes
 
-**Isolated Edge Components** (per-tenant process isolation):
-- Pollers - tenant-specific instances with tenant-scoped certs
-- Agents - tenant-specific instances with tenant-scoped certs
-- Collectors (flowgger, otel) - tenant-specific instances
-- Checkers (snmp-checker, etc.) - tenant-specific instances
+**Edge Components** (customer network, gRPC only):
+- Go agents - Tenant-scoped mTLS certificates
+- Checkers (snmp-checker, etc.) - Run alongside agents
 
 ### Key Changes
 
 1. **Per-Tenant mTLS Certificate Chains** - Each tenant has:
    - Unique intermediate CA (signed by platform root CA)
    - Tenant-specific edge component certificates
-   - Certificate CN encodes tenant ID (e.g., `agent-001.tenant-12345.serviceradar`)
+   - Certificate CN encodes tenant ID (e.g., `agent-001.partition-1.acme-corp.serviceradar`)
 
-2. **Network-Level RBAC** - Edge components validate certificates:
-   - Pollers only accept agents with same tenant CA
-   - Core-elx extracts tenant ID from certificate CN
-   - Cross-tenant connection attempts are rejected
+2. **gRPC Tenant Extraction** - When pollers connect to agents:
+   - Validate agent certificate is signed by expected tenant CA
+   - Extract tenant from certificate CN
+   - Use tenant context for Ash policy enforcement
 
-3. **Onboarding Flow Changes** - When admin onboards agent/poller/checker:
+3. **Onboarding Flow** - When admin onboards agent/checker:
    - System generates certificate signed by tenant's intermediate CA
    - Download package includes tenant CA, component cert/key, config
-   - Config includes tenant-specific NATS channel prefixes
+   - Config includes tenant-specific identifiers
 
 4. **NATS Channel Prefixing** - Tenant-scoped message routing:
-   - `tenant-a.pollers.heartbeat` vs `tenant-b.pollers.heartbeat`
-   - JetStream streams can be tenant-scoped
+   - `<tenant-slug>.<channel>` format
+   - Prevents cross-tenant message leakage
 
 ## Impact
 
-- Affected specs: NEW `tenant-isolation` capability
+- Affected specs: `tenant-isolation` capability
 - Affected code:
   - `docker/compose/generate-certs.sh` - Per-tenant CA generation
-  - `cmd/agent/` and `cmd/poller/` - Certificate tenant validation
+  - `cmd/agent/` - Certificate includes tenant identity
   - `elixir/serviceradar_core/lib/serviceradar/edge/` - Onboarding package with tenant certs
-  - `web-ng/lib/serviceradar_web_ng_web/live/edge_live/` - Onboarding UI tenant context
+  - `elixir/serviceradar_poller/` - Validate tenant cert when connecting to agents
   - `rust/crates/` - NATS channel prefixing
-  - Kubernetes Helm charts - Per-tenant edge deployments
