@@ -394,6 +394,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     end
   end
 
+  defp build_breadcrumbs(_), do: []
+
   # Normalize paths so agents and pollers appear under infrastructure
   defp normalize_infrastructure_path(["agents" | rest]) do
     ["infrastructure", "agents" | rest]
@@ -404,8 +406,6 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   end
 
   defp normalize_infrastructure_path(segments), do: segments
-
-  defp build_breadcrumbs(_), do: []
 
   defp section_label("analytics"), do: "Analytics"
   defp section_label("devices"), do: "Devices"

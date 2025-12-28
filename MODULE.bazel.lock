@@ -1788,7 +1788,7 @@
         "bzlTransitiveDigest": "qATCXoRXiE4t2IhaFrGaKqtvL9i+mgfVSeAFstpB2/Q=",
         "usagesDigest": "Rt1wyIqgIFVokH27M6/Ua5LToertR25hW6g+sk1Q6UE=",
         "recordedFileInputs": {
-          "@@//Cargo.lock": "61e8810850f169f1317105773fac1211e9e63e12d9d05214d9d9bf8a6400bb9d",
+          "@@//Cargo.lock": "9fc25ecff96ea8c6b73aec6facd00640fc2c8eef1bd3c9d841a0aca8a6ace9ae",
           "@@//Cargo.toml": "102d13f360d4caf101620105fb5714eb031839cdb279e667553f27366d1ed5f0",
           "@@//cmd/checkers/rperf-client/Cargo.toml": "a0c791977332d5ab34a589b105b63f9723372480bdc7d789fa1eed70e239ce35",
           "@@//cmd/checkers/sysmon/Cargo.toml": "81ac297ad028cb714ce7ed3137f0bb667da9064f724aab1b421bda9613573922",

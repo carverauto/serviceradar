@@ -271,7 +271,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
           <.memory_stat label="ETS" bytes={@node_info.memory_ets} />
           <.memory_stat label="Binary" bytes={@node_info.memory_binary} />
           <.memory_stat label="Atom" bytes={@node_info.memory_atom} />
-          <.memory_stat label="Ports" bytes={nil} count={@node_info.port_count} />
+          <.memory_stat label="Ports" count={@node_info.port_count} />
         </div>
       </div>
     </div>
