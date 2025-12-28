@@ -20,20 +20,16 @@
 - [ ] 0.3.2 Implement chunked ingest pipeline to core-elx
 - [ ] 0.3.3 Add backpressure and retry semantics for stream ingestion
 
-### 0.4 Sweep Renames
-- [ ] 0.4.1 Rename Go `serviceradar-agent` to `serviceradar-sweep`
-- [ ] 0.4.2 Update gRPC client targets in agent-elx
-- [ ] 0.4.3 Update docker images and docs for new sweep naming
+### 0.4 Sweep Renames - REMOVED
+> **DROPPED**: The serviceradar-agent-elx has been dropped due to security concerns. Only the Go serviceradar-core will be deployed to edge networks - no ERTS-enabled software goes into customer networks to avoid security risks.
 
 ### 0.5 Scheduling UI
 - [ ] 0.5.1 Add scheduling resources/actions (sync cadence, ping/tcp cadence)
 - [ ] 0.5.2 Build LiveView forms for schedule configuration
 - [ ] 0.5.3 Wire schedules to AshOban triggers
 
-### 0.6 Sync Rewrite + JetStream
-- [ ] 0.6.1 Port Go sync service to Elixir (Armis/NetBox)
-- [ ] 0.6.2 Schedule sync cadence via AshOban
-- [ ] 0.6.3 Implement OffBroadway.Jetstream.Producer pipelines for collector events
+### 0.6 Sync Rewrite + JetStream - REMOVED
+> **DROPPED**: The sync service will remain in Go/gRPC. The existing NATS architecture stays the same - collectors push data to NATS via datasvc, zen-engine does ETL, and db-event-writer writes to the database. Focus shifts to publishing events from Elixir and onboarding tenant edge leaf servers (see 13.1).
 
 ### 0.7 Integration Source Management (Sync Configuration UI)
 - [x] 0.7.1 Create IntegrationSource Ash resource in Configuration domain
@@ -450,11 +446,8 @@
 
 ## Phase 12: Migration & Cleanup
 
-### 12.1 Data Migration
-- [ ] 12.1.1 Create tenant seeding script for existing data
-- [ ] 12.1.2 Create role assignment script for existing users
-- [ ] 12.1.3 Verify data integrity after migrations
-- [ ] 12.1.4 Create rollback scripts
+### 12.1 Data Migration - REMOVED
+> **DROPPED**: No existing production data to migrate - no users are currently on the system. Fresh deployments will use the new Ash-based schema directly.
 
 ### 12.2 Feature Flag Cleanup
 - [x] 12.2.1 Remove Ecto-based Accounts context (replaced by Ash)
@@ -465,26 +458,24 @@
 - [x] 12.2.6 Remove feature flags once stable (enabled ash_srql_adapter by default, removed unused flags and FeatureFlags module)
 - [x] 12.2.7 Update all imports and aliases (verified clean - no stale imports after FeatureFlags removal)
 
-### 12.3 API Deprecation
-- [ ] 12.3.1 Add deprecation warnings to v1 API endpoints
-- [ ] 12.3.2 Document migration path for API consumers
-- [ ] 12.3.3 Set v1 API sunset date
-- [ ] 12.3.4 Remove v1 API after sunset period
+### 12.3 API Deprecation - REMOVED
+> **DROPPED**: No API consumers to migrate - no existing users. The v2 Ash-based API becomes the primary API without deprecation cycle.
 
 ## Phase 13: Edge-to-Cloud Infrastructure
 
-### 13.1 NATS JetStream Integration
-- [ ] 13.1.1 Add gnat dependency to mix.exs (NATS client)
+### 13.1 NATS JetStream Integration (Revised Scope)
+> **SCOPE**: The NATS architecture stays the same - collectors push to NATS, zen-engine does ETL, db-event-writer writes to DB. Focus is on: (1) publishing events TO NATS from Elixir, (2) onboarding tenant-specific NATS JetStream edge leaf servers. Use [OffBroadway.Jetstream.Producer](https://hexdocs.pm/jetstream/OffBroadway.Jetstream.Producer.html) for consumption.
+
+- [ ] 13.1.1 Add jetstream dependency to mix.exs (includes OffBroadway.Jetstream.Producer)
 - [ ] 13.1.2 Create ServiceRadar.NATS.Connection module for connection management
 - [ ] 13.1.3 Configure NATS connection in runtime.exs (NATS_URL, credentials)
-- [ ] 13.1.4 Design subject hierarchy: `ocsf.<class>.<partition_id>.<tenant_id>`
-- [ ] 13.1.5 Create ServiceRadar.NATS.Publisher module for OCSF event publishing
-- [ ] 13.1.6 Create ServiceRadar.NATS.Consumer module for cloud-side consumption
-- [ ] 13.1.7 Implement JetStream stream configuration for durability
-- [ ] 13.1.8 Add acknowledgement handling for reliable delivery
-- [ ] 13.1.9 Create NATS health check for cluster health monitoring
-- [ ] 13.1.10 Add NATS metrics to telemetry (publish rate, lag, errors)
-- [ ] 13.1.11 Document NATS deployment topology (edge vs cloud)
+- [ ] 13.1.4 Create ServiceRadar.NATS.Publisher module for publishing events from Elixir
+- [ ] 13.1.5 Design tenant-scoped subject hierarchy for edge leaf servers
+- [ ] 13.1.6 Create tenant edge leaf server onboarding workflow
+- [ ] 13.1.7 Add NATS credentials generation per tenant
+- [ ] 13.1.8 Create NATS health check for cluster health monitoring
+- [ ] 13.1.9 Add NATS metrics to telemetry (publish rate, errors)
+- [ ] 13.1.10 Document edge leaf server topology and tenant isolation
 
 ### 13.2 Device Actor System
 - [ ] 13.2.1 Create ServiceRadar.Actors.Device GenServer module
@@ -498,26 +489,22 @@
 - [ ] 13.2.9 Create device actor LiveView debugging panel
 - [ ] 13.2.10 Add device actor metrics (count, message rate, memory)
 
-### 13.3 Oban Queue Partitioning
-- [ ] 13.3.1 Design queue naming convention: `{job_type}_{partition_id}`
-- [ ] 13.3.2 Create queue configuration generator for dynamic partitions
-- [ ] 13.3.3 Implement partition-aware job insertion (insert_job_for_partition/3)
-- [ ] 13.3.4 Configure Oban peer coordination per edge site
-- [ ] 13.3.5 Update AshOban triggers to use partition-aware queues
-- [ ] 13.3.6 Create queue monitoring dashboard component
-- [ ] 13.3.7 Implement queue rebalancing on partition changes
-- [ ] 13.3.8 Add queue depth alerts per partition
-- [ ] 13.3.9 Document Oban partitioning strategy
+### 13.3 Per-Tenant Oban Queue Isolation (HIGH PRIORITY)
+> **GOAL**: Each tenant should have their own AshOban registry/queues for complete compartmentalization. This ensures tenant workloads don't interfere with each other and enables per-tenant job prioritization.
 
-### 13.4 Mesh VPN Configuration
-- [ ] 13.4.1 Document Tailscale deployment for edge nodes
-- [ ] 13.4.2 Document Nebula deployment alternative
-- [ ] 13.4.3 Create ERTS cookie management guide for mesh VPN
-- [ ] 13.4.4 Configure libcluster for Tailscale DNS discovery
-- [ ] 13.4.5 Create Tailscale ACL recommendations for ERTS traffic
-- [ ] 13.4.6 Document port requirements (EPMD 4369, ERTS dynamic range)
-- [ ] 13.4.7 Create network troubleshooting guide
-- [ ] 13.4.8 Add mesh VPN connectivity health check
+- [ ] 13.3.1 Design per-tenant queue naming: `{tenant_id}_{job_type}` or `{tenant_id}_{partition_id}_{job_type}`
+- [ ] 13.3.2 Create per-tenant Oban queue configuration (dynamic queue creation)
+- [ ] 13.3.3 Implement tenant-aware job insertion (jobs route to tenant's queue)
+- [ ] 13.3.4 Configure AshOban triggers to use tenant-scoped queues
+- [ ] 13.3.5 Implement tenant queue isolation (jobs from tenant A never run in tenant B's queue)
+- [ ] 13.3.6 Create per-tenant queue monitoring dashboard
+- [ ] 13.3.7 Add per-tenant queue depth limits and throttling
+- [ ] 13.3.8 Implement tenant queue provisioning on tenant creation
+- [ ] 13.3.9 Add per-tenant job metrics (throughput, latency, failures)
+- [ ] 13.3.10 Document tenant queue isolation architecture
+
+### 13.4 Mesh VPN Configuration - DEFERRED
+> **DEFERRED**: Mesh VPN configuration deferred until core platform is stable. Will revisit when edge deployment requirements are clearer.
 
 ### 13.5 Partition Namespacing
 - [x] 13.5.1 Update all Horde registrations to use `{tenant_id, partition_id, resource_id}` keys (tenant-scoped)
@@ -530,25 +517,11 @@
 - [ ] 13.5.8 Add partition-scoped PubSub topics
 - [ ] 13.5.9 Document overlapping IP space handling strategy
 
-### 13.6 Datasvc Transition (Rust -> Elixir)
-- [ ] 13.6.1 Audit datasvc functions for migration priority
-- [ ] 13.6.2 Identify performance-critical paths requiring Rustler NIFs
-- [ ] 13.6.3 Create migration plan for datasvc to Ash resources
-- [ ] 13.6.4 Implement first batch of datasvc functions in Ash
-- [ ] 13.6.5 Add feature flags for datasvc function routing
-- [ ] 13.6.6 Benchmark Ash vs Rustler for hot paths
-- [ ] 13.6.7 Document datasvc deprecation timeline
+### 13.6 Datasvc Transition (Rust -> Elixir) - REMOVED
+> **DROPPED**: Not transitioning datasvc. It will remain as a Rust service. The existing architecture works well for KV operations and edge configuration.
 
-### 13.7 SPIRE/SPIFFE Integration
-- [ ] 13.7.1 Create ServiceRadar.SPIFFE module in shared library
-- [ ] 13.7.2 Implement certificate file loading from SPIRE agent
-- [ ] 13.7.3 Create SPIFFE ID extraction from X.509 certificates
-- [ ] 13.7.4 Add SPIFFE ID to Ash actor context
-- [ ] 13.7.5 Create Ash policy helper macros for SPIFFE authorization
-- [ ] 13.7.6 Implement certificate expiry monitoring
-- [ ] 13.7.7 Document SPIRE workload registration for BEAM nodes
-- [ ] 13.7.8 Create SPIFFE trust bundle refresh mechanism
-- [ ] 13.7.9 Add SPIFFE identity verification to gRPC connections
+### 13.7 SPIRE/SPIFFE Integration - DEFERRED
+> **DEFERRED**: SPIRE/SPIFFE integration deferred for later. Current mTLS setup with generated certificates is sufficient for initial deployments.
 
 ### 13.8 Remote Shell Testing & Debugging
 - [ ] 13.8.1 Create test script for mTLS remote shell connection
@@ -667,12 +640,19 @@ The Go `serviceradar-core` service handles coordination, identity reconciliation
 - [x] 15.6.5 Add telemetry metrics for stats snapshots
 - [ ] 15.6.6 Create stats dashboard endpoint
 
-### 15.7 Poller Recovery (Port from Go)
-- [ ] 15.7.1 Create ServiceRadar.Core.PollerRecovery module
-- [ ] 15.7.2 Port poller health monitoring (poller_recovery.go)
-- [ ] 15.7.3 Implement automatic poller reassignment on failure
-- [ ] 15.7.4 Add poller recovery metrics
-- [ ] 15.7.5 Integrate with Horde for distributed poller tracking
+### 15.7 Poller Recovery with AshStateMachine (Port from Go)
+> **NOTE**: Use AshStateMachine for poller state transitions (healthy -> degraded -> offline -> recovering).
+
+- [ ] 15.7.1 Add AshStateMachine to Infrastructure.Poller resource
+- [ ] 15.7.2 Define poller states: healthy, degraded, offline, recovering, maintenance
+- [ ] 15.7.3 Define state transitions with guards and conditions
+- [ ] 15.7.4 Create ServiceRadar.Core.PollerRecovery module
+- [ ] 15.7.5 Port poller health monitoring (poller_recovery.go)
+- [ ] 15.7.6 Implement automatic state transitions based on heartbeat timeout
+- [ ] 15.7.7 Implement automatic poller reassignment on failure (via state machine hooks)
+- [ ] 15.7.8 Add AshOban trigger for recovery attempts
+- [ ] 15.7.9 Add poller recovery metrics (state transition count, recovery time)
+- [ ] 15.7.10 Integrate with Horde for distributed poller tracking
 
 ### 15.8 Template Registry (Port from Go)
 - [ ] 15.8.1 Create ServiceRadar.Core.TemplateRegistry module
@@ -681,15 +661,18 @@ The Go `serviceradar-core` service handles coordination, identity reconciliation
 - [ ] 15.8.4 Add template validation
 - [ ] 15.8.5 Expose templates via JSON:API
 
-### 15.9 gRPC Server for Legacy Poller Support
-- [ ] 15.9.1 Add grpc dependency to core-elx mix.exs
-- [ ] 15.9.2 Implement PollerService gRPC server (for Go pollers)
-- [ ] 15.9.3 Implement RegisterPoller RPC
-- [ ] 15.9.4 Implement ReportHealth RPC
-- [ ] 15.9.5 Implement ReportStatus RPC (service check results)
-- [ ] 15.9.6 Configure mTLS for gRPC server
-- [ ] 15.9.7 Add gRPC metrics (request count, latency)
-- [ ] 15.9.8 Document deprecation timeline for gRPC (ERTS preferred)
+### 15.9 gRPC Server for Edge Connectivity (Go serviceradar-core)
+> **NOTE**: Since no ERTS-enabled software goes to customer networks (security), edge sites run the Go serviceradar-core which communicates via gRPC to the cloud. The Elixir poller-elx speaks gRPC *as a client* to Go agents (serviceradar-sweep).
+
+- [ ] 15.9.1 Add grpc server dependency to core-elx mix.exs
+- [ ] 15.9.2 Implement CoreService gRPC server (for Go serviceradar-core at edge)
+- [ ] 15.9.3 Implement RegisterPoller RPC (edge Go core registers pollers)
+- [ ] 15.9.4 Implement ReportHealth RPC (health heartbeats from edge)
+- [ ] 15.9.5 Implement ReportResults RPC (poll results from edge)
+- [ ] 15.9.6 Implement SyncConfig RPC (push config to edge)
+- [ ] 15.9.7 Configure mTLS for gRPC server
+- [ ] 15.9.8 Add gRPC metrics (request count, latency)
+- [ ] 15.9.9 Integrate with Horde for edge node tracking (virtual presence)
 
 ### 15.10 Docker Compose Integration
 - [x] 15.10.1 Add core-elx service to docker-compose.yml

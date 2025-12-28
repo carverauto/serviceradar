@@ -348,11 +348,41 @@ After core-elx is implemented, web-ng will be simplified:
 - LiveView UI and JSON:API endpoints
 - Authentication and authorization
 
+## Security Decision: No ERTS in Customer Networks
+
+**IMPORTANT**: For security reasons, no ERTS-enabled software will be deployed to customer edge networks.
+
+### Rationale
+- ERTS distribution, even with mTLS, increases the attack surface
+- A compromised edge node could potentially affect the entire cluster
+- Reduces the blast radius of any security breach to the edge site only
+
+### Edge Deployment Model
+- **Edge sites run Go serviceradar-core only** (no Elixir pollers/agents in customer networks)
+- Edge Go core communicates to cloud via gRPC over mTLS
+- Cloud runs core-elx (coordinator), web-ng (UI), poller-elx, agent-elx
+- ERTS clustering happens only within the secure cloud environment
+
+### Communication Flow
+```
+┌─────────────────────────────────────────────────────────┐
+│                     Cloud (ERTS Cluster)                 │
+│   core-elx ←→ web-ng ←→ poller-elx ←→ agent-elx        │
+│       ↑                                                  │
+│       │ gRPC/mTLS                                        │
+└───────┼─────────────────────────────────────────────────┘
+        │
+┌───────┼─────────────────────────────────────────────────┐
+│       ↓               Edge Site                          │
+│   Go serviceradar-core ←→ Go serviceradar-sweep         │
+│   (gRPC to cloud)         (ICMP/TCP checks)             │
+└─────────────────────────────────────────────────────────┘
+```
+
 ## Open Questions / Next Steps
-- Confirm the ERTS transport for job dispatch (Phoenix.PubSub vs Horde vs explicit RPC).
-- Define the large-payload streaming contract for sync/sweep results (chunk size, backpressure, retry).
-- Clarify the Elixir agent -> `serviceradar-sweep` gRPC API surface (renames, endpoints, auth).
-- Decide where DIRE runs for each ingestion path (core only vs poller pre-processing).
+- Define the gRPC contract between cloud core-elx and edge Go serviceradar-core
+- Define the large-payload streaming contract for sync/sweep results (chunk size, backpressure, retry)
+- Decide where DIRE runs for each ingestion path (core only vs edge pre-processing)
 
 ## Dependencies
 
