@@ -56,6 +56,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
       {"#{package_dir}/config/config.yaml", generate_config_yaml(package, join_token, opts)},
       {"#{package_dir}/install.sh", generate_install_script(package, opts)},
       {"#{package_dir}/README.md", generate_readme(package)}
+      | generate_kubernetes_files(package_dir, package, cert_pem, key_pem, ca_chain_pem, join_token, opts)
     ]
 
     # Create the tarball
@@ -100,6 +101,22 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     curl -fsSL "#{base_url}/api/edge-packages/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
     sudo ./install.sh
+    """
+    |> String.trim()
+  end
+
+  @doc """
+  Generates a one-liner install command for Kubernetes.
+  """
+  @spec kubernetes_install_command(OnboardingPackage.t(), String.t(), keyword()) :: String.t()
+  def kubernetes_install_command(package, download_token, opts \\ []) do
+    base_url = Keyword.get(opts, :base_url, default_base_url())
+    namespace = Keyword.get(opts, :namespace, "serviceradar")
+
+    """
+    curl -fsSL "#{base_url}/api/edge-packages/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
+    cd edge-package-#{short_id(package.id)} && \\
+    kubectl apply -f kubernetes/ -n #{namespace}
     """
     |> String.trim()
   end
@@ -384,6 +401,21 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     sudo ./install.sh
     ```
 
+    ### Kubernetes
+
+    ```bash
+    kubectl apply -k kubernetes/
+    ```
+
+    Or apply individual manifests:
+
+    ```bash
+    kubectl apply -f kubernetes/namespace.yaml
+    kubectl apply -f kubernetes/secret.yaml
+    kubectl apply -f kubernetes/configmap.yaml
+    kubectl apply -f kubernetes/deployment.yaml
+    ```
+
     ## Contents
 
     - `certs/component.pem` - Component TLS certificate
@@ -391,6 +423,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     - `certs/ca-chain.pem` - CA certificate chain for verification
     - `config/config.yaml` - Component configuration
     - `install.sh` - Automated installer script
+    - `kubernetes/` - Kubernetes manifests for k8s deployment
 
     ## Security Notes
 
@@ -459,6 +492,248 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
       # Simple list encoding
       "[" <> Enum.map_join(value, ", ", &inspect/1) <> "]"
     end
+  end
+
+  # Kubernetes manifest generation
+
+  defp generate_kubernetes_files(package_dir, package, cert_pem, key_pem, ca_chain_pem, join_token, opts) do
+    namespace = Keyword.get(opts, :namespace, "serviceradar")
+    image_tag = Keyword.get(opts, :image_tag, "latest")
+
+    [
+      {"#{package_dir}/kubernetes/namespace.yaml", generate_k8s_namespace(namespace)},
+      {"#{package_dir}/kubernetes/secret.yaml", generate_k8s_secret(package, cert_pem, key_pem, ca_chain_pem, namespace)},
+      {"#{package_dir}/kubernetes/configmap.yaml", generate_k8s_configmap(package, join_token, namespace, opts)},
+      {"#{package_dir}/kubernetes/deployment.yaml", generate_k8s_deployment(package, namespace, image_tag)},
+      {"#{package_dir}/kubernetes/kustomization.yaml", generate_k8s_kustomization()}
+    ]
+  end
+
+  defp generate_k8s_namespace(namespace) do
+    """
+    # ServiceRadar Edge Component - Namespace
+    # Apply with: kubectl apply -f namespace.yaml
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: #{namespace}
+      labels:
+        app.kubernetes.io/part-of: serviceradar
+    """
+  end
+
+  defp generate_k8s_secret(package, cert_pem, key_pem, ca_chain_pem, namespace) do
+    component_type = to_string(package.component_type)
+    component_id = package.component_id || package.id
+
+    # Base64 encode the certificate data
+    cert_b64 = Base.encode64(cert_pem)
+    key_b64 = Base.encode64(key_pem)
+    ca_b64 = Base.encode64(ca_chain_pem)
+
+    """
+    # ServiceRadar Edge Component - TLS Certificates
+    # Contains mTLS certificates for secure communication
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: serviceradar-#{component_type}-tls
+      namespace: #{namespace}
+      labels:
+        app.kubernetes.io/name: serviceradar-#{component_type}
+        app.kubernetes.io/component: #{component_type}
+        app.kubernetes.io/part-of: serviceradar
+        serviceradar.io/component-id: "#{component_id}"
+    type: kubernetes.io/tls
+    data:
+      tls.crt: #{cert_b64}
+      tls.key: #{key_b64}
+      ca.crt: #{ca_b64}
+    """
+  end
+
+  defp generate_k8s_configmap(package, join_token, namespace, opts) do
+    component_type = to_string(package.component_type)
+    component_id = package.component_id || package.id
+    core_address = Keyword.get(opts, :core_address, default_core_address())
+    nats_url = Keyword.get(opts, :nats_url, default_nats_url())
+
+    config_yaml = """
+    component_id: "#{component_id}"
+    component_type: "#{component_type}"
+    join_token: "#{join_token}"
+    core:
+      address: "#{core_address}"
+    nats:
+      url: "#{nats_url}"
+    tls:
+      cert_file: "/etc/serviceradar/certs/tls.crt"
+      key_file: "/etc/serviceradar/certs/tls.key"
+      ca_file: "/etc/serviceradar/certs/ca.crt"
+    """
+
+    # Add component-specific config
+    config_yaml = config_yaml <> component_specific_k8s_config(package)
+
+    config_b64 = Base.encode64(config_yaml)
+
+    """
+    # ServiceRadar Edge Component - Configuration
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: serviceradar-#{component_type}-config
+      namespace: #{namespace}
+      labels:
+        app.kubernetes.io/name: serviceradar-#{component_type}
+        app.kubernetes.io/component: #{component_type}
+        app.kubernetes.io/part-of: serviceradar
+    binaryData:
+      config.yaml: #{config_b64}
+    """
+  end
+
+  defp component_specific_k8s_config(package) do
+    case package.component_type do
+      :poller ->
+        """
+        poller:
+          partition_id: "#{package.site || "default"}"
+        """
+
+      :agent ->
+        """
+        agent:
+          poller_id: "#{package.poller_id || ""}"
+        """
+
+      :checker ->
+        checker_config = if package.checker_config_json, do: inspect(package.checker_config_json), else: "{}"
+        """
+        checker:
+          kind: "#{package.checker_kind || ""}"
+          config: #{checker_config}
+        """
+
+      _ ->
+        ""
+    end
+  end
+
+  defp generate_k8s_deployment(package, namespace, image_tag) do
+    component_type = to_string(package.component_type)
+    component_id = package.component_id || package.id
+
+    """
+    # ServiceRadar Edge Component - Deployment
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: serviceradar-#{component_type}
+      namespace: #{namespace}
+      labels:
+        app.kubernetes.io/name: serviceradar-#{component_type}
+        app.kubernetes.io/component: #{component_type}
+        app.kubernetes.io/part-of: serviceradar
+        serviceradar.io/component-id: "#{component_id}"
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: serviceradar-#{component_type}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: serviceradar-#{component_type}
+            app.kubernetes.io/component: #{component_type}
+            app.kubernetes.io/part-of: serviceradar
+        spec:
+          serviceAccountName: serviceradar-#{component_type}
+          containers:
+            - name: #{component_type}
+              image: ghcr.io/carverauto/serviceradar-#{component_type}:#{image_tag}
+              args:
+                - --config
+                - /etc/serviceradar/config/config.yaml
+              ports:
+                - name: grpc
+                  containerPort: 50051
+                  protocol: TCP
+                - name: metrics
+                  containerPort: 9090
+                  protocol: TCP
+              env:
+                - name: SERVICERADAR_COMPONENT_ID
+                  value: "#{component_id}"
+                - name: SERVICERADAR_LOG_LEVEL
+                  value: "info"
+              volumeMounts:
+                - name: tls-certs
+                  mountPath: /etc/serviceradar/certs
+                  readOnly: true
+                - name: config
+                  mountPath: /etc/serviceradar/config
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              livenessProbe:
+                grpc:
+                  port: 50051
+                initialDelaySeconds: 10
+                periodSeconds: 30
+              readinessProbe:
+                grpc:
+                  port: 50051
+                initialDelaySeconds: 5
+                periodSeconds: 10
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 1000
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: tls-certs
+              secret:
+                secretName: serviceradar-#{component_type}-tls
+            - name: config
+              configMap:
+                name: serviceradar-#{component_type}-config
+          securityContext:
+            fsGroup: 1000
+    ---
+    # ServiceAccount for the component
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: serviceradar-#{component_type}
+      namespace: #{namespace}
+      labels:
+        app.kubernetes.io/name: serviceradar-#{component_type}
+        app.kubernetes.io/part-of: serviceradar
+    """
+  end
+
+  defp generate_k8s_kustomization do
+    """
+    # Kustomization file for easy deployment
+    # Apply with: kubectl apply -k kubernetes/
+    apiVersion: kustomize.config.k8s.io/v1beta1
+    kind: Kustomization
+
+    resources:
+      - namespace.yaml
+      - secret.yaml
+      - configmap.yaml
+      - deployment.yaml
+    """
   end
 
   defp default_base_url do

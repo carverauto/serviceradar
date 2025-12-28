@@ -153,6 +153,92 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
     end
   end
 
+  describe "kubernetes_install_command/3" do
+    test "generates valid kubernetes install command", %{package: package, download_token: download_token} do
+      cmd = BundleGenerator.kubernetes_install_command(package, download_token)
+
+      assert cmd =~ "curl -fsSL"
+      assert cmd =~ package.id
+      assert cmd =~ download_token
+      assert cmd =~ "kubectl apply -f kubernetes/"
+      assert cmd =~ "-n serviceradar"
+    end
+
+    test "uses custom namespace option", %{package: package, download_token: download_token} do
+      cmd = BundleGenerator.kubernetes_install_command(package, download_token,
+        namespace: "my-namespace"
+      )
+
+      assert cmd =~ "-n my-namespace"
+    end
+  end
+
+  describe "kubernetes manifests in bundle" do
+    test "bundle contains kubernetes manifests", %{package: package, join_token: join_token} do
+      {:ok, tarball} = BundleGenerator.create_tarball(package, sample_bundle_pem(), join_token)
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+      file_names = Enum.map(files, fn {name, _} -> to_string(name) end)
+
+      # Verify kubernetes manifest files are present
+      assert Enum.any?(file_names, &String.ends_with?(&1, "kubernetes/namespace.yaml"))
+      assert Enum.any?(file_names, &String.ends_with?(&1, "kubernetes/secret.yaml"))
+      assert Enum.any?(file_names, &String.ends_with?(&1, "kubernetes/configmap.yaml"))
+      assert Enum.any?(file_names, &String.ends_with?(&1, "kubernetes/deployment.yaml"))
+      assert Enum.any?(file_names, &String.ends_with?(&1, "kubernetes/kustomization.yaml"))
+    end
+
+    test "kubernetes secret contains base64-encoded certificates", %{package: package, join_token: join_token} do
+      {:ok, tarball} = BundleGenerator.create_tarball(package, sample_bundle_pem(), join_token)
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, secret_yaml} = Enum.find(files, fn {name, _} ->
+        to_string(name) |> String.ends_with?("kubernetes/secret.yaml")
+      end)
+
+      # Verify secret structure
+      assert secret_yaml =~ "kind: Secret"
+      assert secret_yaml =~ "type: kubernetes.io/tls"
+      assert secret_yaml =~ "tls.crt:"
+      assert secret_yaml =~ "tls.key:"
+      assert secret_yaml =~ "ca.crt:"
+    end
+
+    test "kubernetes deployment has correct security context", %{package: package, join_token: join_token} do
+      {:ok, tarball} = BundleGenerator.create_tarball(package, sample_bundle_pem(), join_token)
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, deployment_yaml} = Enum.find(files, fn {name, _} ->
+        to_string(name) |> String.ends_with?("kubernetes/deployment.yaml")
+      end)
+
+      # Verify deployment has security best practices
+      assert deployment_yaml =~ "kind: Deployment"
+      assert deployment_yaml =~ "runAsNonRoot: true"
+      assert deployment_yaml =~ "readOnlyRootFilesystem: true"
+      assert deployment_yaml =~ "allowPrivilegeEscalation: false"
+      assert deployment_yaml =~ "ServiceAccount"
+    end
+
+    test "kustomization file references all manifests", %{package: package, join_token: join_token} do
+      {:ok, tarball} = BundleGenerator.create_tarball(package, sample_bundle_pem(), join_token)
+
+      {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
+
+      {_, kustomization} = Enum.find(files, fn {name, _} ->
+        to_string(name) |> String.ends_with?("kubernetes/kustomization.yaml")
+      end)
+
+      assert kustomization =~ "kind: Kustomization"
+      assert kustomization =~ "namespace.yaml"
+      assert kustomization =~ "secret.yaml"
+      assert kustomization =~ "configmap.yaml"
+      assert kustomization =~ "deployment.yaml"
+    end
+  end
+
   # Helper function to generate sample PEM data
   defp sample_bundle_pem do
     """

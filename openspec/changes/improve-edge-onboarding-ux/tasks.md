@@ -36,7 +36,7 @@
 
 - [x] 5.1 Create Docker-based install script template
 - [x] 5.2 Create systemd-based install script template
-- [ ] 5.3 Create Kubernetes manifest template
+- [x] 5.3 Create Kubernetes manifest template
 - [x] 5.4 Add environment variable substitution in templates
 
 ## 6. Testing
@@ -44,7 +44,7 @@
 - [x] 6.1 Unit tests for wrapper module delegation
 - [x] 6.2 LiveView tests for create flow with certificates
 - [x] 6.3 Integration test for full onboarding flow
-- [ ] 6.4 Test CA auto-generation on first package creation
+- [x] 6.4 Test CA auto-generation on first package creation
 
 ## 7. Documentation
 
