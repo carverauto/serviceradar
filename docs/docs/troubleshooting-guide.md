@@ -6,6 +6,57 @@ title: Troubleshooting Guide
 
 Use this guide as a first stop when onboarding ServiceRadar or operating the demo cluster. Each section lists fast diagnostics, common failure modes, and references for deeper dives.
 
+## Edge Agents
+
+Edge agents are Go binaries that run on monitored hosts outside the Kubernetes cluster, communicating via gRPC with mTLS.
+
+### Connection Issues
+
+- **Agent not connecting**: Check agent logs (`journalctl -u serviceradar-agent -f`) for connection errors. Verify the poller address in `/etc/serviceradar/agent.json`.
+- **TLS handshake failures**: Ensure certificates are valid and the CA bundle is correct:
+  ```bash
+  openssl verify -CAfile /etc/serviceradar/certs/bundle.pem \
+    /etc/serviceradar/certs/svid.pem
+  ```
+- **Firewall blocking**: Confirm port 50051 is open from the agent to the poller:
+  ```bash
+  nc -zv <poller-host> 50051
+  ```
+
+### Certificate Issues
+
+- **Certificate expired**: Check expiry dates:
+  ```bash
+  openssl x509 -in /etc/serviceradar/certs/svid.pem -noout -dates
+  ```
+- **Wrong CN format**: Verify the CN matches `<agent_id>.<partition_id>.<tenant_slug>.serviceradar`:
+  ```bash
+  openssl x509 -in /etc/serviceradar/certs/svid.pem -noout -subject
+  ```
+- **CA mismatch**: Ensure the agent's CA bundle matches the cluster's SPIRE trust domain.
+
+### Registration Issues
+
+- **Agent not appearing in UI**: Verify the agent is registered via the API:
+  ```bash
+  curl -H "Authorization: Bearer $TOKEN" \
+    https://core.example.com/api/v2/agents/<agent-uid>
+  ```
+- **Status stuck at "connecting"**: Check poller logs for gRPC errors. The agent may be connecting but failing health checks.
+- **Wrong tenant**: Agent certificates are tenant-specific. Verify the tenant slug in the certificate CN matches the expected tenant.
+
+### gRPC Diagnostics
+
+Test gRPC connectivity directly:
+```bash
+grpcurl -cert /etc/serviceradar/certs/svid.pem \
+        -key /etc/serviceradar/certs/svid-key.pem \
+        -cacert /etc/serviceradar/certs/bundle.pem \
+        <poller-host>:50053 list
+```
+
+For detailed edge agent documentation, see [Edge Agents](./edge-agents.md).
+
 ## Core Services
 
 - **Check pod health**: `kubectl get pods -n demo` (or the equivalent Docker Compose status). Pods stuck in `CrashLoopBackOff` usually point to missing secrets or PVC mounts.

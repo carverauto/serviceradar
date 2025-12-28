@@ -13,10 +13,15 @@ ServiceRadar uses a distributed, multi-layered architecture designed for flexibi
 flowchart TB
     subgraph External["External Access"]
         User([User Browser])
-        EdgeAgent([Edge Agents])
     end
 
-    subgraph Cluster["Kubernetes Cluster"]
+    subgraph EdgeZone["Edge Zone (DMZ)"]
+        GA1[Go Agent<br/>Host 1 :50051]
+        GA2[Go Agent<br/>Host 2 :50051]
+        GAN[Go Agent<br/>Host N :50051]
+    end
+
+    subgraph Cluster["Kubernetes Cluster (ERTS Cluster)"]
         subgraph Ingress["Edge Layer"]
             ING[Ingress Controller]
             WEB[Web UI<br/>Phoenix :4000]
@@ -58,8 +63,10 @@ flowchart TB
     WEB -->|SSR API| CORE
     WEB -->|SRQL queries| SRQL
 
-    %% Edge agent flow
-    EdgeAgent <-->|gRPC mTLS| POLLER
+    %% Edge agent flow - gRPC only, no ERTS
+    GA1 -->|gRPC mTLS :50051| POLLER
+    GA2 -->|gRPC mTLS :50051| POLLER
+    GAN -->|gRPC mTLS :50051| POLLER
 
     %% Internal monitoring
     POLLER --> CORE
@@ -82,9 +89,29 @@ flowchart TB
 **Traffic flow summary:**
 - **User requests** → Ingress → Web UI (static/SSR) and Core (API)
 - **Web-NG** serves `/api/*`, `/api/query`, and `/api/stream`
-- **Edge agents** connect via gRPC mTLS to the Poller
+- **Edge agents** (Go binaries) connect via gRPC mTLS to the Poller on port 50051
 - **NATS JetStream** provides pub/sub messaging and KV storage for all services
 - **SPIRE** issues X.509 certificates to all workloads via DaemonSet agents
+
+### Edge Agent Architecture
+
+Edge agents are **Go binaries** that run on monitored hosts outside the Kubernetes cluster. They communicate exclusively via gRPC with mTLS:
+
+| Property | Value |
+|----------|-------|
+| **Runtime** | Go binary (not Erlang/BEAM) |
+| **Protocol** | gRPC with mTLS only |
+| **Port** | 50051 (outbound to Poller) |
+| **Identity** | Tenant-specific X.509 certificates |
+| **ERTS Access** | None (cannot join ERTS cluster) |
+
+**Security boundaries:**
+- Edge agents **cannot** join the ERTS cluster (they are not Erlang nodes)
+- Edge agents **cannot** execute RPC calls on Core or Poller nodes
+- Edge agents **cannot** access Horde registries or enumerate other tenants' agents
+- Edge agents **cannot** connect to the database directly
+
+For detailed edge agent deployment, see [Edge Agents](./edge-agents.md). For security properties, see [Security Architecture](./security-architecture.md).
 
 ### Cluster requirements
 
@@ -344,6 +371,8 @@ graph TD
 
 ServiceRadar uses the following network ports:
 
+### In-Cluster Ports
+
 | Component | Port | Protocol | Purpose |
 |-----------|------|----------|---------|
 | Agent | 50051 | gRPC/TCP | Service status queries |
@@ -354,4 +383,27 @@ ServiceRadar uses the following network ports:
 | SNMP Checker | 50054 | gRPC/TCP | SNMP status queries |
 | Dusk Checker | 50052 | gRPC/TCP | Dusk node monitoring |
 
-For more information on deploying ServiceRadar, see the [Installation Guide](./installation.md).
+### Edge Agent Ports
+
+| Direction | Port | Protocol | Purpose |
+|-----------|------|----------|---------|
+| Edge → Poller | 50051 | gRPC/TCP | Service check results (mTLS required) |
+
+### Firewall Requirements
+
+**Allow from Edge Networks:**
+
+| From | To | Port | Purpose |
+|------|-----|------|---------|
+| Edge Agent | Poller | 50051 | gRPC mTLS |
+
+**Block from Edge Networks (by design):**
+
+| Port | Protocol | Purpose | Why Blocked |
+|------|----------|---------|-------------|
+| 4369 | TCP | EPMD | ERTS cluster discovery |
+| 9100-9155 | TCP | ERTS Distribution | Erlang RPC |
+| 5432 | TCP | PostgreSQL | Database access |
+| 8090 | TCP | Core API | Internal only |
+
+For more information on deploying ServiceRadar, see the [Installation Guide](./installation.md). For edge agent deployment, see the [Edge Agents](./edge-agents.md) documentation.

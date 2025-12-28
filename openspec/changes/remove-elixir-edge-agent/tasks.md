@@ -41,15 +41,15 @@
 - [x] 6.1 Remove Elixir agent deployment from Helm chart
 - [x] 6.2 Update agent chart to use Go agent only
 - [x] 6.3 Update values.yaml defaults
-- [ ] 6.4 Update chart documentation
+- [x] 6.4 Update chart documentation - Updated helm/serviceradar/README.md
 
 ## 7. Update Documentation
 
-- [ ] 7.1 Update architecture diagrams (remove ERTS from edge)
+- [x] 7.1 Update architecture diagrams (remove ERTS from edge) - Updated docs/docs/architecture.md
 - [x] 7.2 Update agent deployment docs - Updated README.md
-- [ ] 7.3 Add security architecture documentation
-- [ ] 7.4 Document firewall requirements (gRPC port only)
-- [ ] 7.5 Update troubleshooting guides
+- [x] 7.3 Add security architecture documentation - Created docs/docs/security-architecture.md
+- [x] 7.4 Document firewall requirements (gRPC port only) - Added to architecture.md and security-architecture.md
+- [x] 7.5 Update troubleshooting guides - Added Edge Agents section to troubleshooting-guide.md
 
 ## 8. Testing
 
@@ -62,8 +62,8 @@
 
 ## 9. Security Validation
 
-- [ ] 9.1 Verify edge cannot RPC to core nodes
-- [ ] 9.2 Verify edge cannot enumerate Horde registries
-- [ ] 9.3 Verify mTLS tenant validation works
-- [ ] 9.4 Penetration test: attempt cross-tenant access from edge
-- [ ] 9.5 Document security properties in runbook
+- [x] 9.1 Verify edge cannot RPC to core nodes - EdgeIsolationTest (7 tests)
+- [x] 9.2 Verify edge cannot enumerate Horde registries - EdgeIsolationTest (Horde member verification)
+- [x] 9.3 Verify mTLS tenant validation works - MTLSTenantValidationTest (22 tests)
+- [x] 9.4 Penetration test: attempt cross-tenant access from edge - CrossTenantAccessTest (14 tests)
+- [x] 9.5 Document security properties in runbook - security-runbook.md
