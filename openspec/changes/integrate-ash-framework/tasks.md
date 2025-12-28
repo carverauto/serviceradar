@@ -478,16 +478,16 @@
 - [ ] 13.1.10 Document edge leaf server topology and tenant isolation
 
 ### 13.2 Device Actor System
-- [ ] 13.2.1 Create ServiceRadar.Actors.Device GenServer module
-- [ ] 13.2.2 Implement device actor registration with `{partition_id, device_id}` key
-- [ ] 13.2.3 Create ServiceRadar.Actors.DeviceSupervisor (Horde.DynamicSupervisor)
-- [ ] 13.2.4 Implement device actor state: identity, last_seen, health, config
-- [ ] 13.2.5 Create get_or_start_device/2 function for lazy actor initialization
-- [ ] 13.2.6 Implement device actor commands (update_identity, record_event, refresh_config)
-- [ ] 13.2.7 Add device actor timeout/hibernation for inactive devices
-- [ ] 13.2.8 Implement device actor handoff on node failure (Horde automatic)
+- [x] 13.2.1 Create ServiceRadar.Actors.Device GenServer module
+- [x] 13.2.2 Implement device actor registration with `{tenant_id, partition_id, device_id}` key
+- [x] 13.2.3 Create ServiceRadar.Actors.DeviceRegistry for discovery and lazy initialization (uses TenantRegistry's DynamicSupervisor)
+- [x] 13.2.4 Implement device actor state: identity, last_seen, health, config, events, metrics
+- [x] 13.2.5 Create get_or_start/3 function for lazy actor initialization
+- [x] 13.2.6 Implement device actor commands (update_identity, record_event, record_health_check, refresh_config, flush_events, touch)
+- [x] 13.2.7 Add device actor timeout/hibernation for inactive devices (@hibernate_after, @idle_timeout)
+- [x] 13.2.8 Implement device actor handoff on node failure (Horde automatic via TenantRegistry)
 - [ ] 13.2.9 Create device actor LiveView debugging panel
-- [ ] 13.2.10 Add device actor metrics (count, message rate, memory)
+- [x] 13.2.10 Add device actor telemetry metrics (ServiceRadar.Actors.Telemetry module)
 
 ### 13.3 Per-Tenant Oban Queue Isolation (HIGH PRIORITY)
 > **GOAL**: Each tenant should have their own AshOban registry/queues for complete compartmentalization. This ensures tenant workloads don't interfere with each other and enables per-tenant job prioritization.

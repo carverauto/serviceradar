@@ -379,6 +379,43 @@ After core-elx is implemented, web-ng will be simplified:
 └─────────────────────────────────────────────────────────┘
 ```
 
+## Resolved: ERTS Transport for Job Dispatch
+
+**Decision**: Hybrid approach using AshOban + Horde Registry + GenServer.call + Phoenix.PubSub
+
+### Job Dispatch Flow (Cloud ERTS Cluster)
+```
+AshOban Job Triggers (scheduled or resource-triggered)
+        ↓
+   Oban Worker executes on core-elx
+        ↓
+   Horde Registry lookup: find_poller_for_partition(tenant_id, partition_id)
+        ↓
+   GenServer.call(poller_pid, {:execute_poll, check_config})  ← targeted RPC
+        ↓
+   Poller executes check (or delegates to agent)
+        ↓
+   Returns result to core-elx
+        ↓
+   Core-elx persists via Ash resources
+```
+
+### Transport Usage Guidelines
+
+| Use Case | Transport | Example |
+|----------|-----------|---------|
+| Schedule jobs | AshOban | Poll every 5 minutes, sync daily |
+| Dispatch to specific poller | Horde + GenServer.call | Execute poll on tenant's poller |
+| Broadcast config changes | Phoenix.PubSub | "Tenant config updated, refresh" |
+| Cluster events | Phoenix.PubSub | Node join/leave, agent registration |
+| UI real-time updates | Phoenix.PubSub | LiveView dashboard updates |
+
+### Why This Approach
+- **AshOban**: Idiomatic with Ash, persistent job storage, distributed locking
+- **Horde Registry**: Already in place for poller/agent discovery, location-transparent
+- **GenServer.call**: Confirmation that work was dispatched, back-pressure via blocking
+- **Phoenix.PubSub**: Efficient broadcast, already used for LiveView updates
+
 ## Open Questions / Next Steps
 - Define the gRPC contract between cloud core-elx and edge Go serviceradar-core
 - Define the large-payload streaming contract for sync/sweep results (chunk size, backpressure, retry)
