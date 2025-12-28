@@ -622,44 +622,6 @@ oci_load(
     repo_tags = ["ghcr.io/carverauto/serviceradar-poller-elx:local"],
 )
 
-genrule(
-    name = "agent_elx_release_rootfs_amd64",
-    srcs = ["//elixir/serviceradar_agent:release_tar"],
-    outs = ["agent_elx_release_rootfs_amd64.tar"],
-    cmd = """
-set -euo pipefail
-TAR=$(location //elixir/serviceradar_agent:release_tar)
-ROOT=$(@D)/rootfs
-rm -rf "$${ROOT}"
-mkdir -p "$${ROOT}/app"
-tar -xzf "$${TAR}" -C "$${ROOT}/app"
-tar -czf "$@" -C "$${ROOT}" .
-""",
-)
-
-oci_image(
-    name = "agent_elx_image_amd64",
-    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-    tars = [":agent_elx_release_rootfs_amd64"],
-    entrypoint = ["/app/bin/serviceradar_agent"],
-    cmd = ["start"],
-    env = {
-        "HOME": "/app",
-        "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
-        "MIX_ENV": "prod",
-    },
-    workdir = "/app",
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-agent-elx",
-    },
-)
-
-oci_load(
-    name = "agent_elx_image_amd64_tar",
-    image = ":agent_elx_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-agent-elx:local"],
-)
-
 pkg_tar(
     name = "core_layer_amd64",
     files = {

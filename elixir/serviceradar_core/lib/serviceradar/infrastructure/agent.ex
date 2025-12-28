@@ -98,9 +98,19 @@ defmodule ServiceRadar.Infrastructure.Agent do
     routes do
       base "/agents"
 
+      # Read operations
       get :by_uid
       index :read
       index :by_poller, route: "/by-poller/:poller_id"
+
+      # Admin/onboarding creates agent records (host:port known from onboarding package)
+      post :register
+
+      # Poller updates agent status after connecting via gRPC
+      patch :establish_connection, route: "/:id/connect"
+      patch :heartbeat, route: "/:id/heartbeat"
+      patch :lose_connection, route: "/:id/disconnect"
+      patch :degrade, route: "/:id/degrade"
     end
   end
 

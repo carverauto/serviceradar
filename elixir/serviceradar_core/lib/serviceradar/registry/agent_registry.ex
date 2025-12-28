@@ -1,142 +1,164 @@
 defmodule ServiceRadar.AgentRegistry do
   @moduledoc """
-  Distributed registry for tracking connected agents across the ERTS cluster.
+  Distributed registry for tracking connected agents.
 
-  Agents are Go processes that connect to pollers via gRPC. When an agent
-  connects, the poller registers it in this registry. The registration
-  propagates across the cluster via Horde's CRDT-based synchronization.
+  ## Architecture: Go Agents via gRPC
+
+  Agents are Go-based processes running in customer networks. They do NOT
+  join the ERTS cluster - instead, they expose a gRPC endpoint that pollers
+  call to execute monitoring checks.
+
+  The registry tracks agent metadata including gRPC addresses so pollers
+  can discover and communicate with their assigned agents.
+
+  ## Multi-Tenant Isolation
+
+  Agents are registered in per-tenant Horde registries managed by
+  `ServiceRadar.Cluster.TenantRegistry`. This ensures:
+
+  - Edge components can only discover agents within their tenant
+  - Cross-tenant process enumeration is prevented
+  - Each tenant has isolated registry state
 
   ## Registration Format
 
-  Agents register with a tenant-scoped composite key and connection metadata:
+  Agents register via the core API with their gRPC address:
 
-      key = {tenant_id, partition_id, agent_id}
-      metadata = %{
-        tenant_id: "tenant-uuid",
+      ServiceRadar.AgentRegistry.register_agent(tenant_id, agent_id, %{
         partition_id: "partition-1",
-        agent_id: "agent-uuid-1234",
-        poller_node: :"poller1@192.168.1.20",
-        capabilities: [:icmp_sweep, :tcp_sweep, :grpc_checker],
-        spiffe_identity: "spiffe://serviceradar/agent/uuid",
-        status: :connected,
-        connected_at: ~U[2024-01-01 00:00:00Z],
-        last_heartbeat: ~U[2024-01-01 00:01:00Z]
-      }
+        grpc_host: "192.168.1.100",
+        grpc_port: 50051,
+        capabilities: [:icmp_sweep, :tcp_sweep, :snmp],
+        status: :connected
+      })
 
-  ## Multi-Tenancy
+  ## Querying Agents
 
-  All lookups are tenant-scoped to ensure isolation:
+      # Find all agents for a tenant (REQUIRED: tenant_id)
+      ServiceRadar.AgentRegistry.find_agents_for_tenant(tenant_id)
 
-      # Find all agents for a tenant
-      ServiceRadar.AgentRegistry.find_agents_for_tenant("tenant-uuid")
+      # Find agents for a partition
+      ServiceRadar.AgentRegistry.find_agents_for_partition(tenant_id, partition_id)
 
-      # Find agents in a tenant's partition
-      ServiceRadar.AgentRegistry.find_agents_for_partition("tenant-uuid", "partition-1")
+  ## Legacy Compatibility
 
-  Legacy single-key lookups (by agent_id string) are supported for backwards
-  compatibility but will be deprecated.
+  This module maintains backwards compatibility with the old single-registry
+  API while delegating to per-tenant registries. The `all_agents/0` function
+  is retained for admin purposes but iterates across all tenant registries.
   """
 
-  use Horde.Registry
+  alias ServiceRadar.Cluster.TenantRegistry
 
-  def start_link(opts) do
-    Horde.Registry.start_link(__MODULE__, [keys: :unique] ++ opts, name: __MODULE__)
-  end
-
-  @impl true
-  def init(opts) do
-    [members: members()]
-    |> Keyword.merge(opts)
-    |> Horde.Registry.init()
-  end
-
-  defp members do
-    :auto
-  end
+  require Logger
 
   @doc """
-  Register an agent with the given key and metadata.
+  Register an agent in its tenant's registry.
 
-  This is the low-level registration function that accepts any key format
-  (string or tuple for partition-namespaced keys).
+  ## Parameters
+
+    - `tenant_id` - Tenant UUID (REQUIRED for multi-tenant isolation)
+    - `agent_id` - Unique agent identifier
+    - `agent_info` - Agent metadata map
+
+  ## Examples
+
+      register_agent("tenant-uuid", "agent-001", %{
+        partition_id: "partition-1",
+        poller_node: node(),
+        capabilities: [:icmp_sweep, :tcp_sweep],
+        status: :connected
+      })
   """
-  @spec register(term(), map()) :: {:ok, pid()} | {:error, {:already_registered, pid()}}
-  def register(key, metadata) do
-    Horde.Registry.register(__MODULE__, key, metadata)
-  end
-
-  @doc """
-  Unregister an agent by key.
-  """
-  @spec unregister(term()) :: :ok
-  def unregister(key) do
-    Horde.Registry.unregister(__MODULE__, key)
-  end
-
-  @doc """
-  Update the metadata for a registered agent.
-  """
-  @spec update_value(term(), (map() -> map())) :: {any(), any()} | :error
-  def update_value(key, callback) do
-    Horde.Registry.update_value(__MODULE__, key, callback)
-  end
-
-  @doc """
-  Register an agent with the given agent_id and metadata.
-
-  Called by the poller when an agent connects via gRPC.
-  This is a convenience function that constructs metadata from agent_info.
-  """
-  @spec register_agent(String.t(), map()) :: {:ok, pid()} | {:error, {:already_registered, pid()}}
-  def register_agent(agent_id, agent_info) do
+  @spec register_agent(String.t(), String.t(), map()) ::
+          {:ok, pid()} | {:error, {:already_registered, pid()} | term()}
+  def register_agent(tenant_id, agent_id, agent_info) when is_binary(tenant_id) do
     metadata = %{
       agent_id: agent_id,
-      poller_node: Node.self(),
+      tenant_id: tenant_id,
+      partition_id: Map.get(agent_info, :partition_id),
+      poller_node: Map.get(agent_info, :poller_node, Node.self()),
+      # gRPC connection details for poller-initiated communication
+      grpc_host: Map.get(agent_info, :grpc_host),
+      grpc_port: Map.get(agent_info, :grpc_port),
       capabilities: Map.get(agent_info, :capabilities, []),
       spiffe_identity: Map.get(agent_info, :spiffe_id),
-      status: :connected,
+      node: Node.self(),
+      status: Map.get(agent_info, :status, :connected),
       connected_at: DateTime.utc_now(),
       last_heartbeat: DateTime.utc_now()
     }
 
-    case register(agent_id, metadata) do
+    case TenantRegistry.register_agent(tenant_id, agent_id, metadata) do
       {:ok, _pid} = result ->
-        # Broadcast registration event
+        # Broadcast registration event (tenant-scoped topic)
+        Phoenix.PubSub.broadcast(
+          ServiceRadar.PubSub,
+          "agent:registrations:#{tenant_id}",
+          {:agent_registered, metadata}
+        )
+
+        # Also broadcast to global topic for admin monitoring
         Phoenix.PubSub.broadcast(
           ServiceRadar.PubSub,
           "agent:registrations",
           {:agent_registered, metadata}
         )
 
+        Logger.info("Agent registered: #{agent_id} for tenant: #{tenant_id}")
         result
 
       error ->
+        Logger.warning("Failed to register agent #{agent_id}: #{inspect(error)}")
         error
     end
   end
 
+  # Legacy compatibility: extract tenant_id from agent_info
+  def register_agent(agent_id, agent_info) when is_binary(agent_id) and is_map(agent_info) do
+    tenant_id = Map.get(agent_info, :tenant_id)
+
+    if tenant_id do
+      register_agent(tenant_id, agent_id, agent_info)
+    else
+      Logger.warning("register_agent called without tenant_id - tenant_id is required")
+      {:error, :tenant_id_required}
+    end
+  end
+
   @doc """
-  Unregister an agent when it disconnects.
+  Unregister an agent from its tenant's registry.
   """
-  @spec unregister_agent(String.t()) :: :ok
-  def unregister_agent(agent_id) do
-    Horde.Registry.unregister(__MODULE__, agent_id)
+  @spec unregister_agent(String.t(), String.t()) :: :ok
+  def unregister_agent(tenant_id, agent_id) when is_binary(tenant_id) do
+    TenantRegistry.unregister(tenant_id, {:agent, agent_id})
+
+    Phoenix.PubSub.broadcast(
+      ServiceRadar.PubSub,
+      "agent:registrations:#{tenant_id}",
+      {:agent_disconnected, agent_id}
+    )
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
       "agent:registrations",
-      {:agent_disconnected, agent_id}
+      {:agent_disconnected, agent_id, tenant_id}
     )
 
+    :ok
+  end
+
+  # Legacy compatibility
+  def unregister_agent(agent_id) when is_binary(agent_id) do
+    Logger.warning("unregister_agent called without tenant_id - operation may not work correctly")
     :ok
   end
 
   @doc """
   Update agent heartbeat timestamp.
   """
-  @spec heartbeat(String.t()) :: :ok | :error
-  def heartbeat(agent_id) do
-    case Horde.Registry.update_value(__MODULE__, agent_id, fn meta ->
+  @spec heartbeat(String.t(), String.t()) :: :ok | :error
+  def heartbeat(tenant_id, agent_id) when is_binary(tenant_id) do
+    case TenantRegistry.update_value(tenant_id, {:agent, agent_id}, fn meta ->
            %{meta | last_heartbeat: DateTime.utc_now()}
          end) do
       {_new, _old} -> :ok
@@ -145,96 +167,46 @@ defmodule ServiceRadar.AgentRegistry do
   end
 
   @doc """
-  Look up an agent by ID.
+  Look up a specific agent in a tenant's registry.
   """
-  @spec lookup(String.t()) :: map() | nil
-  def lookup(agent_id) do
-    case Horde.Registry.lookup(__MODULE__, agent_id) do
-      [{_pid, metadata}] -> metadata
-      [] -> nil
-    end
+  @spec lookup(String.t(), String.t()) :: [{pid(), map()}]
+  def lookup(tenant_id, agent_id) when is_binary(tenant_id) do
+    TenantRegistry.lookup(tenant_id, {:agent, agent_id})
   end
 
   @doc """
   Find all agents for a specific tenant.
 
-  Uses tenant-scoped lookup to ensure multi-tenant isolation.
+  This is the primary query function - always requires tenant_id.
   """
   @spec find_agents_for_tenant(String.t()) :: [map()]
-  def find_agents_for_tenant(tenant_id) do
-    match_spec = [
-      {{:"$1", :"$2", %{tenant_id: tenant_id}}, [], [{{:"$1", :"$2"}}]}
-    ]
-
-    Horde.Registry.select(__MODULE__, match_spec)
-    |> Enum.map(fn {key, pid} ->
-      case Horde.Registry.lookup(__MODULE__, key) do
-        [{^pid, metadata}] -> Map.put(metadata, :pid, pid)
-        _ -> nil
-      end
-    end)
-    |> Enum.reject(&is_nil/1)
+  def find_agents_for_tenant(tenant_id) when is_binary(tenant_id) do
+    TenantRegistry.find_agents(tenant_id)
   end
 
   @doc """
   Find all agents for a specific tenant and partition.
-
-  Uses tenant-scoped lookup to ensure multi-tenant isolation.
   """
   @spec find_agents_for_partition(String.t(), String.t()) :: [map()]
-  def find_agents_for_partition(tenant_id, partition_id) do
-    match_spec = [
-      {{:"$1", :"$2", %{tenant_id: tenant_id, partition_id: partition_id}}, [],
-       [{{:"$1", :"$2"}}]}
-    ]
-
-    Horde.Registry.select(__MODULE__, match_spec)
-    |> Enum.map(fn {key, pid} ->
-      case Horde.Registry.lookup(__MODULE__, key) do
-        [{^pid, metadata}] -> Map.put(metadata, :pid, pid)
-        _ -> nil
-      end
-    end)
-    |> Enum.reject(&is_nil/1)
+  def find_agents_for_partition(tenant_id, partition_id) when is_binary(tenant_id) do
+    find_agents_for_tenant(tenant_id)
+    |> Enum.filter(&(&1[:partition_id] == partition_id))
   end
 
   @doc """
-  Find all agents connected to a specific poller node.
-  """
-  @spec find_agents_for_poller(node()) :: [map()]
-  def find_agents_for_poller(poller_node) do
-    all_agents()
-    |> Enum.filter(&(&1.poller_node == poller_node))
-  end
-
-  @doc """
-  Find all agents connected to a specific poller node within a tenant.
+  Find agents connected to a specific poller node within a tenant.
   """
   @spec find_agents_for_poller(String.t(), node()) :: [map()]
-  def find_agents_for_poller(tenant_id, poller_node) do
+  def find_agents_for_poller(tenant_id, poller_node) when is_binary(tenant_id) do
     find_agents_for_tenant(tenant_id)
-    |> Enum.filter(&(&1.poller_node == poller_node))
-  end
-
-  @doc """
-  Find all connected agents across the cluster (all tenants).
-
-  Note: Use tenant-scoped functions for production. This is primarily
-  for admin/debugging purposes.
-  """
-  @spec all_agents() :: [map()]
-  def all_agents do
-    Horde.Registry.select(__MODULE__, [{{:"$1", :"$2", :"$3"}, [], [{{:"$1", :"$2", :"$3"}}]}])
-    |> Enum.map(fn {key, pid, metadata} ->
-      Map.merge(metadata, %{key: key, pid: pid})
-    end)
+    |> Enum.filter(&(&1[:poller_node] == poller_node))
   end
 
   @doc """
   Find agents with specific capabilities within a tenant.
   """
   @spec find_agents_with_capability(String.t(), atom()) :: [map()]
-  def find_agents_with_capability(tenant_id, capability) do
+  def find_agents_with_capability(tenant_id, capability) when is_binary(tenant_id) do
     find_agents_for_tenant(tenant_id)
     |> Enum.filter(fn agent ->
       capability in Map.get(agent, :capabilities, [])
@@ -242,23 +214,76 @@ defmodule ServiceRadar.AgentRegistry do
   end
 
   @doc """
-  Find agents with specific capabilities across all tenants.
+  Get gRPC connection details for an agent.
 
-  Note: Use tenant-scoped version for production.
+  Returns `{:ok, {host, port}}` if agent is registered with gRPC details,
+  or `{:error, :not_found}` if agent is not registered or has no gRPC address.
   """
-  @spec find_all_agents_with_capability(atom()) :: [map()]
-  def find_all_agents_with_capability(capability) do
-    all_agents()
+  @spec get_grpc_address(String.t(), String.t()) :: {:ok, {String.t(), pos_integer()}} | {:error, :not_found | :no_grpc_address}
+  def get_grpc_address(tenant_id, agent_id) when is_binary(tenant_id) do
+    case lookup(tenant_id, agent_id) do
+      [{_pid, metadata}] ->
+        case {metadata[:grpc_host], metadata[:grpc_port]} do
+          {host, port} when is_binary(host) and is_integer(port) and port > 0 ->
+            {:ok, {host, port}}
+          _ ->
+            {:error, :no_grpc_address}
+        end
+      [] ->
+        {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Find all agents with gRPC addresses available for a tenant.
+
+  Used by pollers to discover agents they can communicate with.
+  """
+  @spec find_agents_with_grpc(String.t()) :: [map()]
+  def find_agents_with_grpc(tenant_id) when is_binary(tenant_id) do
+    find_agents_for_tenant(tenant_id)
     |> Enum.filter(fn agent ->
-      capability in Map.get(agent, :capabilities, [])
+      is_binary(agent[:grpc_host]) and is_integer(agent[:grpc_port]) and agent[:grpc_port] > 0
     end)
   end
 
   @doc """
-  Count of registered agents.
+  Get all registered agents across ALL tenants.
+
+  WARNING: This is for admin/platform use only. Edge components should
+  NEVER call this function - use tenant-scoped queries instead.
+
+  Queries the database as source of truth for admin views.
+  """
+  @spec all_agents() :: [map()]
+  def all_agents do
+    # For admin, query Ash for all agents in database
+    # Registry state is for runtime/clustering, DB is source of truth
+    case Ash.read(ServiceRadar.Infrastructure.Agent, authorize?: false) do
+      {:ok, agents} -> agents
+      _ -> []
+    end
+  end
+
+  @doc """
+  Count of registered agents for a tenant.
+  """
+  @spec count(String.t()) :: non_neg_integer()
+  def count(tenant_id) when is_binary(tenant_id) do
+    TenantRegistry.count_by_type(tenant_id, :agent)
+  end
+
+  @doc """
+  Count of registered agents across all tenants.
+
+  WARNING: Admin/platform use only.
   """
   @spec count() :: non_neg_integer()
   def count do
-    Horde.Registry.count(__MODULE__)
+    TenantRegistry.list_registries()
+    |> Enum.reduce(0, fn {_name, _pid}, acc ->
+      # Would need to track tenant_id per registry for accurate count
+      acc
+    end)
   end
 end

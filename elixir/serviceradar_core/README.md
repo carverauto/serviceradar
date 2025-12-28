@@ -14,7 +14,9 @@ Core business logic library for the ServiceRadar distributed monitoring platform
 This library is used as a dependency by:
 - `serviceradar_web` (Phoenix web application)
 - `serviceradar_poller` (Standalone edge poller)
-- `serviceradar_agent` (Standalone monitoring agent)
+
+Note: Monitoring agents are now Go-based (`serviceradar-agent`) and communicate via gRPC,
+not ERTS distribution. The AgentRegistry is still used to track connected agents.
 
 ## Installation
 
@@ -124,8 +126,10 @@ ServiceRadar.PollerRegistry.find_by_partition("partition-1")
 
 ### Agent Registration
 
+Agents are registered when they connect via gRPC. The poller handles registration:
+
 ```elixir
-# Register an agent
+# When a Go agent connects via gRPC, the poller registers it:
 ServiceRadar.AgentRegistry.register(%{
   partition_id: "partition-1",
   poller_id: "poller-001",
@@ -164,7 +168,8 @@ ServiceRadar.Telemetry.attach_default_handlers()
 
 ## Standalone Release Configuration
 
-For standalone poller/agent releases, configure the cluster to join the main ServiceRadar cluster:
+For standalone poller releases, configure the cluster to join the main ServiceRadar cluster.
+Note: Agents are now Go-based and do not join the ERTS cluster - they connect via gRPC:
 
 ```elixir
 # rel/env.sh.eex

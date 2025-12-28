@@ -4,8 +4,8 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
 
   This module is only for local development and testing. It simulates having
   a distributed cluster by registering fake pollers and agents that would
-  normally be registered by separate serviceradar_poller and serviceradar_agent
-  applications.
+  normally be registered by serviceradar_poller (Elixir) and Go agents
+  connecting via gRPC.
 
   ## Usage
 

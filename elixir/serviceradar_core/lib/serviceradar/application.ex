@@ -6,17 +6,25 @@ defmodule ServiceRadar.Application do
   - Database connection pool (Repo)
   - Oban job processor
   - Cluster supervisor (libcluster + Horde)
-  - Poller and Agent registries
+  - Per-tenant TenantRegistry (Horde registries + DynamicSupervisors)
+
+  ## Multi-Tenant Process Isolation
+
+  The TenantRegistry provides per-tenant Horde registries and DynamicSupervisors
+  for multi-tenant process isolation. Edge components (pollers, agents) can only
+  discover processes within their tenant, preventing cross-tenant enumeration.
+
+  PollerRegistry and AgentRegistry delegate to TenantRegistry for all operations.
 
   This application can run standalone or as a dependency of
-  serviceradar_web, serviceradar_poller, or serviceradar_agent.
+  serviceradar_web or serviceradar_poller.
 
   ## Configuration
 
   - `:repo_enabled` - Whether to start the database connection pool (default: true)
   - `:oban_enabled` - Whether to start Oban job processor (default: true)
   - `:cluster_enabled` - Whether to start cluster infrastructure (default: false)
-  - `:registries_enabled` - Whether to start Horde registries (default: true)
+  - `:registries_enabled` - Whether to start TenantRegistry (default: true)
   """
   use Application
 
@@ -104,9 +112,10 @@ defmodule ServiceRadar.Application do
   defp registry_children do
     if Application.get_env(:serviceradar_core, :registries_enabled, true) do
       [
-        # Horde distributed registries for pollers and agents
-        ServiceRadar.PollerRegistry,
-        ServiceRadar.AgentRegistry,
+        # Per-tenant Horde registries and DynamicSupervisors
+        # TenantRegistry manages per-tenant process isolation (Option D hybrid approach)
+        # PollerRegistry and AgentRegistry now delegate to TenantRegistry
+        ServiceRadar.Cluster.TenantRegistry,
         # Identity cache for device lookups (ETS-based with TTL)
         ServiceRadar.Identity.IdentityCache,
         # DataService client for KV operations (used to push config to Go/Rust services)

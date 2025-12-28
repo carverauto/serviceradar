@@ -5,10 +5,11 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   The PollOrchestrator is called by AshOban when a PollingSchedule's execute
   action is triggered. It handles:
 
-  1. Finding an available poller for the schedule's partition/tenant
-  2. Loading the service checks associated with the schedule
-  3. Dispatching the job to the poller
-  4. Collecting and returning results
+  1. Creating a PollJob record to track execution
+  2. Finding an available poller for the schedule's partition/tenant
+  3. Loading the service checks associated with the schedule
+  4. Dispatching the job to the poller
+  5. Transitioning the PollJob through states and recording results
 
   ## Communication Flow
 
@@ -21,36 +22,73 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
        v
   PollOrchestrator.execute_schedule
        |
+       ├── Create PollJob (pending)
+       ├── Transition to dispatching
        v
   PollerProcess.execute_job
        |
+       ├── Transition to running
        v
   AgentProcess.execute_check
        |
+       ├── Transition to completed/failed
        v
   serviceradar-sync (gRPC)
   ```
 
   Results flow back up the chain for processing and storage.
+  The PollJob resource uses AshStateMachine to enforce valid transitions.
   """
 
   require Logger
 
+  alias ServiceRadar.Monitoring.PollJob
   alias ServiceRadar.PollerRegistry
   alias ServiceRadar.Edge.PollerProcess
 
   @doc """
   Execute a polling schedule.
 
+  Creates a PollJob record and transitions it through execution states.
   Finds an available poller and dispatches all service checks for execution.
   Returns aggregated results.
   """
   @spec execute_schedule(map()) :: {:ok, map()} | {:error, term()}
   def execute_schedule(schedule) do
-    # Find available poller based on assignment mode
-    with {:ok, poller} <- find_poller(schedule),
-         {:ok, checks} <- load_checks(schedule),
-         {:ok, result} <- dispatch_to_poller(poller, checks, schedule) do
+    # Load checks first to include count in job
+    case load_checks(schedule) do
+      {:error, :no_checks} ->
+        Logger.debug("No checks configured for schedule #{schedule.name}")
+        {:ok, %{total: 0, success: 0, failed: 0, results: []}}
+
+      {:ok, checks} ->
+        # Create PollJob record to track this execution
+        case create_poll_job(schedule, checks) do
+          {:ok, job} ->
+            execute_with_job(job, schedule, checks)
+
+          {:error, reason} ->
+            Logger.error("Failed to create poll job: #{inspect(reason)}")
+            {:error, reason}
+        end
+
+      {:error, reason} = error ->
+        Logger.error("Failed to load checks for schedule #{schedule.name}: #{inspect(reason)}")
+        error
+    end
+  end
+
+  # Execute schedule with a PollJob tracking state
+  defp execute_with_job(job, schedule, checks) do
+    # Transition to dispatching while finding poller
+    with {:ok, job} <- transition_to_dispatching(job),
+         {:ok, poller} <- find_poller(schedule),
+         {:ok, job} <- update_job_poller(job, poller),
+         {:ok, job} <- transition_to_running(job),
+         {:ok, result} <- dispatch_to_poller(poller, checks, schedule, job) do
+      # Complete the job with results
+      complete_job(job, result)
+
       Logger.info(
         "Schedule #{schedule.name} completed: #{result[:success]}/#{result[:total]} checks passed"
       )
@@ -58,17 +96,83 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
       {:ok, result}
     else
       {:error, :no_available_poller} ->
+        fail_job(job, "No available poller", "NO_POLLER")
         Logger.warning("No available poller for schedule #{schedule.name}")
         {:error, :no_available_poller}
 
-      {:error, :no_checks} ->
-        Logger.debug("No checks configured for schedule #{schedule.name}")
-        {:ok, %{total: 0, success: 0, failed: 0, results: []}}
-
       {:error, reason} = error ->
+        fail_job(job, "Execution failed: #{inspect(reason)}", "EXECUTION_ERROR")
         Logger.error("Failed to execute schedule #{schedule.name}: #{inspect(reason)}")
         error
     end
+  end
+
+  # Create a new PollJob record
+  defp create_poll_job(schedule, checks) do
+    check_ids = Enum.map(checks, & &1[:id])
+
+    PollJob
+    |> Ash.Changeset.for_create(:create, %{
+      schedule_id: schedule.id,
+      schedule_name: schedule.name,
+      check_count: length(checks),
+      check_ids: check_ids,
+      priority: schedule.priority || 0,
+      timeout_seconds: schedule.timeout_seconds || 60,
+      tenant_id: schedule.tenant_id
+    })
+    |> Ash.create()
+  end
+
+  # State transitions
+  defp transition_to_dispatching(job) do
+    job
+    |> Ash.Changeset.for_update(:dispatch, %{})
+    |> Ash.update()
+  end
+
+  defp update_job_poller(job, poller) do
+    poller_id = poller[:poller_id]
+
+    job
+    |> Ash.Changeset.for_update(:update, %{poller_id: poller_id})
+    |> Ash.update()
+  rescue
+    # If update action doesn't exist, just return the job
+    _ -> {:ok, job}
+  end
+
+  defp transition_to_running(job) do
+    job
+    |> Ash.Changeset.for_update(:start, %{})
+    |> Ash.update()
+  end
+
+  defp complete_job(job, result) do
+    job
+    |> Ash.Changeset.for_update(:complete, %{
+      success_count: result[:success] || 0,
+      failure_count: result[:failed] || 0,
+      results: result[:results] || []
+    })
+    |> Ash.update()
+  rescue
+    e ->
+      Logger.warning("Failed to complete job #{job.id}: #{inspect(e)}")
+      {:error, e}
+  end
+
+  defp fail_job(job, message, code) do
+    job
+    |> Ash.Changeset.for_update(:fail, %{
+      error_message: message,
+      error_code: code
+    })
+    |> Ash.update()
+  rescue
+    e ->
+      Logger.warning("Failed to mark job #{job.id} as failed: #{inspect(e)}")
+      {:error, e}
   end
 
   @doc """
@@ -78,19 +182,32 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   """
   @spec execute_schedule_async(map()) :: {:ok, String.t()} | {:error, term()}
   def execute_schedule_async(schedule) do
-    with {:ok, poller} <- find_poller(schedule),
-         {:ok, checks} <- load_checks(schedule) do
+    with {:ok, checks} <- load_checks(schedule),
+         {:ok, poll_job} <- create_poll_job(schedule, checks),
+         {:ok, poll_job} <- transition_to_dispatching(poll_job),
+         {:ok, poller} <- find_poller(schedule),
+         {:ok, poll_job} <- update_job_poller(poll_job, poller),
+         {:ok, _poll_job} <- transition_to_running(poll_job) do
       # Dispatch async
-      job = build_job(checks, schedule)
+      job_payload = build_job(checks, schedule, poll_job)
 
-      case PollerProcess.execute_job_async(poller[:poller_id], job) do
-        {:ok, job_id} ->
-          Logger.info("Schedule #{schedule.name} dispatched async as job #{job_id}")
-          {:ok, job_id}
+      case PollerProcess.execute_job_async(poller[:poller_id], job_payload) do
+        {:ok, _async_id} ->
+          Logger.info("Schedule #{schedule.name} dispatched async as job #{poll_job.id}")
+          {:ok, poll_job.id}
 
         error ->
+          fail_job(poll_job, "Async dispatch failed", "DISPATCH_ERROR")
           error
       end
+    else
+      {:error, :no_checks} ->
+        Logger.debug("No checks configured for schedule #{schedule.name}")
+        {:ok, nil}
+
+      {:error, reason} = error ->
+        Logger.error("Failed to execute schedule async #{schedule.name}: #{inspect(reason)}")
+        error
     end
   end
 
@@ -123,7 +240,7 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
         if is_nil(poller_id) do
           {:error, :no_poller_assigned}
         else
-          case PollerRegistry.lookup(poller_id) do
+          case PollerRegistry.lookup(tenant_id, poller_id) do
             [{_pid, metadata}] ->
               if metadata[:status] == :available do
                 {:ok, metadata}
@@ -184,16 +301,16 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   end
 
   # Dispatch job to poller
-  defp dispatch_to_poller(poller, checks, schedule) do
-    job = build_job(checks, schedule)
+  defp dispatch_to_poller(poller, checks, schedule, poll_job) do
+    job_payload = build_job(checks, schedule, poll_job)
     poller_id = poller[:poller_id]
 
-    Logger.debug("Dispatching #{length(checks)} checks to poller #{poller_id}")
+    Logger.debug("Dispatching #{length(checks)} checks to poller #{poller_id} (job: #{poll_job.id})")
 
-    case PollerProcess.execute_job(poller_id, job) do
+    case PollerProcess.execute_job(poller_id, job_payload) do
       {:ok, result} ->
         # Process and possibly store results
-        process_results(result, schedule)
+        process_results(result, schedule, poll_job)
         {:ok, result}
 
       {:error, :poller_not_found} ->
@@ -211,8 +328,9 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   end
 
   # Build job payload for poller
-  defp build_job(checks, schedule) do
+  defp build_job(checks, schedule, poll_job) do
     %{
+      job_id: poll_job.id,
       schedule_id: schedule.id,
       schedule_name: schedule.name,
       tenant_id: schedule.tenant_id,
@@ -223,19 +341,26 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   end
 
   # Process results from poller execution
-  defp process_results(result, schedule) do
+  defp process_results(result, schedule, poll_job) do
     # Broadcast results via PubSub for any listeners
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
       "schedule:results:#{schedule.id}",
-      {:schedule_completed, schedule.id, result}
+      {:schedule_completed, schedule.id, poll_job.id, result}
     )
 
     # Also broadcast to tenant-level topic
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
       "tenant:#{schedule.tenant_id}:schedule_results",
-      {:schedule_completed, schedule.id, result}
+      {:schedule_completed, schedule.id, poll_job.id, result}
+    )
+
+    # Broadcast job-specific topic
+    Phoenix.PubSub.broadcast(
+      ServiceRadar.PubSub,
+      "poll_job:#{poll_job.id}",
+      {:job_completed, poll_job.id, result}
     )
 
     # Individual check results can be stored via events

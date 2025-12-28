@@ -35,7 +35,7 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
   @heartbeat_interval :timer.seconds(30)
   @stale_threshold :timer.minutes(2)
 
-  defstruct [:tenant_id, :partition_id, :domain, :key, :status, :registered_at]
+  defstruct [:tenant_id, :partition_id, :poller_id, :domain, :status, :registered_at]
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -45,13 +45,14 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
   def init(opts) do
     tenant_id = Keyword.get(opts, :tenant_id, default_tenant_id())
     partition_id = Keyword.fetch!(opts, :partition_id)
+    poller_id = Keyword.get(opts, :poller_id, generate_poller_id())
     domain = Keyword.get(opts, :domain, "default")
 
     state = %__MODULE__{
       tenant_id: tenant_id,
       partition_id: partition_id,
+      poller_id: poller_id,
       domain: domain,
-      key: {partition_id, Node.self()},
       status: :available,
       registered_at: DateTime.utc_now()
     }
@@ -116,13 +117,13 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
 
   @impl true
   def terminate(_reason, state) do
-    Logger.info("Poller unregistering: #{inspect(state.key)}")
-    ServiceRadar.PollerRegistry.unregister(state.key)
+    Logger.info("Poller unregistering: #{state.poller_id} for tenant: #{state.tenant_id}")
+    ServiceRadar.PollerRegistry.unregister_poller(state.tenant_id, state.poller_id)
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
-      "poller:registrations",
-      {:poller_unregistered, state.key}
+      "poller:registrations:#{state.tenant_id}",
+      {:poller_unregistered, state.poller_id}
     )
 
     :ok
@@ -179,46 +180,34 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
 
   defp register_poller(state) do
     metadata = %{
-      tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       domain: state.domain,
       node: Node.self(),
-      status: state.status,
-      registered_at: state.registered_at,
-      last_heartbeat: DateTime.utc_now()
+      status: state.status
     }
 
-    case ServiceRadar.PollerRegistry.register(state.key, metadata) do
-      {:ok, pid} ->
-        # Broadcast registration
-        Phoenix.PubSub.broadcast(
-          ServiceRadar.PubSub,
-          "poller:registrations",
-          {:poller_registered, metadata}
-        )
-
-        {:ok, pid}
-
-      error ->
-        error
-    end
+    # Use the new tenant-scoped registration API
+    ServiceRadar.PollerRegistry.register_poller(state.tenant_id, state.poller_id, metadata)
   end
 
   defp update_heartbeat(state) do
-    ServiceRadar.PollerRegistry.update_value(state.key, fn meta ->
-      %{meta | last_heartbeat: DateTime.utc_now()}
-    end)
+    ServiceRadar.PollerRegistry.heartbeat(state.tenant_id, state.poller_id)
   end
 
   defp update_status(state) do
-    ServiceRadar.PollerRegistry.update_value(state.key, fn meta ->
-      %{meta | status: state.status, last_heartbeat: DateTime.utc_now()}
-    end)
+    # Update status via TenantRegistry
+    ServiceRadar.Cluster.TenantRegistry.update_value(
+      state.tenant_id,
+      {:poller, state.poller_id},
+      fn meta ->
+        %{meta | status: state.status, last_heartbeat: DateTime.utc_now()}
+      end
+    )
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
-      "poller:registrations",
-      {:poller_status_changed, state.key, state.status}
+      "poller:registrations:#{state.tenant_id}",
+      {:poller_status_changed, state.poller_id, state.status}
     )
   end
 
@@ -245,5 +234,16 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
   defp default_tenant_id do
     System.get_env("POLLER_TENANT_ID") ||
       Application.get_env(:serviceradar_core, :default_tenant_id, "00000000-0000-0000-0000-000000000000")
+  end
+
+  # Generate a unique poller ID
+  defp generate_poller_id do
+    hostname =
+      case :inet.gethostname() do
+        {:ok, name} -> List.to_string(name)
+        _ -> "unknown"
+      end
+
+    "poller-#{hostname}-#{:rand.uniform(9999)}"
   end
 end

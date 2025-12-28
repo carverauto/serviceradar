@@ -84,7 +84,7 @@ services:
     environment:
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_poller@poller-elx,serviceradar_agent@agent-elx,serviceradar_poller_t2@poller-elx-t2,serviceradar_agent_t2@agent-elx-t2
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_poller@poller-elx,serviceradar_poller_t2@poller-elx-t2
       - ENABLE_TLS_DIST=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
@@ -213,95 +213,6 @@ services:
           - sync.serviceradar
     restart: unless-stopped
 
-  agent-elx:
-    image: ghcr.io/carverauto/serviceradar-agent-elx:${APP_TAG:-latest}
-    container_name: serviceradar-agent-elx-mtls
-    hostname: agent-elx
-    environment:
-      - AGENT_TENANT_ID=${SERVICERADAR_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}
-      - AGENT_PARTITION_ID=${AGENT_PARTITION_ID:-default}
-      - AGENT_ID=${AGENT_ID:-docker-agent}
-      - AGENT_POLLER_ID=${AGENT_POLLER_ID:-docker-poller}
-      - AGENT_CAPABILITIES=${AGENT_CAPABILITIES:-disk,process,ping}
-      # Sync service configuration for device data
-      - SYNC_HOST=sync
-      - SYNC_PORT=50058
-      - SYNC_SSL_MODE=mtls
-      - SYNC_CERT_DIR=/etc/serviceradar/certs
-      - CLUSTER_ENABLED=true
-      - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_poller@poller-elx,serviceradar_core@core-elx,serviceradar_poller_t2@poller-elx-t2,serviceradar_agent_t2@agent-elx-t2
-      - ENABLE_TLS_DIST=true
-      - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
-      - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
-      - SPIFFE_CERT_DIR=/etc/serviceradar/certs
-      - RELEASE_NODE=serviceradar_agent@agent-elx
-      - RELEASE_DISTRIBUTION=sname
-      - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-      - ./docker/compose/ssl_dist.agent.conf:/etc/serviceradar/ssl_dist.conf:ro
-    depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      sync:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "/app/bin/serviceradar_agent", "pid"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
-  # Second tenant agent
-  agent-elx-t2:
-    image: ghcr.io/carverauto/serviceradar-agent-elx:${APP_TAG:-latest}
-    container_name: serviceradar-agent-elx-t2-mtls
-    hostname: agent-elx-t2
-    profiles:
-      - multi-tenant
-    environment:
-      - AGENT_TENANT_ID=00000000-0000-0000-0000-000000000002
-      - AGENT_PARTITION_ID=tenant2-partition
-      - AGENT_ID=tenant2-agent
-      - AGENT_POLLER_ID=tenant2-poller
-      - AGENT_CAPABILITIES=${AGENT_CAPABILITIES:-disk,process,ping}
-      # Sync service configuration for device data
-      - SYNC_HOST=sync
-      - SYNC_PORT=50058
-      - SYNC_SSL_MODE=mtls
-      - SYNC_CERT_DIR=/etc/serviceradar/certs
-      - CLUSTER_ENABLED=true
-      - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_poller@poller-elx,serviceradar_core@core-elx,serviceradar_poller_t2@poller-elx-t2,serviceradar_agent@agent-elx
-      - ENABLE_TLS_DIST=true
-      - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
-      - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
-      - SPIFFE_CERT_DIR=/etc/serviceradar/certs
-      - RELEASE_NODE=serviceradar_agent_t2@agent-elx-t2
-      - RELEASE_DISTRIBUTION=sname
-      - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-      - ./docker/compose/ssl_dist.agent.conf:/etc/serviceradar/ssl_dist.conf:ro
-    depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      sync:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "/app/bin/serviceradar_agent", "pid"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
   poller-elx:
     image: ghcr.io/carverauto/serviceradar-poller-elx:${APP_TAG:-latest}
     container_name: serviceradar-poller-elx-mtls
@@ -313,7 +224,7 @@ services:
       - POLLER_DOMAIN=${POLLER_DOMAIN:-default}
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_agent@agent-elx,serviceradar_core@core-elx,serviceradar_poller_t2@poller-elx-t2,serviceradar_agent_t2@agent-elx-t2
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_core@core-elx,serviceradar_poller_t2@poller-elx-t2
       - ENABLE_TLS_DIST=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
@@ -351,7 +262,7 @@ services:
       - POLLER_DOMAIN=tenant2
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_agent@agent-elx,serviceradar_core@core-elx,serviceradar_poller@poller-elx,serviceradar_agent_t2@agent-elx-t2
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_core@core-elx,serviceradar_poller@poller-elx
       - ENABLE_TLS_DIST=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
@@ -606,7 +517,7 @@ services:
       - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-true}
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_poller@poller-elx,serviceradar_agent@agent-elx,serviceradar_core@core-elx,serviceradar_poller_t2@poller-elx-t2,serviceradar_agent_t2@agent-elx-t2
+      - CLUSTER_HOSTS=serviceradar_poller@poller-elx,serviceradar_core@core-elx,serviceradar_poller_t2@poller-elx-t2
       - CLUSTER_TLS_ENABLED=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
