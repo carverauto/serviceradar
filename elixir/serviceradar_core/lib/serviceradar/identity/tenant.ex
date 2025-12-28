@@ -89,6 +89,12 @@ defmodule ServiceRadar.Identity.Tenant do
 
       constraints instance_of: ServiceRadar.Edge.TenantCA
 
+      argument :tenant, :struct do
+        constraints instance_of: ServiceRadar.Identity.Tenant
+        allow_nil? false
+        description "The tenant to generate CA for"
+      end
+
       argument :validity_years, :integer do
         default 10
         description "CA validity in years"
@@ -99,8 +105,8 @@ defmodule ServiceRadar.Identity.Tenant do
         description "If true, revokes existing CA and generates new one"
       end
 
-      run fn input, context ->
-        tenant = input.arguments[:tenant] || context.record
+      run fn input, _context ->
+        tenant = input.arguments.tenant
         validity_years = input.arguments.validity_years
         force_regenerate = input.arguments.force_regenerate
 
