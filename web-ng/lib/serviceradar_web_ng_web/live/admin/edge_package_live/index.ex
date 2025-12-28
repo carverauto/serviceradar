@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.ComponentTemplates
+  alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadar.Edge.OnboardingPackage
 
   @impl true
@@ -27,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:selected_package, nil)
       |> assign(:package_events, [])
       |> assign(:created_tokens, nil)
+      |> assign(:creating, false)
       |> assign(:create_form, build_create_form(tenant_id, security_mode))
       |> assign(:filter_status, nil)
       |> assign(:filter_component_type, nil)
@@ -112,31 +114,59 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
 
     if form.source.valid? do
-      # Extract validated form data and use OnboardingPackages.create
-      # which handles token generation beyond the basic Ash action
+      # Show loading state while creating package and generating certificates
+      socket = assign(socket, :creating, true)
+
+      # Extract validated form data
       actor = get_actor(socket)
+      tenant_id = get_tenant_id(socket)
       attrs = build_package_attrs_from_form(params, socket.assigns.security_mode)
 
-      case OnboardingPackages.create(attrs, actor: actor) do
-        {:ok, result} ->
-          tenant_id = get_tenant_id(socket)
+      # Use create_with_tenant_cert for automatic certificate generation
+      # This will auto-generate the tenant CA if it doesn't exist
+      result =
+        OnboardingPackages.create_with_tenant_cert(attrs,
+          actor: actor,
+          tenant: tenant_id
+        )
+
+      case result do
+        {:ok, package_result} ->
           security_mode = socket.assigns.security_mode
 
           {:noreply,
            socket
-           |> assign(:created_tokens, result)
+           |> assign(:creating, false)
+           |> assign(:created_tokens, package_result)
            |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
            |> assign(:create_form, build_create_form(tenant_id, security_mode))
-           |> put_flash(:info, "Package created successfully")}
+           |> put_flash(:info, "Package created with certificates")}
 
-        {:error, error} ->
-          # Handle Ash errors by updating the form
+        {:error, :ca_generation_failed} ->
+          {:noreply,
+           socket
+           |> assign(:creating, false)
+           |> put_flash(
+             :error,
+             "Failed to generate tenant certificate authority. Please try again."
+           )}
+
+        {:error, %Ash.Error.Invalid{} = error} ->
           form = AshPhoenix.Form.add_error(form, error)
 
           {:noreply,
            socket
+           |> assign(:creating, false)
            |> assign(:create_form, form)
            |> put_flash(:error, "Failed to create package")}
+
+        {:error, error} ->
+          error_msg = format_error(error)
+
+          {:noreply,
+           socket
+           |> assign(:creating, false)
+           |> put_flash(:error, "Failed to create package: #{error_msg}")}
       end
     else
       {:noreply,
@@ -335,6 +365,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         :if={@show_create_modal}
         form={@create_form}
         created_tokens={@created_tokens}
+        creating={@creating}
         security_mode={@security_mode}
         selected_component_type={@selected_component_type}
         checker_templates={@checker_templates}
@@ -352,172 +383,158 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp create_modal(assigns) do
     ~H"""
     <dialog id="create_modal" class="modal modal-open">
-      <div class="modal-box max-w-lg">
+      <div class="modal-box max-w-2xl">
         <form method="dialog">
           <button
             class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
             phx-click="close_create_modal"
+            disabled={@creating}
           >
             x
           </button>
         </form>
 
-        <%= if @created_tokens do %>
-          <h3 class="text-lg font-bold">Package Created</h3>
-          <p class="py-2 text-sm text-base-content/70">
-            Save these tokens securely. They will not be shown again.
-          </p>
-
-          <div class="space-y-4 mt-4">
-            <div class="rounded-lg border border-base-200 bg-base-200/30 p-4">
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-2">
-                Download Token
-              </div>
-              <div class="flex items-center gap-2">
-                <code class="flex-1 text-sm font-mono break-all bg-base-100 p-2 rounded">
-                  {@created_tokens.download_token}
-                </code>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-ghost"
-                  phx-click="copy_token"
-                  phx-value-token={@created_tokens.download_token}
-                >
-                  <.icon name="hero-clipboard" class="size-4" />
-                </button>
-              </div>
-            </div>
-
-            <div class="rounded-lg border border-base-200 bg-base-200/30 p-4">
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-2">
-                Package ID
-              </div>
-              <div class="flex items-center gap-2">
-                <code class="flex-1 text-sm font-mono break-all bg-base-100 p-2 rounded">
-                  {@created_tokens.package.id}
-                </code>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-ghost"
-                  phx-click="copy_token"
-                  phx-value-token={@created_tokens.package.id}
-                >
-                  <.icon name="hero-clipboard" class="size-4" />
-                </button>
-              </div>
-            </div>
-
-            <div class="alert alert-warning text-sm">
-              <.icon name="hero-exclamation-triangle" class="size-5" />
-              <span>
-                Use these tokens with the CLI:
-                <code>
-                  serviceradar edge package download --id &lt;id&gt; --download-token &lt;token&gt;
-                </code>
-              </span>
-            </div>
-          </div>
-
-          <div class="modal-action">
-            <button type="button" class="btn btn-primary" phx-click="close_create_modal">
-              Done
-            </button>
+        <%= if @creating do %>
+          <div class="text-center py-8">
+            <span class="loading loading-spinner loading-lg text-primary"></span>
+            <h3 class="text-lg font-bold mt-4">Creating Package</h3>
+            <p class="text-sm text-base-content/70 mt-2">
+              Generating certificates and preparing your onboarding package...
+            </p>
+            <p class="text-xs text-base-content/50 mt-1">
+              This may take a moment if this is your first edge package.
+            </p>
           </div>
         <% else %>
-          <h3 class="text-lg font-bold">Create Edge Package</h3>
-          <p class="py-2 text-sm text-base-content/70">
-            Create a new onboarding package for an edge component.
-          </p>
+          <%= if @created_tokens do %>
+            <.success_content created_tokens={@created_tokens} />
+          <% else %>
+            <h3 class="text-lg font-bold">Create Edge Package</h3>
+            <p class="py-2 text-sm text-base-content/70">
+              Create an onboarding package to deploy an edge component.
+            </p>
 
-          <.form
-            for={@form}
-            id="create_package_form"
-            phx-change="validate_create"
-            phx-submit="create_package"
-            class="space-y-4 mt-4"
-          >
-            <.input
-              field={@form[:label]}
-              type="text"
-              label="Label"
-              placeholder="e.g., production-poller-01"
-              required
-            />
-
-            <.input
-              field={@form[:component_type]}
-              type="select"
-              label="Component Type"
-              options={[{"Poller", :poller}, {"Agent", :agent}, {"Checker", :checker}]}
-            />
-
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Security Mode</span>
-              </label>
-              <div class="flex items-center gap-2">
-                <.ui_badge variant="info" size="sm">
-                  {String.upcase(to_string(@security_mode))}
-                </.ui_badge>
-                <span class="text-xs text-base-content/60">
-                  (Configured by deployment environment)
-                </span>
+            <div class="alert alert-info text-sm mb-4">
+              <.icon name="hero-sparkles" class="size-5" />
+              <div>
+                <div class="font-medium">Zero-touch provisioning</div>
+                <p class="text-xs opacity-80">
+                  Certificates are generated automatically. You'll get a one-liner
+                  install command to run on your target server.
+                </p>
               </div>
             </div>
 
-            <%= if @selected_component_type == "checker" do %>
+            <.form
+              for={@form}
+              id="create_package_form"
+              phx-change="validate_create"
+              phx-submit="create_package"
+              class="space-y-4"
+            >
               <.input
-                field={@form[:checker_kind]}
-                type={if @checker_templates != [], do: "select", else: "text"}
-                label="Checker Kind"
-                options={
-                  if @checker_templates != [],
-                    do:
-                      [{"Select checker template...", ""}] ++
-                        Enum.map(@checker_templates, &{&1.kind, &1.kind}) ++
-                        [{"Custom (enter below)", "_custom"}],
-                    else: nil
-                }
-                placeholder="e.g., sysmon, snmp, rperf-checker"
+                field={@form[:label]}
+                type="text"
+                label="Label"
+                placeholder="e.g., production-poller-01"
+                required
+              />
+              <p class="text-xs text-base-content/60 -mt-2 ml-1">
+                A descriptive name for this component. Used to generate the component ID.
+              </p>
+
+              <.input
+                field={@form[:component_type]}
+                type="select"
+                label="Component Type"
+                options={[{"Poller", :poller}, {"Agent", :agent}, {"Checker", :checker}]}
               />
 
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text">Checker Config (JSON, optional)</span>
-                </label>
-                <textarea
-                  name={@form[:checker_config_json].name}
-                  class="textarea textarea-bordered w-full font-mono text-sm"
-                  rows="4"
-                  placeholder='{"interval": 30, "timeout": 10}'
-                ><%= Phoenix.HTML.Form.input_value(@form, :checker_config_json) |> format_json_value() %></textarea>
-                <label class="label">
-                  <span class="label-text-alt text-base-content/60">
-                    Custom configuration JSON for the checker
-                  </span>
-                </label>
+              <%= if @selected_component_type in ["agent", "checker"] do %>
+                <.input
+                  field={@form[:poller_id]}
+                  type="text"
+                  label="Parent Poller ID"
+                  placeholder="Enter the poller ID this component reports to"
+                />
+                <p class="text-xs text-base-content/60 -mt-2 ml-1">
+                  <%= if @selected_component_type == "agent" do %>
+                    The poller that will manage this agent.
+                  <% else %>
+                    The poller that will run this checker.
+                  <% end %>
+                </p>
+              <% end %>
+
+              <%= if @selected_component_type == "checker" do %>
+                <.input
+                  field={@form[:checker_kind]}
+                  type={if @checker_templates != [], do: "select", else: "text"}
+                  label="Checker Kind"
+                  options={
+                    if @checker_templates != [],
+                      do:
+                        [{"Select checker template...", ""}] ++
+                          Enum.map(@checker_templates, &{&1.kind, &1.kind}) ++
+                          [{"Custom (enter below)", "_custom"}],
+                      else: nil
+                  }
+                  placeholder="e.g., sysmon, snmp, rperf-checker"
+                />
+
+                <div class="form-control">
+                  <label class="label">
+                    <span class="label-text">Checker Config (JSON, optional)</span>
+                  </label>
+                  <textarea
+                    name={@form[:checker_config_json].name}
+                    class="textarea textarea-bordered w-full font-mono text-sm"
+                    rows="4"
+                    placeholder='{"interval": 30, "timeout": 10}'
+                  ><%= Phoenix.HTML.Form.input_value(@form, :checker_config_json) |> format_json_value() %></textarea>
+                  <label class="label">
+                    <span class="label-text-alt text-base-content/60">
+                      Custom configuration JSON for the checker
+                    </span>
+                  </label>
+                </div>
+              <% end %>
+
+              <div class="collapse collapse-arrow bg-base-200 rounded-lg">
+                <input type="checkbox" />
+                <div class="collapse-title text-sm font-medium py-2">
+                  Advanced options
+                </div>
+                <div class="collapse-content space-y-4">
+                  <.input
+                    field={@form[:notes]}
+                    type="textarea"
+                    label="Notes (Optional)"
+                    placeholder="Additional notes about this package"
+                  />
+
+                  <div class="form-control">
+                    <label class="label">
+                      <span class="label-text text-xs">Security Mode</span>
+                    </label>
+                    <div class="flex items-center gap-2">
+                      <.ui_badge variant="ghost" size="xs">
+                        {String.upcase(to_string(@security_mode))}
+                      </.ui_badge>
+                      <span class="text-xs text-base-content/50">
+                        (Set by deployment)
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
-            <% end %>
 
-            <.input
-              field={@form[:poller_id]}
-              type="text"
-              label="Poller ID (Optional)"
-              placeholder="Enter the poller ID to assign this package to"
-            />
-
-            <.input
-              field={@form[:notes]}
-              type="textarea"
-              label="Notes (Optional)"
-              placeholder="Additional notes about this package"
-            />
-
-            <div class="modal-action">
-              <button type="button" class="btn" phx-click="close_create_modal">Cancel</button>
-              <button type="submit" class="btn btn-primary">Create Package</button>
-            </div>
-          </.form>
+              <div class="modal-action">
+                <button type="button" class="btn" phx-click="close_create_modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create Package</button>
+              </div>
+            </.form>
+          <% end %>
         <% end %>
       </div>
       <form method="dialog" class="modal-backdrop">
@@ -526,6 +543,173 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     </dialog>
     """
   end
+
+  defp success_content(assigns) do
+    package = assigns.created_tokens.package
+    download_token = assigns.created_tokens.download_token
+    certificate_data = Map.get(assigns.created_tokens, :certificate_data)
+
+    docker_cmd = BundleGenerator.docker_install_command(package, download_token)
+    systemd_cmd = BundleGenerator.systemd_install_command(package, download_token)
+
+    assigns =
+      assigns
+      |> assign(:package, package)
+      |> assign(:download_token, download_token)
+      |> assign(:certificate_data, certificate_data)
+      |> assign(:docker_cmd, docker_cmd)
+      |> assign(:systemd_cmd, systemd_cmd)
+
+    ~H"""
+    <div class="space-y-6">
+      <div class="text-center">
+        <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success/10 mb-4">
+          <.icon name="hero-check-circle" class="size-10 text-success" />
+        </div>
+        <h3 class="text-xl font-bold">Package Created Successfully</h3>
+        <p class="text-sm text-base-content/70 mt-1">
+          Your edge component package is ready for deployment.
+        </p>
+      </div>
+
+      <div class="divider">Quick Install</div>
+
+      <div class="tabs tabs-boxed">
+        <input type="radio" name="install_tabs" class="tab" aria-label="Docker" checked />
+        <div class="tab-content bg-base-100 border-base-300 rounded-box p-4 mt-2">
+          <p class="text-sm text-base-content/70 mb-3">
+            Run this command on your target server to install via Docker:
+          </p>
+          <div class="relative">
+            <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@docker_cmd}</code></pre>
+            <button
+              type="button"
+              class="btn btn-sm btn-ghost absolute top-2 right-2"
+              phx-click="copy_token"
+              phx-value-token={@docker_cmd}
+            >
+              <.icon name="hero-clipboard" class="size-4" />
+            </button>
+          </div>
+        </div>
+
+        <input type="radio" name="install_tabs" class="tab" aria-label="systemd" />
+        <div class="tab-content bg-base-100 border-base-300 rounded-box p-4 mt-2">
+          <p class="text-sm text-base-content/70 mb-3">
+            Run this command on your target server to install via systemd:
+          </p>
+          <div class="relative">
+            <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@systemd_cmd}</code></pre>
+            <button
+              type="button"
+              class="btn btn-sm btn-ghost absolute top-2 right-2"
+              phx-click="copy_token"
+              phx-value-token={@systemd_cmd}
+            >
+              <.icon name="hero-clipboard" class="size-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider">Package Details</div>
+
+      <div class="grid grid-cols-2 gap-4 text-sm">
+        <div>
+          <div class="text-xs uppercase tracking-wide text-base-content/60">Package ID</div>
+          <code class="font-mono text-xs">{String.slice(@package.id, 0, 8)}...</code>
+        </div>
+        <div>
+          <div class="text-xs uppercase tracking-wide text-base-content/60">Component Type</div>
+          <span>{@package.component_type}</span>
+        </div>
+        <div>
+          <div class="text-xs uppercase tracking-wide text-base-content/60">Token Expires</div>
+          <span>{format_expiry(@package.download_token_expires_at)}</span>
+        </div>
+        <%= if @certificate_data do %>
+          <div>
+            <div class="text-xs uppercase tracking-wide text-base-content/60">Certificate CN</div>
+            <code class="font-mono text-xs break-all">{cert_cn(@certificate_data)}</code>
+          </div>
+        <% end %>
+      </div>
+
+      <div class="collapse collapse-arrow bg-base-200">
+        <input type="checkbox" />
+        <div class="collapse-title text-sm font-medium">
+          Show download token (for manual setup)
+        </div>
+        <div class="collapse-content">
+          <div class="flex items-center gap-2">
+            <code class="flex-1 text-xs font-mono break-all bg-base-100 p-2 rounded">
+              {@download_token}
+            </code>
+            <button
+              type="button"
+              class="btn btn-sm btn-ghost"
+              phx-click="copy_token"
+              phx-value-token={@download_token}
+            >
+              <.icon name="hero-clipboard" class="size-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="alert alert-info text-sm">
+        <.icon name="hero-information-circle" class="size-5" />
+        <div>
+          <div class="font-semibold">What's included in the bundle?</div>
+          <ul class="list-disc list-inside text-xs mt-1 text-base-content/80">
+            <li>Component TLS certificate and private key</li>
+            <li>CA certificate chain for verification</li>
+            <li>Pre-configured config.yaml</li>
+            <li>Platform-detecting install script</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="modal-action">
+        <button type="button" class="btn btn-primary" phx-click="close_create_modal">
+          Done
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  defp format_expiry(nil), do: "N/A"
+
+  defp format_expiry(%DateTime{} = dt) do
+    now = DateTime.utc_now()
+    diff = DateTime.diff(dt, now, :hour)
+
+    cond do
+      diff < 0 -> "Expired"
+      diff < 24 -> "#{diff}h remaining"
+      diff < 48 -> "Tomorrow"
+      true -> Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+    end
+  end
+
+  defp format_expiry(%NaiveDateTime{} = dt) do
+    dt |> DateTime.from_naive!("Etc/UTC") |> format_expiry()
+  end
+
+  defp cert_cn(%{spiffe_id: spiffe_id}) when is_binary(spiffe_id) do
+    # Extract component info from SPIFFE ID
+    # spiffe://serviceradar.local/<type>/<tenant>/<partition>/<component>
+    case String.split(spiffe_id, "/") do
+      [_, _, _, _type, tenant, partition, component] ->
+        "#{component}.#{partition}.#{tenant}.serviceradar"
+
+      _ ->
+        spiffe_id
+    end
+  end
+
+  defp cert_cn(_), do: "N/A"
 
   defp details_modal(assigns) do
     ~H"""
@@ -805,9 +989,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   defp build_package_attrs_from_form(params, security_mode) do
     component_type = params["component_type"] || "poller"
+    label = params["label"] || ""
+    component_id = generate_component_id(label, component_type)
 
     %{
-      label: params["label"],
+      label: label,
+      component_id: component_id,
       component_type: component_type,
       poller_id: params["poller_id"],
       security_mode: security_mode,
@@ -817,6 +1004,25 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       checker_config_json: parse_checker_config(params["checker_config_json"])
     }
     |> add_parent_type(component_type)
+  end
+
+  # Generate a component_id from label and type
+  # e.g., "Production Poller 01" -> "poller-production-poller-01"
+  defp generate_component_id(label, component_type) when is_binary(label) and label != "" do
+    slug =
+      label
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9\s-]/, "")
+      |> String.replace(~r/\s+/, "-")
+      |> String.replace(~r/-+/, "-")
+      |> String.trim("-")
+
+    "#{component_type}-#{slug}"
+  end
+
+  defp generate_component_id(_, component_type) do
+    # Fallback with timestamp if no label
+    "#{component_type}-#{:os.system_time(:millisecond)}"
   end
 
   defp parse_checker_config(nil), do: %{}
@@ -833,4 +1039,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp add_parent_type(attrs, "agent"), do: Map.put(attrs, :parent_type, "poller")
   defp add_parent_type(attrs, "checker"), do: Map.put(attrs, :parent_type, "agent")
   defp add_parent_type(attrs, _), do: attrs
+
+  defp format_error(%Ash.Error.Invalid{errors: errors}) do
+    Enum.map_join(errors, ", ", &format_error/1)
+  end
+
+  defp format_error(%{message: message}), do: message
+  defp format_error(error) when is_binary(error), do: error
+  defp format_error(error) when is_atom(error), do: to_string(error)
+  defp format_error(_), do: "Unknown error"
 end

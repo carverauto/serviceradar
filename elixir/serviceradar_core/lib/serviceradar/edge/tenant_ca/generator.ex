@@ -52,7 +52,6 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
   @oid_key_usage {2, 5, 29, 15}
   @oid_ext_key_usage {2, 5, 29, 37}
   @oid_subject_alt_name {2, 5, 29, 17}
-  @oid_authority_key_id {2, 5, 29, 35}
   @oid_subject_key_id {2, 5, 29, 14}
 
   # Extended Key Usage OIDs

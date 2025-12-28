@@ -567,7 +567,9 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
         case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, authorize?: false) do
           {:ok, tenant} ->
             # Use the action on Tenant to generate a CA
-            Ash.run_action(tenant, :generate_ca, %{}, authorize?: false)
+            ServiceRadar.Identity.Tenant
+            |> Ash.ActionInput.for_action(:generate_ca, %{tenant: tenant})
+            |> Ash.run_action(authorize?: false)
 
           error -> error
         end

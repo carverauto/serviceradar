@@ -105,6 +105,65 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   end
 
   @doc """
+  Creates an edge onboarding package with automatic tenant certificate generation.
+
+  This is the preferred method for production deployments. It automatically:
+  1. Gets or generates the tenant's intermediate CA (on first use)
+  2. Generates a component certificate signed by the tenant CA
+  3. Includes the encrypted certificate bundle in the package
+
+  The certificate CN follows the format: `<component_id>.<partition_id>.<tenant_slug>.serviceradar`
+
+  ## Options
+
+    * `:tenant` - Tenant ID (required)
+    * `:partition_id` - Network partition identifier (default: "default")
+    * `:cert_validity_days` - Component certificate validity (default: 365)
+    * `:join_token_ttl_seconds` - TTL for join token (default: 86400)
+    * `:download_token_ttl_seconds` - TTL for download token (default: 86400)
+    * `:actor` - User/system creating the package
+    * `:source_ip` - IP address of the creator
+
+  ## Returns
+
+      {:ok, %{
+        package: package,
+        join_token: token,
+        download_token: token,
+        certificate_data: %{
+          certificate_pem: pem,
+          private_key_pem: pem,
+          ca_chain_pem: pem,
+          spiffe_id: string
+        }
+      }}
+
+  ## Examples
+
+      iex> create_with_tenant_cert(
+      ...>   %{label: "prod-poller-01", component_type: :poller},
+      ...>   tenant: "tenant-uuid",
+      ...>   actor: current_user
+      ...> )
+      {:ok, %{package: %OnboardingPackage{}, certificate_data: %{...}}}
+
+  """
+  @spec create_with_tenant_cert(map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def create_with_tenant_cert(attrs, opts \\ []) do
+    actor = Keyword.get(opts, :actor)
+    tenant = Keyword.get(opts, :tenant, default_tenant())
+
+    opts_with_actor =
+      opts
+      |> Keyword.put(:actor, actor || system_actor())
+      |> Keyword.put(:authorize?, false)
+      |> Keyword.put(:tenant, tenant)
+
+    AshPackages.create_with_tenant_cert(attrs, opts_with_actor)
+  end
+
+  @doc """
   Delivers a package to a client, verifying the download token.
 
   Returns the decrypted join token and bundle if the download token is valid.

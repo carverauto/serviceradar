@@ -9,6 +9,31 @@ global:
   # Image pull policy: IfNotPresent (default), Always (for staging/mutable tags), Never
   imagePullPolicy: IfNotPresent
 
+# Per-tenant configuration for multi-tenant deployments
+# Each tenant can have its own intermediate CA for edge component certificates
+tenants: {}
+  # Example tenant configuration:
+  # acme-corp:
+  #   ca:
+  #     # Option 1: Inline CA certificate and key (for dev/simple deployments)
+  #     certificate: |
+  #       -----BEGIN CERTIFICATE-----
+  #       ...
+  #       -----END CERTIFICATE-----
+  #     privateKey: |
+  #       -----BEGIN RSA PRIVATE KEY-----
+  #       ...
+  #       -----END RSA PRIVATE KEY-----
+  #     chain: |
+  #       -----BEGIN CERTIFICATE-----
+  #       ... (tenant CA + root CA)
+  #       -----END CERTIFICATE-----
+  #
+  #     # Option 2: Reference an ExternalSecret (for production with Vault/AWS Secrets Manager)
+  #     # externalSecretRef:
+  #     #   name: tenant-acme-corp-ca-external
+  #     #   refreshInterval: 1h
+
 image:
   registryPullSecret: ghcr-io-cred
   tags:
