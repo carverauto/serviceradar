@@ -54,7 +54,13 @@ fi
 ROOT="${TEST_SRCDIR:?}/${TEST_WORKSPACE:?}"
 WORK_BASE="${HOST_HOME:-$PWD}/.cache/serviceradar/bazel_precommit"
 mkdir -p "$WORK_BASE"
-WORKDIR=$(mktemp -d -p "$WORK_BASE")
+
+# Persistent cache directories for deps/builds (NOT deleted between runs)
+CACHE_DIR="$WORK_BASE/cache"
+mkdir -p "$CACHE_DIR"
+
+# Fresh source directory for each run (deleted on exit)
+WORKDIR=$(mktemp -d -p "$WORK_BASE" src.XXXXXX)
 trap 'rm -rf "$WORKDIR"' EXIT
 
 # Use HTTPS instead of SSH for GitHub to avoid auth issues in CI.
@@ -127,9 +133,10 @@ if [ -f "$ROOT/Cargo.lock" ]; then
   cp "$ROOT/Cargo.lock" "$WORKDIR/Cargo.lock"
 fi
 
-export MIX_HOME="$WORKDIR/.mix"
-export HEX_HOME="$WORKDIR/.hex"
-export REBAR_BASE_DIR="$WORKDIR/.cache/rebar3"
+# Use persistent cache for deps/builds to avoid re-downloading/recompiling each run
+export MIX_HOME="$CACHE_DIR/.mix"
+export HEX_HOME="$CACHE_DIR/.hex"
+export REBAR_BASE_DIR="$CACHE_DIR/.cache/rebar3"
 export MIX_ENV=dev
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
@@ -139,12 +146,24 @@ mkdir -p "$TMPROOT"
 export TMPDIR="$TMPROOT"
 export RUSTLER_TMPDIR="$TMPROOT"
 export RUSTLER_TEMP_DIR="$TMPROOT"
-export CARGO_TARGET_DIR="$WORKDIR/_cargo_target"
+# Persistent cargo target dir to cache compiled Rust deps
+export CARGO_TARGET_DIR="$CACHE_DIR/_cargo_target"
 
 cd "$WORKDIR/web-ng"
 
-mix local.hex --force
-mix local.rebar --force
+# Symlink _build and deps to persistent cache for incremental compilation
+# These directories contain compiled artifacts that would be expensive to rebuild
+mkdir -p "$CACHE_DIR/_build" "$CACHE_DIR/deps"
+ln -sfn "$CACHE_DIR/_build" "$WORKDIR/web-ng/_build"
+ln -sfn "$CACHE_DIR/deps" "$WORKDIR/web-ng/deps"
+
+# Only install hex/rebar if not already cached
+if ! ls "$MIX_HOME/archives/hex-"* >/dev/null 2>&1; then
+  mix local.hex --force
+fi
+if [ ! -f "$MIX_HOME/rebar3" ]; then
+  mix local.rebar --force
+fi
 if ! mix deps.get; then
   echo "mix deps.get failed; git diagnostics:" >&2
   if command -v git >/dev/null 2>&1; then
