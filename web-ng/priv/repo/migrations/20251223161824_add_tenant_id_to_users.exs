@@ -20,19 +20,19 @@ defmodule ServiceRadarWebNG.Repo.Migrations.AddTenantIdToUsers do
 
     # Assign existing users to default tenant
     execute """
-    UPDATE ng_users SET tenant_id = '#{@default_tenant_id}' WHERE tenant_id IS NULL;
-    """,
-    """
-    UPDATE ng_users SET tenant_id = NULL WHERE tenant_id = '#{@default_tenant_id}';
-    """
+            UPDATE ng_users SET tenant_id = '#{@default_tenant_id}' WHERE tenant_id IS NULL;
+            """,
+            """
+            UPDATE ng_users SET tenant_id = NULL WHERE tenant_id = '#{@default_tenant_id}';
+            """
 
     # Make tenant_id required after data migration
     execute """
-    ALTER TABLE ng_users ALTER COLUMN tenant_id SET NOT NULL;
-    """,
-    """
-    ALTER TABLE ng_users ALTER COLUMN tenant_id DROP NOT NULL;
-    """
+            ALTER TABLE ng_users ALTER COLUMN tenant_id SET NOT NULL;
+            """,
+            """
+            ALTER TABLE ng_users ALTER COLUMN tenant_id DROP NOT NULL;
+            """
 
     # Update unique constraint for email to be per-tenant
     drop unique_index(:ng_users, [:email])

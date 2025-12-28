@@ -203,10 +203,13 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
   # Fields that should be ignored (don't exist in Ash resources)
   @ignored_fields MapSet.new([
-    "stats",           # otel_trace_summaries doesn't have stats
-    "raw_data",        # internal field
-    "__metadata__"     # Ash internal
-  ])
+                    # otel_trace_summaries doesn't have stats
+                    "stats",
+                    # internal field
+                    "raw_data",
+                    # Ash internal
+                    "__metadata__"
+                  ])
 
   @doc """
   Check if an entity should be routed through Ash.

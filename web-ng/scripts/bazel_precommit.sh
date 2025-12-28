@@ -59,8 +59,11 @@ mkdir -p "$WORK_BASE"
 CACHE_DIR="$WORK_BASE/cache"
 mkdir -p "$CACHE_DIR"
 
-# Fresh source directory for each run (deleted on exit)
-WORKDIR=$(mktemp -d -p "$WORK_BASE" src.XXXXXX)
+# Use consistent source directory name for path caching compatibility
+# The _build directory caches absolute paths, so we need stable paths across runs
+WORKDIR="$WORK_BASE/src"
+rm -rf "$WORKDIR"
+mkdir -p "$WORKDIR"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 # Use HTTPS instead of SSH for GitHub to avoid auth issues in CI.
@@ -151,11 +154,11 @@ export CARGO_TARGET_DIR="$CACHE_DIR/_cargo_target"
 
 cd "$WORKDIR/web-ng"
 
-# Symlink _build and deps to persistent cache for incremental compilation
-# These directories contain compiled artifacts that would be expensive to rebuild
-mkdir -p "$CACHE_DIR/_build" "$CACHE_DIR/deps"
-ln -sfn "$CACHE_DIR/_build" "$WORKDIR/web-ng/_build"
-ln -sfn "$CACHE_DIR/deps" "$WORKDIR/web-ng/deps"
+# Restore cached deps if available (speeds up mix deps.get significantly)
+# This avoids re-cloning heroicons and re-downloading hex packages each run
+if [ -d "$CACHE_DIR/deps" ]; then
+  cp -a "$CACHE_DIR/deps" "$WORKDIR/web-ng/deps"
+fi
 
 # Only install hex/rebar if not already cached
 if ! ls "$MIX_HOME/archives/hex-"* >/dev/null 2>&1; then
@@ -176,4 +179,18 @@ if ! mix deps.get; then
   fi
   exit 1
 fi
-mix precommit_lint
+
+# Cache deps for next run (speeds up heroicons clone and hex downloads)
+rm -rf "$CACHE_DIR/deps"
+cp -a "$WORKDIR/web-ng/deps" "$CACHE_DIR/deps"
+
+# Restore cached _build if available (speeds up compilation)
+if [ -d "$CACHE_DIR/_build" ]; then
+  cp -a "$CACHE_DIR/_build" "$WORKDIR/web-ng/_build"
+fi
+
+mix precommit_fast
+
+# Cache _build for next run
+rm -rf "$CACHE_DIR/_build"
+cp -a "$WORKDIR/web-ng/_build" "$CACHE_DIR/_build"

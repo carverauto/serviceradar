@@ -117,7 +117,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     forward "/mailbox", Plug.Swoosh.MailboxPreview
 
     # AshAdmin for Ash resource management (dev/staging only)
-    ash_admin "/ash",
+    ash_admin("/ash",
       domains: [
         ServiceRadar.Identity,
         ServiceRadar.Inventory,
@@ -132,6 +132,7 @@ defmodule ServiceRadarWebNGWeb.Router do
           _ -> nil
         end
       end
+    )
   end
 
   scope "/admin", ServiceRadarWebNGWeb do
@@ -163,20 +164,21 @@ defmodule ServiceRadarWebNGWeb.Router do
   scope "/", ServiceRadarWebNGWeb do
     pipe_through :browser
 
-    sign_out_route AuthController, "/auth/sign-out"
+    sign_out_route(AuthController, "/auth/sign-out")
 
     # Interactive magic link sign-in (require_interaction? is set in the strategy)
-    magic_sign_in_route ServiceRadar.Identity.User, :magic_link,
+    magic_sign_in_route(ServiceRadar.Identity.User, :magic_link,
       auth_routes_prefix: "/auth",
       overrides: [ServiceRadarWebNGWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default],
       live_view: ServiceRadarWebNGWeb.AuthLive.MagicLinkSignIn,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}],
       path: "/auth/user/magic_link",
       token_as_route_param?: false
+    )
 
-    reset_route path: "/auth/password-reset", auth_routes_prefix: "/auth"
+    reset_route(path: "/auth/password-reset", auth_routes_prefix: "/auth")
 
-    auth_routes AuthController, ServiceRadar.Identity.User, path: "/auth"
+    auth_routes(AuthController, ServiceRadar.Identity.User, path: "/auth")
   end
 
   ## Authentication routes

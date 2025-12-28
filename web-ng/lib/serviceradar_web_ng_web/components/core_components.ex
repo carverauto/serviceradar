@@ -183,7 +183,8 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
 
   def input(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
     # Show errors if the field was used OR if the form has errors (e.g., after submission)
-    errors = if Phoenix.Component.used_input?(field) || field.errors != [], do: field.errors, else: []
+    errors =
+      if Phoenix.Component.used_input?(field) || field.errors != [], do: field.errors, else: []
 
     assigns
     |> assign(field: nil, id: assigns.id || field.id)

@@ -27,19 +27,26 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
     test "can register an agent with required fields", %{tenant: tenant, poller: poller} do
       result =
         Agent
-        |> Ash.Changeset.for_create(:register, %{
-          uid: "agent-test-001",
-          name: "Test Agent",
-          type_id: 4,
-          poller_id: poller.id
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :register,
+          %{
+            uid: "agent-test-001",
+            name: "Test Agent",
+            type_id: 4,
+            poller_id: poller.id
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       assert {:ok, agent} = result
       assert agent.uid == "agent-test-001"
       assert agent.name == "Test Agent"
       assert agent.type_id == 4
-      assert agent.status == :connecting  # Default initial state
+      # Default initial state
+      assert agent.status == :connecting
       assert agent.is_healthy == true
       assert agent.tenant_id == tenant.id
     end
@@ -47,10 +54,16 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
     test "can register agent as already connected", %{tenant: tenant, poller: poller} do
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-connected-001",
-          poller_id: poller.id
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-connected-001",
+            poller_id: poller.id
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       assert agent.status == :connected
@@ -80,17 +93,24 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       tenant = tenant_fixture()
       poller = poller_fixture(tenant)
       # Start with agent in connecting state
-      agent = agent_fixture(poller)  # starts in :connecting by default
+      # starts in :connecting by default
+      agent = agent_fixture(poller)
       {:ok, tenant: tenant, poller: poller, agent: agent}
     end
 
-    test "can establish connection from connecting state", %{tenant: tenant, poller: poller, agent: agent} do
+    test "can establish connection from connecting state", %{
+      tenant: tenant,
+      poller: poller,
+      agent: agent
+    } do
       actor = operator_actor(tenant)
 
       {:ok, connected} =
         agent
         |> Ash.Changeset.for_update(:establish_connection, %{poller_id: poller.id},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert connected.status == :connected
@@ -103,8 +123,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, disconnected} =
         agent
-        |> Ash.Changeset.for_update(:connection_failed, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:connection_failed, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert disconnected.status == :disconnected
@@ -119,10 +138,16 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # Create agent in connected state
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-health-test-#{System.unique_integer([:positive])}",
-          poller_id: poller.id
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-health-test-#{System.unique_integer([:positive])}",
+            poller_id: poller.id
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       {:ok, tenant: tenant, poller: poller, agent: agent}
@@ -133,8 +158,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, degraded} =
         agent
-        |> Ash.Changeset.for_update(:degrade, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert degraded.status == :degraded
@@ -147,15 +171,13 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # First degrade
       {:ok, degraded} =
         agent
-        |> Ash.Changeset.for_update(:degrade, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       # Then restore
       {:ok, restored} =
         degraded
-        |> Ash.Changeset.for_update(:restore_health, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:restore_health, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert restored.status == :connected
@@ -167,8 +189,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       result =
         agent
-        |> Ash.Changeset.for_update(:degrade, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -182,10 +203,16 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-disconnect-test-#{System.unique_integer([:positive])}",
-          poller_id: poller.id
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-disconnect-test-#{System.unique_integer([:positive])}",
+            poller_id: poller.id
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       {:ok, tenant: tenant, poller: poller, agent: agent}
@@ -196,8 +223,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, disconnected} =
         agent
-        |> Ash.Changeset.for_update(:lose_connection, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:lose_connection, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert disconnected.status == :disconnected
@@ -210,15 +236,13 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # First disconnect
       {:ok, disconnected} =
         agent
-        |> Ash.Changeset.for_update(:lose_connection, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:lose_connection, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       # Then reconnect
       {:ok, reconnecting} =
         disconnected
-        |> Ash.Changeset.for_update(:reconnect, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:reconnect, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert reconnecting.status == :connecting
@@ -232,10 +256,16 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-unavailable-test-#{System.unique_integer([:positive])}",
-          poller_id: poller.id
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-unavailable-test-#{System.unique_integer([:positive])}",
+            poller_id: poller.id
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       {:ok, tenant: tenant, poller: poller, agent: agent}
@@ -247,7 +277,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       {:ok, unavailable} =
         agent
         |> Ash.Changeset.for_update(:mark_unavailable, %{reason: "Maintenance"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert unavailable.status == :unavailable
@@ -260,15 +292,13 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # First mark unavailable
       {:ok, unavailable} =
         agent
-        |> Ash.Changeset.for_update(:mark_unavailable, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:mark_unavailable, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       # Then recover
       {:ok, recovering} =
         unavailable
-        |> Ash.Changeset.for_update(:recover, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:recover, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert recovering.status == :connecting
@@ -281,8 +311,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # (reconnect is only valid from :disconnected)
       result =
         agent
-        |> Ash.Changeset.for_update(:reconnect, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:reconnect, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert {:error, _} = result
@@ -297,10 +326,16 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # Connected agent
       {:ok, agent_connected} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-connected-read",
-          poller_id: poller.id
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-connected-read",
+            poller_id: poller.id
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       # Connecting agent
@@ -333,7 +368,10 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, agents} =
         Agent
-        |> Ash.Query.for_read(:by_poller, %{poller_id: poller.id}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_poller, %{poller_id: poller.id},
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.read()
 
       uids = Enum.map(agents, & &1.uid)
@@ -387,7 +425,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       for {type_id, expected_name} <- type_map do
         unique = System.unique_integer([:positive])
-        agent = agent_fixture(poller, %{uid: "agent-type-calc-#{type_id}-#{unique}", type_id: type_id})
+
+        agent =
+          agent_fixture(poller, %{uid: "agent-type-calc-#{type_id}-#{unique}", type_id: type_id})
 
         {:ok, [loaded]} =
           Agent
@@ -403,11 +443,12 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       actor = viewer_actor(tenant)
 
       # Agent with name
-      agent_named = agent_fixture(poller, %{
-        uid: "agent-display-named",
-        name: "My Custom Agent",
-        host: "192.168.1.100"
-      })
+      agent_named =
+        agent_fixture(poller, %{
+          uid: "agent-display-named",
+          name: "My Custom Agent",
+          host: "192.168.1.100"
+        })
 
       {:ok, [loaded]} =
         Agent
@@ -418,11 +459,12 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert loaded.display_name == "My Custom Agent"
 
       # Agent without name but with host
-      agent_host = agent_fixture(poller, %{
-        uid: "agent-display-host",
-        name: nil,
-        host: "192.168.1.101"
-      })
+      agent_host =
+        agent_fixture(poller, %{
+          uid: "agent-display-host",
+          name: nil,
+          host: "192.168.1.101"
+        })
 
       {:ok, [loaded]} =
         Agent
@@ -439,10 +481,16 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # Connected healthy = green
       {:ok, agent} =
         Agent
-        |> Ash.Changeset.for_create(:register_connected, %{
-          uid: "agent-color-test-#{System.unique_integer([:positive])}",
-          poller_id: poller.id
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :register_connected,
+          %{
+            uid: "agent-color-test-#{System.unique_integer([:positive])}",
+            poller_id: poller.id
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       {:ok, [loaded]} =
@@ -466,11 +514,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       agent_a = agent_fixture(poller_a, %{uid: "agent-a"})
       agent_b = agent_fixture(poller_b, %{uid: "agent-b"})
 
-      {:ok,
-       tenant_a: tenant_a,
-       tenant_b: tenant_b,
-       agent_a: agent_a,
-       agent_b: agent_b}
+      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, agent_a: agent_a, agent_b: agent_b}
     end
 
     test "user cannot see agents from other tenant", %{
@@ -495,8 +539,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       result =
         agent_b
-        |> Ash.Changeset.for_update(:update, %{name: "Hacked"},
-          actor: actor, tenant: tenant_a.id)
+        |> Ash.Changeset.for_update(:update, %{name: "Hacked"}, actor: actor, tenant: tenant_a.id)
         |> Ash.update()
 
       assert {:error, error} = result

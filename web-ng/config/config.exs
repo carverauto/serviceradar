@@ -28,8 +28,7 @@ config :serviceradar_web_ng,
 
 # Configure the shared repo from serviceradar_core
 # Ash manages all migrations in serviceradar_core/priv/repo/migrations/
-config :serviceradar_core, ServiceRadar.Repo,
-  migration_source: "ash_schema_migrations"
+config :serviceradar_core, ServiceRadar.Repo, migration_source: "ash_schema_migrations"
 
 # Ash Framework Configuration
 config :serviceradar_web_ng,
@@ -39,7 +38,22 @@ config :serviceradar_web_ng,
     ServiceRadar.Infrastructure,
     ServiceRadar.Monitoring,
     ServiceRadar.Observability,
-    ServiceRadar.Edge
+    ServiceRadar.Edge,
+    ServiceRadar.Integrations,
+    ServiceRadar.Jobs
+  ]
+
+# Also register domains for serviceradar_core OTP app (domains are defined there)
+config :serviceradar_core,
+  ash_domains: [
+    ServiceRadar.Identity,
+    ServiceRadar.Inventory,
+    ServiceRadar.Infrastructure,
+    ServiceRadar.Monitoring,
+    ServiceRadar.Observability,
+    ServiceRadar.Edge,
+    ServiceRadar.Integrations,
+    ServiceRadar.Jobs
   ]
 
 # Ash configuration
@@ -58,8 +72,7 @@ config :ash_postgres,
 # Feature flags for Ash integration
 # Note: All Ash domains are now active by default. The ash_srql_adapter flag
 # controls whether SRQL queries for devices/pollers/agents route through Ash.
-config :serviceradar_web_ng, :feature_flags,
-  ash_srql_adapter: true
+config :serviceradar_web_ng, :feature_flags, ash_srql_adapter: true
 
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 
@@ -87,7 +100,8 @@ config :serviceradar_core, Oban,
        # Refresh trace summaries materialized view every 2 minutes
        {"*/2 * * * *", ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
      ]},
-    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}  # Keep jobs for 7 days
+    # Keep jobs for 7 days
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
   ],
   peer: Oban.Peers.Database
 

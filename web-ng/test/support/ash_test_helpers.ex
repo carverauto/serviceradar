@@ -462,7 +462,8 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     defaults = %{
       category: :system,
       event_type: "system.test.#{unique}",
-      severity: 1,  # 1 = Info
+      # 1 = Info
+      severity: 1,
       message: "Test event #{unique}",
       source_type: :system,
       source_id: "test",

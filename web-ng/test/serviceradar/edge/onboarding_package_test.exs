@@ -26,12 +26,18 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
     test "can create a package with required fields", %{tenant: tenant} do
       result =
         OnboardingPackage
-        |> Ash.Changeset.for_create(:create, %{
-          label: "Test Poller Package",
-          component_id: "test-poller-001",
-          component_type: :poller,
-          site: "datacenter-1"
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            label: "Test Poller Package",
+            component_id: "test-poller-001",
+            component_type: :poller,
+            site: "datacenter-1"
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       assert {:ok, package} = result
@@ -134,10 +140,15 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
       result =
         package
-        |> Ash.Changeset.for_update(:activate, %{
-          activated_from_ip: "192.168.1.100",
-          last_seen_spiffe_id: "spiffe://example.org/poller/test"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :activate,
+          %{
+            activated_from_ip: "192.168.1.100",
+            last_seen_spiffe_id: "spiffe://example.org/poller/test"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:ok, activated} = result
@@ -159,7 +170,10 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       assert {:error, _} = result
     end
 
-    test "cannot activate already activated package", %{tenant: tenant, delivered_package: package} do
+    test "cannot activate already activated package", %{
+      tenant: tenant,
+      delivered_package: package
+    } do
       actor = admin_actor(tenant)
 
       # First activate
@@ -191,7 +205,9 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         package
         |> Ash.Changeset.for_update(:revoke, %{reason: "Security concern"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:ok, revoked} = result
@@ -212,7 +228,9 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         delivered
         |> Ash.Changeset.for_update(:revoke, %{reason: "Compromised credentials"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:ok, revoked} = result
@@ -237,7 +255,9 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         activated
         |> Ash.Changeset.for_update(:revoke, %{reason: "Too late"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:error, _} = result
@@ -249,7 +269,9 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         package
         |> Ash.Changeset.for_update(:revoke, %{reason: "Should fail"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -268,7 +290,10 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         package
         |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:ok, expired} = result
@@ -288,7 +313,10 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         delivered
         |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:ok, expired} = result
@@ -313,7 +341,10 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         activated
         |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:error, _} = result
@@ -332,10 +363,15 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
       result =
         package
-        |> Ash.Changeset.for_update(:soft_delete, %{
-          deleted_by: "admin@example.com",
-          deleted_reason: "Cleanup"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :soft_delete,
+          %{
+            deleted_by: "admin@example.com",
+            deleted_reason: "Cleanup"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:ok, deleted} = result
@@ -358,7 +394,9 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
         result =
           package
           |> Ash.Changeset.for_update(:soft_delete, %{deleted_by: "admin"},
-            actor: actor, tenant: tenant.id)
+            actor: actor,
+            tenant: tenant.id
+          )
           |> Ash.update()
 
         assert {:ok, deleted} = result
@@ -372,7 +410,9 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         package
         |> Ash.Changeset.for_update(:soft_delete, %{deleted_by: "operator"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -422,7 +462,9 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
     } do
       actor = operator_actor(tenant)
 
-      {:ok, active} = Ash.read(OnboardingPackage, action: :active, actor: actor, tenant: tenant.id)
+      {:ok, active} =
+        Ash.read(OnboardingPackage, action: :active, actor: actor, tenant: tenant.id)
+
       ids = Enum.map(active, & &1.id)
 
       assert issued.id in ids
@@ -500,11 +542,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       package_a = onboarding_package_fixture(tenant_a, %{label: "Package A"})
       package_b = onboarding_package_fixture(tenant_b, %{label: "Package B"})
 
-      {:ok,
-       tenant_a: tenant_a,
-       tenant_b: tenant_b,
-       package_a: package_a,
-       package_b: package_b}
+      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, package_a: package_a, package_b: package_b}
     end
 
     test "user cannot see packages from other tenant", %{
@@ -530,7 +568,9 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         package_b
         |> Ash.Changeset.for_update(:revoke, %{reason: "Attacker action"},
-          actor: actor, tenant: tenant_a.id)
+          actor: actor,
+          tenant: tenant_a.id
+        )
         |> Ash.update()
 
       # Should fail - either Forbidden or StaleRecord (record not found in tenant context)
@@ -547,6 +587,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       package
       |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant_id)
       |> Ash.update()
+
     delivered
   end
 
@@ -558,6 +599,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
         p
         |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant_id)
         |> Ash.update()
+
       activated
     end)
   end
@@ -567,6 +609,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       package
       |> Ash.Changeset.for_update(:revoke, %{}, actor: actor, tenant: tenant_id)
       |> Ash.update()
+
     revoked
   end
 
@@ -574,8 +617,12 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
     {:ok, expired} =
       package
       |> Ash.Changeset.for_update(:expire, %{},
-        actor: system_actor(), authorize?: false, tenant: tenant_id)
+        actor: system_actor(),
+        authorize?: false,
+        tenant: tenant_id
+      )
       |> Ash.update()
+
     expired
   end
 end

@@ -56,7 +56,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     srql_module = srql_module()
     actor = get_actor(socket)
 
-    {results, error, viz_meta, pagination} = srql_results(srql_module, query, cursor, limit, actor)
+    {results, error, viz_meta, pagination} =
+      srql_results(srql_module, query, cursor, limit, actor)
 
     page_path = uri |> normalize_uri() |> URI.parse() |> Map.get(:path)
 

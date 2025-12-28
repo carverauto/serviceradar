@@ -88,7 +88,8 @@ defmodule ServiceRadarWebNG.Application do
     # Start EPMD if not running
     case System.cmd("epmd", ["-daemon"], stderr_to_stdout: true) do
       {_, 0} -> :ok
-      {_, 1} -> :ok  # Already running
+      # Already running
+      {_, 1} -> :ok
       {output, code} -> Logger.warning("EPMD start returned #{code}: #{output}")
     end
 
@@ -129,7 +130,15 @@ defmodule ServiceRadarWebNG.Application do
     # Try to get the docker network gateway IP
     network = System.get_env("DOCKER_NETWORK", "serviceradar_serviceradar-net")
 
-    case System.cmd("docker", ["network", "inspect", network, "--format", "{{range .IPAM.Config}}{{.Gateway}}{{end}}"],
+    case System.cmd(
+           "docker",
+           [
+             "network",
+             "inspect",
+             network,
+             "--format",
+             "{{range .IPAM.Config}}{{.Gateway}}{{end}}"
+           ],
            stderr_to_stdout: true
          ) do
       {ip, 0} when ip != "" ->

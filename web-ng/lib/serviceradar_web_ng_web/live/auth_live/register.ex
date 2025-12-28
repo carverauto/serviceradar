@@ -148,7 +148,8 @@ defmodule ServiceRadarWebNGWeb.AuthLive.Register do
         {:noreply, assign(socket, submitting: false, error: "Organization name is too short")}
 
       String.length(password || "") < 8 ->
-        {:noreply, assign(socket, submitting: false, error: "Password must be at least 8 characters")}
+        {:noreply,
+         assign(socket, submitting: false, error: "Password must be at least 8 characters")}
 
       password != password_confirmation ->
         {:noreply, assign(socket, submitting: false, error: "Passwords do not match")}

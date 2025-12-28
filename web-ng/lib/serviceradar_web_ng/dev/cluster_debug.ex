@@ -58,6 +58,7 @@ defmodule ServiceRadarWebNG.Dev.ClusterDebug do
       poller_count = ServiceRadar.PollerRegistry.count()
       pollers = ServiceRadar.PollerRegistry.all_pollers()
       IO.puts("\nPollers (count=#{poller_count}, results=#{length(pollers)}):")
+
       for poller <- pollers do
         IO.puts("  - #{inspect(poller[:key])} on #{inspect(poller[:node])}")
       end
@@ -69,6 +70,7 @@ defmodule ServiceRadarWebNG.Dev.ClusterDebug do
       agent_count = ServiceRadar.AgentRegistry.count()
       agents = ServiceRadar.AgentRegistry.all_agents()
       IO.puts("\nAgents (count=#{agent_count}, results=#{length(agents)}):")
+
       for agent <- agents do
         IO.puts("  - #{inspect(agent[:key])} on #{inspect(agent[:node])}")
       end

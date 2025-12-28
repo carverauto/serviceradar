@@ -95,7 +95,10 @@ config :serviceradar_web_ng, ServiceRadarWebNG.Mailer, adapter: Swoosh.Adapters.
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
 
 # AshAuthentication token signing secret for tests
-config :serviceradar_web_ng, :token_signing_secret, "test_token_signing_secret_at_least_32_chars_long!"
+config :serviceradar_web_ng,
+       :token_signing_secret,
+       "test_token_signing_secret_at_least_32_chars_long!"
+
 config :serviceradar_web_ng, :base_url, "http://localhost:4002"
 
 # Disable swoosh api client as it is only required for production adapters

@@ -94,10 +94,13 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   def create(attrs, opts \\ []) do
     actor = Keyword.get(opts, :actor)
     tenant = Keyword.get(opts, :tenant, default_tenant())
-    opts_with_actor = opts
+
+    opts_with_actor =
+      opts
       |> Keyword.put(:actor, actor || system_actor())
       |> Keyword.put(:authorize?, false)
       |> Keyword.put(:tenant, tenant)
+
     AshPackages.create(attrs, opts_with_actor)
   end
 
@@ -122,10 +125,13 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   def deliver(package_id, download_token, opts \\ []) do
     actor = Keyword.get(opts, :actor)
     tenant = Keyword.get(opts, :tenant, default_tenant())
-    opts_with_actor = opts
+
+    opts_with_actor =
+      opts
       |> Keyword.put(:actor, actor || system_actor())
       |> Keyword.put(:authorize?, false)
       |> Keyword.put(:tenant, tenant)
+
     AshPackages.deliver(package_id, download_token, opts_with_actor)
   end
 
@@ -136,10 +142,13 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   def revoke(package_id, opts \\ []) do
     actor = Keyword.get(opts, :actor)
     tenant = Keyword.get(opts, :tenant, default_tenant())
-    opts_with_actor = opts
+
+    opts_with_actor =
+      opts
       |> Keyword.put(:actor, actor || system_actor())
       |> Keyword.put(:authorize?, false)
       |> Keyword.put(:tenant, tenant)
+
     AshPackages.revoke(package_id, opts_with_actor)
   end
 
@@ -150,10 +159,13 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   def delete(package_id, opts \\ []) do
     actor = Keyword.get(opts, :actor)
     tenant = Keyword.get(opts, :tenant, default_tenant())
-    opts_with_actor = opts
+
+    opts_with_actor =
+      opts
       |> Keyword.put(:actor, actor || system_actor())
       |> Keyword.put(:authorize?, false)
       |> Keyword.put(:tenant, tenant)
+
     AshPackages.delete(package_id, opts_with_actor)
   end
 

@@ -10,21 +10,21 @@ defmodule ServiceRadarWebNGWeb.AuthOverrides do
 
   # Override the sign-in form
   override AshAuthentication.Phoenix.Components.Password.SignInForm do
-    set :label, "Sign in with email"
+    set(:label, "Sign in with email")
   end
 
   # Override the registration form
   override AshAuthentication.Phoenix.Components.Password.RegisterForm do
-    set :label, "Create an account"
+    set(:label, "Create an account")
   end
 
   # Override the password reset form
   override AshAuthentication.Phoenix.Components.Password.ResetForm do
-    set :label, "Reset your password"
+    set(:label, "Reset your password")
   end
 
   # Override the magic link request form
   override AshAuthentication.Phoenix.Components.MagicLink.RequestForm do
-    set :label, "Sign in with magic link"
+    set(:label, "Sign in with magic link")
   end
 end

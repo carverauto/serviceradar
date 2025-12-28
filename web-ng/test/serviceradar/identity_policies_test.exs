@@ -20,11 +20,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       operator = operator_user_fixture(tenant)
       viewer = user_fixture(tenant)
 
-      {:ok,
-       tenant: tenant,
-       admin: admin,
-       operator: operator,
-       viewer: viewer}
+      {:ok, tenant: tenant, admin: admin, operator: operator, viewer: viewer}
     end
 
     test "admin can read users in their tenant", %{tenant: tenant, admin: admin} do
@@ -58,7 +54,11 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       {:ok, tenant: tenant, admin: admin, target_user: target_user}
     end
 
-    test "admin can update role of users in their tenant", %{tenant: tenant, admin: admin, target_user: target} do
+    test "admin can update role of users in their tenant", %{
+      tenant: tenant,
+      admin: admin,
+      target_user: target
+    } do
       actor = actor_for_user(admin)
 
       result =
@@ -131,11 +131,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       user_a = admin_user_fixture(tenant_a)
       user_b = admin_user_fixture(tenant_b)
 
-      {:ok,
-       tenant_a: tenant_a,
-       tenant_b: tenant_b,
-       user_a: user_a,
-       user_b: user_b}
+      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, user_a: user_a, user_b: user_b}
     end
 
     test "user cannot see users from other tenant", %{
@@ -187,12 +183,17 @@ defmodule ServiceRadar.IdentityPoliciesTest do
 
       result =
         ApiToken
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Test Token",
-          scope: :full_access,
-          user_id: admin.id,
-          token: raw_token
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Test Token",
+            scope: :full_access,
+            user_id: admin.id,
+            token: raw_token
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       assert {:ok, token} = result
@@ -205,12 +206,17 @@ defmodule ServiceRadar.IdentityPoliciesTest do
 
       result =
         ApiToken
-        |> Ash.Changeset.for_create(:create, %{
-          name: "My Token",
-          scope: :read_only,
-          user_id: viewer.id,
-          token: raw_token
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "My Token",
+            scope: :read_only,
+            user_id: viewer.id,
+            token: raw_token
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       assert {:ok, token} = result
@@ -224,12 +230,17 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       # Create a token first
       {:ok, _token} =
         ApiToken
-        |> Ash.Changeset.for_create(:create, %{
-          name: "My Token",
-          scope: :read_only,
-          user_id: viewer.id,
-          token: raw_token
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "My Token",
+            scope: :read_only,
+            user_id: viewer.id,
+            token: raw_token
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       # Read tokens

@@ -114,7 +114,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiErrorHandler do
     }
   end
 
-  defp format_validation_error(%Ash.Error.Changes.InvalidAttribute{field: field, message: message}) do
+  defp format_validation_error(%Ash.Error.Changes.InvalidAttribute{
+         field: field,
+         message: message
+       }) do
     %{
       status: "422",
       code: "invalid_attribute",

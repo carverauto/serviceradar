@@ -382,7 +382,11 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       [section, subsection, id] ->
         [
           %{label: section_label(section), icon: section_icon(section), href: "/#{section}"},
-          %{label: section_label(subsection), icon: section_icon(subsection), href: "/#{section}?tab=#{subsection}"},
+          %{
+            label: section_label(subsection),
+            icon: section_icon(subsection),
+            href: "/#{section}?tab=#{subsection}"
+          },
           %{label: format_id(id), icon: nil, href: nil}
         ]
 

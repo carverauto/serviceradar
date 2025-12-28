@@ -126,8 +126,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             <.icon name="hero-arrow-path" class="size-4" /> Refresh
           </.ui_button>
         </div>
-
-        <!-- Health Metrics Cards -->
+        
+    <!-- Health Metrics Cards -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <.health_card
             title="Cluster"
@@ -160,8 +160,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             icon="hero-queue-list"
           />
         </div>
-
-        <!-- Cluster Nodes -->
+        
+    <!-- Cluster Nodes -->
         <.ui_panel>
           <:header>
             <div>
@@ -184,14 +184,22 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
               <tbody>
                 <tr class="bg-base-200/30">
                   <td class="font-mono text-sm">{to_string(@cluster_status.self)}</td>
-                  <td><.ui_badge variant="info" size="xs">Self</.ui_badge></td>
-                  <td><.ui_badge variant="success" size="xs">Connected</.ui_badge></td>
+                  <td>
+                    <.ui_badge variant="info" size="xs">Self</.ui_badge>
+                  </td>
+                  <td>
+                    <.ui_badge variant="success" size="xs">Connected</.ui_badge>
+                  </td>
                 </tr>
                 <%= for node <- @cluster_status.connected_nodes do %>
                   <tr>
                     <td class="font-mono text-sm">{to_string(node)}</td>
-                    <td><.ui_badge variant="ghost" size="xs">Remote</.ui_badge></td>
-                    <td><.ui_badge variant="success" size="xs">Connected</.ui_badge></td>
+                    <td>
+                      <.ui_badge variant="ghost" size="xs">Remote</.ui_badge>
+                    </td>
+                    <td>
+                      <.ui_badge variant="success" size="xs">Connected</.ui_badge>
+                    </td>
                   </tr>
                 <% end %>
                 <tr :if={@cluster_status.connected_nodes == []}>
@@ -246,8 +254,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
               <% end %>
             </div>
           </.ui_panel>
-
-          <!-- Agent Registry -->
+          
+    <!-- Agent Registry -->
           <.ui_panel>
             <:header>
               <div>
@@ -291,8 +299,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             </div>
           </.ui_panel>
         </div>
-
-        <!-- Oban Queue Status -->
+        
+    <!-- Oban Queue Status -->
         <.ui_panel>
           <:header>
             <div>
@@ -321,7 +329,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
                     <td class="text-success">{Map.get(stats, :available, 0)}</td>
                     <td class="text-info">{Map.get(stats, :executing, 0)}</td>
                     <td class="text-base-content/70">{Map.get(stats, :scheduled, 0)}</td>
-                    <td class={if Map.get(stats, :retryable, 0) > 0, do: "text-warning", else: "text-base-content/70"}>
+                    <td class={
+                      if Map.get(stats, :retryable, 0) > 0,
+                        do: "text-warning",
+                        else: "text-base-content/70"
+                    }>
                       {Map.get(stats, :retryable, 0)}
                     </td>
                   </tr>
@@ -335,8 +347,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             </table>
           </div>
         </.ui_panel>
-
-        <!-- Recent Events -->
+        
+    <!-- Recent Events -->
         <.ui_panel :if={@events != []}>
           <:header>
             <div>
@@ -533,7 +545,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       results
       |> Enum.reduce(%{}, fn {queue, state, count}, acc ->
         state_atom = String.to_atom(state)
-        queue_stats = Map.get(acc, queue, %{available: 0, executing: 0, scheduled: 0, retryable: 0})
+
+        queue_stats =
+          Map.get(acc, queue, %{available: 0, executing: 0, scheduled: 0, retryable: 0})
+
         updated_stats = Map.put(queue_stats, state_atom, count)
         Map.put(acc, queue, updated_stats)
       end)

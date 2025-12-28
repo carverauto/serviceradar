@@ -42,6 +42,7 @@ for tenant_config <- tenants do
 
       {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{} | _]}} ->
         IO.puts("  Creating tenant '#{tenant_config.name}'...")
+
         {:ok, tenant} =
           Tenant
           |> Ash.Changeset.for_create(:create, %{
@@ -50,6 +51,7 @@ for tenant_config <- tenants do
           })
           |> Ash.Changeset.force_change_attribute(:id, tenant_config.id)
           |> Ash.create(authorize?: false)
+
         IO.puts("    Created tenant: #{tenant.name} (#{tenant.id})")
         tenant
 
@@ -60,14 +62,16 @@ for tenant_config <- tenants do
 
   if tenant do
     # Check if owner user exists
-    {:ok, user_result} = ServiceRadar.Repo.query(
-      "SELECT id, email FROM ng_users WHERE email = $1",
-      [tenant_config.owner_email]
-    )
+    {:ok, user_result} =
+      ServiceRadar.Repo.query(
+        "SELECT id, email FROM ng_users WHERE email = $1",
+        [tenant_config.owner_email]
+      )
 
     user =
       if user_result.num_rows == 0 do
         IO.puts("    Creating owner user #{tenant_config.owner_email}...")
+
         {:ok, user} =
           User
           |> Ash.Changeset.for_create(:register_with_password, %{
@@ -77,6 +81,7 @@ for tenant_config <- tenants do
             tenant_id: tenant.id
           })
           |> Ash.create(authorize?: false)
+
         IO.puts("      Created: #{user.email}")
         user
       else
@@ -86,20 +91,35 @@ for tenant_config <- tenants do
       end
 
     # Convert UUIDs to binary for query (handle both string and binary cases)
-    user_id_bin = if is_binary(user.id) and byte_size(user.id) == 16, do: user.id, else: Ecto.UUID.dump!(to_string(user.id))
-    tenant_id_bin = if is_binary(tenant.id) and byte_size(tenant.id) == 16, do: tenant.id, else: Ecto.UUID.dump!(to_string(tenant.id))
+    user_id_bin =
+      if is_binary(user.id) and byte_size(user.id) == 16,
+        do: user.id,
+        else: Ecto.UUID.dump!(to_string(user.id))
+
+    tenant_id_bin =
+      if is_binary(tenant.id) and byte_size(tenant.id) == 16,
+        do: tenant.id,
+        else: Ecto.UUID.dump!(to_string(tenant.id))
 
     # Check if membership exists
-    {:ok, membership_result} = ServiceRadar.Repo.query(
-      "SELECT id FROM tenant_memberships WHERE user_id = $1 AND tenant_id = $2",
-      [user_id_bin, tenant_id_bin]
-    )
+    {:ok, membership_result} =
+      ServiceRadar.Repo.query(
+        "SELECT id FROM tenant_memberships WHERE user_id = $1 AND tenant_id = $2",
+        [user_id_bin, tenant_id_bin]
+      )
 
     if membership_result.num_rows == 0 do
       IO.puts("    Creating owner membership...")
       # Get string UUID for Ash call
-      user_id_str = if is_binary(user.id) and byte_size(user.id) == 16, do: Ecto.UUID.cast!(user.id), else: to_string(user.id)
-      tenant_id_str = if is_binary(tenant.id) and byte_size(tenant.id) == 16, do: Ecto.UUID.cast!(tenant.id), else: to_string(tenant.id)
+      user_id_str =
+        if is_binary(user.id) and byte_size(user.id) == 16,
+          do: Ecto.UUID.cast!(user.id),
+          else: to_string(user.id)
+
+      tenant_id_str =
+        if is_binary(tenant.id) and byte_size(tenant.id) == 16,
+          do: Ecto.UUID.cast!(tenant.id),
+          else: to_string(tenant.id)
 
       {:ok, _membership} =
         TenantMembership
@@ -109,6 +129,7 @@ for tenant_config <- tenants do
           role: :owner
         })
         |> Ash.create(tenant: tenant_id_str, authorize?: false)
+
       IO.puts("      Created membership")
     else
       IO.puts("    Membership already exists")

@@ -49,7 +49,10 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   """
   def failure(conn, activity, reason) do
     require Logger
-    Logger.error("Authentication failure: activity=#{inspect(activity)}, reason=#{inspect(reason)}")
+
+    Logger.error(
+      "Authentication failure: activity=#{inspect(activity)}, reason=#{inspect(reason)}"
+    )
 
     conn
     |> put_flash(:error, "Authentication failed. Please try again.")

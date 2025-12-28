@@ -269,7 +269,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   end
 
   defp format_node(nil), do: "—"
-  defp format_node(node) when is_atom(node), do: node |> Atom.to_string() |> String.split("@") |> List.first()
+
+  defp format_node(node) when is_atom(node),
+    do: node |> Atom.to_string() |> String.split("@") |> List.first()
+
   defp format_node(node), do: to_string(node)
 
   defp format_datetime(nil), do: "—"

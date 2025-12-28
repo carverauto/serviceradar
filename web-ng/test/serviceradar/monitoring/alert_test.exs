@@ -27,11 +27,17 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       # Here we test the action functionality
       result =
         Alert
-        |> Ash.Changeset.for_create(:trigger, %{
-          title: "High CPU Usage",
-          severity: :warning,
-          source_type: :device
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :trigger,
+          %{
+            title: "High CPU Usage",
+            severity: :warning,
+            source_type: :device
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       assert {:ok, alert} = result
@@ -76,9 +82,14 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
       result =
         alert
-        |> Ash.Changeset.for_update(:acknowledge, %{
-          acknowledged_by: "operator@example.com"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :acknowledge,
+          %{
+            acknowledged_by: "operator@example.com"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:ok, updated} = result
@@ -92,9 +103,14 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
       {:ok, updated} =
         alert
-        |> Ash.Changeset.for_update(:acknowledge, %{
-          acknowledged_by: "admin@example.com"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :acknowledge,
+          %{
+            acknowledged_by: "admin@example.com"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert updated.status == :acknowledged
@@ -105,9 +121,14 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
       result =
         alert
-        |> Ash.Changeset.for_update(:acknowledge, %{
-          acknowledged_by: "viewer@example.com"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :acknowledge,
+          %{
+            acknowledged_by: "viewer@example.com"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -119,17 +140,27 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       # First acknowledge
       {:ok, acknowledged} =
         alert
-        |> Ash.Changeset.for_update(:acknowledge, %{
-          acknowledged_by: "first@example.com"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :acknowledge,
+          %{
+            acknowledged_by: "first@example.com"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       # Try to acknowledge again
       result =
         acknowledged
-        |> Ash.Changeset.for_update(:acknowledge, %{
-          acknowledged_by: "second@example.com"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :acknowledge,
+          %{
+            acknowledged_by: "second@example.com"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:error, _} = result
@@ -148,10 +179,15 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
       {:ok, resolved} =
         alert
-        |> Ash.Changeset.for_update(:resolve, %{
-          resolved_by: "operator@example.com",
-          resolution_note: "Issue fixed"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :resolve,
+          %{
+            resolved_by: "operator@example.com",
+            resolution_note: "Issue fixed"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert resolved.status == :resolved
@@ -166,17 +202,27 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       # First acknowledge
       {:ok, acknowledged} =
         alert
-        |> Ash.Changeset.for_update(:acknowledge, %{
-          acknowledged_by: "operator@example.com"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :acknowledge,
+          %{
+            acknowledged_by: "operator@example.com"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       # Then resolve
       {:ok, resolved} =
         acknowledged
-        |> Ash.Changeset.for_update(:resolve, %{
-          resolved_by: "operator@example.com"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :resolve,
+          %{
+            resolved_by: "operator@example.com"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert resolved.status == :resolved
@@ -188,17 +234,27 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       # First escalate
       {:ok, escalated} =
         alert
-        |> Ash.Changeset.for_update(:escalate, %{
-          reason: "No response"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :escalate,
+          %{
+            reason: "No response"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       # Then resolve
       {:ok, resolved} =
         escalated
-        |> Ash.Changeset.for_update(:resolve, %{
-          resolved_by: "admin@example.com"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :resolve,
+          %{
+            resolved_by: "admin@example.com"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert resolved.status == :resolved
@@ -210,17 +266,27 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       # First resolve
       {:ok, resolved} =
         alert
-        |> Ash.Changeset.for_update(:resolve, %{
-          resolved_by: "operator@example.com"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :resolve,
+          %{
+            resolved_by: "operator@example.com"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       # Try to resolve again
       result =
         resolved
-        |> Ash.Changeset.for_update(:resolve, %{
-          resolved_by: "another@example.com"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :resolve,
+          %{
+            resolved_by: "another@example.com"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:error, _} = result
@@ -239,9 +305,14 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
       {:ok, escalated} =
         alert
-        |> Ash.Changeset.for_update(:escalate, %{
-          reason: "No response after 30 minutes"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :escalate,
+          %{
+            reason: "No response after 30 minutes"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert escalated.status == :escalated
@@ -260,7 +331,9 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       {:ok, first} =
         alert
         |> Ash.Changeset.for_update(:escalate, %{reason: "First escalation"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert first.escalation_level == 1
@@ -269,19 +342,25 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       {:ok, resolved} =
         first
         |> Ash.Changeset.for_update(:resolve, %{resolved_by: "admin"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       {:ok, reopened} =
         resolved
         |> Ash.Changeset.for_update(:reopen, %{reason: "Still broken"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       {:ok, second} =
         reopened
         |> Ash.Changeset.for_update(:escalate, %{reason: "Second escalation"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert second.escalation_level == 2
@@ -292,9 +371,14 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
       result =
         alert
-        |> Ash.Changeset.for_update(:escalate, %{
-          reason: "Should fail"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :escalate,
+          %{
+            reason: "Should fail"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -307,17 +391,27 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       # First acknowledge as operator
       {:ok, acknowledged} =
         alert
-        |> Ash.Changeset.for_update(:acknowledge, %{
-          acknowledged_by: "operator@example.com"
-        }, actor: operator, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :acknowledge,
+          %{
+            acknowledged_by: "operator@example.com"
+          },
+          actor: operator,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       # Then escalate as admin
       {:ok, escalated} =
         acknowledged
-        |> Ash.Changeset.for_update(:escalate, %{
-          reason: "Needs attention"
-        }, actor: admin, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :escalate,
+          %{
+            reason: "Needs attention"
+          },
+          actor: admin,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert escalated.status == :escalated
@@ -337,9 +431,14 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
       {:ok, suppressed} =
         alert
-        |> Ash.Changeset.for_update(:suppress, %{
-          until: suppress_until
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :suppress,
+          %{
+            until: suppress_until
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert suppressed.status == :suppressed
@@ -352,9 +451,14 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
       result =
         alert
-        |> Ash.Changeset.for_update(:suppress, %{
-          until: suppress_until
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :suppress,
+          %{
+            until: suppress_until
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -370,9 +474,14 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       # Resolve the alert first
       {:ok, resolved} =
         alert
-        |> Ash.Changeset.for_update(:resolve, %{
-          resolved_by: "admin@example.com"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :resolve,
+          %{
+            resolved_by: "admin@example.com"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       {:ok, tenant: tenant, resolved_alert: resolved}
@@ -383,9 +492,14 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
       {:ok, reopened} =
         alert
-        |> Ash.Changeset.for_update(:reopen, %{
-          reason: "Issue recurring"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :reopen,
+          %{
+            reason: "Issue recurring"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert reopened.status == :pending
@@ -398,9 +512,14 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
       result =
         alert
-        |> Ash.Changeset.for_update(:reopen, %{
-          reason: "Should fail"
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :reopen,
+          %{
+            reason: "Should fail"
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -419,20 +538,20 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       {:ok, acknowledged} =
         alert_fixture(tenant, %{title: "Acknowledged Alert"})
         |> Ash.Changeset.for_update(:acknowledge, %{acknowledged_by: "test"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       {:ok, resolved} =
         alert_fixture(tenant, %{title: "Resolved Alert"})
         |> Ash.Changeset.for_update(:resolve, %{resolved_by: "test"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
-      {:ok,
-       tenant: tenant,
-       pending: pending,
-       acknowledged: acknowledged,
-       resolved: resolved}
+      {:ok, tenant: tenant, pending: pending, acknowledged: acknowledged, resolved: resolved}
     end
 
     test "active action returns non-resolved alerts", %{
@@ -478,11 +597,11 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       actor = viewer_actor(tenant)
 
       for {severity, expected_color} <- [
-        {:emergency, "red"},
-        {:critical, "red"},
-        {:warning, "yellow"},
-        {:info, "blue"}
-      ] do
+            {:emergency, "red"},
+            {:critical, "red"},
+            {:warning, "yellow"},
+            {:info, "blue"}
+          ] do
         alert = alert_fixture(tenant, %{severity: severity})
 
         {:ok, [loaded]} =
@@ -511,7 +630,9 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       {:ok, resolved} =
         alert
         |> Ash.Changeset.for_update(:resolve, %{resolved_by: "test"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       {:ok, [loaded]} =
@@ -532,11 +653,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       alert_a = alert_fixture(tenant_a, %{title: "Alert A"})
       alert_b = alert_fixture(tenant_b, %{title: "Alert B"})
 
-      {:ok,
-       tenant_a: tenant_a,
-       tenant_b: tenant_b,
-       alert_a: alert_a,
-       alert_b: alert_b}
+      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, alert_a: alert_a, alert_b: alert_b}
     end
 
     test "user cannot see alerts from other tenant", %{
@@ -561,9 +678,14 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
       result =
         alert_b
-        |> Ash.Changeset.for_update(:acknowledge, %{
-          acknowledged_by: "attacker@example.com"
-        }, actor: actor, tenant: tenant_a.id)
+        |> Ash.Changeset.for_update(
+          :acknowledge,
+          %{
+            acknowledged_by: "attacker@example.com"
+          },
+          actor: actor,
+          tenant: tenant_a.id
+        )
         |> Ash.update()
 
       # Should fail - either Forbidden or StaleRecord (record not found in tenant context)

@@ -42,20 +42,22 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    tab = case params["tab"] do
-      "nodes" -> :nodes
-      "pollers" -> :pollers
-      "agents" -> :agents
-      _ -> :overview
-    end
+    tab =
+      case params["tab"] do
+        "nodes" -> :nodes
+        "pollers" -> :pollers
+        "agents" -> :agents
+        _ -> :overview
+      end
 
     # Update page_path based on tab for breadcrumb navigation
-    page_path = case tab do
-      :overview -> "/infrastructure"
-      :nodes -> "/infrastructure/nodes"
-      :pollers -> "/infrastructure/pollers"
-      :agents -> "/infrastructure/agents"
-    end
+    page_path =
+      case tab do
+        :overview -> "/infrastructure"
+        :nodes -> "/infrastructure/nodes"
+        :pollers -> "/infrastructure/pollers"
+        :agents -> "/infrastructure/agents"
+      end
 
     {:noreply,
      socket
@@ -66,6 +68,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   @impl true
   def handle_info(:refresh, socket) do
     tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+
     {:noreply,
      socket
      |> assign(:cluster_info, load_cluster_info())
@@ -100,6 +103,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   def handle_info({:node_up, _node}, socket) do
     tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+
     {:noreply,
      socket
      |> assign(:cluster_info, load_cluster_info())
@@ -109,6 +113,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   def handle_info({:node_down, _node}, socket) do
     tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+
     {:noreply,
      socket
      |> assign(:cluster_info, load_cluster_info())
@@ -121,6 +126,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   @impl true
   def handle_event("refresh", _params, socket) do
     tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+
     {:noreply,
      socket
      |> assign(:cluster_info, load_cluster_info())
@@ -142,6 +148,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     Process.sleep(500)
 
     tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+
     {:noreply,
      socket
      |> assign(:cluster_info, load_cluster_info())
@@ -171,8 +178,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             </.ui_button>
           </div>
         </div>
-
-        <!-- Debug Panel -->
+        
+    <!-- Debug Panel -->
         <div :if={@show_debug} class="bg-base-200 rounded-lg p-4 space-y-3 border border-base-300">
           <div class="flex items-center justify-between">
             <span class="text-sm font-semibold">Cluster Debug Info</span>
@@ -187,7 +194,9 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
               <div class="bg-base-100 p-2 rounded">{@cluster_info.current_node}</div>
             </div>
             <div>
-              <div class="text-base-content/60 mb-1">Connected Nodes ({length(@cluster_info.connected_nodes)})</div>
+              <div class="text-base-content/60 mb-1">
+                Connected Nodes ({length(@cluster_info.connected_nodes)})
+              </div>
               <div class="bg-base-100 p-2 rounded max-h-20 overflow-auto">
                 <%= if @cluster_info.connected_nodes == [] do %>
                   <span class="text-warning">No other nodes connected</span>
@@ -214,8 +223,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             </div>
           </div>
         </div>
-
-        <!-- Summary Cards -->
+        
+    <!-- Summary Cards -->
         <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
           <.summary_card
             title="Cluster Nodes"
@@ -253,8 +262,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             href={~p"/infrastructure?tab=agents"}
           />
         </div>
-
-        <!-- Tab Navigation -->
+        
+    <!-- Tab Navigation -->
         <div class="tabs tabs-box">
           <.link
             patch={~p"/infrastructure"}
@@ -281,8 +290,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             Agents
           </.link>
         </div>
-
-        <!-- Tab Content -->
+        
+    <!-- Tab Content -->
         <div :if={@active_tab == :overview}>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Live Pollers -->
@@ -295,8 +304,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
               </:header>
               <.live_pollers_table pollers={@live_pollers} total_agents={length(@live_agents)} />
             </.ui_panel>
-
-            <!-- Live Agents -->
+            
+    <!-- Live Agents -->
             <.ui_panel>
               <:header>
                 <div class="flex items-center gap-2">
@@ -314,10 +323,16 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             <:header>
               <div class="flex items-center gap-2">
                 <span class="text-sm font-semibold">Cluster Nodes</span>
-                <span class="badge badge-sm badge-primary">{length(@cluster_info.connected_nodes) + 1}</span>
+                <span class="badge badge-sm badge-primary">
+                  {length(@cluster_info.connected_nodes) + 1}
+                </span>
               </div>
             </:header>
-            <.cluster_nodes_table cluster_info={@cluster_info} live_pollers={@live_pollers} live_agents={@live_agents} />
+            <.cluster_nodes_table
+              cluster_info={@cluster_info}
+              live_pollers={@live_pollers}
+              live_agents={@live_agents}
+            />
           </.ui_panel>
         </div>
 
@@ -329,7 +344,11 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
                 <span class="badge badge-sm badge-info">{length(@live_pollers)}</span>
               </div>
             </:header>
-            <.live_pollers_table pollers={@live_pollers} expanded={true} total_agents={length(@live_agents)} />
+            <.live_pollers_table
+              pollers={@live_pollers}
+              expanded={true}
+              total_agents={length(@live_agents)}
+            />
           </.ui_panel>
 
           <.ui_panel>
@@ -378,28 +397,34 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   attr :href, :string, default: nil
 
   defp summary_card(assigns) do
-    bg_class = case assigns.variant do
-      "success" -> "bg-success/10 border-success/20"
-      "warning" -> "bg-warning/10 border-warning/20"
-      "error" -> "bg-error/10 border-error/20"
-      "info" -> "bg-info/10 border-info/20"
-      "primary" -> "bg-primary/10 border-primary/20"
-      _ -> "bg-base-200/50 border-base-300"
-    end
+    bg_class =
+      case assigns.variant do
+        "success" -> "bg-success/10 border-success/20"
+        "warning" -> "bg-warning/10 border-warning/20"
+        "error" -> "bg-error/10 border-error/20"
+        "info" -> "bg-info/10 border-info/20"
+        "primary" -> "bg-primary/10 border-primary/20"
+        _ -> "bg-base-200/50 border-base-300"
+      end
 
-    icon_class = case assigns.variant do
-      "success" -> "text-success"
-      "warning" -> "text-warning"
-      "error" -> "text-error"
-      "info" -> "text-info"
-      "primary" -> "text-primary"
-      _ -> "text-base-content/50"
-    end
+    icon_class =
+      case assigns.variant do
+        "success" -> "text-success"
+        "warning" -> "text-warning"
+        "error" -> "text-error"
+        "info" -> "text-info"
+        "primary" -> "text-primary"
+        _ -> "text-base-content/50"
+      end
 
     assigns = assign(assigns, bg_class: bg_class, icon_class: icon_class)
 
     ~H"""
-    <.link :if={@href} navigate={@href} class={"rounded-xl border p-4 #{@bg_class} cursor-pointer hover:brightness-95 transition-all"}>
+    <.link
+      :if={@href}
+      navigate={@href}
+      class={"rounded-xl border p-4 #{@bg_class} cursor-pointer hover:brightness-95 transition-all"}
+    >
       <div class="flex items-center gap-3">
         <div class={"rounded-lg bg-base-100 p-2 #{@icon_class}"}>
           <.icon name={@icon} class="size-5" />
@@ -454,11 +479,15 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             >
               <td><.status_badge status={Map.get(poller, :status)} /></td>
               <td class="font-mono text-xs">{Map.get(poller, :partition_id) || "default"}</td>
-              <td class="font-mono text-xs link link-primary">{format_node(Map.get(poller, :node))}</td>
+              <td class="font-mono text-xs link link-primary">
+                {format_node(Map.get(poller, :node))}
+              </td>
               <td :if={@expanded} class="text-center">
                 <span class="badge badge-sm badge-success">{@total_agents}</span>
               </td>
-              <td :if={@expanded} class="font-mono text-xs">{format_time(Map.get(poller, :last_heartbeat))}</td>
+              <td :if={@expanded} class="font-mono text-xs">
+                {format_time(Map.get(poller, :last_heartbeat))}
+              </td>
             </tr>
           <% end %>
         </tbody>
@@ -540,13 +569,20 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           </tr>
           <%= for poller <- @pollers do %>
             <tr class="hover:bg-base-200/40">
-              <td class="font-mono text-xs max-w-[10rem] truncate">{Map.get(poller, "id") || Map.get(poller, "poller_id")}</td>
+              <td class="font-mono text-xs max-w-[10rem] truncate">
+                {Map.get(poller, "id") || Map.get(poller, "poller_id")}
+              </td>
               <td>
                 <.ui_badge
-                  variant={if Map.get(poller, "is_active") || Map.get(poller, "status") == "active", do: "success", else: "ghost"}
+                  variant={
+                    if Map.get(poller, "is_active") || Map.get(poller, "status") == "active",
+                      do: "success",
+                      else: "ghost"
+                  }
                   size="xs"
                 >
-                  {Map.get(poller, "status") || (if Map.get(poller, "is_active"), do: "Active", else: "Inactive")}
+                  {Map.get(poller, "status") ||
+                    if Map.get(poller, "is_active"), do: "Active", else: "Inactive"}
                 </.ui_badge>
               </td>
               <td class="font-mono text-xs">{Map.get(poller, "partition") || "—"}</td>
@@ -587,9 +623,13 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             >
               <td class="font-mono text-xs max-w-[10rem] truncate">{Map.get(agent, "uid")}</td>
               <td class="text-xs">{Map.get(agent, "name") || "—"}</td>
-              <td><.ui_badge variant="ghost" size="xs">{Map.get(agent, "type") || "Unknown"}</.ui_badge></td>
+              <td>
+                <.ui_badge variant="ghost" size="xs">{Map.get(agent, "type") || "Unknown"}</.ui_badge>
+              </td>
               <td class="font-mono text-xs">{Map.get(agent, "poller_id") || "—"}</td>
-              <td class="font-mono text-xs">{format_db_timestamp(Map.get(agent, "last_seen_time"))}</td>
+              <td class="font-mono text-xs">
+                {format_db_timestamp(Map.get(agent, "last_seen_time"))}
+              </td>
             </tr>
           <% end %>
         </tbody>
@@ -648,8 +688,11 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             >
               <td>
                 <div class="flex items-center gap-1.5">
-                  <span class={"size-2 rounded-full #{if node.status == :connected, do: "bg-success", else: "bg-error"}"}></span>
-                  <span class="text-xs">{if node.status == :connected, do: "Connected", else: "Disconnected"}</span>
+                  <span class={"size-2 rounded-full #{if node.status == :connected, do: "bg-success", else: "bg-error"}"}>
+                  </span>
+                  <span class="text-xs">
+                    {if node.status == :connected, do: "Connected", else: "Disconnected"}
+                  </span>
                 </div>
               </td>
               <td class="font-mono text-xs">
@@ -678,13 +721,14 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   attr :type, :atom, required: true
 
   defp node_type_badge(assigns) do
-    {label, variant} = case assigns.type do
-      :core -> {"Core", "primary"}
-      :poller -> {"Poller", "info"}
-      :agent -> {"Agent", "success"}
-      :web -> {"Web", "warning"}
-      _ -> {"Unknown", "ghost"}
-    end
+    {label, variant} =
+      case assigns.type do
+        :core -> {"Core", "primary"}
+        :poller -> {"Poller", "info"}
+        :agent -> {"Agent", "success"}
+        :web -> {"Web", "warning"}
+        _ -> {"Unknown", "ghost"}
+      end
 
     assigns = assign(assigns, label: label, variant: variant)
 
@@ -696,15 +740,16 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   attr :status, :atom, default: :unknown
 
   defp status_badge(assigns) do
-    {label, variant} = case assigns.status do
-      :available -> {"Available", "success"}
-      :connected -> {"Connected", "success"}
-      :busy -> {"Busy", "warning"}
-      :draining -> {"Draining", "warning"}
-      :unavailable -> {"Unavailable", "error"}
-      :disconnected -> {"Disconnected", "error"}
-      _ -> {"Unknown", "ghost"}
-    end
+    {label, variant} =
+      case assigns.status do
+        :available -> {"Available", "success"}
+        :connected -> {"Connected", "success"}
+        :busy -> {"Busy", "warning"}
+        :draining -> {"Draining", "warning"}
+        :unavailable -> {"Unavailable", "error"}
+        :disconnected -> {"Disconnected", "error"}
+        _ -> {"Unknown", "ghost"}
+      end
 
     assigns = assign(assigns, label: label, variant: variant)
 
@@ -716,19 +761,21 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   # Cluster Debug
 
   defp load_cluster_info do
-    poller_members = try do
-      members = Horde.Cluster.members(ServiceRadar.PollerRegistry)
-      length(members)
-    rescue
-      _ -> "error"
-    end
+    poller_members =
+      try do
+        members = Horde.Cluster.members(ServiceRadar.PollerRegistry)
+        length(members)
+      rescue
+        _ -> "error"
+      end
 
-    agent_members = try do
-      members = Horde.Cluster.members(ServiceRadar.AgentRegistry)
-      length(members)
-    rescue
-      _ -> "error"
-    end
+    agent_members =
+      try do
+        members = Horde.Cluster.members(ServiceRadar.AgentRegistry)
+        length(members)
+      rescue
+        _ -> "error"
+      end
 
     %{
       current_node: Node.self(),
@@ -772,11 +819,12 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   # Data Loading
 
   defp load_live_pollers(tenant_id) do
-    pollers = if tenant_id do
-      ServiceRadar.PollerRegistry.find_pollers_for_tenant(tenant_id)
-    else
-      ServiceRadar.PollerRegistry.all_pollers()
-    end
+    pollers =
+      if tenant_id do
+        ServiceRadar.PollerRegistry.find_pollers_for_tenant(tenant_id)
+      else
+        ServiceRadar.PollerRegistry.all_pollers()
+      end
 
     Logger.debug("[Infrastructure] Horde pollers for tenant #{tenant_id}: #{length(pollers)}")
 
@@ -800,11 +848,12 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   end
 
   defp load_live_agents(tenant_id) do
-    agents = if tenant_id do
-      ServiceRadar.AgentRegistry.find_agents_for_tenant(tenant_id)
-    else
-      ServiceRadar.AgentRegistry.all_agents()
-    end
+    agents =
+      if tenant_id do
+        ServiceRadar.AgentRegistry.find_agents_for_tenant(tenant_id)
+      else
+        ServiceRadar.AgentRegistry.all_agents()
+      end
 
     Logger.debug("[Infrastructure] Horde agents for tenant #{tenant_id}: #{length(agents)}")
 
@@ -831,6 +880,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   defp load_db_pollers(current_scope) do
     query = "in:pollers limit:50"
+
     case srql_module().query(query, actor: build_actor(current_scope)) do
       {:ok, %{"results" => results}} -> results
       _ -> []
@@ -841,6 +891,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   defp load_db_agents(current_scope) do
     query = "in:agents limit:50"
+
     case srql_module().query(query, actor: build_actor(current_scope)) do
       {:ok, %{"results" => results}} -> results
       _ -> []
@@ -854,12 +905,14 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       %{user: user, active_tenant: active_tenant} when not is_nil(user) ->
         # Use active tenant if available, otherwise fall back to user's default
         tenant_id = if active_tenant, do: active_tenant.id, else: user.tenant_id
+
         %{
           id: user.id,
           tenant_id: tenant_id,
           role: user.role,
           email: user.email
         }
+
       %{user: user} when not is_nil(user) ->
         %{
           id: user.id,
@@ -867,7 +920,9 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           role: user.role,
           email: user.email
         }
-      _ -> nil
+
+      _ ->
+        nil
     end
   end
 
@@ -892,7 +947,10 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   end
 
   defp format_node(nil), do: "—"
-  defp format_node(node) when is_atom(node), do: node |> Atom.to_string() |> String.split("@") |> List.first()
+
+  defp format_node(node) when is_atom(node),
+    do: node |> Atom.to_string() |> String.split("@") |> List.first()
+
   defp format_node(node), do: to_string(node)
 
   defp format_time(nil), do: "—"
@@ -901,12 +959,14 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   defp format_db_timestamp(nil), do: "—"
   defp format_db_timestamp(""), do: "—"
+
   defp format_db_timestamp(ts) when is_binary(ts) do
     case DateTime.from_iso8601(ts) do
       {:ok, dt, _} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M")
       _ -> ts
     end
   end
+
   defp format_db_timestamp(_), do: "—"
 
   defp format_node_name(node) when is_atom(node), do: Atom.to_string(node)
@@ -914,6 +974,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   # Detect node type based on node name prefix
   defp detect_node_type(node) when is_atom(node), do: detect_node_type(Atom.to_string(node))
+
   defp detect_node_type(node_str) when is_binary(node_str) do
     cond do
       String.starts_with?(node_str, "serviceradar_core") -> :core
@@ -923,6 +984,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       true -> :unknown
     end
   end
+
   defp detect_node_type(_), do: :unknown
 
   # Count pollers running on a specific node

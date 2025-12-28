@@ -33,20 +33,32 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
       {:ok, expired_package} =
         OnboardingPackage
-        |> Ash.Changeset.for_create(:create, %{
-          label: "Expired Package",
-          component_type: :poller,
-          site: "test-site"
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            label: "Expired Package",
+            component_type: :poller,
+            site: "test-site"
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       # Update with expired tokens
       {:ok, expired_package} =
         expired_package
-        |> Ash.Changeset.for_update(:update_tokens, %{
-          download_token_expires_at: expired_download,
-          join_token_expires_at: expired_join
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :update_tokens,
+          %{
+            download_token_expires_at: expired_download,
+            join_token_expires_at: expired_join
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       # Create a package with valid tokens (should NOT be returned)
@@ -54,19 +66,31 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
       {:ok, valid_package} =
         OnboardingPackage
-        |> Ash.Changeset.for_create(:create, %{
-          label: "Valid Package",
-          component_type: :poller,
-          site: "test-site"
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            label: "Valid Package",
+            component_type: :poller,
+            site: "test-site"
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       {:ok, _valid_package} =
         valid_package
-        |> Ash.Changeset.for_update(:update_tokens, %{
-          download_token_expires_at: valid_expiry,
-          join_token_expires_at: valid_expiry
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :update_tokens,
+          %{
+            download_token_expires_at: valid_expiry,
+            join_token_expires_at: valid_expiry
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       # Query needs_expiration (system actor for scheduler context) - returns a page
@@ -75,7 +99,11 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.Query.for_read(:needs_expiration, %{}, actor: system_actor(), authorize?: false)
         |> Ash.read()
 
-      needing_expiration = if is_struct(expiration_page, Ash.Page.Keyset), do: expiration_page.results, else: expiration_page
+      needing_expiration =
+        if is_struct(expiration_page, Ash.Page.Keyset),
+          do: expiration_page.results,
+          else: expiration_page
+
       ids = Enum.map(needing_expiration, & &1.id)
       assert expired_package.id in ids
       refute valid_package.id in ids
@@ -88,7 +116,10 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, expired} =
         package
         |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert expired.status == :expired
@@ -101,7 +132,10 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, expired} =
         package
         |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       # Query needs_expiration - returns a page
@@ -110,7 +144,11 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.Query.for_read(:needs_expiration, %{}, actor: system_actor(), authorize?: false)
         |> Ash.read()
 
-      needing_expiration = if is_struct(expiration_page, Ash.Page.Keyset), do: expiration_page.results, else: expiration_page
+      needing_expiration =
+        if is_struct(expiration_page, Ash.Page.Keyset),
+          do: expiration_page.results,
+          else: expiration_page
+
       ids = Enum.map(needing_expiration, & &1.id)
       refute expired.id in ids
     end
@@ -122,7 +160,10 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, delivered} =
         package
         |> Ash.Changeset.for_update(:deliver, %{},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       # Query needs_expiration (without expired tokens, should not be returned) - returns a page
@@ -131,7 +172,11 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.Query.for_read(:needs_expiration, %{}, actor: system_actor(), authorize?: false)
         |> Ash.read()
 
-      needing_expiration = if is_struct(expiration_page, Ash.Page.Keyset), do: expiration_page.results, else: expiration_page
+      needing_expiration =
+        if is_struct(expiration_page, Ash.Page.Keyset),
+          do: expiration_page.results,
+          else: expiration_page
+
       ids = Enum.map(needing_expiration, & &1.id)
       refute delivered.id in ids
     end
@@ -149,20 +194,25 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
     test "due_for_check finds enabled checks past their interval", %{tenant: tenant} do
       # Create a check that was last checked 2 minutes ago with 60s interval
-      past_time = DateTime.utc_now()
-                  |> DateTime.add(-120, :second)
-                  |> DateTime.truncate(:second)
+      past_time =
+        DateTime.utc_now()
+        |> DateTime.add(-120, :second)
+        |> DateTime.truncate(:second)
 
-      check = service_check_fixture(tenant, %{
-        name: "Overdue Check",
-        interval_seconds: 60
-      })
+      check =
+        service_check_fixture(tenant, %{
+          name: "Overdue Check",
+          interval_seconds: 60
+        })
 
       # Record a result to set last_check_at
       {:ok, overdue_check} =
         check
         |> Ash.Changeset.for_update(:record_result, %{result: :success},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       # Manually set last_check_at to the past
@@ -171,10 +221,11 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> ServiceRadar.Repo.update()
 
       # Create a fresh check with no last_check_at (should be due)
-      fresh_check = service_check_fixture(tenant, %{
-        name: "Fresh Check",
-        interval_seconds: 60
-      })
+      fresh_check =
+        service_check_fixture(tenant, %{
+          name: "Fresh Check",
+          interval_seconds: 60
+        })
 
       # Query due_for_check - returns a page
       {:ok, due_page} =
@@ -195,7 +246,10 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, disabled} =
         check
         |> Ash.Changeset.for_update(:disable, %{},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       # Query due_for_check - returns a page
@@ -215,7 +269,10 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, executed} =
         check
         |> Ash.Changeset.for_update(:execute, %{},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert executed.last_check_at != nil
@@ -232,17 +289,25 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, tenant: tenant}
     end
 
-    test "due_for_execution finds enabled interval schedules past their interval", %{tenant: tenant} do
+    test "due_for_execution finds enabled interval schedules past their interval", %{
+      tenant: tenant
+    } do
       # Create an interval schedule that was last executed 2 minutes ago with 60s interval
       past_time = DateTime.utc_now() |> DateTime.add(-120, :second) |> DateTime.truncate(:second)
 
       {:ok, schedule} =
         PollingSchedule
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Overdue Schedule",
-          schedule_type: :interval,
-          interval_seconds: 60
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Overdue Schedule",
+            schedule_type: :interval,
+            interval_seconds: 60
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       # Manually set last_executed_at
@@ -253,11 +318,17 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       # Create a fresh schedule with no last_executed_at (should be due)
       {:ok, fresh} =
         PollingSchedule
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Fresh Schedule",
-          schedule_type: :interval,
-          interval_seconds: 60
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Fresh Schedule",
+            schedule_type: :interval,
+            interval_seconds: 60
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       # Query due_for_execution - returns a page
@@ -266,7 +337,9 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.Query.for_read(:due_for_execution, %{}, actor: system_actor(), authorize?: false)
         |> Ash.read()
 
-      due_schedules = if is_struct(due_page, Ash.Page.Keyset), do: due_page.results, else: due_page
+      due_schedules =
+        if is_struct(due_page, Ash.Page.Keyset), do: due_page.results, else: due_page
+
       ids = Enum.map(due_schedules, & &1.id)
       assert overdue.id in ids
       assert fresh.id in ids
@@ -275,10 +348,16 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
     test "due_for_execution excludes manual schedules", %{tenant: tenant} do
       {:ok, manual} =
         PollingSchedule
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Manual Schedule",
-          schedule_type: :manual
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Manual Schedule",
+            schedule_type: :manual
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       {:ok, due_page} =
@@ -286,7 +365,9 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.Query.for_read(:due_for_execution, %{}, actor: system_actor(), authorize?: false)
         |> Ash.read()
 
-      due_schedules = if is_struct(due_page, Ash.Page.Keyset), do: due_page.results, else: due_page
+      due_schedules =
+        if is_struct(due_page, Ash.Page.Keyset), do: due_page.results, else: due_page
+
       ids = Enum.map(due_schedules, & &1.id)
       refute manual.id in ids
     end
@@ -294,17 +375,26 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
     test "due_for_execution excludes disabled schedules", %{tenant: tenant} do
       {:ok, schedule} =
         PollingSchedule
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Disabled Schedule",
-          schedule_type: :interval,
-          interval_seconds: 60
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Disabled Schedule",
+            schedule_type: :interval,
+            interval_seconds: 60
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       {:ok, disabled} =
         schedule
         |> Ash.Changeset.for_update(:disable, %{},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       {:ok, due_page} =
@@ -312,7 +402,9 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.Query.for_read(:due_for_execution, %{}, actor: system_actor(), authorize?: false)
         |> Ash.read()
 
-      due_schedules = if is_struct(due_page, Ash.Page.Keyset), do: due_page.results, else: due_page
+      due_schedules =
+        if is_struct(due_page, Ash.Page.Keyset), do: due_page.results, else: due_page
+
       ids = Enum.map(due_schedules, & &1.id)
       refute disabled.id in ids
     end
@@ -320,17 +412,26 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
     test "execute action updates last_executed_at and execution_count", %{tenant: tenant} do
       {:ok, schedule} =
         PollingSchedule
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Test Schedule",
-          schedule_type: :interval,
-          interval_seconds: 60
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Test Schedule",
+            schedule_type: :interval,
+            interval_seconds: 60
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       {:ok, executed} =
         schedule
         |> Ash.Changeset.for_update(:execute, %{},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert executed.last_executed_at != nil
@@ -340,45 +441,67 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
     test "record_result updates result tracking fields", %{tenant: tenant} do
       {:ok, schedule} =
         PollingSchedule
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Result Schedule",
-          schedule_type: :interval,
-          interval_seconds: 60
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Result Schedule",
+            schedule_type: :interval,
+            interval_seconds: 60
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       {:ok, recorded} =
         schedule
-        |> Ash.Changeset.for_update(:record_result, %{
-          result: :partial,
-          check_count: 10,
-          success_count: 8,
-          failure_count: 2
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :record_result,
+          %{
+            result: :partial,
+            check_count: 10,
+            success_count: 8,
+            failure_count: 2
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert recorded.last_result == :partial
       assert recorded.last_check_count == 10
       assert recorded.last_success_count == 8
       assert recorded.last_failure_count == 2
-      assert recorded.consecutive_failures == 0  # partial is considered success
+      # partial is considered success
+      assert recorded.consecutive_failures == 0
     end
 
     test "consecutive failures increment on failed results", %{tenant: tenant} do
       {:ok, schedule} =
         PollingSchedule
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Failing Schedule",
-          schedule_type: :interval,
-          interval_seconds: 60
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Failing Schedule",
+            schedule_type: :interval,
+            interval_seconds: 60
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       # First failure
       {:ok, failed1} =
         schedule
         |> Ash.Changeset.for_update(:record_result, %{result: :failed},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert failed1.consecutive_failures == 1
@@ -387,7 +510,10 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, failed2} =
         failed1
         |> Ash.Changeset.for_update(:record_result, %{result: :timeout},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert failed2.consecutive_failures == 2
@@ -396,7 +522,10 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, success} =
         failed2
         |> Ash.Changeset.for_update(:record_result, %{result: :success},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert success.consecutive_failures == 0
@@ -415,22 +544,29 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
     test "pending action finds unacknowledged alerts", %{tenant: tenant} do
       # Create a pending alert
-      pending_alert = alert_fixture(tenant, %{
-        title: "Pending Alert",
-        severity: :warning
-      })
+      pending_alert =
+        alert_fixture(tenant, %{
+          title: "Pending Alert",
+          severity: :warning
+        })
 
       # Create and acknowledge an alert
-      ack_alert = alert_fixture(tenant, %{
-        title: "Acknowledged Alert",
-        severity: :warning
-      })
+      ack_alert =
+        alert_fixture(tenant, %{
+          title: "Acknowledged Alert",
+          severity: :warning
+        })
 
       {:ok, _acknowledged} =
         ack_alert
-        |> Ash.Changeset.for_update(:acknowledge, %{
-          acknowledged_by: "test-user"
-        }, actor: admin_actor(tenant), tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :acknowledge,
+          %{
+            acknowledged_by: "test-user"
+          },
+          actor: admin_actor(tenant),
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       # Query pending - returns a page, so get the results
@@ -439,7 +575,9 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.Query.for_read(:pending, %{}, actor: system_actor(), authorize?: false)
         |> Ash.read()
 
-      pending_alerts = if is_struct(pending_page, Ash.Page.Keyset), do: pending_page.results, else: pending_page
+      pending_alerts =
+        if is_struct(pending_page, Ash.Page.Keyset), do: pending_page.results, else: pending_page
+
       ids = Enum.map(pending_alerts, & &1.id)
       assert pending_alert.id in ids
       refute ack_alert.id in ids
@@ -450,9 +588,15 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
       {:ok, escalated} =
         alert
-        |> Ash.Changeset.for_update(:escalate, %{
-          reason: "No response for 30 minutes"
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :escalate,
+          %{
+            reason: "No response for 30 minutes"
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert escalated.status == :escalated
@@ -464,9 +608,14 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
       {:ok, resolved} =
         alert
-        |> Ash.Changeset.for_update(:resolve, %{
-          resolution_note: "Fixed"
-        }, actor: admin_actor(tenant), tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :resolve,
+          %{
+            resolution_note: "Fixed"
+          },
+          actor: admin_actor(tenant),
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       {:ok, pending_page} =
@@ -474,7 +623,9 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.Query.for_read(:pending, %{}, actor: system_actor(), authorize?: false)
         |> Ash.read()
 
-      pending_alerts = if is_struct(pending_page, Ash.Page.Keyset), do: pending_page.results, else: pending_page
+      pending_alerts =
+        if is_struct(pending_page, Ash.Page.Keyset), do: pending_page.results, else: pending_page
+
       ids = Enum.map(pending_alerts, & &1.id)
       refute resolved.id in ids
     end
@@ -500,21 +651,29 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> Ash.Query.for_read(:needs_notification, %{}, actor: system_actor(), authorize?: false)
         |> Ash.read()
 
-      needing_notification = if is_struct(needing_notification_page, Ash.Page.Keyset), do: needing_notification_page.results, else: needing_notification_page
+      needing_notification =
+        if is_struct(needing_notification_page, Ash.Page.Keyset),
+          do: needing_notification_page.results,
+          else: needing_notification_page
 
       # New alerts with notification_count = 0 SHOULD need notification
       ids = Enum.map(needing_notification, & &1.id)
       assert alert.id in ids
     end
 
-    test "send_notification increments notification_count and sets last_notification_at", %{tenant: tenant} do
+    test "send_notification increments notification_count and sets last_notification_at", %{
+      tenant: tenant
+    } do
       alert = alert_fixture(tenant)
       assert alert.notification_count == 0
 
       {:ok, notified} =
         alert
         |> Ash.Changeset.for_update(:send_notification, %{},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert notified.notification_count == 1
@@ -535,18 +694,30 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
     test "acquire_lock sets lock fields", %{tenant: tenant} do
       {:ok, schedule} =
         PollingSchedule
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Lock Test",
-          schedule_type: :interval,
-          interval_seconds: 60
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Lock Test",
+            schedule_type: :interval,
+            interval_seconds: 60
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       {:ok, locked} =
         schedule
-        |> Ash.Changeset.for_update(:acquire_lock, %{
-          node_id: "node-1@localhost"
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :acquire_lock,
+          %{
+            node_id: "node-1@localhost"
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert locked.lock_token != nil
@@ -557,26 +728,41 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
     test "release_lock clears lock fields", %{tenant: tenant} do
       {:ok, schedule} =
         PollingSchedule
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Release Test",
-          schedule_type: :interval,
-          interval_seconds: 60
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Release Test",
+            schedule_type: :interval,
+            interval_seconds: 60
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       # Acquire lock
       {:ok, locked} =
         schedule
-        |> Ash.Changeset.for_update(:acquire_lock, %{
-          node_id: "node-1@localhost"
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :acquire_lock,
+          %{
+            node_id: "node-1@localhost"
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       # Release lock
       {:ok, released} =
         locked
         |> Ash.Changeset.for_update(:release_lock, %{},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert released.lock_token == nil
@@ -587,18 +773,30 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
     test "is_locked calculation returns true for recently locked schedules", %{tenant: tenant} do
       {:ok, schedule} =
         PollingSchedule
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Calc Test",
-          schedule_type: :interval,
-          interval_seconds: 60
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Calc Test",
+            schedule_type: :interval,
+            interval_seconds: 60
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       {:ok, locked} =
         schedule
-        |> Ash.Changeset.for_update(:acquire_lock, %{
-          node_id: "node-1@localhost"
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :acquire_lock,
+          %{
+            node_id: "node-1@localhost"
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       # Load the calculation

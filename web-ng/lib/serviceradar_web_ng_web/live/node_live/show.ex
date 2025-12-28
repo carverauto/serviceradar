@@ -136,19 +136,28 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
           </:actions>
         </.header>
 
-        <div :if={@error && !@is_connected} class="rounded-xl border border-error/30 bg-error/5 p-6 text-center">
+        <div
+          :if={@error && !@is_connected}
+          class="rounded-xl border border-error/30 bg-error/5 p-6 text-center"
+        >
           <p class="text-sm text-error">{@error}</p>
         </div>
 
         <div class="space-y-4">
           <!-- Connection Status Banner -->
-          <div :if={@is_connected} class="rounded-lg bg-success/10 border border-success/30 p-3 flex items-center gap-3">
+          <div
+            :if={@is_connected}
+            class="rounded-lg bg-success/10 border border-success/30 p-3 flex items-center gap-3"
+          >
             <span class="size-2.5 rounded-full bg-success animate-pulse"></span>
             <span class="text-sm text-success font-medium">Connected</span>
             <span :if={@is_current} class="badge badge-primary badge-sm">Current Node</span>
             <span class="text-xs text-base-content/60">Node is connected to the cluster</span>
           </div>
-          <div :if={!@is_connected} class="rounded-lg bg-error/10 border border-error/30 p-3 flex items-center gap-3">
+          <div
+            :if={!@is_connected}
+            class="rounded-lg bg-error/10 border border-error/30 p-3 flex items-center gap-3"
+          >
             <span class="size-2.5 rounded-full bg-error"></span>
             <span class="text-sm text-error font-medium">Disconnected</span>
             <span class="text-xs text-base-content/60">Node is not reachable</span>
@@ -156,14 +165,14 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
           <.node_summary node_name={@node_name} node_type={@node_type} is_connected={@is_connected} />
           <.node_system_info :if={@node_info} node_info={@node_info} node={@node_name} />
-
-          <!-- Poller-specific info -->
+          
+    <!-- Poller-specific info -->
           <.pollers_on_node :if={@node_type == :poller && @pollers != []} pollers={@pollers} />
-
-          <!-- Agent-specific info -->
+          
+    <!-- Agent-specific info -->
           <.agents_on_node :if={@node_type == :agent && @agents != []} agents={@agents} />
-
-          <!-- Node Role Description -->
+          
+    <!-- Node Role Description -->
           <.node_role_card node_type={@node_type} />
         </div>
       </div>
@@ -339,7 +348,10 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
             <div class="flex-1">
               <span class="font-mono text-sm">{Map.get(agent, :agent_id, "unknown")}</span>
             </div>
-            <.link navigate={~p"/infrastructure/agents/#{Map.get(agent, :agent_id)}"} class="btn btn-ghost btn-xs">
+            <.link
+              navigate={~p"/infrastructure/agents/#{Map.get(agent, :agent_id)}"}
+              class="btn btn-ghost btn-xs"
+            >
               View
             </.link>
           </div>

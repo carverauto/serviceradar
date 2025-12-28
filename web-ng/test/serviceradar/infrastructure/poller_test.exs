@@ -27,11 +27,17 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
     test "can register a poller with required fields", %{tenant: tenant} do
       result =
         Poller
-        |> Ash.Changeset.for_create(:register, %{
-          id: "poller-test-001",
-          component_id: "component-001",
-          registration_source: "manual"
-        }, actor: system_actor(), authorize?: false, tenant: tenant.id)
+        |> Ash.Changeset.for_create(
+          :register,
+          %{
+            id: "poller-test-001",
+            component_id: "component-001",
+            registration_source: "manual"
+          },
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.create()
 
       assert {:ok, poller} = result
@@ -73,11 +79,16 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
 
       result =
         poller
-        |> Ash.Changeset.for_update(:update, %{
-          metadata: %{"environment" => "production"},
-          agent_count: 5,
-          checker_count: 10
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :update,
+          %{
+            metadata: %{"environment" => "production"},
+            agent_count: 5,
+            checker_count: 10
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert {:ok, updated} = result
@@ -92,8 +103,7 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
 
       result =
         poller
-        |> Ash.Changeset.for_update(:update, %{agent_count: 1},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:update, %{agent_count: 1}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -107,10 +117,15 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
 
       {:ok, updated} =
         poller
-        |> Ash.Changeset.for_update(:heartbeat, %{
-          is_healthy: true,
-          agent_count: 3
-        }, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(
+          :heartbeat,
+          %{
+            is_healthy: true,
+            agent_count: 3
+          },
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert DateTime.compare(updated.last_seen, original_last_seen) in [:gt, :eq]
@@ -131,7 +146,9 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
       {:ok, updated} =
         poller
         |> Ash.Changeset.for_update(:set_status, %{status: "draining"},
-          actor: actor, tenant: tenant.id)
+          actor: actor,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       assert updated.status == "draining"
@@ -142,8 +159,7 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
 
       {:ok, updated} =
         poller
-        |> Ash.Changeset.for_update(:mark_unhealthy, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:mark_unhealthy, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert updated.is_healthy == false
@@ -155,8 +171,7 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
 
       {:ok, updated} =
         poller
-        |> Ash.Changeset.for_update(:deactivate, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert updated.status == "inactive"
@@ -168,8 +183,7 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
 
       result =
         poller
-        |> Ash.Changeset.for_update(:mark_unhealthy, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:mark_unhealthy, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -180,8 +194,7 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
 
       result =
         poller
-        |> Ash.Changeset.for_update(:deactivate, %{},
-          actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -199,7 +212,10 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
       {:ok, poller_degraded} =
         poller_fixture(tenant, %{id: "poller-degraded"})
         |> Ash.Changeset.for_update(:mark_unhealthy, %{},
-          actor: system_actor(), authorize?: false, tenant: tenant.id)
+          actor: system_actor(),
+          authorize?: false,
+          tenant: tenant.id
+        )
         |> Ash.update()
 
       {:ok, tenant: tenant, poller_active: poller_active, poller_degraded: poller_degraded}
@@ -268,10 +284,11 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
       actor = viewer_actor(tenant)
 
       # With component_id
-      with_component = poller_fixture(tenant, %{
-        id: "poller-with-component",
-        component_id: "Component Display Name"
-      })
+      with_component =
+        poller_fixture(tenant, %{
+          id: "poller-with-component",
+          component_id: "Component Display Name"
+        })
 
       {:ok, [loaded]} =
         Poller
@@ -282,10 +299,11 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
       assert loaded.display_name == "Component Display Name"
 
       # Without component_id
-      without_component = poller_fixture(tenant, %{
-        id: "poller-no-component",
-        component_id: nil
-      })
+      without_component =
+        poller_fixture(tenant, %{
+          id: "poller-no-component",
+          component_id: nil
+        })
 
       {:ok, [loaded]} =
         Poller
@@ -305,11 +323,7 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
       poller_a = poller_fixture(tenant_a, %{id: "poller-a"})
       poller_b = poller_fixture(tenant_b, %{id: "poller-b"})
 
-      {:ok,
-       tenant_a: tenant_a,
-       tenant_b: tenant_b,
-       poller_a: poller_a,
-       poller_b: poller_b}
+      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, poller_a: poller_a, poller_b: poller_b}
     end
 
     test "user cannot see pollers from other tenant", %{
@@ -335,7 +349,9 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
       result =
         poller_b
         |> Ash.Changeset.for_update(:update, %{agent_count: 999},
-          actor: actor, tenant: tenant_a.id)
+          actor: actor,
+          tenant: tenant_a.id
+        )
         |> Ash.update()
 
       assert {:error, error} = result

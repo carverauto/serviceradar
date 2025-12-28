@@ -470,7 +470,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 field={@form[:checker_kind]}
                 type={if @checker_templates != [], do: "select", else: "text"}
                 label="Checker Kind"
-                options={if @checker_templates != [], do: [{"Select checker template...", ""}] ++ Enum.map(@checker_templates, &{&1.kind, &1.kind}) ++ [{"Custom (enter below)", "_custom"}], else: nil}
+                options={
+                  if @checker_templates != [],
+                    do:
+                      [{"Select checker template...", ""}] ++
+                        Enum.map(@checker_templates, &{&1.kind, &1.kind}) ++
+                        [{"Custom (enter below)", "_custom"}],
+                    else: nil
+                }
                 placeholder="e.g., sysmon, snmp, rperf-checker"
               />
 
@@ -731,12 +738,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       tenant: tenant_id,
       transform_params: fn _form, params, _action ->
         # Convert component_type string to atom if needed
-        params = case params["component_type"] do
-          type when is_binary(type) and type != "" ->
-            Map.put(params, "component_type", String.to_existing_atom(type))
-          _ ->
-            params
-        end
+        params =
+          case params["component_type"] do
+            type when is_binary(type) and type != "" ->
+              Map.put(params, "component_type", String.to_existing_atom(type))
+
+            _ ->
+              params
+          end
 
         # Set security mode from environment config
         params = Map.put(params, "security_mode", security_mode)
@@ -748,6 +757,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
               {:ok, config} -> Map.put(params, "checker_config_json", config)
               {:error, _} -> params
             end
+
           _ ->
             params
         end

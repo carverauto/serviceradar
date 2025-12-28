@@ -88,12 +88,10 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
             </:header>
             <div class="space-y-2 text-xs text-base-content/70">
               <p>
-                <strong>Cron jobs</strong>
-                are defined in config and run on a fixed schedule.
+                <strong>Cron jobs</strong> are defined in config and run on a fixed schedule.
               </p>
               <p>
-                <strong>AshOban triggers</strong>
-                execute actions on Ash resources based on queries.
+                <strong>AshOban triggers</strong> execute actions on Ash resources based on queries.
               </p>
               <p>Use Oban Web for detailed job monitoring and management.</p>
             </div>
@@ -262,8 +260,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
         {job.id, JobCatalog.get_recent_runs(job.worker, limit: 5)}
       end)
 
-    cron_count = Enum.count(jobs, & &1.source == :cron_plugin)
-    ash_oban_count = Enum.count(jobs, & &1.source == :ash_oban)
+    cron_count = Enum.count(jobs, &(&1.source == :cron_plugin))
+    ash_oban_count = Enum.count(jobs, &(&1.source == :ash_oban))
 
     leader = get_leader_node()
 

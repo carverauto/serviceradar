@@ -16,19 +16,19 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   alias ServiceRadar.Monitoring.PollingSchedule
 
   @type job_entry :: %{
-    id: String.t(),
-    name: String.t(),
-    description: String.t(),
-    source: :cron_plugin | :ash_oban,
-    cron: String.t() | nil,
-    queue: atom(),
-    enabled: boolean(),
-    worker: module() | nil,
-    resource: module() | nil,
-    action: atom() | nil,
-    last_run_at: DateTime.t() | nil,
-    next_run_at: DateTime.t() | nil
-  }
+          id: String.t(),
+          name: String.t(),
+          description: String.t(),
+          source: :cron_plugin | :ash_oban,
+          cron: String.t() | nil,
+          queue: atom(),
+          enabled: boolean(),
+          worker: module() | nil,
+          resource: module() | nil,
+          action: atom() | nil,
+          last_run_at: DateTime.t() | nil,
+          next_run_at: DateTime.t() | nil
+        }
 
   @doc """
   List all scheduled jobs from all sources.
