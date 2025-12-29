@@ -34,6 +34,9 @@ defmodule ServiceRadarWebNG.Application do
     # Ensure ServiceRadar.Repo is started (may already be started by serviceradar_core)
     ensure_repo_started()
 
+    # Check core-elx availability for cluster coordination
+    check_core_elx_health()
+
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: ServiceRadarWebNG.Supervisor]
@@ -213,5 +216,50 @@ defmodule ServiceRadarWebNG.Application do
             :error
         end
     end
+  end
+
+  # Check if core-elx (cluster coordinator) is available
+  # web-ng depends on core-elx for cluster coordination (ClusterSupervisor/ClusterHealth)
+  # This is a non-blocking check - web-ng can still function without core-elx
+  defp check_core_elx_health do
+    cluster_enabled? = System.get_env("CLUSTER_ENABLED", "false") == "true"
+
+    if cluster_enabled? do
+      # Give the cluster a moment to form
+      Task.start(fn ->
+        # Wait a bit for cluster connections to establish
+        Process.sleep(2000)
+        do_core_elx_health_check()
+      end)
+
+      :ok
+    else
+      Logger.debug("Cluster not enabled, skipping core-elx health check")
+      :ok
+    end
+  end
+
+  defp do_core_elx_health_check do
+    case ServiceRadar.Cluster.ClusterStatus.find_coordinator() do
+      nil ->
+        Logger.warning("""
+        [web-ng] No core-elx coordinator found in cluster.
+
+        web-ng can still function but cluster status will show limited information.
+        Ensure core-elx is running with cluster_coordinator: true.
+
+        Connected nodes: #{inspect(Node.list())}
+        """)
+
+        :no_coordinator
+
+      coordinator_node ->
+        Logger.info("[web-ng] Found core-elx coordinator: #{coordinator_node}")
+        :ok
+    end
+  rescue
+    e ->
+      Logger.warning("[web-ng] Error checking core-elx health: #{inspect(e)}")
+      :error
   end
 end

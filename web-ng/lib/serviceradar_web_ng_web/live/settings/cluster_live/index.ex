@@ -11,8 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadar.ClusterHealth
-  alias ServiceRadar.ClusterSupervisor
+  alias ServiceRadar.Cluster.ClusterStatus
   alias ServiceRadar.PollerRegistry
   alias ServiceRadar.AgentRegistry
 
@@ -505,13 +504,30 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   # Helpers
 
   defp load_cluster_status do
-    ClusterSupervisor.cluster_status()
+    # Use ClusterStatus which works from any node in the cluster
+    # (web-ng doesn't run ClusterSupervisor/ClusterHealth - those only run on core-elx)
+    status = ClusterStatus.get_status()
+
+    %{
+      enabled: status.enabled,
+      self: status.self,
+      connected_nodes: status.connected_nodes,
+      node_count: status.node_count,
+      topologies: status.topologies
+    }
   rescue
     _ -> %{enabled: false, self: Node.self(), connected_nodes: [], node_count: 1, topologies: []}
   end
 
   defp load_cluster_health do
-    ClusterHealth.get_health()
+    # Use ClusterStatus which queries coordinator via RPC if needed
+    status = ClusterStatus.get_status()
+
+    %{
+      poller_count: status.poller_count,
+      agent_count: status.agent_count,
+      status: status.status
+    }
   rescue
     _ -> %{poller_count: 0, agent_count: 0, status: :unknown}
   end

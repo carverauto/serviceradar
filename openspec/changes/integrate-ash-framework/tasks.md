@@ -749,7 +749,20 @@ The Go `serviceradar-core` service handles coordination, identity reconciliation
 - [x] 15.11.3 Keep PollerRegistry/AgentRegistry for local queries (read from Horde)
   - TenantRegistry/Horde registries still started (registries_enabled=true by default)
   - web-ng can query Horde registries shared across ERTS cluster
-- [ ] 15.11.4 Update ClusterLive to query core-elx for cluster status
-- [ ] 15.11.5 Update admin LiveViews to work without local Horde supervisor
-- [ ] 15.11.6 Add core-elx health check to web-ng startup
-- [ ] 15.11.7 Document web-ng -> core-elx architecture
+- [x] 15.11.4 Update ClusterLive to query core-elx for cluster status
+  - Created ClusterStatus module (serviceradar_core/lib/serviceradar/cluster/cluster_status.ex)
+  - ClusterStatus provides unified API that works from any node
+  - Uses local Node module for node info, RPC to core-elx for ClusterHealth data
+  - Updated Settings.ClusterLive and Admin.ClusterLive to use ClusterStatus
+- [x] 15.11.5 Update admin LiveViews to work without local Horde supervisor
+  - Updated telemetry.ex to use ClusterStatus instead of ClusterHealth
+  - Infrastructure LiveView already uses TenantRegistry (works via Horde sync)
+  - Agent/Poller LiveViews query DB or Horde directly (both work from web-ng)
+- [x] 15.11.6 Add core-elx health check to web-ng startup
+  - Added check_core_elx_health() to web-ng Application.start/2
+  - Non-blocking Task checks for coordinator after cluster forms
+  - Logs warning if no core-elx coordinator found (web-ng still functions)
+- [x] 15.11.7 Document web-ng -> core-elx architecture
+  - Added comprehensive architecture diagram to ClusterStatus moduledoc
+  - Documents node responsibilities (core-elx, web-ng, poller-elx)
+  - Explains cross-node communication (Horde, PubSub, RPC)

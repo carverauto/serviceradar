@@ -105,6 +105,11 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   @impl true
+  def handle_info(:connect, %{channel: channel} = state) when channel != nil do
+    # Already connected, ignore stale :connect message
+    {:noreply, %{state | reconnecting: false}}
+  end
+
   def handle_info(:connect, state) do
     case connect(state.config) do
       {:ok, channel} ->
@@ -112,15 +117,20 @@ defmodule ServiceRadar.DataService.Client do
         {:noreply, %{state | channel: channel, reconnecting: false}}
 
       {:error, reason} ->
-        Logger.warning("Failed to connect to datasvc: #{inspect(reason)}, retrying...")
+        Logger.warning("Failed to connect to datasvc: #{inspect(reason)}, retrying in #{@reconnect_interval}ms...")
         Process.send_after(self(), :connect, @reconnect_interval)
         {:noreply, %{state | reconnecting: true}}
     end
   end
 
-  # Handle gun connection down - reconnect
-  def handle_info({:gun_down, _pid, _protocol, _reason, _streams}, state) do
-    Logger.warning("Datasvc connection lost, reconnecting...")
+  # Handle gun connection down - reconnect (only if not already reconnecting)
+  def handle_info({:gun_down, _pid, _protocol, _reason, _streams}, %{reconnecting: true} = state) do
+    # Already reconnecting, ignore duplicate gun_down events
+    {:noreply, state}
+  end
+
+  def handle_info({:gun_down, _pid, _protocol, reason, _streams}, state) do
+    Logger.warning("Datasvc connection lost (#{inspect(reason)}), reconnecting in #{@reconnect_interval}ms...")
     Process.send_after(self(), :connect, @reconnect_interval)
     {:noreply, %{state | channel: nil, reconnecting: true}}
   end
@@ -130,9 +140,14 @@ defmodule ServiceRadar.DataService.Client do
     {:noreply, state}
   end
 
-  # Handle any other gun messages
-  def handle_info({:gun_error, _pid, _reason}, state) do
-    Logger.warning("Datasvc gun error, reconnecting...")
+  # Handle any other gun messages (only if not already reconnecting)
+  def handle_info({:gun_error, _pid, _reason}, %{reconnecting: true} = state) do
+    # Already reconnecting, ignore duplicate gun_error events
+    {:noreply, state}
+  end
+
+  def handle_info({:gun_error, _pid, reason}, state) do
+    Logger.warning("Datasvc gun error (#{inspect(reason)}), reconnecting in #{@reconnect_interval}ms...")
     Process.send_after(self(), :connect, @reconnect_interval)
     {:noreply, %{state | channel: nil, reconnecting: true}}
   end

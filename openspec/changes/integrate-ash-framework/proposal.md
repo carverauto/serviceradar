@@ -132,6 +132,62 @@ Define Ash domains and resources for ServiceRadar's core entities:
 7. **Agent cutover**: Route sweep/check work through `serviceradar-sweep` via the new Elixir agent layer
 8. **DB access boundaries**: Only core-elx and web-ng connect to CNPG; pollers/agents remain DB-free
 
+## Progress Update (2025-12-29)
+
+### web-ng Decoupling from core-elx
+
+- **Created ClusterStatus Module** (`elixir/serviceradar_core/lib/serviceradar/cluster/cluster_status.ex`):
+  - Unified API for cluster status queries from any node in the ERTS cluster
+  - Works from web-ng (cluster_coordinator=false) without requiring ClusterSupervisor/ClusterHealth locally
+  - Key functions: `get_status/0`, `node_info/0`, `registry_counts/0`, `coordinator_health/0`, `find_coordinator/0`
+  - Uses RPC to query ClusterHealth on core-elx when needed from web-ng
+  - Includes comprehensive architecture documentation with ASCII diagrams
+
+- **Updated ClusterLive Views**:
+  - `web-ng/lib/serviceradar_web_ng_web/live/settings/cluster_live/index.ex`: Uses ClusterStatus instead of ClusterSupervisor/ClusterHealth
+  - `web-ng/lib/serviceradar_web_ng_web/live/admin/cluster_live/index.ex`: Same ClusterStatus integration
+
+- **Updated Telemetry** (`web-ng/lib/serviceradar_web_ng_web/telemetry.ex`):
+  - Periodic cluster health measurements now use ClusterStatus.get_status()
+  - No longer references ClusterHealth directly (not available on web-ng nodes)
+
+- **Added core-elx Health Check** (`web-ng/lib/serviceradar_web_ng/application.ex`):
+  - Non-blocking health check on startup when CLUSTER_ENABLED=true
+  - Uses Task.start to avoid blocking application startup
+  - Logs warning if no coordinator found, but allows web-ng to continue
+
+### Architecture: web-ng -> core-elx Communication
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         ERTS Cluster                                │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌───────────────┐      ┌───────────────┐      ┌───────────────┐   │
+│  │   core-elx    │      │    web-ng     │      │  poller-elx   │   │
+│  │               │      │               │      │               │   │
+│  │ • ClusterSupv │      │ • LiveViews   │      │ • PollerProc  │   │
+│  │ • ClusterHlth │◄────►│ • ClusterStat │◄────►│ • Horde reg   │   │
+│  │ • AshOban     │      │ • Telemetry   │      │ • No DB       │   │
+│  │ • PollOrch    │      │ • DB access   │      │               │   │
+│  │ • DB access   │      │               │      │               │   │
+│  │               │      │               │      │               │   │
+│  │ cluster_coord │      │ cluster_coord │      │ cluster_coord │   │
+│  │    = true     │      │    = false    │      │    = false    │   │
+│  └───────────────┘      └───────────────┘      └───────────────┘   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+- **Horde Registries**: Process registration synced across all nodes via CRDT
+- **Phoenix.PubSub**: Events broadcast to all nodes automatically
+- **RPC**: ClusterStatus uses `:rpc.call/4` to query ClusterHealth on core-elx
+
+### Deployment
+
+- Rebuilt and deployed `core-elx`, `web-ng`, `poller-elx` with SHA `sha-108a12656c28fca596aebba236951ab7cb005a30`
+- All services healthy in docker compose cluster
+
 ## Progress Update (2025-12-28, Late)
 
 ### Infrastructure State Machine & Health Events
