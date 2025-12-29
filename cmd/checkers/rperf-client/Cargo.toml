@@ -26,5 +26,5 @@ spiffe = { version = "0.6", default-features = false, features = ["spiffe-types"
 config-bootstrap = { path = "../../../rust/config-bootstrap" }
 
 [build-dependencies]
-tonic-build = "0.9"
+tonic-build = "0.14"
 which = "7.0"
