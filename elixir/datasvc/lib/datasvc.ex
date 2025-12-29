@@ -13,13 +13,15 @@ defmodule Datasvc do
 
       config :datasvc,
         address: "localhost:50053",
-        timeout: 5000
+        timeout: 5000,
+        connect_timeout: 5000
 
   For mTLS connections:
 
       config :datasvc,
         address: "localhost:50053",
         timeout: 5000,
+        connect_timeout: 5000,
         tls: [
           cacertfile: "/etc/serviceradar/certs/root.pem",
           certfile: "/etc/serviceradar/certs/web.pem",
@@ -41,6 +43,7 @@ defmodule Datasvc do
   require Logger
 
   @default_timeout 5_000
+  @default_connect_timeout 5_000
 
   @doc """
   Gets the configured datasvc address.
@@ -81,7 +84,12 @@ defmodule Datasvc do
 
       addr ->
         interceptors = Keyword.get(opts, :interceptors, [])
-        connect_opts = build_connect_opts(interceptors)
+        connect_timeout = config() |> Keyword.get(:connect_timeout, @default_connect_timeout)
+
+        connect_opts =
+          interceptors
+          |> build_connect_opts()
+          |> Keyword.put(:adapter_opts, [connect_timeout: connect_timeout])
 
         case GRPC.Stub.connect(addr, connect_opts) do
           {:ok, channel} -> {:ok, channel}
@@ -130,6 +138,7 @@ defmodule Datasvc do
         after
           # Note: GRPC connections in Elixir are lightweight
           # Could add connection pooling here in the future
+          _ = GRPC.Stub.disconnect(channel)
           :ok
         end
 

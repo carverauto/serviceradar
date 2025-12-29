@@ -302,6 +302,12 @@ services:
       - RELEASE_NODE=serviceradar_poller@poller-elx
       - RELEASE_DISTRIBUTION=sname
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
+      # Datasvc gRPC client configuration
+      - DATASVC_HOST=datasvc
+      - DATASVC_PORT=50057
+      - DATASVC_SSL=true
+      - DATASVC_CERT_DIR=/etc/serviceradar/certs
+      - DATASVC_CERT_NAME=poller
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.poller.conf:/etc/serviceradar/ssl_dist.conf:ro
@@ -340,6 +346,12 @@ services:
       - RELEASE_NODE=serviceradar_poller_t2@poller-elx-t2
       - RELEASE_DISTRIBUTION=sname
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
+      # Datasvc gRPC client configuration
+      - DATASVC_HOST=datasvc
+      - DATASVC_PORT=50057
+      - DATASVC_SSL=true
+      - DATASVC_CERT_DIR=/etc/serviceradar/certs
+      - DATASVC_CERT_NAME=poller
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.poller.conf:/etc/serviceradar/ssl_dist.conf:ro
