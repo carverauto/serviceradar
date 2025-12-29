@@ -132,6 +132,47 @@ Define Ash domains and resources for ServiceRadar's core entities:
 7. **Agent cutover**: Route sweep/check work through `serviceradar-sweep` via the new Elixir agent layer
 8. **DB access boundaries**: Only core-elx and web-ng connect to CNPG; pollers/agents remain DB-free
 
+## Progress Update (2025-12-28, Late)
+
+### Infrastructure State Machine & Health Events
+
+- **Fixed Duplicate Health Events** (`elixir/serviceradar_core/lib/serviceradar/infrastructure/state_monitor.ex`):
+  - Removed manual `publish_poller_event`, `publish_agent_event`, `publish_checker_event` calls
+  - These were duplicating events already published by `PublishStateChange` Ash change attached to state transition actions
+  - StateMonitor now relies solely on Ash actions (`:degrade`, `:go_offline`, `:lose_connection`, `:mark_failing`) which have `PublishStateChange` attached
+
+- **Fixed Entity Metadata in PublishStateChange** (`elixir/serviceradar_core/lib/serviceradar/infrastructure/changes/publish_state_change.ex`):
+  - Corrected metadata fields per entity type:
+    - Pollers: `partition_id`
+    - Agents: `poller_id` (was incorrectly using `partition_id`)
+    - Checkers: `agent_uid`
+  - Ensures health events have proper context for each entity type
+
+- **Removed Unused Functions from StateMonitor**:
+  - Cleaned up `publish_poller_event/3`, `publish_agent_event/3`, `publish_checker_event/3`
+  - Removed unused `entity_type_to_string/1` helper
+  - Eliminated compiler warnings about unused functions
+
+### Config Bootstrap Hot-Reload Fix
+
+- **Fixed config-bootstrap Restart Loop** (`rust/config-bootstrap/src/watch.rs`):
+  - Added `is_initial` flag to skip the first KV watch event (initial snapshot)
+  - Initial config is already loaded during `bootstrap.load()` - the watch was triggering unnecessary restarts
+  - Services now only reload on actual KV changes, not on initial subscription
+
+### Docker Compose Health Check Fixes
+
+- **Increased Health Check Timeouts** (`docker-compose.yml`):
+  - Extended health check parameters for services that need longer startup time
+  - Prevents premature service restarts during initial startup
+  - All services (core-elx, poller-elx, web-ng, zen, db-event-writer) running healthy
+
+### Deployment
+
+- Rebuilt and deployed `core-elx` with SHA `sha-1ee6a5fad039cb9712d17fd7bbbb8f102edfcf3c`
+- Removed deprecated `agent-elx` containers (were test attempts for multi-tenant services)
+- Verified all services healthy in docker compose
+
 ## Progress Update (2025-12-27, Late)
 
 ### Infrastructure Pages and Horde Integration

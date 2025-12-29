@@ -648,19 +648,19 @@ The Go `serviceradar-core` service handles coordination, identity reconciliation
 - [x] 15.7.2 Define poller states: healthy, degraded, offline, recovering, maintenance, draining, inactive
 - [x] 15.7.3 Define state transitions with guards and conditions
 - [x] 15.7.4 Implement automatic state transitions based on heartbeat timeout (via StateMonitor)
-- [ ] 15.7.5 Add after_transition hooks to publish events to NATS JetStream
+- [x] 15.7.5 Add after_transition hooks to publish events to NATS JetStream (via PublishStateChange Ash change)
 
 #### 15.7.B State Machine for Agents
 - [x] 15.7.6 AshStateMachine already exists for Infrastructure.Agent (connecting, connected, degraded, disconnected, unavailable)
 - [x] 15.7.7 Agent state transitions already defined (establish_connection, degrade, lose_connection, etc.)
 - [x] 15.7.8 Reachability tracking exists (last_seen_time) - StateMonitor handles timeout detection
-- [ ] 15.7.9 Add after_transition hooks for agent events to NATS
+- [x] 15.7.9 Add after_transition hooks for agent events to NATS (via PublishStateChange Ash change)
 
 #### 15.7.C State Machine for Checkers/Collectors
 - [x] 15.7.10 Add AshStateMachine to Infrastructure.Checker resource
 - [x] 15.7.11 Define checker states: active, paused, failing, disabled
 - [x] 15.7.12 Track checker health (consecutive_failures, last_success, last_failure, failure_reason)
-- [ ] 15.7.13 Add after_transition hooks for checker events to NATS
+- [x] 15.7.13 Add after_transition hooks for checker events to NATS (via PublishStateChange Ash change)
 
 #### 15.7.D Infrastructure State Monitor
 - [x] 15.7.14 Create ServiceRadar.Infrastructure.StateMonitor GenServer
