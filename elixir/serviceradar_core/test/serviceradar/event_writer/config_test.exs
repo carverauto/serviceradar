@@ -52,7 +52,6 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert "OTEL_METRICS" in stream_names
       assert "OTEL_TRACES" in stream_names
       assert "LOGS" in stream_names
-      assert "EVENTS" in stream_names
     end
 
     test "each stream has required fields" do

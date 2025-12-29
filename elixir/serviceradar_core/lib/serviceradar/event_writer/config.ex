@@ -22,8 +22,7 @@ defmodule ServiceRadar.EventWriter.Config do
         streams: [
           %{name: "OTEL_METRICS", subject: "otel.metrics.>", processor: ServiceRadar.EventWriter.Processors.OtelMetrics},
           %{name: "OTEL_TRACES", subject: "otel.traces.>", processor: ServiceRadar.EventWriter.Processors.OtelTraces},
-          %{name: "LOGS", subject: "logs.>", processor: ServiceRadar.EventWriter.Processors.Logs},
-          %{name: "EVENTS", subject: "events.>", processor: ServiceRadar.EventWriter.Processors.Events}
+          %{name: "LOGS", subject: "logs.>", processor: ServiceRadar.EventWriter.Processors.Logs}
         ]
 
   ## Environment Variables
@@ -135,13 +134,6 @@ defmodule ServiceRadar.EventWriter.Config do
         processor: ServiceRadar.EventWriter.Processors.Logs,
         batch_size: 100,
         batch_timeout: 1_000
-      },
-      %{
-        name: "EVENTS",
-        subject: "events.>",
-        processor: ServiceRadar.EventWriter.Processors.Events,
-        batch_size: 50,
-        batch_timeout: 2_000
       }
     ]
   end

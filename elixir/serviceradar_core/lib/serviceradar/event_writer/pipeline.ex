@@ -162,7 +162,6 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       String.starts_with?(subject, "otel.metrics") -> :otel_metrics
       String.starts_with?(subject, "otel.traces") -> :otel_traces
       String.starts_with?(subject, "logs.") -> :logs
-      String.starts_with?(subject, "events.") -> :events
       String.starts_with?(subject, "telemetry.") -> :telemetry
       String.starts_with?(subject, "sweep.") -> :sweep
       String.starts_with?(subject, "netflow.") -> :netflow
@@ -175,7 +174,6 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:otel_metrics), do: ServiceRadar.EventWriter.Processors.OtelMetrics
   defp get_processor(:otel_traces), do: ServiceRadar.EventWriter.Processors.OtelTraces
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
-  defp get_processor(:events), do: ServiceRadar.EventWriter.Processors.Events
   defp get_processor(:telemetry), do: ServiceRadar.EventWriter.Processors.Telemetry
   defp get_processor(:sweep), do: ServiceRadar.EventWriter.Processors.Sweep
   defp get_processor(:netflow), do: ServiceRadar.EventWriter.Processors.NetFlow
