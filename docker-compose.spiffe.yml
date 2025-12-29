@@ -227,6 +227,14 @@ services:
       - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
       - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg-rw}
       - CNPG_CERT_DIR=/etc/serviceradar/certs
+      # Datasvc gRPC client configuration
+      - DATASVC_ADDRESS=datasvc:50057
+      - DATASVC_HOST=datasvc
+      - DATASVC_PORT=50057
+      - DATASVC_SSL=true
+      - DATASVC_CERT_DIR=/etc/serviceradar/certs
+      - DATASVC_CERT_NAME=web
+      - DATASVC_SERVER_NAME=datasvc.serviceradar
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
     depends_on:

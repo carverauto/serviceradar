@@ -341,7 +341,7 @@ defmodule ServiceRadar.Application do
 
   defp event_writer_child do
     if event_writer_enabled?() do
-      ServiceRadar.EventWriter.Supervisor
+      Supervisor.child_spec(ServiceRadar.EventWriter.Supervisor, restart: :temporary)
     else
       nil
     end
