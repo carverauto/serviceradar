@@ -118,6 +118,9 @@ services:
       - EVENT_WRITER_BATCH_SIZE=${EVENT_WRITER_BATCH_SIZE:-100}
       - EVENT_WRITER_BATCH_TIMEOUT=${EVENT_WRITER_BATCH_TIMEOUT:-1000}
       - NATS_ENABLED=true
+      - NATS_URL=nats://nats:4222
+      - NATS_TLS=true
+      - NATS_SERVER_NAME=nats.serviceradar
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.core.conf:/etc/serviceradar/ssl_dist.conf:ro

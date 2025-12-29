@@ -230,8 +230,7 @@ defmodule ServiceRadar.NATS.Connection do
   defp connect(state) do
     connection_settings = %{
       host: state.host,
-      port: state.port,
-      tls: state.tls
+      port: state.port
     }
 
     connection_settings =
@@ -241,6 +240,8 @@ defmodule ServiceRadar.NATS.Connection do
         connection_settings
       end
 
+    connection_settings = add_tls_settings(connection_settings, state.tls)
+
     case Gnat.start_link(connection_settings) do
       {:ok, conn} ->
         Process.monitor(conn)
@@ -248,6 +249,21 @@ defmodule ServiceRadar.NATS.Connection do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp add_tls_settings(settings, tls) do
+    case tls do
+      true ->
+        Map.put(settings, :tls, true)
+
+      tls_opts when is_list(tls_opts) ->
+        settings
+        |> Map.put(:tls, true)
+        |> Map.put(:ssl_opts, tls_opts)
+
+      _ ->
+        settings
     end
   end
 

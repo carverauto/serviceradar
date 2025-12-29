@@ -38,7 +38,7 @@ Last message: {:tcp_closed, #Port<0.26>}
 
 ### Root Cause Analysis
 
-The issue is a protocol mismatch between the NATS server's TLS expectations and the Gnat (Elixir NATS client) library's behavior.
+The issue is **misconfigured TLS settings passed to Gnat**, which results in a protocol mismatch.
 
 #### NATS Server Configuration
 
@@ -79,6 +79,26 @@ Gnat expects:
 
 This is the **STARTTLS pattern** - TLS upgrade happens after initial protocol exchange.
 
+#### Misconfiguration in ServiceRadar
+
+EventWriter is passing the TLS options list as the `:tls` value:
+
+```elixir
+# Producer.build_connection_settings/1 (before fix)
+settings =
+  if nats_config.tls do
+    Map.put(settings, :tls, nats_config.tls) # <-- list, not boolean
+  else
+    settings
+  end
+```
+
+Gnat expects:
+- `tls: true` (boolean)
+- `ssl_opts: [...]` (TLS options)
+
+Because `:tls` was a list, Gnat **never performed the TLS upgrade** and sent `CONNECT` in plain text.
+
 ### The Mismatch
 
 | NATS Server (default) | Gnat Library |
@@ -87,11 +107,12 @@ This is the **STARTTLS pattern** - TLS upgrade happens after initial protocol ex
 | `handshake_first: true` | STARTTLS pattern |
 | Sends nothing until TLS | Sends INFO immediately |
 
-When Gnat connects:
+When EventWriter connects with the misconfigured settings:
 1. Gnat opens TCP connection
-2. Gnat waits for INFO message
-3. NATS waits for TLS handshake
-4. Neither side proceeds → timeout/close
+2. Gnat receives INFO
+3. Gnat skips TLS upgrade (because `tls` is not `true`)
+4. Gnat sends `CONNECT` in plaintext
+5. NATS expects TLS handshake → `first record does not look like a TLS handshake`
 
 ## What We've Tried
 
@@ -106,7 +127,7 @@ tls {
 
 This should make NATS send INFO first before requiring TLS. However, the error persists.
 
-**Possible reason**: The `handshake_first` option may only apply to explicit TLS upgrade negotiation, not to the mandatory TLS case with `verify: true`.
+**What we learned**: This alone is not enough if Gnat never upgrades to TLS.
 
 ### 2. Verified Certificates Exist
 
@@ -128,13 +149,33 @@ nats_tls_config = [
 ]
 ```
 
-This is passed through `Config.load/0` → `Producer.build_connection_settings/1` → `Gnat.start_link/1`.
+This is passed through `Config.load/0` → `Producer.build_connection_settings/1` → `Gnat.start_link/1`,
+but **it was being passed as `tls: [opts]` instead of `ssl_opts: [opts]`**.
 
 ### 4. Other Services Connect Successfully
 
 Go services (datasvc), Rust services (zen, flowgger, trapd, otel-collector) all connect successfully to NATS with TLS. These clients use native TLS from the start, not STARTTLS.
 
 ## Potential Solutions
+
+### Option 0: Fix Gnat settings (actual fix)
+
+Ensure Gnat sees `tls: true` and `ssl_opts: [...]`:
+
+```elixir
+settings =
+  case nats_config.tls do
+    true -> Map.put(settings, :tls, true)
+    tls_opts when is_list(tls_opts) ->
+      settings
+      |> Map.put(:tls, true)
+      |> Map.put(:ssl_opts, tls_opts)
+    _ -> settings
+  end
+```
+
+**Pros**: Small change, no fork required, works with existing NATS config  
+**Cons**: None; this is the correct Gnat API
 
 ### Option 1: Patch Gnat to Support Implicit TLS
 
@@ -230,9 +271,8 @@ Open an issue/PR on the Gnat repository to add support for implicit TLS connecti
 
 ## Recommended Approach
 
-**Short-term**: Option 3 (non-TLS internal listener) or Option 1 (fork Gnat)
-
-**Long-term**: Option 6 (contribute to Gnat) + Option 1 (maintain fork until merged)
+**Use Option 0**: pass `tls: true` and `ssl_opts` to Gnat for EventWriter (and any other NATS clients).
+Keep `handshake_first: false` on the NATS server to support STARTTLS-style clients.
 
 ## Configuration Reference
 
@@ -279,10 +319,13 @@ defp build_connection_settings(nats_config) do
   }
 
   settings =
-    if nats_config.tls do
-      Map.put(settings, :tls, nats_config.tls)
-    else
-      settings
+    case nats_config.tls do
+      true -> Map.put(settings, :tls, true)
+      tls_opts when is_list(tls_opts) ->
+        settings
+        |> Map.put(:tls, true)
+        |> Map.put(:ssl_opts, tls_opts)
+      _ -> settings
     end
 
   settings

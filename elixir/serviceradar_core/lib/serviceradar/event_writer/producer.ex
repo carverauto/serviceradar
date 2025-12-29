@@ -189,14 +189,24 @@ defmodule ServiceRadar.EventWriter.Producer do
         settings
       end
 
-    settings =
-      if nats_config.tls do
-        Map.put(settings, :tls, nats_config.tls)
-      else
-        settings
-      end
+    settings = add_tls_settings(settings, nats_config.tls)
 
     settings
+  end
+
+  defp add_tls_settings(settings, tls) do
+    case tls do
+      true ->
+        Map.put(settings, :tls, true)
+
+      tls_opts when is_list(tls_opts) ->
+        settings
+        |> Map.put(:tls, true)
+        |> Map.put(:ssl_opts, tls_opts)
+
+      _ ->
+        settings
+    end
   end
 
   defp setup_jetstream_consumer(conn, config) do

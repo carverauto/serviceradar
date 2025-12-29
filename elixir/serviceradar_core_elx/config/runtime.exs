@@ -278,4 +278,98 @@ if config_env() == :prod do
     config :swoosh, local: false
     config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
   end
+
+  # NATS connection configuration (core publisher)
+  nats_enabled = System.get_env("NATS_ENABLED", "false") in ~w(true 1 yes)
+
+  if nats_enabled do
+    nats_url = System.get_env("NATS_URL", "nats://localhost:4222")
+    nats_uri = URI.parse(nats_url)
+
+    nats_tls_enabled = System.get_env("NATS_TLS", "false") in ~w(true 1 yes)
+    cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+    nats_server_name = System.get_env("NATS_SERVER_NAME", "nats.serviceradar")
+
+    nats_tls_config =
+      if nats_tls_enabled do
+        [
+          verify: :verify_peer,
+          cacertfile: Path.join(cert_dir, "root.pem"),
+          certfile: Path.join(cert_dir, "core.pem"),
+          keyfile: Path.join(cert_dir, "core-key.pem"),
+          server_name_indication: String.to_charlist(nats_server_name)
+        ]
+      else
+        false
+      end
+
+    config :serviceradar_core, ServiceRadar.NATS.Connection,
+      host: nats_uri.host || "localhost",
+      port: nats_uri.port || 4222,
+      user: System.get_env("NATS_USER"),
+      password: {:system, "NATS_PASSWORD"},
+      tls: nats_tls_config
+  end
+
+  # EventWriter configuration (NATS JetStream → CNPG consumer)
+  event_writer_enabled = System.get_env("EVENT_WRITER_ENABLED", "false") in ~w(true 1 yes)
+
+  if event_writer_enabled do
+    nats_url = System.get_env("EVENT_WRITER_NATS_URL", "nats://localhost:4222")
+    nats_uri = URI.parse(nats_url)
+
+    nats_tls_enabled = System.get_env("EVENT_WRITER_NATS_TLS", "false") in ~w(true 1 yes)
+    cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+
+    nats_tls_config =
+      if nats_tls_enabled do
+        [
+          verify: :verify_peer,
+          cacertfile: Path.join(cert_dir, "root.pem"),
+          certfile: Path.join(cert_dir, "core.pem"),
+          keyfile: Path.join(cert_dir, "core-key.pem"),
+          server_name_indication: ~c"nats.serviceradar"
+        ]
+      else
+        false
+      end
+
+    config :serviceradar_core, :event_writer_enabled, true
+
+    config :serviceradar_core, ServiceRadar.EventWriter,
+      enabled: true,
+      nats: [
+        host: nats_uri.host || "localhost",
+        port: nats_uri.port || 4222,
+        user: System.get_env("EVENT_WRITER_NATS_USER"),
+        password: {:system, "EVENT_WRITER_NATS_PASSWORD"},
+        tls: nats_tls_config
+      ],
+      batch_size: String.to_integer(System.get_env("EVENT_WRITER_BATCH_SIZE") || "100"),
+      batch_timeout: String.to_integer(System.get_env("EVENT_WRITER_BATCH_TIMEOUT") || "1000"),
+      consumer_name: System.get_env("EVENT_WRITER_CONSUMER_NAME", "serviceradar-event-writer"),
+      streams: [
+        %{
+          name: "OTEL_METRICS",
+          subject: "otel.metrics.>",
+          processor: ServiceRadar.EventWriter.Processors.OtelMetrics,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "OTEL_TRACES",
+          subject: "otel.traces.>",
+          processor: ServiceRadar.EventWriter.Processors.OtelTraces,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "LOGS",
+          subject: "logs.>",
+          processor: ServiceRadar.EventWriter.Processors.Logs,
+          batch_size: 100,
+          batch_timeout: 1_000
+        }
+      ]
+  end
 end
