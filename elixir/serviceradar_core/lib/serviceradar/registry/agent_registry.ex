@@ -76,6 +76,7 @@ defmodule ServiceRadar.AgentRegistry do
       agent_id: agent_id,
       tenant_id: tenant_id,
       partition_id: Map.get(agent_info, :partition_id),
+      domain: Map.get(agent_info, :domain),
       poller_node: Map.get(agent_info, :poller_node, Node.self()),
       # gRPC connection details for poller-initiated communication
       grpc_host: Map.get(agent_info, :grpc_host),
@@ -191,6 +192,30 @@ defmodule ServiceRadar.AgentRegistry do
   def find_agents_for_partition(tenant_id, partition_id) when is_binary(tenant_id) do
     find_agents_for_tenant(tenant_id)
     |> Enum.filter(&(&1[:partition_id] == partition_id))
+  end
+
+  @doc """
+  Find all agents for a specific tenant and domain.
+
+  Domain represents a logical grouping of agents, typically by site or location
+  (e.g., "site-a", "datacenter-east"). Used for routing checks to agents
+  in the same network segment as target endpoints.
+  """
+  @spec find_agents_for_domain(String.t(), String.t()) :: [map()]
+  def find_agents_for_domain(tenant_id, domain) when is_binary(tenant_id) do
+    find_agents_for_tenant(tenant_id)
+    |> Enum.filter(&(&1[:domain] == domain))
+  end
+
+  @doc """
+  Find an available agent for a tenant's domain.
+
+  Returns the first connected agent in the domain, or nil if none available.
+  """
+  @spec find_available_agent_for_domain(String.t(), String.t()) :: map() | nil
+  def find_available_agent_for_domain(tenant_id, domain) do
+    find_agents_for_domain(tenant_id, domain)
+    |> Enum.find(&(&1[:status] == :connected))
   end
 
   @doc """

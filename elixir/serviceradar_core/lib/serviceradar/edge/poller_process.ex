@@ -152,11 +152,13 @@ defmodule ServiceRadar.Edge.PollerProcess do
     poller_id = Keyword.fetch!(opts, :poller_id)
     tenant_id = Keyword.fetch!(opts, :tenant_id)
     partition_id = Keyword.get(opts, :partition_id, "default")
+    domain = Keyword.get(opts, :domain)
 
     state = %{
       poller_id: poller_id,
       tenant_id: tenant_id,
       partition_id: partition_id,
+      domain: domain,
       status: :idle,
       current_job: nil,
       metrics: %{
@@ -272,6 +274,7 @@ defmodule ServiceRadar.Edge.PollerProcess do
     poller_info = %{
       tenant_id: state.tenant_id,
       partition_id: state.partition_id,
+      domain: state.domain,
       status: :idle
     }
 
@@ -294,7 +297,24 @@ defmodule ServiceRadar.Edge.PollerProcess do
   end
 
   defp find_available_agent(state) do
-    agents = AgentRegistry.find_agents_for_partition(state.tenant_id, state.partition_id)
+    # Try domain-based selection first if poller has a domain, then fall back to partition
+    domain = Map.get(state, :domain)
+
+    agents =
+      if domain do
+        # Try domain-based selection first
+        domain_agents = AgentRegistry.find_agents_for_domain(state.tenant_id, domain)
+
+        if Enum.empty?(domain_agents) do
+          # Fall back to partition-based selection
+          AgentRegistry.find_agents_for_partition(state.tenant_id, state.partition_id)
+        else
+          domain_agents
+        end
+      else
+        # Use partition-based selection
+        AgentRegistry.find_agents_for_partition(state.tenant_id, state.partition_id)
+      end
 
     # Filter to connected agents and pick one
     connected_agents =
@@ -304,7 +324,7 @@ defmodule ServiceRadar.Edge.PollerProcess do
 
     case connected_agents do
       [] -> nil
-      # Simple load balancing
+      # Simple load balancing - random selection
       agents -> Enum.random(agents)
     end
   end

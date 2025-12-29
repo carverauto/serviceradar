@@ -22,9 +22,27 @@ defmodule ServiceRadar.Application do
   ## Configuration
 
   - `:repo_enabled` - Whether to start the database connection pool (default: true)
+    - core-elx: true (central coordinator with DB access)
+    - web-ng: true (web frontend with DB access)
+    - poller-elx: false (edge component, no direct DB access)
   - `:oban_enabled` - Whether to start Oban job processor (default: true)
-  - `:cluster_enabled` - Whether to start cluster infrastructure (default: false)
+  - `:cluster_enabled` - Whether ERTS distribution is enabled (default: false)
+  - `:cluster_coordinator` - Whether to run ClusterSupervisor/ClusterHealth (default: same as cluster_enabled)
+    - core-elx: true (it's the coordinator)
+    - web-ng, poller-elx: false (they join cluster but don't coordinate)
   - `:registries_enabled` - Whether to start TenantRegistry (default: true)
+  - `:start_ash_oban_scheduler` - Whether to start AshOban schedulers (default: false)
+    - Only core-elx should set this to true
+
+  ## DB Access Boundaries
+
+  Only core-elx and web-ng have direct database access. Edge components (pollers, agents)
+  communicate with the database via:
+  1. Horde registries for process discovery (synced via ERTS)
+  2. gRPC calls to core-elx for data operations
+  3. NATS JetStream for event streaming
+
+  This ensures edge components remain stateless and can be deployed in untrusted networks.
   """
   use Application
 
@@ -186,7 +204,16 @@ defmodule ServiceRadar.Application do
   end
 
   defp cluster_children do
-    if Application.get_env(:serviceradar_core, :cluster_enabled, false) do
+    cluster_enabled = Application.get_env(:serviceradar_core, :cluster_enabled, false)
+
+    # cluster_coordinator controls whether this node runs ClusterSupervisor/ClusterHealth
+    # - core-elx sets this to true (it's the coordinator)
+    # - web-ng/poller-elx should have it false (they join cluster but don't coordinate)
+    # Defaults to cluster_enabled for backwards compatibility
+    cluster_coordinator =
+      Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
+
+    if cluster_coordinator do
       [
         # Cluster supervisor manages libcluster + Horde
         ServiceRadar.ClusterSupervisor,
