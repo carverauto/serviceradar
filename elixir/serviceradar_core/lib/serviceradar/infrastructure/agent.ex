@@ -271,94 +271,119 @@ defmodule ServiceRadar.Infrastructure.Agent do
     end
 
     # State machine transition actions
+    # Each action includes PublishStateChange to emit NATS events
+
     update :establish_connection do
       description "Mark agent as connected (from connecting state)"
       accept [:poller_id]
+      require_atomic? false
 
       change transition_state(:connected)
       change set_attribute(:is_healthy, true)
       change set_attribute(:last_seen_time, &DateTime.utc_now/0)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :connected}
     end
 
     update :connection_failed do
       description "Mark connection attempt as failed"
+      require_atomic? false
 
       change transition_state(:disconnected)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :disconnected}
     end
 
     update :degrade do
       description "Mark agent as degraded (connected but unhealthy)"
+      require_atomic? false
 
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :degraded}
     end
 
     update :restore_health do
       description "Restore agent health (from degraded to connected)"
+      require_atomic? false
 
       change transition_state(:connected)
       change set_attribute(:is_healthy, true)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :connected}
     end
 
     update :lose_connection do
       description "Mark agent as disconnected (connection lost)"
+      require_atomic? false
 
       change transition_state(:disconnected)
       change set_attribute(:poller_id, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :disconnected}
     end
 
     update :reconnect do
       description "Start reconnection process (from disconnected to connecting)"
+      require_atomic? false
 
       change transition_state(:connecting)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :connecting}
     end
 
     update :mark_unavailable do
       description "Mark agent as unavailable (admin action)"
       argument :reason, :string
+      require_atomic? false
 
       change transition_state(:unavailable)
       change set_attribute(:is_healthy, false)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :unavailable}
     end
 
     update :recover do
       description "Start recovery process (from unavailable to connecting)"
+      require_atomic? false
 
       change transition_state(:connecting)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :connecting}
     end
 
     # Legacy compatibility actions (mapped to state machine)
     update :connect do
       description "Mark agent as connected to a poller (legacy - use establish_connection)"
       accept [:poller_id]
+      require_atomic? false
 
       change transition_state(:connected)
       change set_attribute(:is_healthy, true)
       change set_attribute(:last_seen_time, &DateTime.utc_now/0)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :connected}
     end
 
     update :disconnect do
       description "Mark agent as disconnected (legacy - use lose_connection)"
+      require_atomic? false
 
       change transition_state(:disconnected)
       change set_attribute(:poller_id, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :disconnected}
     end
 
     update :mark_unhealthy do
       description "Mark agent as unhealthy (legacy - use degrade)"
+      require_atomic? false
+
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :degraded}
     end
   end
 

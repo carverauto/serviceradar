@@ -3,22 +3,24 @@ defmodule ServiceRadarCoreElx.Application do
   ServiceRadar Core-ELX Application.
 
   This is the primary coordination node for the ServiceRadar cluster.
-  It owns the Horde supervisors and registries, and other nodes
-  connect to it for distributed process coordination.
+  It configures serviceradar_core with cluster-specific settings but does NOT
+  start duplicate processes - serviceradar_core handles all child processes.
 
   ## Responsibilities
 
-  - Cluster formation (libcluster)
-  - Distributed process supervision (Horde.DynamicSupervisor)
-  - Distributed registry (Horde.Registry via PollerRegistry/AgentRegistry)
-  - Cluster health monitoring
-  - AshOban job scheduling
+  - Enable cluster mode for serviceradar_core
+  - Enable AshOban scheduler (only core-elx runs schedulers)
+  - Configure runtime settings before serviceradar_core starts
 
   ## Architecture
 
-  Core-ELX runs the "primary" cluster coordination. Web-NG and Poller-ELX
-  nodes connect to Core-ELX to participate in the distributed registry
-  and supervision tree.
+  Core-ELX is a thin wrapper that:
+  1. Sets cluster_enabled = true (enables ClusterSupervisor, ClusterHealth in serviceradar_core)
+  2. Sets start_ash_oban_scheduler = true (enables AshOban schedulers)
+  3. Starts any core-elx specific services (none currently)
+
+  All distributed registry, supervision, and clustering is handled by
+  serviceradar_core's Application module when cluster_enabled is true.
   """
 
   use Application
@@ -29,47 +31,21 @@ defmodule ServiceRadarCoreElx.Application do
   def start(_type, _args) do
     Logger.info("Starting ServiceRadar Core-ELX node: #{node()}")
 
-    cluster_enabled = Application.get_env(:serviceradar_core, :cluster_enabled, true)
-    registries_enabled = Application.get_env(:serviceradar_core, :registries_enabled, true)
+    # Core-ELX doesn't start duplicate children - serviceradar_core handles everything
+    # when cluster_enabled=true is set in runtime.exs
+    #
+    # The following are started by serviceradar_core when cluster_enabled=true:
+    # - ServiceRadar.ClusterSupervisor (libcluster + Horde)
+    # - ServiceRadar.ClusterHealth
+    # - TenantRegistry (for per-tenant registries)
+    #
+    # AshOban scheduler is started when :start_ash_oban_scheduler = true
 
-    children =
-      []
-      |> maybe_add_cluster_supervisor(cluster_enabled)
-      |> maybe_add_cluster_health(cluster_enabled)
-      |> maybe_add_poller_supervisor(registries_enabled)
-      |> maybe_add_registries(registries_enabled)
+    children = []
 
-    Logger.info("Core-ELX starting #{length(children)} services (cluster=#{cluster_enabled}, registries=#{registries_enabled})")
+    Logger.info("Core-ELX initialized - serviceradar_core handles cluster infrastructure")
 
     opts = [strategy: :one_for_one, name: ServiceRadarCoreElx.Supervisor]
     Supervisor.start_link(children, opts)
   end
-
-  defp maybe_add_cluster_supervisor(children, true) do
-    children ++ [{ServiceRadar.ClusterSupervisor, []}]
-  end
-
-  defp maybe_add_cluster_supervisor(children, false), do: children
-
-  defp maybe_add_cluster_health(children, true) do
-    children ++ [{ServiceRadar.ClusterHealth, []}]
-  end
-
-  defp maybe_add_cluster_health(children, false), do: children
-
-  defp maybe_add_poller_supervisor(children, true) do
-    children ++ [{ServiceRadar.PollerSupervisor, []}]
-  end
-
-  defp maybe_add_poller_supervisor(children, false), do: children
-
-  defp maybe_add_registries(children, true) do
-    children ++
-      [
-        {ServiceRadar.PollerRegistry, []},
-        {ServiceRadar.AgentRegistry, []}
-      ]
-  end
-
-  defp maybe_add_registries(children, false), do: children
 end

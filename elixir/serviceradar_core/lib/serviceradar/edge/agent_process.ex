@@ -133,6 +133,49 @@ defmodule ServiceRadar.Edge.AgentProcess do
     GenServer.call(agent, :status)
   end
 
+  @doc """
+  Execute a health check for a service via gRPC.
+
+  Used by PollerProcess for high-frequency health monitoring.
+  Returns the health status of the target service.
+
+  ## Service Config
+
+  - `:service_id` - Unique identifier for the service
+  - `:service_type` - Type of service (e.g., :datasvc, :sync, :zen)
+  - `:target` - Target address/endpoint (optional)
+  - `:config` - Additional service-specific config
+  """
+  @spec health_check(String.t() | pid(), map()) :: {:ok, atom()} | {:error, term()}
+  def health_check(agent, service) when is_binary(agent) do
+    case lookup_pid(agent) do
+      nil -> {:error, :agent_not_found}
+      pid -> health_check(pid, service)
+    end
+  end
+
+  def health_check(agent, service) when is_pid(agent) do
+    GenServer.call(agent, {:health_check, service}, 30_000)
+  end
+
+  @doc """
+  Get accumulated check results from the agent.
+
+  Used by PollerProcess to retrieve results from external services
+  that accumulate check data over time.
+  """
+  @spec get_results(String.t() | pid(), map()) :: {:ok, list()} | {:error, term()}
+  def get_results(agent, service) when is_binary(agent) do
+    case lookup_pid(agent) do
+      nil -> {:error, :agent_not_found}
+      pid -> get_results(pid, service)
+    end
+  end
+
+  def get_results(agent, service) when is_pid(agent) do
+    GenServer.call(agent, {:get_results, service}, 30_000)
+  end
+
   # Server Callbacks
 
   @impl true
@@ -231,6 +274,24 @@ defmodule ServiceRadar.Edge.AgentProcess do
     }
 
     {:reply, {:ok, status}, state}
+  end
+
+  def handle_call({:health_check, _service}, _from, %{connected: false} = state) do
+    {:reply, {:error, :not_connected}, state}
+  end
+
+  def handle_call({:health_check, service}, _from, state) do
+    result = execute_health_check_impl(state.channel, service, state)
+    {:reply, result, state}
+  end
+
+  def handle_call({:get_results, _service}, _from, %{connected: false} = state) do
+    {:reply, {:error, :not_connected}, state}
+  end
+
+  def handle_call({:get_results, service}, _from, state) do
+    result = execute_get_results_impl(state.channel, service, state)
+    {:reply, result, state}
   end
 
   @impl true
@@ -381,5 +442,87 @@ defmodule ServiceRadar.Edge.AgentProcess do
 
   defp generate_request_id do
     :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
+  end
+
+  defp execute_health_check_impl(channel, service, state) do
+    # Build the gRPC health check request
+    # Uses gRPC Health Checking Protocol or custom GetStatus
+    service_id = service[:service_id] || ""
+    service_type = to_string(service[:service_type] || "")
+    target = service[:target] || ""
+
+    request = %Monitoring.StatusRequest{
+      service_name: service_id,
+      service_type: service_type,
+      agent_id: state.agent_id,
+      poller_id: "",
+      details: target,
+      port: 0
+    }
+
+    case Monitoring.AgentService.Stub.get_status(channel, request, timeout: 15_000) do
+      {:ok, response} ->
+        # Convert response to health status atom
+        status =
+          if response.available do
+            :serving
+          else
+            :not_serving
+          end
+
+        Logger.debug("Health check for #{service_id}: #{status}")
+        {:ok, status}
+
+      {:error, %GRPC.RPCError{} = error} ->
+        Logger.warning("gRPC health check failed: #{GRPC.RPCError.message(error)}")
+        {:error, {:grpc_error, GRPC.RPCError.message(error)}}
+
+      {:error, reason} ->
+        Logger.warning("Health check failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp execute_get_results_impl(channel, service, state) do
+    # Build the gRPC GetResults request
+    service_id = service[:service_id] || ""
+    service_type = to_string(service[:service_type] || "")
+
+    # Use PollerStatusRequest to get accumulated results
+    request = %Monitoring.PollerStatusRequest{
+      services: [],
+      poller_id: "",
+      agent_id: state.agent_id,
+      timestamp: System.system_time(:second),
+      partition: state.partition_id,
+      source_ip: "",
+      kv_store_id: ""
+    }
+
+    case SyncClient.report_status(channel, request) do
+      {:ok, response} ->
+        # Extract results from response
+        results =
+          response
+          |> Map.get(:services, [])
+          |> Enum.filter(fn svc ->
+            svc.service_name == service_id or svc.service_type == service_type
+          end)
+          |> Enum.map(fn svc ->
+            %{
+              service_name: svc.service_name,
+              service_type: svc.service_type,
+              available: svc.available,
+              message: svc.message,
+              response_time: svc.response_time
+            }
+          end)
+
+        {:ok, results}
+
+      {:error, reason} ->
+        Logger.warning("Get results failed: #{inspect(reason)}")
+        {:error, reason}
+    end
   end
 end

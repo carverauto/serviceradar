@@ -2,12 +2,20 @@ defmodule ServiceRadarWebNG.Dev.ClusterDebug do
   @moduledoc """
   Cluster debugging utilities for understanding Horde registry sync issues.
 
+  ## Architecture Note
+
+  ServiceRadar uses per-tenant Horde registries managed by TenantRegistry.
+  Each tenant gets their own isolated registry, which syncs automatically
+  via `members: :auto` configuration.
+
   ## Usage in IEx
 
       iex> ServiceRadarWebNG.Dev.ClusterDebug.status()
-      iex> ServiceRadarWebNG.Dev.ClusterDebug.horde_members()
+      iex> ServiceRadarWebNG.Dev.ClusterDebug.tenant_registries()
       iex> ServiceRadarWebNG.Dev.ClusterDebug.registry_state()
   """
+
+  alias ServiceRadar.Cluster.TenantRegistry
 
   require Logger
 
@@ -20,8 +28,8 @@ defmodule ServiceRadarWebNG.Dev.ClusterDebug do
     IO.puts("Connected nodes: #{inspect(Node.list())}")
     IO.puts("Node count: #{length(Node.list()) + 1}")
 
-    IO.puts("\n=== Horde Registry Status ===")
-    horde_members()
+    IO.puts("\n=== Tenant Registries ===")
+    tenant_registries()
 
     IO.puts("\n=== Registry Contents ===")
     registry_state()
@@ -30,38 +38,37 @@ defmodule ServiceRadarWebNG.Dev.ClusterDebug do
   end
 
   @doc """
-  Show Horde registry members for PollerRegistry and AgentRegistry.
+  Show per-tenant Horde registries managed by TenantRegistry.
   """
-  def horde_members do
+  def tenant_registries do
     try do
-      poller_members = Horde.Cluster.members(ServiceRadar.PollerRegistry)
-      IO.puts("PollerRegistry members: #{inspect(poller_members)}")
-    rescue
-      e -> IO.puts("PollerRegistry error: #{inspect(e)}")
-    end
+      registries = TenantRegistry.list_registries()
+      IO.puts("Active tenant registries: #{length(registries)}")
 
-    try do
-      agent_members = Horde.Cluster.members(ServiceRadar.AgentRegistry)
-      IO.puts("AgentRegistry members: #{inspect(agent_members)}")
+      for {name, pid} <- registries do
+        IO.puts("  - #{name} (#{inspect(pid)})")
+      end
     rescue
-      e -> IO.puts("AgentRegistry error: #{inspect(e)}")
+      e -> IO.puts("TenantRegistry error: #{inspect(e)}")
     end
 
     :ok
   end
 
   @doc """
-  Show current registry contents.
+  Show current registry contents (queries database via Ash).
   """
   def registry_state do
     try do
       poller_count = ServiceRadar.PollerRegistry.count()
       pollers = ServiceRadar.PollerRegistry.all_pollers()
-      IO.puts("\nPollers (count=#{poller_count}, results=#{length(pollers)}):")
+      IO.puts("\nPollers (db_count=#{length(pollers)}, registry_count=#{poller_count}):")
 
-      for poller <- pollers do
-        IO.puts("  - #{inspect(poller[:key])} on #{inspect(poller[:node])}")
+      for poller <- Enum.take(pollers, 10) do
+        IO.puts("  - #{poller.id} status=#{poller.status}")
       end
+
+      if length(pollers) > 10, do: IO.puts("  ... and #{length(pollers) - 10} more")
     rescue
       e -> IO.puts("Poller error: #{inspect(e)}")
     end
@@ -69,11 +76,13 @@ defmodule ServiceRadarWebNG.Dev.ClusterDebug do
     try do
       agent_count = ServiceRadar.AgentRegistry.count()
       agents = ServiceRadar.AgentRegistry.all_agents()
-      IO.puts("\nAgents (count=#{agent_count}, results=#{length(agents)}):")
+      IO.puts("\nAgents (db_count=#{length(agents)}, registry_count=#{agent_count}):")
 
-      for agent <- agents do
-        IO.puts("  - #{inspect(agent[:key])} on #{inspect(agent[:node])}")
+      for agent <- Enum.take(agents, 10) do
+        IO.puts("  - #{agent.uid} status=#{agent.status}")
       end
+
+      if length(agents) > 10, do: IO.puts("  ... and #{length(agents) - 10} more")
     rescue
       e -> IO.puts("Agent error: #{inspect(e)}")
     end
@@ -83,35 +92,13 @@ defmodule ServiceRadarWebNG.Dev.ClusterDebug do
 
   @doc """
   Force Horde to sync with other cluster members.
+
+  Note: Per-tenant registries use `members: :auto` and sync automatically.
+  This function is kept for compatibility but does nothing with TenantRegistry.
   """
   def force_sync do
-    nodes = Node.list()
-
-    IO.puts("Syncing with #{length(nodes)} nodes...")
-
-    # Get current Horde members
-    poller_members =
-      for node <- [Node.self() | nodes] do
-        {ServiceRadar.PollerRegistry, node}
-      end
-
-    agent_members =
-      for node <- [Node.self() | nodes] do
-        {ServiceRadar.AgentRegistry, node}
-      end
-
-    IO.puts("Setting PollerRegistry members: #{inspect(poller_members)}")
-    Horde.Cluster.set_members(ServiceRadar.PollerRegistry, poller_members)
-
-    IO.puts("Setting AgentRegistry members: #{inspect(agent_members)}")
-    Horde.Cluster.set_members(ServiceRadar.AgentRegistry, agent_members)
-
-    # Wait a moment for sync
-    Process.sleep(1000)
-
-    IO.puts("\nAfter sync:")
-    registry_state()
-
+    IO.puts("Per-tenant registries use members: :auto and sync automatically.")
+    IO.puts("No manual sync needed with TenantRegistry architecture.")
     :ok
   end
 
@@ -139,5 +126,33 @@ defmodule ServiceRadarWebNG.Dev.ClusterDebug do
     for node <- nodes do
       {node, remote_registry_count(node)}
     end
+  end
+
+  @doc """
+  Show registered pollers for a specific tenant.
+  """
+  def pollers_for_tenant(tenant_id) do
+    pollers = ServiceRadar.PollerRegistry.find_pollers_for_tenant(tenant_id)
+    IO.puts("Pollers for tenant #{tenant_id}: #{length(pollers)}")
+
+    for poller <- pollers do
+      IO.puts("  - #{poller[:poller_id]} status=#{poller[:status]} node=#{poller[:node]}")
+    end
+
+    :ok
+  end
+
+  @doc """
+  Show registered agents for a specific tenant.
+  """
+  def agents_for_tenant(tenant_id) do
+    agents = ServiceRadar.AgentRegistry.find_agents_for_tenant(tenant_id)
+    IO.puts("Agents for tenant #{tenant_id}: #{length(agents)}")
+
+    for agent <- agents do
+      IO.puts("  - #{agent[:agent_id]} status=#{agent[:status]} node=#{agent[:node]}")
+    end
+
+    :ok
   end
 end

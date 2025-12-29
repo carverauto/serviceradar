@@ -100,6 +100,51 @@ defmodule ServiceRadar.Edge.PollerProcess do
     GenServer.call(poller, :status)
   end
 
+  @doc """
+  Execute a health check for a service via an agent.
+
+  Used by HealthCheckRunner for high-frequency health monitoring.
+  The poller forwards the request to an available agent which performs
+  the actual gRPC health check on the target service.
+
+  ## Service Config
+
+  - `:service_id` - Unique identifier for the service
+  - `:service_type` - Type of service (e.g., :datasvc, :sync, :zen)
+  - `:agent_uid` - Target agent to perform the check
+  - `:target` - Target address/endpoint (optional)
+  - `:config` - Additional service-specific config
+  """
+  @spec health_check(String.t() | pid(), map()) :: {:ok, atom()} | {:error, term()}
+  def health_check(poller, service) when is_binary(poller) do
+    case lookup_pid(poller) do
+      nil -> {:error, :poller_not_found}
+      pid -> health_check(pid, service)
+    end
+  end
+
+  def health_check(poller, service) when is_pid(poller) do
+    GenServer.call(poller, {:health_check, service}, 30_000)
+  end
+
+  @doc """
+  Get check results from a service via an agent.
+
+  Used by HealthCheckRunner to poll for accumulated check results
+  from external services monitored by agents.
+  """
+  @spec get_results(String.t() | pid(), map()) :: {:ok, list()} | {:error, term()}
+  def get_results(poller, service) when is_binary(poller) do
+    case lookup_pid(poller) do
+      nil -> {:error, :poller_not_found}
+      pid -> get_results(pid, service)
+    end
+  end
+
+  def get_results(poller, service) when is_pid(poller) do
+    GenServer.call(poller, {:get_results, service}, 30_000)
+  end
+
   # Server Callbacks
 
   @impl true
@@ -183,6 +228,16 @@ defmodule ServiceRadar.Edge.PollerProcess do
     }
 
     {:reply, {:ok, status}, state}
+  end
+
+  def handle_call({:health_check, service}, _from, state) do
+    result = execute_health_check_impl(service, state)
+    {:reply, result, state}
+  end
+
+  def handle_call({:get_results, service}, _from, state) do
+    result = execute_get_results_impl(service, state)
+    {:reply, result, state}
   end
 
   @impl true
@@ -316,5 +371,60 @@ defmodule ServiceRadar.Edge.PollerProcess do
 
   defp generate_job_id do
     :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
+  end
+
+  defp execute_health_check_impl(service, state) do
+    agent_uid = service[:agent_uid]
+
+    case find_agent_by_uid(state, agent_uid) do
+      nil ->
+        Logger.warning("Agent #{agent_uid} not found for health check")
+        {:error, :agent_not_found}
+
+      agent ->
+        agent_id = agent[:agent_id]
+        Logger.debug("Forwarding health check for #{service[:service_id]} to agent #{agent_id}")
+
+        case AgentProcess.health_check(agent_id, service) do
+          {:ok, status} ->
+            {:ok, status}
+
+          {:error, reason} ->
+            Logger.warning("Health check failed for #{service[:service_id]}: #{inspect(reason)}")
+            {:error, reason}
+        end
+    end
+  end
+
+  defp execute_get_results_impl(service, state) do
+    agent_uid = service[:agent_uid]
+
+    case find_agent_by_uid(state, agent_uid) do
+      nil ->
+        Logger.warning("Agent #{agent_uid} not found for get_results")
+        {:error, :agent_not_found}
+
+      agent ->
+        agent_id = agent[:agent_id]
+        Logger.debug("Forwarding get_results for #{service[:service_id]} to agent #{agent_id}")
+
+        case AgentProcess.get_results(agent_id, service) do
+          {:ok, results} ->
+            {:ok, results}
+
+          {:error, reason} ->
+            Logger.warning("Get results failed for #{service[:service_id]}: #{inspect(reason)}")
+            {:error, reason}
+        end
+    end
+  end
+
+  defp find_agent_by_uid(state, agent_uid) do
+    # Look up agents in the partition by UID
+    agents = AgentRegistry.find_agents_for_partition(state.tenant_id, state.partition_id)
+
+    Enum.find(agents, fn agent ->
+      agent[:agent_id] == agent_uid or agent[:uid] == agent_uid
+    end)
   end
 end

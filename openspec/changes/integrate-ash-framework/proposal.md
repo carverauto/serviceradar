@@ -132,6 +132,47 @@ Define Ash domains and resources for ServiceRadar's core entities:
 7. **Agent cutover**: Route sweep/check work through `serviceradar-sweep` via the new Elixir agent layer
 8. **DB access boundaries**: Only core-elx and web-ng connect to CNPG; pollers/agents remain DB-free
 
+## Progress Update (2025-12-28, Late)
+
+### Infrastructure State Machine & Health Events
+
+- **Fixed Duplicate Health Events** (`elixir/serviceradar_core/lib/serviceradar/infrastructure/state_monitor.ex`):
+  - Removed manual `publish_poller_event`, `publish_agent_event`, `publish_checker_event` calls
+  - These were duplicating events already published by `PublishStateChange` Ash change attached to state transition actions
+  - StateMonitor now relies solely on Ash actions (`:degrade`, `:go_offline`, `:lose_connection`, `:mark_failing`) which have `PublishStateChange` attached
+
+- **Fixed Entity Metadata in PublishStateChange** (`elixir/serviceradar_core/lib/serviceradar/infrastructure/changes/publish_state_change.ex`):
+  - Corrected metadata fields per entity type:
+    - Pollers: `partition_id`
+    - Agents: `poller_id` (was incorrectly using `partition_id`)
+    - Checkers: `agent_uid`
+  - Ensures health events have proper context for each entity type
+
+- **Removed Unused Functions from StateMonitor**:
+  - Cleaned up `publish_poller_event/3`, `publish_agent_event/3`, `publish_checker_event/3`
+  - Removed unused `entity_type_to_string/1` helper
+  - Eliminated compiler warnings about unused functions
+
+### Config Bootstrap Hot-Reload Fix
+
+- **Fixed config-bootstrap Restart Loop** (`rust/config-bootstrap/src/watch.rs`):
+  - Added `is_initial` flag to skip the first KV watch event (initial snapshot)
+  - Initial config is already loaded during `bootstrap.load()` - the watch was triggering unnecessary restarts
+  - Services now only reload on actual KV changes, not on initial subscription
+
+### Docker Compose Health Check Fixes
+
+- **Increased Health Check Timeouts** (`docker-compose.yml`):
+  - Extended health check parameters for services that need longer startup time
+  - Prevents premature service restarts during initial startup
+  - All services (core-elx, poller-elx, web-ng, zen, db-event-writer) running healthy
+
+### Deployment
+
+- Rebuilt and deployed `core-elx` with SHA `sha-1ee6a5fad039cb9712d17fd7bbbb8f102edfcf3c`
+- Removed deprecated `agent-elx` containers (were test attempts for multi-tenant services)
+- Verified all services healthy in docker compose
+
 ## Progress Update (2025-12-27, Late)
 
 ### Infrastructure Pages and Horde Integration
@@ -348,11 +389,78 @@ After core-elx is implemented, web-ng will be simplified:
 - LiveView UI and JSON:API endpoints
 - Authentication and authorization
 
+## Security Decision: No ERTS in Customer Networks
+
+**IMPORTANT**: For security reasons, no ERTS-enabled software will be deployed to customer edge networks.
+
+### Rationale
+- ERTS distribution, even with mTLS, increases the attack surface
+- A compromised edge node could potentially affect the entire cluster
+- Reduces the blast radius of any security breach to the edge site only
+
+### Edge Deployment Model
+- **Edge sites run Go serviceradar-core only** (no Elixir pollers/agents in customer networks)
+- Edge Go core communicates to cloud via gRPC over mTLS
+- Cloud runs core-elx (coordinator), web-ng (UI), poller-elx, agent-elx
+- ERTS clustering happens only within the secure cloud environment
+
+### Communication Flow
+```
+┌─────────────────────────────────────────────────────────┐
+│                     Cloud (ERTS Cluster)                 │
+│   core-elx ←→ web-ng ←→ poller-elx ←→ agent-elx        │
+│       ↑                                                  │
+│       │ gRPC/mTLS                                        │
+└───────┼─────────────────────────────────────────────────┘
+        │
+┌───────┼─────────────────────────────────────────────────┐
+│       ↓               Edge Site                          │
+│   Go serviceradar-core ←→ Go serviceradar-sweep         │
+│   (gRPC to cloud)         (ICMP/TCP checks)             │
+└─────────────────────────────────────────────────────────┘
+```
+
+## Resolved: ERTS Transport for Job Dispatch
+
+**Decision**: Hybrid approach using AshOban + Horde Registry + GenServer.call + Phoenix.PubSub
+
+### Job Dispatch Flow (Cloud ERTS Cluster)
+```
+AshOban Job Triggers (scheduled or resource-triggered)
+        ↓
+   Oban Worker executes on core-elx
+        ↓
+   Horde Registry lookup: find_poller_for_partition(tenant_id, partition_id)
+        ↓
+   GenServer.call(poller_pid, {:execute_poll, check_config})  ← targeted RPC
+        ↓
+   Poller executes check (or delegates to agent)
+        ↓
+   Returns result to core-elx
+        ↓
+   Core-elx persists via Ash resources
+```
+
+### Transport Usage Guidelines
+
+| Use Case | Transport | Example |
+|----------|-----------|---------|
+| Schedule jobs | AshOban | Poll every 5 minutes, sync daily |
+| Dispatch to specific poller | Horde + GenServer.call | Execute poll on tenant's poller |
+| Broadcast config changes | Phoenix.PubSub | "Tenant config updated, refresh" |
+| Cluster events | Phoenix.PubSub | Node join/leave, agent registration |
+| UI real-time updates | Phoenix.PubSub | LiveView dashboard updates |
+
+### Why This Approach
+- **AshOban**: Idiomatic with Ash, persistent job storage, distributed locking
+- **Horde Registry**: Already in place for poller/agent discovery, location-transparent
+- **GenServer.call**: Confirmation that work was dispatched, back-pressure via blocking
+- **Phoenix.PubSub**: Efficient broadcast, already used for LiveView updates
+
 ## Open Questions / Next Steps
-- Confirm the ERTS transport for job dispatch (Phoenix.PubSub vs Horde vs explicit RPC).
-- Define the large-payload streaming contract for sync/sweep results (chunk size, backpressure, retry).
-- Clarify the Elixir agent -> `serviceradar-sweep` gRPC API surface (renames, endpoints, auth).
-- Decide where DIRE runs for each ingestion path (core only vs poller pre-processing).
+- Define the gRPC contract between cloud core-elx and edge Go serviceradar-core
+- Define the large-payload streaming contract for sync/sweep results (chunk size, backpressure, retry)
+- Decide where DIRE runs for each ingestion path (core only vs edge pre-processing)
 
 ## Dependencies
 

@@ -26,6 +26,8 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   require Logger
 
   @heartbeat_interval :timer.seconds(30)
+  # Default dev tenant ID for mock cluster
+  @dev_tenant_id "00000000-0000-0000-0000-000000000001"
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -48,18 +50,20 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   Clear all mock data from the registries.
   """
   def teardown do
-    # Get all pollers and agents registered by this module
-    pollers = ServiceRadar.PollerRegistry.all_pollers()
-    agents = ServiceRadar.AgentRegistry.all_agents()
+    tenant_id = @dev_tenant_id
+
+    # Get all pollers and agents registered for the dev tenant
+    pollers = ServiceRadar.PollerRegistry.find_pollers_for_tenant(tenant_id)
+    agents = ServiceRadar.AgentRegistry.find_agents_for_tenant(tenant_id)
 
     for poller <- pollers do
-      key = Map.get(poller, :key)
-      if key, do: ServiceRadar.PollerRegistry.unregister(key)
+      poller_id = Map.get(poller, :poller_id)
+      if poller_id, do: ServiceRadar.PollerRegistry.unregister_poller(tenant_id, poller_id)
     end
 
     for agent <- agents do
-      key = Map.get(agent, :key)
-      if key, do: ServiceRadar.AgentRegistry.unregister(key)
+      agent_id = Map.get(agent, :agent_id)
+      if agent_id, do: ServiceRadar.AgentRegistry.unregister_agent(tenant_id, agent_id)
     end
 
     :ok
@@ -95,13 +99,14 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   @impl true
   def terminate(_reason, state) do
     Logger.info("[MockCluster] Shutting down, unregistering mock data")
+    tenant_id = @dev_tenant_id
 
     for poller <- state.pollers do
-      ServiceRadar.PollerRegistry.unregister(poller.key)
+      ServiceRadar.PollerRegistry.unregister_poller(tenant_id, poller.poller_id)
     end
 
     for agent <- state.agents do
-      ServiceRadar.AgentRegistry.unregister(agent.key)
+      ServiceRadar.AgentRegistry.unregister_agent(tenant_id, agent.agent_id)
     end
 
     :ok
@@ -110,6 +115,7 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   # Private functions
 
   defp register_mock_pollers(count) do
+    tenant_id = @dev_tenant_id
     partitions = ["production", "staging", "edge-site-1"]
     domains = ["us-west", "us-east", "eu-west"]
 
@@ -117,32 +123,24 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
       partition = Enum.at(partitions, rem(i - 1, length(partitions)))
       domain = Enum.at(domains, rem(i - 1, length(domains)))
       poller_id = "dev-poller-#{i}"
-      key = {partition, poller_id}
 
-      metadata = %{
-        key: key,
-        poller_id: poller_id,
+      poller_info = %{
         partition_id: partition,
         domain: domain,
-        capabilities: [:icmp, :tcp, :grpc],
-        node: Node.self(),
-        status: :available,
-        agent_count: rem(i, 5) + 1,
-        registered_at: DateTime.utc_now(),
-        last_heartbeat: DateTime.utc_now()
+        status: :available
       }
 
-      case ServiceRadar.PollerRegistry.register(key, metadata) do
+      case ServiceRadar.PollerRegistry.register_poller(tenant_id, poller_id, poller_info) do
         {:ok, _pid} ->
           Logger.debug("[MockCluster] Registered poller: #{poller_id}")
 
-          Phoenix.PubSub.broadcast(
-            ServiceRadar.PubSub,
-            "poller:registrations",
-            {:poller_registered, metadata}
-          )
-
-          metadata
+          %{
+            poller_id: poller_id,
+            tenant_id: tenant_id,
+            partition_id: partition,
+            domain: domain,
+            status: :available
+          }
 
         {:error, reason} ->
           Logger.warning(
@@ -156,6 +154,7 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   end
 
   defp register_mock_agents(count) do
+    tenant_id = @dev_tenant_id
     partitions = ["production", "staging", "edge-site-1"]
 
     capability_sets = [
@@ -166,41 +165,31 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
       [:mysql, :postgres]
     ]
 
-    statuses = [:available, :available, :available, :busy, :available]
+    statuses = [:connected, :connected, :connected, :degraded, :connected]
 
     for i <- 1..count do
       partition = Enum.at(partitions, rem(i - 1, length(partitions)))
       capabilities = Enum.at(capability_sets, rem(i - 1, length(capability_sets)))
       status = Enum.at(statuses, rem(i - 1, length(statuses)))
       agent_id = "dev-agent-#{i}"
-      poller_id = "dev-poller-#{rem(i - 1, 2) + 1}"
-      key = {partition, agent_id}
 
-      metadata = %{
-        key: key,
-        agent_id: agent_id,
+      agent_info = %{
         partition_id: partition,
-        poller_id: poller_id,
-        poller_node: Node.self(),
         capabilities: capabilities,
-        node: Node.self(),
-        status: status,
-        connected_at: DateTime.add(DateTime.utc_now(), -:rand.uniform(3600), :second),
-        registered_at: DateTime.utc_now(),
-        last_heartbeat: DateTime.utc_now()
+        status: status
       }
 
-      case ServiceRadar.AgentRegistry.register(key, metadata) do
+      case ServiceRadar.AgentRegistry.register_agent(tenant_id, agent_id, agent_info) do
         {:ok, _pid} ->
           Logger.debug("[MockCluster] Registered agent: #{agent_id}")
 
-          Phoenix.PubSub.broadcast(
-            ServiceRadar.PubSub,
-            "agent:registrations",
-            {:agent_registered, metadata}
-          )
-
-          metadata
+          %{
+            agent_id: agent_id,
+            tenant_id: tenant_id,
+            partition_id: partition,
+            capabilities: capabilities,
+            status: status
+          }
 
         {:error, reason} ->
           Logger.warning("[MockCluster] Failed to register agent #{agent_id}: #{inspect(reason)}")
@@ -211,18 +200,14 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   end
 
   defp update_heartbeats(pollers, agents) do
-    now = DateTime.utc_now()
+    tenant_id = @dev_tenant_id
 
     for poller <- pollers do
-      ServiceRadar.PollerRegistry.update_value(poller.key, fn meta ->
-        %{meta | last_heartbeat: now}
-      end)
+      ServiceRadar.PollerRegistry.heartbeat(tenant_id, poller.poller_id)
     end
 
     for agent <- agents do
-      ServiceRadar.AgentRegistry.update_value(agent.key, fn meta ->
-        %{meta | last_heartbeat: now}
-      end)
+      ServiceRadar.AgentRegistry.heartbeat(tenant_id, agent.agent_id)
     end
   end
 

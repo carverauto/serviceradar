@@ -27,10 +27,23 @@ where
         let pinned_path = pinned_path.filter(|s| !s.is_empty());
         let service_name_clone = service_name.clone();
         let mut last_bytes: Option<Vec<u8>> = None;
+        let mut is_initial = true;
         kv_client
             .watch_apply(&kv_key, {
                 let pinned_path = pinned_path.clone();
                 move |bytes| {
+                    // Skip the first event (initial snapshot) - we already loaded this config
+                    // in bootstrap.load(). Only notify on actual changes.
+                    if is_initial {
+                        tracing::debug!(
+                            service = %service_name_clone,
+                            "skipping initial KV snapshot (already loaded during bootstrap)"
+                        );
+                        last_bytes = Some(bytes.to_vec());
+                        is_initial = false;
+                        return;
+                    }
+
                     if let Some(prev) = last_bytes.as_ref() {
                         if prev.as_slice() == bytes {
                             return;

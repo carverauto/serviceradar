@@ -183,11 +183,9 @@ defmodule ServiceRadar.ClusterHealth do
   end
 
   defp safe_count(registry) do
-    if Process.whereis(registry) do
-      registry.count()
-    else
-      0
-    end
+    # PollerRegistry and AgentRegistry are modules that delegate to TenantRegistry
+    # They don't have a GenServer process, so we call count() directly
+    registry.count()
   rescue
     _ -> 0
   end
@@ -223,51 +221,13 @@ defmodule ServiceRadar.ClusterHealth do
   end
 
   # Sync Horde registry members with current cluster nodes
-  # Uses RPC to ensure ALL nodes have the same member list
+  # Per-tenant registries use members: :auto and sync automatically
   defp sync_horde_members do
+    # With TenantRegistry architecture, each tenant's Horde registry
+    # uses members: :auto configuration which handles sync automatically
+    # No manual sync is needed
     all_nodes = [Node.self() | Node.list()]
-
-    poller_members =
-      Enum.map(all_nodes, fn node ->
-        {ServiceRadar.PollerRegistry, node}
-      end)
-
-    agent_members =
-      Enum.map(all_nodes, fn node ->
-        {ServiceRadar.AgentRegistry, node}
-      end)
-
-    # Set members on local node
-    sync_local_horde_members(poller_members, agent_members)
-
-    # Use RPC to set members on remote nodes too (for nodes running old code)
-    Enum.each(Node.list(), fn node ->
-      Task.start(fn ->
-        try do
-          :rpc.call(node, Horde.Cluster, :set_members, [ServiceRadar.PollerRegistry, poller_members], 5000)
-          :rpc.call(node, Horde.Cluster, :set_members, [ServiceRadar.AgentRegistry, agent_members], 5000)
-          Logger.debug("RPC synced Horde members on #{node}")
-        rescue
-          e -> Logger.debug("RPC sync to #{node} failed: #{inspect(e)}")
-        catch
-          :exit, reason -> Logger.debug("RPC sync to #{node} exit: #{inspect(reason)}")
-        end
-      end)
-    end)
-
-    Logger.info("Synced Horde members across #{length(all_nodes)} nodes: #{inspect(Enum.map(all_nodes, &to_string/1))}")
-  rescue
-    e ->
-      Logger.warning("Failed to sync Horde members: #{inspect(e)}")
+    Logger.debug("Cluster has #{length(all_nodes)} nodes - per-tenant registries sync automatically")
   end
 
-  defp sync_local_horde_members(poller_members, agent_members) do
-    if Process.whereis(ServiceRadar.PollerRegistry) do
-      :ok = Horde.Cluster.set_members(ServiceRadar.PollerRegistry, poller_members)
-    end
-
-    if Process.whereis(ServiceRadar.AgentRegistry) do
-      :ok = Horde.Cluster.set_members(ServiceRadar.AgentRegistry, agent_members)
-    end
-  end
 end

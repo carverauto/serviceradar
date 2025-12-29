@@ -50,8 +50,29 @@ defmodule ServiceRadar.Application do
         # AshOban schedulers for Ash resource triggers
         ash_oban_scheduler_children(),
 
+        # Per-tenant Oban queue management (after Oban, before registries)
+        tenant_queues_child(),
+
         # GRPC client supervisor (required for DataService.Client)
         grpc_client_supervisor_child(),
+
+        # NATS JetStream connection for event publishing
+        nats_connection_child(),
+
+        # Event batcher for high-frequency NATS events
+        event_batcher_child(),
+
+        # Infrastructure state monitor (heartbeat timeouts, health checks)
+        state_monitor_child(),
+
+        # Health check runner supervisor (high-frequency gRPC checks)
+        health_check_runner_supervisor_child(),
+
+        # Health check registrar (subscribes to agent events, auto-registers services)
+        health_check_registrar_child(),
+
+        # Service heartbeat (self-reporting for Elixir services)
+        service_heartbeat_child(),
 
         # Horde registries (always started for registration support)
         registry_children(),
@@ -94,8 +115,12 @@ defmodule ServiceRadar.Application do
   end
 
   defp ash_oban_scheduler_children do
-    # Only start AshOban schedulers if Oban is enabled
-    if Application.get_env(:serviceradar_core, Oban) do
+    # Only start AshOban schedulers if explicitly enabled
+    # web-ng should set :start_ash_oban_scheduler to false (core-elx handles scheduling)
+    oban_enabled = Application.get_env(:serviceradar_core, Oban)
+    scheduler_enabled = Application.get_env(:serviceradar_core, :start_ash_oban_scheduler, false)
+
+    if oban_enabled && scheduler_enabled do
       # Start all AshOban schedulers for the configured domains
       domains = Application.get_env(:serviceradar_core, :ash_domains, [])
 
@@ -106,6 +131,15 @@ defmodule ServiceRadar.Application do
       end
     else
       []
+    end
+  end
+
+  defp tenant_queues_child do
+    # Only start TenantQueues if Oban is enabled
+    if Application.get_env(:serviceradar_core, Oban) do
+      ServiceRadar.Oban.TenantQueues
+    else
+      nil
     end
   end
 
@@ -160,6 +194,104 @@ defmodule ServiceRadar.Application do
       ]
     else
       []
+    end
+  end
+
+  defp nats_connection_child do
+    if nats_enabled?() do
+      ServiceRadar.NATS.Connection
+    else
+      nil
+    end
+  end
+
+  defp nats_enabled? do
+    case System.get_env("NATS_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :nats_enabled, false)
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
+    end
+  end
+
+  defp state_monitor_child do
+    if state_monitor_enabled?() do
+      ServiceRadar.Infrastructure.StateMonitor
+    else
+      nil
+    end
+  end
+
+  defp state_monitor_enabled? do
+    case System.get_env("STATE_MONITOR_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :state_monitor_enabled, true)
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
+    end
+  end
+
+  defp event_batcher_child do
+    if event_batcher_enabled?() do
+      ServiceRadar.Infrastructure.EventBatcher
+    else
+      nil
+    end
+  end
+
+  defp event_batcher_enabled? do
+    case System.get_env("EVENT_BATCHER_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :event_batcher_enabled, true)
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
+    end
+  end
+
+  defp health_check_runner_supervisor_child do
+    if health_check_runner_enabled?() do
+      {DynamicSupervisor,
+       name: ServiceRadar.Infrastructure.HealthCheckRunnerSupervisor,
+       strategy: :one_for_one}
+    else
+      nil
+    end
+  end
+
+  defp health_check_runner_enabled? do
+    case System.get_env("HEALTH_CHECK_RUNNER_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :health_check_runner_enabled, true)
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
+    end
+  end
+
+  defp health_check_registrar_child do
+    if health_check_registrar_enabled?() do
+      ServiceRadar.Infrastructure.HealthCheckRegistrar
+    else
+      nil
+    end
+  end
+
+  defp health_check_registrar_enabled? do
+    case System.get_env("HEALTH_CHECK_REGISTRAR_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :health_check_registrar_enabled, true)
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
+    end
+  end
+
+  defp service_heartbeat_child do
+    if service_heartbeat_enabled?() do
+      ServiceRadar.Infrastructure.ServiceHeartbeat
+    else
+      nil
+    end
+  end
+
+  defp service_heartbeat_enabled? do
+    case System.get_env("SERVICE_HEARTBEAT_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :service_heartbeat_enabled, true)
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
     end
   end
 

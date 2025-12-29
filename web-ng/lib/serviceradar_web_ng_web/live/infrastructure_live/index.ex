@@ -761,27 +761,20 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   # Cluster Debug
 
   defp load_cluster_info do
-    poller_members =
+    # TenantRegistry manages per-tenant Horde registries
+    # Count active tenant registries instead of calling Horde directly
+    tenant_registries =
       try do
-        members = Horde.Cluster.members(ServiceRadar.PollerRegistry)
-        length(members)
+        ServiceRadar.Cluster.TenantRegistry.list_registries() |> length()
       rescue
-        _ -> "error"
-      end
-
-    agent_members =
-      try do
-        members = Horde.Cluster.members(ServiceRadar.AgentRegistry)
-        length(members)
-      rescue
-        _ -> "error"
+        _ -> 0
       end
 
     %{
       current_node: Node.self(),
       connected_nodes: Node.list(),
-      poller_registry_members: poller_members,
-      agent_registry_members: agent_members,
+      poller_registry_members: tenant_registries,
+      agent_registry_members: tenant_registries,
       poller_count: ServiceRadar.PollerRegistry.count(),
       agent_count: ServiceRadar.AgentRegistry.count()
     }
@@ -790,30 +783,18 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       %{
         current_node: Node.self(),
         connected_nodes: Node.list(),
-        poller_registry_members: "error",
-        agent_registry_members: "error",
+        poller_registry_members: 0,
+        agent_registry_members: 0,
         poller_count: 0,
         agent_count: 0
       }
   end
 
   defp force_horde_sync do
-    nodes = [Node.self() | Node.list()]
-
-    poller_members = for node <- nodes, do: {ServiceRadar.PollerRegistry, node}
-    agent_members = for node <- nodes, do: {ServiceRadar.AgentRegistry, node}
-
-    Logger.info("[Infrastructure] Setting Horde members: #{inspect(poller_members)}")
-
-    try do
-      Horde.Cluster.set_members(ServiceRadar.PollerRegistry, poller_members)
-      Horde.Cluster.set_members(ServiceRadar.AgentRegistry, agent_members)
-      :ok
-    rescue
-      e ->
-        Logger.error("[Infrastructure] Force sync failed: #{inspect(e)}")
-        :error
-    end
+    # Per-tenant registries use members: :auto and sync automatically
+    # Force sync is no longer needed with TenantRegistry architecture
+    Logger.info("[Infrastructure] Horde sync is automatic with per-tenant registries")
+    :ok
   end
 
   # Data Loading
