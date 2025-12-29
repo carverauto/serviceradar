@@ -17628,7 +17628,7 @@
     "@@toolchains_buildbuddy+//:extensions.bzl%buildbuddy": {
       "general": {
         "bzlTransitiveDigest": "u7Z+AlfJgGgFZGxPEfZkeEkTzEkgIYkIxgokZ5953dE=",
-        "usagesDigest": "EcewDqDLIDE4eYZZyyuTcRRFT6oAkUUGnDJrov1IBOo=",
+        "usagesDigest": "C2S7CxDKBCCM9n54Cij2dCiKBzFVkVqelz9TP9n4/fQ=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -17654,7 +17654,9 @@
                 "/usr/lib/gcc/x86_64-linux-gnu/10/include",
                 "/usr/lib/gcc/x86_64-linux-gnu/10/include-fixed",
                 "/usr/lib/gcc/x86_64-linux-gnu/11/include",
-                "/usr/lib/gcc/x86_64-linux-gnu/11/include-fixed"
+                "/usr/lib/gcc/x86_64-linux-gnu/11/include-fixed",
+                "/usr/lib/gcc/x86_64-linux-gnu/5/include",
+                "/usr/lib/gcc/x86_64-linux-gnu/5/include-fixed"
               ]
             }
           }

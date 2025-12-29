@@ -173,6 +173,9 @@ buildbuddy_toolchain_ext.gcc_toolchain(
         # Allow Debian/Ubuntu GCC 11 built-ins when remote execution falls back to distro toolchain.
         "/usr/lib/gcc/x86_64-linux-gnu/11/include",
         "/usr/lib/gcc/x86_64-linux-gnu/11/include-fixed",
+        # Debian/Ubuntu GCC 5 built-ins used by older remote workers.
+        "/usr/lib/gcc/x86_64-linux-gnu/5/include",
+        "/usr/lib/gcc/x86_64-linux-gnu/5/include-fixed",
     ],
     gcc_major_version = "13",
 )
