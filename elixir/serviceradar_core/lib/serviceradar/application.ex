@@ -99,7 +99,10 @@ defmodule ServiceRadar.Application do
         cert_monitor_child(),
 
         # Cluster infrastructure (only if clustering is enabled)
-        cluster_children()
+        cluster_children(),
+
+        # EventWriter for NATS JetStream → CNPG consumption (optional)
+        event_writer_child()
       ]
       |> List.flatten()
       |> Enum.reject(&is_nil/1)
@@ -333,6 +336,22 @@ defmodule ServiceRadar.Application do
       ServiceRadar.SPIFFE.CertMonitor
     else
       nil
+    end
+  end
+
+  defp event_writer_child do
+    if event_writer_enabled?() do
+      ServiceRadar.EventWriter.Supervisor
+    else
+      nil
+    end
+  end
+
+  defp event_writer_enabled? do
+    case System.get_env("EVENT_WRITER_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :event_writer_enabled, false)
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
     end
   end
 end

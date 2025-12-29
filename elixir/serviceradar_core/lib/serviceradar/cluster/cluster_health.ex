@@ -18,6 +18,7 @@ defmodule ServiceRadar.ClusterHealth do
   - Node count and list
   - Poller registry count
   - Agent registry count
+  - EventWriter status (enabled, running, healthy)
   - Last check timestamp
   """
 
@@ -33,6 +34,7 @@ defmodule ServiceRadar.ClusterHealth do
     :connected_nodes,
     :poller_count,
     :agent_count,
+    :event_writer,
     :status
   ]
 
@@ -148,7 +150,7 @@ defmodule ServiceRadar.ClusterHealth do
   def health_check_response do
     health = get_health()
 
-    %{
+    base_response = %{
       status: if(health.status == :healthy, do: "ok", else: "degraded"),
       cluster: %{
         self: to_string(Node.self()),
@@ -159,6 +161,13 @@ defmodule ServiceRadar.ClusterHealth do
         last_check: health.last_check
       }
     }
+
+    # Include EventWriter status if available
+    if health.event_writer do
+      Map.put(base_response, :event_writer, format_event_writer_status(health.event_writer))
+    else
+      base_response
+    end
   end
 
   # Private functions
@@ -169,8 +178,9 @@ defmodule ServiceRadar.ClusterHealth do
 
     poller_count = safe_count(ServiceRadar.PollerRegistry)
     agent_count = safe_count(ServiceRadar.AgentRegistry)
+    event_writer = get_event_writer_status()
 
-    status = determine_status(connected_nodes)
+    status = determine_status(connected_nodes, event_writer)
 
     %__MODULE__{
       last_check: DateTime.utc_now(),
@@ -178,6 +188,7 @@ defmodule ServiceRadar.ClusterHealth do
       connected_nodes: connected_nodes,
       poller_count: poller_count,
       agent_count: agent_count,
+      event_writer: event_writer,
       status: status
     }
   end
@@ -190,10 +201,38 @@ defmodule ServiceRadar.ClusterHealth do
     _ -> 0
   end
 
-  defp determine_status(_connected_nodes) do
-    # For now, always healthy if we can check
-    # Future: detect partitions by comparing expected vs actual nodes
-    :healthy
+  defp determine_status(_connected_nodes, event_writer) do
+    # Check EventWriter health if enabled
+    event_writer_healthy = not event_writer.enabled or event_writer.healthy
+
+    cond do
+      not event_writer_healthy ->
+        :degraded
+
+      true ->
+        # For now, always healthy if we can check
+        # Future: detect partitions by comparing expected vs actual nodes
+        :healthy
+    end
+  end
+
+  defp get_event_writer_status do
+    alias ServiceRadar.EventWriter.Health, as: EventWriterHealth
+
+    try do
+      status = EventWriterHealth.status()
+
+      %{
+        enabled: status.enabled,
+        running: status.running,
+        healthy: EventWriterHealth.healthy?(),
+        pipeline: Map.get(status, :pipeline),
+        producer: Map.get(status, :producer)
+      }
+    rescue
+      _ ->
+        %{enabled: false, running: false, healthy: true, pipeline: nil, producer: nil}
+    end
   end
 
   defp schedule_health_check do
@@ -201,15 +240,41 @@ defmodule ServiceRadar.ClusterHealth do
   end
 
   defp emit_health_telemetry(state) do
+    event_writer_running = if state.event_writer, do: state.event_writer.running, else: false
+
     :telemetry.execute(
       [:serviceradar, :cluster, :health_check],
       %{
         node_count: state.node_count,
         poller_count: state.poller_count,
-        agent_count: state.agent_count
+        agent_count: state.agent_count,
+        event_writer_running: if(event_writer_running, do: 1, else: 0)
       },
       %{status: state.status}
     )
+  end
+
+  defp format_event_writer_status(event_writer) do
+    base = %{
+      enabled: event_writer.enabled,
+      running: event_writer.running,
+      healthy: event_writer.healthy
+    }
+
+    # Add pipeline details if available
+    base =
+      if event_writer.pipeline do
+        Map.put(base, :pipeline, event_writer.pipeline)
+      else
+        base
+      end
+
+    # Add producer details if available
+    if event_writer.producer do
+      Map.put(base, :producer, event_writer.producer)
+    else
+      base
+    end
   end
 
   defp emit_telemetry(event, metadata) do

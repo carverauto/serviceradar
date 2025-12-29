@@ -111,6 +111,13 @@ services:
       - DATASVC_SSL=true
       - DATASVC_CERT_DIR=/etc/serviceradar/certs
       - DATASVC_CERT_NAME=core
+      # EventWriter configuration (replaces Go db-event-writer)
+      - EVENT_WRITER_ENABLED=${EVENT_WRITER_ENABLED:-true}
+      - EVENT_WRITER_NATS_URL=nats://nats:4222
+      - EVENT_WRITER_NATS_TLS=true
+      - EVENT_WRITER_BATCH_SIZE=${EVENT_WRITER_BATCH_SIZE:-100}
+      - EVENT_WRITER_BATCH_TIMEOUT=${EVENT_WRITER_BATCH_TIMEOUT:-1000}
+      - NATS_ENABLED=true
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.core.conf:/etc/serviceradar/ssl_dist.conf:ro
@@ -119,6 +126,8 @@ services:
         condition: service_completed_successfully
       cnpg:
         condition: service_healthy
+      nats:
+        condition: service_started
     healthcheck:
       test: ["CMD", "/app/bin/serviceradar_core_elx", "pid"]
       interval: 30s
