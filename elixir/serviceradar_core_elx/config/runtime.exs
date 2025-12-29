@@ -123,13 +123,18 @@ if config_env() == :prod do
         :crypto.strong_rand_bytes(32) |> Base.encode64()
       """
 
+  # Core-elx is the cluster coordinator - it runs ClusterSupervisor and ClusterHealth
+  cluster_coordinator =
+    System.get_env("SERVICERADAR_CLUSTER_COORDINATOR", "true") in ~w(true 1 yes)
+
   config :serviceradar_core,
     env: :prod,
     cloak_key: cloak_key,
     repo_enabled: System.get_env("SERVICERADAR_CORE_REPO_ENABLED", "true") in ~w(true 1 yes),
     vault_enabled: System.get_env("SERVICERADAR_CORE_VAULT_ENABLED", "true") in ~w(true 1 yes),
     registries_enabled: System.get_env("SERVICERADAR_CORE_REGISTRIES_ENABLED", "true") in ~w(true 1 yes),
-    cluster_enabled: cluster_enabled
+    cluster_enabled: cluster_enabled,
+    cluster_coordinator: cluster_coordinator
 
   default_tenant_id =
     System.get_env("SERVICERADAR_DEFAULT_TENANT_ID") ||

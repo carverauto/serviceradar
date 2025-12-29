@@ -28,7 +28,14 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
 cluster_strategy = System.get_env("CLUSTER_STRATEGY", "epmd")
 cluster_enabled = System.get_env("CLUSTER_ENABLED", "false") in ~w(true 1 yes)
 
-config :serviceradar_core, cluster_enabled: cluster_enabled
+# web-ng participates in the cluster but does NOT run ClusterSupervisor/ClusterHealth
+# Those are managed by core-elx (the cluster coordinator)
+cluster_coordinator =
+  System.get_env("SERVICERADAR_CLUSTER_COORDINATOR", "false") in ~w(true 1 yes)
+
+config :serviceradar_core,
+  cluster_enabled: cluster_enabled,
+  cluster_coordinator: cluster_coordinator
 
 if cluster_enabled do
   topologies =

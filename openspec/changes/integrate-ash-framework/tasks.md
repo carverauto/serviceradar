@@ -9,11 +9,28 @@
 - [x] 0.1.4 Remove legacy Go services from docker compose
 
 ### 0.2 Core Scheduling and Dispatch
-- [ ] 0.2.1 Move AshOban scheduler ownership to core-elx
-- [ ] 0.2.2 Define ERTS dispatch protocol (Horde Registry + RPC)
-- [ ] 0.2.3 Implement poller selection by tenant/domain
-- [ ] 0.2.4 Implement agent selection by tenant/domain in poller
-- [ ] 0.2.5 Enforce DB access boundaries (core-elx/web-ng only)
+- [x] 0.2.1 Move AshOban scheduler ownership to core-elx
+  - `:start_ash_oban_scheduler` config controls AshOban scheduler startup
+  - core-elx sets `SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED=true` (default)
+  - web-ng/poller-elx don't set this, defaulting to false
+- [x] 0.2.2 Define ERTS dispatch protocol (Horde Registry + RPC)
+  - PollOrchestrator uses PIDs from Horde (via TenantRegistry) for cross-node dispatch
+  - GenServer.call with Horde PIDs is location-transparent across ERTS nodes
+  - Documented flow: AshOban → PollOrchestrator → PollerProcess (cross-node) → AgentProcess → gRPC
+- [x] 0.2.3 Implement poller selection by tenant/domain
+  - Added `:domain` assignment mode to PollingSchedule
+  - Added `assigned_domain` attribute to PollingSchedule resource
+  - Added `find_pollers_for_domain` and `find_available_poller_for_domain` to PollerRegistry
+  - Updated PollOrchestrator.find_poller to handle domain-based selection
+- [x] 0.2.4 Implement agent selection by tenant/domain in poller
+  - Added domain field to agent registration metadata
+  - Added `find_agents_for_domain` and `find_available_agent_for_domain` to AgentRegistry
+  - Updated PollerProcess.find_available_agent to try domain-based selection first, fall back to partition
+- [x] 0.2.5 Enforce DB access boundaries (core-elx/web-ng only)
+  - core-elx: `repo_enabled=true` (central coordinator with DB access)
+  - web-ng: `repo_enabled=true` (web frontend with DB access)
+  - poller-elx: `repo_enabled=false` (edge component, no direct DB access)
+  - Documented in ServiceRadar.Application moduledoc
 
 ### 0.3 Large Payload Handling
 - [ ] 0.3.1 Define gRPC streaming contracts for sync/sweep results
@@ -594,11 +611,17 @@ The Go `serviceradar-core` service handles coordination, identity reconciliation
 - [ ] 15.1.10 Generate ssl_dist.core.conf for mTLS distribution
 
 ### 15.2 Horde Coordination (Moved from web-ng)
-- [ ] 15.2.1 Move PollerSupervisor to core-elx (primary coordinator)
-- [ ] 15.2.2 Move ClusterSupervisor to core-elx (cluster leader)
-- [ ] 15.2.3 Move ClusterHealth to core-elx
-- [ ] 15.2.4 Configure Horde registries with core-elx as primary member
-- [ ] 15.2.5 Update web-ng to query Horde from core-elx (not run Horde itself)
+- [x] 15.2.1 Move PollerSupervisor to core-elx (primary coordinator)
+  - Controlled by `:cluster_coordinator` config (true only on core-elx)
+- [x] 15.2.2 Move ClusterSupervisor to core-elx (cluster leader)
+  - ClusterSupervisor only starts when cluster_coordinator=true
+- [x] 15.2.3 Move ClusterHealth to core-elx
+  - ClusterHealth only starts when cluster_coordinator=true
+- [x] 15.2.4 Configure Horde registries with core-elx as primary member
+  - TenantRegistry uses Horde with members: :auto for automatic sync
+- [x] 15.2.5 Update web-ng to query Horde from core-elx (not run Horde itself)
+  - web-ng sets cluster_coordinator=false (default), still has cluster_enabled=true for ERTS
+  - Horde registries are shared across ERTS cluster, web-ng can query them
 - [ ] 15.2.6 Add coordination handoff on core-elx restart
 - [ ] 15.2.7 Implement leader election for multi-core deployments
 
@@ -718,9 +741,14 @@ The Go `serviceradar-core` service handles coordination, identity reconciliation
 - [ ] 15.10.11 Test full stack with core-elx replacing Go core
 
 ### 15.11 web-ng Decoupling
-- [ ] 15.11.1 Remove ClusterSupervisor start from web-ng Application
-- [ ] 15.11.2 Remove ClusterHealth start from web-ng Application
-- [ ] 15.11.3 Keep PollerRegistry/AgentRegistry for local queries (read from Horde)
+- [x] 15.11.1 Remove ClusterSupervisor start from web-ng Application
+  - web-ng sets `cluster_coordinator=false` (default) in runtime.exs
+  - ClusterSupervisor only starts when cluster_coordinator=true
+- [x] 15.11.2 Remove ClusterHealth start from web-ng Application
+  - ClusterHealth only starts when cluster_coordinator=true
+- [x] 15.11.3 Keep PollerRegistry/AgentRegistry for local queries (read from Horde)
+  - TenantRegistry/Horde registries still started (registries_enabled=true by default)
+  - web-ng can query Horde registries shared across ERTS cluster
 - [ ] 15.11.4 Update ClusterLive to query core-elx for cluster status
 - [ ] 15.11.5 Update admin LiveViews to work without local Horde supervisor
 - [ ] 15.11.6 Add core-elx health check to web-ng startup

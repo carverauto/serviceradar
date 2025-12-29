@@ -11,29 +11,51 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   4. Dispatching the job to the poller
   5. Transitioning the PollJob through states and recording results
 
+  ## ERTS Dispatch Protocol
+
+  Jobs are dispatched to pollers across the ERTS cluster using Horde registries:
+
+  1. **Discovery**: PollerRegistry (backed by Horde via TenantRegistry) provides
+     cluster-wide poller discovery. Each registered poller has a PID that is
+     location-transparent across nodes.
+
+  2. **Selection**: Pollers are selected by tenant/partition using:
+     - `:any` - Random available poller for tenant
+     - `:partition` - Available poller in specific partition
+     - `:specific` - Directly assigned poller by UUID
+
+  3. **Dispatch**: The poller's PID from Horde is used directly for GenServer.call,
+     which works transparently across ERTS nodes. No explicit RPC is needed.
+
+  4. **Execution**: The poller receives the job, finds an agent, and dispatches
+     checks via gRPC to the Go agent process.
+
   ## Communication Flow
 
   ```
-  AshOban Scheduler
+  AshOban Scheduler (core-elx)
        |
        v
   PollingSchedule.execute
        |
        v
-  PollOrchestrator.execute_schedule
+  PollOrchestrator.execute_schedule (core-elx)
        |
        ├── Create PollJob (pending)
-       ├── Transition to dispatching
+       ├── Find poller via Horde (cluster-wide)
+       ├── Get PID from Horde registry
        v
-  PollerProcess.execute_job
+  GenServer.call(poller_pid, ...) (cross-node via ERTS)
        |
-       ├── Transition to running
+       v
+  PollerProcess.execute_job (poller-elx node)
+       |
+       ├── Find agent via AgentRegistry
        v
   AgentProcess.execute_check
        |
-       ├── Transition to completed/failed
        v
-  serviceradar-sync (gRPC)
+  gRPC to Go agent
   ```
 
   Results flow back up the chain for processing and storage.
@@ -188,17 +210,23 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
          {:ok, poller} <- find_poller(schedule),
          {:ok, poll_job} <- update_job_poller(poll_job, poller),
          {:ok, _poll_job} <- transition_to_running(poll_job) do
-      # Dispatch async
+      # Dispatch async using PID from Horde for cross-node dispatch
       job_payload = build_job(checks, schedule, poll_job)
+      poller_pid = poller[:pid]
 
-      case PollerProcess.execute_job_async(poller[:poller_id], job_payload) do
-        {:ok, _async_id} ->
-          Logger.info("Schedule #{schedule.name} dispatched async as job #{poll_job.id}")
-          {:ok, poll_job.id}
+      if is_nil(poller_pid) do
+        fail_job(poll_job, "Poller has no PID in registry", "DISPATCH_ERROR")
+        {:error, :poller_not_found}
+      else
+        case PollerProcess.execute_job_async(poller_pid, job_payload) do
+          {:ok, _async_id} ->
+            Logger.info("Schedule #{schedule.name} dispatched async as job #{poll_job.id}")
+            {:ok, poll_job.id}
 
-        error ->
-          fail_job(poll_job, "Async dispatch failed", "DISPATCH_ERROR")
-          error
+          error ->
+            fail_job(poll_job, "Async dispatch failed", "DISPATCH_ERROR")
+            error
+        end
       end
     else
       {:error, :no_checks} ->
@@ -233,6 +261,16 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
           PollerRegistry.find_available_poller_for_partition(tenant_id, partition_id)
         end
 
+      :domain ->
+        # Find poller in specific domain (e.g., site-a, datacenter-east)
+        domain = schedule.assigned_domain
+
+        if is_nil(domain) do
+          {:error, :no_domain_assigned}
+        else
+          PollerRegistry.find_available_poller_for_domain(tenant_id, domain)
+        end
+
       :specific ->
         # Use specifically assigned poller
         poller_id = schedule.assigned_poller_id
@@ -241,9 +279,10 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
           {:error, :no_poller_assigned}
         else
           case PollerRegistry.lookup(tenant_id, poller_id) do
-            [{_pid, metadata}] ->
+            [{pid, metadata}] ->
               if metadata[:status] == :available do
-                {:ok, metadata}
+                # Include the PID in the returned metadata for cross-node dispatch
+                {:ok, Map.put(metadata, :pid, pid)}
               else
                 {:error, :poller_not_available}
               end
@@ -301,29 +340,42 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   end
 
   # Dispatch job to poller
+  # Uses the PID from Horde registry (via TenantRegistry) for cross-node dispatch
   defp dispatch_to_poller(poller, checks, schedule, poll_job) do
     job_payload = build_job(checks, schedule, poll_job)
     poller_id = poller[:poller_id]
 
-    Logger.debug("Dispatching #{length(checks)} checks to poller #{poller_id} (job: #{poll_job.id})")
+    # Use the PID from Horde registry directly - this enables cross-node dispatch
+    # The PID is location-transparent across the ERTS cluster
+    poller_pid = poller[:pid]
 
-    case PollerProcess.execute_job(poller_id, job_payload) do
-      {:ok, result} ->
-        # Process and possibly store results
-        process_results(result, schedule, poll_job)
-        {:ok, result}
+    if is_nil(poller_pid) do
+      Logger.warning("Poller #{poller_id} has no PID in registry metadata")
+      {:error, :poller_not_found}
+    else
+      Logger.debug(
+        "Dispatching #{length(checks)} checks to poller #{poller_id} " <>
+          "on node #{node(poller_pid)} (job: #{poll_job.id})"
+      )
 
-      {:error, :poller_not_found} ->
-        # Poller might have gone away, try another
-        Logger.warning("Poller #{poller_id} not found, will retry on next schedule")
-        {:error, :poller_not_found}
+      case PollerProcess.execute_job(poller_pid, job_payload) do
+        {:ok, result} ->
+          # Process and possibly store results
+          process_results(result, schedule, poll_job)
+          {:ok, result}
 
-      {:error, :busy} ->
-        Logger.warning("Poller #{poller_id} is busy")
-        {:error, :poller_busy}
+        {:error, :poller_not_found} ->
+          # Poller might have gone away, try another
+          Logger.warning("Poller #{poller_id} not found, will retry on next schedule")
+          {:error, :poller_not_found}
 
-      error ->
-        error
+        {:error, :busy} ->
+          Logger.warning("Poller #{poller_id} is busy")
+          {:error, :poller_busy}
+
+        error ->
+          error
+      end
     end
   end
 

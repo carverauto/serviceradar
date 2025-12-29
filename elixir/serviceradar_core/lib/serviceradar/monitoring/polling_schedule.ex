@@ -114,6 +114,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
         :assignment_mode,
         :assigned_poller_id,
         :assigned_partition_id,
+        :assigned_domain,
         :priority,
         :max_concurrent,
         :timeout_seconds,
@@ -150,6 +151,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
         :assignment_mode,
         :assigned_poller_id,
         :assigned_partition_id,
+        :assigned_domain,
         :priority,
         :max_concurrent,
         :timeout_seconds,
@@ -352,8 +354,8 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
       allow_nil? false
       default :any
       public? true
-      constraints one_of: [:any, :partition, :specific]
-      description "How to assign checks to pollers"
+      constraints one_of: [:any, :partition, :domain, :specific]
+      description "How to assign checks to pollers: any (random), partition, domain, or specific"
     end
 
     attribute :assigned_poller_id, :string do
@@ -364,6 +366,11 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
     attribute :assigned_partition_id, :uuid do
       public? true
       description "Partition ID (for partition mode)"
+    end
+
+    attribute :assigned_domain, :string do
+      public? true
+      description "Domain name (for domain mode, e.g., 'site-a', 'datacenter-east')"
     end
 
     attribute :enabled, :boolean do

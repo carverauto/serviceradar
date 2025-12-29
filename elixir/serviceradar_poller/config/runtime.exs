@@ -162,11 +162,14 @@ config :serviceradar_core, :spiffe,
 # serviceradar_core Dependencies
 # =============================================================================
 # Pollers should not start the core database or Oban by default.
+# Pollers participate in the cluster but do NOT run ClusterSupervisor/ClusterHealth
+# (those are managed by core-elx, the cluster coordinator)
 
 config :serviceradar_core,
   repo_enabled: System.get_env("SERVICERADAR_CORE_REPO_ENABLED", "false") in ~w(true 1 yes),
   vault_enabled: false,
-  cluster_enabled: System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes)
+  cluster_enabled: System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes),
+  cluster_coordinator: false
 
 config :serviceradar_core, Oban, false
 

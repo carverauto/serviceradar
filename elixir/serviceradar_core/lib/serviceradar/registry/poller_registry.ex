@@ -167,13 +167,45 @@ defmodule ServiceRadar.PollerRegistry do
   end
 
   @doc """
+  Find all pollers for a specific tenant and domain.
+
+  Domain represents a logical grouping of pollers, typically by site or location
+  (e.g., "site-a", "datacenter-east"). Used for routing checks to pollers
+  closest to the target endpoints.
+  """
+  @spec find_pollers_for_domain(String.t(), String.t()) :: [map()]
+  def find_pollers_for_domain(tenant_id, domain) when is_binary(tenant_id) do
+    find_pollers_for_tenant(tenant_id)
+    |> Enum.filter(&(&1[:domain] == domain))
+  end
+
+  @doc """
+  Find an available poller for a tenant's domain.
+
+  Returns `{:ok, metadata}` if found, `{:error, :no_available_poller}` otherwise.
+  The returned metadata includes the `:pid` from Horde for cross-node dispatch.
+  """
+  @spec find_available_poller_for_domain(String.t(), String.t()) ::
+          {:ok, map()} | {:error, :no_available_poller}
+  def find_available_poller_for_domain(tenant_id, domain) do
+    pollers = find_pollers_for_domain(tenant_id, domain)
+
+    case Enum.find(pollers, &(&1[:status] == :available)) do
+      nil -> {:error, :no_available_poller}
+      poller -> {:ok, poller}
+    end
+  end
+
+  @doc """
   Find an available poller for a tenant's partition.
 
   Returns `{:ok, metadata}` if found, `{:error, :no_available_poller}` otherwise.
+  The returned metadata includes the `:pid` from Horde for cross-node dispatch.
   """
   @spec find_available_poller_for_partition(String.t(), String.t()) ::
           {:ok, map()} | {:error, :no_available_poller}
   def find_available_poller_for_partition(tenant_id, partition_id) do
+    # find_pollers_for_partition returns metadata with :pid included from Horde
     pollers = find_pollers_for_partition(tenant_id, partition_id)
 
     case Enum.find(pollers, &(&1[:status] == :available)) do
