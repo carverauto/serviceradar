@@ -87,6 +87,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
       accept [
         :entity_type,
         :entity_id,
+        :tenant_id,
         :old_state,
         :new_state,
         :reason,

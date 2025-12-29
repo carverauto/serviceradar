@@ -68,6 +68,12 @@ defmodule ServiceRadar.Application do
         # Health check runner supervisor (high-frequency gRPC checks)
         health_check_runner_supervisor_child(),
 
+        # Health check registrar (subscribes to agent events, auto-registers services)
+        health_check_registrar_child(),
+
+        # Service heartbeat (self-reporting for Elixir services)
+        service_heartbeat_child(),
+
         # Horde registries (always started for registration support)
         registry_children(),
 
@@ -109,8 +115,12 @@ defmodule ServiceRadar.Application do
   end
 
   defp ash_oban_scheduler_children do
-    # Only start AshOban schedulers if Oban is enabled
-    if Application.get_env(:serviceradar_core, Oban) do
+    # Only start AshOban schedulers if explicitly enabled
+    # web-ng should set :start_ash_oban_scheduler to false (core-elx handles scheduling)
+    oban_enabled = Application.get_env(:serviceradar_core, Oban)
+    scheduler_enabled = Application.get_env(:serviceradar_core, :start_ash_oban_scheduler, false)
+
+    if oban_enabled && scheduler_enabled do
       # Start all AshOban schedulers for the configured domains
       domains = Application.get_env(:serviceradar_core, :ash_domains, [])
 
@@ -248,6 +258,38 @@ defmodule ServiceRadar.Application do
   defp health_check_runner_enabled? do
     case System.get_env("HEALTH_CHECK_RUNNER_ENABLED") do
       nil -> Application.get_env(:serviceradar_core, :health_check_runner_enabled, true)
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
+    end
+  end
+
+  defp health_check_registrar_child do
+    if health_check_registrar_enabled?() do
+      ServiceRadar.Infrastructure.HealthCheckRegistrar
+    else
+      nil
+    end
+  end
+
+  defp health_check_registrar_enabled? do
+    case System.get_env("HEALTH_CHECK_REGISTRAR_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :health_check_registrar_enabled, true)
+      value when value in ["true", "1", "yes"] -> true
+      _ -> false
+    end
+  end
+
+  defp service_heartbeat_child do
+    if service_heartbeat_enabled?() do
+      ServiceRadar.Infrastructure.ServiceHeartbeat
+    else
+      nil
+    end
+  end
+
+  defp service_heartbeat_enabled? do
+    case System.get_env("SERVICE_HEARTBEAT_ENABLED") do
+      nil -> Application.get_env(:serviceradar_core, :service_heartbeat_enabled, true)
       value when value in ["true", "1", "yes"] -> true
       _ -> false
     end

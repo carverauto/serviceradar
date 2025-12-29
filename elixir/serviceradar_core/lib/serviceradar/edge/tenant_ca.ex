@@ -47,6 +47,8 @@ defmodule ServiceRadar.Edge.TenantCA do
   postgres do
     table "tenant_cas"
     repo ServiceRadar.Repo
+
+    identity_wheres_to_sql unique_active_tenant_ca: "status = 'active'"
   end
 
   cloak do

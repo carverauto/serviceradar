@@ -251,6 +251,12 @@ if config_env() == :prod do
 
   config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
 
+  # Enable AshOban scheduler - core-elx is the only service that should run schedulers
+  ash_oban_scheduler_enabled =
+    System.get_env("SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED", "true") in ~w(true 1 yes)
+
+  config :serviceradar_core, :start_ash_oban_scheduler, ash_oban_scheduler_enabled
+
   local_mailer =
     case System.get_env("SERVICERADAR_LOCAL_MAILER") do
       "true" -> true

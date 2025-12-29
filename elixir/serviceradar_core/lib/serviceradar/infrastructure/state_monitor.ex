@@ -8,7 +8,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   - Checkers for consecutive failures
   - Cross-references Horde registry state with database state
 
-  Publishes events to NATS JetStream via EventPublisher when state changes.
+  Uses Ash actions with PublishStateChange to record health events.
 
   ## Horde Integration
 
@@ -43,7 +43,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   use GenServer
 
   alias ServiceRadar.Cluster.TenantRegistry
-  alias ServiceRadar.Infrastructure.{Poller, Agent, Checker, EventPublisher}
+  alias ServiceRadar.Infrastructure.{Poller, Agent, Checker}
 
   require Logger
 
@@ -301,17 +301,18 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     Logger.info("Poller #{poller.id} heartbeat timeout, transitioning to degraded/offline")
 
     old_state = poller.status
-    new_state = if old_state == :healthy, do: :degraded, else: :offline
     action = if old_state == :healthy, do: :degrade, else: :go_offline
 
+    # The actions have PublishStateChange attached which handles
+    # health event recording - no need to call publish_poller_event manually
     result =
       poller
       |> Ash.Changeset.for_update(action, %{reason: "heartbeat_timeout"})
       |> Ash.update(authorize?: false)
 
     case result do
-      {:ok, updated_poller} ->
-        publish_poller_event(updated_poller, old_state, new_state, :heartbeat_timeout)
+      {:ok, _updated_poller} ->
+        :ok
 
       {:error, reason} ->
         Logger.error("Failed to transition poller #{poller.id}: #{inspect(reason)}")
@@ -349,17 +350,16 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   defp handle_stale_agent(agent, _state) do
     Logger.info("Agent #{agent.uid} heartbeat timeout, transitioning to disconnected")
 
-    old_state = agent.status
-    new_state = :disconnected
-
+    # The :lose_connection action has PublishStateChange attached which handles
+    # health event recording - no need to call publish_agent_event manually
     result =
       agent
       |> Ash.Changeset.for_update(:lose_connection, %{})
       |> Ash.update(authorize?: false)
 
     case result do
-      {:ok, updated_agent} ->
-        publish_agent_event(updated_agent, old_state, new_state, :heartbeat_timeout)
+      {:ok, _updated_agent} ->
+        :ok
 
       {:error, reason} ->
         Logger.error("Failed to transition agent #{agent.uid}: #{inspect(reason)}")
@@ -395,87 +395,20 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   defp handle_failing_checker(checker, _state) do
     Logger.info("Checker #{checker.id} has #{checker.consecutive_failures} consecutive failures, marking as failing")
 
-    old_state = checker.status
-    new_state = :failing
-
+    # The :mark_failing action has PublishStateChange attached which handles
+    # health event recording - no need to call publish_checker_event manually
     result =
       checker
       |> Ash.Changeset.for_update(:mark_failing, %{reason: "consecutive_failures"})
       |> Ash.update(authorize?: false)
 
     case result do
-      {:ok, updated_checker} ->
-        publish_checker_event(updated_checker, old_state, new_state, :consecutive_failures)
+      {:ok, _updated_checker} ->
+        :ok
 
       {:error, reason} ->
         Logger.error("Failed to transition checker #{checker.id}: #{inspect(reason)}")
     end
   end
 
-  # Event publishing helpers
-
-  defp publish_poller_event(poller, old_state, new_state, reason) do
-    tenant_slug = lookup_tenant_slug(poller.tenant_id)
-
-    if tenant_slug do
-      EventPublisher.publish_state_change(
-        entity_type: :poller,
-        entity_id: poller.id,
-        tenant_id: poller.tenant_id,
-        tenant_slug: tenant_slug,
-        partition_id: poller.partition_id,
-        old_state: old_state,
-        new_state: new_state,
-        reason: reason
-      )
-    end
-  end
-
-  defp publish_agent_event(agent, old_state, new_state, reason) do
-    tenant_slug = lookup_tenant_slug(agent.tenant_id)
-
-    if tenant_slug do
-      EventPublisher.publish_state_change(
-        entity_type: :agent,
-        entity_id: agent.uid,
-        tenant_id: agent.tenant_id,
-        tenant_slug: tenant_slug,
-        old_state: old_state,
-        new_state: new_state,
-        reason: reason
-      )
-    end
-  end
-
-  defp publish_checker_event(checker, old_state, new_state, reason) do
-    tenant_slug = lookup_tenant_slug(checker.tenant_id)
-
-    if tenant_slug do
-      EventPublisher.publish_state_change(
-        entity_type: :checker,
-        entity_id: to_string(checker.id),
-        tenant_id: checker.tenant_id,
-        tenant_slug: tenant_slug,
-        old_state: old_state,
-        new_state: new_state,
-        reason: reason
-      )
-    end
-  end
-
-  defp lookup_tenant_slug(nil), do: nil
-
-  defp lookup_tenant_slug(tenant_id) do
-    require Ash.Query
-
-    case ServiceRadar.Identity.Tenant
-         |> Ash.Query.filter(id == ^tenant_id)
-         |> Ash.Query.limit(1)
-         |> Ash.read(authorize?: false) do
-      {:ok, [tenant | _]} -> to_string(tenant.slug)
-      _ -> nil
-    end
-  rescue
-    _ -> nil
-  end
 end

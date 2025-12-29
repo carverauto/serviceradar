@@ -63,7 +63,7 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
     else
       entity_id = get_entity_id(record, entity_type)
       tenant_id = Map.get(record, :tenant_id)
-      partition_id = Map.get(record, :partition_id)
+      metadata = get_entity_metadata(record, entity_type)
 
       # Get reason from context or action name
       reason = get_reason(context)
@@ -73,7 +73,7 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
         old_state: old_state,
         new_state: new_state,
         reason: reason,
-        metadata: %{partition_id: partition_id}
+        metadata: metadata
       )
 
       :ok
@@ -84,6 +84,12 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
   defp get_entity_id(record, :agent), do: record.uid
   defp get_entity_id(record, :checker), do: to_string(record.id)
   defp get_entity_id(record, _), do: to_string(Map.get(record, :id))
+
+  # Get entity-specific metadata fields
+  defp get_entity_metadata(record, :poller), do: %{partition_id: Map.get(record, :partition_id)}
+  defp get_entity_metadata(record, :agent), do: %{poller_id: Map.get(record, :poller_id)}
+  defp get_entity_metadata(record, :checker), do: %{agent_uid: Map.get(record, :agent_uid)}
+  defp get_entity_metadata(_record, _), do: %{}
 
   defp get_reason(%{action: %{name: action_name}}) when is_atom(action_name) do
     action_name
