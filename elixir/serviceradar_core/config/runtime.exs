@@ -127,13 +127,6 @@ if config_env() == :prod do
           processor: ServiceRadar.EventWriter.Processors.Logs,
           batch_size: 100,
           batch_timeout: 1_000
-        },
-        %{
-          name: "EVENTS",
-          subject: "events.>",
-          processor: ServiceRadar.EventWriter.Processors.Events,
-          batch_size: 50,
-          batch_timeout: 2_000
         }
       ]
   end
