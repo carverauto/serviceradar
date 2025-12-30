@@ -42,6 +42,8 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.EventWriter.FieldParser
+
   require Logger
 
   @impl true
@@ -86,25 +88,25 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
   # Private functions
 
   defp parse_json_metric(json, _metadata) do
-    timestamp = parse_timestamp(json["timestamp"])
+    timestamp = FieldParser.parse_timestamp(json["timestamp"])
 
     %{
       timestamp: timestamp,
-      trace_id: json["trace_id"] || json["traceId"],
-      span_id: json["span_id"] || json["spanId"],
-      service_name: json["service_name"] || json["serviceName"] || "unknown",
-      span_name: json["span_name"] || json["spanName"] || json["name"] || "unknown",
-      span_kind: json["span_kind"] || json["spanKind"],
-      duration_ms: parse_duration_ms(json),
-      duration_seconds: parse_duration_seconds(json),
-      metric_type: json["metric_type"] || json["metricType"],
-      http_method: json["http_method"] || json["httpMethod"],
-      http_route: json["http_route"] || json["httpRoute"],
-      http_status_code: to_string(json["http_status_code"] || json["httpStatusCode"] || ""),
-      grpc_service: json["grpc_service"] || json["grpcService"],
-      grpc_method: json["grpc_method"] || json["grpcMethod"],
-      grpc_status_code: to_string(json["grpc_status_code"] || json["grpcStatusCode"] || ""),
-      is_slow: json["is_slow"] || json["isSlow"] || false,
+      trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
+      span_id: FieldParser.get_field(json, "span_id", "spanId"),
+      service_name: FieldParser.get_field(json, "service_name", "serviceName", "unknown"),
+      span_name: FieldParser.get_field(json, "span_name", "spanName") || json["name"] || "unknown",
+      span_kind: FieldParser.get_field(json, "span_kind", "spanKind"),
+      duration_ms: FieldParser.parse_duration_ms(json),
+      duration_seconds: FieldParser.parse_duration_seconds(json),
+      metric_type: FieldParser.get_field(json, "metric_type", "metricType"),
+      http_method: FieldParser.get_field(json, "http_method", "httpMethod"),
+      http_route: FieldParser.get_field(json, "http_route", "httpRoute"),
+      http_status_code: to_string(FieldParser.get_field(json, "http_status_code", "httpStatusCode", "")),
+      grpc_service: FieldParser.get_field(json, "grpc_service", "grpcService"),
+      grpc_method: FieldParser.get_field(json, "grpc_method", "grpcMethod"),
+      grpc_status_code: to_string(FieldParser.get_field(json, "grpc_status_code", "grpcStatusCode", "")),
+      is_slow: FieldParser.get_field(json, "is_slow", "isSlow", false),
       component: json["component"],
       level: json["level"],
       created_at: DateTime.utc_now()
@@ -115,42 +117,5 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
     # TODO: Implement protobuf parsing for ExportMetricsServiceRequest
     # For now, skip protobuf messages
     nil
-  end
-
-  defp parse_timestamp(nil), do: DateTime.utc_now()
-  defp parse_timestamp(ts) when is_binary(ts) do
-    case DateTime.from_iso8601(ts) do
-      {:ok, dt, _} -> dt
-      _ -> DateTime.utc_now()
-    end
-  end
-  defp parse_timestamp(ts) when is_integer(ts) do
-    # Handle nanoseconds timestamp
-    if ts > 1_000_000_000_000_000_000 do
-      DateTime.from_unix!(div(ts, 1_000_000_000), :second)
-    else
-      DateTime.from_unix!(ts, :millisecond)
-    end
-  end
-  defp parse_timestamp(_), do: DateTime.utc_now()
-
-  defp parse_duration_ms(json) do
-    cond do
-      json["duration_ms"] -> json["duration_ms"]
-      json["durationMs"] -> json["durationMs"]
-      json["duration_seconds"] -> json["duration_seconds"] * 1000
-      json["durationSeconds"] -> json["durationSeconds"] * 1000
-      true -> nil
-    end
-  end
-
-  defp parse_duration_seconds(json) do
-    cond do
-      json["duration_seconds"] -> json["duration_seconds"]
-      json["durationSeconds"] -> json["durationSeconds"]
-      json["duration_ms"] -> json["duration_ms"] / 1000
-      json["durationMs"] -> json["durationMs"] / 1000
-      true -> nil
-    end
   end
 end

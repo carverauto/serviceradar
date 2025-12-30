@@ -53,6 +53,8 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.EventWriter.FieldParser
+
   require Logger
 
   @impl true
@@ -97,52 +99,26 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
   # Private functions
 
   defp parse_netflow(json) do
-    timestamp = parse_timestamp(json["timestamp"])
+    timestamp = FieldParser.parse_timestamp(json["timestamp"])
 
     %{
       timestamp: timestamp,
-      poller_id: json["poller_id"] || json["pollerId"],
-      agent_id: json["agent_id"] || json["agentId"],
-      device_id: json["device_id"] || json["deviceId"],
-      flow_direction: json["flow_direction"] || json["flowDirection"],
-      src_addr: json["src_addr"] || json["srcAddr"] || json["sourceAddress"],
-      dst_addr: json["dst_addr"] || json["dstAddr"] || json["destinationAddress"],
-      src_port: json["src_port"] || json["srcPort"] || json["sourcePort"],
-      dst_port: json["dst_port"] || json["dstPort"] || json["destinationPort"],
+      poller_id: FieldParser.get_field(json, "poller_id", "pollerId"),
+      agent_id: FieldParser.get_field(json, "agent_id", "agentId"),
+      device_id: FieldParser.get_field(json, "device_id", "deviceId"),
+      flow_direction: FieldParser.get_field(json, "flow_direction", "flowDirection"),
+      src_addr: FieldParser.get_field(json, "src_addr", "srcAddr") || json["sourceAddress"],
+      dst_addr: FieldParser.get_field(json, "dst_addr", "dstAddr") || json["destinationAddress"],
+      src_port: FieldParser.get_field(json, "src_port", "srcPort") || json["sourcePort"],
+      dst_port: FieldParser.get_field(json, "dst_port", "dstPort") || json["destinationPort"],
       protocol: json["protocol"],
       packets: json["packets"],
       octets: json["octets"] || json["bytes"],
-      sampler_address: json["sampler_address"] || json["samplerAddress"],
-      input_snmp: json["input_snmp"] || json["inputSnmp"],
-      output_snmp: json["output_snmp"] || json["outputSnmp"],
-      metadata: encode_jsonb(json["metadata"]),
+      sampler_address: FieldParser.get_field(json, "sampler_address", "samplerAddress"),
+      input_snmp: FieldParser.get_field(json, "input_snmp", "inputSnmp"),
+      output_snmp: FieldParser.get_field(json, "output_snmp", "outputSnmp"),
+      metadata: FieldParser.encode_jsonb(json["metadata"]),
       created_at: DateTime.utc_now()
     }
   end
-
-  defp parse_timestamp(nil), do: DateTime.utc_now()
-  defp parse_timestamp(ts) when is_binary(ts) do
-    case DateTime.from_iso8601(ts) do
-      {:ok, dt, _} -> dt
-      _ -> DateTime.utc_now()
-    end
-  end
-  defp parse_timestamp(ts) when is_integer(ts) do
-    if ts > 1_000_000_000_000 do
-      DateTime.from_unix!(ts, :millisecond)
-    else
-      DateTime.from_unix!(ts, :second)
-    end
-  end
-  defp parse_timestamp(_), do: DateTime.utc_now()
-
-  defp encode_jsonb(nil), do: nil
-  defp encode_jsonb(value) when is_map(value), do: value
-  defp encode_jsonb(value) when is_binary(value) do
-    case Jason.decode(value) do
-      {:ok, decoded} -> decoded
-      _ -> nil
-    end
-  end
-  defp encode_jsonb(_), do: nil
 end

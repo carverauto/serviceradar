@@ -95,7 +95,11 @@ config :serviceradar_core, Oban,
   ],
   plugins: [
     # Keep jobs for 7 days
-    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
+     ]}
   ],
   peer: Oban.Peers.Database
 

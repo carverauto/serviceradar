@@ -29,6 +29,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.EventWriter.FieldParser
+
   require Logger
 
   # OCSF constants
@@ -87,7 +89,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   # Private functions
 
   defp parse_json_log(json, metadata) do
-    time = parse_timestamp(json["timestamp"] || json["time_unix_nano"] || json["time"])
+    time = FieldParser.parse_timestamp(json["timestamp"] || json["time_unix_nano"] || json["time"])
     severity_id = map_severity(json)
     activity_id = @activity_id_create
 
@@ -124,8 +126,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       observables: build_observables(json),
 
       # OpenTelemetry trace context
-      trace_id: json["trace_id"] || json["traceId"],
-      span_id: json["span_id"] || json["spanId"],
+      trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
+      span_id: FieldParser.get_field(json, "span_id", "spanId"),
 
       # Actor/Source
       actor: build_actor(json),
@@ -133,10 +135,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       src_endpoint: build_src_endpoint(json),
 
       # Log-specific fields
-      log_name: json["logger"] || json["scope_name"] || json["scopeName"],
-      log_provider: json["service_name"] || json["serviceName"] || "unknown",
-      log_level: json["severity_text"] || json["severityText"] || json["level"],
-      log_version: json["scope_version"] || json["scopeVersion"],
+      log_name: json["logger"] || FieldParser.get_field(json, "scope_name", "scopeName"),
+      log_provider: FieldParser.get_field(json, "service_name", "serviceName", "unknown"),
+      log_level: FieldParser.get_field(json, "severity_text", "severityText") || json["level"],
+      log_version: FieldParser.get_field(json, "scope_version", "scopeVersion"),
 
       # Unmapped data
       unmapped: extract_unmapped(json),
@@ -156,26 +158,6 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     # TODO: Implement protobuf parsing for ExportLogsServiceRequest
     nil
   end
-
-  defp parse_timestamp(nil), do: DateTime.utc_now()
-
-  defp parse_timestamp(ts) when is_binary(ts) do
-    case DateTime.from_iso8601(ts) do
-      {:ok, dt, _} -> dt
-      _ -> DateTime.utc_now()
-    end
-  end
-
-  defp parse_timestamp(ts) when is_integer(ts) do
-    # Handle nanoseconds timestamp
-    if ts > 1_000_000_000_000_000_000 do
-      DateTime.from_unix!(div(ts, 1_000_000_000), :second)
-    else
-      DateTime.from_unix!(ts, :millisecond)
-    end
-  end
-
-  defp parse_timestamp(_), do: DateTime.utc_now()
 
   defp map_severity(json) do
     # Check OpenTelemetry severity_number first
@@ -300,12 +282,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp build_actor(json) do
-    service_name = json["service_name"] || json["serviceName"]
+    service_name = FieldParser.get_field(json, "service_name", "serviceName")
 
     if service_name do
       %{
         app_name: service_name,
-        app_ver: json["service_version"] || json["serviceVersion"]
+        app_ver: FieldParser.get_field(json, "service_version", "serviceVersion")
       }
     else
       %{}

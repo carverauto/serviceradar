@@ -49,6 +49,8 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.EventWriter.FieldParser
+
   require Logger
 
   @impl true
@@ -93,61 +95,25 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
   # Private functions
 
   defp parse_telemetry(json) do
-    timestamp = parse_timestamp(json["timestamp"])
+    timestamp = FieldParser.parse_timestamp(json["timestamp"])
 
     %{
       timestamp: timestamp,
-      poller_id: json["poller_id"] || json["pollerId"] || "unknown",
-      agent_id: json["agent_id"] || json["agentId"],
-      metric_name: json["metric_name"] || json["metricName"] || json["name"] || "unknown",
-      metric_type: json["metric_type"] || json["metricType"] || json["type"] || "gauge",
-      device_id: json["device_id"] || json["deviceId"],
-      value: parse_value(json["value"]),
+      poller_id: FieldParser.get_field(json, "poller_id", "pollerId", "unknown"),
+      agent_id: FieldParser.get_field(json, "agent_id", "agentId"),
+      metric_name: FieldParser.get_field(json, "metric_name", "metricName") || json["name"] || "unknown",
+      metric_type: FieldParser.get_field(json, "metric_type", "metricType") || json["type"] || "gauge",
+      device_id: FieldParser.get_field(json, "device_id", "deviceId"),
+      value: FieldParser.parse_value(json["value"]),
       unit: json["unit"],
-      tags: encode_jsonb(json["tags"]),
+      tags: FieldParser.encode_jsonb(json["tags"]),
       partition: json["partition"],
       scale: json["scale"],
-      is_delta: json["is_delta"] || json["isDelta"] || false,
-      target_device_ip: json["target_device_ip"] || json["targetDeviceIp"],
-      if_index: json["if_index"] || json["ifIndex"],
-      metadata: encode_jsonb(json["metadata"]),
+      is_delta: FieldParser.get_field(json, "is_delta", "isDelta", false),
+      target_device_ip: FieldParser.get_field(json, "target_device_ip", "targetDeviceIp"),
+      if_index: FieldParser.get_field(json, "if_index", "ifIndex"),
+      metadata: FieldParser.encode_jsonb(json["metadata"]),
       created_at: DateTime.utc_now()
     }
   end
-
-  defp parse_timestamp(nil), do: DateTime.utc_now()
-  defp parse_timestamp(ts) when is_binary(ts) do
-    case DateTime.from_iso8601(ts) do
-      {:ok, dt, _} -> dt
-      _ -> DateTime.utc_now()
-    end
-  end
-  defp parse_timestamp(ts) when is_integer(ts) do
-    if ts > 1_000_000_000_000 do
-      DateTime.from_unix!(ts, :millisecond)
-    else
-      DateTime.from_unix!(ts, :second)
-    end
-  end
-  defp parse_timestamp(_), do: DateTime.utc_now()
-
-  defp parse_value(nil), do: 0.0
-  defp parse_value(v) when is_number(v), do: v
-  defp parse_value(v) when is_binary(v) do
-    case Float.parse(v) do
-      {f, _} -> f
-      :error -> 0.0
-    end
-  end
-  defp parse_value(_), do: 0.0
-
-  defp encode_jsonb(nil), do: nil
-  defp encode_jsonb(value) when is_map(value), do: value
-  defp encode_jsonb(value) when is_binary(value) do
-    case Jason.decode(value) do
-      {:ok, decoded} -> decoded
-      _ -> nil
-    end
-  end
-  defp encode_jsonb(_), do: nil
 end

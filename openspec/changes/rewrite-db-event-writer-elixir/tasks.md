@@ -126,6 +126,45 @@
 - [ ] 5.3.2 Add stream consumer lag monitoring
 - [x] 5.3.3 Add NATS connection status via telemetry events
 
+### 5.4 Broadway Dashboard
+- [x] 5.4.1 Add `broadway_dashboard` dependency to `mix.exs`
+- [ ] 5.4.2 Mount Broadway Dashboard in Phoenix router (admin routes)
+- [ ] 5.4.3 Configure dashboard authentication (admin only)
+- [ ] 5.4.4 Document dashboard access and usage
+
+## Phase 5.5: Code Quality & Reuse (Priority: Medium)
+
+### 5.5.1 Shared Field Parser
+- [x] 5.5.1.1 Create `EventWriter.FieldParser` module with shared functions
+- [x] 5.5.1.2 Consolidate `parse_timestamp/1` (was duplicated 6x)
+- [x] 5.5.1.3 Consolidate `encode_jsonb/1` (was duplicated 4x)
+- [x] 5.5.1.4 Add `parse_duration_ms/1` and `parse_duration_seconds/1`
+- [x] 5.5.1.5 Add `safe_bigint/1` for int64 clamping
+- [x] 5.5.1.6 Add `get_field/4` for snake_case/camelCase field lookup
+- [x] 5.5.1.7 Update all processors to use FieldParser
+
+## Phase 5.6: OCSF Schema Compliance (Priority: Medium)
+
+> **Strategy**: Keep OTel data (traces, metrics) in native format for observability.
+> Convert security-relevant events to OCSF schema where appropriate.
+
+### 5.6.1 Current State (Analysis Complete)
+| Processor | Table | OCSF? | Action |
+|-----------|-------|-------|--------|
+| Logs | ocsf_events | ✅ Yes | Keep as-is |
+| OtelMetrics | otel_metrics | ❌ No | Keep native (observability) |
+| OtelTraces | otel_traces | ❌ No | Keep native (observability) |
+| Telemetry | timeseries_metrics | ❌ No | Keep native (metrics) |
+| Sweep | sweep_host_states | ❌ No | Consider OCSF Network Activity |
+| NetFlow | netflow_metrics | ❌ No | Consider OCSF Network Traffic |
+
+### 5.6.2 OCSF Conversion Tasks (Future)
+- [ ] 5.6.2.1 Evaluate Sweep → OCSF Network Activity (class_uid: 4001)
+- [ ] 5.6.2.2 Evaluate NetFlow → OCSF Network Traffic (class_uid: 4002)
+- [ ] 5.6.2.3 Create OCSF base module for shared OCSF field building
+- [ ] 5.6.2.4 Add OCSF category/class constants module
+- [ ] 5.6.2.5 Document OCSF vs native data strategy
+
 ## Phase 6: Cleanup (Priority: Low)
 
 ### 6.1 Deprecation

@@ -597,6 +597,7 @@ services:
       - PHX_CHECK_ORIGIN=${PHX_CHECK_ORIGIN:-false}
       - SERVICERADAR_DEV_ROUTES=${SERVICERADAR_DEV_ROUTES:-true}
       - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-true}
+      - SERVICERADAR_WEB_NG_OBAN_ENABLED=${SERVICERADAR_WEB_NG_OBAN_ENABLED:-true}
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
       - CLUSTER_HOSTS=serviceradar_poller@poller-elx,serviceradar_core@core-elx,serviceradar_poller_t2@poller-elx-t2

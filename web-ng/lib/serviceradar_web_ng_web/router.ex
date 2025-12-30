@@ -160,7 +160,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     end
 
     oban_dashboard("/oban",
-      oban_name: ObanWeb,
+      oban_name: Oban,
       as: :admin_oban_dashboard,
       resolver: ServiceRadarWebNGWeb.ObanResolver
     )

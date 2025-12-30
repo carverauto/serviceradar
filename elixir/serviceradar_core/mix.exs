@@ -65,6 +65,7 @@ defmodule ServiceRadarCore.MixProject do
 
       # Broadway for high-throughput event processing
       {:broadway, "~> 1.1"},
+      {:broadway_dashboard, "~> 0.4"},
 
       # gRPC client for serviceradar-sync communication
       {:grpc, "~> 0.9"},

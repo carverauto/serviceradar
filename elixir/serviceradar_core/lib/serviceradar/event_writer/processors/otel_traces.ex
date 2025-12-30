@@ -43,6 +43,8 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.EventWriter.FieldParser
+
   require Logger
 
   @impl true
@@ -87,28 +89,28 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   # Private functions
 
   defp parse_json_trace(json, _metadata) do
-    timestamp = parse_timestamp(json["timestamp"] || json["start_time_unix_nano"])
+    timestamp = FieldParser.parse_timestamp(json["timestamp"] || json["start_time_unix_nano"])
 
     %{
       timestamp: timestamp,
-      trace_id: json["trace_id"] || json["traceId"],
-      span_id: json["span_id"] || json["spanId"],
-      parent_span_id: json["parent_span_id"] || json["parentSpanId"],
+      trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
+      span_id: FieldParser.get_field(json, "span_id", "spanId"),
+      parent_span_id: FieldParser.get_field(json, "parent_span_id", "parentSpanId"),
       name: json["name"],
       kind: json["kind"],
-      start_time_unix_nano: safe_bigint(json["start_time_unix_nano"] || json["startTimeUnixNano"]),
-      end_time_unix_nano: safe_bigint(json["end_time_unix_nano"] || json["endTimeUnixNano"]),
-      service_name: json["service_name"] || json["serviceName"] || "unknown",
-      service_version: json["service_version"] || json["serviceVersion"],
-      service_instance: json["service_instance"] || json["serviceInstance"],
-      scope_name: json["scope_name"] || json["scopeName"],
-      scope_version: json["scope_version"] || json["scopeVersion"],
-      status_code: json["status_code"] || json["statusCode"],
-      status_message: json["status_message"] || json["statusMessage"],
-      attributes: encode_json(json["attributes"]),
-      resource_attributes: encode_json(json["resource_attributes"] || json["resourceAttributes"]),
-      events: encode_json(json["events"]),
-      links: encode_json(json["links"]),
+      start_time_unix_nano: FieldParser.safe_bigint(FieldParser.get_field(json, "start_time_unix_nano", "startTimeUnixNano")),
+      end_time_unix_nano: FieldParser.safe_bigint(FieldParser.get_field(json, "end_time_unix_nano", "endTimeUnixNano")),
+      service_name: FieldParser.get_field(json, "service_name", "serviceName", "unknown"),
+      service_version: FieldParser.get_field(json, "service_version", "serviceVersion"),
+      service_instance: FieldParser.get_field(json, "service_instance", "serviceInstance"),
+      scope_name: FieldParser.get_field(json, "scope_name", "scopeName"),
+      scope_version: FieldParser.get_field(json, "scope_version", "scopeVersion"),
+      status_code: FieldParser.get_field(json, "status_code", "statusCode"),
+      status_message: FieldParser.get_field(json, "status_message", "statusMessage"),
+      attributes: FieldParser.encode_json(json["attributes"]),
+      resource_attributes: FieldParser.encode_json(FieldParser.get_field(json, "resource_attributes", "resourceAttributes")),
+      events: FieldParser.encode_json(json["events"]),
+      links: FieldParser.encode_json(json["links"]),
       created_at: DateTime.utc_now()
     }
   end
@@ -118,51 +120,4 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
     # For now, skip protobuf messages
     nil
   end
-
-  defp parse_timestamp(nil), do: DateTime.utc_now()
-  defp parse_timestamp(ts) when is_binary(ts) do
-    case DateTime.from_iso8601(ts) do
-      {:ok, dt, _} -> dt
-      _ -> DateTime.utc_now()
-    end
-  end
-  defp parse_timestamp(ts) when is_integer(ts) do
-    # Handle nanoseconds timestamp
-    if ts > 1_000_000_000_000_000_000 do
-      DateTime.from_unix!(div(ts, 1_000_000_000), :second)
-    else
-      DateTime.from_unix!(ts, :millisecond)
-    end
-  end
-  defp parse_timestamp(_), do: DateTime.utc_now()
-
-  # Safe conversion for bigint values that might overflow int64
-  defp safe_bigint(nil), do: nil
-  defp safe_bigint(value) when is_integer(value) do
-    max_int64 = 9_223_372_036_854_775_807
-    min_int64 = -9_223_372_036_854_775_808
-
-    cond do
-      value > max_int64 -> max_int64
-      value < min_int64 -> min_int64
-      true -> value
-    end
-  end
-  defp safe_bigint(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, _} -> safe_bigint(int)
-      :error -> nil
-    end
-  end
-  defp safe_bigint(_), do: nil
-
-  defp encode_json(nil), do: nil
-  defp encode_json(value) when is_map(value) or is_list(value) do
-    case Jason.encode(value) do
-      {:ok, json} -> json
-      _ -> nil
-    end
-  end
-  defp encode_json(value) when is_binary(value), do: value
-  defp encode_json(_), do: nil
 end
