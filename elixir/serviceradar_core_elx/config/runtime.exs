@@ -231,6 +231,9 @@ if config_env() == :prod do
 
   oban_enabled = System.get_env("SERVICERADAR_CORE_OBAN_ENABLED", "true") in ~w(true 1 yes)
   oban_node = System.get_env("OBAN_NODE")
+  # Enable AshOban scheduler - core-elx is the only service that should run schedulers
+  ash_oban_scheduler_enabled =
+    System.get_env("SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED", "true") in ~w(true 1 yes)
 
   oban_config = [
     engine: Oban.Engines.Basic,
@@ -238,13 +241,19 @@ if config_env() == :prod do
     queues: [
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
       alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),
+      service_checks: String.to_integer(System.get_env("OBAN_QUEUE_SERVICE_CHECKS") || "10"),
+      notifications: String.to_integer(System.get_env("OBAN_QUEUE_NOTIFICATIONS") || "5"),
+      onboarding: String.to_integer(System.get_env("OBAN_QUEUE_ONBOARDING") || "3"),
+      events: String.to_integer(System.get_env("OBAN_QUEUE_EVENTS") || "10"),
       sweeps: String.to_integer(System.get_env("OBAN_QUEUE_SWEEPS") || "20"),
-      edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10")
+      edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10"),
+      integrations: String.to_integer(System.get_env("OBAN_QUEUE_INTEGRATIONS") || "5")
     ],
     plugins: [
       Oban.Plugins.Pruner,
       {Oban.Plugins.Cron, crontab: []}
-    ]
+    ],
+    peer: Oban.Peers.Database
   ]
 
   oban_config =
@@ -254,11 +263,38 @@ if config_env() == :prod do
       oban_config
     end
 
-  config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
+  oban_config =
+    if ash_oban_scheduler_enabled do
+      domains = Application.get_env(:serviceradar_core, :ash_domains, [])
+      AshOban.config(domains, oban_config)
+    else
+      oban_config
+    end
 
-  # Enable AshOban scheduler - core-elx is the only service that should run schedulers
-  ash_oban_scheduler_enabled =
-    System.get_env("SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED", "true") in ~w(true 1 yes)
+  extra_cron_entries = [
+    {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
+  ]
+
+  add_cron_entries = fn config, entries ->
+    plugins =
+      config
+      |> Keyword.get(:plugins, [])
+      |> Enum.map(fn
+        {Oban.Plugins.Cron, opts} ->
+          crontab = Keyword.get(opts, :crontab, [])
+          {Oban.Plugins.Cron, Keyword.put(opts, :crontab, crontab ++ entries)}
+
+        other ->
+          other
+      end)
+
+    Keyword.put(config, :plugins, plugins)
+  end
+
+  oban_config = add_cron_entries.(oban_config, extra_cron_entries)
+
+  config :serviceradar_core, :oban_enabled, oban_enabled
+  config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
 
   config :serviceradar_core, :start_ash_oban_scheduler, ash_oban_scheduler_enabled
 

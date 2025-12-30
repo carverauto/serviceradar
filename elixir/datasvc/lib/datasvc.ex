@@ -44,6 +44,7 @@ defmodule Datasvc do
 
   @default_timeout 5_000
   @default_connect_timeout 5_000
+  @resolver_schemes ~w(dns ipv4 ipv6 unix unix-abstract vsock xds)
 
   @doc """
   Gets the configured datasvc address.
@@ -83,6 +84,7 @@ defmodule Datasvc do
         {:error, :not_configured}
 
       addr ->
+        addr = normalize_address(addr)
         interceptors = Keyword.get(opts, :interceptors, [])
         connect_timeout = config() |> Keyword.get(:connect_timeout, @default_connect_timeout)
 
@@ -138,7 +140,13 @@ defmodule Datasvc do
         after
           # Note: GRPC connections in Elixir are lightweight
           # Could add connection pooling here in the future
-          _ = GRPC.Stub.disconnect(channel)
+          try do
+            _ = GRPC.Stub.disconnect(channel)
+          catch
+            :exit, _ -> :ok
+          rescue
+            _ -> :ok
+          end
           :ok
         end
 
@@ -150,5 +158,18 @@ defmodule Datasvc do
   @doc false
   def config do
     Application.get_env(:datasvc, :datasvc, [])
+  end
+
+  defp normalize_address(address) when is_binary(address) do
+    if resolver_scheme?(address) do
+      address
+    else
+      "dns://#{address}"
+    end
+  end
+
+  defp resolver_scheme?(address) do
+    String.contains?(address, "://") or
+      Enum.any?(@resolver_schemes, &String.starts_with?(address, &1 <> ":"))
   end
 end

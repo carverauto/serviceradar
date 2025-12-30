@@ -319,6 +319,16 @@ defmodule ServiceRadar.Oban.TenantQueues do
     {:reply, result, state}
   end
 
+  @impl true
+  def handle_info({ref, _result}, state) when is_reference(ref) do
+    # Ignore stray Task messages from async decrypt/transform work in Ash reads.
+    {:noreply, state}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, state) when is_reference(ref) do
+    {:noreply, state}
+  end
+
   # ===========================================================================
   # Private Functions
   # ===========================================================================

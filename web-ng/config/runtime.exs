@@ -137,6 +137,11 @@ if config_env() != :test do
       password: admin_password
   end
 
+  oban_enabled =
+    System.get_env("SERVICERADAR_WEB_NG_OBAN_ENABLED", "false") in ~w(true 1 yes)
+
+  config :serviceradar_core, :oban_enabled, oban_enabled
+
   # Oban queue limits (plugins are configured in config.exs via Oban.Plugins.Cron)
   oban_default_queue_limit =
     System.get_env("OBAN_DEFAULT_QUEUE_LIMIT", "10") |> String.to_integer()
@@ -161,6 +166,7 @@ if config_env() != :test do
     end
 
   config :serviceradar_core, Oban, oban_config
+  config :serviceradar_core, :start_ash_oban_scheduler, false
 end
 
 if config_env() == :prod do

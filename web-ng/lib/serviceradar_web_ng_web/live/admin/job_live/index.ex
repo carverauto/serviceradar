@@ -276,7 +276,16 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
   defp get_leader_node do
     try do
-      Oban.Peer.get_leader()
+      case ServiceRadar.Cluster.ClusterStatus.find_coordinator() do
+        nil ->
+          nil
+
+        coordinator_node ->
+          case :rpc.call(coordinator_node, Oban.Peer, :get_leader, []) do
+            leader when is_binary(leader) -> leader
+            _ -> nil
+          end
+      end
     rescue
       _ -> nil
     end

@@ -59,13 +59,19 @@ if config_env() == :prod do
     queues: [
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
       alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),
+      service_checks: String.to_integer(System.get_env("OBAN_QUEUE_SERVICE_CHECKS") || "10"),
+      notifications: String.to_integer(System.get_env("OBAN_QUEUE_NOTIFICATIONS") || "5"),
+      onboarding: String.to_integer(System.get_env("OBAN_QUEUE_ONBOARDING") || "3"),
+      events: String.to_integer(System.get_env("OBAN_QUEUE_EVENTS") || "10"),
       sweeps: String.to_integer(System.get_env("OBAN_QUEUE_SWEEPS") || "20"),
-      edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10")
+      edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10"),
+      integrations: String.to_integer(System.get_env("OBAN_QUEUE_INTEGRATIONS") || "5")
     ],
     plugins: [
       Oban.Plugins.Pruner,
       {Oban.Plugins.Cron, crontab: []}
-    ]
+    ],
+    peer: Oban.Peers.Database
 
   # EventWriter configuration (NATS JetStream → CNPG consumer)
   # Enable with EVENT_WRITER_ENABLED=true

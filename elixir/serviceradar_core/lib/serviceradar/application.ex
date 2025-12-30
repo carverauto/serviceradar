@@ -128,28 +128,30 @@ defmodule ServiceRadar.Application do
   end
 
   defp oban_child do
-    case Application.get_env(:serviceradar_core, Oban) do
-      false -> nil
-      nil -> nil
-      oban_config when is_list(oban_config) -> {Oban, oban_config}
+    oban_enabled = Application.get_env(:serviceradar_core, :oban_enabled, true)
+
+    if oban_enabled do
+      case Application.get_env(:serviceradar_core, Oban) do
+        false -> nil
+        nil -> nil
+        oban_config when is_list(oban_config) -> {Oban, oban_config}
+      end
+    else
+      nil
     end
   end
 
   defp ash_oban_scheduler_children do
     # Only start AshOban schedulers if explicitly enabled
     # web-ng should set :start_ash_oban_scheduler to false (core-elx handles scheduling)
-    oban_enabled = Application.get_env(:serviceradar_core, Oban)
+    oban_enabled =
+      Application.get_env(:serviceradar_core, :oban_enabled, true) &&
+        Application.get_env(:serviceradar_core, Oban)
     scheduler_enabled = Application.get_env(:serviceradar_core, :start_ash_oban_scheduler, false)
 
     if oban_enabled && scheduler_enabled do
-      # Start all AshOban schedulers for the configured domains
-      domains = Application.get_env(:serviceradar_core, :ash_domains, [])
-
-      if Enum.any?(domains) do
-        [{AshOban.Scheduler, domains: domains}]
-      else
-        []
-      end
+      # AshOban schedules via Oban.Plugins.Cron; no additional children needed.
+      []
     else
       []
     end
@@ -157,7 +159,8 @@ defmodule ServiceRadar.Application do
 
   defp tenant_queues_child do
     # Only start TenantQueues if Oban is enabled
-    if Application.get_env(:serviceradar_core, Oban) do
+    if Application.get_env(:serviceradar_core, :oban_enabled, true) &&
+         Application.get_env(:serviceradar_core, Oban) do
       ServiceRadar.Oban.TenantQueues
     else
       nil

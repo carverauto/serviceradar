@@ -94,12 +94,6 @@ config :serviceradar_core, Oban,
     integrations: 5
   ],
   plugins: [
-    # Built-in Cron plugin for system maintenance jobs (non-Ash resources)
-    {Oban.Plugins.Cron,
-     crontab: [
-       # Refresh trace summaries materialized view every 2 minutes
-       {"*/2 * * * *", ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
-     ]},
     # Keep jobs for 7 days
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
   ],

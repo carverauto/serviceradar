@@ -129,13 +129,37 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
 
   # Get Oban.Plugins.Cron configuration
   defp get_cron_config do
-    oban_config = Application.get_env(:serviceradar_core, Oban, [])
-    plugins = Keyword.get(oban_config, :plugins, [])
+    plugins = get_oban_plugins()
 
     Enum.find_value(plugins, fn
       {Oban.Plugins.Cron, opts} -> Keyword.get(opts, :crontab, [])
       _ -> nil
     end)
+  end
+
+  defp get_oban_plugins do
+    case coordinator_node() do
+      {:ok, node} ->
+        case :rpc.call(node, Oban, :config, [Oban]) do
+          %Oban.Config{plugins: plugins} -> plugins
+          _ -> []
+        end
+
+      :error ->
+        oban_config = Application.get_env(:serviceradar_core, Oban, [])
+        Keyword.get(oban_config, :plugins, [])
+    end
+  rescue
+    _ -> []
+  end
+
+  defp coordinator_node do
+    case ServiceRadar.Cluster.ClusterStatus.find_coordinator() do
+      nil -> :error
+      node -> {:ok, node}
+    end
+  rescue
+    _ -> :error
   end
 
   # Parse a crontab entry which can be {cron, worker} or {cron, worker, opts}

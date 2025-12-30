@@ -29,6 +29,9 @@ config :ash,
   default_page_type: :keyset,
   policies: [no_filter_static_forbidden_reads?: false]
 
+# AshOban configuration
+config :ash_oban, oban_name: Oban
+
 # Spark configuration (Ash DSL)
 config :spark,
   formatter: [
@@ -65,11 +68,25 @@ config :spark,
 # Default Oban configuration (can be overridden by host app)
 config :serviceradar_core, Oban,
   engine: Oban.Engines.Basic,
-  queues: [default: 10, alerts: 5, sweeps: 20, edge: 10],
+  queues: [
+    default: 10,
+    alerts: 5,
+    service_checks: 10,
+    notifications: 5,
+    onboarding: 3,
+    events: 10,
+    sweeps: 20,
+    edge: 10,
+    integrations: 5
+  ],
   plugins: [
     Oban.Plugins.Pruner,
-    {Oban.Plugins.Cron, crontab: []}
-  ]
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
+     ]}
+  ],
+  peer: Oban.Peers.Database
 
 # Cluster configuration (disabled by default)
 config :serviceradar_core,
