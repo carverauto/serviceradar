@@ -18,6 +18,7 @@ package datasvc
 
 import (
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/nats/accounts"
 )
 
 // Role defines a role in the RBAC system.
@@ -58,4 +59,8 @@ type Config struct {
 	BucketTTL      models.Duration `json:"bucket_ttl,omitempty"`       // TTL for entries (0 = no expiry)
 	BucketHistory  uint32          `json:"bucket_history,omitempty"`   // History depth per key
 	CoreRegistration *CoreRegistration `json:"core_registration,omitempty"` // Core service registration settings
+
+	// NATSOperator configures the NATS account management service for multi-tenant isolation.
+	// When configured, datasvc will expose the NATSAccountService gRPC endpoint.
+	NATSOperator *accounts.OperatorConfig `json:"nats_operator,omitempty"`
 }

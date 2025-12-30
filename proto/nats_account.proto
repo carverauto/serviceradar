@@ -1,0 +1,127 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package proto;
+
+option go_package = "github.com/carverauto/serviceradar/proto";
+
+// NATSAccountService provides stateless NATS JWT signing operations.
+//
+// This service is called by Elixir core (with platform mTLS credentials) to:
+// - Generate new tenant account keys and sign account JWTs
+// - Generate user credentials signed with tenant account keys
+// - Re-sign account JWTs when claims change (revocations, limits)
+//
+// Elixir is responsible for storing tenant account data in CNPG.
+// datasvc holds only the operator key and performs cryptographic operations.
+service NATSAccountService {
+  // CreateTenantAccount generates new account NKeys and a signed account JWT.
+  // The account_seed is returned and should be stored encrypted by Elixir (AshCloak).
+  rpc CreateTenantAccount(CreateTenantAccountRequest) returns (CreateTenantAccountResponse) {}
+
+  // GenerateUserCredentials creates NATS user credentials for a tenant's account.
+  // Requires the account_seed to sign the user JWT.
+  rpc GenerateUserCredentials(GenerateUserCredentialsRequest) returns (GenerateUserCredentialsResponse) {}
+
+  // SignAccountJWT regenerates an account JWT with updated claims.
+  // Use this when revocations or limits change.
+  rpc SignAccountJWT(SignAccountJWTRequest) returns (SignAccountJWTResponse) {}
+}
+
+// AccountLimits defines resource constraints for a NATS account.
+message AccountLimits {
+  int64 max_connections = 1;     // Maximum concurrent connections (0 = unlimited)
+  int64 max_subscriptions = 2;   // Maximum subscriptions per connection (0 = unlimited)
+  int64 max_payload_bytes = 3;   // Maximum message payload size in bytes (0 = default 1MB)
+  int64 max_data_bytes = 4;      // Maximum data throughput in bytes/sec (0 = unlimited)
+  int64 max_exports = 5;         // Maximum number of exports (0 = unlimited)
+  int64 max_imports = 6;         // Maximum number of imports (0 = unlimited)
+  bool allow_wildcard_exports = 7; // Whether wildcard exports are allowed
+}
+
+// SubjectMapping defines how subjects are transformed for tenant isolation.
+message SubjectMapping {
+  string from = 1;  // Source subject pattern (e.g., "snmp.traps")
+  string to = 2;    // Destination subject pattern (e.g., "{{tenant}}.snmp.traps")
+}
+
+// CreateTenantAccountRequest is the request to create a new tenant NATS account.
+message CreateTenantAccountRequest {
+  string tenant_slug = 1;           // Unique tenant identifier (e.g., "acme-corp")
+  AccountLimits limits = 2;         // Optional resource limits
+  repeated SubjectMapping subject_mappings = 3; // Optional custom subject mappings
+}
+
+// CreateTenantAccountResponse returns the generated account credentials.
+// The account_seed should be stored encrypted by the caller (Elixir/AshCloak).
+message CreateTenantAccountResponse {
+  string account_public_key = 1;    // The account's public NKey (starts with 'A')
+  string account_seed = 2;          // The account's private seed (starts with 'SA') - STORE ENCRYPTED
+  string account_jwt = 3;           // The signed account JWT
+}
+
+// UserCredentialType specifies what the credentials will be used for.
+enum UserCredentialType {
+  USER_CREDENTIAL_TYPE_UNSPECIFIED = 0;
+  USER_CREDENTIAL_TYPE_COLLECTOR = 1;    // For edge collectors (flowgger, trapd, etc.)
+  USER_CREDENTIAL_TYPE_SERVICE = 2;      // For internal services
+  USER_CREDENTIAL_TYPE_ADMIN = 3;        // For tenant admin access (limited)
+}
+
+// UserPermissions defines publish/subscribe permissions for a user.
+message UserPermissions {
+  repeated string publish_allow = 1;     // Subjects the user can publish to
+  repeated string publish_deny = 2;      // Subjects the user cannot publish to
+  repeated string subscribe_allow = 3;   // Subjects the user can subscribe to
+  repeated string subscribe_deny = 4;    // Subjects the user cannot subscribe to
+  bool allow_responses = 5;              // Whether the user can send responses
+  int32 max_responses = 6;               // Maximum number of responses (0 = unlimited)
+}
+
+// GenerateUserCredentialsRequest is the request to create user credentials.
+message GenerateUserCredentialsRequest {
+  string tenant_slug = 1;              // Tenant the user belongs to
+  string account_seed = 2;             // Account's private seed for signing (from Elixir storage)
+  string user_name = 3;                // Human-readable user identifier
+  UserCredentialType credential_type = 4; // Type of credentials to generate
+  UserPermissions permissions = 5;     // Optional custom permissions (defaults based on type)
+  int64 expiration_seconds = 6;        // Credential expiration in seconds (0 = no expiration)
+}
+
+// GenerateUserCredentialsResponse contains the generated credentials.
+message GenerateUserCredentialsResponse {
+  string user_public_key = 1;          // The user's public NKey (starts with 'U')
+  string user_jwt = 2;                 // The signed user JWT
+  string creds_file_content = 3;       // Complete .creds file content (JWT + seed)
+  int64 expires_at_unix = 4;           // Unix timestamp when credentials expire (0 = never)
+}
+
+// SignAccountJWTRequest is used to regenerate an account JWT with updated claims.
+message SignAccountJWTRequest {
+  string tenant_slug = 1;              // Tenant identifier (used as account name)
+  string account_seed = 2;             // Account's private seed (from Elixir storage)
+  AccountLimits limits = 3;            // Current resource limits
+  repeated SubjectMapping subject_mappings = 4; // Current subject mappings
+  repeated string revoked_user_keys = 5; // Public keys of revoked users
+}
+
+// SignAccountJWTResponse returns the newly signed account JWT.
+message SignAccountJWTResponse {
+  string account_public_key = 1;       // The account's public NKey
+  string account_jwt = 2;              // The newly signed account JWT
+}

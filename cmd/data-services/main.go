@@ -30,6 +30,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/nats/accounts"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -77,6 +78,21 @@ func main() {
 		log.Fatalf("Failed to create data service server: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
 	}
 
+	// Initialize NATS account service if operator config is provided
+	// This service is stateless - it only holds the operator key for signing operations.
+	// Account state (seeds, JWTs) is stored by Elixir in CNPG with AshCloak encryption.
+	var natsAccountServer *datasvc.NATSAccountServer
+	if cfg.NATSOperator != nil {
+		operator, opErr := accounts.NewOperator(cfg.NATSOperator)
+		if opErr != nil {
+			_ = bootstrapResult.Close()
+			log.Fatalf("Failed to initialize NATS operator: %v", opErr)
+		}
+
+		natsAccountServer = datasvc.NewNATSAccountServer(operator)
+		log.Printf("NATS account service initialized with operator %s", operator.Name())
+	}
+
 	opts := &lifecycle.ServerOptions{
 		ListenAddr:        cfg.ListenAddr,
 		ServiceName:       "datasvc",
@@ -88,6 +104,10 @@ func main() {
 			func(srv *ggrpc.Server) error {
 				proto.RegisterKVServiceServer(srv, server)
 				proto.RegisterDataServiceServer(srv, server)
+				// Register NATS account service if configured
+				if natsAccountServer != nil {
+					proto.RegisterNATSAccountServiceServer(srv, natsAccountServer)
+				}
 				return nil
 			},
 		},
