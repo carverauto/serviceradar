@@ -142,7 +142,10 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
               {if @job.enabled, do: "Enabled", else: "Paused"}
             </.ui_badge>
             <div class="flex items-center gap-1 text-xs text-base-content/60">
-              <.icon name="hero-arrow-path" class={["size-3", @refresh_interval > 0 && "animate-spin"]} />
+              <.icon
+                name="hero-arrow-path"
+                class={["size-3", @refresh_interval > 0 && "animate-spin"]}
+              />
               <select
                 class="select select-xs select-ghost"
                 phx-change="set_refresh_interval"
@@ -309,16 +312,13 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
                   class="w-full"
                   phx-click="trigger_job"
                 >
-                  <.icon name="hero-play" class="size-4" />
-                  Trigger Now
+                  <.icon name="hero-play" class="size-4" /> Trigger Now
                 </.ui_button>
                 <.ui_button variant="outline" size="sm" class="w-full" href={~p"/admin/oban"}>
-                  <.icon name="hero-queue-list" class="size-4" />
-                  View in Oban Web
+                  <.icon name="hero-queue-list" class="size-4" /> View in Oban Web
                 </.ui_button>
                 <.ui_button variant="ghost" size="sm" class="w-full" navigate={~p"/admin/jobs"}>
-                  <.icon name="hero-arrow-left" class="size-4" />
-                  Back to Jobs List
+                  <.icon name="hero-arrow-left" class="size-4" /> Back to Jobs List
                 </.ui_button>
               </div>
             </.ui_panel>
@@ -415,17 +415,41 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
       <div class="h-32 relative">
         <svg class="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
           <!-- Grid lines -->
-          <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" stroke-opacity="0.1" stroke-width="0.5" />
-          <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" stroke-opacity="0.1" stroke-width="0.5" />
-          <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" stroke-opacity="0.1" stroke-width="0.5" />
-
-          <!-- Bars -->
+          <line
+            x1="0"
+            y1="25"
+            x2="100"
+            y2="25"
+            stroke="currentColor"
+            stroke-opacity="0.1"
+            stroke-width="0.5"
+          />
+          <line
+            x1="0"
+            y1="50"
+            x2="100"
+            y2="50"
+            stroke="currentColor"
+            stroke-opacity="0.1"
+            stroke-width="0.5"
+          />
+          <line
+            x1="0"
+            y1="75"
+            x2="100"
+            y2="75"
+            stroke="currentColor"
+            stroke-opacity="0.1"
+            stroke-width="0.5"
+          />
+          
+    <!-- Bars -->
           <%= for {bucket, idx} <- Enum.with_index(@data) do %>
             <% x = idx * @bar_width %>
             <% completed_height = bucket.completed / @max_val * 100 %>
             <% failed_height = bucket.failed / @max_val * 100 %>
-
-            <!-- Completed (green) -->
+            
+    <!-- Completed (green) -->
             <rect
               x={x + @bar_width * 0.1}
               y={100 - completed_height}
@@ -436,8 +460,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
             >
               <title>Completed: {bucket.completed}</title>
             </rect>
-
-            <!-- Failed (red) -->
+            
+    <!-- Failed (red) -->
             <rect
               x={x + @bar_width * 0.55}
               y={100 - failed_height}
@@ -451,8 +475,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
           <% end %>
         </svg>
       </div>
-
-      <!-- Legend -->
+      
+    <!-- Legend -->
       <div class="flex items-center justify-center gap-4 text-xs text-base-content/60">
         <div class="flex items-center gap-1">
           <div class="w-3 h-3 rounded bg-success"></div>
@@ -463,8 +487,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
           <span>Failed</span>
         </div>
       </div>
-
-      <!-- Time axis -->
+      
+    <!-- Time axis -->
       <div class="flex justify-between text-[10px] text-base-content/40 px-1">
         <%= if length(@data) > 0 do %>
           <span>{format_chart_time(List.first(@data).hour)}</span>

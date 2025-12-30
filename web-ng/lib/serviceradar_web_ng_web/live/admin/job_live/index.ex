@@ -163,7 +163,10 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
           </div>
           <div class="flex items-center gap-2">
             <div class="flex items-center gap-1 text-xs text-base-content/60">
-              <.icon name="hero-arrow-path" class={["size-3", @refresh_interval > 0 && "animate-spin"]} />
+              <.icon
+                name="hero-arrow-path"
+                class={["size-3", @refresh_interval > 0 && "animate-spin"]}
+              />
               <select
                 class="select select-xs select-ghost"
                 phx-change="set_refresh_interval"
@@ -290,32 +293,51 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
               <table class="table table-sm">
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
-                    <th class="cursor-pointer hover:text-base-content" phx-click="sort" phx-value-field="name">
+                    <th
+                      class="cursor-pointer hover:text-base-content"
+                      phx-click="sort"
+                      phx-value-field="name"
+                    >
                       <div class="flex items-center gap-1">
-                        Job
-                        <.sort_indicator field={:name} sort_by={@sort_by} sort_dir={@sort_dir} />
+                        Job <.sort_indicator field={:name} sort_by={@sort_by} sort_dir={@sort_dir} />
                       </div>
                     </th>
-                    <th class="cursor-pointer hover:text-base-content" phx-click="sort" phx-value-field="source">
+                    <th
+                      class="cursor-pointer hover:text-base-content"
+                      phx-click="sort"
+                      phx-value-field="source"
+                    >
                       <div class="flex items-center gap-1">
                         Source
                         <.sort_indicator field={:source} sort_by={@sort_by} sort_dir={@sort_dir} />
                       </div>
                     </th>
                     <th>Status</th>
-                    <th class="cursor-pointer hover:text-base-content" phx-click="sort" phx-value-field="cron">
+                    <th
+                      class="cursor-pointer hover:text-base-content"
+                      phx-click="sort"
+                      phx-value-field="cron"
+                    >
                       <div class="flex items-center gap-1">
                         Schedule
                         <.sort_indicator field={:cron} sort_by={@sort_by} sort_dir={@sort_dir} />
                       </div>
                     </th>
-                    <th class="cursor-pointer hover:text-base-content" phx-click="sort" phx-value-field="last_run_at">
+                    <th
+                      class="cursor-pointer hover:text-base-content"
+                      phx-click="sort"
+                      phx-value-field="last_run_at"
+                    >
                       <div class="flex items-center gap-1">
                         Last Run
                         <.sort_indicator field={:last_run_at} sort_by={@sort_by} sort_dir={@sort_dir} />
                       </div>
                     </th>
-                    <th class="cursor-pointer hover:text-base-content" phx-click="sort" phx-value-field="next_run_at">
+                    <th
+                      class="cursor-pointer hover:text-base-content"
+                      phx-click="sort"
+                      phx-value-field="next_run_at"
+                    >
                       <div class="flex items-center gap-1">
                         Next Run
                         <.sort_indicator field={:next_run_at} sort_by={@sort_by} sort_dir={@sort_dir} />
@@ -327,7 +349,10 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                 <tbody>
                   <%= for job <- @jobs do %>
                     <tr class="hover:bg-base-200/30">
-                      <td class="cursor-pointer" phx-click={JS.navigate(~p"/admin/jobs/#{encode_job_id(job.id)}")}>
+                      <td
+                        class="cursor-pointer"
+                        phx-click={JS.navigate(~p"/admin/jobs/#{encode_job_id(job.id)}")}
+                      >
                         <div class="font-medium text-base-content">{job.name}</div>
                         <div class="text-xs text-base-content/60 max-w-[250px] truncate">
                           {job.description}
@@ -394,7 +419,10 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   defp sort_indicator(assigns) do
     ~H"""
     <%= if @sort_by == @field do %>
-      <.icon name={if @sort_dir == :asc, do: "hero-chevron-up", else: "hero-chevron-down"} class="size-3" />
+      <.icon
+        name={if @sort_dir == :asc, do: "hero-chevron-up", else: "hero-chevron-down"}
+        class="size-3"
+      />
     <% else %>
       <.icon name="hero-chevron-up-down" class="size-3 opacity-30" />
     <% end %>

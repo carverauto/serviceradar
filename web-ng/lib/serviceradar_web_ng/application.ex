@@ -262,5 +262,4 @@ defmodule ServiceRadarWebNG.Application do
       Logger.warning("[web-ng] Error checking core-elx health: #{inspect(e)}")
       :error
   end
-
 end

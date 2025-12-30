@@ -184,7 +184,6 @@ if config_env() != :test do
 
   config :serviceradar_core, Oban, oban_config
   config :serviceradar_core, :start_ash_oban_scheduler, false
-
 end
 
 if config_env() == :prod do

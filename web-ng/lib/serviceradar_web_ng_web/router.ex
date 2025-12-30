@@ -126,6 +126,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       additional_pages: [
         broadway: {BroadwayDashboard, pipelines: [ServiceRadar.EventWriter.Pipeline]}
       ]
+
     forward "/mailbox", Plug.Swoosh.MailboxPreview
 
     # AshAdmin for Ash resource management (dev/staging only)

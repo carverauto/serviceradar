@@ -106,7 +106,9 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   defp maybe_filter_enabled(jobs, enabled), do: Enum.filter(jobs, &(&1.enabled == enabled))
 
   defp maybe_sort(jobs, nil, _dir), do: jobs
-  defp maybe_sort(jobs, field, dir) when field in [:name, :source, :cron, :last_run_at, :next_run_at] do
+
+  defp maybe_sort(jobs, field, dir)
+       when field in [:name, :source, :cron, :last_run_at, :next_run_at] do
     sorter = fn job ->
       value = Map.get(job, field)
       # Handle nil values - put them at the end
@@ -121,6 +123,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
       _ -> Enum.sort_by(jobs, sorter, :asc)
     end
   end
+
   defp maybe_sort(jobs, _field, _dir), do: jobs
 
   @doc """
