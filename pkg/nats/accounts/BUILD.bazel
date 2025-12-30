@@ -14,3 +14,17 @@ go_library(
         "@com_github_nats_io_nkeys//:nkeys",
     ],
 )
+
+go_test(
+    name = "accounts_test",
+    srcs = [
+        "account_manager_test.go",
+        "operator_test.go",
+        "user_manager_test.go",
+    ],
+    embed = [":accounts"],
+    deps = [
+        "@com_github_nats_io_jwt_v2//:jwt",
+        "@com_github_nats_io_nkeys//:nkeys",
+    ],
+)

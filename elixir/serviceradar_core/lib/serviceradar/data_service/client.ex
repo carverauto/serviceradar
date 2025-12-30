@@ -148,7 +148,7 @@ defmodule ServiceRadar.DataService.Client do
     {:noreply, schedule_reconnect(state, reason)}
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{connect_task: {_pid, ref}} = state) do
+  def handle_info({:DOWN, ref, :process, pid, reason}, %{connect_task: {pid, ref}} = state) do
     state = clear_connect_task(state)
     {:noreply, schedule_reconnect(state, reason)}
   end
@@ -239,6 +239,16 @@ defmodule ServiceRadar.DataService.Client do
       {:ok, state} ->
         result = do_put_many(state.channel, entries, opts)
         {:reply, result, state}
+
+      {:error, _reason} = error ->
+        {:reply, error, state}
+    end
+  end
+
+  def handle_call(:get_channel, _from, state) do
+    case ensure_connected(state) do
+      {:ok, state} ->
+        {:reply, {:ok, state.channel}, state}
 
       {:error, _reason} = error ->
         {:reply, error, state}

@@ -154,6 +154,9 @@ func (s *AccountSigner) signAccountJWT(
 
 	// Apply revocations
 	if len(revokedUserKeys) > 0 {
+		if claims.Revocations == nil {
+			claims.Revocations = make(jwt.RevocationList)
+		}
 		now := time.Now().Unix()
 		for _, key := range revokedUserKeys {
 			claims.Revocations[key] = now

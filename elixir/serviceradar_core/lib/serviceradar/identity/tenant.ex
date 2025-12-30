@@ -32,8 +32,9 @@ defmodule ServiceRadar.Identity.Tenant do
 
   cloak do
     vault(ServiceRadar.Vault)
-    attributes([:contact_email, :contact_name])
+    attributes([:contact_email, :contact_name, :nats_account_seed_ciphertext])
     decrypt_by_default([:contact_email, :contact_name])
+    # Note: nats_account_seed_ciphertext is NOT decrypted by default for security
   end
 
   actions do
@@ -73,6 +74,67 @@ defmodule ServiceRadar.Identity.Tenant do
 
     update :soft_delete do
       change set_attribute(:status, :deleted)
+    end
+
+    update :set_nats_account do
+      description "Set NATS account credentials after successful provisioning"
+      accept []
+      require_atomic? false
+
+      argument :account_public_key, :string, allow_nil?: false
+      argument :account_seed, :string, allow_nil?: false
+      argument :account_jwt, :string, allow_nil?: false
+
+      change fn changeset, _context ->
+        account_seed = Ash.Changeset.get_argument(changeset, :account_seed)
+
+        changeset
+        |> Ash.Changeset.change_attribute(:nats_account_public_key, Ash.Changeset.get_argument(changeset, :account_public_key))
+        |> Ash.Changeset.change_attribute(:nats_account_seed_ciphertext, account_seed)
+        |> Ash.Changeset.change_attribute(:nats_account_jwt, Ash.Changeset.get_argument(changeset, :account_jwt))
+        |> Ash.Changeset.change_attribute(:nats_account_status, :ready)
+        |> Ash.Changeset.change_attribute(:nats_account_error, nil)
+      end
+    end
+
+    update :set_nats_account_error do
+      description "Record NATS account provisioning failure"
+      accept []
+      require_atomic? false
+
+      argument :error_message, :string, allow_nil?: false
+
+      change set_attribute(:nats_account_status, :error)
+      change fn changeset, _context ->
+        Ash.Changeset.change_attribute(
+          changeset,
+          :nats_account_error,
+          Ash.Changeset.get_argument(changeset, :error_message)
+        )
+      end
+    end
+
+    update :set_nats_account_pending do
+      description "Mark NATS account provisioning as pending"
+      accept []
+      change set_attribute(:nats_account_status, :pending)
+      change set_attribute(:nats_account_error, nil)
+    end
+
+    update :update_nats_account_jwt do
+      description "Update NATS account JWT (after re-signing)"
+      accept []
+      require_atomic? false
+
+      argument :account_jwt, :string, allow_nil?: false
+
+      change fn changeset, _context ->
+        Ash.Changeset.change_attribute(
+          changeset,
+          :nats_account_jwt,
+          Ash.Changeset.get_argument(changeset, :account_jwt)
+        )
+      end
     end
 
     action :generate_ca, :struct do
@@ -241,6 +303,24 @@ defmodule ServiceRadar.Identity.Tenant do
     policy action(:generate_ca) do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
+
+    # NATS account actions are internal (system only, no actor)
+    # These are called by Oban jobs with authorize?: false
+    policy action(:set_nats_account) do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    policy action(:set_nats_account_error) do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    policy action(:set_nats_account_pending) do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    policy action(:update_nats_account_jwt) do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
   end
 
   attributes do
@@ -305,6 +385,39 @@ defmodule ServiceRadar.Identity.Tenant do
       allow_nil? true
       public? true
       description "Owner user ID (set during registration)"
+    end
+
+    # NATS Account fields for multi-tenant isolation
+    attribute :nats_account_public_key, :string do
+      allow_nil? true
+      public? false
+      description "NATS account public key (starts with 'A')"
+    end
+
+    attribute :nats_account_seed_ciphertext, :binary do
+      allow_nil? true
+      public? false
+      description "Encrypted NATS account seed (starts with 'SA' when decrypted)"
+    end
+
+    attribute :nats_account_jwt, :string do
+      allow_nil? true
+      public? false
+      constraints max_length: 8192
+      description "Signed NATS account JWT"
+    end
+
+    attribute :nats_account_status, :atom do
+      allow_nil? true
+      public? false
+      constraints one_of: [:pending, :ready, :error]
+      description "NATS account provisioning status"
+    end
+
+    attribute :nats_account_error, :string do
+      allow_nil? true
+      public? false
+      description "Error message if NATS account provisioning failed"
     end
 
     create_timestamp :inserted_at
@@ -373,6 +486,10 @@ defmodule ServiceRadar.Identity.Tenant do
                   end
                 end
               )
+
+    calculate :nats_account_ready?,
+              :boolean,
+              expr(nats_account_status == :ready and not is_nil(nats_account_jwt))
   end
 
   identities do
