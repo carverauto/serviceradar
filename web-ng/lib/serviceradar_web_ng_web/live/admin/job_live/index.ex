@@ -128,27 +128,22 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   end
 
   def handle_event("trigger_job", %{"id" => encoded_id}, socket) do
-    case decode_job_id(encoded_id) do
-      {:ok, id} ->
-        case JobCatalog.get_job(id) do
-          {:ok, job} ->
-            case JobCatalog.trigger_job(job) do
-              {:ok, _oban_job} ->
-                {:noreply,
-                 socket
-                 |> put_flash(:info, "Job '#{job.name}' triggered successfully")
-                 |> load_jobs()}
-
-              {:error, reason} ->
-                {:noreply, put_flash(socket, :error, "Failed to trigger job: #{inspect(reason)}")}
-            end
-
-          {:error, :not_found} ->
-            {:noreply, put_flash(socket, :error, "Job not found")}
-        end
-
+    with {:ok, id} <- decode_job_id(encoded_id),
+         {:ok, job} <- JobCatalog.get_job(id),
+         {:ok, _oban_job} <- JobCatalog.trigger_job(job) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Job '#{job.name}' triggered successfully")
+       |> load_jobs()}
+    else
       :error ->
         {:noreply, put_flash(socket, :error, "Invalid job ID")}
+
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "Job not found")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to trigger job: #{inspect(reason)}")}
     end
   end
 

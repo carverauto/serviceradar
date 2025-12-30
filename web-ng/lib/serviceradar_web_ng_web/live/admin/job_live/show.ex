@@ -658,8 +658,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   defp format_errors([]), do: "No error details"
 
   defp format_errors(errors) when is_list(errors) do
-    errors
-    |> Enum.map(fn error ->
+    Enum.map_join(errors, "\n", fn error ->
       case error do
         %{"error" => msg, "at" => at} ->
           "#{at}: #{msg}"
@@ -674,7 +673,6 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
           inspect(other)
       end
     end)
-    |> Enum.join("\n")
   end
 
   defp format_errors(error), do: inspect(error)
