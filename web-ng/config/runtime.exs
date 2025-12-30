@@ -167,6 +167,20 @@ if config_env() != :test do
 
   config :serviceradar_core, Oban, oban_config
   config :serviceradar_core, :start_ash_oban_scheduler, false
+
+  oban_web_enabled =
+    System.get_env("SERVICERADAR_WEB_NG_OBAN_WEB_ENABLED", "true") in ~w(true 1 yes)
+
+  oban_web_config = [
+    name: ObanWeb,
+    engine: Oban.Engines.Basic,
+    repo: ServiceRadar.Repo,
+    queues: [],
+    plugins: [],
+    peer: Oban.Peers.Isolated
+  ]
+
+  config :serviceradar_web_ng, ObanWeb, if(oban_web_enabled, do: oban_web_config, else: false)
 end
 
 if config_env() == :prod do

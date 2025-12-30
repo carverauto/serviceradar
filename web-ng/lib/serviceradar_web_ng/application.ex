@@ -27,6 +27,8 @@ defmodule ServiceRadarWebNG.Application do
        query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore},
       # Phoenix PubSub for web-specific real-time features
       {Phoenix.PubSub, name: ServiceRadarWebNG.PubSub},
+      # Oban instance for the admin dashboard (read-only)
+      oban_web_child(),
       # Start to serve requests, typically the last entry
       ServiceRadarWebNGWeb.Endpoint
     ]
@@ -261,5 +263,13 @@ defmodule ServiceRadarWebNG.Application do
     e ->
       Logger.warning("[web-ng] Error checking core-elx health: #{inspect(e)}")
       :error
+  end
+
+  defp oban_web_child do
+    case Application.get_env(:serviceradar_web_ng, ObanWeb) do
+      false -> nil
+      nil -> nil
+      oban_config when is_list(oban_config) -> {Oban, oban_config}
+    end
   end
 end
