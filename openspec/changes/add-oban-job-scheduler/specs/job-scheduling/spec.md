@@ -1,6 +1,6 @@
 ## ADDED Requirements
-### Requirement: Web-NG provides Oban-backed job scheduling
-The web-ng application MUST run Oban with CNPG as the job storage backend so background jobs are persisted and observable.
+### Requirement: ServiceRadar provides Oban-backed job scheduling
+The web-ng application MUST run Oban with CNPG as the job storage backend so background jobs are persisted and observable. Other Elixir nodes MAY join the Oban cluster as peers to share job execution.
 
 #### Scenario: Oban tables exist after migration
 - **GIVEN** web-ng has applied database migrations
@@ -8,10 +8,10 @@ The web-ng application MUST run Oban with CNPG as the job storage backend so bac
 - **THEN** the `oban_jobs` table exists.
 
 ### Requirement: Cron scheduling is coordinated across nodes
-The system MUST use a custom Oban scheduler plugin with peer leader election so only one scheduler instance enqueues recurring jobs in multi-node deployments.
+The system MUST use `Oban.Plugins.Cron` with `Oban.Peers.Database` leader election so only one scheduler instance enqueues recurring jobs in multi-node deployments.
 
 #### Scenario: Single scheduler is elected across multiple nodes
-- **GIVEN** two web-ng nodes are running with Oban peers configured
+- **GIVEN** web-ng and core nodes are running with Oban peers configured
 - **WHEN** Oban cron starts
 - **THEN** exactly one node is elected as the cron leader and schedules recurring jobs.
 
@@ -29,7 +29,7 @@ The system MUST schedule a recurring Oban job to refresh `otel_trace_summaries` 
 #### Scenario: Refresh worker is enqueued on schedule
 - **GIVEN** web-ng is running with Oban cron enabled
 - **WHEN** 3 minutes elapse
-- **THEN** `SELECT count(*) FROM oban_jobs WHERE worker = 'ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker';` returns a value greater than zero.
+- **THEN** `SELECT count(*) FROM oban_jobs WHERE worker = 'ServiceRadar.Jobs.RefreshTraceSummariesWorker';` returns a value greater than zero.
 
 #### Scenario: Refresh worker executes concurrent refresh
 - **GIVEN** the refresh worker runs

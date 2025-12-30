@@ -121,7 +121,11 @@ defmodule ServiceRadarWebNGWeb.Router do
   scope "/dev" do
     pipe_through [:browser, :dev_routes]
 
-    live_dashboard "/dashboard", metrics: ServiceRadarWebNGWeb.Telemetry
+    live_dashboard "/dashboard",
+      metrics: ServiceRadarWebNGWeb.Telemetry,
+      additional_pages: [
+        broadway: {BroadwayDashboard, pipelines: [ServiceRadar.EventWriter.Pipeline]}
+      ]
     forward "/mailbox", Plug.Swoosh.MailboxPreview
 
     # AshAdmin for Ash resource management (dev/staging only)

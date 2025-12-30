@@ -128,8 +128,8 @@
 
 ### 5.4 Broadway Dashboard
 - [x] 5.4.1 Add `broadway_dashboard` dependency to `mix.exs`
-- [ ] 5.4.2 Mount Broadway Dashboard in Phoenix router (admin routes)
-- [ ] 5.4.3 Configure dashboard authentication (admin only)
+- [x] 5.4.2 Mount Broadway Dashboard in Phoenix router (`/dev/dashboard` with additional_pages)
+- [x] 5.4.3 Configure dashboard authentication (dev_routes pipeline with existing auth)
 - [ ] 5.4.4 Document dashboard access and usage
 
 ## Phase 5.5: Code Quality & Reuse (Priority: Medium)
@@ -145,25 +145,61 @@
 
 ## Phase 5.6: OCSF Schema Compliance (Priority: Medium)
 
-> **Strategy**: Keep OTel data (traces, metrics) in native format for observability.
-> Convert security-relevant events to OCSF schema where appropriate.
+### 5.6.1 Data Strategy
 
-### 5.6.1 Current State (Analysis Complete)
-| Processor | Table | OCSF? | Action |
-|-----------|-------|-------|--------|
-| Logs | ocsf_events | ✅ Yes | Keep as-is |
-| OtelMetrics | otel_metrics | ❌ No | Keep native (observability) |
-| OtelTraces | otel_traces | ❌ No | Keep native (observability) |
-| Telemetry | timeseries_metrics | ❌ No | Keep native (metrics) |
-| Sweep | sweep_host_states | ❌ No | Consider OCSF Network Activity |
-| NetFlow | netflow_metrics | ❌ No | Consider OCSF Network Traffic |
+**Principle**: Use OCSF for security-relevant events, keep native formats for observability data.
 
-### 5.6.2 OCSF Conversion Tasks (Future)
-- [ ] 5.6.2.1 Evaluate Sweep → OCSF Network Activity (class_uid: 4001)
-- [ ] 5.6.2.2 Evaluate NetFlow → OCSF Network Traffic (class_uid: 4002)
-- [ ] 5.6.2.3 Create OCSF base module for shared OCSF field building
-- [ ] 5.6.2.4 Add OCSF category/class constants module
-- [ ] 5.6.2.5 Document OCSF vs native data strategy
+| Data Type | Format | Rationale |
+|-----------|--------|-----------|
+| **OTel Traces** | Native | Distributed tracing with span context, parent-child relationships. OCSF adds overhead without value. |
+| **OTel Metrics** | Native | Time-series metrics with histograms, gauges, counters. Native format preserves aggregation semantics. |
+| **Telemetry** | Native | Application metrics (Broadway stats, connection pools). Native time-series format for Grafana. |
+| **Logs** | OCSF Event Log (1008) | Log entries are security-relevant events. OCSF enables correlation with other security data. |
+| **Sweep** | OCSF Network Activity (4001) | Network discovery is security-relevant. Hosts, ports, availability map to OCSF schema well. |
+| **NetFlow** | OCSF Network Activity (4001) | Network traffic is core security data. OCSF enables threat detection and forensics. |
+
+**Key insight**: OCSF is designed for security event correlation and threat detection.
+OTel data is designed for application observability. Converting OTel → OCSF loses semantic
+meaning (span context, metric types) while adding complexity. Keep each format where it excels.
+
+### 5.6.2 Implementation Status
+| Processor | Table | OCSF Class | Status |
+|-----------|-------|------------|--------|
+| Logs | ocsf_events | Event Log Activity (1008) | ✅ Complete |
+| OtelMetrics | otel_metrics | N/A (native) | ✅ Keep native |
+| OtelTraces | otel_traces | N/A (native) | ✅ Keep native |
+| Telemetry | timeseries_metrics | N/A (native) | ✅ Keep native |
+| Sweep | ocsf_network_activity | Network Activity (4001), activity_id: 99 (Scan) | ✅ Complete |
+| NetFlow | ocsf_network_activity | Network Activity (4001), activity_id: 6 (Traffic) | ✅ Complete |
+
+### 5.6.3 OCSF Implementation Tasks
+- [x] 5.6.3.1 Create `EventWriter.OCSF` base module with constants and builders
+- [x] 5.6.3.2 Create `ocsf_network_activity` hypertable migration
+- [x] 5.6.3.3 Convert Sweep processor to OCSF Network Activity (class_uid: 4001, activity_id: 99)
+- [x] 5.6.3.4 Convert NetFlow processor to OCSF Network Activity (class_uid: 4001, activity_id: 6)
+- [x] 5.6.3.5 Document OCSF vs native data strategy (this section)
+
+### 5.6.4 OCSF Schema Details
+
+**Network Activity (4001)** is used for both Sweep and NetFlow because:
+- Both involve network endpoint discovery/observation
+- Sweep: `activity_id: 99` (Scan) - network discovery operations
+- NetFlow: `activity_id: 6` (Traffic) - network traffic reporting
+
+**Shared OCSF fields**:
+- `src_endpoint` / `dst_endpoint`: IP, port, hostname, MAC
+- `observables`: List of observable values (IPs, ports, hostnames)
+- `metadata`: Product info, correlation UID, version
+- `device` / `actor`: What/who generated the event
+- `traffic`: Bytes, packets for NetFlow
+- `scan_type`, `ports_scanned`, `ports_open`: For Sweep
+
+**Module structure**:
+- `EventWriter.OCSF` - constants, builders, shared functions
+- `EventWriter.FieldParser` - JSON field parsing, timestamp handling
+- `EventWriter.Processors.Sweep` - writes to `ocsf_network_activity`
+- `EventWriter.Processors.NetFlow` - writes to `ocsf_network_activity`
+- `EventWriter.Processors.Logs` - writes to `ocsf_events`
 
 ## Phase 6: Cleanup (Priority: Low)
 

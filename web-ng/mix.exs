@@ -55,6 +55,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:stream_data, "~> 1.1"},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:phoenix_live_dashboard, "~> 0.8.3"},
+      {:broadway_dashboard, "~> 0.4"},
       {:oban_web, "~> 2.10"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
