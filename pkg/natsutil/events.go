@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -15,6 +16,16 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/tenant"
+)
+
+const (
+	// EnvNATSTenantPrefixEnabled is the environment variable to enable tenant prefixing.
+	// When set to "true", all NATS subjects will be prefixed with the tenant slug.
+	EnvNATSTenantPrefixEnabled = "NATS_TENANT_PREFIX_ENABLED"
+
+	// DefaultTenant is used when no tenant is found in context and prefixing is enabled.
+	DefaultTenant = "default"
 )
 
 var (
@@ -24,22 +35,53 @@ var (
 	ErrEventPayloadNil = errors.New("event payload is nil")
 )
 
+// IsTenantPrefixEnabled returns true if NATS tenant prefixing is enabled via environment.
+func IsTenantPrefixEnabled() bool {
+	val := os.Getenv(EnvNATSTenantPrefixEnabled)
+	return val == "true" || val == "1" || val == "yes"
+}
+
 // EventPublisher provides methods for publishing CloudEvents to NATS JetStream.
 type EventPublisher struct {
-	js       jetstream.JetStream
-	stream   string
-	subjects []string
-	logger   zerolog.Logger
+	js              jetstream.JetStream
+	stream          string
+	subjects        []string
+	logger          zerolog.Logger
+	tenantPrefixing bool // Whether to prefix subjects with tenant slug
 }
 
 // NewEventPublisher creates a new EventPublisher for the specified stream.
+// Tenant prefixing is automatically determined by the NATS_TENANT_PREFIX_ENABLED env var.
 func NewEventPublisher(js jetstream.JetStream, streamName string, subjects []string) *EventPublisher {
 	return &EventPublisher{
-		js:       js,
-		stream:   streamName,
-		subjects: append([]string(nil), subjects...),
-		logger:   logger.WithComponent("natsutil.events"),
+		js:              js,
+		stream:          streamName,
+		subjects:        append([]string(nil), subjects...),
+		logger:          logger.WithComponent("natsutil.events"),
+		tenantPrefixing: IsTenantPrefixEnabled(),
 	}
+}
+
+// NewEventPublisherWithPrefixing creates an EventPublisher with explicit tenant prefix control.
+func NewEventPublisherWithPrefixing(
+	js jetstream.JetStream, streamName string, subjects []string, enablePrefixing bool) *EventPublisher {
+	return &EventPublisher{
+		js:              js,
+		stream:          streamName,
+		subjects:        append([]string(nil), subjects...),
+		logger:          logger.WithComponent("natsutil.events"),
+		tenantPrefixing: enablePrefixing,
+	}
+}
+
+// IsTenantPrefixingEnabled returns whether tenant prefixing is enabled for this publisher.
+func (p *EventPublisher) IsTenantPrefixingEnabled() bool {
+	return p.tenantPrefixing
+}
+
+// SetTenantPrefixing enables or disables tenant prefixing.
+func (p *EventPublisher) SetTenantPrefixing(enabled bool) {
+	p.tenantPrefixing = enabled
 }
 
 // PublishPollerHealthEvent publishes a poller health event to the events stream.
@@ -148,18 +190,21 @@ func (p *EventPublisher) publishEvent(ctx context.Context, event *models.CloudEv
 		return ErrEventPayloadNil
 	}
 
+	// Apply tenant prefix if enabled
+	subject := p.applyTenantPrefix(ctx, event.Subject)
+
 	eventBytes, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("failed to marshal event %s: %w", event.Type, err)
 	}
 
-	ack, err := p.js.Publish(ctx, event.Subject, eventBytes)
+	ack, err := p.js.Publish(ctx, subject, eventBytes)
 	if err != nil && isStreamMissingErr(err) {
-		if ensureErr := p.ensureStream(ctx, event.Subject); ensureErr != nil {
-			return fmt.Errorf("failed to ensure stream for %s: %w", event.Subject, ensureErr)
+		if ensureErr := p.ensureStream(ctx, subject); ensureErr != nil {
+			return fmt.Errorf("failed to ensure stream for %s: %w", subject, ensureErr)
 		}
 
-		ack, err = p.js.Publish(ctx, event.Subject, eventBytes)
+		ack, err = p.js.Publish(ctx, subject, eventBytes)
 	}
 
 	if err != nil {
@@ -168,11 +213,80 @@ func (p *EventPublisher) publishEvent(ctx context.Context, event *models.CloudEv
 
 	p.logger.Debug().
 		Str("event_id", event.ID).
-		Str("subject", event.Subject).
+		Str("subject", subject).
 		Uint64("sequence", ack.Sequence).
 		Msg("Published event")
 
 	return nil
+}
+
+// applyTenantPrefix adds the tenant prefix to a subject if prefixing is enabled.
+// Extracts tenant from context; falls back to DefaultTenant if not found.
+func (p *EventPublisher) applyTenantPrefix(ctx context.Context, subject string) string {
+	if !p.tenantPrefixing {
+		return subject
+	}
+
+	tenantSlug := tenant.SlugFromContext(ctx)
+	if tenantSlug == "" {
+		tenantSlug = DefaultTenant
+	}
+
+	return tenant.PrefixChannelWithSlug(tenantSlug, subject)
+}
+
+// PublishWithTenant publishes an event with an explicit tenant slug.
+// This bypasses context-based tenant extraction.
+func (p *EventPublisher) PublishWithTenant(
+	ctx context.Context, tenantSlug, subject string, data interface{}) error {
+	// Build subject with tenant prefix if enabled
+	finalSubject := subject
+	if p.tenantPrefixing && tenantSlug != "" {
+		finalSubject = tenant.PrefixChannelWithSlug(tenantSlug, subject)
+	}
+
+	event := models.CloudEvent{
+		SpecVersion:     "1.0",
+		ID:              uuid.New().String(),
+		Source:          "serviceradar/core",
+		Type:            "com.carverauto.serviceradar.generic",
+		DataContentType: "application/json",
+		Subject:         finalSubject,
+		Time:            timePtr(time.Now()),
+		Data:            data,
+	}
+
+	eventBytes, err := json.Marshal(&event)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event: %w", err)
+	}
+
+	ack, err := p.js.Publish(ctx, finalSubject, eventBytes)
+	if err != nil && isStreamMissingErr(err) {
+		if ensureErr := p.ensureStream(ctx, finalSubject); ensureErr != nil {
+			return fmt.Errorf("failed to ensure stream for %s: %w", finalSubject, ensureErr)
+		}
+
+		ack, err = p.js.Publish(ctx, finalSubject, eventBytes)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to publish event: %w", err)
+	}
+
+	p.logger.Debug().
+		Str("event_id", event.ID).
+		Str("tenant", tenantSlug).
+		Str("subject", finalSubject).
+		Uint64("sequence", ack.Sequence).
+		Msg("Published event with tenant")
+
+	return nil
+}
+
+// timePtr returns a pointer to the given time.
+func timePtr(t time.Time) *time.Time {
+	return &t
 }
 
 // ConnectWithEventPublisher creates a NATS connection with JetStream and returns an EventPublisher.

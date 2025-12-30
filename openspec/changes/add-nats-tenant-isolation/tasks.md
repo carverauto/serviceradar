@@ -4,13 +4,13 @@
 
 ### 1.1 Go Publisher Updates
 
-- [ ] 1.1.1 Update `pkg/natsutil/events.go` to accept tenant slug parameter
-- [ ] 1.1.2 Add `PublishWithTenant(ctx, tenant, subject, data)` helper
-- [ ] 1.1.3 Update `EventPublisher` to extract tenant from context
-- [ ] 1.1.4 Add feature flag `NATS_TENANT_PREFIX_ENABLED` (default: false)
+- [x] 1.1.1 Update `pkg/natsutil/events.go` to accept tenant slug parameter
+- [x] 1.1.2 Add `PublishWithTenant(ctx, tenant, subject, data)` helper
+- [x] 1.1.3 Update `EventPublisher` to extract tenant from context
+- [x] 1.1.4 Add feature flag `NATS_TENANT_PREFIX_ENABLED` (default: false)
 - [ ] 1.1.5 Update core service event publishing to include tenant context
 - [ ] 1.1.6 Update poller health event publishing with tenant
-- [ ] 1.1.7 Add unit tests for prefixed publishing
+- [x] 1.1.7 Add unit tests for prefixed publishing
 
 ### 1.2 Go Consumer Updates
 
