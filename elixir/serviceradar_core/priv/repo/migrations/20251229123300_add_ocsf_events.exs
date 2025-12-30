@@ -16,8 +16,8 @@ defmodule ServiceRadar.Repo.Migrations.AddOcsfEvents do
   use Ecto.Migration
 
   def up do
-    # Create the ocsf_events table
-    create table(:ocsf_events, primary_key: false) do
+    # Create the ocsf_events table (if not exists)
+    create_if_not_exists table(:ocsf_events, primary_key: false) do
       # Primary key is (time, id) for TimescaleDB hypertable
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()")
       add :time, :utc_datetime_usec, null: false
@@ -82,15 +82,15 @@ defmodule ServiceRadar.Repo.Migrations.AddOcsfEvents do
     """
 
     # Create indexes for common query patterns
-    create index(:ocsf_events, [:tenant_id, :time])
-    create index(:ocsf_events, [:class_uid])
-    create index(:ocsf_events, [:category_uid])
-    create index(:ocsf_events, [:severity_id])
-    create index(:ocsf_events, [:trace_id], where: "trace_id IS NOT NULL")
-    create index(:ocsf_events, [:log_name], where: "log_name IS NOT NULL")
+    create_if_not_exists index(:ocsf_events, [:tenant_id, :time])
+    create_if_not_exists index(:ocsf_events, [:class_uid])
+    create_if_not_exists index(:ocsf_events, [:category_uid])
+    create_if_not_exists index(:ocsf_events, [:severity_id])
+    create_if_not_exists index(:ocsf_events, [:trace_id], where: "trace_id IS NOT NULL")
+    create_if_not_exists index(:ocsf_events, [:log_name], where: "log_name IS NOT NULL")
 
     # GIN index for metadata queries
-    execute "CREATE INDEX ocsf_events_metadata_idx ON ocsf_events USING gin (metadata)"
+    execute "CREATE INDEX IF NOT EXISTS ocsf_events_metadata_idx ON ocsf_events USING gin (metadata)"
   end
 
   def down do
