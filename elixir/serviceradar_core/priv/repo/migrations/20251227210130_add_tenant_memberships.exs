@@ -8,17 +8,20 @@ defmodule ServiceRadar.Repo.Migrations.AddTenantMemberships do
   use Ecto.Migration
 
   def up do
-    alter table(:tenants) do
-      add :owner_id,
-          references(:ng_users,
-            column: :id,
-            name: "tenants_owner_id_fkey",
-            type: :uuid,
-            prefix: "public"
-          )
-    end
+    # Add owner_id column if it doesn't exist
+    execute """
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'tenants' AND column_name = 'owner_id'
+      ) THEN
+        ALTER TABLE tenants ADD COLUMN owner_id UUID REFERENCES ng_users(id);
+      END IF;
+    END $$;
+    """
 
-    create table(:tenant_memberships, primary_key: false) do
+    create_if_not_exists table(:tenant_memberships, primary_key: false) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
       add :role, :text, null: false, default: "member"
       add :joined_at, :utc_datetime, null: false, default: fragment("(now() AT TIME ZONE 'utc')")
@@ -48,7 +51,7 @@ defmodule ServiceRadar.Repo.Migrations.AddTenantMemberships do
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
 
-    create unique_index(:tenant_memberships, [:tenant_id, :user_id],
+    create_if_not_exists unique_index(:tenant_memberships, [:tenant_id, :user_id],
              name: "tenant_memberships_unique_membership_index"
            )
   end

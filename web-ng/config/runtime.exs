@@ -137,6 +137,11 @@ if config_env() != :test do
       password: admin_password
   end
 
+  oban_enabled =
+    System.get_env("SERVICERADAR_WEB_NG_OBAN_ENABLED", "false") in ~w(true 1 yes)
+
+  config :serviceradar_core, :oban_enabled, oban_enabled
+
   # Oban queue limits (plugins are configured in config.exs via Oban.Plugins.Cron)
   oban_default_queue_limit =
     System.get_env("OBAN_DEFAULT_QUEUE_LIMIT", "10") |> String.to_integer()
@@ -147,10 +152,27 @@ if config_env() != :test do
   oban_node = System.get_env("OBAN_NODE")
 
   oban_config = [
+    repo: ServiceRadar.Repo,
     queues: [
       default: oban_default_queue_limit,
-      maintenance: oban_maintenance_queue_limit
-    ]
+      maintenance: oban_maintenance_queue_limit,
+      alerts: 5,
+      service_checks: 10,
+      notifications: 5,
+      onboarding: 3,
+      events: 10,
+      sweeps: 20,
+      edge: 10,
+      integrations: 5
+    ],
+    plugins: [
+      {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
+      {Oban.Plugins.Cron,
+       crontab: [
+         {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
+       ]}
+    ],
+    peer: Oban.Peers.Database
   ]
 
   oban_config =
@@ -161,6 +183,7 @@ if config_env() != :test do
     end
 
   config :serviceradar_core, Oban, oban_config
+  config :serviceradar_core, :start_ash_oban_scheduler, false
 end
 
 if config_env() == :prod do

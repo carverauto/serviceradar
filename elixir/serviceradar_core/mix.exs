@@ -63,6 +63,10 @@ defmodule ServiceRadarCore.MixProject do
       # NATS JetStream for event publishing
       {:jetstream, "~> 0.0.9"},
 
+      # Broadway for high-throughput event processing
+      {:broadway, "~> 1.1"},
+      {:broadway_dashboard, "~> 0.4"},
+
       # gRPC client for serviceradar-sync communication
       {:grpc, "~> 0.9"},
       {:protobuf, "~> 0.13"},
@@ -73,6 +77,7 @@ defmodule ServiceRadarCore.MixProject do
 
       # Utilities
       {:jason, "~> 1.4"},
+      {:elixir_uuid, "~> 1.2"},
       {:file_system, "~> 0.2"},
 
       # Policy SAT solver for Ash policies

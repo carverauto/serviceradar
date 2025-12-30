@@ -19,7 +19,8 @@ The traces list relies on `otel_trace_summaries`, a materialized view that is re
 
 - Decision: Use Oban (web-ng) with the existing CNPG database for scheduling.
 - Decision: Implement a dedicated Oban worker that runs `REFRESH MATERIALIZED VIEW CONCURRENTLY otel_trace_summaries`.
-- Decision: Schedule the worker via a custom Oban scheduler plugin at `*/2 * * * *`.
+- Decision: Host the refresh worker in the shared ServiceRadar job module so multiple Elixir nodes can execute it.
+- Decision: Schedule the worker via `Oban.Plugins.Cron` at `*/2 * * * *`.
 - Decision: Use Oban peer leader election to avoid multi-node duplicate scheduling.
 - Decision: Configure job uniqueness to guard against duplicate refreshes.
 - Decision: Build a custom admin UI for job visibility and scheduling without relying on Oban Web.

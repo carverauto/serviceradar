@@ -111,6 +111,16 @@ services:
       - DATASVC_SSL=true
       - DATASVC_CERT_DIR=/etc/serviceradar/certs
       - DATASVC_CERT_NAME=core
+      # EventWriter configuration (replaces Go db-event-writer)
+      - EVENT_WRITER_ENABLED=${EVENT_WRITER_ENABLED:-true}
+      - EVENT_WRITER_NATS_URL=nats://nats:4222
+      - EVENT_WRITER_NATS_TLS=true
+      - EVENT_WRITER_BATCH_SIZE=${EVENT_WRITER_BATCH_SIZE:-100}
+      - EVENT_WRITER_BATCH_TIMEOUT=${EVENT_WRITER_BATCH_TIMEOUT:-1000}
+      - NATS_ENABLED=true
+      - NATS_URL=nats://nats:4222
+      - NATS_TLS=true
+      - NATS_SERVER_NAME=nats.serviceradar
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.core.conf:/etc/serviceradar/ssl_dist.conf:ro
@@ -119,6 +129,8 @@ services:
         condition: service_completed_successfully
       cnpg:
         condition: service_healthy
+      nats:
+        condition: service_started
     healthcheck:
       test: ["CMD", "/app/bin/serviceradar_core_elx", "pid"]
       interval: 30s
@@ -290,6 +302,12 @@ services:
       - RELEASE_NODE=serviceradar_poller@poller-elx
       - RELEASE_DISTRIBUTION=sname
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
+      # Datasvc gRPC client configuration
+      - DATASVC_HOST=datasvc
+      - DATASVC_PORT=50057
+      - DATASVC_SSL=true
+      - DATASVC_CERT_DIR=/etc/serviceradar/certs
+      - DATASVC_CERT_NAME=poller
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.poller.conf:/etc/serviceradar/ssl_dist.conf:ro
@@ -328,6 +346,12 @@ services:
       - RELEASE_NODE=serviceradar_poller_t2@poller-elx-t2
       - RELEASE_DISTRIBUTION=sname
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
+      # Datasvc gRPC client configuration
+      - DATASVC_HOST=datasvc
+      - DATASVC_PORT=50057
+      - DATASVC_SSL=true
+      - DATASVC_CERT_DIR=/etc/serviceradar/certs
+      - DATASVC_CERT_NAME=poller
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.poller.conf:/etc/serviceradar/ssl_dist.conf:ro
@@ -573,6 +597,7 @@ services:
       - PHX_CHECK_ORIGIN=${PHX_CHECK_ORIGIN:-false}
       - SERVICERADAR_DEV_ROUTES=${SERVICERADAR_DEV_ROUTES:-true}
       - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-true}
+      - SERVICERADAR_WEB_NG_OBAN_ENABLED=${SERVICERADAR_WEB_NG_OBAN_ENABLED:-true}
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
       - CLUSTER_HOSTS=serviceradar_poller@poller-elx,serviceradar_core@core-elx,serviceradar_poller_t2@poller-elx-t2
@@ -595,6 +620,14 @@ services:
       - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
       - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg}
       - CNPG_CERT_DIR=/etc/serviceradar/certs
+      # Datasvc gRPC client configuration
+      - DATASVC_ADDRESS=datasvc:50057
+      - DATASVC_HOST=datasvc
+      - DATASVC_PORT=50057
+      - DATASVC_SSL=true
+      - DATASVC_CERT_DIR=/etc/serviceradar/certs
+      - DATASVC_CERT_NAME=web
+      - DATASVC_SERVER_NAME=datasvc.serviceradar
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.web.conf:/etc/serviceradar/ssl_dist.conf:ro

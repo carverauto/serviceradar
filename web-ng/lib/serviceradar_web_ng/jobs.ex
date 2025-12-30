@@ -7,8 +7,9 @@ defmodule ServiceRadarWebNG.Jobs do
 
   alias Oban.Cron.Expression
   alias Oban.Job
+  alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadarWebNG.Edge.Workers.ExpirePackagesWorker
-  alias ServiceRadarWebNG.Jobs.{RefreshTraceSummariesWorker, Schedule}
+  alias ServiceRadarWebNG.Jobs.Schedule
   alias ServiceRadarWebNG.Repo
 
   require Logger

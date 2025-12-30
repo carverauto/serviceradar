@@ -43,6 +43,12 @@ For customers deploying their own collectors (syslog, OTEL, NetFlow):
 - Tenant-scoped consumers: `<tenant-slug>-db-event-writer`
 - Stream subject filters limit to tenant's prefix
 
+### 4. EventWriter Per-Tenant Pipelines (Elixir)
+
+- Start one Broadway pipeline per tenant in core-elx
+- Each pipeline sets the process/Ash tenant context and only subscribes to the tenant's prefixed subjects
+- Remove any dependency on payload-provided tenant_id
+
 ## Impact
 
 - Affected specs: NEW `nats-tenant-isolation` capability
@@ -59,3 +65,9 @@ For customers deploying their own collectors (syslog, OTEL, NetFlow):
 1. **Phase 1**: Channel prefixing in Go/Rust publishers and consumers
 2. **Phase 2**: NATS accounts and leaf node configuration
 3. **Phase 3**: Customer-facing collector onboarding with tenant credentials
+
+## Status / Notes
+
+- Current EventWriter work (rewrite-db-event-writer-elixir) now requires tenant context from process/Ash scope only.
+- Per-tenant EventWriter pipelines are therefore required to enforce tenant isolation without metadata fallbacks.
+- Implementation is deferred to this proposal to keep scope aligned and to coordinate with tenant-prefixed subjects.

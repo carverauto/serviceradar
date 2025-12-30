@@ -13,13 +13,15 @@ defmodule Datasvc do
 
       config :datasvc,
         address: "localhost:50053",
-        timeout: 5000
+        timeout: 5000,
+        connect_timeout: 5000
 
   For mTLS connections:
 
       config :datasvc,
         address: "localhost:50053",
         timeout: 5000,
+        connect_timeout: 5000,
         tls: [
           cacertfile: "/etc/serviceradar/certs/root.pem",
           certfile: "/etc/serviceradar/certs/web.pem",
@@ -41,6 +43,8 @@ defmodule Datasvc do
   require Logger
 
   @default_timeout 5_000
+  @default_connect_timeout 5_000
+  @resolver_schemes ~w(dns ipv4 ipv6 unix unix-abstract vsock xds)
 
   @doc """
   Gets the configured datasvc address.
@@ -80,8 +84,14 @@ defmodule Datasvc do
         {:error, :not_configured}
 
       addr ->
+        addr = normalize_address(addr)
         interceptors = Keyword.get(opts, :interceptors, [])
-        connect_opts = build_connect_opts(interceptors)
+        connect_timeout = config() |> Keyword.get(:connect_timeout, @default_connect_timeout)
+
+        connect_opts =
+          interceptors
+          |> build_connect_opts()
+          |> Keyword.put(:adapter_opts, [connect_timeout: connect_timeout])
 
         case GRPC.Stub.connect(addr, connect_opts) do
           {:ok, channel} -> {:ok, channel}
@@ -130,6 +140,13 @@ defmodule Datasvc do
         after
           # Note: GRPC connections in Elixir are lightweight
           # Could add connection pooling here in the future
+          try do
+            _ = GRPC.Stub.disconnect(channel)
+          catch
+            :exit, _ -> :ok
+          rescue
+            _ -> :ok
+          end
           :ok
         end
 
@@ -141,5 +158,18 @@ defmodule Datasvc do
   @doc false
   def config do
     Application.get_env(:datasvc, :datasvc, [])
+  end
+
+  defp normalize_address(address) when is_binary(address) do
+    if resolver_scheme?(address) do
+      address
+    else
+      "dns://#{address}"
+    end
+  end
+
+  defp resolver_scheme?(address) do
+    String.contains?(address, "://") or
+      Enum.any?(@resolver_schemes, &String.starts_with?(address, &1 <> ":"))
   end
 end

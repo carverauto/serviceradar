@@ -5,13 +5,13 @@
 - [x] 1.4 Generate and commit Oban migration for `oban_jobs`
 
 ## 2. Scheduler Coordination
-- [x] 2.1 Implement custom Oban scheduler plugin with peer leader election
+- [x] 2.1 Configure Oban.Plugins.Cron with Oban.Peers.Database leader election
 - [x] 2.2 Configure node identity + peers for multi-node deployments
 - [x] 2.3 Add job uniqueness defaults for scheduled jobs (refresh worker)
 - [x] 2.4 Add logging for leader selection and scheduling activity
 
 ## 3. Trace Summaries Refresh Job
-- [x] 3.1 Implement `RefreshTraceSummariesWorker` to run `REFRESH MATERIALIZED VIEW CONCURRENTLY otel_trace_summaries`
+- [x] 3.1 Implement `RefreshTraceSummariesWorker` (shared ServiceRadar job module) to run `REFRESH MATERIALIZED VIEW CONCURRENTLY otel_trace_summaries`
 - [x] 3.2 Add Oban cron entry to run the worker every 2 minutes (from schedule config)
 - [x] 3.3 Add guardrails/logging for missing MV or refresh failures
 

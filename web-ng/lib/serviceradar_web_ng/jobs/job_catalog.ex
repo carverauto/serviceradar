@@ -39,6 +39,94 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   end
 
   @doc """
+  Get a single job by its ID.
+  """
+  @spec get_job(String.t()) :: {:ok, job_entry()} | {:error, :not_found}
+  def get_job(id) do
+    case Enum.find(list_all_jobs(), &(&1.id == id)) do
+      nil -> {:error, :not_found}
+      job -> {:ok, job}
+    end
+  end
+
+  @doc """
+  List jobs with optional filters, sorting, and pagination.
+
+  ## Options
+  - `:source` - filter by :cron_plugin or :ash_oban
+  - `:search` - search by name (case-insensitive)
+  - `:enabled` - filter by enabled status
+  - `:sort_by` - field to sort by (:name, :source, :cron, :last_run_at, :next_run_at)
+  - `:sort_dir` - sort direction (:asc or :desc)
+  - `:page` - page number (1-indexed)
+  - `:per_page` - items per page
+
+  Returns `{jobs, total_count}` when pagination is used, or just `jobs` otherwise.
+  """
+  @spec list_jobs(keyword()) :: [job_entry()] | {[job_entry()], non_neg_integer()}
+  def list_jobs(filters \\ []) do
+    jobs =
+      list_all_jobs()
+      |> maybe_filter_source(filters[:source])
+      |> maybe_filter_search(filters[:search])
+      |> maybe_filter_enabled(filters[:enabled])
+      |> maybe_sort(filters[:sort_by], filters[:sort_dir])
+
+    case {filters[:page], filters[:per_page]} do
+      {nil, _} ->
+        jobs
+
+      {_, nil} ->
+        jobs
+
+      {page, per_page} when is_integer(page) and is_integer(per_page) ->
+        total = length(jobs)
+        offset = (page - 1) * per_page
+        paginated = jobs |> Enum.drop(offset) |> Enum.take(per_page)
+        {paginated, total}
+    end
+  end
+
+  defp maybe_filter_source(jobs, nil), do: jobs
+  defp maybe_filter_source(jobs, source), do: Enum.filter(jobs, &(&1.source == source))
+
+  defp maybe_filter_search(jobs, nil), do: jobs
+  defp maybe_filter_search(jobs, ""), do: jobs
+
+  defp maybe_filter_search(jobs, search) do
+    search_lower = String.downcase(search)
+
+    Enum.filter(jobs, fn job ->
+      String.contains?(String.downcase(job.name), search_lower) ||
+        String.contains?(String.downcase(job.description), search_lower)
+    end)
+  end
+
+  defp maybe_filter_enabled(jobs, nil), do: jobs
+  defp maybe_filter_enabled(jobs, enabled), do: Enum.filter(jobs, &(&1.enabled == enabled))
+
+  defp maybe_sort(jobs, nil, _dir), do: jobs
+
+  defp maybe_sort(jobs, field, dir)
+       when field in [:name, :source, :cron, :last_run_at, :next_run_at] do
+    sorter = fn job ->
+      value = Map.get(job, field)
+      # Handle nil values - put them at the end
+      case value do
+        nil -> {1, nil}
+        v -> {0, v}
+      end
+    end
+
+    case dir do
+      :desc -> Enum.sort_by(jobs, sorter, :desc)
+      _ -> Enum.sort_by(jobs, sorter, :asc)
+    end
+  end
+
+  defp maybe_sort(jobs, _field, _dir), do: jobs
+
+  @doc """
   List jobs configured via Oban.Plugins.Cron in config.
   """
   @spec cron_jobs() :: [job_entry()]
@@ -127,15 +215,167 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     end
   end
 
+  @doc """
+  Trigger a manual run of a job.
+
+  For cron jobs, this inserts a new job into the Oban queue.
+  For AshOban jobs, this triggers the scheduled action.
+  """
+  @spec trigger_job(job_entry()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def trigger_job(%{source: :cron_plugin, worker: worker}) when not is_nil(worker) do
+    try do
+      job = worker.new(%{})
+      Oban.insert(job)
+    rescue
+      e -> {:error, Exception.message(e)}
+    end
+  end
+
+  def trigger_job(%{source: :ash_oban, worker: worker}) when not is_nil(worker) do
+    # For AshOban, we insert the scheduler worker which will process due records
+    try do
+      job = worker.new(%{})
+      Oban.insert(job)
+    rescue
+      e -> {:error, Exception.message(e)}
+    end
+  end
+
+  def trigger_job(_job), do: {:error, :no_worker}
+
+  @doc """
+  Get execution statistics for a worker over a time period.
+
+  Returns hourly buckets of job execution counts by state.
+  """
+  @spec get_execution_stats(module(), keyword()) :: [map()]
+  def get_execution_stats(worker, opts \\ []) do
+    hours = Keyword.get(opts, :hours, 24)
+    worker_str = inspect(worker)
+
+    import Ecto.Query
+
+    try do
+      since = DateTime.add(DateTime.utc_now(), -hours, :hour)
+
+      # Get all jobs in the time range
+      jobs =
+        Oban.Job
+        |> where([j], j.worker == ^worker_str)
+        |> where([j], j.inserted_at >= ^since)
+        |> select([j], %{
+          state: j.state,
+          inserted_at: j.inserted_at,
+          completed_at: j.completed_at
+        })
+        |> ServiceRadar.Repo.all()
+
+      # Bucket by hour
+      jobs
+      |> Enum.group_by(fn job ->
+        job.inserted_at
+        |> DateTime.truncate(:second)
+        |> Map.put(:minute, 0)
+        |> Map.put(:second, 0)
+      end)
+      |> Enum.map(fn {hour, jobs_in_hour} ->
+        %{
+          hour: hour,
+          total: length(jobs_in_hour),
+          completed: Enum.count(jobs_in_hour, &(&1.state == "completed")),
+          failed: Enum.count(jobs_in_hour, &(&1.state in ["discarded", "cancelled"])),
+          retrying: Enum.count(jobs_in_hour, &(&1.state == "retryable"))
+        }
+      end)
+      |> Enum.sort_by(& &1.hour, DateTime)
+    rescue
+      _ -> []
+    end
+  end
+
+  @doc """
+  Get aggregated execution stats for a worker.
+  """
+  @spec get_aggregated_stats(module(), keyword()) :: map()
+  def get_aggregated_stats(worker, opts \\ []) do
+    hours = Keyword.get(opts, :hours, 24)
+    worker_str = inspect(worker)
+
+    import Ecto.Query
+
+    try do
+      since = DateTime.add(DateTime.utc_now(), -hours, :hour)
+
+      stats =
+        Oban.Job
+        |> where([j], j.worker == ^worker_str)
+        |> where([j], j.inserted_at >= ^since)
+        |> select([j], %{
+          state: j.state,
+          attempted_at: j.attempted_at,
+          completed_at: j.completed_at
+        })
+        |> ServiceRadar.Repo.all()
+
+      total = length(stats)
+      completed = Enum.count(stats, &(&1.state == "completed"))
+      failed = Enum.count(stats, &(&1.state in ["discarded", "cancelled"]))
+
+      # Calculate average duration for completed jobs
+      durations =
+        stats
+        |> Enum.filter(&(&1.state == "completed" && &1.completed_at && &1.attempted_at))
+        |> Enum.map(fn job ->
+          DateTime.diff(job.completed_at, job.attempted_at, :millisecond)
+        end)
+
+      avg_duration = if durations != [], do: Enum.sum(durations) / length(durations), else: nil
+
+      %{
+        total: total,
+        completed: completed,
+        failed: failed,
+        success_rate: if(total > 0, do: completed / total * 100, else: 0),
+        avg_duration_ms: avg_duration
+      }
+    rescue
+      _ -> %{total: 0, completed: 0, failed: 0, success_rate: 0, avg_duration_ms: nil}
+    end
+  end
+
   # Get Oban.Plugins.Cron configuration
   defp get_cron_config do
-    oban_config = Application.get_env(:serviceradar_core, Oban, [])
-    plugins = Keyword.get(oban_config, :plugins, [])
+    plugins = get_oban_plugins()
 
     Enum.find_value(plugins, fn
       {Oban.Plugins.Cron, opts} -> Keyword.get(opts, :crontab, [])
       _ -> nil
     end)
+  end
+
+  defp get_oban_plugins do
+    case coordinator_node() do
+      {:ok, node} ->
+        case :rpc.call(node, Oban, :config, [Oban]) do
+          %Oban.Config{plugins: plugins} -> plugins
+          _ -> []
+        end
+
+      :error ->
+        oban_config = Application.get_env(:serviceradar_core, Oban, [])
+        Keyword.get(oban_config, :plugins, [])
+    end
+  rescue
+    _ -> []
+  end
+
+  defp coordinator_node do
+    case ServiceRadar.Cluster.ClusterStatus.find_coordinator() do
+      nil -> :error
+      node -> {:ok, node}
+    end
+  rescue
+    _ -> :error
   end
 
   # Parse a crontab entry which can be {cron, worker} or {cron, worker, opts}

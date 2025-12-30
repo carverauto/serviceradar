@@ -10,8 +10,8 @@ The Observability traces list depends on the `otel_trace_summaries` materialized
 
 1. Add Oban to the web-ng application for background job scheduling.
 2. Create and run Oban migrations in web-ng so jobs are stored in CNPG.
-3. Add an Oban worker that refreshes `otel_trace_summaries` concurrently.
-4. Schedule the refresh job every 2 minutes via a custom Oban scheduler plugin using peer leader election (single scheduler across nodes).
+3. Add an Oban worker (shared ServiceRadar job module) that refreshes `otel_trace_summaries` concurrently.
+4. Schedule the refresh job every 2 minutes via `Oban.Plugins.Cron` with `Oban.Peers.Database` leader election (single scheduler across nodes).
 5. Add guardrails to prevent duplicate refreshes (job uniqueness + scheduler coordination).
 6. Expose job management via web-ng with a custom admin UI (schedule editing + run visibility) without relying on Oban Web.
 7. Define a job catalog and scheduling controls suitable for future jobs (reports, syncs, external fetches).

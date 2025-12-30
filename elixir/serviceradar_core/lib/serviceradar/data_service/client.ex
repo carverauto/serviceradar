@@ -11,7 +11,10 @@ defmodule ServiceRadar.DataService.Client do
         port: 50057,
         ssl: true,
         cert_dir: "/path/to/certs",
-        cert_name: "core"  # uses core.pem, core-key.pem
+        cert_name: "core", # uses core.pem, core-key.pem
+        connect_timeout_ms: 5000,
+        reconnect_base_ms: 1000,
+        reconnect_max_ms: 30000
 
   ## Environment Variables
 
@@ -20,6 +23,9 @@ defmodule ServiceRadar.DataService.Client do
   - `DATASVC_SSL` - enable SSL/TLS (default: false)
   - `DATASVC_CERT_DIR` - directory containing certs for mTLS
   - `DATASVC_CERT_NAME` - cert name prefix (default: "core", uses core.pem/core-key.pem)
+  - `DATASVC_CONNECT_TIMEOUT_MS` - gRPC connect timeout in ms (default: 5000)
+  - `DATASVC_RECONNECT_BASE_MS` - base reconnect backoff in ms (default: 1000)
+  - `DATASVC_RECONNECT_MAX_MS` - max reconnect backoff in ms (default: 30000)
 
   ## Usage
 
@@ -40,7 +46,9 @@ defmodule ServiceRadar.DataService.Client do
   @default_host "datasvc"
   @default_port 50_057
   @default_timeout 10_000
-  @reconnect_interval 5_000
+  @default_connect_timeout 5_000
+  @default_reconnect_base 1_000
+  @default_reconnect_max 30_000
 
   # Client API
 
@@ -92,10 +100,14 @@ defmodule ServiceRadar.DataService.Client do
 
   @impl true
   def init(opts) do
+    config = build_config(opts)
+
     state = %{
       channel: nil,
-      config: build_config(opts),
-      reconnecting: false
+      config: config,
+      reconnecting: false,
+      backoff: ServiceRadar.Backoff.new(base_ms: config.reconnect_base_ms, max_ms: config.reconnect_max_ms),
+      connect_task: nil
     }
 
     # Connect asynchronously
@@ -110,17 +122,39 @@ defmodule ServiceRadar.DataService.Client do
     {:noreply, %{state | reconnecting: false}}
   end
 
-  def handle_info(:connect, state) do
-    case connect(state.config) do
-      {:ok, channel} ->
-        Logger.info("Connected to datasvc at #{state.config.host}:#{state.config.port}")
-        {:noreply, %{state | channel: channel, reconnecting: false}}
+  def handle_info(:connect, %{connect_task: {_pid, _ref}} = state) do
+    {:noreply, state}
+  end
 
-      {:error, reason} ->
-        Logger.warning("Failed to connect to datasvc: #{inspect(reason)}, retrying in #{@reconnect_interval}ms...")
-        Process.send_after(self(), :connect, @reconnect_interval)
-        {:noreply, %{state | reconnecting: true}}
-    end
+  def handle_info(:connect, state) do
+    {:noreply, start_connect_task(state)}
+  end
+
+  def handle_info({:connect_result, {:ok, channel}}, state) do
+    state = clear_connect_task(state)
+    Logger.info("Connected to datasvc at #{state.config.host}:#{state.config.port}")
+
+    {:noreply,
+     %{
+       state
+       | channel: channel,
+         reconnecting: false,
+         backoff: ServiceRadar.Backoff.reset(state.backoff)
+     }}
+  end
+
+  def handle_info({:connect_result, {:error, reason}}, state) do
+    state = clear_connect_task(state)
+    {:noreply, schedule_reconnect(state, reason)}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{connect_task: {_pid, ref}} = state) do
+    state = clear_connect_task(state)
+    {:noreply, schedule_reconnect(state, reason)}
+  end
+
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
+    {:noreply, state}
   end
 
   # Handle gun connection down - reconnect (only if not already reconnecting)
@@ -130,9 +164,8 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   def handle_info({:gun_down, _pid, _protocol, reason, _streams}, state) do
-    Logger.warning("Datasvc connection lost (#{inspect(reason)}), reconnecting in #{@reconnect_interval}ms...")
-    Process.send_after(self(), :connect, @reconnect_interval)
-    {:noreply, %{state | channel: nil, reconnecting: true}}
+    state = %{state | channel: nil}
+    {:noreply, schedule_reconnect(state, reason)}
   end
 
   # Handle gun connection up
@@ -147,9 +180,8 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   def handle_info({:gun_error, _pid, reason}, state) do
-    Logger.warning("Datasvc gun error (#{inspect(reason)}), reconnecting in #{@reconnect_interval}ms...")
-    Process.send_after(self(), :connect, @reconnect_interval)
-    {:noreply, %{state | channel: nil, reconnecting: true}}
+    state = %{state | channel: nil}
+    {:noreply, schedule_reconnect(state, reason)}
   end
 
   def handle_info(msg, state) do
@@ -223,7 +255,22 @@ defmodule ServiceRadar.DataService.Client do
       port: opts[:port] || get_env_int("DATASVC_PORT") || app_config[:port] || @default_port,
       ssl: opts[:ssl] || get_env_bool("DATASVC_SSL") || app_config[:ssl] || false,
       cert_dir: opts[:cert_dir] || get_env("DATASVC_CERT_DIR") || app_config[:cert_dir],
-      cert_name: opts[:cert_name] || get_env("DATASVC_CERT_NAME") || app_config[:cert_name] || "core"
+      cert_name: opts[:cert_name] || get_env("DATASVC_CERT_NAME") || app_config[:cert_name] || "core",
+      connect_timeout_ms:
+        opts[:connect_timeout_ms] ||
+          get_env_int("DATASVC_CONNECT_TIMEOUT_MS") ||
+          app_config[:connect_timeout_ms] ||
+          @default_connect_timeout,
+      reconnect_base_ms:
+        opts[:reconnect_base_ms] ||
+          get_env_int("DATASVC_RECONNECT_BASE_MS") ||
+          app_config[:reconnect_base_ms] ||
+          @default_reconnect_base,
+      reconnect_max_ms:
+        opts[:reconnect_max_ms] ||
+          get_env_int("DATASVC_RECONNECT_MAX_MS") ||
+          app_config[:reconnect_max_ms] ||
+          @default_reconnect_max
     }
   end
 
@@ -284,7 +331,41 @@ defmodule ServiceRadar.DataService.Client do
           []
       end
 
-    GRPC.Stub.connect(endpoint, cred_opts)
+    connect_opts =
+      cred_opts
+      |> Keyword.put(:adapter_opts, [connect_timeout: config.connect_timeout_ms])
+
+    GRPC.Stub.connect(endpoint, connect_opts)
+  end
+
+  defp start_connect_task(state) do
+    parent = self()
+
+    {:ok, pid} =
+      Task.start(fn ->
+        send(parent, {:connect_result, connect(state.config)})
+      end)
+
+    ref = Process.monitor(pid)
+    %{state | connect_task: {pid, ref}}
+  end
+
+  defp clear_connect_task(%{connect_task: nil} = state), do: state
+
+  defp clear_connect_task(%{connect_task: {_pid, ref}} = state) do
+    Process.demonitor(ref, [:flush])
+    %{state | connect_task: nil}
+  end
+
+  defp schedule_reconnect(state, reason) do
+    {delay_ms, backoff} = ServiceRadar.Backoff.next(state.backoff)
+
+    Logger.warning(
+      "Failed to connect to datasvc (#{inspect(reason)}), retrying in #{delay_ms}ms..."
+    )
+
+    Process.send_after(self(), :connect, delay_ms)
+    %{state | reconnecting: true, backoff: backoff}
   end
 
   defp ensure_connected(%{channel: nil} = state) do

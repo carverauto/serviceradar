@@ -231,20 +231,30 @@ if config_env() == :prod do
 
   oban_enabled = System.get_env("SERVICERADAR_CORE_OBAN_ENABLED", "true") in ~w(true 1 yes)
   oban_node = System.get_env("OBAN_NODE")
+  # Enable AshOban scheduler - core-elx is the only service that should run schedulers
+  ash_oban_scheduler_enabled =
+    System.get_env("SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED", "true") in ~w(true 1 yes)
 
   oban_config = [
     engine: Oban.Engines.Basic,
     repo: ServiceRadar.Repo,
     queues: [
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
+      maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "2"),
       alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),
+      service_checks: String.to_integer(System.get_env("OBAN_QUEUE_SERVICE_CHECKS") || "10"),
+      notifications: String.to_integer(System.get_env("OBAN_QUEUE_NOTIFICATIONS") || "5"),
+      onboarding: String.to_integer(System.get_env("OBAN_QUEUE_ONBOARDING") || "3"),
+      events: String.to_integer(System.get_env("OBAN_QUEUE_EVENTS") || "10"),
       sweeps: String.to_integer(System.get_env("OBAN_QUEUE_SWEEPS") || "20"),
-      edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10")
+      edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10"),
+      integrations: String.to_integer(System.get_env("OBAN_QUEUE_INTEGRATIONS") || "5")
     ],
     plugins: [
       Oban.Plugins.Pruner,
       {Oban.Plugins.Cron, crontab: []}
-    ]
+    ],
+    peer: Oban.Peers.Database
   ]
 
   oban_config =
@@ -254,11 +264,38 @@ if config_env() == :prod do
       oban_config
     end
 
-  config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
+  oban_config =
+    if ash_oban_scheduler_enabled do
+      domains = Application.get_env(:serviceradar_core, :ash_domains, [])
+      AshOban.config(domains, oban_config)
+    else
+      oban_config
+    end
 
-  # Enable AshOban scheduler - core-elx is the only service that should run schedulers
-  ash_oban_scheduler_enabled =
-    System.get_env("SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED", "true") in ~w(true 1 yes)
+  extra_cron_entries = [
+    {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
+  ]
+
+  add_cron_entries = fn config, entries ->
+    plugins =
+      config
+      |> Keyword.get(:plugins, [])
+      |> Enum.map(fn
+        {Oban.Plugins.Cron, opts} ->
+          crontab = Keyword.get(opts, :crontab, [])
+          {Oban.Plugins.Cron, Keyword.put(opts, :crontab, crontab ++ entries)}
+
+        other ->
+          other
+      end)
+
+    Keyword.put(config, :plugins, plugins)
+  end
+
+  oban_config = add_cron_entries.(oban_config, extra_cron_entries)
+
+  config :serviceradar_core, :oban_enabled, oban_enabled
+  config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
 
   config :serviceradar_core, :start_ash_oban_scheduler, ash_oban_scheduler_enabled
 
@@ -277,5 +314,99 @@ if config_env() == :prod do
     config :swoosh, :api_client, false
     config :swoosh, local: false
     config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
+  end
+
+  # NATS connection configuration (core publisher)
+  nats_enabled = System.get_env("NATS_ENABLED", "false") in ~w(true 1 yes)
+
+  if nats_enabled do
+    nats_url = System.get_env("NATS_URL", "nats://localhost:4222")
+    nats_uri = URI.parse(nats_url)
+
+    nats_tls_enabled = System.get_env("NATS_TLS", "false") in ~w(true 1 yes)
+    cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+    nats_server_name = System.get_env("NATS_SERVER_NAME", "nats.serviceradar")
+
+    nats_tls_config =
+      if nats_tls_enabled do
+        [
+          verify: :verify_peer,
+          cacertfile: Path.join(cert_dir, "root.pem"),
+          certfile: Path.join(cert_dir, "core.pem"),
+          keyfile: Path.join(cert_dir, "core-key.pem"),
+          server_name_indication: String.to_charlist(nats_server_name)
+        ]
+      else
+        false
+      end
+
+    config :serviceradar_core, ServiceRadar.NATS.Connection,
+      host: nats_uri.host || "localhost",
+      port: nats_uri.port || 4222,
+      user: System.get_env("NATS_USER"),
+      password: {:system, "NATS_PASSWORD"},
+      tls: nats_tls_config
+  end
+
+  # EventWriter configuration (NATS JetStream → CNPG consumer)
+  event_writer_enabled = System.get_env("EVENT_WRITER_ENABLED", "false") in ~w(true 1 yes)
+
+  if event_writer_enabled do
+    nats_url = System.get_env("EVENT_WRITER_NATS_URL", "nats://localhost:4222")
+    nats_uri = URI.parse(nats_url)
+
+    nats_tls_enabled = System.get_env("EVENT_WRITER_NATS_TLS", "false") in ~w(true 1 yes)
+    cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+
+    nats_tls_config =
+      if nats_tls_enabled do
+        [
+          verify: :verify_peer,
+          cacertfile: Path.join(cert_dir, "root.pem"),
+          certfile: Path.join(cert_dir, "core.pem"),
+          keyfile: Path.join(cert_dir, "core-key.pem"),
+          server_name_indication: ~c"nats.serviceradar"
+        ]
+      else
+        false
+      end
+
+    config :serviceradar_core, :event_writer_enabled, true
+
+    config :serviceradar_core, ServiceRadar.EventWriter,
+      enabled: true,
+      nats: [
+        host: nats_uri.host || "localhost",
+        port: nats_uri.port || 4222,
+        user: System.get_env("EVENT_WRITER_NATS_USER"),
+        password: {:system, "EVENT_WRITER_NATS_PASSWORD"},
+        tls: nats_tls_config
+      ],
+      batch_size: String.to_integer(System.get_env("EVENT_WRITER_BATCH_SIZE") || "100"),
+      batch_timeout: String.to_integer(System.get_env("EVENT_WRITER_BATCH_TIMEOUT") || "1000"),
+      consumer_name: System.get_env("EVENT_WRITER_CONSUMER_NAME", "serviceradar-event-writer"),
+      streams: [
+        %{
+          name: "OTEL_METRICS",
+          subject: "otel.metrics.>",
+          processor: ServiceRadar.EventWriter.Processors.OtelMetrics,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "OTEL_TRACES",
+          subject: "otel.traces.>",
+          processor: ServiceRadar.EventWriter.Processors.OtelTraces,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "LOGS",
+          subject: "logs.>",
+          processor: ServiceRadar.EventWriter.Processors.Logs,
+          batch_size: 100,
+          batch_timeout: 1_000
+        }
+      ]
   end
 end

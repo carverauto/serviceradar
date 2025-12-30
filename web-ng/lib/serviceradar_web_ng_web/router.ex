@@ -121,7 +121,12 @@ defmodule ServiceRadarWebNGWeb.Router do
   scope "/dev" do
     pipe_through [:browser, :dev_routes]
 
-    live_dashboard "/dashboard", metrics: ServiceRadarWebNGWeb.Telemetry
+    live_dashboard "/dashboard",
+      metrics: ServiceRadarWebNGWeb.Telemetry,
+      additional_pages: [
+        broadway: {BroadwayDashboard, pipelines: [ServiceRadar.EventWriter.Pipeline]}
+      ]
+
     forward "/mailbox", Plug.Swoosh.MailboxPreview
 
     # AshAdmin for Ash resource management (dev/staging only)
@@ -149,6 +154,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     live_session :admin,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
       live "/jobs", Admin.JobLive.Index, :index
+      live "/jobs/:id", Admin.JobLive.Show, :show
       live "/edge-packages", Admin.EdgePackageLive.Index, :index
       live "/edge-packages/new", Admin.EdgePackageLive.Index, :new
       live "/edge-packages/:id", Admin.EdgePackageLive.Index, :show
