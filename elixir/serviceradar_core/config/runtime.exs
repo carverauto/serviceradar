@@ -114,6 +114,20 @@ if config_env() == :prod do
       consumer_name: System.get_env("EVENT_WRITER_CONSUMER_NAME", "serviceradar-event-writer"),
       streams: [
         %{
+          name: "EVENTS",
+          subject: "events.>",
+          processor: ServiceRadar.EventWriter.Processors.Events,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "SNMP_TRAPS",
+          subject: "snmp.traps",
+          processor: ServiceRadar.EventWriter.Processors.Events,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
           name: "OTEL_METRICS",
           subject: "otel.metrics.>",
           processor: ServiceRadar.EventWriter.Processors.OtelMetrics,

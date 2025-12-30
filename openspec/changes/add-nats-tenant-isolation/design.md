@@ -90,6 +90,22 @@ publisher.PublishWithTenant(ctx, "events.poller.health", data)
 - Single consumer processes all tenants (efficient)
 - Consumer extracts tenant from subject prefix for routing
 
+### Decision 3.1: Elixir EventWriter Per-Tenant Pipelines
+
+**What**: Run a dedicated Broadway pipeline per tenant in core-elx.
+
+- Each pipeline starts under the tenant's DynamicSupervisor
+- Each pipeline subscribes only to `<tenant-slug>.events.*` (and related) subjects
+- Pipeline process dictionary sets the tenant context for all processing
+
+**Why**:
+- Enforces tenant isolation without relying on payload metadata
+- Aligns with Ash process/Ash context expectations
+- Simplifies per-tenant back-pressure and rate limits
+
+**Alternatives considered**:
+- Single pipeline with subject parsing → rejected (tenant context must not come from metadata)
+
 ### Decision 4: NATS Accounts for Collectors
 
 **What**: Enterprise customers with collectors get dedicated NATS accounts.

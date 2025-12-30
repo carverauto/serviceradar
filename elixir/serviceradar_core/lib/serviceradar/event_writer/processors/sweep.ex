@@ -36,6 +36,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.EventWriter.TenantContext
 
   require Logger
 
@@ -67,20 +68,27 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   end
 
   @impl true
-  def parse_message(%{data: data, metadata: metadata}) do
-    case Jason.decode(data) do
-      {:ok, json} ->
-        parse_sweep_result(json, metadata)
+  def parse_message(%{data: data, metadata: metadata} = message) do
+    tenant_id = TenantContext.resolve_tenant_id(message)
 
-      {:error, _} ->
-        Logger.debug("Failed to parse sweep message as JSON")
-        nil
+    if is_nil(tenant_id) do
+      Logger.error("Sweep message missing tenant_id", subject: metadata[:subject])
+      nil
+    else
+      case Jason.decode(data) do
+        {:ok, json} ->
+          parse_sweep_result(json, metadata, tenant_id)
+
+        {:error, _} ->
+          Logger.debug("Failed to parse sweep message as JSON")
+          nil
+      end
     end
   end
 
   # Private functions
 
-  defp parse_sweep_result(json, nats_metadata) do
+  defp parse_sweep_result(json, nats_metadata, tenant_id) do
     time = FieldParser.parse_timestamp(FieldParser.get_field(json, "last_sweep_time", "lastSweepTime"))
     activity_id = OCSF.activity_network_scan()
 
@@ -180,7 +188,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       raw_data: nil,
 
       # Multi-tenancy
-      tenant_id: OCSF.parse_tenant_id(json),
+      tenant_id: tenant_id,
 
       # Poller/Agent tracking
       poller_id: FieldParser.get_field(json, "poller_id", "pollerId"),

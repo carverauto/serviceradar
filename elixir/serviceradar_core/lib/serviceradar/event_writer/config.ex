@@ -20,6 +20,8 @@ defmodule ServiceRadar.EventWriter.Config do
         batch_size: 100,
         batch_timeout: 1000,
         streams: [
+          %{name: "EVENTS", subject: "events.>", processor: ServiceRadar.EventWriter.Processors.Events},
+          %{name: "SNMP_TRAPS", subject: "snmp.traps", processor: ServiceRadar.EventWriter.Processors.Events},
           %{name: "OTEL_METRICS", subject: "otel.metrics.>", processor: ServiceRadar.EventWriter.Processors.OtelMetrics},
           %{name: "OTEL_TRACES", subject: "otel.traces.>", processor: ServiceRadar.EventWriter.Processors.OtelTraces},
           %{name: "LOGS", subject: "logs.>", processor: ServiceRadar.EventWriter.Processors.Logs}
@@ -114,6 +116,20 @@ defmodule ServiceRadar.EventWriter.Config do
   @spec default_streams() :: [stream_config()]
   def default_streams do
     [
+      %{
+        name: "EVENTS",
+        subject: "events.>",
+        processor: ServiceRadar.EventWriter.Processors.Events,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
+      %{
+        name: "SNMP_TRAPS",
+        subject: "snmp.traps",
+        processor: ServiceRadar.EventWriter.Processors.Events,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
       %{
         name: "OTEL_METRICS",
         subject: "otel.metrics.>",

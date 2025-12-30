@@ -35,12 +35,26 @@ The core-elx application SHALL include an EventWriter GenServer that consumes me
 
 The EventWriter SHALL support processing messages from multiple NATS JetStream streams, each with a dedicated processor for the message format.
 
-#### Scenario: EventWriter processes events stream
+#### Scenario: EventWriter requires tenant context for processing
+
+**Given** the EventWriter is running with multi-tenant support
+**When** a message is received without tenant context from the process/Ash scope
+**Then** the EventWriter SHALL reject the message
+**And** it SHALL NOT write any database records for that message
+
+#### Scenario: EventWriter processes syslog events
 
 **Given** the EventWriter is configured with the events stream
-**When** a CloudEvents-formatted message is published to `events.>`
-**Then** the EventWriter SHALL parse the CloudEvents format
-**And** insert the event into the `events` table
+**When** a syslog message (CloudEvents or GELF) is published to `events.>`
+**Then** the EventWriter SHALL parse the syslog payload
+**And** insert the event into the `ocsf_events` hypertable as Event Log Activity (class_uid: 1008)
+
+#### Scenario: EventWriter processes SNMP trap events
+
+**Given** the EventWriter is configured with the snmp traps stream
+**When** an SNMP trap message is published to `snmp.traps`
+**Then** the EventWriter SHALL parse the trap payload
+**And** insert the event into the `ocsf_events` hypertable as Event Log Activity (class_uid: 1008)
 
 #### Scenario: EventWriter processes sweep stream
 

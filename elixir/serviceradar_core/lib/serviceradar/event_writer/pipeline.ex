@@ -25,6 +25,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   require Logger
 
   alias Broadway.Message
+  alias ServiceRadar.EventWriter.TenantContext
   alias ServiceRadar.EventWriter.Config
 
   @doc """
@@ -89,43 +90,57 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   @impl true
   def handle_batch(batcher, messages, batch_info, _context) do
     processor = get_processor(batcher)
-    start_time = System.monotonic_time(:millisecond)
+    tenant_id = TenantContext.current_tenant()
 
-    result = processor.process_batch(messages)
+    if is_nil(tenant_id) do
+      Logger.error("EventWriter batch missing tenant context", message_count: length(messages))
+      Enum.map(messages, &Message.failed(&1, :missing_tenant_id))
+    else
+      start_time = System.monotonic_time(:millisecond)
 
-    duration = System.monotonic_time(:millisecond) - start_time
+      result =
+        TenantContext.with_tenant(tenant_id, fn ->
+          processor.process_batch(messages)
+        end)
 
-    case result do
-      {:ok, count} ->
-        :telemetry.execute(
-          [:serviceradar, :event_writer, :batch_processed],
-          %{count: count, duration: duration, batch_size: length(messages)},
-          %{stream: batcher, processor: processor, batch_key: batch_info.batch_key}
-        )
+      duration = System.monotonic_time(:millisecond) - start_time
 
-        Logger.debug("Processed batch",
-          batcher: batcher,
-          count: count,
-          duration_ms: duration
-        )
+      case result do
+        {:ok, {:ok, count}} ->
+          :telemetry.execute(
+            [:serviceradar, :event_writer, :batch_processed],
+            %{count: count, duration: duration, batch_size: length(messages)},
+            %{stream: batcher, processor: processor, batch_key: batch_info.batch_key}
+          )
 
-        messages
+          Logger.debug("Processed batch",
+            batcher: batcher,
+            count: count,
+            duration_ms: duration,
+            tenant_id: tenant_id
+          )
 
-      {:error, reason} ->
-        :telemetry.execute(
-          [:serviceradar, :event_writer, :batch_failed],
-          %{count: length(messages)},
-          %{stream: batcher, processor: processor, reason: inspect(reason)}
-        )
+          messages
 
-        Logger.error("Batch processing failed",
-          batcher: batcher,
-          reason: inspect(reason),
-          message_count: length(messages)
-        )
+        {:ok, {:error, reason}} ->
+          :telemetry.execute(
+            [:serviceradar, :event_writer, :batch_failed],
+            %{count: length(messages)},
+            %{stream: batcher, processor: processor, reason: inspect(reason)}
+          )
 
-        # Mark all messages as failed
-        Enum.map(messages, &Message.failed(&1, reason))
+          Logger.error("Batch processing failed",
+            batcher: batcher,
+            reason: inspect(reason),
+            message_count: length(messages),
+            tenant_id: tenant_id
+          )
+
+          Enum.map(messages, &Message.failed(&1, reason))
+
+        {:error, :missing_tenant_id} ->
+          Enum.map(messages, &Message.failed(&1, :missing_tenant_id))
+      end
     end
   end
 
@@ -161,6 +176,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     cond do
       String.starts_with?(subject, "otel.metrics") -> :otel_metrics
       String.starts_with?(subject, "otel.traces") -> :otel_traces
+      String.starts_with?(subject, "events.") -> :events
+      subject == "snmp.traps" -> :snmp_traps
       String.starts_with?(subject, "logs.") -> :logs
       String.starts_with?(subject, "telemetry.") -> :telemetry
       String.starts_with?(subject, "sweep.") -> :sweep
@@ -173,6 +190,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp get_processor(:otel_metrics), do: ServiceRadar.EventWriter.Processors.OtelMetrics
   defp get_processor(:otel_traces), do: ServiceRadar.EventWriter.Processors.OtelTraces
+  defp get_processor(:events), do: ServiceRadar.EventWriter.Processors.Events
+  defp get_processor(:snmp_traps), do: ServiceRadar.EventWriter.Processors.Events
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:telemetry), do: ServiceRadar.EventWriter.Processors.Telemetry
   defp get_processor(:sweep), do: ServiceRadar.EventWriter.Processors.Sweep

@@ -45,6 +45,7 @@ Rewrite the Go-based `db-event-writer` service as an Elixir GenServer within the
 - Changes to NATS JetStream stream configuration (consumers remain compatible)
 - Changes to message formats/protocols
 - Migration of existing Go CNPG migrations to Ecto (leave pkg/db/cnpg as-is for other Go services)
+- Per-tenant EventWriter pipelines or tenant-prefixed NATS subjects (tracked in `add-nats-tenant-isolation`)
 
 ## Technical Approach
 
@@ -98,7 +99,7 @@ Rewrite the Go-based `db-event-writer` service as an Elixir GenServer within the
 | Stream | Subject | Table |
 |--------|---------|-------|
 | TELEMETRY | telemetry.> | timeseries_metrics |
-| EVENTS | events.> | events |
+| EVENTS | events.> | ocsf_events |
 | SWEEP | sweep.> | sweep_host_states |
 | NETFLOW | netflow.> | netflow_metrics |
 | OTEL_METRICS | otel.metrics.> | otel_metrics |

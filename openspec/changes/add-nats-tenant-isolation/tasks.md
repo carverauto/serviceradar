@@ -106,3 +106,13 @@
 - [ ] 5.2.2 Document NATS account management for operators
 - [ ] 5.2.3 Document collector deployment with NATS credentials
 - [ ] 5.2.4 Add troubleshooting guide for tenant isolation issues
+
+## Phase 6: Per-Tenant EventWriter Pipelines
+
+### 6.1 Core-elx Pipeline Orchestration
+
+- [ ] 6.1.1 Start one EventWriter pipeline per tenant under `TenantRegistry`
+- [ ] 6.1.2 Ensure pipeline processes set tenant context in process dictionary
+- [ ] 6.1.3 Subscribe each pipeline to `<tenant-slug>.events.*` and related subjects
+- [ ] 6.1.4 Add startup reconciliation to create pipelines for existing tenants
+- [ ] 6.1.5 Update health checks to report per-tenant pipeline status

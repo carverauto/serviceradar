@@ -38,10 +38,10 @@
 - [x] 2.2.4 Add unit tests with sample messages
 
 ### 2.3 Events Stream Processor
-- [x] 2.3.1 Create `EventWriter.Processors.Events` module
-- [x] 2.3.2 Implement batch insert to `events` table (with upsert)
-- [x] 2.3.3 Handle CloudEvents and GELF format parsing
-- [x] 2.3.4 Add unit tests
+- [x] 2.3.1 Create `EventWriter.Processors.Events` module for syslog/SNMP
+- [x] 2.3.2 Implement batch insert to `ocsf_events` (Event Log Activity)
+- [x] 2.3.3 Handle CloudEvents, GELF, and SNMP trap parsing
+- [x] 2.3.4 Add unit tests for syslog and SNMP payloads
 
 ### 2.4 Sweep Stream Processor
 - [x] 2.4.1 Create `EventWriter.Processors.Sweep` module
@@ -87,6 +87,7 @@
 - [x] 3.3.2 Conditionally start based on `EVENT_WRITER_ENABLED`
 - [x] 3.3.3 Add `EventWriter.Health` module for status/check/healthy?
 - [x] 3.3.4 Register in ClusterHealth monitoring
+- [ ] 3.3.5 Evaluate per-tenant EventWriter pipelines (defer to `add-nats-tenant-isolation`)
 
 ## Phase 4: Configuration & Deployment (Priority: Medium)
 
@@ -154,7 +155,8 @@
 | **OTel Traces** | Native | Distributed tracing with span context, parent-child relationships. OCSF adds overhead without value. |
 | **OTel Metrics** | Native | Time-series metrics with histograms, gauges, counters. Native format preserves aggregation semantics. |
 | **Telemetry** | Native | Application metrics (Broadway stats, connection pools). Native time-series format for Grafana. |
-| **Logs** | OCSF Event Log (1008) | Log entries are security-relevant events. OCSF enables correlation with other security data. |
+| **Logs** | Native OTEL | Observability logs retain OTEL schema and fields without transformation. |
+| **Syslog / SNMP Events** | OCSF Event Log Activity (1008) | Security-relevant event logs and traps benefit from OCSF normalization. |
 | **Sweep** | OCSF Network Activity (4001) | Network discovery is security-relevant. Hosts, ports, availability map to OCSF schema well. |
 | **NetFlow** | OCSF Network Activity (4001) | Network traffic is core security data. OCSF enables threat detection and forensics. |
 
@@ -165,10 +167,11 @@ meaning (span context, metric types) while adding complexity. Keep each format w
 ### 5.6.2 Implementation Status
 | Processor | Table | OCSF Class | Status |
 |-----------|-------|------------|--------|
-| Logs | ocsf_events | Event Log Activity (1008) | ✅ Complete |
+| Logs | logs | Native OTEL | ✅ Keep native |
 | OtelMetrics | otel_metrics | N/A (native) | ✅ Keep native |
 | OtelTraces | otel_traces | N/A (native) | ✅ Keep native |
 | Telemetry | timeseries_metrics | N/A (native) | ✅ Keep native |
+| Events (Syslog/SNMP) | ocsf_events | Event Log Activity (1008) | ✅ Complete |
 | Sweep | ocsf_network_activity | Network Activity (4001), activity_id: 99 (Scan) | ✅ Complete |
 | NetFlow | ocsf_network_activity | Network Activity (4001), activity_id: 6 (Traffic) | ✅ Complete |
 
@@ -199,7 +202,8 @@ meaning (span context, metric types) while adding complexity. Keep each format w
 - `EventWriter.FieldParser` - JSON field parsing, timestamp handling
 - `EventWriter.Processors.Sweep` - writes to `ocsf_network_activity`
 - `EventWriter.Processors.NetFlow` - writes to `ocsf_network_activity`
-- `EventWriter.Processors.Logs` - writes to `ocsf_events`
+- `EventWriter.Processors.Events` - writes to `ocsf_events`
+- `EventWriter.Processors.Logs` - writes to `logs`
 
 ## Phase 6: Cleanup (Priority: Low)
 

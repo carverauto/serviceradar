@@ -39,6 +39,51 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   end
 
   @doc """
+  Get a single job by its ID.
+  """
+  @spec get_job(String.t()) :: {:ok, job_entry()} | {:error, :not_found}
+  def get_job(id) do
+    case Enum.find(list_all_jobs(), &(&1.id == id)) do
+      nil -> {:error, :not_found}
+      job -> {:ok, job}
+    end
+  end
+
+  @doc """
+  List jobs with optional filters.
+
+  Supports:
+  - `:source` - filter by :cron_plugin or :ash_oban
+  - `:search` - search by name (case-insensitive)
+  - `:enabled` - filter by enabled status
+  """
+  @spec list_jobs(keyword()) :: [job_entry()]
+  def list_jobs(filters \\ []) do
+    list_all_jobs()
+    |> maybe_filter_source(filters[:source])
+    |> maybe_filter_search(filters[:search])
+    |> maybe_filter_enabled(filters[:enabled])
+  end
+
+  defp maybe_filter_source(jobs, nil), do: jobs
+  defp maybe_filter_source(jobs, source), do: Enum.filter(jobs, &(&1.source == source))
+
+  defp maybe_filter_search(jobs, nil), do: jobs
+  defp maybe_filter_search(jobs, ""), do: jobs
+
+  defp maybe_filter_search(jobs, search) do
+    search_lower = String.downcase(search)
+
+    Enum.filter(jobs, fn job ->
+      String.contains?(String.downcase(job.name), search_lower) ||
+        String.contains?(String.downcase(job.description), search_lower)
+    end)
+  end
+
+  defp maybe_filter_enabled(jobs, nil), do: jobs
+  defp maybe_filter_enabled(jobs, enabled), do: Enum.filter(jobs, &(&1.enabled == enabled))
+
+  @doc """
   List jobs configured via Oban.Plugins.Cron in config.
   """
   @spec cron_jobs() :: [job_entry()]

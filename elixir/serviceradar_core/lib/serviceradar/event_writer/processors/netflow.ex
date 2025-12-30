@@ -38,6 +38,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
 
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.EventWriter.TenantContext
 
   require Logger
 
@@ -69,20 +70,27 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
   end
 
   @impl true
-  def parse_message(%{data: data, metadata: metadata}) do
-    case Jason.decode(data) do
-      {:ok, json} ->
-        parse_netflow(json, metadata)
+  def parse_message(%{data: data, metadata: metadata} = message) do
+    tenant_id = TenantContext.resolve_tenant_id(message)
 
-      {:error, _} ->
-        Logger.debug("Failed to parse netflow message as JSON")
-        nil
+    if is_nil(tenant_id) do
+      Logger.error("NetFlow message missing tenant_id", subject: metadata[:subject])
+      nil
+    else
+      case Jason.decode(data) do
+        {:ok, json} ->
+          parse_netflow(json, metadata, tenant_id)
+
+        {:error, _} ->
+          Logger.debug("Failed to parse netflow message as JSON")
+          nil
+      end
     end
   end
 
   # Private functions
 
-  defp parse_netflow(json, nats_metadata) do
+  defp parse_netflow(json, nats_metadata, tenant_id) do
     time = FieldParser.parse_timestamp(json["timestamp"])
     activity_id = OCSF.activity_network_traffic()
 
@@ -198,7 +206,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       raw_data: nil,
 
       # Multi-tenancy
-      tenant_id: OCSF.parse_tenant_id(json),
+      tenant_id: tenant_id,
 
       # Poller/Agent tracking
       poller_id: FieldParser.get_field(json, "poller_id", "pollerId"),

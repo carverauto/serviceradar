@@ -11,7 +11,7 @@ defmodule ServiceRadar.EventWriter.OCSF do
   Based on OCSF v1.3.0 schema.
 
   ## Usage Strategy
-  - Logs: OCSF Event Log Activity (class_uid: 1008)
+  - Logs: Keep native OTEL format (observability data)
   - Sweep/Discovery: OCSF Network Activity (class_uid: 4001)
   - NetFlow: OCSF Network Activity (class_uid: 4001)
   - OTel traces/metrics: Keep native format (observability, not security)
@@ -333,15 +333,10 @@ defmodule ServiceRadar.EventWriter.OCSF do
   def protocol_name(_), do: "Unknown"
 
   @doc """
-  Get default tenant ID.
-  """
-  def default_tenant_id, do: "00000000-0000-0000-0000-000000000000"
-
-  @doc """
-  Parse tenant_id from JSON, falling back to default.
+  Parse tenant_id from JSON payload.
   """
   def parse_tenant_id(json) do
-    json["tenant_id"] || default_tenant_id()
+    json["tenant_id"] || json["tenantId"]
   end
 
   @doc """
