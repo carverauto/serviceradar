@@ -235,59 +235,6 @@ func (p *EventPublisher) applyTenantPrefix(ctx context.Context, subject string) 
 	return tenant.PrefixChannelWithSlug(tenantSlug, subject)
 }
 
-// PublishWithTenant publishes an event with an explicit tenant slug.
-// This bypasses context-based tenant extraction.
-func (p *EventPublisher) PublishWithTenant(
-	ctx context.Context, tenantSlug, subject string, data interface{}) error {
-	// Build subject with tenant prefix if enabled
-	finalSubject := subject
-	if p.tenantPrefixing && tenantSlug != "" {
-		finalSubject = tenant.PrefixChannelWithSlug(tenantSlug, subject)
-	}
-
-	event := models.CloudEvent{
-		SpecVersion:     "1.0",
-		ID:              uuid.New().String(),
-		Source:          "serviceradar/core",
-		Type:            "com.carverauto.serviceradar.generic",
-		DataContentType: "application/json",
-		Subject:         finalSubject,
-		Time:            timePtr(time.Now()),
-		Data:            data,
-	}
-
-	eventBytes, err := json.Marshal(&event)
-	if err != nil {
-		return fmt.Errorf("failed to marshal event: %w", err)
-	}
-
-	ack, err := p.js.Publish(ctx, finalSubject, eventBytes)
-	if err != nil && isStreamMissingErr(err) {
-		if ensureErr := p.ensureStream(ctx, finalSubject); ensureErr != nil {
-			return fmt.Errorf("failed to ensure stream for %s: %w", finalSubject, ensureErr)
-		}
-
-		ack, err = p.js.Publish(ctx, finalSubject, eventBytes)
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to publish event: %w", err)
-	}
-
-	p.logger.Debug().
-		Str("event_id", event.ID).
-		Str("tenant", tenantSlug).
-		Str("subject", finalSubject).
-		Uint64("sequence", ack.Sequence).
-		Msg("Published event with tenant")
-
-	return nil
-}
-
-// timePtr returns a pointer to the given time.
-func timePtr(t time.Time) *time.Time {
-	return &t
-}
 
 // ConnectWithEventPublisher creates a NATS connection with JetStream and returns an EventPublisher.
 func ConnectWithEventPublisher(

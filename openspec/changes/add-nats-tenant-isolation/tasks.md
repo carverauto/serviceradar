@@ -2,23 +2,29 @@
 
 ## Phase 1: Channel Prefixing
 
-### 1.1 Go Publisher Updates
+### 1.1 Go Publisher Updates (pkg/natsutil, pkg/tenant, pkg/grpc)
+
+> **Note**: These changes apply to the Go core service which is being deprecated in favor
+> of the Elixir core (serviceradar-core-elx). Changes are complete but may not be actively used.
 
 - [x] 1.1.1 Update `pkg/natsutil/events.go` to accept tenant slug parameter
-- [x] 1.1.2 Add `PublishWithTenant(ctx, tenant, subject, data)` helper
+- [x] 1.1.2 Add tenant prefix utilities to `pkg/tenant/tenant.go`
 - [x] 1.1.3 Update `EventPublisher` to extract tenant from context
 - [x] 1.1.4 Add feature flag `NATS_TENANT_PREFIX_ENABLED` (default: false)
-- [ ] 1.1.5 Update core service event publishing to include tenant context
-- [ ] 1.1.6 Update poller health event publishing with tenant
+- [x] 1.1.5 Add `TenantInterceptor` to gRPC server to inject tenant context from mTLS certs
+- [x] 1.1.6 Tenant context now flows through to poller health event publishing
 - [x] 1.1.7 Add unit tests for prefixed publishing
 
-### 1.2 Go Consumer Updates
+### 1.2 Go Consumer Updates (DEPRECATED - use Elixir EventWriter instead)
 
-- [ ] 1.2.1 Update db-event-writer consumer config to use `*.events.*` patterns
-- [ ] 1.2.2 Add tenant extraction from subject prefix in message processor
-- [ ] 1.2.3 Update netflow consumer config for prefixed subjects
-- [ ] 1.2.4 Add backward compatibility for non-prefixed subjects (migration period)
-- [ ] 1.2.5 Add integration tests for prefixed message consumption
+> **Note**: The Go db-event-writer is deprecated. Event consumption is handled by
+> the Elixir EventWriter in serviceradar-core-elx. See section 1.4 for active work.
+
+- [~] 1.2.1 ~~Update db-event-writer consumer config~~ → Use Elixir EventWriter
+- [~] 1.2.2 ~~Add tenant extraction from subject prefix~~ → Done in Elixir
+- [~] 1.2.3 ~~Update netflow consumer config~~ → Use Elixir EventWriter
+- [~] 1.2.4 ~~Add backward compatibility~~ → Done in Elixir
+- [~] 1.2.5 ~~Add integration tests~~ → Test Elixir EventWriter
 
 ### 1.3 Rust Consumer Updates
 
@@ -28,11 +34,13 @@
 - [ ] 1.3.4 Add config option for prefix mode (prefixed/legacy/both)
 - [ ] 1.3.5 Test Rust consumers with prefixed messages
 
-### 1.4 Elixir Integration (if applicable)
+### 1.4 Elixir Integration (core-elx EventWriter)
 
-- [ ] 1.4.1 Review if Elixir services publish to NATS directly
-- [ ] 1.4.2 Add tenant prefix to any NATS publishers in Elixir
-- [ ] 1.4.3 Update `ServiceRadar.NATS.Channels` module with prefix helpers
+- [x] 1.4.1 `ServiceRadar.NATS.Channels` module already has tenant prefix helpers
+- [x] 1.4.2 Update `EventWriter.Config` with `*.events.>` wildcard patterns for all streams
+- [x] 1.4.3 Update `EventWriter.Pipeline.handle_message` to extract tenant from subject prefix
+- [x] 1.4.4 Update `EventWriter.Pipeline.handle_batch` to set tenant context from message metadata
+- [x] 1.4.5 Add backward compatibility for non-prefixed subjects (legacy streams)
 
 ## Phase 2: JetStream Configuration
 
@@ -116,3 +124,77 @@
 - [ ] 6.1.3 Subscribe each pipeline to `<tenant-slug>.events.*` and related subjects
 - [ ] 6.1.4 Add startup reconciliation to create pipelines for existing tenants
 - [ ] 6.1.5 Update health checks to report per-tenant pipeline status
+
+## Phase 7: Rust Collector Tenant Context
+
+> **Note**: Flowgger and trapd are Rust-based collectors that need tenant prefix support.
+
+### 7.1 Config Updates
+
+- [ ] 7.1.1 Add `tenant_slug` field to flowgger TOML config
+- [ ] 7.1.2 Add `tenant_slug` field to trapd JSON config
+- [ ] 7.1.3 Update `config-bootstrap` crate to parse tenant_slug
+- [ ] 7.1.4 Validate tenant_slug against mTLS certificate CN/SAN
+
+### 7.2 Subject Prefixing
+
+- [ ] 7.2.1 Update flowgger NATS output to prefix subject with tenant_slug
+- [ ] 7.2.2 Update trapd NATS output to prefix subject with tenant_slug
+- [ ] 7.2.3 Add environment variable override for tenant_slug
+- [ ] 7.2.4 Add logging for tenant-prefixed subject publishing
+
+### 7.3 Testing
+
+- [ ] 7.3.1 Unit tests for tenant prefix in flowgger
+- [ ] 7.3.2 Unit tests for tenant prefix in trapd
+- [ ] 7.3.3 Integration tests with prefixed NATS subjects
+
+## Phase 8: Collector Onboarding Packages
+
+> **Note**: Extend OnboardingPackage to support collector types and generate tenant-aware configs.
+
+### 8.1 OnboardingPackage Extensions
+
+- [ ] 8.1.1 Add collector component types: `:flowgger`, `:trapd`, `:netflow`, `:otel`
+- [ ] 8.1.2 Add `nats_account_user` attribute for NATS account credentials
+- [ ] 8.1.3 Add `nats_account_creds_ciphertext` for encrypted NATS credentials
+- [ ] 8.1.4 Add `collector_config_json` for pre-generated collector config
+
+### 8.2 Package Generation
+
+- [ ] 8.2.1 Generate collector config with `tenant_slug` from tenant context
+- [ ] 8.2.2 Generate NATS user credentials for tenant account
+- [ ] 8.2.3 Include mTLS certificates signed by tenant CA
+- [ ] 8.2.4 Create install script template (`install-collector.sh`)
+- [ ] 8.2.5 Package all artifacts into downloadable tarball
+
+### 8.3 NATS Account Provisioning
+
+- [ ] 8.3.1 Create NATS account for tenant on first collector package
+- [ ] 8.3.2 Generate NATS user credentials with tenant-scoped permissions
+- [ ] 8.3.3 Store NATS credentials in Vault or encrypt in database
+- [ ] 8.3.4 Add account limits (connections, data, payload) per tenant
+
+### 8.4 Leaf Node Support
+
+- [ ] 8.4.1 Generate leaf node configuration for customer-network deployments
+- [ ] 8.4.2 Include hub cluster connection URL and credentials
+- [ ] 8.4.3 Document firewall requirements (outbound 4222/TLS)
+- [ ] 8.4.4 Add leaf node health check endpoint
+
+## Phase 9: Self-Hosted Considerations
+
+> **Note**: Self-hosted customers may not need edge NATS leaf nodes.
+
+### 9.1 Deployment Modes
+
+- [ ] 9.1.1 Document "direct mode" for self-hosted (collectors connect directly to NATS)
+- [ ] 9.1.2 Document "leaf mode" for SaaS (collectors use leaf node)
+- [ ] 9.1.3 Add deployment mode flag to collector config
+- [ ] 9.1.4 Simplify onboarding for self-hosted (no NATS accounts needed)
+
+### 9.2 Configuration Templates
+
+- [ ] 9.2.1 Create self-hosted collector config templates
+- [ ] 9.2.2 Create SaaS collector config templates with leaf node
+- [ ] 9.2.3 Document config differences between modes
