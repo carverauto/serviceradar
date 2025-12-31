@@ -110,14 +110,75 @@ defmodule Proto.SignAccountJWTResponse do
   field :account_jwt, 2, type: :string, json_name: "accountJwt"
 end
 
+defmodule Proto.BootstrapOperatorRequest do
+  @moduledoc false
+
+  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+
+  field :operator_name, 1, type: :string, json_name: "operatorName"
+  field :existing_operator_seed, 2, type: :string, json_name: "existingOperatorSeed"
+  field :generate_system_account, 3, type: :bool, json_name: "generateSystemAccount"
+end
+
+defmodule Proto.BootstrapOperatorResponse do
+  @moduledoc false
+
+  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+
+  field :operator_public_key, 1, type: :string, json_name: "operatorPublicKey"
+  field :operator_seed, 2, type: :string, json_name: "operatorSeed"
+  field :operator_jwt, 3, type: :string, json_name: "operatorJwt"
+  field :system_account_public_key, 4, type: :string, json_name: "systemAccountPublicKey"
+  field :system_account_seed, 5, type: :string, json_name: "systemAccountSeed"
+  field :system_account_jwt, 6, type: :string, json_name: "systemAccountJwt"
+end
+
+defmodule Proto.GetOperatorInfoRequest do
+  @moduledoc false
+
+  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+end
+
+defmodule Proto.GetOperatorInfoResponse do
+  @moduledoc false
+
+  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+
+  field :operator_public_key, 1, type: :string, json_name: "operatorPublicKey"
+  field :operator_name, 2, type: :string, json_name: "operatorName"
+  field :is_initialized, 3, type: :bool, json_name: "isInitialized"
+  field :system_account_public_key, 4, type: :string, json_name: "systemAccountPublicKey"
+end
+
+defmodule Proto.PushAccountJWTRequest do
+  @moduledoc false
+
+  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+
+  field :account_public_key, 1, type: :string, json_name: "accountPublicKey"
+  field :account_jwt, 2, type: :string, json_name: "accountJwt"
+end
+
+defmodule Proto.PushAccountJWTResponse do
+  @moduledoc false
+
+  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+
+  field :success, 1, type: :bool
+  field :message, 2, type: :string
+end
+
 defmodule Proto.NATSAccountService.Service do
   @moduledoc false
 
   use GRPC.Service, name: "proto.NATSAccountService", protoc_gen_elixir_version: "0.13.0"
 
+  rpc(:BootstrapOperator, Proto.BootstrapOperatorRequest, Proto.BootstrapOperatorResponse)
+  rpc(:GetOperatorInfo, Proto.GetOperatorInfoRequest, Proto.GetOperatorInfoResponse)
   rpc(:CreateTenantAccount, Proto.CreateTenantAccountRequest, Proto.CreateTenantAccountResponse)
   rpc(:GenerateUserCredentials, Proto.GenerateUserCredentialsRequest, Proto.GenerateUserCredentialsResponse)
   rpc(:SignAccountJWT, Proto.SignAccountJWTRequest, Proto.SignAccountJWTResponse)
+  rpc(:PushAccountJWT, Proto.PushAccountJWTRequest, Proto.PushAccountJWTResponse)
 end
 
 defmodule Proto.NATSAccountService.Stub do

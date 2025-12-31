@@ -273,7 +273,183 @@ defmodule ServiceRadar.NATS.AccountClient do
     end
   end
 
+  @type push_jwt_result :: %{
+          success: boolean(),
+          message: String.t()
+        }
+
+  @doc """
+  Push an account JWT to the NATS resolver.
+
+  This makes the account immediately available without NATS restart.
+  Uses the $SYS.REQ.CLAIMS.UPDATE subject via the system account.
+
+  ## Options
+
+    * `:timeout` - gRPC call timeout in milliseconds (default: 30000)
+
+  ## Examples
+
+      {:ok, result} = AccountClient.push_account_jwt(
+        "ABCD123...",  # account public key
+        "eyJhbGciOiJFZDI1NTE5..."  # account JWT
+      )
+      if result.success do
+        IO.puts("JWT pushed successfully")
+      end
+  """
+  @spec push_account_jwt(String.t(), String.t(), keyword()) ::
+          {:ok, push_jwt_result()} | {:error, term()}
+  def push_account_jwt(account_public_key, account_jwt, opts \\ []) do
+    timeout = opts[:timeout] || @default_timeout
+
+    request = %Proto.PushAccountJWTRequest{
+      account_public_key: account_public_key,
+      account_jwt: account_jwt
+    }
+
+    with {:ok, channel} <- get_channel() do
+      case Proto.NATSAccountService.Stub.push_account_jwt(channel, request, timeout: timeout) do
+        {:ok, response} ->
+          {:ok,
+           %{
+             success: response.success,
+             message: response.message || ""
+           }}
+
+        {:error, %GRPC.RPCError{} = error} ->
+          Logger.error("gRPC error pushing account JWT: #{GRPC.RPCError.message(error)}")
+          {:error, {:grpc_error, GRPC.RPCError.message(error)}}
+
+        {:error, reason} ->
+          Logger.error("Error pushing account JWT: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+  end
+
+  @type bootstrap_result :: %{
+          operator_public_key: String.t(),
+          operator_seed: String.t() | nil,
+          operator_jwt: String.t(),
+          system_account_public_key: String.t() | nil,
+          system_account_seed: String.t() | nil,
+          system_account_jwt: String.t() | nil
+        }
+
+  @type operator_info :: %{
+          operator_public_key: String.t() | nil,
+          operator_name: String.t() | nil,
+          is_initialized: boolean(),
+          system_account_public_key: String.t() | nil
+        }
+
+  @doc """
+  Bootstrap the NATS operator for the platform.
+
+  This initializes the NATS operator which is the root of trust for all tenant
+  account JWTs. Should be called once during initial platform setup.
+
+  ## Options
+
+    * `:operator_name` - Name for the operator (default: "serviceradar")
+    * `:existing_seed` - Optional: import existing operator seed instead of generating
+    * `:generate_system_account` - Whether to generate the system account (default: true)
+    * `:timeout` - gRPC call timeout in milliseconds (default: 30000)
+
+  ## Examples
+
+      # Generate new operator
+      {:ok, result} = AccountClient.bootstrap_operator()
+
+      # Import existing operator seed
+      {:ok, result} = AccountClient.bootstrap_operator(
+        existing_seed: "SO..."
+      )
+  """
+  @spec bootstrap_operator(keyword()) :: {:ok, bootstrap_result()} | {:error, term()}
+  def bootstrap_operator(opts \\ []) do
+    timeout = opts[:timeout] || @default_timeout
+
+    request = %Proto.BootstrapOperatorRequest{
+      operator_name: opts[:operator_name] || "serviceradar",
+      existing_operator_seed: opts[:existing_seed] || "",
+      generate_system_account: Keyword.get(opts, :generate_system_account, true)
+    }
+
+    with {:ok, channel} <- get_channel() do
+      case Proto.NATSAccountService.Stub.bootstrap_operator(channel, request, timeout: timeout) do
+        {:ok, response} ->
+          {:ok,
+           %{
+             operator_public_key: response.operator_public_key,
+             operator_seed: empty_to_nil(response.operator_seed),
+             operator_jwt: response.operator_jwt,
+             system_account_public_key: empty_to_nil(response.system_account_public_key),
+             system_account_seed: empty_to_nil(response.system_account_seed),
+             system_account_jwt: empty_to_nil(response.system_account_jwt)
+           }}
+
+        {:error, %GRPC.RPCError{} = error} ->
+          Logger.error("gRPC error bootstrapping operator: #{GRPC.RPCError.message(error)}")
+          {:error, {:grpc_error, GRPC.RPCError.message(error)}}
+
+        {:error, reason} ->
+          Logger.error("Error bootstrapping operator: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Get the current operator status and info.
+
+  Returns information about the NATS operator, including whether it has been
+  initialized via bootstrap.
+
+  ## Options
+
+    * `:timeout` - gRPC call timeout in milliseconds (default: 30000)
+
+  ## Examples
+
+      {:ok, info} = AccountClient.get_operator_info()
+      if info.is_initialized do
+        IO.puts("Operator: \#{info.operator_name}")
+      end
+  """
+  @spec get_operator_info(keyword()) :: {:ok, operator_info()} | {:error, term()}
+  def get_operator_info(opts \\ []) do
+    timeout = opts[:timeout] || @default_timeout
+
+    request = %Proto.GetOperatorInfoRequest{}
+
+    with {:ok, channel} <- get_channel() do
+      case Proto.NATSAccountService.Stub.get_operator_info(channel, request, timeout: timeout) do
+        {:ok, response} ->
+          {:ok,
+           %{
+             operator_public_key: empty_to_nil(response.operator_public_key),
+             operator_name: empty_to_nil(response.operator_name),
+             is_initialized: response.is_initialized,
+             system_account_public_key: empty_to_nil(response.system_account_public_key)
+           }}
+
+        {:error, %GRPC.RPCError{} = error} ->
+          Logger.error("gRPC error getting operator info: #{GRPC.RPCError.message(error)}")
+          {:error, {:grpc_error, GRPC.RPCError.message(error)}}
+
+        {:error, reason} ->
+          Logger.error("Error getting operator info: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+  end
+
   # Private helpers
+
+  defp empty_to_nil(""), do: nil
+  defp empty_to_nil(value), do: value
 
   defp get_channel do
     # Try to get channel from DataService.Client first

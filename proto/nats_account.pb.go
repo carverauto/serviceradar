@@ -17,7 +17,7 @@
 // versions:
 // 	protoc-gen-go v1.36.10
 // 	protoc        v3.14.0
-// source: proto/nats_account.proto
+// source: nats_account.proto
 
 package proto
 
@@ -73,11 +73,11 @@ func (x UserCredentialType) String() string {
 }
 
 func (UserCredentialType) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_nats_account_proto_enumTypes[0].Descriptor()
+	return file_nats_account_proto_enumTypes[0].Descriptor()
 }
 
 func (UserCredentialType) Type() protoreflect.EnumType {
-	return &file_proto_nats_account_proto_enumTypes[0]
+	return &file_nats_account_proto_enumTypes[0]
 }
 
 func (x UserCredentialType) Number() protoreflect.EnumNumber {
@@ -86,7 +86,7 @@ func (x UserCredentialType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use UserCredentialType.Descriptor instead.
 func (UserCredentialType) EnumDescriptor() ([]byte, []int) {
-	return file_proto_nats_account_proto_rawDescGZIP(), []int{0}
+	return file_nats_account_proto_rawDescGZIP(), []int{0}
 }
 
 // AccountLimits defines resource constraints for a NATS account.
@@ -105,7 +105,7 @@ type AccountLimits struct {
 
 func (x *AccountLimits) Reset() {
 	*x = AccountLimits{}
-	mi := &file_proto_nats_account_proto_msgTypes[0]
+	mi := &file_nats_account_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -117,7 +117,7 @@ func (x *AccountLimits) String() string {
 func (*AccountLimits) ProtoMessage() {}
 
 func (x *AccountLimits) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nats_account_proto_msgTypes[0]
+	mi := &file_nats_account_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -130,7 +130,7 @@ func (x *AccountLimits) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountLimits.ProtoReflect.Descriptor instead.
 func (*AccountLimits) Descriptor() ([]byte, []int) {
-	return file_proto_nats_account_proto_rawDescGZIP(), []int{0}
+	return file_nats_account_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *AccountLimits) GetMaxConnections() int64 {
@@ -193,7 +193,7 @@ type SubjectMapping struct {
 
 func (x *SubjectMapping) Reset() {
 	*x = SubjectMapping{}
-	mi := &file_proto_nats_account_proto_msgTypes[1]
+	mi := &file_nats_account_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -205,7 +205,7 @@ func (x *SubjectMapping) String() string {
 func (*SubjectMapping) ProtoMessage() {}
 
 func (x *SubjectMapping) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nats_account_proto_msgTypes[1]
+	mi := &file_nats_account_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -218,7 +218,7 @@ func (x *SubjectMapping) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubjectMapping.ProtoReflect.Descriptor instead.
 func (*SubjectMapping) Descriptor() ([]byte, []int) {
-	return file_proto_nats_account_proto_rawDescGZIP(), []int{1}
+	return file_nats_account_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *SubjectMapping) GetFrom() string {
@@ -247,7 +247,7 @@ type CreateTenantAccountRequest struct {
 
 func (x *CreateTenantAccountRequest) Reset() {
 	*x = CreateTenantAccountRequest{}
-	mi := &file_proto_nats_account_proto_msgTypes[2]
+	mi := &file_nats_account_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -259,7 +259,7 @@ func (x *CreateTenantAccountRequest) String() string {
 func (*CreateTenantAccountRequest) ProtoMessage() {}
 
 func (x *CreateTenantAccountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nats_account_proto_msgTypes[2]
+	mi := &file_nats_account_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -272,7 +272,7 @@ func (x *CreateTenantAccountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTenantAccountRequest.ProtoReflect.Descriptor instead.
 func (*CreateTenantAccountRequest) Descriptor() ([]byte, []int) {
-	return file_proto_nats_account_proto_rawDescGZIP(), []int{2}
+	return file_nats_account_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CreateTenantAccountRequest) GetTenantSlug() string {
@@ -309,7 +309,7 @@ type CreateTenantAccountResponse struct {
 
 func (x *CreateTenantAccountResponse) Reset() {
 	*x = CreateTenantAccountResponse{}
-	mi := &file_proto_nats_account_proto_msgTypes[3]
+	mi := &file_nats_account_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -321,7 +321,7 @@ func (x *CreateTenantAccountResponse) String() string {
 func (*CreateTenantAccountResponse) ProtoMessage() {}
 
 func (x *CreateTenantAccountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nats_account_proto_msgTypes[3]
+	mi := &file_nats_account_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -334,7 +334,7 @@ func (x *CreateTenantAccountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTenantAccountResponse.ProtoReflect.Descriptor instead.
 func (*CreateTenantAccountResponse) Descriptor() ([]byte, []int) {
-	return file_proto_nats_account_proto_rawDescGZIP(), []int{3}
+	return file_nats_account_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *CreateTenantAccountResponse) GetAccountPublicKey() string {
@@ -373,7 +373,7 @@ type UserPermissions struct {
 
 func (x *UserPermissions) Reset() {
 	*x = UserPermissions{}
-	mi := &file_proto_nats_account_proto_msgTypes[4]
+	mi := &file_nats_account_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -385,7 +385,7 @@ func (x *UserPermissions) String() string {
 func (*UserPermissions) ProtoMessage() {}
 
 func (x *UserPermissions) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nats_account_proto_msgTypes[4]
+	mi := &file_nats_account_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -398,7 +398,7 @@ func (x *UserPermissions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserPermissions.ProtoReflect.Descriptor instead.
 func (*UserPermissions) Descriptor() ([]byte, []int) {
-	return file_proto_nats_account_proto_rawDescGZIP(), []int{4}
+	return file_nats_account_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *UserPermissions) GetPublishAllow() []string {
@@ -458,7 +458,7 @@ type GenerateUserCredentialsRequest struct {
 
 func (x *GenerateUserCredentialsRequest) Reset() {
 	*x = GenerateUserCredentialsRequest{}
-	mi := &file_proto_nats_account_proto_msgTypes[5]
+	mi := &file_nats_account_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -470,7 +470,7 @@ func (x *GenerateUserCredentialsRequest) String() string {
 func (*GenerateUserCredentialsRequest) ProtoMessage() {}
 
 func (x *GenerateUserCredentialsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nats_account_proto_msgTypes[5]
+	mi := &file_nats_account_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -483,7 +483,7 @@ func (x *GenerateUserCredentialsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateUserCredentialsRequest.ProtoReflect.Descriptor instead.
 func (*GenerateUserCredentialsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_nats_account_proto_rawDescGZIP(), []int{5}
+	return file_nats_account_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GenerateUserCredentialsRequest) GetTenantSlug() string {
@@ -541,7 +541,7 @@ type GenerateUserCredentialsResponse struct {
 
 func (x *GenerateUserCredentialsResponse) Reset() {
 	*x = GenerateUserCredentialsResponse{}
-	mi := &file_proto_nats_account_proto_msgTypes[6]
+	mi := &file_nats_account_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -553,7 +553,7 @@ func (x *GenerateUserCredentialsResponse) String() string {
 func (*GenerateUserCredentialsResponse) ProtoMessage() {}
 
 func (x *GenerateUserCredentialsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nats_account_proto_msgTypes[6]
+	mi := &file_nats_account_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -566,7 +566,7 @@ func (x *GenerateUserCredentialsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateUserCredentialsResponse.ProtoReflect.Descriptor instead.
 func (*GenerateUserCredentialsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_nats_account_proto_rawDescGZIP(), []int{6}
+	return file_nats_account_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GenerateUserCredentialsResponse) GetUserPublicKey() string {
@@ -611,7 +611,7 @@ type SignAccountJWTRequest struct {
 
 func (x *SignAccountJWTRequest) Reset() {
 	*x = SignAccountJWTRequest{}
-	mi := &file_proto_nats_account_proto_msgTypes[7]
+	mi := &file_nats_account_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -623,7 +623,7 @@ func (x *SignAccountJWTRequest) String() string {
 func (*SignAccountJWTRequest) ProtoMessage() {}
 
 func (x *SignAccountJWTRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nats_account_proto_msgTypes[7]
+	mi := &file_nats_account_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -636,7 +636,7 @@ func (x *SignAccountJWTRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignAccountJWTRequest.ProtoReflect.Descriptor instead.
 func (*SignAccountJWTRequest) Descriptor() ([]byte, []int) {
-	return file_proto_nats_account_proto_rawDescGZIP(), []int{7}
+	return file_nats_account_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SignAccountJWTRequest) GetTenantSlug() string {
@@ -685,7 +685,7 @@ type SignAccountJWTResponse struct {
 
 func (x *SignAccountJWTResponse) Reset() {
 	*x = SignAccountJWTResponse{}
-	mi := &file_proto_nats_account_proto_msgTypes[8]
+	mi := &file_nats_account_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -697,7 +697,7 @@ func (x *SignAccountJWTResponse) String() string {
 func (*SignAccountJWTResponse) ProtoMessage() {}
 
 func (x *SignAccountJWTResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_nats_account_proto_msgTypes[8]
+	mi := &file_nats_account_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -710,7 +710,7 @@ func (x *SignAccountJWTResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignAccountJWTResponse.ProtoReflect.Descriptor instead.
 func (*SignAccountJWTResponse) Descriptor() ([]byte, []int) {
-	return file_proto_nats_account_proto_rawDescGZIP(), []int{8}
+	return file_nats_account_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SignAccountJWTResponse) GetAccountPublicKey() string {
@@ -727,11 +727,370 @@ func (x *SignAccountJWTResponse) GetAccountJwt() string {
 	return ""
 }
 
-var File_proto_nats_account_proto protoreflect.FileDescriptor
+// BootstrapOperatorRequest is used to initialize the NATS operator.
+type BootstrapOperatorRequest struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	OperatorName          string                 `protobuf:"bytes,1,opt,name=operator_name,json=operatorName,proto3" json:"operator_name,omitempty"`                               // Name for the operator (e.g., "serviceradar")
+	ExistingOperatorSeed  string                 `protobuf:"bytes,2,opt,name=existing_operator_seed,json=existingOperatorSeed,proto3" json:"existing_operator_seed,omitempty"`     // Optional: import existing seed instead of generating
+	GenerateSystemAccount bool                   `protobuf:"varint,3,opt,name=generate_system_account,json=generateSystemAccount,proto3" json:"generate_system_account,omitempty"` // Whether to generate the system account
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
 
-const file_proto_nats_account_proto_rawDesc = "" +
+func (x *BootstrapOperatorRequest) Reset() {
+	*x = BootstrapOperatorRequest{}
+	mi := &file_nats_account_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BootstrapOperatorRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BootstrapOperatorRequest) ProtoMessage() {}
+
+func (x *BootstrapOperatorRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nats_account_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BootstrapOperatorRequest.ProtoReflect.Descriptor instead.
+func (*BootstrapOperatorRequest) Descriptor() ([]byte, []int) {
+	return file_nats_account_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *BootstrapOperatorRequest) GetOperatorName() string {
+	if x != nil {
+		return x.OperatorName
+	}
+	return ""
+}
+
+func (x *BootstrapOperatorRequest) GetExistingOperatorSeed() string {
+	if x != nil {
+		return x.ExistingOperatorSeed
+	}
+	return ""
+}
+
+func (x *BootstrapOperatorRequest) GetGenerateSystemAccount() bool {
+	if x != nil {
+		return x.GenerateSystemAccount
+	}
+	return false
+}
+
+// BootstrapOperatorResponse returns the operator credentials.
+// Seeds are only returned if newly generated (not when importing existing).
+type BootstrapOperatorResponse struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	OperatorPublicKey      string                 `protobuf:"bytes,1,opt,name=operator_public_key,json=operatorPublicKey,proto3" json:"operator_public_key,omitempty"`                  // The operator's public NKey (starts with 'O')
+	OperatorSeed           string                 `protobuf:"bytes,2,opt,name=operator_seed,json=operatorSeed,proto3" json:"operator_seed,omitempty"`                                   // The operator's private seed - only if newly generated
+	OperatorJwt            string                 `protobuf:"bytes,3,opt,name=operator_jwt,json=operatorJwt,proto3" json:"operator_jwt,omitempty"`                                      // The signed operator JWT
+	SystemAccountPublicKey string                 `protobuf:"bytes,4,opt,name=system_account_public_key,json=systemAccountPublicKey,proto3" json:"system_account_public_key,omitempty"` // System account public key (if generated)
+	SystemAccountSeed      string                 `protobuf:"bytes,5,opt,name=system_account_seed,json=systemAccountSeed,proto3" json:"system_account_seed,omitempty"`                  // System account seed - only if newly generated
+	SystemAccountJwt       string                 `protobuf:"bytes,6,opt,name=system_account_jwt,json=systemAccountJwt,proto3" json:"system_account_jwt,omitempty"`                     // Signed system account JWT (if generated)
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *BootstrapOperatorResponse) Reset() {
+	*x = BootstrapOperatorResponse{}
+	mi := &file_nats_account_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BootstrapOperatorResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BootstrapOperatorResponse) ProtoMessage() {}
+
+func (x *BootstrapOperatorResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nats_account_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BootstrapOperatorResponse.ProtoReflect.Descriptor instead.
+func (*BootstrapOperatorResponse) Descriptor() ([]byte, []int) {
+	return file_nats_account_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *BootstrapOperatorResponse) GetOperatorPublicKey() string {
+	if x != nil {
+		return x.OperatorPublicKey
+	}
+	return ""
+}
+
+func (x *BootstrapOperatorResponse) GetOperatorSeed() string {
+	if x != nil {
+		return x.OperatorSeed
+	}
+	return ""
+}
+
+func (x *BootstrapOperatorResponse) GetOperatorJwt() string {
+	if x != nil {
+		return x.OperatorJwt
+	}
+	return ""
+}
+
+func (x *BootstrapOperatorResponse) GetSystemAccountPublicKey() string {
+	if x != nil {
+		return x.SystemAccountPublicKey
+	}
+	return ""
+}
+
+func (x *BootstrapOperatorResponse) GetSystemAccountSeed() string {
+	if x != nil {
+		return x.SystemAccountSeed
+	}
+	return ""
+}
+
+func (x *BootstrapOperatorResponse) GetSystemAccountJwt() string {
+	if x != nil {
+		return x.SystemAccountJwt
+	}
+	return ""
+}
+
+// GetOperatorInfoRequest retrieves current operator status.
+type GetOperatorInfoRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetOperatorInfoRequest) Reset() {
+	*x = GetOperatorInfoRequest{}
+	mi := &file_nats_account_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetOperatorInfoRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetOperatorInfoRequest) ProtoMessage() {}
+
+func (x *GetOperatorInfoRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nats_account_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetOperatorInfoRequest.ProtoReflect.Descriptor instead.
+func (*GetOperatorInfoRequest) Descriptor() ([]byte, []int) {
+	return file_nats_account_proto_rawDescGZIP(), []int{11}
+}
+
+// GetOperatorInfoResponse returns the operator's current state.
+type GetOperatorInfoResponse struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	OperatorPublicKey      string                 `protobuf:"bytes,1,opt,name=operator_public_key,json=operatorPublicKey,proto3" json:"operator_public_key,omitempty"`                  // The operator's public NKey
+	OperatorName           string                 `protobuf:"bytes,2,opt,name=operator_name,json=operatorName,proto3" json:"operator_name,omitempty"`                                   // The operator's name
+	IsInitialized          bool                   `protobuf:"varint,3,opt,name=is_initialized,json=isInitialized,proto3" json:"is_initialized,omitempty"`                               // Whether the operator is ready for use
+	SystemAccountPublicKey string                 `protobuf:"bytes,4,opt,name=system_account_public_key,json=systemAccountPublicKey,proto3" json:"system_account_public_key,omitempty"` // System account public key (if exists)
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *GetOperatorInfoResponse) Reset() {
+	*x = GetOperatorInfoResponse{}
+	mi := &file_nats_account_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetOperatorInfoResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetOperatorInfoResponse) ProtoMessage() {}
+
+func (x *GetOperatorInfoResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nats_account_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetOperatorInfoResponse.ProtoReflect.Descriptor instead.
+func (*GetOperatorInfoResponse) Descriptor() ([]byte, []int) {
+	return file_nats_account_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *GetOperatorInfoResponse) GetOperatorPublicKey() string {
+	if x != nil {
+		return x.OperatorPublicKey
+	}
+	return ""
+}
+
+func (x *GetOperatorInfoResponse) GetOperatorName() string {
+	if x != nil {
+		return x.OperatorName
+	}
+	return ""
+}
+
+func (x *GetOperatorInfoResponse) GetIsInitialized() bool {
+	if x != nil {
+		return x.IsInitialized
+	}
+	return false
+}
+
+func (x *GetOperatorInfoResponse) GetSystemAccountPublicKey() string {
+	if x != nil {
+		return x.SystemAccountPublicKey
+	}
+	return ""
+}
+
+// PushAccountJWTRequest is the request to push an account JWT to the NATS resolver.
+type PushAccountJWTRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	AccountPublicKey string                 `protobuf:"bytes,1,opt,name=account_public_key,json=accountPublicKey,proto3" json:"account_public_key,omitempty"` // The account's public NKey (starts with 'A')
+	AccountJwt       string                 `protobuf:"bytes,2,opt,name=account_jwt,json=accountJwt,proto3" json:"account_jwt,omitempty"`                     // The signed account JWT to push
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *PushAccountJWTRequest) Reset() {
+	*x = PushAccountJWTRequest{}
+	mi := &file_nats_account_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PushAccountJWTRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushAccountJWTRequest) ProtoMessage() {}
+
+func (x *PushAccountJWTRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nats_account_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushAccountJWTRequest.ProtoReflect.Descriptor instead.
+func (*PushAccountJWTRequest) Descriptor() ([]byte, []int) {
+	return file_nats_account_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *PushAccountJWTRequest) GetAccountPublicKey() string {
+	if x != nil {
+		return x.AccountPublicKey
+	}
+	return ""
+}
+
+func (x *PushAccountJWTRequest) GetAccountJwt() string {
+	if x != nil {
+		return x.AccountJwt
+	}
+	return ""
+}
+
+// PushAccountJWTResponse confirms the JWT was pushed to the resolver.
+type PushAccountJWTResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"` // Whether the push was successful
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`  // Status message or error details
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PushAccountJWTResponse) Reset() {
+	*x = PushAccountJWTResponse{}
+	mi := &file_nats_account_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PushAccountJWTResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushAccountJWTResponse) ProtoMessage() {}
+
+func (x *PushAccountJWTResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nats_account_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushAccountJWTResponse.ProtoReflect.Descriptor instead.
+func (*PushAccountJWTResponse) Descriptor() ([]byte, []int) {
+	return file_nats_account_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *PushAccountJWTResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *PushAccountJWTResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+var File_nats_account_proto protoreflect.FileDescriptor
+
+const file_nats_account_proto_rawDesc = "" +
 	"\n" +
-	"\x18proto/nats_account.proto\x12\x05proto\"\xaf\x02\n" +
+	"\x12nats_account.proto\x12\x05proto\"\xaf\x02\n" +
 	"\rAccountLimits\x12'\n" +
 	"\x0fmax_connections\x18\x01 \x01(\x03R\x0emaxConnections\x12+\n" +
 	"\x11max_subscriptions\x18\x02 \x01(\x03R\x10maxSubscriptions\x12*\n" +
@@ -785,32 +1144,59 @@ const file_proto_nats_account_proto_rawDesc = "" +
 	"\x16SignAccountJWTResponse\x12,\n" +
 	"\x12account_public_key\x18\x01 \x01(\tR\x10accountPublicKey\x12\x1f\n" +
 	"\vaccount_jwt\x18\x02 \x01(\tR\n" +
-	"accountJwt*\xa0\x01\n" +
+	"accountJwt\"\xad\x01\n" +
+	"\x18BootstrapOperatorRequest\x12#\n" +
+	"\roperator_name\x18\x01 \x01(\tR\foperatorName\x124\n" +
+	"\x16existing_operator_seed\x18\x02 \x01(\tR\x14existingOperatorSeed\x126\n" +
+	"\x17generate_system_account\x18\x03 \x01(\bR\x15generateSystemAccount\"\xac\x02\n" +
+	"\x19BootstrapOperatorResponse\x12.\n" +
+	"\x13operator_public_key\x18\x01 \x01(\tR\x11operatorPublicKey\x12#\n" +
+	"\roperator_seed\x18\x02 \x01(\tR\foperatorSeed\x12!\n" +
+	"\foperator_jwt\x18\x03 \x01(\tR\voperatorJwt\x129\n" +
+	"\x19system_account_public_key\x18\x04 \x01(\tR\x16systemAccountPublicKey\x12.\n" +
+	"\x13system_account_seed\x18\x05 \x01(\tR\x11systemAccountSeed\x12,\n" +
+	"\x12system_account_jwt\x18\x06 \x01(\tR\x10systemAccountJwt\"\x18\n" +
+	"\x16GetOperatorInfoRequest\"\xd0\x01\n" +
+	"\x17GetOperatorInfoResponse\x12.\n" +
+	"\x13operator_public_key\x18\x01 \x01(\tR\x11operatorPublicKey\x12#\n" +
+	"\roperator_name\x18\x02 \x01(\tR\foperatorName\x12%\n" +
+	"\x0eis_initialized\x18\x03 \x01(\bR\risInitialized\x129\n" +
+	"\x19system_account_public_key\x18\x04 \x01(\tR\x16systemAccountPublicKey\"f\n" +
+	"\x15PushAccountJWTRequest\x12,\n" +
+	"\x12account_public_key\x18\x01 \x01(\tR\x10accountPublicKey\x12\x1f\n" +
+	"\vaccount_jwt\x18\x02 \x01(\tR\n" +
+	"accountJwt\"L\n" +
+	"\x16PushAccountJWTResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage*\xa0\x01\n" +
 	"\x12UserCredentialType\x12$\n" +
 	" USER_CREDENTIAL_TYPE_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eUSER_CREDENTIAL_TYPE_COLLECTOR\x10\x01\x12 \n" +
 	"\x1cUSER_CREDENTIAL_TYPE_SERVICE\x10\x02\x12\x1e\n" +
-	"\x1aUSER_CREDENTIAL_TYPE_ADMIN\x10\x032\xb1\x02\n" +
-	"\x12NATSAccountService\x12^\n" +
+	"\x1aUSER_CREDENTIAL_TYPE_ADMIN\x10\x032\xb0\x04\n" +
+	"\x12NATSAccountService\x12X\n" +
+	"\x11BootstrapOperator\x12\x1f.proto.BootstrapOperatorRequest\x1a .proto.BootstrapOperatorResponse\"\x00\x12R\n" +
+	"\x0fGetOperatorInfo\x12\x1d.proto.GetOperatorInfoRequest\x1a\x1e.proto.GetOperatorInfoResponse\"\x00\x12^\n" +
 	"\x13CreateTenantAccount\x12!.proto.CreateTenantAccountRequest\x1a\".proto.CreateTenantAccountResponse\"\x00\x12j\n" +
 	"\x17GenerateUserCredentials\x12%.proto.GenerateUserCredentialsRequest\x1a&.proto.GenerateUserCredentialsResponse\"\x00\x12O\n" +
-	"\x0eSignAccountJWT\x12\x1c.proto.SignAccountJWTRequest\x1a\x1d.proto.SignAccountJWTResponse\"\x00B*Z(github.com/carverauto/serviceradar/protob\x06proto3"
+	"\x0eSignAccountJWT\x12\x1c.proto.SignAccountJWTRequest\x1a\x1d.proto.SignAccountJWTResponse\"\x00\x12O\n" +
+	"\x0ePushAccountJWT\x12\x1c.proto.PushAccountJWTRequest\x1a\x1d.proto.PushAccountJWTResponse\"\x00B*Z(github.com/carverauto/serviceradar/protob\x06proto3"
 
 var (
-	file_proto_nats_account_proto_rawDescOnce sync.Once
-	file_proto_nats_account_proto_rawDescData []byte
+	file_nats_account_proto_rawDescOnce sync.Once
+	file_nats_account_proto_rawDescData []byte
 )
 
-func file_proto_nats_account_proto_rawDescGZIP() []byte {
-	file_proto_nats_account_proto_rawDescOnce.Do(func() {
-		file_proto_nats_account_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_nats_account_proto_rawDesc), len(file_proto_nats_account_proto_rawDesc)))
+func file_nats_account_proto_rawDescGZIP() []byte {
+	file_nats_account_proto_rawDescOnce.Do(func() {
+		file_nats_account_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_nats_account_proto_rawDesc), len(file_nats_account_proto_rawDesc)))
 	})
-	return file_proto_nats_account_proto_rawDescData
+	return file_nats_account_proto_rawDescData
 }
 
-var file_proto_nats_account_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_nats_account_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
-var file_proto_nats_account_proto_goTypes = []any{
+var file_nats_account_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_nats_account_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_nats_account_proto_goTypes = []any{
 	(UserCredentialType)(0),                 // 0: proto.UserCredentialType
 	(*AccountLimits)(nil),                   // 1: proto.AccountLimits
 	(*SubjectMapping)(nil),                  // 2: proto.SubjectMapping
@@ -821,48 +1207,60 @@ var file_proto_nats_account_proto_goTypes = []any{
 	(*GenerateUserCredentialsResponse)(nil), // 7: proto.GenerateUserCredentialsResponse
 	(*SignAccountJWTRequest)(nil),           // 8: proto.SignAccountJWTRequest
 	(*SignAccountJWTResponse)(nil),          // 9: proto.SignAccountJWTResponse
+	(*BootstrapOperatorRequest)(nil),        // 10: proto.BootstrapOperatorRequest
+	(*BootstrapOperatorResponse)(nil),       // 11: proto.BootstrapOperatorResponse
+	(*GetOperatorInfoRequest)(nil),          // 12: proto.GetOperatorInfoRequest
+	(*GetOperatorInfoResponse)(nil),         // 13: proto.GetOperatorInfoResponse
+	(*PushAccountJWTRequest)(nil),           // 14: proto.PushAccountJWTRequest
+	(*PushAccountJWTResponse)(nil),          // 15: proto.PushAccountJWTResponse
 }
-var file_proto_nats_account_proto_depIdxs = []int32{
-	1, // 0: proto.CreateTenantAccountRequest.limits:type_name -> proto.AccountLimits
-	2, // 1: proto.CreateTenantAccountRequest.subject_mappings:type_name -> proto.SubjectMapping
-	0, // 2: proto.GenerateUserCredentialsRequest.credential_type:type_name -> proto.UserCredentialType
-	5, // 3: proto.GenerateUserCredentialsRequest.permissions:type_name -> proto.UserPermissions
-	1, // 4: proto.SignAccountJWTRequest.limits:type_name -> proto.AccountLimits
-	2, // 5: proto.SignAccountJWTRequest.subject_mappings:type_name -> proto.SubjectMapping
-	3, // 6: proto.NATSAccountService.CreateTenantAccount:input_type -> proto.CreateTenantAccountRequest
-	6, // 7: proto.NATSAccountService.GenerateUserCredentials:input_type -> proto.GenerateUserCredentialsRequest
-	8, // 8: proto.NATSAccountService.SignAccountJWT:input_type -> proto.SignAccountJWTRequest
-	4, // 9: proto.NATSAccountService.CreateTenantAccount:output_type -> proto.CreateTenantAccountResponse
-	7, // 10: proto.NATSAccountService.GenerateUserCredentials:output_type -> proto.GenerateUserCredentialsResponse
-	9, // 11: proto.NATSAccountService.SignAccountJWT:output_type -> proto.SignAccountJWTResponse
-	9, // [9:12] is the sub-list for method output_type
-	6, // [6:9] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+var file_nats_account_proto_depIdxs = []int32{
+	1,  // 0: proto.CreateTenantAccountRequest.limits:type_name -> proto.AccountLimits
+	2,  // 1: proto.CreateTenantAccountRequest.subject_mappings:type_name -> proto.SubjectMapping
+	0,  // 2: proto.GenerateUserCredentialsRequest.credential_type:type_name -> proto.UserCredentialType
+	5,  // 3: proto.GenerateUserCredentialsRequest.permissions:type_name -> proto.UserPermissions
+	1,  // 4: proto.SignAccountJWTRequest.limits:type_name -> proto.AccountLimits
+	2,  // 5: proto.SignAccountJWTRequest.subject_mappings:type_name -> proto.SubjectMapping
+	10, // 6: proto.NATSAccountService.BootstrapOperator:input_type -> proto.BootstrapOperatorRequest
+	12, // 7: proto.NATSAccountService.GetOperatorInfo:input_type -> proto.GetOperatorInfoRequest
+	3,  // 8: proto.NATSAccountService.CreateTenantAccount:input_type -> proto.CreateTenantAccountRequest
+	6,  // 9: proto.NATSAccountService.GenerateUserCredentials:input_type -> proto.GenerateUserCredentialsRequest
+	8,  // 10: proto.NATSAccountService.SignAccountJWT:input_type -> proto.SignAccountJWTRequest
+	14, // 11: proto.NATSAccountService.PushAccountJWT:input_type -> proto.PushAccountJWTRequest
+	11, // 12: proto.NATSAccountService.BootstrapOperator:output_type -> proto.BootstrapOperatorResponse
+	13, // 13: proto.NATSAccountService.GetOperatorInfo:output_type -> proto.GetOperatorInfoResponse
+	4,  // 14: proto.NATSAccountService.CreateTenantAccount:output_type -> proto.CreateTenantAccountResponse
+	7,  // 15: proto.NATSAccountService.GenerateUserCredentials:output_type -> proto.GenerateUserCredentialsResponse
+	9,  // 16: proto.NATSAccountService.SignAccountJWT:output_type -> proto.SignAccountJWTResponse
+	15, // 17: proto.NATSAccountService.PushAccountJWT:output_type -> proto.PushAccountJWTResponse
+	12, // [12:18] is the sub-list for method output_type
+	6,  // [6:12] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
-func init() { file_proto_nats_account_proto_init() }
-func file_proto_nats_account_proto_init() {
-	if File_proto_nats_account_proto != nil {
+func init() { file_nats_account_proto_init() }
+func file_nats_account_proto_init() {
+	if File_nats_account_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_nats_account_proto_rawDesc), len(file_proto_nats_account_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nats_account_proto_rawDesc), len(file_nats_account_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   9,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_proto_nats_account_proto_goTypes,
-		DependencyIndexes: file_proto_nats_account_proto_depIdxs,
-		EnumInfos:         file_proto_nats_account_proto_enumTypes,
-		MessageInfos:      file_proto_nats_account_proto_msgTypes,
+		GoTypes:           file_nats_account_proto_goTypes,
+		DependencyIndexes: file_nats_account_proto_depIdxs,
+		EnumInfos:         file_nats_account_proto_enumTypes,
+		MessageInfos:      file_nats_account_proto_msgTypes,
 	}.Build()
-	File_proto_nats_account_proto = out.File
-	file_proto_nats_account_proto_goTypes = nil
-	file_proto_nats_account_proto_depIdxs = nil
+	File_nats_account_proto = out.File
+	file_nats_account_proto_goTypes = nil
+	file_nats_account_proto_depIdxs = nil
 }

@@ -77,6 +77,9 @@ defmodule ServiceRadar.Application do
         # NATS JetStream connection for event publishing
         nats_connection_child(),
 
+        # NATS operator auto-bootstrap (runs once at startup)
+        nats_operator_bootstrap_child(),
+
         # Event batcher for high-frequency NATS events
         event_batcher_child(),
 
@@ -243,6 +246,16 @@ defmodule ServiceRadar.Application do
       nil -> Application.get_env(:serviceradar_core, :nats_enabled, false)
       value when value in ["true", "1", "yes"] -> true
       _ -> false
+    end
+  end
+
+  defp nats_operator_bootstrap_child do
+    # Only run auto-bootstrap if datasvc is enabled (we need it to bootstrap)
+    # and if repo is enabled (we need to store the operator record)
+    if datasvc_enabled?() and Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.NATS.OperatorBootstrap
+    else
+      nil
     end
   end
 

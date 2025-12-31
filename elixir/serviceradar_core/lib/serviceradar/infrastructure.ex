@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Infrastructure do
   @moduledoc """
-  The Infrastructure domain manages pollers, agents, and network partitions.
+  The Infrastructure domain manages pollers, agents, network partitions, and platform NATS configuration.
 
   This domain is responsible for:
   - Poller management and health tracking
@@ -8,6 +8,8 @@ defmodule ServiceRadar.Infrastructure do
   - Checker configuration
   - Network partition management for overlapping IP spaces
   - Health event history for all entities
+  - NATS operator management (bootstrap, configuration)
+  - Platform bootstrap tokens
 
   ## Resources
 
@@ -16,6 +18,8 @@ defmodule ServiceRadar.Infrastructure do
   - `ServiceRadar.Infrastructure.Checker` - Service check types
   - `ServiceRadar.Infrastructure.Partition` - Network partitions
   - `ServiceRadar.Infrastructure.HealthEvent` - Health state change history
+  - `ServiceRadar.Infrastructure.NatsOperator` - NATS operator (singleton)
+  - `ServiceRadar.Infrastructure.NatsPlatformToken` - One-time platform bootstrap tokens
 
   ## Distributed Architecture
 
@@ -40,6 +44,8 @@ defmodule ServiceRadar.Infrastructure do
     resource ServiceRadar.Infrastructure.Checker
     resource ServiceRadar.Infrastructure.Partition
     resource ServiceRadar.Infrastructure.HealthEvent
+    resource ServiceRadar.Infrastructure.NatsOperator
+    resource ServiceRadar.Infrastructure.NatsPlatformToken
   end
 
   authorization do

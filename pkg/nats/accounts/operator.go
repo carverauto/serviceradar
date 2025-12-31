@@ -36,6 +36,10 @@ var (
 	ErrOperatorKeyInvalid = errors.New("operator key invalid")
 	// ErrSystemAccountNotFound is returned when system account is required but not configured.
 	ErrSystemAccountNotFound = errors.New("system account not found")
+	// ErrOperatorAlreadyInitialized is returned when trying to bootstrap an already initialized operator.
+	ErrOperatorAlreadyInitialized = errors.New("operator already initialized")
+	// ErrOperatorNotInitialized is returned when operations require an initialized operator.
+	ErrOperatorNotInitialized = errors.New("operator not initialized")
 )
 
 // OperatorConfig holds the configuration for the NATS operator.
@@ -241,4 +245,140 @@ func DecodeKeyFromStorage(encoded string) (string, error) {
 		return "", fmt.Errorf("failed to decode key: %w", err)
 	}
 	return string(data), nil
+}
+
+// BootstrapResult contains the result of bootstrapping an operator.
+type BootstrapResult struct {
+	// OperatorPublicKey is the operator's public key (starts with 'O').
+	OperatorPublicKey string
+	// OperatorSeed is the operator's private seed (starts with 'SO').
+	// Only set if a new operator was generated (not imported).
+	OperatorSeed string
+	// OperatorJWT is the signed operator JWT.
+	OperatorJWT string
+	// SystemAccountPublicKey is the system account's public key (starts with 'A').
+	// Only set if generate_system_account was true.
+	SystemAccountPublicKey string
+	// SystemAccountSeed is the system account's private seed (starts with 'SA').
+	// Only set if a new system account was generated.
+	SystemAccountSeed string
+	// SystemAccountJWT is the signed system account JWT.
+	// Only set if generate_system_account was true.
+	SystemAccountJWT string
+}
+
+// BootstrapOperator initializes a new operator or imports an existing one.
+// If existingSeed is provided, it imports that seed instead of generating a new one.
+// If generateSystemAccount is true, it also creates the system account.
+func BootstrapOperator(name string, existingSeed string, generateSystemAccount bool) (*Operator, *BootstrapResult, error) {
+	var operatorSeed, operatorPublicKey string
+	var operatorKp nkeys.KeyPair
+	var err error
+	var seedGenerated bool
+
+	if existingSeed != "" {
+		// Import existing operator seed
+		operatorSeed = strings.TrimSpace(existingSeed)
+		operatorKp, err = nkeys.FromSeed([]byte(operatorSeed))
+		if err != nil {
+			return nil, nil, fmt.Errorf("%w: failed to parse operator seed: %v", ErrOperatorKeyInvalid, err)
+		}
+		operatorPublicKey, err = operatorKp.PublicKey()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get operator public key: %w", err)
+		}
+		if !nkeys.IsValidPublicOperatorKey(operatorPublicKey) {
+			return nil, nil, fmt.Errorf("%w: not an operator key", ErrOperatorKeyInvalid)
+		}
+		seedGenerated = false
+	} else {
+		// Generate new operator
+		operatorSeed, operatorPublicKey, err = GenerateOperatorKey()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to generate operator key: %w", err)
+		}
+		operatorKp, err = nkeys.FromSeed([]byte(operatorSeed))
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse generated operator seed: %w", err)
+		}
+		seedGenerated = true
+	}
+
+	result := &BootstrapResult{
+		OperatorPublicKey: operatorPublicKey,
+	}
+
+	// Only return seed if we generated it
+	if seedGenerated {
+		result.OperatorSeed = operatorSeed
+	}
+
+	var systemAccountPublicKey string
+
+	// Generate system account if requested
+	if generateSystemAccount {
+		sysAccountSeed, sysAccountPubKey, err := GenerateAccountKey()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to generate system account key: %w", err)
+		}
+
+		systemAccountPublicKey = sysAccountPubKey
+		result.SystemAccountPublicKey = sysAccountPubKey
+		result.SystemAccountSeed = sysAccountSeed
+
+		// Sign the system account JWT
+		sysAccountKp, err := nkeys.FromSeed([]byte(sysAccountSeed))
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse system account seed: %w", err)
+		}
+
+		sysAccountClaims := jwt.NewAccountClaims(sysAccountPubKey)
+		sysAccountClaims.Name = "SYS"
+		sysAccountClaims.Issuer = operatorPublicKey
+
+		// System account needs specific exports for monitoring
+		sysAccountClaims.Exports = jwt.Exports{
+			&jwt.Export{
+				Name:    "account-monitoring-services",
+				Subject: "$SYS.REQ.ACCOUNT.*.*",
+				Type:    jwt.Service,
+			},
+			&jwt.Export{
+				Name:    "account-monitoring-streams",
+				Subject: "$SYS.ACCOUNT.*.>",
+				Type:    jwt.Stream,
+			},
+		}
+
+		sysAccountJWT, err := sysAccountClaims.Encode(operatorKp)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to sign system account JWT: %w", err)
+		}
+		result.SystemAccountJWT = sysAccountJWT
+
+		// We don't need the account key pair anymore, but verify it's valid
+		_ = sysAccountKp
+	}
+
+	// Create the operator
+	op := &Operator{
+		name:                   name,
+		kp:                     operatorKp,
+		publicKey:              operatorPublicKey,
+		systemAccountPublicKey: systemAccountPublicKey,
+	}
+
+	// Sign the operator JWT
+	operatorJWT, err := op.CreateOperatorJWT()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create operator JWT: %w", err)
+	}
+	result.OperatorJWT = operatorJWT
+
+	return op, result, nil
+}
+
+// IsInitialized returns true if the operator has been properly initialized.
+func (o *Operator) IsInitialized() bool {
+	return o != nil && o.kp != nil && o.publicKey != ""
 }

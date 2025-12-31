@@ -23,6 +23,7 @@ option go_package = "github.com/carverauto/serviceradar/proto";
 // NATSAccountService provides stateless NATS JWT signing operations.
 //
 // This service is called by Elixir core (with platform mTLS credentials) to:
+// - Bootstrap the NATS operator (first-time platform setup)
 // - Generate new tenant account keys and sign account JWTs
 // - Generate user credentials signed with tenant account keys
 // - Re-sign account JWTs when claims change (revocations, limits)
@@ -30,6 +31,15 @@ option go_package = "github.com/carverauto/serviceradar/proto";
 // Elixir is responsible for storing tenant account data in CNPG.
 // datasvc holds only the operator key and performs cryptographic operations.
 service NATSAccountService {
+  // BootstrapOperator initializes the NATS operator for the platform.
+  // This can either generate a new operator key pair or import an existing seed.
+  // Should be called once during initial platform setup.
+  rpc BootstrapOperator(BootstrapOperatorRequest) returns (BootstrapOperatorResponse) {}
+
+  // GetOperatorInfo returns the current operator status and public key.
+  // Used to verify the operator is initialized before tenant operations.
+  rpc GetOperatorInfo(GetOperatorInfoRequest) returns (GetOperatorInfoResponse) {}
+
   // CreateTenantAccount generates new account NKeys and a signed account JWT.
   // The account_seed is returned and should be stored encrypted by Elixir (AshCloak).
   rpc CreateTenantAccount(CreateTenantAccountRequest) returns (CreateTenantAccountResponse) {}
@@ -41,6 +51,11 @@ service NATSAccountService {
   // SignAccountJWT regenerates an account JWT with updated claims.
   // Use this when revocations or limits change.
   rpc SignAccountJWT(SignAccountJWTRequest) returns (SignAccountJWTResponse) {}
+
+  // PushAccountJWT pushes an account JWT to the NATS resolver.
+  // This makes the account immediately available without NATS restart.
+  // Uses the system account to publish to $SYS.REQ.CLAIMS.UPDATE.
+  rpc PushAccountJWT(PushAccountJWTRequest) returns (PushAccountJWTResponse) {}
 }
 
 // AccountLimits defines resource constraints for a NATS account.
@@ -124,4 +139,45 @@ message SignAccountJWTRequest {
 message SignAccountJWTResponse {
   string account_public_key = 1;       // The account's public NKey
   string account_jwt = 2;              // The newly signed account JWT
+}
+
+// BootstrapOperatorRequest is used to initialize the NATS operator.
+message BootstrapOperatorRequest {
+  string operator_name = 1;            // Name for the operator (e.g., "serviceradar")
+  string existing_operator_seed = 2;   // Optional: import existing seed instead of generating
+  bool generate_system_account = 3;    // Whether to generate the system account
+}
+
+// BootstrapOperatorResponse returns the operator credentials.
+// Seeds are only returned if newly generated (not when importing existing).
+message BootstrapOperatorResponse {
+  string operator_public_key = 1;      // The operator's public NKey (starts with 'O')
+  string operator_seed = 2;            // The operator's private seed - only if newly generated
+  string operator_jwt = 3;             // The signed operator JWT
+  string system_account_public_key = 4; // System account public key (if generated)
+  string system_account_seed = 5;      // System account seed - only if newly generated
+  string system_account_jwt = 6;       // Signed system account JWT (if generated)
+}
+
+// GetOperatorInfoRequest retrieves current operator status.
+message GetOperatorInfoRequest {}
+
+// GetOperatorInfoResponse returns the operator's current state.
+message GetOperatorInfoResponse {
+  string operator_public_key = 1;      // The operator's public NKey
+  string operator_name = 2;            // The operator's name
+  bool is_initialized = 3;             // Whether the operator is ready for use
+  string system_account_public_key = 4; // System account public key (if exists)
+}
+
+// PushAccountJWTRequest is the request to push an account JWT to the NATS resolver.
+message PushAccountJWTRequest {
+  string account_public_key = 1;       // The account's public NKey (starts with 'A')
+  string account_jwt = 2;              // The signed account JWT to push
+}
+
+// PushAccountJWTResponse confirms the JWT was pushed to the resolver.
+message PushAccountJWTResponse {
+  bool success = 1;                    // Whether the push was successful
+  string message = 2;                  // Status message or error details
 }

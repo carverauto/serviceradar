@@ -18,6 +18,7 @@ package datasvc
 
 import (
 	"context"
+	"sync"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -32,15 +33,117 @@ import (
 type NATSAccountServer struct {
 	proto.UnimplementedNATSAccountServiceServer
 
-	signer *accounts.AccountSigner
+	mu       sync.RWMutex
+	operator *accounts.Operator
+	signer   *accounts.AccountSigner
+
+	// natsStore provides NATS connection for pushing JWTs to resolver
+	natsStore *NATSStore
+
+	// systemAccountSeed is stored after bootstrap for JWT push operations
+	systemAccountSeed string
 }
 
 // NewNATSAccountServer creates a new NATSAccountServer with the given operator.
 // The server is stateless - it only holds the operator key for signing operations.
+// If operator is nil, the server will start in uninitialized state and require bootstrap.
 func NewNATSAccountServer(operator *accounts.Operator) *NATSAccountServer {
-	return &NATSAccountServer{
-		signer: accounts.NewAccountSigner(operator),
+	server := &NATSAccountServer{
+		operator: operator,
 	}
+	if operator != nil {
+		server.signer = accounts.NewAccountSigner(operator)
+	}
+	return server
+}
+
+// SetNATSStore sets the NATS store for JWT push operations.
+// Must be called before PushAccountJWT can work.
+func (s *NATSAccountServer) SetNATSStore(store *NATSStore) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.natsStore = store
+}
+
+// BootstrapOperator initializes the NATS operator for the platform.
+// This can either generate a new operator key pair or import an existing seed.
+// Should be called once during initial platform setup.
+func (s *NATSAccountServer) BootstrapOperator(
+	_ context.Context,
+	req *proto.BootstrapOperatorRequest,
+) (*proto.BootstrapOperatorResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if already initialized
+	if s.operator != nil && s.operator.IsInitialized() {
+		return nil, status.Error(codes.AlreadyExists, "operator already initialized")
+	}
+
+	operatorName := req.GetOperatorName()
+	if operatorName == "" {
+		operatorName = "serviceradar"
+	}
+
+	// Bootstrap the operator (generates new or imports existing)
+	operator, result, err := accounts.BootstrapOperator(
+		operatorName,
+		req.GetExistingOperatorSeed(),
+		req.GetGenerateSystemAccount(),
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to bootstrap operator: %v", err)
+	}
+
+	// Update the server state
+	s.operator = operator
+	s.signer = accounts.NewAccountSigner(operator)
+
+	// Store system account seed for JWT push operations
+	if result.SystemAccountSeed != "" {
+		s.systemAccountSeed = result.SystemAccountSeed
+	}
+
+	return &proto.BootstrapOperatorResponse{
+		OperatorPublicKey:       result.OperatorPublicKey,
+		OperatorSeed:            result.OperatorSeed, // Only set if newly generated
+		OperatorJwt:             result.OperatorJWT,
+		SystemAccountPublicKey:  result.SystemAccountPublicKey,
+		SystemAccountSeed:       result.SystemAccountSeed,
+		SystemAccountJwt:        result.SystemAccountJWT,
+	}, nil
+}
+
+// GetOperatorInfo returns the current operator status and public key.
+// Used to verify the operator is initialized before tenant operations.
+func (s *NATSAccountServer) GetOperatorInfo(
+	_ context.Context,
+	_ *proto.GetOperatorInfoRequest,
+) (*proto.GetOperatorInfoResponse, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.operator == nil || !s.operator.IsInitialized() {
+		return &proto.GetOperatorInfoResponse{
+			IsInitialized: false,
+		}, nil
+	}
+
+	return &proto.GetOperatorInfoResponse{
+		OperatorPublicKey:       s.operator.PublicKey(),
+		OperatorName:            s.operator.Name(),
+		IsInitialized:           true,
+		SystemAccountPublicKey:  s.operator.SystemAccountPublicKey(),
+	}, nil
+}
+
+// ensureInitialized checks if the operator is initialized and returns the signer.
+// Must be called with at least a read lock held.
+func (s *NATSAccountServer) ensureInitialized() (*accounts.AccountSigner, error) {
+	if s.operator == nil || s.signer == nil {
+		return nil, status.Error(codes.FailedPrecondition, "operator not initialized - call BootstrapOperator first")
+	}
+	return s.signer, nil
 }
 
 // CreateTenantAccount generates new account NKeys and a signed account JWT.
@@ -49,6 +152,13 @@ func (s *NATSAccountServer) CreateTenantAccount(
 	_ context.Context,
 	req *proto.CreateTenantAccountRequest,
 ) (*proto.CreateTenantAccountResponse, error) {
+	s.mu.RLock()
+	signer, err := s.ensureInitialized()
+	s.mu.RUnlock()
+	if err != nil {
+		return nil, err
+	}
+
 	if req.GetTenantSlug() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_slug is required")
 	}
@@ -68,7 +178,7 @@ func (s *NATSAccountServer) CreateTenantAccount(
 		})
 	}
 
-	result, err := s.signer.CreateTenantAccount(req.GetTenantSlug(), limits, mappings)
+	result, err := signer.CreateTenantAccount(req.GetTenantSlug(), limits, mappings)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create tenant account: %v", err)
 	}
@@ -136,6 +246,13 @@ func (s *NATSAccountServer) SignAccountJWT(
 	_ context.Context,
 	req *proto.SignAccountJWTRequest,
 ) (*proto.SignAccountJWTResponse, error) {
+	s.mu.RLock()
+	signer, err := s.ensureInitialized()
+	s.mu.RUnlock()
+	if err != nil {
+		return nil, err
+	}
+
 	if req.GetTenantSlug() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_slug is required")
 	}
@@ -158,7 +275,7 @@ func (s *NATSAccountServer) SignAccountJWT(
 		})
 	}
 
-	accountPublicKey, accountJWT, err := s.signer.SignAccountJWT(
+	accountPublicKey, accountJWT, err := signer.SignAccountJWT(
 		req.GetTenantSlug(),
 		req.GetAccountSeed(),
 		limits,
@@ -217,4 +334,67 @@ func protoToUserPermissions(p *proto.UserPermissions) *accounts.UserPermissions 
 		AllowResponses: p.GetAllowResponses(),
 		MaxResponses:   p.GetMaxResponses(),
 	}
+}
+
+// PushAccountJWT pushes an account JWT to the NATS resolver.
+// This makes the account immediately available without NATS restart.
+// Uses the $SYS.REQ.CLAIMS.UPDATE subject via the system account.
+func (s *NATSAccountServer) PushAccountJWT(
+	ctx context.Context,
+	req *proto.PushAccountJWTRequest,
+) (*proto.PushAccountJWTResponse, error) {
+	if req.GetAccountPublicKey() == "" {
+		return nil, status.Error(codes.InvalidArgument, "account_public_key is required")
+	}
+	if req.GetAccountJwt() == "" {
+		return nil, status.Error(codes.InvalidArgument, "account_jwt is required")
+	}
+
+	s.mu.RLock()
+	store := s.natsStore
+	s.mu.RUnlock()
+
+	if store == nil {
+		return nil, status.Error(codes.FailedPrecondition, "NATS store not configured - cannot push JWT")
+	}
+
+	// The NATS resolver listens on $SYS.REQ.CLAIMS.UPDATE for new account JWTs.
+	// We publish the JWT and wait for a response.
+	// Note: This requires the connection to have permission to publish to $SYS subjects.
+	// In a production setup, this would use the system account credentials.
+	subject := "$SYS.REQ.CLAIMS.UPDATE"
+
+	store.mu.Lock()
+	nc := store.nc
+	store.mu.Unlock()
+
+	if nc == nil {
+		return nil, status.Error(codes.FailedPrecondition, "NATS not connected")
+	}
+
+	// Publish the JWT to the claims update subject
+	// The NATS server will validate and store the JWT in the resolver
+	msg, err := nc.RequestWithContext(ctx, subject, []byte(req.GetAccountJwt()))
+	if err != nil {
+		return &proto.PushAccountJWTResponse{
+			Success: false,
+			Message: "failed to push JWT to resolver: " + err.Error(),
+		}, nil
+	}
+
+	// Parse the response - NATS returns an empty message on success
+	// or an error message on failure
+	responseMsg := string(msg.Data)
+	if responseMsg != "" && responseMsg[0] == '-' {
+		// Error response starts with -ERR
+		return &proto.PushAccountJWTResponse{
+			Success: false,
+			Message: "resolver rejected JWT: " + responseMsg,
+		}, nil
+	}
+
+	return &proto.PushAccountJWTResponse{
+		Success: true,
+		Message: "JWT pushed to resolver successfully",
+	}, nil
 }

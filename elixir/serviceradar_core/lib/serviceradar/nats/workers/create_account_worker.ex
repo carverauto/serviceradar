@@ -68,7 +68,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
          :ok <- validate_tenant_status(tenant),
          {:ok, _tenant} <- mark_pending(tenant),
          {:ok, result} <- create_nats_account(tenant),
-         {:ok, _tenant} <- store_account_credentials(tenant, result) do
+         {:ok, _tenant} <- store_account_credentials(tenant, result),
+         :ok <- push_jwt_to_resolver(result) do
       Logger.info("Successfully created NATS account for tenant #{tenant_id}")
       :ok
     else
@@ -113,7 +114,7 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   defp get_tenant(tenant_id) do
     case Tenant
          |> Ash.Query.for_read(:read)
-         |> Ash.Query.filter(id: tenant_id)
+         |> Ash.Query.filter(id == ^tenant_id)
          |> Ash.read_one(authorize?: false) do
       {:ok, nil} -> {:error, :tenant_not_found}
       {:ok, tenant} -> {:ok, tenant}
@@ -216,4 +217,28 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
 
   defp maybe_add_priority(opts, nil), do: opts
   defp maybe_add_priority(opts, priority), do: Keyword.put(opts, :priority, priority)
+
+  defp push_jwt_to_resolver(result) do
+    # Push the account JWT to the NATS resolver for immediate activation
+    # This allows tenants to connect immediately without NATS restart
+    Logger.debug("Pushing account JWT to NATS resolver for #{result.account_public_key}")
+
+    case AccountClient.push_account_jwt(result.account_public_key, result.account_jwt) do
+      {:ok, %{success: true}} ->
+        Logger.info("Account JWT pushed to resolver successfully")
+        :ok
+
+      {:ok, %{success: false, message: message}} ->
+        # JWT push failed, but account was created - log warning but don't fail the job
+        # The JWT can be pushed again later or NATS server may pick it up on reload
+        Logger.warning("Failed to push JWT to resolver: #{message} - tenant will work after NATS reload")
+        :ok
+
+      {:error, reason} ->
+        # Connection error to datasvc - log but don't fail
+        # The account is created and stored, just not immediately active
+        Logger.warning("Error pushing JWT to resolver: #{inspect(reason)} - tenant will work after NATS reload")
+        :ok
+    end
+  end
 end
