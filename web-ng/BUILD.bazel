@@ -80,4 +80,5 @@ mix_release(
         "//elixir/datasvc:srcs",
     ],
     hex_cache = "//build:hex_cache",
+    cargo_cache = "//build:cargo_cache",
 )

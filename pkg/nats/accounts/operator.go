@@ -60,6 +60,16 @@ type OperatorConfig struct {
 	// SystemAccountPublicKey is the public key of the system account (starts with "A").
 	// Required for pushing account JWTs to the NATS server.
 	SystemAccountPublicKey string `json:"system_account_public_key,omitempty"`
+
+	// OperatorConfigPath is where to write operator.conf for NATS to include.
+	// This file contains the operator JWT and resolver configuration.
+	// Can also be set via NATS_OPERATOR_CONFIG_PATH environment variable.
+	OperatorConfigPath string `json:"operator_config_path,omitempty"`
+
+	// ResolverPath is the base directory for file-based JWT resolver.
+	// Account JWTs are written here for NATS to pick up.
+	// Can also be set via NATS_RESOLVER_PATH environment variable.
+	ResolverPath string `json:"resolver_path,omitempty"`
 }
 
 // Operator manages NATS operator keys and signing operations.
@@ -68,6 +78,8 @@ type Operator struct {
 	kp                     nkeys.KeyPair
 	publicKey              string
 	systemAccountPublicKey string
+	operatorJWT            string
+	systemAccountJWT       string
 }
 
 // NewOperator creates a new Operator from the given configuration.
@@ -139,6 +151,26 @@ func (o *Operator) Name() string {
 // SystemAccountPublicKey returns the system account's public key.
 func (o *Operator) SystemAccountPublicKey() string {
 	return o.systemAccountPublicKey
+}
+
+// JWT returns the operator JWT (set after bootstrap).
+func (o *Operator) JWT() string {
+	return o.operatorJWT
+}
+
+// SetJWT sets the operator JWT.
+func (o *Operator) SetJWT(jwt string) {
+	o.operatorJWT = jwt
+}
+
+// SystemAccountJWT returns the system account JWT (set after bootstrap).
+func (o *Operator) SystemAccountJWT() string {
+	return o.systemAccountJWT
+}
+
+// SetSystemAccountJWT sets the system account JWT.
+func (o *Operator) SetSystemAccountJWT(jwt string) {
+	o.systemAccountJWT = jwt
 }
 
 // SignAccountClaims signs account claims with the operator key and returns a JWT.
@@ -366,6 +398,7 @@ func BootstrapOperator(name string, existingSeed string, generateSystemAccount b
 		kp:                     operatorKp,
 		publicKey:              operatorPublicKey,
 		systemAccountPublicKey: systemAccountPublicKey,
+		systemAccountJWT:       result.SystemAccountJWT,
 	}
 
 	// Sign the operator JWT
@@ -374,6 +407,7 @@ func BootstrapOperator(name string, existingSeed string, generateSystemAccount b
 		return nil, nil, fmt.Errorf("failed to create operator JWT: %w", err)
 	}
 	result.OperatorJWT = operatorJWT
+	op.operatorJWT = operatorJWT
 
 	return op, result, nil
 }

@@ -56,5 +56,5 @@ if [ ! -f "$HEX_HOME/cache.ets" ]; then
   exit 1
 fi
 
-tar -C "$HOME" -czf "$ROOT_DIR/build/hex_cache.tar.gz" .hex
+tar -C "$HOME" -czf "$ROOT_DIR/build/hex_cache.tar.gz" .hex .mix
 echo "Updated $ROOT_DIR/build/hex_cache.tar.gz"

@@ -21,6 +21,7 @@ import (
 	_ "embed"
 	"flag"
 	"log"
+	"os"
 
 	ggrpc "google.golang.org/grpc"
 
@@ -78,19 +79,38 @@ func main() {
 		log.Fatalf("Failed to create data service server: %v", err) //nolint:gocritic // Close is explicitly called before Fatalf
 	}
 
-	// Initialize NATS account service if operator config is provided
+	// Initialize NATS account service
 	// This service is stateless - it only holds the operator key for signing operations.
 	// Account state (seeds, JWTs) is stored by Elixir in CNPG with AshCloak encryption.
+	// The service can start without an operator and bootstrap later via gRPC.
 	var natsAccountServer *datasvc.NATSAccountServer
 	if cfg.NATSOperator != nil {
 		operator, opErr := accounts.NewOperator(cfg.NATSOperator)
 		if opErr != nil {
-			_ = bootstrapResult.Close()
-			log.Fatalf("Failed to initialize NATS operator: %v", opErr)
+			// Operator not available yet - that's okay, bootstrap will be called later
+			log.Printf("NATS account service starting without operator (will bootstrap later): %v", opErr)
+			natsAccountServer = datasvc.NewNATSAccountServer(nil)
+		} else {
+			natsAccountServer = datasvc.NewNATSAccountServer(operator)
+			log.Printf("NATS account service initialized with operator %s", operator.Name())
 		}
 
-		natsAccountServer = datasvc.NewNATSAccountServer(operator)
-		log.Printf("NATS account service initialized with operator %s", operator.Name())
+		// Configure resolver paths for file-based JWT resolver
+		// Priority: environment variables > config file
+		operatorConfigPath := cfg.NATSOperator.OperatorConfigPath
+		if envPath := os.Getenv("NATS_OPERATOR_CONFIG_PATH"); envPath != "" {
+			operatorConfigPath = envPath
+		}
+
+		resolverPath := cfg.NATSOperator.ResolverPath
+		if envPath := os.Getenv("NATS_RESOLVER_PATH"); envPath != "" {
+			resolverPath = envPath
+		}
+
+		if operatorConfigPath != "" || resolverPath != "" {
+			natsAccountServer.SetResolverPaths(operatorConfigPath, resolverPath)
+			log.Printf("NATS resolver paths configured: operator=%s resolver=%s", operatorConfigPath, resolverPath)
+		}
 	}
 
 	opts := &lifecycle.ServerOptions{

@@ -24,4 +24,5 @@ mix_release(
     extra_dirs = ["elixir/serviceradar_core"],
     extra_dir_srcs = ["//elixir/serviceradar_core:srcs"],
     hex_cache = "//build:hex_cache",
+    cargo_cache = "//build:cargo_cache",
 )

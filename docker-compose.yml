@@ -141,6 +141,26 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # Initialize NATS operator config directory (creates empty placeholder if needed)
+  nats-config-init:
+    image: alpine:3.20
+    container_name: serviceradar-nats-config-init
+    volumes:
+      - nats-data:/data
+    command: >
+      sh -c "
+        mkdir -p /data/operator /data/jwt &&
+        if [ ! -f /data/operator/operator.conf ]; then
+          echo '# Placeholder - will be populated by datasvc on operator bootstrap' > /data/operator/operator.conf;
+          echo 'Created placeholder operator.conf';
+        else
+          echo 'operator.conf already exists';
+        fi
+      "
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   nats:
     image: nats:latest
     platform: linux/amd64
@@ -159,6 +179,8 @@ services:
         condition: service_completed_successfully
       cert-permissions-fixer:
         condition: service_completed_successfully
+      nats-config-init:
+        condition: service_completed_successfully
     networks:
       serviceradar-net:
         aliases:
@@ -176,11 +198,16 @@ services:
       - cert-data:/etc/serviceradar/certs:ro
       - datasvc-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
+      # Share NATS data volume for file-based JWT resolver
+      - nats-data:/data/nats
     environment:
       - CONFIG_PATH=/etc/serviceradar/datasvc.json
       - WAIT_FOR_NATS=true
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - NATS_OPERATOR_SEED=${NATS_OPERATOR_SEED:-}
+      # NATS JWT resolver paths (file-based resolver)
+      - NATS_OPERATOR_CONFIG_PATH=/data/nats/operator/operator.conf
+      - NATS_RESOLVER_PATH=/data/nats/jwt
     depends_on:
       cert-generator:
         condition: service_completed_successfully

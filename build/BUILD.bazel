@@ -7,3 +7,8 @@ filegroup(
     name = "hex_cache",
     srcs = ["hex_cache.tar.gz"],
 )
+
+filegroup(
+    name = "cargo_cache",
+    srcs = ["cargo_cache.tar.gz"],
+)

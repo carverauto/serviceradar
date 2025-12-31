@@ -17,7 +17,8 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
   1. Check if NatsOperator record exists in database
   2. If not, call datasvc BootstrapOperator RPC
   3. Store operator record (public key, JWT, system account info)
-  4. Log success or failure
+  4. Create NATS account for default tenant (if not already created)
+  5. Log success or failure
 
   After bootstrap, new tenants can be onboarded without any manual steps.
   """
@@ -26,8 +27,10 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
 
   require Logger
 
+  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Infrastructure.NatsOperator
   alias ServiceRadar.NATS.AccountClient
+  alias ServiceRadar.NATS.Workers.CreateAccountWorker
 
   @default_operator_name "serviceradar"
 
@@ -98,6 +101,9 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
         Logger.info(
           "[NATS Bootstrap] Operator already initialized: #{operator.name} (#{operator.public_key})"
         )
+
+        # Even if operator is already initialized, ensure default tenant has NATS account
+        ensure_default_tenant_nats_account()
 
         %{status: :already_initialized, operator: operator}
 
@@ -225,5 +231,48 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
       "nats:operator",
       {:operator_ready, operator}
     )
+
+    # After operator is ready, ensure default tenant has NATS account
+    ensure_default_tenant_nats_account()
+  end
+
+  defp ensure_default_tenant_nats_account do
+    # Find tenants that need NATS accounts (don't have one yet or not ready)
+    Logger.info("[NATS Bootstrap] Checking for tenants needing NATS accounts...")
+
+    case get_tenants_needing_nats_accounts() do
+      {:ok, []} ->
+        Logger.info("[NATS Bootstrap] All existing tenants have NATS accounts")
+
+      {:ok, tenants} ->
+        Logger.info("[NATS Bootstrap] Found #{length(tenants)} tenant(s) needing NATS accounts")
+
+        for tenant <- tenants do
+          Logger.info("[NATS Bootstrap] Creating NATS account for tenant: #{tenant.slug} (#{tenant.id})")
+
+          case CreateAccountWorker.enqueue(tenant.id) do
+            {:ok, _job} ->
+              Logger.info("[NATS Bootstrap] Enqueued NATS account creation for #{tenant.slug}")
+
+            {:error, reason} ->
+              Logger.error(
+                "[NATS Bootstrap] Failed to enqueue NATS account for #{tenant.slug}: #{inspect(reason)}"
+              )
+          end
+        end
+
+      {:error, reason} ->
+        Logger.error("[NATS Bootstrap] Error checking tenants: #{inspect(reason)}")
+    end
+  end
+
+  defp get_tenants_needing_nats_accounts do
+    require Ash.Query
+
+    # Find all active tenants that don't have a ready NATS account
+    Tenant
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(status == :active and (is_nil(nats_account_status) or nats_account_status != :ready))
+    |> Ash.read(authorize?: false)
   end
 end
