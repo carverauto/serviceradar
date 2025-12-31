@@ -197,7 +197,6 @@ serviceradar-web_*
 *.csr
 *.gz
 !build/hex_cache.tar.gz
-!build/cargo_cache.tar.gz
 
 # Ko build system for Go
 

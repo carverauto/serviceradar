@@ -150,7 +150,6 @@ if [ -n "{cargo_cache_tar}" ] && [ -f "$EXECROOT/{cargo_cache_tar}" ]; then
     *.tar.gz|*.tgz) tar -xzf "$EXECROOT/{cargo_cache_tar}" -C "$HOME" ;;
     *) tar -xf "$EXECROOT/{cargo_cache_tar}" -C "$HOME" ;;
   esac
-  export CARGO_NET_OFFLINE=true
 fi
 copy_dir "{src_dir}/" "$WORKDIR/"
 {extra_copy}
