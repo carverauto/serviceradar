@@ -65,7 +65,8 @@ if config_env() == :prod do
       events: String.to_integer(System.get_env("OBAN_QUEUE_EVENTS") || "10"),
       sweeps: String.to_integer(System.get_env("OBAN_QUEUE_SWEEPS") || "20"),
       edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10"),
-      integrations: String.to_integer(System.get_env("OBAN_QUEUE_INTEGRATIONS") || "5")
+      integrations: String.to_integer(System.get_env("OBAN_QUEUE_INTEGRATIONS") || "5"),
+      nats_accounts: String.to_integer(System.get_env("OBAN_QUEUE_NATS_ACCOUNTS") || "3")
     ],
     plugins: [
       Oban.Plugins.Pruner,

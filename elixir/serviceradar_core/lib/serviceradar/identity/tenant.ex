@@ -90,7 +90,8 @@ defmodule ServiceRadar.Identity.Tenant do
 
         changeset
         |> Ash.Changeset.change_attribute(:nats_account_public_key, Ash.Changeset.get_argument(changeset, :account_public_key))
-        |> Ash.Changeset.change_attribute(:nats_account_seed_ciphertext, account_seed)
+        # Use AshCloak.encrypt_and_set for encrypted attributes (the attribute is transformed to encrypted_*)
+        |> AshCloak.encrypt_and_set(:nats_account_seed_ciphertext, account_seed)
         |> Ash.Changeset.change_attribute(:nats_account_jwt, Ash.Changeset.get_argument(changeset, :account_jwt))
         |> Ash.Changeset.change_attribute(:nats_account_status, :ready)
         |> Ash.Changeset.change_attribute(:nats_account_error, nil)

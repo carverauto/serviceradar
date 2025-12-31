@@ -180,6 +180,7 @@ services:
       - CONFIG_PATH=/etc/serviceradar/datasvc.json
       - WAIT_FOR_NATS=true
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - NATS_OPERATOR_SEED=${NATS_OPERATOR_SEED:-}
     depends_on:
       cert-generator:
         condition: service_completed_successfully

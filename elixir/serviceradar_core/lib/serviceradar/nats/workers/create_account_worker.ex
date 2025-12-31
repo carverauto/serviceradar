@@ -135,39 +135,43 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   end
 
   defp mark_pending(tenant) do
-    Ash.update(tenant, %{},
-      action: :set_nats_account_pending,
-      authorize?: false
-    )
+    tenant
+    |> Ash.Changeset.for_update(:set_nats_account_pending)
+    |> Ash.update(authorize?: false)
   end
 
   defp create_nats_account(tenant) do
     # Build limits based on tenant plan
     limits = build_limits_for_plan(tenant.plan)
 
-    AccountClient.create_tenant_account(to_string(tenant.slug), limits: limits)
+    case AccountClient.create_tenant_account(to_string(tenant.slug), limits: limits) do
+      {:ok, result} = success ->
+        Logger.debug("NATS account created successfully: public_key=#{inspect(result.account_public_key)}, seed_len=#{result.account_seed && String.length(result.account_seed)}, jwt_len=#{result.account_jwt && String.length(result.account_jwt)}")
+        success
+
+      {:error, _} = error ->
+        error
+    end
   end
 
   defp store_account_credentials(tenant, result) do
-    Ash.update(tenant, %{},
-      action: :set_nats_account,
-      arguments: %{
-        account_public_key: result.account_public_key,
-        account_seed: result.account_seed,
-        account_jwt: result.account_jwt
-      },
-      authorize?: false
-    )
+    Logger.debug("Storing credentials: public_key=#{inspect(result.account_public_key)}, seed=present, jwt=present")
+
+    tenant
+    |> Ash.Changeset.for_update(:set_nats_account, %{
+      account_public_key: result.account_public_key,
+      account_seed: result.account_seed,
+      account_jwt: result.account_jwt
+    })
+    |> Ash.update(authorize?: false)
   end
 
   defp mark_error(tenant_id, message) do
     case get_tenant(tenant_id) do
       {:ok, tenant} ->
-        Ash.update(tenant, %{},
-          action: :set_nats_account_error,
-          arguments: %{error_message: message},
-          authorize?: false
-        )
+        tenant
+        |> Ash.Changeset.for_update(:set_nats_account_error, %{error_message: message})
+        |> Ash.update(authorize?: false)
 
       _ ->
         :ok

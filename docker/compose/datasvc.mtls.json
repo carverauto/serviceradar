@@ -1,6 +1,11 @@
 {
   "listen_addr": ":50057",
   "nats_url": "tls://nats:4222",
+  "nats_operator": {
+    "name": "serviceradar-dev",
+    "operator_seed_env": "NATS_OPERATOR_SEED",
+    "system_account_public_key": "AB7Q5UTVLJYMDQQEN26KGHOJGZK7WIOUB75OTCCANZ3VGCXV77VMZA2U"
+  },
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",

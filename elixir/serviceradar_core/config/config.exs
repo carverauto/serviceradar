@@ -23,6 +23,9 @@ config :serviceradar_core,
 # Mailer configuration
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
 
+# Disable Swoosh API client (not needed for Local adapter)
+config :swoosh, :api_client, false
+
 # Ash configuration
 config :ash,
   include_embedded_source_by_default?: false,
@@ -68,6 +71,7 @@ config :spark,
 # Default Oban configuration (can be overridden by host app)
 config :serviceradar_core, Oban,
   engine: Oban.Engines.Basic,
+  repo: ServiceRadar.Repo,
   queues: [
     default: 10,
     alerts: 5,
@@ -77,7 +81,8 @@ config :serviceradar_core, Oban,
     events: 10,
     sweeps: 20,
     edge: 10,
-    integrations: 5
+    integrations: 5,
+    nats_accounts: 3
   ],
   plugins: [
     Oban.Plugins.Pruner,

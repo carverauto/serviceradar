@@ -189,6 +189,12 @@ alias(
     actual = "//pkg/monitoring:monitoring",
 )
 
+# pkg/nats
+alias(
+    name = "nats-accounts",
+    actual = "//pkg/nats/accounts:accounts",
+)
+
 # pkg/natsutil
 alias(
     name = "natsutil",

@@ -276,18 +276,69 @@ defmodule ServiceRadar.NATS.AccountClient do
   # Private helpers
 
   defp get_channel do
-    # Use the DataService.Client's channel via GenServer call
-    # This ensures we share the connection and benefit from automatic reconnection
-    case GenServer.call(ServiceRadar.DataService.Client, :get_channel, 5_000) do
-      {:ok, channel} -> {:ok, channel}
-      {:error, reason} -> {:error, {:not_connected, reason}}
-    end
-  catch
-    :exit, {:noproc, _} ->
-      {:error, :datasvc_client_not_started}
+    # Try to get channel from DataService.Client first
+    result =
+      try do
+        case GenServer.call(ServiceRadar.DataService.Client, :get_channel, 5_000) do
+          {:ok, channel} ->
+            # Verify the connection is still alive
+            conn_pid = channel.adapter_payload.conn_pid
 
-    :exit, {:timeout, _} ->
-      {:error, :timeout}
+            if Process.alive?(conn_pid) do
+              {:ok, channel}
+            else
+              Logger.warning("DataService.Client connection is dead, creating fresh connection")
+              create_fresh_channel()
+            end
+
+          {:error, reason} ->
+            Logger.warning("DataService.Client not connected: #{inspect(reason)}, creating fresh connection")
+            create_fresh_channel()
+        end
+      catch
+        :exit, {:noproc, _} ->
+          Logger.warning("DataService.Client not started, creating fresh connection")
+          create_fresh_channel()
+
+        :exit, {:timeout, _} ->
+          Logger.warning("DataService.Client timeout, creating fresh connection")
+          create_fresh_channel()
+      end
+
+    result
+  end
+
+  defp create_fresh_channel do
+    host = System.get_env("DATASVC_HOST", "datasvc")
+    port = String.to_integer(System.get_env("DATASVC_PORT", "50057"))
+    cert_dir = System.get_env("DATASVC_CERT_DIR", "/etc/serviceradar/certs")
+    cert_name = System.get_env("DATASVC_CERT_NAME", "core")
+    server_name = System.get_env("DATASVC_SERVER_NAME", "datasvc.serviceradar")
+
+    endpoint = "#{host}:#{port}"
+
+    ssl_opts = [
+      cacertfile: String.to_charlist(Path.join(cert_dir, "root.pem")),
+      certfile: String.to_charlist(Path.join(cert_dir, "#{cert_name}.pem")),
+      keyfile: String.to_charlist(Path.join(cert_dir, "#{cert_name}-key.pem")),
+      verify: :verify_peer,
+      server_name_indication: String.to_charlist(server_name)
+    ]
+
+    connect_opts = [
+      cred: GRPC.Credential.new(ssl: ssl_opts),
+      adapter_opts: [connect_timeout: 5_000]
+    ]
+
+    case GRPC.Stub.connect(endpoint, connect_opts) do
+      {:ok, channel} ->
+        Logger.debug("Created fresh NATS account gRPC channel to #{endpoint}")
+        {:ok, channel}
+
+      {:error, reason} ->
+        Logger.error("Failed to create NATS account gRPC channel: #{inspect(reason)}")
+        {:error, {:connection_failed, reason}}
+    end
   end
 
   defp build_limits(nil), do: nil
