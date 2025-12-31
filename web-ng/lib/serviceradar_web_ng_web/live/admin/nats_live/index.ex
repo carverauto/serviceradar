@@ -477,7 +477,14 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
     query =
       Tenant
       |> Ash.Query.for_read(:read)
-      |> Ash.Query.select([:id, :slug, :name, :nats_account_status, :nats_account_public_key, :nats_account_provisioned_at])
+      |> Ash.Query.select([
+        :id,
+        :slug,
+        :name,
+        :nats_account_status,
+        :nats_account_public_key,
+        :nats_account_provisioned_at
+      ])
       |> Ash.Query.sort(inserted_at: :desc)
       |> Ash.Query.limit(100)
 
@@ -503,21 +510,16 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
   defp generate_bootstrap_token(expires_in_seconds) do
     expires_at = DateTime.add(DateTime.utc_now(), expires_in_seconds, :second)
 
-    # Generate token
-    token_bytes = :crypto.strong_rand_bytes(32)
-    token_secret = Base.url_encode64(token_bytes, padding: false)
-    token_hash = :crypto.hash(:sha256, token_secret) |> Base.encode16(case: :lower)
-
+    # Use the :generate action which handles token creation and hashing
+    # The action returns the record with token_secret injected via after_action
     case ServiceRadar.Infrastructure.NatsPlatformToken
          |> Ash.Changeset.for_create(:generate, %{
            purpose: :nats_bootstrap,
            expires_at: expires_at
          })
-         |> Ash.Changeset.force_change_attribute(:token_hash, token_hash)
          |> Ash.create(authorize?: false) do
       {:ok, record} ->
-        # Return with the plaintext token (not stored)
-        {:ok, Map.put(record, :token_secret, token_secret)}
+        {:ok, record}
 
       {:error, error} ->
         {:error, error}

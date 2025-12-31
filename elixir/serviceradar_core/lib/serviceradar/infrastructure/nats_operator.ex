@@ -64,24 +64,28 @@ defmodule ServiceRadar.Infrastructure.NatsOperator do
       argument :system_account_seed, :string, allow_nil?: true
 
       change fn changeset, _context ->
-        # Encrypt system account seed if provided
         system_seed = Ash.Changeset.get_argument(changeset, :system_account_seed)
 
-        encrypted_seed =
-          if system_seed && system_seed != "" do
-            case ServiceRadar.Vault.encrypt(system_seed) do
-              {:ok, encrypted} -> encrypted
-              _ -> nil
-            end
-          else
-            nil
-          end
-
         changeset
-        |> Ash.Changeset.change_attribute(:public_key, Ash.Changeset.get_argument(changeset, :public_key))
-        |> Ash.Changeset.change_attribute(:operator_jwt, Ash.Changeset.get_argument(changeset, :operator_jwt))
-        |> Ash.Changeset.change_attribute(:system_account_public_key, Ash.Changeset.get_argument(changeset, :system_account_public_key))
-        |> Ash.Changeset.change_attribute(:system_account_seed_ciphertext, encrypted_seed)
+        |> Ash.Changeset.change_attribute(
+          :public_key,
+          Ash.Changeset.get_argument(changeset, :public_key)
+        )
+        |> Ash.Changeset.change_attribute(
+          :operator_jwt,
+          Ash.Changeset.get_argument(changeset, :operator_jwt)
+        )
+        |> Ash.Changeset.change_attribute(
+          :system_account_public_key,
+          Ash.Changeset.get_argument(changeset, :system_account_public_key)
+        )
+        |> then(fn cs ->
+          if system_seed && system_seed != "" do
+            AshCloak.encrypt_and_set(cs, :system_account_seed_ciphertext, system_seed)
+          else
+            cs
+          end
+        end)
         |> Ash.Changeset.change_attribute(:status, :ready)
         |> Ash.Changeset.change_attribute(:bootstrapped_at, DateTime.utc_now())
       end
@@ -157,10 +161,9 @@ defmodule ServiceRadar.Infrastructure.NatsOperator do
       description "System account's public key (starts with 'A')"
     end
 
-    attribute :system_account_seed_ciphertext, :string do
+    attribute :system_account_seed_ciphertext, :binary do
       allow_nil? true
       public? false
-      constraints max_length: 1024
       description "Encrypted system account seed for JWT push operations"
     end
 

@@ -257,7 +257,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                 <option value="">All Statuses</option>
                 <option value="pending" selected={@filter_status == "pending"}>Pending</option>
                 <option value="ready" selected={@filter_status == "ready"}>Ready</option>
-                <option value="downloaded" selected={@filter_status == "downloaded"}>Downloaded</option>
+                <option value="downloaded" selected={@filter_status == "downloaded"}>
+                  Downloaded
+                </option>
                 <option value="revoked" selected={@filter_status == "revoked"}>Revoked</option>
               </select>
               <select
@@ -487,7 +489,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
             <%= if @download_token do %>
               <div class="bg-base-200 rounded-lg p-3">
                 <div class="flex items-center justify-between mb-2">
-                  <div class="text-xs uppercase tracking-wide text-base-content/60">Download Token</div>
+                  <div class="text-xs uppercase tracking-wide text-base-content/60">
+                    Download Token
+                  </div>
                   <button
                     type="button"
                     class="btn btn-xs btn-ghost"

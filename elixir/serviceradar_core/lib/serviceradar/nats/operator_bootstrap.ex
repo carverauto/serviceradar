@@ -270,9 +270,14 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
     require Ash.Query
 
     # Find all active tenants that don't have a ready NATS account
+    # Only select fields we need to avoid triggering AshCloak decryption
+    # of encrypted fields that might be NULL
     Tenant
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(status == :active and (is_nil(nats_account_status) or nats_account_status != :ready))
+    |> Ash.Query.filter(
+      status == :active and (is_nil(nats_account_status) or nats_account_status != :ready)
+    )
+    |> Ash.Query.select([:id, :slug, :name, :status, :nats_account_status])
     |> Ash.read(authorize?: false)
   end
 end

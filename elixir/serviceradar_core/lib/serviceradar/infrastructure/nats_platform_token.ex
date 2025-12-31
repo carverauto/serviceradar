@@ -49,10 +49,10 @@ defmodule ServiceRadar.Infrastructure.NatsPlatformToken do
         # Hash for storage
         token_hash = :crypto.hash(:sha256, token_secret) |> Base.encode16(case: :lower)
 
-        # Store the hash, return the secret via virtual attribute
+        # Store the hash and save the secret in context for after_action
         changeset
         |> Ash.Changeset.change_attribute(:token_hash, token_hash)
-        |> Ash.Changeset.force_change_attribute(:token_secret, token_secret)
+        |> Ash.Changeset.put_context(:generated_token_secret, token_secret)
       end
 
       change fn changeset, _context ->
@@ -66,6 +66,12 @@ defmodule ServiceRadar.Infrastructure.NatsPlatformToken do
             changeset
         end
       end
+
+      change after_action(fn changeset, record, _context ->
+        # Add token_secret to the record as a map key (not a persisted field)
+        token_secret = changeset.context[:generated_token_secret]
+        {:ok, Map.put(record, :token_secret, token_secret)}
+      end)
     end
 
     read :find_valid do
@@ -108,15 +114,6 @@ defmodule ServiceRadar.Infrastructure.NatsPlatformToken do
 
   attributes do
     uuid_primary_key :id
-
-    # Virtual attribute to expose the token secret after generation
-    # (only returned once, never stored in plaintext)
-    attribute :token_secret, :string do
-      allow_nil? true
-      public? true
-      writable? false
-      description "The plaintext token secret (only available after generation)"
-    end
 
     attribute :token_hash, :string do
       allow_nil? false
