@@ -17,19 +17,30 @@ defmodule ServiceRadarWebNG.Application do
     # See: AshAuthentication.Phoenix.LiveSession.generate_session/3 line 236
     _ = ServiceRadarWebNGWeb.__ash_auth_atoms__()
 
-    children = [
+    # Build children list, conditionally adding PubSub if not already running
+    # (serviceradar_core may have already started these)
+    base_children = [
       # Web telemetry
       ServiceRadarWebNGWeb.Telemetry,
       # GRPC client supervisor for datasvc connections
       {GRPC.Client.Supervisor, []},
       # DNS cluster for Kubernetes deployments
       {DNSCluster,
-       query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore},
-      # Phoenix PubSub for web-specific real-time features
-      {Phoenix.PubSub, name: ServiceRadarWebNG.PubSub},
+       query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
+    ]
+
+    # Add PubSub instances only if not already running (avoid conflict with serviceradar_core)
+    pubsub_children =
+      []
+      |> maybe_add_pubsub(ServiceRadar.PubSub)
+      |> maybe_add_pubsub(ServiceRadarWebNG.PubSub)
+
+    endpoint_children = [
       # Start to serve requests, typically the last entry
       ServiceRadarWebNGWeb.Endpoint
     ]
+
+    children = base_children ++ pubsub_children ++ endpoint_children
 
     # Ensure ServiceRadar.Repo is started (may already be started by serviceradar_core)
     ensure_repo_started()
@@ -261,5 +272,20 @@ defmodule ServiceRadarWebNG.Application do
     e ->
       Logger.warning("[web-ng] Error checking core-elx health: #{inspect(e)}")
       :error
+  end
+
+  # Conditionally add PubSub to children list if not already running
+  # This avoids conflicts when serviceradar_core has already started the PubSub
+  defp maybe_add_pubsub(children, pubsub_name) do
+    case Process.whereis(pubsub_name) do
+      nil ->
+        Logger.debug("Starting #{inspect(pubsub_name)} - not already running")
+        child_spec = Supervisor.child_spec({Phoenix.PubSub, name: pubsub_name}, id: pubsub_name)
+        children ++ [child_spec]
+
+      pid when is_pid(pid) ->
+        Logger.debug("#{inspect(pubsub_name)} already running at #{inspect(pid)}, skipping")
+        children
+    end
   end
 end
