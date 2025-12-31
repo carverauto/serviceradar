@@ -8,17 +8,7 @@ filegroup(
     srcs = ["hex_cache.tar.gz"],
 )
 
-filegroup(
-    name = "cargo_cache",
-    srcs = ["cargo_cache.tar.gz"],
-)
-
 config_setting(
     name = "use_hex_cache",
     define_values = {"use_hex_cache": "true"},
-)
-
-config_setting(
-    name = "use_cargo_cache",
-    define_values = {"use_cargo_cache": "true"},
 )

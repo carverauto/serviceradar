@@ -110,6 +110,16 @@ func main() {
 		if operatorConfigPath != "" || resolverPath != "" {
 			natsAccountServer.SetResolverPaths(operatorConfigPath, resolverPath)
 			log.Printf("NATS resolver paths configured: operator=%s resolver=%s", operatorConfigPath, resolverPath)
+
+			// If operator is already initialized, write the config now
+			// This ensures config files exist even when datasvc restarts with an existing operator
+			if operator != nil {
+				if err := natsAccountServer.WriteOperatorConfig(); err != nil {
+					log.Printf("Warning: failed to write initial operator config: %v", err)
+				} else {
+					log.Printf("Wrote initial operator config to %s", operatorConfigPath)
+				}
+			}
 		}
 	}
 

@@ -40,12 +40,9 @@ def _mix_release_impl(ctx):
         transitive_inputs.append(rust_toolchain.rust_std)
 
     hex_cache = ctx.file.hex_cache
-    cargo_cache = ctx.file.cargo_cache
     direct_inputs = toolchain_inputs + ctx.files.srcs + ctx.files.data + ctx.files.extra_dir_srcs
     if hex_cache:
         direct_inputs.append(hex_cache)
-    if cargo_cache:
-        direct_inputs.append(cargo_cache)
 
     inputs = depset(
         direct = direct_inputs,
@@ -100,7 +97,6 @@ export MIX_ENV=prod
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
 export ELIXIR_ERL_OPTIONS="+fnu"
-export CARGO_HOME="$HOME/.cargo"
 export CARGO="$EXECROOT/{cargo_path}"
 export RUSTC="$EXECROOT/{rustc_path}"
 export PATH="$(dirname "$CARGO"):$(dirname "$RUSTC"):/opt/homebrew/bin:$ELIXIR_HOME/bin:$ERLANG_HOME/bin:$PATH"
@@ -145,12 +141,12 @@ if [ -n "{hex_cache_tar}" ] && [ -f "$EXECROOT/{hex_cache_tar}" ]; then
   esac
   export HEX_OFFLINE=1
 fi
-if [ -n "{cargo_cache_tar}" ] && [ -f "$EXECROOT/{cargo_cache_tar}" ]; then
-  case "$EXECROOT/{cargo_cache_tar}" in
-    *.tar.gz|*.tgz) tar -xzf "$EXECROOT/{cargo_cache_tar}" -C "$HOME" ;;
-    *) tar -xf "$EXECROOT/{cargo_cache_tar}" -C "$HOME" ;;
-  esac
+if [ -d /cache ] && [ -w /cache ]; then
+  export CARGO_HOME="/cache/cargo"
+else
+  export CARGO_HOME="$HOME/.cargo"
 fi
+mkdir -p "$CARGO_HOME"
 copy_dir "{src_dir}/" "$WORKDIR/"
 {extra_copy}
 if [ -f "$EXECROOT/Cargo.toml" ]; then
@@ -275,7 +271,6 @@ tar -czf "$EXECROOT/{tar_out}" -C "$RELEASE_DIR" .
             extra_copy = "".join(extra_copy_cmds),
             run_assets = run_assets,
             hex_cache_tar = hex_cache.path if hex_cache else "",
-            cargo_cache_tar = cargo_cache.path if cargo_cache else "",
         ),
         use_default_shell_env = False,
     )
@@ -297,7 +292,6 @@ mix_release = rule(
         "extra_dirs": attr.string_list(doc = "Workspace-relative directories to copy into the build workspace"),
         "extra_dir_srcs": attr.label_list(allow_files = True, doc = "File inputs that back extra_dirs"),
         "hex_cache": attr.label(allow_single_file = True, doc = "Tarball containing offline Hex/Mix cache"),
-        "cargo_cache": attr.label(allow_single_file = True, doc = "Tarball containing offline Cargo cache"),
     },
     toolchains = [
         "@rules_elixir//:toolchain_type",

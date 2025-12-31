@@ -104,12 +104,22 @@ func NewOperator(cfg *OperatorConfig) (*Operator, error) {
 		return nil, fmt.Errorf("%w: not an operator key", ErrOperatorKeyInvalid)
 	}
 
-	return &Operator{
+	op := &Operator{
 		name:                   cfg.Name,
 		kp:                     kp,
 		publicKey:              publicKey,
 		systemAccountPublicKey: cfg.SystemAccountPublicKey,
-	}, nil
+	}
+
+	// Generate the operator JWT on initialization
+	// This is needed for writing operator.conf when loading from an existing seed
+	operatorJWT, err := op.CreateOperatorJWT()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create operator JWT: %w", err)
+	}
+	op.operatorJWT = operatorJWT
+
+	return op, nil
 }
 
 // loadOperatorSeed loads the operator seed from various sources in order of preference.

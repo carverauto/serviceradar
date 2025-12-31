@@ -27,8 +27,4 @@ mix_release(
         "//build:use_hex_cache": "//build:hex_cache",
         "//conditions:default": None,
     }),
-    cargo_cache = select({
-        "//build:use_cargo_cache": "//build:cargo_cache",
-        "//conditions:default": None,
-    }),
 )
