@@ -167,10 +167,10 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   scope "/admin", ServiceRadarWebNGWeb do
-    pipe_through [:browser]
+    pipe_through [:browser, :require_authenticated_user]
 
     live_session :admin,
-      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
+      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
       live "/jobs", Admin.JobLive.Index, :index
       live "/jobs/:id", Admin.JobLive.Show, :show
       live "/edge-packages", Admin.EdgePackageLive.Index, :index

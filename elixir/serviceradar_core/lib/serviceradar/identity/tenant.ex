@@ -107,6 +107,7 @@ defmodule ServiceRadar.Identity.Tenant do
         |> Ash.Changeset.change_attribute(:nats_account_jwt, Ash.Changeset.get_argument(changeset, :account_jwt))
         |> Ash.Changeset.change_attribute(:nats_account_status, :ready)
         |> Ash.Changeset.change_attribute(:nats_account_error, nil)
+        |> Ash.Changeset.change_attribute(:nats_account_provisioned_at, DateTime.utc_now())
       end
     end
 
@@ -431,6 +432,12 @@ defmodule ServiceRadar.Identity.Tenant do
       allow_nil? true
       public? false
       description "Error message if NATS account provisioning failed"
+    end
+
+    attribute :nats_account_provisioned_at, :utc_datetime_usec do
+      allow_nil? true
+      public? false
+      description "When the NATS account was successfully provisioned"
     end
 
     create_timestamp :inserted_at
