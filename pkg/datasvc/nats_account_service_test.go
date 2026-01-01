@@ -18,10 +18,15 @@ package datasvc
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"strings"
 	"testing"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/carverauto/serviceradar/pkg/nats/accounts"
@@ -47,12 +52,26 @@ func newTestNATSAccountServer(t *testing.T) *NATSAccountServer {
 		t.Fatalf("Failed to create operator: %v", err)
 	}
 
-	return NewNATSAccountServer(operator)
+	server := NewNATSAccountServer(operator)
+	server.SetAllowedClientIdentities([]string{"CN=core.serviceradar,O=ServiceRadar"})
+	return server
+}
+
+func authorizedContext() context.Context {
+	cert := &x509.Certificate{
+		Subject: pkix.Name{
+			CommonName:   "core.serviceradar",
+			Organization: []string{"ServiceRadar"},
+		},
+	}
+	tlsInfo := credentials.TLSInfo{State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}}}
+	p := &peer.Peer{AuthInfo: tlsInfo}
+	return peer.NewContext(context.Background(), p)
 }
 
 func TestNATSAccountServer_CreateTenantAccount(t *testing.T) {
 	server := newTestNATSAccountServer(t)
-	ctx := context.Background()
+	ctx := authorizedContext()
 
 	t.Run("success", func(t *testing.T) {
 		req := &proto.CreateTenantAccountRequest{
@@ -142,7 +161,7 @@ func TestNATSAccountServer_CreateTenantAccount(t *testing.T) {
 
 func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 	server := newTestNATSAccountServer(t)
-	ctx := context.Background()
+	ctx := authorizedContext()
 
 	// First create an account to get a valid seed
 	createResp, err := server.CreateTenantAccount(ctx, &proto.CreateTenantAccountRequest{
@@ -260,7 +279,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 	server := newTestNATSAccountServer(t)
-	ctx := context.Background()
+	ctx := authorizedContext()
 
 	// First create an account to get a valid seed
 	createResp, err := server.CreateTenantAccount(ctx, &proto.CreateTenantAccountRequest{

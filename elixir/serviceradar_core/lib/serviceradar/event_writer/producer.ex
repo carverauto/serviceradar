@@ -169,10 +169,17 @@ defmodule ServiceRadar.EventWriter.Producer do
   defp connect(%Config{} = config) do
     connection_settings = build_connection_settings(config.nats)
 
-    with {:ok, conn} <- Gnat.start_link(connection_settings),
-         {:ok, consumer_context} <- setup_jetstream_consumer(conn, config) do
-      Process.monitor(conn)
-      {:ok, conn, consumer_context}
+    case connection_settings do
+      {:error, reason} ->
+        {:error, reason}
+
+      settings ->
+        with {:ok, conn} <- Gnat.start_link(settings),
+             {:ok, consumer_context} <- setup_jetstream_consumer(conn, config) do
+          Process.monitor(conn)
+          Process.unlink(conn)
+          {:ok, conn, consumer_context}
+        end
     end
   end
 
@@ -183,15 +190,18 @@ defmodule ServiceRadar.EventWriter.Producer do
     }
 
     settings =
-      if nats_config.user do
-        Map.merge(settings, %{user: nats_config.user, password: nats_config.password})
-      else
-        settings
+      case apply_auth_settings(settings, nats_config) do
+        {:ok, updated} -> updated
+        {:error, reason} -> {:error, reason}
       end
 
-    settings = add_tls_settings(settings, nats_config.tls)
+    case settings do
+      {:error, reason} ->
+        {:error, reason}
 
-    settings
+      updated ->
+        add_tls_settings(updated, nats_config.tls)
+    end
   end
 
   defp add_tls_settings(settings, tls) do
@@ -208,6 +218,49 @@ defmodule ServiceRadar.EventWriter.Producer do
         settings
     end
   end
+
+  defp apply_auth_settings(settings, nats_config) do
+    jwt = normalize(nats_config.jwt)
+    nkey_seed = normalize(nats_config.nkey_seed)
+    user = normalize(nats_config.user)
+
+    cond do
+      nkey_seed != nil ->
+        settings =
+          settings
+          |> Map.put(:nkey_seed, nkey_seed)
+          |> Map.put(:auth_required, true)
+
+        settings =
+          if jwt != nil do
+            Map.put(settings, :jwt, jwt)
+          else
+            settings
+          end
+
+        {:ok, settings}
+
+      jwt != nil ->
+        {:error, :missing_nkey_seed}
+
+      user != nil ->
+        {:ok, Map.merge(settings, %{user: user, password: nats_config.password})}
+
+      true ->
+        {:ok, settings}
+    end
+  end
+
+  defp normalize(nil), do: nil
+
+  defp normalize(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize(value), do: value
 
   defp setup_jetstream_consumer(conn, config) do
     # For now, we'll use a simplified approach that subscribes to multiple subjects

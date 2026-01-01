@@ -61,6 +61,16 @@ type OperatorConfig struct {
 	// Required for pushing account JWTs to the NATS server.
 	SystemAccountPublicKey string `json:"system_account_public_key,omitempty"`
 
+	// SystemAccountPublicKeyEnv is the environment variable containing the system account public key.
+	SystemAccountPublicKeyEnv string `json:"system_account_public_key_env,omitempty"`
+
+	// SystemAccountPublicKeyFile is the path to a file containing the system account public key.
+	SystemAccountPublicKeyFile string `json:"system_account_public_key_file,omitempty"`
+
+	// SystemAccountCredsFile is the path to the system account .creds file.
+	// Used for pushing account JWTs via $SYS.
+	SystemAccountCredsFile string `json:"system_account_creds_file,omitempty"`
+
 	// OperatorConfigPath is where to write operator.conf for NATS to include.
 	// This file contains the operator JWT and resolver configuration.
 	// Can also be set via NATS_OPERATOR_CONFIG_PATH environment variable.
@@ -70,6 +80,10 @@ type OperatorConfig struct {
 	// Account JWTs are written here for NATS to pick up.
 	// Can also be set via NATS_RESOLVER_PATH environment variable.
 	ResolverPath string `json:"resolver_path,omitempty"`
+
+	// AllowedClientIdentities restricts NATSAccountService access to the listed mTLS identities.
+	// Entries should match the SPIFFE ID or certificate subject string.
+	AllowedClientIdentities []string `json:"allowed_client_identities,omitempty"`
 }
 
 // Operator manages NATS operator keys and signing operations.
@@ -104,11 +118,19 @@ func NewOperator(cfg *OperatorConfig) (*Operator, error) {
 		return nil, fmt.Errorf("%w: not an operator key", ErrOperatorKeyInvalid)
 	}
 
+	systemAccountPublicKey, err := loadSystemAccountPublicKey(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load system account public key: %w", err)
+	}
+	if systemAccountPublicKey != "" && !nkeys.IsValidPublicAccountKey(systemAccountPublicKey) {
+		return nil, fmt.Errorf("%w: invalid system account public key", ErrOperatorKeyInvalid)
+	}
+
 	op := &Operator{
 		name:                   cfg.Name,
 		kp:                     kp,
 		publicKey:              publicKey,
-		systemAccountPublicKey: cfg.SystemAccountPublicKey,
+		systemAccountPublicKey: systemAccountPublicKey,
 	}
 
 	// Generate the operator JWT on initialization
@@ -146,6 +168,32 @@ func loadOperatorSeed(cfg *OperatorConfig) (string, error) {
 	}
 
 	return "", ErrOperatorKeyNotFound
+}
+
+// loadSystemAccountPublicKey loads the system account public key from various sources in order of preference.
+func loadSystemAccountPublicKey(cfg *OperatorConfig) (string, error) {
+	// 1. Direct public key value
+	if cfg.SystemAccountPublicKey != "" {
+		return strings.TrimSpace(cfg.SystemAccountPublicKey), nil
+	}
+
+	// 2. Environment variable
+	if cfg.SystemAccountPublicKeyEnv != "" {
+		if key := os.Getenv(cfg.SystemAccountPublicKeyEnv); key != "" {
+			return strings.TrimSpace(key), nil
+		}
+	}
+
+	// 3. File
+	if cfg.SystemAccountPublicKeyFile != "" {
+		data, err := os.ReadFile(cfg.SystemAccountPublicKeyFile)
+		if err != nil {
+			return "", fmt.Errorf("failed to read system account public key file: %w", err)
+		}
+		return strings.TrimSpace(string(data)), nil
+	}
+
+	return "", nil
 }
 
 // PublicKey returns the operator's public key.

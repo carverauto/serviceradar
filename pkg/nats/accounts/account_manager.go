@@ -152,6 +152,8 @@ func (s *AccountSigner) signAccountJWT(
 	}
 	applySubjectMappings(claims, tenantSlug, mappings)
 
+	ensureJetStreamEnabled(claims)
+
 	// Apply revocations
 	if len(revokedUserKeys) > 0 {
 		if claims.Revocations == nil {
@@ -203,5 +205,21 @@ func applySubjectMappings(claims *jwt.AccountClaims, tenantSlug string, mappings
 		claims.Mappings[jwt.Subject(mapping.From)] = []jwt.WeightedMapping{
 			{Subject: jwt.Subject(to), Weight: 100},
 		}
+	}
+}
+
+func ensureJetStreamEnabled(claims *jwt.AccountClaims) {
+	if claims == nil {
+		return
+	}
+	if claims.Limits.JetStreamLimits != (jwt.JetStreamLimits{}) || len(claims.Limits.JetStreamTieredLimits) > 0 {
+		return
+	}
+
+	claims.Limits.JetStreamLimits = jwt.JetStreamLimits{
+		MemoryStorage: jwt.NoLimit,
+		DiskStorage:   jwt.NoLimit,
+		Streams:       jwt.NoLimit,
+		Consumer:      jwt.NoLimit,
 	}
 }

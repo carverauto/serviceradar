@@ -339,6 +339,7 @@ end
 | `EVENT_WRITER_ENABLED` | Enable EventWriter | `false` |
 | `EVENT_WRITER_NATS_URL` | NATS connection URL | `nats://localhost:4222` |
 | `EVENT_WRITER_NATS_TLS` | Enable TLS | `false` |
+| `EVENT_WRITER_NATS_CREDS_FILE` | NATS .creds file for JWT auth | (empty) |
 | `SPIFFE_CERT_DIR` | Certificate directory | `/etc/serviceradar/certs` |
 | `EVENT_WRITER_BATCH_SIZE` | Batch size for inserts | `100` |
 | `EVENT_WRITER_BATCH_TIMEOUT` | Batch timeout (ms) | `1000` |

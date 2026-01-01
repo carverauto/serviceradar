@@ -20,6 +20,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/edgeonboarding",
+        "//pkg/nats/accounts",
         "@com_github_atotto_clipboard//:clipboard",
         "@com_github_charmbracelet_bubbles//textinput",
         "@com_github_charmbracelet_bubbletea//:bubbletea",

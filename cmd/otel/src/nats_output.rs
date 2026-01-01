@@ -23,6 +23,7 @@ pub struct NATSConfig {
     pub timeout: Duration,
     pub max_bytes: i64,
     pub max_age: Duration,
+    pub creds_file: Option<PathBuf>,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
     pub tls_ca: Option<PathBuf>,
@@ -37,6 +38,7 @@ impl Default for NATSConfig {
             timeout: Duration::from_secs(30),
             max_bytes: 2 * 1024 * 1024 * 1024,
             max_age: Duration::from_secs(30 * 60),
+            creds_file: None,
             tls_cert: None,
             tls_key: None,
             tls_ca: None,
@@ -184,6 +186,11 @@ impl NATSOutput {
     async fn connect(config: &NATSConfig) -> Result<(Client, jetstream::Context)> {
         debug!("Connecting to NATS server: {}", config.url);
         let mut options = ConnectOptions::new();
+
+        if let Some(creds_file) = &config.creds_file {
+            debug!("Using NATS creds file: {creds_file:?}");
+            options = options.credentials_file(creds_file).await?;
+        }
 
         // Apply CA file if provided
         if let Some(ca_file) = &config.tls_ca {

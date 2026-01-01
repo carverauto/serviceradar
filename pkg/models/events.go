@@ -27,9 +27,10 @@ var (
 
 // NATSConfig configures NATS connectivity
 type NATSConfig struct {
-	URL      string          `json:"url"`
-	Domain   string          `json:"domain,omitempty"`
-	Security *SecurityConfig `json:"security,omitempty"`
+	URL       string          `json:"url"`
+	Domain    string          `json:"domain,omitempty"`
+	Security  *SecurityConfig `json:"security,omitempty"`
+	CredsFile string          `json:"creds_file,omitempty"`
 }
 
 // Validate ensures the NATS configuration is valid

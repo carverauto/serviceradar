@@ -14,7 +14,8 @@ defmodule ServiceRadar.NATS.Connection do
         port: 4222,
         name: :serviceradar_nats,
         user: "serviceradar",
-        password: {:system, "NATS_PASSWORD"}
+        password: {:system, "NATS_PASSWORD"},
+        creds_file: "/etc/serviceradar/creds/platform.creds"
 
   ## Usage
 
@@ -40,6 +41,9 @@ defmodule ServiceRadar.NATS.Connection do
     :name,
     :user,
     :password,
+    :jwt,
+    :nkey_seed,
+    :creds_file,
     :tls,
     :connected,
     :last_error,
@@ -123,6 +127,10 @@ defmodule ServiceRadar.NATS.Connection do
   def init(opts) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     merged_opts = Keyword.merge(config, opts)
+    creds_file = resolve_value(Keyword.get(merged_opts, :creds_file)) |> normalize()
+    jwt = resolve_value(Keyword.get(merged_opts, :jwt)) |> normalize()
+    nkey_seed = resolve_value(Keyword.get(merged_opts, :nkey_seed)) |> normalize()
+    {jwt, nkey_seed} = load_creds(creds_file, jwt, nkey_seed)
 
     state = %__MODULE__{
       host: Keyword.get(merged_opts, :host, "localhost"),
@@ -130,6 +138,9 @@ defmodule ServiceRadar.NATS.Connection do
       name: Keyword.get(merged_opts, :name, @default_name),
       user: resolve_value(Keyword.get(merged_opts, :user)),
       password: resolve_value(Keyword.get(merged_opts, :password)),
+      jwt: jwt,
+      nkey_seed: nkey_seed,
+      creds_file: creds_file,
       tls: Keyword.get(merged_opts, :tls, false),
       connected: false,
       last_error: nil,
@@ -234,23 +245,40 @@ defmodule ServiceRadar.NATS.Connection do
     }
 
     connection_settings =
-      if state.user do
-        Map.merge(connection_settings, %{user: state.user, password: state.password})
-      else
-        connection_settings
+      case apply_auth_settings(connection_settings, state) do
+        {:ok, settings} -> settings
+        {:error, reason} -> {:error, reason}
       end
 
     connection_settings = add_tls_settings(connection_settings, state.tls)
 
-    case Gnat.start_link(connection_settings) do
-      {:ok, conn} ->
-        Process.monitor(conn)
-        {:ok, conn}
-
+    case connection_settings do
       {:error, reason} ->
         {:error, reason}
+
+      settings ->
+        case Gnat.start_link(settings) do
+          {:ok, conn} ->
+            Process.monitor(conn)
+            Process.unlink(conn)
+            {:ok, conn}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
     end
   end
+
+  @impl true
+  def terminate(_reason, %{conn: conn}) when is_pid(conn) do
+    if Process.alive?(conn) do
+      _ = Gnat.stop(conn)
+    end
+
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
 
   defp add_tls_settings(settings, tls) do
     case tls do
@@ -267,6 +295,55 @@ defmodule ServiceRadar.NATS.Connection do
     end
   end
 
+  defp apply_auth_settings(settings, state) do
+    jwt = normalize(state.jwt)
+    nkey_seed = normalize(state.nkey_seed)
+    user = normalize(state.user)
+
+    cond do
+      nkey_seed != nil ->
+        settings =
+          settings
+          |> Map.put(:nkey_seed, nkey_seed)
+          |> Map.put(:auth_required, true)
+
+        settings =
+          if jwt != nil do
+            Map.put(settings, :jwt, jwt)
+          else
+            settings
+          end
+
+        {:ok, settings}
+
+      jwt != nil ->
+        {:error, :missing_nkey_seed}
+
+      user != nil ->
+        {:ok, Map.merge(settings, %{user: user, password: state.password})}
+
+      true ->
+        {:ok, settings}
+    end
+  end
+
+  defp load_creds(nil, jwt, nkey_seed), do: {jwt, nkey_seed}
+  defp load_creds("", jwt, nkey_seed), do: {jwt, nkey_seed}
+
+  defp load_creds(creds_file, jwt, nkey_seed) do
+    case ServiceRadar.NATS.Creds.read(creds_file) do
+      {:ok, creds} ->
+        {creds.jwt, creds.nkey_seed}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to read NATS creds file #{creds_file}: #{inspect(reason)}"
+        )
+
+        {jwt, nkey_seed}
+    end
+  end
+
   defp check_connection_health(conn) do
     if Process.alive?(conn) do
       :ok
@@ -277,6 +354,17 @@ defmodule ServiceRadar.NATS.Connection do
 
   defp resolve_value({:system, env_var}), do: System.get_env(env_var)
   defp resolve_value(value), do: value
+
+  defp normalize(nil), do: nil
+
+  defp normalize(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize(value), do: value
 
   defp schedule_health_check do
     Process.send_after(self(), :health_check, @health_check_interval)

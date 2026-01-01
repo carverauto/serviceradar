@@ -96,6 +96,12 @@ type CmdConfig struct {
 	NATSNoTLS             bool
 	NATSOutputFormat      string
 	NATSBootstrapExpires  string
+	NATSLocalBootstrap    bool
+	NATSWriteSystemCreds  bool
+	NATSWritePlatform     bool
+	NATSPlatformAccount   string
+	NATSPlatformUser      string
+	NATSSystemUser        string
 	NATSTenantLimit       int
 	AdminNatsAction       string
 	AdminCommand          string

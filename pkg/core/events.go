@@ -84,6 +84,10 @@ func (s *Server) initializeEventPublisher(ctx context.Context, config *models.Co
 		}),
 	}
 
+	if config.NATS.CredsFile != "" {
+		opts = append(opts, nats.UserCredentials(config.NATS.CredsFile))
+	}
+
 	nc, err := natsutil.ConnectWithSecurity(ctx, config.NATS.URL, config.NATS.Security, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to NATS: %w", err)

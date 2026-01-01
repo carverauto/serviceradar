@@ -18,6 +18,7 @@ nats_subject = "events.syslog"
 nats_stream = "events" # Optional: defaults to "events"
 nats_timeout = 30000 # Optional: ACK timeout in ms, defaults to 30000
 nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"
+nats_creds_file = "/etc/serviceradar/creds/platform.creds"
 nats_tls_cert = "/etc/serviceradar/certs/flowgger.pem"
 nats_tls_key = "/etc/serviceradar/certs/flowgger-key.pem"
 

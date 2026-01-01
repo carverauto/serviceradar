@@ -19,6 +19,9 @@ stream = "events"
 # Timeout for NATS operations in seconds (default: 30)
 timeout_secs = 30
 
+# NATS credentials file for JWT auth
+creds_file = "/etc/serviceradar/creds/platform.creds"
+
 # Optional TLS configuration
 [nats.tls]
 cert_file = "/etc/serviceradar/certs/nats-client.pem"

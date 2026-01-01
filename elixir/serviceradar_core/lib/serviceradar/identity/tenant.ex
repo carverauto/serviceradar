@@ -165,8 +165,7 @@ defmodule ServiceRadar.Identity.Tenant do
       change set_attribute(:nats_account_provisioned_at, nil)
 
       change fn changeset, _context ->
-        # Clear encrypted seed (attribute is stored as encrypted_* in this resource)
-        Ash.Changeset.force_change_attribute(changeset, :encrypted_nats_account_seed_ciphertext, nil)
+        AshCloak.encrypt_and_set(changeset, :nats_account_seed_ciphertext, nil)
       end
     end
 

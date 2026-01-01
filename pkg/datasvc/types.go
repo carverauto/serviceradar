@@ -37,27 +37,28 @@ type RBACRule struct {
 
 // CoreRegistration contains settings for registering this datasvc with Core.
 type CoreRegistration struct {
-	Enabled          bool            `json:"enabled"`                      // Enable registration with Core
-	CoreEndpoint     string          `json:"core_endpoint"`                // Core gRPC endpoint
-	InstanceID       string          `json:"instance_id"`                  // Unique instance ID
+	Enabled           bool            `json:"enabled"`                      // Enable registration with Core
+	CoreEndpoint      string          `json:"core_endpoint"`                // Core gRPC endpoint
+	InstanceID        string          `json:"instance_id"`                  // Unique instance ID
 	HeartbeatInterval models.Duration `json:"heartbeat_interval,omitempty"` // Heartbeat interval (default: 30s)
 }
 
 // Config holds the configuration for the KV service.
 type Config struct {
-	ListenAddr   string                 `json:"listen_addr"`
-	NATSURL      string                 `json:"nats_url"`
-	Security     *models.SecurityConfig `json:"security"`
-	NATSSecurity *models.SecurityConfig `json:"nats_security"`
-	RBAC         struct {
+	ListenAddr    string                 `json:"listen_addr"`
+	NATSURL       string                 `json:"nats_url"`
+	NATSCredsFile string                 `json:"nats_creds_file,omitempty"`
+	Security      *models.SecurityConfig `json:"security"`
+	NATSSecurity  *models.SecurityConfig `json:"nats_security"`
+	RBAC          struct {
 		Roles []RBACRule `json:"roles"`
 	} `json:"rbac"`
-	Bucket         string          `json:"bucket,omitempty"`           // KV bucket name
-	Domain         string          `json:"domain,omitempty"`           // Optional JetStream domain
-	ObjectBucket   string          `json:"object_bucket,omitempty"`    // JetStream object store bucket name
-	BucketMaxBytes int64           `json:"bucket_max_bytes,omitempty"` // Hard cap for bucket size (bytes)
-	BucketTTL      models.Duration `json:"bucket_ttl,omitempty"`       // TTL for entries (0 = no expiry)
-	BucketHistory  uint32          `json:"bucket_history,omitempty"`   // History depth per key
+	Bucket           string            `json:"bucket,omitempty"`            // KV bucket name
+	Domain           string            `json:"domain,omitempty"`            // Optional JetStream domain
+	ObjectBucket     string            `json:"object_bucket,omitempty"`     // JetStream object store bucket name
+	BucketMaxBytes   int64             `json:"bucket_max_bytes,omitempty"`  // Hard cap for bucket size (bytes)
+	BucketTTL        models.Duration   `json:"bucket_ttl,omitempty"`        // TTL for entries (0 = no expiry)
+	BucketHistory    uint32            `json:"bucket_history,omitempty"`    // History depth per key
 	CoreRegistration *CoreRegistration `json:"core_registration,omitempty"` // Core service registration settings
 
 	// NATSOperator configures the NATS account management service for multi-tenant isolation.

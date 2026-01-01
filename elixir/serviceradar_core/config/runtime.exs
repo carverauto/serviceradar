@@ -74,6 +74,34 @@ if config_env() == :prod do
     ],
     peer: Oban.Peers.Database
 
+  # Core NATS connection configuration
+  nats_url = System.get_env("NATS_URL", "nats://localhost:4222")
+  nats_uri = URI.parse(nats_url)
+  nats_tls_enabled = System.get_env("NATS_TLS", "false") in ~w(true 1 yes)
+  nats_server_name = System.get_env("NATS_SERVER_NAME", "nats.serviceradar")
+  cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+
+  nats_tls_config =
+    if nats_tls_enabled do
+      [
+        verify: :verify_peer,
+        cacertfile: Path.join(cert_dir, "root.pem"),
+        certfile: Path.join(cert_dir, "core.pem"),
+        keyfile: Path.join(cert_dir, "core-key.pem"),
+        server_name_indication: String.to_charlist(nats_server_name)
+      ]
+    else
+      false
+    end
+
+  config :serviceradar_core, ServiceRadar.NATS.Connection,
+    host: nats_uri.host || "localhost",
+    port: nats_uri.port || 4222,
+    user: System.get_env("NATS_USER"),
+    password: {:system, "NATS_PASSWORD"},
+    creds_file: System.get_env("NATS_CREDS_FILE"),
+    tls: nats_tls_config
+
   # EventWriter configuration (NATS JetStream → CNPG consumer)
   # Enable with EVENT_WRITER_ENABLED=true
   event_writer_enabled = System.get_env("EVENT_WRITER_ENABLED", "false") in ~w(true 1 yes)
@@ -108,6 +136,7 @@ if config_env() == :prod do
         port: nats_uri.port || 4222,
         user: System.get_env("EVENT_WRITER_NATS_USER"),
         password: {:system, "EVENT_WRITER_NATS_PASSWORD"},
+        creds_file: System.get_env("EVENT_WRITER_NATS_CREDS_FILE"),
         tls: nats_tls_config
       ],
       batch_size: String.to_integer(System.get_env("EVENT_WRITER_BATCH_SIZE") || "100"),

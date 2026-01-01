@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -322,6 +323,10 @@ func (s *Service) createConnection(ctx context.Context) (*nats.Conn, jetstream.J
 			nats.RootCAs(s.cfg.NATSSecurity.TLS.CAFile),
 			nats.ClientCert(s.cfg.NATSSecurity.TLS.CertFile, s.cfg.NATSSecurity.TLS.KeyFile),
 		)
+	}
+
+	if strings.TrimSpace(s.cfg.NATSCredsFile) != "" {
+		opts = append(opts, nats.UserCredentials(strings.TrimSpace(s.cfg.NATSCredsFile)))
 	}
 
 	nc, err := nats.Connect(s.cfg.NATSURL, opts...)

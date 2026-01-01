@@ -30,15 +30,19 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
+	"github.com/carverauto/serviceradar/pkg/nats/accounts"
 )
 
 const (
-	defaultNATSOutputDir     = "/etc/nats"
-	defaultNATSOperatorName  = "serviceradar"
-	defaultNATSBootstrapTTL  = "24h"
-	natsBootstrapEndpoint    = "/api/admin/nats/bootstrap"
-	natsStatusEndpoint       = "/api/admin/nats/status"
-	natsBootstrapTokenPath   = "/api/admin/nats/bootstrap-token"
+	defaultNATSOutputDir    = "/etc/nats"
+	defaultNATSOperatorName = "serviceradar"
+	defaultNATSBootstrapTTL = "24h"
+	natsBootstrapEndpoint   = "/api/admin/nats/bootstrap"
+	natsStatusEndpoint      = "/api/admin/nats/status"
+	natsBootstrapTokenPath  = "/api/admin/nats/bootstrap-token"
+	defaultPlatformAccount  = "platform"
+	defaultPlatformUser     = "platform-services"
+	defaultSystemUser       = "system-resolver"
 )
 
 // NatsBootstrapHandler handles flags for the nats-bootstrap subcommand.
@@ -57,6 +61,7 @@ func (NatsBootstrapHandler) Parse(args []string, cfg *CmdConfig) error {
 	importSeed := fs.String("import-operator-seed", "", "Import existing operator seed instead of generating new")
 	verify := fs.Bool("verify", false, "Verify existing NATS bootstrap configuration")
 	configPath := fs.String("config", "", "Path to existing nats.conf for verification")
+	local := fs.Bool("local", false, "Generate NATS operator and accounts locally without core API")
 	noSystemAccount := fs.Bool("no-system-account", false, "Skip system account generation")
 	jetstream := fs.Bool("jetstream", true, "Enable JetStream")
 	jetstreamDir := fs.String("jetstream-dir", "/var/lib/nats/jetstream", "JetStream storage directory")
@@ -64,6 +69,11 @@ func (NatsBootstrapHandler) Parse(args []string, cfg *CmdConfig) error {
 	tlsKey := fs.String("tls-key", "", "Path to TLS private key for NATS server")
 	tlsCA := fs.String("tls-ca", "", "Path to TLS CA certificate for client verification")
 	noTLS := fs.Bool("no-tls", false, "Disable TLS for NATS server")
+	writeSystemCreds := fs.Bool("write-system-creds", true, "Write system account creds when available")
+	writePlatform := fs.Bool("write-platform-creds", true, "Generate platform account and creds when possible")
+	platformAccount := fs.String("platform-account", defaultPlatformAccount, "Platform account name (empty to skip)")
+	platformUser := fs.String("platform-user", defaultPlatformUser, "Platform account user name for creds")
+	systemUser := fs.String("system-user", defaultSystemUser, "System account user name for creds")
 	output := fs.String("output", "text", "Output format: text or json")
 
 	if err := fs.Parse(args); err != nil {
@@ -80,6 +90,7 @@ func (NatsBootstrapHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.NATSImportSeed = *importSeed
 	cfg.NATSVerifyMode = *verify
 	cfg.NATSConfigPath = *configPath
+	cfg.NATSLocalBootstrap = *local
 	cfg.NATSNoSystemAccount = *noSystemAccount
 	cfg.NATSJetStream = *jetstream
 	cfg.NATSJetStreamDir = *jetstreamDir
@@ -87,6 +98,11 @@ func (NatsBootstrapHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.NATSTLSKey = *tlsKey
 	cfg.NATSTLSCA = *tlsCA
 	cfg.NATSNoTLS = *noTLS
+	cfg.NATSWriteSystemCreds = *writeSystemCreds
+	cfg.NATSWritePlatform = *writePlatform
+	cfg.NATSPlatformAccount = strings.TrimSpace(*platformAccount)
+	cfg.NATSPlatformUser = strings.TrimSpace(*platformUser)
+	cfg.NATSSystemUser = strings.TrimSpace(*systemUser)
 	cfg.NATSOutputFormat = strings.ToLower(strings.TrimSpace(*output))
 
 	return nil
@@ -121,12 +137,12 @@ func (AdminNatsBootstrapTokenHandler) Parse(args []string, cfg *CmdConfig) error
 
 // natsBootstrapAPIResponse represents the bootstrap response from the Core API.
 type natsBootstrapAPIResponse struct {
-	OperatorPublicKey        string `json:"operator_public_key"`
-	OperatorSeed             string `json:"operator_seed,omitempty"`
-	OperatorJWT              string `json:"operator_jwt"`
-	SystemAccountPublicKey   string `json:"system_account_public_key"`
-	SystemAccountSeed        string `json:"system_account_seed,omitempty"`
-	SystemAccountJWT         string `json:"system_account_jwt"`
+	OperatorPublicKey      string `json:"operator_public_key"`
+	OperatorSeed           string `json:"operator_seed,omitempty"`
+	OperatorJWT            string `json:"operator_jwt"`
+	SystemAccountPublicKey string `json:"system_account_public_key"`
+	SystemAccountSeed      string `json:"system_account_seed,omitempty"`
+	SystemAccountJWT       string `json:"system_account_jwt"`
 }
 
 // natsBootstrapTokenResponse represents the token generation response.
@@ -146,6 +162,10 @@ type natsStatusResponse struct {
 func RunNatsBootstrap(cfg *CmdConfig) error {
 	if cfg.NATSVerifyMode {
 		return runNatsBootstrapVerify(cfg)
+	}
+
+	if cfg.NATSLocalBootstrap {
+		return runNatsBootstrapLocal(cfg)
 	}
 
 	return runNatsBootstrapCreate(cfg)
@@ -210,6 +230,37 @@ func runNatsBootstrapCreate(cfg *CmdConfig) error {
 	return writeNATSBootstrapFiles(cfg, &result)
 }
 
+func runNatsBootstrapLocal(cfg *CmdConfig) error {
+	operatorName := cfg.NATSOperatorName
+	if operatorName == "" {
+		operatorName = defaultNATSOperatorName
+	}
+
+	operator, result, err := accounts.BootstrapOperator(
+		operatorName,
+		strings.TrimSpace(cfg.NATSImportSeed),
+		!cfg.NATSNoSystemAccount,
+	)
+	if err != nil {
+		return fmt.Errorf("bootstrap operator locally: %w", err)
+	}
+
+	if operator == nil || result == nil {
+		return fmt.Errorf("bootstrap operator locally: missing result")
+	}
+
+	response := &natsBootstrapAPIResponse{
+		OperatorPublicKey:      result.OperatorPublicKey,
+		OperatorSeed:           result.OperatorSeed,
+		OperatorJWT:            result.OperatorJWT,
+		SystemAccountPublicKey: result.SystemAccountPublicKey,
+		SystemAccountSeed:      result.SystemAccountSeed,
+		SystemAccountJWT:       result.SystemAccountJWT,
+	}
+
+	return writeNATSBootstrapFiles(cfg, response)
+}
+
 func writeNATSBootstrapFiles(cfg *CmdConfig, result *natsBootstrapAPIResponse) error {
 	outputDir := cfg.NATSOutputDir
 	if outputDir == "" {
@@ -233,11 +284,91 @@ func writeNATSBootstrapFiles(cfg *CmdConfig, result *natsBootstrapAPIResponse) e
 		return fmt.Errorf("write operator JWT: %w", err)
 	}
 
+	operatorSeedPath := ""
+	if result.OperatorSeed != "" {
+		operatorSeedPath = filepath.Join(outputDir, "operator.seed")
+		if err := os.WriteFile(operatorSeedPath, []byte(result.OperatorSeed), 0600); err != nil {
+			return fmt.Errorf("write operator seed: %w", err)
+		}
+	}
+
 	// Write system account JWT (into resolver directory)
+	systemAccountPublicKeyPath := ""
 	if result.SystemAccountJWT != "" {
 		systemAcctPath := filepath.Join(jwtDir, result.SystemAccountPublicKey+".jwt")
 		if err := os.WriteFile(systemAcctPath, []byte(result.SystemAccountJWT), 0644); err != nil {
 			return fmt.Errorf("write system account JWT: %w", err)
+		}
+
+		systemJWTPath := filepath.Join(outputDir, "system.jwt")
+		if err := os.WriteFile(systemJWTPath, []byte(result.SystemAccountJWT), 0644); err != nil {
+			return fmt.Errorf("write system.jwt: %w", err)
+		}
+	}
+	if result.SystemAccountPublicKey != "" {
+		systemAccountPublicKeyPath = filepath.Join(outputDir, "system_account.pub")
+		if err := os.WriteFile(systemAccountPublicKeyPath, []byte(result.SystemAccountPublicKey), 0644); err != nil {
+			return fmt.Errorf("write system account public key: %w", err)
+		}
+	}
+
+	systemCredsPath := ""
+	if cfg.NATSWriteSystemCreds && result.SystemAccountSeed != "" {
+		creds, err := generateSystemCreds(result.SystemAccountSeed, cfg.NATSSystemUser)
+		if err != nil {
+			return fmt.Errorf("generate system creds: %w", err)
+		}
+
+		systemCredsPath = filepath.Join(outputDir, "system.creds")
+		if err := os.WriteFile(systemCredsPath, []byte(creds), 0600); err != nil {
+			return fmt.Errorf("write system.creds: %w", err)
+		}
+	}
+
+	platformAccount := strings.TrimSpace(cfg.NATSPlatformAccount)
+	platformCredsPath := ""
+	var platformAccountPublicKey string
+
+	if cfg.NATSWritePlatform && platformAccount != "" {
+		operatorName := strings.TrimSpace(cfg.NATSOperatorName)
+		if operatorName == "" {
+			operatorName = defaultNATSOperatorName
+		}
+
+		operatorSeed := strings.TrimSpace(result.OperatorSeed)
+		if operatorSeed == "" {
+			operatorSeed = strings.TrimSpace(cfg.NATSImportSeed)
+		}
+
+		if operatorSeed == "" {
+			return fmt.Errorf("platform account requested but operator seed not available")
+		}
+
+		platformUser := cfg.NATSPlatformUser
+		if platformUser == "" {
+			platformUser = defaultPlatformUser
+		}
+
+		platformResult, platformCreds, err := generatePlatformAccount(
+			operatorSeed,
+			operatorName,
+			platformAccount,
+			result.SystemAccountPublicKey,
+			platformUser,
+		)
+		if err != nil {
+			return fmt.Errorf("generate platform account: %w", err)
+		}
+
+		platformAccountPublicKey = platformResult.AccountPublicKey
+		platformCredsPath = filepath.Join(outputDir, "platform.creds")
+		if err := os.WriteFile(platformCredsPath, []byte(platformCreds), 0600); err != nil {
+			return fmt.Errorf("write platform.creds: %w", err)
+		}
+
+		platformJWTPath := filepath.Join(jwtDir, platformResult.AccountPublicKey+".jwt")
+		if err := os.WriteFile(platformJWTPath, []byte(platformResult.AccountJWT), 0644); err != nil {
+			return fmt.Errorf("write platform account JWT: %w", err)
 		}
 	}
 
@@ -273,11 +404,16 @@ func writeNATSBootstrapFiles(cfg *CmdConfig, result *natsBootstrapAPIResponse) e
 	// Output results
 	if cfg.NATSOutputFormat == "json" {
 		output := map[string]interface{}{
-			"operator_public_key":       result.OperatorPublicKey,
-			"system_account_public_key": result.SystemAccountPublicKey,
-			"config_path":               configPath,
-			"operator_jwt_path":         operatorJWTPath,
-			"jwt_resolver_dir":          jwtDir,
+			"operator_public_key":            result.OperatorPublicKey,
+			"system_account_public_key":      result.SystemAccountPublicKey,
+			"config_path":                    configPath,
+			"operator_jwt_path":              operatorJWTPath,
+			"operator_seed_path":             operatorSeedPath,
+			"jwt_resolver_dir":               jwtDir,
+			"system_account_public_key_path": systemAccountPublicKeyPath,
+			"system_creds_path":              systemCredsPath,
+			"platform_creds_path":            platformCredsPath,
+			"platform_account_public_key":    platformAccountPublicKey,
 		}
 		if result.OperatorSeed != "" {
 			output["operator_seed"] = result.OperatorSeed
@@ -297,7 +433,22 @@ func writeNATSBootstrapFiles(cfg *CmdConfig, result *natsBootstrapAPIResponse) e
 		fmt.Printf("System Account Key     : %s\n", result.SystemAccountPublicKey)
 		fmt.Printf("Configuration File     : %s\n", configPath)
 		fmt.Printf("Operator JWT           : %s\n", operatorJWTPath)
+		if operatorSeedPath != "" {
+			fmt.Printf("Operator Seed File     : %s\n", operatorSeedPath)
+		}
 		fmt.Printf("JWT Resolver Directory : %s\n", jwtDir)
+		if systemAccountPublicKeyPath != "" {
+			fmt.Printf("System Account Key File: %s\n", systemAccountPublicKeyPath)
+		}
+		if systemCredsPath != "" {
+			fmt.Printf("System Creds           : %s\n", systemCredsPath)
+		}
+		if platformCredsPath != "" {
+			fmt.Printf("Platform Creds         : %s\n", platformCredsPath)
+		}
+		if platformAccountPublicKey != "" {
+			fmt.Printf("Platform Account Key   : %s\n", platformAccountPublicKey)
+		}
 		fmt.Println()
 
 		if result.OperatorSeed != "" {
@@ -314,6 +465,99 @@ func writeNATSBootstrapFiles(cfg *CmdConfig, result *natsBootstrapAPIResponse) e
 	}
 
 	return nil
+}
+
+func generateSystemCreds(systemAccountSeed string, userName string) (string, error) {
+	if strings.TrimSpace(systemAccountSeed) == "" {
+		return "", fmt.Errorf("system account seed is required")
+	}
+
+	if userName == "" {
+		userName = defaultSystemUser
+	}
+
+	permissions := &accounts.UserPermissions{
+		PublishAllow:   []string{"$SYS.REQ.ACCOUNT.*.CLAIMS.UPDATE"},
+		SubscribeAllow: []string{"_INBOX.>"},
+		AllowResponses: true,
+		MaxResponses:   10,
+	}
+
+	creds, err := accounts.GenerateUserCredentials(
+		"SYS",
+		systemAccountSeed,
+		userName,
+		accounts.CredentialTypeService,
+		permissions,
+		0,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	return creds.CredsFileContent, nil
+}
+
+func generatePlatformAccount(
+	operatorSeed string,
+	operatorName string,
+	accountName string,
+	systemAccountPublicKey string,
+	userName string,
+) (*accounts.TenantAccountResult, string, error) {
+	if strings.TrimSpace(operatorName) == "" {
+		operatorName = defaultNATSOperatorName
+	}
+
+	cfg := &accounts.OperatorConfig{
+		Name:                   operatorName,
+		OperatorSeed:           operatorSeed,
+		SystemAccountPublicKey: systemAccountPublicKey,
+	}
+
+	operator, err := accounts.NewOperator(cfg)
+	if err != nil {
+		return nil, "", err
+	}
+
+	signer := accounts.NewAccountSigner(operator)
+	mappings := []accounts.SubjectMapping{
+		{From: "events.>", To: "events.>"},
+		{From: "snmp.traps", To: "snmp.traps"},
+		{From: "logs.>", To: "logs.>"},
+		{From: "telemetry.>", To: "telemetry.>"},
+		{From: "netflow.>", To: "netflow.>"},
+	}
+
+	account, err := signer.CreateTenantAccount(accountName, nil, mappings)
+	if err != nil {
+		return nil, "", err
+	}
+
+	permissions := &accounts.UserPermissions{
+		PublishAllow:   []string{">"},
+		SubscribeAllow: []string{">"},
+		AllowResponses: true,
+		MaxResponses:   1000,
+	}
+
+	if userName == "" {
+		userName = defaultPlatformUser
+	}
+
+	creds, err := accounts.GenerateUserCredentials(
+		accountName,
+		account.AccountSeed,
+		userName,
+		accounts.CredentialTypeService,
+		permissions,
+		0,
+	)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return account, creds.CredsFileContent, nil
 }
 
 func runNatsBootstrapVerify(cfg *CmdConfig) error {

@@ -95,6 +95,13 @@ func main() {
 			log.Printf("NATS account service initialized with operator %s", operator.Name())
 		}
 
+		natsAccountServer.SetAllowedClientIdentities(cfg.NATSOperator.AllowedClientIdentities)
+		if len(cfg.NATSOperator.AllowedClientIdentities) == 0 {
+			log.Printf("Warning: no allowed client identities configured for NATS account service; requests will be rejected")
+		} else {
+			log.Printf("NATS account service allowed identities: %v", cfg.NATSOperator.AllowedClientIdentities)
+		}
+
 		// Configure resolver paths for file-based JWT resolver
 		// Priority: environment variables > config file
 		operatorConfigPath := cfg.NATSOperator.OperatorConfigPath
@@ -120,6 +127,17 @@ func main() {
 					log.Printf("Wrote initial operator config to %s", operatorConfigPath)
 				}
 			}
+		}
+
+		systemCredsFile := cfg.NATSOperator.SystemAccountCredsFile
+		if envPath := os.Getenv("NATS_SYSTEM_ACCOUNT_CREDS_FILE"); envPath != "" {
+			systemCredsFile = envPath
+		}
+		if systemCredsFile == "" {
+			log.Printf("Warning: no system account creds configured; PushAccountJWT will fail")
+		} else {
+			natsAccountServer.SetResolverClient(cfg.NATSURL, cfg.NATSSecurity, systemCredsFile)
+			log.Printf("NATS resolver client configured with system creds at %s", systemCredsFile)
 		}
 	}
 

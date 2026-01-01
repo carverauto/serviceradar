@@ -24,6 +24,7 @@ nats_connect_max_backoff_ms = 30000
 nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"
 nats_tls_cert = "/etc/serviceradar/certs/checkers.pem"
 nats_tls_key = "/etc/serviceradar/certs/checkers-key.pem"
+nats_creds_file = "/etc/serviceradar/creds/platform.creds"
 
 [grpc]
 listen_addr = "127.0.0.1:50044"

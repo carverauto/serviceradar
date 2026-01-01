@@ -36,6 +36,8 @@ jwks.json
 *.crt
 .env
 docker/compose/spire/upstream-join-token
+docker/compose/creds/*
+!docker/compose/creds/.gitkeep
 # Logs
 *.log
 npm-debug.log*

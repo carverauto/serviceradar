@@ -123,14 +123,28 @@ async fn main() -> Result<()> {
 
     let socket = UdpSocket::bind(&cfg.listen_addr).await?;
 
+    let creds_path = cfg.nats_creds_path();
     let nats_client = if let Some(sec) = &cfg.nats_security {
         match sec.mode {
-            SecurityMode::None => async_nats::connect(&cfg.nats_url).await?,
+            SecurityMode::None => {
+                if let Some(creds_path) = &creds_path {
+                    async_nats::ConnectOptions::new()
+                        .credentials_file(creds_path)
+                        .await?
+                        .connect(&cfg.nats_url)
+                        .await?
+                } else {
+                    async_nats::connect(&cfg.nats_url).await?
+                }
+            }
             SecurityMode::Spiffe => {
                 anyhow::bail!("SPIFFE mode is not supported for NATS security")
             }
             SecurityMode::Mtls => {
                 let mut opts = async_nats::ConnectOptions::new();
+                if let Some(creds_path) = &creds_path {
+                    opts = opts.credentials_file(creds_path).await?;
+                }
                 if let Some(ca) = &sec.ca_file {
                     opts = opts.add_root_certificates(sec.resolve_path(ca));
                 }
@@ -141,6 +155,12 @@ async fn main() -> Result<()> {
                 opts.connect(&cfg.nats_url).await?
             }
         }
+    } else if let Some(creds_path) = &creds_path {
+        async_nats::ConnectOptions::new()
+            .credentials_file(creds_path)
+            .await?
+            .connect(&cfg.nats_url)
+            .await?
     } else {
         async_nats::connect(&cfg.nats_url).await?
     };

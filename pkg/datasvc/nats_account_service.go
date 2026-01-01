@@ -18,15 +18,23 @@ package datasvc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
+	"github.com/nats-io/nats.go"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/nats/accounts"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -47,12 +55,21 @@ type NATSAccountServer struct {
 	// systemAccountSeed is stored after bootstrap for JWT push operations
 	systemAccountSeed string
 
-	// resolverBasePath is the base directory for NATS JWT resolver files
-	// When set, account JWTs are written to this directory for file-based resolver
+	// resolverBasePath is the base directory for NATS JWT resolver files.
+	// This is only needed for file-based resolvers (dev or legacy setups).
 	resolverBasePath string
 
 	// operatorConfigPath is where operator.conf is written for NATS to include
 	operatorConfigPath string
+
+	// resolverConfig controls NATS system account access for pushing JWT updates.
+	resolverURL       string
+	resolverSecurity  *models.SecurityConfig
+	resolverCredsFile string
+	resolverConn      *nats.Conn
+
+	// allowedClientIdentities restricts access to NATS account operations.
+	allowedClientIdentities map[string]struct{}
 }
 
 // NewNATSAccountServer creates a new NATSAccountServer with the given operator.
@@ -84,6 +101,132 @@ func (s *NATSAccountServer) SetResolverPaths(operatorConfigPath, resolverBasePat
 	defer s.mu.Unlock()
 	s.operatorConfigPath = operatorConfigPath
 	s.resolverBasePath = resolverBasePath
+}
+
+// SetResolverClient configures how account JWTs are pushed to the NATS resolver.
+// credsFile should point to a system-account .creds file authorized for $SYS updates.
+func (s *NATSAccountServer) SetResolverClient(natsURL string, security *models.SecurityConfig, credsFile string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.resolverURL = strings.TrimSpace(natsURL)
+	s.resolverSecurity = cloneSecurityConfig(security)
+	s.resolverCredsFile = strings.TrimSpace(credsFile)
+
+	if s.resolverConn != nil {
+		s.resolverConn.Close()
+		s.resolverConn = nil
+	}
+}
+
+// SetAllowedClientIdentities configures which mTLS identities may call this service.
+func (s *NATSAccountServer) SetAllowedClientIdentities(identities []string) {
+	allowed := make(map[string]struct{}, len(identities))
+	for _, identity := range identities {
+		trimmed := strings.TrimSpace(identity)
+		if trimmed == "" {
+			continue
+		}
+		allowed[trimmed] = struct{}{}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.allowedClientIdentities = allowed
+}
+
+func (s *NATSAccountServer) authorizeRequest(ctx context.Context) error {
+	identity, err := extractMTLSIdentity(ctx)
+	if err != nil {
+		return err
+	}
+
+	s.mu.RLock()
+	allowed := s.allowedClientIdentities
+	s.mu.RUnlock()
+
+	if len(allowed) == 0 {
+		return status.Error(codes.PermissionDenied, "no allowed identities configured for NATS account service")
+	}
+
+	if _, ok := allowed[identity]; !ok {
+		return status.Errorf(codes.PermissionDenied, "identity %s not authorized for NATS account service", identity)
+	}
+
+	return nil
+}
+
+func extractMTLSIdentity(ctx context.Context) (string, error) {
+	p, ok := peer.FromContext(ctx)
+	if !ok || p.AuthInfo == nil {
+		return "", status.Error(codes.Unauthenticated, "no peer info available; mTLS required")
+	}
+
+	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok || len(tlsInfo.State.PeerCertificates) == 0 {
+		return "", status.Error(codes.Unauthenticated, "mTLS authentication required")
+	}
+
+	cert := tlsInfo.State.PeerCertificates[0]
+	if id := spiffeIDFromCertificate(cert); id != "" {
+		return id, nil
+	}
+
+	return cert.Subject.String(), nil
+}
+
+func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.resolverURL == "" {
+		return nil, fmt.Errorf("resolver NATS URL not configured")
+	}
+
+	if s.resolverConn != nil && s.resolverConn.IsConnected() {
+		return s.resolverConn, nil
+	}
+
+	if s.resolverConn != nil {
+		s.resolverConn.Close()
+		s.resolverConn = nil
+	}
+
+	opts, err := buildResolverOptions(s.resolverSecurity, s.resolverCredsFile)
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := nats.Connect(s.resolverURL, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("connect resolver NATS: %w", err)
+	}
+
+	s.resolverConn = conn
+	return conn, nil
+}
+
+func buildResolverOptions(security *models.SecurityConfig, credsFile string) ([]nats.Option, error) {
+	if security == nil {
+		return nil, fmt.Errorf("resolver TLS config required")
+	}
+
+	tlsConfig, err := getTLSConfig(security)
+	if err != nil {
+		return nil, fmt.Errorf("resolver TLS config invalid: %w", err)
+	}
+
+	opts := []nats.Option{
+		nats.Secure(tlsConfig),
+		nats.RootCAs(security.TLS.CAFile),
+		nats.ClientCert(security.TLS.CertFile, security.TLS.KeyFile),
+	}
+
+	if credsFile != "" {
+		opts = append(opts, nats.UserCredentials(credsFile))
+	}
+
+	return opts, nil
 }
 
 // WriteOperatorConfig writes the operator configuration file for NATS.
@@ -203,9 +346,13 @@ func (s *NATSAccountServer) WriteAccountJWT(accountPublicKey, accountJWT string)
 // This can either generate a new operator key pair or import an existing seed.
 // Should be called once during initial platform setup.
 func (s *NATSAccountServer) BootstrapOperator(
-	_ context.Context,
+	ctx context.Context,
 	req *proto.BootstrapOperatorRequest,
 ) (*proto.BootstrapOperatorResponse, error) {
+	if err := s.authorizeRequest(ctx); err != nil {
+		return nil, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -247,12 +394,12 @@ func (s *NATSAccountServer) BootstrapOperator(
 	}
 
 	return &proto.BootstrapOperatorResponse{
-		OperatorPublicKey:       result.OperatorPublicKey,
-		OperatorSeed:            result.OperatorSeed, // Only set if newly generated
-		OperatorJwt:             result.OperatorJWT,
-		SystemAccountPublicKey:  result.SystemAccountPublicKey,
-		SystemAccountSeed:       result.SystemAccountSeed,
-		SystemAccountJwt:        result.SystemAccountJWT,
+		OperatorPublicKey:      result.OperatorPublicKey,
+		OperatorSeed:           result.OperatorSeed, // Only set if newly generated
+		OperatorJwt:            result.OperatorJWT,
+		SystemAccountPublicKey: result.SystemAccountPublicKey,
+		SystemAccountSeed:      result.SystemAccountSeed,
+		SystemAccountJwt:       result.SystemAccountJWT,
 	}, nil
 }
 
@@ -338,9 +485,13 @@ resolver: {
 // GetOperatorInfo returns the current operator status and public key.
 // Used to verify the operator is initialized before tenant operations.
 func (s *NATSAccountServer) GetOperatorInfo(
-	_ context.Context,
+	ctx context.Context,
 	_ *proto.GetOperatorInfoRequest,
 ) (*proto.GetOperatorInfoResponse, error) {
+	if err := s.authorizeRequest(ctx); err != nil {
+		return nil, err
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -351,10 +502,10 @@ func (s *NATSAccountServer) GetOperatorInfo(
 	}
 
 	return &proto.GetOperatorInfoResponse{
-		OperatorPublicKey:       s.operator.PublicKey(),
-		OperatorName:            s.operator.Name(),
-		IsInitialized:           true,
-		SystemAccountPublicKey:  s.operator.SystemAccountPublicKey(),
+		OperatorPublicKey:      s.operator.PublicKey(),
+		OperatorName:           s.operator.Name(),
+		IsInitialized:          true,
+		SystemAccountPublicKey: s.operator.SystemAccountPublicKey(),
 	}, nil
 }
 
@@ -370,9 +521,13 @@ func (s *NATSAccountServer) ensureInitialized() (*accounts.AccountSigner, error)
 // CreateTenantAccount generates new account NKeys and a signed account JWT.
 // The returned account_seed should be stored encrypted by the caller (Elixir/AshCloak).
 func (s *NATSAccountServer) CreateTenantAccount(
-	_ context.Context,
+	ctx context.Context,
 	req *proto.CreateTenantAccountRequest,
 ) (*proto.CreateTenantAccountResponse, error) {
+	if err := s.authorizeRequest(ctx); err != nil {
+		return nil, err
+	}
+
 	s.mu.RLock()
 	signer, err := s.ensureInitialized()
 	s.mu.RUnlock()
@@ -414,9 +569,13 @@ func (s *NATSAccountServer) CreateTenantAccount(
 // GenerateUserCredentials creates NATS user credentials for a tenant's account.
 // Requires the account_seed (from Elixir storage) to sign the user JWT.
 func (s *NATSAccountServer) GenerateUserCredentials(
-	_ context.Context,
+	ctx context.Context,
 	req *proto.GenerateUserCredentialsRequest,
 ) (*proto.GenerateUserCredentialsResponse, error) {
+	if err := s.authorizeRequest(ctx); err != nil {
+		return nil, err
+	}
+
 	if req.GetTenantSlug() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_slug is required")
 	}
@@ -464,9 +623,13 @@ func (s *NATSAccountServer) GenerateUserCredentials(
 // SignAccountJWT regenerates an account JWT with updated claims.
 // Use this when revocations or limits change. Requires account_seed from Elixir storage.
 func (s *NATSAccountServer) SignAccountJWT(
-	_ context.Context,
+	ctx context.Context,
 	req *proto.SignAccountJWTRequest,
 ) (*proto.SignAccountJWTResponse, error) {
+	if err := s.authorizeRequest(ctx); err != nil {
+		return nil, err
+	}
+
 	s.mu.RLock()
 	signer, err := s.ensureInitialized()
 	s.mu.RUnlock()
@@ -557,13 +720,16 @@ func protoToUserPermissions(p *proto.UserPermissions) *accounts.UserPermissions 
 	}
 }
 
-// PushAccountJWT pushes an account JWT to the NATS resolver.
+// PushAccountJWT pushes an account JWT to the NATS resolver via $SYS.
 // This makes the account immediately available without NATS restart.
-// Uses file-based resolver (writes JWT to resolver directory) for simplicity.
 func (s *NATSAccountServer) PushAccountJWT(
-	_ context.Context,
+	ctx context.Context,
 	req *proto.PushAccountJWTRequest,
 ) (*proto.PushAccountJWTResponse, error) {
+	if err := s.authorizeRequest(ctx); err != nil {
+		return nil, err
+	}
+
 	if req.GetAccountPublicKey() == "" {
 		return nil, status.Error(codes.InvalidArgument, "account_public_key is required")
 	}
@@ -571,17 +737,69 @@ func (s *NATSAccountServer) PushAccountJWT(
 		return nil, status.Error(codes.InvalidArgument, "account_jwt is required")
 	}
 
-	// Use file-based resolver - write JWT to resolver directory
-	err := s.WriteAccountJWT(req.GetAccountPublicKey(), req.GetAccountJwt())
+	conn, err := s.getResolverConn()
 	if err != nil {
 		return &proto.PushAccountJWTResponse{
 			Success: false,
-			Message: "failed to write JWT to resolver: " + err.Error(),
+			Message: "resolver connection not available: " + err.Error(),
 		}, nil
+	}
+
+	subject := fmt.Sprintf("$SYS.REQ.ACCOUNT.%s.CLAIMS.UPDATE", req.GetAccountPublicKey())
+	resp, err := conn.Request(subject, []byte(req.GetAccountJwt()), 5*time.Second)
+	if err != nil {
+		return &proto.PushAccountJWTResponse{
+			Success: false,
+			Message: "failed to push JWT to resolver: " + err.Error(),
+		}, nil
+	}
+
+	if len(resp.Data) == 0 {
+		return &proto.PushAccountJWTResponse{
+			Success: false,
+			Message: "resolver response was empty",
+		}, nil
+	}
+
+	var updateResp claimUpdateResponse
+	if err := json.Unmarshal(resp.Data, &updateResp); err != nil {
+		return &proto.PushAccountJWTResponse{
+			Success: false,
+			Message: "failed to parse resolver response: " + err.Error(),
+		}, nil
+	}
+
+	if updateResp.Error != nil {
+		return &proto.PushAccountJWTResponse{
+			Success: false,
+			Message: updateResp.Error.Description,
+		}, nil
+	}
+
+	message := "JWT pushed to resolver successfully"
+	if updateResp.Data != nil && updateResp.Data.Message != "" {
+		message = updateResp.Data.Message
 	}
 
 	return &proto.PushAccountJWTResponse{
 		Success: true,
-		Message: "JWT written to resolver directory successfully",
+		Message: message,
 	}, nil
+}
+
+type claimUpdateResponse struct {
+	Data  *claimUpdateStatus `json:"data,omitempty"`
+	Error *claimUpdateError  `json:"error,omitempty"`
+}
+
+type claimUpdateStatus struct {
+	Account string `json:"account,omitempty"`
+	Code    int    `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+type claimUpdateError struct {
+	Account     string `json:"account,omitempty"`
+	Code        int    `json:"code"`
+	Description string `json:"description,omitempty"`
 }

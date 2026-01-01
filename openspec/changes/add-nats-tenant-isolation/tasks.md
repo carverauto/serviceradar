@@ -68,22 +68,22 @@
 - [x] 2.3.4 Implement `SignAccountJWT` RPC (for revocations/limit updates)
 - [~] ~~2.3.5 Implement `GetAccountStatus` RPC~~ - state in Elixir
 - [x] 2.3.6 Register service in `cmd/data-services/main.go`
-- [ ] 2.3.7 Add mTLS client verification (only allow Elixir core)
+- [x] 2.3.7 Add mTLS client verification (only allow Elixir core)
 
 ### 2.4 NATS Server JWT Resolver Configuration
 
-- [ ] 2.4.1 Update NATS server config for operator/resolver mode
-- [ ] 2.4.2 Configure full resolver (NATS-based) for dynamic account updates
-- [ ] 2.4.3 Push account JWTs via `$SYS.REQ.CLAIMS.UPDATE`
-- [ ] 2.4.4 Create system account user for datasvc to push updates
+- [x] 2.4.1 Update NATS server config for operator/resolver mode
+- [x] 2.4.2 Configure full resolver (NATS-based) for dynamic account updates
+- [x] 2.4.3 Push account JWTs via `$SYS.REQ.CLAIMS.UPDATE`
+- [x] 2.4.4 Create system account user for datasvc to push updates
 - [ ] 2.4.5 Test dynamic account creation and credential validation
 
 ### 2.5 Operator Bootstrap
 
-- [ ] 2.5.1 Create operator bootstrap script/container
-- [ ] 2.5.2 Generate operator NKeys on first deployment
-- [ ] 2.5.3 Create system account for internal operations
-- [ ] 2.5.4 Create PLATFORM account for EventWriter, datasvc
+- [x] 2.5.1 Create operator bootstrap script/container
+- [x] 2.5.2 Generate operator NKeys on first deployment
+- [x] 2.5.3 Create system account for internal operations
+- [x] 2.5.4 Create PLATFORM account for EventWriter, datasvc
 - [ ] 2.5.5 Store operator keys securely (K8s secret, Vault, etc.)
 - [ ] 2.5.6 Document operator key backup/recovery procedures
 
@@ -198,9 +198,9 @@ serviceradar-collector-<tenant>.tar.gz/
 
 ### 5.1 Rust Collectors (flowgger, trapd)
 
-- [ ] 5.1.1 Add `nats_creds_file` config option to flowgger
-- [ ] 5.1.2 Add `nats_creds_file` config option to trapd
-- [ ] 5.1.3 Update NATS connection to use credentials file when provided
+- [x] 5.1.1 Add `nats_creds_file` config option to flowgger
+- [x] 5.1.2 Add `nats_creds_file` config option to trapd
+- [x] 5.1.3 Update NATS connection to use credentials file when provided
 - [ ] 5.1.4 Test collectors with NATS account authentication
 - [ ] 5.1.5 Document collector configuration for operators
 
@@ -272,7 +272,7 @@ trapd.json:
 
 ### 8.1 Docker Compose
 
-- [ ] 8.1.1 Add NATS operator/account configuration to compose setup
+- [x] 8.1.1 Add NATS operator/account configuration to compose setup
 - [ ] 8.1.2 Create multi-tenant compose profile for testing
 - [ ] 8.1.3 Add sample tenant accounts for local development
 - [ ] 8.1.4 Document local development with NATS accounts

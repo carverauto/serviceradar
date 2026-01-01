@@ -186,6 +186,69 @@ func TestNewOperator_FromEnv(t *testing.T) {
 	}
 }
 
+func TestNewOperator_SystemAccountPublicKeyFromEnv(t *testing.T) {
+	seed, _, err := GenerateOperatorKey()
+	if err != nil {
+		t.Fatalf("GenerateOperatorKey() error = %v", err)
+	}
+
+	_, systemPubKey, err := GenerateAccountKey()
+	if err != nil {
+		t.Fatalf("GenerateAccountKey() error = %v", err)
+	}
+
+	envVar := "TEST_NATS_SYSTEM_ACCOUNT_PUBLIC_KEY"
+	t.Setenv(envVar, systemPubKey)
+
+	cfg := &OperatorConfig{
+		Name:                      "test-operator-system-env",
+		OperatorSeed:              seed,
+		SystemAccountPublicKeyEnv: envVar,
+	}
+
+	op, err := NewOperator(cfg)
+	if err != nil {
+		t.Fatalf("NewOperator() error = %v", err)
+	}
+
+	if op.SystemAccountPublicKey() != systemPubKey {
+		t.Errorf("Operator.SystemAccountPublicKey() = %q, want %q", op.SystemAccountPublicKey(), systemPubKey)
+	}
+}
+
+func TestNewOperator_SystemAccountPublicKeyFromFile(t *testing.T) {
+	seed, _, err := GenerateOperatorKey()
+	if err != nil {
+		t.Fatalf("GenerateOperatorKey() error = %v", err)
+	}
+
+	_, systemPubKey, err := GenerateAccountKey()
+	if err != nil {
+		t.Fatalf("GenerateAccountKey() error = %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	pubKeyFile := filepath.Join(tmpDir, "system_account.pub")
+	if err := os.WriteFile(pubKeyFile, []byte(systemPubKey), 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg := &OperatorConfig{
+		Name:                       "test-operator-system-file",
+		OperatorSeed:               seed,
+		SystemAccountPublicKeyFile: pubKeyFile,
+	}
+
+	op, err := NewOperator(cfg)
+	if err != nil {
+		t.Fatalf("NewOperator() error = %v", err)
+	}
+
+	if op.SystemAccountPublicKey() != systemPubKey {
+		t.Errorf("Operator.SystemAccountPublicKey() = %q, want %q", op.SystemAccountPublicKey(), systemPubKey)
+	}
+}
+
 func TestNewOperator_InvalidSeed(t *testing.T) {
 	cfg := &OperatorConfig{
 		Name:         "test-operator",
