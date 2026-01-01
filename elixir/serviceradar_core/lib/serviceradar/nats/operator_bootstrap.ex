@@ -215,12 +215,15 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
   end
 
   defp create_operator_record_from_info(name, info) do
+    # Note: GetOperatorInfoResponse includes operator_public_key, operator_name,
+    # is_initialized, and system_account_public_key. The operator_jwt is not
+    # available from this endpoint (only from BootstrapOperator).
     NatsOperator
     |> Ash.Changeset.for_create(:bootstrap, %{
       name: name,
       public_key: info.operator_public_key,
       operator_jwt: nil,
-      system_account_public_key: nil
+      system_account_public_key: info.system_account_public_key
     })
     |> Ash.create(authorize?: false)
   end
@@ -270,14 +273,13 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
     require Ash.Query
 
     # Find all active tenants that don't have a ready NATS account
-    # Only select fields we need to avoid triggering AshCloak decryption
-    # of encrypted fields that might be NULL
+    # Use :for_nats_provisioning action to avoid AshCloak decryption issues
+    # when encrypted columns are NULL
     Tenant
-    |> Ash.Query.for_read(:read)
+    |> Ash.Query.for_read(:for_nats_provisioning)
     |> Ash.Query.filter(
       status == :active and (is_nil(nats_account_status) or nats_account_status != :ready)
     )
-    |> Ash.Query.select([:id, :slug, :name, :status, :nats_account_status])
     |> Ash.read(authorize?: false)
   end
 end

@@ -50,6 +50,18 @@ defmodule ServiceRadar.Identity.Tenant do
       filter expr(status == :active)
     end
 
+    read :for_nats_provisioning do
+      @doc """
+      Read tenants for NATS provisioning without loading encrypted fields.
+      This avoids AshCloak decryption issues when encrypted columns are NULL.
+      """
+      prepare fn query, _context ->
+        # Don't load any cloaked attributes to avoid decryption
+        query
+        |> Ash.Query.unload([:contact_email, :contact_name, :nats_account_seed_ciphertext])
+      end
+    end
+
     create :create do
       accept [:name, :slug, :contact_email, :contact_name, :plan, :max_devices, :max_users]
       change ServiceRadar.Identity.Changes.GenerateSlug
