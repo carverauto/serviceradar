@@ -182,6 +182,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/integrations/:id/edit", Admin.IntegrationLive.Index, :edit
       live "/cluster", Admin.ClusterLive.Index, :index
       live "/nats", Admin.NatsLive.Index, :index
+      live "/nats/tenants/:id", Admin.NatsLive.Show, :show
       live "/collectors", Admin.CollectorLive.Index, :index
       live "/collectors/:id", Admin.CollectorLive.Index, :show
     end

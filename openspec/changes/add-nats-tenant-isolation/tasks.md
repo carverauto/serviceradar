@@ -87,42 +87,57 @@
 - [ ] 2.5.5 Store operator keys securely (K8s secret, Vault, etc.)
 - [ ] 2.5.6 Document operator key backup/recovery procedures
 
-## Phase 3: Elixir Integration
+## Phase 3: Elixir Integration (DONE)
 
 > **Note**: Elixir handles user authentication/authorization via Ash.
 > Elixir **stores account data** in CNPG with AshCloak encryption.
 > It calls datasvc for NATS JWT signing operations using platform mTLS credentials.
 
-### 3.1 Tenant Account Storage (Ash/AshCloak)
+### 3.1 Tenant Account Storage (Ash/AshCloak) - DONE
 
-- [ ] 3.1.1 Add `nats_account_seed_ciphertext` field to Tenant resource (AshCloak encrypted)
-- [ ] 3.1.2 Add `nats_account_public_key` field to Tenant resource
-- [ ] 3.1.3 Add `nats_account_jwt` field to Tenant resource
-- [ ] 3.1.4 Add `nats_account_status` field (`:pending`, `:ready`, `:error`)
-- [ ] 3.1.5 Configure AshCloak for `nats_account_seed_ciphertext` encryption
+- [x] 3.1.1 Add `nats_account_seed_ciphertext` field to Tenant resource (AshCloak encrypted)
+- [x] 3.1.2 Add `nats_account_public_key` field to Tenant resource
+- [x] 3.1.3 Add `nats_account_jwt` field to Tenant resource
+- [x] 3.1.4 Add `nats_account_status` field (`:pending`, `:ready`, `:error`)
+- [x] 3.1.5 Configure AshCloak for `nats_account_seed_ciphertext` encryption
+- [x] 3.1.6 Add `nats_account_error` field for error messages
+- [x] 3.1.7 Add `nats_account_provisioned_at` timestamp
 
-### 3.2 gRPC Client for datasvc
+### 3.2 gRPC Client for datasvc - DONE
 
-- [ ] 3.2.1 Generate Elixir code from `nats_account.proto`
-- [ ] 3.2.2 Create `ServiceRadar.NATS.AccountClient` module
-- [ ] 3.2.3 Implement `create_tenant_account/2` - calls datasvc RPC, stores result
-- [ ] 3.2.4 Implement `generate_user_credentials/3` - decrypts seed, calls datasvc RPC
-- [ ] 3.2.5 Implement `sign_account_jwt/3` - for revocations/limit updates
-- [ ] 3.2.6 Configure gRPC client with mTLS (core.pem credentials)
+- [x] 3.2.1 Generate Elixir code from `nats_account.proto`
+- [x] 3.2.2 Create `ServiceRadar.NATS.AccountClient` module
+- [x] 3.2.3 Implement `create_tenant_account/2` - calls datasvc RPC, stores result
+- [x] 3.2.4 Implement `generate_user_credentials/5` - decrypts seed, calls datasvc RPC
+- [x] 3.2.5 Implement `sign_account_jwt/3` - for revocations/limit updates
+- [x] 3.2.6 Implement `push_account_jwt/3` - push JWT to NATS resolver
+- [x] 3.2.7 Implement `bootstrap_operator/1` - bootstrap operator keys
+- [x] 3.2.8 Implement `get_operator_info/1` - get operator status
+- [x] 3.2.9 Configure gRPC client with mTLS (core.pem credentials)
 
-### 3.3 Tenant Creation Integration
+### 3.3 Tenant Creation Integration - DONE
 
-- [~] ~~3.3.1 Add `nats_account_status` field to Tenant resource~~ - moved to 3.1.4
-- [ ] 3.3.2 Create Oban job `CreateNATSAccountJob` for async account creation
-- [ ] 3.3.3 Trigger job on tenant creation (Ash change)
-- [ ] 3.3.4 Update tenant status on success/failure
-- [ ] 3.3.5 Add retry logic for transient failures
+- [x] 3.3.1 Create Oban worker `CreateAccountWorker` for async account creation
+- [x] 3.3.2 Trigger worker on tenant creation (via `InitializeTenantInfrastructure` change)
+- [x] 3.3.3 Update tenant status on success/failure (`set_nats_account`, `set_nats_account_error`)
+- [x] 3.3.4 Add retry logic with exponential backoff (max 5 attempts)
+- [x] 3.3.5 Push JWT to NATS resolver after successful creation
 
-### 3.4 Tenant Admin Authorization
+### 3.4 Tenant Account Actions - DONE
 
-- [ ] 3.4.1 Add `tenant_admin` role to User resource (if not exists)
-- [ ] 3.4.2 Create Ash policy for OnboardingPackage creation (require tenant_admin)
-- [ ] 3.4.3 Verify tenant context in package creation actions
+- [x] 3.4.1 Add `set_nats_account` action for storing credentials
+- [x] 3.4.2 Add `set_nats_account_pending` action for marking in-progress
+- [x] 3.4.3 Add `set_nats_account_error` action for recording failures
+- [x] 3.4.4 Add `update_nats_account_jwt` action for re-signing
+- [x] 3.4.5 Add `clear_nats_account` action for revoking/clearing credentials
+
+### 3.5 Infrastructure Resources - DONE
+
+- [x] 3.5.1 Create `ServiceRadar.Infrastructure` domain
+- [x] 3.5.2 Create `NatsOperator` resource for platform operator
+- [x] 3.5.3 Create `NatsPlatformToken` resource for bootstrap tokens
+- [x] 3.5.4 Add `bootstrap` action to NatsOperator
+- [x] 3.5.5 Add policies for super_admin access control
 
 ## Phase 4: Collector Onboarding Packages
 
@@ -269,6 +284,43 @@ trapd.json:
 - [ ] 8.2.3 Add nsc tooling to account management
 - [ ] 8.2.4 Add leaf node configuration to edge deployment chart
 - [ ] 8.2.5 Document Helm values for NATS tenant configuration
+
+## Phase 8.5: Admin UI for NATS Management (DONE)
+
+> **Note**: Super admin and tenant admin UI for managing NATS accounts.
+
+### 8.5.1 Super Admin NATS Dashboard - DONE
+
+- [x] 8.5.1.1 Create `Admin.NatsLive.Index` at `/admin/nats`
+- [x] 8.5.1.2 Operator status card (public key, bootstrap status, errors)
+- [x] 8.5.1.3 System account status card
+- [x] 8.5.1.4 Tenant NATS accounts table with status filtering
+- [x] 8.5.1.5 Reprovision action for failed tenant accounts
+- [x] 8.5.1.6 Add "NATS" tab to admin navigation
+
+### 8.5.2 Tenant NATS Account Detail Page - DONE
+
+- [x] 8.5.2.1 Create `Admin.NatsLive.Show` at `/admin/nats/tenants/:id`
+- [x] 8.5.2.2 Tenant info card (name, slug, status, plan)
+- [x] 8.5.2.3 NATS account status card with provisioning details
+- [x] 8.5.2.4 NATS credentials panel (public key, JWT - collapsible)
+- [x] 8.5.2.5 Actions panel with reprovision and clear buttons
+- [x] 8.5.2.6 Confirmation modal for destructive actions
+- [x] 8.5.2.7 Clear NATS account action (revoke all credentials)
+
+### 8.5.3 API Endpoints for NATS Management - DONE
+
+- [x] 8.5.3.1 Create `NatsController` for API access
+- [x] 8.5.3.2 POST `/api/admin/nats/bootstrap` endpoint
+- [x] 8.5.3.3 GET `/api/admin/nats/status` endpoint
+- [x] 8.5.3.4 GET `/api/admin/nats/tenants` endpoint
+- [x] 8.5.3.5 POST `/api/admin/nats/tenants/:id/reprovision` endpoint
+
+### 8.5.4 Router Updates - DONE
+
+- [x] 8.5.4.1 Add `/admin/nats` route to admin live_session
+- [x] 8.5.4.2 Add `/admin/nats/tenants/:id` route for detail page
+- [x] 8.5.4.3 Add NATS API routes under `/api/admin/nats`
 
 ## Phase 9: Testing & Documentation
 

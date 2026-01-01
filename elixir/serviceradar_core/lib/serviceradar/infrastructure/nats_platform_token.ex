@@ -103,6 +103,10 @@ defmodule ServiceRadar.Infrastructure.NatsPlatformToken do
     destroy :cleanup_expired do
       description "Delete expired tokens (for maintenance)"
     end
+
+    destroy :revoke do
+      description "Revoke/delete a token (admin action)"
+    end
   end
 
   policies do

@@ -455,18 +455,31 @@ streams {
 - Affected specs: NEW `nats-tenant-isolation` capability
 - Affected code:
   - **datasvc (Go)**:
-    - `proto/nats_account.proto` - NEW: gRPC service definition
-    - `pkg/nats/account_manager.go` - NEW: NATS JWT/NKeys management
-    - `pkg/nats/operator.go` - NEW: Operator key management
-    - `cmd/datasvc/main.go` - Register NATSAccountService
-  - **Elixir Core**:
-    - `lib/serviceradar/nats/account_client.ex` - NEW: gRPC client for datasvc
-    - `lib/serviceradar/edge/onboarding_package.ex` - Collector types + NATS creds
-    - `lib/serviceradar/event_writer/` - Per-tenant pipelines (already done)
-  - **Infrastructure**:
+    - `proto/nats_account.proto` - ✅ gRPC service definition
+    - `pkg/nats/accounts/account_manager.go` - ✅ NATS JWT/NKeys management
+    - `pkg/nats/accounts/user_manager.go` - ✅ User credential operations
+    - `pkg/nats/accounts/operator.go` - ✅ Operator key management
+    - `pkg/datasvc/nats_account_service.go` - ✅ gRPC service implementation
+    - `cmd/data-services/main.go` - ✅ Register NATSAccountService
+  - **Elixir Core (serviceradar_core)**:
+    - `lib/serviceradar/nats/account_client.ex` - ✅ gRPC client for datasvc
+    - `lib/serviceradar/nats/workers/create_account_worker.ex` - ✅ Async provisioning
+    - `lib/serviceradar/nats/operator_bootstrap.ex` - ✅ Operator bootstrap logic
+    - `lib/serviceradar/infrastructure.ex` - ✅ New domain
+    - `lib/serviceradar/infrastructure/nats_operator.ex` - ✅ Operator resource
+    - `lib/serviceradar/infrastructure/nats_platform_token.ex` - ✅ Token resource
+    - `lib/serviceradar/identity/tenant.ex` - ✅ NATS account fields + actions
+    - `lib/serviceradar/identity/changes/initialize_tenant_infrastructure.ex` - ✅ Trigger provisioning
+    - `lib/serviceradar/edge/workers/provision_collector_worker.ex` - ✅ Collector provisioning
+  - **Web NG (Phoenix)**:
+    - `lib/serviceradar_web_ng_web/live/admin/nats_live/index.ex` - ✅ NATS admin dashboard
+    - `lib/serviceradar_web_ng_web/live/admin/nats_live/show.ex` - ✅ Tenant detail page
+    - `lib/serviceradar_web_ng_web/controllers/api/nats_controller.ex` - ✅ API endpoints
+    - `lib/serviceradar_web_ng_web/router.ex` - ✅ Route updates
+  - **Infrastructure** (TODO):
     - `docker/compose/nats*.conf` - JWT resolver mode configuration
     - Helm charts - NATS operator bootstrap, datasvc secrets
-  - **Collectors** (Rust):
+  - **Collectors** (Rust) (TODO):
     - `cmd/flowgger/`, `cmd/trapd/` - Add NATS credentials file support
 
 **NOT affected** (by design):
@@ -476,16 +489,18 @@ streams {
 ## Sequencing
 
 1. **Phase 1**: ✅ EventWriter tenant extraction from subject prefix (DONE)
-2. **Phase 2**: NATS accounts infrastructure (datasvc)
-   - Add gRPC proto for NATSAccountService
-   - Implement NATS JWT/NKeys management in Go (using nats-io/jwt, nats-io/nkeys)
-   - Configure NATS server for JWT resolver mode
-   - Bootstrap operator keys during deployment
-3. **Phase 3**: Elixir integration
-   - Add gRPC client for datasvc NATSAccountService
-   - Integrate with tenant creation flow
-   - Integrate with OnboardingPackage for collector credentials
-4. **Phase 4**: Collector onboarding packages
+2. **Phase 2**: ✅ NATS accounts infrastructure (datasvc) (DONE)
+   - gRPC proto for NATSAccountService
+   - NATS JWT/NKeys management in Go (using nats-io/jwt, nats-io/nkeys)
+   - Bootstrap operator support (generate or import existing)
+   - System account generation
+3. **Phase 3**: ✅ Elixir integration (DONE)
+   - gRPC client `ServiceRadar.NATS.AccountClient`
+   - `CreateAccountWorker` Oban job for async provisioning
+   - Tenant resource with AshCloak encrypted NATS fields
+   - `NatsOperator` and `NatsPlatformToken` infrastructure resources
+   - Tenant account lifecycle actions (create, pending, error, clear)
+4. **Phase 4**: Collector onboarding packages (next priority)
    - Extend OnboardingPackage with NATS creds generation
    - Package generation with NATS credentials
 5. **Phase 5**: JetStream stream subject updates for `*.<subject>` patterns
@@ -494,15 +509,32 @@ streams {
    - Test with account-based auth
 7. **Phase 7**: Per-tenant EventWriter pipelines (optional optimization)
 8. **Phase 8**: Leaf node support for customer-network deployments
-9. **Phase 9**: Documentation and testing
+9. **Phase 8.5**: ✅ Admin UI for NATS management (DONE)
+   - Super admin NATS dashboard
+   - Tenant account detail page
+   - Reprovision and clear actions
+   - API endpoints for programmatic access
+10. **Phase 9**: Documentation and testing
 
 ## Status / Notes
 
 - ✅ Phase 1: Elixir EventWriter extracts tenant from subject prefix (`*.events.>` patterns)
 - ✅ Authorization architecture documented (Elixir → datasvc flow)
-- ⏳ Phase 2: datasvc NATS account management NOT yet implemented (current priority)
-- ⏳ OnboardingPackage needs collector component types + NATS creds generation
-- ⏳ Collectors need NATS credentials file support (nats_creds_file config)
+- ✅ Phase 2: datasvc NATS account management (Go gRPC service with NKeys/JWT signing)
+- ✅ Phase 3: Elixir integration complete
+  - `ServiceRadar.NATS.AccountClient` gRPC client
+  - `CreateAccountWorker` Oban job for async provisioning
+  - Tenant resource with encrypted NATS account fields (AshCloak)
+  - `NatsOperator` and `NatsPlatformToken` infrastructure resources
+- ✅ Phase 8.5: Admin UI for NATS management
+  - Super admin dashboard at `/admin/nats`
+  - Tenant detail page at `/admin/nats/tenants/:id`
+  - Reprovision and clear NATS account actions
+  - API endpoints for programmatic access
+- ⏳ Phase 4: Collector onboarding packages (next priority)
+- ⏳ Phase 5: Collector NATS credentials support (nats_creds_file config)
+- ⏳ Phase 6: Per-tenant EventWriter pipelines (optimization)
+- ⏳ Phase 7: Leaf node support for customer-network deployments
 
 **Key Architectural Decisions**:
 
@@ -516,5 +548,7 @@ streams {
    - Raw syslog/netflow/SNMP has no tenant context
    - mTLS + NATS accounts provide authentication and RBAC
    - Leaf NATS provides message routing and isolation
+
+5. **Automatic operator bootstrap**: Platform bootstrap happens automatically during initial installation, not via manual token generation in the UI. This simplifies the admin experience.
 
 > **Note**: Edge collectors forward raw data. ETL/transformation to OCSF happens upstream in the Elixir EventWriter.

@@ -151,6 +151,25 @@ defmodule ServiceRadar.Identity.Tenant do
       end
     end
 
+    update :clear_nats_account do
+      description "Clear NATS account credentials (revoke/reset)"
+      accept []
+      require_atomic? false
+
+      argument :reason, :string, allow_nil?: true
+
+      change set_attribute(:nats_account_public_key, nil)
+      change set_attribute(:nats_account_jwt, nil)
+      change set_attribute(:nats_account_status, nil)
+      change set_attribute(:nats_account_error, nil)
+      change set_attribute(:nats_account_provisioned_at, nil)
+
+      change fn changeset, _context ->
+        # Clear encrypted seed (attribute is stored as encrypted_* in this resource)
+        Ash.Changeset.force_change_attribute(changeset, :encrypted_nats_account_seed_ciphertext, nil)
+      end
+    end
+
     action :generate_ca, :struct do
       description """
       Generate a per-tenant Certificate Authority for edge component isolation.
@@ -333,6 +352,10 @@ defmodule ServiceRadar.Identity.Tenant do
     end
 
     policy action(:update_nats_account_jwt) do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    policy action(:clear_nats_account) do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
   end

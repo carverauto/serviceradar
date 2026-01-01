@@ -27,9 +27,6 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
     socket =
       socket
       |> assign(:page_title, "NATS Administration")
-      |> assign(:show_bootstrap_modal, false)
-      |> assign(:show_token_modal, false)
-      |> assign(:generated_token, nil)
       |> assign(:filter_status, nil)
       |> load_operator_status()
       |> load_tenant_accounts()
@@ -50,42 +47,6 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
      socket
      |> load_operator_status()
      |> load_tenant_accounts()}
-  end
-
-  def handle_event("open_token_modal", _params, socket) do
-    {:noreply, assign(socket, :show_token_modal, true)}
-  end
-
-  def handle_event("close_token_modal", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_token_modal, false)
-     |> assign(:generated_token, nil)}
-  end
-
-  def handle_event("generate_token", %{"expires_hours" => hours_str}, socket) do
-    hours = String.to_integer(hours_str)
-    expires_in_seconds = hours * 3600
-
-    case generate_bootstrap_token(expires_in_seconds) do
-      {:ok, token_record} ->
-        {:noreply,
-         socket
-         |> assign(:generated_token, %{
-           token: token_record.token_secret,
-           expires_at: token_record.expires_at
-         })}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to generate token")}
-    end
-  end
-
-  def handle_event("copy_token", %{"token" => token}, socket) do
-    {:noreply,
-     socket
-     |> push_event("clipboard", %{text: token})
-     |> put_flash(:info, "Copied to clipboard")}
   end
 
   def handle_event("filter_tenants", %{"status" => status}, socket) do
@@ -131,9 +92,6 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
           <div class="flex gap-2">
             <.ui_button variant="ghost" size="sm" phx-click="refresh">
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
-            </.ui_button>
-            <.ui_button variant="primary" size="sm" phx-click="open_token_modal">
-              <.icon name="hero-key" class="size-4" /> Generate Token
             </.ui_button>
           </div>
         </div>
@@ -186,9 +144,9 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
                 </thead>
                 <tbody>
                   <%= for tenant <- @tenants do %>
-                    <tr class="hover:bg-base-200/30">
+                    <tr class="hover:bg-base-200/30 cursor-pointer" phx-click={JS.navigate(~p"/admin/nats/tenants/#{tenant.id}")}>
                       <td>
-                        <div class="font-medium">{tenant.name}</div>
+                        <div class="font-medium text-primary hover:underline">{tenant.name}</div>
                         <div class="text-xs text-base-content/60">{tenant.slug}</div>
                       </td>
                       <td>
@@ -205,16 +163,21 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
                         {format_datetime(tenant.nats_account_provisioned_at)}
                       </td>
                       <td>
-                        <%= if tenant.nats_account_status in [:error, :pending, :failed] do %>
-                          <.ui_button
-                            variant="ghost"
-                            size="xs"
-                            phx-click="reprovision"
-                            phx-value-id={tenant.id}
-                          >
-                            <.icon name="hero-arrow-path" class="size-3" /> Retry
-                          </.ui_button>
-                        <% end %>
+                        <div class="flex gap-1">
+                          <%= if tenant.nats_account_status in [:error, :pending, :failed] do %>
+                            <.ui_button
+                              variant="ghost"
+                              size="xs"
+                              phx-click="reprovision"
+                              phx-value-id={tenant.id}
+                            >
+                              <.icon name="hero-arrow-path" class="size-3" /> Retry
+                            </.ui_button>
+                          <% end %>
+                          <.link navigate={~p"/admin/nats/tenants/#{tenant.id}"} class="btn btn-ghost btn-xs">
+                            <.icon name="hero-eye" class="size-3" /> View
+                          </.link>
+                        </div>
                       </td>
                     </tr>
                   <% end %>
@@ -224,11 +187,6 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
           </div>
         </.ui_panel>
       </div>
-
-      <.token_modal
-        :if={@show_token_modal}
-        generated_token={@generated_token}
-      />
     </Layouts.app>
     """
   end
@@ -332,110 +290,6 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
     """
   end
 
-  defp token_modal(assigns) do
-    ~H"""
-    <dialog id="token_modal" class="modal modal-open">
-      <div class="modal-box">
-        <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_token_modal"
-          >
-            x
-          </button>
-        </form>
-
-        <%= if @generated_token do %>
-          <div class="text-center">
-            <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success/10 mb-4">
-              <.icon name="hero-check-circle" class="size-10 text-success" />
-            </div>
-            <h3 class="text-xl font-bold">Token Generated</h3>
-            <p class="text-sm text-base-content/70 mt-1">
-              Copy this token now. It won't be shown again.
-            </p>
-          </div>
-
-          <div class="mt-6 space-y-4">
-            <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">
-                Bootstrap Token
-              </div>
-              <div class="relative">
-                <code class="block text-xs font-mono bg-base-200 p-3 rounded-lg break-all">
-                  {@generated_token.token}
-                </code>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-ghost absolute top-1 right-1"
-                  phx-click="copy_token"
-                  phx-value-token={@generated_token.token}
-                >
-                  <.icon name="hero-clipboard" class="size-4" />
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Expires</div>
-              <span class="text-sm">{format_datetime(@generated_token.expires_at)}</span>
-            </div>
-
-            <div class="alert alert-info text-xs">
-              <.icon name="hero-information-circle" class="size-4" />
-              <div>
-                Run this on your NATS server:
-                <code class="block mt-1 font-mono">
-                  serviceradar-cli nats-bootstrap --token &lt;TOKEN&gt; --api-url https://your-api.example.com
-                </code>
-              </div>
-            </div>
-          </div>
-
-          <div class="modal-action">
-            <button type="button" class="btn btn-primary" phx-click="close_token_modal">
-              Done
-            </button>
-          </div>
-        <% else %>
-          <h3 class="text-lg font-bold">Generate Bootstrap Token</h3>
-          <p class="py-2 text-sm text-base-content/70">
-            Generate a one-time token for NATS operator bootstrap.
-          </p>
-
-          <form phx-submit="generate_token" class="mt-4 space-y-4">
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Token Validity</span>
-              </label>
-              <select name="expires_hours" class="select select-bordered w-full">
-                <option value="1">1 hour</option>
-                <option value="4">4 hours</option>
-                <option value="24" selected>24 hours</option>
-                <option value="72">3 days</option>
-                <option value="168">7 days</option>
-              </select>
-            </div>
-
-            <div class="alert alert-warning text-xs">
-              <.icon name="hero-exclamation-triangle" class="size-4" />
-              <span>Tokens can only be used once and should be kept secure.</span>
-            </div>
-
-            <div class="modal-action">
-              <button type="button" class="btn" phx-click="close_token_modal">Cancel</button>
-              <button type="submit" class="btn btn-primary">Generate Token</button>
-            </div>
-          </form>
-        <% end %>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button phx-click="close_token_modal">close</button>
-      </form>
-    </dialog>
-    """
-  end
-
   defp nats_status_badge(assigns) do
     status = assigns.status
 
@@ -506,25 +360,6 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
   end
 
   # Actions
-
-  defp generate_bootstrap_token(expires_in_seconds) do
-    expires_at = DateTime.add(DateTime.utc_now(), expires_in_seconds, :second)
-
-    # Use the :generate action which handles token creation and hashing
-    # The action returns the record with token_secret injected via after_action
-    case ServiceRadar.Infrastructure.NatsPlatformToken
-         |> Ash.Changeset.for_create(:generate, %{
-           purpose: :nats_bootstrap,
-           expires_at: expires_at
-         })
-         |> Ash.create(authorize?: false) do
-      {:ok, record} ->
-        {:ok, record}
-
-      {:error, error} ->
-        {:error, error}
-    end
-  end
 
   defp reprovision_tenant(tenant_id) do
     with {:ok, tenant} <- get_tenant(tenant_id),

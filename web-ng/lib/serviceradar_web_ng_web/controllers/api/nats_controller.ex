@@ -268,13 +268,6 @@ defmodule ServiceRadarWebNG.Api.NatsController do
     }
   end
 
-  defp get_actor(conn) do
-    case conn.assigns[:current_scope] do
-      %{user: %{email: email}} -> email
-      _ -> nil
-    end
-  end
-
   defp get_client_ip(conn) do
     case get_req_header(conn, "x-forwarded-for") do
       [forwarded | _] ->
