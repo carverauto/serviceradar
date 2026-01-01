@@ -16,7 +16,10 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   growing application requirements.
   """
 
+  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Identity.User
+
+  require Ash.Query
 
   defstruct user: nil, active_tenant: nil, tenant_memberships: []
 
@@ -32,8 +35,18 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   def for_user(%User{} = user, opts) do
     active_tenant_id = Keyword.get(opts, :active_tenant_id)
 
-    # Preload tenant and memberships for navbar display
-    user_with_data = Ash.load!(user, [:tenant, memberships: :tenant], authorize?: false)
+    # Preload tenant and memberships for navbar display without decrypting cloaked fields.
+    tenant_query = Tenant |> Ash.Query.for_read(:for_nats_provisioning)
+
+    user_with_data =
+      Ash.load!(
+        user,
+        [
+          tenant: tenant_query,
+          memberships: [tenant: tenant_query]
+        ],
+        authorize?: false
+      )
 
     # Determine active tenant: from opts, or user's default tenant
     active_tenant =

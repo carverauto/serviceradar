@@ -330,7 +330,7 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
 
     query =
       Tenant
-      |> Ash.Query.for_read(:read)
+      |> Ash.Query.for_read(:for_nats_provisioning)
       |> Ash.Query.select([
         :id,
         :slug,
@@ -370,7 +370,7 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
 
   defp get_tenant(tenant_id) do
     case Tenant
-         |> Ash.Query.for_read(:read)
+         |> Ash.Query.for_read(:for_nats_provisioning)
          |> Ash.Query.filter(id == ^tenant_id)
          |> Ash.read_one(authorize?: false) do
       {:ok, nil} -> {:error, :not_found}

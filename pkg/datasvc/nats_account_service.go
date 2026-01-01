@@ -172,7 +172,7 @@ func extractMTLSIdentity(ctx context.Context) (string, error) {
 		return id, nil
 	}
 
-	return cert.Subject.String(), nil
+	return subjectIdentity(cert), nil
 }
 
 func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {

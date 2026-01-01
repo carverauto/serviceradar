@@ -30,6 +30,9 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
         - name: datasvc-data
           mountPath: /var/lib/serviceradar
         - name: spire-agent-socket
@@ -86,6 +89,9 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      - name: nats-creds
+        secret:
+          name: serviceradar-nats-creds
       - name: datasvc-data
         persistentVolumeClaim:
           claimName: serviceradar-datasvc-data

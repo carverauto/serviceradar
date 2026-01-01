@@ -230,6 +230,9 @@ data:
         "max_reconnects": 10,
         "reconnect_wait": "2s",
         "drain_timeout": "30s",
+{{- if .Values.natsCreds.platform }}
+        "creds_file": "/etc/serviceradar/creds/platform.creds",
+{{- end }}
         "security": {
           "mode": "mtls",
           "tls": {
@@ -638,6 +641,9 @@ data:
   zen.json: |
       {
         "nats_url": "tls://serviceradar-nats:4222",
+{{- if .Values.natsCreds.platform }}
+        "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
+{{- end }}
         "stream_name": "events",
         "consumer_name": "zen-consumer",
         "subjects": ["events.syslog", "events.snmp", "events.otel.logs"],
@@ -1086,6 +1092,9 @@ data:
       [nats]
       # NATS server URL with mTLS (Kubernetes deployment)
       url = "tls://serviceradar-nats:4222"
+{{- if .Values.natsCreds.platform }}
+      creds_file = "/etc/serviceradar/creds/platform.creds"
+{{- end }}
       
       # Subject to publish traces to (default: events.otel)
       subject = "events.otel"
@@ -1107,10 +1116,13 @@ data:
       key_file = "/etc/serviceradar/certs/otel-key.pem"
       ca_file = "/etc/serviceradar/certs/root.pem"
   
-  trapd.json: |
+    trapd.json: |
       {
         "listen_addr": "0.0.0.0:162",
         "nats_url": "tls://serviceradar-nats:4222",
+{{- if .Values.natsCreds.platform }}
+        "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
+{{- end }}
         "stream_name": "events",
         "subject": "snmp.traps",
         "nats_security": {
@@ -1388,6 +1400,9 @@ data:
       {
         "listen_addr": "0.0.0.0:50057",
         "nats_url": "tls://serviceradar-nats:4222",
+{{- if .Values.natsCreds.platform }}
+        "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
+{{- end }}
         "nats_security": {
           "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",

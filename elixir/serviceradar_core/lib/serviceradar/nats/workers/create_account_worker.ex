@@ -61,16 +61,20 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   """
   @spec enqueue(Ecto.UUID.t(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue(tenant_id, opts \\ []) do
-    args = %{"tenant_id" => tenant_id}
+    if oban_running?() do
+      args = %{"tenant_id" => tenant_id}
 
-    job_opts =
-      []
-      |> maybe_add_scheduled_at(opts[:scheduled_at])
-      |> maybe_add_priority(opts[:priority])
+      job_opts =
+        []
+        |> maybe_add_scheduled_at(opts[:scheduled_at])
+        |> maybe_add_priority(opts[:priority])
 
-    args
-    |> new(job_opts)
-    |> Oban.insert()
+      args
+      |> new(job_opts)
+      |> Oban.insert()
+    else
+      {:error, :oban_not_running}
+    end
   end
 
   @impl Oban.Worker
@@ -203,6 +207,15 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
 
       {:error, _} ->
         :ok
+    end
+  end
+
+  defp oban_running? do
+    try do
+      _ = Oban.Registry.config(Oban)
+      true
+    rescue
+      _ -> false
     end
   end
 

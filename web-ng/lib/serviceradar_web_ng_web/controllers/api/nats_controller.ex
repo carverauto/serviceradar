@@ -137,7 +137,7 @@ defmodule ServiceRadarWebNG.Api.NatsController do
 
     tenants =
       ServiceRadar.Identity.Tenant
-      |> Ash.Query.for_read(:read)
+      |> Ash.Query.for_read(:for_nats_provisioning)
       |> Ash.Query.select([:id, :slug, :name, :nats_account_status, :nats_account_public_key])
       |> Ash.Query.sort(inserted_at: :desc)
       |> Ash.Query.limit(limit)
@@ -249,7 +249,7 @@ defmodule ServiceRadarWebNG.Api.NatsController do
 
   defp get_tenant(tenant_id) do
     case ServiceRadar.Identity.Tenant
-         |> Ash.Query.for_read(:read)
+         |> Ash.Query.for_read(:for_nats_provisioning)
          |> Ash.Query.filter(id == ^tenant_id)
          |> Ash.read_one(authorize?: false) do
       {:ok, nil} -> {:error, :not_found}

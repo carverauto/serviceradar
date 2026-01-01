@@ -43,6 +43,11 @@ spec:
                 secretKeyRef:
                   name: serviceradar-secrets
                   key: web-ng-secret-key-base
+            - name: CLOAK_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: serviceradar-secrets
+                  key: cloak-key
             - name: CNPG_HOST
               value: "cnpg-rw.$(SERVICERADAR_NAMESPACE).svc"
             - name: CNPG_PORT
@@ -55,12 +60,21 @@ spec:
               value: "verify-full"
             - name: CNPG_CERT_DIR
               value: "/etc/serviceradar/cnpg"
+            - name: CNPG_CA_FILE
+              value: "/etc/serviceradar/cnpg/ca.crt"
+            - name: CNPG_CERT_FILE
+              value: "/etc/serviceradar/certs/web.pem"
+            - name: CNPG_KEY_FILE
+              value: "/etc/serviceradar/certs/web-key.pem"
             - name: CNPG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: cnpg-superuser
                   key: password
           volumeMounts:
+            - name: cert-data
+              mountPath: /etc/serviceradar/certs
+              readOnly: true
             - name: cnpg-ca
               mountPath: /etc/serviceradar/cnpg
               readOnly: true
@@ -88,6 +102,9 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 3
       volumes:
+        - name: cert-data
+          persistentVolumeClaim:
+            claimName: serviceradar-cert-data
         - name: cnpg-ca
           secret:
             secretName: cnpg-ca

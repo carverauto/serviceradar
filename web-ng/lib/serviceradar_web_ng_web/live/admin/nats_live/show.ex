@@ -415,7 +415,7 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Show do
 
   defp get_tenant(tenant_id) do
     Tenant
-    |> Ash.Query.for_read(:read)
+    |> Ash.Query.for_read(:for_nats_provisioning)
     |> Ash.Query.filter(id == ^tenant_id)
     |> Ash.Query.select([
       :id,

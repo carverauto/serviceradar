@@ -115,8 +115,21 @@ config :serviceradar_core, :spiffe,
 if config_env() == :prod do
   cloak_key =
     System.get_env("CLOAK_KEY") ||
+      case System.get_env("CLOAK_KEY_FILE") do
+        nil ->
+          nil
+
+        "" ->
+          nil
+
+        path ->
+          case File.read(path) do
+            {:ok, contents} -> String.trim(contents)
+            {:error, reason} -> raise "failed to read CLOAK_KEY_FILE #{path}: #{inspect(reason)}"
+          end
+      end ||
       raise """
-      environment variable CLOAK_KEY is missing.
+      environment variable CLOAK_KEY (or CLOAK_KEY_FILE) is missing.
       This key is required for encrypting sensitive fields like email addresses.
 
       Generate a 32-byte key with:
@@ -346,6 +359,7 @@ if config_env() == :prod do
       port: nats_uri.port || 4222,
       user: System.get_env("NATS_USER"),
       password: {:system, "NATS_PASSWORD"},
+      creds_file: System.get_env("NATS_CREDS_FILE"),
       tls: nats_tls_config
   end
 
@@ -381,6 +395,7 @@ if config_env() == :prod do
         port: nats_uri.port || 4222,
         user: System.get_env("EVENT_WRITER_NATS_USER"),
         password: {:system, "EVENT_WRITER_NATS_PASSWORD"},
+        creds_file: System.get_env("EVENT_WRITER_NATS_CREDS_FILE"),
         tls: nats_tls_config
       ],
       batch_size: String.to_integer(System.get_env("EVENT_WRITER_BATCH_SIZE") || "100"),

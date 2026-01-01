@@ -68,6 +68,11 @@ kv:
   serverSPIFFEID: ""
   workloadSocket: unix:/run/spire/sockets/agent.sock
   certDir: /etc/serviceradar/certs
+natsCreds:
+  # Inline NATS .creds files for platform/system accounts.
+  # When set, these are stored in the serviceradar-nats-creds Secret.
+  platform: ""
+  system: ""
 checkerTemplates:
   # Enable checker template seeding into KV for edge onboarding
   enabled: true
@@ -139,6 +144,9 @@ cnpg:
   sslmode: verify-full
   certDir: /etc/serviceradar/certs
   caFile: /etc/serviceradar/cnpg/ca.crt
+  clientCASecret: ""
+  clientCAFromCerts: false
+  requireClientCert: false
 webNg:
   host: ""
   checkOrigin: "false"
@@ -326,6 +334,8 @@ secrets:
   adminBcryptHash: ""
   # Base64-encoded 32-byte key for edge onboarding; used by core and seeded into config.
   edgeOnboardingKey: "5yV33bvFfRKBz5y20XPVnxyysYhXc/LXdG4jtrvrkN0="
+  # Base64-encoded 32-byte key for AshCloak (optional override).
+  cloakKey: ""
 # Network sweep defaults (can be tuned per-deploy)
 sweep:
   # Target networks and ports to scan

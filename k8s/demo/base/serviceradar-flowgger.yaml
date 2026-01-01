@@ -28,6 +28,7 @@ data:
     nats_tls_cert = "/etc/serviceradar/certs/flowgger.pem"
     nats_tls_key = "/etc/serviceradar/certs/flowgger-key.pem"
     nats_tls_skip_verify = false
+    nats_creds_file = "/etc/serviceradar/creds/platform.creds"
     
     [grpc]
     listen_addr = "0.0.0.0:50044"
@@ -140,6 +141,9 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
         - name: flowgger-data
           mountPath: /var/lib/serviceradar
         - name: logs
@@ -154,6 +158,9 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      - name: nats-creds
+        secret:
+          name: serviceradar-nats-creds
       - name: flowgger-data
         persistentVolumeClaim:
           claimName: serviceradar-flowgger-data

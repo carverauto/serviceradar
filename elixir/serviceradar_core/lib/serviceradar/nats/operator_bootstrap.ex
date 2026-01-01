@@ -266,8 +266,11 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
           end
         else
           Logger.warning(
-            "[NATS Bootstrap] Oban not running; skipping NATS account provisioning"
+            "[NATS Bootstrap] Oban not running; retrying NATS account provisioning shortly"
           )
+
+          # Oban can start after this GenServer; retry once it's up.
+          Process.send_after(self(), :check_and_bootstrap, 15_000)
         end
 
       {:error, reason} ->
@@ -276,7 +279,12 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
   end
 
   defp oban_running? do
-    Process.whereis(Oban) != nil
+    try do
+      _ = Oban.Registry.config(Oban)
+      true
+    rescue
+      _ -> false
+    end
   end
 
   defp get_tenants_needing_nats_accounts do

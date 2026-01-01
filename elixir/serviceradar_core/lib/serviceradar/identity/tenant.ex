@@ -165,7 +165,11 @@ defmodule ServiceRadar.Identity.Tenant do
       change set_attribute(:nats_account_provisioned_at, nil)
 
       change fn changeset, _context ->
-        AshCloak.encrypt_and_set(changeset, :nats_account_seed_ciphertext, nil)
+        Ash.Changeset.force_change_attribute(
+          changeset,
+          :encrypted_nats_account_seed_ciphertext,
+          nil
+        )
       end
     end
 

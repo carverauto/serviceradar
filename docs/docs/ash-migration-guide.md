@@ -140,10 +140,41 @@ TOKEN_SIGNING_SECRET=your-32-byte-secret-here
 
 # PII encryption key (required for AshCloak)
 CLOAK_KEY=base64-encoded-32-byte-key
+# Or read the key from a file
+CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
 
 # Optional: API rate limiting
 API_RATE_LIMIT=1000  # requests per minute
 ```
+
+### AshCloak Key Persistence and Validation
+
+AshCloak encrypts sensitive fields at rest (tenant contact info, tenant CA private keys,
+NATS account seeds, operator seeds). These encrypted values are stored in CNPG and can
+only be decrypted with the same platform key. If the key changes or is lost, the data
+becomes unreadable.
+
+Key persistence by environment:
+
+- Docker Compose: a `cloak-key` volume is created and seeded once. The key is stored at
+  `/etc/serviceradar/cloak/cloak.key` and read via `CLOAK_KEY_FILE`.
+  Set `CLOAK_KEY` in `.env` before first boot if you need a specific key.
+- Helm/Kubernetes: store the key in the `serviceradar-secrets` Secret under `cloak-key`,
+  or set `secrets.cloakKey` in `helm/serviceradar/values.yaml` to seed it.
+
+Validation (detect wrong/missing key):
+
+Run a read that decrypts at least one cloaked field. If the key is wrong, AshCloak will
+raise a decryption error.
+
+```bash
+cd web-ng
+# Ensure CNPG_* and CLOAK_KEY or CLOAK_KEY_FILE are set for this environment.
+mix run -e 'alias ServiceRadar.Identity.Tenant; q = Tenant |> Ash.Query.for_read(:read); IO.inspect(Ash.read!(q, authorize?: false) |> Enum.take(1))'
+```
+
+If you see AshCloak decryption errors, the platform key does not match the key used
+when the data was written.
 
 ### Application Configuration
 

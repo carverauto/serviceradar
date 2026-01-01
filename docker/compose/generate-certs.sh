@@ -336,6 +336,9 @@ if [ -n "${CNPG_CERT_EXTRA_IPS:-}" ]; then
 fi
 generate_cert "cnpg" "cnpg.serviceradar" "${CNPG_SAN}"
 
+# Client cert for DB auth (CN must match DB username)
+generate_cert "db-client" "serviceradar" "DNS:serviceradar,DNS:localhost,IP:127.0.0.1"
+
 # Client cert intended for developers connecting from outside the Docker network
 generate_cert "workstation" "workstation.serviceradar" "DNS:workstation,DNS:workstation.serviceradar,DNS:localhost,IP:127.0.0.1"
 

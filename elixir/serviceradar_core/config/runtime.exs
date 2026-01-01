@@ -7,8 +7,21 @@ if config_env() == :prod do
   # AshCloak encryption key (required for PII encryption)
   cloak_key =
     System.get_env("CLOAK_KEY") ||
+      case System.get_env("CLOAK_KEY_FILE") do
+        nil ->
+          nil
+
+        "" ->
+          nil
+
+        path ->
+          case File.read(path) do
+            {:ok, contents} -> String.trim(contents)
+            {:error, reason} -> raise "failed to read CLOAK_KEY_FILE #{path}: #{inspect(reason)}"
+          end
+      end ||
       raise """
-      environment variable CLOAK_KEY is missing.
+      environment variable CLOAK_KEY (or CLOAK_KEY_FILE) is missing.
       This key is required for encrypting sensitive fields like email addresses.
 
       Generate a 32-byte key with:
