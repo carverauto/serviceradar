@@ -56,7 +56,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "PGSSLMODE=verify-full PGSSLROOTCERT=/etc/serviceradar/certs/root.pem PGSSLCERT=/etc/serviceradar/certs/workstation.pem PGSSLKEY=/etc/serviceradar/certs/workstation-key.pem pg_isready -h localhost -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar}"
+          "set -e; cp /etc/serviceradar/certs/db-client-key.pem /tmp/pg_healthcheck.key; chmod 600 /tmp/pg_healthcheck.key; PGSSLMODE=verify-full PGSSLROOTCERT=/etc/serviceradar/certs/root.pem PGSSLCERT=/etc/serviceradar/certs/db-client.pem PGSSLKEY=/tmp/pg_healthcheck.key pg_isready -h localhost -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar}"
         ]
       interval: 10s
       timeout: 5s
@@ -127,9 +127,10 @@ services:
       - SERVICERADAR_CORE_REPO_ENABLED=${SERVICERADAR_CORE_REPO_ENABLED:-true}
       - SERVICERADAR_DEFAULT_TENANT_ID=${SERVICERADAR_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}
       - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-false}
+      - CLOAK_KEY=${CLOAK_KEY:-}
       - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
-      - CNPG_HOST=${CNPG_HOST:-cnpg}
-      - CNPG_PORT=${CNPG_PORT:-5432}
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
       - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
@@ -678,8 +679,8 @@ services:
       - KV_CA_FILE=/etc/serviceradar/certs/root.pem
       - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      - CNPG_HOST=${CNPG_HOST:-cnpg}
-      - CNPG_PORT=${CNPG_PORT:-5432}
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
       - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
@@ -762,8 +763,8 @@ services:
       - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
       - ADMIN_BASIC_AUTH_USERNAME=${ADMIN_BASIC_AUTH_USERNAME:-}
       - ADMIN_BASIC_AUTH_PASSWORD=${ADMIN_BASIC_AUTH_PASSWORD:-}
-      - CNPG_HOST=${CNPG_HOST:-cnpg}
-      - CNPG_PORT=${CNPG_PORT:-5432}
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
       - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}

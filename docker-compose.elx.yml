@@ -54,6 +54,7 @@ services:
       - SERVICERADAR_CORE_REGISTRIES_ENABLED=true
       - SERVICERADAR_CORE_OBAN_ENABLED=true
       # Encryption key for Cloak
+      - CLOAK_KEY=${CLOAK_KEY:-}
       - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
