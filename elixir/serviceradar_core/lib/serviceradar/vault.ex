@@ -10,6 +10,8 @@ defmodule ServiceRadar.Vault do
 
       # Base64-encoded 32-byte key (required in production)
       CLOAK_KEY="your-base64-encoded-key"
+      # Or read the key from a file (contents must be base64-encoded)
+      CLOAK_KEY_FILE="/etc/serviceradar/cloak/cloak.key"
 
   To generate a key:
 
@@ -44,6 +46,7 @@ defmodule ServiceRadar.Vault do
     # Development-only fallback key (NOT for production use)
     key_base64 =
       System.get_env("CLOAK_KEY") ||
+        read_key_file(System.get_env("CLOAK_KEY_FILE")) ||
         Application.get_env(:serviceradar_core, :cloak_key) ||
         dev_fallback_key()
 
@@ -76,6 +79,22 @@ defmodule ServiceRadar.Vault do
       CLOAK_KEY environment variable is required in production.
       Generate a key with: :crypto.strong_rand_bytes(32) |> Base.encode64()
       """
+    end
+  end
+
+  defp read_key_file(nil), do: nil
+  defp read_key_file(""), do: nil
+
+  defp read_key_file(path) do
+    case File.read(path) do
+      {:ok, contents} ->
+        String.trim(contents)
+
+      {:error, reason} ->
+        raise """
+        Failed to read CLOAK_KEY_FILE at #{path}: #{inspect(reason)}.
+        Ensure the file exists and is readable by the service.
+        """
     end
   end
 end

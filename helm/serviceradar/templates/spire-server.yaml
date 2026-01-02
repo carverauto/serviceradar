@@ -135,7 +135,7 @@ data:
       DataStore "sql" {
         plugin_data {
           database_type = "postgres"
-          connection_string = "dbname={{ $dbName }} user={{ $dbUser }} password=__DB_PASSWORD__ host={{ $pgHost }} port=5432 sslmode=disable"
+          connection_string = "dbname={{ $dbName }} user={{ $dbUser }} password=__DB_PASSWORD__ host={{ $pgHost }} port=5432 sslmode=verify-full sslrootcert=/run/spire/cnpg/ca.crt sslcert=/run/spire/certs/client.pem sslkey=/run/spire/certs/client-key.pem"
         }
       }
 
@@ -277,6 +277,13 @@ spec:
               mountPath: /run/spire/data
             - name: spire-server-socket
               mountPath: /tmp/spire-server/private
+            - name: cnpg-ca
+              mountPath: /run/spire/cnpg/ca.crt
+              subPath: ca.crt
+              readOnly: true
+            - name: cert-data
+              mountPath: /run/spire/certs
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /live
@@ -337,6 +344,15 @@ spec:
         - name: spire-controller-manager-config
           configMap:
             name: {{ $cmConfigName }}
+        - name: cnpg-ca
+          secret:
+            secretName: {{ default "cnpg" $pg.clusterName }}-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: cert-data
+          persistentVolumeClaim:
+            claimName: serviceradar-cert-data
   volumeClaimTemplates:
     - metadata:
         name: spire-data

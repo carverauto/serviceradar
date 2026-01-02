@@ -17,6 +17,7 @@
 package tenant
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
@@ -214,4 +215,140 @@ func containsAt(s, substr string, start int) bool {
 		}
 	}
 	return false
+}
+
+func TestWithContext_FromContext(t *testing.T) {
+	info := &Info{
+		TenantSlug:  "acme-corp",
+		PartitionID: "partition-1",
+		ComponentID: "agent-001",
+	}
+
+	ctx := WithContext(context.Background(), info)
+
+	got, err := FromContext(ctx)
+	if err != nil {
+		t.Fatalf("FromContext() error = %v", err)
+	}
+
+	if got.TenantSlug != info.TenantSlug {
+		t.Errorf("TenantSlug = %q, want %q", got.TenantSlug, info.TenantSlug)
+	}
+	if got.PartitionID != info.PartitionID {
+		t.Errorf("PartitionID = %q, want %q", got.PartitionID, info.PartitionID)
+	}
+	if got.ComponentID != info.ComponentID {
+		t.Errorf("ComponentID = %q, want %q", got.ComponentID, info.ComponentID)
+	}
+}
+
+func TestFromContext_NoTenant(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := FromContext(ctx)
+	if err == nil {
+		t.Error("FromContext() expected error for empty context")
+	}
+	if !errors.Is(err, ErrNoTenantInContext) {
+		t.Errorf("FromContext() error = %v, want %v", err, ErrNoTenantInContext)
+	}
+}
+
+func TestSlugFromContext(t *testing.T) {
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{
+			name: "with tenant",
+			ctx:  WithContext(context.Background(), &Info{TenantSlug: "acme-corp"}),
+			want: "acme-corp",
+		},
+		{
+			name: "without tenant",
+			ctx:  context.Background(),
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SlugFromContext(tt.ctx)
+			if got != tt.want {
+				t.Errorf("SlugFromContext() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMustFromContext_Panic(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("MustFromContext() did not panic on empty context")
+		}
+	}()
+
+	MustFromContext(context.Background())
+}
+
+func TestMustFromContext_Success(t *testing.T) {
+	info := &Info{TenantSlug: "acme-corp"}
+	ctx := WithContext(context.Background(), info)
+
+	got := MustFromContext(ctx)
+	if got.TenantSlug != info.TenantSlug {
+		t.Errorf("MustFromContext().TenantSlug = %q, want %q", got.TenantSlug, info.TenantSlug)
+	}
+}
+
+func TestPrefixChannelWithSlug(t *testing.T) {
+	tests := []struct {
+		slug    string
+		channel string
+		want    string
+	}{
+		{"acme-corp", "events.poller.health", "acme-corp.events.poller.health"},
+		{"xyz-inc", "events.syslog.processed", "xyz-inc.events.syslog.processed"},
+		{"", "events.poller.health", "events.poller.health"}, // empty slug returns original
+	}
+
+	for _, tt := range tests {
+		got := PrefixChannelWithSlug(tt.slug, tt.channel)
+		if got != tt.want {
+			t.Errorf("PrefixChannelWithSlug(%q, %q) = %q, want %q",
+				tt.slug, tt.channel, got, tt.want)
+		}
+	}
+}
+
+func TestPrefixChannelFromContext(t *testing.T) {
+	tests := []struct {
+		name    string
+		ctx     context.Context
+		channel string
+		want    string
+	}{
+		{
+			name:    "with tenant",
+			ctx:     WithContext(context.Background(), &Info{TenantSlug: "acme-corp"}),
+			channel: "events.poller.health",
+			want:    "acme-corp.events.poller.health",
+		},
+		{
+			name:    "without tenant",
+			ctx:     context.Background(),
+			channel: "events.poller.health",
+			want:    "events.poller.health", // returns original
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := PrefixChannelFromContext(tt.ctx, tt.channel)
+			if got != tt.want {
+				t.Errorf("PrefixChannelFromContext() = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }

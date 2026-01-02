@@ -1,6 +1,7 @@
 {
   "listen_addr": "0.0.0.0:50041",
   "nats_url": "tls://nats:4222",
+  "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
   "partition": "docker",
   "stream_name": "events",
   "consumer_name": "db-event-writer",

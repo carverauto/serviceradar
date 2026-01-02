@@ -93,6 +93,23 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     # Package actions
     post "/edge-packages/:id/revoke", EdgeController, :revoke
+
+    # NATS platform administration (super admin)
+    post "/nats/bootstrap-token", NatsController, :generate_bootstrap_token
+    post "/nats/bootstrap", NatsController, :bootstrap
+    get "/nats/status", NatsController, :status
+    get "/nats/tenants", NatsController, :tenants
+    post "/nats/tenants/:id/reprovision", NatsController, :reprovision
+
+    # Collector package management (tenant admin)
+    get "/collectors", CollectorController, :index
+    post "/collectors", CollectorController, :create
+    get "/collectors/:id", CollectorController, :show
+    post "/collectors/:id/revoke", CollectorController, :revoke
+
+    # Tenant NATS account & credentials
+    get "/nats/account", CollectorController, :account_status
+    get "/nats/credentials", CollectorController, :credentials
   end
 
   # Edge package download - token-gated (no session auth required)
@@ -101,6 +118,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through :api_token_auth
 
     post "/edge-packages/:id/download", EdgeController, :download
+    post "/collectors/:id/download", CollectorController, :download
   end
 
   # Edge package bundle download - public endpoint with token in query param
@@ -149,10 +167,10 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   scope "/admin", ServiceRadarWebNGWeb do
-    pipe_through [:browser]
+    pipe_through [:browser, :require_authenticated_user]
 
     live_session :admin,
-      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
+      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
       live "/jobs", Admin.JobLive.Index, :index
       live "/jobs/:id", Admin.JobLive.Show, :show
       live "/edge-packages", Admin.EdgePackageLive.Index, :index
@@ -163,6 +181,10 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/integrations/:id", Admin.IntegrationLive.Index, :show
       live "/integrations/:id/edit", Admin.IntegrationLive.Index, :edit
       live "/cluster", Admin.ClusterLive.Index, :index
+      live "/nats", Admin.NatsLive.Index, :index
+      live "/nats/tenants/:id", Admin.NatsLive.Show, :show
+      live "/collectors", Admin.CollectorLive.Index, :index
+      live "/collectors/:id", Admin.CollectorLive.Index, :show
     end
 
     oban_dashboard("/oban",

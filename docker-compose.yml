@@ -35,6 +35,10 @@ services:
       - "ssl_key_file=/etc/serviceradar/certs/cnpg-key.pem"
       - "-c"
       - "ssl_ca_file=/etc/serviceradar/certs/root.pem"
+      - "-c"
+      - "hba_file=/etc/serviceradar/pg_hba.conf"
+      - "-c"
+      - "ident_file=/etc/serviceradar/pg_ident.conf"
     environment:
       - POSTGRES_USER=${CNPG_USERNAME:-serviceradar}
       - POSTGRES_PASSWORD=${CNPG_PASSWORD:-serviceradar}
@@ -46,11 +50,13 @@ services:
       - cnpg-data:/var/lib/postgresql/data
       - ./docker/compose/cnpg-init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - ./docker/compose/pg_hba.conf:/etc/serviceradar/pg_hba.conf:ro
+      - ./docker/compose/pg_ident.conf:/etc/serviceradar/pg_ident.conf:ro
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "PGSSLMODE=require PGSSLROOTCERT=/etc/serviceradar/certs/root.pem pg_isready -h localhost -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar}"
+          "set -e; cp /etc/serviceradar/certs/db-client-key.pem /tmp/pg_healthcheck.key; chmod 600 /tmp/pg_healthcheck.key; PGSSLMODE=verify-full PGSSLROOTCERT=/etc/serviceradar/certs/root.pem PGSSLCERT=/etc/serviceradar/certs/db-client.pem PGSSLKEY=/tmp/pg_healthcheck.key pg_isready -h localhost -U ${CNPG_USERNAME:-serviceradar} -d ${CNPG_DATABASE:-serviceradar}"
         ]
       interval: 10s
       timeout: 5s
@@ -77,6 +83,31 @@ services:
     networks:
       - serviceradar-net
 
+  cloak-keygen:
+    image: alpine:3.20
+    container_name: serviceradar-cloak-keygen
+    environment:
+      - CLOAK_KEY=${CLOAK_KEY:-MBkLP+XL4htJEQ2Tyi+g+E6Jru4eLd4r9hT4dxcOIeg=}
+    volumes:
+      - cloak-key:/etc/serviceradar/cloak
+    command: >
+      sh -c 'set -e;
+      mkdir -p /etc/serviceradar/cloak;
+      if [ ! -f /etc/serviceradar/cloak/cloak.key ]; then
+        umask 077;
+        if [ -n "${CLOAK_KEY:-}" ]; then
+          printf "%s" "${CLOAK_KEY}" > /etc/serviceradar/cloak/cloak.key;
+        else
+          head -c 32 /dev/urandom | base64 | tr -d "\n" > /etc/serviceradar/cloak/cloak.key;
+        fi;
+        echo "Generated CLOAK_KEY";
+      else
+        echo "CLOAK_KEY already present";
+      fi'
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   core-elx:
     image: ghcr.io/carverauto/serviceradar-core-elx:${APP_TAG:-latest}
     container_name: serviceradar-core-elx-mtls
@@ -96,15 +127,18 @@ services:
       - SERVICERADAR_CORE_REPO_ENABLED=${SERVICERADAR_CORE_REPO_ENABLED:-true}
       - SERVICERADAR_DEFAULT_TENANT_ID=${SERVICERADAR_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}
       - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-false}
-      - CLOAK_KEY=${CLOAK_KEY:-MBkLP+XL4htJEQ2Tyi+g+E6Jru4eLd4r9hT4dxcOIeg=}
-      - CNPG_HOST=${CNPG_HOST:-cnpg}
-      - CNPG_PORT=${CNPG_PORT:-5432}
+      - CLOAK_KEY=${CLOAK_KEY:-}
+      - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
       - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
       - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
       - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg}
       - CNPG_CERT_DIR=/etc/serviceradar/certs
+      - CNPG_CERT_FILE=/etc/serviceradar/certs/db-client.pem
+      - CNPG_KEY_FILE=/etc/serviceradar/certs/db-client-key.pem
       # Datasvc gRPC client configuration
       - DATASVC_HOST=datasvc
       - DATASVC_PORT=50057
@@ -115,17 +149,23 @@ services:
       - EVENT_WRITER_ENABLED=${EVENT_WRITER_ENABLED:-true}
       - EVENT_WRITER_NATS_URL=nats://nats:4222
       - EVENT_WRITER_NATS_TLS=true
+      - EVENT_WRITER_NATS_CREDS_FILE=/etc/serviceradar/creds/platform.creds
       - EVENT_WRITER_BATCH_SIZE=${EVENT_WRITER_BATCH_SIZE:-100}
       - EVENT_WRITER_BATCH_TIMEOUT=${EVENT_WRITER_BATCH_TIMEOUT:-1000}
       - NATS_ENABLED=true
       - NATS_URL=nats://nats:4222
       - NATS_TLS=true
       - NATS_SERVER_NAME=nats.serviceradar
+      - NATS_CREDS_FILE=/etc/serviceradar/creds/platform.creds
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.core.conf:/etc/serviceradar/ssl_dist.conf:ro
+      - cloak-key:/etc/serviceradar/cloak:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
     depends_on:
       cert-permissions-fixer:
+        condition: service_completed_successfully
+      cloak-keygen:
         condition: service_completed_successfully
       cnpg:
         condition: service_healthy
@@ -141,6 +181,106 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
+  # Bootstrap NATS operator/account credentials (idempotent).
+  nats-creds-init:
+    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
+    container_name: serviceradar-nats-creds-init
+    volumes:
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds
+      - ./docker/compose/creds:/seed/creds:ro
+    environment:
+      - NATS_OPERATOR_NAME=${NATS_OPERATOR_NAME:-serviceradar-dev}
+      - NATS_OPERATOR_SEED=${NATS_OPERATOR_SEED:-}
+      - NATS_SYSTEM_ACCOUNT_PUBLIC_KEY=${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY:-}
+    command:
+      - bash
+      - -c
+      - |
+          set -euo pipefail
+          creds_dir="/etc/serviceradar/creds"
+          seed_dir="/seed/creds"
+          if [ -f "$${creds_dir}/operator.jwt" ]; then
+            if [ ! -f "$${creds_dir}/operator.seed" ]; then
+              if [ -n "$${NATS_OPERATOR_SEED}" ]; then
+                echo "Persisting operator seed to creds volume."
+                echo "$${NATS_OPERATOR_SEED}" > "$${creds_dir}/operator.seed"
+                chmod 0600 "$${creds_dir}/operator.seed"
+              else
+                echo "Warning: operator.seed missing and NATS_OPERATOR_SEED not set; tenant account provisioning will fail."
+              fi
+            fi
+            if [ ! -f "$${creds_dir}/system_account.pub" ] && [ -n "$${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY}" ]; then
+              echo "$${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY}" > "$${creds_dir}/system_account.pub"
+              chmod 0644 "$${creds_dir}/system_account.pub"
+            fi
+            echo "NATS creds already present; skipping bootstrap."
+            exit 0
+          fi
+          mkdir -p "$${creds_dir}"
+          if [ -f "$${seed_dir}/operator.jwt" ]; then
+            echo "Copying seed NATS creds into volume."
+            cp -a "$${seed_dir}/." "$${creds_dir}/"
+            if [ ! -f "$${creds_dir}/operator.seed" ] && [ -n "$${NATS_OPERATOR_SEED}" ]; then
+              echo "Persisting operator seed to creds volume."
+              echo "$${NATS_OPERATOR_SEED}" > "$${creds_dir}/operator.seed"
+              chmod 0600 "$${creds_dir}/operator.seed"
+            fi
+            if [ ! -f "$${creds_dir}/system_account.pub" ] && [ -n "$${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY}" ]; then
+              echo "$${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY}" > "$${creds_dir}/system_account.pub"
+              chmod 0644 "$${creds_dir}/system_account.pub"
+            fi
+            exit 0
+          fi
+          args=(nats-bootstrap --local --output-dir "$${creds_dir}" --operator-name "$${NATS_OPERATOR_NAME}" --output json)
+          if [ -n "$${NATS_OPERATOR_SEED}" ]; then
+            args+=(--import-operator-seed "$${NATS_OPERATOR_SEED}")
+          fi
+          serviceradar-cli "$${args[@]}"
+          if [ ! -f "$${creds_dir}/operator.seed" ] && [ -n "$${NATS_OPERATOR_SEED}" ]; then
+            echo "Persisting operator seed to creds volume."
+            echo "$${NATS_OPERATOR_SEED}" > "$${creds_dir}/operator.seed"
+            chmod 0600 "$${creds_dir}/operator.seed"
+          fi
+          if [ ! -f "$${creds_dir}/system_account.pub" ] && [ -n "$${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY}" ]; then
+            echo "$${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY}" > "$${creds_dir}/system_account.pub"
+            chmod 0644 "$${creds_dir}/system_account.pub"
+          fi
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  # Initialize NATS resolver directory for account JWT persistence
+  nats-config-init:
+    image: alpine:3.20
+    container_name: serviceradar-nats-config-init
+    volumes:
+      - nats-data:/data
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+    depends_on:
+      nats-creds-init:
+        condition: service_completed_successfully
+    command:
+      - sh
+      - -c
+      - |
+          set -e
+          mkdir -p /data/jwt
+          if [ -d /etc/serviceradar/creds/jwt ]; then
+            find /etc/serviceradar/creds/jwt -maxdepth 1 -type f -name '*.jwt' -exec cp {} /data/jwt/ \;
+            echo 'Seeded account JWTs from creds/jwt'
+          fi
+          if [ -f /etc/serviceradar/creds/system.jwt ] && [ -f /etc/serviceradar/creds/system_account.pub ]; then
+            system_key="$$(cat /etc/serviceradar/creds/system_account.pub)"
+            if [ -n "$${system_key}" ]; then
+              cp /etc/serviceradar/creds/system.jwt "/data/jwt/$${system_key}.jwt"
+              echo 'Seeded system account JWT'
+            fi
+          fi
+          echo 'Prepared NATS resolver directory'
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   nats:
     image: nats:latest
     platform: linux/amd64
@@ -152,12 +292,15 @@ services:
     volumes:
       - nats-data:/data
       - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
       - ./docker/compose/nats.docker.conf:/etc/nats/nats-server.conf:ro
     command: ["--config", "/etc/nats/nats-server.conf"]
     depends_on:
       cert-generator:
         condition: service_completed_successfully
       cert-permissions-fixer:
+        condition: service_completed_successfully
+      nats-config-init:
         condition: service_completed_successfully
     networks:
       serviceradar-net:
@@ -174,12 +317,15 @@ services:
     volumes:
       - ./docker/compose/datasvc.mtls.json:/etc/serviceradar/datasvc.json:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
       - datasvc-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
       - CONFIG_PATH=/etc/serviceradar/datasvc.json
       - WAIT_FOR_NATS=true
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - NATS_OPERATOR_SEED=${NATS_OPERATOR_SEED:-}
+      - NATS_SYSTEM_ACCOUNT_PUBLIC_KEY=${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY:-}
     depends_on:
       cert-generator:
         condition: service_completed_successfully
@@ -378,6 +524,7 @@ services:
     volumes:
       - ./docker/compose/otel.docker.toml:/etc/serviceradar/otel.toml:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
       - otel-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
@@ -411,6 +558,7 @@ services:
     volumes:
       - ./docker/compose/flowgger.docker.toml:/etc/serviceradar/flowgger.toml:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
       - flowgger-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
@@ -446,6 +594,7 @@ services:
     volumes:
       - ./docker/compose/trapd.docker.json:/etc/serviceradar/trapd.json:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
       - trapd-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
@@ -480,6 +629,7 @@ services:
     volumes:
       - ./docker/compose/zen.docker.json:/etc/serviceradar/zen.json:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
       - zen-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
@@ -514,6 +664,7 @@ services:
     volumes:
       - ./docker/compose/db-event-writer.mtls.json:/etc/serviceradar/templates/db-event-writer.json:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
       - db-event-writer-data:/var/lib/serviceradar
       - db-event-writer-config:/etc/serviceradar/consumers
       - ./logs:/var/log/serviceradar
@@ -528,16 +679,16 @@ services:
       - KV_CA_FILE=/etc/serviceradar/certs/root.pem
       - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      - CNPG_HOST=${CNPG_HOST:-cnpg}
-      - CNPG_PORT=${CNPG_PORT:-5432}
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
       - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
       - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
       - CNPG_CERT_DIR=/etc/serviceradar/certs
       - CNPG_CA_FILE=/etc/serviceradar/certs/root.pem
-      - CNPG_CERT_FILE=/etc/serviceradar/certs/db-event-writer.pem
-      - CNPG_KEY_FILE=/etc/serviceradar/certs/db-event-writer-key.pem
+      - CNPG_CERT_FILE=/etc/serviceradar/certs/db-client.pem
+      - CNPG_KEY_FILE=/etc/serviceradar/certs/db-client-key.pem
     depends_on:
       cert-permissions-fixer:
         condition: service_completed_successfully
@@ -609,17 +760,19 @@ services:
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
       - SERVICERADAR_SECURITY_MODE=${SERVICERADAR_SECURITY_MODE:-mtls}
       - SECRET_KEY_BASE=${WEB_NG_SECRET_KEY_BASE:-H8DPohD5rFUqGboVqCKLYXrlyofYUJk6k+XBzKEb5G8LN9brhYpNloE3UgxBQmPW}
-      - CLOAK_KEY=${CLOAK_KEY:-MBkLP+XL4htJEQ2Tyi+g+E6Jru4eLd4r9hT4dxcOIeg=}
+      - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
       - ADMIN_BASIC_AUTH_USERNAME=${ADMIN_BASIC_AUTH_USERNAME:-}
       - ADMIN_BASIC_AUTH_PASSWORD=${ADMIN_BASIC_AUTH_PASSWORD:-}
-      - CNPG_HOST=${CNPG_HOST:-cnpg}
-      - CNPG_PORT=${CNPG_PORT:-5432}
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
       - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
       - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
       - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
       - CNPG_TLS_SERVER_NAME=${CNPG_TLS_SERVER_NAME:-cnpg}
       - CNPG_CERT_DIR=/etc/serviceradar/certs
+      - CNPG_CERT_FILE=/etc/serviceradar/certs/db-client.pem
+      - CNPG_KEY_FILE=/etc/serviceradar/certs/db-client-key.pem
       # Datasvc gRPC client configuration
       - DATASVC_ADDRESS=datasvc:50057
       - DATASVC_HOST=datasvc
@@ -631,8 +784,11 @@ services:
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.web.conf:/etc/serviceradar/ssl_dist.conf:ro
+      - cloak-key:/etc/serviceradar/cloak:ro
     depends_on:
       cert-permissions-fixer:
+        condition: service_completed_successfully
+      cloak-keygen:
         condition: service_completed_successfully
       cnpg:
         condition: service_healthy
@@ -679,6 +835,10 @@ volumes:
   sync-data:
   nats-data:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_nats-data"
+  nats-creds:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_nats-creds"
+  cloak-key:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cloak-key"
   logs:
   otel-data:
   flowgger-data:

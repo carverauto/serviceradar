@@ -7,8 +7,21 @@ if config_env() == :prod do
   # AshCloak encryption key (required for PII encryption)
   cloak_key =
     System.get_env("CLOAK_KEY") ||
+      case System.get_env("CLOAK_KEY_FILE") do
+        nil ->
+          nil
+
+        "" ->
+          nil
+
+        path ->
+          case File.read(path) do
+            {:ok, contents} -> String.trim(contents)
+            {:error, reason} -> raise "failed to read CLOAK_KEY_FILE #{path}: #{inspect(reason)}"
+          end
+      end ||
       raise """
-      environment variable CLOAK_KEY is missing.
+      environment variable CLOAK_KEY (or CLOAK_KEY_FILE) is missing.
       This key is required for encrypting sensitive fields like email addresses.
 
       Generate a 32-byte key with:
@@ -65,13 +78,42 @@ if config_env() == :prod do
       events: String.to_integer(System.get_env("OBAN_QUEUE_EVENTS") || "10"),
       sweeps: String.to_integer(System.get_env("OBAN_QUEUE_SWEEPS") || "20"),
       edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10"),
-      integrations: String.to_integer(System.get_env("OBAN_QUEUE_INTEGRATIONS") || "5")
+      integrations: String.to_integer(System.get_env("OBAN_QUEUE_INTEGRATIONS") || "5"),
+      nats_accounts: String.to_integer(System.get_env("OBAN_QUEUE_NATS_ACCOUNTS") || "3")
     ],
     plugins: [
       Oban.Plugins.Pruner,
       {Oban.Plugins.Cron, crontab: []}
     ],
     peer: Oban.Peers.Database
+
+  # Core NATS connection configuration
+  nats_url = System.get_env("NATS_URL", "nats://localhost:4222")
+  nats_uri = URI.parse(nats_url)
+  nats_tls_enabled = System.get_env("NATS_TLS", "false") in ~w(true 1 yes)
+  nats_server_name = System.get_env("NATS_SERVER_NAME", "nats.serviceradar")
+  cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+
+  nats_tls_config =
+    if nats_tls_enabled do
+      [
+        verify: :verify_peer,
+        cacertfile: Path.join(cert_dir, "root.pem"),
+        certfile: Path.join(cert_dir, "core.pem"),
+        keyfile: Path.join(cert_dir, "core-key.pem"),
+        server_name_indication: String.to_charlist(nats_server_name)
+      ]
+    else
+      false
+    end
+
+  config :serviceradar_core, ServiceRadar.NATS.Connection,
+    host: nats_uri.host || "localhost",
+    port: nats_uri.port || 4222,
+    user: System.get_env("NATS_USER"),
+    password: {:system, "NATS_PASSWORD"},
+    creds_file: System.get_env("NATS_CREDS_FILE"),
+    tls: nats_tls_config
 
   # EventWriter configuration (NATS JetStream → CNPG consumer)
   # Enable with EVENT_WRITER_ENABLED=true
@@ -107,6 +149,7 @@ if config_env() == :prod do
         port: nats_uri.port || 4222,
         user: System.get_env("EVENT_WRITER_NATS_USER"),
         password: {:system, "EVENT_WRITER_NATS_PASSWORD"},
+        creds_file: System.get_env("EVENT_WRITER_NATS_CREDS_FILE"),
         tls: nats_tls_config
       ],
       batch_size: String.to_integer(System.get_env("EVENT_WRITER_BATCH_SIZE") || "100"),

@@ -141,6 +141,12 @@ if [ -n "{hex_cache_tar}" ] && [ -f "$EXECROOT/{hex_cache_tar}" ]; then
   esac
   export HEX_OFFLINE=1
 fi
+if [ -d /cache ] && [ -w /cache ]; then
+  export CARGO_HOME="/cache/cargo"
+else
+  export CARGO_HOME="$HOME/.cargo"
+fi
+mkdir -p "$CARGO_HOME"
 copy_dir "{src_dir}/" "$WORKDIR/"
 {extra_copy}
 if [ -f "$EXECROOT/Cargo.toml" ]; then

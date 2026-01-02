@@ -7,7 +7,7 @@
 @source "../../lib/serviceradar_web_ng_web";
 
 /* A Tailwind plugin that makes "hero-#{ICON}" classes available.
-   The heroicons installation itself is managed by your mix.exs */
+   Icons are stored under assets/vendor/heroicons. */
 @plugin "../vendor/heroicons";
 
 /* daisyUI Tailwind Plugin. You can update this file by fetching the latest version with:

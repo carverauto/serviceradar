@@ -23,3 +23,4 @@ nats_connect_max_backoff_ms = 30000
 nats_tls_ca_file = "/Users/mfreeman/src/flowgger-tls-test/ca.pem"
 nats_tls_cert = "/Users/mfreeman/src/flowgger-tls-test/client-cert.pem"
 nats_tls_key = "/Users/mfreeman/src/flowgger-tls-test/client-key.pem"
+nats_creds_file = "/Users/mfreeman/src/flowgger-tls-test/platform.creds"

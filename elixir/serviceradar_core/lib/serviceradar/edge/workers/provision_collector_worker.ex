@@ -1,0 +1,291 @@
+defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
+  @moduledoc """
+  Oban worker for provisioning NATS credentials for collector packages.
+
+  This worker is triggered when a new collector package is created. It:
+  1. Verifies the tenant's NATS account is ready
+  2. Decrypts the tenant's account seed
+  3. Calls datasvc to generate user credentials with collector-specific permissions
+  4. Creates the NatsCredential record
+  5. Updates the CollectorPackage status to ready
+
+  ## Retries
+
+  The job will retry up to 5 times with exponential backoff. If all retries
+  fail, the collector package status is set to `:failed`.
+
+  ## Usage
+
+      # Enqueue provisioning for a collector package
+      {:ok, _job} = ProvisionCollectorWorker.enqueue(package_id)
+  """
+
+  use Oban.Worker,
+    queue: :nats_accounts,
+    max_attempts: 5,
+    unique: [period: 60, keys: [:package_id]]
+
+  require Ash.Query
+  require Logger
+
+  alias ServiceRadar.Edge.CollectorPackage
+  alias ServiceRadar.Edge.NatsCredential
+  alias ServiceRadar.Identity.Tenant
+  alias ServiceRadar.NATS.AccountClient
+
+  @doc """
+  Enqueue a credential provisioning job for a collector package.
+
+  ## Options
+
+    * `:scheduled_at` - Schedule the job for a specific time
+    * `:priority` - Job priority (lower = higher priority)
+
+  ## Examples
+
+      {:ok, job} = ProvisionCollectorWorker.enqueue(package_id)
+  """
+  @spec enqueue(Ecto.UUID.t(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(package_id, opts \\ []) do
+    args = %{"package_id" => package_id}
+
+    job_opts =
+      []
+      |> maybe_add_scheduled_at(opts[:scheduled_at])
+      |> maybe_add_priority(opts[:priority])
+
+    args
+    |> new(job_opts)
+    |> Oban.insert()
+  end
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"package_id" => package_id}, attempt: attempt, max_attempts: max}) do
+    Logger.info("Provisioning NATS credentials for collector package #{package_id} (attempt #{attempt}/#{max})")
+
+    with {:ok, package} <- get_package(package_id),
+         :ok <- validate_package_status(package),
+         {:ok, _package} <- mark_provisioning(package),
+         {:ok, tenant} <- get_tenant(package.tenant_id),
+         :ok <- validate_tenant_nats_ready(tenant),
+         {:ok, account_seed} <- get_account_seed(tenant),
+         {:ok, user_creds} <- generate_user_credentials(tenant, package, account_seed),
+         {:ok, credential} <- create_credential_record(package, user_creds),
+         {:ok, _package} <- mark_ready(package, credential.id) do
+      Logger.info("Successfully provisioned NATS credentials for collector package #{package_id}")
+      :ok
+    else
+      {:error, :package_not_found} ->
+        Logger.error("Collector package #{package_id} not found, discarding job")
+        {:discard, :package_not_found}
+
+      {:error, :package_not_pending} ->
+        Logger.info("Collector package #{package_id} not in pending state, skipping")
+        :ok
+
+      {:error, :tenant_not_found} ->
+        Logger.error("Tenant not found for package #{package_id}, discarding job")
+        mark_failed(package_id, "Tenant not found")
+        {:discard, :tenant_not_found}
+
+      {:error, :tenant_nats_not_ready} ->
+        Logger.warning("Tenant NATS account not ready for package #{package_id}, will retry")
+        {:error, :tenant_nats_not_ready}
+
+      {:error, :account_seed_not_found} ->
+        Logger.error("Tenant account seed not found for package #{package_id}")
+        mark_failed(package_id, "Tenant NATS account seed not configured")
+        {:discard, :account_seed_not_found}
+
+      {:error, {:grpc_error, message}} = error ->
+        Logger.error("gRPC error provisioning credentials for package #{package_id}: #{message}")
+
+        if attempt >= max do
+          mark_failed(package_id, message)
+        end
+
+        error
+
+      {:error, :not_connected} = error ->
+        Logger.warning("datasvc not connected, will retry for package #{package_id}")
+        error
+
+      {:error, reason} = error ->
+        Logger.error("Error provisioning credentials for package #{package_id}: #{inspect(reason)}")
+
+        if attempt >= max do
+          mark_failed(package_id, inspect(reason))
+        end
+
+        error
+    end
+  end
+
+  # Private helpers
+
+  defp get_package(package_id) do
+    case CollectorPackage
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(id == ^package_id)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} -> {:error, :package_not_found}
+      {:ok, package} -> {:ok, package}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp validate_package_status(package) do
+    if package.status in [:pending, :provisioning] do
+      :ok
+    else
+      {:error, :package_not_pending}
+    end
+  end
+
+  defp mark_provisioning(package) do
+    package
+    |> Ash.Changeset.for_update(:provision)
+    |> Ash.update(authorize?: false)
+  end
+
+  defp get_tenant(tenant_id) do
+    case Tenant
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(id == ^tenant_id)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} -> {:error, :tenant_not_found}
+      {:ok, tenant} -> {:ok, tenant}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp validate_tenant_nats_ready(tenant) do
+    if tenant.nats_account_status == :ready and tenant.nats_account_jwt != nil do
+      :ok
+    else
+      {:error, :tenant_nats_not_ready}
+    end
+  end
+
+  defp get_account_seed(tenant) do
+    # The nats_account_seed_ciphertext is encrypted via AshCloak
+    # Since it's not in decrypt_by_default, we decrypt it via the Vault
+    case tenant.nats_account_seed_ciphertext do
+      nil ->
+        {:error, :account_seed_not_found}
+
+      encrypted_value when is_binary(encrypted_value) ->
+        case ServiceRadar.Vault.decrypt(encrypted_value) do
+          {:ok, seed} when is_binary(seed) and seed != "" ->
+            {:ok, seed}
+
+          {:ok, _} ->
+            {:error, :account_seed_not_found}
+
+          {:error, _reason} ->
+            {:error, :account_seed_decrypt_failed}
+        end
+
+      _ ->
+        {:error, :account_seed_not_found}
+    end
+  end
+
+  defp generate_user_credentials(tenant, package, account_seed) do
+    # Build permissions based on collector type
+    permissions = build_permissions_for_collector(package.collector_type, tenant.slug)
+
+    AccountClient.generate_user_credentials(
+      to_string(tenant.slug),
+      account_seed,
+      package.user_name,
+      :collector,
+      permissions: permissions
+    )
+  end
+
+  defp build_permissions_for_collector(collector_type, tenant_slug) do
+    tenant_prefix = "#{tenant_slug}."
+
+    case collector_type do
+      :flowgger ->
+        %{
+          publish_allow: ["#{tenant_prefix}syslog.>", "#{tenant_prefix}events.syslog.>"],
+          subscribe_allow: []
+        }
+
+      :trapd ->
+        %{
+          publish_allow: ["#{tenant_prefix}snmp.traps.>", "#{tenant_prefix}events.snmp.>"],
+          subscribe_allow: []
+        }
+
+      :netflow ->
+        %{
+          publish_allow: ["#{tenant_prefix}netflow.>", "#{tenant_prefix}events.netflow.>"],
+          subscribe_allow: []
+        }
+
+      :otel ->
+        %{
+          publish_allow: [
+            "#{tenant_prefix}otel.traces.>",
+            "#{tenant_prefix}otel.metrics.>",
+            "#{tenant_prefix}otel.logs.>",
+            "#{tenant_prefix}events.otel.>"
+          ],
+          subscribe_allow: []
+        }
+
+      _ ->
+        %{
+          publish_allow: ["#{tenant_prefix}events.>"],
+          subscribe_allow: []
+        }
+    end
+  end
+
+  defp create_credential_record(package, user_creds) do
+    NatsCredential
+    |> Ash.Changeset.for_create(:create, %{
+      user_name: package.user_name,
+      credential_type: :collector,
+      collector_type: package.collector_type,
+      expires_at: user_creds.expires_at,
+      metadata: %{
+        site: package.site,
+        hostname: package.hostname
+      }
+    })
+    |> Ash.Changeset.set_argument(:user_public_key, user_creds.user_public_key)
+    |> Ash.Changeset.set_argument(:onboarding_package_id, nil)
+    |> Ash.Changeset.change_attribute(:tenant_id, package.tenant_id)
+    |> Ash.create(authorize?: false)
+  end
+
+  defp mark_ready(package, credential_id) do
+    package
+    |> Ash.Changeset.for_update(:ready, %{})
+    |> Ash.Changeset.set_argument(:nats_credential_id, credential_id)
+    |> Ash.update(authorize?: false)
+  end
+
+  defp mark_failed(package_id, message) do
+    case get_package(package_id) do
+      {:ok, package} ->
+        package
+        |> Ash.Changeset.for_update(:fail, %{})
+        |> Ash.Changeset.set_argument(:error_message, message)
+        |> Ash.update(authorize?: false)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp maybe_add_scheduled_at(opts, nil), do: opts
+  defp maybe_add_scheduled_at(opts, %DateTime{} = at), do: Keyword.put(opts, :scheduled_at, at)
+
+  defp maybe_add_priority(opts, nil), do: opts
+  defp maybe_add_priority(opts, priority), do: Keyword.put(opts, :priority, priority)
+end

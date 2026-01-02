@@ -794,6 +794,26 @@ func parseTTLSeconds(raw string) (int, error) {
 	return int(duration.Seconds()), nil
 }
 
+// AdminHandler handles multi-level `admin ...` commands.
+type AdminHandler struct{}
+
+// Parse dispatches nested admin commands.
+func (AdminHandler) Parse(args []string, cfg *CmdConfig) error {
+	if len(args) == 0 {
+		return errAdminResourceRequired
+	}
+
+	resource := strings.ToLower(strings.TrimSpace(args[0]))
+	cfg.AdminCommand = resource
+
+	switch resource {
+	case "nats":
+		return (AdminNatsHandler{}).Parse(args[1:], cfg)
+	default:
+		return ErrUnknownAdminResource(resource)
+	}
+}
+
 // GenerateTLSHandler handles flags for the generate-tls subcommand
 type GenerateTLSHandler struct{}
 
@@ -849,6 +869,8 @@ func ParseFlags() (*CmdConfig, error) {
 		"edge-package-revoke":   EdgePackageRevokeHandler{},
 		"edge-package-token":    EdgePackageTokenHandler{},
 		"edge":                  EdgeHandler{},
+		"nats-bootstrap":        NatsBootstrapHandler{},
+		"admin":                 AdminHandler{},
 	}
 
 	// Parse subcommand flags if present

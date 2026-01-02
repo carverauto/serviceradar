@@ -102,6 +102,7 @@ build:ci --bes_results_url=https://carverauto.buildbuddy.io/invocation/
 build:ci --bes_backend=grpcs://carverauto.buildbuddy.io
 build:ci --remote_cache=grpcs://carverauto.buildbuddy.io
 build:ci --remote_timeout=15m
+build:ci --define=use_hex_cache=true
 build:ci --strategy=ExpandTemplate=local
 build:ci --strategy=NpmPackageExtract=local
 build:ci --strategy=CopyDirectory=local
@@ -130,6 +131,7 @@ build:remote_base --incompatible_strict_action_env
 build:remote_base --remote_download_minimal
 build:remote_base --remote_upload_local_results
 build:remote_base --jobs=100
+build:remote_base --define=use_hex_cache=true
 build:remote_base --strategy=ExpandTemplate=local
 build:remote_base --strategy=NpmPackageExtract=local
 build:remote_base --strategy=CopyDirectory=local

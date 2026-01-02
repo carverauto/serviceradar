@@ -53,6 +53,8 @@ pub struct NATSConfigTOML {
     pub subject: String,
     #[serde(default = "default_nats_stream")]
     pub stream: String,
+    #[serde(default)]
+    pub creds_file: Option<String>,
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
     #[serde(default = "default_max_bytes")]
@@ -146,11 +148,20 @@ impl Config {
             } else {
                 (None, None, None)
             };
+            let creds_file = nats.creds_file.as_ref().and_then(|value| {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(PathBuf::from(trimmed))
+                }
+            });
 
             NATSConfig {
                 url: nats.url.clone(),
                 subject: nats.subject.clone(),
                 stream: nats.stream.clone(),
+                creds_file,
                 timeout: Duration::from_secs(nats.timeout_secs),
                 max_bytes: nats.max_bytes,
                 max_age: Duration::from_secs(nats.max_age_secs),
@@ -176,6 +187,7 @@ impl Config {
                 url: "nats://localhost:4222".to_string(),
                 subject: "events.otel".to_string(),
                 stream: "events".to_string(),
+                creds_file: Some("/path/to/nats.creds".to_string()),
                 timeout_secs: 30,
                 max_bytes: default_max_bytes(),
                 max_age_secs: default_max_age_secs(),
@@ -425,6 +437,7 @@ key_file = "/grpc.key"
                 url: "nats://test:4222".to_string(),
                 subject: "test.subject".to_string(),
                 stream: "test_stream".to_string(),
+                creds_file: None,
                 timeout_secs: 45,
                 max_bytes: default_max_bytes(),
                 max_age_secs: default_max_age_secs(),

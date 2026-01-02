@@ -28,18 +28,19 @@ type StreamConfig struct {
 
 // DBEventWriterConfig holds configuration for the DB event writer consumer.
 type DBEventWriterConfig struct {
-	ListenAddr   string                 `json:"listen_addr"`
-	NATSURL      string                 `json:"nats_url" hot:"rebuild"`
-	Subject      string                 `json:"subject"` // Legacy field for backward compatibility
-	StreamName   string                 `json:"stream_name" hot:"rebuild"`
-	ConsumerName string                 `json:"consumer_name" hot:"rebuild"`
-	Domain       string                 `json:"domain" hot:"rebuild"`
-	Table        string                 `json:"table"`                 // Legacy field for backward compatibility
-	Streams      []StreamConfig         `json:"streams" hot:"rebuild"` // New multi-stream configuration
-	Security     *models.SecurityConfig `json:"security" hot:"rebuild"`
-	NATSSecurity *models.SecurityConfig `json:"nats_security"`
-	CNPG         *models.CNPGDatabase   `json:"cnpg"`
-	Logging      *logger.Config         `json:"logging"` // Logger configuration including OTEL settings
+	ListenAddr    string                 `json:"listen_addr"`
+	NATSURL       string                 `json:"nats_url" hot:"rebuild"`
+	NATSCredsFile string                 `json:"nats_creds_file,omitempty" hot:"rebuild"`
+	Subject       string                 `json:"subject"` // Legacy field for backward compatibility
+	StreamName    string                 `json:"stream_name" hot:"rebuild"`
+	ConsumerName  string                 `json:"consumer_name" hot:"rebuild"`
+	Domain        string                 `json:"domain" hot:"rebuild"`
+	Table         string                 `json:"table"`                 // Legacy field for backward compatibility
+	Streams       []StreamConfig         `json:"streams" hot:"rebuild"` // New multi-stream configuration
+	Security      *models.SecurityConfig `json:"security" hot:"rebuild"`
+	NATSSecurity  *models.SecurityConfig `json:"nats_security"`
+	CNPG          *models.CNPGDatabase   `json:"cnpg"`
+	Logging       *logger.Config         `json:"logging"` // Logger configuration including OTEL settings
 }
 
 // Validate checks the configuration for required fields.

@@ -80,6 +80,31 @@ type CmdConfig struct {
 	EdgePackageReissueToken    bool
 	EdgeJoinTTLSeconds         int
 	EdgeDownloadTTLSeconds     int
+	// NATS bootstrap configuration
+	NATSBootstrapToken    string
+	NATSOutputDir         string
+	NATSOperatorName      string
+	NATSImportSeed        string
+	NATSVerifyMode        bool
+	NATSConfigPath        string
+	NATSNoSystemAccount   bool
+	NATSJetStream         bool
+	NATSJetStreamDir      string
+	NATSTLSCert           string
+	NATSTLSKey            string
+	NATSTLSCA             string
+	NATSNoTLS             bool
+	NATSOutputFormat      string
+	NATSBootstrapExpires  string
+	NATSLocalBootstrap    bool
+	NATSWriteSystemCreds  bool
+	NATSWritePlatform     bool
+	NATSPlatformAccount   string
+	NATSPlatformUser      string
+	NATSSystemUser        string
+	NATSTenantLimit       int
+	AdminNatsAction       string
+	AdminCommand          string
 }
 
 // logStyles defines styles for logging messages

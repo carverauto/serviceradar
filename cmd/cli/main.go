@@ -71,8 +71,22 @@ func dispatchCommand(cfg *cli.CmdConfig) error {
 		return cli.RunEdgePackageToken(cfg)
 	case "edge":
 		return cli.RunEdgeCommand(cfg)
+	case "nats-bootstrap":
+		return cli.RunNatsBootstrap(cfg)
+	case "admin":
+		return dispatchAdminCommand(cfg)
 	default:
 		return runBcryptMode(cfg)
+	}
+}
+
+// dispatchAdminCommand routes admin subcommands.
+func dispatchAdminCommand(cfg *cli.CmdConfig) error {
+	switch cfg.AdminCommand {
+	case "nats":
+		return cli.RunAdminNatsCommand(cfg)
+	default:
+		return cli.ErrUnknownAdminResource(cfg.AdminCommand)
 	}
 }
 

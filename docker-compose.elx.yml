@@ -1,6 +1,31 @@
 version: "3.9"
 
 services:
+  cloak-keygen:
+    image: alpine:3.20
+    container_name: serviceradar-cloak-keygen
+    environment:
+      - CLOAK_KEY=${CLOAK_KEY:-MBkLP+XL4htJEQ2Tyi+g+E6Jru4eLd4r9hT4dxcOIeg=}
+    volumes:
+      - cloak-key:/etc/serviceradar/cloak
+    command: >
+      sh -c 'set -e;
+      mkdir -p /etc/serviceradar/cloak;
+      if [ ! -f /etc/serviceradar/cloak/cloak.key ]; then
+        umask 077;
+        if [ -n "${CLOAK_KEY:-}" ]; then
+          printf "%s" "${CLOAK_KEY}" > /etc/serviceradar/cloak/cloak.key;
+        else
+          head -c 32 /dev/urandom | base64 | tr -d "\n" > /etc/serviceradar/cloak/cloak.key;
+        fi;
+        echo "Generated CLOAK_KEY";
+      else
+        echo "CLOAK_KEY already present";
+      fi'
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   core-elx:
     build:
       context: .
@@ -29,13 +54,16 @@ services:
       - SERVICERADAR_CORE_REGISTRIES_ENABLED=true
       - SERVICERADAR_CORE_OBAN_ENABLED=true
       # Encryption key for Cloak
-      - CLOAK_KEY=${CLOAK_KEY:-ZHVtbXlrZXlmb3JkZXZlbG9wbWVudHRlc3Rpbmdvbmx5}
+      - CLOAK_KEY=${CLOAK_KEY:-}
+      - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.core.conf:/etc/serviceradar/ssl_dist.conf:ro
+      - cloak-key:/etc/serviceradar/cloak:ro
     networks:
       - serviceradar-net
     depends_on:
+      - cloak-keygen
       - cnpg
     restart: unless-stopped
 
@@ -49,8 +77,10 @@ services:
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - RELEASE_NODE=serviceradar_web_ng@web-ng
       - RELEASE_COOKIE=serviceradar_dev_cookie
+      - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
     volumes:
       - ./docker/compose/ssl_dist.web.conf:/etc/serviceradar/ssl_dist.conf:ro
+      - cloak-key:/etc/serviceradar/cloak:ro
 
   poller-elx:
     build:
@@ -73,3 +103,6 @@ services:
     networks:
       - serviceradar-net
     restart: unless-stopped
+
+volumes:
+  cloak-key:

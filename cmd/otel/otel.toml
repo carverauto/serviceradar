@@ -11,6 +11,7 @@ url = "nats://localhost:4222"
 subject = "events.otel"
 stream = "events"
 timeout_secs = 30
+creds_file = "/etc/serviceradar/creds/platform.creds"
 
 # Optional NATS TLS configuration
 # Uncomment and set paths to enable TLS for NATS

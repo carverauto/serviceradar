@@ -11,6 +11,9 @@ data:
     {
       "listen_addr": "0.0.0.0:50041",
       "nats_url": "tls://serviceradar-nats:4222",
+{{- if .Values.natsCreds.platform }}
+      "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
+{{- end }}
       "partition": "k8s",
       "stream_name": "events",
       "consumer_name": "db-event-writer",

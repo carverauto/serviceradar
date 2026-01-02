@@ -1,6 +1,7 @@
 {
   "listen_addr": ":50057",
   "nats_url": "tls://nats:4222",
+  "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
   "security": {
     "mode": "spiffe",
     "cert_dir": "/etc/serviceradar/certs",

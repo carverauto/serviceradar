@@ -25,6 +25,7 @@
 //   - Parsing tenant info from certificate CN
 //   - Extracting tenant from gRPC peer certificates
 //   - NATS channel prefixing for tenant isolation
+//   - Context-based tenant propagation
 package tenant
 
 import (
@@ -39,6 +40,12 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 )
+
+// ctxKey is the type for context keys in this package.
+type ctxKey string
+
+// tenantCtxKey is the context key for storing tenant info.
+const tenantCtxKey ctxKey = "tenant"
 
 const (
 	// CNSuffix is the expected suffix for ServiceRadar certificate CNs.
@@ -61,7 +68,45 @@ var (
 
 	// ErrNoTLSInfo indicates no TLS info was found in peer credentials.
 	ErrNoTLSInfo = errors.New("no TLS info in peer credentials")
+
+	// ErrNoTenantInContext indicates no tenant info was found in the context.
+	ErrNoTenantInContext = errors.New("no tenant info in context")
 )
+
+// WithContext returns a new context with the tenant info attached.
+func WithContext(ctx context.Context, info *Info) context.Context {
+	return context.WithValue(ctx, tenantCtxKey, info)
+}
+
+// FromContext extracts tenant info from a context.
+// Returns ErrNoTenantInContext if no tenant info is present.
+func FromContext(ctx context.Context) (*Info, error) {
+	info, ok := ctx.Value(tenantCtxKey).(*Info)
+	if !ok || info == nil {
+		return nil, ErrNoTenantInContext
+	}
+	return info, nil
+}
+
+// MustFromContext extracts tenant info from a context or panics.
+// Use only when tenant presence is guaranteed (e.g., after middleware validation).
+func MustFromContext(ctx context.Context) *Info {
+	info, err := FromContext(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return info
+}
+
+// SlugFromContext extracts just the tenant slug from a context.
+// Returns empty string if no tenant info is present.
+func SlugFromContext(ctx context.Context) string {
+	info, err := FromContext(ctx)
+	if err != nil {
+		return ""
+	}
+	return info.TenantSlug
+}
 
 // Info contains tenant identity information extracted from a certificate.
 type Info struct {
@@ -95,6 +140,26 @@ func (i Info) NATSPrefix() string {
 // Example: "events.poller.health" -> "acme-corp.events.poller.health"
 func (i Info) PrefixChannel(channel string) string {
 	return i.TenantSlug + "." + channel
+}
+
+// PrefixChannelWithSlug returns a NATS channel name prefixed with the given tenant slug.
+// This is a standalone function for use when only the slug is available.
+// Example: PrefixChannelWithSlug("acme-corp", "events.poller.health") -> "acme-corp.events.poller.health"
+func PrefixChannelWithSlug(tenantSlug, channel string) string {
+	if tenantSlug == "" {
+		return channel
+	}
+	return tenantSlug + "." + channel
+}
+
+// PrefixChannelFromContext prefixes a channel using tenant info from the context.
+// Returns the original channel if no tenant is in context.
+func PrefixChannelFromContext(ctx context.Context, channel string) string {
+	info, err := FromContext(ctx)
+	if err != nil {
+		return channel
+	}
+	return info.PrefixChannel(channel)
 }
 
 // ParseCN extracts tenant information from a certificate Common Name.

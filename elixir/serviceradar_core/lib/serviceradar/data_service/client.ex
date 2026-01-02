@@ -26,6 +26,7 @@ defmodule ServiceRadar.DataService.Client do
   - `DATASVC_CONNECT_TIMEOUT_MS` - gRPC connect timeout in ms (default: 5000)
   - `DATASVC_RECONNECT_BASE_MS` - base reconnect backoff in ms (default: 1000)
   - `DATASVC_RECONNECT_MAX_MS` - max reconnect backoff in ms (default: 30000)
+  - `DATASVC_SERVER_NAME` - TLS server name for SNI (default: "datasvc.serviceradar")
 
   ## Usage
 
@@ -148,7 +149,7 @@ defmodule ServiceRadar.DataService.Client do
     {:noreply, schedule_reconnect(state, reason)}
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{connect_task: {_pid, ref}} = state) do
+  def handle_info({:DOWN, ref, :process, pid, reason}, %{connect_task: {pid, ref}} = state) do
     state = clear_connect_task(state)
     {:noreply, schedule_reconnect(state, reason)}
   end
@@ -245,6 +246,16 @@ defmodule ServiceRadar.DataService.Client do
     end
   end
 
+  def handle_call(:get_channel, _from, state) do
+    case ensure_connected(state) do
+      {:ok, state} ->
+        {:reply, {:ok, state.channel}, state}
+
+      {:error, _reason} = error ->
+        {:reply, error, state}
+    end
+  end
+
   # Private helpers
 
   defp build_config(opts) do
@@ -270,7 +281,12 @@ defmodule ServiceRadar.DataService.Client do
         opts[:reconnect_max_ms] ||
           get_env_int("DATASVC_RECONNECT_MAX_MS") ||
           app_config[:reconnect_max_ms] ||
-          @default_reconnect_max
+          @default_reconnect_max,
+      server_name:
+        opts[:server_name] ||
+          get_env("DATASVC_SERVER_NAME") ||
+          app_config[:server_name] ||
+          "datasvc.serviceradar"
     }
   end
 
@@ -317,7 +333,7 @@ defmodule ServiceRadar.DataService.Client do
             certfile: String.to_charlist(cert_file),
             keyfile: String.to_charlist(key_file),
             verify: :verify_peer,
-            server_name_indication: String.to_charlist(config.host)
+            server_name_indication: String.to_charlist(config.server_name)
           ]
 
           [cred: GRPC.Credential.new(ssl: ssl_opts)]

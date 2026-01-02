@@ -162,6 +162,8 @@ pub struct Config {
     pub decision_keys: Vec<String>,
     #[serde(default)]
     pub decision_groups: Vec<DecisionGroupConfig>,
+    #[serde(default)]
+    pub nats_creds_file: Option<String>,
     #[serde(default = "default_kv_bucket")]
     pub kv_bucket: String,
     pub agent_id: String,
@@ -204,6 +206,9 @@ impl Config {
             !self.subjects.is_empty(),
             "at least one subject is required"
         );
+        if let Some(creds_file) = &self.nats_creds_file {
+            ensure!(!creds_file.trim().is_empty(), "nats_creds_file cannot be empty");
+        }
 
         if let Some(sec) = &self.grpc_security {
             match sec.mode() {
@@ -226,6 +231,26 @@ impl Config {
         }
 
         Ok(())
+    }
+
+    pub fn nats_creds_path(&self) -> Option<PathBuf> {
+        let path = self.nats_creds_file.as_ref()?.trim();
+        if path.is_empty() {
+            return None;
+        }
+
+        let candidate = Path::new(path);
+        if candidate.is_absolute() {
+            Some(candidate.to_path_buf())
+        } else if let Some(sec) = &self.security {
+            if let Some(cert_dir) = &sec.cert_dir {
+                Some(Path::new(cert_dir).join(candidate))
+            } else {
+                Some(candidate.to_path_buf())
+            }
+        } else {
+            Some(candidate.to_path_buf())
+        }
     }
 
     pub fn ordered_rules_for_subject(&self, subject: &str) -> Vec<String> {

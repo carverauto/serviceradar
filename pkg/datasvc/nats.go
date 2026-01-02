@@ -42,6 +42,7 @@ type NATSStore struct {
 	nc             *nats.Conn
 	ctx            context.Context
 	natsURL        string
+	credsFile      string
 	security       *models.SecurityConfig
 	bucket         string
 	defaultDomain  string
@@ -71,6 +72,7 @@ func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
 	store := &NATSStore{
 		ctx:            ctx,
 		natsURL:        cfg.NATSURL,
+		credsFile:      cfg.NATSCredsFile,
 		security:       cloneSecurityConfig(cfg.NATSSecurity),
 		bucket:         cfg.Bucket,
 		defaultDomain:  cfg.Domain,
@@ -131,9 +133,16 @@ func (n *NATSStore) connect() (*nats.Conn, error) {
 		nats.Secure(tlsConfig),
 		nats.RootCAs(n.security.TLS.CAFile),
 		nats.ClientCert(n.security.TLS.CertFile, n.security.TLS.KeyFile),
+	}
+
+	if n.credsFile != "" {
+		opts = append(opts, nats.UserCredentials(n.credsFile))
+	}
+
+	opts = append(opts,
 		nats.MaxReconnects(-1),
 		nats.RetryOnFailedConnect(true),
-		nats.ReconnectWait(2 * time.Second),
+		nats.ReconnectWait(2*time.Second),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			if err != nil {
 				log.Printf("Disconnected from NATS: %v", err)
@@ -152,7 +161,7 @@ func (n *NATSStore) connect() (*nats.Conn, error) {
 				log.Printf("NATS error: %v", err)
 			}
 		}),
-	}
+	)
 
 	conn, err := nats.Connect(n.natsURL, opts...)
 	if err != nil {

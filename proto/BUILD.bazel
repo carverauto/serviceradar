@@ -22,6 +22,12 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
+filegroup(
+    name = "nats_account_proto_src",
+    srcs = ["nats_account.proto"],
+    visibility = ["//visibility:public"],
+)
+
 go_library(
     name = "proto",
     srcs = [
@@ -34,6 +40,8 @@ go_library(
         "mock_monitoring.go",
         "monitoring.pb.go",
         "monitoring_grpc.pb.go",
+        "nats_account.pb.go",
+        "nats_account_grpc.pb.go",
     ],
     importpath = "github.com/carverauto/serviceradar/proto",
     visibility = ["//visibility:public"],

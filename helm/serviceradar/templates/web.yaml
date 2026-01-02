@@ -3,6 +3,7 @@
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $webHost := default .Values.ingress.host $webNg.host -}}
+{{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -44,8 +45,13 @@ spec:
         - name: SECRET_KEY_BASE
           valueFrom:
             secretKeyRef:
-              name: serviceradar-secrets
+              name: {{ $secrets | quote }}
               key: web-ng-secret-key-base
+        - name: CLOAK_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: cloak-key
         - name: CNPG_HOST
           value: {{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) $cnpg.host | quote }}
         - name: CNPG_PORT

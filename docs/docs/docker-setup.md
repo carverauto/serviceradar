@@ -410,9 +410,14 @@ docker-compose logs web
 
 ### Database Maintenance
 
-Use Postgres tooling (psql/pg_dump) against CNPG (default host `cnpg-rw:5432`, database `serviceradar`). Example health check:
+Use Postgres tooling (psql/pg_dump) against CNPG (default host `cnpg-rw:5432`, database `serviceradar`). CNPG enforces mTLS + password for TCP connections. Example health check:
 ```bash
-psql "postgres://serviceradar:<password>@cnpg-rw:5432/serviceradar?sslmode=verify-full" -c "SELECT 1;"
+PGSSLMODE=verify-full \
+PGSSLROOTCERT=/etc/serviceradar/certs/root.pem \
+PGSSLCERT=/etc/serviceradar/certs/workstation.pem \
+PGSSLKEY=/etc/serviceradar/certs/workstation-key.pem \
+PGPASSWORD=<password> \
+psql -h cnpg-rw -p 5432 -U serviceradar -d serviceradar -c "SELECT 1;"
 ```
 
 ## Security Considerations

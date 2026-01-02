@@ -575,6 +575,7 @@ data:
     zen.json: |
       {
         "nats_url": "tls://serviceradar-nats:4222",
+        "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
         "stream_name": "events",
         "consumer_name": "zen-consumer",
         "subjects": [
@@ -1182,6 +1183,7 @@ data:
       [nats]
       # NATS server URL with mTLS (Kubernetes deployment)
       url = "tls://serviceradar-nats:4222"
+      creds_file = "/etc/serviceradar/creds/platform.creds"
   
       # Subject to publish traces to (default: events.otel)
       subject = "events.otel"
@@ -1213,6 +1215,7 @@ data:
       {
         "listen_addr": "0.0.0.0:162",
         "nats_url": "tls://serviceradar-nats:4222",
+        "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
         "stream_name": "events",
         "subject": "snmp.traps",
         "nats_security": {
@@ -1347,6 +1350,7 @@ data:
       {
         "listen_addr": "0.0.0.0:50057",
         "nats_url": "tls://serviceradar-nats:4222",
+        "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",

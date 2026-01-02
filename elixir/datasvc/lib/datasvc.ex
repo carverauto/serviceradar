@@ -142,10 +142,10 @@ defmodule Datasvc do
           # Could add connection pooling here in the future
           try do
             _ = GRPC.Stub.disconnect(channel)
-          catch
-            :exit, _ -> :ok
           rescue
             _ -> :ok
+          catch
+            :exit, _ -> :ok
           end
           :ok
         end

@@ -80,6 +80,8 @@ pub struct Config {
     #[serde(default = "default_stream_name")]
     pub stream_name: String,
     pub subject: String,
+    #[serde(default)]
+    pub nats_creds_file: Option<String>,
     #[serde(default, alias = "security")]
     pub nats_security: Option<SecurityConfig>,
     pub grpc_listen_addr: Option<String>,
@@ -99,6 +101,11 @@ impl Config {
         }
         if self.subject.is_empty() {
             anyhow::bail!("subject is required");
+        }
+        if let Some(creds_file) = &self.nats_creds_file {
+            if creds_file.trim().is_empty() {
+                anyhow::bail!("nats_creds_file cannot be empty");
+            }
         }
         if let Some(sec) = &self.nats_security {
             match sec.mode {
@@ -148,6 +155,19 @@ impl Config {
         }
         Ok(())
     }
+
+    pub fn nats_creds_path(&self) -> Option<PathBuf> {
+        let path = self.nats_creds_file.as_ref()?.trim();
+        if path.is_empty() {
+            return None;
+        }
+
+        if let Some(sec) = &self.nats_security {
+            Some(sec.resolve_path(path))
+        } else {
+            Some(PathBuf::from(path))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -162,6 +182,7 @@ mod tests {
             nats_domain: None,
             stream_name: "events".into(),
             subject: "snmp.traps".into(),
+            nats_creds_file: None,
             nats_security: None,
             grpc_listen_addr: Some("0.0.0.0:50043".into()),
             grpc_security: Some(SecurityConfig {

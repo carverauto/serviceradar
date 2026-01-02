@@ -26,6 +26,16 @@ defmodule ServiceRadarWebNGWeb.AdminComponents do
         label: "Integrations",
         href: "/admin/integrations",
         active: String.starts_with?(assigns.current_path || "", "/admin/integrations")
+      },
+      %{
+        label: "Collectors",
+        href: "/admin/collectors",
+        active: String.starts_with?(assigns.current_path || "", "/admin/collectors")
+      },
+      %{
+        label: "NATS",
+        href: "/admin/nats",
+        active: String.starts_with?(assigns.current_path || "", "/admin/nats")
       }
     ]
 

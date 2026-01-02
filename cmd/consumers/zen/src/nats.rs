@@ -15,6 +15,10 @@ pub async fn connect_nats(cfg: &Config) -> Result<(Client, jetstream::Context)> 
         }
     }
 
+    if let Some(creds_path) = cfg.nats_creds_path() {
+        opts = opts.credentials_file(creds_path).await?;
+    }
+
     let client = opts.connect(&cfg.nats_url).await?;
     info!("connected to nats at {}", cfg.nats_url);
 

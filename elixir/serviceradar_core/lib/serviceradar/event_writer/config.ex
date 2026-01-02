@@ -15,7 +15,8 @@ defmodule ServiceRadar.EventWriter.Config do
           host: "localhost",
           port: 4222,
           user: "serviceradar",
-          password: {:system, "NATS_PASSWORD"}
+          password: {:system, "NATS_PASSWORD"},
+          creds_file: "/etc/serviceradar/creds/platform.creds"
         ],
         batch_size: 100,
         batch_timeout: 1000,
@@ -31,6 +32,7 @@ defmodule ServiceRadar.EventWriter.Config do
 
   - `EVENT_WRITER_ENABLED` - Enable/disable the EventWriter (default: false)
   - `EVENT_WRITER_NATS_URL` - NATS connection URL (e.g., nats://localhost:4222)
+  - `EVENT_WRITER_NATS_CREDS_FILE` - Path to NATS .creds file (JWT auth)
   - `EVENT_WRITER_BATCH_SIZE` - Batch size for inserts (default: 100)
   - `EVENT_WRITER_BATCH_TIMEOUT` - Batch timeout in ms (default: 1000)
   """
@@ -64,7 +66,10 @@ defmodule ServiceRadar.EventWriter.Config do
           port: pos_integer(),
           user: String.t() | nil,
           password: String.t() | nil,
-          tls: boolean() | keyword()
+          tls: boolean() | keyword(),
+          jwt: String.t() | nil,
+          nkey_seed: String.t() | nil,
+          creds_file: String.t() | nil
         }
 
   @type stream_config :: %{
@@ -112,12 +117,23 @@ defmodule ServiceRadar.EventWriter.Config do
 
   @doc """
   Returns the default stream configurations.
+
+  Subject patterns use `*` prefix to capture all tenant-prefixed messages:
+  - `*.events.>` matches `acme-corp.events.poller.health`, `xyz-inc.events.device.created`, etc.
+  - Legacy non-prefixed subjects (`events.>`) are also supported for backward compatibility
   """
   @spec default_streams() :: [stream_config()]
   def default_streams do
     [
       %{
         name: "EVENTS",
+        subject: "*.events.>",
+        processor: ServiceRadar.EventWriter.Processors.Events,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
+      %{
+        name: "EVENTS_LEGACY",
         subject: "events.>",
         processor: ServiceRadar.EventWriter.Processors.Events,
         batch_size: 100,
@@ -125,6 +141,13 @@ defmodule ServiceRadar.EventWriter.Config do
       },
       %{
         name: "SNMP_TRAPS",
+        subject: "*.snmp.traps",
+        processor: ServiceRadar.EventWriter.Processors.Events,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
+      %{
+        name: "SNMP_TRAPS_LEGACY",
         subject: "snmp.traps",
         processor: ServiceRadar.EventWriter.Processors.Events,
         batch_size: 100,
@@ -132,6 +155,13 @@ defmodule ServiceRadar.EventWriter.Config do
       },
       %{
         name: "OTEL_METRICS",
+        subject: "*.otel.metrics.>",
+        processor: ServiceRadar.EventWriter.Processors.OtelMetrics,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
+      %{
+        name: "OTEL_METRICS_LEGACY",
         subject: "otel.metrics.>",
         processor: ServiceRadar.EventWriter.Processors.OtelMetrics,
         batch_size: 100,
@@ -139,6 +169,13 @@ defmodule ServiceRadar.EventWriter.Config do
       },
       %{
         name: "OTEL_TRACES",
+        subject: "*.otel.traces.>",
+        processor: ServiceRadar.EventWriter.Processors.OtelTraces,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
+      %{
+        name: "OTEL_TRACES_LEGACY",
         subject: "otel.traces.>",
         processor: ServiceRadar.EventWriter.Processors.OtelTraces,
         batch_size: 100,
@@ -146,6 +183,13 @@ defmodule ServiceRadar.EventWriter.Config do
       },
       %{
         name: "LOGS",
+        subject: "*.logs.>",
+        processor: ServiceRadar.EventWriter.Processors.Logs,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
+      %{
+        name: "LOGS_LEGACY",
         subject: "logs.>",
         processor: ServiceRadar.EventWriter.Processors.Logs,
         batch_size: 100,
@@ -161,13 +205,24 @@ defmodule ServiceRadar.EventWriter.Config do
 
     # Check for NATS URL environment variable
     {host, port} = parse_nats_url()
+    creds_file =
+      System.get_env("EVENT_WRITER_NATS_CREDS_FILE") ||
+        resolve_value(Keyword.get(nats_config, :creds_file))
+
+    creds_file = normalize(creds_file)
+    jwt = resolve_value(Keyword.get(nats_config, :jwt)) |> normalize()
+    nkey_seed = resolve_value(Keyword.get(nats_config, :nkey_seed)) |> normalize()
+    {jwt, nkey_seed} = load_creds(creds_file, jwt, nkey_seed)
 
     %{
       host: host || Keyword.get(nats_config, :host, "localhost"),
       port: port || Keyword.get(nats_config, :port, 4222),
       user: resolve_value(Keyword.get(nats_config, :user)),
       password: resolve_value(Keyword.get(nats_config, :password)),
-      tls: Keyword.get(nats_config, :tls, false)
+      tls: Keyword.get(nats_config, :tls, false),
+      creds_file: creds_file,
+      jwt: jwt,
+      nkey_seed: nkey_seed
     }
   end
 
@@ -210,6 +265,34 @@ defmodule ServiceRadar.EventWriter.Config do
     end
   end
 
+  defp load_creds(nil, jwt, nkey_seed), do: {jwt, nkey_seed}
+  defp load_creds("", jwt, nkey_seed), do: {jwt, nkey_seed}
+
+  defp load_creds(creds_file, jwt, nkey_seed) do
+    case ServiceRadar.NATS.Creds.read(creds_file) do
+      {:ok, creds} ->
+        {creds.jwt, creds.nkey_seed}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to read EventWriter NATS creds file #{creds_file}: #{inspect(reason)}"
+        )
+
+        {jwt, nkey_seed}
+    end
+  end
+
   defp resolve_value({:system, env_var}), do: System.get_env(env_var)
   defp resolve_value(value), do: value
+
+  defp normalize(nil), do: nil
+
+  defp normalize(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize(value), do: value
 end

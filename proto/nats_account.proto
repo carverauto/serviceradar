@@ -1,0 +1,183 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package proto;
+
+option go_package = "github.com/carverauto/serviceradar/proto";
+
+// NATSAccountService provides stateless NATS JWT signing operations.
+//
+// This service is called by Elixir core (with platform mTLS credentials) to:
+// - Bootstrap the NATS operator (first-time platform setup)
+// - Generate new tenant account keys and sign account JWTs
+// - Generate user credentials signed with tenant account keys
+// - Re-sign account JWTs when claims change (revocations, limits)
+//
+// Elixir is responsible for storing tenant account data in CNPG.
+// datasvc holds only the operator key and performs cryptographic operations.
+service NATSAccountService {
+  // BootstrapOperator initializes the NATS operator for the platform.
+  // This can either generate a new operator key pair or import an existing seed.
+  // Should be called once during initial platform setup.
+  rpc BootstrapOperator(BootstrapOperatorRequest) returns (BootstrapOperatorResponse) {}
+
+  // GetOperatorInfo returns the current operator status and public key.
+  // Used to verify the operator is initialized before tenant operations.
+  rpc GetOperatorInfo(GetOperatorInfoRequest) returns (GetOperatorInfoResponse) {}
+
+  // CreateTenantAccount generates new account NKeys and a signed account JWT.
+  // The account_seed is returned and should be stored encrypted by Elixir (AshCloak).
+  rpc CreateTenantAccount(CreateTenantAccountRequest) returns (CreateTenantAccountResponse) {}
+
+  // GenerateUserCredentials creates NATS user credentials for a tenant's account.
+  // Requires the account_seed to sign the user JWT.
+  rpc GenerateUserCredentials(GenerateUserCredentialsRequest) returns (GenerateUserCredentialsResponse) {}
+
+  // SignAccountJWT regenerates an account JWT with updated claims.
+  // Use this when revocations or limits change.
+  rpc SignAccountJWT(SignAccountJWTRequest) returns (SignAccountJWTResponse) {}
+
+  // PushAccountJWT pushes an account JWT to the NATS resolver.
+  // This makes the account immediately available without NATS restart.
+  // Uses the system account to publish to $SYS.REQ.CLAIMS.UPDATE.
+  rpc PushAccountJWT(PushAccountJWTRequest) returns (PushAccountJWTResponse) {}
+}
+
+// AccountLimits defines resource constraints for a NATS account.
+message AccountLimits {
+  int64 max_connections = 1;     // Maximum concurrent connections (0 = unlimited)
+  int64 max_subscriptions = 2;   // Maximum subscriptions per connection (0 = unlimited)
+  int64 max_payload_bytes = 3;   // Maximum message payload size in bytes (0 = default 1MB)
+  int64 max_data_bytes = 4;      // Maximum data throughput in bytes/sec (0 = unlimited)
+  int64 max_exports = 5;         // Maximum number of exports (0 = unlimited)
+  int64 max_imports = 6;         // Maximum number of imports (0 = unlimited)
+  bool allow_wildcard_exports = 7; // Whether wildcard exports are allowed
+}
+
+// SubjectMapping defines how subjects are transformed for tenant isolation.
+message SubjectMapping {
+  string from = 1;  // Source subject pattern (e.g., "snmp.traps")
+  string to = 2;    // Destination subject pattern (e.g., "{{tenant}}.snmp.traps")
+}
+
+// CreateTenantAccountRequest is the request to create a new tenant NATS account.
+message CreateTenantAccountRequest {
+  string tenant_slug = 1;           // Unique tenant identifier (e.g., "acme-corp")
+  AccountLimits limits = 2;         // Optional resource limits
+  repeated SubjectMapping subject_mappings = 3; // Optional custom subject mappings
+}
+
+// CreateTenantAccountResponse returns the generated account credentials.
+// The account_seed should be stored encrypted by the caller (Elixir/AshCloak).
+message CreateTenantAccountResponse {
+  string account_public_key = 1;    // The account's public NKey (starts with 'A')
+  string account_seed = 2;          // The account's private seed (starts with 'SA') - STORE ENCRYPTED
+  string account_jwt = 3;           // The signed account JWT
+}
+
+// UserCredentialType specifies what the credentials will be used for.
+enum UserCredentialType {
+  USER_CREDENTIAL_TYPE_UNSPECIFIED = 0;
+  USER_CREDENTIAL_TYPE_COLLECTOR = 1;    // For edge collectors (flowgger, trapd, etc.)
+  USER_CREDENTIAL_TYPE_SERVICE = 2;      // For internal services
+  USER_CREDENTIAL_TYPE_ADMIN = 3;        // For tenant admin access (limited)
+}
+
+// UserPermissions defines publish/subscribe permissions for a user.
+message UserPermissions {
+  repeated string publish_allow = 1;     // Subjects the user can publish to
+  repeated string publish_deny = 2;      // Subjects the user cannot publish to
+  repeated string subscribe_allow = 3;   // Subjects the user can subscribe to
+  repeated string subscribe_deny = 4;    // Subjects the user cannot subscribe to
+  bool allow_responses = 5;              // Whether the user can send responses
+  int32 max_responses = 6;               // Maximum number of responses (0 = unlimited)
+}
+
+// GenerateUserCredentialsRequest is the request to create user credentials.
+message GenerateUserCredentialsRequest {
+  string tenant_slug = 1;              // Tenant the user belongs to
+  string account_seed = 2;             // Account's private seed for signing (from Elixir storage)
+  string user_name = 3;                // Human-readable user identifier
+  UserCredentialType credential_type = 4; // Type of credentials to generate
+  UserPermissions permissions = 5;     // Optional custom permissions (defaults based on type)
+  int64 expiration_seconds = 6;        // Credential expiration in seconds (0 = no expiration)
+}
+
+// GenerateUserCredentialsResponse contains the generated credentials.
+message GenerateUserCredentialsResponse {
+  string user_public_key = 1;          // The user's public NKey (starts with 'U')
+  string user_jwt = 2;                 // The signed user JWT
+  string creds_file_content = 3;       // Complete .creds file content (JWT + seed)
+  int64 expires_at_unix = 4;           // Unix timestamp when credentials expire (0 = never)
+}
+
+// SignAccountJWTRequest is used to regenerate an account JWT with updated claims.
+message SignAccountJWTRequest {
+  string tenant_slug = 1;              // Tenant identifier (used as account name)
+  string account_seed = 2;             // Account's private seed (from Elixir storage)
+  AccountLimits limits = 3;            // Current resource limits
+  repeated SubjectMapping subject_mappings = 4; // Current subject mappings
+  repeated string revoked_user_keys = 5; // Public keys of revoked users
+}
+
+// SignAccountJWTResponse returns the newly signed account JWT.
+message SignAccountJWTResponse {
+  string account_public_key = 1;       // The account's public NKey
+  string account_jwt = 2;              // The newly signed account JWT
+}
+
+// BootstrapOperatorRequest is used to initialize the NATS operator.
+message BootstrapOperatorRequest {
+  string operator_name = 1;            // Name for the operator (e.g., "serviceradar")
+  string existing_operator_seed = 2;   // Optional: import existing seed instead of generating
+  bool generate_system_account = 3;    // Whether to generate the system account
+}
+
+// BootstrapOperatorResponse returns the operator credentials.
+// Seeds are only returned if newly generated (not when importing existing).
+message BootstrapOperatorResponse {
+  string operator_public_key = 1;      // The operator's public NKey (starts with 'O')
+  string operator_seed = 2;            // The operator's private seed - only if newly generated
+  string operator_jwt = 3;             // The signed operator JWT
+  string system_account_public_key = 4; // System account public key (if generated)
+  string system_account_seed = 5;      // System account seed - only if newly generated
+  string system_account_jwt = 6;       // Signed system account JWT (if generated)
+}
+
+// GetOperatorInfoRequest retrieves current operator status.
+message GetOperatorInfoRequest {}
+
+// GetOperatorInfoResponse returns the operator's current state.
+message GetOperatorInfoResponse {
+  string operator_public_key = 1;      // The operator's public NKey
+  string operator_name = 2;            // The operator's name
+  bool is_initialized = 3;             // Whether the operator is ready for use
+  string system_account_public_key = 4; // System account public key (if exists)
+}
+
+// PushAccountJWTRequest is the request to push an account JWT to the NATS resolver.
+message PushAccountJWTRequest {
+  string account_public_key = 1;       // The account's public NKey (starts with 'A')
+  string account_jwt = 2;              // The signed account JWT to push
+}
+
+// PushAccountJWTResponse confirms the JWT was pushed to the resolver.
+message PushAccountJWTResponse {
+  bool success = 1;                    // Whether the push was successful
+  string message = 2;                  // Status message or error details
+}

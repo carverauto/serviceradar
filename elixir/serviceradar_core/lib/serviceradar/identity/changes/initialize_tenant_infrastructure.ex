@@ -7,6 +7,7 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
   1. Creates per-tenant Horde registry and DynamicSupervisor
   2. Registers slug -> UUID mapping for admin lookups
   3. Provisions per-tenant Oban queues for job isolation
+  4. Enqueues NATS account creation job for tenant isolation
 
   ## Usage
 
@@ -29,6 +30,7 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
   use Ash.Resource.Change
 
   alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.NATS.Workers.CreateAccountWorker
   alias ServiceRadar.Oban.TenantQueues
 
   require Logger
@@ -73,6 +75,19 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
       {:error, reason} ->
         Logger.error("Failed to provision Oban queues for #{tenant_slug}: #{inspect(reason)}")
         # Don't fail tenant creation, queues can be provisioned later
+    end
+
+    # 3. Enqueue NATS account creation job for tenant isolation
+    case CreateAccountWorker.enqueue(tenant_id) do
+      {:ok, _job} ->
+        Logger.debug("Enqueued NATS account creation for tenant: #{tenant_slug}")
+
+      {:error, reason} ->
+        Logger.error(
+          "Failed to enqueue NATS account creation for #{tenant_slug}: #{inspect(reason)}"
+        )
+
+        # Don't fail tenant creation, account can be created later via admin action
     end
 
     {:ok, tenant}

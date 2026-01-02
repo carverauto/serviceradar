@@ -23,5 +23,8 @@ mix_release(
     run_assets = False,
     extra_dirs = ["elixir/serviceradar_core"],
     extra_dir_srcs = ["//elixir/serviceradar_core:srcs"],
-    hex_cache = "//build:hex_cache",
+    hex_cache = select({
+        "//build:use_hex_cache": "//build:hex_cache",
+        "//conditions:default": None,
+    }),
 )

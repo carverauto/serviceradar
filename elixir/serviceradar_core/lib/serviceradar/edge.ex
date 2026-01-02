@@ -1,17 +1,22 @@
 defmodule ServiceRadar.Edge do
   @moduledoc """
-  The Edge domain manages edge onboarding packages and events.
+  The Edge domain manages edge onboarding packages, events, and NATS credentials.
 
   This domain is responsible for:
   - Edge onboarding package creation and delivery
   - Package lifecycle management (state machine)
   - Onboarding event tracking
   - Download token management
+  - NATS credential issuance and lifecycle for collectors
+  - Collector package management (flowgger, trapd, netflow, otel)
 
   ## Resources
 
   - `ServiceRadar.Edge.OnboardingPackage` - Edge deployment packages
   - `ServiceRadar.Edge.OnboardingEvent` - Package lifecycle events
+  - `ServiceRadar.Edge.TenantCA` - Per-tenant certificate authorities
+  - `ServiceRadar.Edge.NatsCredential` - NATS credentials for collectors
+  - `ServiceRadar.Edge.CollectorPackage` - Collector-specific deployment packages
 
   ## Package State Machine
 
@@ -37,6 +42,8 @@ defmodule ServiceRadar.Edge do
     resource ServiceRadar.Edge.OnboardingPackage
     resource ServiceRadar.Edge.OnboardingEvent
     resource ServiceRadar.Edge.TenantCA
+    resource ServiceRadar.Edge.NatsCredential
+    resource ServiceRadar.Edge.CollectorPackage
   end
 
   authorization do

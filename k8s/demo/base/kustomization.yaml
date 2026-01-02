@@ -5,6 +5,7 @@ kind: Kustomization
 resources:
 - spire
 - serviceradar-nats.yaml
+- serviceradar-nats-creds.yaml
 - serviceradar-datasvc.yaml
 - serviceradar-core.yaml
 - serviceradar-web-ng.yaml
@@ -25,6 +26,7 @@ resources:
 - serviceradar-faker.yaml
 - serviceradar-db-event-writer-config.yaml
 - secret-generator-job.yaml
+- cnpg-client-ca-job.yaml
 - configmap.yaml
 - cert-scripts-configmap.yaml
 - cert-generator-job.yaml

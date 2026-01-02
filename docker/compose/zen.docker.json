@@ -1,5 +1,6 @@
 {
   "nats_url": "tls://nats:4222",
+  "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
   "subjects": ["events.syslog", "events.snmp", "events.otel.logs"],

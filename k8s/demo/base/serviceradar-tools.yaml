@@ -380,6 +380,8 @@ data:
     CNPG_USERNAME="${CNPG_USERNAME:-postgres}"
     CNPG_SSLMODE="${CNPG_SSLMODE:-verify-full}"
     CNPG_CA_FILE="${CNPG_CA_FILE:-/etc/serviceradar/cnpg/ca.crt}"
+    CNPG_CERT_FILE="${CNPG_CERT_FILE:-/etc/serviceradar/certs/client.pem}"
+    CNPG_KEY_FILE="${CNPG_KEY_FILE:-/etc/serviceradar/certs/client-key.pem}"
     CNPG_SERVICE_NAME="${CNPG_SERVICE_NAME:-serviceradar}"
     CNPG_PASSWORD_FILE="${CNPG_PASSWORD_FILE:-}"
     CNPG_PASSWORD_VALUE="${CNPG_PASSWORD:-}"
@@ -400,6 +402,12 @@ data:
             printf 'user=%s\n' "${CNPG_USERNAME}"
             printf 'sslmode=%s\n' "${CNPG_SSLMODE}"
             printf 'sslrootcert=%s\n' "${CNPG_CA_FILE}"
+            if [ -f "${CNPG_CERT_FILE}" ] && [ -f "${CNPG_KEY_FILE}" ]; then
+                printf 'sslcert=%s\n' "${CNPG_CERT_FILE}"
+                printf 'sslkey=%s\n' "${CNPG_KEY_FILE}"
+            else
+                echo "⚠️ CNPG client cert files not found; continuing without sslcert/sslkey" >&2
+            fi
         } > /root/.pg_service.conf
         chmod 600 /root/.pg_service.conf
       fi
