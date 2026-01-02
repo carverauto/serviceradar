@@ -139,32 +139,52 @@
 - [x] 3.5.4 Add `bootstrap` action to NatsOperator
 - [x] 3.5.5 Add policies for super_admin access control
 
-## Phase 4: Collector Onboarding Packages
+## Phase 4: Collector Onboarding Packages (DONE)
 
 > **Note**: Collectors don't need tenant_slug - they authenticate with NATS account credentials.
 > NATS handles subject prefixing via server-side subject mapping.
+>
+> **Implementation Note**: Instead of extending OnboardingPackage, a separate `CollectorPackage`
+> resource was created specifically for collector deployments with NATS credentials.
 
-### 4.1 OnboardingPackage Extensions
+### 4.1 CollectorPackage Resource (DONE)
 
-- [ ] 4.1.1 Add collector component types: `:flowgger`, `:trapd`, `:netflow`, `:otel`
-- [ ] 4.1.2 Add `nats_account_name` attribute for tenant's NATS account
-- [ ] 4.1.3 Add `nats_creds_ciphertext` for encrypted NATS credentials
-- [ ] 4.1.4 Remove any tenant_slug from collector configs (not needed)
+- [x] 4.1.1 Create `ServiceRadar.Edge.CollectorPackage` Ash resource
+  - Collector types: `:flowgger`, `:trapd`, `:netflow`, `:otel`
+  - State machine: pending → provisioning → ready → downloaded → installed
+  - Multi-tenancy via `tenant_id` attribute
+- [x] 4.1.2 Add `nats_credential_id` relationship to track issued credentials
+- [x] 4.1.3 Add `nats_creds_ciphertext` for encrypted NATS credentials (AshCloak)
+- [x] 4.1.4 Create `ServiceRadar.Edge.NatsCredential` resource for credential tracking
 
-### 4.2 Package Generation
+### 4.2 Credential Provisioning (DONE)
 
-- [ ] 4.2.1 Verify tenant NATS account is ready before package creation
-- [ ] 4.2.2 Call datasvc `GenerateUserCredentials` for NATS creds
-- [ ] 4.2.3 Generate mTLS certificates signed by platform CA
-- [ ] 4.2.4 Generate collector config (with nats_creds_file path, no tenant_slug)
-- [ ] 4.2.5 Create install script template (`install-collector.sh`)
-- [ ] 4.2.6 Package all artifacts into downloadable tarball
+- [x] 4.2.1 Create `ProvisionCollectorWorker` Oban job for async provisioning
+- [x] 4.2.2 Verify tenant NATS account is ready before provisioning
+- [x] 4.2.3 Call datasvc `GenerateUserCredentials` for NATS creds
+- [x] 4.2.4 Store encrypted credentials in CollectorPackage via AshCloak
+- [x] 4.2.5 Create NatsCredential record for tracking/revocation
 
-### 4.3 Package Contents
+### 4.3 API Endpoints (DONE)
 
-Package structure:
+- [x] 4.3.1 Create `CollectorController` for REST API access
+- [x] 4.3.2 POST `/api/admin/collectors` - Create collector package
+- [x] 4.3.3 GET `/api/admin/collectors/:id` - Get package status
+- [x] 4.3.4 GET `/api/admin/collectors/:id/download` - Download with token
+- [x] 4.3.5 POST `/api/admin/collectors/:id/revoke` - Revoke package
+
+### 4.4 Package Download
+
+- [x] 4.4.1 Decrypt NATS credentials from AshCloak storage
+- [x] 4.4.2 Generate collector config (with nats_creds_file path)
+- [x] 4.4.3 Generate install script template
+- [ ] 4.4.4 Generate tarball bundle with all artifacts (BundleGenerator integration)
+- [ ] 4.4.5 Add mTLS certificate generation (reuse from OnboardingPackage)
+
+### 4.5 Package Contents (Target Structure)
+
 ```
-serviceradar-collector-<tenant>.tar.gz/
+serviceradar-collector-<id>.tar.gz/
 ├── certs/
 │   ├── collector.pem      # mTLS cert
 │   ├── collector-key.pem  # mTLS key

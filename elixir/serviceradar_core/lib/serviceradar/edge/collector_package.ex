@@ -32,11 +32,18 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     domain: ServiceRadar.Edge,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshStateMachine]
+    extensions: [AshStateMachine, AshCloak]
 
   postgres do
     table "collector_packages"
     repo ServiceRadar.Repo
+  end
+
+  cloak do
+    vault(ServiceRadar.Vault)
+    attributes([:nats_creds_ciphertext])
+    # Not decrypted by default for security - use ServiceRadar.Vault.decrypt/1 when needed
+    decrypt_by_default([])
   end
 
   state_machine do
@@ -150,15 +157,19 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       require_atomic? false
 
       argument :nats_credential_id, :uuid, allow_nil?: false
+      argument :nats_creds_content, :string, allow_nil?: false, sensitive?: true
 
       change fn changeset, _context ->
         old_status = Ash.Changeset.get_data(changeset, :status)
+        creds_content = Ash.Changeset.get_argument(changeset, :nats_creds_content)
 
         changeset
         |> Ash.Changeset.change_attribute(
           :nats_credential_id,
           Ash.Changeset.get_argument(changeset, :nats_credential_id)
         )
+        # Encrypt NATS credentials using AshCloak
+        |> AshCloak.encrypt_and_set(:nats_creds_ciphertext, creds_content)
         |> Ash.Changeset.after_action(fn _changeset, package ->
           __MODULE__.broadcast_status_changed(package, old_status, :ready)
           {:ok, package}
@@ -366,6 +377,13 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       allow_nil? true
       public? false
       description "Error message if provisioning failed"
+    end
+
+    attribute :nats_creds_ciphertext, :binary do
+      allow_nil? true
+      public? false
+      sensitive? true
+      description "Encrypted NATS user credentials (.creds file content)"
     end
 
     attribute :config_overrides, :map do

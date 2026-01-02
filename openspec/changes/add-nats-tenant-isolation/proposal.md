@@ -531,8 +531,15 @@ streams {
   - Tenant detail page at `/admin/nats/tenants/:id`
   - Reprovision and clear NATS account actions
   - API endpoints for programmatic access
-- ⏳ Phase 4: Collector onboarding packages (next priority)
-- ⏳ Phase 5: Collector NATS credentials support (nats_creds_file config)
+- ✅ Phase 4: Collector onboarding packages (DONE - using CollectorPackage resource)
+  - `CollectorPackage` Ash resource with state machine (pending → ready → downloaded)
+  - `NatsCredential` resource for tracking issued credentials
+  - `ProvisionCollectorWorker` Oban job for async NATS credential provisioning
+  - `CollectorController` REST API (create, download, revoke)
+  - Encrypted credential storage via AshCloak (`nats_creds_ciphertext`)
+  - Remaining: BundleGenerator integration for tarball, mTLS cert generation
+- ✅ Phase 5: Collector NATS credentials support (nats_creds_file config in flowgger/trapd)
+- ⏳ Phase 4b: JetStream stream configuration for tenant-prefixed subjects
 - ⏳ Phase 6: Per-tenant EventWriter pipelines (optimization)
 - ⏳ Phase 7: Leaf node support for customer-network deployments
 

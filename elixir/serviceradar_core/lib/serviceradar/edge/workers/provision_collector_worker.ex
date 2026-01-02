@@ -71,7 +71,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
          {:ok, account_seed} <- get_account_seed(tenant),
          {:ok, user_creds} <- generate_user_credentials(tenant, package, account_seed),
          {:ok, credential} <- create_credential_record(package, user_creds),
-         {:ok, _package} <- mark_ready(package, credential.id) do
+         {:ok, _package} <- mark_ready(package, credential.id, user_creds.creds_file_content) do
       Logger.info("Successfully provisioned NATS credentials for collector package #{package_id}")
       :ok
     else
@@ -263,10 +263,11 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     |> Ash.create(authorize?: false)
   end
 
-  defp mark_ready(package, credential_id) do
+  defp mark_ready(package, credential_id, nats_creds_content) do
     package
     |> Ash.Changeset.for_update(:ready, %{})
     |> Ash.Changeset.set_argument(:nats_credential_id, credential_id)
+    |> Ash.Changeset.set_argument(:nats_creds_content, nats_creds_content)
     |> Ash.update(authorize?: false)
   end
 
