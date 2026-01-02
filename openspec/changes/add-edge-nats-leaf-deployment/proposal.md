@@ -1,5 +1,15 @@
 # Change: Add Edge NATS Leaf Deployment
 
+## Status
+
+**Phases 1-4: COMPLETE** - Core resources, config generation, UI, and collector integration are implemented and working.
+
+**Phase 5 (Health Monitoring): IN PROGRESS** - Being implemented separately via AgentGateway architecture (see Architecture Notes below).
+
+**Phase 6 (CLI Tool): DEFERRED** - Will be addressed in future work.
+
+---
+
 ## Why
 
 ServiceRadar supports two deployment scenarios for customers:
@@ -203,13 +213,14 @@ None - this is additive. Existing direct-to-SaaS collectors continue working.
 
 ## Sequencing
 
-1. **Phase 1**: EdgeSite and NatsLeafServer resources
-2. **Phase 2**: Leaf configuration generation
-3. **Phase 3**: UI for edge site management
-4. **Phase 4**: CollectorPackage site linking
-5. **Phase 5**: Bundle generator site-aware NATS URL
-6. **Phase 6**: CLI tool (optional, can be later)
-7. **Phase 7**: Leaf health monitoring
+1. **Phase 1**: EdgeSite and NatsLeafServer resources ✅ COMPLETE
+2. **Phase 2**: Certificate and config generation ✅ COMPLETE
+3. **Phase 3**: UI for edge site management ✅ COMPLETE
+4. **Phase 4**: Collector site integration ✅ COMPLETE
+5. **Phase 5**: Health monitoring (via AgentGateway) 🔄 IN PROGRESS (separate branch)
+6. **Phase 6**: CLI tool ⏸️ DEFERRED
+7. **Phase 7**: Documentation ⏸️ PENDING
+8. **Phase 8**: Testing ⏸️ PENDING
 
 ## Open Questions
 
@@ -224,3 +235,45 @@ None - this is additive. Existing direct-to-SaaS collectors continue working.
 
 4. **CLI distribution**: How do we distribute serviceradar-cli?
    - **Proposed**: GitHub releases, apt/yum repos alongside other packages
+
+## Architecture Notes
+
+### Health Monitoring via AgentGateway (Phase 5)
+
+The original proposal suggested using GenServers to monitor leaf connections. This approach was **rejected** for security reasons - it would expose the ERTS cluster to customer networks, creating a potential attack vector.
+
+**New Approach: AgentGateway**
+
+Instead, the Go agent will connect **outbound** to an AgentGateway service running in SaaS infrastructure:
+
+```
+Customer Network                              ServiceRadar SaaS
+┌─────────────────────────────────────┐      ┌─────────────────────────┐
+│  EdgeSite: "NYC Office"             │      │                         │
+│                                     │      │  AgentGateway           │
+│  ┌─────────────────────────────┐    │      │  (gRPC Server)          │
+│  │   Go Agent                  │────┼──────┼──► Accepts inbound      │
+│  │   - NATS Leaf checker       │    │      │    agent connections    │
+│  │   - External checkers       │    │      │                         │
+│  │   - Outbound gRPC to GW     │    │      │  Updates:               │
+│  └─────────────────────────────┘    │      │  - EdgeSite.last_seen   │
+│                                     │      │  - NatsLeafServer.status│
+│  ┌──────────────────────────────┐   │      │                         │
+│  │   NatsLeafServer             │   │      │                         │
+│  │   (serviceradar-nats)        │───┼──────┼──► Leaf Node Connection │
+│  └──────────────────────────────┘   │      │                         │
+└─────────────────────────────────────┘      └─────────────────────────┘
+```
+
+**Key Security Properties:**
+- SaaS **never** initiates connections into customer infrastructure
+- Agent identity derived from mTLS certificate CN: `agent.{site_slug}.{tenant_slug}.serviceradar`
+- Zero inbound firewall rules required at customer sites
+
+**AgentGateway RPCs:**
+- `Hello` - Initial registration, returns agent configuration
+- `GetConfig` - Periodic config polling (default 30s)
+- `PushStatus` - Agent pushes health check results
+- `PushResults` - Agent pushes collected data
+
+This work is being implemented in a separate branch/worktree.

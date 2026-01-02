@@ -28,6 +28,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     query =
       CollectorPackage
       |> Ash.Query.for_read(:list)
+      |> Ash.Query.load(:edge_site)
       |> Ash.Query.limit(limit)
 
     query =
@@ -61,6 +62,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     - site: deployment site/location (optional)
     - hostname: target hostname (optional)
     - config_overrides: collector-specific config overrides (optional)
+    - edge_site_id: ID of edge site for local NATS leaf connection (optional)
   """
   def create(conn, params) do
     tenant_id = get_tenant_id(conn)
@@ -73,7 +75,8 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
         collector_type: String.to_existing_atom(collector_type),
         site: params["site"],
         hostname: params["hostname"],
-        config_overrides: params["config_overrides"] || %{}
+        config_overrides: params["config_overrides"] || %{},
+        edge_site_id: params["edge_site_id"]
       }
 
       case CollectorPackage
@@ -364,6 +367,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     case CollectorPackage
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^package_id)
+         |> Ash.Query.load(:edge_site)
          |> Ash.read_one(tenant: tenant_id, authorize?: false) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, package} -> {:ok, package}
@@ -494,7 +498,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   end
 
   defp package_to_json(package) do
-    %{
+    base = %{
       id: package.id,
       collector_type: to_string(package.collector_type),
       user_name: package.user_name,
@@ -502,6 +506,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
       hostname: package.hostname,
       status: to_string(package.status),
       nats_credential_id: package.nats_credential_id,
+      edge_site_id: package.edge_site_id,
       downloaded_at: format_datetime(package.downloaded_at),
       installed_at: format_datetime(package.installed_at),
       revoked_at: format_datetime(package.revoked_at),
@@ -510,6 +515,15 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
       inserted_at: format_datetime(package.inserted_at),
       updated_at: format_datetime(package.updated_at)
     }
+
+    # Add edge site details if loaded
+    case package do
+      %{edge_site: %{id: _, name: name, slug: slug, nats_leaf_url: url}} ->
+        Map.put(base, :edge_site, %{name: name, slug: slug, nats_leaf_url: url})
+
+      _ ->
+        base
+    end
   end
 
   defp credential_to_json(credential) do

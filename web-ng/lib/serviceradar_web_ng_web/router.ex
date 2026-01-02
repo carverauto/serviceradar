@@ -191,6 +191,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/nats/tenants/:id", Admin.NatsLive.Show, :show
       live "/collectors", Admin.CollectorLive.Index, :index
       live "/collectors/:id", Admin.CollectorLive.Index, :show
+      live "/edge-sites", Admin.EdgeSitesLive.Index, :index
+      live "/edge-sites/new", Admin.EdgeSitesLive.Index, :new
+      live "/edge-sites/:id", Admin.EdgeSitesLive.Show, :show
     end
 
     oban_dashboard("/oban",

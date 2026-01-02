@@ -9,6 +9,7 @@ defmodule ServiceRadar.Edge do
   - Download token management
   - NATS credential issuance and lifecycle for collectors
   - Collector package management (flowgger, trapd, netflow, otel)
+  - Edge site management (NATS leaf deployments)
 
   ## Resources
 
@@ -17,6 +18,8 @@ defmodule ServiceRadar.Edge do
   - `ServiceRadar.Edge.TenantCA` - Per-tenant certificate authorities
   - `ServiceRadar.Edge.NatsCredential` - NATS credentials for collectors
   - `ServiceRadar.Edge.CollectorPackage` - Collector-specific deployment packages
+  - `ServiceRadar.Edge.EdgeSite` - Edge deployment locations
+  - `ServiceRadar.Edge.NatsLeafServer` - NATS leaf server configurations
 
   ## Package State Machine
 
@@ -44,6 +47,8 @@ defmodule ServiceRadar.Edge do
     resource ServiceRadar.Edge.TenantCA
     resource ServiceRadar.Edge.NatsCredential
     resource ServiceRadar.Edge.CollectorPackage
+    resource ServiceRadar.Edge.EdgeSite
+    resource ServiceRadar.Edge.NatsLeafServer
   end
 
   authorization do

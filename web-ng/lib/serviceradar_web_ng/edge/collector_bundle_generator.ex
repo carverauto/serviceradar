@@ -26,9 +26,19 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   Collectors must be installed via platform packages (deb/rpm) before using this bundle.
   The bundle only updates credentials, certificates, and configuration.
+
+  ## Edge Site Integration
+
+  When a collector is assigned to an edge site (via `edge_site_id`), the generated
+  configuration uses the local NATS leaf URL instead of the SaaS cluster URL. This
+  enables:
+  - Low-latency local message delivery
+  - WAN resilience (collectors buffer locally when upstream is down)
+  - Simplified network topology (only leaf -> SaaS connection needed)
   """
 
   alias ServiceRadar.Edge.CollectorPackage
+  alias ServiceRadar.Edge.EdgeSite
 
   @doc """
   Creates a tarball bundle for the given collector package.
@@ -119,7 +129,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   end
 
   defp generate_flowgger_config(package, opts) do
-    nats_url = Keyword.get(opts, :nats_url, default_nats_url())
+    nats_url = get_nats_url(package, opts)
     core_address = Keyword.get(opts, :core_address, default_core_address())
     site = package.site || "default"
 
@@ -163,7 +173,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   end
 
   defp generate_otel_config(package, opts) do
-    nats_url = Keyword.get(opts, :nats_url, default_nats_url())
+    nats_url = get_nats_url(package, opts)
     core_address = Keyword.get(opts, :core_address, default_core_address())
     site = package.site || "default"
 
@@ -201,7 +211,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   end
 
   defp generate_trapd_config(package, opts) do
-    nats_url = Keyword.get(opts, :nats_url, default_nats_url())
+    nats_url = get_nats_url(package, opts)
     core_address = Keyword.get(opts, :core_address, default_core_address())
     site = package.site || "default"
 
@@ -238,7 +248,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   end
 
   defp generate_netflow_config(package, opts) do
-    nats_url = Keyword.get(opts, :nats_url, default_nats_url())
+    nats_url = get_nats_url(package, opts)
     core_address = Keyword.get(opts, :core_address, default_core_address())
     site = package.site || "default"
 
@@ -374,6 +384,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
         _ -> "N/A"
       end
 
+    edge_site_section = generate_edge_site_section(package)
+
     """
     # ServiceRadar Collector Package
 
@@ -381,7 +393,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     **Package ID:** #{package.id}
     **Site:** #{package.site || "default"}
     **Created:** #{format_datetime(package.inserted_at)}
-
+    #{edge_site_section}
     ## Prerequisites
 
     Install the collector package before using this bundle:
@@ -441,6 +453,26 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     """
   end
 
+  defp generate_edge_site_section(%{edge_site: %EdgeSite{} = site}) do
+    """
+
+    ## Edge Site Deployment
+
+    This collector connects to a **local NATS leaf server** at your edge site.
+
+    **Edge Site:** #{site.name}
+    **NATS Leaf URL:** #{site.nats_leaf_url || "Not configured"}
+
+    ### Benefits
+
+    - **Low latency**: Messages are delivered locally before forwarding to SaaS
+    - **WAN resilience**: Local buffering when upstream connection is down
+    - **Simplified networking**: Only the leaf server needs outbound connectivity
+    """
+  end
+
+  defp generate_edge_site_section(_package), do: ""
+
   defp format_datetime(nil), do: "N/A"
   defp format_datetime(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
 
@@ -472,5 +504,47 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   defp default_core_address do
     Application.get_env(:serviceradar_web_ng, :core_address, "core.serviceradar.cloud:50051")
+  end
+
+  @doc """
+  Returns the NATS URL for a collector package.
+
+  Priority order:
+  1. Explicit :nats_url in opts
+  2. Edge site's nats_leaf_url (if package is assigned to an edge site)
+  3. Default SaaS NATS URL from config
+
+  The edge site relationship must be preloaded on the package for option 2 to work.
+  """
+  @spec get_nats_url(CollectorPackage.t(), keyword()) :: String.t()
+  def get_nats_url(package, opts \\ []) do
+    cond do
+      # Explicit override takes precedence
+      Keyword.has_key?(opts, :nats_url) ->
+        Keyword.get(opts, :nats_url)
+
+      # Edge site with configured NATS leaf URL
+      edge_site_nats_url(package) != nil ->
+        edge_site_nats_url(package)
+
+      # Fall back to SaaS NATS URL
+      true ->
+        default_nats_url()
+    end
+  end
+
+  # Extract NATS leaf URL from preloaded edge site, if available
+  defp edge_site_nats_url(%{edge_site: %EdgeSite{nats_leaf_url: url}}) when is_binary(url) and url != "" do
+    url
+  end
+
+  defp edge_site_nats_url(_package), do: nil
+
+  @doc """
+  Returns whether the package is configured for edge site deployment.
+  """
+  @spec edge_site_deployment?(CollectorPackage.t()) :: boolean()
+  def edge_site_deployment?(package) do
+    edge_site_nats_url(package) != nil
   end
 end

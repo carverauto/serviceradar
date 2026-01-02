@@ -94,7 +94,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
     create :create do
       description "Create a new collector package (triggers async provisioning)"
-      accept [:collector_type, :site, :hostname, :config_overrides]
+      accept [:collector_type, :site, :hostname, :config_overrides, :edge_site_id]
 
       argument :user_name, :string do
         allow_nil? true
@@ -442,6 +442,12 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       description "Collector-specific configuration overrides"
     end
 
+    attribute :edge_site_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Optional edge site for local NATS connection"
+    end
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
@@ -454,6 +460,11 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
     belongs_to :nats_credential, ServiceRadar.Edge.NatsCredential do
       source_attribute :nats_credential_id
+      allow_nil? true
+    end
+
+    belongs_to :edge_site, ServiceRadar.Edge.EdgeSite do
+      source_attribute :edge_site_id
       allow_nil? true
     end
   end
