@@ -49,6 +49,10 @@ defmodule ServiceRadar.Edge.TenantCA do
     repo ServiceRadar.Repo
 
     identity_wheres_to_sql unique_active_tenant_ca: "status = 'active'"
+
+    custom_indexes do
+      index [:spki_sha256]
+    end
   end
 
   cloak do
@@ -76,12 +80,19 @@ defmodule ServiceRadar.Edge.TenantCA do
       filter expr(tenant_id == ^arg(:tenant_id))
     end
 
+    read :by_spki do
+      argument :spki_sha256, :string, allow_nil?: false
+      filter expr(spki_sha256 == ^arg(:spki_sha256) and status == :active)
+      prepare build(limit: 1)
+    end
+
     create :create do
       description "Create a new tenant CA (internal use)"
       accept [
         :tenant_id,
         :certificate_pem,
         :private_key_pem,
+        :spki_sha256,
         :serial_number,
         :not_before,
         :not_after,
@@ -119,6 +130,7 @@ defmodule ServiceRadar.Edge.TenantCA do
             |> Ash.Changeset.force_change_attribute(:tenant_id, tenant_id)
             |> Ash.Changeset.force_change_attribute(:certificate_pem, ca_data.certificate_pem)
             |> Ash.Changeset.force_change_attribute(:private_key_pem, ca_data.private_key_pem)
+            |> Ash.Changeset.force_change_attribute(:spki_sha256, ca_data.spki_sha256)
             |> Ash.Changeset.force_change_attribute(:serial_number, ca_data.serial_number)
             |> Ash.Changeset.force_change_attribute(:not_before, ca_data.not_before)
             |> Ash.Changeset.force_change_attribute(:not_after, ca_data.not_after)
@@ -204,6 +216,12 @@ defmodule ServiceRadar.Edge.TenantCA do
       allow_nil? false
       public? true
       description "CA certificate serial number"
+    end
+
+    attribute :spki_sha256, :string do
+      allow_nil? true
+      public? false
+      description "SHA-256 SPKI hash of the CA public key"
     end
 
     attribute :next_child_serial, :integer do

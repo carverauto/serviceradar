@@ -37,10 +37,10 @@ defmodule ServiceRadar.Edge.TenantResolver do
   ## Security
 
   This module provides cryptographic assurance of tenant identity:
-  - The tenant slug is embedded in the certificate CN at issuance time
   - Certificates are signed by the tenant's intermediate CA
-  - The CA chain is validated during TLS handshake
-  - Attackers cannot forge or modify the tenant identity
+  - The issuer CA SPKI hash is matched to stored tenant CA records
+  - The tenant slug in the certificate CN must match the issuer CA's tenant
+  - Attackers cannot forge or modify the tenant identity without a valid CA
   """
 
   require Logger
@@ -50,7 +50,10 @@ defmodule ServiceRadar.Edge.TenantResolver do
           component_id: String.t(),
           partition_id: String.t(),
           component_type: atom() | nil,
-          spiffe_id: String.t() | nil
+          spiffe_id: String.t() | nil,
+          tenant_id: String.t() | nil,
+          tenant_ca_id: String.t() | nil,
+          issuer_spki_sha256: String.t() | nil
         }
 
   @doc """
@@ -59,51 +62,68 @@ defmodule ServiceRadar.Edge.TenantResolver do
   Returns the tenant slug, component ID, partition ID, and optionally
   the component type and SPIFFE ID.
 
+  ## Options
+
+    * `:issuer_cert_der` - DER-encoded issuer CA certificate (from validated TLS chain)
+    * `:issuer_cert_pem` - PEM-encoded issuer CA certificate (from validated TLS chain)
+
   ## Returns
 
     * `{:ok, tenant_info}` - Successfully resolved tenant
     * `{:error, :no_client_cert}` - No client certificate presented
     * `{:error, :invalid_cn_format}` - Certificate CN doesn't match expected format
-    * `{:error, :tenant_not_found}` - Tenant slug not found in database
+    * `{:error, :tenant_ca_not_found}` - Issuer CA not found in database
+    * `{:error, :tenant_slug_mismatch}` - CN tenant does not match issuer CA tenant
+    * `{:error, :issuer_cert_missing}` - Issuer cert or SPKI hash not provided
   """
-  @spec resolve_from_conn(Plug.Conn.t()) :: {:ok, tenant_info()} | {:error, atom()}
-  def resolve_from_conn(conn) do
+  @spec resolve_from_conn(Plug.Conn.t(), keyword()) :: {:ok, tenant_info()} | {:error, atom()}
+  def resolve_from_conn(conn, opts \\ []) do
     case get_client_cert(conn) do
       nil -> {:error, :no_client_cert}
-      cert_der -> resolve_from_cert(cert_der)
+      cert_der -> resolve_from_cert(cert_der, opts)
     end
   end
 
   @doc """
   Resolves tenant info from a DER-encoded client certificate.
   """
-  @spec resolve_from_cert(binary()) :: {:ok, tenant_info()} | {:error, atom()}
-  def resolve_from_cert(cert_der) when is_binary(cert_der) do
-    with {:ok, otp_cert} <- decode_cert(cert_der),
-         {:ok, cn} <- extract_cn(otp_cert),
-         {:ok, parsed} <- parse_cn(cn) do
-      # Try to extract SPIFFE ID and component type from SAN
-      spiffe_info = extract_spiffe_info(otp_cert)
+  @spec resolve_from_cert(binary(), keyword()) :: {:ok, tenant_info()} | {:error, atom()}
+  def resolve_from_cert(cert_der, opts \\ []) when is_binary(cert_der) do
+    if issuer_lookup_opts?(opts) do
+      resolve_from_cert_with_issuer(cert_der, opts)
+    else
+      resolve_from_cert_only(cert_der)
+    end
+  end
 
-      result = %{
-        tenant_slug: parsed.tenant_slug,
-        component_id: parsed.component_id,
-        partition_id: parsed.partition_id,
-        component_type: spiffe_info[:component_type],
-        spiffe_id: spiffe_info[:spiffe_id]
-      }
+  @doc """
+  Resolves tenant info from a DER-encoded client certificate and issuer CA.
 
-      {:ok, result}
+  Requires either `:issuer_cert_der` or `:issuer_cert_pem`.
+  """
+  @spec resolve_from_cert_with_issuer(binary(), keyword()) :: {:ok, tenant_info()} | {:error, atom()}
+  def resolve_from_cert_with_issuer(cert_der, opts) when is_binary(cert_der) do
+    with {:ok, resolved} <- resolve_from_cert_only(cert_der),
+         {:ok, issuer_spki} <- issuer_spki_sha256(opts),
+         {:ok, tenant_ca} <- lookup_tenant_ca_by_spki(issuer_spki),
+         {:ok, tenant} <- ensure_tenant_loaded(tenant_ca),
+         :ok <- validate_tenant_slug(resolved.tenant_slug, tenant.slug) do
+      {:ok,
+       resolved
+       |> Map.put(:tenant_id, tenant.id)
+       |> Map.put(:tenant_ca_id, tenant_ca.id)
+       |> Map.put(:issuer_spki_sha256, issuer_spki)
+       |> Map.put(:tenant_slug, tenant.slug)}
     end
   end
 
   @doc """
   Resolves tenant info from a PEM-encoded client certificate.
   """
-  @spec resolve_from_pem(String.t()) :: {:ok, tenant_info()} | {:error, atom()}
-  def resolve_from_pem(pem) when is_binary(pem) do
+  @spec resolve_from_pem(String.t(), keyword()) :: {:ok, tenant_info()} | {:error, atom()}
+  def resolve_from_pem(pem, opts \\ []) when is_binary(pem) do
     case :public_key.pem_decode(pem) do
-      [{:Certificate, der, _} | _] -> resolve_from_cert(der)
+      [{:Certificate, der, _} | _] -> resolve_from_cert(der, opts)
       _ -> {:error, :invalid_pem}
     end
   end
@@ -211,6 +231,65 @@ defmodule ServiceRadar.Edge.TenantResolver do
       _ -> {:error, :invalid_certificate}
     end
   end
+
+  defp resolve_from_cert_only(cert_der) do
+    with {:ok, otp_cert} <- decode_cert(cert_der),
+         {:ok, cn} <- extract_cn(otp_cert),
+         {:ok, parsed} <- parse_cn(cn) do
+      spiffe_info = extract_spiffe_info(otp_cert)
+
+      {:ok,
+       %{
+         tenant_slug: parsed.tenant_slug,
+         component_id: parsed.component_id,
+         partition_id: parsed.partition_id,
+         component_type: spiffe_info[:component_type],
+         spiffe_id: spiffe_info[:spiffe_id],
+         tenant_id: nil,
+         tenant_ca_id: nil,
+         issuer_spki_sha256: nil
+       }}
+    end
+  end
+
+  defp issuer_lookup_opts?(opts) do
+    is_binary(opts[:issuer_cert_der]) or
+      is_binary(opts[:issuer_cert_pem])
+  end
+
+  defp issuer_spki_sha256(opts) do
+    cond do
+      is_binary(opts[:issuer_cert_der]) ->
+        ServiceRadar.Edge.TenantCA.Generator.spki_sha256_from_cert_der(opts[:issuer_cert_der])
+
+      is_binary(opts[:issuer_cert_pem]) ->
+        ServiceRadar.Edge.TenantCA.Generator.spki_sha256_from_cert_pem(opts[:issuer_cert_pem])
+
+      true ->
+        {:error, :issuer_cert_missing}
+    end
+  end
+
+  defp lookup_tenant_ca_by_spki(spki_sha256) do
+    ServiceRadar.Edge.TenantCA
+    |> Ash.Query.for_read(:by_spki, %{spki_sha256: spki_sha256})
+    |> Ash.read_one(authorize?: false, load: [:tenant])
+    |> case do
+      {:ok, %ServiceRadar.Edge.TenantCA{} = tenant_ca} -> {:ok, tenant_ca}
+      {:ok, nil} -> {:error, :tenant_ca_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp ensure_tenant_loaded(%ServiceRadar.Edge.TenantCA{tenant: %ServiceRadar.Identity.Tenant{} = tenant}) do
+    {:ok, tenant}
+  end
+
+  defp ensure_tenant_loaded(%ServiceRadar.Edge.TenantCA{}), do: {:error, :tenant_ca_not_found}
+
+  defp validate_tenant_slug(tenant_slug, tenant_slug), do: :ok
+
+  defp validate_tenant_slug(_, _), do: {:error, :tenant_slug_mismatch}
 
   defp extract_cn({:OTPCertificate, tbs_cert, _, _}) do
     subject = elem(tbs_cert, 6)

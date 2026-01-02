@@ -30,6 +30,7 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
   @type ca_data :: %{
           certificate_pem: pem(),
           private_key_pem: pem(),
+          spki_sha256: String.t(),
           serial_number: String.t(),
           not_before: DateTime.t(),
           not_after: DateTime.t(),
@@ -80,6 +81,7 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
          {:ok, serial} <- generate_serial(),
          {:ok, {not_before, not_after}} <- validity_period(validity_years) do
       subject_cn = "tenant-#{tenant.slug}.ca.serviceradar"
+      spki_sha256 = spki_sha256(ca_key)
 
       subject = build_subject(subject_cn)
       issuer = extract_subject(root_cert)
@@ -105,11 +107,40 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
        %{
          certificate_pem: cert_pem,
          private_key_pem: key_pem,
+         spki_sha256: spki_sha256,
          serial_number: serial_to_hex(serial),
          not_before: not_before,
          not_after: not_after,
          subject_cn: subject_cn
        }}
+    end
+  end
+
+  @doc """
+  Computes the SHA-256 SPKI hash from a PEM-encoded certificate.
+  """
+  @spec spki_sha256_from_cert_pem(pem()) :: {:ok, String.t()} | {:error, term()}
+  def spki_sha256_from_cert_pem(pem) when is_binary(pem) do
+    with {:ok, cert_der} <- decode_pem_cert(pem) do
+      spki_sha256_from_cert_der(cert_der)
+    else
+      _ -> {:error, :invalid_certificate}
+    end
+  end
+
+  @doc """
+  Computes the SHA-256 SPKI hash from a DER-encoded certificate.
+  """
+  @spec spki_sha256_from_cert_der(binary()) :: {:ok, String.t()} | {:error, term()}
+  def spki_sha256_from_cert_der(cert_der) when is_binary(cert_der) do
+    case :public_key.pkix_decode_cert(cert_der, :otp) do
+      {:OTPCertificate, tbs_cert, _, _} ->
+        public_key_info = elem(tbs_cert, 7)
+        spki_der = :public_key.der_encode(:OTPSubjectPublicKeyInfo, public_key_info)
+        {:ok, :crypto.hash(:sha256, spki_der) |> Base.encode16(case: :lower)}
+
+      _ ->
+        {:error, :invalid_certificate}
     end
   end
 
@@ -439,6 +470,12 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
     public_key = {:RSAPublicKey, modulus, public_exp}
     public_key_der = :public_key.der_encode(:RSAPublicKey, public_key)
     :crypto.hash(:sha, public_key_der)
+  end
+
+  defp spki_sha256({:RSAPrivateKey, _, _, _, _, _, _, _, _, _, _} = private_key) do
+    public_key_info = extract_public_key_info(private_key)
+    spki_der = :public_key.der_encode(:OTPSubjectPublicKeyInfo, public_key_info)
+    :crypto.hash(:sha256, spki_der) |> Base.encode16(case: :lower)
   end
 
   defp sign_certificate(tbs_cert, private_key) do
