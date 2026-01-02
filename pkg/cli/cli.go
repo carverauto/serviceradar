@@ -800,7 +800,7 @@ type AdminHandler struct{}
 // Parse dispatches nested admin commands.
 func (AdminHandler) Parse(args []string, cfg *CmdConfig) error {
 	if len(args) == 0 {
-		return fmt.Errorf("admin command requires a resource (e.g., nats)")
+		return errAdminResourceRequired
 	}
 
 	resource := strings.ToLower(strings.TrimSpace(args[0]))
@@ -810,7 +810,7 @@ func (AdminHandler) Parse(args []string, cfg *CmdConfig) error {
 	case "nats":
 		return (AdminNatsHandler{}).Parse(args[1:], cfg)
 	default:
-		return fmt.Errorf("unknown admin resource: %s", resource)
+		return ErrUnknownAdminResource(resource)
 	}
 }
 

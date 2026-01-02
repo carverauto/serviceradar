@@ -145,7 +145,7 @@ func TestGenerateUserCredentials_CollectorType(t *testing.T) {
 	}
 
 	// Verify collector permissions
-	pubAllow := claims.Permissions.Pub.Allow
+	pubAllow := claims.Pub.Allow
 	if !contains(pubAllow, "events.>") {
 		t.Error("Collector should have 'events.>' publish permission")
 	}
@@ -156,16 +156,16 @@ func TestGenerateUserCredentials_CollectorType(t *testing.T) {
 		t.Error("Collector should have 'logs.>' publish permission")
 	}
 
-	subAllow := claims.Permissions.Sub.Allow
+	subAllow := claims.Sub.Allow
 	if !contains(subAllow, "_INBOX.>") {
 		t.Error("Collector should have '_INBOX.>' subscribe permission")
 	}
 
 	// Verify response permission
-	if claims.Permissions.Resp == nil {
+	if claims.Resp == nil {
 		t.Error("Collector should have response permission")
-	} else if claims.Permissions.Resp.MaxMsgs != 1 {
-		t.Errorf("Collector response MaxMsgs = %d, want 1", claims.Permissions.Resp.MaxMsgs)
+	} else if claims.Resp.MaxMsgs != 1 {
+		t.Errorf("Collector response MaxMsgs = %d, want 1", claims.Resp.MaxMsgs)
 	}
 }
 
@@ -190,21 +190,21 @@ func TestGenerateUserCredentials_ServiceType(t *testing.T) {
 	}
 
 	// Verify service permissions (broader tenant scope)
-	pubAllow := claims.Permissions.Pub.Allow
+	pubAllow := claims.Pub.Allow
 	if !contains(pubAllow, "test-tenant.>") {
 		t.Error("Service should have 'test-tenant.>' publish permission")
 	}
 
-	subAllow := claims.Permissions.Sub.Allow
+	subAllow := claims.Sub.Allow
 	if !contains(subAllow, "test-tenant.>") {
 		t.Error("Service should have 'test-tenant.>' subscribe permission")
 	}
 
 	// Verify higher response limit for services
-	if claims.Permissions.Resp == nil {
+	if claims.Resp == nil {
 		t.Error("Service should have response permission")
-	} else if claims.Permissions.Resp.MaxMsgs != 100 {
-		t.Errorf("Service response MaxMsgs = %d, want 100", claims.Permissions.Resp.MaxMsgs)
+	} else if claims.Resp.MaxMsgs != 100 {
+		t.Errorf("Service response MaxMsgs = %d, want 100", claims.Resp.MaxMsgs)
 	}
 }
 
@@ -229,12 +229,12 @@ func TestGenerateUserCredentials_AdminType(t *testing.T) {
 	}
 
 	// Verify admin permissions (limited publish, broader subscribe)
-	pubAllow := claims.Permissions.Pub.Allow
+	pubAllow := claims.Pub.Allow
 	if !contains(pubAllow, "test-tenant.admin.>") {
 		t.Error("Admin should have 'test-tenant.admin.>' publish permission")
 	}
 
-	subAllow := claims.Permissions.Sub.Allow
+	subAllow := claims.Sub.Allow
 	if !contains(subAllow, "test-tenant.>") {
 		t.Error("Admin should have 'test-tenant.>' subscribe permission")
 	}
@@ -270,7 +270,7 @@ func TestGenerateUserCredentials_CustomPermissions(t *testing.T) {
 	}
 
 	// Verify custom publish allow (should override defaults)
-	pubAllow := claims.Permissions.Pub.Allow
+	pubAllow := claims.Pub.Allow
 	if !contains(pubAllow, "custom.pub.>") {
 		t.Error("Custom user should have 'custom.pub.>' publish permission")
 	}
@@ -283,28 +283,28 @@ func TestGenerateUserCredentials_CustomPermissions(t *testing.T) {
 	}
 
 	// Verify custom publish deny
-	pubDeny := claims.Permissions.Pub.Deny
+	pubDeny := claims.Pub.Deny
 	if !contains(pubDeny, "custom.pub.secret") {
 		t.Error("Custom user should have 'custom.pub.secret' in publish deny")
 	}
 
 	// Verify custom subscribe allow
-	subAllow := claims.Permissions.Sub.Allow
+	subAllow := claims.Sub.Allow
 	if !contains(subAllow, "custom.sub.>") {
 		t.Error("Custom user should have 'custom.sub.>' subscribe permission")
 	}
 
 	// Verify custom subscribe deny
-	subDeny := claims.Permissions.Sub.Deny
+	subDeny := claims.Sub.Deny
 	if !contains(subDeny, "custom.sub.private") {
 		t.Error("Custom user should have 'custom.sub.private' in subscribe deny")
 	}
 
 	// Verify custom response permission
-	if claims.Permissions.Resp == nil {
+	if claims.Resp == nil {
 		t.Error("Custom user should have response permission")
-	} else if claims.Permissions.Resp.MaxMsgs != 5 {
-		t.Errorf("Custom user response MaxMsgs = %d, want 5", claims.Permissions.Resp.MaxMsgs)
+	} else if claims.Resp.MaxMsgs != 5 {
+		t.Errorf("Custom user response MaxMsgs = %d, want 5", claims.Resp.MaxMsgs)
 	}
 }
 

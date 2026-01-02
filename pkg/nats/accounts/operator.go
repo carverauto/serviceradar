@@ -105,7 +105,7 @@ func NewOperator(cfg *OperatorConfig) (*Operator, error) {
 
 	kp, err := nkeys.FromSeed([]byte(seed))
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrOperatorKeyInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrOperatorKeyInvalid, err)
 	}
 
 	// Verify it's an operator key (prefix 'O')
@@ -371,7 +371,7 @@ func BootstrapOperator(name string, existingSeed string, generateSystemAccount b
 		operatorSeed = strings.TrimSpace(existingSeed)
 		operatorKp, err = nkeys.FromSeed([]byte(operatorSeed))
 		if err != nil {
-			return nil, nil, fmt.Errorf("%w: failed to parse operator seed: %v", ErrOperatorKeyInvalid, err)
+			return nil, nil, fmt.Errorf("%w: failed to parse operator seed: %w", ErrOperatorKeyInvalid, err)
 		}
 		operatorPublicKey, err = operatorKp.PublicKey()
 		if err != nil {

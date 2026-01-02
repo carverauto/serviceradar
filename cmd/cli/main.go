@@ -86,7 +86,7 @@ func dispatchAdminCommand(cfg *cli.CmdConfig) error {
 	case "nats":
 		return cli.RunAdminNatsCommand(cfg)
 	default:
-		return fmt.Errorf("unknown admin resource: %s", cfg.AdminCommand)
+		return cli.ErrUnknownAdminResource(cfg.AdminCommand)
 	}
 }
 

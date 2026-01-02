@@ -132,57 +132,57 @@ func applyUserPermissions(
 	case CredentialTypeCollector:
 		// Collectors can publish to their tenant's subjects (mapped by account)
 		// and subscribe to responses
-		claims.Permissions.Pub.Allow.Add("events.>")
-		claims.Permissions.Pub.Allow.Add("snmp.traps")
-		claims.Permissions.Pub.Allow.Add("logs.>")
-		claims.Permissions.Pub.Allow.Add("telemetry.>")
-		claims.Permissions.Pub.Allow.Add("netflow.>")
-		claims.Permissions.Sub.Allow.Add("_INBOX.>")
-		claims.Permissions.Resp = &jwt.ResponsePermission{
+		claims.Pub.Allow.Add("events.>")
+		claims.Pub.Allow.Add("snmp.traps")
+		claims.Pub.Allow.Add("logs.>")
+		claims.Pub.Allow.Add("telemetry.>")
+		claims.Pub.Allow.Add("netflow.>")
+		claims.Sub.Allow.Add("_INBOX.>")
+		claims.Resp = &jwt.ResponsePermission{
 			MaxMsgs: 1,
 			Expires: time.Minute,
 		}
 
 	case CredentialTypeService:
 		// Internal services have broader permissions within tenant scope
-		claims.Permissions.Pub.Allow.Add(fmt.Sprintf("%s.>", tenantSlug))
-		claims.Permissions.Sub.Allow.Add(fmt.Sprintf("%s.>", tenantSlug))
-		claims.Permissions.Sub.Allow.Add("_INBOX.>")
-		claims.Permissions.Resp = &jwt.ResponsePermission{
+		claims.Pub.Allow.Add(fmt.Sprintf("%s.>", tenantSlug))
+		claims.Sub.Allow.Add(fmt.Sprintf("%s.>", tenantSlug))
+		claims.Sub.Allow.Add("_INBOX.>")
+		claims.Resp = &jwt.ResponsePermission{
 			MaxMsgs: 100,
 			Expires: time.Minute * 5,
 		}
 
 	case CredentialTypeAdmin:
 		// Admin can read from tenant subjects but not publish
-		claims.Permissions.Sub.Allow.Add(fmt.Sprintf("%s.>", tenantSlug))
-		claims.Permissions.Sub.Allow.Add("_INBOX.>")
+		claims.Sub.Allow.Add(fmt.Sprintf("%s.>", tenantSlug))
+		claims.Sub.Allow.Add("_INBOX.>")
 		// Limited publish for admin operations
-		claims.Permissions.Pub.Allow.Add(fmt.Sprintf("%s.admin.>", tenantSlug))
+		claims.Pub.Allow.Add(fmt.Sprintf("%s.admin.>", tenantSlug))
 	}
 
 	// Override with custom permissions if provided
 	if custom != nil {
 		if len(custom.PublishAllow) > 0 {
-			claims.Permissions.Pub.Allow = jwt.StringList{}
+			claims.Pub.Allow = jwt.StringList{}
 			for _, p := range custom.PublishAllow {
-				claims.Permissions.Pub.Allow.Add(p)
+				claims.Pub.Allow.Add(p)
 			}
 		}
 		if len(custom.PublishDeny) > 0 {
 			for _, p := range custom.PublishDeny {
-				claims.Permissions.Pub.Deny.Add(p)
+				claims.Pub.Deny.Add(p)
 			}
 		}
 		if len(custom.SubscribeAllow) > 0 {
-			claims.Permissions.Sub.Allow = jwt.StringList{}
+			claims.Sub.Allow = jwt.StringList{}
 			for _, p := range custom.SubscribeAllow {
-				claims.Permissions.Sub.Allow.Add(p)
+				claims.Sub.Allow.Add(p)
 			}
 		}
 		if len(custom.SubscribeDeny) > 0 {
 			for _, p := range custom.SubscribeDeny {
-				claims.Permissions.Sub.Deny.Add(p)
+				claims.Sub.Deny.Add(p)
 			}
 		}
 		if custom.AllowResponses {
@@ -190,7 +190,7 @@ func applyUserPermissions(
 			if custom.MaxResponses > 0 {
 				maxMsgs = int(custom.MaxResponses)
 			}
-			claims.Permissions.Resp = &jwt.ResponsePermission{
+			claims.Resp = &jwt.ResponsePermission{
 				MaxMsgs: maxMsgs,
 				Expires: time.Minute,
 			}

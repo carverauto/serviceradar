@@ -180,7 +180,7 @@ func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 	defer s.mu.Unlock()
 
 	if s.resolverURL == "" {
-		return nil, fmt.Errorf("resolver NATS URL not configured")
+		return nil, errResolverURLNotSet
 	}
 
 	if s.resolverConn != nil && s.resolverConn.IsConnected() {
@@ -208,7 +208,7 @@ func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 
 func buildResolverOptions(security *models.SecurityConfig, credsFile string) ([]nats.Option, error) {
 	if security == nil {
-		return nil, fmt.Errorf("resolver TLS config required")
+		return nil, errResolverTLSRequired
 	}
 
 	tlsConfig, err := getTLSConfig(security)
@@ -237,11 +237,11 @@ func (s *NATSAccountServer) WriteOperatorConfig() error {
 	defer s.mu.RUnlock()
 
 	if s.operatorConfigPath == "" {
-		return fmt.Errorf("operator config path not set")
+		return errOperatorConfigNotSet
 	}
 
 	if s.operator == nil || !s.operator.IsInitialized() {
-		return fmt.Errorf("operator not initialized")
+		return errOperatorNotInit
 	}
 
 	// Ensure parent directory exists
@@ -320,11 +320,11 @@ func (s *NATSAccountServer) WriteAccountJWT(accountPublicKey, accountJWT string)
 	s.mu.RUnlock()
 
 	if resolverPath == "" {
-		return fmt.Errorf("resolver path not configured")
+		return errResolverPathNotSet
 	}
 
 	if accountPublicKey == "" || accountJWT == "" {
-		return fmt.Errorf("account public key and JWT are required")
+		return errAccountKeyJWTRequired
 	}
 
 	// Ensure resolver directory exists
@@ -407,11 +407,11 @@ func (s *NATSAccountServer) BootstrapOperator(
 // Must be called with s.mu held.
 func (s *NATSAccountServer) writeOperatorConfigLocked() error {
 	if s.operatorConfigPath == "" {
-		return fmt.Errorf("operator config path not set")
+		return errOperatorConfigNotSet
 	}
 
 	if s.operator == nil || !s.operator.IsInitialized() {
-		return fmt.Errorf("operator not initialized")
+		return errOperatorNotInit
 	}
 
 	// Ensure parent directory exists
@@ -546,8 +546,9 @@ func (s *NATSAccountServer) CreateTenantAccount(
 	}
 
 	// Convert proto subject mappings to domain model
-	var mappings []accounts.SubjectMapping
-	for _, m := range req.GetSubjectMappings() {
+	protoMappings := req.GetSubjectMappings()
+	mappings := make([]accounts.SubjectMapping, 0, len(protoMappings))
+	for _, m := range protoMappings {
 		mappings = append(mappings, accounts.SubjectMapping{
 			From: m.GetFrom(),
 			To:   m.GetTo(),
@@ -651,8 +652,9 @@ func (s *NATSAccountServer) SignAccountJWT(
 	}
 
 	// Convert proto subject mappings to domain model
-	var mappings []accounts.SubjectMapping
-	for _, m := range req.GetSubjectMappings() {
+	protoMappings := req.GetSubjectMappings()
+	mappings := make([]accounts.SubjectMapping, 0, len(protoMappings))
+	for _, m := range protoMappings {
 		mappings = append(mappings, accounts.SubjectMapping{
 			From: m.GetFrom(),
 			To:   m.GetTo(),
@@ -695,15 +697,16 @@ func protoToAccountLimits(p *proto.AccountLimits) *accounts.AccountLimits {
 
 func protoToCredentialType(t proto.UserCredentialType) accounts.UserCredentialType {
 	switch t {
+	case proto.UserCredentialType_USER_CREDENTIAL_TYPE_UNSPECIFIED:
+		return accounts.CredentialTypeCollector
 	case proto.UserCredentialType_USER_CREDENTIAL_TYPE_COLLECTOR:
 		return accounts.CredentialTypeCollector
 	case proto.UserCredentialType_USER_CREDENTIAL_TYPE_SERVICE:
 		return accounts.CredentialTypeService
 	case proto.UserCredentialType_USER_CREDENTIAL_TYPE_ADMIN:
 		return accounts.CredentialTypeAdmin
-	default:
-		return accounts.CredentialTypeCollector
 	}
+	return accounts.CredentialTypeCollector
 }
 
 func protoToUserPermissions(p *proto.UserPermissions) *accounts.UserPermissions {

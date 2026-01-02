@@ -67,4 +67,16 @@ var (
 	errNATSTokenRequired        = errors.New("NATS bootstrap token is required")
 	errAdminNatsCommandRequired = errors.New("admin nats command requires an action (generate-bootstrap-token, status, tenants)")
 	errAdminNatsUnknownAction   = errors.New("unknown admin nats action")
+	errUnknownAdminResource  = errors.New("unknown admin resource")
+	errAdminResourceRequired = errors.New("admin command requires a resource (e.g., nats)")
+	errBootstrapMissingResult   = errors.New("bootstrap operator locally: missing result")
+	errPlatformNoOperatorSeed   = errors.New("platform account requested but operator seed not available")
+	errSystemAccountSeedReq     = errors.New("system account seed is required")
+	errNATSConfigNotFound = errors.New("NATS config not found")
+	errNATSVerifyFailed   = errors.New("NATS bootstrap verification failed")
 )
+
+// ErrUnknownAdminResource returns a wrapped error for unknown admin resources.
+func ErrUnknownAdminResource(resource string) error {
+	return fmt.Errorf("%w: %s", errUnknownAdminResource, resource)
+}

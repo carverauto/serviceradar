@@ -3,7 +3,6 @@ package natsutil
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/nats-io/nats.go"
@@ -137,10 +136,9 @@ func TestIsTenantPrefixEnabled(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Set environment variable for this test
 			if tc.envValue != "" {
-				os.Setenv(EnvNATSTenantPrefixEnabled, tc.envValue)
-				defer os.Unsetenv(EnvNATSTenantPrefixEnabled)
+				t.Setenv(EnvNATSTenantPrefixEnabled, tc.envValue)
 			} else {
-				os.Unsetenv(EnvNATSTenantPrefixEnabled)
+				t.Setenv(EnvNATSTenantPrefixEnabled, "")
 			}
 
 			if got := IsTenantPrefixEnabled(); got != tc.expected {
