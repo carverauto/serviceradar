@@ -64,9 +64,8 @@ defmodule ServiceRadar.Edge.TenantResolver do
 
   ## Options
 
-    * `:issuer_spki_sha256` - Precomputed issuer CA SPKI hash
-    * `:issuer_cert_der` - DER-encoded issuer CA certificate
-    * `:issuer_cert_pem` - PEM-encoded issuer CA certificate
+    * `:issuer_cert_der` - DER-encoded issuer CA certificate (from validated TLS chain)
+    * `:issuer_cert_pem` - PEM-encoded issuer CA certificate (from validated TLS chain)
 
   ## Returns
 
@@ -100,7 +99,7 @@ defmodule ServiceRadar.Edge.TenantResolver do
   @doc """
   Resolves tenant info from a DER-encoded client certificate and issuer CA.
 
-  Requires either `:issuer_spki_sha256`, `:issuer_cert_der`, or `:issuer_cert_pem`.
+  Requires either `:issuer_cert_der` or `:issuer_cert_pem`.
   """
   @spec resolve_from_cert_with_issuer(binary(), keyword()) :: {:ok, tenant_info()} | {:error, atom()}
   def resolve_from_cert_with_issuer(cert_der, opts) when is_binary(cert_der) do
@@ -254,16 +253,12 @@ defmodule ServiceRadar.Edge.TenantResolver do
   end
 
   defp issuer_lookup_opts?(opts) do
-    is_binary(opts[:issuer_spki_sha256]) or
-      is_binary(opts[:issuer_cert_der]) or
+    is_binary(opts[:issuer_cert_der]) or
       is_binary(opts[:issuer_cert_pem])
   end
 
   defp issuer_spki_sha256(opts) do
     cond do
-      is_binary(opts[:issuer_spki_sha256]) ->
-        {:ok, String.downcase(opts[:issuer_spki_sha256])}
-
       is_binary(opts[:issuer_cert_der]) ->
         ServiceRadar.Edge.TenantCA.Generator.spki_sha256_from_cert_der(opts[:issuer_cert_der])
 
@@ -282,7 +277,7 @@ defmodule ServiceRadar.Edge.TenantResolver do
     |> case do
       {:ok, %ServiceRadar.Edge.TenantCA{} = tenant_ca} -> {:ok, tenant_ca}
       {:ok, nil} -> {:error, :tenant_ca_not_found}
-      {:error, _} -> {:error, :tenant_ca_not_found}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -290,7 +285,7 @@ defmodule ServiceRadar.Edge.TenantResolver do
     {:ok, tenant}
   end
 
-  defp ensure_tenant_loaded(%ServiceRadar.Edge.TenantCA{}), do: {:error, :tenant_not_found}
+  defp ensure_tenant_loaded(%ServiceRadar.Edge.TenantCA{}), do: {:error, :tenant_ca_not_found}
 
   defp validate_tenant_slug(tenant_slug, tenant_slug), do: :ok
 

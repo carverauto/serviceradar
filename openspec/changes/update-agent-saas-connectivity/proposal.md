@@ -6,6 +6,7 @@ Pollers currently reach into customer networks over gRPC, which requires inbound
 ## What Changes
 - **BREAKING** Agents initiate outbound mTLS gRPC to the SaaS control plane for hello/enrollment and configuration retrieval.
 - Introduce or repurpose an agent-facing ingress service (poller or new gateway) to receive agent traffic and emit Ash pubsub events for enrollment and status updates.
+- Store tenant CA issuer SPKI hashes and resolve tenant identity from the server-validated issuer certificate during agent connection validation.
 - Core-elx generates agent configuration from tenant data in CNPG via Ash resources and provides versioned config responses.
 - Agents poll for configuration updates every 5 minutes and apply role/check assignments from the server.
 - Local agent configuration is reduced to the SaaS endpoint and mTLS credentials; no per-check configuration is stored on disk.

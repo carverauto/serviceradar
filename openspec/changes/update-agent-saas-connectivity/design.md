@@ -16,6 +16,7 @@ ServiceRadar currently relies on pollers to reach agents over gRPC. This require
 - Decision: Introduce an agent-facing ingress service (likely a refactor of the poller binary) that terminates agent mTLS gRPC, validates the client certificate chain against the platform root CA, derives tenant identity from the server-validated issuer certificate, and forwards enrollment/config requests to core-elx.
 - Decision: Replace `PollerService` with `AgentGatewayService` and rename status payloads to gateway terminology while preserving the existing streaming/chunked status upload flow for compatibility with serviceradar-sync.
 - Decision: Tenant identity is resolved by matching the client certificate issuer CA to the tenant CA stored in `ServiceRadar.Edge.TenantCA`, using a SHA-256 SPKI hash computed from the validated issuer certificate public key. Component identity and partition are derived from the client certificate CN format `<component-id>.<partition-id>.<tenant-slug>.serviceradar`, and `Hello` data cannot override these values.
+- Decision: The issuer SPKI hash is derived only from the server-validated issuer certificate; no caller-supplied override is accepted.
 - Decision: Add gRPC methods `Hello` and `GetConfig`; `Hello` is required before `GetConfig` and includes agent identity, capabilities, and version metadata.
 - Decision: Core-elx uses Ash resources to register new agents, update online status, and generate versioned configuration from tenant data stored in CNPG.
 - Decision: `GetConfig` accepts a config version/etag and returns `not_modified` when no changes exist; agents poll every 5 minutes.
@@ -38,3 +39,4 @@ ServiceRadar currently relies on pollers to reach agents over gRPC. This require
 ## Open Questions
 - Where to persist config versions (CNPG table vs KV) for efficient lookup.
 - Backward compatibility strategy for legacy agents during rollout.
+- How to access the issuer certificate from the gRPC TLS handshake; if the chain is unavailable, validate the leaf certificate against stored tenant CA certs to derive the issuer SPKI hash.

@@ -38,11 +38,11 @@ defmodule ServiceRadar.Repo.Migrations.AddTenantCaSpkiHash do
       end)
     end)
 
-    create index(:tenant_cas, [:tenant_id, :spki_sha256])
+    create unique_index(:tenant_cas, [:spki_sha256], where: "status = 'active'")
   end
 
   def down do
-    drop_if_exists index(:tenant_cas, [:tenant_id, :spki_sha256])
+    drop_if_exists index(:tenant_cas, [:spki_sha256], where: "status = 'active'")
 
     alter table(:tenant_cas) do
       remove :spki_sha256
