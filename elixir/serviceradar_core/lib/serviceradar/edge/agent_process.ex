@@ -103,19 +103,19 @@ defmodule ServiceRadar.Edge.AgentProcess do
   end
 
   @doc """
-  Report poller status to the sync service.
+  Push gateway status to the sync service.
   """
-  @spec report_status(String.t() | pid(), [Monitoring.ServiceStatus.t()], map()) ::
-          {:ok, Monitoring.PollerStatusResponse.t()} | {:error, term()}
-  def report_status(agent, services, opts) when is_binary(agent) do
+  @spec push_status(String.t() | pid(), [Monitoring.ServiceStatus.t()], map()) ::
+          {:ok, Monitoring.GatewayStatusResponse.t()} | {:error, term()}
+  def push_status(agent, services, opts) when is_binary(agent) do
     case lookup_pid(agent) do
       nil -> {:error, :agent_not_found}
-      pid -> report_status(pid, services, opts)
+      pid -> push_status(pid, services, opts)
     end
   end
 
-  def report_status(agent, services, opts) when is_pid(agent) do
-    GenServer.call(agent, {:report_status, services, opts}, 30_000)
+  def push_status(agent, services, opts) when is_pid(agent) do
+    GenServer.call(agent, {:push_status, services, opts}, 30_000)
   end
 
   @doc """
@@ -244,14 +244,14 @@ defmodule ServiceRadar.Edge.AgentProcess do
     {:reply, {:ok, request_id}, %{state | pending_requests: pending}}
   end
 
-  def handle_call({:report_status, _services, _opts}, _from, %{connected: false} = state) do
+  def handle_call({:push_status, _services, _opts}, _from, %{connected: false} = state) do
     {:reply, {:error, :not_connected}, state}
   end
 
-  def handle_call({:report_status, services, opts}, _from, state) do
-    request = %Monitoring.PollerStatusRequest{
+  def handle_call({:push_status, services, opts}, _from, state) do
+    request = %Monitoring.GatewayStatusRequest{
       services: services,
-      poller_id: opts[:poller_id] || "",
+      gateway_id: opts[:gateway_id] || opts[:poller_id] || "",
       agent_id: state.agent_id,
       timestamp: System.system_time(:second),
       partition: state.partition_id,
@@ -259,7 +259,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
       kv_store_id: opts[:kv_store_id] || ""
     }
 
-    result = SyncClient.report_status(state.channel, request)
+    result = SyncClient.push_status(state.channel, request)
     {:reply, result, state}
   end
 
@@ -403,7 +403,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
       service_name: request[:service_name] || "",
       service_type: request[:service_type] || "",
       agent_id: state.agent_id,
-      poller_id: request[:poller_id] || "",
+      gateway_id: request[:gateway_id] || request[:poller_id] || "",
       details: request[:details] || "",
       port: request[:port] || 0
     }
@@ -419,7 +419,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
            service_type: response.service_type,
            response_time: response.response_time,
            agent_id: response.agent_id,
-           poller_id: response.poller_id
+           gateway_id: response.gateway_id
          }}
 
       {:error, %GRPC.RPCError{} = error} ->
@@ -455,7 +455,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
       service_name: service_id,
       service_type: service_type,
       agent_id: state.agent_id,
-      poller_id: "",
+      gateway_id: "",
       details: target,
       port: 0
     }
@@ -488,10 +488,10 @@ defmodule ServiceRadar.Edge.AgentProcess do
     service_id = service[:service_id] || ""
     service_type = to_string(service[:service_type] || "")
 
-    # Use PollerStatusRequest to get accumulated results
-    request = %Monitoring.PollerStatusRequest{
+    # Use GatewayStatusRequest to get accumulated results
+    request = %Monitoring.GatewayStatusRequest{
       services: [],
-      poller_id: "",
+      gateway_id: "",
       agent_id: state.agent_id,
       timestamp: System.system_time(:second),
       partition: state.partition_id,
@@ -499,7 +499,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
       kv_store_id: ""
     }
 
-    case SyncClient.report_status(channel, request) do
+    case SyncClient.push_status(channel, request) do
       {:ok, response} ->
         # Extract results from response
         results =

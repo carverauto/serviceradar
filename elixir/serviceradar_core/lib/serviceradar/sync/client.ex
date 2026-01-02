@@ -17,7 +17,7 @@ defmodule ServiceRadar.Sync.Client do
   ## Usage
 
   The client is typically used by Agent processes to:
-  1. Report poller status to the sync service
+  1. Push gateway status to the sync service
   2. Upload/download data objects
   3. Query canonical device information
   """
@@ -70,19 +70,19 @@ defmodule ServiceRadar.Sync.Client do
   end
 
   @doc """
-  Report poller status to the sync service.
+  Push gateway status to the sync service.
 
   This is the primary method for pushing monitoring data from the
   agent to the sync service.
   """
-  @spec report_status(GRPC.Channel.t(), Monitoring.PollerStatusRequest.t(), keyword()) ::
-          {:ok, Monitoring.PollerStatusResponse.t()} | {:error, term()}
-  def report_status(channel, request, opts \\ []) do
+  @spec push_status(GRPC.Channel.t(), Monitoring.GatewayStatusRequest.t(), keyword()) ::
+          {:ok, Monitoring.GatewayStatusResponse.t()} | {:error, term()}
+  def push_status(channel, request, opts \\ []) do
     timeout = opts[:timeout] || @default_timeout
 
-    case Monitoring.PollerService.Stub.report_status(channel, request, timeout: timeout) do
+    case Monitoring.AgentGatewayService.Stub.push_status(channel, request, timeout: timeout) do
       {:ok, response} ->
-        Logger.debug("Status reported successfully for poller #{request.poller_id}")
+        Logger.debug("Status reported successfully for gateway #{request.gateway_id}")
         {:ok, response}
 
       {:error, %GRPC.RPCError{} = error} ->
@@ -101,12 +101,12 @@ defmodule ServiceRadar.Sync.Client do
   This is useful for large batches of service status updates that
   need to be chunked.
   """
-  @spec stream_status(GRPC.Channel.t(), Enumerable.t(Monitoring.PollerStatusChunk.t()), keyword()) ::
-          {:ok, Monitoring.PollerStatusResponse.t()} | {:error, term()}
+  @spec stream_status(GRPC.Channel.t(), Enumerable.t(Monitoring.GatewayStatusChunk.t()), keyword()) ::
+          {:ok, Monitoring.GatewayStatusResponse.t()} | {:error, term()}
   def stream_status(channel, chunks, opts \\ []) do
     timeout = opts[:timeout] || @default_timeout
 
-    stream = Monitoring.PollerService.Stub.stream_status(channel, timeout: timeout)
+    stream = Monitoring.AgentGatewayService.Stub.stream_status(channel, timeout: timeout)
 
     Enum.each(chunks, fn chunk ->
       GRPC.Stub.send_request(stream, chunk)
