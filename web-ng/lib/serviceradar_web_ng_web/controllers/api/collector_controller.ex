@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
 
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
+  alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -27,6 +28,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     query =
       CollectorPackage
       |> Ash.Query.for_read(:list)
+      |> Ash.Query.load(:edge_site)
       |> Ash.Query.limit(limit)
 
     query =
@@ -60,6 +62,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     - site: deployment site/location (optional)
     - hostname: target hostname (optional)
     - config_overrides: collector-specific config overrides (optional)
+    - edge_site_id: ID of edge site for local NATS leaf connection (optional)
   """
   def create(conn, params) do
     tenant_id = get_tenant_id(conn)
@@ -72,7 +75,8 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
         collector_type: String.to_existing_atom(collector_type),
         site: params["site"],
         hostname: params["hostname"],
-        config_overrides: params["config_overrides"] || %{}
+        config_overrides: params["config_overrides"] || %{},
+        edge_site_id: params["edge_site_id"]
       }
 
       case CollectorPackage
@@ -156,6 +160,76 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
           conn
           |> put_status(:internal_server_error)
           |> json(%{error: "download failed: #{inspect(reason)}"})
+      end
+    end
+  end
+
+  @doc """
+  GET /api/admin/collectors/:id/bundle
+
+  Downloads the collector package as a tarball bundle.
+  Requires a valid download token passed as `token` query parameter.
+
+  Returns a .tar.gz file containing:
+  - nats.creds - NATS credentials file
+  - config/config.yaml - Collector configuration
+  - install.sh - Installation script
+  - README.md - Instructions
+  """
+  def bundle(conn, %{"id" => id} = params) do
+    tenant_id = get_tenant_id(conn)
+    download_token = params["token"]
+    source_ip = get_client_ip(conn)
+
+    if is_nil(download_token) or download_token == "" do
+      conn
+      |> put_status(:bad_request)
+      |> json(%{error: "token query parameter is required"})
+    else
+      case do_bundle_download(id, download_token, tenant_id, source_ip) do
+        {:ok, tarball, filename} ->
+          conn
+          |> put_resp_content_type("application/gzip")
+          |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
+          |> send_resp(200, tarball)
+
+        {:error, :not_found} ->
+          {:error, :not_found}
+
+        {:error, :not_ready} ->
+          conn
+          |> put_status(:conflict)
+          |> json(%{error: "package is not ready for download"})
+
+        {:error, :invalid_token} ->
+          conn
+          |> put_status(:unauthorized)
+          |> json(%{error: "invalid download token"})
+
+        {:error, :token_expired} ->
+          conn
+          |> put_status(:gone)
+          |> json(%{error: "download token expired"})
+
+        {:error, :nats_creds_not_found} ->
+          conn
+          |> put_status(:internal_server_error)
+          |> json(%{error: "NATS credentials not provisioned"})
+
+        {:error, :tls_key_not_found} ->
+          conn
+          |> put_status(:internal_server_error)
+          |> json(%{error: "TLS certificates not provisioned"})
+
+        {:error, :tls_cert_not_found} ->
+          conn
+          |> put_status(:internal_server_error)
+          |> json(%{error: "TLS certificates not provisioned"})
+
+        {:error, reason} ->
+          conn
+          |> put_status(:internal_server_error)
+          |> json(%{error: "bundle creation failed: #{inspect(reason)}"})
       end
     end
   end
@@ -276,10 +350,24 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     end
   end
 
+  defp do_bundle_download(package_id, download_token, tenant_id, source_ip) do
+    with {:ok, package} <- get_package(package_id, tenant_id),
+         :ok <- validate_package_ready(package),
+         :ok <- validate_download_token(package, download_token),
+         {:ok, creds_content} <- get_nats_creds(package),
+         {:ok, tls_key_pem} <- get_tls_key(package),
+         {:ok, tarball} <- CollectorBundleGenerator.create_tarball(package, creds_content, tls_key_pem),
+         {:ok, _updated_package} <- mark_downloaded(package, source_ip) do
+      filename = CollectorBundleGenerator.bundle_filename(package)
+      {:ok, tarball, filename}
+    end
+  end
+
   defp get_package(package_id, tenant_id) do
     case CollectorPackage
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^package_id)
+         |> Ash.Query.load(:edge_site)
          |> Ash.read_one(tenant: tenant_id, authorize?: false) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, package} -> {:ok, package}
@@ -316,16 +404,61 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     Plug.Crypto.secure_compare(computed_hash, hash)
   end
 
-  defp get_nats_creds(_package) do
-    # TODO: Retrieve NATS credentials content from secure storage
-    # For now, return a placeholder
-    {:ok, "# NATS credentials file\n# Generated by ServiceRadar\n"}
+  defp get_nats_creds(package) do
+    # Decrypt the NATS credentials from the encrypted storage
+    case package.nats_creds_ciphertext do
+      nil ->
+        {:error, :nats_creds_not_found}
+
+      encrypted_creds when is_binary(encrypted_creds) ->
+        case ServiceRadar.Vault.decrypt(encrypted_creds) do
+          {:ok, creds_content} when is_binary(creds_content) and creds_content != "" ->
+            {:ok, creds_content}
+
+          {:ok, _} ->
+            {:error, :nats_creds_empty}
+
+          {:error, reason} ->
+            {:error, {:decrypt_failed, reason}}
+        end
+
+      _ ->
+        {:error, :nats_creds_invalid}
+    end
+  end
+
+  defp get_tls_key(package) do
+    # Verify TLS certs are present
+    if is_nil(package.tls_cert_pem) or is_nil(package.ca_chain_pem) do
+      {:error, :tls_cert_not_found}
+    else
+      # Decrypt the TLS private key from the encrypted storage
+      case package.tls_key_pem_ciphertext do
+        nil ->
+          {:error, :tls_key_not_found}
+
+        encrypted_key when is_binary(encrypted_key) ->
+          case ServiceRadar.Vault.decrypt(encrypted_key) do
+            {:ok, key_pem} when is_binary(key_pem) and key_pem != "" ->
+              {:ok, key_pem}
+
+            {:ok, _} ->
+              {:error, :tls_key_empty}
+
+            {:error, reason} ->
+              {:error, {:decrypt_failed, reason}}
+          end
+
+        _ ->
+          {:error, :tls_key_invalid}
+      end
+    end
   end
 
   defp mark_downloaded(package, source_ip) do
     package
     |> Ash.Changeset.for_update(:download)
-    |> Ash.Changeset.set_argument(:source_ip, source_ip)
+    |> Ash.Changeset.set_argument(:downloaded_by_ip, source_ip)
     |> Ash.update(authorize?: false)
   end
 
@@ -365,7 +498,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   end
 
   defp package_to_json(package) do
-    %{
+    base = %{
       id: package.id,
       collector_type: to_string(package.collector_type),
       user_name: package.user_name,
@@ -373,6 +506,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
       hostname: package.hostname,
       status: to_string(package.status),
       nats_credential_id: package.nats_credential_id,
+      edge_site_id: package.edge_site_id,
       downloaded_at: format_datetime(package.downloaded_at),
       installed_at: format_datetime(package.installed_at),
       revoked_at: format_datetime(package.revoked_at),
@@ -381,6 +515,15 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
       inserted_at: format_datetime(package.inserted_at),
       updated_at: format_datetime(package.updated_at)
     }
+
+    # Add edge site details if loaded
+    case package do
+      %{edge_site: %{id: _, name: name, slug: slug, nats_leaf_url: url}} ->
+        Map.put(base, :edge_site, %{name: name, slug: slug, nats_leaf_url: url})
+
+      _ ->
+        base
+    end
   end
 
   defp credential_to_json(credential) do

@@ -127,6 +127,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through :api
 
     get "/edge-packages/:id/bundle", EdgeController, :bundle
+    get "/collectors/:id/bundle", CollectorController, :bundle
+
+    # Collector enrollment endpoint for serviceradar-cli
+    # Usage: serviceradar-cli enroll --token <token>
+    # Token decodes to: GET /api/enroll/:package_id?token=<secret>
+    get "/enroll/:package_id", EnrollController, :enroll
   end
 
   # Ash JSON:API v2 endpoints
@@ -185,6 +191,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/nats/tenants/:id", Admin.NatsLive.Show, :show
       live "/collectors", Admin.CollectorLive.Index, :index
       live "/collectors/:id", Admin.CollectorLive.Index, :show
+      live "/edge-sites", Admin.EdgeSitesLive.Index, :index
+      live "/edge-sites/new", Admin.EdgeSitesLive.Index, :new
+      live "/edge-sites/:id", Admin.EdgeSitesLive.Show, :show
     end
 
     oban_dashboard("/oban",

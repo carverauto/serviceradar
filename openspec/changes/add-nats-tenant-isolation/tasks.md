@@ -139,32 +139,53 @@
 - [x] 3.5.4 Add `bootstrap` action to NatsOperator
 - [x] 3.5.5 Add policies for super_admin access control
 
-## Phase 4: Collector Onboarding Packages
+## Phase 4: Collector Onboarding Packages (DONE)
 
 > **Note**: Collectors don't need tenant_slug - they authenticate with NATS account credentials.
 > NATS handles subject prefixing via server-side subject mapping.
+>
+> **Implementation Note**: Instead of extending OnboardingPackage, a separate `CollectorPackage`
+> resource was created specifically for collector deployments with NATS credentials.
 
-### 4.1 OnboardingPackage Extensions
+### 4.1 CollectorPackage Resource (DONE)
 
-- [ ] 4.1.1 Add collector component types: `:flowgger`, `:trapd`, `:netflow`, `:otel`
-- [ ] 4.1.2 Add `nats_account_name` attribute for tenant's NATS account
-- [ ] 4.1.3 Add `nats_creds_ciphertext` for encrypted NATS credentials
-- [ ] 4.1.4 Remove any tenant_slug from collector configs (not needed)
+- [x] 4.1.1 Create `ServiceRadar.Edge.CollectorPackage` Ash resource
+  - Collector types: `:flowgger`, `:trapd`, `:netflow`, `:otel`
+  - State machine: pending → provisioning → ready → downloaded → installed
+  - Multi-tenancy via `tenant_id` attribute
+- [x] 4.1.2 Add `nats_credential_id` relationship to track issued credentials
+- [x] 4.1.3 Add `nats_creds_ciphertext` for encrypted NATS credentials (AshCloak)
+- [x] 4.1.4 Create `ServiceRadar.Edge.NatsCredential` resource for credential tracking
 
-### 4.2 Package Generation
+### 4.2 Credential Provisioning (DONE)
 
-- [ ] 4.2.1 Verify tenant NATS account is ready before package creation
-- [ ] 4.2.2 Call datasvc `GenerateUserCredentials` for NATS creds
-- [ ] 4.2.3 Generate mTLS certificates signed by platform CA
-- [ ] 4.2.4 Generate collector config (with nats_creds_file path, no tenant_slug)
-- [ ] 4.2.5 Create install script template (`install-collector.sh`)
-- [ ] 4.2.6 Package all artifacts into downloadable tarball
+- [x] 4.2.1 Create `ProvisionCollectorWorker` Oban job for async provisioning
+- [x] 4.2.2 Verify tenant NATS account is ready before provisioning
+- [x] 4.2.3 Call datasvc `GenerateUserCredentials` for NATS creds
+- [x] 4.2.4 Store encrypted credentials in CollectorPackage via AshCloak
+- [x] 4.2.5 Create NatsCredential record for tracking/revocation
 
-### 4.3 Package Contents
+### 4.3 API Endpoints (DONE)
 
-Package structure:
+- [x] 4.3.1 Create `CollectorController` for REST API access
+- [x] 4.3.2 POST `/api/admin/collectors` - Create collector package
+- [x] 4.3.3 GET `/api/admin/collectors/:id` - Get package status
+- [x] 4.3.4 GET `/api/admin/collectors/:id/download` - Download with token
+- [x] 4.3.5 POST `/api/admin/collectors/:id/revoke` - Revoke package
+
+### 4.4 Package Download (DONE)
+
+- [x] 4.4.1 Decrypt NATS credentials from AshCloak storage
+- [x] 4.4.2 Generate collector config (with nats_creds_file path)
+- [x] 4.4.3 Generate install script template
+- [x] 4.4.4 Generate tarball bundle with all artifacts (`CollectorBundleGenerator`)
+- [x] 4.4.5 Add bundle download endpoint (`GET /api/collectors/:id/bundle?token=...`)
+- [ ] 4.4.6 Add mTLS certificate generation (optional, for collectors needing gRPC)
+
+### 4.5 Package Contents (Target Structure)
+
 ```
-serviceradar-collector-<tenant>.tar.gz/
+serviceradar-collector-<id>.tar.gz/
 ├── certs/
 │   ├── collector.pem      # mTLS cert
 │   ├── collector-key.pem  # mTLS key
@@ -173,6 +194,35 @@ serviceradar-collector-<tenant>.tar.gz/
 ├── config.json            # Collector config
 └── install.sh             # Installation script
 ```
+
+### 4.6 CLI Enrollment Flow (DONE)
+
+> **Enrollment Flow**:
+> 1. Customer creates collector package in Web UI
+> 2. UI shows CLI command: `serviceradar-cli enroll --token <token>`
+> 3. Customer installs collector from apt/dnf package repo
+> 4. Customer runs the enrollment command
+> 5. CLI decodes token, calls API, writes files, starts service
+
+- [x] 4.6.1 Create `EnrollmentToken` module for self-contained tokens
+  - Base64-encoded JSON with: API URL, package ID, secret, expiry
+  - SHA256 hashing for secure storage in DB
+  - Token format: `{u: url, p: package_id, t: secret, e: expiry_unix}`
+- [x] 4.6.2 Create `EnrollController` for enrollment API
+  - `GET /api/enroll/:package_id?token=<secret>`
+  - Validates token, returns NATS creds and config as JSON
+  - Generates YAML config with collector-specific defaults
+- [x] 4.6.3 Update `CollectorPackage` create action for enrollment tokens
+  - Accept external token hash and expiry
+  - Store token hash in `download_token_hash` field
+- [x] 4.6.4 Update LiveView UI for enrollment command display
+  - Show CLI command with copy button
+  - Show package repo install instructions
+- [x] 4.6.5 Update `ProvisionCollectorWorker` permissions
+  - Collectors publish to simple subjects (no tenant prefix)
+  - NATS account subject mapping handles tenant prefixing
+- [x] 4.6.6 Update NATS account default subject mappings
+  - Added: `syslog.>`, `snmp.>`, `otel.>`, `netflow.>`
 
 ## Phase 4: JetStream Configuration
 

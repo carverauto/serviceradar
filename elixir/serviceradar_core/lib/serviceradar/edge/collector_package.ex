@@ -32,11 +32,18 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     domain: ServiceRadar.Edge,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshStateMachine]
+    extensions: [AshStateMachine, AshCloak]
 
   postgres do
     table "collector_packages"
     repo ServiceRadar.Repo
+  end
+
+  cloak do
+    vault(ServiceRadar.Vault)
+    attributes([:nats_creds_ciphertext, :tls_key_pem_ciphertext])
+    # Not decrypted by default for security - use ServiceRadar.Vault.decrypt/1 when needed
+    decrypt_by_default([])
   end
 
   state_machine do
@@ -87,11 +94,22 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
     create :create do
       description "Create a new collector package (triggers async provisioning)"
-      accept [:collector_type, :site, :hostname, :config_overrides]
+      accept [:collector_type, :site, :hostname, :config_overrides, :edge_site_id]
 
       argument :user_name, :string do
         allow_nil? true
         description "Optional custom user name for NATS credentials"
+      end
+
+      argument :token_hash, :string do
+        allow_nil? true
+        sensitive? true
+        description "Pre-computed token hash (for enrollment token integration)"
+      end
+
+      argument :token_expires_at, :utc_datetime_usec do
+        allow_nil? true
+        description "Token expiration time"
       end
 
       change fn changeset, _context ->
@@ -109,19 +127,30 @@ defmodule ServiceRadar.Edge.CollectorPackage do
               name
           end
 
-        # Generate download token
-        token_bytes = :crypto.strong_rand_bytes(32)
-        token_secret = Base.url_encode64(token_bytes, padding: false)
-        token_hash = :crypto.hash(:sha256, token_secret) |> Base.encode16(case: :lower)
+        # Use provided token hash or generate new one
+        {token_hash, token_expires_at} =
+          case Ash.Changeset.get_argument(changeset, :token_hash) do
+            nil ->
+              # Generate new token (legacy behavior)
+              token_bytes = :crypto.strong_rand_bytes(32)
+              token_secret = Base.url_encode64(token_bytes, padding: false)
+              hash = :crypto.hash(:sha256, token_secret) |> Base.encode16(case: :lower)
+              expires = DateTime.add(DateTime.utc_now(), 7, :day)
+              {hash, expires}
 
-        # Set token expiration (default 7 days)
-        token_expires_at = DateTime.add(DateTime.utc_now(), 7, :day)
+            provided_hash ->
+              # Use provided token hash (from EnrollmentToken)
+              expires =
+                Ash.Changeset.get_argument(changeset, :token_expires_at) ||
+                  DateTime.add(DateTime.utc_now(), 1, :day)
+
+              {provided_hash, expires}
+          end
 
         changeset
         |> Ash.Changeset.change_attribute(:user_name, user_name)
         |> Ash.Changeset.change_attribute(:download_token_hash, token_hash)
         |> Ash.Changeset.change_attribute(:download_token_expires_at, token_expires_at)
-        |> Ash.Changeset.force_change_attribute(:__download_token_secret__, token_secret)
       end
 
       change fn changeset, _context ->
@@ -150,15 +179,27 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       require_atomic? false
 
       argument :nats_credential_id, :uuid, allow_nil?: false
+      argument :nats_creds_content, :string, allow_nil?: false, sensitive?: true
+      argument :tls_cert_pem, :string, allow_nil?: false, sensitive?: true
+      argument :tls_key_pem, :string, allow_nil?: false, sensitive?: true
+      argument :ca_chain_pem, :string, allow_nil?: false, sensitive?: true
 
       change fn changeset, _context ->
         old_status = Ash.Changeset.get_data(changeset, :status)
+        creds_content = Ash.Changeset.get_argument(changeset, :nats_creds_content)
+        tls_key_pem = Ash.Changeset.get_argument(changeset, :tls_key_pem)
 
         changeset
         |> Ash.Changeset.change_attribute(
           :nats_credential_id,
           Ash.Changeset.get_argument(changeset, :nats_credential_id)
         )
+        # Store TLS certificate (public - not encrypted)
+        |> Ash.Changeset.change_attribute(:tls_cert_pem, Ash.Changeset.get_argument(changeset, :tls_cert_pem))
+        |> Ash.Changeset.change_attribute(:ca_chain_pem, Ash.Changeset.get_argument(changeset, :ca_chain_pem))
+        # Encrypt NATS credentials and TLS private key using AshCloak
+        |> AshCloak.encrypt_and_set(:nats_creds_ciphertext, creds_content)
+        |> AshCloak.encrypt_and_set(:tls_key_pem_ciphertext, tls_key_pem)
         |> Ash.Changeset.after_action(fn _changeset, package ->
           __MODULE__.broadcast_status_changed(package, old_status, :ready)
           {:ok, package}
@@ -368,11 +409,43 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       description "Error message if provisioning failed"
     end
 
+    attribute :nats_creds_ciphertext, :binary do
+      allow_nil? true
+      public? false
+      sensitive? true
+      description "Encrypted NATS user credentials (.creds file content)"
+    end
+
+    attribute :tls_cert_pem, :string do
+      allow_nil? true
+      public? false
+      description "PEM-encoded TLS certificate for mTLS authentication"
+    end
+
+    attribute :tls_key_pem_ciphertext, :binary do
+      allow_nil? true
+      public? false
+      sensitive? true
+      description "Encrypted PEM-encoded TLS private key"
+    end
+
+    attribute :ca_chain_pem, :string do
+      allow_nil? true
+      public? false
+      description "PEM-encoded CA certificate chain (tenant CA + root CA)"
+    end
+
     attribute :config_overrides, :map do
       allow_nil? true
       default %{}
       public? false
       description "Collector-specific configuration overrides"
+    end
+
+    attribute :edge_site_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Optional edge site for local NATS connection"
     end
 
     create_timestamp :inserted_at
@@ -387,6 +460,11 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
     belongs_to :nats_credential, ServiceRadar.Edge.NatsCredential do
       source_attribute :nats_credential_id
+      allow_nil? true
+    end
+
+    belongs_to :edge_site, ServiceRadar.Edge.EdgeSite do
+      source_attribute :edge_site_id
       allow_nil? true
     end
   end

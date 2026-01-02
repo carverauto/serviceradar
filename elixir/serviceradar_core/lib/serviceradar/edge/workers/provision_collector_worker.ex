@@ -30,6 +30,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
+  alias ServiceRadar.Edge.TenantCA
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.NATS.AccountClient
 
@@ -61,7 +62,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"package_id" => package_id}, attempt: attempt, max_attempts: max}) do
-    Logger.info("Provisioning NATS credentials for collector package #{package_id} (attempt #{attempt}/#{max})")
+    Logger.info("Provisioning credentials for collector package #{package_id} (attempt #{attempt}/#{max})")
 
     with {:ok, package} <- get_package(package_id),
          :ok <- validate_package_status(package),
@@ -70,9 +71,11 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
          :ok <- validate_tenant_nats_ready(tenant),
          {:ok, account_seed} <- get_account_seed(tenant),
          {:ok, user_creds} <- generate_user_credentials(tenant, package, account_seed),
+         {:ok, tenant_ca} <- get_tenant_ca(tenant),
+         {:ok, tls_certs} <- generate_tls_certificates(tenant_ca, package),
          {:ok, credential} <- create_credential_record(package, user_creds),
-         {:ok, _package} <- mark_ready(package, credential.id) do
-      Logger.info("Successfully provisioned NATS credentials for collector package #{package_id}")
+         {:ok, _package} <- mark_ready(package, credential.id, user_creds.creds_file_content, tls_certs) do
+      Logger.info("Successfully provisioned credentials for collector package #{package_id}")
       :ok
     else
       {:error, :package_not_found} ->
@@ -96,6 +99,25 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
         Logger.error("Tenant account seed not found for package #{package_id}")
         mark_failed(package_id, "Tenant NATS account seed not configured")
         {:discard, :account_seed_not_found}
+
+      {:error, :tenant_ca_not_found} ->
+        Logger.error("Tenant CA not found for package #{package_id}")
+        mark_failed(package_id, "Tenant certificate authority not configured")
+        {:discard, :tenant_ca_not_found}
+
+      {:error, :tenant_ca_key_decrypt_failed} ->
+        Logger.error("Failed to decrypt tenant CA key for package #{package_id}")
+        mark_failed(package_id, "Failed to decrypt tenant CA key")
+        {:discard, :tenant_ca_key_decrypt_failed}
+
+      {:error, {:tls_cert_generation_failed, reason}} = error ->
+        Logger.error("TLS certificate generation failed for package #{package_id}: #{inspect(reason)}")
+
+        if attempt >= max do
+          mark_failed(package_id, "TLS certificate generation failed: #{inspect(reason)}")
+        end
+
+        error
 
       {:error, {:grpc_error, message}} = error ->
         Logger.error("gRPC error provisioning credentials for package #{package_id}: #{message}")
@@ -204,42 +226,45 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     )
   end
 
-  defp build_permissions_for_collector(collector_type, tenant_slug) do
-    tenant_prefix = "#{tenant_slug}."
+  defp build_permissions_for_collector(collector_type, _tenant_slug) do
+    # Collectors publish to simple subjects without tenant prefix.
+    # NATS Account subject mapping transforms these to tenant-prefixed subjects
+    # on the server side (e.g., "syslog.>" -> "{tenant}.syslog.>").
+    # This keeps collectors tenant-unaware while NATS enforces isolation.
 
     case collector_type do
       :flowgger ->
         %{
-          publish_allow: ["#{tenant_prefix}syslog.>", "#{tenant_prefix}events.syslog.>"],
+          publish_allow: ["syslog.>", "events.syslog.>"],
           subscribe_allow: []
         }
 
       :trapd ->
         %{
-          publish_allow: ["#{tenant_prefix}snmp.traps.>", "#{tenant_prefix}events.snmp.>"],
+          publish_allow: ["snmp.traps.>", "events.snmp.>"],
           subscribe_allow: []
         }
 
       :netflow ->
         %{
-          publish_allow: ["#{tenant_prefix}netflow.>", "#{tenant_prefix}events.netflow.>"],
+          publish_allow: ["netflow.>", "events.netflow.>"],
           subscribe_allow: []
         }
 
       :otel ->
         %{
           publish_allow: [
-            "#{tenant_prefix}otel.traces.>",
-            "#{tenant_prefix}otel.metrics.>",
-            "#{tenant_prefix}otel.logs.>",
-            "#{tenant_prefix}events.otel.>"
+            "otel.traces.>",
+            "otel.metrics.>",
+            "otel.logs.>",
+            "events.otel.>"
           ],
           subscribe_allow: []
         }
 
       _ ->
         %{
-          publish_allow: ["#{tenant_prefix}events.>"],
+          publish_allow: ["events.>"],
           subscribe_allow: []
         }
     end
@@ -263,10 +288,73 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     |> Ash.create(authorize?: false)
   end
 
-  defp mark_ready(package, credential_id) do
+  defp get_tenant_ca(tenant) do
+    case TenantCA
+         |> Ash.Query.for_read(:active)
+         |> Ash.Query.filter(tenant_id == ^tenant.id)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} -> {:error, :tenant_ca_not_found}
+      {:ok, ca} -> {:ok, ca}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp generate_tls_certificates(tenant_ca, package) do
+    # Decrypt the tenant CA's private key
+    case tenant_ca.private_key_pem do
+      nil ->
+        {:error, :tenant_ca_key_decrypt_failed}
+
+      encrypted_value when is_binary(encrypted_value) ->
+        case ServiceRadar.Vault.decrypt(encrypted_value) do
+          {:ok, private_key_pem} when is_binary(private_key_pem) and private_key_pem != "" ->
+            # Build CA data map for the generator
+            ca_data = %{
+              tenant_id: tenant_ca.tenant_id,
+              certificate_pem: tenant_ca.certificate_pem,
+              private_key_pem: private_key_pem
+            }
+
+            # Generate component certificate
+            component_id = "#{package.collector_type}-#{short_id(package.id)}"
+            partition_id = package.site || "default"
+
+            case TenantCA.Generator.generate_component_cert(
+                   ca_data,
+                   component_id,
+                   :collector,
+                   partition_id,
+                   validity_days: 365
+                 ) do
+              {:ok, cert_data} ->
+                {:ok, cert_data}
+
+              {:error, reason} ->
+                {:error, {:tls_cert_generation_failed, reason}}
+            end
+
+          {:ok, _} ->
+            {:error, :tenant_ca_key_decrypt_failed}
+
+          {:error, _reason} ->
+            {:error, :tenant_ca_key_decrypt_failed}
+        end
+
+      _ ->
+        {:error, :tenant_ca_key_decrypt_failed}
+    end
+  end
+
+  defp short_id(id) when is_binary(id), do: String.slice(id, 0, 8)
+
+  defp mark_ready(package, credential_id, nats_creds_content, tls_certs) do
     package
     |> Ash.Changeset.for_update(:ready, %{})
     |> Ash.Changeset.set_argument(:nats_credential_id, credential_id)
+    |> Ash.Changeset.set_argument(:nats_creds_content, nats_creds_content)
+    |> Ash.Changeset.set_argument(:tls_cert_pem, tls_certs.certificate_pem)
+    |> Ash.Changeset.set_argument(:tls_key_pem, tls_certs.private_key_pem)
+    |> Ash.Changeset.set_argument(:ca_chain_pem, tls_certs.ca_chain_pem)
     |> Ash.update(authorize?: false)
   end
 

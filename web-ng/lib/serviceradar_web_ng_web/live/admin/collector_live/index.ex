@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   require Ash.Query
 
   alias ServiceRadar.Edge.CollectorPackage
+  alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadarWebNG.Collectors.PubSub, as: CollectorPubSub
@@ -49,6 +50,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       |> load_tenant_status(tenant_id)
       |> load_packages(tenant_id)
       |> load_credentials(tenant_id)
+      |> load_edge_sites(tenant_id)
 
     {:ok, socket}
   end
@@ -102,8 +104,10 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     collector_type = params["collector_type"]
     site = params["site"]
     hostname = params["hostname"]
+    edge_site_id = params["edge_site_id"]
+    edge_site_id = if edge_site_id == "", do: nil, else: edge_site_id
 
-    case create_package(tenant_id, collector_type, site, hostname) do
+    case create_package(tenant_id, collector_type, site, hostname, edge_site_id) do
       {:ok, package, download_token} ->
         {:noreply,
          socket
@@ -295,6 +299,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                     <th>Type</th>
                     <th>Status</th>
                     <th>Site</th>
+                    <th>Edge Site</th>
                     <th>Created</th>
                     <th></th>
                   </tr>
@@ -315,6 +320,15 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                         <.status_badge status={package.status} />
                       </td>
                       <td class="text-xs">{package.site || "-"}</td>
+                      <td class="text-xs">
+                        <%= if package.edge_site do %>
+                          <.link navigate={~p"/admin/edge-sites/#{package.edge_site.id}"} class="link link-primary">
+                            {package.edge_site.name}
+                          </.link>
+                        <% else %>
+                          <span class="text-base-content/50">SaaS</span>
+                        <% end %>
+                      </td>
                       <td class="text-xs text-base-content/70">
                         {format_datetime(package.inserted_at)}
                       </td>
@@ -395,6 +409,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       <.create_modal
         :if={@show_create_modal}
         collector_types={@collector_types}
+        edge_sites={@edge_sites}
         created_package={@created_package}
         download_token={@created_download_token}
       />
@@ -487,28 +502,44 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
             </div>
 
             <%= if @download_token do %>
-              <div class="bg-base-200 rounded-lg p-3">
-                <div class="flex items-center justify-between mb-2">
-                  <div class="text-xs uppercase tracking-wide text-base-content/60">
-                    Download Token
+              <div class="space-y-3">
+                <div class="text-sm font-medium">Enrollment Instructions</div>
+
+                <div class="bg-base-200 rounded-lg p-3">
+                  <div class="text-xs uppercase tracking-wide text-base-content/60 mb-2">
+                    Step 1: Install the collector
                   </div>
-                  <button
-                    type="button"
-                    class="btn btn-xs btn-ghost"
-                    phx-click="copy_token"
-                    phx-value-token={@download_token}
-                  >
-                    <.icon name="hero-clipboard-document" class="size-3" /> Copy
-                  </button>
+                  <code class="text-xs">
+                    # Debian/Ubuntu<br />
+                    sudo apt install serviceradar-{@created_package.collector_type}<br /><br />
+                    # RHEL/CentOS<br />
+                    sudo dnf install serviceradar-{@created_package.collector_type}
+                  </code>
                 </div>
-                <code class="font-mono text-xs break-all">{@download_token}</code>
+
+                <div class="bg-base-200 rounded-lg p-3">
+                  <div class="flex items-center justify-between mb-2">
+                    <div class="text-xs uppercase tracking-wide text-base-content/60">
+                      Step 2: Run the enrollment command
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-xs btn-ghost"
+                      phx-click="copy_token"
+                      phx-value-token={"serviceradar-cli enroll --token #{@download_token}"}
+                    >
+                      <.icon name="hero-clipboard-document" class="size-3" /> Copy
+                    </button>
+                  </div>
+                  <code class="font-mono text-xs break-all bg-base-300 p-2 rounded block">serviceradar-cli enroll --token {@download_token}</code>
+                </div>
               </div>
 
               <div class="alert alert-warning text-xs">
                 <.icon name="hero-exclamation-triangle" class="size-4" />
                 <span>
-                  <strong>Save this token!</strong> It can only be shown once.
-                  Use it to download the package after provisioning completes.
+                  <strong>Save this command!</strong> The enrollment token expires in 24 hours
+                  and can only be used once.
                 </span>
               </div>
             <% else %>
@@ -571,6 +602,23 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                 class="input input-bordered w-full"
                 placeholder="e.g., collector-01.example.com"
               />
+            </div>
+
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text">Edge Site (optional)</span>
+              </label>
+              <select name="edge_site_id" class="select select-bordered w-full">
+                <option value="">Connect to SaaS (default)</option>
+                <%= for site <- @edge_sites do %>
+                  <option value={site.id}>{site.name} ({site.slug})</option>
+                <% end %>
+              </select>
+              <label class="label">
+                <span class="label-text-alt text-base-content/60">
+                  Connect to a local NATS leaf server for low latency
+                </span>
+              </label>
             </div>
 
             <div class="modal-action">
@@ -735,6 +783,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     query =
       CollectorPackage
       |> Ash.Query.for_read(:read)
+      |> Ash.Query.load(:edge_site)
       |> Ash.Query.sort(inserted_at: :desc)
       |> Ash.Query.limit(50)
 
@@ -777,25 +826,54 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     assign(socket, :credentials, credentials)
   end
 
+  defp load_edge_sites(socket, tenant_id) do
+    sites =
+      case EdgeSite
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.filter(status == :active)
+           |> Ash.Query.sort(name: :asc)
+           |> Ash.read(tenant: tenant_id, authorize?: false) do
+        {:ok, sites} -> sites
+        {:error, _} -> []
+      end
+
+    assign(socket, :edge_sites, sites)
+  end
+
   # Actions
 
-  defp create_package(tenant_id, collector_type, site, hostname) do
+  defp create_package(tenant_id, collector_type, site, hostname, edge_site_id) do
+    alias ServiceRadarWebNG.Edge.EnrollmentToken
+
     type_atom = String.to_existing_atom(collector_type)
+
+    # Pre-generate the secret and hash for the enrollment token
+    # We'll regenerate the full token with the real package_id after creation
+    secret = EnrollmentToken.generate_secret()
+    temp_package_id = "placeholder"
+    {_temp_token, token_hash, ^secret} = EnrollmentToken.generate(temp_package_id, secret: secret)
+    token_expires_at = EnrollmentToken.expiry_datetime()
+
+    attrs = %{
+      collector_type: type_atom,
+      site: site,
+      hostname: hostname
+    }
+
+    attrs = if edge_site_id, do: Map.put(attrs, :edge_site_id, edge_site_id), else: attrs
 
     changeset =
       CollectorPackage
-      |> Ash.Changeset.for_create(:create, %{
-        collector_type: type_atom,
-        site: site,
-        hostname: hostname
-      })
+      |> Ash.Changeset.for_create(:create, attrs)
+      |> Ash.Changeset.set_argument(:token_hash, token_hash)
+      |> Ash.Changeset.set_argument(:token_expires_at, token_expires_at)
       |> Ash.Changeset.force_change_attribute(:tenant_id, tenant_id)
 
     case Ash.create(changeset, authorize?: false) do
       {:ok, package} ->
-        # Extract the download token that was set during creation
-        download_token = Ash.Changeset.get_attribute(changeset, :__download_token_secret__)
-        {:ok, package, download_token}
+        # Generate the final enrollment token with actual package ID and SAME secret
+        {final_token, ^token_hash, ^secret} = EnrollmentToken.generate(package.id, secret: secret)
+        {:ok, package, final_token}
 
       {:error, error} ->
         {:error, error}
