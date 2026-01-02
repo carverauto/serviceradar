@@ -213,6 +213,16 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
           |> put_status(:internal_server_error)
           |> json(%{error: "NATS credentials not provisioned"})
 
+        {:error, :tls_key_not_found} ->
+          conn
+          |> put_status(:internal_server_error)
+          |> json(%{error: "TLS certificates not provisioned"})
+
+        {:error, :tls_cert_not_found} ->
+          conn
+          |> put_status(:internal_server_error)
+          |> json(%{error: "TLS certificates not provisioned"})
+
         {:error, reason} ->
           conn
           |> put_status(:internal_server_error)
@@ -342,7 +352,8 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
          :ok <- validate_package_ready(package),
          :ok <- validate_download_token(package, download_token),
          {:ok, creds_content} <- get_nats_creds(package),
-         {:ok, tarball} <- CollectorBundleGenerator.create_tarball(package, creds_content),
+         {:ok, tls_key_pem} <- get_tls_key(package),
+         {:ok, tarball} <- CollectorBundleGenerator.create_tarball(package, creds_content, tls_key_pem),
          {:ok, _updated_package} <- mark_downloaded(package, source_ip) do
       filename = CollectorBundleGenerator.bundle_filename(package)
       {:ok, tarball, filename}
@@ -412,10 +423,38 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     end
   end
 
+  defp get_tls_key(package) do
+    # Verify TLS certs are present
+    if is_nil(package.tls_cert_pem) or is_nil(package.ca_chain_pem) do
+      {:error, :tls_cert_not_found}
+    else
+      # Decrypt the TLS private key from the encrypted storage
+      case package.tls_key_pem_ciphertext do
+        nil ->
+          {:error, :tls_key_not_found}
+
+        encrypted_key when is_binary(encrypted_key) ->
+          case ServiceRadar.Vault.decrypt(encrypted_key) do
+            {:ok, key_pem} when is_binary(key_pem) and key_pem != "" ->
+              {:ok, key_pem}
+
+            {:ok, _} ->
+              {:error, :tls_key_empty}
+
+            {:error, reason} ->
+              {:error, {:decrypt_failed, reason}}
+          end
+
+        _ ->
+          {:error, :tls_key_invalid}
+      end
+    end
+  end
+
   defp mark_downloaded(package, source_ip) do
     package
     |> Ash.Changeset.for_update(:download)
-    |> Ash.Changeset.set_argument(:source_ip, source_ip)
+    |> Ash.Changeset.set_argument(:downloaded_by_ip, source_ip)
     |> Ash.update(authorize?: false)
   end
 

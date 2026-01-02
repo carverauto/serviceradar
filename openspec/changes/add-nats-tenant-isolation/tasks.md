@@ -195,6 +195,35 @@ serviceradar-collector-<id>.tar.gz/
 └── install.sh             # Installation script
 ```
 
+### 4.6 CLI Enrollment Flow (DONE)
+
+> **Enrollment Flow**:
+> 1. Customer creates collector package in Web UI
+> 2. UI shows CLI command: `serviceradar-cli enroll --token <token>`
+> 3. Customer installs collector from apt/dnf package repo
+> 4. Customer runs the enrollment command
+> 5. CLI decodes token, calls API, writes files, starts service
+
+- [x] 4.6.1 Create `EnrollmentToken` module for self-contained tokens
+  - Base64-encoded JSON with: API URL, package ID, secret, expiry
+  - SHA256 hashing for secure storage in DB
+  - Token format: `{u: url, p: package_id, t: secret, e: expiry_unix}`
+- [x] 4.6.2 Create `EnrollController` for enrollment API
+  - `GET /api/enroll/:package_id?token=<secret>`
+  - Validates token, returns NATS creds and config as JSON
+  - Generates YAML config with collector-specific defaults
+- [x] 4.6.3 Update `CollectorPackage` create action for enrollment tokens
+  - Accept external token hash and expiry
+  - Store token hash in `download_token_hash` field
+- [x] 4.6.4 Update LiveView UI for enrollment command display
+  - Show CLI command with copy button
+  - Show package repo install instructions
+- [x] 4.6.5 Update `ProvisionCollectorWorker` permissions
+  - Collectors publish to simple subjects (no tenant prefix)
+  - NATS account subject mapping handles tenant prefixing
+- [x] 4.6.6 Update NATS account default subject mappings
+  - Added: `syslog.>`, `snmp.>`, `otel.>`, `netflow.>`
+
 ## Phase 4: JetStream Configuration
 
 ### 4.1 Stream Configuration

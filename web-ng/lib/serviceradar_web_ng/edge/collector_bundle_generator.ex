@@ -2,27 +2,30 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   @moduledoc """
   Generates downloadable installation bundles for collector edge components.
 
-  A collector bundle contains everything needed to deploy a collector:
+  A collector bundle contains everything needed to configure an already-installed collector:
   - NATS credentials file (.creds) for tenant-isolated messaging
-  - Collector configuration file
-  - Installation script
+  - mTLS certificates for secure communication
+  - Collector configuration file (TOML for flowgger/otel, JSON for trapd/netflow)
+  - Update script to copy files and restart the service
 
   ## Bundle Structure
 
       collector-package-<id>/
-      ├── nats.creds           # NATS account credentials
+      ├── creds/
+      │   └── nats.creds           # NATS account credentials
+      ├── certs/
+      │   ├── collector.pem        # TLS certificate
+      │   ├── collector-key.pem    # TLS private key
+      │   └── ca-chain.pem         # CA certificate chain
       ├── config/
-      │   └── config.yaml      # Collector configuration
-      ├── install.sh           # Platform-detecting installer
-      └── README.md            # Installation instructions
+      │   └── <collector>.toml     # Collector configuration (or .json)
+      ├── update.sh                # Script to copy files and restart service
+      └── README.md                # Installation instructions
 
-  ## Future: mTLS Certificates
+  ## Prerequisites
 
-  For collectors that need mTLS (e.g., for gRPC endpoints), the bundle
-  can optionally include:
-  - certs/collector.pem
-  - certs/collector-key.pem
-  - certs/ca-chain.pem
+  Collectors must be installed via platform packages (deb/rpm) before using this bundle.
+  The bundle only updates credentials, certificates, and configuration.
   """
 
   alias ServiceRadar.Edge.CollectorPackage
@@ -32,8 +35,9 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   ## Parameters
 
-    * `package` - The CollectorPackage struct
+    * `package` - The CollectorPackage struct (must have TLS certs populated)
     * `nats_creds` - The decrypted NATS credentials content
+    * `tls_key_pem` - The decrypted TLS private key
     * `opts` - Additional options:
       * `:nats_url` - NATS server URL (default: from config)
       * `:core_address` - Core service address (default: from config)
@@ -43,16 +47,23 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     * `{:ok, tarball_binary}` - The gzipped tarball as binary
     * `{:error, reason}` - If bundle creation fails
   """
-  @spec create_tarball(CollectorPackage.t(), String.t(), keyword()) ::
+  @spec create_tarball(CollectorPackage.t(), String.t(), String.t(), keyword()) ::
           {:ok, binary()} | {:error, term()}
-  def create_tarball(package, nats_creds, opts \\ []) do
+  def create_tarball(package, nats_creds, tls_key_pem, opts \\ []) do
     package_dir = "collector-package-#{short_id(package.id)}"
 
     # Build the file list for the tarball
     files = [
-      {"#{package_dir}/nats.creds", nats_creds},
-      {"#{package_dir}/config/config.yaml", generate_config_yaml(package, opts)},
-      {"#{package_dir}/install.sh", generate_install_script(package, opts)},
+      # Credentials
+      {"#{package_dir}/creds/nats.creds", nats_creds},
+      # TLS certificates
+      {"#{package_dir}/certs/collector.pem", package.tls_cert_pem},
+      {"#{package_dir}/certs/collector-key.pem", tls_key_pem},
+      {"#{package_dir}/certs/ca-chain.pem", package.ca_chain_pem},
+      # Configuration
+      {"#{package_dir}/config/#{config_filename(package)}", generate_config(package, opts)},
+      # Scripts and docs
+      {"#{package_dir}/update.sh", generate_update_script(package)},
       {"#{package_dir}/README.md", generate_readme(package)}
     ]
 
@@ -69,36 +80,16 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   end
 
   @doc """
-  Generates a one-liner install command for Docker.
+  Generates a one-liner install command for updating an existing collector.
   """
-  @spec docker_install_command(CollectorPackage.t(), String.t(), keyword()) :: String.t()
-  def docker_install_command(package, download_token, opts \\ []) do
-    base_url = Keyword.get(opts, :base_url, default_base_url())
-    image_tag = Keyword.get(opts, :image_tag, "latest")
-    collector_type = to_string(package.collector_type)
-
-    """
-    curl -fsSL "#{base_url}/api/admin/collectors/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
-    cd collector-package-#{short_id(package.id)} && \\
-    docker run -d --name serviceradar-#{collector_type} \\
-      -v $(pwd)/nats.creds:/etc/serviceradar/creds/nats.creds:ro \\
-      -v $(pwd)/config:/etc/serviceradar/config:ro \\
-      ghcr.io/carverauto/serviceradar-#{collector_type}:#{image_tag}
-    """
-    |> String.trim()
-  end
-
-  @doc """
-  Generates a one-liner install command for systemd-based systems.
-  """
-  @spec systemd_install_command(CollectorPackage.t(), String.t(), keyword()) :: String.t()
-  def systemd_install_command(package, download_token, opts \\ []) do
+  @spec update_command(CollectorPackage.t(), String.t(), keyword()) :: String.t()
+  def update_command(package, download_token, opts \\ []) do
     base_url = Keyword.get(opts, :base_url, default_base_url())
 
     """
-    curl -fsSL "#{base_url}/api/admin/collectors/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
+    curl -fsSL "#{base_url}/api/edge/collectors/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
     cd collector-package-#{short_id(package.id)} && \\
-    sudo ./install.sh
+    sudo ./update.sh
     """
     |> String.trim()
   end
@@ -107,260 +98,272 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   defp short_id(id) when is_binary(id), do: String.slice(id, 0, 8)
 
-  defp generate_config_yaml(package, opts) do
-    nats_url = Keyword.get(opts, :nats_url, default_nats_url())
-    collector_type = to_string(package.collector_type)
-
-    # Base config common to all collectors
-    config = %{
-      "collector_id" => package.id,
-      "collector_type" => collector_type,
-      "site" => package.site || "default",
-      "hostname" => package.hostname,
-      "nats" => %{
-        "url" => nats_url,
-        "creds_file" => "/etc/serviceradar/creds/nats.creds"
-      }
-    }
-
-    # Add collector-specific configuration
-    config = add_collector_specific_config(config, package)
-
-    # Merge any overrides
-    config =
-      if package.config_overrides && map_size(package.config_overrides) > 0 do
-        deep_merge(config, package.config_overrides)
-      else
-        config
-      end
-
-    encode_yaml(config)
-  end
-
-  defp add_collector_specific_config(config, package) do
+  defp config_filename(package) do
     case package.collector_type do
-      :flowgger ->
-        Map.merge(config, %{
-          "flowgger" => %{
-            "listen" => "0.0.0.0:514",
-            "protocol" => "syslog",
-            "format" => "rfc5424"
-          }
-        })
-
-      :trapd ->
-        Map.merge(config, %{
-          "trapd" => %{
-            "listen" => "0.0.0.0:162",
-            "community" => "public",
-            "v3_enabled" => false
-          }
-        })
-
-      :netflow ->
-        Map.merge(config, %{
-          "netflow" => %{
-            "listen" => "0.0.0.0:2055",
-            "protocols" => ["netflow-v5", "netflow-v9", "ipfix", "sflow"]
-          }
-        })
-
-      :otel ->
-        Map.merge(config, %{
-          "otel" => %{
-            "grpc_listen" => "0.0.0.0:4317",
-            "http_listen" => "0.0.0.0:4318"
-          }
-        })
-
-      _ ->
-        config
+      :flowgger -> "flowgger.toml"
+      :otel -> "otel.toml"
+      :trapd -> "trapd.json"
+      :netflow -> "netflow.json"
+      _ -> "config.toml"
     end
   end
 
-  defp generate_install_script(package, _opts) do
+  defp generate_config(package, opts) do
+    case package.collector_type do
+      :flowgger -> generate_flowgger_config(package, opts)
+      :otel -> generate_otel_config(package, opts)
+      :trapd -> generate_trapd_config(package, opts)
+      :netflow -> generate_netflow_config(package, opts)
+      _ -> generate_flowgger_config(package, opts)
+    end
+  end
+
+  defp generate_flowgger_config(package, opts) do
+    nats_url = Keyword.get(opts, :nats_url, default_nats_url())
+    core_address = Keyword.get(opts, :core_address, default_core_address())
+    site = package.site || "default"
+
+    # Apply any config overrides
+    input_listen = get_in(package.config_overrides, ["input", "listen"]) || "0.0.0.0:514"
+    input_format = get_in(package.config_overrides, ["input", "format"]) || "rfc3164"
+
+    """
+    # ServiceRadar Flowgger Configuration
+    # Package ID: #{package.id}
+    # Site: #{site}
+    # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+
+    [input]
+    type = "udp"
+    listen = "#{input_listen}"
+    format = "#{input_format}"
+
+    [output]
+    type = "nats"
+    format = "gelf"
+    framing = "noop"
+    partition = "#{site}"
+    nats_url = "#{nats_url}"
+    nats_subject = "events.syslog"
+    nats_stream = "events"
+    nats_tls_ca_file = "/etc/serviceradar/certs/ca-chain.pem"
+    nats_tls_cert = "/etc/serviceradar/certs/collector.pem"
+    nats_tls_key = "/etc/serviceradar/certs/collector-key.pem"
+    nats_creds_file = "/etc/serviceradar/creds/nats.creds"
+
+    [grpc]
+    listen_addr = "127.0.0.1:50044"
+    mode = "mtls"
+    cert_dir = "/etc/serviceradar/certs"
+    cert_file = "/etc/serviceradar/certs/collector.pem"
+    key_file = "/etc/serviceradar/certs/collector-key.pem"
+    ca_file = "/etc/serviceradar/certs/ca-chain.pem"
+    core_address = "#{core_address}"
+    """
+  end
+
+  defp generate_otel_config(package, opts) do
+    nats_url = Keyword.get(opts, :nats_url, default_nats_url())
+    core_address = Keyword.get(opts, :core_address, default_core_address())
+    site = package.site || "default"
+
+    # Apply any config overrides
+    grpc_port = get_in(package.config_overrides, ["server", "port"]) || 4317
+
+    """
+    # ServiceRadar OpenTelemetry Collector Configuration
+    # Package ID: #{package.id}
+    # Site: #{site}
+    # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+
+    [server]
+    bind_address = "0.0.0.0"
+    port = #{grpc_port}
+
+    [nats]
+    url = "#{nats_url}"
+    subject = "events.otel"
+    stream = "events"
+    timeout_secs = 30
+    creds_file = "/etc/serviceradar/creds/nats.creds"
+
+    [nats.tls]
+    cert_file = "/etc/serviceradar/certs/collector.pem"
+    key_file = "/etc/serviceradar/certs/collector-key.pem"
+    ca_file = "/etc/serviceradar/certs/ca-chain.pem"
+
+    [grpc_tls]
+    cert_file = "/etc/serviceradar/certs/collector.pem"
+    key_file = "/etc/serviceradar/certs/collector-key.pem"
+    ca_file = "/etc/serviceradar/certs/ca-chain.pem"
+    core_address = "#{core_address}"
+    """
+  end
+
+  defp generate_trapd_config(package, opts) do
+    nats_url = Keyword.get(opts, :nats_url, default_nats_url())
+    core_address = Keyword.get(opts, :core_address, default_core_address())
+    site = package.site || "default"
+
+    # Apply any config overrides
+    listen_addr = get_in(package.config_overrides, ["listen_addr"]) || "0.0.0.0:162"
+    grpc_port = get_in(package.config_overrides, ["grpc_port"]) || 50043
+
+    config = %{
+      "listen_addr" => listen_addr,
+      "nats_url" => nats_url,
+      "nats_domain" => "edge",
+      "stream_name" => "events",
+      "subject" => "snmp.traps",
+      "partition" => site,
+      "nats_creds_file" => "/etc/serviceradar/creds/nats.creds",
+      "nats_security" => %{
+        "mode" => "mtls",
+        "cert_file" => "/etc/serviceradar/certs/collector.pem",
+        "key_file" => "/etc/serviceradar/certs/collector-key.pem",
+        "ca_file" => "/etc/serviceradar/certs/ca-chain.pem"
+      },
+      "grpc_listen_addr" => "0.0.0.0:#{grpc_port}",
+      "grpc_security" => %{
+        "mode" => "mtls",
+        "cert_dir" => "/etc/serviceradar/certs",
+        "cert_file" => "/etc/serviceradar/certs/collector.pem",
+        "key_file" => "/etc/serviceradar/certs/collector-key.pem",
+        "ca_file" => "/etc/serviceradar/certs/ca-chain.pem"
+      },
+      "core_address" => core_address
+    }
+
+    Jason.encode!(config, pretty: true)
+  end
+
+  defp generate_netflow_config(package, opts) do
+    nats_url = Keyword.get(opts, :nats_url, default_nats_url())
+    core_address = Keyword.get(opts, :core_address, default_core_address())
+    site = package.site || "default"
+
+    # Apply any config overrides
+    listen_addr = get_in(package.config_overrides, ["listen_addr"]) || "0.0.0.0:2055"
+    grpc_port = get_in(package.config_overrides, ["grpc_port"]) || 50045
+
+    config = %{
+      "listen_addr" => listen_addr,
+      "protocols" => ["netflow-v5", "netflow-v9", "ipfix", "sflow"],
+      "nats_url" => nats_url,
+      "stream_name" => "events",
+      "subject" => "events.netflow",
+      "partition" => site,
+      "nats_creds_file" => "/etc/serviceradar/creds/nats.creds",
+      "nats_security" => %{
+        "mode" => "mtls",
+        "cert_file" => "/etc/serviceradar/certs/collector.pem",
+        "key_file" => "/etc/serviceradar/certs/collector-key.pem",
+        "ca_file" => "/etc/serviceradar/certs/ca-chain.pem"
+      },
+      "grpc_listen_addr" => "0.0.0.0:#{grpc_port}",
+      "grpc_security" => %{
+        "mode" => "mtls",
+        "cert_dir" => "/etc/serviceradar/certs",
+        "cert_file" => "/etc/serviceradar/certs/collector.pem",
+        "key_file" => "/etc/serviceradar/certs/collector-key.pem",
+        "ca_file" => "/etc/serviceradar/certs/ca-chain.pem"
+      },
+      "core_address" => core_address
+    }
+
+    Jason.encode!(config, pretty: true)
+  end
+
+  defp generate_update_script(package) do
     collector_type = to_string(package.collector_type)
+    config_file = config_filename(package)
 
     """
     #!/bin/bash
-    # ServiceRadar Collector Installer
+    # ServiceRadar Collector Update Script
     # Collector: #{collector_type}
     # Package ID: #{package.id}
     # Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+    #
+    # This script updates credentials, certificates, and configuration for an
+    # already-installed collector service. Install the collector package first.
 
     set -e
 
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     COLLECTOR_TYPE="#{collector_type}"
-    INSTALL_DIR="/opt/serviceradar"
+    SERVICE_NAME="serviceradar-$COLLECTOR_TYPE"
     CONFIG_DIR="/etc/serviceradar"
+    CERTS_DIR="$CONFIG_DIR/certs"
     CREDS_DIR="$CONFIG_DIR/creds"
 
-    echo "ServiceRadar Collector Installer"
-    echo "================================="
+    echo "ServiceRadar Collector Update"
+    echo "============================="
     echo "Collector Type: $COLLECTOR_TYPE"
     echo ""
 
-    # Detect platform
-    detect_platform() {
-        if command -v docker &> /dev/null && docker info &> /dev/null; then
-            echo "docker"
-        elif command -v podman &> /dev/null; then
-            echo "podman"
-        elif systemctl --version &> /dev/null 2>&1; then
-            echo "systemd"
-        else
-            echo "manual"
-        fi
-    }
+    # Check if running as root
+    if [ "$EUID" -ne 0 ]; then
+        echo "Error: This script must be run as root (use sudo)"
+        exit 1
+    fi
 
-    PLATFORM=$(detect_platform)
-    echo "Detected platform: $PLATFORM"
-    echo ""
-
-    install_docker() {
-        echo "Installing via Docker..."
-
-        # Create directories
-        mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
-
-        # Copy NATS credentials
-        cp "$SCRIPT_DIR/nats.creds" "$CREDS_DIR/"
-        chmod 600 "$CREDS_DIR/nats.creds"
-
-        # Copy config
-        mkdir -p "$CONFIG_DIR/config"
-        cp "$SCRIPT_DIR/config/config.yaml" "$CONFIG_DIR/config/"
-
-        # Determine ports based on collector type
-        PORTS=""
-        case "$COLLECTOR_TYPE" in
-            flowgger)
-                PORTS="-p 514:514/udp -p 514:514/tcp"
-                ;;
-            trapd)
-                PORTS="-p 162:162/udp"
-                ;;
-            netflow)
-                PORTS="-p 2055:2055/udp"
-                ;;
-            otel)
-                PORTS="-p 4317:4317 -p 4318:4318"
-                ;;
-        esac
-
-        # Run container
-        docker run -d \\
-            --name "serviceradar-$COLLECTOR_TYPE" \\
-            --restart unless-stopped \\
-            $PORTS \\
-            -v "$CREDS_DIR/nats.creds:/etc/serviceradar/creds/nats.creds:ro" \\
-            -v "$CONFIG_DIR/config:/etc/serviceradar/config:ro" \\
-            "ghcr.io/carverauto/serviceradar-$COLLECTOR_TYPE:latest"
-
+    # Check if service exists
+    if ! systemctl list-unit-files | grep -q "$SERVICE_NAME"; then
+        echo "Error: Service $SERVICE_NAME not found."
+        echo "Please install the serviceradar-$COLLECTOR_TYPE package first."
         echo ""
-        echo "Container started. Check status with:"
-        echo "  docker logs serviceradar-$COLLECTOR_TYPE"
-    }
-
-    install_systemd() {
-        echo "Installing via systemd..."
-
-        # Create directories
-        sudo mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$CREDS_DIR"
-
-        # Copy NATS credentials
-        sudo cp "$SCRIPT_DIR/nats.creds" "$CREDS_DIR/"
-        sudo chmod 600 "$CREDS_DIR/nats.creds"
-
-        # Copy config
-        sudo mkdir -p "$CONFIG_DIR/config"
-        sudo cp "$SCRIPT_DIR/config/config.yaml" "$CONFIG_DIR/config/"
-
-        # Check for binary
-        if [ ! -f "$INSTALL_DIR/serviceradar-$COLLECTOR_TYPE" ]; then
-            echo "Binary not found. Please download serviceradar-$COLLECTOR_TYPE to $INSTALL_DIR/"
-            echo "Or use Docker installation instead."
-            exit 1
-        fi
-
-        # Create systemd service
-        cat << EOF | sudo tee "/etc/systemd/system/serviceradar-$COLLECTOR_TYPE.service"
-    [Unit]
-    Description=ServiceRadar $COLLECTOR_TYPE Collector
-    After=network.target
-
-    [Service]
-    Type=simple
-    ExecStart=$INSTALL_DIR/serviceradar-$COLLECTOR_TYPE --config $CONFIG_DIR/config/config.yaml
-    Restart=always
-    RestartSec=5
-    User=serviceradar
-
-    [Install]
-    WantedBy=multi-user.target
-    EOF
-
-        # Create user if needed
-        if ! id -u serviceradar &>/dev/null; then
-            sudo useradd -r -s /bin/false serviceradar
-        fi
-
-        # Set permissions
-        sudo chown -R serviceradar:serviceradar "$CONFIG_DIR" "$CREDS_DIR"
-
-        # Enable and start service
-        sudo systemctl daemon-reload
-        sudo systemctl enable "serviceradar-$COLLECTOR_TYPE"
-        sudo systemctl start "serviceradar-$COLLECTOR_TYPE"
-
+        echo "On Debian/Ubuntu:"
+        echo "  apt install serviceradar-$COLLECTOR_TYPE"
         echo ""
-        echo "Service started. Check status with:"
-        echo "  sudo systemctl status serviceradar-$COLLECTOR_TYPE"
-    }
+        echo "On RHEL/CentOS:"
+        echo "  dnf install serviceradar-$COLLECTOR_TYPE"
+        exit 1
+    fi
 
-    show_manual_instructions() {
-        echo ""
-        echo "Manual Installation"
-        echo "==================="
-        echo ""
-        echo "1. Copy NATS credentials to $CREDS_DIR/"
-        echo "   cp $SCRIPT_DIR/nats.creds $CREDS_DIR/"
-        echo ""
-        echo "2. Copy config to $CONFIG_DIR/config/"
-        echo "   cp -r $SCRIPT_DIR/config $CONFIG_DIR/"
-        echo ""
-        echo "3. Download and run the serviceradar-$COLLECTOR_TYPE binary"
-        echo "   serviceradar-$COLLECTOR_TYPE --config $CONFIG_DIR/config/config.yaml"
-        echo ""
-    }
+    echo "Stopping $SERVICE_NAME..."
+    systemctl stop "$SERVICE_NAME" || true
 
-    # Main installation logic
-    case "$PLATFORM" in
-        docker|podman)
-            install_docker
-            ;;
-        systemd)
-            read -p "Install as systemd service? (y/n) " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                install_systemd
-            else
-                show_manual_instructions
-            fi
-            ;;
-        *)
-            show_manual_instructions
-            ;;
-    esac
+    echo "Creating directories..."
+    mkdir -p "$CERTS_DIR" "$CREDS_DIR" "$CONFIG_DIR/config"
+
+    echo "Installing credentials..."
+    cp "$SCRIPT_DIR/creds/nats.creds" "$CREDS_DIR/"
+    chmod 600 "$CREDS_DIR/nats.creds"
+
+    echo "Installing certificates..."
+    cp "$SCRIPT_DIR/certs/collector.pem" "$CERTS_DIR/"
+    cp "$SCRIPT_DIR/certs/collector-key.pem" "$CERTS_DIR/"
+    cp "$SCRIPT_DIR/certs/ca-chain.pem" "$CERTS_DIR/"
+    chmod 644 "$CERTS_DIR/collector.pem" "$CERTS_DIR/ca-chain.pem"
+    chmod 600 "$CERTS_DIR/collector-key.pem"
+
+    echo "Installing configuration..."
+    cp "$SCRIPT_DIR/config/#{config_file}" "$CONFIG_DIR/config/"
+    chmod 644 "$CONFIG_DIR/config/#{config_file}"
+
+    # Set ownership
+    if id -u serviceradar &>/dev/null; then
+        chown -R serviceradar:serviceradar "$CONFIG_DIR"
+    fi
+
+    echo "Starting $SERVICE_NAME..."
+    systemctl start "$SERVICE_NAME"
 
     echo ""
-    echo "Installation complete!"
+    echo "Update complete!"
+    echo ""
+    echo "Check service status:"
+    echo "  systemctl status $SERVICE_NAME"
+    echo ""
+    echo "View logs:"
+    echo "  journalctl -u $SERVICE_NAME -f"
     """
   end
 
   defp generate_readme(package) do
     collector_type = to_string(package.collector_type)
+    config_file = config_filename(package)
 
     port_info =
       case package.collector_type do
@@ -379,35 +382,34 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     **Site:** #{package.site || "default"}
     **Created:** #{format_datetime(package.inserted_at)}
 
+    ## Prerequisites
+
+    Install the collector package before using this bundle:
+
+    ```bash
+    # Debian/Ubuntu
+    sudo apt install serviceradar-#{collector_type}
+
+    # RHEL/CentOS
+    sudo dnf install serviceradar-#{collector_type}
+    ```
+
     ## Quick Start
 
-    ### Docker (Recommended)
+    Run the update script to install credentials and configuration:
 
     ```bash
-    ./install.sh
-    ```
-
-    Or manually:
-
-    ```bash
-    docker run -d --name serviceradar-#{collector_type} \\
-      -p #{port_info |> String.split(",") |> List.first() |> String.trim()} \\
-      -v $(pwd)/nats.creds:/etc/serviceradar/creds/nats.creds:ro \\
-      -v $(pwd)/config:/etc/serviceradar/config:ro \\
-      ghcr.io/carverauto/serviceradar-#{collector_type}:latest
-    ```
-
-    ### systemd
-
-    ```bash
-    sudo ./install.sh
+    sudo ./update.sh
     ```
 
     ## Contents
 
-    - `nats.creds` - NATS account credentials for tenant-isolated messaging
-    - `config/config.yaml` - Collector configuration
-    - `install.sh` - Automated installer script
+    - `creds/nats.creds` - NATS account credentials
+    - `certs/collector.pem` - TLS certificate
+    - `certs/collector-key.pem` - TLS private key (keep secure!)
+    - `certs/ca-chain.pem` - CA certificate chain
+    - `config/#{config_file}` - Collector configuration
+    - `update.sh` - Update script (copies files, restarts service)
 
     ## Network Ports
 
@@ -415,18 +417,20 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     ## Security Notes
 
-    - The NATS credentials file should be kept secure (mode 600)
+    - The private key and NATS credentials should be kept secure (mode 600)
     - Credentials authenticate this collector to your tenant's NATS account
     - All messages are automatically tagged with your tenant identity
+    - mTLS ensures encrypted, authenticated communication
 
     ## Troubleshooting
 
-    Check collector logs:
-    ```bash
-    # Docker
-    docker logs serviceradar-#{collector_type}
+    Check collector status and logs:
 
-    # systemd
+    ```bash
+    # Service status
+    systemctl status serviceradar-#{collector_type}
+
+    # View logs
     journalctl -u serviceradar-#{collector_type} -f
     ```
 
@@ -458,51 +462,15 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     end
   end
 
-  defp encode_yaml(map) do
-    do_encode_yaml(map, 0)
-  end
-
-  defp do_encode_yaml(map, indent) when is_map(map) do
-    prefix = String.duplicate("  ", indent)
-
-    Enum.map_join(map, "\n", fn {key, value} ->
-      "#{prefix}#{key}: #{encode_yaml_value(value, indent)}"
-    end)
-  end
-
-  defp encode_yaml_value(value, _indent) when is_binary(value), do: "\"#{value}\""
-  defp encode_yaml_value(value, _indent) when is_number(value), do: to_string(value)
-  defp encode_yaml_value(value, _indent) when is_boolean(value), do: to_string(value)
-  defp encode_yaml_value(value, _indent) when is_nil(value), do: "null"
-
-  defp encode_yaml_value(value, indent) when is_map(value) do
-    if map_size(value) == 0 do
-      "{}"
-    else
-      "\n" <> do_encode_yaml(value, indent + 1)
-    end
-  end
-
-  defp encode_yaml_value(value, _indent) when is_list(value) do
-    if value == [] do
-      "[]"
-    else
-      "[" <> Enum.map_join(value, ", ", &inspect/1) <> "]"
-    end
-  end
-
-  defp deep_merge(left, right) do
-    Map.merge(left, right, fn
-      _key, %{} = l, %{} = r -> deep_merge(l, r)
-      _key, _l, r -> r
-    end)
-  end
-
   defp default_base_url do
     Application.get_env(:serviceradar_web_ng, :base_url, "https://app.serviceradar.cloud")
   end
 
   defp default_nats_url do
     Application.get_env(:serviceradar_web_ng, :nats_url, "nats://nats.serviceradar.cloud:4222")
+  end
+
+  defp default_core_address do
+    Application.get_env(:serviceradar_web_ng, :core_address, "core.serviceradar.cloud:50051")
   end
 end

@@ -41,7 +41,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
   cloak do
     vault(ServiceRadar.Vault)
-    attributes([:nats_creds_ciphertext])
+    attributes([:nats_creds_ciphertext, :tls_key_pem_ciphertext])
     # Not decrypted by default for security - use ServiceRadar.Vault.decrypt/1 when needed
     decrypt_by_default([])
   end
@@ -180,18 +180,26 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
       argument :nats_credential_id, :uuid, allow_nil?: false
       argument :nats_creds_content, :string, allow_nil?: false, sensitive?: true
+      argument :tls_cert_pem, :string, allow_nil?: false, sensitive?: true
+      argument :tls_key_pem, :string, allow_nil?: false, sensitive?: true
+      argument :ca_chain_pem, :string, allow_nil?: false, sensitive?: true
 
       change fn changeset, _context ->
         old_status = Ash.Changeset.get_data(changeset, :status)
         creds_content = Ash.Changeset.get_argument(changeset, :nats_creds_content)
+        tls_key_pem = Ash.Changeset.get_argument(changeset, :tls_key_pem)
 
         changeset
         |> Ash.Changeset.change_attribute(
           :nats_credential_id,
           Ash.Changeset.get_argument(changeset, :nats_credential_id)
         )
-        # Encrypt NATS credentials using AshCloak
+        # Store TLS certificate (public - not encrypted)
+        |> Ash.Changeset.change_attribute(:tls_cert_pem, Ash.Changeset.get_argument(changeset, :tls_cert_pem))
+        |> Ash.Changeset.change_attribute(:ca_chain_pem, Ash.Changeset.get_argument(changeset, :ca_chain_pem))
+        # Encrypt NATS credentials and TLS private key using AshCloak
         |> AshCloak.encrypt_and_set(:nats_creds_ciphertext, creds_content)
+        |> AshCloak.encrypt_and_set(:tls_key_pem_ciphertext, tls_key_pem)
         |> Ash.Changeset.after_action(fn _changeset, package ->
           __MODULE__.broadcast_status_changed(package, old_status, :ready)
           {:ok, package}
@@ -406,6 +414,25 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       public? false
       sensitive? true
       description "Encrypted NATS user credentials (.creds file content)"
+    end
+
+    attribute :tls_cert_pem, :string do
+      allow_nil? true
+      public? false
+      description "PEM-encoded TLS certificate for mTLS authentication"
+    end
+
+    attribute :tls_key_pem_ciphertext, :binary do
+      allow_nil? true
+      public? false
+      sensitive? true
+      description "Encrypted PEM-encoded TLS private key"
+    end
+
+    attribute :ca_chain_pem, :string do
+      allow_nil? true
+      public? false
+      description "PEM-encoded CA certificate chain (tenant CA + root CA)"
     end
 
     attribute :config_overrides, :map do

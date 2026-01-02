@@ -539,8 +539,15 @@ streams {
   - `CollectorBundleGenerator` for tarball generation with install scripts
   - Encrypted credential storage via AshCloak (`nats_creds_ciphertext`)
   - Bundle endpoint: `GET /api/collectors/:id/bundle?token=...` for curl downloads
+- ✅ Phase 4b: CLI Enrollment Flow (DONE)
+  - `EnrollmentToken` module for self-contained tokens (URL + package ID + secret + expiry)
+  - `EnrollController` at `GET /api/enroll/:package_id?token=...` for CLI enrollment
+  - Collectors publish to simple subjects (`syslog.>`, not `{tenant}.syslog.>`)
+  - NATS Account subject mapping transforms to tenant-prefixed subjects server-side
+  - Updated `account_manager.go` default subject mappings for all collector types
+  - LiveView shows CLI command: `serviceradar-cli enroll --token <token>`
 - ✅ Phase 5: Collector NATS credentials support (nats_creds_file config in flowgger/trapd)
-- ⏳ Phase 4b: JetStream stream configuration for tenant-prefixed subjects
+- ⏳ Phase 5b: JetStream stream configuration for tenant-prefixed subjects
 - ⏳ Phase 6: Per-tenant EventWriter pipelines (optimization)
 - ⏳ Phase 7: Leaf node support for customer-network deployments
 
