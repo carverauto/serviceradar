@@ -144,7 +144,10 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
                 </thead>
                 <tbody>
                   <%= for tenant <- @tenants do %>
-                    <tr class="hover:bg-base-200/30 cursor-pointer" phx-click={JS.navigate(~p"/admin/nats/tenants/#{tenant.id}")}>
+                    <tr
+                      class="hover:bg-base-200/30 cursor-pointer"
+                      phx-click={JS.navigate(~p"/admin/nats/tenants/#{tenant.id}")}
+                    >
                       <td>
                         <div class="font-medium text-primary hover:underline">{tenant.name}</div>
                         <div class="text-xs text-base-content/60">{tenant.slug}</div>
@@ -174,7 +177,10 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
                               <.icon name="hero-arrow-path" class="size-3" /> Retry
                             </.ui_button>
                           <% end %>
-                          <.link navigate={~p"/admin/nats/tenants/#{tenant.id}"} class="btn btn-ghost btn-xs">
+                          <.link
+                            navigate={~p"/admin/nats/tenants/#{tenant.id}"}
+                            class="btn btn-ghost btn-xs"
+                          >
                             <.icon name="hero-eye" class="size-3" /> View
                           </.link>
                         </div>

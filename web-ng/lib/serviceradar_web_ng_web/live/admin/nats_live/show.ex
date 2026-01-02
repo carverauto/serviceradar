@@ -318,9 +318,17 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Show do
       </div>
 
       <div class="mt-4 text-xs text-base-content/60">
-        <p class="mb-2"><strong>Provision/Retry:</strong> Creates or retries creating the NATS account for this tenant.</p>
-        <p class="mb-2"><strong>Reprovision:</strong> Regenerates the NATS account credentials and JWT.</p>
-        <p><strong>Clear:</strong> Removes all NATS credentials. The tenant will need to be reprovisioned.</p>
+        <p class="mb-2">
+          <strong>Provision/Retry:</strong>
+          Creates or retries creating the NATS account for this tenant.
+        </p>
+        <p class="mb-2">
+          <strong>Reprovision:</strong> Regenerates the NATS account credentials and JWT.
+        </p>
+        <p>
+          <strong>Clear:</strong>
+          Removes all NATS credentials. The tenant will need to be reprovisioned.
+        </p>
       </div>
     </.ui_panel>
     """
