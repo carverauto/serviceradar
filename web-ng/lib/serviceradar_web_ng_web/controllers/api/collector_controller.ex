@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
 
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
+  alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -161,6 +162,66 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   end
 
   @doc """
+  GET /api/admin/collectors/:id/bundle
+
+  Downloads the collector package as a tarball bundle.
+  Requires a valid download token passed as `token` query parameter.
+
+  Returns a .tar.gz file containing:
+  - nats.creds - NATS credentials file
+  - config/config.yaml - Collector configuration
+  - install.sh - Installation script
+  - README.md - Instructions
+  """
+  def bundle(conn, %{"id" => id} = params) do
+    tenant_id = get_tenant_id(conn)
+    download_token = params["token"]
+    source_ip = get_client_ip(conn)
+
+    if is_nil(download_token) or download_token == "" do
+      conn
+      |> put_status(:bad_request)
+      |> json(%{error: "token query parameter is required"})
+    else
+      case do_bundle_download(id, download_token, tenant_id, source_ip) do
+        {:ok, tarball, filename} ->
+          conn
+          |> put_resp_content_type("application/gzip")
+          |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
+          |> send_resp(200, tarball)
+
+        {:error, :not_found} ->
+          {:error, :not_found}
+
+        {:error, :not_ready} ->
+          conn
+          |> put_status(:conflict)
+          |> json(%{error: "package is not ready for download"})
+
+        {:error, :invalid_token} ->
+          conn
+          |> put_status(:unauthorized)
+          |> json(%{error: "invalid download token"})
+
+        {:error, :token_expired} ->
+          conn
+          |> put_status(:gone)
+          |> json(%{error: "download token expired"})
+
+        {:error, :nats_creds_not_found} ->
+          conn
+          |> put_status(:internal_server_error)
+          |> json(%{error: "NATS credentials not provisioned"})
+
+        {:error, reason} ->
+          conn
+          |> put_status(:internal_server_error)
+          |> json(%{error: "bundle creation failed: #{inspect(reason)}"})
+      end
+    end
+  end
+
+  @doc """
   POST /api/admin/collectors/:id/revoke
 
   Revokes a collector package and its associated NATS credentials.
@@ -273,6 +334,18 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
          collector_config: generate_collector_config(updated_package),
          install_script: generate_install_script(updated_package)
        }}
+    end
+  end
+
+  defp do_bundle_download(package_id, download_token, tenant_id, source_ip) do
+    with {:ok, package} <- get_package(package_id, tenant_id),
+         :ok <- validate_package_ready(package),
+         :ok <- validate_download_token(package, download_token),
+         {:ok, creds_content} <- get_nats_creds(package),
+         {:ok, tarball} <- CollectorBundleGenerator.create_tarball(package, creds_content),
+         {:ok, _updated_package} <- mark_downloaded(package, source_ip) do
+      filename = CollectorBundleGenerator.bundle_filename(package)
+      {:ok, tarball, filename}
     end
   end
 

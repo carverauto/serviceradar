@@ -64,11 +64,24 @@ func NewAccountSigner(operator *Operator) *AccountSigner {
 	return &AccountSigner{
 		operator: operator,
 		defaultSubjectMappings: []SubjectMapping{
+			// Common event subjects
 			{From: "events.>", To: "{{tenant}}.events.>"},
-			{From: "snmp.traps", To: "{{tenant}}.snmp.traps"},
+
+			// Flowgger (syslog collector)
+			{From: "syslog.>", To: "{{tenant}}.syslog.>"},
+
+			// Trapd (SNMP trap receiver)
+			{From: "snmp.>", To: "{{tenant}}.snmp.>"},
+
+			// NetFlow/sFlow/IPFIX collector
+			{From: "netflow.>", To: "{{tenant}}.netflow.>"},
+
+			// OpenTelemetry collector
+			{From: "otel.>", To: "{{tenant}}.otel.>"},
+
+			// Legacy/generic subjects
 			{From: "logs.>", To: "{{tenant}}.logs.>"},
 			{From: "telemetry.>", To: "{{tenant}}.telemetry.>"},
-			{From: "netflow.>", To: "{{tenant}}.netflow.>"},
 		},
 	}
 }

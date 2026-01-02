@@ -487,28 +487,44 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
             </div>
 
             <%= if @download_token do %>
-              <div class="bg-base-200 rounded-lg p-3">
-                <div class="flex items-center justify-between mb-2">
-                  <div class="text-xs uppercase tracking-wide text-base-content/60">
-                    Download Token
+              <div class="space-y-3">
+                <div class="text-sm font-medium">Enrollment Instructions</div>
+
+                <div class="bg-base-200 rounded-lg p-3">
+                  <div class="text-xs uppercase tracking-wide text-base-content/60 mb-2">
+                    Step 1: Install the collector
                   </div>
-                  <button
-                    type="button"
-                    class="btn btn-xs btn-ghost"
-                    phx-click="copy_token"
-                    phx-value-token={@download_token}
-                  >
-                    <.icon name="hero-clipboard-document" class="size-3" /> Copy
-                  </button>
+                  <code class="text-xs">
+                    # Debian/Ubuntu<br />
+                    sudo apt install serviceradar-{@created_package.collector_type}<br /><br />
+                    # RHEL/CentOS<br />
+                    sudo dnf install serviceradar-{@created_package.collector_type}
+                  </code>
                 </div>
-                <code class="font-mono text-xs break-all">{@download_token}</code>
+
+                <div class="bg-base-200 rounded-lg p-3">
+                  <div class="flex items-center justify-between mb-2">
+                    <div class="text-xs uppercase tracking-wide text-base-content/60">
+                      Step 2: Run the enrollment command
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-xs btn-ghost"
+                      phx-click="copy_token"
+                      phx-value-token={"serviceradar-cli enroll --token #{@download_token}"}
+                    >
+                      <.icon name="hero-clipboard-document" class="size-3" /> Copy
+                    </button>
+                  </div>
+                  <code class="font-mono text-xs break-all bg-base-300 p-2 rounded block">serviceradar-cli enroll --token {@download_token}</code>
+                </div>
               </div>
 
               <div class="alert alert-warning text-xs">
                 <.icon name="hero-exclamation-triangle" class="size-4" />
                 <span>
-                  <strong>Save this token!</strong> It can only be shown once.
-                  Use it to download the package after provisioning completes.
+                  <strong>Save this command!</strong> The enrollment token expires in 24 hours
+                  and can only be used once.
                 </span>
               </div>
             <% else %>
@@ -780,7 +796,16 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   # Actions
 
   defp create_package(tenant_id, collector_type, site, hostname) do
+    alias ServiceRadarWebNG.Edge.EnrollmentToken
+
     type_atom = String.to_existing_atom(collector_type)
+
+    # Pre-generate the secret and hash for the enrollment token
+    # We'll regenerate the full token with the real package_id after creation
+    secret = EnrollmentToken.generate_secret()
+    temp_package_id = "placeholder"
+    {_temp_token, token_hash, ^secret} = EnrollmentToken.generate(temp_package_id, secret: secret)
+    token_expires_at = EnrollmentToken.expiry_datetime()
 
     changeset =
       CollectorPackage
@@ -789,13 +814,15 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
         site: site,
         hostname: hostname
       })
+      |> Ash.Changeset.set_argument(:token_hash, token_hash)
+      |> Ash.Changeset.set_argument(:token_expires_at, token_expires_at)
       |> Ash.Changeset.force_change_attribute(:tenant_id, tenant_id)
 
     case Ash.create(changeset, authorize?: false) do
       {:ok, package} ->
-        # Extract the download token that was set during creation
-        download_token = Ash.Changeset.get_attribute(changeset, :__download_token_secret__)
-        {:ok, package, download_token}
+        # Generate the final enrollment token with actual package ID and SAME secret
+        {final_token, ^token_hash, ^secret} = EnrollmentToken.generate(package.id, secret: secret)
+        {:ok, package, final_token}
 
       {:error, error} ->
         {:error, error}

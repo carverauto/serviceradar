@@ -173,13 +173,14 @@
 - [x] 4.3.4 GET `/api/admin/collectors/:id/download` - Download with token
 - [x] 4.3.5 POST `/api/admin/collectors/:id/revoke` - Revoke package
 
-### 4.4 Package Download
+### 4.4 Package Download (DONE)
 
 - [x] 4.4.1 Decrypt NATS credentials from AshCloak storage
 - [x] 4.4.2 Generate collector config (with nats_creds_file path)
 - [x] 4.4.3 Generate install script template
-- [ ] 4.4.4 Generate tarball bundle with all artifacts (BundleGenerator integration)
-- [ ] 4.4.5 Add mTLS certificate generation (reuse from OnboardingPackage)
+- [x] 4.4.4 Generate tarball bundle with all artifacts (`CollectorBundleGenerator`)
+- [x] 4.4.5 Add bundle download endpoint (`GET /api/collectors/:id/bundle?token=...`)
+- [ ] 4.4.6 Add mTLS certificate generation (optional, for collectors needing gRPC)
 
 ### 4.5 Package Contents (Target Structure)
 

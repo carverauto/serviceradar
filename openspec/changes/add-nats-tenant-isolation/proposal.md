@@ -535,9 +535,10 @@ streams {
   - `CollectorPackage` Ash resource with state machine (pending → ready → downloaded)
   - `NatsCredential` resource for tracking issued credentials
   - `ProvisionCollectorWorker` Oban job for async NATS credential provisioning
-  - `CollectorController` REST API (create, download, revoke)
+  - `CollectorController` REST API (create, download, revoke, bundle)
+  - `CollectorBundleGenerator` for tarball generation with install scripts
   - Encrypted credential storage via AshCloak (`nats_creds_ciphertext`)
-  - Remaining: BundleGenerator integration for tarball, mTLS cert generation
+  - Bundle endpoint: `GET /api/collectors/:id/bundle?token=...` for curl downloads
 - ✅ Phase 5: Collector NATS credentials support (nats_creds_file config in flowgger/trapd)
 - ⏳ Phase 4b: JetStream stream configuration for tenant-prefixed subjects
 - ⏳ Phase 6: Per-tenant EventWriter pipelines (optimization)

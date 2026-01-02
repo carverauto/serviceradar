@@ -204,42 +204,45 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     )
   end
 
-  defp build_permissions_for_collector(collector_type, tenant_slug) do
-    tenant_prefix = "#{tenant_slug}."
+  defp build_permissions_for_collector(collector_type, _tenant_slug) do
+    # Collectors publish to simple subjects without tenant prefix.
+    # NATS Account subject mapping transforms these to tenant-prefixed subjects
+    # on the server side (e.g., "syslog.>" -> "{tenant}.syslog.>").
+    # This keeps collectors tenant-unaware while NATS enforces isolation.
 
     case collector_type do
       :flowgger ->
         %{
-          publish_allow: ["#{tenant_prefix}syslog.>", "#{tenant_prefix}events.syslog.>"],
+          publish_allow: ["syslog.>", "events.syslog.>"],
           subscribe_allow: []
         }
 
       :trapd ->
         %{
-          publish_allow: ["#{tenant_prefix}snmp.traps.>", "#{tenant_prefix}events.snmp.>"],
+          publish_allow: ["snmp.traps.>", "events.snmp.>"],
           subscribe_allow: []
         }
 
       :netflow ->
         %{
-          publish_allow: ["#{tenant_prefix}netflow.>", "#{tenant_prefix}events.netflow.>"],
+          publish_allow: ["netflow.>", "events.netflow.>"],
           subscribe_allow: []
         }
 
       :otel ->
         %{
           publish_allow: [
-            "#{tenant_prefix}otel.traces.>",
-            "#{tenant_prefix}otel.metrics.>",
-            "#{tenant_prefix}otel.logs.>",
-            "#{tenant_prefix}events.otel.>"
+            "otel.traces.>",
+            "otel.metrics.>",
+            "otel.logs.>",
+            "events.otel.>"
           ],
           subscribe_allow: []
         }
 
       _ ->
         %{
-          publish_allow: ["#{tenant_prefix}events.>"],
+          publish_allow: ["events.>"],
           subscribe_allow: []
         }
     end

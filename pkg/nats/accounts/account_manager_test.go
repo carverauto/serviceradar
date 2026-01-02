@@ -61,8 +61,8 @@ func TestNewAccountSigner(t *testing.T) {
 		t.Error("NewAccountSigner() defaultSubjectMappings is empty")
 	}
 
-	// Check for expected default mappings
-	expectedMappings := []string{"events.>", "snmp.traps", "logs.>", "telemetry.>", "netflow.>"}
+	// Check for expected default mappings (collectors publish to these, NATS maps to tenant-prefixed)
+	expectedMappings := []string{"events.>", "syslog.>", "snmp.>", "netflow.>", "otel.>", "logs.>", "telemetry.>"}
 	for _, expected := range expectedMappings {
 		found := false
 		for _, mapping := range signer.defaultSubjectMappings {

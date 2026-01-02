@@ -101,6 +101,17 @@ defmodule ServiceRadar.Edge.CollectorPackage do
         description "Optional custom user name for NATS credentials"
       end
 
+      argument :token_hash, :string do
+        allow_nil? true
+        sensitive? true
+        description "Pre-computed token hash (for enrollment token integration)"
+      end
+
+      argument :token_expires_at, :utc_datetime_usec do
+        allow_nil? true
+        description "Token expiration time"
+      end
+
       change fn changeset, _context ->
         collector_type = Ash.Changeset.get_attribute(changeset, :collector_type)
         site = Ash.Changeset.get_attribute(changeset, :site) || "default"
@@ -116,19 +127,30 @@ defmodule ServiceRadar.Edge.CollectorPackage do
               name
           end
 
-        # Generate download token
-        token_bytes = :crypto.strong_rand_bytes(32)
-        token_secret = Base.url_encode64(token_bytes, padding: false)
-        token_hash = :crypto.hash(:sha256, token_secret) |> Base.encode16(case: :lower)
+        # Use provided token hash or generate new one
+        {token_hash, token_expires_at} =
+          case Ash.Changeset.get_argument(changeset, :token_hash) do
+            nil ->
+              # Generate new token (legacy behavior)
+              token_bytes = :crypto.strong_rand_bytes(32)
+              token_secret = Base.url_encode64(token_bytes, padding: false)
+              hash = :crypto.hash(:sha256, token_secret) |> Base.encode16(case: :lower)
+              expires = DateTime.add(DateTime.utc_now(), 7, :day)
+              {hash, expires}
 
-        # Set token expiration (default 7 days)
-        token_expires_at = DateTime.add(DateTime.utc_now(), 7, :day)
+            provided_hash ->
+              # Use provided token hash (from EnrollmentToken)
+              expires =
+                Ash.Changeset.get_argument(changeset, :token_expires_at) ||
+                  DateTime.add(DateTime.utc_now(), 1, :day)
+
+              {provided_hash, expires}
+          end
 
         changeset
         |> Ash.Changeset.change_attribute(:user_name, user_name)
         |> Ash.Changeset.change_attribute(:download_token_hash, token_hash)
         |> Ash.Changeset.change_attribute(:download_token_expires_at, token_expires_at)
-        |> Ash.Changeset.force_change_attribute(:__download_token_secret__, token_secret)
       end
 
       change fn changeset, _context ->

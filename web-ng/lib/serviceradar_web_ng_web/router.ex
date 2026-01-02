@@ -127,6 +127,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through :api
 
     get "/edge-packages/:id/bundle", EdgeController, :bundle
+    get "/collectors/:id/bundle", CollectorController, :bundle
+
+    # Collector enrollment endpoint for serviceradar-cli
+    # Usage: serviceradar-cli enroll --token <token>
+    # Token decodes to: GET /api/enroll/:package_id?token=<secret>
+    get "/enroll/:package_id", EnrollController, :enroll
   end
 
   # Ash JSON:API v2 endpoints
