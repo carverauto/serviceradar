@@ -152,36 +152,39 @@ defmodule ServiceRadarWebNG.Api.NatsController do
   Retries provisioning for a failed tenant NATS account.
   """
   def reprovision(conn, %{"id" => tenant_id}) do
-    case get_tenant(tenant_id) do
-      {:ok, tenant} ->
-        if tenant.nats_account_status in [:failed, :pending, :error] do
-          # Re-enqueue the provisioning job
-          case ServiceRadar.NATS.Workers.CreateAccountWorker.enqueue(tenant_id) do
-            {:ok, _job} ->
-              json(conn, %{
-                tenant_id: tenant_id,
-                status: "provisioning",
-                message: "Reprovisioning job enqueued"
-              })
-
-            {:error, reason} ->
-              conn
-              |> put_status(:internal_server_error)
-              |> json(%{error: "Failed to enqueue reprovisioning: #{inspect(reason)}"})
-          end
-        else
-          conn
-          |> put_status(:conflict)
-          |> json(%{
-            error: "Tenant NATS account is not in failed or pending state",
-            current_status: to_string(tenant.nats_account_status)
-          })
-        end
-
+    with {:ok, tenant} <- get_tenant(tenant_id),
+         :ok <- validate_reprovisionable(tenant),
+         {:ok, _job} <- ServiceRadar.NATS.Workers.CreateAccountWorker.enqueue(tenant_id) do
+      json(conn, %{
+        tenant_id: tenant_id,
+        status: "provisioning",
+        message: "Reprovisioning job enqueued"
+      })
+    else
       {:error, :not_found} ->
         {:error, :not_found}
+
+      {:error, :not_reprovisionable, status} ->
+        conn
+        |> put_status(:conflict)
+        |> json(%{
+          error: "Tenant NATS account is not in failed or pending state",
+          current_status: to_string(status)
+        })
+
+      {:error, reason} ->
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "Failed to enqueue reprovisioning: #{inspect(reason)}"})
     end
   end
+
+  defp validate_reprovisionable(%{nats_account_status: status})
+       when status in [:failed, :pending, :error],
+       do: :ok
+
+  defp validate_reprovisionable(%{nats_account_status: status}),
+    do: {:error, :not_reprovisionable, status}
 
   # Private helpers
 
@@ -196,28 +199,17 @@ defmodule ServiceRadarWebNG.Api.NatsController do
   end
 
   defp do_bootstrap(operator_name, existing_seed, generate_system) do
-    # Check if already initialized
-    case get_current_operator() do
-      {:ok, _operator} ->
-        {:error, :already_initialized}
+    opts =
+      [operator_name: operator_name, generate_system_account: generate_system]
+      |> maybe_add_seed(existing_seed)
 
-      {:error, :not_found} ->
-        # Call datasvc to bootstrap
-        opts =
-          [operator_name: operator_name, generate_system_account: generate_system]
-          |> maybe_add_seed(existing_seed)
-
-        case AccountClient.bootstrap_operator(opts) do
-          {:ok, result} ->
-            # Create NatsOperator record
-            case create_operator_record(operator_name, result) do
-              {:ok, _operator} -> {:ok, result}
-              {:error, reason} -> {:error, reason}
-            end
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+    with {:error, :not_found} <- get_current_operator(),
+         {:ok, result} <- AccountClient.bootstrap_operator(opts),
+         {:ok, _operator} <- create_operator_record(operator_name, result) do
+      {:ok, result}
+    else
+      {:ok, _operator} -> {:error, :already_initialized}
+      {:error, reason} -> {:error, reason}
     end
   end
 

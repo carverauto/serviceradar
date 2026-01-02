@@ -67,13 +67,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
 
     collector_type = params["collector_type"]
 
-    unless collector_type in ["flowgger", "trapd", "netflow", "otel"] do
-      return_error(
-        conn,
-        :bad_request,
-        "collector_type must be one of: flowgger, trapd, netflow, otel"
-      )
-    else
+    if collector_type in ["flowgger", "trapd", "netflow", "otel"] do
       attrs = %{
         collector_type: String.to_existing_atom(collector_type),
         site: params["site"],
@@ -93,6 +87,12 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
         {:error, changeset} ->
           {:error, changeset}
       end
+    else
+      return_error(
+        conn,
+        :bad_request,
+        "collector_type must be one of: flowgger, trapd, netflow, otel"
+      )
     end
   end
 
