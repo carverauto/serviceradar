@@ -37,6 +37,10 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     # Get tenant_id for scoping agents (only for non-platform admins)
     tenant_id = get_tenant_id(socket)
 
+    # Load existing agents from tracker on mount (don't start with empty cache)
+    initial_agents_cache = load_initial_agents_cache()
+    connected_agents = compute_connected_agents(initial_agents_cache, is_platform_admin, tenant_id)
+
     {:ok,
      socket
      |> assign(:page_title, "Infrastructure")
@@ -48,8 +52,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
      |> assign(:cluster_info, cluster_info)
      |> assign(:gateways_cache, %{})
      |> assign(:gateways, [])
-     |> assign(:agents_cache, %{})
-     |> assign(:connected_agents, [])}
+     |> assign(:agents_cache, initial_agents_cache)
+     |> assign(:connected_agents, connected_agents)}
   end
 
   @impl true
@@ -607,6 +611,37 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     }
   end
 
+  # Load initial agents from the AgentTracker on mount
+  # This ensures we show existing agents immediately instead of waiting for PubSub
+  # AgentTracker runs on gateway nodes, so we query all cluster nodes via RPC
+  defp load_initial_agents_cache do
+    # Query all nodes in the cluster for their agents
+    all_agents =
+      [Node.self() | Node.list()]
+      |> Enum.flat_map(fn node ->
+        case :rpc.call(node, ServiceRadar.AgentTracker, :list_agents, [], 5000) do
+          {:badrpc, _} -> []
+          agents when is_list(agents) -> agents
+          _ -> []
+        end
+      end)
+
+    # Convert to cache format
+    all_agents
+    |> Enum.reduce(%{}, fn agent, acc ->
+      Map.put(acc, agent.agent_id, %{
+        agent_id: agent.agent_id,
+        tenant_id: Map.get(agent, :tenant_id),
+        tenant_slug: Map.get(agent, :tenant_slug, "default"),
+        last_seen: agent.last_seen,
+        last_seen_mono: System.monotonic_time(:millisecond),
+        service_count: Map.get(agent, :service_count, 0),
+        partition: Map.get(agent, :partition),
+        source_ip: Map.get(agent, :source_ip)
+      })
+    end)
+  end
+
   # Compute gateways from local cache with activity status
   defp compute_gateways(gateways_cache) do
     now = System.monotonic_time(:millisecond)
@@ -625,18 +660,34 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     |> Enum.sort_by(& &1.gateway_id)
   end
 
-  # Get tenant_id from socket assigns for scoping
+  # Get tenant info from socket assigns for scoping
+  # Returns {tenant_id, tenant_slug} tuple
   defp get_tenant_id(socket) do
     case socket.assigns[:current_scope] do
-      %{active_tenant: %{id: id}} when not is_nil(id) -> id
-      %{user: %{tenant_id: id}} when not is_nil(id) -> id
-      _ -> nil
+      %{active_tenant: %{id: id, slug: slug}} when not is_nil(id) ->
+        {id, to_string(slug)}
+
+      %{user: %{tenant_id: id, tenant: %{slug: slug}}} when not is_nil(id) ->
+        {id, to_string(slug)}
+
+      %{user: %{tenant_id: id}} when not is_nil(id) ->
+        {id, nil}
+
+      _ ->
+        {nil, nil}
     end
   end
 
   # Compute connected agents from local cache with activity status
   # Platform admins see all agents, regular users see only their tenant's agents
-  defp compute_connected_agents(agents_cache, is_platform_admin, tenant_id) do
+  defp compute_connected_agents(agents_cache, is_platform_admin, tenant_info) do
+    {tenant_id, tenant_slug} =
+      case tenant_info do
+        {id, slug} -> {id, slug}
+        id when is_binary(id) -> {id, nil}
+        _ -> {nil, nil}
+      end
+
     now = System.monotonic_time(:millisecond)
 
     agents_cache
@@ -647,8 +698,23 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       if is_platform_admin do
         true
       else
-        agent_tenant = Map.get(agent, :tenant_id)
-        tenant_id != nil and to_string(agent_tenant) == to_string(tenant_id)
+        # Match by tenant_id OR tenant_slug (agents may have one or both)
+        agent_tenant_id = Map.get(agent, :tenant_id)
+        agent_tenant_slug = Map.get(agent, :tenant_slug)
+
+        cond do
+          # Match by tenant_id if both have it
+          tenant_id != nil and agent_tenant_id != nil ->
+            to_string(agent_tenant_id) == to_string(tenant_id)
+
+          # Match by tenant_slug if both have it
+          tenant_slug != nil and agent_tenant_slug != nil ->
+            to_string(agent_tenant_slug) == to_string(tenant_slug)
+
+          # No match possible
+          true ->
+            false
+        end
       end
     end)
     |> Enum.map(fn agent ->
